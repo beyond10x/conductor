@@ -1,6 +1,6 @@
 // generated from conductor v1
-// model digest 48d3a992c4b8a481be0ced1e1732e7794dfdf877aa6127144513c7c8ea9625ac
-// contract digest d71bc6a0e9b5fe9fc6bc5c5688eda0da5c83319d860e4c9bb094489c259c4326
+// model digest 8102a17c39b6a9e24c3c82fea4fa065c9fcf3ed3b482ad263b1c2acba9031624
+// contract digest 25d5bcbc820506fb2c0a95fd68ec9f85d5ed68b6b35980bbdc6a42263011c64f
 // do not edit: regenerate with `ess synthesize --layout crate`
 
 //! Config — `conductor.config`.
@@ -8,6 +8,17 @@
 //! The one file that names conductor's instances, `conductor.config/1`, read from `--config`, else the `conductor-config` setting, else ~/.b10x/conductor/conductor.yaml (story:config-file). An instance is one organization conductor runs: where its repositories come from, where their checkouts are, where conductor keeps its records, state and cache, which harness and model each role runs on, its cadence, thresholds, reports, and who decides each decision class. These types hold the effective config, after defaults; the file may leave out every key of an instance but its name, its sources and its checkouts. No field takes a secret. What the instances of one file share lives in the host directory, `host/` beside the file (`conductor.host`), not under any instance's `state`.
 //!
 //! Everything this bounded context declares that the synthesis plan marks generated.
+
+/// ActivityChange — `conductor.config.ActivityChange`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ActivityChange {
+    /// `repository` — `conductor.direction.MarkedRepository`.
+    pub repository: crate::direction::MarkedRepository,
+    /// `activity` — `conductor.direction.Activity`.
+    pub activity: crate::direction::Activity,
+    /// `reason` — `String`.
+    pub reason: String,
+}
 
 /// Authority — `conductor.config.Authority`.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -92,6 +103,129 @@ pub struct Config {
     pub default: Option<InstanceName>,
     /// `instances` — `List<conductor.config.Instance>`.
     pub instances: Vec<Instance>,
+}
+
+/// ConfigChange — `conductor.config.ConfigChange`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ConfigChange {
+    /// `path` — `String`.
+    pub path: String,
+    /// `value` — `Optional<String>`.
+    pub value: Option<String>,
+}
+
+/// ConfigEffect — `conductor.config.ConfigEffect`: one of a closed set of names.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ConfigEffect {
+    /// `WatchTick`.
+    WatchTick,
+    /// `Cycle`.
+    Cycle,
+    /// `LoopRestart`.
+    LoopRestart,
+    /// `Fixed`.
+    Fixed,
+}
+
+/// ConfigField — `conductor.config.ConfigField`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ConfigField {
+    /// `path` — `String`.
+    pub path: String,
+    /// `value` — `String`.
+    pub value: String,
+    /// `default` — `Optional<String>`.
+    pub default: Option<String>,
+    /// `takes_effect` — `conductor.config.ConfigEffect`.
+    pub takes_effect: ConfigEffect,
+}
+
+/// ConfigInstance — `conductor.config.ConfigInstance`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ConfigInstance {
+    /// `name` — `conductor.config.InstanceName`.
+    pub name: InstanceName,
+    /// `dashboard_port` — `Integer`.
+    pub dashboard_port: i64,
+    /// `session_prefix` — `Optional<conductor.config.SessionPrefix>`.
+    pub session_prefix: Option<SessionPrefix>,
+    /// `forge` — `String`.
+    pub forge: String,
+    /// `current` — `Boolean`.
+    pub current: bool,
+}
+
+/// ConfigPage — `conductor.config.ConfigPage`.
+///
+/// Every value satisfies `index >= 0` — declared here, enforced by whatever behaviour constructs one.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ConfigPage {
+    /// `file` — `String`.
+    pub file: String,
+    /// `instance` — `conductor.config.InstanceName`.
+    pub instance: InstanceName,
+    /// `index` — `Integer`.
+    pub index: i64,
+    /// `fields` — `List<conductor.config.ConfigField>`.
+    pub fields: Vec<ConfigField>,
+    /// `instances` — `List<conductor.config.ConfigInstance>`.
+    pub instances: Vec<ConfigInstance>,
+    /// `repositories` — `List<conductor.direction.RepositoryActivityRow>`.
+    pub repositories: Vec<crate::direction::RepositoryActivityRow>,
+    /// `errors` — `List<String>`.
+    pub errors: Vec<String>,
+}
+
+/// ConfigProblem — `conductor.config.ConfigProblem`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ConfigProblem {
+    /// `path` — `String`.
+    pub path: String,
+    /// `message` — `String`.
+    pub message: String,
+}
+
+/// ConfigWriteRefusal — `conductor.config.ConfigWriteRefusal`: one of a closed set of names.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ConfigWriteRefusal {
+    /// `NotThisPage`.
+    NotThisPage,
+    /// `TokenMissing`.
+    TokenMissing,
+    /// `Invalid`.
+    Invalid,
+    /// `ReasonMissing`.
+    ReasonMissing,
+    /// `NothingStaged`.
+    NothingStaged,
+    /// `NoConfigFile`.
+    NoConfigFile,
+}
+
+/// ConfigWriteRefused — `conductor.config.ConfigWriteRefused`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ConfigWriteRefused {
+    /// `refusal` — `conductor.config.ConfigWriteRefusal`.
+    pub refusal: ConfigWriteRefusal,
+    /// `detail` — `String`.
+    pub detail: String,
+    /// `problems` — `List<conductor.config.ConfigProblem>`.
+    pub problems: Vec<ConfigProblem>,
+}
+
+/// ConfigWritten — `conductor.config.ConfigWritten`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ConfigWritten {
+    /// `diff` — `String`.
+    pub diff: String,
+    /// `restart` — `Boolean`.
+    pub restart: bool,
+    /// `backup` — `Optional<String>`.
+    pub backup: Option<String>,
+    /// `decision_id` — `Optional<conductor.decision.DecisionId>`.
+    pub decision_id: Option<crate::decision::DecisionId>,
+    /// `problems` — `List<conductor.config.ConfigProblem>`.
+    pub problems: Vec<ConfigProblem>,
 }
 
 /// Confinement — `conductor.config.Confinement`.
@@ -752,6 +886,19 @@ pub struct WorkspaceMember {
 /// Writable — `conductor.config.Writable`: a distinct wrapper around `String`.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Writable(pub String);
+
+/// WriteConfig — `conductor.config.WriteConfig`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct WriteConfig {
+    /// `changes` — `List<conductor.config.ConfigChange>`.
+    pub changes: Vec<ConfigChange>,
+    /// `activity` — `List<conductor.config.ActivityChange>`.
+    pub activity: Vec<ActivityChange>,
+    /// `reason` — `Optional<String>`.
+    pub reason: Option<String>,
+    /// `check` — `Optional<Boolean>`.
+    pub check: Option<bool>,
+}
 
 /// WriteWorkspace — `conductor.config.WriteWorkspace`.
 #[derive(Debug, Clone, PartialEq, Eq)]

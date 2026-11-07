@@ -124,6 +124,14 @@ server takes a batch only:
 - for open escalated requests, each choice fitting its request's kind and lettered options. A
   request answered or withdrawn meanwhile is refused and records nothing.
 
+The Configuration page's write, `POST /api/config`, is taken on the same terms (host, origin,
+token, JSON of at most 64 KiB). It applies the staged keys to the instance in the config file,
+converts the result as `conductor config validate` does and refuses it, writing nothing, with
+each problem by its YAML path; a valid result keeps the old file beside it as
+`conductor.yaml.<time>.bak`, replaces it, writes each repository switch as the operator's mark,
+and records one class-C decision by the operator (`recorded_by` `dashboard`) with the diff as its
+evidence. The file is written from its YAML values: its comments are kept only in the backup.
+
 The guard denies a Bash call of conductor or a controller that names `/api/answers` or posts to
 the dashboard's port ([the guard](/docs/security/the-guard#bash-and-monitor)).
 

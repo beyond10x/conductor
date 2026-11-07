@@ -17,11 +17,12 @@ import Health from './views/Health.vue';
 import Metrics from './views/Metrics.vue';
 import Kpis from './views/Kpis.vue';
 import Decisions from './views/Decisions.vue';
+import Config from './views/Config.vue';
 
 /**
  * The view a hash names: `#/` the overview, `#/decisions` (story:decisions-page) and
  * `#/decisions/<id>`, the page at that open item (story:sessions-page-coherent), `#/repo/<name>`,
- * `#/metrics`, `#/kpis`, `#/health`, `#/sessions`.
+ * `#/metrics`, `#/kpis`, `#/health`, `#/sessions`, `#/config` (story:dashboard-config-page).
  */
 type Route =
   | { view: 'overview' }
@@ -30,7 +31,8 @@ type Route =
   | { view: 'metrics' }
   | { view: 'kpis' }
   | { view: 'health' }
-  | { view: 'sessions' };
+  | { view: 'sessions' }
+  | { view: 'config' };
 
 function routeOf(hash: string): Route {
   const path = hash.replace(/^#/, '') || '/';
@@ -53,6 +55,8 @@ function routeOf(hash: string): Route {
       return { view: 'health' };
     case '/sessions':
       return { view: 'sessions' };
+    case '/config':
+      return { view: 'config' };
     default:
       return { view: 'overview' };
   }
@@ -162,6 +166,7 @@ onBeforeUnmount(() => {
       <a href="#/kpis" :aria-current="route.view === 'kpis' ? 'page' : undefined">KPIs</a>
       <a href="#/sessions" :aria-current="route.view === 'sessions' ? 'page' : undefined">Sessions</a>
       <a href="#/health" :aria-current="route.view === 'health' ? 'page' : undefined">Health</a>
+      <a href="#/config" :aria-current="route.view === 'config' ? 'page' : undefined">Configuration</a>
     </nav>
     <div class="head-right">
       <span class="live">
@@ -191,6 +196,7 @@ onBeforeUnmount(() => {
     <Metrics v-else-if="route.view === 'metrics'" />
     <Kpis v-else-if="route.view === 'kpis'" />
     <Health v-else-if="route.view === 'health'" />
+    <Config v-else-if="route.view === 'config'" />
     <template v-else>
       <h1 class="page">What every session works on</h1>
       <PanelState v-if="failure !== null" state="error" card>{{ failure }}</PanelState>

@@ -892,3 +892,130 @@ types:
       - {name: target, type: String}
       - {name: refusal, type: conductor.config.UpgradeRefusal}
       - {name: detail, type: String}
+
+  # When a change of a config key takes effect (story:dashboard-config-page): `WatchTick`, the
+  # loop's next watch tick reads it; `Cycle`, its next cycle; `LoopRestart`, only when the loop
+  # starts again (`conductor run --uninstall`, then `--install`); `Fixed`, the dashboard does not
+  # change it (the instance's name, prefix and paths: `conductor config migrate` moves them).
+  - name: conductor.config.ConfigEffect
+    kind: enum
+    variants: [WatchTick, Cycle, LoopRestart, Fixed]
+
+  # One key of the effective config as the dashboard's Configuration page shows it
+  # (story:dashboard-config-page): its YAML path under the instance (`cadence.watch`,
+  # `thresholds.disk_low`), its value as `config show` writes it, the value it takes when the file
+  # writes none (`default`, absent when the file's value is the default or the key has none) and
+  # when a change of it takes effect.
+  - name: conductor.config.ConfigField
+    kind: struct
+    fields:
+      - {name: path, type: String}
+      - {name: value, type: String}
+      - {name: default, type: Optional<String>}
+      - {name: takes_effect, type: conductor.config.ConfigEffect}
+
+  # One instance of the host registry as the Configuration page lists it: its name, its
+  # dashboard's port, its session prefix, the forge of its first source (`github`, `gitlab` or
+  # `local`, empty when the registry does not say) and whether it is the instance whose page
+  # answers.
+  - name: conductor.config.ConfigInstance
+    kind: struct
+    fields:
+      - {name: name, type: conductor.config.InstanceName}
+      - {name: dashboard_port, type: Integer}
+      - {name: session_prefix, type: Optional<conductor.config.SessionPrefix>}
+      - {name: forge, type: String}
+      - {name: current, type: Boolean}
+
+  # The view the Configuration page reads, `GET /api/config` (story:dashboard-config-page): the
+  # config file of the instance whose dashboard answers, the instance's name and its index in
+  # the file, every key of its effective config (`config show`, the host's roles left out) as a
+  # `ConfigField`, the host registry's instances, its repositories with their activity
+  # (`conductor.direction.RepositoryActivityRow`, read from the store) and the problems reading
+  # any of them. A view: it reads the file, the registry and an existing store, and writes and
+  # creates nothing.
+  - name: conductor.config.ConfigPage
+    kind: struct
+    fields:
+      - {name: file, type: String}
+      - {name: instance, type: conductor.config.InstanceName}
+      - {name: index, type: Integer}
+      - {name: fields, type: List<conductor.config.ConfigField>}
+      - {name: instances, type: List<conductor.config.ConfigInstance>}
+      - {name: repositories, type: List<conductor.direction.RepositoryActivityRow>}
+      - {name: errors, type: List<String>}
+    invariants:
+      - index >= 0
+
+  # One staged change of the Configuration page: the YAML path of a key under the instance, as
+  # `ConfigField.path` names it, and the YAML text of its new value; no `value` removes the key,
+  # so its default applies again.
+  - name: conductor.config.ConfigChange
+    kind: struct
+    fields:
+      - {name: path, type: String}
+      - {name: value, type: Optional<String>}
+
+  # One staged switch of a repository's activity, with the operator's reason, which is required.
+  # It is written as the repository's mark (`conductor.direction.MarkRepository`, else
+  # `ActivateRepository` or `DeactivateRepository`), marked by the operator.
+  - name: conductor.config.ActivityChange
+    kind: struct
+    fields:
+      - {name: repository, type: conductor.direction.MarkedRepository}
+      - {name: activity, type: conductor.direction.Activity}
+      - {name: reason, type: String}
+
+  # One problem of the staged config, named by its YAML path as `config validate` names it.
+  - name: conductor.config.ConfigProblem
+    kind: struct
+    fields:
+      - {name: path, type: String}
+      - {name: message, type: String}
+
+  # The Configuration page's write, `POST /api/config` (story:dashboard-config-page), taken as
+  # the Decisions page's answers are: from the page's own origin on 127.0.0.1, with the token it
+  # was served with, as JSON of a bounded length. The staged `changes` are applied to the file's
+  # instance and the result converted as `config validate` converts it; with `check` nothing is
+  # written and the answer names each problem and the diff. Without it, and with no problem:
+  # the old file is kept beside it as `conductor.yaml.<UTC time>.bak`, the new one written in
+  # its place, each `activity` change written as its repository's mark, and one decision recorded
+  # (`conductor.decision.RecordOperatorDecision`): class C, decided by the operator, recorded by
+  # `dashboard`, the operator's `reason` as its reason and words, the diff as its evidence.
+  - name: conductor.config.WriteConfig
+    kind: struct
+    fields:
+      - {name: changes, type: List<conductor.config.ConfigChange>}
+      - {name: activity, type: List<conductor.config.ActivityChange>}
+      - {name: reason, type: Optional<String>}
+      - {name: check, type: Optional<Boolean>}
+
+  # What the write answers: the diff of the effective config (`- path: old`, `+ path: new`, one
+  # line each, then one line per activity change), whether a changed key takes effect only at a
+  # loop restart, the backup and the decision when it wrote, and the problems when it did not.
+  - name: conductor.config.ConfigWritten
+    kind: struct
+    fields:
+      - {name: diff, type: String}
+      - {name: restart, type: Boolean}
+      - {name: backup, type: Optional<String>}
+      - {name: decision_id, type: Optional<conductor.decision.DecisionId>}
+      - {name: problems, type: List<conductor.config.ConfigProblem>}
+
+  # Why the write was refused; a refusal writes nothing. `NotThisPage`, the request is not from
+  # this server's page on 127.0.0.1 (another host or origin): 403; `TokenMissing`, it carries no
+  # token or not the page's: 403; `Invalid`, the staged result does not convert, or a key it
+  # changes is `Fixed`: 422 with each problem; `ReasonMissing`, a write without the operator's
+  # reason, or an activity change without its own: 422; `NothingStaged`, no change: 422;
+  # `NoConfigFile`, the instance runs on the built-in defaults, so there is no file to write: 409.
+  - name: conductor.config.ConfigWriteRefusal
+    kind: enum
+    variants: [NotThisPage, TokenMissing, Invalid, ReasonMissing, NothingStaged, NoConfigFile]
+
+  # A refusal of the write: why, what was found, and the problems by YAML path.
+  - name: conductor.config.ConfigWriteRefused
+    kind: struct
+    fields:
+      - {name: refusal, type: conductor.config.ConfigWriteRefusal}
+      - {name: detail, type: String}
+      - {name: problems, type: List<conductor.config.ConfigProblem>}

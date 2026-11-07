@@ -4195,7 +4195,7 @@ pub fn document(instance: &Instance) -> Yaml {
 
 /// `document` as `path: value` lines, one per scalar and per empty list or mapping; a line break
 /// inside a value is written as a space, so each stays one line.
-fn lines(document: &Yaml, path: &str, out: &mut String) {
+pub(crate) fn lines(document: &Yaml, path: &str, out: &mut String) {
     match document {
         Yaml::Mapping(map) if !map.is_empty() => {
             for (key, value) in map {
@@ -4356,7 +4356,7 @@ pub fn validate(config: Option<&Path>, args: &ValidateConfigArgs) -> Result<Exit
 /// (`story:instance-names-unique`): each instance without a `session_prefix`, naming the one
 /// [`migrate`] writes, and each prefix, port, state or records directory another registered
 /// config file's instance holds, naming both instances and both files.
-fn unique_problems(home: &Path, file: &Path, config: &Config) -> Result<Vec<Problem>> {
+pub(crate) fn unique_problems(home: &Path, file: &Path, config: &Config) -> Result<Vec<Problem>> {
     let mut problems = Vec::new();
     for suggested in suggested_prefixes(home, file, config)? {
         let index = config

@@ -196,6 +196,8 @@ impl Case {
             measure_timeout: Duration::from_secs(30),
             context_handover: 300_000,
             health: health_view::sources(&self.home),
+            config_file: None,
+            instance_name: None,
         }
     }
 

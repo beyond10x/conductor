@@ -253,6 +253,73 @@ pub fn deactivate_repository(
     }
 }
 
+/// Marks `repository` with `activity`, by the operator, for `reason`, as the dashboard's
+/// Configuration page writes it (`story:dashboard-config-page`): `MarkRepository` when it holds
+/// no mark, else `ActivateRepository` or `DeactivateRepository`; nothing when its mark is
+/// `activity` already.
+///
+/// # Errors
+///
+/// The store does not open or keep the mark, or the behaviour refuses it.
+pub fn mark_as_operator(
+    state: Option<&Path>,
+    repository: &str,
+    activity: Activity,
+    reason: &str,
+    session: Option<String>,
+) -> Result<()> {
+    const WHAT: &str = "mark the repository as the operator";
+    let mut generated = record(state)?;
+    let name = MarkedRepository(repository.to_owned());
+    let held = RepositoryMarkStorage::get(&generated.ports, &name);
+    generated.ports.store.check().context("read the mark")?;
+    let refused = |error: String| anyhow!("{WHAT}: repository {repository:?}: {error}");
+    match held.map(|mark| activity_of(mark.state)) {
+        Some(held) if held == activity => return Ok(()),
+        None => {
+            let outcome = generated
+                .mark_repository(MarkRepository {
+                    repository: name,
+                    activity,
+                    marked_by: MarkedBy::Operator,
+                    session,
+                    reason: reason.to_owned(),
+                })
+                .map_err(|unmet| anyhow!("{WHAT}: {unmet}"))?;
+            if let MarkRepositoryOutcome::AlreadyMarked { .. } = outcome {
+                return Err(refused("RepositoryAlreadyMarked".to_owned()));
+            }
+        }
+        Some(_) if activity == Activity::Active => {
+            let outcome = generated
+                .activate_repository(ActivateRepository {
+                    repository: name,
+                    marked_by: MarkedBy::Operator,
+                    session,
+                    reason: reason.to_owned(),
+                })
+                .map_err(|unmet| anyhow!("{WHAT}: {unmet}"))?;
+            if !matches!(outcome, ActivateRepositoryOutcome::Activated { .. }) {
+                return Err(refused("RepositoryMarkConflict".to_owned()));
+            }
+        }
+        Some(_) => {
+            let outcome = generated
+                .deactivate_repository(DeactivateRepository {
+                    repository: name,
+                    marked_by: MarkedBy::Operator,
+                    session,
+                    reason: reason.to_owned(),
+                })
+                .map_err(|unmet| anyhow!("{WHAT}: {unmet}"))?;
+            if !matches!(outcome, DeactivateRepositoryOutcome::Deactivated { .. }) {
+                return Err(refused("RepositoryMarkConflict".to_owned()));
+            }
+        }
+    }
+    generated.ports.store.check().context("keep the mark")
+}
+
 /// `conductor repository repository-marks`: the view `conductor.direction.RepositoryMarks`,
 /// served by the generated query over the existing store under the state directory
 /// (`--state-dir`, else `state/`; [`crate::state::dir`]) and rendered as `--format` asks. A view

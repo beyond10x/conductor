@@ -1,19 +1,20 @@
 <!--
   generated from conductor v1
-  model digest 48d3a992c4b8a481be0ced1e1732e7794dfdf877aa6127144513c7c8ea9625ac
-  contract digest d71bc6a0e9b5fe9fc6bc5c5688eda0da5c83319d860e4c9bb094489c259c4326
+  model digest 8102a17c39b6a9e24c3c82fea4fa065c9fcf3ed3b482ad263b1c2acba9031624
+  contract digest 25d5bcbc820506fb2c0a95fd68ec9f85d5ed68b6b35980bbdc6a42263011c64f
   do not edit: regenerate with `ess synthesize --layout crate`
 -->
 # Synthesis plan — conductor v1
 
 Scope: `component-skeletons`, laid out as `crate`, planned by `ess-synth`. Regenerate with `ess synthesize --layout crate`.
 
-687 capabilities: **670 generated**, **4 obligations**, **13 refused**. An obligation is yours to implement against its contract; a refusal is a fact about this synthesis scope, not about the specification.
+698 capabilities: **681 generated**, **4 obligations**, **13 refused**. An obligation is yours to implement against its contract; a refusal is a fact about this synthesis scope, not about the specification.
 
 ## Generated
 
 | capability | source |
 | --- | --- |
+| domain type | `conductor.config.ActivityChange` |
 | domain type | `conductor.config.Authority` |
 | domain type | `conductor.config.Cadence` |
 | domain type | `conductor.config.Catalog` |
@@ -22,6 +23,15 @@ Scope: `component-skeletons`, laid out as `crate`, planned by `ess-synth`. Regen
 | domain type | `conductor.config.CommandWord` |
 | domain type | `conductor.config.ConductorSession` |
 | domain type | `conductor.config.Config` |
+| domain type | `conductor.config.ConfigChange` |
+| domain type | `conductor.config.ConfigEffect` |
+| domain type | `conductor.config.ConfigField` |
+| domain type | `conductor.config.ConfigInstance` |
+| domain type | `conductor.config.ConfigPage` |
+| domain type | `conductor.config.ConfigProblem` |
+| domain type | `conductor.config.ConfigWriteRefusal` |
+| domain type | `conductor.config.ConfigWriteRefused` |
+| domain type | `conductor.config.ConfigWritten` |
 | domain type | `conductor.config.Confinement` |
 | domain type | `conductor.config.ConfinementMode` |
 | domain type | `conductor.config.ConfinementProvider` |
@@ -78,6 +88,7 @@ Scope: `component-skeletons`, laid out as `crate`, planned by `ess-synth`. Regen
 | domain type | `conductor.config.ValidateConfig` |
 | domain type | `conductor.config.WorkspaceMember` |
 | domain type | `conductor.config.Writable` |
+| domain type | `conductor.config.WriteConfig` |
 | domain type | `conductor.config.WriteWorkspace` |
 | domain type | `conductor.decision.ClassificationRule` |
 | domain type | `conductor.decision.Decider` |
