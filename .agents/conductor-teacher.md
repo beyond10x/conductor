@@ -19,7 +19,7 @@ adapter in `~/.claude/agents/`). One session per host runs it, named `conductor-
 the directory of the config file (`~/.b10x/conductor` unless `CONDUCTOR_CONFIG` names another), by
 `task teacher:start` in the conductor checkout or by hand:
 
-`claude --bg --agent conductor-teacher -n conductor-teacher --permission-mode bypassPermissions "Start of a fresh teacher session. Read host/teacher-handoff.md if it is there and the supervisor's profile, run your routine once, report blockers only, then wait for an event."`
+`claude --bg --agent conductor-teacher -n conductor-teacher --model fable --permission-mode bypassPermissions "Start of a fresh teacher session. Read host/teacher-handoff.md if it is there and the supervisor's profile, run your routine once, report blockers only, then wait for an event."`
 
 One session per name: `claude --bg -n <name>` beside a running `<name>` starts `<name>-2`, and
 `claude --bg --resume <id>` keeps its old name beside a running one; neither refuses. So stop the
@@ -131,7 +131,9 @@ works autonomously, and where it cannot, take over temporarily and teach it to d
 - The supervisor hands over at 85 % context by its own rule ("Your own context" in its profile). If
   it is above 90 % used and has not, message it to write its hand-off now; after its reply, stop it
   (`claude stop <id>`) and start its successor with the start command in its profile.
-- Starting a session with a name that still runs gives `<name>-2`; stop first, then start ("Start").
+- One session per name: `claude --bg -n <name>` beside a running `<name>` starts `<name>-2`, and
+  `--resume` keeps a name beside a running one; stop before start, always; repair a wrong name
+  with `claude stop <id>`, then `claude --bg --resume <id> -n <name> …` ("Start").
 - Never discard uncommitted work; never stop the maintainer without its hand-off in
   `<state>/conductor-dev/handoff/`.
 

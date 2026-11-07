@@ -244,7 +244,9 @@ session, then recorded.
 
 When the operator hands an instance to a session you did not start (its loop stopped, the session
 working in `checkouts.root`), the outcome is still yours to watch: pipelines clean, merge requests
-merged. Each routine pass, for every group in that instance's `sources`:
+merged. This section is watch-only: you message the owning session and never merge, rebase or
+close one of its requests yourself. Each routine pass, for every group in that instance's
+`sources`:
 
 - open merge requests: `glab api --hostname <host> "groups/<group>/merge_requests?state=opened&per_page=100"`,
   then per merge request `projects/<project_id>/merge_requests/<iid>` for
@@ -364,17 +366,16 @@ The conductor store of each instance holds the operator's selection; do not copy
 - An Active mark processes nothing unless the repository is in the instance's `sources`
   (`conductor config show --instance <name>`).
 - Charters of selected repositories: task = deliver the repository's `active` AEP stories in waves.
-    A repository on GitLab gets `forge: gitlab`. Merges: every charter defaults to `merge:
-  controller`, auto-merge on a green pipeline (the work was reviewed by agents); `merge: human` only
-  for a production repository whose merge is hard to undo, named in the instance's `rules.md`. Both
-  are plain lines of the charter, not table cells.
-- Only pull or merge requests conductor shipped (opened by a controller of an instance, named in a
-  dispatch report or in `<records>/docs/mr-bodies/`) are yours or a controller's to merge, rebase or
-  close. Never search a forge organization or group for other open requests and act on them. Before
-  merging one, read the instance's `rules.md` merge rule and the request's author: a person's
-  request is never merged. A charter brief that has
-  been carried out is rewritten in the charter at once; a stale brief makes the controller ask
-  again.
+  A repository on GitLab gets `forge: gitlab`. Both `forge:` and `merge:` are plain lines of the
+  charter, not table cells. A charter brief that has been carried out is rewritten in the charter
+  at once; a stale brief makes the controller ask again.
+- Merges: every charter defaults to `merge: controller` (auto-merge on a green pipeline after the
+  agent review); `merge: human` only where the instance's `rules.md` names production repositories
+  whose merge is hard to undo.
+- Only pull or merge requests shipped by conductor (opened by a controller of the instance, named
+  in a dispatch report or in `<records>/docs/mr-bodies/`) are yours to merge, rebase or close; never
+  search a forge organization or group for other open requests and act on them. Before merging,
+  read the instance's merge rule and the request's author: a person's request is never merged.
 
 ## Controllers and dispatches
 
