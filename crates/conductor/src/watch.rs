@@ -55,7 +55,7 @@
 //!   limit text per [`LIMIT_AGAIN`] from its last report, with a desktop notification to the
 //!   operator through [`Sources::notify`], titled `<instance>: usage limit`, because conductor is
 //!   stopped by the same limit.
-//! - **context** above the instance's `context_handover` tokens, once per session
+//! - **context** at or above the instance's `context_handover` tokens, once per session
 //!   (`story:controller-context`). `<repo>` is the directory the session works in under the
 //!   managed trees or the checkouts root, else the session's name; conductor's line reads
 //!   `context: conductor` either way.
@@ -391,7 +391,7 @@ pub struct Settings {
     /// The key of the instance's fall of free disk in the host directory: its session prefix, its
     /// name without one (`story:host-fall-per-instance`).
     pub fall_key: String,
-    /// Tokens of a session's context above which it is reported: `thresholds.context_handover`.
+    /// Tokens of a session's context at or above which it is reported: `thresholds.context_handover`.
     pub context_handover: u64,
     /// Free GiB on `/` under which it is reported: `thresholds.disk_low`.
     pub disk_low: u64,
@@ -574,6 +574,24 @@ impl Watch {
             .iter()
             .find(|session| session.pid.is_some() && session.name == name)
             .and_then(|session| context_tokens(&self.transcript(session))))
+    }
+
+    /// Whether the session `name` is idle: the session list shows no live session (one with a
+    /// `pid`) of that name, or shows it neither `busy` nor `working` by its status, else its
+    /// state (`story:loop-restarts-controller-at-handover`).
+    ///
+    /// # Errors
+    ///
+    /// The session list cannot be read.
+    pub fn idle(&self, name: &str) -> Result<bool> {
+        Ok(!self.sessions()?.iter().any(|session| {
+            session.pid.is_some()
+                && session.name == name
+                && matches!(
+                    session.state.to_ascii_lowercase().as_str(),
+                    "busy" | "working"
+                )
+        }))
     }
 }
 
@@ -1190,7 +1208,7 @@ impl Watch {
     // Context
     // -----------------------------------------------------------------------------------------
 
-    /// The context of each live session, one with a `pid`, above the instance's
+    /// The context of each live session, one with a `pid`, at or above the instance's
     /// `context_handover`, once per session. The session is named by the repository it works on
     /// ([`Sources::repository`]), else by its name: conductor's line reads `context: conductor`
     /// either way.
@@ -1200,7 +1218,7 @@ impl Watch {
             let Some(tokens) = context_tokens(&self.transcript(session)) else {
                 continue;
             };
-            if tokens > self.settings.context_handover && !holds_line(&file, &session.session)? {
+            if tokens >= self.settings.context_handover && !holds_line(&file, &session.session)? {
                 // A session named after one of the instance's roles (conductor, conductor-dev) is
                 // labelled by that name: conductor-dev works in conductor's directory, so the
                 // directory would name it "conductor" and make conductor hand itself over. Every

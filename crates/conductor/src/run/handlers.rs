@@ -3,7 +3,7 @@
 //!
 //! | watch line | handler | lines |
 //! |---|---|---|
-//! | `context: <repo> <n>k …` over `thresholds.context_handover` | deliver `[HANDOVER <repo>] context <n>k` once per session; over 1.25 times the threshold, at once or in a later tick, or once `<checkout>/.git/handoff/` holds a file newer than the delivery, restart the controller ([`Tick::restart`]) with that file as the charter's resume point | `handover-sent`, `handover`, `controller-restarted` |
+//! | `context: <repo> <n>k …` at or over `thresholds.context_handover` | deliver `[HANDOVER <repo>] context <n>k` once per session; over 1.25 times the threshold, at once or in a later tick, once `<checkout>/.git/handoff/` holds a file newer than the delivery and the session is idle, or once `thresholds.silent_session` passed since the delivery, restart the controller ([`Tick::restart_with`]) with the newest hand-over file as the charter's resume point, its line carrying the `context:` line | `handover-sent`, `handover`, `controller-restarted` |
 //! | `usage limit: …; <n> sessions: <names>` | mark each session; a later tick whose [`Headroom`](super::Headroom) is back resumes each once (`spawn::resume`), or restarts one a hand-over was asked of; a session resumed and stopped again is said in one journal line | `usage-limit`, `resumed`, `controller-restarted` |
 //! | `session exited (blocked): <name> …` | marked as a usage limit marks it, when its repository has an open dispatch | `usage-limit`, `resumed` |
 //! | `PR checks done: <repo>#…`, `CI red on main: <repo> / …`, `CI green again on main: <repo> / …` | deliver `[REPORT <repo> -] watch: <line>` to the running controller; a red `main` with none spawns one when the repository has a charter, within `controllers.max_working` | `relayed`, `red-ci` |
@@ -20,9 +20,9 @@
 //! controller, never tried again for the same one. Any delivery to a controller refused
 //! `SessionNotReachable` records that controller stopped, with one journal line ([`send`],
 //! `story:deliver-to-stopped-controller`). The other files: `handover.json` (each session a
-//! hand-over was asked of, its repository and when, in nanoseconds), `limited.json` (each
-//! session a usage limit marked), `stalled.json` (each session a check-in was sent) and
-//! `resumed.json` (each session the loop resumed, and when).
+//! hand-over was asked of, its repository, when, in nanoseconds, and the `context:` line),
+//! `limited.json` (each session a usage limit marked), `stalled.json` (each session a check-in
+//! was sent) and `resumed.json` (each session the loop resumed, and when).
 //!
 //! The `gc` a `disk low` line starts runs on a thread of its own, so the loop's ticks go on while
 //! it works (`story:first-cycle-not-blocked-by-archiving`); one runs at a time, and a `disk low`
@@ -154,8 +154,9 @@ fn first_word(text: &str) -> &str {
 // Context
 // ---------------------------------------------------------------------------------------------
 
-/// `context: <repo> <n>k tokens (session <id>)`: the running controller of `<repo>` is asked to
-/// hand over once, or restarted at once over 1.25 times the threshold.
+/// `context: <repo> <n>k tokens (session <id>)`: the running controller of `<repo>` at or above
+/// the threshold is asked to hand over once per session, or restarted at once over 1.25 times
+/// the threshold.
 fn context(tick: &mut Tick<'_, '_>, line: &str, rest: &str) -> Result<bool> {
     let mut words = rest.split_whitespace();
     let repo = words.next().unwrap_or_default();
@@ -170,10 +171,10 @@ fn context(tick: &mut Tick<'_, '_>, line: &str, rest: &str) -> Result<bool> {
     let threshold = u64::try_from(tick.instance().thresholds.context_handover.0).unwrap_or(0);
     let tokens = thousands.saturating_mul(1000);
     if over(tokens, threshold) {
-        hand_over(tick, repo, &session, None, "context over 1.25x")?;
+        hand_over(tick, repo, &session, None, "context over 1.25x", Some(line))?;
         return Ok(true);
     }
-    if tokens <= threshold {
+    if tokens < threshold {
         return Ok(false);
     }
     let mut asked = read_json(&tick.dir, HANDOVER, json!({}));
@@ -189,6 +190,7 @@ fn context(tick: &mut Tick<'_, '_>, line: &str, rest: &str) -> Result<bool> {
     asked[session.as_str()] = json!({
         "repo": repo,
         "delivered": nanos(SystemTime::now()).to_string(),
+        "line": line,
     });
     write_json(&tick.dir, HANDOVER, &asked)?;
     let mut written = tick.line(DispatchLogEvent::HandoverSent, repo)?;
@@ -204,31 +206,42 @@ fn over(tokens: u64, threshold: u64) -> bool {
 }
 
 /// Writes `handover` for `session` of `repo`, with `reason` and the hand-over file `file`, and
-/// restarts the controller with that file as its resume point.
+/// restarts the controller with that file as its resume point; the `controller-restarted` line
+/// carries `cause`, the `context:` line that names the context it was at.
 fn hand_over(
     tick: &mut Tick<'_, '_>,
     repo: &str,
     session: &str,
     file: Option<&Path>,
     reason: &str,
+    cause: Option<&str>,
 ) -> Result<()> {
     let mut written = tick.line(DispatchLogEvent::Handover, repo)?;
     written.session = Some(session.to_owned());
     written.reason = Some(reason.to_owned());
     written.path = file.map(|file| file.display().to_string());
     tick.write(&written)?;
-    tick.restart(repo, session, "handover", file)
+    tick.restart_with(repo, session, "handover", file, cause)
 }
 
-/// Each session a hand-over was asked of: restarted once its checkout's `.git/handoff/` holds a
-/// file newer than the delivery, or once its context is over 1.25 times the threshold; forgotten
-/// once its repository's running controller is another session.
+/// Each session a hand-over was asked of (`story:loop-restarts-controller-at-handover`):
+/// restarted once its checkout's `.git/handoff/` holds a file newer than the delivery and the
+/// session list shows it idle ([`Watch::idle`]); once its context is over 1.25 times the
+/// threshold; or once `thresholds.silent_session` passed since the delivery, from the newest
+/// hand-over file it has, older or newer. Forgotten once its repository's running controller is
+/// another session.
 fn handovers(tick: &mut Tick<'_, '_>) -> Result<()> {
     let asked = read_json(&tick.dir, HANDOVER, json!({}));
     let Some(asked) = asked.as_object() else {
         return Ok(());
     };
-    let threshold = u64::try_from(tick.instance().thresholds.context_handover.0).unwrap_or(0);
+    let thresholds = &tick.instance().thresholds;
+    let threshold = u64::try_from(thresholds.context_handover.0).unwrap_or(0);
+    let silent = Duration::from_secs(
+        crate::config::seconds(&thresholds.silent_session)
+            .unwrap_or(crate::config::SILENT_SESSION_MINUTES * 60),
+    )
+    .as_nanos();
     let mut watch: Option<Watch> = None;
     for (session, entry) in asked {
         let repo = entry["repo"].as_str().unwrap_or_default().to_owned();
@@ -243,20 +256,37 @@ fn handovers(tick: &mut Tick<'_, '_>) -> Result<()> {
             .as_str()
             .and_then(|at| at.parse().ok())
             .unwrap_or(0);
-        if let Some(file) = newest_handoff(&tick.checkout(&repo), delivered) {
-            hand_over(tick, &repo, session, Some(&file), "hand-over file")?;
-            continue;
-        }
+        let cause = entry["line"].as_str();
         if watch.is_none() {
             watch = Some(Watch::of_instance(tick.state)?);
         }
-        let tokens = watch
-            .as_ref()
-            .map(|watch| watch.context_of(session))
-            .transpose()?
-            .flatten();
-        if tokens.is_some_and(|tokens| over(tokens, threshold)) {
-            hand_over(tick, &repo, session, None, "context over 1.25x")?;
+        let Some(watch) = watch.as_ref() else {
+            continue;
+        };
+        let checkout = tick.checkout(&repo);
+        let written = newest_handoff(&checkout, delivered);
+        if let Some(file) = &written
+            && watch.idle(session)?
+        {
+            hand_over(tick, &repo, session, Some(file), "hand-over file", cause)?;
+            continue;
+        }
+        if watch
+            .context_of(session)?
+            .is_some_and(|tokens| over(tokens, threshold))
+        {
+            hand_over(tick, &repo, session, None, "context over 1.25x", cause)?;
+            continue;
+        }
+        if nanos(SystemTime::now()).saturating_sub(delivered) > silent {
+            let (file, reason) = match written {
+                Some(file) => (Some(file), "hand-over file, not idle within silent_session"),
+                None => (
+                    newest_handoff(&checkout, 0),
+                    "no hand-over within silent_session",
+                ),
+            };
+            hand_over(tick, &repo, session, file.as_deref(), reason, cause)?;
         }
     }
     Ok(())

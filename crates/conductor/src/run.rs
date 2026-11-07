@@ -827,6 +827,24 @@ impl<'s, 'a> Tick<'s, 'a> {
         reason: &str,
         resume: Option<&Path>,
     ) -> Result<()> {
+        self.restart_with(repo, session, reason, resume, None)
+    }
+
+    /// [`Tick::restart`], its `controller-restarted` line carrying `cause` as its `line`: the watch
+    /// line that led to it, such as the `context:` line that names the context the session was at
+    /// (`story:loop-restarts-controller-at-handover`).
+    ///
+    /// # Errors
+    ///
+    /// What [`Tick::restart`] answers.
+    pub fn restart_with(
+        &mut self,
+        repo: &str,
+        session: &str,
+        reason: &str,
+        resume: Option<&Path>,
+        cause: Option<&str>,
+    ) -> Result<()> {
         let held = self.controllers()?.into_iter().find(|held| {
             held.data.repository.0 == repo
                 && matches!(
@@ -856,6 +874,7 @@ impl<'s, 'a> Tick<'s, 'a> {
         line.session = Some(session.to_owned());
         line.reason = Some(reason.to_owned());
         line.path = resume.map(|path| path.display().to_string());
+        line.line = cause.map(str::to_owned);
         self.write(&line)
     }
 }

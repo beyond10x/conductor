@@ -704,6 +704,18 @@ impl Case {
             .collect()
     }
 
+    /// Lists the live session `id` of `repo` idle in the session list: a `pid`, its status `idle`.
+    fn idle(&self, repo: &str, id: &str) {
+        let entry = json!({
+            "id": id, "sessionId": id, "name": format!("ex-{repo}"), "pid": 4242,
+            "cwd": self.checkout(repo), "status": "idle", "state": "idle",
+        });
+        write(
+            &self.fake().join(format!("agents/{id}.json")),
+            &entry.to_string(),
+        );
+    }
+
     /// Where Claude Code keeps the transcript of the session `id` working in `cwd`.
     fn transcript(&self, cwd: &Path, id: &str) -> PathBuf {
         let directory: String = cwd
@@ -716,6 +728,24 @@ impl Case {
             .join(".claude/projects")
             .join(directory)
             .join(format!("{id}.jsonl"))
+    }
+
+    /// Writes the transcript of the session `id` of `repo` with one assistant line whose usage
+    /// holds `tokens` of context.
+    fn context(&self, repo: &str, id: &str, tokens: u64) {
+        let line = json!({
+            "type": "assistant",
+            "timestamp": OffsetDateTime::now_utc().format(&Rfc3339).expect("the clock"),
+            "message": {"usage": {
+                "input_tokens": 0,
+                "cache_read_input_tokens": tokens,
+                "cache_creation_input_tokens": 0,
+            }},
+        });
+        write(
+            &self.transcript(&self.checkout(repo), id),
+            &format!("{line}\n"),
+        );
     }
 }
 
@@ -958,6 +988,11 @@ fn a_hand_over_file_newer_than_the_delivery_restarts_the_controller_from_its_cha
         &handoff,
         "# Hand-over\n\nNext: finish the store migration.\n",
     );
+    assert!(
+        case.lines_of(&case.tick(&[])).is_empty(),
+        "still working: not restarted"
+    );
+    case.idle("alpha", FIRST);
     let tick = case.tick(&[]);
 
     assert_eq!(
@@ -991,6 +1026,126 @@ fn a_hand_over_file_newer_than_the_delivery_restarts_the_controller_from_its_cha
         .collect();
     states.sort();
     assert_eq!(states, ["Running", "Stopped"]);
+}
+
+/// `story:loop-restarts-controller-at-handover`, over the watch with fake transcripts: a
+/// controller at `thresholds.context_handover` is asked for its hand-over once; once it has written
+/// one and gone idle it is restarted from it, the restart's line naming the context it was at. A
+/// controller under the threshold is asked nothing and left running.
+#[test]
+fn the_watch_asks_a_controller_at_the_threshold_once_and_restarts_it_idle_at_its_hand_over() {
+    let case = Case::new("watch-handover");
+    let second = "s0000002-0000";
+    write(
+        &case.charter("beta"),
+        "# Charter: beta\n\nKeep main green.\n",
+    );
+    case.spawn("alpha", FIRST);
+    case.spawn("beta", second);
+    case.context("alpha", FIRST, 200_000);
+    case.context("beta", second, 150_000);
+
+    let (asked, _) = case.watch();
+    assert_eq!(actions(&asked), ["handover-sent"], "{asked}");
+    let request = (
+        "ex-alpha".to_owned(),
+        "[HANDOVER alpha] context 200k".to_owned(),
+    );
+    assert_eq!(case.deliveries(), std::slice::from_ref(&request));
+    let (again, _) = case.watch();
+    assert_eq!(actions(&again), Vec::<String>::new(), "{again}");
+    assert_eq!(
+        case.deliveries(),
+        std::slice::from_ref(&request),
+        "asked once"
+    );
+
+    let handoff = case
+        .checkout("alpha")
+        .join(".git/handoff/2026-11-07-alpha.md");
+    write(&handoff, "# Hand-over\n\nNext: the store migration.\n");
+    let (working, _) = case.watch();
+    assert_eq!(
+        actions(&working),
+        Vec::<String>::new(),
+        "still working: {working}"
+    );
+
+    case.idle("alpha", FIRST);
+    let (restarted, _) = case.watch();
+    assert_eq!(
+        actions(&restarted),
+        ["handover", "sent", "controller-restarted"],
+        "{restarted}"
+    );
+    let written = case.lines_of(&restarted);
+    let line = written
+        .iter()
+        .find(|line| line["event"] == "controller-restarted")
+        .expect("a controller-restarted line");
+    assert_eq!(line["session"], "ex-alpha");
+    assert_eq!(line["path"], json!(handoff));
+    assert!(
+        line["line"]
+            .as_str()
+            .is_some_and(|said| said.contains("context: alpha 200k tokens")),
+        "{line}"
+    );
+    assert_eq!(case.launched(), ["ex-alpha", "ex-beta", "ex-alpha"]);
+    assert_eq!(case.deliveries(), [request], "beta was never asked");
+    assert_eq!(states_of(&case, "beta"), ["Running"]);
+}
+
+/// `story:loop-restarts-controller-at-handover`: a controller asked for its hand-over that has
+/// written none after `thresholds.silent_session` is restarted from its charter and the newest
+/// hand-over it has, older than the request.
+#[test]
+fn a_controller_with_no_hand_over_after_silent_session_is_restarted_from_its_newest() {
+    let case = Case::new("handover-silent");
+    case.spawn("alpha", FIRST);
+    let older = case
+        .checkout("alpha")
+        .join(".git/handoff/2026-11-06-alpha.md");
+    write(&older, "# Hand-over\n\nNext: the release.\n");
+    let line = format!("context: alpha 230k tokens (session {FIRST_SHORT})");
+    case.tick(&[&line]);
+    assert!(
+        case.lines_of(&case.tick(&[])).is_empty(),
+        "within silent_session"
+    );
+
+    let file = case.state().join("run/handover.json");
+    let mut asked: Value =
+        serde_json::from_str(&fs::read_to_string(&file).expect("the hand-overs asked"))
+            .expect("JSON");
+    let long_ago = (OffsetDateTime::now_utc() - time::Duration::hours(3)).unix_timestamp_nanos();
+    asked["ex-alpha"]["delivered"] = json!(long_ago.to_string());
+    write(&file, &asked.to_string());
+    // The hand-over was written before the request, an hour before it.
+    fs::File::options()
+        .write(true)
+        .open(&older)
+        .and_then(|written| {
+            written.set_modified(std::time::SystemTime::now() - Duration::from_secs(4 * 3600))
+        })
+        .expect("date the hand-over back");
+
+    let tick = case.tick(&[]);
+    assert_eq!(
+        actions(&tick),
+        ["handover", "sent", "controller-restarted"],
+        "{tick}"
+    );
+    let written = case.lines_of(&tick);
+    assert_eq!(written[0]["reason"], "no hand-over within silent_session");
+    assert_eq!(written[1]["path"], json!(older));
+    assert_eq!(written[1]["line"], line);
+    let charter = fs::read_to_string(case.charter("alpha")).expect("read the charter");
+    assert!(
+        charter.contains(&format!("## Resume point\n\n{}\n", older.display())),
+        "{charter}"
+    );
+    assert_eq!(case.launched(), ["ex-alpha", "ex-alpha"]);
 }
 
 /// Over 1.25 times the threshold the session is stopped and spawned again at once, with no
