@@ -2,15 +2,16 @@
 format: aep.planning-md/3
 id: story:systemd-session-starts-unattended
 kind: story
-status: active
+status: implemented
 title: A systemd-provider session starts without anyone attaching
 summary: The start connects one tmux client so tmux -D creates the session; long prompts load from a file
 relations:
 - informed_by: story:pinned-settings-keep-missing-hooks
-revision: 3
+revision: 4
 transitions:
 - {from: "draft", to: "proposed", at: "2026-11-07T03:17:45Z", actor: "human:timo", revision: 2}
 - {from: "proposed", to: "active", at: "2026-11-07T03:17:45Z", actor: "human:timo", revision: 3}
+- {from: "active", to: "implemented", at: "2026-11-07T03:59:30Z", actor: "human:timo", revision: 4, decided_on: {"recorded":{"test_result":1}}}
 ---
 ## Why
 

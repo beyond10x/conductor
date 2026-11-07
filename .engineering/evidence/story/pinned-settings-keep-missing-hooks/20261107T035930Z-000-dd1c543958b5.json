@@ -1,0 +1,12 @@
+{
+  "at": "2026-11-07T03:59:30Z",
+  "actor": "human:timo",
+  "artifact": "story:pinned-settings-keep-missing-hooks",
+  "kind": "story",
+  "revision": 3,
+  "change": {
+    "change": "evidence",
+    "kind": "test_result",
+    "source": "task check (ess 0.60.0, Gates policy set) at a44026d4: 402 scenarios passed, 1429 tests passed, 8 failed, all 8 environmental (German git messages, an inherited CONDUCTOR_INSTANCE); those 3 files rerun with LC_ALL=C and CONDUCTOR_INSTANCE unset: 33 passed, 0 failed"
+  }
+}

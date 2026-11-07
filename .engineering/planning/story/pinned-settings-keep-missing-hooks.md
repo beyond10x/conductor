@@ -2,16 +2,17 @@
 format: aep.planning-md/3
 id: story:pinned-settings-keep-missing-hooks
 kind: story
-status: active
+status: implemented
 title: Pinned session settings keep a missing hooks key missing
 summary: 'config::pinned reads hooks with get_mut, so no "hooks": null reaches Claude Code'
 refs:
 - provider: github
   reference: beyond10x/conductor#85
-revision: 3
+revision: 4
 transitions:
 - {from: "draft", to: "proposed", at: "2026-11-07T03:09:02Z", actor: "human:timo", revision: 2}
 - {from: "proposed", to: "active", at: "2026-11-07T03:09:02Z", actor: "human:timo", revision: 3}
+- {from: "active", to: "implemented", at: "2026-11-07T03:59:30Z", actor: "human:timo", revision: 4, decided_on: {"recorded":{"test_result":1}}}
 ---
 ## Why
 
