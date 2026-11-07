@@ -8,15 +8,15 @@ summary: no secret in config or env; the daemon's secrets source; names only on 
 relations:
 - decomposes: epic:architecture-next
 - depends_on: story:config-globals
-revision: 1
+revision: 2
 ---
 ## Why
 
-Design §7: the config names secrets, never holds them; a placement receives them as sealed slots. The source is the operator's choice (class H); the default is an age-encrypted file.
+Design §7: the config names secrets, never holds them; a placement receives them as sealed slots. ADR 0107 (Connectors issues access tokens), ADR 0023 (the Secrets service holds custody) and ADR 0110 (proposed: an agent process holds no credential for an external system) decide where secrets come from; a single host with neither service needs a local file. The source is the operator's choice (class H).
 
 ## Acceptance
 
-- `daemon.secrets` names the source; the default implementation reads an age-encrypted file with the daemon's identity; the OS keyring and an environment source are behind the same trait.
+- `daemon.secrets` names the source behind one trait with three implementations: Connectors (access tokens, never refresh tokens), the Secrets service, and an encrypted local file; a deployment names one explicitly, and the daemon refuses to start without one.
 - Every `secret:<name>` in the effective config resolves at instance start; a missing name is a named refusal before anything starts.
-- `GET /v1/secrets` lists names and the instances that use them, never values; no log line ever carries a value (a test greps the daemon's log after a start).
-- For `placement: host`, secrets reach the session the way they do today (`forge_token_env`), unchanged.
+- A session's box receives one slot, the model token; forge writes go through the gates route; `GET /v1/secrets` lists names and the instances that use them, never values; no log line carries a value (a test greps the daemon's log after a start).
+- For `placement: host`, secrets reach the session the way they do today (`forge_token_env`), unchanged for one release.

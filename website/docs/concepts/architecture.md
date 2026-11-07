@@ -382,8 +382,11 @@ whose first line names the route.
 
 ### Placements: confined, local or remote
 
-conductor implements no sandbox. An instance's `placement` says what runs its runtime and sessions
-and what confines them; the daemon and the config stay on the control host.
+conductor implements no sandbox. An instance's `placement`, overridable per role, says what runs its
+runtime and sessions and what confines them; the daemon and the config stay on the control host. The
+direction is already decided in the organisation's ADRs: confinement is one Substrate contract
+(ADR 0109), conductor is an application on Agency's API with remote and cluster runs in Loom (ADR
+0105), and Loom owns the agent spec (ADR 0108).
 
 ```mermaid
 flowchart LR
@@ -394,6 +397,7 @@ flowchart LR
   d -->|systemd units, as today| h["placement: host"]:::model
   d -->|substrate-daemon socket: bubblewrap, cgroup, sealed secrets| sl["placement: substrate, local"]:::model
   d -->|HTTPS with an Identity token| sr["placement: substrate, remote host; oci, Docker, Firecracker as substrate ships them"]:::model
+  d -->|a LoomAgent Command, through Agency or the kube API| lo["placement: loom, run-to-exit workers in a cluster"]:::model
   d -->|a Session manifest, mantle start| m["placement: mantle, a whole worker"]:::custom
 ```
 
@@ -404,6 +408,7 @@ flowchart LR
 conductord ──systemd units, as today────────────────────────► placement: host
            ──substrate-daemon socket (bubblewrap, cgroup)─────► placement: substrate, local
            ──HTTPS + Identity token──────────────────────────► placement: substrate, remote (oci, Docker, Firecracker as shipped)
+           ──LoomAgent Command (Agency or the kube API)──────► placement: loom (run-to-exit workers in a cluster)
            ──Session manifest, mantle start──────────────────► placement: mantle (a whole worker)
 ```
 
@@ -411,14 +416,16 @@ conductord ──systemd units, as today─────────────�
 
 | placement | confinement | transport |
 |---|---|---|
-| `host` | today's systemd slice and units: cpu weight, memory, tasks; no write fence | Unix socket |
+| `host` | today's systemd slice and units: cpu weight, memory, tasks; no write fence; written in the config on purpose, never a fallback | Unix socket |
 | `substrate`, local | substrate's `linux`/`systemd` adapter: bubblewrap plus a delegated cgroup; read-only roots; one writable workspace; cpu, memory, pids, storage; default-deny egress with the forge and model hosts; credentials as sealed memory slots, never in argv or env | the substrate daemon's socket |
 | `substrate`, remote | the same on another host; `oci` where it ships; Docker and Firecracker drivers when substrate ships them | HTTPS/WSS with an Identity token |
+| `loom` | one pod per `LoomAgent` reconciled by the loom operator; secrets as references only; for workers whose unit is one run (takt on a case, an implementer on a story): an exit code and an events file come back, no attach, no message after start | Agency's API where it exists, else the kube API |
 | `mantle` | a whole worker (EC2, KubeVirt) from a `Session` manifest: repositories, agent kind, resources, network capabilities | mantle's forwarded socket |
 
-A placement that cannot give the box the profile asks for refuses with a name; `strict` starts
-nothing and records why, `report` falls back to `host` and records that. Inside every box the
-sessions keep tmux, so attach, deliver and the terminal log work unchanged.
+A placement that cannot give the box the profile asks for refuses with a name; the instance does
+not start and the daemon records why; nothing falls back to `host`. Interactive sessions (the
+controller, the supervisor) run on `host`, `substrate` or `mantle`, where tmux, attach, deliver and
+the terminal log work unchanged; `loom` is for workers that run to an exit.
 
 ### State: four kinds, four homes
 
@@ -428,7 +435,7 @@ config change.
 | kind | examples | lives | authoritative copy | survives the box |
 |---|---|---|---|---|
 | config | `conductor.yaml`: instances, placements, roles, settings, secret names | with the daemon, in a git repository | the file | yes |
-| records (the store) | decisions, dispatches, readings, findings, charters, hand-offs, config changes, reconciliations | with the instance that wrote them, through the `Store` trait | the instance's store; the daemon keeps a read-only mirror | the mirror does |
+| records (the store) | decisions, dispatches, readings, findings, charters, hand-offs, config changes, reconciliations | with the instance that wrote them, through Eventlog's persistence port (ADRs 0041, 0053, 0063: file, SQLite and PostgreSQL adapters, no second implementation) | the instance's store; the daemon keeps a read-only mirror | the mirror does |
 | runtime state | sessions, sockets, envelopes, leases, terminal logs | inside the box | the box | no; rebuilt from records |
 | cache | exports of `origin/main`, build caches | inside the box | none | no |
 
@@ -438,7 +445,7 @@ flowchart LR
   classDef model fill:#dcfce7,stroke:#15803d,color:#111827
   classDef nomodel fill:#e5e7eb,stroke:#4b5563,color:#111827
   classDef cmd fill:#fce7f3,stroke:#be185d,color:#111827
-  t["Store trait: append, read since id, indexed views"]:::nomodel
+  t["the store: Eventlog's persistence port (append, read since id, indexed views)"]:::nomodel
   t --> tree[("tree://: one file per event, as today")]:::store
   t --> sq[("sqlite://: one file, in the box or at home")]:::store
   t --> pg[("postgres://: a shared, long-lived database")]:::store
@@ -451,7 +458,7 @@ flowchart LR
 <summary>plain text</summary>
 
 ```text
-Store trait (append, read since id, views) ─┬─ tree://      one file per event, as today
+Eventlog's port (append, read since id, views) ─┬─ tree://      one file per event, as today
                                             ├─ sqlite://    one file, in the box or at home ──► the daemon's mirror ──► views, restore
                                             └─ postgres://  a shared database, no mirror needed
 ```
@@ -462,8 +469,9 @@ A remote instance keeps its authoritative store in its box (`sqlite://`) and the
 at home; the mirror is what the UIs read and what seeds a new box when the old one is gone. An
 organization with a database sets `store: postgres://` on the instance and the daemon, and no mirror
 is needed. Secrets never enter the config: it names them (`secret:<name>`), the daemon resolves them
-from its secrets source (an age-encrypted file by default) and passes them to the placement as
-sealed slots.
+from its secrets source (Connectors for access tokens, the Secrets service, or an encrypted local
+file on a single host, named explicitly) and passes them to the placement as sealed slots; a
+session's box holds one slot, the model token, and forge writes keep going through the gates route.
 
 ### No separate maintainer
 
@@ -707,10 +715,11 @@ sees a proposal inside it except in the brief.
 | 2 | the instance API on the runtime's socket; the daemon proxies and serves the dashboard once; `-dashboard.service` retired | start the old dashboard unit | instance-api |
 | 3 | federated views and `conductor tui` read-only | nothing to undo | federated-views, tui-readonly |
 | 4 | `globals` with precedence, `config show --effective`, `PUT /v1/config` | keys stay valid at the instance level | config-globals |
-| 5 | `Store` trait with `tree` and `sqlite`; the daemon's mirror; `instance restore` | `store: tree://` | store-trait, store-mirror |
+| 5 | the store through Eventlog's port with `tree` and `sqlite`; the daemon's mirror; `instance restore` | `store: tree://` | store-trait, store-mirror |
 | 6 | `placement: substrate` local with sealed secrets from the daemon's secrets source | `placement: host` | placement-substrate-local, secrets-source |
 | 7 | `placement: substrate` remote over HTTPS; attach as a stream | local placement | placement-substrate-remote |
-| 8 | `postgres` backend | sqlite | store-postgres |
+| 8 | the `postgres` adapter | sqlite | store-postgres |
+| 8a | `placement: loom` for run-to-exit workers, through Agency where it exists | substrate placement | placement-loom |
 | 9 | host roles started by the daemon; the maintainer retired into an instance; `instances/{name}/upgrade` with rollback | the old task lines | host-roles-by-daemon, instance-upgrade |
 | 10 | `placement: mantle` | substrate placement | placement-mantle |
 | 11 | the tuner with an empty grant; TUI settings editor | an empty grant; read-only TUI | tuner |
@@ -727,8 +736,10 @@ Steps 1 to 5 move no session: the host keeps working as today throughout.
 
 | question | default without an answer |
 |---|---|
+| ADR 0105 routes run starts through Agency, whose API lacks what a run here needs. Direct placements now, Agency later? | yes: direct now; `loom` through Agency as soon as its API starts a run and reports its exit |
+| Is `loom` for run-to-exit workers only, with controllers and the supervisor on `substrate` or `mantle`? | yes |
 | For a remote instance, is the authoritative store in the box with a mirror at home, or a shared database? | in the box with a mirror; a database when `store: postgres://` is set |
 | Is the dashboard served by the daemon or deployed separately? | by the daemon at `/`, and deployable elsewhere against a daemon URL |
-| The secrets source: an age file, the OS keyring, or the environment? | an age file named in `daemon.secrets` |
+| The secrets source: Connectors, the Secrets service, or an encrypted local file? | the local file on a single host; Connectors where it is deployed |
 | Does one controller per instance keep a tree per repository, or does it work in the workers' trees only? | workers' trees only; the controller has no repository tools |
 | Which keys go into the first tuning grant? | none; the tuner proposes and the brief shows the proposals |
