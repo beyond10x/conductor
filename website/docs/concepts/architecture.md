@@ -1,9 +1,9 @@
 ---
 title: Architecture, today and next
 sidebar_position: 7
-description: How a conductor host is built today (units, one tmux server per session, the harness's agent list, the Taskfile start tasks, the operator's chat session, attach) and the design of the next architecture (a TUI over tmux, one controller and workers per instance, one supervisor across instances, no separate maintainer, global and instance settings, built-in and custom roles, self-improvement over settings).
+description: How a conductor host is built today (units, one tmux server per session, the harness's agent list, the Taskfile start tasks, the operator's chat session, attach) and the design of the next architecture (a TUI over tmux, one controller and workers per instance, one supervisor across instances, no separate maintainer, global and instance settings, built-in and custom roles, self-improvement over settings; a daemon reconciling instances, federated APIs, confined placements local or remote, an abstracted store).
 lede: Today's host is three mechanisms side by side; the next one is one, a session started by conductor from its config, with a TUI to move between them.
-source: docs/design/conductor.md sections 2, 3, 4, 9 and 12; docs/design/conductor-run.md; docs/design/roles-and-surfaces.md; docs/design/self-improvement.md; Taskfile.yml; crates/conductor/src/session; the operator's design request of 2026-11-07
+source: docs/design/conductor.md sections 2, 3, 4, 9 and 12; docs/design/conductor-run.md; docs/design/roles-and-surfaces.md; docs/design/self-improvement.md; Taskfile.yml; crates/conductor/src/session; docs/design/architecture-next.md; the operator's design requests of 2026-11-07
 ---
 
 Colours in the diagrams: blue is a host role, green a session with a model, grey a process without
@@ -232,11 +232,15 @@ message or by `claude logs <id>`.
 | settings are per instance only | the same thresholds are copied into three instances; a host-wide change is three edits |
 | one controller per repository | an instance with 6 active repositories runs 6 model sessions and 6 trees whether or not they have work |
 | no custom role | a recurring job (a UI pass every day) has no place but a controller's charter |
+| a dashboard per instance | three dashboard units on three ports, one Vue build each, no view across instances but the registry list |
+| the store is files in the instance's state directory | an instance can only run where its files are; a remote or boxed instance has no way to keep its records at home |
+| instances are installed by hand | `conductor init` and `conductor run --install` per instance; nothing compares the config with what runs |
 
 ## Next architecture
 
-The design the operator asked for on 2026-11-07. Each change is a story for the maintainer; the
-migration at the end orders them so that every step is reversible.
+The design the operator asked for on 2026-11-07; the reasoning and the planning-store epic are in
+`docs/design/architecture-next.md` (`epic:architecture-next`). Each change is a story; the migration at
+the end orders them so that every step is reversible.
 
 ### One picture
 
@@ -314,6 +318,153 @@ operator ── chat session ── supervisor (host, one)
 The star stays: a worker talks to its controller, a controller to the supervisor, the supervisor to
 the operator. A controller of one instance never messages another instance's sessions.
 
+### The daemon and the APIs
+
+Not every instance comes with a web UI. Each instance has an HTTP API; one daemon on the control
+host reconciles the instances from the config, federates their APIs into one global API, and every
+UI reads that.
+
+```mermaid
+flowchart TB
+  classDef host fill:#dbeafe,stroke:#1d4ed8,color:#111827
+  classDef model fill:#dcfce7,stroke:#15803d,color:#111827
+  classDef nomodel fill:#e5e7eb,stroke:#4b5563,color:#111827
+  classDef store fill:#ede9fe,stroke:#6d28d9,color:#111827
+  classDef cmd fill:#fce7f3,stroke:#be185d,color:#111827
+  ui["UIs: the dashboard, conductor tui, the CLI, the operator's chat session"]:::cmd
+  ui -->|global API /v1| d
+  subgraph ctl["control host"]
+    d["conductord: reconciles instances from the config, federates the instance APIs, serves the dashboard, hosts supervisor and teacher"]:::nomodel
+    cfg[("conductor.yaml: desired state, in git")]:::store
+    mirror[("mirror of every instance's store")]:::store
+    cfg --> d
+    d --> mirror
+  end
+  style ctl fill:#f8fafc,stroke:#64748b,color:#111827
+  d -->|start, stop, upgrade; proxy /v1/instances/A/*| ra
+  d -->|the same, over HTTPS| rb
+  subgraph ia["instance A, in a box"]
+    ra["runtime: loop, API /v1, sessions"]:::model --- sa[("store, authoritative")]:::store
+  end
+  subgraph ib["instance B, remote box"]
+    rb["runtime: loop, API /v1, sessions"]:::model --- sb[("store, authoritative")]:::store
+  end
+  style ia fill:#f8fafc,stroke:#64748b,color:#111827
+  style ib fill:#f8fafc,stroke:#64748b,color:#111827
+  sa -.->|events since id| mirror
+  sb -.->|events since id| mirror
+```
+
+<details>
+<summary>plain text</summary>
+
+```text
+dashboard ─┐                                         ┌─ instance A, in a box ──────────────┐
+tui       ─┤                                         │ runtime: loop, API /v1, sessions     │
+cli       ─┼─► conductord (control host) ───────────►│ store (authoritative) ─┐             │
+chat      ─┘    reconciles instances from config     └────────────────────────┼─────────────┘
+                global API /v1, serves the dashboard  ┌─ instance B, remote ──┼─────────────┐
+                conductor.yaml (desired state)  ◄─────│ store/events since id ◄┘ (mirror)    │
+                mirror of every instance's store      └─────────────────────────────────────┘
+```
+
+</details>
+
+| component | one per | does |
+|---|---|---|
+| `conductord` | control host | reads the config; starts, stops and restarts instance runtimes so that what runs equals what the config says (every `cadence.reconcile`, on a config change, on a lost runtime); serves `/v1/` on `127.0.0.1:<daemon_port>`; proxies `instances/{name}/*`; federates `sessions`, `decisions`, `unanswered`, `kpis`, `events`, `ask`; serves the dashboard app once; starts the supervisor and teacher; mirrors every instance's store |
+| instance runtime | instance | `conductor instance serve`: the loop, the instance API on a socket in the box (today's dashboard routes under `/v1/`, plus `sessions/{name}/attach`, `deliver`, `restart`, `store/events`), the launcher of the controller, workers and custom roles |
+| UIs | any number | the dashboard (served by the daemon, or deployed elsewhere against a daemon URL), the TUI, the CLI as an API client, the operator's chat session through the supervisor |
+
+An instance that does not answer is a row with `state: unreachable` and its mirror time in every
+federated view, never an error. `conductor ask` becomes `POST /v1/ask`, delivered to the supervisor,
+whose first line names the route.
+
+### Placements: confined, local or remote
+
+conductor implements no sandbox. An instance's `placement` says what runs its runtime and sessions
+and what confines them; the daemon and the config stay on the control host.
+
+```mermaid
+flowchart LR
+  classDef nomodel fill:#e5e7eb,stroke:#4b5563,color:#111827
+  classDef model fill:#dcfce7,stroke:#15803d,color:#111827
+  classDef custom fill:#fef3c7,stroke:#b45309,color:#111827
+  d["conductord"]:::nomodel
+  d -->|systemd units, as today| h["placement: host"]:::model
+  d -->|substrate-daemon socket: bubblewrap, cgroup, sealed secrets| sl["placement: substrate, local"]:::model
+  d -->|HTTPS with an Identity token| sr["placement: substrate, remote host; oci, Docker, Firecracker as substrate ships them"]:::model
+  d -->|a Session manifest, mantle start| m["placement: mantle, a whole worker"]:::custom
+```
+
+<details>
+<summary>plain text</summary>
+
+```text
+conductord ──systemd units, as today────────────────────────► placement: host
+           ──substrate-daemon socket (bubblewrap, cgroup)─────► placement: substrate, local
+           ──HTTPS + Identity token──────────────────────────► placement: substrate, remote (oci, Docker, Firecracker as shipped)
+           ──Session manifest, mantle start──────────────────► placement: mantle (a whole worker)
+```
+
+</details>
+
+| placement | confinement | transport |
+|---|---|---|
+| `host` | today's systemd slice and units: cpu weight, memory, tasks; no write fence | Unix socket |
+| `substrate`, local | substrate's `linux`/`systemd` adapter: bubblewrap plus a delegated cgroup; read-only roots; one writable workspace; cpu, memory, pids, storage; default-deny egress with the forge and model hosts; credentials as sealed memory slots, never in argv or env | the substrate daemon's socket |
+| `substrate`, remote | the same on another host; `oci` where it ships; Docker and Firecracker drivers when substrate ships them | HTTPS/WSS with an Identity token |
+| `mantle` | a whole worker (EC2, KubeVirt) from a `Session` manifest: repositories, agent kind, resources, network capabilities | mantle's forwarded socket |
+
+A placement that cannot give the box the profile asks for refuses with a name; `strict` starts
+nothing and records why, `report` falls back to `host` and records that. Inside every box the
+sessions keep tmux, so attach, deliver and the typescript work unchanged.
+
+### State: four kinds, four homes
+
+Config is desired state and is not in the store; the store keeps what happened, including every
+config change.
+
+| kind | examples | lives | authoritative copy | survives the box |
+|---|---|---|---|---|
+| config | `conductor.yaml`: instances, placements, roles, settings, secret names | with the daemon, in a git repository | the file | yes |
+| records (the store) | decisions, dispatches, readings, findings, charters, hand-offs, config changes, reconciliations | with the instance that wrote them, through the `Store` trait | the instance's store; the daemon keeps a read-only mirror | the mirror does |
+| runtime state | sessions, sockets, envelopes, leases, typescripts | inside the box | the box | no; rebuilt from records |
+| cache | exports of `origin/main`, build caches | inside the box | none | no |
+
+```mermaid
+flowchart LR
+  classDef store fill:#ede9fe,stroke:#6d28d9,color:#111827
+  classDef model fill:#dcfce7,stroke:#15803d,color:#111827
+  classDef nomodel fill:#e5e7eb,stroke:#4b5563,color:#111827
+  classDef cmd fill:#fce7f3,stroke:#be185d,color:#111827
+  t["Store trait: append, read since id, indexed views"]:::nomodel
+  t --> tree[("tree://: one file per event, as today")]:::store
+  t --> sq[("sqlite://: one file, in the box or at home")]:::store
+  t --> pg[("postgres://: a shared, long-lived database")]:::store
+  sq -.->|store/events since id, every cadence.mirror| mirror[("the daemon's mirror")]:::store
+  mirror --> ui["federated views, dashboard, TUI"]:::cmd
+  mirror --> restore["conductor instance restore: seed a new box"]:::cmd
+```
+
+<details>
+<summary>plain text</summary>
+
+```text
+Store trait (append, read since id, views) ─┬─ tree://      one file per event, as today
+                                            ├─ sqlite://    one file, in the box or at home ──► the daemon's mirror ──► views, restore
+                                            └─ postgres://  a shared database, no mirror needed
+```
+
+</details>
+
+A remote instance keeps its authoritative store in its box (`sqlite://`) and the daemon mirrors it
+at home; the mirror is what the UIs read and what seeds a new box when the old one is gone. An
+organization with a database sets `store: postgres://` on the instance and the daemon, and no mirror
+is needed. Secrets never enter the config: it names them (`secret:<name>`), the daemon resolves them
+from its secrets source (an age-encrypted file by default) and passes them to the placement as
+sealed slots.
+
 ### No separate maintainer
 
 conductor's own repository is a repository in one instance's `sources`. Its controller plans and
@@ -322,19 +473,19 @@ two things:
 
 - a built-in worker role `releaser` (version, changelog, tag, forge Release, announcement) that any
   repository can use;
-- one host step, `conductor self-install <tag>` under the supervisor's grant: install the released
-  binary, run `conductor doctor`, restart the loops one instance at a time, and roll back to the
-  previous binary when a loop does not come up. The supervisor runs it after a release; the
-  operator sees it in the daily brief.
+- one daemon route, `POST /v1/instances/{name}/upgrade` under the supervisor's grant: install the
+  released binary at the instance's placement, restart the runtime, run `conductor doctor` inside,
+  and roll back when the runtime does not answer. The supervisor runs it one instance at a time
+  after a release; the operator sees it in the daily brief.
 
 The findings a session files about conductor (`conductor finding file-finding`) go to that
 repository's planning store, as today.
 
 ### Every session is started by conductor
 
-One start form for every role: `conductor session start --instance <i> --role <role>`. It writes the
-settings file, starts one tmux server in the instance's slice (the host roles in `conductor_host.slice`),
-measures the box and writes the envelope. `claude --bg`, `task supervisor:start` and the adapters
+One start form for every role: `conductor session start --instance <i> --role <role>`, answered by
+the instance's runtime at its placement (the host roles by the daemon in `conductor_host.slice`). It
+writes the settings file, starts one tmux server in the box, measures it and writes the envelope. `claude --bg`, `task supervisor:start` and the adapters
 under `~/.claude/agents/` go away; the harness view (`claude agents`) stays a diagnostic.
 
 ```mermaid
@@ -464,13 +615,15 @@ conductor config show --effective --instance <i>   every key with the level it c
 
 | level | file section | holds |
 |---|---|---|
-| global | `globals` | the defaults every instance starts from: harness, models per role, cadence, thresholds, disk, accounts, retention, the announcement hook |
-| instance | `instances[].*` | overrides of any global key; sources, checkouts, records, state, cache, dashboard port, session prefix, the instance's roles |
+| daemon | `daemon` | port and TLS listener, `cadence.reconcile`, `cadence.mirror`, the secrets source, the dashboard's served path |
+| global | `globals` | the defaults every instance starts from: harness, models per role, cadence, thresholds, store backend, confinement limits, retention, the announcement hook |
+| instance | `instances[].*` | overrides of any global key; `placement`, `store`, sources, checkouts, records, session prefix, the instance's roles |
 | role | `roles[].*` (under `globals` or an instance) | profile, model, settings, tools, writable set, network, limits, schedule |
 
 Precedence is role over instance over global. `conductor config show --effective --instance <i>`
 prints every key with the level it came from. Today's `instances[].thresholds` keeps working: a key
-set on an instance is an override.
+set on an instance is an override. `PUT /v1/config` validates, writes, commits to the config
+repository with caller and reason, records `config-changed` and reconciles.
 
 ### Built-in and custom roles
 
@@ -548,16 +701,21 @@ sees a proposal inside it except in the brief.
 
 ### Migration, each step reversible
 
-| step | change | reversible by |
-|---|---|---|
-| 1 | `conductor_host.slice`; the supervisor and teacher as roles in `globals.roles`, started by `conductor session start --role supervisor`; `task supervisor:start` calls it | the old task line |
-| 2 | `conductor tui` read-only: instances, sessions, attach, watch, log | nothing to undo |
-| 3 | `globals` with precedence; `config show --effective` | keys stay valid at the instance level |
-| 4 | `roles[].schedule` and `scope`; the loop starts scheduled roles | remove the entry |
-| 5 | one controller per instance; today's repository controllers become `implementer` workers it starts | `controllers.per_repository: true` keeps today's form |
-| 6 | the conductor repository in an instance; `releaser` role; `conductor self-install`; `conductor-dev` retired | the `conductor-dev` role stays accepted for one release |
-| 7 | TUI settings editor, `d`, `r`, `k` | read-only TUI |
-| 8 | `tuner` with an empty grant; the operator fills `globals.tuning` | an empty grant |
+| step | change | reversible by | story |
+|---|---|---|---|
+| 1 | `conductor daemon serve`: reconcile instances from the config, `GET /v1/instances`; the registry file becomes derived | stop the daemon, run the units by hand | daemon-reconcile |
+| 2 | the instance API on the runtime's socket; the daemon proxies and serves the dashboard once; `-dashboard.service` retired | start the old dashboard unit | instance-api |
+| 3 | federated views and `conductor tui` read-only | nothing to undo | federated-views, tui-readonly |
+| 4 | `globals` with precedence, `config show --effective`, `PUT /v1/config` | keys stay valid at the instance level | config-globals |
+| 5 | `Store` trait with `tree` and `sqlite`; the daemon's mirror; `instance restore` | `store: tree://` | store-trait, store-mirror |
+| 6 | `placement: substrate` local with sealed secrets from the daemon's secrets source | `placement: host` | placement-substrate-local, secrets-source |
+| 7 | `placement: substrate` remote over HTTPS; attach as a stream | local placement | placement-substrate-remote |
+| 8 | `postgres` backend | sqlite | store-postgres |
+| 9 | host roles started by the daemon; the maintainer retired into an instance; `instances/{name}/upgrade` with rollback | the old task lines | host-roles-by-daemon, instance-upgrade |
+| 10 | `placement: mantle` | substrate placement | placement-mantle |
+| 11 | the tuner with an empty grant; TUI settings editor | an empty grant; read-only TUI | tuner |
+
+Steps 1 to 5 move no session: the host keeps working as today throughout.
 
 ### Decided
 
@@ -569,5 +727,8 @@ sees a proposal inside it except in the brief.
 
 | question | default without an answer |
 |---|---|
+| For a remote instance, is the authoritative store in the box with a mirror at home, or a shared database? | in the box with a mirror; a database when `store: postgres://` is set |
+| Is the dashboard served by the daemon or deployed separately? | by the daemon at `/`, and deployable elsewhere against a daemon URL |
+| The secrets source: an age file, the OS keyring, or the environment? | an age file named in `daemon.secrets` |
 | Does one controller per instance keep a tree per repository, or does it work in the workers' trees only? | workers' trees only; the controller has no repository tools |
 | Which keys go into the first tuning grant? | none; the tuner proposes and the brief shows the proposals |
