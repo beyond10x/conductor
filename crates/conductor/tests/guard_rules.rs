@@ -6365,11 +6365,7 @@ fn under_the_direct_route_a_checkout_three_folders_deep_writes_its_own_merge_req
             "glab mr create -R example-group/frontends/widget-ui --fill --yes",
             "glab mr merge 3 --auto-merge --yes -R example-group/frontends/widget-ui",
         ] {
-            assert_verdict(
-                &bash_by(&home, &places, &cwd, command),
-                Verdict::Allow,
-                "",
-            );
+            assert_verdict(&bash_by(&home, &places, &cwd, command), Verdict::Allow, "");
         }
         assert_verdict(
             &bash_by(

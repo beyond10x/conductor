@@ -70,8 +70,11 @@ fn configured() {
             let dir = PathBuf::from(env!("CARGO_TARGET_TMPDIR")).join("retention-config");
             fs::create_dir_all(&dir).expect("create the fixture copy's directory");
             file = dir.join(format!("conductor-{}.yaml", std::process::id()));
-            fs::write(&file, text.replace("name: retention", &format!("name: {name}")))
-                .expect("write the fixture copy");
+            fs::write(
+                &file,
+                text.replace("name: retention", &format!("name: {name}")),
+            )
+            .expect("write the fixture copy");
         }
         config::set_active(Some(&file))
             .expect("the retention fixture is a config file this build reads");
