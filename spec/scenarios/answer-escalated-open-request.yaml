@@ -1,0 +1,50 @@
+# An open request is not the operator's to answer: `AnswerEscalatedRequest` on it is refused
+# (`wrong-state`), and the request stays open. The synthesized suite owes no scenario for this
+# outcome (ESS-SYNTH-008: the command is selected by the decision row it cites).
+type: ess-scenario/1
+domain: conductor.decision
+scenario: answer-escalated-open-request
+summary: An open request answered as escalated is refused, and stays open.
+
+timeline:
+  - at: 2026-10-15T09:00:00Z
+    command: conductor.decision.RaiseDecisionRequest
+    actor: conductor.decision.RepositoryController
+    input:
+      request_id: REQ-open-1
+      repository: cortex
+      question: Which store backs the cache?
+      options: "A: keep the file store; B: move to the tree store"
+      recommendation: B
+      raised_at: 2026-10-15T09:00:00Z
+    outcome: raised
+
+  - at: 2026-10-15T09:00:01Z
+    command: conductor.decision.RecordConductorDecision
+    actor: conductor.decision.Conductor
+    input:
+      decision_id: DEC-open-1
+      decision_class: C
+      question: Which store backs the cache?
+      options: "A: keep the file store; B: move to the tree store"
+      choice: B
+      reason: the tree store is the one every other cache uses
+      evidence: none
+      decided_at: 2026-10-15T09:00:01Z
+    outcome: recorded
+
+  - at: 2026-10-15T09:00:02Z
+    command: conductor.decision.AnswerEscalatedRequest
+    actor: conductor.decision.Operator
+    input:
+      request_id: REQ-open-1
+      decision_id: DEC-open-1
+    outcome: wrong-state
+    error:
+      name: conductor.decision.RequestStateConflict
+
+assert:
+  - view: conductor.decision.Requests
+    contains:
+      request_id: REQ-open-1
+      state: Open

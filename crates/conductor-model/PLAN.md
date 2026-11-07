@@ -1,13 +1,13 @@
 <!--
   generated from conductor v1
-  contract digest d71bc6a0e9b5fe9fc6bc5c5688eda0da5c83319d860e4c9bb094489c259c4326
+  contract digest 1415de4b009f7f7dd976baab2683eec2d6e38ef52e8291900bcb885d93e9d756
   do not edit: regenerate with `ess synthesize --layout crate`
 -->
 # Synthesis plan — conductor v1
 
 Scope: `component-skeletons`, laid out as `crate`, planned by `ess-synth`. Regenerate with `ess synthesize --layout crate`.
 
-687 capabilities: **670 generated**, **4 obligations**, **13 refused**. An obligation is yours to implement against its contract; a refusal is a fact about this synthesis scope, not about the specification.
+688 capabilities: **671 generated**, **4 obligations**, **13 refused**. An obligation is yours to implement against its contract; a refusal is a fact about this synthesis scope, not about the specification.
 
 ## Generated
 
@@ -536,6 +536,7 @@ Scope: `component-skeletons`, laid out as `crate`, planned by `ess-synth`. Regen
 | event type | `conductor.session.MessageDelivered` |
 | event type | `conductor.session.RunTickRecorded` |
 | event type | `conductor.tool.ToolCallRecorded` |
+| error type | `conductor.config.StateDirNotInstance` |
 | error type | `conductor.decision.ChoiceInvalid` |
 | error type | `conductor.decision.DecisionExists` |
 | error type | `conductor.decision.DecisionNotFound` |

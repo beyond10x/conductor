@@ -892,3 +892,20 @@ types:
       - {name: target, type: String}
       - {name: refusal, type: conductor.config.UpgradeRefusal}
       - {name: detail, type: String}
+
+errors:
+  # A command that writes the records refused before it writes anything: the config file names an
+  # instance, and `--state-dir` names another directory than that instance's `state`, so the records
+  # beside that state would not hold what the store holds (`crates/conductor/src/state.rs`,
+  # `refuse_other`). A view, and a command that writes only the store, may take another directory.
+  - name: conductor.config.StateDirNotInstance
+    summary: >
+      `--state-dir` names a directory that is not the state of the instance the config file names,
+      and the command writes that instance's records; nothing was written.
+    fields:
+      - name: state_dir
+        type: String
+      - name: instance
+        type: conductor.config.InstanceName
+      - name: state
+        type: String
