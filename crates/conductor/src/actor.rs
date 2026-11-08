@@ -43,10 +43,34 @@ const OPERATOR: &str = "operator";
 /// The actor this process fixed with [`choose`], if it did.
 static CHOSEN: RwLock<Option<Actor>> = RwLock::new(None);
 
-/// A person at the terminal or on the dashboard: the operator, named by the Unix user (design
-/// § 5.3: "on a single host with no Identity, one operator is implied by the Unix user").
+thread_local! {
+    /// The operator a write on the instance API is done for, while [`as_operator`] runs it.
+    static WRITING_FOR: std::cell::RefCell<Option<String>> = const { std::cell::RefCell::new(None) };
+}
+
+/// Runs `write` with [`human`] naming the operator `name`, when given (`story:instance-api`): the
+/// operator the daemon admitted for a write on the instance API, so the record of the write names
+/// that operator rather than the Unix user the runtime runs as. The name holds on this thread only,
+/// and only while `write` runs.
+pub fn as_operator<T>(name: Option<&str>, write: impl FnOnce() -> T) -> T {
+    let name = name
+        .map(str::trim)
+        .filter(|name| !name.is_empty())
+        .map(str::to_owned);
+    let before = WRITING_FOR.with(|held| held.replace(name));
+    let done = write();
+    WRITING_FOR.with(|held| held.replace(before));
+    done
+}
+
+/// A person at the terminal or on the dashboard: the operator a write on the instance API is done
+/// for ([`as_operator`]), else the one named by the Unix user (design § 5.3: "on a single host
+/// with no Identity, one operator is implied by the Unix user").
 #[must_use]
 pub fn human() -> Actor {
+    if let Some(name) = WRITING_FOR.with(|held| held.borrow().clone()) {
+        return operator(&name);
+    }
     let name = std::env::var("USER")
         .ok()
         .filter(|name| !name.trim().is_empty())

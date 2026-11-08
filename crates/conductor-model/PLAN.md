@@ -1,13 +1,13 @@
 <!--
   generated from conductor v1
-  contract digest 88f1c9e5b4ef578aa56eea73a14e4e509b870a0735bb11ab37ea1e0e49124b8a
+  contract digest c0e5f57876522191690b7b7fa0b710a15b36d5bf4a50b987946bb580f924bf53
   do not edit: regenerate with `ess synthesize --layout crate`
 -->
 # Synthesis plan — conductor v1
 
 Scope: `component-skeletons`, laid out as `crate`, planned by `ess-synth`. Regenerate with `ess synthesize --layout crate`.
 
-932 capabilities: **920 generated**, **12 obligations**, **0 refused**. An obligation is yours to implement against its contract; a refusal is a fact about this synthesis scope, not about the specification.
+934 capabilities: **922 generated**, **12 obligations**, **0 refused**. An obligation is yours to implement against its contract; a refusal is a fact about this synthesis scope, not about the specification.
 
 ## Generated
 
@@ -24,6 +24,7 @@ Scope: `component-skeletons`, laid out as `crate`, planned by `ess-synth`. Regen
 | domain type | `conductor.config.Cadence` |
 | domain type | `conductor.config.Catalog` |
 | domain type | `conductor.config.CatalogNames` |
+| domain type | `conductor.config.ChangeConfig` |
 | domain type | `conductor.config.Checkouts` |
 | domain type | `conductor.config.CommandWord` |
 | domain type | `conductor.config.ConductorSession` |
@@ -206,6 +207,7 @@ Scope: `component-skeletons`, laid out as `crate`, planned by `ess-synth`. Regen
 | domain type | `conductor.instance.Reconciliation.State` |
 | domain type | `conductor.instance.ReconciliationId` |
 | domain type | `conductor.instance.ServeDaemon` |
+| domain type | `conductor.instance.UpgradeInstances` |
 | domain type | `conductor.observation.BlockerObservation.State` |
 | domain type | `conductor.observation.Board.State` |
 | domain type | `conductor.observation.BoardId` |
@@ -216,7 +218,6 @@ Scope: `component-skeletons`, laid out as `crate`, planned by `ess-synth`. Regen
 | domain type | `conductor.observation.DailySeries.State` |
 | domain type | `conductor.observation.DailySeriesId` |
 | domain type | `conductor.observation.DashboardMemory` |
-| domain type | `conductor.observation.DashboardServe` |
 | domain type | `conductor.observation.EnvelopeProvider` |
 | domain type | `conductor.observation.FailureClass` |
 | domain type | `conductor.observation.GarbageOutcome` |
@@ -776,6 +777,7 @@ Scope: `component-skeletons`, laid out as `crate`, planned by `ess-synth`. Regen
 | error type | `conductor.observation.SnapshotNotFound` |
 | error type | `conductor.operator.ActorNotHuman` |
 | error type | `conductor.operator.AlreadyJoined` |
+| error type | `conductor.operator.GrantMissing` |
 | error type | `conductor.operator.NotJoined` |
 | error type | `conductor.placement.BoxNotFound` |
 | error type | `conductor.placement.BoxStateConflict` |

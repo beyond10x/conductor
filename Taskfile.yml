@@ -176,69 +176,18 @@ tasks:
         done
 
   dashboard:
-    desc: Start the active instance's dashboard on 127.0.0.1 at its dashboard_port in conductor config show (7313 for the file's first instance and one more for each later one, unless the file writes it) and print its URL; the dashboard serves that instance (CONDUCTOR_INSTANCE); where systemctl is on PATH as the instance's user service, <session_prefix>-conductor-dashboard or conductor-dashboard without a prefix, unless it is active, elsewhere in the background with nohup, its pid in dashboard.pid and its output in dashboard.log of the instance's state directory (conductor config show), refusing while that pid runs
+    desc: Print the URL of the active instance's dashboard; conductord serves the app and every instance's API on 127.0.0.1 at daemon.port in conductor config show (7300 unless the file writes it), and the page names the instance in ?instance=; start the daemon first, no per-instance dashboard process runs
     silent: true
     vars:
-      STATE:
-        sh: conductor config show --format json | jq -r '.instances[0].state'
       INSTANCE:
-        sh: conductor config show --format json | jq -r '.instances[0].name'
+        sh: conductor config show --format json | jq -r '.instances[0].name // empty'
       PORT:
-        sh: conductor config show --format json | jq -r '.instances[0].dashboard_port // empty'
-      UNIT:
-        sh: conductor config show --format json | jq -r '.instances[0] | if .session_prefix then .session_prefix + "-conductor-dashboard" else "conductor-dashboard" end'
+        sh: conductor config show --format json | jq -r '.daemon.port // 7300'
     preconditions:
-      - sh: test -n {{shellQuote .PORT}}
-        msg: conductor config show names no dashboard_port for the instance
-    cmds:
-      - |
-        if command -v systemctl >/dev/null 2>&1; then
-          set -- --setenv=PATH="$PATH" --setenv=CONDUCTOR_INSTANCE={{shellQuote .INSTANCE}}
-          if [ -n "${CONDUCTOR_CONFIG:-}" ]; then set -- "$@" --setenv=CONDUCTOR_CONFIG="$CONDUCTOR_CONFIG"; fi
-          systemctl --user is-active --quiet {{shellQuote .UNIT}} || systemd-run --user --unit {{shellQuote .UNIT}} --collect "$@" "$(command -v conductor)" dashboard serve --port {{shellQuote .PORT}}
-          exit
-        fi
-        state={{shellQuote .STATE}}
-        pidfile="$state/dashboard.pid"
-        if [ -f "$pidfile" ]; then
-          pid=$(cat "$pidfile")
-          if ps -p "$pid" -o args= 2>/dev/null | grep -q 'dashboard serve'; then
-            echo "the dashboard runs already as pid $pid ($pidfile); see task dashboard:stop" >&2
-            exit 1
-          fi
-        fi
-        mkdir -p "$state"
-        pid=$(CONDUCTOR_INSTANCE={{shellQuote .INSTANCE}} sh -c 'nohup "$0" dashboard serve --port "$2" </dev/null >>"$1" 2>&1 & echo $!' "$(command -v conductor)" "$state/dashboard.log" {{shellQuote .PORT}})
-        echo "$pid" > "$pidfile"
-        echo "the dashboard runs as pid $pid; its output is in $state/dashboard.log"
-      - echo Open http://127.0.0.1:{{shellQuote .PORT}}/
-
-  dashboard:stop:
-    desc: Stop the active instance's dashboard; where systemctl is on PATH its user service, <session_prefix>-conductor-dashboard or conductor-dashboard without a prefix, elsewhere the pid in dashboard.pid of the instance's state directory (conductor config show), whose file it removes
-    vars:
-      STATE:
-        sh: conductor config show --format json | jq -r '.instances[0].state'
-      UNIT:
-        sh: conductor config show --format json | jq -r '.instances[0] | if .session_prefix then .session_prefix + "-conductor-dashboard" else "conductor-dashboard" end'
-    preconditions:
-      - sh: test -n {{shellQuote .UNIT}}
+      - sh: test -n {{shellQuote .INSTANCE}}
         msg: conductor config show names no instance
     cmds:
-      - |
-        if command -v systemctl >/dev/null 2>&1; then
-          systemctl --user stop {{shellQuote .UNIT}}
-          exit
-        fi
-        pidfile={{shellQuote .STATE}}/dashboard.pid
-        if [ ! -f "$pidfile" ]; then
-          echo "no dashboard pid file at $pidfile; nothing to stop"
-          exit 0
-        fi
-        pid=$(cat "$pidfile")
-        if ps -p "$pid" -o args= 2>/dev/null | grep -q 'dashboard serve'; then
-          sh -c 'kill "$0"' "$pid"
-        fi
-        rm -f "$pidfile"
+      - echo Open http://127.0.0.1:{{.PORT}}/?instance={{.INSTANCE}}
 
   broker:
     desc: Start the active instance's broker (conductor broker serve), which serves each session of the instance on its own socket under broker/ of the instance's state directory, checks every tool call against the session's grant and records it; the broker serves that instance (CONDUCTOR_INSTANCE); where systemctl is on PATH as the instance's user service, <session_prefix>-conductor-broker or conductor-broker without a prefix, unless it is active, elsewhere in the background with nohup, its pid in broker.pid and its output in broker.log of the instance's state directory (conductor config show), refusing while that pid runs
@@ -333,7 +282,7 @@ tasks:
       - npm run build
 
   ui:dev:
-    desc: Serve the dashboard app from source with hot reload on http://127.0.0.1:5173/ (Vite dev mode); its data and answers come from the running dashboard, CONDUCTOR_DASHBOARD (default http://127.0.0.1:7313), so start that first with task dashboard
+    desc: Serve the dashboard app from source with hot reload on http://127.0.0.1:5173/ (Vite dev mode); its /v1/ requests go to the running daemon, CONDUCTOR_DAEMON (default http://127.0.0.1:7300), so start conductord first
     dir: crates/conductor/dashboard
     cmds:
       - npm run dev

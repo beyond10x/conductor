@@ -73,7 +73,7 @@ impl Cache {
         });
     }
 
-    /// The `usage` object of `/data.json` for the last complete measurement, at `now`: the
+    /// The `usage` object of `/v1/data.json` for the last complete measurement, at `now`: the
     /// instant its calls count from, when it was measured, whether the next one runs, the
     /// repository rows, and what could not be read, by repository.
     pub(super) fn view(&self, now: OffsetDateTime) -> Value {

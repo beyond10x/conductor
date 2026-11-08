@@ -35,7 +35,19 @@ dashboard port. `conductor config validate` refuses, by the instance's YAML path
 without a `session_prefix`. The host registry (`instances.json`) that compared the instances of
 every config file on the host is gone in v1: one daemon reads one file.
 
-`conductor config migrate` writes a `session_prefix` into each instance that has none: its name in
+`conductor config migrate` reads a `conductor.config/1` file once and writes it as
+`conductor.config/2`, one note per change on standard output: `version`; each instance's
+`dashboard_port`, `confinement.mode`, `confinement.provider` and `store` dropped;
+`confinement.limits` moved to the instance's `limits`; the instance's `placement` written as the
+name the `/1` file's provider reads as (`systemd`, `none`); and the roles of the old host file
+(`~/.b10x/conductor/host/host.yaml`) moved to `globals.roles`, each without its `session_name`.
+It writes no `daemon` section: the daemon starts only on a `daemon.store` the file writes. The
+converted file is written whole, so its comments are not kept; the old one is kept beside it as
+`<file>.config-1.bak`. A converted file that would not validate is refused, naming each problem,
+and nothing is written; `--check` prints the notes and writes nothing. The daemon refuses a
+`conductor.config/1` file on one line naming `conductor config migrate`.
+
+`conductor config migrate` also writes a `session_prefix` into each instance that has none: its name in
 letters, digits and `-`, with 2, 3, … appended when another instance of the file holds it. It
 rewrites an instance's `session_prefix` line, or adds one after its
 `- name:` line, keeps every other line and comment, and writes nothing when the edited file would
@@ -91,17 +103,21 @@ it for a `conductor.config/2` file.
 | key | type | default | meaning |
 |---|---|---|---|
 | `daemon.port` | port | `7300` | the loopback port of the global API on 127.0.0.1: a whole number from 1 to 65535 |
-| `daemon.tls.listen` | `<host>:<port>` | none (no TLS listener) | the TLS listener, for a dashboard deployed elsewhere and for every client of a daemon on a remote box |
+| `daemon.tls.listen` | `<host>:<port>` | none (no TLS listener) | the TLS listener, for a dashboard deployed elsewhere and for every client of a daemon on a remote box. It serves the same app and `/v1/` as the loopback listener, both at once; every request but the app's files and a CORS preflight carries `Authorization: Bearer`, which the Identity service resolves, and any origin may read with one |
+| `daemon.tls.cert` | path | required with `listen` | the PEM file of the listener's certificate chain |
+| `daemon.tls.key` | path | required with `listen` | the PEM file of the listener's private key |
+| `daemon.tls.identity` | URL | required with `listen` | the Identity service that resolves a bearer (`GET <identity>/v1/access-authority`, audience `conductor`): `https://`, or `http://` on `127.0.0.1`, `localhost` or a `*.svc.cluster.local` name. A principal that is not a person is refused `ActorNotHuman` on a write; an operator is named by the principal's email, else its subject |
 | `daemon.cadence.reconcile` | duration | `60s` | how often the daemon reconciles when nothing else starts a pass |
 | `daemon.store` | store URL | `sqlite:~/.b10x/conductor/conductor.sqlite` | the one store of the deployment, `sqlite:<path>` or `postgres://…` (its password a `secret:<name>`), which the daemon hands to every instance runtime in `$CONDUCTOR_STORE`. A command of the instance on its own `state` opens that URL, else the `daemon.store` the file writes, else `<state>/store.sqlite`; on any other state directory, `<state>/store.sqlite`. `conductor doctor` names the backend and whether it answers |
 | `daemon.secrets.source` | `keychain` \| `remote` | `keychain` | where the `secret:<name>` values resolve: the OS keychain, or the Secrets service |
 | `daemon.secrets.namespace` | string | none | the secrets namespace the names live in |
 | `daemon.secrets.url` | string | none | the Secrets service's address; `remote` only |
-| `daemon.dashboard` | string | `/` | the path the daemon serves the dashboard at |
+| `daemon.dashboard` | string | `/` | the path the daemon serves the dashboard at: on loopback the page carries the daemon's token, the one token a browser holds; the instances' routes are `/v1/instances/<name>/<route>`, proxied to each runtime's socket (`conductor instance serve`, `api.sock` in its state directory, with a token the daemon minted at its start). A write on the global API needs an operator holding its grant (`AnswerDecisions` for answers and the Plan page, `UpgradeInstances` for an upgrade, `ChangeSettings` for settings and `PUT /v1/config`), else it is refused `GrantMissing` naming the operator and the grant; with no `daemon.operators`, the operator the Unix user names holds every grant on loopback |
 | `daemon.operators` | list of operator | `[]` | the deployment's operators, each named once |
 | `daemon.operators[].name` | string | required | the operator's name: the Identity principal, or the Unix user on a single host |
 | `daemon.operators[].role` | string | required | the operator's role in the config, such as `owner` |
 | `daemon.operators[].grants` | list | `[]` | what the operator may do, each once: `answer-decisions`, `change-settings`, `start-instances`, `stop-instances`, `upgrade-instances`, `purge`, `join` |
+| `daemon.upgrade_timeout` | duration | `120s` | how long an upgraded instance runtime (`conductor instance upgrade`, `POST /v1/instances/{name}/upgrade`) has to answer before the daemon rolls it back to its previous binary |
 
 ## Globals
 
@@ -118,25 +134,63 @@ the role, with no instance prefix, and the file may write only that name.
 | `globals.tuning.keys` | list | `[]` | the keys a tuning may change, each a `path` with the `min` and `max` it may set, `min` at or under `max` |
 
 Overrides: a key an instance writes overrides the global value, key by key, and a role's own key
-overrides both (role over instance over global). The reader holds `globals` beside the instances
-and does not apply it to them yet: an instance key the file leaves out still takes conductor's
-built-in default, and `conductor config show --effective`, which prints each key with the level it
-came from, exits 2 (not written yet).
+overrides both (role over instance over global); a key none of them writes is conductor's
+built-in default. An instance's `cadence`, `thresholds` and `limits` start from the global ones,
+key by key. An instance role takes each key it leaves out from the global role of the same name
+(so it may write only `role` and the keys it changes); an instance that writes no `roles` takes
+the built-in roles, each with every key its global role writes. A global role that no instance
+names, such as `supervisor`, stays the daemon's. Every command reads the effective value.
+
+`conductor config show --effective [--instance <i>]` prints every key of the instance with its
+effective value and the level it came from, `default`, `global`, `instance` or `role`: as text,
+one `<path>: <value> (<level>)` line each, a role's key under `roles.<role>.`; with `--format
+json` or `yaml`, the rows of `conductor.config.EffectiveSettings` (`setting_key`
+`<instance>/<role or ->/<path>`, `instance`, `role`, `path`, `value`, `level`).
+
+## Changing a key
+
+`conductor config put --level global|instance|role [--instance <i>] [--role <r>] --path <key>
+[--value <v>] --reason <why>` changes one key of a `conductor.config/2` file at one level
+(`conductor.config.PutConfig`, the function `PUT /v1/config` calls): `--path` is the key under
+`globals`, the instance or the instance's role, its words joined by `.`; `--value` is read as YAML,
+and without it the key is removed at that level, so the level below applies again. A global
+change names no instance and no role, an instance change an instance, a role change both;
+otherwise it is refused (`LevelScopeMismatch`). A role change needs the role in the instance's
+`roles`. The changed file is validated as `config validate` would; a problem refuses the change
+(`ConfigInvalid`), naming its YAML path, and nothing is written. A change by an agent (a
+session) is refused (`ActorNotHuman`) unless `globals.tuning.keys` names the path and the value
+is a number inside its range. An accepted change is written (the whole file, as YAML reads it, so
+its comments are not kept), committed alone to the git checkout the file is in, with the actor in
+the subject and the reason in the body (a file in no checkout is written and not committed), and
+recorded as a `ConfigRevision` (its `ConfigChanged`) in the daemon's store, the URL
+`daemon.store` names, under the tenant `daemon`. The daemon reconciles on its next look at the
+changed file. A commit that fails puts the old text back and records nothing. `PUT /v1/config` on
+the daemon takes the same change as JSON (`level`, `instance`, `role`, `path`, `value`, `reason`)
+from an operator holding `ChangeSettings`, as that operator; it answers the revision, or a refusal
+`422` (`403` for `ActorNotHuman`) with its one line.
+
+## Secrets
+
+The file holds no secret. A value that looks like a token is refused wherever it is; a key whose
+name ends in `token`, `password`, `secret` or `bearer` takes only `secret:<name>` (letters,
+digits, `.`, `_` and `-`), the name the daemon's secrets source keeps the value under; and a
+`daemon.store` URL's password is `secret:<name>`. Anything else is refused by its YAML path,
+without echoing the value.
 
 ## Removed in `conductor.config/2`
 
 | key | why | in a `conductor.config/1` file |
 |---|---|---|
-| `instances[].dashboard_port` | the daemon serves the one dashboard, at `daemon.dashboard` | read as before: the port `conductor dashboard serve` binds without `--port`; absent, 7313 plus the instance's position in the file |
+| `instances[].dashboard_port` | the daemon serves the one dashboard, at `daemon.dashboard` | read and not used: no per-instance dashboard runs (`conductor dashboard serve` is gone) |
 | `instances[].confinement` (`mode`, `provider`, `limits`) | an instance's box is its `placement` (a Substrate box); its limits are the instance's `limits` | read as before (Confinement, below); the instance's `placement` is named after the provider and its `limits` are `confinement.limits` |
 | `instances[].store` | the store is the deployment's one database, at `daemon.store` | ignored; `conductor config migrate` drops it with one note per instance |
-| `host.yaml`, the host file | the host's roles are `globals.roles` | not read: the maintainer is the instance's own maintainer role |
+| `host.yaml`, the host file | the host's roles are `globals.roles` | read once, by `conductor config migrate`, into `globals.roles`; otherwise not read: the maintainer is the instance's own maintainer role |
 | `instances.json`, the host registry | one daemon reads one file | not read or written |
 
 A `conductor.config/2` file that writes `dashboard_port`, `confinement` or `store` is refused by its YAML
 path, naming why. In a `/2` file an instance's sessions start through the `systemd` provider in
-`report` mode, inside the instance's `limits`, until placements are read; its dashboard port is
-7313 plus its position in the file. `conductor doctor` prints no confinement provider rows.
+`report` mode, inside the instance's `limits`, until placements are read; its dashboard is the
+daemon's page with `?instance=<name>`. `conductor doctor` prints no confinement provider rows.
 
 ## Instance
 
@@ -149,7 +203,7 @@ accepted, defaulted and shown by `config show`.
 | `name` | string | required | all | the instance's name: letters, digits, `.`, `_` and `-`, starting with a letter or digit |
 | `session_prefix` | string | required by `config validate` (`config migrate` writes one) | start tasks, `task dashboard`, `task dashboard:stop`, guard, sessions collector, `controller start-controller`, conductor profile | the prefix of every session the instance starts: conductor is `<prefix>-conductor`, conductor-dev `<prefix>-conductor-dev`, a controller `<prefix>-<repository>`; and of the dashboard's user service, `<prefix>-conductor-dashboard`. Letters, digits and `-`, starting and ending with a letter or digit. `config validate` refuses an instance without one; for one release such an instance still runs, its sessions under the bare names `conductor`, `conductor-dev` and `<repository>`, its slice `conductor.slice` and its service `conductor-dashboard`. No two instances of the file share one. A controller messages only its instance's conductor and conductor only its instance's sessions; an instance that names no `conductor` role is served by the `default` instance's conductor, which its controllers message and which messages its sessions. A session belongs to the instance whose name for the controller of the repository it works in it carries, else to the instance whose prefix it carries; the sessions collector, the watch and the dashboard keep another instance's session out |
 | `placement` | string | required in `conductor.config/2`; in a `/1` file the confinement provider's name | nothing yet | the placement the instance's box is opened at (a Substrate box) |
-| `dashboard_port` | port | 7313 plus the instance's position in the file (7313 for the first) | `task dashboard` | `conductor.config/1` only, removed in `/2`: the port on 127.0.0.1 the instance's dashboard serves: a whole number from 1 to 65535. No two instances share one, counting the port filled for an instance that writes none, so each instance's dashboard binds its own |
+| `dashboard_port` | port | 7313 plus the instance's position in the file (7313 for the first) | nothing | `conductor.config/1` only, removed in `/2`: read and checked (a whole number from 1 to 65535, no two instances sharing one) but not used, since the daemon serves the one dashboard |
 | `sources` | list of source | required | collectors, watch, guard | where the repositories come from (below); at least one |
 | `checkouts.root` | path | required | collectors, watch, guard, dashboard, `resource usage`, `task trust`, `config workspace` | the directory holding the checkouts |
 | `checkouts.trees` | path | required | watch, guard, dashboard, `resource usage` | the directory holding their managed worktrees |

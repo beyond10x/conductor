@@ -262,8 +262,8 @@
     },
     {
       "area": "Dashboard",
-      "detail": "The dashboard listens on a free port of 127.0.0.1 and prints its address first.",
-      "label": "Loopback only",
+      "detail": "Each instance serves the dashboard's routes on its own socket and prints it first; conductord serves the page on loopback.",
+      "label": "Instance API",
       "status": "shipped"
     },
     {

@@ -369,9 +369,9 @@ pub const CAPABILITIES: &[Capability] = &[
     ),
     shipped(
         DASHBOARD,
-        "Loopback only",
-        "The dashboard listens on a free port of 127.0.0.1 and prints its address first.",
-        "crates/conductor/tests/dashboard.rs::the_binary_listens_on_a_free_port_of_127_0_0_1_and_says_so_first",
+        "Instance API",
+        "Each instance serves the dashboard's routes on its own socket and prints it first; conductord serves the page on loopback.",
+        "crates/conductor/tests/dashboard.rs::the_binary_serves_the_instance_api_on_its_socket_and_says_so_first",
         None,
     ),
     shipped(

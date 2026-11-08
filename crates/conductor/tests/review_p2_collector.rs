@@ -79,6 +79,7 @@ fn watch_uses_each_repositories_github_owner() {
         from_file: true,
         others: vec![],
         default: None,
+        daemon_port: config::DAEMON_PORT,
     };
     let mut sources = watch::Sources::new(root.join("home"), &active, root.join("state"));
     let agents = root.join("agents.json");

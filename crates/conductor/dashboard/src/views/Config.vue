@@ -367,22 +367,22 @@ const sourceLine = computed(() =>
     <PanelState v-else-if="page === null" state="loading" card>reading /api/config…</PanelState>
     <div v-else class="layout">
       <aside class="side" aria-label="Instances and sections">
-        <h2 class="side-h">Instances on this host</h2>
+        <h2 class="side-h">Instances of the daemon</h2>
         <ul class="insts">
           <li v-for="instance in page.instances" :key="instance.name">
             <a
-              :href="`http://127.0.0.1:${instance.dashboard_port}/#/config`"
+              :href="`?instance=${encodeURIComponent(instance.name)}#/config`"
               :aria-current="instance.current ? 'page' : undefined"
               class="inst"
             >
               {{ instance.name }}
               <small class="muted"
-                >:{{ instance.dashboard_port }} · {{ instance.session_prefix ?? 'no prefix' }} ·
+                >{{ instance.session_prefix ?? 'no prefix' }} ·
                 {{ instance.forge || 'forge unknown' }}</small
               >
             </a>
           </li>
-          <li v-if="page.instances.length === 0" class="small muted">The host registry lists none.</li>
+          <li v-if="page.instances.length === 0" class="small muted">The config file lists none.</li>
         </ul>
         <h2 class="side-h">Sections</h2>
         <nav class="secnav" aria-label="Sections">

@@ -13,13 +13,14 @@
 //!   line names only the instance's sessions.
 //! - "Recent decisions" lists decisions only, newest first, one row per decision.
 //!
-//! The cases serve [`dashboard::serve_over`] in this process over a store under this test
+//! The cases serve [`served::serve`] in this process over a store under this test
 //! target's temporary directory; the controllers are started and the requests raised with the
 //! built binary over that store, under a config file of the case's own whose instance carries a
 //! `session_prefix`. Nothing is read from the environment.
 
 mod active;
 mod common;
+mod served;
 
 use std::ffi::OsString;
 use std::fs;
@@ -29,7 +30,7 @@ use std::path::{Path, PathBuf};
 use std::process::Stdio;
 use std::time::Duration;
 
-use conductor_cli::dashboard::{self, Sources};
+use conductor_cli::dashboard::Sources;
 use serde_json::{Value, json};
 use time::format_description::well_known::Rfc3339;
 use time::{OffsetDateTime, UtcOffset};
@@ -246,7 +247,7 @@ impl Case {
         let listener = TcpListener::bind("127.0.0.1:0").expect("bind a free port");
         let port = listener.local_addr().expect("the bound address").port();
         let (sources, state) = (self.sources(), self.state());
-        std::thread::spawn(move || dashboard::serve_over(listener, sources, Some(state)));
+        served::serve(listener, sources, Some(state));
         port
     }
 }
@@ -348,7 +349,7 @@ fn the_rows_are_the_instance_s_sessions_from_its_records_with_their_open_dispatc
     let text: String = lines.iter().map(|line| format!("{line}\n")).collect();
     write(&case.records().join("dispatches/2026-10.jsonl"), &text);
     let port = case.start();
-    let data = get(port, "/data.json");
+    let data = get(port, "/v1/instances/example-org/data.json");
 
     assert_eq!(
         names(&data),
@@ -393,7 +394,7 @@ fn the_rows_are_the_instance_s_sessions_from_its_records_with_their_open_dispatc
 /// an item a decision in the log answered (whether or not anything closed it in the store); a
 /// legacy escalation the log holds and the store does not is not listed. Each row carries the one
 /// action it asks: answer, with the options, for class O; do, with the command, for class H; and
-/// the link to it on the Decisions page. `/api/unanswered` counts the same items.
+/// the link to it on the Decisions page. `/v1/instances/example-org/unanswered` counts the same items.
 #[test]
 fn awaiting_the_operator_is_the_decisions_page_s_open_list_less_what_the_log_answered() {
     let case = Case::new("awaiting");
@@ -427,7 +428,7 @@ fn awaiting_the_operator_is_the_decisions_page_s_open_list_less_what_the_log_ans
     write(&case.records().join("decisions/2026-10.jsonl"), &text);
     let port = case.start();
 
-    let decisions = get(port, "/api/decisions");
+    let decisions = get(port, "/v1/instances/example-org/decisions");
     let open: Vec<&str> = decisions["open"]
         .as_array()
         .expect("open")
@@ -436,7 +437,7 @@ fn awaiting_the_operator_is_the_decisions_page_s_open_list_less_what_the_log_ans
         .collect();
     assert_eq!(open, ["REQ-login", "REQ-release"], "{decisions:#}");
 
-    let data = get(port, "/data.json");
+    let data = get(port, "/v1/instances/example-org/data.json");
     let awaiting = data["awaiting_operator"].as_array().expect("awaiting");
     let ids: Vec<&str> = awaiting
         .iter()
@@ -459,7 +460,7 @@ fn awaiting_the_operator_is_the_decisions_page_s_open_list_less_what_the_log_ans
                "link": "#/decisions/REQ-release"}),
         "{data:#}"
     );
-    let unanswered = get(port, "/api/unanswered");
+    let unanswered = get(port, "/v1/instances/example-org/unanswered");
     assert_eq!(unanswered["count"], 2, "{unanswered:#}");
 }
 
@@ -510,7 +511,7 @@ fn a_usage_line_shows_while_its_limit_is_in_force_and_context_lines_are_the_inst
         "s-alpha-0001\ns-notes-0002\n",
     );
     let port = case.start();
-    let data = get(port, "/data.json");
+    let data = get(port, "/v1/instances/example-org/data.json");
     let limits = data["watch"]["limits"].as_array().expect("limits");
     assert_eq!(limits.len(), 1, "only the limit in force: {data:#}");
     assert_eq!(limits[0]["text"], in_force.as_str());
@@ -558,7 +559,7 @@ fn the_page_carries_the_newest_snapshot_s_age_and_says_when_it_is_older_than_its
     let now = OffsetDateTime::now_utc();
     snapshot(&case, now - time::Duration::hours(7));
     let port = case.start();
-    let data = get(port, "/data.json");
+    let data = get(port, "/v1/instances/example-org/data.json");
     let shown = &data["snapshot"];
     assert_eq!(shown["age"], "7h 0m", "{data:#}");
     assert_eq!(shown["cadence_seconds"], 7200, "{data:#}");
@@ -567,7 +568,7 @@ fn the_page_carries_the_newest_snapshot_s_age_and_says_when_it_is_older_than_its
     snapshot(&case, now - time::Duration::minutes(30));
     let deadline = std::time::Instant::now() + Duration::from_secs(20);
     let fresh = loop {
-        let data = get(port, "/data.json");
+        let data = get(port, "/v1/instances/example-org/data.json");
         if data["snapshot"]["age"] == "30m" || std::time::Instant::now() > deadline {
             break data;
         }
@@ -606,7 +607,7 @@ fn recent_decisions_are_decisions_only_newest_first_without_empty_rows() {
     let text: String = log.iter().map(|line| format!("{line}\n")).collect();
     write(&case.records().join("decisions/2026-10.jsonl"), &text);
     let port = case.start();
-    let data = get(port, "/data.json");
+    let data = get(port, "/v1/instances/example-org/data.json");
     assert_eq!(
         data["decisions"],
         json!([

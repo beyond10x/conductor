@@ -1,7 +1,7 @@
 # Design § 10: `instances/{name}/upgrade` installs the binary at the placement, with rollback on a
 # runtime that does not come up. One upgrade comes up on the new version; the next does not and
 # is rolled back to the previous binary.
-# UNMAPPED: the rollback trigger is open (see `conductor.instance.UpgradeInstance`).
+# The rollback is the daemon's: the runtime did not answer within `daemon.upgrade_timeout`.
 type: ess-scenario/1
 domain: conductor.instance
 scenario: instance-upgrade-instance

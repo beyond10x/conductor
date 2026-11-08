@@ -4,12 +4,13 @@
 //! endpoint's first answer is `503` with `Retry-After`; and the server's store handle reads without
 //! waiting on the store's writer lock.
 //!
-//! The cases serve [`dashboard::serve_tuned`] in this process on a free port of `127.0.0.1` over a
+//! The cases serve [`served::serve_tuned`] in this process on a free port of `127.0.0.1` over a
 //! fixture store under this test target's temporary directory, as `dashboard_fast.rs` does, with a
 //! [`Probe`] that delays every computation by a set time and counts the computations started per
 //! endpoint.
 
 mod active;
+mod served;
 
 use std::ffi::OsString;
 use std::fs::{self, File};
@@ -41,7 +42,10 @@ const SETTLE: Duration = Duration::from_millis(2_500);
 /// The bound on anything a case waits for.
 const PATIENCE: Duration = Duration::from_secs(60);
 
-const BOARD: &str = "/api/board";
+const BOARD: &str = "/v1/instances/example-org/board";
+
+/// The board's route as the instance computes it, which the probe counts.
+const PROBED: &str = "/v1/board";
 
 // ---------------------------------------------------------------------------------------------
 // The case
@@ -110,7 +114,7 @@ impl Case {
         let listener = TcpListener::bind("127.0.0.1:0").expect("bind a free port");
         let port = listener.local_addr().expect("the bound address").port();
         let (sources, state) = (self.sources(), self.state());
-        std::thread::spawn(move || dashboard::serve_tuned(listener, sources, Some(state), tuning));
+        served::serve_tuned(listener, sources, Some(state), tuning);
         port
     }
 
@@ -289,7 +293,7 @@ fn a_stale_answer_is_served_at_once_while_the_recompute_runs() {
     let first = get(port, BOARD, None);
     assert_eq!(first.status, 200, "{}", first.body);
     assert_eq!(first.age(), None, "a fresh answer carries no age");
-    assert_eq!(probe.starts(BOARD), 1);
+    assert_eq!(probe.starts(PROBED), 1);
 
     probe.set_delay(SLOW);
     case.write();
@@ -307,10 +311,10 @@ fn a_stale_answer_is_served_at_once_while_the_recompute_runs() {
     // The recompute is started on its own thread after the write is seen; on a loaded runner it
     // may begin a moment after the stale answer was served, so wait a bounded time for it.
     let deadline = std::time::Instant::now() + SLOW;
-    while probe.starts(BOARD) < 2 && std::time::Instant::now() < deadline {
+    while probe.starts(PROBED) < 2 && std::time::Instant::now() < deadline {
         std::thread::sleep(Duration::from_millis(10));
     }
-    assert_eq!(probe.starts(BOARD), 2, "one recompute started");
+    assert_eq!(probe.starts(PROBED), 2, "one recompute started");
 
     let fresh = until(port, BOARD, fresh_with_third);
     assert_ne!(fresh.etag(), first.etag());
@@ -324,7 +328,7 @@ fn only_one_recompute_runs_at_a_time() {
     let probe = Arc::new(Probe::default());
     let port = case.served(tuning(&probe));
     assert_eq!(get(port, BOARD, None).status, 200);
-    let before = probe.starts(BOARD);
+    let before = probe.starts(PROBED);
 
     probe.set_delay(SLOW);
     case.write();
@@ -338,13 +342,13 @@ fn only_one_recompute_runs_at_a_time() {
         assert!(answer.took < SLOW, "a request waited {:?}", answer.took);
     }
     assert_eq!(
-        probe.starts(BOARD),
+        probe.starts(PROBED),
         before + 1,
         "eight requests, one recompute"
     );
     until(port, BOARD, fresh_with_third);
     assert_eq!(
-        probe.peak(BOARD),
+        probe.peak(PROBED),
         1,
         "two recomputes of one endpoint ran at once"
     );
@@ -362,7 +366,7 @@ fn the_debounce_holds_a_recompute_back() {
         ..tuning(&probe)
     });
     assert_eq!(get(port, BOARD, None).status, 200);
-    let started = probe.started(BOARD);
+    let started = probe.started(PROBED);
     assert_eq!(started.len(), 1);
 
     case.write();
@@ -379,7 +383,7 @@ fn the_debounce_holds_a_recompute_back() {
             "within the debounce the answer is stale"
         );
         assert_eq!(
-            probe.starts(BOARD),
+            probe.starts(PROBED),
             1,
             "a recompute started within the debounce"
         );
@@ -387,7 +391,7 @@ fn the_debounce_holds_a_recompute_back() {
     }
 
     until(port, BOARD, fresh_with_third);
-    let started = probe.started(BOARD);
+    let started = probe.started(PROBED);
     assert_eq!(started.len(), 2, "{started:?}");
     assert!(
         started[1] - started[0] >= DEBOUNCE,
@@ -424,7 +428,12 @@ fn a_writer_appends_while_the_dashboard_serves() {
     let probe = Arc::new(Probe::default());
     let port = case.served(tuning(&probe));
     for round in 0..3_usize {
-        for path in [BOARD, "/api/repositories", "/api/unanswered", "/api/health"] {
+        for path in [
+            BOARD,
+            "/v1/instances/example-org/repositories",
+            "/v1/instances/example-org/unanswered",
+            "/v1/instances/example-org/health",
+        ] {
             let answer = get(port, path, None);
             assert_eq!(answer.status, 200, "{path}: {}", answer.body);
         }
@@ -466,7 +475,7 @@ fn a_reader_does_not_wait_on_the_writer_lock() {
     std::thread::spawn(move || {
         let reader = store::open_reader(&reading).expect("open the reader");
         let rows = |reader: &store::Store| {
-            dashboard::overview::snapshot_endpoint("/api/repositories", Some(reader))
+            dashboard::overview::snapshot_endpoint("/v1/repositories", Some(reader))
                 .expect("an endpoint")
                 .to_string()
         };

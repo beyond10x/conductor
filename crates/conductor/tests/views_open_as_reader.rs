@@ -23,7 +23,6 @@ const ANSWER_WITHIN: Duration = Duration::from_secs(5);
 const NO_STATE_STORE: &[&[&str]] = &[
     &["config", "show"],
     &["config", "validate"],
-    &["dashboard", "serve"],
     &["doctor"],
     &["rules", "show"],
     &["host", "grants"],

@@ -52,6 +52,18 @@ types:
       - {name: install, type: Optional<Boolean>}
       - {name: uninstall, type: Optional<Boolean>}
 
+  # The input of `conductor instance upgrade` (story:instance-upgrade): the client of
+  # `POST /v1/instances/{name}/upgrade` on the daemon of the config file. `instance` names one
+  # instance; `all` takes every instance of the file, in its order, one at a time, and stops at
+  # the first rollback; exactly one of the two is given. `tag` is the release, `v<x.y.z>`. The
+  # instance is a flag, not a positional word: the binding places no positional.
+  - name: conductor.instance.UpgradeInstances
+    kind: struct
+    fields:
+      - {name: instance, type: Optional<conductor.config.InstanceName>}
+      - {name: tag, type: String}
+      - {name: all, type: Optional<Boolean>}
+
 entities:
   # One instance the config names, keyed by its name. Desired fields are read from the config at
   # each reconciliation (`placement`, `roles`); actual fields from what runs (`state`,
@@ -133,8 +145,10 @@ entities:
         - name: upgrade
           from: [Running]
           to: Upgrading
+        # From `Unreachable` too: a runtime lost while upgrading is rolled back, not started
+        # again on the new binary (story:instance-upgrade).
         - name: roll_back
-          from: [Upgrading]
+          from: [Upgrading, Unreachable]
           to: Starting
         - name: purge
           from: [Stopped]
@@ -564,11 +578,13 @@ commands:
 
   # Install a binary at the instance's placement and restart its runtime on it, one instance at
   # a time (§ 10 `instances/{name}/upgrade`), with rollback on a runtime that does not come up.
-  # UNMAPPED: § 10 says "rollback on a runtime that does not come up" and nothing about what
-  # triggers it or how long the daemon waits. Here the daemon issues `UpgradeInstance` again on
-  # an instance still `Upgrading` (its new runtime never answered), and that puts the previous
-  # binary back and starts it (`rolled-back`). Open question for the owner: the trigger and the
-  # bound, and whether a rollback is its own command.
+  # The operator issues it (`POST /v1/instances/{name}/upgrade {tag}`, `conductor instance
+  # upgrade`); the daemon fetches the release, installs its binary, runs its `conductor doctor`
+  # and restarts the runtime on it, one `Reconciliation` per step (story:instance-upgrade).
+  # The daemon issues it again, as itself, to roll back: on an instance still `Upgrading` whose
+  # runtime has not answered within `daemon.upgrade_timeout`, or on one that went `Unreachable`
+  # while upgrading, when its runtime record holds a previous binary; that puts the previous
+  # binary back and starts it (`rolled-back`).
   - name: conductor.instance.UpgradeInstance
     naming:
       wire: upgrade
@@ -602,7 +618,7 @@ commands:
             at: input.at
         summary: The new binary is installed and the runtime restarted on it; the instance runs again once it answers.
       - name: rolled-back
-        when_subject_state: Upgrading
+        when_subject_state: [Upgrading, Unreachable]
         moves: conductor.instance.Instance.roll_back
         instance: name
         sets:

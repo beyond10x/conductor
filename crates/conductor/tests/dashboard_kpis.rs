@@ -1,4 +1,4 @@
-//! `story:dashboard-kpi-panels`, the served half: `GET /api/kpis` answers one row per KPI, K1–K12
+//! `story:dashboard-kpi-panels`, the served half: `GET /v1/kpis` answers one row per KPI, K1–K12
 //! then T1–T4. A measured KPI carries its value over the last seven days of the fixture
 //! (`series_fixture/mod.rs`), computed as its definition says, its target, direction and the
 //! series its trend reads; a KPI without a source answers `measured: false` with the story that
@@ -12,7 +12,7 @@ use series_fixture::{Case, today};
 
 use conductor_cli::dashboard::series;
 
-/// The rows `/api/kpis` answers over the fixture's store at its today.
+/// The rows `/v1/kpis` answers over the fixture's store at its today.
 fn kpis(case: &Case) -> Vec<Value> {
     let store = case.store();
     series::kpis(Some(&store), today())
