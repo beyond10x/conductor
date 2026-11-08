@@ -414,19 +414,19 @@ The conductor store of each instance holds the operator's selection; do not copy
 - Report headers name the repository exactly as the dispatch does, slash included. The loop moves a
   dispatch only Sent -> Started -> Blocked/Done: a controller reports `started` first; `conductor
   dispatch report-unblocked --dispatch-id` once its pull or merge request is open.
+- A session `waiting` in `claude agents --json` is at a prompt: read its pane. Answer a guard refusal
+  No (key 2), tell the controller the guard's hint; carry an operator question as a decision.
 - Talk to a controller with `printf '%s\n' "<text>" | CONDUCTOR_INSTANCE=<i> conductor session
   deliver --name <session> --text -` (returns a message id). Write a message to several targets as
   a script file: zsh does not word-split `$p`.
-- Since 0.23.0 the loop restarts controllers over the context threshold, dispatches loop-started
-  ones, unblocks on `started` and restarts a gone maintainer. Before any restart by hand, read
-  `journalctl --user -u conductor_<instance>-run.service --since '-20min'` for the session's name.
-  A `blocked handover` report younger than 15 min with no `session gone` line means the loop is
-  still working on it. Act only after the 15 min have passed and the journal shows no restart, and
-  quote the journal line in the report. Then restart it fresh: `systemctl --user stop
-  conductor_<session name>.service` (named by the session, not the instance), `conductor
-  controller stop-controller --controller-id <id> --reason …`, `conductor spawn --repository
-  <repo>`, deliver the hand-off path and dispatch id. A stale record that makes `spawn` refuse
-  `AlreadyRunning` is cleared with `stop-controller`.
+- The loop restarts controllers over the context threshold, dispatches loop-started ones, unblocks
+  on `started`, restarts a gone maintainer, and restarts a handed-over session once it is idle (pane
+  at the prompt, no sub-agent; `handlers.rs`). Restart by hand only after 15 min of idle counted
+  from that moment, with no restart in `journalctl --user -u conductor_<instance>-run.service
+  --since '-20min'`; quote both times (idle since, journal checked). Then: `systemctl --user stop
+  conductor_<session name>.service`, `conductor controller stop-controller --controller-id <id>
+  --reason …`, `conductor spawn --repository <repo>`, deliver the hand-off path and dispatch id. A
+  stale record that makes `spawn` refuse `AlreadyRunning` is cleared with `stop-controller`.
 - A controller whose every active story is blocked outside its repository holds a `max_working`
   slot while other Active repositories wait ("<repo> waits: max_working N reached" in the cycle
   line): ask it for a hand-off, then stop it. Restart it when its blocker clears.

@@ -7,6 +7,7 @@
 
 mod active;
 mod common;
+mod scratch;
 
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -39,13 +40,11 @@ fn git(dir: &Path, args: &[&str]) {
     assert!(status.success(), "git {args:?} in {}", dir.display());
 }
 
-fn case_dir(name: &str) -> PathBuf {
-    let dir = PathBuf::from(env!("CARGO_TARGET_TMPDIR"))
-        .join("build_shared_target_adv")
-        .join(name);
-    let _ = fs::remove_dir_all(&dir);
-    fs::create_dir_all(&dir).expect("create the case directory");
-    dir.canonicalize().expect("the case directory")
+/// The case's directory, removed when the case passed ([`scratch::Scratch`]), and its canonical path.
+fn case_dir(name: &str) -> (scratch::Scratch, PathBuf) {
+    let scratch = scratch::Scratch::new(Path::new("build_shared_target_adv").join(name));
+    let dir = scratch.path().canonicalize().expect("the case directory");
+    (scratch, dir)
 }
 
 fn settings() -> Settings {
@@ -130,7 +129,7 @@ fn script(dir: &Path, tree: &str, script: &str) -> Request {
 #[test]
 fn a_crate_in_a_submodule_is_rebuilt_from_this_tree() {
     active::isolate();
-    let dir = case_dir("submodule");
+    let (_scratch, dir) = case_dir("submodule");
     fs::write(dir.join("free.txt"), (100 * GIB).to_string()).expect("free disk");
     let sub = dir.join("subsrc");
     fs::create_dir_all(sub.join("src")).expect("create the submodule source");
@@ -214,7 +213,7 @@ fn a_crate_in_a_submodule_is_rebuilt_from_this_tree() {
 /// prevent. The second run must not start before the orphan ended.
 #[test]
 fn a_killed_build_run_keeps_its_repository_locked() {
-    let dir = case_dir("killed");
+    let (_scratch, dir) = case_dir("killed");
     let home = dir.join("home");
     fs::create_dir_all(&home).expect("create the home");
     let repo = dir.join("repo");

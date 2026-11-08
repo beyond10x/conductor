@@ -1,0 +1,13 @@
+{
+  "at": "2026-11-08T07:54:47Z",
+  "actor": "human:timo",
+  "artifact": "story:resume-reads-ais-json",
+  "kind": "story",
+  "revision": 4,
+  "change": {
+    "change": "evidence",
+    "kind": "test_result",
+    "source": "task check, PR #108 head 59a4eecfa, merged 73fe11438",
+    "reference": "https://github.com/beyond10x/conductor/actions/runs/42457201018/job/128658659947"
+  }
+}
