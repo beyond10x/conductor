@@ -8,7 +8,7 @@ timeline:
     command: conductor.token.ContributeToken
     actor: conductor.token.Operator
     input:
-      actor: {kind: Agent, value: {instance: example-org, role: Lead, name: example-org-controller, kind: claude-code}}
+      actor: {kind: Agent, agent: {instance: example-org, role: Lead, name: example-org-controller, kind: claude-code}}
       instance: example-org
       owner: alice
       seat: alice@example-org.example
@@ -16,4 +16,4 @@ timeline:
       contributed_at: 2026-11-08T09:00:00Z
     outcome: actor-not-human
     error:
-      name: conductor.token.ActorNotHuman
+      name: conductor.operator.ActorNotHuman

@@ -12,7 +12,7 @@ timeline:
     command: conductor.decision.RaiseDecisionRequest
     actor: conductor.decision.RepositoryController
     input:
-      actor: {kind: Agent, value: {instance: example-org, role: Lead, name: example-org-lead, kind: claude-code}}
+      actor: {kind: Agent, agent: {instance: example-org, role: Lead, name: example-org-lead, kind: claude-code}}
       request_id: REQ-dry-h1
       repository: cortex
       question: Upload the release asset
@@ -25,7 +25,7 @@ timeline:
     command: conductor.decision.EscalateRequest
     actor: conductor.decision.Conductor
     input:
-      actor: {kind: Agent, value: {instance: example-org, role: Director, name: example-org-conductor, kind: claude-code}}
+      actor: {kind: Agent, agent: {instance: example-org, role: Director, name: example-org-conductor, kind: claude-code}}
       request_id: REQ-dry-h1
       escalation_class: H
       reason: only the operator holds the upload token
@@ -37,7 +37,7 @@ timeline:
     command: conductor.decision.EscalateRequest
     actor: conductor.decision.Conductor
     input:
-      actor: {kind: Agent, value: {instance: example-org, role: Director, name: example-org-conductor, kind: claude-code}}
+      actor: {kind: Agent, agent: {instance: example-org, role: Director, name: example-org-conductor, kind: claude-code}}
       request_id: REQ-dry-h1
       escalation_class: H
       reason: only the operator holds the upload token

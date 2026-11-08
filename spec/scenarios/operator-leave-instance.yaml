@@ -8,7 +8,7 @@ timeline:
     command: conductor.operator.JoinInstance
     actor: conductor.operator.Engineer
     input:
-      actor: {kind: Human, value: {operator: operator-one}}
+      actor: {kind: Human, operator: operator-one}
       key: {operator: operator-one, instance: example-org}
       grants: [AnswerDecisions]
       joined_at: 2026-11-08T09:00:00Z
@@ -18,7 +18,7 @@ timeline:
     command: conductor.operator.LeaveInstance
     actor: conductor.operator.Engineer
     input:
-      actor: {kind: Human, value: {operator: operator-one}}
+      actor: {kind: Human, operator: operator-one}
       key: {operator: operator-one, instance: example-org}
       left_at: 2026-11-08T17:00:00Z
     outcome: left
@@ -27,7 +27,7 @@ timeline:
     command: conductor.operator.LeaveInstance
     actor: conductor.operator.Engineer
     input:
-      actor: {kind: Human, value: {operator: operator-one}}
+      actor: {kind: Human, operator: operator-one}
       key: {operator: operator-one, instance: example-org}
       left_at: 2026-11-08T17:05:00Z
     outcome: not-joined
@@ -37,7 +37,7 @@ timeline:
     command: conductor.operator.LeaveInstance
     actor: conductor.operator.Engineer
     input:
-      actor: {kind: Human, value: {operator: operator-two}}
+      actor: {kind: Human, operator: operator-two}
       key: {operator: operator-two, instance: example-org}
       left_at: 2026-11-08T17:10:00Z
     outcome: unknown-operator
@@ -49,4 +49,4 @@ assert:
       key: {operator: operator-one, instance: example-org}
       state: Left
       left_at: 2026-11-08T17:00:00Z
-      left_by: {kind: Human, value: {operator: operator-one}}
+      left_by: {kind: Human, operator: operator-one}

@@ -1,8 +1,8 @@
 # docs/design/architecture-next.md § 7: the runtime records a run-to-exit agent's report, the
 # `[REPORT]` line its adapter wrote from the program's exit code and events file, with the agent
 # as the actor.
-# The runtime's own commands name the operator a single host implies (§ 5.3); the domain's
-# UNMAPPED marker on `InstanceRuntime` records that the runtime has no actor of its own.
+# The runtime's own commands (declaring its kinds, a stop it observed) carry `{kind: Daemon}`;
+# a start names the operator a single host implies (§ 5.3), who asked for it.
 type: ess-scenario/1
 domain: conductor.agent
 scenario: agent-record-agent-report
@@ -13,7 +13,7 @@ timeline:
     command: conductor.agent.DeclareAgentKind
     actor: conductor.agent.InstanceRuntime
     input:
-      actor: {kind: Human, value: {operator: example-operator}}
+      actor: {kind: Daemon}
       name: example-run-to-exit
       capabilities: [RunToExit]
       binary: example-runner
@@ -23,7 +23,7 @@ timeline:
     command: conductor.agent.StartAgent
     actor: conductor.agent.InstanceRuntime
     input:
-      actor: {kind: Human, value: {operator: example-operator}}
+      actor: {kind: Human, operator: example-operator}
       name: example-org-implementer
       instance: example-org
       role: Director
@@ -39,7 +39,7 @@ timeline:
     command: conductor.agent.RecordAgentReport
     actor: conductor.agent.InstanceRuntime
     input:
-      actor: {kind: Agent, value: {instance: example-org, role: Lead, name: example-org-implementer, kind: example-run-to-exit}}
+      actor: {kind: Agent, agent: {instance: example-org, role: Lead, name: example-org-implementer, kind: example-run-to-exit}}
       name: example-org-implementer
       line: "[REPORT example-repo story-1] done exit 0"
       exit_code: 0

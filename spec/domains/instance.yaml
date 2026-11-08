@@ -60,12 +60,9 @@ entities:
       name: name
       type: conductor.config.InstanceName
     fields:
-      # UNMAPPED: the placement's name in the config (`instances[].placement`, § 9). Its type is
-      # the placement domain's identity, which is not declared in this tree; the field is a
-      # `String` until the coordinator types it and adds the `references` relation to
-      # `conductor.placement.Placement`. Open question for the coordinator.
+      # The placement's name in the config (`instances[].placement`, § 9).
       - name: placement
-        type: String
+        type: conductor.placement.PlacementName
       # The roles the config gives the instance (§ 9 `instances[].roles`).
       # UNMAPPED: `conductor.config.RoleName` is the v0 enum (Director, Maintainer, Lead); the v1
       # roles (controller, workers, custom roles, § 2) are the config author's. Open question
@@ -80,12 +77,21 @@ entities:
       - name: last_seen
         type: Optional<Timestamp>
       # The box the instance runs in at its placement; absent while none is open.
-      # The `references` relation to `conductor.placement.Box` is not declared here: that entity
-      # is the placement author's and is not in this tree (needs-coordinator).
       - name: box_id
         type: Optional<conductor.placement.BoxId>
       - name: changed_by
         type: conductor.operator.Actor
+    relations:
+      - name: placement
+        kind: references
+        target: conductor.placement.Placement
+        cardinality: one
+        via: placement
+      - name: box
+        kind: references
+        target: conductor.placement.Box
+        cardinality: one
+        via: box_id
     # States are what the daemon observes (§ 4 "observe", § 5.2 `state: unreachable`): `Stopped`,
     # no runtime runs (absent from the config, or stopped by the operator); `Starting`, a box is
     # open and the runtime started, and it has not answered yet; `Running`, the runtime answers;
@@ -164,7 +170,7 @@ views:
     fields:
       - {name: name, type: conductor.config.InstanceName}
       - {name: state, type: conductor.instance.Instance.State}
-      - {name: placement, type: String}
+      - {name: placement, type: conductor.placement.PlacementName}
       - {name: roles, type: List<conductor.config.RoleName>}
       - {name: binary_version, type: Optional<String>}
       - {name: last_seen, type: Optional<Timestamp>}
@@ -196,11 +202,7 @@ actors:
   # conductord: it reads the config, observes what answers, reconciles, and records each action
   # (§ 4). It starts, stops, restarts and upgrades instances as reconciliation asks; it never
   # purges (§ 4: purge is the operator's yes).
-  # UNMAPPED: the daemon is no agent the runtime started, yet `conductor.operator.AgentActor`
-  # needs an instance, a role, a name and a kind. The brief calls the daemon "an agent actor";
-  # the design does not say how the daemon is written as an `Actor`. Open question for the owner
-  # and the operator author: a third `Actor` variant (`System`/`Daemon`), or an agent actor with
-  # which instance and role?
+  # Its commands carry the actor `{kind: Daemon}` (`conductor.operator.ActorKind`).
   # UNMAPPED: § 3 lists "start, stop and upgrade instances" among an operator's grants, and a
   # command that needs a grant refuses an agent actor; § 4 has the daemon start and stop
   # instances on its own, and § 10 has upgrades run "under the supervisor's grant", while § 3
@@ -257,19 +259,7 @@ errors:
       - name: name
         type: conductor.config.InstanceName
       - name: placement
-        type: String
-
-  # Declared here until the operator author's `conductor.operator.ActorNotHuman` merges; the
-  # coordinator reconciles the two.
-  - name: conductor.instance.ActorNotHuman
-    summary: >
-      The command needs a grant, a grant belongs to a human actor only, and an agent actor issued
-      it (§ 3 "Actors"); nothing changed.
-    fields:
-      - name: actor
-        type: conductor.operator.Actor
-      - name: name
-        type: conductor.config.InstanceName
+        type: conductor.placement.PlacementName
 
 commands:
   # The daemon's record step (§ 4 "record ─► one Reconciliation per action"): after each action
@@ -387,7 +377,7 @@ commands:
     input:
       - {name: actor, type: conductor.operator.Actor}
       - {name: name, type: conductor.config.InstanceName}
-      - {name: placement, type: String}
+      - {name: placement, type: conductor.placement.PlacementName}
       - {name: roles, type: List<conductor.config.RoleName>}
       - {name: box_id, type: conductor.placement.BoxId}
       - {name: at, type: Timestamp}
@@ -514,7 +504,7 @@ commands:
     input:
       - {name: actor, type: conductor.operator.Actor}
       - {name: name, type: conductor.config.InstanceName}
-      - {name: placement, type: String}
+      - {name: placement, type: conductor.placement.PlacementName}
       - {name: roles, type: List<conductor.config.RoleName>}
       - {name: box_id, type: conductor.placement.BoxId}
       - {name: at, type: Timestamp}
@@ -636,6 +626,13 @@ commands:
       - {name: name, type: conductor.config.InstanceName}
       - {name: at, type: Timestamp}
     outcomes:
+      - name: actor-not-human
+        when: actor.kind != Human
+        error: conductor.operator.ActorNotHuman
+        payload:
+          conductor.operator.ActorNotHuman:
+            actor: input.actor
+        summary: A purge is a class H decision; an agent actor is refused by name and nothing is deleted.
       - name: unknown
         unknown_instance: true
         error: conductor.instance.UnknownInstance
@@ -643,14 +640,6 @@ commands:
           conductor.instance.UnknownInstance:
             name: input.name
         summary: No record of the instance is kept; nothing was purged.
-      - name: actor-not-human
-        external: the actor is an agent, not a person
-        error: conductor.instance.ActorNotHuman
-        payload:
-          conductor.instance.ActorNotHuman:
-            actor: input.actor
-            name: input.name
-        summary: A purge is a class H decision; an agent actor is refused by name and nothing is deleted.
       - name: purged
         moves: conductor.instance.Instance.purge
         instance: name
@@ -700,7 +689,7 @@ events:
     fields:
       - {name: actor, type: conductor.operator.Actor}
       - {name: name, type: conductor.config.InstanceName}
-      - {name: placement, type: String}
+      - {name: placement, type: conductor.placement.PlacementName}
       - {name: box_id, type: conductor.placement.BoxId}
       - {name: at, type: Timestamp}
 
@@ -714,7 +703,7 @@ events:
     fields:
       - {name: actor, type: conductor.operator.Actor}
       - {name: name, type: conductor.config.InstanceName}
-      - {name: placement, type: String}
+      - {name: placement, type: conductor.placement.PlacementName}
       - {name: box_id, type: conductor.placement.BoxId}
       - {name: at, type: Timestamp}
 

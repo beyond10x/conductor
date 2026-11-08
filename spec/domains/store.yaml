@@ -72,15 +72,22 @@ entities:
     fields:
       - name: source
         type: String
+      # The deployment's store the tree was copied into (`daemon.store`).
+      - name: store
+        type: conductor.store.StoreUrl
       - name: events_copied
         type: Integer
       - name: migrated_at
         type: Timestamp
       - name: actor
         type: conductor.operator.Actor
-    # UNMAPPED: the migration copies into the deployment's store; nothing says whether a
-    # migration record belongs to that store (`owns`, deleted with it) or only names it
-    # (`references`), so the record carries no store URL and no relation. Open question.
+    # The record names the store it was copied into and does not belong to it.
+    relations:
+      - name: store
+        kind: references
+        target: conductor.store.Store
+        cardinality: one
+        via: store
     invariants:
       - events_copied >= 0
     lifecycle:
@@ -97,15 +104,6 @@ actors:
       display: Operator
 
 errors:
-  # Declared here until the operator domain's `conductor.operator.ActorNotHuman` merges; the
-  # coordinator reconciles the two.
-  - name: conductor.store.ActorNotHuman
-    summary: >
-      The command needs a person and an agent issued it; an agent holds no grant (design § 3
-      "Actors"). Nothing was written.
-    fields:
-      - name: actor
-        type: conductor.operator.Actor
 
   - name: conductor.store.SourceMissing
     summary: No eventlog tree is at the source path, so nothing was copied.
@@ -144,21 +142,19 @@ commands:
         type: conductor.config.InstanceName
       - name: source
         type: String
+      - name: store
+        type: conductor.store.StoreUrl
       - name: events_copied
         type: Integer
         example: 120
       - name: migrated_at
         type: Timestamp
     outcomes:
-      # The refusal reads the tag of `input.actor`. ESS 0.90 cannot: `actor.kind`, `actor.Agent`
-      # and `actor == Agent` are each refused (`unobservable_fact`, `type_mismatch`) at every
-      # format through ess/35, so the check is written `external:`, the handler's to make. A gap
-      # in ESS (a guard over a union's variant), to be filed on beyond10x/ess.
       - name: not-human
-        external: the actor is an agent (`Actor::Agent`), not a person
-        error: conductor.store.ActorNotHuman
+        when: actor.kind != Human
+        error: conductor.operator.ActorNotHuman
         payload:
-          conductor.store.ActorNotHuman:
+          conductor.operator.ActorNotHuman:
             actor: input.actor
         summary: An agent ran the operator's one-time step; it is refused and nothing was copied.
       - name: negative-count
@@ -191,6 +187,7 @@ commands:
         instance: instance
         sets:
           source: input.source
+          store: input.store
           events_copied: input.events_copied
           migrated_at: input.migrated_at
           actor: input.actor
@@ -201,6 +198,7 @@ commands:
             actor: input.actor
             instance: input.instance
             source: input.source
+            store: input.store
             events_copied: input.events_copied
             migrated_at: input.migrated_at
         summary: The instance's tree is in the store, the count copied is on record, and the tree is not opened again.
@@ -214,6 +212,8 @@ events:
         type: conductor.config.InstanceName
       - name: source
         type: String
+      - name: store
+        type: conductor.store.StoreUrl
       - name: events_copied
         type: Integer
       - name: migrated_at
@@ -250,6 +250,8 @@ views:
         type: conductor.store.Migration.State
       - name: source
         type: String
+      - name: store
+        type: conductor.store.StoreUrl
       - name: events_copied
         type: Integer
       - name: migrated_at

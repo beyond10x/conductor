@@ -11,7 +11,7 @@ timeline:
     command: conductor.direction.ProposeGoal
     actor: conductor.direction.Conductor
     input:
-      actor: {kind: Agent, value: {instance: example-org, role: Director, name: example-org-conductor, kind: claude-code}}
+      actor: {kind: Agent, agent: {instance: example-org, role: Director, name: example-org-conductor, kind: claude-code}}
       goal_id: G-p-nowait
       title: t
       exit_evidence: e
@@ -21,7 +21,7 @@ timeline:
     command: conductor.dispatch.SendDispatch
     actor: conductor.dispatch.Conductor
     input:
-      actor: {kind: Agent, value: {instance: example-org, role: Director, name: example-org-conductor, kind: claude-code}}
+      actor: {kind: Agent, agent: {instance: example-org, role: Director, name: example-org-conductor, kind: claude-code}}
       dispatch_id: DSP-p-nowait
       repository: cortex
       goal_id: G-p-nowait

@@ -1,8 +1,8 @@
 # docs/design/architecture-next.md § 7: a run-to-exit kind has no PTY, so attach refuses it by
 # the capability's name. The kind is a fixture, `example-run-to-exit`: v1 implements
 # `claude-code` only, and `takt` is a later story.
-# The runtime's own commands name the operator a single host implies (§ 5.3); the domain's
-# UNMAPPED marker on `InstanceRuntime` records that the runtime has no actor of its own.
+# The runtime's own commands (declaring its kinds, a stop it observed) carry `{kind: Daemon}`;
+# a start names the operator a single host implies (§ 5.3), who asked for it.
 type: ess-scenario/1
 domain: conductor.agent
 scenario: agent-attach-agent-run-to-exit
@@ -13,7 +13,7 @@ timeline:
     command: conductor.agent.DeclareAgentKind
     actor: conductor.agent.InstanceRuntime
     input:
-      actor: {kind: Human, value: {operator: example-operator}}
+      actor: {kind: Daemon}
       name: example-run-to-exit
       capabilities: [RunToExit]
       binary: example-runner
@@ -23,7 +23,7 @@ timeline:
     command: conductor.agent.StartAgent
     actor: conductor.agent.InstanceRuntime
     input:
-      actor: {kind: Human, value: {operator: example-operator}}
+      actor: {kind: Human, operator: example-operator}
       name: example-org-implementer
       instance: example-org
       role: Director
@@ -39,7 +39,7 @@ timeline:
     command: conductor.agent.AttachAgent
     actor: conductor.agent.Operator
     input:
-      actor: {kind: Human, value: {operator: example-operator}}
+      actor: {kind: Human, operator: example-operator}
       name: example-org-implementer
     outcome: not-interactive
     error:

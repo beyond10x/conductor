@@ -11,7 +11,7 @@ timeline:
     command: conductor.decision.RaiseDecisionRequest
     actor: conductor.decision.RepositoryController
     input:
-      actor: {kind: Agent, value: {instance: example-org, role: Lead, name: example-org-lead, kind: claude-code}}
+      actor: {kind: Agent, agent: {instance: example-org, role: Lead, name: example-org-lead, kind: claude-code}}
       request_id: REQ-agent-esc2
       repository: cortex
       question: Set the deploy token secret
@@ -24,7 +24,7 @@ timeline:
     command: conductor.decision.EscalateRequest
     actor: conductor.decision.Conductor
     input:
-      actor: {kind: Agent, value: {instance: example-org, role: Director, name: example-org-conductor, kind: claude-code}}
+      actor: {kind: Agent, agent: {instance: example-org, role: Director, name: example-org-conductor, kind: claude-code}}
       request_id: REQ-agent-esc2
       escalation_class: H
       reason: only the operator can set a repository secret
@@ -35,7 +35,7 @@ timeline:
     command: conductor.decision.RecordOperatorDecision
     actor: conductor.decision.Operator
     input:
-      actor: {kind: Human, value: {operator: example-operator}}
+      actor: {kind: Human, operator: example-operator}
       decision_id: DEC-agent-esc2
       decision_class: H
       question: Set the deploy token secret
@@ -52,12 +52,12 @@ timeline:
     command: conductor.decision.AnswerEscalatedRequest
     actor: conductor.decision.Operator
     input:
-      actor: {kind: Agent, value: {instance: example-org, role: Director, name: example-org-conductor, kind: claude-code}}
+      actor: {kind: Agent, agent: {instance: example-org, role: Director, name: example-org-conductor, kind: claude-code}}
       request_id: REQ-agent-esc2
       decision_id: DEC-agent-esc2
     outcome: agent-actor
     error:
-      name: conductor.decision.ActorNotHuman
+      name: conductor.operator.ActorNotHuman
 
 assert:
   - view: conductor.decision.Requests

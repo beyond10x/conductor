@@ -11,7 +11,7 @@ timeline:
     command: conductor.direction.ProposeGoal
     actor: conductor.direction.Conductor
     input:
-      actor: {kind: Agent, value: {instance: example-org, role: Director, name: example-org-conductor, kind: claude-code}}
+      actor: {kind: Agent, agent: {instance: example-org, role: Director, name: example-org-conductor, kind: claude-code}}
       goal_id: G-done-early
       title: Ship the pilot
       exit_evidence: the pilot runs
@@ -21,7 +21,7 @@ timeline:
     command: conductor.dispatch.SendDispatch
     actor: conductor.dispatch.Conductor
     input:
-      actor: {kind: Agent, value: {instance: example-org, role: Director, name: example-org-conductor, kind: claude-code}}
+      actor: {kind: Agent, agent: {instance: example-org, role: Director, name: example-org-conductor, kind: claude-code}}
       dispatch_id: DSP-done-sent
       repository: cortex
       goal_id: G-done-early
@@ -34,7 +34,7 @@ timeline:
     command: conductor.dispatch.ReportDone
     actor: conductor.dispatch.RepositoryController
     input:
-      actor: {kind: Agent, value: {instance: example-org, role: Lead, name: example-org-lead, kind: claude-code}}
+      actor: {kind: Agent, agent: {instance: example-org, role: Lead, name: example-org-lead, kind: claude-code}}
       dispatch_id: DSP-done-sent
       evidence: origin/main 0123abc
     outcome: done
@@ -43,7 +43,7 @@ timeline:
     command: conductor.dispatch.ReportDone
     actor: conductor.dispatch.RepositoryController
     input:
-      actor: {kind: Agent, value: {instance: example-org, role: Lead, name: example-org-lead, kind: claude-code}}
+      actor: {kind: Agent, agent: {instance: example-org, role: Lead, name: example-org-lead, kind: claude-code}}
       dispatch_id: DSP-done-sent
       evidence: origin/main 0123abc
     outcome: wrong-state
@@ -54,7 +54,7 @@ timeline:
     command: conductor.dispatch.SendDispatch
     actor: conductor.dispatch.Conductor
     input:
-      actor: {kind: Agent, value: {instance: example-org, role: Director, name: example-org-conductor, kind: claude-code}}
+      actor: {kind: Agent, agent: {instance: example-org, role: Director, name: example-org-conductor, kind: claude-code}}
       dispatch_id: DSP-done-blocked
       repository: cortex
       goal_id: G-done-early
@@ -67,7 +67,7 @@ timeline:
     command: conductor.dispatch.ReportStarted
     actor: conductor.dispatch.RepositoryController
     input:
-      actor: {kind: Agent, value: {instance: example-org, role: Lead, name: example-org-lead, kind: claude-code}}
+      actor: {kind: Agent, agent: {instance: example-org, role: Lead, name: example-org-lead, kind: claude-code}}
       dispatch_id: DSP-done-blocked
     outcome: started
 
@@ -75,7 +75,7 @@ timeline:
     command: conductor.dispatch.ReportBlocked
     actor: conductor.dispatch.RepositoryController
     input:
-      actor: {kind: Agent, value: {instance: example-org, role: Lead, name: example-org-lead, kind: claude-code}}
+      actor: {kind: Agent, agent: {instance: example-org, role: Lead, name: example-org-lead, kind: claude-code}}
       dispatch_id: DSP-done-blocked
       reason: waits on a decision
     outcome: blocked
@@ -84,7 +84,7 @@ timeline:
     command: conductor.dispatch.ReportDone
     actor: conductor.dispatch.RepositoryController
     input:
-      actor: {kind: Agent, value: {instance: example-org, role: Lead, name: example-org-lead, kind: claude-code}}
+      actor: {kind: Agent, agent: {instance: example-org, role: Lead, name: example-org-lead, kind: claude-code}}
       dispatch_id: DSP-done-blocked
       evidence: origin/main 4567def
     outcome: done
@@ -93,7 +93,7 @@ timeline:
     command: conductor.dispatch.SendDispatch
     actor: conductor.dispatch.Conductor
     input:
-      actor: {kind: Agent, value: {instance: example-org, role: Director, name: example-org-conductor, kind: claude-code}}
+      actor: {kind: Agent, agent: {instance: example-org, role: Director, name: example-org-conductor, kind: claude-code}}
       dispatch_id: DSP-done-cancelled
       repository: cortex
       goal_id: G-done-early
@@ -106,7 +106,7 @@ timeline:
     command: conductor.dispatch.CancelDispatch
     actor: conductor.dispatch.Conductor
     input:
-      actor: {kind: Agent, value: {instance: example-org, role: Director, name: example-org-conductor, kind: claude-code}}
+      actor: {kind: Agent, agent: {instance: example-org, role: Director, name: example-org-conductor, kind: claude-code}}
       dispatch_id: DSP-done-cancelled
       reason: superseded
     outcome: cancelled
@@ -115,7 +115,7 @@ timeline:
     command: conductor.dispatch.ReportDone
     actor: conductor.dispatch.RepositoryController
     input:
-      actor: {kind: Agent, value: {instance: example-org, role: Lead, name: example-org-lead, kind: claude-code}}
+      actor: {kind: Agent, agent: {instance: example-org, role: Lead, name: example-org-lead, kind: claude-code}}
       dispatch_id: DSP-done-cancelled
       evidence: origin/main 89abcde
     outcome: wrong-state

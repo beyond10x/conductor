@@ -389,12 +389,15 @@ start, stop and upgrade instances, purge); every record of an answer, a config c
 reconciliation names the operator who caused it. The supervisor's "the operator" is whichever operator
 the request is routed to, by grant; a class H decision is answered by any operator the grant names.
 
-**Who issued a command: a person or a program.** Every command, event and record carries an actor,
-and its type says which it is: a human actor is an operator; an agent actor is an agent conductor
-started (its instance, role, name and kind). A grant belongs to a human actor only; a command that
-needs one refuses an agent actor by name. The records write `human:<name>` or
-`agent:<instance>/<role>/<name>` (operator, 2026-11-08: "we kind of need to distinguish between who is
-an agent actor and who is a human actor").
+**Who issued a command: a person or a program.** Every command, event and record carries an actor:
+a record with a kind, human, agent or daemon, and the fields of that kind. A human actor is an
+operator, named by name; an agent actor is an agent conductor started (its instance, role, name and
+kind); a daemon actor is conductord or an instance runtime acting on its own account, and carries
+nothing else. A grant belongs to a human actor only and is checked on the kind, so a command that
+needs one refuses every other kind by name, and the specification states that refusal as a
+predicate its synthesized tests exercise. The records write `human:<name>`,
+`agent:<instance>/<role>/<name>` or `daemon` (operator, 2026-11-08: "we kind of need to distinguish
+between who is an agent actor and who is a human actor").
 
 **The daemon on a remote box.** conductord itself can run on a remote machine, a cloud instance the
 team shares, with the config repository cloned there (operator, 2026-11-08: "the daemon itself, is
@@ -799,7 +802,7 @@ one.
 
 | step | story | what lands on `v1` |
 |---|---|---|
-| 0 | spec-v1 | the whole system above modelled in `spec/`: new domains for instances, placements, agents, the store, secrets, operators and the token pool; the actor type (human or agent) on every command; the changed config and improvement domains; the components; one scenario per new command; the generated model |
+| 0 | spec-v1 | the whole system above modelled in `spec/`: new domains for instances, placements, agents, the store, secrets, operators and the token pool; the actor type (human, agent or daemon) on every command; the changed config and improvement domains; the components; one scenario per new command; the generated model |
 | 1 | daemon-reconcile | `conductor daemon serve`: reconcile, instances, reconciliations; the registry file gone |
 | 2 | instance-api | `conductor instance serve` with `/v1/` on its socket; the daemon proxies, serves the dashboard at `/` and on the TLS listener; the per-instance dashboard server gone |
 | 3 | federated-views, tui-readonly | the federated routes; `conductor tui` read-only with attach |
@@ -831,6 +834,7 @@ one.
 | the daemon on a remote box; how engineers join? | conductord runs on the shared box too, behind its TLS listener with Identity bearers; an engineer joins an instance and contributes their Claude token to its pool, which `claude-code` agents lease from (2026-11-08) |
 | the Claude app as a UI? | yes: a controller started for Remote Control on a named owner's token from the pool appears in that owner's Claude app (2026-11-08) |
 | who issued a command: a person or a program? | told apart by type on every command, event and record; a grant belongs to a human actor only (2026-11-08) |
+| how is an actor written? | a kind and its fields, not a sum type, with the daemon as the third kind: the specification tests a field in a predicate, not a variant (2026-11-08) |
 
 ### Open question for the operator
 

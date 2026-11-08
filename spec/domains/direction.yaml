@@ -658,10 +658,10 @@ commands:
         type: conductor.direction.GoalId
     outcomes:
       - name: agent-actor
-        external: the actor is an agent, not a person
-        error: conductor.decision.ActorNotHuman
+        when: actor.kind != Human
+        error: conductor.operator.ActorNotHuman
         payload:
-          conductor.decision.ActorNotHuman:
+          conductor.operator.ActorNotHuman:
             actor: input.actor
         summary: Only a person issues this command (design architecture-next.md § 3, Actors); an agent actor is refused by name and nothing changed.
       - name: invalid-goal-id
@@ -758,10 +758,10 @@ commands:
         type: String
     outcomes:
       - name: agent-actor
-        external: the actor is an agent, not a person
-        error: conductor.decision.ActorNotHuman
+        when: actor.kind != Human
+        error: conductor.operator.ActorNotHuman
         payload:
-          conductor.decision.ActorNotHuman:
+          conductor.operator.ActorNotHuman:
             actor: input.actor
         summary: Only a person issues this command (design architecture-next.md § 3, Actors); an agent actor is refused by name and nothing changed.
       - name: invalid-goal-id

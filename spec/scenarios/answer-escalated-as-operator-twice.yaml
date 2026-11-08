@@ -10,7 +10,7 @@ timeline:
     command: conductor.decision.RaiseDecisionRequest
     actor: conductor.decision.RepositoryController
     input:
-      actor: {kind: Agent, value: {instance: example-org, role: Lead, name: example-org-lead, kind: claude-code}}
+      actor: {kind: Agent, agent: {instance: example-org, role: Lead, name: example-org-lead, kind: claude-code}}
       request_id: REQ-twice-1
       repository: cortex
       question: Which store backs the cache?
@@ -23,7 +23,7 @@ timeline:
     command: conductor.decision.EscalateRequest
     actor: conductor.decision.Conductor
     input:
-      actor: {kind: Agent, value: {instance: example-org, role: Director, name: example-org-conductor, kind: claude-code}}
+      actor: {kind: Agent, agent: {instance: example-org, role: Director, name: example-org-conductor, kind: claude-code}}
       request_id: REQ-twice-1
       escalation_class: O
       reason: an architecture choice
@@ -40,7 +40,7 @@ timeline:
     command: conductor.decision.RecordConductorDecision
     actor: conductor.decision.Conductor
     input:
-      actor: {kind: Agent, value: {instance: example-org, role: Director, name: example-org-conductor, kind: claude-code}}
+      actor: {kind: Agent, agent: {instance: example-org, role: Director, name: example-org-conductor, kind: claude-code}}
       decision_id: DEC-twice-1
       decision_class: C
       question: Retry the flaky job?
@@ -55,7 +55,7 @@ timeline:
     command: conductor.decision.RecordOperatorDecisionForRequest
     actor: conductor.decision.Operator
     input:
-      actor: {kind: Human, value: {operator: example-operator}}
+      actor: {kind: Human, operator: example-operator}
       request_id: REQ-twice-1
       decision_id: DEC-twice-1
       decision_class: O

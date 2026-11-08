@@ -35,9 +35,6 @@ entities:
   # `JoinInstance`, nor the instance's start is said to); which one does, and whether a pool
   # exists before its first token, is an open question for the owner. Until it is answered no
   # outcome creates this entity and no command checks that a pool exists.
-  # UNMAPPED: the pool belongs to an instance (`conductor.instance.Instance`, identity
-  # `conductor.config.InstanceName`); that entity is not declared in this tree, so the
-  # `references` entry (pool to instance, via `instance`) waits for the instance domain.
   - name: conductor.token.TokenPool
     identity:
       name: instance
@@ -48,6 +45,11 @@ entities:
         kind: owns
         target: conductor.token.PoolToken
         cardinality: many
+        via: instance
+      - name: instance
+        kind: references
+        target: conductor.instance.Instance
+        cardinality: one
         via: instance
     lifecycle:
       initial: Open
@@ -63,9 +65,10 @@ entities:
   # `claude-code` kind runs on it (one lease per agent start); `Limited` once a usage-limit stop
   # released it as limited; `Withdrawn` once its owner withdrew it (`conductor leave`).
   #
-  # UNMAPPED: `owner`, `secret` and `agent` name entities of `conductor.operator`,
-  # `conductor.secret` and `conductor.agent` (`references`, via each field); none of those
-  # entities is declared in this tree, so the entries wait for those domains.
+  # UNMAPPED: `owner` names a `conductor.operator.Operator`, keyed by `OperatorKey {operator,
+  # instance}`; a `references` relation via `owner` (an `OperatorName`) is refused by ess 0.90,
+  # which wants the field typed `OperatorKey` (type_mismatch, ESS-ENTITY-002). Open question for
+  # the owner: retype `owner` to the key, or keep the name unrelated.
   - name: conductor.token.PoolToken
     identity:
       name: token_id
@@ -87,6 +90,17 @@ entities:
         type: Optional<conductor.agent.AgentName>
       - name: contributed_at
         type: Timestamp
+    relations:
+      - name: secret
+        kind: references
+        target: conductor.secret.Secret
+        cardinality: one
+        via: secret
+      - name: agent
+        kind: references
+        target: conductor.agent.Agent
+        cardinality: one
+        via: agent
     # UNMAPPED: what moves a `Limited` token back to `Available` (the time `limited_until` passing
     # on its own, a command the runtime issues then, or a lease that admits a Limited token whose
     # `limited_until` is past) is said nowhere; no transition leaves `Limited` but the withdrawal.
@@ -122,10 +136,10 @@ actors:
   # The instance runtime starts the instance's agents; its `claude-code` kind leases a token per
   # agent start, releases it when the agent stops, and releases it as limited on a usage-limit
   # stop (§ 5.3, § 7).
-  # UNMAPPED: `conductor.operator.Actor` has a `Human` and an `Agent` variant only; the instance
-  # runtime, a program but no agent, issues these three commands. Which actor they carry (the
-  # agent the token serves, as the scenarios write it, a runtime variant, or the person or agent
-  # that asked for the agent start) is said nowhere. Open question for the owner.
+  # UNMAPPED: the instance runtime, a program but no agent, issues these three commands. Which
+  # actor they carry (the agent the token serves, as the scenarios write it; `{kind: Daemon}`, the
+  # runtime on its own account; or the person or agent that asked for the agent start) is said
+  # nowhere. Open question for the owner.
   - name: conductor.token.InstanceRuntime
     may:
       - conductor.token.LeaseToken
@@ -135,14 +149,6 @@ actors:
       display: Instance runtime
 
 errors:
-  # Declared here until `conductor.operator.ActorNotHuman` merges; the coordinator reconciles the
-  # two (common brief, "The actor").
-  - name: conductor.token.ActorNotHuman
-    summary: >
-      The command is one only a person may issue, and an agent issued it; nothing was written.
-    fields:
-      - name: actor
-        type: conductor.operator.Actor
 
   - name: conductor.token.TokenStateConflict
     summary: >
@@ -176,14 +182,11 @@ commands:
       - {name: secret, type: conductor.secret.SecretName}
       - {name: contributed_at, type: Timestamp}
     outcomes:
-      # A guard cannot read the union's tag (`actor.kind` is refused as `unobservable_fact`, and
-      # synthesis refuses a read into a union), so the refusal is the implementation's check of
-      # `input.actor`, declared external.
       - name: actor-not-human
-        external: the input's actor is an Agent actor, not a Human one
-        error: conductor.token.ActorNotHuman
+        when: actor.kind != Human
+        error: conductor.operator.ActorNotHuman
         payload:
-          conductor.token.ActorNotHuman:
+          conductor.operator.ActorNotHuman:
             actor: input.actor
         summary: An agent tried to contribute a token; only a person contributes one, and nothing was written.
       - name: contributed
@@ -229,10 +232,10 @@ commands:
       - {name: withdrawn_at, type: Timestamp}
     outcomes:
       - name: actor-not-human
-        external: the input's actor is an Agent actor, not a Human one
-        error: conductor.token.ActorNotHuman
+        when: actor.kind != Human
+        error: conductor.operator.ActorNotHuman
         payload:
-          conductor.token.ActorNotHuman:
+          conductor.operator.ActorNotHuman:
             actor: input.actor
         summary: An agent tried to withdraw a token; only a person withdraws one, and the token is unchanged.
       - name: withdrawn

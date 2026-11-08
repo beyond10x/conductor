@@ -8,7 +8,7 @@ timeline:
     command: conductor.token.ContributeToken
     actor: conductor.token.Operator
     input:
-      actor: {kind: Human, value: {operator: alice}}
+      actor: {kind: Human, operator: alice}
       instance: example-org
       owner: alice
       seat: alice@example-org.example

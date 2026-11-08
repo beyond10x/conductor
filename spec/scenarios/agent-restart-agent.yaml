@@ -1,8 +1,8 @@
 # docs/design/architecture-next.md § 5.1 and § 5.3: after a usage-limit stop the agent is
 # resumed on another owner's token as its next generation, through the `agents/{name}/restart`
 # route's command.
-# The runtime's own commands name the operator a single host implies (§ 5.3); the domain's
-# UNMAPPED marker on `InstanceRuntime` records that the runtime has no actor of its own.
+# The runtime's own commands (declaring its kinds, a stop it observed) carry `{kind: Daemon}`;
+# a start names the operator a single host implies (§ 5.3), who asked for it.
 type: ess-scenario/1
 domain: conductor.agent
 scenario: agent-restart-agent
@@ -13,7 +13,7 @@ timeline:
     command: conductor.agent.DeclareAgentKind
     actor: conductor.agent.InstanceRuntime
     input:
-      actor: {kind: Human, value: {operator: example-operator}}
+      actor: {kind: Daemon}
       name: claude-code
       capabilities: [Interactive]
       binary: claude
@@ -23,7 +23,7 @@ timeline:
     command: conductor.agent.StartAgent
     actor: conductor.agent.InstanceRuntime
     input:
-      actor: {kind: Human, value: {operator: example-operator}}
+      actor: {kind: Human, operator: example-operator}
       name: example-org-director
       instance: example-org
       role: Director
@@ -39,7 +39,7 @@ timeline:
     command: conductor.agent.StopAgent
     actor: conductor.agent.InstanceRuntime
     input:
-      actor: {kind: Human, value: {operator: example-operator}}
+      actor: {kind: Daemon}
       name: example-org-director
       exit_class: UsageLimit
       stopped_at: 2026-11-08T12:00:00Z
@@ -49,7 +49,7 @@ timeline:
     command: conductor.agent.RestartAgent
     actor: conductor.agent.InstanceRuntime
     input:
-      actor: {kind: Human, value: {operator: example-operator}}
+      actor: {kind: Human, operator: example-operator}
       name: example-org-director
       token_owner: example-colleague
       started_at: 2026-11-08T12:00:05Z

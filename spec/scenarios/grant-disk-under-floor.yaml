@@ -15,7 +15,7 @@ timeline:
     command: conductor.dispatch.RequestResource
     actor: conductor.dispatch.RepositoryController
     input:
-      actor: {kind: Agent, value: {instance: example-org, role: Lead, name: example-org-lead, kind: claude-code}}
+      actor: {kind: Agent, agent: {instance: example-org, role: Lead, name: example-org-lead, kind: claude-code}}
       repository: cortex
       resource: Disk
       amount: 10
@@ -27,7 +27,7 @@ timeline:
     command: conductor.dispatch.GrantResource
     actor: conductor.dispatch.Conductor
     input:
-      actor: {kind: Agent, value: {instance: example-org, role: Director, name: example-org-conductor, kind: claude-code}}
+      actor: {kind: Agent, agent: {instance: example-org, role: Director, name: example-org-conductor, kind: claude-code}}
       resource_request_id: {$instance: disk-request}
       disk_free_bytes: 21474836480
     outcome: granted

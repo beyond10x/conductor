@@ -1,14 +1,15 @@
 domain: conductor.operator
 
 summary: >
-  Who acts on conductor, told apart by type (design docs/design/architecture-next.md § 3 "Actors",
-  § 5.3, decisions 9, 11 and 12). An `Actor` is `Human`, an operator (an Identity principal with
-  grants), or `Agent`, a program the runtime started in a role of an instance. Every command in
-  every domain carries its `actor`; every event and every record derived from one carries the
-  same; a grant belongs to a human actor only, and a command that needs one refuses an agent
-  actor by name. The instance cluster has several operators; an operator joins an instance and
-  leaves it; the records projection writes an actor as `human:<name>` or
-  `agent:<instance>/<role>/<name>`.
+  Who acts on conductor, told apart by kind (design docs/design/architecture-next.md § 3 "Actors",
+  § 5.3, decisions 9, 11, 12 and 14). An `Actor` is a kind and the fields of that kind: `Human`, an
+  operator (an Identity principal with grants); `Agent`, a program the runtime started in a role
+  of an instance; `Daemon`, conductord or an instance runtime acting on its own account. Every
+  command in every domain carries its `actor`; every event and every record derived from one
+  carries the same; a grant belongs to a human actor only, and a command that needs one refuses
+  every other kind by name, as a predicate over `actor.kind`. The instance cluster has several
+  operators; an operator joins an instance and leaves it; the records projection writes an actor
+  as `human:<name>`, `agent:<instance>/<role>/<name>` or `daemon`.
 
 naming:
   wire: operator
@@ -20,12 +21,6 @@ types:
     kind: newtype
     of: String
 
-  # A person acting: an operator.
-  - name: conductor.operator.HumanActor
-    kind: struct
-    fields:
-      - {name: operator, type: conductor.operator.OperatorName}
-
   # A program acting: the agent the runtime started, by its instance, role, name and kind.
   - name: conductor.operator.AgentActor
     kind: struct
@@ -35,13 +30,34 @@ types:
       - {name: name, type: conductor.agent.AgentName}
       - {name: kind, type: conductor.agent.AgentKindName}
 
-  # Who issued a command: a person or a program, by type and never by naming convention.
+  # What kind of actor issued a command (design § 3 "Actors", decision 14), and how a record
+  # prints it:
+  # - `Human`: a person, an operator with grants; `operator` names them. Printed
+  #   `human:<operator>`, the prefix AEP's transitions already write.
+  # - `Agent`: a program the instance runtime started in a role; `agent` names it by instance,
+  #   role, name and kind. Printed `agent:<instance>/<role>/<name>`.
+  # - `Daemon`: conductord or an instance runtime acting on its own account (reconcile, observe,
+  #   open and close a box, resolve secrets, declare its kinds, a stop it observed); neither
+  #   field is set. Printed `daemon`.
+  - name: conductor.operator.ActorKind
+    kind: enum
+    variants: [Human, Agent, Daemon]
+
+  # Who issued a command: a kind, and the fields of that kind, never told apart by naming
+  # convention. A grant is checked on `kind`, so a person-only command's refusal is a predicate
+  # over `actor.kind` that synthesis exercises.
+  # The tie of `kind` to its field (`Human` with `operator`, `Agent` with `agent`) is not declared
+  # as a type invariant: ess 0.90 accepts `any: [kind != Human, defined(operator)]` and
+  # `any: [kind != Agent, defined(agent)]`, and synthesis then builds 410 scenarios instead of 527
+  # (the invariant has no observer at every view publishing an actor, ESS-SYNTH-013, and every
+  # wrong-state and existing-row refusal of the commands carrying an actor loses its witness).
+  # The handler that decodes an actor checks it.
   - name: conductor.operator.Actor
-    kind: union
-    tag: kind
-    variants:
-      Human: conductor.operator.HumanActor
-      Agent: conductor.operator.AgentActor
+    kind: struct
+    fields:
+      - {name: kind, type: conductor.operator.ActorKind}
+      - {name: operator, type: Optional<conductor.operator.OperatorName>}
+      - {name: agent, type: Optional<conductor.operator.AgentActor>}
 
   # What an operator may do (design § 3, row `conductor.operator`): answer decisions, change
   # settings, start, stop and upgrade instances, purge, join. A grant belongs to a human actor
@@ -81,10 +97,12 @@ entities:
   # again with the grants the config gives then. The operator's name is its Identity principal
   # (`OperatorName` above), so no second principal field is kept. `joined_by` and `left_by` name
   # the actor that issued the join and the leave.
-  # UNMAPPED: the record's `instance` is a reference to `conductor.instance.Instance`, which is
-  # not declared in this tree (the instance author's unit); the `references` relation, and the
-  # refusal of a join into an instance the config does not hold, wait on it. Open question for
-  # the coordinator.
+  # UNMAPPED: the record's `key.instance` names a `conductor.instance.Instance`, and no relation
+  # says so: `via` must name a field of the entity, the instance is a member of the struct key,
+  # and `via: key.instance` is refused by ess 0.90 at parse ("invalid field name identifier
+  # \"key.instance\": contains '.'", no ESS code). The refusal of a join into an instance the
+  # config does not hold waits on the same. Open question for the owner: carry `instance` as a
+  # field beside the key, or leave the relation undeclared.
   # UNMAPPED: "the grants the config gives their role": the design names no operator role in
   # `conductor.config/2` (§ 9 lists `daemon`, `globals`, `instances[]`), so the join takes the
   # grants already resolved; where the config maps an operator role to grants, and whether a
@@ -119,7 +137,7 @@ entities:
 actors:
   # The engineer who joins an instance and, once joined, is its operator: a person, through the
   # CLI with an Identity bearer (design § 4, § 5.3). Named `Engineer` because the entity is
-  # `Operator`; the CLI checks the human variant of `actor` as the commands' refusals say.
+  # `Operator`; the commands refuse an `actor` whose kind is not `Human`.
   - name: conductor.operator.Engineer
     may:
       - conductor.operator.JoinInstance
@@ -137,13 +155,13 @@ actors:
       display: conductord
 
 errors:
-  # Declared here; every domain's person-only command refers to it as
+  # The one declaration; every domain's person-only command refers to it as
   # `conductor.operator.ActorNotHuman` (design § 3 "Actors": "a command that needs a grant refuses
-  # an agent actor by name").
+  # an agent actor by name"), on the guard `actor.kind != Human`.
   - name: conductor.operator.ActorNotHuman
     summary: >
       The command needs a grant, a grant belongs to a human actor only, and the actor that issued
-      it is an agent. Nothing was written.
+      it is an agent or the daemon. Nothing was written.
     fields:
       - name: actor
         type: conductor.operator.Actor
@@ -167,15 +185,10 @@ commands:
   # role, and the same CLI step contributes their Claude token to the instance's pool, which is
   # `conductor.token.ContributeToken` and not this command.
   #
-  # Which actor is an agent is a fact of the union's variant, and ESS 0.90 cannot guard on it:
-  # `actor.kind == Agent` is refused as `unobservable_fact` (ESS-COMMAND-003), `actor == Agent` as
-  # `type_mismatch`. So the refusal is `external:`, decided by the implementation from the
-  # input's variant. The construct that would close it: a guard over a union value's variant
-  # (`when: {actor: {variant: Agent}}` or `actor.kind == Agent` over a union's `tag:`).
+  # The refusal of an actor that is not a person is the guard `actor.kind != Human`, first.
   # UNMAPPED: the design does not say whether the human actor must be the operator the join
-  # records (an engineer joins themselves) or may join a colleague; ESS cannot compare a union's
-  # member with an input either. The record keeps both, `key.operator` and `joined_by`. Open
-  # question for the owner.
+  # records (an engineer joins themselves) or may join a colleague. The record keeps both,
+  # `key.operator` and `joined_by`. Open question for the owner.
   - name: conductor.operator.JoinInstance
     naming:
       wire: join-instance
@@ -186,6 +199,13 @@ commands:
       - {name: grants, type: List<conductor.operator.Grant>}
       - {name: joined_at, type: Timestamp}
     outcomes:
+      - name: actor-not-human
+        when: actor.kind != Human
+        error: conductor.operator.ActorNotHuman
+        payload:
+          conductor.operator.ActorNotHuman:
+            actor: input.actor
+        summary: An agent cannot join an instance; nothing was written.
       - name: joined
         unknown_instance: true
         creates: conductor.operator.Operator
@@ -230,13 +250,6 @@ commands:
           conductor.operator.AlreadyJoined:
             key: input.key
         summary: The operator is active on the instance already; the record is unchanged.
-      - name: actor-not-human
-        external: the actor is an agent, not a person
-        error: conductor.operator.ActorNotHuman
-        payload:
-          conductor.operator.ActorNotHuman:
-            actor: input.actor
-        summary: An agent cannot join an instance; nothing was written.
 
   # `conductor leave` (design § 5.3): the operator stops being an operator of the instance; the
   # token withdrawal and the resumption of the agents on it are `conductor.token.WithdrawToken`,
@@ -253,6 +266,13 @@ commands:
       - {name: key, type: conductor.operator.OperatorKey}
       - {name: left_at, type: Timestamp}
     outcomes:
+      - name: actor-not-human
+        when: actor.kind != Human
+        error: conductor.operator.ActorNotHuman
+        payload:
+          conductor.operator.ActorNotHuman:
+            actor: input.actor
+        summary: An agent cannot make an operator leave; nothing was written.
       - name: left
         moves: conductor.operator.Operator.leave
         instance: key
@@ -281,13 +301,6 @@ commands:
           conductor.operator.NotJoined:
             key: input.key
         summary: The engineer never joined the instance; nothing was written.
-      - name: actor-not-human
-        external: the actor is an agent, not a person
-        error: conductor.operator.ActorNotHuman
-        payload:
-          conductor.operator.ActorNotHuman:
-            actor: input.actor
-        summary: An agent cannot make an operator leave; nothing was written.
 
 events:
   - name: conductor.operator.OperatorJoined
@@ -308,11 +321,10 @@ views:
   # human or agent, with its kind and its last command's time) is not declared. Its rows come
   # from every command of every domain, and ESS 0.90 has no construct for them: a view's
   # `source:` is one entity, and no entity records "an actor issued a command"; declaring one,
-  # with a command every domain would invoke, is an invention the design does not make. Two
-  # constructs would close it: a view sourced from the events of every domain grouped by a
-  # field they all carry (`source: {events: all, group_by: actor, last: at}`), and a read of a
-  # union's variant as a value (`kind` of `Actor`, as a guard cannot read it either, see
-  # `JoinInstance`). Open question for the owner and for ESS.
+  # with a command every domain would invoke, is an invention the design does not make. One
+  # construct would close it: a view sourced from the events of every domain grouped by a
+  # field they all carry (`source: {events: all, group_by: actor, last: at}`); the kind is now a
+  # field of `Actor` and readable. Open question for the owner and for ESS.
   # Every operator of every instance, active and left, with the grants each holds there.
   - name: conductor.operator.Operators
     source: conductor.operator.Operator

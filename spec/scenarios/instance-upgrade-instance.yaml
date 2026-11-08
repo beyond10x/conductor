@@ -12,7 +12,7 @@ timeline:
     command: conductor.instance.StartInstance
     actor: conductor.instance.Operator
     input:
-      actor: {kind: Human, value: {operator: operator-one}}
+      actor: {kind: Human, operator: operator-one}
       name: example-org
       placement: local
       roles: [Director]
@@ -24,7 +24,7 @@ timeline:
     command: conductor.instance.ObserveInstance
     actor: conductor.instance.Conductord
     input:
-      actor: {kind: Agent, value: {instance: example-org, role: Director, name: conductord, kind: conductord}}
+      actor: {kind: Daemon}
       name: example-org
       answering: true
       binary_version: 1.0.0
@@ -35,7 +35,7 @@ timeline:
     command: conductor.instance.UpgradeInstance
     actor: conductor.instance.Operator
     input:
-      actor: {kind: Human, value: {operator: operator-one}}
+      actor: {kind: Human, operator: operator-one}
       name: example-org
       binary_version: 1.1.0
       at: 2026-11-08T12:00:00Z
@@ -45,7 +45,7 @@ timeline:
     command: conductor.instance.ObserveInstance
     actor: conductor.instance.Conductord
     input:
-      actor: {kind: Agent, value: {instance: example-org, role: Director, name: conductord, kind: conductord}}
+      actor: {kind: Daemon}
       name: example-org
       answering: true
       binary_version: 1.1.0
@@ -56,7 +56,7 @@ timeline:
     command: conductor.instance.UpgradeInstance
     actor: conductor.instance.Operator
     input:
-      actor: {kind: Human, value: {operator: operator-one}}
+      actor: {kind: Human, operator: operator-one}
       name: example-org
       binary_version: 1.2.0
       at: 2026-11-08T13:00:00Z
@@ -66,7 +66,7 @@ timeline:
     command: conductor.instance.UpgradeInstance
     actor: conductor.instance.Conductord
     input:
-      actor: {kind: Agent, value: {instance: example-org, role: Director, name: conductord, kind: conductord}}
+      actor: {kind: Daemon}
       name: example-org
       binary_version: 1.2.0
       at: 2026-11-08T13:05:00Z

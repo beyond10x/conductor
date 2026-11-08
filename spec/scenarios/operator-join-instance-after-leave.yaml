@@ -8,7 +8,7 @@ timeline:
     command: conductor.operator.JoinInstance
     actor: conductor.operator.Engineer
     input:
-      actor: {kind: Human, value: {operator: operator-one}}
+      actor: {kind: Human, operator: operator-one}
       key: {operator: operator-one, instance: example-org}
       grants: [AnswerDecisions]
       joined_at: 2026-11-08T09:00:00Z
@@ -18,7 +18,7 @@ timeline:
     command: conductor.operator.LeaveInstance
     actor: conductor.operator.Engineer
     input:
-      actor: {kind: Human, value: {operator: operator-one}}
+      actor: {kind: Human, operator: operator-one}
       key: {operator: operator-one, instance: example-org}
       left_at: 2026-11-08T17:00:00Z
     outcome: left
@@ -27,7 +27,7 @@ timeline:
     command: conductor.operator.JoinInstance
     actor: conductor.operator.Engineer
     input:
-      actor: {kind: Human, value: {operator: operator-one}}
+      actor: {kind: Human, operator: operator-one}
       key: {operator: operator-one, instance: example-org}
       grants: [AnswerDecisions, StartInstances, StopInstances]
       joined_at: 2026-11-09T09:00:00Z

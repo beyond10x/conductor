@@ -171,10 +171,13 @@ entities:
         target: conductor.placement.Placement
         cardinality: one
         via: placement
-    # UNMAPPED: a box belongs to one instance (`instance`), and `conductor.instance.Instance`
-    # holds "box" among its actual fields (§ 3); whether that is a `references` from the instance
-    # to the box, from the box to the instance, or both, is the instance author's to settle with
-    # this domain. No relation to `conductor.instance.Instance` is declared here.
+      # A box belongs to one instance; the instance names its open box in `box_id`, a
+      # `references` of its own. Neither side owns the other.
+      - name: instance
+        kind: references
+        target: conductor.instance.Instance
+        cardinality: one
+        via: instance
     lifecycle:
       initial: Opened
       states: [Opened, Closed]
@@ -243,10 +246,7 @@ errors:
         type: conductor.placement.BoxId
 
 commands:
-  # UNMAPPED: every command's first input is a `conductor.operator.Actor`, and conductord, the one
-  # issuer here, is neither `Human` (an operator) nor `Agent` (a program the instance runtime
-  # started in a role). § 3 "Actors" does not say what actor the daemon's own commands carry.
-  # Open question for the owner and the operator author.
+  # conductord, the one issuer here, acts on its own account: the actor is `{kind: Daemon}`.
   - name: conductor.placement.OpenBox
     naming:
       wire: open-box
