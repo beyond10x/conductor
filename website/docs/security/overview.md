@@ -3,7 +3,7 @@ title: Security model
 sidebar_position: 1
 description: What conductor protects, from whom, the five guarantees the code gives, the two it does not, and which rules are enforced in code and which are asked of the model.
 lede: Sessions run unattended with no permission prompts. One hook, the guard, decides every tool call; it catches a session's mistakes, and it is not a sandbox.
-source: crates/conductor/src/guard.rs, crates/conductor/src/guard/rules.rs; .claude/conductor-settings.json, .claude/controller-settings.json; Taskfile.yml; crates/conductor/src/decide.rs, crates/conductor/src/config.rs, crates/conductor/src/dashboard/answers.rs; docs/design/conductor.md sections 5 and 7
+source: crates/conductor/src/guard.rs, crates/conductor/src/guard/rules.rs; crates/conductor/kinds/claude-code/conductor-settings.json, crates/conductor/kinds/claude-code/controller-settings.json; Taskfile.yml; crates/conductor/src/decide.rs, crates/conductor/src/config.rs, crates/conductor/src/dashboard/answers.rs; docs/design/conductor.md sections 5 and 7
 ---
 
 Conductor starts Claude Code sessions with `--permission-mode bypassPermissions`. No tool call

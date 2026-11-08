@@ -42,6 +42,7 @@ pub mod records;
 pub mod remote;
 pub mod repository;
 pub mod resource;
+pub mod role;
 pub mod rollup;
 pub mod rules;
 pub mod run;

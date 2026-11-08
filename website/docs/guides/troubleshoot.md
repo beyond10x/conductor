@@ -3,7 +3,7 @@ title: Troubleshoot
 sidebar_position: 6
 description: Check the programs with conductor doctor, read why a start was refused or a snapshot failed, read the guard's denials, and find a session that runs without the guard.
 lede: Conductor refuses rather than half-works, and every refusal names its cause, so start from the message and the command that prints it.
-source: crates/conductor/src/doctor.rs; crates/conductor/src/snapshot.rs, crates/conductor/src/collect/; crates/conductor/src/guard.rs; crates/conductor/src/run.rs; Taskfile.yml, maintainer:start; .claude/controller-settings.json
+source: crates/conductor/src/doctor.rs; crates/conductor/src/snapshot.rs, crates/conductor/src/collect/; crates/conductor/src/guard.rs; crates/conductor/src/run.rs; Taskfile.yml, maintainer:start; crates/conductor/kinds/claude-code/controller-settings.json
 ---
 
 ## Start with doctor
@@ -74,8 +74,7 @@ a check fails. Each message names its fix:
 |---|---|---|
 | `conductor config show names no maintainer under host.roles …` | the host file names no maintainer, or the config does not load | `conductor config validate`; add the role `maintainer` to `~/.b10x/conductor/host/host.yaml` |
 | `the maintainer runs on codex …; this task starts claude only` | the role's `harness` is not `claude` | set `harness: claude` for this role |
-| `the profile … of the maintainer is not a file` | the `profile` path is wrong | run `task install` in a checkout of the conductor repository, which writes `~/.b10x/conductor/profiles/conductor-dev.md`, and point it there |
-| `this checkout has no .claude/agents/conductor-dev.md …` | the role names no `profile`, and a session started with `--setting-sources project,local` loads no user-level agent | name a `profile` for the role ([start conductor](./start-conductor.md#2-name-each-roles-profile-and-settings)) |
+| `the profile … of the maintainer is not a file` | the `profile` path is wrong | point it at a file, or remove it: the role then starts from the maintainer profile the binary carries (`conductor role show --role maintainer`) |
 | `a session named … is already running; see task sessions` | a live session of that name exists | attach to it, or stop it before you start another |
 
 `conductor config validate` refuses a controller role that names an `agent` and no `profile`,
@@ -154,8 +153,9 @@ What each rule allows and denies is in [the guard](/docs/security/the-guard).
 
 ## A session that started without the guard
 
-A session is guarded only when it started with a settings file that wires the hook, such as this
-repository's `.claude/conductor-settings.json` or `.claude/controller-settings.json`. The tasks and
+A session is guarded only when it started with a settings file that wires the hook, such as the
+ones the binary carries, `crates/conductor/kinds/claude-code/conductor-settings.json` and
+`controller-settings.json`. The tasks and
 conductor's start form for controllers pass one with `--settings`. A session started or resumed by
 hand without `--settings`, or conductor-dev started without a `settings` for its role, runs with
 `bypassPermissions` and no guard at all.

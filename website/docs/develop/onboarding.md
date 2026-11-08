@@ -84,8 +84,8 @@ repository.
 | `crates/conductor-model/` | Rust generated from `spec/` by `ess`; never edited by hand |
 | `spec/` | the ESS specification: domains, components, scenarios; the source of truth for every noun and command |
 | `.engineering/planning/` | the AEP planning store: one Markdown file per epic, story or decision |
-| `.agents/` | the three generic profiles: `conductor.md`, `conductor-dev.md`, `repo-controller.md` |
-| `.claude/` | the Claude Code adapters for those profiles, and the two settings files that wire the guard |
+| `crates/conductor/roles/` | the role profiles, compiled into the binary: `maintainer.md`, `controller.md`, `supervisor.md`, `teacher.md` |
+| `crates/conductor/kinds/claude-code/` | the two settings files that wire the guard, compiled in; the repository has no `.claude/` directory |
 | `website/` | this site (Docusaurus); some pages are generated |
 | `docs/design/` | the design, `conductor.md`; the sections the rules below refer to |
 | `docs/waves/` | one page per wave of delivered stories |

@@ -1,5 +1,5 @@
 //! `story:single-conductor-lease`: the conductor lease, claimed by the `SessionStart` hook the
-//! shipped `.claude/conductor-settings.json` wires, as Claude Code runs it.
+//! binary's `kinds/claude-code/conductor-settings.json` wires, as Claude Code runs it.
 //!
 //! Claude Code runs a hook command under `sh -c`, from the session's own process, with the
 //! SessionStart payload on standard input. So a case runs the settings file's command under
@@ -39,7 +39,8 @@ fn case_dir(case: &str) -> PathBuf {
 
 /// The shipped settings conductor starts with.
 fn conductor_settings() -> Value {
-    let path = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../.claude/conductor-settings.json");
+    let path =
+        Path::new(env!("CARGO_MANIFEST_DIR")).join("kinds/claude-code/conductor-settings.json");
     serde_json::from_str(&fs::read_to_string(&path).expect("read the settings file"))
         .expect("the settings file is JSON")
 }

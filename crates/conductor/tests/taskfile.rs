@@ -1,7 +1,7 @@
 //! `story:instance-records-start`: the tasks of `Taskfile.yml` that run conductor run it in the
-//! active instance's records directory, `task trust` trusts that directory, and `task
-//! agents:link REPO=<path>` links this checkout's Claude Code adapters into that repository's
-//! `.claude/agents/` without overwriting anything (`story:agents-link-local`). `task trust` runs `conductor trust` (`story:portable-trust`), whose own
+//! active instance's records directory and `task trust` trusts that directory;
+//! `story:roles-in-the-binary` retired `task agents:link` and `task profiles`, since no adapter
+//! or profile is copied anywhere. `task trust` runs `conductor trust` (`story:portable-trust`), whose own
 //! cases are `tests/trust.rs`.
 //!
 //! The first tests read `Taskfile.yml` as YAML. The others run the tasks with `task` against a
@@ -49,9 +49,6 @@ const RECORDS: &str = "conductor config show --format json | jq -r '.instances[0
 
 /// The prefix every shell command of a conductor task starts with.
 const CD_RECORDS: &str = "cd {{shellQuote .RECORDS}} && ";
-
-/// The adapters `task agents:link` links; the conductor adapter is retired (`story:run-daemon`).
-const AGENTS: [&str; 2] = ["repo-controller", "conductor-dev"];
 
 /// The shell commands of `task`: its `cmds:` entries that are text (not `task:` calls).
 fn shell_commands(task: &serde_yaml::Value) -> Vec<String> {
@@ -133,6 +130,36 @@ fn the_conductor_session_tasks_are_retired() {
     }
 }
 
+/// `story:roles-in-the-binary`: the role profiles ship inside the binary, so `task profiles`
+/// (which copied them to `profiles/` beside the config file) and `task agents:link` (which linked
+/// the committed Claude Code adapters into a repository) are gone, `task install` installs the
+/// binary alone, and no task names `.agents/`, `.claude/agents/` or a profiles directory.
+#[test]
+fn no_task_copies_a_profile_or_links_an_adapter() {
+    let taskfile = taskfile();
+    for task in ["profiles", "agents:link"] {
+        assert!(
+            taskfile["tasks"][task].is_null(),
+            "Taskfile.yml still has {task}"
+        );
+    }
+    assert_eq!(
+        shell_commands(&taskfile["tasks"]["install"]),
+        ["cargo install --path crates/conductor --locked"],
+        "install installs the binary alone"
+    );
+    let text = fs::read_to_string(root().join("Taskfile.yml")).expect("read Taskfile.yml");
+    for gone in [
+        ".agents/",
+        ".claude/agents",
+        "task: profiles",
+        "task profiles",
+        "/profiles",
+    ] {
+        assert!(!text.contains(gone), "Taskfile.yml holds {gone:?}");
+    }
+}
+
 /// `story:instance-api`: the dashboard is the daemon's page; `task dashboard` starts no process of
 /// its own and prints the daemon's URL naming the active instance.
 #[test]
@@ -189,56 +216,6 @@ fn trust_runs_the_conductor_command() {
         task["preconditions"].is_null(),
         "trust refuses through the command: {task:?}"
     );
-}
-
-/// `story:run-daemon` retired the conductor adapter: agents:link links the two left, and still
-/// takes back an old link of all three under `~/.claude/agents/`.
-#[test]
-fn agents_link_names_the_two_adapters_and_never_overwrites() {
-    let taskfile = taskfile();
-    let task = &taskfile["tasks"]["agents:link"];
-    assert!(!task.is_null(), "Taskfile.yml has no task agents:link");
-    let commands = shell_commands(task).join("\n");
-    assert_eq!(
-        commands
-            .matches("for name in repo-controller conductor-dev; do")
-            .count(),
-        2,
-        "{commands}"
-    );
-    assert!(
-        commands.contains("for name in conductor repo-controller conductor-dev; do\n  old="),
-        "{commands}"
-    );
-    for forbidden in ["ln -sf", "ln -fs", "ln -f", "mv ", "--force"] {
-        assert!(
-            !commands.contains(forbidden),
-            "agents:link may overwrite ({forbidden}): {commands}"
-        );
-    }
-    // The one removal: a symbolic link under ~/.claude/agents/ that points into this checkout,
-    // which an earlier agents:link made; nothing in REPO/.claude/agents/ is ever removed.
-    assert_eq!(
-        commands.matches("rm ").count(),
-        1,
-        "agents:link removes only an old link into this checkout: {commands}"
-    );
-    for guard in [
-        "old=\"$HOME/.claude/agents/$name.md\"",
-        "if [ -L \"$old\" ]; then",
-        "\"$root\"/*|\"$real\"/*) rm \"$old\"",
-    ] {
-        assert!(
-            commands.contains(guard),
-            "agents:link removes only an old link into this checkout ({guard}): {commands}"
-        );
-    }
-    for agent in AGENTS {
-        assert!(
-            root().join(format!(".claude/agents/{agent}.md")).is_file(),
-            "this checkout has no .claude/agents/{agent}.md"
-        );
-    }
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -388,41 +365,6 @@ impl Case {
         file
     }
 
-    /// A git repository `name` in the case's directory, made with `git init`.
-    fn git_repository(&self, name: &str) -> PathBuf {
-        let repo = self.dir.join(name);
-        fs::create_dir_all(&repo).expect("create the repository");
-        let init = Command::new("git")
-            .args(["init", "--quiet"])
-            .current_dir(&repo)
-            .env("HOME", self.dir.join("home"))
-            .output()
-            .expect("git runs");
-        assert!(init.status.success(), "{init:?}");
-        repo
-    }
-
-    /// `git status --porcelain --untracked-files=all` in `repo`.
-    fn git_status(&self, repo: &Path) -> String {
-        let status = Command::new("git")
-            .args(["status", "--porcelain", "--untracked-files=all"])
-            .current_dir(repo)
-            .env("HOME", self.dir.join("home"))
-            .env("GIT_CEILING_DIRECTORIES", &self.dir)
-            .output()
-            .expect("git runs");
-        assert!(status.status.success(), "{status:?}");
-        String::from_utf8_lossy(&status.stdout).into_owned()
-    }
-
-    /// `task agents:link REPO=<repo>`, isolated as [`Case::task`] is.
-    fn agents_link(&self, repo: &Path) -> Output {
-        self.command("agents:link", None)
-            .arg(format!("REPO={}", repo.display()))
-            .output()
-            .expect("task runs")
-    }
-
     /// `task <name>` on this checkout's `Taskfile.yml`, isolated as the module says.
     fn task(&self, name: &str, config: Option<&Path>) -> Output {
         self.command(name, config).output().expect("task runs")
@@ -537,125 +479,6 @@ fn trust_marks_the_records_directory_and_each_checkout_trusted() {
     }
 }
 
-#[test]
-fn agents_link_links_each_adapter_into_the_repository_once_and_refuses_a_different_file() {
-    let Some(case) = Case::new("agents-link") else {
-        return;
-    };
-    let repo = case.git_repository("repo");
-    let agents = repo.join(".claude/agents");
-    let home = case.dir.join("home/.claude/agents");
-    let exclude = repo.join(".git/info/exclude");
-
-    // Without REPO the task refuses and writes nothing.
-    let output = case.task("agents:link", None);
-    assert_ne!(output.status.code(), Some(0), "{}", shown(&output));
-    assert!(
-        String::from_utf8_lossy(&output.stderr).contains("REPO=<path>"),
-        "{}",
-        shown(&output)
-    );
-    assert!(!agents.exists(), "{}", shown(&output));
-
-    // An earlier agents:link left a link into this checkout under ~/.claude/agents/, of the
-    // conductor adapter `story:run-daemon` retired; the user keeps a file of their own there too.
-    fs::create_dir_all(&home).expect("create ~/.claude/agents");
-    let old = home.join("conductor.md");
-    std::os::unix::fs::symlink(root().join(".claude/agents/conductor.md"), &old)
-        .expect("an old link into this checkout");
-    let own = home.join("repo-controller.md");
-    fs::write(&own, "the user's own\n").expect("write the user's file");
-
-    // Linked into the repository and left out of its status; the old link is removed, the
-    // user's file kept, and nothing is written to ~/.claude/agents/.
-    let output = case.agents_link(&repo);
-    assert_eq!(output.status.code(), Some(0), "{}", shown(&output));
-    for agent in AGENTS {
-        let link = agents.join(format!("{agent}.md"));
-        let target = fs::read_link(&link).unwrap_or_else(|error| panic!("{agent}: {error}"));
-        assert_eq!(target, root().join(format!(".claude/agents/{agent}.md")));
-    }
-    assert_eq!(case.git_status(&repo), "", "{}", shown(&output));
-    assert!(
-        fs::symlink_metadata(&old).is_err(),
-        "the old link into this checkout is removed: {}",
-        shown(&output)
-    );
-    assert_eq!(fs::read_to_string(&own).expect("read"), "the user's own\n");
-    assert!(
-        String::from_utf8_lossy(&output.stdout).contains(&format!("note: left {}", own.display())),
-        "{}",
-        shown(&output)
-    );
-    for name in ["conductor.md", "conductor-dev.md"] {
-        assert!(
-            fs::symlink_metadata(home.join(name)).is_err(),
-            "agents:link wrote ~/.claude/agents/{name}"
-        );
-    }
-    let excluded = fs::read_to_string(&exclude).expect("read the exclude file");
-    for agent in AGENTS {
-        let line = format!(".claude/agents/{agent}.md");
-        assert_eq!(
-            excluded.lines().filter(|l| *l == line).count(),
-            1,
-            "{excluded}"
-        );
-    }
-
-    // Linked again: nothing changes.
-    let output = case.agents_link(&repo);
-    assert_eq!(output.status.code(), Some(0), "{}", shown(&output));
-    assert_eq!(
-        fs::read_to_string(&exclude).expect("read the exclude file"),
-        excluded
-    );
-    assert_eq!(case.git_status(&repo), "");
-    for agent in AGENTS {
-        let link = agents.join(format!("{agent}.md"));
-        assert_eq!(
-            fs::read_link(&link).expect("the link"),
-            root().join(format!(".claude/agents/{agent}.md"))
-        );
-    }
-
-    // A different file and a link elsewhere are refused and kept as they are.
-    let file = agents.join("repo-controller.md");
-    fs::remove_file(&file).expect("remove the link");
-    fs::write(&file, "the user's own\n").expect("write a different file");
-    let elsewhere = case.dir.join("home/elsewhere.md");
-    fs::write(&elsewhere, "another\n").expect("write another file");
-    let link = agents.join("conductor-dev.md");
-    fs::remove_file(&link).expect("remove the link");
-    std::os::unix::fs::symlink(&elsewhere, &link).expect("link elsewhere");
-
-    let output = case.agents_link(&repo);
-    assert_ne!(output.status.code(), Some(0), "{}", shown(&output));
-    let stderr = String::from_utf8_lossy(&output.stderr);
-    assert!(
-        stderr.contains(&file.display().to_string())
-            && stderr.contains(&link.display().to_string()),
-        "the refusal names each file in the way: {}",
-        shown(&output)
-    );
-    assert_eq!(
-        fs::read_to_string(&file).expect("read the file"),
-        "the user's own\n"
-    );
-    assert!(!fs::symlink_metadata(&file).expect("the file").is_symlink());
-    assert_eq!(fs::read_link(&link).expect("the link"), elsewhere);
-
-    // With one file in the way and the other adapter missing, nothing is linked.
-    let missing = link;
-    fs::remove_file(&missing).expect("remove the link elsewhere");
-    let output = case.agents_link(&repo);
-    assert_ne!(output.status.code(), Some(0), "{}", shown(&output));
-    assert!(
-        fs::symlink_metadata(&missing).is_err(),
-        "nothing is linked while one file is refused"
-    );
-}
-
 // ---------------------------------------------------------------------------------------------
 // Adversary cases (wave 01, U2, pass 1)
 // ---------------------------------------------------------------------------------------------
@@ -708,11 +531,12 @@ fn w02_profile(case: &Case, name: &str) -> PathBuf {
 }
 
 /// Without a settings file or profile on the role conductor-dev, conductor-dev starts in this
-/// checkout as the agent conductor-dev, with the setting sources of a `--bg` launch
-/// ([`SETTING_SOURCES`]), and with settings that only pin its instance
-/// (`story:instance-isolation`).
+/// checkout from the maintainer profile the binary carries, written into the state directory
+/// (`story:roles-in-the-binary`) and appended to its system prompt, with the setting sources of a
+/// `--bg` launch ([`SETTING_SOURCES`]), and with settings that only pin its instance
+/// (`story:instance-isolation`). Nothing is written under `~/.claude/agents/`.
 #[test]
-fn dev_start_runs_the_agent_conductor_dev_with_settings_pinned_to_its_instance() {
+fn dev_start_appends_the_binary_s_maintainer_profile_with_settings_pinned_to_its_instance() {
     let Some(case) = Case::new("w02-dev-start") else {
         return;
     };
@@ -724,13 +548,28 @@ fn dev_start_runs_the_agent_conductor_dev_with_settings_pinned_to_its_instance()
     assert_eq!(calls.len(), 1, "{calls:?}");
     let (cwd, args) = &calls[0];
     assert_eq!(cwd, &root(), "{args}");
+    let profile = case
+        .dir
+        .join("home/.b10x/conductor/alpha/state/sessions/conductor-dev.profile.md");
     assert!(
         args.starts_with(&format!(
-            "--bg -n conductor-dev --agent conductor-dev --model sonnet --permission-mode \
+            "--bg -n conductor-dev --append-system-prompt-file {} --model sonnet --permission-mode \
              bypassPermissions {SETTING_SOURCES} --settings {} Start of session.",
+            profile.display(),
             case.pinned_default("conductor-dev").display()
         )),
         "{args}"
+    );
+    assert!(!args.contains("--agent"), "{args}");
+    assert_eq!(
+        fs::read_to_string(&profile).expect("the written profile"),
+        fs::read_to_string(root().join("crates/conductor/roles/maintainer.md"))
+            .expect("the maintainer profile"),
+        "the profile written is the binary's maintainer profile"
+    );
+    assert!(
+        !case.dir.join("home/.claude/agents").exists(),
+        "nothing is written under ~/.claude/agents/"
     );
 }
 
@@ -788,31 +627,6 @@ fn dev_start_refuses_a_role_profile_that_is_not_a_file() {
         shown(&output)
     );
     assert!(case.calls().is_empty(), "{:?}", case.calls());
-}
-
-/// The refusal of `agents:link` is all or nothing: when only the last adapter is in the way,
-/// the first is not linked either. The unit's own case puts the conflict on the first
-/// adapter, where `ln -s` failing on it stops the loop anyway, so it stays green with the
-/// `[ "$refused" = 0 ] || exit 1` gate deleted; this one does not.
-#[test]
-fn adv_agents_link_links_nothing_when_only_the_last_adapter_is_in_the_way() {
-    let Some(case) = Case::new("adv-agents-link-last") else {
-        return;
-    };
-    let repo = case.git_repository("repo");
-    let agents = repo.join(".claude/agents");
-    fs::create_dir_all(&agents).expect("create REPO/.claude/agents");
-    let last = agents.join("conductor-dev.md");
-    fs::write(&last, "the user's own\n").expect("write a different file");
-
-    let output = case.agents_link(&repo);
-    assert_ne!(output.status.code(), Some(0), "{}", shown(&output));
-    assert!(
-        fs::symlink_metadata(agents.join("repo-controller.md")).is_err(),
-        "repo-controller.md was linked while conductor-dev.md is refused: {}",
-        shown(&output)
-    );
-    assert_eq!(fs::read_to_string(&last).expect("read"), "the user's own\n");
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -874,7 +688,12 @@ fn the_start_tasks_name_the_session_from_config_show() {
         let args = &calls.last().expect("a start").1;
         assert!(
             args.starts_with(&format!(
-                "--bg -n {dev} --agent conductor-dev --model opus "
+                "--bg -n {dev} --append-system-prompt-file {} --model opus ",
+                case.dir
+                    .join(format!(
+                        "home/.b10x/conductor/alpha/state/sessions/{dev}.profile.md"
+                    ))
+                    .display()
             )),
             "dev:start: {args}"
         );
@@ -982,11 +801,12 @@ fn the_maintainer_tasks_read_the_host_s_roles_from_config_show() {
     assert_eq!(output.status.code(), Some(0), "{}", shown(&output));
     let calls = case.calls();
     assert!(
-        calls
-            .last()
-            .expect("a start")
-            .1
-            .starts_with("--bg -n a-conductor-dev --agent conductor-dev --model opus "),
+        calls.last().expect("a start").1.starts_with(&format!(
+            "--bg -n a-conductor-dev --append-system-prompt-file {} --model opus ",
+            case.dir
+                .join("home/.b10x/conductor/alpha/state/sessions/a-conductor-dev.profile.md")
+                .display()
+        )),
         "{calls:?}"
     );
     // The host file is gone in v1 (`story:spec-v1`): one naming another maintainer is read by
@@ -1003,7 +823,12 @@ fn the_maintainer_tasks_read_the_host_s_roles_from_config_show() {
         let (cwd, args) = calls.last().expect("a start");
         assert_eq!(cwd, &root(), "{task}: {args}");
         assert!(
-            args.starts_with("--bg -n a-conductor-dev --agent conductor-dev --model opus "),
+            args.starts_with(&format!(
+                "--bg -n a-conductor-dev --append-system-prompt-file {} --model opus ",
+                case.dir
+                    .join("home/.b10x/conductor/alpha/state/sessions/a-conductor-dev.profile.md")
+                    .display()
+            )),
             "{task}: {args}"
         );
     }
@@ -1305,30 +1130,6 @@ fn a_name_more_than_one_live_session_holds_is_refused() {
     }
 }
 
-/// `story:agents-link-local`: `task agents:link` serves a session started by hand in the
-/// repository it is given, never every session on the machine through `~/.claude/agents/`; the
-/// sessions the tasks start pass `--setting-sources project,local` and start from their role's
-/// profile, so the desc says so.
-#[test]
-fn agents_link_says_it_serves_a_session_started_by_hand_in_the_repository() {
-    let taskfile = taskfile();
-    let desc = taskfile["tasks"]["agents:link"]["desc"]
-        .as_str()
-        .expect("agents:link has a desc");
-    assert!(
-        !desc.contains("so a session started in another directory finds them"),
-        "{desc}"
-    );
-    assert!(desc.contains("REPO/.claude/agents/"), "{desc}");
-    assert!(desc.contains("task agents:link REPO=<path>"), "{desc}");
-    assert!(desc.contains("a session started by hand in REPO"), "{desc}");
-    assert!(
-        desc.contains("writes nothing to ~/.claude/agents/"),
-        "{desc}"
-    );
-    assert!(desc.contains("--setting-sources project,local"), "{desc}");
-}
-
 /// `story:status-board`: `task status` runs the snapshot collectors (`conductor snapshot
 /// start-snapshot`) and then `conductor snapshot publish-board`.
 #[test]
@@ -1414,27 +1215,25 @@ const HOST_TASKS: [(&str, &str, &str); 2] = [
 
 /// `story:host-roles-by-daemon`: `task supervisor:start` and `task teacher:start` ask the daemon
 /// for their role (`conductor daemon start-role --role <role>`), which starts it from the profile
-/// `task profiles` installs; neither runs the harness itself. Replaces the case of
-/// `story:host-session-profiles`, whose tasks ran the profile's `claude --bg` start command.
+/// the binary carries (`story:roles-in-the-binary`); neither runs the harness itself. Replaces the
+/// case of `story:host-session-profiles`, whose tasks ran the profile's `claude --bg` start
+/// command.
 #[test]
 fn the_host_session_tasks_ask_the_daemon_for_their_role() {
     let taskfile = taskfile();
-    let profiles = shell_commands(&taskfile["tasks"]["profiles"]).join("\n");
     for (task, role, profile) in HOST_TASKS {
         assert_eq!(
             shell_commands(&taskfile["tasks"][task]),
             [format!("conductor daemon start-role --role {role}")],
             "{task} asks the daemon for the {role}"
         );
-        assert!(
-            profiles.contains(&format!(" .agents/{profile}.md ")),
-            "task profiles installs .agents/{profile}.md: {profiles}"
-        );
-        let text = fs::read_to_string(root().join(".agents").join(format!("{profile}.md")))
-            .unwrap_or_else(|error| panic!(".agents/{profile}.md: {error}"));
+        let file = root().join(format!("crates/conductor/roles/{role}.md"));
+        let text =
+            fs::read_to_string(&file).unwrap_or_else(|error| panic!("{}: {error}", file.display()));
         assert!(
             !text.contains(&format!("`claude --bg --agent {profile} ")),
-            ".agents/{profile}.md still writes a claude --bg start command"
+            "{}: still writes a claude --bg start command",
+            file.display()
         );
     }
 }

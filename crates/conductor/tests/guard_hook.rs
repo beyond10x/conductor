@@ -1303,7 +1303,7 @@ fn conductor_s_session_writes_the_config_as_before() {
 
 fn settings(name: &str) -> Value {
     let path = Path::new(env!("CARGO_MANIFEST_DIR"))
-        .join("../../.claude")
+        .join("kinds/claude-code")
         .join(name);
     serde_json::from_str(&fs::read_to_string(&path).expect("read the settings file"))
         .expect("the settings file is JSON")

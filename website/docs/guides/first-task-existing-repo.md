@@ -3,7 +3,7 @@ title: One task in an existing repository
 sidebar_position: 0
 description: Set conductor up in a checkout you already have, give it one goal, let it dispatch one controller, review the pull request it opens, and know what to do when it stops.
 lede: The shortest way to see conductor work is one task in a repository you already have, from conductor setup --apply in its checkout to a pull request you merge yourself.
-source: crates/conductor/src/setup.rs, crates/conductor/src/doctor.rs, crates/conductor/src/spawn.rs, crates/conductor/src/run.rs; .agents/repo-controller.md; SETUP.md
+source: crates/conductor/src/setup.rs, crates/conductor/src/doctor.rs, crates/conductor/src/spawn.rs, crates/conductor/src/run.rs; crates/conductor/roles/controller.md; SETUP.md
 ---
 
 This guide takes one task in a repository you already work in, here `alpha` of `example-org`
@@ -84,23 +84,19 @@ and ends `not ready: worktree workspace (not activated: ~/src)`. Doctor writes n
 
 ## 3. Name the controller's profile and settings
 
-A controller starts with the `controller` role's profile and settings file, and
-`conductor spawn` refuses a role that names neither. In a checkout of the conductor repository,
-`task install` writes the three profiles to `~/.b10x/conductor/profiles/`; add the roles to the
-instance in the config file, then validate it:
+A controller starts from the controller profile and settings the binary carries, written into
+the state directory at start, unless the `controller` role names its own `profile` or `settings`
+(`conductor spawn` refuses one that is not a file). Add the roles to the instance in the config
+file, then validate it:
 
 ```yaml
     roles:
       - role: conductor
         harness: claude
         model: opus
-        profile: ~/.b10x/conductor/profiles/conductor.md
-        settings: ~/example-org/conductor/.claude/conductor-settings.json
       - role: controller
         harness: claude
         model: opus
-        profile: ~/.b10x/conductor/profiles/repo-controller.md
-        settings: ~/example-org/conductor/.claude/controller-settings.json
 ```
 
 ```console

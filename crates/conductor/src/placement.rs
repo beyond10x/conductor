@@ -516,8 +516,9 @@ pub struct BoxRequest {
     pub cwd: String,
     /// Variables set for the runtime; never a credential.
     pub env: Vec<(String, String)>,
-    /// Host directories mounted read-only at their own path: the conductor binary's directory,
-    /// the profiles, the harness's directory, the checkouts root when the trees are elsewhere.
+    /// Host directories mounted read-only at their own path: the conductor binary's directory
+    /// (it carries the role profiles), the harness's directory, the checkouts root when the
+    /// trees are elsewhere.
     pub read_only_roots: Vec<String>,
     /// The six writable places, each a subdirectory of the one workspace.
     pub places: Vec<String>,
@@ -642,7 +643,6 @@ pub fn request(
         }
     };
     add(binary.parent().map(Path::to_owned));
-    add(std::env::var_os("HOME").map(|home| PathBuf::from(home).join(".b10x/conductor/profiles")));
     add(crate::doctor::find(crate::confine::CLAUDE)
         .and_then(|path| path.parent().map(Path::to_owned)));
     if !Path::new(&instance.checkouts.trees).starts_with(&instance.checkouts.root) {
