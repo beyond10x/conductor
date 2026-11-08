@@ -14,3 +14,726 @@ types:
   - name: conductor.instance.ReconciliationId
     kind: newtype
     of: Uuid
+
+  # The action one reconciliation took on one instance (design § 3 row `conductor.instance`:
+  # start, stop, restart, upgrade, nothing; § 4: purge is the operator's, class H).
+  - name: conductor.instance.ReconcileAction
+    kind: enum
+    variants: [Start, Stop, Restart, Upgrade, Nothing, Purge]
+
+  # Why the daemon reconciled (design § 4): a config change (the watched file, or an accepted
+  # `PUT /v1/config`); a lost runtime (a placement event: an instance runtime stops answering);
+  # the cadence (`cadence.reconcile`, default 60 s); an operator's command on
+  # `instances/{name}` (§ 5.2).
+  - name: conductor.instance.ReconcileReason
+    kind: enum
+    variants: [ConfigChange, LostRuntime, Cadence, OperatorCommand]
+
+  # What came of one action. `Succeeded`: the action was taken (for `Nothing`, the instance
+  # matched its config). `Refused`: the placement refused the box with substrate's reason, and
+  # the instance did not start (§ 6 "recorded as `PlacementRefused`"). `RolledBack`: an upgrade
+  # whose runtime did not come up, put back on the previous binary (§ 10).
+  # UNMAPPED: the design names no other result (a start that fails for a reason other than the
+  # placement, a stop that does not stop). Open question for the owner: is there a `Failed`
+  # result, and what does it carry?
+  - name: conductor.instance.ReconcileResult
+    kind: enum
+    variants: [Succeeded, Refused, RolledBack]
+
+entities:
+  # One instance the config names, keyed by its name. Desired fields are read from the config at
+  # each reconciliation (`placement`, `roles`); actual fields from what runs (`state`,
+  # `binary_version`, `last_seen`, `box_id`). Removing an instance from the config stops its
+  # runtime and keeps its records (§ 4); only `PurgeInstance` ends it. `changed_by` is the actor
+  # of the last command that changed it (§ 3 "Actors": every record carries its actor).
+  #
+  # UNMAPPED: § 3 lists `store` among the desired fields; § 8 says the per-instance `store:` key
+  # is not in v1 and `daemon.store` is the one URL handed to every runtime. The two disagree, so
+  # no `store` field is declared. Open question for the owner.
+  # UNMAPPED: § 3 lists `settings` among the desired fields and the brief asks for the settings
+  # level; the type of an instance's settings (its overrides of `globals`, § 9) is the config
+  # domain's `Level` and `EffectiveSettings`, which are not declared yet. Open question for the
+  # owner and the config author: which type does the instance record hold, if any, given that
+  # `EffectiveSettings` is a view?
+  - name: conductor.instance.Instance
+    identity:
+      name: name
+      type: conductor.config.InstanceName
+    fields:
+      # UNMAPPED: the placement's name in the config (`instances[].placement`, § 9). Its type is
+      # the placement domain's identity, which is not declared in this tree; the field is a
+      # `String` until the coordinator types it and adds the `references` relation to
+      # `conductor.placement.Placement`. Open question for the coordinator.
+      - name: placement
+        type: String
+      # The roles the config gives the instance (§ 9 `instances[].roles`).
+      # UNMAPPED: `conductor.config.RoleName` is the v0 enum (Director, Maintainer, Lead); the v1
+      # roles (controller, workers, custom roles, § 2) are the config author's. Open question
+      # for the owner: does `roles` hold role names or role slots with kind, model and profile?
+      - name: roles
+        type: List<conductor.config.RoleName>
+      # The version of the conductor binary the runtime reported when it last answered (§ 5.2
+      # `instances`: "binary version"); absent before it first answers.
+      - name: binary_version
+        type: Optional<String>
+      # When the runtime last answered (§ 5.2 "the time it last answered"); absent before then.
+      - name: last_seen
+        type: Optional<Timestamp>
+      # The box the instance runs in at its placement; absent while none is open.
+      # The `references` relation to `conductor.placement.Box` is not declared here: that entity
+      # is the placement author's and is not in this tree (needs-coordinator).
+      - name: box_id
+        type: Optional<conductor.placement.BoxId>
+      - name: changed_by
+        type: conductor.operator.Actor
+    # States are what the daemon observes (§ 4 "observe", § 5.2 `state: unreachable`): `Stopped`,
+    # no runtime runs (absent from the config, or stopped by the operator); `Starting`, a box is
+    # open and the runtime started, and it has not answered yet; `Running`, the runtime answers;
+    # `Unreachable`, the runtime stopped answering (a row, never an error, § 5.2); `Upgrading`, a
+    # new binary is installed and its runtime has not answered yet (§ 10); `Purged`, its records
+    # are deleted (§ 4 `conductor instance purge`, class H), terminal.
+    lifecycle:
+      initial: Starting
+      states: [Stopped, Starting, Running, Unreachable, Upgrading, Purged]
+      terminal: [Purged]
+      transitions:
+        - name: start
+          from: [Stopped]
+          to: Starting
+        - name: come_up
+          from: [Starting, Running, Unreachable, Upgrading]
+          to: Running
+        - name: lose
+          from: [Starting, Running, Unreachable, Upgrading]
+          to: Unreachable
+        - name: stop
+          from: [Starting, Running, Unreachable, Upgrading]
+          to: Stopped
+        - name: restart
+          from: [Running, Unreachable]
+          to: Starting
+        - name: upgrade
+          from: [Running]
+          to: Upgrading
+        - name: roll_back
+          from: [Upgrading]
+          to: Starting
+        - name: purge
+          from: [Stopped]
+          to: Purged
+
+  # One action the daemon took on one instance (§ 4 "record ─► one Reconciliation per action in
+  # the daemon's own store"), with who took it, why, when, and what came of it. A pass that
+  # finds nothing to do records `Nothing`, so a test can count actions (§ 4: idempotent).
+  - name: conductor.instance.Reconciliation
+    identity:
+      name: reconciliation_id
+      type: conductor.instance.ReconciliationId
+    fields:
+      - name: instance
+        type: conductor.config.InstanceName
+      - name: action
+        type: conductor.instance.ReconcileAction
+      - name: reason
+        type: conductor.instance.ReconcileReason
+      - name: result
+        type: conductor.instance.ReconcileResult
+      # Substrate's name for a refusal (`exec.sandbox-unavailable`, § 6), or what rolled back.
+      - name: detail
+        type: Optional<String>
+      - name: actor
+        type: conductor.operator.Actor
+      - name: at
+        type: Timestamp
+    relations:
+      - name: subject
+        kind: references
+        target: conductor.instance.Instance
+        cardinality: one
+        via: instance
+    lifecycle:
+      initial: Recorded
+      states: [Recorded]
+      terminal: [Recorded]
+
+views:
+  # § 5.2 `instances`: every instance with its placement, state, binary version and last seen.
+  - name: conductor.instance.Instances
+    source: conductor.instance.Instance
+    consistency: read_your_writes
+    fields:
+      - {name: name, type: conductor.config.InstanceName}
+      - {name: state, type: conductor.instance.Instance.State}
+      - {name: placement, type: String}
+      - {name: roles, type: List<conductor.config.RoleName>}
+      - {name: binary_version, type: Optional<String>}
+      - {name: last_seen, type: Optional<Timestamp>}
+      - {name: box_id, type: Optional<conductor.placement.BoxId>}
+      - {name: changed_by, type: conductor.operator.Actor}
+    naming:
+      wire: instances
+      display: Instances
+
+  # § 5.2 `reconciliations`.
+  - name: conductor.instance.Reconciliations
+    source: conductor.instance.Reconciliation
+    consistency: read_your_writes
+    fields:
+      - {name: reconciliation_id, type: conductor.instance.ReconciliationId}
+      - {name: state, type: conductor.instance.Reconciliation.State}
+      - {name: instance, type: conductor.config.InstanceName}
+      - {name: action, type: conductor.instance.ReconcileAction}
+      - {name: reason, type: conductor.instance.ReconcileReason}
+      - {name: result, type: conductor.instance.ReconcileResult}
+      - {name: detail, type: Optional<String>}
+      - {name: actor, type: conductor.operator.Actor}
+      - {name: at, type: Timestamp}
+    naming:
+      wire: reconciliations
+      display: Reconciliations
+
+actors:
+  # conductord: it reads the config, observes what answers, reconciles, and records each action
+  # (§ 4). It starts, stops, restarts and upgrades instances as reconciliation asks; it never
+  # purges (§ 4: purge is the operator's yes).
+  # UNMAPPED: the daemon is no agent the runtime started, yet `conductor.operator.AgentActor`
+  # needs an instance, a role, a name and a kind. The brief calls the daemon "an agent actor";
+  # the design does not say how the daemon is written as an `Actor`. Open question for the owner
+  # and the operator author: a third `Actor` variant (`System`/`Daemon`), or an agent actor with
+  # which instance and role?
+  # UNMAPPED: § 3 lists "start, stop and upgrade instances" among an operator's grants, and a
+  # command that needs a grant refuses an agent actor; § 4 has the daemon start and stop
+  # instances on its own, and § 10 has upgrades run "under the supervisor's grant", while § 3
+  # says an agent holds no grant. Only `PurgeInstance` refuses an agent actor here, as the brief
+  # asks. Open question for the owner: which of start, stop, restart and upgrade need a grant,
+  # and how does the daemon take them?
+  - name: conductor.instance.Conductord
+    may:
+      - conductor.instance.Reconcile
+      - conductor.instance.ObserveInstance
+      - conductor.instance.StartInstance
+      - conductor.instance.StopInstance
+      - conductor.instance.RestartInstance
+      - conductor.instance.UpgradeInstance
+    naming:
+      display: conductord
+
+  # A person with grants, through the global API's `instances/{name}` routes (§ 5.2) or
+  # `conductor instance purge <name>` (§ 4).
+  - name: conductor.instance.Operator
+    may:
+      - conductor.instance.StartInstance
+      - conductor.instance.StopInstance
+      - conductor.instance.RestartInstance
+      - conductor.instance.UpgradeInstance
+      - conductor.instance.PurgeInstance
+    naming:
+      display: Operator
+
+errors:
+  - name: conductor.instance.UnknownInstance
+    summary: >
+      The config names no instance of this name, or no record of it is kept; nothing changed.
+    fields:
+      - name: name
+        type: conductor.config.InstanceName
+
+  - name: conductor.instance.InstanceStateConflict
+    summary: The instance is not in a state this command acts from, so nothing moved.
+    fields:
+      - name: name
+        type: conductor.config.InstanceName
+
+  # UNMAPPED: § 3 and § 6 name `PlacementRefused` as the placement domain's error, carrying
+  # substrate's reason (`exec.sandbox-unavailable` and the others substrate declares), and the
+  # brief asks for it as a related record of `conductor.placement.Box`. Neither is declared in
+  # this tree, so the refusal is an `external:` outcome with this error until the coordinator
+  # points it at the placement domain's error and its `Box` record.
+  - name: conductor.instance.PlacementRefused
+    summary: >
+      The placement could not give what the profile asks for; substrate's reason is named, the
+      instance does not start, and nothing falls back (§ 6).
+    fields:
+      - name: name
+        type: conductor.config.InstanceName
+      - name: placement
+        type: String
+
+  # Declared here until the operator author's `conductor.operator.ActorNotHuman` merges; the
+  # coordinator reconciles the two.
+  - name: conductor.instance.ActorNotHuman
+    summary: >
+      The command needs a grant, a grant belongs to a human actor only, and an agent actor issued
+      it (§ 3 "Actors"); nothing changed.
+    fields:
+      - name: actor
+        type: conductor.operator.Actor
+      - name: name
+        type: conductor.config.InstanceName
+
+commands:
+  # The daemon's record step (§ 4 "record ─► one Reconciliation per action"): after each action
+  # it took on one instance, including `Nothing` for an instance that matched its config, it
+  # records the action, why, when and what came of it. The action itself is the instance command
+  # it issued (`StartInstance`, `StopInstance`, ...); a pass with nothing changed records only
+  # `Nothing` (idempotent, § 4).
+  - name: conductor.instance.Reconcile
+    naming:
+      wire: reconcile
+      display: Record a reconciliation
+    input:
+      - {name: actor, type: conductor.operator.Actor}
+      - {name: instance, type: conductor.config.InstanceName}
+      - {name: action, type: conductor.instance.ReconcileAction}
+      - {name: reason, type: conductor.instance.ReconcileReason}
+      - {name: result, type: conductor.instance.ReconcileResult}
+      - {name: detail, type: Optional<String>}
+      - {name: at, type: Timestamp}
+    outcomes:
+      - name: recorded
+        creates: conductor.instance.Reconciliation
+        instance: reconciliation_id
+        sets:
+          instance: input.instance
+          action: input.action
+          reason: input.reason
+          result: input.result
+          detail: input.detail
+          actor: input.actor
+          at: input.at
+        emits:
+          - conductor.instance.InstanceReconciled
+        payload:
+          conductor.instance.InstanceReconciled:
+            reconciliation_id: {generated: true}
+            actor: input.actor
+            instance: input.instance
+            action: input.action
+            reason: input.reason
+            result: input.result
+            at: input.at
+        summary: The action is on record in the daemon's store with its reason and result.
+
+  # The daemon's observe step (§ 4 "observe ─► actual instances (what answers at each
+  # placement)"): whether the instance's runtime answered, and the binary version it reported.
+  # Not among the brief's commands; it is the cause of every move into `Running` and
+  # `Unreachable`, which § 4 and § 5.2 describe.
+  - name: conductor.instance.ObserveInstance
+    naming:
+      wire: observe
+      display: Observe an instance
+    input:
+      - {name: actor, type: conductor.operator.Actor}
+      - {name: name, type: conductor.config.InstanceName}
+      - {name: answering, type: Boolean}
+      - {name: binary_version, type: Optional<String>}
+      - {name: at, type: Timestamp}
+    outcomes:
+      - name: unknown
+        unknown_instance: true
+        error: conductor.instance.UnknownInstance
+        payload:
+          conductor.instance.UnknownInstance:
+            name: input.name
+        summary: No record of the instance is kept; nothing was observed.
+      - name: answering
+        when: answering == true
+        moves: conductor.instance.Instance.come_up
+        instance: name
+        sets:
+          binary_version: input.binary_version
+          last_seen: input.at
+          changed_by: input.actor
+        emits:
+          - conductor.instance.InstanceAnswered
+        payload:
+          conductor.instance.InstanceAnswered:
+            actor: input.actor
+            name: input.name
+            binary_version: input.binary_version
+            at: input.at
+        summary: The runtime answers; the instance runs, with the version it reported and the time it answered.
+      - name: not-answering
+        moves: conductor.instance.Instance.lose
+        instance: name
+        sets:
+          changed_by: input.actor
+        emits:
+          - conductor.instance.InstanceUnreachable
+        payload:
+          conductor.instance.InstanceUnreachable:
+            actor: input.actor
+            name: input.name
+            at: input.at
+        summary: The runtime does not answer; the instance is a row with state Unreachable and the time it last answered.
+      - name: not-running
+        wrong_state: true
+        error: conductor.instance.InstanceStateConflict
+        payload:
+          conductor.instance.InstanceStateConflict:
+            name: input.name
+        summary: A stopped or purged instance has no runtime to observe; nothing changed.
+
+  # Start what is desired and absent (§ 4): open a box at the instance's placement and start
+  # `conductor instance serve` in it. The daemon issues it from reconciliation, an operator
+  # through `instances/{name}` (§ 5.2). The input carries the desired fields read from the config
+  # and the box the placement opened.
+  # UNMAPPED: a purged instance whose name the config names again: started anew, or refused?
+  # The design does not say; here it is refused. Open question for the owner.
+  - name: conductor.instance.StartInstance
+    naming:
+      wire: start
+      display: Start an instance
+    input:
+      - {name: actor, type: conductor.operator.Actor}
+      - {name: name, type: conductor.config.InstanceName}
+      - {name: placement, type: String}
+      - {name: roles, type: List<conductor.config.RoleName>}
+      - {name: box_id, type: conductor.placement.BoxId}
+      - {name: at, type: Timestamp}
+    outcomes:
+      - name: created
+        unknown_instance: true
+        creates: conductor.instance.Instance
+        instance: name
+        sets:
+          placement: input.placement
+          roles: input.roles
+          box_id: input.box_id
+          binary_version: {cleared: true}
+          last_seen: {cleared: true}
+          changed_by: input.actor
+        emits:
+          - conductor.instance.InstanceStarted
+        payload:
+          conductor.instance.InstanceStarted:
+            actor: input.actor
+            name: input.name
+            placement: input.placement
+            box_id: input.box_id
+            at: input.at
+        summary: The config names the instance and nothing ran it; its box is open, its runtime starting.
+      - name: started
+        when_subject_state: Stopped
+        moves: conductor.instance.Instance.start
+        instance: name
+        sets:
+          placement: input.placement
+          roles: input.roles
+          box_id: input.box_id
+          changed_by: input.actor
+        emits:
+          - conductor.instance.InstanceStarted
+        payload:
+          conductor.instance.InstanceStarted:
+            actor: input.actor
+            name: input.name
+            placement: input.placement
+            box_id: input.box_id
+            at: input.at
+        summary: The stopped instance's box is open again and its runtime starting.
+      - name: already-started
+        when_subject_state: [Starting, Running, Upgrading]
+        preserves: conductor.instance.Instance
+        instance: name
+        summary: The instance already runs or is coming up; nothing changed.
+      - name: not-in-config
+        external: the config names no instance of this name
+        error: conductor.instance.UnknownInstance
+        payload:
+          conductor.instance.UnknownInstance:
+            name: input.name
+        summary: Nothing was started; an instance runs only where the config names it.
+      - name: placement-refused
+        external: substrate refused the box the placement asks for
+        error: conductor.instance.PlacementRefused
+        payload:
+          conductor.instance.PlacementRefused:
+            name: input.name
+            placement: input.placement
+        summary: The instance does not start and nothing falls back; the daemon records why.
+      - name: not-startable
+        error: conductor.instance.InstanceStateConflict
+        payload:
+          conductor.instance.InstanceStateConflict:
+            name: input.name
+        summary: An unreachable instance is restarted, not started, and a purged one is not started; nothing changed.
+
+  # Stop what runs and is gone from the config (§ 4), or what an operator stops through
+  # `instances/{name}` (§ 5.2). The box is closed; the records stay in the shared store.
+  - name: conductor.instance.StopInstance
+    naming:
+      wire: stop
+      display: Stop an instance
+    input:
+      - {name: actor, type: conductor.operator.Actor}
+      - {name: name, type: conductor.config.InstanceName}
+      - {name: at, type: Timestamp}
+    outcomes:
+      - name: unknown
+        unknown_instance: true
+        error: conductor.instance.UnknownInstance
+        payload:
+          conductor.instance.UnknownInstance:
+            name: input.name
+        summary: No record of the instance is kept; nothing was stopped.
+      - name: stopped
+        when_subject_state: [Starting, Running, Unreachable, Upgrading]
+        moves: conductor.instance.Instance.stop
+        instance: name
+        sets:
+          box_id: {cleared: true}
+          changed_by: input.actor
+        emits:
+          - conductor.instance.InstanceStopped
+        payload:
+          conductor.instance.InstanceStopped:
+            actor: input.actor
+            name: input.name
+            at: input.at
+        summary: The runtime is stopped and its box closed; the instance's records are kept.
+      - name: already-stopped
+        when_subject_state: Stopped
+        preserves: conductor.instance.Instance
+        instance: name
+        summary: The instance is stopped already; nothing changed.
+      - name: purged
+        error: conductor.instance.InstanceStateConflict
+        payload:
+          conductor.instance.InstanceStateConflict:
+            name: input.name
+        summary: A purged instance has nothing to stop; nothing changed.
+
+  # Restart what changed placement or binary (§ 4), or what lost its runtime, or what an
+  # operator restarts through `instances/{name}` (§ 5.2). The input carries the desired fields
+  # read from the config and the box the placement opened.
+  - name: conductor.instance.RestartInstance
+    naming:
+      wire: restart
+      display: Restart an instance
+    input:
+      - {name: actor, type: conductor.operator.Actor}
+      - {name: name, type: conductor.config.InstanceName}
+      - {name: placement, type: String}
+      - {name: roles, type: List<conductor.config.RoleName>}
+      - {name: box_id, type: conductor.placement.BoxId}
+      - {name: at, type: Timestamp}
+    outcomes:
+      - name: unknown
+        unknown_instance: true
+        error: conductor.instance.UnknownInstance
+        payload:
+          conductor.instance.UnknownInstance:
+            name: input.name
+        summary: No record of the instance is kept; nothing was restarted.
+      - name: placement-refused
+        external: substrate refused the box the placement asks for
+        error: conductor.instance.PlacementRefused
+        payload:
+          conductor.instance.PlacementRefused:
+            name: input.name
+            placement: input.placement
+        summary: The instance does not come back and nothing falls back; the daemon records why.
+      - name: restarted
+        moves: conductor.instance.Instance.restart
+        instance: name
+        sets:
+          placement: input.placement
+          roles: input.roles
+          box_id: input.box_id
+          changed_by: input.actor
+        emits:
+          - conductor.instance.InstanceRestarted
+        payload:
+          conductor.instance.InstanceRestarted:
+            actor: input.actor
+            name: input.name
+            placement: input.placement
+            box_id: input.box_id
+            at: input.at
+        summary: The runtime is stopped and started again in a box at the placement the config names.
+      - name: not-running
+        wrong_state: true
+        error: conductor.instance.InstanceStateConflict
+        payload:
+          conductor.instance.InstanceStateConflict:
+            name: input.name
+        summary: Only a running or unreachable instance is restarted; nothing changed.
+
+  # Install a binary at the instance's placement and restart its runtime on it, one instance at
+  # a time (§ 10 `instances/{name}/upgrade`), with rollback on a runtime that does not come up.
+  # UNMAPPED: § 10 says "rollback on a runtime that does not come up" and nothing about what
+  # triggers it or how long the daemon waits. Here the daemon issues `UpgradeInstance` again on
+  # an instance still `Upgrading` (its new runtime never answered), and that puts the previous
+  # binary back and starts it (`rolled-back`). Open question for the owner: the trigger and the
+  # bound, and whether a rollback is its own command.
+  - name: conductor.instance.UpgradeInstance
+    naming:
+      wire: upgrade
+      display: Upgrade an instance
+    input:
+      - {name: actor, type: conductor.operator.Actor}
+      - {name: name, type: conductor.config.InstanceName}
+      - {name: binary_version, type: String}
+      - {name: at, type: Timestamp}
+    outcomes:
+      - name: unknown
+        unknown_instance: true
+        error: conductor.instance.UnknownInstance
+        payload:
+          conductor.instance.UnknownInstance:
+            name: input.name
+        summary: No record of the instance is kept; nothing was upgraded.
+      - name: upgrading
+        when_subject_state: Running
+        moves: conductor.instance.Instance.upgrade
+        instance: name
+        sets:
+          changed_by: input.actor
+        emits:
+          - conductor.instance.InstanceUpgrading
+        payload:
+          conductor.instance.InstanceUpgrading:
+            actor: input.actor
+            name: input.name
+            binary_version: input.binary_version
+            at: input.at
+        summary: The new binary is installed and the runtime restarted on it; the instance runs again once it answers.
+      - name: rolled-back
+        when_subject_state: Upgrading
+        moves: conductor.instance.Instance.roll_back
+        instance: name
+        sets:
+          changed_by: input.actor
+        emits:
+          - conductor.instance.InstanceRolledBack
+        payload:
+          conductor.instance.InstanceRolledBack:
+            actor: input.actor
+            name: input.name
+            binary_version: input.binary_version
+            at: input.at
+        summary: The upgraded runtime did not come up; the previous binary is back and its runtime starting.
+      - name: not-running
+        error: conductor.instance.InstanceStateConflict
+        payload:
+          conductor.instance.InstanceStateConflict:
+            name: input.name
+        summary: Only a running instance is upgraded; nothing changed.
+
+  # Delete an instance's data (§ 4 `conductor instance purge <name>`), class H: the operator's
+  # yes, never an agent's. Only a stopped instance is purged.
+  # UNMAPPED: § 4 says purge deletes data and § 8 keeps every instance's records in the one
+  # shared database; which records a purge deletes (decisions, dispatches, reconciliations, the
+  # records projection) is not said, nor whether a running instance is stopped first or refused
+  # (refused here). Open question for the owner.
+  - name: conductor.instance.PurgeInstance
+    naming:
+      wire: purge
+      display: Purge an instance
+    input:
+      - {name: actor, type: conductor.operator.Actor}
+      - {name: name, type: conductor.config.InstanceName}
+      - {name: at, type: Timestamp}
+    outcomes:
+      - name: unknown
+        unknown_instance: true
+        error: conductor.instance.UnknownInstance
+        payload:
+          conductor.instance.UnknownInstance:
+            name: input.name
+        summary: No record of the instance is kept; nothing was purged.
+      - name: actor-not-human
+        external: the actor is an agent, not a person
+        error: conductor.instance.ActorNotHuman
+        payload:
+          conductor.instance.ActorNotHuman:
+            actor: input.actor
+            name: input.name
+        summary: A purge is a class H decision; an agent actor is refused by name and nothing is deleted.
+      - name: purged
+        moves: conductor.instance.Instance.purge
+        instance: name
+        sets:
+          changed_by: input.actor
+        emits:
+          - conductor.instance.InstancePurged
+        payload:
+          conductor.instance.InstancePurged:
+            actor: input.actor
+            name: input.name
+            at: input.at
+        summary: The operator said yes; the instance's data is deleted and the instance is Purged.
+      - name: not-stopped
+        wrong_state: true
+        error: conductor.instance.InstanceStateConflict
+        payload:
+          conductor.instance.InstanceStateConflict:
+            name: input.name
+        summary: Only a stopped instance is purged; nothing was deleted.
+
+events:
+  - name: conductor.instance.InstanceReconciled
+    fields:
+      - {name: reconciliation_id, type: conductor.instance.ReconciliationId}
+      - {name: actor, type: conductor.operator.Actor}
+      - {name: instance, type: conductor.config.InstanceName}
+      - {name: action, type: conductor.instance.ReconcileAction}
+      - {name: reason, type: conductor.instance.ReconcileReason}
+      - {name: result, type: conductor.instance.ReconcileResult}
+      - {name: at, type: Timestamp}
+
+  - name: conductor.instance.InstanceAnswered
+    fields:
+      - {name: actor, type: conductor.operator.Actor}
+      - {name: name, type: conductor.config.InstanceName}
+      - {name: binary_version, type: Optional<String>}
+      - {name: at, type: Timestamp}
+
+  - name: conductor.instance.InstanceUnreachable
+    fields:
+      - {name: actor, type: conductor.operator.Actor}
+      - {name: name, type: conductor.config.InstanceName}
+      - {name: at, type: Timestamp}
+
+  - name: conductor.instance.InstanceStarted
+    fields:
+      - {name: actor, type: conductor.operator.Actor}
+      - {name: name, type: conductor.config.InstanceName}
+      - {name: placement, type: String}
+      - {name: box_id, type: conductor.placement.BoxId}
+      - {name: at, type: Timestamp}
+
+  - name: conductor.instance.InstanceStopped
+    fields:
+      - {name: actor, type: conductor.operator.Actor}
+      - {name: name, type: conductor.config.InstanceName}
+      - {name: at, type: Timestamp}
+
+  - name: conductor.instance.InstanceRestarted
+    fields:
+      - {name: actor, type: conductor.operator.Actor}
+      - {name: name, type: conductor.config.InstanceName}
+      - {name: placement, type: String}
+      - {name: box_id, type: conductor.placement.BoxId}
+      - {name: at, type: Timestamp}
+
+  - name: conductor.instance.InstanceUpgrading
+    fields:
+      - {name: actor, type: conductor.operator.Actor}
+      - {name: name, type: conductor.config.InstanceName}
+      - {name: binary_version, type: String}
+      - {name: at, type: Timestamp}
+
+  - name: conductor.instance.InstanceRolledBack
+    fields:
+      - {name: actor, type: conductor.operator.Actor}
+      - {name: name, type: conductor.config.InstanceName}
+      - {name: binary_version, type: String}
+      - {name: at, type: Timestamp}
+
+  - name: conductor.instance.InstancePurged
+    fields:
+      - {name: actor, type: conductor.operator.Actor}
+      - {name: name, type: conductor.config.InstanceName}
+      - {name: at, type: Timestamp}

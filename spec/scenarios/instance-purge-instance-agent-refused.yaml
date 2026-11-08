@@ -1,0 +1,43 @@
+# Design § 3 "Actors" and § 4: a purge is class H; an agent actor holds no grant and is refused by
+# name (`ActorNotHuman`), and the instance is unchanged.
+type: ess-scenario/1
+domain: conductor.instance
+scenario: instance-purge-instance-agent-refused
+summary: A controller asking to purge a stopped instance is refused as no person, and the instance stays Stopped.
+
+timeline:
+  - at: 2026-11-08T09:00:00Z
+    command: conductor.instance.StartInstance
+    actor: conductor.instance.Operator
+    input:
+      actor: {kind: Human, value: {operator: operator-one}}
+      name: example-org
+      placement: local
+      roles: [Director]
+      box_id: 6f1c1d2e-0000-4000-8000-000000000001
+      at: 2026-11-08T09:00:00Z
+    outcome: created
+
+  - at: 2026-11-08T10:00:00Z
+    command: conductor.instance.StopInstance
+    actor: conductor.instance.Operator
+    input:
+      actor: {kind: Human, value: {operator: operator-one}}
+      name: example-org
+      at: 2026-11-08T10:00:00Z
+    outcome: stopped
+
+  - at: 2026-11-08T10:05:00Z
+    command: conductor.instance.PurgeInstance
+    actor: conductor.instance.Operator
+    input:
+      actor: {kind: Agent, value: {instance: example-org, role: Lead, name: controller-one, kind: claude-code}}
+      name: example-org
+      at: 2026-11-08T10:05:00Z
+    outcome: actor-not-human
+
+assert:
+  - view: conductor.instance.Instances
+    contains:
+      name: example-org
+      state: Stopped

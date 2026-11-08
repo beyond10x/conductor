@@ -1,0 +1,50 @@
+# Design § 4 "observe" and § 5.2: an instance whose runtime answers runs, with the version it
+# reported and the time it answered; one that stops answering is a row with state Unreachable and
+# the time it last answered, never an error.
+# UNMAPPED: the daemon's `Actor` is open (see `conductor.instance.Conductord`); placeholder below.
+type: ess-scenario/1
+domain: conductor.instance
+scenario: instance-observe-instance
+summary: A started instance runs once its runtime answers, and is Unreachable with its last-seen time once it stops answering.
+
+timeline:
+  - at: 2026-11-08T09:00:00Z
+    command: conductor.instance.StartInstance
+    actor: conductor.instance.Conductord
+    input:
+      actor: {kind: Agent, value: {instance: example-org, role: Director, name: conductord, kind: conductord}}
+      name: example-org
+      placement: local
+      roles: [Director]
+      box_id: 6f1c1d2e-0000-4000-8000-000000000001
+      at: 2026-11-08T09:00:00Z
+    outcome: created
+
+  - at: 2026-11-08T09:00:10Z
+    command: conductor.instance.ObserveInstance
+    actor: conductor.instance.Conductord
+    input:
+      actor: {kind: Agent, value: {instance: example-org, role: Director, name: conductord, kind: conductord}}
+      name: example-org
+      answering: true
+      binary_version: 1.0.0
+      at: 2026-11-08T09:00:10Z
+    outcome: answering
+
+  - at: 2026-11-08T09:01:10Z
+    command: conductor.instance.ObserveInstance
+    actor: conductor.instance.Conductord
+    input:
+      actor: {kind: Agent, value: {instance: example-org, role: Director, name: conductord, kind: conductord}}
+      name: example-org
+      answering: false
+      at: 2026-11-08T09:01:10Z
+    outcome: not-answering
+
+assert:
+  - view: conductor.instance.Instances
+    contains:
+      name: example-org
+      state: Unreachable
+      binary_version: 1.0.0
+      last_seen: 2026-11-08T09:00:10Z

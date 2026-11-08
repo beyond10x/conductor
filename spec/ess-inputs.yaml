@@ -67,3 +67,11 @@ scenarios:
   - scenarios/secret-resolve-secrets.yaml
   - scenarios/secret-resolve-secrets-missing.yaml
   - scenarios/secret-resolve-secrets-unreachable.yaml
+  - scenarios/instance-start-instance.yaml
+  - scenarios/instance-observe-instance.yaml
+  - scenarios/instance-stop-instance.yaml
+  - scenarios/instance-restart-instance.yaml
+  - scenarios/instance-upgrade-instance.yaml
+  - scenarios/instance-purge-instance.yaml
+  - scenarios/instance-purge-instance-agent-refused.yaml
+  - scenarios/instance-reconcile.yaml
