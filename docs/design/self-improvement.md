@@ -50,6 +50,15 @@ target for the end of the next two weeks.
 | K13 relay round trip | operator message through the gateway → conductor answer; any message held or undelivered | gateway and conductor transcripts | to measure (`story:kpi-transcripts`) | set after first measurement |
 | K12 defects shipped | fix releases per feature release; issues labelled bug | forge | **0.45** patch per feature release | ≤ 0.2 |
 
+**Scope of the repository-scoped KPIs.** K4, K5, K6 and K12 are read for the instance and for each
+repository (`metric compute`). They count only the repositories `repository activity` answers as
+Active (a mark, else the newest complete snapshot's observation), and the `instance` scope sums
+those scopes only: a KPI over repositories nobody works on cannot be lowered by the loop, and a
+deployment, profile or chart repository without an Active mark would otherwise fill K5's
+unreleased count. An Inactive repository has no reading. K1 and K2 are instance-only and count
+every decision and pull request. A repository that is Active and ships without releases is left
+out of K5 by `repositories[].no_releases`, as before (`story:kpi-scope-active-repositories`).
+
 **Per-task KPIs.** A task is one merged PR, with the dispatch that produced it joined to it (the
 latest dispatch to its repository before the merge, until the dispatch records its PR). They track the
 organisation's long-running goal of deterministic execution through the loom SDK and AEP with the
