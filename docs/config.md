@@ -118,6 +118,7 @@ it for a `conductor.config/2` file.
 | `daemon.operators[].role` | string | required | the operator's role in the config, such as `owner` |
 | `daemon.operators[].grants` | list | `[]` | what the operator may do, each once: `answer-decisions`, `change-settings`, `start-instances`, `stop-instances`, `upgrade-instances`, `purge`, `join` |
 | `daemon.upgrade_timeout` | duration | `120s` | how long an upgraded instance runtime (`conductor instance upgrade`, `POST /v1/instances/{name}/upgrade`) has to answer before the daemon rolls it back to its previous binary |
+| `daemon.timeout` | duration | `5s` | how long an instance has to answer one federated read of the global API (`GET /v1/sessions`, `decisions`, `unanswered`, `kpis`, `events`) before it is a row with `state: unreachable` |
 
 ## Globals
 

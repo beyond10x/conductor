@@ -1,5 +1,5 @@
 // generated from conductor v1
-// contract digest c0e5f57876522191690b7b7fa0b710a15b36d5bf4a50b987946bb580f924bf53
+// contract digest 575fcfe0b84fcb4b2dc3a52041bbf14840203191eb2cb53374eec07ea92207ab
 // do not edit: regenerate with `ess synthesize --layout crate`
 
 //! The `conductord` component of `conductor` v1, on the wire.
@@ -71,7 +71,7 @@ pub const ROUTES: &[(&str, &str)] = &[
 /// Everything outside `runtime` is the same in every language this plan is emitted into, and
 /// `cargo xtask synth --check` starts both and compares them.
 pub const STARTUP: &[&str] = &[
-    "{\"log\":\"ess/1\",\"event\":\"system.starting\",\"system\":\"conductor\",\"version\":\"v1\",\"model_digest\":\"cd0c2070b2955c208cbc0c707b1f3bb7649392a75e6018f07aa772a9eae2d5fa\",\"contract_digest\":\"c0e5f57876522191690b7b7fa0b710a15b36d5bf4a50b987946bb580f924bf53\",\"components\":[\"conductor-broker\",\"conductor-cli\",\"conductor-instance\",\"conductord\"],\"capabilities\":{\"generated\":922,\"obligations\":12,\"refused\":0}",
+    "{\"log\":\"ess/1\",\"event\":\"system.starting\",\"system\":\"conductor\",\"version\":\"v1\",\"model_digest\":\"98062e79a7338d90417a0f0906a82a25ba9e27b95346961bcc18e42aa9fb46d8\",\"contract_digest\":\"575fcfe0b84fcb4b2dc3a52041bbf14840203191eb2cb53374eec07ea92207ab\",\"components\":[\"conductor-broker\",\"conductor-cli\",\"conductor-instance\",\"conductord\"],\"capabilities\":{\"generated\":932,\"obligations\":12,\"refused\":0}",
     "{\"log\":\"ess/1\",\"event\":\"surface.serving\",\"component\":\"conductord\",\"reached_by\":\"network\",\"transport\":\"http/1.1\",\"routes\":34,\"paths\":[{\"method\":\"POST\",\"path\":\"/config/commands/put-config\",\"serves\":\"command\",\"name\":\"conductor.config.PutConfig\"},{\"method\":\"GET\",\"path\":\"/config/views/config-revisions\",\"serves\":\"view\",\"name\":\"conductor.config.ConfigRevisions\"},{\"method\":\"GET\",\"path\":\"/config/views/effective-settings\",\"serves\":\"view\",\"name\":\"conductor.config.EffectiveSettings\"},{\"method\":\"GET\",\"path\":\"/docs\",\"serves\":\"documentation\",\"name\":\"docs\"},{\"method\":\"POST\",\"path\":\"/instance/commands/observe\",\"serves\":\"command\",\"name\":\"conductor.instance.ObserveInstance\"},{\"method\":\"POST\",\"path\":\"/instance/commands/purge\",\"serves\":\"command\",\"name\":\"conductor.instance.PurgeInstance\"},{\"method\":\"POST\",\"path\":\"/instance/commands/reconcile\",\"serves\":\"command\",\"name\":\"conductor.instance.Reconcile\"},{\"method\":\"POST\",\"path\":\"/instance/commands/restart\",\"serves\":\"command\",\"name\":\"conductor.instance.RestartInstance\"},{\"method\":\"POST\",\"path\":\"/instance/commands/start\",\"serves\":\"command\",\"name\":\"conductor.instance.StartInstance\"},{\"method\":\"POST\",\"path\":\"/instance/commands/stop\",\"serves\":\"command\",\"name\":\"conductor.instance.StopInstance\"},{\"method\":\"POST\",\"path\":\"/instance/commands/upgrade\",\"serves\":\"command\",\"name\":\"conductor.instance.UpgradeInstance\"},{\"method\":\"GET\",\"path\":\"/instance/views/instances\",\"serves\":\"view\",\"name\":\"conductor.instance.Instances\"},{\"method\":\"GET\",\"path\":\"/instance/views/reconciliations\",\"serves\":\"view\",\"name\":\"conductor.instance.Reconciliations\"},{\"method\":\"GET\",\"path\":\"/openapi.json\",\"serves\":\"contract\",\"name\":\"openapi\"},{\"method\":\"POST\",\"path\":\"/operator/commands/join-instance\",\"serves\":\"command\",\"name\":\"conductor.operator.JoinInstance\"},{\"method\":\"POST\",\"path\":\"/operator/commands/leave-instance\",\"serves\":\"command\",\"name\":\"conductor.operator.LeaveInstance\"},{\"method\":\"GET\",\"path\":\"/operator/views/operators\",\"serves\":\"view\",\"name\":\"conductor.operator.Operators\"},{\"method\":\"POST\",\"path\":\"/placement/commands/close-box\",\"serves\":\"command\",\"name\":\"conductor.placement.CloseBox\"},{\"method\":\"POST\",\"path\":\"/placement/commands/open-box\",\"serves\":\"command\",\"name\":\"conductor.placement.OpenBox\"},{\"method\":\"GET\",\"path\":\"/placement/views/box-refusals\",\"serves\":\"view\",\"name\":\"conductor.placement.BoxRefusals\"},{\"method\":\"GET\",\"path\":\"/placement/views/boxes\",\"serves\":\"view\",\"name\":\"conductor.placement.Boxes\"},{\"method\":\"GET\",\"path\":\"/placement/views/placements\",\"serves\":\"view\",\"name\":\"conductor.placement.Placements\"},{\"method\":\"POST\",\"path\":\"/secret/commands/put-secret\",\"serves\":\"command\",\"name\":\"conductor.secret.PutSecret\"},{\"method\":\"POST\",\"path\":\"/secret/commands/resolve-secrets\",\"serves\":\"command\",\"name\":\"conductor.secret.ResolveSecrets\"},{\"method\":\"GET\",\"path\":\"/secret/views/secrets\",\"serves\":\"view\",\"name\":\"conductor.secret.Secrets\"},{\"method\":\"POST\",\"path\":\"/store/commands/migrate-store\",\"serves\":\"command\",\"name\":\"conductor.store.MigrateStore\"},{\"method\":\"GET\",\"path\":\"/store/views/migrations\",\"serves\":\"view\",\"name\":\"conductor.store.Migrations\"},{\"method\":\"GET\",\"path\":\"/store/views/store-status\",\"serves\":\"view\",\"name\":\"conductor.store.StoreStatus\"},{\"method\":\"POST\",\"path\":\"/token/commands/contribute-token\",\"serves\":\"command\",\"name\":\"conductor.token.ContributeToken\"},{\"method\":\"POST\",\"path\":\"/token/commands/lease-token\",\"serves\":\"command\",\"name\":\"conductor.token.LeaseToken\"},{\"method\":\"POST\",\"path\":\"/token/commands/mark-token-limited\",\"serves\":\"command\",\"name\":\"conductor.token.MarkTokenLimited\"},{\"method\":\"POST\",\"path\":\"/token/commands/release-token\",\"serves\":\"command\",\"name\":\"conductor.token.ReleaseToken\"},{\"method\":\"POST\",\"path\":\"/token/commands/withdraw-token\",\"serves\":\"command\",\"name\":\"conductor.token.WithdrawToken\"},{\"method\":\"GET\",\"path\":\"/token/views/tokens\",\"serves\":\"view\",\"name\":\"conductor.token.Tokens\"}]",
     "{\"log\":\"ess/1\",\"event\":\"system.ready\",\"system\":\"conductor\",\"surfaces\":2",
 ];
@@ -2498,6 +2498,18 @@ fn answer_conductor_secret_put_secret(outcome: &crate::secret::PutSecretOutcome)
             body.push('}');
             body.push(']');
             202
+        }
+        crate::secret::PutSecretOutcome::Exists { error, .. } => {
+            json::member(&mut body, "outcome");
+            json::push_text(&mut body, "exists");
+            json::member(&mut body, "published");
+            body.push('[');
+            body.push(']');
+            json::member(&mut body, "error");
+            json::push_text(&mut body, "conductor.secret.SecretExists");
+            json::member(&mut body, "payload");
+            wire::encode_error_conductor_secret_secret_exists(error, &mut body);
+            502
         }
         crate::secret::PutSecretOutcome::Replaced { secret_put, .. } => {
             json::member(&mut body, "outcome");

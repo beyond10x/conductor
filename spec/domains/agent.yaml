@@ -49,6 +49,34 @@ types:
     kind: enum
     variants: [Requested, UsageLimit, Exited]
 
+  # The input of `conductor agent start` and `agent stop` (story:agent-kinds): the role slot of
+  # an instance, by its role (the CLI's `--role`, as `conductor session start` takes it); the
+  # instance defaults to the active one. `session start` and `session stop` are their aliases for
+  # one release.
+  - name: conductor.agent.AgentSlotSelection
+    kind: struct
+    fields:
+      - {name: instance, type: Optional<conductor.config.InstanceName>}
+      - {name: role, type: String}
+
+  # The input of `conductor agent deliver`: the slot as for `agent start`, and the file holding the
+  # text, or `-` for standard input, as `conductor session deliver --text` takes it.
+  - name: conductor.agent.AgentTextDelivery
+    kind: struct
+    fields:
+      - {name: instance, type: Optional<conductor.config.InstanceName>}
+      - {name: role, type: String}
+      - {name: text, type: String}
+
+  # The input of `conductor agent attach`: the slot as for `agent start`; `watch` attaches
+  # read-only, as `conductor session attach --watch` does.
+  - name: conductor.agent.AgentTerminalAttach
+    kind: struct
+    fields:
+      - {name: instance, type: Optional<conductor.config.InstanceName>}
+      - {name: role, type: String}
+      - {name: watch, type: Optional<Boolean>}
+
 entities:
   # A kind the binary implements (§ 7): its capabilities and the program it starts (`claude` for
   # `claude-code`). The instance runtime declares each kind it can start when it comes up; a
@@ -81,11 +109,11 @@ entities:
   # resumed on another token after a usage limit (§ 5.3).
   # The name is unique within its instance: today's session names are `<session_prefix>-<role>`,
   # and the prefix is unique on the host. The identity is the name alone, see the report.
-  # UNMAPPED: § 7 writes a "starting" phase into the trait (`start(slot) -> Handle`) but nothing
-  # says what moves an agent from starting to running (the harness's first prompt delivered, its
-  # pane up, its session id printed) or what records it; today `conductor session start` returns
-  # once the session runs or refuses (`LaunchFailed`, `MeasurementShort`). So an agent is created
-  # `Running` and no `Starting` state is declared. Open question for the owner.
+  # An agent is created `Starting`: the kind's `start(slot)` (§ 7) has been asked for and its
+  # program is coming up. The runtime marks it `Running` (`MarkAgentRunning`) once the kind's
+  # start answered its handle: for the `claude-code` kind, when today's `conductor session start`
+  # returned with the session running; for a run-to-exit kind, when its program was spawned. A
+  # restart takes it back to `Starting` the same way.
   - name: conductor.agent.Agent
     identity:
       name: name
@@ -149,16 +177,19 @@ entities:
     invariants:
       - generation >= 1
     lifecycle:
-      initial: Running
-      states: [Running, Stopped]
+      initial: Starting
+      states: [Starting, Running, Stopped]
       terminal: []
       transitions:
+        - name: run
+          from: [Starting]
+          to: Running
         - name: stop
-          from: [Running]
+          from: [Starting, Running]
           to: Stopped
         - name: restart
-          from: [Running, Stopped]
-          to: Running
+          from: [Starting, Running, Stopped]
+          to: Starting
 
 actors:
   # The instance runtime (`conductor instance serve`) is the starter of the instance's agents
@@ -172,6 +203,7 @@ actors:
     may:
       - conductor.agent.DeclareAgentKind
       - conductor.agent.StartAgent
+      - conductor.agent.MarkAgentRunning
       - conductor.agent.DeliverToAgent
       - conductor.agent.StopAgent
       - conductor.agent.RestartAgent
@@ -397,6 +429,44 @@ commands:
           conductor.agent.AgentExists:
             name: input.name
         summary: An agent of that name is on record; nothing was started, the record unchanged.
+
+  # The kind's start answered its handle (§ 7): the agent's program is up, so the runtime marks the
+  # agent `Running`. For the `claude-code` kind that is today's `conductor session start`
+  # returning with the session running; for a run-to-exit kind, its program spawned.
+  - name: conductor.agent.MarkAgentRunning
+    naming:
+      wire: mark-running
+      display: Mark an agent running
+    input:
+      - {name: actor, type: conductor.operator.Actor}
+      - {name: name, type: conductor.agent.AgentName}
+      - {name: running_at, type: Timestamp}
+    outcomes:
+      - name: running
+        moves: conductor.agent.Agent.run
+        instance: name
+        emits:
+          - conductor.agent.AgentRunning
+        payload:
+          conductor.agent.AgentRunning:
+            actor: input.actor
+            name: input.name
+            running_at: input.running_at
+        summary: The agent's program is up; the agent runs.
+      - name: no-such-agent
+        unknown_instance: true
+        error: conductor.agent.AgentNotFound
+        payload:
+          conductor.agent.AgentNotFound:
+            name: input.name
+        summary: No agent of that name; nothing changed.
+      - name: not-starting
+        wrong_state: true
+        error: conductor.agent.AgentNotRunning
+        payload:
+          conductor.agent.AgentNotRunning:
+            name: input.name
+        summary: The agent is not starting (running already, or stopped); nothing changed.
 
   # The `agents/{name}/deliver` route (§ 5.1), the kind's `deliver(handle, text)`, for interactive
   # kinds only: a message to a run-to-exit kind is a new generation (`RestartAgent`, § 7). For the
@@ -660,6 +730,12 @@ events:
       - {name: box, type: Optional<conductor.placement.BoxId>}
       - {name: token_owner, type: Optional<conductor.operator.OperatorName>}
       - {name: started_at, type: Timestamp}
+
+  - name: conductor.agent.AgentRunning
+    fields:
+      - {name: actor, type: conductor.operator.Actor}
+      - {name: name, type: conductor.agent.AgentName}
+      - {name: running_at, type: Timestamp}
 
   - name: conductor.agent.AgentReported
     fields:

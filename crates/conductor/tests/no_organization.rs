@@ -12,6 +12,8 @@
 //! - `b10x-gates`, the name of the Gates scanner the guard and `task check` call, and
 //!   `B10X_GATES_POLICY`, the variable that names its policy;
 //! - `github.com/beyond10x/eventlog`, where the store's crates are published;
+//! - `github.com/beyond10x/secrets`, where the secrets source's crates are published
+//!   (`story:secrets-source`);
 //! - `github.com/beyond10x/agentplugins`, the setup page `conductor doctor` points `aep`, `ess` and
 //!   `worktree` at (`story:install-hints`);
 //! - `b10x.toml`, the file the ecosystem installer writes its CLI pins to, which
@@ -39,7 +41,7 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
-const ALLOWED: [&str; 11] = [
+const ALLOWED: [&str; 12] = [
     ".b10x/conductor",
     ".b10x/./conductor",
     "~/.b10x",
@@ -48,6 +50,7 @@ const ALLOWED: [&str; 11] = [
     "b10x-gates",
     "b10x_gates_policy",
     "github.com/beyond10x/eventlog",
+    "github.com/beyond10x/secrets",
     "github.com/beyond10x/agentplugins",
     "b10x.toml",
     "x-b10x-audience",

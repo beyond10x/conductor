@@ -160,6 +160,10 @@ pub const RECONCILE_EVERY: u64 = 60;
 /// `daemon.upgrade_timeout` is absent (`story:instance-upgrade`).
 pub const UPGRADE_TIMEOUT: u64 = 120;
 
+/// Seconds an instance has to answer one federated read of the global API before it is a row with
+/// `state: unreachable`, when `daemon.timeout` is absent (`story:federated-views`).
+pub const FEDERATED_TIMEOUT: u64 = 5;
+
 /// The variable of the `conductor-config` setting: the config file, when no `--config` names one.
 pub const CONFIG_VARIABLE: &str = "CONDUCTOR_CONFIG";
 
@@ -250,6 +254,14 @@ pub const fn old_role_word(role: BuiltInRole) -> &'static str {
 #[must_use]
 pub fn is_role(name: &str, role: BuiltInRole) -> bool {
     role_name(name) == Some(role)
+}
+
+/// Whether the role names `a` and `b` name one role: the same name, or a built-in role's name and
+/// its old name (`story:role-name-aliases`). A global role reaches an instance's role by it, so a
+/// `globals.roles` entry `maintainer` holds for the built-in `conductor-dev`, and the reverse.
+#[must_use]
+pub fn same_role(a: &str, b: &str) -> bool {
+    a == b || role_name(a).is_some_and(|role| role_name(b) == Some(role))
 }
 
 /// The note on `name` when it is a role's old name: `<old> is the old name of <role>`; `None`
@@ -484,7 +496,7 @@ const REMOVED_KEYS: [(&str, &str); 3] = [
         "the store is the deployment's one database, at daemon.store",
     ),
 ];
-const DAEMON_KEYS: [&str; 8] = [
+const DAEMON_KEYS: [&str; 9] = [
     "port",
     "tls",
     "cadence",
@@ -493,11 +505,15 @@ const DAEMON_KEYS: [&str; 8] = [
     "dashboard",
     "operators",
     "upgrade_timeout",
+    "timeout",
 ];
 const TLS_KEYS: [&str; 4] = ["listen", "cert", "key", "identity"];
 const DAEMON_CADENCE_KEYS: [&str; 1] = ["reconcile"];
 const SECRETS_KEYS: [&str; 3] = ["source", "namespace", "url"];
 const OPERATOR_KEYS: [&str; 3] = ["name", "role", "grants"];
+/// The keys of `globals`. `placement` is not one of them, by decision: an instance's placement is
+/// where its box runs, and stays per instance (`instances[].placement`); `globals.placement` is
+/// refused as an unknown key.
 const GLOBALS_KEYS: [&str; 5] = ["roles", "cadence", "thresholds", "limits", "tuning"];
 const TUNING_KEYS: [&str; 1] = ["keys"];
 const TUNABLE_KEYS: [&str; 3] = ["path", "min", "max"];
@@ -1063,6 +1079,25 @@ pub fn resolve(flag: Option<&Path>, environment: &Environment) -> Result<Active>
 /// What [`resolve`] answers.
 pub fn set_active(flag: Option<&Path>) -> Result<()> {
     let environment = Environment::from_process()?;
+    let (file, _) = locate(flag, &environment)?;
+    let _ = CONFIG_FILE.set(environment.cwd.join(file));
+    let active = resolve(flag, &environment)?;
+    let _ = ACTIVE.set(active);
+    let _ = EXPLICIT.set(flag.map(|flag| environment.cwd.join(flag)));
+    Ok(())
+}
+
+/// [`set_active`] with the instance `instance` names, when it names one, as
+/// [`INSTANCE_VARIABLE`] would: the `--instance` of `conductor agent` (`story:agent-kinds`).
+///
+/// # Errors
+///
+/// What [`resolve`] answers.
+pub fn set_active_instance(flag: Option<&Path>, instance: Option<&str>) -> Result<()> {
+    let mut environment = Environment::from_process()?;
+    if let Some(instance) = instance {
+        environment.instance = Some(instance.into());
+    }
     let (file, _) = locate(flag, &environment)?;
     let _ = CONFIG_FILE.set(environment.cwd.join(file));
     let active = resolve(flag, &environment)?;
@@ -1813,7 +1848,7 @@ fn text_of(path: &Path) -> String {
 /// [`DAEMON_PORT`], no TLS listener, a reconcile pass every [`RECONCILE_EVERY`] seconds, a SQLite
 /// store under the host's directory `~/.b10x/conductor`, the OS keychain as the secrets source,
 /// the dashboard at `/`, no operator, and [`UPGRADE_TIMEOUT`] seconds for an upgraded runtime to
-/// answer.
+/// answer, and [`FEDERATED_TIMEOUT`] seconds for an instance to answer a federated read.
 #[must_use]
 pub fn default_daemon(home: &Path) -> Daemon {
     Daemon {
@@ -1834,6 +1869,7 @@ pub fn default_daemon(home: &Path) -> Daemon {
         dashboard: "/".to_owned(),
         operators: Vec::new(),
         upgrade_timeout: Duration(format!("PT{UPGRADE_TIMEOUT}S")),
+        timeout: Duration(format!("PT{FEDERATED_TIMEOUT}S")),
     }
 }
 
@@ -1938,14 +1974,23 @@ pub fn secret_name(text: &str) -> bool {
     })
 }
 
-/// The password of a `postgres://` URL, if its user information writes one.
+/// The password a URL writes, if any: in the user information of a `<scheme>://` URL
+/// (`postgres://user:<password>@host`), or as a `password` parameter of its query
+/// (`?password=<password>`, as libpq reads it).
 fn url_password(url: &str) -> Option<&str> {
-    let rest = url
-        .strip_prefix("postgres://")
-        .or_else(|| url.strip_prefix("postgresql://"))?;
-    let authority = rest.split('/').next().unwrap_or(rest);
-    let (user, _) = authority.rsplit_once('@')?;
-    user.split_once(':').map(|(_, password)| password)
+    let in_user = url.split_once("://").and_then(|(_, rest)| {
+        let authority = rest.split('/').next().unwrap_or(rest);
+        let (user, _) = authority.rsplit_once('@')?;
+        user.split_once(':').map(|(_, password)| password)
+    });
+    in_user.or_else(|| {
+        let (_, query) = url.split_once('?')?;
+        let query = query.split('#').next().unwrap_or(query);
+        query.split('&').find_map(|pair| {
+            let (key, value) = pair.split_once('=').unwrap_or((pair, ""));
+            key.trim().eq_ignore_ascii_case("password").then_some(value)
+        })
+    })
 }
 
 /// The YAML path of `key` under `parent`.
@@ -2044,6 +2089,19 @@ impl Reader<'_> {
                 "looks like a token; the config file holds no secret, so name where the secret \
                  is kept instead",
             ),
+            // Any URL's password, in its user information or its query; `daemon.store` and
+            // `daemon.secrets.url` say it in their own words when they are read.
+            Value::String(text)
+                if text.contains("://")
+                    && url_password(text).is_some_and(|password| !secret_name(password))
+                    && !matches!(path, "daemon.store" | "daemon.secrets.url") =>
+            {
+                self.problem(
+                    path,
+                    "writes a password in its URL: write the password as secret:<name>, the \
+                     name the daemon's secrets source keeps it under",
+                );
+            }
             Value::Array(items) => {
                 for (index, item) in items.iter().enumerate() {
                     self.secrets(item, &format!("{path}[{index}]"));
@@ -2503,6 +2561,10 @@ impl Reader<'_> {
             Some(value) => self.duration(value, &join(path, "upgrade_timeout")),
             None => Some(defaults.upgrade_timeout.clone()),
         };
+        let timeout = match Self::get(map, "timeout") {
+            Some(value) => self.duration(value, &join(path, "timeout")),
+            None => Some(defaults.timeout.clone()),
+        };
         Some(Daemon {
             port: port?,
             tls: tls?,
@@ -2512,6 +2574,7 @@ impl Reader<'_> {
             dashboard: dashboard?,
             operators: operators?,
             upgrade_timeout: upgrade_timeout?,
+            timeout: timeout?,
         })
     }
 
@@ -2528,7 +2591,23 @@ impl Reader<'_> {
             None => Some(None),
         };
         let url = match Self::get(map, "url") {
-            Some(value) => self.text(value, &join(path, "url")).map(Some),
+            Some(value) => {
+                let at = join(path, "url");
+                self.text(value, &at).and_then(|url| {
+                    if url_password(&url).is_some() {
+                        // The source of every secret cannot take its own password from
+                        // itself, and the file never holds one.
+                        self.problem(
+                            &at,
+                            "writes a password in the file: the Secrets service's URL names no \
+                             password, in its user information or its query",
+                        );
+                        None
+                    } else {
+                        Some(Some(url))
+                    }
+                })
+            }
             None => Some(None),
         };
         if let (Some(conductor_model::secret::Source::Keychain), Some(Some(_))) = (&source, &url) {
@@ -3051,7 +3130,11 @@ impl Reader<'_> {
             .get("roles")?
             .as_array()?
             .iter()
-            .find(|role| role.get("role").and_then(Value::as_str) == Some(name))?
+            .find(|role| {
+                role.get("role")
+                    .and_then(Value::as_str)
+                    .is_some_and(|written| same_role(written, name))
+            })?
             .clone();
         if let Value::Object(map) = &mut found {
             map.remove("role");
@@ -3070,7 +3153,10 @@ impl Reader<'_> {
             let written = self.global_role(Some(&Value::from(role.role.clone())));
             let (Some(Value::Object(written)), Some(global)) = (
                 written,
-                globals.roles.iter().find(|global| global.role == role.role),
+                globals
+                    .roles
+                    .iter()
+                    .find(|global| same_role(&global.role, &role.role)),
             ) else {
                 continue;
             };
@@ -3609,10 +3695,17 @@ impl Reader<'_> {
         let role = self
             .required(map, path, "role")
             .and_then(|value| self.text(value, &join(path, "role")));
-        // The kind of agent that fills the role's slot: `claude-code`, the only kind in v1.
+        // The kind of agent that fills the role's slot (`story:agent-kinds`): any kind word, one
+        // shell word; `claude-code` by default. A kind the binary does not implement is refused
+        // where an agent starts (`UnknownAgentKind`), and `conductor doctor` names it.
         let kind = match Self::get(map, "kind") {
-            Some(value) => self.word(value, &join(path, "kind"), &[(AGENT_KIND, ())]),
-            None => Some(()),
+            Some(value) => {
+                let at = join(path, "kind");
+                self.text(value, &at)
+                    .and_then(|text| self.command_word(text, &at))
+                    .map(|word| AgentKindName(word.0))
+            }
+            None => Some(AgentKindName(AGENT_KIND.to_owned())),
         };
         let harness = self.required(map, path, "harness").and_then(|value| {
             self.word(
@@ -3717,10 +3810,9 @@ impl Reader<'_> {
             Some(value) => self.grant(value, &join(path, "grant")),
             None => Some(default_grant()),
         };
-        kind?;
         Some(Role {
             role: role?,
-            kind: AgentKindName(AGENT_KIND.to_owned()),
+            kind: kind?,
             harness: harness?,
             model: model?,
             agent: agent?,
@@ -4902,6 +4994,7 @@ pub fn daemon_document(daemon: &Daemon) -> Yaml {
             ),
         ),
         ("upgrade_timeout", text(&written(&daemon.upgrade_timeout))),
+        ("timeout", text(&written(&daemon.timeout))),
     ])
 }
 

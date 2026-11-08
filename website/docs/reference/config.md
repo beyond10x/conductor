@@ -28,7 +28,7 @@ The file, `conductor.config/2` (design architecture-next § 9). A key it does no
 
 ## Daemon
 
-The `daemon` section (design architecture-next § 4, § 5.2, § 8, § 9): `port`, the loopback port of the global API on 127.0.0.1, 1 to 65535, absent 7300; `tls`, the TLS listener, absent when none is configured; `cadence.reconcile`; `store`, the one URL of the deployment's shared database, which the daemon hands to every instance runtime it starts; `secrets`, the secrets source; `dashboard`, the path the daemon serves the dashboard app at, absent `/`; `operators`, the deployment's operators, at least the one the Unix user names on a single host; `upgrade_timeout`, how long an upgraded instance runtime has to answer before the daemon rolls it back to its previous binary, a duration, absent 120 s.
+The `daemon` section (design architecture-next § 4, § 5.2, § 8, § 9): `port`, the loopback port of the global API on 127.0.0.1, 1 to 65535, absent 7300; `tls`, the TLS listener, absent when none is configured; `cadence.reconcile`; `store`, the one URL of the deployment's shared database, which the daemon hands to every instance runtime it starts; `secrets`, the secrets source; `dashboard`, the path the daemon serves the dashboard app at, absent `/`; `operators`, the deployment's operators, at least the one the Unix user names on a single host; `upgrade_timeout`, how long an upgraded instance runtime has to answer before the daemon rolls it back to its previous binary, a duration, absent 120 s; `timeout`, how long an instance has to answer one federated read of the global API before it is a row with `state: unreachable`, a duration, absent 5 s.
 
 | Key | Type | Default | Rule |
 |---|---|---|---|
@@ -49,6 +49,7 @@ The `daemon` section (design architecture-next § 4, § 5.2, § 8, § 9): `port`
 | `daemon.operators[].role` | [OperatorRole](#operatorrole) | required |  |
 | `daemon.operators[].grants` | list of `answerdecisions` \| `changesettings` \| `startinstances` \| `stopinstances` \| `upgradeinstances` \| `purge` \| `join` | `[]` | `grant` distinct across `grants` |
 | `daemon.upgrade_timeout` | duration | `120s` |  |
+| `daemon.timeout` | duration | `5s` |  |
 
 ## Globals
 

@@ -426,12 +426,19 @@ fn expected_sum(sums: &str, name: &str) -> Option<String> {
     })
 }
 
-/// `x.y.z` as three numbers.
-fn parse_version(text: &str) -> Option<(u64, u64, u64)> {
+/// `x.y.z` as three numbers, each of ASCII digits only: no sign, no space, no path separator.
+pub(crate) fn parse_version(text: &str) -> Option<(u64, u64, u64)> {
+    let number = |part: Option<&str>| -> Option<u64> {
+        let part = part?;
+        if part.is_empty() || !part.bytes().all(|byte| byte.is_ascii_digit()) {
+            return None;
+        }
+        part.parse().ok()
+    };
     let mut parts = text.split('.');
-    let major = parts.next()?.parse().ok()?;
-    let minor = parts.next()?.parse().ok()?;
-    let patch = parts.next()?.parse().ok()?;
+    let major = number(parts.next())?;
+    let minor = number(parts.next())?;
+    let patch = number(parts.next())?;
     parts.next().is_none().then_some((major, minor, patch))
 }
 

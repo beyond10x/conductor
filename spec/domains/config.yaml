@@ -637,7 +637,9 @@ types:
   # source; `dashboard`, the path the daemon serves the dashboard app at, absent `/`; `operators`,
   # the deployment's operators, at least the one the Unix user names on a single host;
   # `upgrade_timeout`, how long an upgraded instance runtime has to answer before the daemon rolls
-  # it back to its previous binary (story:instance-upgrade, § 10), a duration, absent 120 s.
+  # it back to its previous binary (story:instance-upgrade, § 10), a duration, absent 120 s;
+  # `timeout`, how long an instance has to answer one federated read of the global API before it is
+  # a row with `state: unreachable` (story:federated-views, § 5.2), a duration, absent 5 s.
   # UNMAPPED: § 4 says "the loopback listener is off on a box that has no local operator"; which key
   # turns it off (an absent `port`, or a key of its own) is not settled. Open question.
   # UNMAPPED: "the dashboard's served path" may be the URL path the app is served under (`/`, as
@@ -654,6 +656,7 @@ types:
       - {name: dashboard, type: String}
       - {name: operators, type: List<conductor.config.DaemonOperator>}
       - {name: upgrade_timeout, type: Duration}
+      - {name: timeout, type: Duration}
     invariants:
       - port >= 1
       - port <= 65535

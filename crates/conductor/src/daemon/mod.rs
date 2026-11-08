@@ -11,6 +11,7 @@
 //! unit `conductord.service` ([`install`]).
 
 pub mod api;
+pub mod federate;
 pub mod install;
 pub mod reconcile;
 pub mod units;
@@ -91,6 +92,15 @@ pub fn daemon_serve(
         Systemd,
     )
     .context(WHAT)?;
+    // The secrets source (`story:secrets-source`, decision S1): one the daemon cannot use refuses
+    // the start; otherwise its line, and every instance whose config names a secret it does not
+    // hold. No value is printed.
+    let text = std::fs::read_to_string(&file)
+        .with_context(|| format!("daemon serve: read the config file {}", file.display()))?;
+    match crate::secret::at_start(&daemon.config().daemon.secrets, &text) {
+        Ok(lines) => lines.iter().for_each(|line| println!("{line}")),
+        Err(unusable) => bail!("{WHAT}: {unusable}; the daemon does not start"),
+    }
     let port = u16::try_from(daemon.config().daemon.port).context("daemon serve: daemon.port")?;
     let listener = TcpListener::bind(("127.0.0.1", port))
         .with_context(|| format!("daemon serve: listen on 127.0.0.1:{port}"))?;
@@ -109,7 +119,11 @@ pub fn daemon_serve(
             local,
             secure.as_ref().map(|(_, _, identity)| identity.clone()),
         )
-        .with_config(file.clone(), home, daemon.config().daemon.store.0.clone()),
+        .with_config(file.clone(), home, daemon.config().daemon.store.0.clone())
+        .with_timeout(Duration::from_secs(
+            config::seconds(&daemon.config().daemon.timeout).unwrap_or(config::FEDERATED_TIMEOUT),
+        ))
+        .with_secrets(daemon.config().daemon.secrets.source),
     );
     publish(&api, &daemon);
     let served = Arc::clone(&api);
