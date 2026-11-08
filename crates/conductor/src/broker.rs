@@ -253,6 +253,7 @@ impl StoreMessages {
             ReportStatus::Started => crate::dispatch::report_started(
                 state,
                 ReportStartedArgs {
+                    actor: None,
                     dispatch_id: id,
                     input_json: None,
                 },
@@ -260,6 +261,7 @@ impl StoreMessages {
             ReportStatus::Blocked => crate::dispatch::report_blocked(
                 state,
                 ReportBlockedArgs {
+                    actor: None,
                     dispatch_id: id,
                     reason: text,
                     input_json: None,
@@ -268,6 +270,7 @@ impl StoreMessages {
             ReportStatus::Unblocked => crate::dispatch::report_unblocked(
                 state,
                 ReportUnblockedArgs {
+                    actor: None,
                     dispatch_id: id,
                     input_json: None,
                 },
@@ -275,6 +278,7 @@ impl StoreMessages {
             ReportStatus::Done => crate::dispatch::report_done(
                 state,
                 ReportDoneArgs {
+                    actor: None,
                     dispatch_id: id,
                     evidence: text,
                     input_json: None,
@@ -283,6 +287,7 @@ impl StoreMessages {
             ReportStatus::Failed => crate::dispatch::report_failed(
                 state,
                 ReportFailedArgs {
+                    actor: None,
                     dispatch_id: id,
                     reason: text,
                     input_json: None,
@@ -300,6 +305,7 @@ impl Messages for StoreMessages {
         self.record(
             "broker send",
             ReceiveMessage {
+                actor: crate::actor::chosen(),
                 sender: message.sender.clone(),
                 recipient: message.recipient.clone(),
                 kind: MessageKind::Team,
@@ -343,6 +349,7 @@ impl Messages for StoreMessages {
         let message = self.record(
             "broker report",
             ReceiveMessage {
+                actor: crate::actor::chosen(),
                 sender: report.sender.clone(),
                 recipient: report.recipient.clone(),
                 kind: MessageKind::Report,
@@ -385,6 +392,7 @@ impl StoreRecorder {
         });
         let RecordToolCallOutcome::Recorded { .. } = generated
             .record_tool_call(RecordToolCall {
+                actor: crate::actor::chosen(),
                 instance: InstanceName(call.instance.clone()),
                 session: SessionName(call.session.clone()),
                 verb: call.verb,
@@ -517,6 +525,53 @@ impl TryContext for Ports {
         _outcome: &'static str,
     ) -> Result<bool, UnmetObligation> {
         Err(conductor_model::behaviour::unmet_context(command.name()))
+    }
+
+    // The v1 domains' generated values (`story:spec-v1`): no command this handler runs
+    // generates one.
+
+    fn try_generate_conductor_config_revision_id(
+        &mut self,
+    ) -> Result<conductor_model::config::RevisionId, UnmetObligation> {
+        Err(conductor_model::behaviour::unmet_context(
+            "conductor.config.RevisionId",
+        ))
+    }
+
+    fn try_generate_conductor_instance_reconciliation_id(
+        &mut self,
+    ) -> Result<conductor_model::instance::ReconciliationId, UnmetObligation> {
+        Err(conductor_model::behaviour::unmet_context(
+            "conductor.instance.ReconciliationId",
+        ))
+    }
+
+    fn try_generate_conductor_placement_box_id(
+        &mut self,
+    ) -> Result<conductor_model::placement::BoxId, UnmetObligation> {
+        Err(conductor_model::behaviour::unmet_context(
+            "conductor.placement.BoxId",
+        ))
+    }
+
+    fn try_generate_conductor_placement_refusal_reason(
+        &mut self,
+    ) -> Result<conductor_model::placement::RefusalReason, UnmetObligation> {
+        Err(conductor_model::behaviour::unmet_context(
+            "conductor.placement.RefusalReason",
+        ))
+    }
+
+    fn try_generate_conductor_token_token_id(
+        &mut self,
+    ) -> Result<conductor_model::token::TokenId, UnmetObligation> {
+        Err(conductor_model::behaviour::unmet_context(
+            "conductor.token.TokenId",
+        ))
+    }
+
+    fn try_generate_string(&mut self) -> Result<String, UnmetObligation> {
+        Err(conductor_model::behaviour::unmet_context("String"))
     }
 }
 

@@ -1,13 +1,29 @@
 # generated from conductor v1
-# contract digest 057692c7a57029c79cc9e78eb455da83a4c0aa80b4525dc295987296007b3391
+# contract digest 925e95ab19211d2883a7b63b82a83c2503c557df74d9a01d0be9ddc0a4f90d6c
 # do not edit: regenerate with `ess synthesize --layout crate`
 
 [package]
 name = "conductor"
-description = "The `conductor` specification, v1, synthesised as one crate."
+description = "The `conductor` specification, v1, synthesised as one crate; its HTTP surface is the `server` feature."
 version = "1.0.0"
 edition = "2021"
 
+[features]
+server = ["dep:clap", "dep:uuid", "dep:time"]
+
 [dependencies]
+clap = { version = "^4.6.7", features = ["derive"], optional = true }
+uuid = { version = "^1.26.1", features = ["v4"], optional = true }
+time = { version = "^0.3.45", features = ["formatting"], optional = true }
+
+[[bin]]
+name = "conductor-instance-server"
+path = "src/bin/conductor-instance-server.rs"
+required-features = ["server"]
+
+[[bin]]
+name = "conductord-server"
+path = "src/bin/conductord-server.rs"
+required-features = ["server"]
 
 [workspace]

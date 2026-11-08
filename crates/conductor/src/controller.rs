@@ -78,6 +78,7 @@ pub fn start_controller(state: Option<&Path>, args: StartControllerArgs) -> Resu
     let mut generated = record(state)?;
     let outcome = generated
         .start_controller(StartController {
+            actor: crate::actor::chosen(),
             repository: RepositoryName(repository),
             harness,
             session_name,
@@ -175,7 +176,10 @@ pub fn pause_controller(
     };
     let mut generated = record(state)?;
     let outcome = generated
-        .pause_controller(PauseController { controller_id })
+        .pause_controller(PauseController {
+            actor: crate::actor::chosen(),
+            controller_id,
+        })
         .map_err(|unmet| anyhow!("{WHAT}: {unmet}"))?;
     generated.ports.store.check().context("keep the pause")?;
     match outcome {
@@ -219,7 +223,10 @@ pub fn resume_controller(
     };
     let mut generated = record(state)?;
     let outcome = generated
-        .resume_controller(ResumeController { controller_id })
+        .resume_controller(ResumeController {
+            actor: crate::actor::chosen(),
+            controller_id,
+        })
         .map_err(|unmet| anyhow!("{WHAT}: {unmet}"))?;
     generated
         .ports
@@ -271,6 +278,7 @@ pub fn stop_controller(
     let mut generated = record(state)?;
     let outcome = generated
         .stop_controller(StopController {
+            actor: crate::actor::chosen(),
             controller_id,
             reason,
         })
@@ -303,7 +311,10 @@ pub fn revise_charter(state: Option<&Path>, args: ReviseCharterArgs) -> Result<E
     let controller_id = controller_id(args.controller_id, WHAT)?;
     let mut generated = record(state)?;
     let outcome = generated
-        .revise_charter(ReviseCharter { controller_id })
+        .revise_charter(ReviseCharter {
+            actor: crate::actor::chosen(),
+            controller_id,
+        })
         .map_err(|unmet| anyhow!("{WHAT}: {unmet}"))?;
     generated.ports.store.check().context("keep the revision")?;
     match outcome {
@@ -338,13 +349,14 @@ pub fn revise_charter(state: Option<&Path>, args: ReviseCharterArgs) -> Result<E
 }
 
 /// The view's fields, in the specification's order (`spec/domains/dispatch.yaml`).
-const COLUMNS: [&str; 6] = [
+const COLUMNS: [&str; 7] = [
     "controller_id",
     "state",
     "repository",
     "harness",
     "session_name",
     "charter_revision",
+    "actor",
 ];
 
 /// `conductor controller controllers`: the binding's `controller-controllers`
@@ -433,6 +445,7 @@ pub fn all_controllers(state: Option<&Path>, view: ViewArgs) -> Result<ExitCode>
                 Value::from(harness_name(row.harness)),
                 Value::from(row.session_name.0),
                 Value::from(row.charter_revision),
+                Value::from(crate::actor::written(&row.actor)),
             ]
         })
         .collect();
@@ -546,6 +559,7 @@ impl StartControllerBehavior for Ports {
         }
         let controller_id = ControllerId(Uuid(eventlog_core::new_event_id()));
         let data = ControllerData {
+            actor: crate::actor::chosen(),
             controller_id: controller_id.clone(),
             repository: input.repository.clone(),
             harness: input.harness,
@@ -558,6 +572,7 @@ impl StartControllerBehavior for Ports {
         );
         Ok(StartControllerOutcome::Started {
             controller_started: ControllerStarted {
+                actor: crate::actor::chosen(),
                 controller_id,
                 repository: input.repository,
                 harness: input.harness,

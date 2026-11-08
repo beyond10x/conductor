@@ -1,10 +1,10 @@
 // generated from conductor v1
-// contract digest 057692c7a57029c79cc9e78eb455da83a4c0aa80b4525dc295987296007b3391
+// contract digest 925e95ab19211d2883a7b63b82a83c2503c557df74d9a01d0be9ddc0a4f90d6c
 // do not edit: regenerate with `ess synthesize --layout crate`
 
 //! Config — `conductor.config`.
 //!
-//! The one file that names conductor's instances, `conductor.config/1`, read from `--config`, else the `conductor-config` setting, else ~/.b10x/conductor/conductor.yaml (story:config-file). An instance is one organization conductor runs: where its repositories come from, where their checkouts are, where conductor keeps its records, state and cache, which harness and model each role runs on, its cadence, thresholds, reports, and who decides each decision class. These types hold the effective config, after defaults; the file may leave out every key of an instance but its name, its sources and its checkouts. No field takes a secret. What the instances of one file share lives in the host directory, `host/` beside the file (`conductor.host`), not under any instance's `state`.
+//! The one file conductord reconciles from, `conductor.config/2`, read from `--config`, else the `conductor-config` setting, else ~/.b10x/conductor/conductor.yaml (story:config-file; docs/design/architecture-next.md § 9). It holds the `daemon` section (its port, TLS listener, reconcile cadence, the one store URL, the secrets source, the dashboard's served path and its operators), `globals` (the defaults every instance starts from) and `instances[]`. An instance is one organization conductor runs: its placement, where its repositories come from, where their checkouts are, where conductor keeps its records, state and cache, which kind and model each role runs on, its cadence, thresholds, reports, and who decides each decision class; every key an instance or a role writes overrides the global one. Precedence is role over instance over global (`Level`), and `EffectiveSettings` shows every key with its effective value and the level it came from. These types hold the effective config, after defaults; the file may leave out every key of an instance but its name, its sources and its checkouts. No field takes a secret: the file names one as `secret:<name>` (`conductor.secret.SecretName`). The config is desired state and is not kept in the store (§ 8); every change through `PutConfig` is validated, written, committed with its actor and reason, recorded as `ConfigChanged` and reconciled. A `conductor.config/1` file is read once by `conductor config migrate`.
 //!
 //! Everything this bounded context declares that the synthesis plan marks generated.
 
@@ -103,10 +103,9 @@ pub struct ConductorSession {
 
 /// Config — `conductor.config.Config`.
 ///
-/// Every value satisfies `version == "conductor.config/1"` — declared here, enforced by whatever behaviour constructs one.
+/// Every value satisfies `version == "conductor.config/2"` — declared here, enforced by whatever behaviour constructs one.
 /// Every value satisfies `distinct instance in instances by instance.name` — declared here, enforced by whatever behaviour constructs one.
 /// Every value satisfies `distinct instance in instances by instance.session_prefix` — declared here, enforced by whatever behaviour constructs one.
-/// Every value satisfies `distinct instance in instances by instance.dashboard_port` — declared here, enforced by whatever behaviour constructs one.
 /// Every value satisfies `distinct instance in instances by instance.state` — declared here, enforced by whatever behaviour constructs one.
 /// Every value satisfies `distinct instance in instances by instance.records` — declared here, enforced by whatever behaviour constructs one.
 /// Every value satisfies `(not (defined(default)) or exists instance in instances: (instance.name == default))` — declared here, enforced by whatever behaviour constructs one.
@@ -114,6 +113,10 @@ pub struct ConductorSession {
 pub struct Config {
     /// `version` — `String`.
     pub version: String,
+    /// `daemon` — `conductor.config.Daemon`.
+    pub daemon: Daemon,
+    /// `globals` — `conductor.config.Globals`.
+    pub globals: Globals,
     /// `default` — `Optional<conductor.config.InstanceName>`.
     pub default: Option<InstanceName>,
     /// `instances` — `List<conductor.config.Instance>`.
@@ -160,8 +163,6 @@ pub struct ConfigField {
 pub struct ConfigInstance {
     /// `name` — `conductor.config.InstanceName`.
     pub name: InstanceName,
-    /// `dashboard_port` — `Integer`.
-    pub dashboard_port: i64,
     /// `session_prefix` — `Optional<conductor.config.SessionPrefix>`.
     pub session_prefix: Option<SessionPrefix>,
     /// `forge` — `String`.
@@ -198,6 +199,16 @@ pub struct ConfigProblem {
     pub path: String,
     /// `message` — `String`.
     pub message: String,
+}
+
+/// The states of `conductor.config.ConfigRevision`, as runtime values.
+///
+/// Synthesised from the lifecycle, so the two cannot disagree. Which *moves* are legal is not
+/// carried here — it is carried by `ConfigRevision<S>`, where an undeclared move does not compile.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ConfigRevisionState {
+    /// `Committed`.
+    Committed,
 }
 
 /// ConfigWriteRefusal — `conductor.config.ConfigWriteRefusal`: one of a closed set of names.
@@ -243,35 +254,6 @@ pub struct ConfigWritten {
     pub problems: Vec<ConfigProblem>,
 }
 
-/// Confinement — `conductor.config.Confinement`.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct Confinement {
-    /// `mode` — `conductor.config.ConfinementMode`.
-    pub mode: ConfinementMode,
-    /// `provider` — `conductor.config.ConfinementProvider`.
-    pub provider: ConfinementProvider,
-    /// `limits` — `conductor.config.Limits`.
-    pub limits: Limits,
-}
-
-/// ConfinementMode — `conductor.config.ConfinementMode`: one of a closed set of names.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum ConfinementMode {
-    /// `Strict`.
-    Strict,
-    /// `Report`.
-    Report,
-}
-
-/// ConfinementProvider — `conductor.config.ConfinementProvider`: one of a closed set of names.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum ConfinementProvider {
-    /// `Systemd`.
-    Systemd,
-    /// `None`.
-    None,
-}
-
 /// Controllers — `conductor.config.Controllers`.
 ///
 /// Every value satisfies `max_working >= 1` — declared here, enforced by whatever behaviour constructs one.
@@ -287,6 +269,49 @@ pub struct Controllers {
     pub max_open_reviews: i64,
 }
 
+/// Daemon — `conductor.config.Daemon`.
+///
+/// Every value satisfies `port >= 1` — declared here, enforced by whatever behaviour constructs one.
+/// Every value satisfies `port <= 65535` — declared here, enforced by whatever behaviour constructs one.
+/// Every value satisfies `distinct operator in operators by operator.name` — declared here, enforced by whatever behaviour constructs one.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Daemon {
+    /// `port` — `Integer`.
+    pub port: i64,
+    /// `tls` — `Optional<conductor.config.TlsListener>`.
+    pub tls: Option<TlsListener>,
+    /// `cadence` — `conductor.config.DaemonCadence`.
+    pub cadence: DaemonCadence,
+    /// `store` — `conductor.store.StoreUrl`.
+    pub store: crate::store::StoreUrl,
+    /// `secrets` — `conductor.config.SecretsSource`.
+    pub secrets: SecretsSource,
+    /// `dashboard` — `String`.
+    pub dashboard: String,
+    /// `operators` — `List<conductor.config.DaemonOperator>`.
+    pub operators: Vec<DaemonOperator>,
+}
+
+/// DaemonCadence — `conductor.config.DaemonCadence`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct DaemonCadence {
+    /// `reconcile` — `Duration`.
+    pub reconcile: crate::primitives::Duration,
+}
+
+/// DaemonOperator — `conductor.config.DaemonOperator`.
+///
+/// Every value satisfies `distinct grant in grants` — declared here, enforced by whatever behaviour constructs one.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct DaemonOperator {
+    /// `name` — `conductor.operator.OperatorName`.
+    pub name: crate::operator::OperatorName,
+    /// `role` — `conductor.config.OperatorRole`.
+    pub role: OperatorRole,
+    /// `grants` — `List<conductor.config.OperatorGrant>`.
+    pub grants: Vec<OperatorGrant>,
+}
+
 /// DoctorReport — `conductor.config.DoctorReport`.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct DoctorReport {
@@ -296,10 +321,18 @@ pub struct DoctorReport {
     pub prerequisites: Vec<Prerequisite>,
     /// `logins` — `List<conductor.config.ForgeLogin>`.
     pub logins: Vec<ForgeLogin>,
-    /// `providers` — `List<conductor.config.ProviderAvailability>`.
-    pub providers: Vec<ProviderAvailability>,
     /// `verdict` — `String`.
     pub verdict: String,
+}
+
+/// The states of `conductor.config.EffectiveSetting`, as runtime values.
+///
+/// Synthesised from the lifecycle, so the two cannot disagree. Which *moves* are legal is not
+/// carried here — it is carried by `EffectiveSetting<S>`, where an undeclared move does not compile.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum EffectiveSettingState {
+    /// `Effective`.
+    Effective,
 }
 
 /// Forge — `conductor.config.Forge`.
@@ -373,6 +406,23 @@ pub struct GitLabSource {
     pub exclude: Vec<String>,
 }
 
+/// Globals — `conductor.config.Globals`.
+///
+/// Every value satisfies `distinct role in roles by role.role` — declared here, enforced by whatever behaviour constructs one.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Globals {
+    /// `roles` — `List<conductor.config.Role>`.
+    pub roles: Vec<Role>,
+    /// `cadence` — `conductor.config.Cadence`.
+    pub cadence: Cadence,
+    /// `thresholds` — `conductor.config.Thresholds`.
+    pub thresholds: Thresholds,
+    /// `limits` — `conductor.config.Limits`.
+    pub limits: Limits,
+    /// `tuning` — `conductor.improvement.TuningGrant`.
+    pub tuning: crate::improvement::TuningGrant,
+}
+
 /// Harness — `conductor.config.Harness`: one of a closed set of names.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Harness {
@@ -390,17 +440,14 @@ pub struct InitRecords {
 }
 
 /// Instance — `conductor.config.Instance`.
-///
-/// Every value satisfies `dashboard_port >= 1` — declared here, enforced by whatever behaviour constructs one.
-/// Every value satisfies `dashboard_port <= 65535` — declared here, enforced by whatever behaviour constructs one.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Instance {
     /// `name` — `conductor.config.InstanceName`.
     pub name: InstanceName,
+    /// `placement` — `conductor.config.PlacementName`.
+    pub placement: PlacementName,
     /// `session_prefix` — `Optional<conductor.config.SessionPrefix>`.
     pub session_prefix: Option<SessionPrefix>,
-    /// `dashboard_port` — `Integer`.
-    pub dashboard_port: i64,
     /// `sources` — `List<conductor.config.Source>`.
     pub sources: Vec<Source>,
     /// `checkouts` — `conductor.config.Checkouts`.
@@ -413,8 +460,8 @@ pub struct Instance {
     pub cache: String,
     /// `roles` — `List<conductor.config.Role>`.
     pub roles: Vec<Role>,
-    /// `confinement` — `conductor.config.Confinement`.
-    pub confinement: Confinement,
+    /// `limits` — `conductor.config.Limits`.
+    pub limits: Limits,
     /// `controllers` — `conductor.config.Controllers`.
     pub controllers: Controllers,
     /// `repositories` — `List<conductor.config.RepositoryRule>`.
@@ -467,6 +514,17 @@ pub struct InstanceRefused {
     pub refusal: InstanceRefusal,
     /// `detail` — `String`.
     pub detail: String,
+}
+
+/// Level — `conductor.config.Level`: one of a closed set of names.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Level {
+    /// `Global`.
+    Global,
+    /// `Instance`.
+    Instance,
+    /// `Role`.
+    Role,
 }
 
 /// Limits — `conductor.config.Limits`.
@@ -522,6 +580,33 @@ pub enum Network {
     Open,
 }
 
+/// OperatorGrant — `conductor.config.OperatorGrant`: one of a closed set of names.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum OperatorGrant {
+    /// `AnswerDecisions`.
+    AnswerDecisions,
+    /// `ChangeSettings`.
+    ChangeSettings,
+    /// `StartInstances`.
+    StartInstances,
+    /// `StopInstances`.
+    StopInstances,
+    /// `UpgradeInstances`.
+    UpgradeInstances,
+    /// `Purge`.
+    Purge,
+    /// `Join`.
+    Join,
+}
+
+/// OperatorRole — `conductor.config.OperatorRole`: a distinct wrapper around `String`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct OperatorRole(pub String);
+
+/// PlacementName — `conductor.config.PlacementName`: a distinct wrapper around `String`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PlacementName(pub String);
+
 /// Prerequisite — `conductor.config.Prerequisite`.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Prerequisite {
@@ -550,17 +635,6 @@ pub enum PrerequisiteState {
     VersionUnread,
     /// `NotNeeded`.
     NotNeeded,
-}
-
-/// ProviderAvailability — `conductor.config.ProviderAvailability`.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct ProviderAvailability {
-    /// `provider` — `String`.
-    pub provider: String,
-    /// `available` — `Boolean`.
-    pub available: bool,
-    /// `reason` — `Optional<String>`.
-    pub reason: Option<String>,
 }
 
 /// RepoCache — `conductor.config.RepoCache`: one of a closed set of names.
@@ -616,11 +690,17 @@ pub struct Retention {
     pub snapshots: i64,
 }
 
+/// RevisionId — `conductor.config.RevisionId`: a distinct wrapper around `Uuid`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RevisionId(pub crate::primitives::Uuid);
+
 /// Role — `conductor.config.Role`.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Role {
     /// `role` — `String`.
     pub role: String,
+    /// `kind` — `conductor.agent.AgentKindName`.
+    pub kind: crate::agent::AgentKindName,
     /// `harness` — `conductor.config.Harness`.
     pub harness: Harness,
     /// `model` — `conductor.config.CommandWord`.
@@ -647,16 +727,9 @@ pub struct Role {
     pub grant: crate::tool::RoleGrant,
 }
 
-/// RoleName — `conductor.config.RoleName`: one of a closed set of names.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum RoleName {
-    /// `Director`.
-    Director,
-    /// `Maintainer`.
-    Maintainer,
-    /// `Lead`.
-    Lead,
-}
+/// RoleName — `conductor.config.RoleName`: a distinct wrapper around `String`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RoleName(pub String);
 
 /// SecretSource — `conductor.config.SecretSource`.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -684,6 +757,17 @@ pub struct SecretSync {
     pub dry_run: Option<String>,
 }
 
+/// SecretsSource — `conductor.config.SecretsSource`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SecretsSource {
+    /// `source` — `conductor.secret.Source`.
+    pub source: crate::secret::Source,
+    /// `namespace` — `Optional<String>`.
+    pub namespace: Option<String>,
+    /// `url` — `Optional<String>`.
+    pub url: Option<String>,
+}
+
 /// SessionName — `conductor.config.SessionName`: a distinct wrapper around `String`.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SessionName(pub String);
@@ -709,6 +793,10 @@ impl SessionPrefix {
         None
     }
 }
+
+/// SettingKey — `conductor.config.SettingKey`: a distinct wrapper around `String`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SettingKey(pub String);
 
 /// SetupReport — `conductor.config.SetupReport`.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -739,6 +827,8 @@ pub struct ShowConfig {
     pub format: Option<String>,
     /// `instance` — `Optional<String>`.
     pub instance: Option<String>,
+    /// `effective` — `Optional<Boolean>`.
+    pub effective: Option<bool>,
 }
 
 /// Source — `conductor.config.Source`: one of a fixed set of shapes, tagged on the wire by `kind`.
@@ -816,6 +906,13 @@ pub struct Thresholds {
 /// TimeOfDay — `conductor.config.TimeOfDay`: a distinct wrapper around `String`.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct TimeOfDay(pub String);
+
+/// TlsListener — `conductor.config.TlsListener`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct TlsListener {
+    /// `listen` — `String`.
+    pub listen: String,
+}
 
 /// Tokens — `conductor.config.Tokens`: a distinct wrapper around `Integer`.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -942,6 +1039,385 @@ pub struct WriteWorkspace {
     pub check: Option<bool>,
 }
 
+/// What ConfigRevision — `conductor.config.ConfigRevision` — holds, apart from where it is in its lifecycle.
+///
+/// The identity and every declared field. The state is deliberately not one: inside the domain it
+/// is carried by the type parameter of [`ConfigRevision<S>`], and at a boundary by [`ConfigRevisionSnapshot::state`].
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ConfigRevisionData {
+    /// The identity: `revision_id` — `conductor.config.RevisionId`.
+    pub revision_id: RevisionId,
+    /// `actor` — `conductor.operator.Actor`.
+    pub actor: crate::operator::Actor,
+    /// `level` — `conductor.config.Level`.
+    pub level: Level,
+    /// `instance` — `Optional<conductor.config.InstanceName>`.
+    pub instance: Option<InstanceName>,
+    /// `role` — `Optional<conductor.config.RoleName>`.
+    pub role: Option<RoleName>,
+    /// `path` — `String`.
+    pub path: String,
+    /// `value` — `Optional<String>`.
+    pub value: Option<String>,
+    /// `reason` — `String`.
+    pub reason: String,
+    /// `commit` — `String`.
+    pub commit: String,
+    /// `changed_at` — `Timestamp`.
+    pub changed_at: crate::primitives::Timestamp,
+}
+
+/// The states of `conductor.config.ConfigRevision`, at the type level.
+///
+/// One marker type per declared state, sealed: a state the lifecycle does not declare cannot
+/// implement [`Marker`](config_revision_state::Marker), so [`ConfigRevision<S>`](ConfigRevision) can only ever rest in a real state.
+pub mod config_revision_state {
+    /// Closes [`Marker`] over the declared states.
+    mod sealed {
+        /// Implemented only by the marker types beside this module.
+        pub trait Sealed {}
+        impl Sealed for super::Committed {}
+    }
+
+    /// A declared state of `ConfigRevision`, as a type.
+    pub trait Marker: sealed::Sealed {
+        /// The same state, as the runtime value.
+        const STATE: super::ConfigRevisionState;
+    }
+
+    /// `Committed`. Where a new instance starts.
+    pub struct Committed;
+
+    impl Marker for Committed {
+        const STATE: super::ConfigRevisionState = super::ConfigRevisionState::Committed;
+    }
+}
+
+/// ConfigRevision — `conductor.config.ConfigRevision` — with its lifecycle state carried by the type.
+///
+/// The one constructor rests in `Committed`, and the only way to change `S` is a method generated from
+/// a declared transition. A move the specification does not declare is therefore not an error
+/// case: it does not compile. Where the state is data — wire, storage — use [`ConfigRevisionSnapshot`]
+/// and [`ConfigRevisionSnapshot::refine`].
+pub struct ConfigRevision<S: config_revision_state::Marker> {
+    data: ConfigRevisionData,
+    state: core::marker::PhantomData<S>,
+}
+
+impl<S: config_revision_state::Marker> ConfigRevision<S> {
+    /// The state this instance rests in, as the runtime value.
+    pub fn state(&self) -> ConfigRevisionState {
+        S::STATE
+    }
+
+    /// What it holds.
+    pub fn data(&self) -> &ConfigRevisionData {
+        &self.data
+    }
+
+    /// Hands the data back, giving up the typed state.
+    pub fn into_data(self) -> ConfigRevisionData {
+        self.data
+    }
+}
+
+impl ConfigRevision<config_revision_state::Committed> {
+    /// A new instance, resting in `Committed` — the only state the lifecycle starts one in.
+    pub fn new(data: ConfigRevisionData) -> Self {
+        Self {
+            data,
+            state: core::marker::PhantomData,
+        }
+    }
+}
+
+/// `conductor.config.ConfigRevision` as it crosses a boundary: the state as a value beside the data.
+///
+/// Wire and storage know states only at runtime; [`ConfigRevisionSnapshot::refine`] is the one door back
+/// into the typed lifecycle.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ConfigRevisionSnapshot {
+    /// Where the instance is in its lifecycle.
+    pub state: ConfigRevisionState,
+    /// What it holds.
+    pub data: ConfigRevisionData,
+}
+
+/// An `ConfigRevision` in whichever declared state it was found.
+pub enum AnyConfigRevision {
+    /// Resting in `Committed`.
+    Committed(ConfigRevision<config_revision_state::Committed>),
+}
+
+impl ConfigRevisionSnapshot {
+    /// Refines the runtime state into the typed one.
+    ///
+    /// Total: every declared state has an arm, and an undeclared state cannot reach here because
+    /// `ConfigRevisionState` cannot spell one.
+    pub fn refine(self) -> AnyConfigRevision {
+        match self.state {
+            ConfigRevisionState::Committed => AnyConfigRevision::Committed(ConfigRevision {
+                data: self.data,
+                state: core::marker::PhantomData,
+            }),
+        }
+    }
+}
+
+impl AnyConfigRevision {
+    /// The state, as the runtime value.
+    pub fn state(&self) -> ConfigRevisionState {
+        match self {
+            Self::Committed(_) => ConfigRevisionState::Committed,
+        }
+    }
+
+    /// Back to the boundary shape.
+    pub fn snapshot(self) -> ConfigRevisionSnapshot {
+        match self {
+            Self::Committed(instance) => ConfigRevisionSnapshot {
+                state: ConfigRevisionState::Committed,
+                data: instance.into_data(),
+            },
+        }
+    }
+}
+
+/// What EffectiveSetting — `conductor.config.EffectiveSetting` — holds, apart from where it is in its lifecycle.
+///
+/// The identity and every declared field. The state is deliberately not one: inside the domain it
+/// is carried by the type parameter of [`EffectiveSetting<S>`], and at a boundary by [`EffectiveSettingSnapshot::state`].
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct EffectiveSettingData {
+    /// The identity: `setting_key` — `conductor.config.SettingKey`.
+    pub setting_key: SettingKey,
+    /// `instance` — `conductor.config.InstanceName`.
+    pub instance: InstanceName,
+    /// `role` — `Optional<conductor.config.RoleName>`.
+    pub role: Option<RoleName>,
+    /// `path` — `String`.
+    pub path: String,
+    /// `value` — `String`.
+    pub value: String,
+    /// `level` — `conductor.config.Level`.
+    pub level: Level,
+}
+
+/// The states of `conductor.config.EffectiveSetting`, at the type level.
+///
+/// One marker type per declared state, sealed: a state the lifecycle does not declare cannot
+/// implement [`Marker`](effective_setting_state::Marker), so [`EffectiveSetting<S>`](EffectiveSetting) can only ever rest in a real state.
+pub mod effective_setting_state {
+    /// Closes [`Marker`] over the declared states.
+    mod sealed {
+        /// Implemented only by the marker types beside this module.
+        pub trait Sealed {}
+        impl Sealed for super::Effective {}
+    }
+
+    /// A declared state of `EffectiveSetting`, as a type.
+    pub trait Marker: sealed::Sealed {
+        /// The same state, as the runtime value.
+        const STATE: super::EffectiveSettingState;
+    }
+
+    /// `Effective`. Where a new instance starts.
+    pub struct Effective;
+
+    impl Marker for Effective {
+        const STATE: super::EffectiveSettingState = super::EffectiveSettingState::Effective;
+    }
+}
+
+/// EffectiveSetting — `conductor.config.EffectiveSetting` — with its lifecycle state carried by the type.
+///
+/// The one constructor rests in `Effective`, and the only way to change `S` is a method generated from
+/// a declared transition. A move the specification does not declare is therefore not an error
+/// case: it does not compile. Where the state is data — wire, storage — use [`EffectiveSettingSnapshot`]
+/// and [`EffectiveSettingSnapshot::refine`].
+pub struct EffectiveSetting<S: effective_setting_state::Marker> {
+    data: EffectiveSettingData,
+    state: core::marker::PhantomData<S>,
+}
+
+impl<S: effective_setting_state::Marker> EffectiveSetting<S> {
+    /// The state this instance rests in, as the runtime value.
+    pub fn state(&self) -> EffectiveSettingState {
+        S::STATE
+    }
+
+    /// What it holds.
+    pub fn data(&self) -> &EffectiveSettingData {
+        &self.data
+    }
+
+    /// Hands the data back, giving up the typed state.
+    pub fn into_data(self) -> EffectiveSettingData {
+        self.data
+    }
+}
+
+impl EffectiveSetting<effective_setting_state::Effective> {
+    /// A new instance, resting in `Effective` — the only state the lifecycle starts one in.
+    pub fn new(data: EffectiveSettingData) -> Self {
+        Self {
+            data,
+            state: core::marker::PhantomData,
+        }
+    }
+}
+
+/// `conductor.config.EffectiveSetting` as it crosses a boundary: the state as a value beside the data.
+///
+/// Wire and storage know states only at runtime; [`EffectiveSettingSnapshot::refine`] is the one door back
+/// into the typed lifecycle.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct EffectiveSettingSnapshot {
+    /// Where the instance is in its lifecycle.
+    pub state: EffectiveSettingState,
+    /// What it holds.
+    pub data: EffectiveSettingData,
+}
+
+/// An `EffectiveSetting` in whichever declared state it was found.
+pub enum AnyEffectiveSetting {
+    /// Resting in `Effective`.
+    Effective(EffectiveSetting<effective_setting_state::Effective>),
+}
+
+impl EffectiveSettingSnapshot {
+    /// Refines the runtime state into the typed one.
+    ///
+    /// Total: every declared state has an arm, and an undeclared state cannot reach here because
+    /// `EffectiveSettingState` cannot spell one.
+    pub fn refine(self) -> AnyEffectiveSetting {
+        match self.state {
+            EffectiveSettingState::Effective => AnyEffectiveSetting::Effective(EffectiveSetting {
+                data: self.data,
+                state: core::marker::PhantomData,
+            }),
+        }
+    }
+}
+
+impl AnyEffectiveSetting {
+    /// The state, as the runtime value.
+    pub fn state(&self) -> EffectiveSettingState {
+        match self {
+            Self::Effective(_) => EffectiveSettingState::Effective,
+        }
+    }
+
+    /// Back to the boundary shape.
+    pub fn snapshot(self) -> EffectiveSettingSnapshot {
+        match self {
+            Self::Effective(instance) => EffectiveSettingSnapshot {
+                state: EffectiveSettingState::Effective,
+                data: instance.into_data(),
+            },
+        }
+    }
+}
+
+/// Change the config — the input of `conductor.config.PutConfig`.
+///
+/// Everything it can result in is [`PutConfigOutcome`].
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PutConfig {
+    /// `actor` — `conductor.operator.Actor`.
+    pub actor: crate::operator::Actor,
+    /// `level` — `conductor.config.Level`.
+    pub level: Level,
+    /// `instance` — `Optional<conductor.config.InstanceName>`.
+    pub instance: Option<InstanceName>,
+    /// `role` — `Optional<conductor.config.RoleName>`.
+    pub role: Option<RoleName>,
+    /// `path` — `String`.
+    pub path: String,
+    /// `value` — `Optional<String>`.
+    pub value: Option<String>,
+    /// `reason` — `String`.
+    pub reason: String,
+    /// `changed_at` — `Timestamp`.
+    pub changed_at: crate::primitives::Timestamp,
+}
+
+/// Everything `conductor.config.PutConfig` can result in — one variant per declared outcome.
+///
+/// An infrastructure failure is deliberately not in here: a refusal is a fact about the domain,
+/// a transport fault is a fact about the run, and conflating the two is what the declared
+/// outcomes exist to prevent.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum PutConfigOutcome {
+    /// `level-scope-mismatch` — when `((level == Global and defined(instance)) or (level == Global and defined(role)) or (level == Instance and not (defined(instance))) or (level == Instance and defined(role)) or (level == Role and not (defined(instance))) or (level == Role and not (defined(role))))`.
+    ///
+    /// The level and the instance or role named do not fit; nothing was written.
+    LevelScopeMismatch {
+        /// Why it was refused: `conductor.config.LevelScopeMismatch`.
+        error: LevelScopeMismatch,
+    },
+    /// `actor-not-human` — externally decided (the change lies outside the tuning grant) when eligible (actor.kind != Human).
+    ///
+    /// An agent's change of a key the tuning grant does not name, or to a value outside its range, is refused; nothing was written.
+    ActorNotHuman {
+        /// Why it was refused: `conductor.operator.ActorNotHuman`.
+        error: crate::operator::ActorNotHuman,
+    },
+    /// `invalid` — externally decided (the config with the change does not validate).
+    ///
+    /// The changed config does not validate; nothing was written.
+    Invalid {
+        /// Why it was refused: `conductor.config.ConfigInvalid`.
+        error: ConfigInvalid,
+    },
+    /// `changed` — otherwise.
+    ///
+    /// The key is written at its level and committed with the actor and the reason; the daemon reconciles the instances the change touches.
+    Changed {
+        /// The `conductor.config.ConfigChanged` this outcome publishes.
+        config_changed: ConfigChanged,
+    },
+}
+
+/// ConfigChanged — the event `conductor.config.ConfigChanged`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ConfigChanged {
+    /// `revision_id` — `conductor.config.RevisionId`.
+    pub revision_id: RevisionId,
+    /// `actor` — `conductor.operator.Actor`.
+    pub actor: crate::operator::Actor,
+    /// `level` — `conductor.config.Level`.
+    pub level: Level,
+    /// `instance` — `Optional<conductor.config.InstanceName>`.
+    pub instance: Option<InstanceName>,
+    /// `role` — `Optional<conductor.config.RoleName>`.
+    pub role: Option<RoleName>,
+    /// `path` — `String`.
+    pub path: String,
+    /// `value` — `Optional<String>`.
+    pub value: Option<String>,
+    /// `reason` — `String`.
+    pub reason: String,
+}
+
+/// The declared error `conductor.config.ConfigInvalid`.
+///
+/// The config with this change does not validate; nothing was written, committed or reconciled, and the problem is named by its YAML path.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ConfigInvalid {
+    /// `path` — `String`.
+    pub path: String,
+}
+
+/// The declared error `conductor.config.LevelScopeMismatch`.
+///
+/// A `Global` change names no instance and no role, an `Instance` change names an instance and no role, and a `Role` change names both; this one does not, and nothing was written.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct LevelScopeMismatch {
+    /// `level` — `conductor.config.Level`.
+    pub level: Level,
+}
+
 /// The declared error `conductor.config.StateDirNotInstance`.
 ///
 /// `--state-dir` names a directory that is not the state of the instance the config file names, and the command writes that instance's records; nothing was written.
@@ -953,4 +1429,112 @@ pub struct StateDirNotInstance {
     pub instance: InstanceName,
     /// `state` — `String`.
     pub state: String,
+}
+
+/// Config changes — one row of the view `conductor.config.ConfigRevisions`.
+///
+/// Projects `conductor.config.ConfigRevision` at `read_your_writes` consistency.
+/// The specification fully determines every row, so its query is generated over the storage port —
+/// see the plan.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ConfigRevisions {
+    /// `revision_id` — `conductor.config.RevisionId`.
+    pub revision_id: RevisionId,
+    /// `state` — `conductor.config.ConfigRevision.State`.
+    pub state: ConfigRevisionState,
+    /// `actor` — `conductor.operator.Actor`.
+    pub actor: crate::operator::Actor,
+    /// `level` — `conductor.config.Level`.
+    pub level: Level,
+    /// `instance` — `Optional<conductor.config.InstanceName>`.
+    pub instance: Option<InstanceName>,
+    /// `role` — `Optional<conductor.config.RoleName>`.
+    pub role: Option<RoleName>,
+    /// `path` — `String`.
+    pub path: String,
+    /// `value` — `Optional<String>`.
+    pub value: Option<String>,
+    /// `reason` — `String`.
+    pub reason: String,
+    /// `commit` — `String`.
+    pub commit: String,
+    /// `changed_at` — `Timestamp`.
+    pub changed_at: crate::primitives::Timestamp,
+}
+
+/// Effective settings — one row of the view `conductor.config.EffectiveSettings`.
+///
+/// Projects `conductor.config.EffectiveSetting` at `eventual` consistency, containing instances where `instance == param.instance`.
+/// Serving it is an implementation obligation — see the plan — because how a projection is kept
+/// current is a storage decision the specification does not take.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct EffectiveSettings {
+    /// `setting_key` — `conductor.config.SettingKey`.
+    pub setting_key: SettingKey,
+    /// `state` — `conductor.config.EffectiveSetting.State`.
+    pub state: EffectiveSettingState,
+    /// `instance` — `conductor.config.InstanceName`.
+    pub instance: InstanceName,
+    /// `role` — `Optional<conductor.config.RoleName>`.
+    pub role: Option<RoleName>,
+    /// `path` — `String`.
+    pub path: String,
+    /// `value` — `String`.
+    pub value: String,
+    /// `level` — `conductor.config.Level`.
+    pub level: Level,
+}
+
+/// What this bounded context owes its implementor, and the seams of what is generated.
+///
+/// One trait per obligation in the synthesis plan, each carrying the plan's own contract, and one
+/// per generated behaviour, which [`Generated`](crate::behaviour::Generated) implements.
+/// [`Unimplemented`](obligations::Unimplemented) satisfies every owed trait by refusing in the type system.
+pub mod obligations {
+    /// The behaviour `conductor.config.PutConfig` — generated.
+    ///
+    /// The specification fully determines it: [`crate::behaviour::Generated`] implements it
+    /// over the storage and context ports. Implement it yourself to replace that behaviour.
+    pub trait PutConfigBehavior {
+        /// Decides and enacts exactly one declared outcome of `conductor.config.PutConfig`.
+        ///
+        /// `Err` is the typed refusal of a request the model declares no outcome for.
+        fn put_config(&mut self, input: super::PutConfig) -> Result<super::PutConfigOutcome, crate::obligation::UnmetObligation>;
+    }
+
+    /// The query `conductor.config.ConfigRevisions` — generated.
+    ///
+    /// The specification fully determines it: [`crate::behaviour::Generated`] implements it
+    /// over the storage port. Implement it yourself to replace that query.
+    pub trait ConfigRevisionsQuery {
+        /// Serves `conductor.config.ConfigRevisions` rows at the view's declared consistency.
+        ///
+        /// `Err` is the typed refusal of a row whose declared type cannot hold its value.
+        fn config_revisions(&self) -> Result<Vec<super::ConfigRevisions>, crate::obligation::UnmetObligation>;
+    }
+
+    /// The query `conductor.config.EffectiveSettings` — an implementation obligation.
+    ///
+    /// Why it is not generated: kept an obligation by a view parameter (`params:`), which a generated query does not apply.
+    ///
+    /// Contract: a query answering `conductor.config.EffectiveSettings` with rows projected from `conductor.config.EffectiveSetting` at `eventual` consistency, containing instances where `instance == param.instance`.
+    pub trait EffectiveSettingsQuery {
+        /// Serves `conductor.config.EffectiveSettings` rows at the view's declared consistency.
+        ///
+        /// `Err` is the typed refusal of an obligation nothing has satisfied; a satisfying
+        /// implementation never returns it.
+        fn effective_settings(&self, instance: crate::config::InstanceName) -> Result<Vec<super::EffectiveSettings>, crate::obligation::UnmetObligation>;
+    }
+
+    /// Every obligation of this bounded context, refused in the type system.
+    ///
+    /// Each method returns the typed refusal naming what is owed — never a panic, never a guessed
+    /// value — so a workspace built on this stub compiles and reports its own gaps.
+    pub struct Unimplemented;
+
+    impl EffectiveSettingsQuery for Unimplemented {
+        fn effective_settings(&self, _instance: crate::config::InstanceName) -> Result<Vec<super::EffectiveSettings>, crate::obligation::UnmetObligation> {
+            Err(crate::obligation::UnmetObligation { capability: "view query", source: "conductor.config.EffectiveSettings" })
+        }
+    }
 }

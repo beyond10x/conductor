@@ -28,8 +28,8 @@ use std::io::{self, Write as _};
 use std::path::{Path, PathBuf};
 use std::process::{Command, ExitCode, Stdio};
 
+use crate::config::BuiltInRole;
 use anyhow::{Context as _, Result, bail};
-use conductor_model::config::RoleName;
 use conductor_model::direction::{Rules, RulesRefusal, RulesRefused, RulesRow};
 use serde_json::{Value, json};
 
@@ -308,14 +308,14 @@ fn source(text: &str) -> Option<String> {
 /// The headings, in lower case, besides the role's name and its old name, that a role's section
 /// of a `rules.md` written before the new names carries: the lead's, `conductor init` wrote it
 /// `Repository controller`.
-const OLD_HEADINGS: [(&str, RoleName); 2] = [
-    ("repository controller", RoleName::Lead),
-    ("repo-controller", RoleName::Lead),
+const OLD_HEADINGS: [(&str, BuiltInRole); 2] = [
+    ("repository controller", BuiltInRole::Lead),
+    ("repo-controller", BuiltInRole::Lead),
 ];
 
 /// The role `heading` names, in lower case: by the role's name, its old name, or a heading of
 /// [`OLD_HEADINGS`].
-fn heading_role(heading: &str) -> Option<RoleName> {
+fn heading_role(heading: &str) -> Option<BuiltInRole> {
     config::role_name(heading).or_else(|| {
         OLD_HEADINGS
             .iter()

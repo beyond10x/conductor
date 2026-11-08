@@ -338,6 +338,7 @@ fn adv2_goals_name_every_lifecycle_state_as_the_spec_does() {
     for goal in ["G1", "G2", "G3", "G4"] {
         let outcome = generated
             .propose_goal(ProposeGoal {
+                actor: conductor_cli::actor::operator("operator"),
                 goal_id: id(goal),
                 title: goal.to_owned(),
                 exit_evidence: format!("{goal} is listed"),
@@ -347,12 +348,16 @@ fn adv2_goals_name_every_lifecycle_state_as_the_spec_does() {
     }
     for goal in ["G1", "G3"] {
         let outcome = generated
-            .confirm_goal(ConfirmGoal { goal_id: id(goal) })
+            .confirm_goal(ConfirmGoal {
+                actor: conductor_cli::actor::operator("operator"),
+                goal_id: id(goal),
+            })
             .expect("ConfirmGoal decides an outcome");
         assert!(matches!(outcome, ConfirmGoalOutcome::Confirmed { .. }));
     }
     let met = generated
         .mark_goal_met(MarkGoalMet {
+            actor: conductor_cli::actor::operator("operator"),
             goal_id: id("G1"),
             evidence: "it holds".to_owned(),
         })
@@ -360,6 +365,7 @@ fn adv2_goals_name_every_lifecycle_state_as_the_spec_does() {
     assert!(matches!(met, MarkGoalMetOutcome::Met { .. }));
     let dropped = generated
         .drop_goal(DropGoal {
+            actor: conductor_cli::actor::operator("operator"),
             goal_id: id("G2"),
             reason: "not needed".to_owned(),
         })

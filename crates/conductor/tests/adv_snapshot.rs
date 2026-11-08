@@ -152,6 +152,7 @@ fn snapshot_id(text: &str) -> SnapshotId {
 
 fn repository(snapshot: &SnapshotId, name: &str) -> RecordRepository {
     RecordRepository {
+        actor: conductor_cli::actor::daemon(),
         snapshot_id: snapshot.clone(),
         repository: RepositoryName(name.to_owned()),
         visibility: Visibility::Public,
@@ -195,6 +196,7 @@ fn everything() -> Collector {
         let alpha = RepositoryName("alpha".to_owned());
         record.repository(repository(&snapshot, "alpha"))?;
         record.pull_request(RecordPullRequest {
+            actor: conductor_cli::actor::daemon(),
             snapshot_id: snapshot.clone(),
             repository: alpha.clone(),
             number: 7,
@@ -208,6 +210,7 @@ fn everything() -> Collector {
             url: None,
         })?;
         record.workflow_run(RecordWorkflowRun {
+            actor: conductor_cli::actor::daemon(),
             snapshot_id: snapshot.clone(),
             repository: alpha.clone(),
             workflow: "check".to_owned(),
@@ -215,6 +218,7 @@ fn everything() -> Collector {
             run_at: Timestamp("2026-10-02T00:00:00Z".to_owned()),
         })?;
         record.session(RecordSession {
+            actor: conductor_cli::actor::daemon(),
             snapshot_id: snapshot.clone(),
             harness: Harness::Claude,
             session_ref: "session-1".to_owned(),
@@ -232,6 +236,7 @@ fn everything() -> Collector {
             envelope_unboxed: None,
         })?;
         record.blocker(RecordBlocker {
+            actor: conductor_cli::actor::daemon(),
             snapshot_id: snapshot,
             repository: alpha,
             reference: "blocker:one".to_owned(),
@@ -389,6 +394,7 @@ fn adv_every_recorder_method_records_only_into_the_snapshot_it_is_given() {
         let alpha = RepositoryName("alpha".to_owned());
         record.repository(repository(&stale, "alpha"))?;
         record.pull_request(RecordPullRequest {
+            actor: conductor_cli::actor::daemon(),
             snapshot_id: stale.clone(),
             repository: alpha.clone(),
             number: 7,
@@ -402,6 +408,7 @@ fn adv_every_recorder_method_records_only_into_the_snapshot_it_is_given() {
             url: None,
         })?;
         record.workflow_run(RecordWorkflowRun {
+            actor: conductor_cli::actor::daemon(),
             snapshot_id: stale.clone(),
             repository: alpha.clone(),
             workflow: "check".to_owned(),
@@ -409,6 +416,7 @@ fn adv_every_recorder_method_records_only_into_the_snapshot_it_is_given() {
             run_at: Timestamp("2026-10-02T00:00:00Z".to_owned()),
         })?;
         record.session(RecordSession {
+            actor: conductor_cli::actor::daemon(),
             snapshot_id: stale.clone(),
             harness: Harness::Claude,
             session_ref: "session-1".to_owned(),
@@ -426,6 +434,7 @@ fn adv_every_recorder_method_records_only_into_the_snapshot_it_is_given() {
             envelope_unboxed: None,
         })?;
         record.blocker(RecordBlocker {
+            actor: conductor_cli::actor::daemon(),
             snapshot_id: stale.clone(),
             repository: alpha.clone(),
             reference: "blocker:one".to_owned(),
@@ -433,6 +442,7 @@ fn adv_every_recorder_method_records_only_into_the_snapshot_it_is_given() {
             title: "One".to_owned(),
         })?;
         record.specification(RecordSpecification {
+            actor: conductor_cli::actor::daemon(),
             snapshot_id: stale.clone(),
             repository: alpha,
             presence: SpecificationPresence::Present,
@@ -762,6 +772,8 @@ fn adv_each_record_command_reads_back_through_its_view() {
     ];
     for ((name, mut want), (command, observation)) in expected.into_iter().zip(printed) {
         want["observation_id"] = Value::from(observation);
+        // Each `record-*` ran as the operator (`common::conductor` sets `USER`).
+        want["actor"] = Value::from("human:operator");
         let rows = view(&root, name);
         assert_eq!(rows, vec![want], "`{command}` read back through `{name}`");
     }

@@ -92,6 +92,7 @@ pub const fn state_name(state: RunTickState) -> &'static str {
 fn encode(tick: &RunTickSnapshot) -> Value {
     let data = &tick.data;
     json!({
+        "actor": crate::actor::to_json(&data.actor),
         "state": state_name(tick.state),
         "tick_id": data.tick_id.0.0,
         "kind": kind_name(data.kind),
@@ -110,6 +111,7 @@ fn decode(body: &Value) -> Result<RunTickSnapshot, String> {
     Ok(RunTickSnapshot {
         state: RunTickState::Recorded,
         data: RunTickData {
+            actor: crate::actor::stored(body)?,
             tick_id: TickId(Uuid(text(body, "tick_id")?)),
             kind: kind_named(&kind).ok_or_else(|| format!("unknown TickKind {kind:?}"))?,
             started_at: Timestamp(text(body, "started_at")?),

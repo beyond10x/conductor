@@ -148,6 +148,7 @@ pub struct Taken {
 pub fn take_in(state: &Path, collectors: &[Collector]) -> Result<Taken> {
     let state = absolute(state)?;
     let start = StartSnapshot {
+        actor: crate::actor::chosen(),
         started_at: Timestamp(now()?),
         disk_free_bytes: disk_free_bytes(Path::new(DISK))?,
         budget: None,
@@ -163,6 +164,7 @@ pub fn take_in(state: &Path, collectors: &[Collector]) -> Result<Taken> {
 /// As [`take_in`], but for opening the store.
 pub fn take(store: Store, collectors: &[Collector]) -> Result<Taken> {
     let start = StartSnapshot {
+        actor: crate::actor::chosen(),
         started_at: Timestamp(now()?),
         disk_free_bytes: disk_free_bytes(Path::new(DISK))?,
         budget: None,
@@ -266,6 +268,7 @@ fn drive(
         record_run(
             &mut generated,
             RecordCollectorRun {
+                actor: crate::actor::chosen(),
                 snapshot_id: snapshot_id.clone(),
                 collector: collector.name().to_owned(),
                 started_at,
@@ -502,6 +505,7 @@ fn fail_gone(generated: &mut Generated<Ports>, dir: &Path) -> Result<()> {
     for snapshot in gone {
         match generated
             .fail_snapshot(FailSnapshot {
+                actor: crate::actor::chosen(),
                 snapshot_id: snapshot.clone(),
                 reason: PROCESS_GONE.to_owned(),
             })
@@ -564,7 +568,10 @@ fn complete(
     snapshot_id: SnapshotId,
 ) -> Result<()> {
     match generated
-        .complete_snapshot(CompleteSnapshot { snapshot_id })
+        .complete_snapshot(CompleteSnapshot {
+            actor: crate::actor::chosen(),
+            snapshot_id,
+        })
         .map_err(|unmet| anyhow!("{unmet}"))?
     {
         CompleteSnapshotOutcome::Completed { .. } => Ok(()),
@@ -581,6 +588,7 @@ fn fail(
 ) -> Result<()> {
     match generated
         .fail_snapshot(FailSnapshot {
+            actor: crate::actor::chosen(),
             snapshot_id,
             reason,
         })
@@ -982,6 +990,7 @@ pub fn start_snapshot(state: Option<&Path>, args: StartSnapshotArgs) -> Result<E
             None => disk_free_bytes(Path::new(DISK))?,
         };
         let start = StartSnapshot {
+            actor: crate::actor::chosen(),
             started_at: Timestamp(started_at),
             disk_free_bytes,
             budget: args.budget,
@@ -1022,6 +1031,7 @@ pub fn record_repository(state: Option<&Path>, args: RecordRepositoryArgs) -> Re
     run("snapshot record-repository", || {
         let snapshot = snapshot_id(args.snapshot_id)?;
         let input = RecordRepository {
+            actor: crate::actor::chosen(),
             snapshot_id: snapshot.clone(),
             repository: RepositoryName(given(args.repository, "repository")?),
             visibility: given_named(args.visibility, "visibility", visibility_named)?,
@@ -1062,6 +1072,7 @@ pub fn record_pull_request(state: Option<&Path>, args: RecordPullRequestArgs) ->
     run("snapshot record-pull-request", || {
         let snapshot = snapshot_id(args.snapshot_id)?;
         let input = RecordPullRequest {
+            actor: crate::actor::chosen(),
             snapshot_id: snapshot.clone(),
             repository: RepositoryName(given(args.repository, "repository")?),
             number: given(args.number, "number")?,
@@ -1089,6 +1100,7 @@ pub fn record_release(state: Option<&Path>, args: RecordReleaseArgs) -> Result<E
     run("snapshot record-release", || {
         let snapshot = snapshot_id(args.snapshot_id)?;
         let input = RecordRelease {
+            actor: crate::actor::chosen(),
             snapshot_id: snapshot.clone(),
             repository: RepositoryName(given(args.repository, "repository")?),
             tag: given(args.tag, "tag")?,
@@ -1116,6 +1128,7 @@ pub fn record_merged_pull_request(
     run("snapshot record-merged-pull-request", || {
         let snapshot = snapshot_id(args.snapshot_id)?;
         let input = RecordMergedPullRequest {
+            actor: crate::actor::chosen(),
             snapshot_id: snapshot.clone(),
             repository: RepositoryName(given(args.repository, "repository")?),
             number: given(args.number, "number")?,
@@ -1136,13 +1149,14 @@ pub fn record_merged_pull_request(
 /// There is no store, a read of it fails for a reason other than a record this build cannot read,
 /// or the rows cannot be written to standard output.
 pub fn releases(state: Option<&Path>, view: ViewArgs) -> Result<ExitCode> {
-    const COLUMNS: [&str; 6] = [
+    const COLUMNS: [&str; 7] = [
         "observation_id",
         "snapshot_id",
         "repository",
         "tag",
         "published_at",
         "url",
+        "actor",
     ];
     let generated = Generated::new(crate::state::open_reader(state)?);
     let rows = generated
@@ -1158,6 +1172,7 @@ pub fn releases(state: Option<&Path>, view: ViewArgs) -> Result<ExitCode> {
                 Value::from(row.tag),
                 Value::from(row.published_at.0),
                 Value::from(row.url),
+                Value::from(crate::actor::written(&row.actor)),
             ]
         })
         .collect();
@@ -1171,7 +1186,7 @@ pub fn releases(state: Option<&Path>, view: ViewArgs) -> Result<ExitCode> {
 /// There is no store, a read of it fails for a reason other than a record this build cannot read,
 /// or the rows cannot be written to standard output.
 pub fn merged_pull_requests(state: Option<&Path>, view: ViewArgs) -> Result<ExitCode> {
-    const COLUMNS: [&str; 7] = [
+    const COLUMNS: [&str; 8] = [
         "observation_id",
         "snapshot_id",
         "repository",
@@ -1179,6 +1194,7 @@ pub fn merged_pull_requests(state: Option<&Path>, view: ViewArgs) -> Result<Exit
         "title",
         "merged_at",
         "url",
+        "actor",
     ];
     let generated = Generated::new(crate::state::open_reader(state)?);
     let rows = generated
@@ -1195,6 +1211,7 @@ pub fn merged_pull_requests(state: Option<&Path>, view: ViewArgs) -> Result<Exit
                 Value::from(row.title),
                 Value::from(row.merged_at.0),
                 Value::from(row.url),
+                Value::from(crate::actor::written(&row.actor)),
             ]
         })
         .collect();
@@ -1212,6 +1229,7 @@ pub fn record_workflow_run(state: Option<&Path>, args: RecordWorkflowRunArgs) ->
     run("snapshot record-workflow-run", || {
         let snapshot = snapshot_id(args.snapshot_id)?;
         let input = RecordWorkflowRun {
+            actor: crate::actor::chosen(),
             snapshot_id: snapshot.clone(),
             repository: RepositoryName(given(args.repository, "repository")?),
             workflow: given(args.workflow, "workflow")?,
@@ -1233,6 +1251,7 @@ pub fn record_session(state: Option<&Path>, args: RecordSessionArgs) -> Result<E
     run("snapshot record-session", || {
         let snapshot = snapshot_id(args.snapshot_id)?;
         let input = RecordSession {
+            actor: crate::actor::chosen(),
             snapshot_id: snapshot.clone(),
             harness: given_named(args.harness, "harness", harness_named)?,
             session_ref: given(args.session_ref, "session-ref")?,
@@ -1268,6 +1287,7 @@ pub fn record_blocker(state: Option<&Path>, args: RecordBlockerArgs) -> Result<E
     run("snapshot record-blocker", || {
         let snapshot = snapshot_id(args.snapshot_id)?;
         let input = RecordBlocker {
+            actor: crate::actor::chosen(),
             snapshot_id: snapshot.clone(),
             repository: RepositoryName(given(args.repository, "repository")?),
             reference: given(args.reference, "reference")?,
@@ -1295,6 +1315,7 @@ pub fn record_specification(
     run("snapshot record-specification", || {
         let snapshot = snapshot_id(args.snapshot_id)?;
         let input = RecordSpecification {
+            actor: crate::actor::chosen(),
             snapshot_id: snapshot.clone(),
             repository: RepositoryName(given(args.repository, "repository")?),
             presence: given_named(args.presence, "presence", specification_presence_named)?,
@@ -1328,6 +1349,7 @@ pub fn record_member_failure(
     run("snapshot record-member-failure", || {
         let snapshot = snapshot_id(args.snapshot_id)?;
         let input = RecordMemberFailure {
+            actor: crate::actor::chosen(),
             snapshot_id: snapshot.clone(),
             member: RepositoryName(given(args.member, "member")?),
             collector: given(args.collector, "collector")?,
@@ -1349,6 +1371,7 @@ pub fn record_secret_sync(state: Option<&Path>, args: RecordSecretSyncArgs) -> R
     run("snapshot record-secret-sync", || {
         let snapshot = snapshot_id(args.snapshot_id)?;
         let input = RecordSecretSync {
+            actor: crate::actor::chosen(),
             snapshot_id: snapshot.clone(),
             sync: given(args.sync, "sync")?,
             repository: RepositoryName(given(args.repository, "repository")?),
@@ -1379,6 +1402,7 @@ pub fn record_collector_run(
     run("snapshot record-collector-run", || {
         let snapshot = snapshot_id(args.snapshot_id)?;
         let input = RecordCollectorRun {
+            actor: crate::actor::chosen(),
             snapshot_id: snapshot.clone(),
             collector: given(args.collector, "collector")?,
             started_at: Timestamp(given(args.started_at, "started-at")?),
@@ -1426,6 +1450,7 @@ pub fn record_usage(state: Option<&Path>, args: RecordUsageArgs) -> Result<ExitC
     run("snapshot record-usage", || {
         let snapshot = snapshot_id(args.snapshot_id)?;
         let input = RecordUsage {
+            actor: crate::actor::chosen(),
             snapshot_id: snapshot.clone(),
             read_at: Timestamp(given(args.read_at, "read-at")?),
             account: given(args.account, "account")?,
@@ -1509,12 +1534,13 @@ pub fn fail_snapshot(state: Option<&Path>, args: FailSnapshotArgs) -> Result<Exi
 /// There is no store, a read of it fails for a reason other than a record this build cannot read,
 /// or the rows cannot be written to standard output.
 pub fn snapshots(state: Option<&Path>, view: ViewArgs) -> Result<ExitCode> {
-    const COLUMNS: [&str; 5] = [
+    const COLUMNS: [&str; 6] = [
         "snapshot_id",
         "state",
         "started_at",
         "disk_free_bytes",
         "failure_reason",
+        "actor",
     ];
     let generated = Generated::new(crate::state::open_reader(state)?);
     let rows = generated
@@ -1529,6 +1555,7 @@ pub fn snapshots(state: Option<&Path>, view: ViewArgs) -> Result<ExitCode> {
                 Value::from(row.started_at.0),
                 Value::from(row.disk_free_bytes),
                 Value::from(row.failure_reason),
+                Value::from(crate::actor::written(&row.actor)),
             ]
         })
         .collect();
@@ -1542,7 +1569,7 @@ pub fn snapshots(state: Option<&Path>, view: ViewArgs) -> Result<ExitCode> {
 /// There is no store, a read of it fails for a reason other than a record this build cannot read,
 /// or the rows cannot be written to standard output.
 pub fn repositories(state: Option<&Path>, view: ViewArgs) -> Result<ExitCode> {
-    const COLUMNS: [&str; 25] = [
+    const COLUMNS: [&str; 26] = [
         "observation_id",
         "snapshot_id",
         "repository",
@@ -1568,6 +1595,7 @@ pub fn repositories(state: Option<&Path>, view: ViewArgs) -> Result<ExitCode> {
         "wave_width",
         "wave_ready",
         "wave_reason",
+        "actor",
     ];
     let generated = Generated::new(crate::state::open_reader(state)?);
     let rows = generated
@@ -1602,6 +1630,7 @@ pub fn repositories(state: Option<&Path>, view: ViewArgs) -> Result<ExitCode> {
                 Value::from(row.wave_width),
                 Value::from(row.wave_ready),
                 Value::from(row.wave_reason),
+                Value::from(crate::actor::written(&row.actor)),
             ]
         })
         .collect();
@@ -1615,7 +1644,7 @@ pub fn repositories(state: Option<&Path>, view: ViewArgs) -> Result<ExitCode> {
 /// There is no store, a read of it fails for a reason other than a record this build cannot read,
 /// or the rows cannot be written to standard output.
 pub fn pull_requests(state: Option<&Path>, view: ViewArgs) -> Result<ExitCode> {
-    const COLUMNS: [&str; 12] = [
+    const COLUMNS: [&str; 13] = [
         "observation_id",
         "snapshot_id",
         "repository",
@@ -1628,6 +1657,7 @@ pub fn pull_requests(state: Option<&Path>, view: ViewArgs) -> Result<ExitCode> {
         "opened_at",
         "updated_at",
         "url",
+        "actor",
     ];
     let generated = Generated::new(crate::state::open_reader(state)?);
     let rows = generated
@@ -1649,6 +1679,7 @@ pub fn pull_requests(state: Option<&Path>, view: ViewArgs) -> Result<ExitCode> {
                 Value::from(row.opened_at.0),
                 Value::from(row.updated_at.0),
                 Value::from(row.url),
+                Value::from(crate::actor::written(&row.actor)),
             ]
         })
         .collect();
@@ -1662,13 +1693,14 @@ pub fn pull_requests(state: Option<&Path>, view: ViewArgs) -> Result<ExitCode> {
 /// There is no store, a read of it fails for a reason other than a record this build cannot read,
 /// or the rows cannot be written to standard output.
 pub fn workflow_runs(state: Option<&Path>, view: ViewArgs) -> Result<ExitCode> {
-    const COLUMNS: [&str; 6] = [
+    const COLUMNS: [&str; 7] = [
         "observation_id",
         "snapshot_id",
         "repository",
         "workflow",
         "conclusion",
         "run_at",
+        "actor",
     ];
     let generated = Generated::new(crate::state::open_reader(state)?);
     let rows = generated
@@ -1684,6 +1716,7 @@ pub fn workflow_runs(state: Option<&Path>, view: ViewArgs) -> Result<ExitCode> {
                 Value::from(row.workflow),
                 Value::from(run_conclusion_name(row.conclusion)),
                 Value::from(row.run_at.0),
+                Value::from(crate::actor::written(&row.actor)),
             ]
         })
         .collect();
@@ -1697,7 +1730,7 @@ pub fn workflow_runs(state: Option<&Path>, view: ViewArgs) -> Result<ExitCode> {
 /// There is no store, a read of it fails for a reason other than a record this build cannot read,
 /// or the rows cannot be written to standard output.
 pub fn sessions(state: Option<&Path>, view: ViewArgs) -> Result<ExitCode> {
-    const COLUMNS: [&str; 16] = [
+    const COLUMNS: [&str; 17] = [
         "observation_id",
         "snapshot_id",
         "harness",
@@ -1714,6 +1747,7 @@ pub fn sessions(state: Option<&Path>, view: ViewArgs) -> Result<ExitCode> {
         "envelope_tasks_max",
         "envelope_writable",
         "envelope_unboxed",
+        "actor",
     ];
     let generated = Generated::new(crate::state::open_reader(state)?);
     let rows = generated
@@ -1739,6 +1773,7 @@ pub fn sessions(state: Option<&Path>, view: ViewArgs) -> Result<ExitCode> {
                 Value::from(row.envelope_tasks_max),
                 Value::from(row.envelope_writable),
                 Value::from(row.envelope_unboxed),
+                Value::from(crate::actor::written(&row.actor)),
             ]
         })
         .collect();
@@ -1752,13 +1787,14 @@ pub fn sessions(state: Option<&Path>, view: ViewArgs) -> Result<ExitCode> {
 /// There is no store, a read of it fails for a reason other than a record this build cannot read,
 /// or the rows cannot be written to standard output.
 pub fn blockers(state: Option<&Path>, view: ViewArgs) -> Result<ExitCode> {
-    const COLUMNS: [&str; 6] = [
+    const COLUMNS: [&str; 7] = [
         "observation_id",
         "snapshot_id",
         "repository",
         "reference",
         "blocker_kind",
         "title",
+        "actor",
     ];
     let generated = Generated::new(crate::state::open_reader(state)?);
     let rows = generated
@@ -1774,6 +1810,7 @@ pub fn blockers(state: Option<&Path>, view: ViewArgs) -> Result<ExitCode> {
                 Value::from(row.reference),
                 Value::from(row.blocker_kind),
                 Value::from(row.title),
+                Value::from(crate::actor::written(&row.actor)),
             ]
         })
         .collect();
@@ -1787,7 +1824,7 @@ pub fn blockers(state: Option<&Path>, view: ViewArgs) -> Result<ExitCode> {
 /// There is no store, a read of it fails for a reason other than a record this build cannot read,
 /// or the rows cannot be written to standard output.
 pub fn specifications(state: Option<&Path>, view: ViewArgs) -> Result<ExitCode> {
-    const COLUMNS: [&str; 12] = [
+    const COLUMNS: [&str; 13] = [
         "observation_id",
         "snapshot_id",
         "repository",
@@ -1800,6 +1837,7 @@ pub fn specifications(state: Option<&Path>, view: ViewArgs) -> Result<ExitCode> 
         "scenarios",
         "synthesis_refusals",
         "conformance_status",
+        "actor",
     ];
     let generated = Generated::new(crate::state::open_reader(state)?);
     let rows = generated
@@ -1821,6 +1859,7 @@ pub fn specifications(state: Option<&Path>, view: ViewArgs) -> Result<ExitCode> 
                 Value::from(row.scenarios),
                 Value::from(row.synthesis_refusals),
                 Value::from(row.conformance_status),
+                Value::from(crate::actor::written(&row.actor)),
             ]
         })
         .collect();
@@ -1836,12 +1875,13 @@ pub fn specifications(state: Option<&Path>, view: ViewArgs) -> Result<ExitCode> 
 /// There is no store, a read of it fails for a reason other than a record this build cannot read,
 /// or the rows cannot be written to standard output.
 pub fn member_failures(state: Option<&Path>, view: ViewArgs) -> Result<ExitCode> {
-    const COLUMNS: [&str; 5] = [
+    const COLUMNS: [&str; 6] = [
         "observation_id",
         "snapshot_id",
         "member",
         "collector",
         "error_line",
+        "actor",
     ];
     let generated = Generated::new(crate::state::open_reader(state)?);
     let rows = generated
@@ -1856,6 +1896,7 @@ pub fn member_failures(state: Option<&Path>, view: ViewArgs) -> Result<ExitCode>
                 Value::from(row.member.0),
                 Value::from(row.collector),
                 Value::from(row.error_line),
+                Value::from(crate::actor::written(&row.actor)),
             ]
         })
         .collect();
@@ -1871,7 +1912,7 @@ pub fn member_failures(state: Option<&Path>, view: ViewArgs) -> Result<ExitCode>
 /// There is no store, a read of it fails for a reason other than a record this build cannot read,
 /// or the rows cannot be written to standard output.
 pub fn collector_runs(state: Option<&Path>, view: ViewArgs) -> Result<ExitCode> {
-    const COLUMNS: [&str; 8] = [
+    const COLUMNS: [&str; 9] = [
         "observation_id",
         "snapshot_id",
         "collector",
@@ -1880,6 +1921,7 @@ pub fn collector_runs(state: Option<&Path>, view: ViewArgs) -> Result<ExitCode> 
         "outcome",
         "read_bytes",
         "written_bytes",
+        "actor",
     ];
     let generated = Generated::new(crate::state::open_reader(state)?);
     let rows = generated
@@ -1897,6 +1939,7 @@ pub fn collector_runs(state: Option<&Path>, view: ViewArgs) -> Result<ExitCode> 
                 Value::from(collector_run_outcome_name(row.outcome)),
                 Value::from(row.read_bytes),
                 Value::from(row.written_bytes),
+                Value::from(crate::actor::written(&row.actor)),
             ]
         })
         .collect();
@@ -1912,7 +1955,7 @@ pub fn collector_runs(state: Option<&Path>, view: ViewArgs) -> Result<ExitCode> 
 /// There is no store, a read of it fails for a reason other than a record this build cannot read,
 /// or the rows cannot be written to standard output.
 pub fn secret_syncs(state: Option<&Path>, view: ViewArgs) -> Result<ExitCode> {
-    const COLUMNS: [&str; 9] = [
+    const COLUMNS: [&str; 10] = [
         "observation_id",
         "snapshot_id",
         "sync",
@@ -1922,6 +1965,7 @@ pub fn secret_syncs(state: Option<&Path>, view: ViewArgs) -> Result<ExitCode> {
         "source_committed_at",
         "secrets_updated_at",
         "error_line",
+        "actor",
     ];
     let generated = Generated::new(crate::state::open_reader(state)?);
     let rows = generated
@@ -1940,6 +1984,7 @@ pub fn secret_syncs(state: Option<&Path>, view: ViewArgs) -> Result<ExitCode> {
                 Value::from(row.source_committed_at.map(|at| at.0)),
                 Value::from(row.secrets_updated_at.map(|at| at.0)),
                 Value::from(row.error_line),
+                Value::from(crate::actor::written(&row.actor)),
             ]
         })
         .collect();
@@ -1955,7 +2000,7 @@ pub fn secret_syncs(state: Option<&Path>, view: ViewArgs) -> Result<ExitCode> {
 /// There is no store, a read of it fails for a reason other than a record this build cannot read,
 /// or the rows cannot be written to standard output.
 pub fn usage_readings(state: Option<&Path>, view: ViewArgs) -> Result<ExitCode> {
-    const COLUMNS: [&str; 9] = [
+    const COLUMNS: [&str; 10] = [
         "observation_id",
         "snapshot_id",
         "read_at",
@@ -1965,6 +2010,7 @@ pub fn usage_readings(state: Option<&Path>, view: ViewArgs) -> Result<ExitCode> 
         "window",
         "used_percent",
         "resets_at",
+        "actor",
     ];
     let generated = Generated::new(crate::state::open_reader(state)?);
     let rows = generated
@@ -1983,6 +2029,7 @@ pub fn usage_readings(state: Option<&Path>, view: ViewArgs) -> Result<ExitCode> 
                 Value::from(row.window),
                 Value::from(row.used_percent),
                 row.resets_at.map_or(Value::Null, |at| Value::from(at.0)),
+                Value::from(crate::actor::written(&row.actor)),
             ]
         })
         .collect();
@@ -2126,6 +2173,53 @@ impl TryContext for Ports {
         _outcome: &'static str,
     ) -> Result<bool, UnmetObligation> {
         Err(conductor_model::behaviour::unmet_context(command.name()))
+    }
+
+    // The v1 domains' generated values (`story:spec-v1`): no command this handler runs
+    // generates one.
+
+    fn try_generate_conductor_config_revision_id(
+        &mut self,
+    ) -> Result<conductor_model::config::RevisionId, UnmetObligation> {
+        Err(conductor_model::behaviour::unmet_context(
+            "conductor.config.RevisionId",
+        ))
+    }
+
+    fn try_generate_conductor_instance_reconciliation_id(
+        &mut self,
+    ) -> Result<conductor_model::instance::ReconciliationId, UnmetObligation> {
+        Err(conductor_model::behaviour::unmet_context(
+            "conductor.instance.ReconciliationId",
+        ))
+    }
+
+    fn try_generate_conductor_placement_box_id(
+        &mut self,
+    ) -> Result<conductor_model::placement::BoxId, UnmetObligation> {
+        Err(conductor_model::behaviour::unmet_context(
+            "conductor.placement.BoxId",
+        ))
+    }
+
+    fn try_generate_conductor_placement_refusal_reason(
+        &mut self,
+    ) -> Result<conductor_model::placement::RefusalReason, UnmetObligation> {
+        Err(conductor_model::behaviour::unmet_context(
+            "conductor.placement.RefusalReason",
+        ))
+    }
+
+    fn try_generate_conductor_token_token_id(
+        &mut self,
+    ) -> Result<conductor_model::token::TokenId, UnmetObligation> {
+        Err(conductor_model::behaviour::unmet_context(
+            "conductor.token.TokenId",
+        ))
+    }
+
+    fn try_generate_string(&mut self) -> Result<String, UnmetObligation> {
+        Err(conductor_model::behaviour::unmet_context("String"))
     }
 }
 

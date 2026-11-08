@@ -1,5 +1,5 @@
 // generated from conductor v1
-// contract digest 057692c7a57029c79cc9e78eb455da83a4c0aa80b4525dc295987296007b3391
+// contract digest 925e95ab19211d2883a7b63b82a83c2503c557df74d9a01d0be9ddc0a4f90d6c
 // do not edit: regenerate with `ess synthesize --layout crate`
 
 //! Tool — `conductor.tool`.
@@ -688,6 +688,8 @@ impl AnyTeam {
 pub struct ToolCallData {
     /// The identity: `tool_call_id` — `conductor.tool.ToolCallId`.
     pub tool_call_id: ToolCallId,
+    /// `actor` — `conductor.operator.Actor`.
+    pub actor: crate::operator::Actor,
     /// `instance` — `conductor.config.InstanceName`.
     ///
     /// Carries `calls`: `conductor.tool.Broker` owns many `conductor.tool.ToolCall`.
@@ -1000,6 +1002,8 @@ impl AnyToolSession {
 /// Everything it can result in is [`RecordToolCallOutcome`].
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct RecordToolCall {
+    /// `actor` — `conductor.operator.Actor`.
+    pub actor: crate::operator::Actor,
     /// `instance` — `conductor.config.InstanceName`.
     pub instance: crate::config::InstanceName,
     /// `session` — `conductor.config.SessionName`.
@@ -1039,6 +1043,8 @@ pub enum RecordToolCallOutcome {
 /// ToolCallRecorded — the event `conductor.tool.ToolCallRecorded`.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ToolCallRecorded {
+    /// `actor` — `conductor.operator.Actor`.
+    pub actor: crate::operator::Actor,
     /// `tool_call_id` — `conductor.tool.ToolCallId`.
     pub tool_call_id: ToolCallId,
     /// `session` — `conductor.config.SessionName`.
@@ -1146,6 +1152,8 @@ pub struct ToolCalls {
     pub output_bytes: i64,
     /// `called_at` — `Timestamp`.
     pub called_at: crate::primitives::Timestamp,
+    /// `actor` — `conductor.operator.Actor`.
+    pub actor: crate::operator::Actor,
 }
 
 /// What this bounded context owes its implementor, and the seams of what is generated.

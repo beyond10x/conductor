@@ -1,5 +1,5 @@
 // generated from conductor v1
-// contract digest 057692c7a57029c79cc9e78eb455da83a4c0aa80b4525dc295987296007b3391
+// contract digest 925e95ab19211d2883a7b63b82a83c2503c557df74d9a01d0be9ddc0a4f90d6c
 // do not edit: regenerate with `ess synthesize --layout crate`
 
 //! Improvement — `conductor.improvement`.
@@ -76,6 +76,29 @@ pub enum TargetDirection {
     AtLeast,
 }
 
+/// TunableKey — `conductor.improvement.TunableKey`.
+///
+/// Every value satisfies `min <= max` — declared here, enforced by whatever behaviour constructs one.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct TunableKey {
+    /// `path` — `String`.
+    pub path: String,
+    /// `min` — `Decimal`.
+    pub min: crate::primitives::Decimal,
+    /// `max` — `Decimal`.
+    pub max: crate::primitives::Decimal,
+}
+
+/// TuningGrant — `conductor.improvement.TuningGrant`.
+///
+/// Every value satisfies `distinct key in keys by key.path` — declared here, enforced by whatever behaviour constructs one.
+/// Every value satisfies `forall key in keys: (not (key.path starts_with "tuning"))` — declared here, enforced by whatever behaviour constructs one.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct TuningGrant {
+    /// `keys` — `List<conductor.improvement.TunableKey>`.
+    pub keys: Vec<TunableKey>,
+}
+
 /// What FrictionFinding — `conductor.improvement.FrictionFinding` — holds, apart from where it is in its lifecycle.
 ///
 /// The identity and every declared field. The state is deliberately not one: inside the domain it
@@ -94,6 +117,8 @@ pub struct FrictionFindingData {
     pub metric_id: MetricId,
     /// `raised_at` — `Timestamp`.
     pub raised_at: crate::primitives::Timestamp,
+    /// `actor` — `conductor.operator.Actor`.
+    pub actor: crate::operator::Actor,
     /// `story` — `Optional<String>`.
     pub story: Option<String>,
     /// `verdict` — `Optional<String>`.
@@ -329,6 +354,8 @@ pub struct MetricData {
     pub target_owner: Option<String>,
     /// `target_set_at` — `Optional<Timestamp>`.
     pub target_set_at: Option<crate::primitives::Timestamp>,
+    /// `actor` — `conductor.operator.Actor`.
+    pub actor: crate::operator::Actor,
 }
 
 /// The states of `conductor.improvement.Metric`, at the type level.
@@ -502,6 +529,8 @@ pub struct MetricReadingData {
     pub met: Option<bool>,
     /// `recorded_at` — `Timestamp`.
     pub recorded_at: crate::primitives::Timestamp,
+    /// `actor` — `conductor.operator.Actor`.
+    pub actor: crate::operator::Actor,
 }
 
 /// The states of `conductor.improvement.MetricReading`, at the type level.
@@ -654,6 +683,8 @@ impl AnyMetricReading {
 /// Everything it can result in is [`DefineMetricOutcome`].
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct DefineMetric {
+    /// `actor` — `conductor.operator.Actor`.
+    pub actor: crate::operator::Actor,
     /// `metric_id` — `conductor.improvement.MetricId`.
     pub metric_id: MetricId,
     /// `name` — `String`.
@@ -698,6 +729,8 @@ pub enum DefineMetricOutcome {
 /// Everything it can result in is [`FileFindingOutcome`].
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct FileFinding {
+    /// `actor` — `conductor.operator.Actor`.
+    pub actor: crate::operator::Actor,
     /// `finding_id` — `conductor.improvement.FindingId`.
     pub finding_id: FindingId,
     /// `story` — `String`.
@@ -737,6 +770,8 @@ pub enum FileFindingOutcome {
 /// Everything it can result in is [`JudgeMetricReadingOutcome`].
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct JudgeMetricReading {
+    /// `actor` — `conductor.operator.Actor`.
+    pub actor: crate::operator::Actor,
     /// `reading_id` — `conductor.improvement.MetricReadingId`.
     pub reading_id: MetricReadingId,
     /// `target` — `Decimal`.
@@ -778,6 +813,8 @@ pub enum JudgeMetricReadingOutcome {
 /// Everything it can result in is [`RaiseFindingOutcome`].
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct RaiseFinding {
+    /// `actor` — `conductor.operator.Actor`.
+    pub actor: crate::operator::Actor,
     /// `finding_id` — `conductor.improvement.FindingId`.
     pub finding_id: FindingId,
     /// `signature` — `String`.
@@ -825,6 +862,8 @@ pub enum RaiseFindingOutcome {
 /// Everything it can result in is [`RecordMetricReadingOutcome`].
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct RecordMetricReading {
+    /// `actor` — `conductor.operator.Actor`.
+    pub actor: crate::operator::Actor,
     /// `reading_id` — `conductor.improvement.MetricReadingId`.
     pub reading_id: MetricReadingId,
     /// `metric_id` — `conductor.improvement.MetricId`.
@@ -880,6 +919,8 @@ pub enum RecordMetricReadingOutcome {
 /// Everything it can result in is [`SetMetricTargetOutcome`].
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SetMetricTarget {
+    /// `actor` — `conductor.operator.Actor`.
+    pub actor: crate::operator::Actor,
     /// `metric_id` — `conductor.improvement.MetricId`.
     pub metric_id: MetricId,
     /// `target` — `Decimal`.
@@ -925,6 +966,8 @@ pub enum SetMetricTargetOutcome {
 /// Everything it can result in is [`SupersedeMetricReadingOutcome`].
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SupersedeMetricReading {
+    /// `actor` — `conductor.operator.Actor`.
+    pub actor: crate::operator::Actor,
     /// `reading_id` — `conductor.improvement.MetricReadingId`.
     pub reading_id: MetricReadingId,
     /// `by` — `conductor.improvement.MetricReadingId`.
@@ -964,6 +1007,8 @@ pub enum SupersedeMetricReadingOutcome {
 /// Everything it can result in is [`VerifyFindingOutcome`].
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct VerifyFinding {
+    /// `actor` — `conductor.operator.Actor`.
+    pub actor: crate::operator::Actor,
     /// `finding_id` — `conductor.improvement.FindingId`.
     pub finding_id: FindingId,
     /// `moved` — `Boolean`.
@@ -1010,6 +1055,8 @@ pub enum VerifyFindingOutcome {
 /// FindingClosed — the event `conductor.improvement.FindingClosed`.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct FindingClosed {
+    /// `actor` — `conductor.operator.Actor`.
+    pub actor: crate::operator::Actor,
     /// `finding_id` — `conductor.improvement.FindingId`.
     pub finding_id: FindingId,
     /// `verdict` — `String`.
@@ -1019,6 +1066,8 @@ pub struct FindingClosed {
 /// FindingFiled — the event `conductor.improvement.FindingFiled`.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct FindingFiled {
+    /// `actor` — `conductor.operator.Actor`.
+    pub actor: crate::operator::Actor,
     /// `finding_id` — `conductor.improvement.FindingId`.
     pub finding_id: FindingId,
     /// `story` — `String`.
@@ -1028,6 +1077,8 @@ pub struct FindingFiled {
 /// FindingRaised — the event `conductor.improvement.FindingRaised`.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct FindingRaised {
+    /// `actor` — `conductor.operator.Actor`.
+    pub actor: crate::operator::Actor,
     /// `finding_id` — `conductor.improvement.FindingId`.
     pub finding_id: FindingId,
     /// `signature` — `String`.
@@ -1041,6 +1092,8 @@ pub struct FindingRaised {
 /// FindingVerified — the event `conductor.improvement.FindingVerified`.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct FindingVerified {
+    /// `actor` — `conductor.operator.Actor`.
+    pub actor: crate::operator::Actor,
     /// `finding_id` — `conductor.improvement.FindingId`.
     pub finding_id: FindingId,
     /// `verdict` — `String`.
@@ -1050,6 +1103,8 @@ pub struct FindingVerified {
 /// MetricDefined — the event `conductor.improvement.MetricDefined`.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct MetricDefined {
+    /// `actor` — `conductor.operator.Actor`.
+    pub actor: crate::operator::Actor,
     /// `metric_id` — `conductor.improvement.MetricId`.
     pub metric_id: MetricId,
     /// `name` — `String`.
@@ -1061,6 +1116,8 @@ pub struct MetricDefined {
 /// MetricReadingJudged — the event `conductor.improvement.MetricReadingJudged`.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct MetricReadingJudged {
+    /// `actor` — `conductor.operator.Actor`.
+    pub actor: crate::operator::Actor,
     /// `reading_id` — `conductor.improvement.MetricReadingId`.
     pub reading_id: MetricReadingId,
     /// `target` — `Decimal`.
@@ -1072,6 +1129,8 @@ pub struct MetricReadingJudged {
 /// MetricReadingRecorded — the event `conductor.improvement.MetricReadingRecorded`.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct MetricReadingRecorded {
+    /// `actor` — `conductor.operator.Actor`.
+    pub actor: crate::operator::Actor,
     /// `reading_id` — `conductor.improvement.MetricReadingId`.
     pub reading_id: MetricReadingId,
     /// `metric_id` — `conductor.improvement.MetricId`.
@@ -1087,6 +1146,8 @@ pub struct MetricReadingRecorded {
 /// MetricReadingSuperseded — the event `conductor.improvement.MetricReadingSuperseded`.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct MetricReadingSuperseded {
+    /// `actor` — `conductor.operator.Actor`.
+    pub actor: crate::operator::Actor,
     /// `reading_id` — `conductor.improvement.MetricReadingId`.
     pub reading_id: MetricReadingId,
     /// `by` — `conductor.improvement.MetricReadingId`.
@@ -1096,6 +1157,8 @@ pub struct MetricReadingSuperseded {
 /// MetricTargetSet — the event `conductor.improvement.MetricTargetSet`.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct MetricTargetSet {
+    /// `actor` — `conductor.operator.Actor`.
+    pub actor: crate::operator::Actor,
     /// `metric_id` — `conductor.improvement.MetricId`.
     pub metric_id: MetricId,
     /// `target` — `Decimal`.
@@ -1197,6 +1260,8 @@ pub struct Findings {
     pub metric_id: MetricId,
     /// `raised_at` — `Timestamp`.
     pub raised_at: crate::primitives::Timestamp,
+    /// `actor` — `conductor.operator.Actor`.
+    pub actor: crate::operator::Actor,
     /// `story` — `Optional<String>`.
     pub story: Option<String>,
     /// `verdict` — `Optional<String>`.
@@ -1282,6 +1347,8 @@ pub struct MetricReadings {
     pub met: Option<bool>,
     /// `recorded_at` — `Timestamp`.
     pub recorded_at: crate::primitives::Timestamp,
+    /// `actor` — `conductor.operator.Actor`.
+    pub actor: crate::operator::Actor,
 }
 
 /// Metrics — one row of the view `conductor.improvement.Metrics`.
@@ -1315,6 +1382,8 @@ pub struct Metrics {
     pub target_owner: Option<String>,
     /// `target_set_at` — `Optional<Timestamp>`.
     pub target_set_at: Option<crate::primitives::Timestamp>,
+    /// `actor` — `conductor.operator.Actor`.
+    pub actor: crate::operator::Actor,
 }
 
 /// What this bounded context owes its implementor, and the seams of what is generated.

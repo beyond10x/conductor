@@ -44,10 +44,7 @@ use std::thread;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use anyhow::{Context as _, Result, anyhow, bail};
-use conductor_model::config::{
-    Confinement, ConfinementMode, ConfinementProvider, Limits, ProviderAvailability, SessionName,
-    SessionPrefix,
-};
+use conductor_model::config::{Limits, SessionName, SessionPrefix};
 use conductor_model::observation::EnvelopeProvider;
 use conductor_model::primitives::Timestamp;
 use conductor_model::session::{
@@ -58,6 +55,20 @@ use time::OffsetDateTime;
 use time::format_description::well_known::Rfc3339;
 
 use crate::collect;
+pub use crate::config::{Confinement, ConfinementMode, ConfinementProvider};
+
+/// Whether one provider can start a session here, and why not when it cannot. The specification
+/// modelled it for `conductor doctor`'s provider rows, which v1 removed with `confinement.*`
+/// (design architecture-next § 11); [`choose`] still asks it.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ProviderAvailability {
+    /// The provider's name, `systemd` or `none`.
+    pub provider: String,
+    /// Whether it can start a session.
+    pub available: bool,
+    /// Why it cannot, when it cannot.
+    pub reason: Option<String>,
+}
 
 /// The harness program the `none` provider runs, found on `PATH`.
 pub const CLAUDE: &str = "claude";
@@ -199,9 +210,6 @@ pub trait Providers {
 
     /// The provider whose session runs unboxed, `none`: what `report` falls back to.
     fn unboxed(&self) -> Box<dyn Provider>;
-
-    /// Every provider, in the order `conductor doctor` prints them.
-    fn all(&self) -> Vec<Box<dyn Provider>>;
 }
 
 /// This host's providers: `systemd`, reading the cgroups under `cgroup_root`, and `none`.
@@ -232,20 +240,6 @@ impl Providers for Host {
     fn unboxed(&self) -> Box<dyn Provider> {
         Box::new(Unboxed::default())
     }
-
-    fn all(&self) -> Vec<Box<dyn Provider>> {
-        vec![self.provider(ConfinementProvider::Systemd), self.unboxed()]
-    }
-}
-
-/// The availability of every provider of `providers`, in order: `conductor doctor`'s rows.
-#[must_use]
-pub fn availability(providers: &dyn Providers) -> Vec<ProviderAvailability> {
-    providers
-        .all()
-        .iter_mut()
-        .map(|provider| provider.available())
-        .collect()
 }
 
 /// The reason the `none` provider's record gives: it sets up no box.

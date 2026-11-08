@@ -234,6 +234,11 @@ impl Case {
                 let fields = row.as_object_mut().expect("a row is an object");
                 fields.remove("observation_id");
                 fields.remove("snapshot_id");
+                assert_eq!(
+                    fields.remove("actor"),
+                    Some(Value::from("human:operator")),
+                    "the actor that wrote the row"
+                );
                 row
             })
             .collect()

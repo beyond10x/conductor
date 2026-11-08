@@ -65,9 +65,7 @@ use anyhow::{Context as _, Result, anyhow, bail};
 use conductor_model::behaviour::{
     DeliveryStorage, ExternalCommand, Generated, LeaseStorage, TryContext, unmet_context,
 };
-use conductor_model::config::{
-    ConfinementProvider, Harness, Instance, InstanceName, Role, RoleName, SessionName,
-};
+use conductor_model::config::{Harness, Instance, InstanceName, Role, SessionName};
 use conductor_model::direction::ServingId;
 use conductor_model::dispatch::{DispatchLogEvent, GuardDecisionId, MessageId, ResourceRequestId};
 use conductor_model::host::{GrantId, ReclaimRunId};
@@ -93,12 +91,19 @@ use time::OffsetDateTime;
 use time::format_description::well_known::Rfc3339;
 
 use crate::cli::{ClaimLeaseArgs, DeliverArgs, SessionRoleArgs, ViewArgs};
-use crate::config::{self, Environment};
+use crate::config::{self, BuiltInRole, ConfinementProvider, Environment};
 use crate::confine::places::{self, Placement};
 use crate::confine::{self, Launch, Providers, Refusal, systemd};
 use crate::not_implemented;
 use crate::records;
 use crate::store::Store;
+
+/// The actor of the session `name` of the active instance: an agent in the role whose session
+/// name it is, else a controller (`crate::actor::agent`).
+#[must_use]
+pub fn actor_of(name: &str) -> conductor_model::operator::Actor {
+    crate::actor::agent(&config::active().instance, name)
+}
 
 /// `conductor session claim`: the command `conductor.session.ClaimLease`, for the instance this
 /// process runs. `--instance` may name it, and no other; `--taken-at` defaults to now.
@@ -149,6 +154,7 @@ pub fn claim(state: Option<&Path>, args: ClaimLeaseArgs) -> Result<ExitCode> {
     });
     let outcome = generated
         .claim_lease(ClaimLease {
+            actor: crate::actor::chosen(),
             instance,
             session_id: SessionId(session_id),
             pid,
@@ -213,7 +219,7 @@ pub fn claim(state: Option<&Path>, args: ClaimLeaseArgs) -> Result<ExitCode> {
 /// output.
 pub fn leases(state: Option<&Path>, view: ViewArgs) -> Result<ExitCode> {
     /// The view's fields, in the specification's order (`spec/domains/session.yaml`).
-    const COLUMNS: [&str; 7] = [
+    const COLUMNS: [&str; 8] = [
         "instance",
         "state",
         "session_id",
@@ -221,6 +227,7 @@ pub fn leases(state: Option<&Path>, view: ViewArgs) -> Result<ExitCode> {
         "taken_at",
         "taken_over_session_id",
         "taken_over_pid",
+        "actor",
     ];
 
     let generated = Generated::new(crate::state::open_reader(state)?);
@@ -238,6 +245,7 @@ pub fn leases(state: Option<&Path>, view: ViewArgs) -> Result<ExitCode> {
                 Value::from(row.taken_at.0),
                 Value::from(row.taken_over_session_id.map(|id| id.0)),
                 Value::from(row.taken_over_pid),
+                Value::from(crate::actor::written(&row.actor)),
             ]
         })
         .collect();
@@ -333,6 +341,7 @@ pub fn deliver(state: Option<&Path>, args: &DeliverArgs) -> Result<ExitCode> {
     };
     let outcome = generated
         .deliver_message(DeliverMessage {
+            actor: crate::actor::chosen(),
             session_name: name.clone(),
             first_line: first_line.clone(),
             body_path: body_path.clone(),
@@ -392,13 +401,14 @@ fn body_path_of(file: &Path, state: &Path) -> String {
 /// output.
 pub fn deliveries(state: Option<&Path>, view: ViewArgs) -> Result<ExitCode> {
     /// The view's fields, in the specification's order (`spec/domains/session.yaml`).
-    const COLUMNS: [&str; 6] = [
+    const COLUMNS: [&str; 7] = [
         "delivery_id",
         "state",
         "session_name",
         "first_line",
         "body_path",
         "delivered_at",
+        "actor",
     ];
 
     let generated = Generated::new(crate::state::open_reader(state)?);
@@ -417,6 +427,7 @@ pub fn deliveries(state: Option<&Path>, view: ViewArgs) -> Result<ExitCode> {
                 Value::from(row.first_line),
                 Value::from(row.body_path),
                 Value::from(row.delivered_at.0),
+                Value::from(crate::actor::written(&row.actor)),
             ]
         })
         .collect();
@@ -537,6 +548,53 @@ impl TryContext for Delivering {
             (command, _) => Err(unmet_context(command.name())),
         }
     }
+
+    // The v1 domains' generated values (`story:spec-v1`): no command this handler runs
+    // generates one.
+
+    fn try_generate_conductor_config_revision_id(
+        &mut self,
+    ) -> Result<conductor_model::config::RevisionId, UnmetObligation> {
+        Err(conductor_model::behaviour::unmet_context(
+            "conductor.config.RevisionId",
+        ))
+    }
+
+    fn try_generate_conductor_instance_reconciliation_id(
+        &mut self,
+    ) -> Result<conductor_model::instance::ReconciliationId, UnmetObligation> {
+        Err(conductor_model::behaviour::unmet_context(
+            "conductor.instance.ReconciliationId",
+        ))
+    }
+
+    fn try_generate_conductor_placement_box_id(
+        &mut self,
+    ) -> Result<conductor_model::placement::BoxId, UnmetObligation> {
+        Err(conductor_model::behaviour::unmet_context(
+            "conductor.placement.BoxId",
+        ))
+    }
+
+    fn try_generate_conductor_placement_refusal_reason(
+        &mut self,
+    ) -> Result<conductor_model::placement::RefusalReason, UnmetObligation> {
+        Err(conductor_model::behaviour::unmet_context(
+            "conductor.placement.RefusalReason",
+        ))
+    }
+
+    fn try_generate_conductor_token_token_id(
+        &mut self,
+    ) -> Result<conductor_model::token::TokenId, UnmetObligation> {
+        Err(conductor_model::behaviour::unmet_context(
+            "conductor.token.TokenId",
+        ))
+    }
+
+    fn try_generate_string(&mut self) -> Result<String, UnmetObligation> {
+        Err(conductor_model::behaviour::unmet_context("String"))
+    }
 }
 
 /// The ports `ClaimLease` runs over: the store. Whether a pid names a live process is read from
@@ -573,6 +631,7 @@ impl ClaimLeaseBehavior for Ports {
             LeaseStorage::get(&self.store, &input.instance)
         else {
             self.keep(LeaseData {
+                actor: crate::actor::chosen(),
                 instance: input.instance.clone(),
                 session_id: input.session_id.clone(),
                 pid: input.pid,
@@ -582,6 +641,7 @@ impl ClaimLeaseBehavior for Ports {
             });
             return Ok(ClaimLeaseOutcome::Taken {
                 lease_taken: LeaseTaken {
+                    actor: crate::actor::chosen(),
                     instance: input.instance,
                     session_id: input.session_id,
                     pid: input.pid,
@@ -596,6 +656,7 @@ impl ClaimLeaseBehavior for Ports {
             });
             return Ok(ClaimLeaseOutcome::Renewed {
                 lease_taken: LeaseTaken {
+                    actor: crate::actor::chosen(),
                     instance: input.instance,
                     session_id: input.session_id,
                     pid: input.pid,
@@ -612,6 +673,7 @@ impl ClaimLeaseBehavior for Ports {
             });
         }
         self.keep(LeaseData {
+            actor: crate::actor::chosen(),
             instance: input.instance.clone(),
             session_id: input.session_id.clone(),
             pid: input.pid,
@@ -621,6 +683,7 @@ impl ClaimLeaseBehavior for Ports {
         });
         Ok(ClaimLeaseOutcome::TakenOver {
             lease_taken_over: LeaseTakenOver {
+                actor: crate::actor::chosen(),
                 instance: input.instance,
                 session_id: input.session_id,
                 pid: input.pid,
@@ -761,7 +824,7 @@ instance's state directory (conductor config show prints state), then begin.";
 
 /// The roles `session start` and `session stop` act on, each by its name or its old name
 /// (`story:role-name-aliases`).
-const SESSION_ROLES: [RoleName; 2] = [RoleName::Director, RoleName::Maintainer];
+const SESSION_ROLES: [BuiltInRole; 2] = [BuiltInRole::Director, BuiltInRole::Maintainer];
 
 /// The settings file conductor starts with when its role names none, under the working
 /// directory: the product checkout a director session is started from.
@@ -769,11 +832,9 @@ const CONDUCTOR_SETTINGS: &str = ".claude/conductor-settings.json";
 
 /// The role `role` of the active instance, when it is one `session start` starts: `director` or
 /// `maintainer`, or their old names `conductor` and `conductor-dev`, on `claude`
-/// (`story:role-name-aliases`). The director is the instance's, under either name; the
-/// maintainer is the host's, from the host file under `home`, else, for this release, the one
-/// the instance still names under either name (`story:maintainer-host-config`,
-/// [`config::host_maintainer`]).
-fn session_role(instance: &Instance, home: &Path, role: &str) -> Result<Role, String> {
+/// (`story:role-name-aliases`). The director is the instance's, under either name; so is the
+/// maintainer, the host's role, until `globals.roles` is read ([`config::host_maintainer`]).
+fn session_role(instance: &Instance, role: &str) -> Result<Role, String> {
     let Some(wanted) = config::role_name(role).filter(|wanted| SESSION_ROLES.contains(wanted))
     else {
         return Err(format!(
@@ -782,27 +843,9 @@ fn session_role(instance: &Instance, home: &Path, role: &str) -> Result<Role, St
              with conductor spawn"
         ));
     };
-    let found = if wanted == RoleName::Maintainer {
-        config::host_maintainer(home, instance)
-            .map_err(|error| match error.downcast::<config::Invalid>() {
-                Ok(invalid) => {
-                    let problems: Vec<String> =
-                        invalid.problems.iter().map(ToString::to_string).collect();
-                    format!(
-                        "the host file {} does not read: {}",
-                        invalid.file.display(),
-                        problems.join("; ")
-                    )
-                }
-                Err(error) => format!("{error:#}"),
-            })?
-            .ok_or_else(|| {
-                format!(
-                    "the host names no role {role}: write it in {} (conductor config show, \
-                     host.roles)",
-                    config::host_file(home).display()
-                )
-            })?
+    let found = if wanted == BuiltInRole::Maintainer {
+        config::host_maintainer(instance)
+            .ok_or_else(|| format!("the instance names no role {role} in conductor config show"))?
     } else {
         instance
             .roles
@@ -858,7 +901,7 @@ fn note_old_name(command: &str, role: &str) -> Result<()> {
 /// Where the session of `role` starts: conductor in the instance's records directory,
 /// conductor-dev in the working directory.
 fn start_directory(instance: &Instance, role: &Role, cwd: &Path) -> PathBuf {
-    if config::is_role(&role.role, RoleName::Director) {
+    if config::is_role(&role.role, BuiltInRole::Director) {
         PathBuf::from(&instance.records)
     } else {
         cwd.to_owned()
@@ -976,7 +1019,7 @@ fn role_settings(role: &Role, cwd: &Path) -> Option<String> {
         .as_ref()
         .map(|settings| settings.0.clone())
         .or_else(|| {
-            config::is_role(&role.role, RoleName::Director)
+            config::is_role(&role.role, BuiltInRole::Director)
                 .then(|| cwd.join(CONDUCTOR_SETTINGS).display().to_string())
         })
 }
@@ -1054,7 +1097,7 @@ pub fn start(
     let instance = &active.instance;
     let environment = Environment::from_process().context("session start")?;
     let home = environment.home().context("session start")?;
-    let found = match session_role(instance, home, &role) {
+    let found = match session_role(instance, &role) {
         Ok(found) => found,
         Err(detail) => return refuse(SessionStartRefusal::UnknownRole, detail),
     };
@@ -1077,7 +1120,7 @@ pub fn start(
             format!("the live session {id} holds the session name {}", held.0),
         );
     }
-    let chosen = match confine::choose(providers, &instance.confinement) {
+    let chosen = match confine::choose(providers, &crate::config::legacy(instance).confinement) {
         Ok(chosen) => chosen,
         Err(refusal) => return refuse_start(&refuse, refusal),
     };
@@ -1093,7 +1136,6 @@ pub fn start(
             config::CONFIG_VARIABLE.to_owned(),
             cwd.join(&file).display().to_string(),
         ));
-        register(config_flag, &environment, &cwd.join(&file));
     }
     let state_dir = crate::state::dir(state)?;
     let settings = match (&found.settings, active.from_file) {
@@ -1129,10 +1171,10 @@ pub fn start(
         args: harness_args(found, &name, settings),
         env,
         session_prefix: instance.session_prefix.clone(),
-        instance_limits: instance.confinement.limits.clone(),
+        instance_limits: crate::config::legacy(instance).confinement.limits.clone(),
         state: state_dir.clone(),
     };
-    let prompt = if config::is_role(&found.role, RoleName::Director) {
+    let prompt = if config::is_role(&found.role, BuiltInRole::Director) {
         DIRECTOR_PROMPT
     } else {
         DEV_PROMPT
@@ -1169,20 +1211,6 @@ pub fn start(
             }
             refuse_start(&refuse, refusal)
         }
-    }
-}
-
-/// Writes the config file `file` that a session starts from to the host registry
-/// (`story:instance-names-unique`, [`crate::registry::register`]). A start never fails on it: a
-/// file that does not load again, or a registry that cannot be written, is said on standard
-/// error and the start goes on.
-fn register(config_flag: Option<&Path>, environment: &Environment, file: &Path) {
-    let written = environment.home().and_then(|home| {
-        let loaded = config::load(config_flag, environment)?;
-        crate::registry::register(home, &config::physical(file), &loaded.config)
-    });
-    if let Err(error) = written {
-        eprintln!("conductor: session start: the host registry is not written: {error:#}");
     }
 }
 
@@ -1232,7 +1260,7 @@ pub fn stop(
     let instance = &config::active().instance;
     let environment = Environment::from_process().context("session stop")?;
     let home = environment.home().context("session stop")?;
-    let found = match session_role(instance, home, &role) {
+    let found = match session_role(instance, &role) {
         Ok(found) => found,
         Err(detail) => return refuse(SessionStopRefusal::UnknownRole, detail),
     };

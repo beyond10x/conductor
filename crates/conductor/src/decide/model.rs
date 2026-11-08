@@ -18,8 +18,9 @@ use std::sync::Mutex;
 use std::thread;
 use std::time::{Duration, Instant};
 
+use crate::config::BuiltInRole;
 use anyhow::{Context as _, Result, anyhow, bail};
-use conductor_model::config::{Instance, RoleName};
+use conductor_model::config::Instance;
 use serde_json::Value;
 
 use crate::config;
@@ -71,14 +72,14 @@ impl ClaudePrint {
     ///
     /// The instance has neither role.
     pub fn for_instance(instance: &Instance) -> Result<Self> {
-        let role = |name: RoleName| {
+        let role = |name: BuiltInRole| {
             instance
                 .roles
                 .iter()
                 .find(|role| config::is_role(&role.role, name))
         };
-        let role = role(RoleName::Director)
-            .or_else(|| role(RoleName::Lead))
+        let role = role(BuiltInRole::Director)
+            .or_else(|| role(BuiltInRole::Lead))
             .ok_or_else(|| {
                 anyhow!(
                     "instance {:?} has neither a conductor nor a controller role, so no model \

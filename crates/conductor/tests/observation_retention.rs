@@ -143,6 +143,7 @@ impl Case {
         snapshot::take_from(
             store,
             StartSnapshot {
+                actor: conductor_cli::actor::daemon(),
                 started_at: Timestamp(started_at.to_owned()),
                 disk_free_bytes: 1,
                 budget: None,
@@ -338,6 +339,7 @@ fn left_collecting(state: &Path, snapshot: &str, started_at: &str) {
 
 fn repository(snapshot: &SnapshotId, name: &str) -> RecordRepository {
     RecordRepository {
+        actor: conductor_cli::actor::daemon(),
         snapshot_id: snapshot.clone(),
         repository: RepositoryName(name.to_owned()),
         visibility: Visibility::Public,
@@ -372,6 +374,7 @@ fn every_kind() -> Collector {
         let alpha = RepositoryName("alpha".to_owned());
         record.repository(repository(&snapshot, "alpha"))?;
         record.pull_request(RecordPullRequest {
+            actor: conductor_cli::actor::daemon(),
             snapshot_id: snapshot.clone(),
             repository: alpha.clone(),
             number: 7,
@@ -385,6 +388,7 @@ fn every_kind() -> Collector {
             url: None,
         })?;
         record.workflow_run(RecordWorkflowRun {
+            actor: conductor_cli::actor::daemon(),
             snapshot_id: snapshot.clone(),
             repository: alpha.clone(),
             workflow: "check".to_owned(),
@@ -392,6 +396,7 @@ fn every_kind() -> Collector {
             run_at: Timestamp("2026-10-02T00:00:00Z".to_owned()),
         })?;
         record.session(RecordSession {
+            actor: conductor_cli::actor::daemon(),
             snapshot_id: snapshot.clone(),
             harness: Harness::Claude,
             session_ref: "session-1".to_owned(),
@@ -409,6 +414,7 @@ fn every_kind() -> Collector {
             envelope_unboxed: None,
         })?;
         record.blocker(RecordBlocker {
+            actor: conductor_cli::actor::daemon(),
             snapshot_id: snapshot.clone(),
             repository: alpha.clone(),
             reference: "blocker:one".to_owned(),
@@ -416,6 +422,7 @@ fn every_kind() -> Collector {
             title: "One".to_owned(),
         })?;
         record.specification(RecordSpecification {
+            actor: conductor_cli::actor::daemon(),
             snapshot_id: snapshot.clone(),
             repository: alpha.clone(),
             presence: SpecificationPresence::Present,
@@ -429,6 +436,7 @@ fn every_kind() -> Collector {
             conformance_status: None,
         })?;
         record.release(RecordRelease {
+            actor: conductor_cli::actor::daemon(),
             snapshot_id: snapshot.clone(),
             repository: alpha.clone(),
             tag: "v1.0.0".to_owned(),
@@ -436,12 +444,14 @@ fn every_kind() -> Collector {
             url: "https://example.invalid/alpha/releases/v1.0.0".to_owned(),
         })?;
         record.member_failure(RecordMemberFailure {
+            actor: conductor_cli::actor::daemon(),
             snapshot_id: snapshot.clone(),
             member: alpha.clone(),
             collector: "every-kind".to_owned(),
             error_line: "fatal: could not read from remote repository".to_owned(),
         })?;
         record.secret_sync(RecordSecretSync {
+            actor: conductor_cli::actor::daemon(),
             snapshot_id: snapshot.clone(),
             sync: "policy".to_owned(),
             repository: alpha.clone(),
@@ -452,6 +462,7 @@ fn every_kind() -> Collector {
             error_line: None,
         })?;
         record.usage(RecordUsage {
+            actor: conductor_cli::actor::daemon(),
             snapshot_id: snapshot.clone(),
             read_at: Timestamp("2026-10-02T00:00:00Z".to_owned()),
             account: "first".to_owned(),
@@ -462,6 +473,7 @@ fn every_kind() -> Collector {
             resets_at: None,
         })?;
         record.merged_pull_request(RecordMergedPullRequest {
+            actor: conductor_cli::actor::daemon(),
             snapshot_id: snapshot,
             repository: alpha,
             number: 6,

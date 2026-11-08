@@ -38,9 +38,10 @@ use std::sync::{Mutex, PoisonError};
 use std::thread::{self, JoinHandle};
 use std::time::{Duration, SystemTime};
 
+use crate::config::BuiltInRole;
 use anyhow::{Context as _, Result, anyhow};
 use conductor_model::behaviour::{DecisionRequestStorage, DecisionStorage};
-use conductor_model::config::{RoleName, SessionName};
+use conductor_model::config::SessionName;
 use conductor_model::decision::RequestId;
 use conductor_model::dispatch::obligations::StopControllerBehavior;
 use conductor_model::dispatch::{
@@ -592,21 +593,16 @@ fn conductor_dev(tick: &mut Tick<'_, '_>, name: &str) -> Result<Option<bool>> {
     Ok(Some(true))
 }
 
-/// The session names the instance's maintainer may carry: its role's, from the host file or the
-/// instance ([`crate::config::host_maintainer`]), and its old-name alias.
+/// The session names the instance's maintainer may carry: its role's
+/// ([`crate::config::host_maintainer`]), and its old-name alias.
 fn maintainer_names(tick: &Tick<'_, '_>) -> Vec<String> {
     let instance = tick.instance();
-    let Some(home) = std::env::var_os("HOME").map(PathBuf::from) else {
-        return Vec::new();
-    };
-    crate::config::host_maintainer(&home, instance)
-        .ok()
-        .flatten()
+    crate::config::host_maintainer(instance)
         .map(|role| {
             let name = role
                 .session_name
                 .unwrap_or_else(|| crate::config::session_name(instance, &role.role));
-            crate::config::session_names_of(RoleName::Maintainer, &name.0)
+            crate::config::session_names_of(BuiltInRole::Maintainer, &name.0)
         })
         .unwrap_or_default()
 }
@@ -830,6 +826,7 @@ fn record_stopped(tick: &Tick<'_, '_>, controller: &str, said: &str) -> Result<(
     let mut generated = crate::controller::record(tick.state)?;
     let outcome = generated
         .stop_controller(StopController {
+            actor: crate::actor::chosen(),
             controller_id: ControllerId(Uuid(controller.to_owned())),
             reason: format!("conductor run: a delivery was refused: {said}"),
         })

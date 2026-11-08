@@ -131,12 +131,18 @@ impl Case {
         ])
     }
 
-    /// The rows of `repository repository-marks --format json`.
+    /// The rows of `repository repository-marks --format json`, each without its actor, which is
+    /// the operator's: every mark here is made through `common::conductor`, which sets `USER`.
     fn marks(&self) -> Value {
         let output = self.run(&["repository", "repository-marks", "--format", "json"]);
         let text = succeeded(&output, "`repository repository-marks --format json`");
-        serde_json::from_str(&text)
-            .unwrap_or_else(|error| panic!("the view printed {text:?}: {error}"))
+        let mut rows: Value = serde_json::from_str(&text)
+            .unwrap_or_else(|error| panic!("the view printed {text:?}: {error}"));
+        for row in rows.as_array_mut().into_iter().flatten() {
+            let actor = row.as_object_mut().and_then(|row| row.remove("actor"));
+            assert_eq!(actor, Some(Value::from("human:operator")), "{text}");
+        }
+        rows
     }
 }
 
@@ -162,6 +168,7 @@ fn silent() -> Collector {
 /// One repository's state; the recorder files it under the snapshot it fills.
 fn observation(name: &str, real_commits_7d: i64, archived: bool) -> RecordRepository {
     RecordRepository {
+        actor: conductor_cli::actor::daemon(),
         snapshot_id: SnapshotId(Uuid("00000000-0000-0000-0000-000000000000".to_owned())),
         repository: RepositoryName(name.to_owned()),
         visibility: Visibility::Private,
@@ -500,6 +507,7 @@ fn stored(case: &Case, id: &str, state: SnapshotState, started_at: &str, real_co
         SnapshotSnapshot {
             state,
             data: SnapshotData {
+                actor: conductor_cli::actor::daemon(),
                 snapshot_id: snapshot_id.clone(),
                 started_at: Timestamp(started_at.to_owned()),
                 disk_free_bytes: 1,
@@ -513,6 +521,7 @@ fn stored(case: &Case, id: &str, state: SnapshotState, started_at: &str, real_co
         RepositoryObservationSnapshot {
             state: RepositoryObservationState::Recorded,
             data: RepositoryObservationData {
+                actor: conductor_cli::actor::daemon(),
                 observation_id: ObservationId(Uuid(format!("{id}-x"))),
                 snapshot_id,
                 repository: input.repository,

@@ -1541,6 +1541,7 @@ impl GoalStorage for Store {
 
 fn encode_goal(goal: &GoalSnapshot) -> Value {
     json!({
+        "actor": crate::actor::to_json(&goal.data.actor),
         "state": goal_state_name(goal.state),
         "goal_id": goal.data.goal_id.0,
         "title": goal.data.title,
@@ -1555,6 +1556,7 @@ fn decode_goal(body: &Value) -> Result<GoalSnapshot, String> {
     Ok(GoalSnapshot {
         state: goal_state_named(&state).ok_or_else(|| format!("unknown Goal state {state:?}"))?,
         data: GoalData {
+            actor: crate::actor::stored(body)?,
             goal_id: GoalId(text(body, "goal_id")?),
             title: text(body, "title")?,
             exit_evidence: text(body, "exit_evidence")?,
@@ -1655,6 +1657,7 @@ impl GuardDecisionStorage for Store {
 fn encode_guard_decision(decision: &GuardDecisionSnapshot) -> Value {
     let data = &decision.data;
     json!({
+        "actor": crate::actor::to_json(&data.actor),
         "state": guard_decision_state_name(decision.state),
         "guard_decision_id": data.guard_decision_id.0.0,
         "repository": data.repository.0,
@@ -1674,6 +1677,7 @@ fn decode_guard_decision(body: &Value) -> Result<GuardDecisionSnapshot, String> 
         state: guard_decision_state_named(&state)
             .ok_or_else(|| format!("unknown GuardDecision state {state:?}"))?,
         data: GuardDecisionData {
+            actor: crate::actor::stored(body)?,
             guard_decision_id: GuardDecisionId(Uuid(text(body, "guard_decision_id")?)),
             repository: RepositoryName(text(body, "repository")?),
             session_ref: text(body, "session_ref")?,

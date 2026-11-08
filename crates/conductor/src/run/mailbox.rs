@@ -232,6 +232,7 @@ fn report(tick: &mut Tick<'_, '_>, repo: &str, dispatch: &str, rest: &str) -> Re
         crate::dispatch::report_started(
             state,
             ReportStartedArgs {
+                actor: None,
                 dispatch_id: id.clone(),
                 input_json: None,
             },
@@ -245,6 +246,7 @@ fn report(tick: &mut Tick<'_, '_>, repo: &str, dispatch: &str, rest: &str) -> Re
             crate::dispatch::report_unblocked(
                 state,
                 ReportUnblockedArgs {
+                    actor: None,
                     dispatch_id: id,
                     input_json: None,
                 },
@@ -255,6 +257,7 @@ fn report(tick: &mut Tick<'_, '_>, repo: &str, dispatch: &str, rest: &str) -> Re
             crate::dispatch::report_started(
                 state,
                 ReportStartedArgs {
+                    actor: None,
                     dispatch_id: id,
                     input_json: None,
                 },
@@ -265,6 +268,7 @@ fn report(tick: &mut Tick<'_, '_>, repo: &str, dispatch: &str, rest: &str) -> Re
             crate::dispatch::report_blocked(
                 state,
                 ReportBlockedArgs {
+                    actor: None,
                     dispatch_id: id,
                     reason: Some(said.unwrap_or_else(|| "blocked".to_owned())),
                     input_json: None,
@@ -276,6 +280,7 @@ fn report(tick: &mut Tick<'_, '_>, repo: &str, dispatch: &str, rest: &str) -> Re
             crate::dispatch::report_unblocked(
                 state,
                 ReportUnblockedArgs {
+                    actor: None,
                     dispatch_id: id,
                     input_json: None,
                 },
@@ -286,6 +291,7 @@ fn report(tick: &mut Tick<'_, '_>, repo: &str, dispatch: &str, rest: &str) -> Re
             crate::dispatch::report_done(
                 state,
                 ReportDoneArgs {
+                    actor: None,
                     dispatch_id: id,
                     evidence: Some(said.unwrap_or_else(|| "done".to_owned())),
                     input_json: None,
@@ -297,6 +303,7 @@ fn report(tick: &mut Tick<'_, '_>, repo: &str, dispatch: &str, rest: &str) -> Re
             crate::dispatch::report_failed(
                 state,
                 ReportFailedArgs {
+                    actor: None,
                     dispatch_id: id,
                     reason: Some(said.unwrap_or_else(|| "failed".to_owned())),
                     input_json: None,
@@ -405,6 +412,7 @@ fn decision_request(
     crate::decide::raise_decision_request(
         tick.state,
         RaiseDecisionRequestArgs {
+            actor: None,
             request_id: Some(request.to_owned()),
             repository: Some(repo.to_owned()),
             question: Some(question.to_owned()),
@@ -436,6 +444,7 @@ fn decision_request(
     crate::decide::escalate_request(
         tick.state,
         EscalateRequestArgs {
+            actor: None,
             request_id: Some(request.to_owned()),
             escalation_class: Some("O".to_owned()),
             reason: Some(
@@ -475,6 +484,7 @@ fn mark_handled(tick: &Tick<'_, '_>, file: &Path) -> Result<()> {
         crate::message::handle_message(
             tick.state,
             HandleMessageArgs {
+                actor: None,
                 message_id: Some(message.data.message_id.0.0),
                 input_json: None,
             },

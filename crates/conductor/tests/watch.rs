@@ -1586,6 +1586,7 @@ fn a_repository_whose_run_list_fails_is_named_once_and_the_others_are_read() {
 /// One repository's state in a snapshot, with `real_commits_7d` real commits in 7 days.
 fn observation(name: &str, real_commits_7d: i64, archived: bool) -> RecordRepository {
     RecordRepository {
+        actor: conductor_cli::actor::daemon(),
         snapshot_id: SnapshotId(Uuid("00000000-0000-0000-0000-000000000000".to_owned())),
         repository: RepositoryName(name.to_owned()),
         visibility: Visibility::Private,
@@ -1748,6 +1749,7 @@ fn take_reviews(state: &Path, started_at: &str, waiting: i64) {
             .chain([(waiting + 1, true, 0), (waiting + 2, false, 1)])
         {
             recorder.pull_request(RecordPullRequest {
+                actor: conductor_cli::actor::daemon(),
                 snapshot_id: snapshot.clone(),
                 repository: RepositoryName("alpha".to_owned()),
                 number,
@@ -1765,6 +1767,7 @@ fn take_reviews(state: &Path, started_at: &str, waiting: i64) {
     });
     let store = store::open(state).expect("open the case's store");
     let start = StartSnapshot {
+        actor: conductor_cli::actor::daemon(),
         started_at: Timestamp(started_at.to_owned()),
         disk_free_bytes: 1_000_000,
         budget: None,
@@ -1851,6 +1854,7 @@ fn take_hooks(state: &Path, started_at: &str, hooks: &[(&'static str, Option<&'s
     });
     let store = store::open(state).expect("open the case's store");
     let start = StartSnapshot {
+        actor: conductor_cli::actor::daemon(),
         started_at: Timestamp(started_at.to_owned()),
         disk_free_bytes: 1_000_000,
         budget: None,
@@ -1933,6 +1937,7 @@ fn take_specifications(
         let snapshot = recorder.snapshot().clone();
         for (name, presence) in &rows {
             recorder.specification(RecordSpecification {
+                actor: conductor_cli::actor::daemon(),
                 snapshot_id: snapshot.clone(),
                 repository: RepositoryName((*name).to_owned()),
                 presence: *presence,
@@ -1950,6 +1955,7 @@ fn take_specifications(
     });
     let store = store::open(state).expect("open the case's store");
     let start = StartSnapshot {
+        actor: conductor_cli::actor::daemon(),
         started_at: Timestamp(started_at.to_owned()),
         disk_free_bytes: 1_000_000,
         budget: None,

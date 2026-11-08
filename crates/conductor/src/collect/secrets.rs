@@ -100,6 +100,7 @@ pub fn collect_from(sources: &Sources, record: &mut Recorder<'_>) -> Result<()> 
         let secrets_updated_at = kept(oldest_write(sources, sync, &what), &mut errors)?;
         let snapshot = record.snapshot().clone();
         record.secret_sync(RecordSecretSync {
+            actor: crate::actor::chosen(),
             snapshot_id: snapshot,
             sync: sync.name.clone(),
             repository: RepositoryName(sync.source.repository.clone()),

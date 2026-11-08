@@ -219,6 +219,7 @@ pub fn collect_from(sources: &Sources, record: &mut Recorder<'_>) -> Result<()> 
         let repository = workspace.repository(&artifact.member)?;
         record
             .blocker(RecordBlocker {
+                actor: crate::actor::chosen(),
                 snapshot_id: record.snapshot().clone(),
                 repository: RepositoryName(repository.to_owned()),
                 reference: artifact.id.clone(),
@@ -244,6 +245,7 @@ pub(crate) fn record_failures(
     for failure in failures {
         record
             .member_failure(RecordMemberFailure {
+                actor: crate::actor::chosen(),
                 snapshot_id: record.snapshot().clone(),
                 member: RepositoryName(failure.repository.clone()),
                 collector: collector.to_owned(),

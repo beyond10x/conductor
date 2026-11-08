@@ -151,6 +151,7 @@ fn row(id: &str, state: &str, repository: &str, charter_revision: i64) -> Value 
         "harness": "Claude",
         "session_name": repository,
         "charter_revision": charter_revision,
+        "actor": "human:operator",
     })
 }
 

@@ -380,6 +380,7 @@ pub fn collect_with_gitlab(
             .count();
         let snapshot_id = record.snapshot().clone();
         record.repository(RecordRepository {
+            actor: crate::actor::chosen(),
             snapshot_id,
             repository: RepositoryName(listed.name.clone()),
             visibility: listed.visibility,

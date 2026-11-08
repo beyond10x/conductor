@@ -251,6 +251,13 @@ impl Case {
                 let row = row.as_object_mut().expect("a row is an object");
                 row.remove("observation_id");
                 row.remove("snapshot_id");
+                assert_eq!(
+                    row.remove("actor"),
+                    Some(Value::from(conductor_cli::actor::written(
+                        &conductor_cli::actor::chosen(),
+                    ))),
+                    "the actor that wrote the row"
+                );
                 Value::Object(row.clone())
             })
             .collect();

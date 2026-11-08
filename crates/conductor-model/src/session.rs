@@ -1,5 +1,5 @@
 // generated from conductor v1
-// contract digest 057692c7a57029c79cc9e78eb455da83a4c0aa80b4525dc295987296007b3391
+// contract digest 925e95ab19211d2883a7b63b82a83c2503c557df74d9a01d0be9ddc0a4f90d6c
 // do not edit: regenerate with `ess synthesize --layout crate`
 
 //! Session — `conductor.session`.
@@ -297,6 +297,8 @@ pub enum TickKind {
 pub struct DeliveryData {
     /// The identity: `delivery_id` — `conductor.session.DeliveryId`.
     pub delivery_id: DeliveryId,
+    /// `actor` — `conductor.operator.Actor`.
+    pub actor: crate::operator::Actor,
     /// `session_name` — `conductor.config.SessionName`.
     pub session_name: crate::config::SessionName,
     /// `first_line` — `String`.
@@ -433,6 +435,8 @@ impl AnyDelivery {
 pub struct LeaseData {
     /// The identity: `instance` — `conductor.config.InstanceName`.
     pub instance: crate::config::InstanceName,
+    /// `actor` — `conductor.operator.Actor`.
+    pub actor: crate::operator::Actor,
     /// `session_id` — `conductor.session.SessionId`.
     pub session_id: SessionId,
     /// `pid` — `Integer`.
@@ -587,6 +591,8 @@ impl AnyLease {
 pub struct RunTickData {
     /// The identity: `tick_id` — `conductor.session.TickId`.
     pub tick_id: TickId,
+    /// `actor` — `conductor.operator.Actor`.
+    pub actor: crate::operator::Actor,
     /// `kind` — `conductor.session.TickKind`.
     pub kind: TickKind,
     /// `started_at` — `Timestamp`.
@@ -734,6 +740,8 @@ impl AnyRunTick {
 /// Everything it can result in is [`ClaimLeaseOutcome`].
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ClaimLease {
+    /// `actor` — `conductor.operator.Actor`.
+    pub actor: crate::operator::Actor,
     /// `instance` — `conductor.config.InstanceName`.
     pub instance: crate::config::InstanceName,
     /// `session_id` — `conductor.session.SessionId`.
@@ -786,6 +794,8 @@ pub enum ClaimLeaseOutcome {
 /// Everything it can result in is [`DeliverMessageOutcome`].
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct DeliverMessage {
+    /// `actor` — `conductor.operator.Actor`.
+    pub actor: crate::operator::Actor,
     /// `session_name` — `conductor.config.SessionName`.
     pub session_name: crate::config::SessionName,
     /// `first_line` — `String`.
@@ -824,6 +834,8 @@ pub enum DeliverMessageOutcome {
 /// Everything it can result in is [`RecordRunTickOutcome`].
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct RecordRunTick {
+    /// `actor` — `conductor.operator.Actor`.
+    pub actor: crate::operator::Actor,
     /// `kind` — `conductor.session.TickKind`.
     pub kind: TickKind,
     /// `started_at` — `Timestamp`.
@@ -860,6 +872,8 @@ pub enum RecordRunTickOutcome {
 /// LeaseTaken — the event `conductor.session.LeaseTaken`.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct LeaseTaken {
+    /// `actor` — `conductor.operator.Actor`.
+    pub actor: crate::operator::Actor,
     /// `instance` — `conductor.config.InstanceName`.
     pub instance: crate::config::InstanceName,
     /// `session_id` — `conductor.session.SessionId`.
@@ -871,6 +885,8 @@ pub struct LeaseTaken {
 /// LeaseTakenOver — the event `conductor.session.LeaseTakenOver`.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct LeaseTakenOver {
+    /// `actor` — `conductor.operator.Actor`.
+    pub actor: crate::operator::Actor,
     /// `instance` — `conductor.config.InstanceName`.
     pub instance: crate::config::InstanceName,
     /// `session_id` — `conductor.session.SessionId`.
@@ -886,6 +902,8 @@ pub struct LeaseTakenOver {
 /// MessageDelivered — the event `conductor.session.MessageDelivered`.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct MessageDelivered {
+    /// `actor` — `conductor.operator.Actor`.
+    pub actor: crate::operator::Actor,
     /// `delivery_id` — `conductor.session.DeliveryId`.
     pub delivery_id: DeliveryId,
     /// `session_name` — `conductor.config.SessionName`.
@@ -901,6 +919,8 @@ pub struct MessageDelivered {
 /// RunTickRecorded — the event `conductor.session.RunTickRecorded`.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct RunTickRecorded {
+    /// `actor` — `conductor.operator.Actor`.
+    pub actor: crate::operator::Actor,
     /// `tick_id` — `conductor.session.TickId`.
     pub tick_id: TickId,
     /// `kind` — `conductor.session.TickKind`.
@@ -961,6 +981,8 @@ pub struct Deliveries {
     pub body_path: Option<String>,
     /// `delivered_at` — `Timestamp`.
     pub delivered_at: crate::primitives::Timestamp,
+    /// `actor` — `conductor.operator.Actor`.
+    pub actor: crate::operator::Actor,
 }
 
 /// Conductor leases — one row of the view `conductor.session.Leases`.
@@ -984,6 +1006,8 @@ pub struct Leases {
     pub taken_over_session_id: Option<SessionId>,
     /// `taken_over_pid` — `Optional<Integer>`.
     pub taken_over_pid: Option<i64>,
+    /// `actor` — `conductor.operator.Actor`.
+    pub actor: crate::operator::Actor,
 }
 
 /// Ticks of the run daemon — one row of the view `conductor.session.RunTicks`.
@@ -1005,6 +1029,8 @@ pub struct RunTicks {
     pub lines_handled: i64,
     /// `actions` — `List<conductor.dispatch.DispatchLogEvent>`.
     pub actions: Vec<crate::dispatch::DispatchLogEvent>,
+    /// `actor` — `conductor.operator.Actor`.
+    pub actor: crate::operator::Actor,
 }
 
 /// What this bounded context owes its implementor, and the seams of what is generated.

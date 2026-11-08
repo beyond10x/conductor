@@ -137,6 +137,7 @@ impl Case {
 fn complete(state: &Path, started_at: &str, repositories: usize) {
     let store = store::open(state).expect("open the store");
     let start = StartSnapshot {
+        actor: conductor_cli::actor::daemon(),
         started_at: Timestamp(started_at.to_owned()),
         disk_free_bytes: 1_000_000,
         budget: None,
@@ -151,6 +152,7 @@ fn fixture(repositories: usize) -> Collector {
         let snapshot = record.snapshot().clone();
         for index in 0..repositories {
             record.repository(RecordRepository {
+                actor: conductor_cli::actor::daemon(),
                 snapshot_id: snapshot.clone(),
                 repository: RepositoryName(format!("repo-{index:02}")),
                 visibility: Visibility::Public,

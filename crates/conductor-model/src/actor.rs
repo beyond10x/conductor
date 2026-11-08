@@ -1,5 +1,5 @@
 // generated from conductor v1
-// contract digest 057692c7a57029c79cc9e78eb455da83a4c0aa80b4525dc295987296007b3391
+// contract digest 925e95ab19211d2883a7b63b82a83c2503c557df74d9a01d0be9ddc0a4f90d6c
 // do not edit: regenerate with `ess synthesize --layout crate`
 
 //! Every actor the specification declares, and the commands each may invoke — as data.
@@ -12,6 +12,16 @@
 /// An actor the specification declares.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum Actor {
+    /// `conductor.agent.Controller`.
+    AgentController,
+    /// `conductor.agent.InstanceRuntime`.
+    AgentInstanceRuntime,
+    /// `conductor.agent.Operator`.
+    AgentOperator,
+    /// `conductor.config.Operator`.
+    ConfigOperator,
+    /// `conductor.config.Tuner`.
+    ConfigTuner,
     /// `conductor.decision.Conductor`.
     DecisionConductor,
     /// `conductor.decision.Operator`.
@@ -26,16 +36,42 @@ pub enum Actor {
     DispatchConductor,
     /// `conductor.dispatch.RepositoryController`.
     DispatchRepositoryController,
+    /// `conductor.host.BuildCaller`.
+    HostBuildCaller,
+    /// `conductor.host.InstanceRuntime`.
+    HostInstanceRuntime,
+    /// `conductor.host.Operator`.
+    HostOperator,
     /// `conductor.improvement.Collector`.
     ImprovementCollector,
     /// `conductor.improvement.ConductorDev`.
     ImprovementConductorDev,
     /// `conductor.improvement.Operator`.
     ImprovementOperator,
+    /// `conductor.instance.Conductord`.
+    InstanceConductord,
+    /// `conductor.instance.Operator`.
+    InstanceOperator,
     /// `conductor.observation.Collector`.
     ObservationCollector,
+    /// `conductor.operator.Conductord`.
+    OperatorConductord,
+    /// `conductor.operator.Engineer`.
+    OperatorEngineer,
+    /// `conductor.placement.Conductord`.
+    PlacementConductord,
+    /// `conductor.secret.Conductord`.
+    SecretConductord,
+    /// `conductor.secret.Operator`.
+    SecretOperator,
     /// `conductor.session.Conductor`.
     SessionConductor,
+    /// `conductor.store.Operator`.
+    StoreOperator,
+    /// `conductor.token.InstanceRuntime`.
+    TokenInstanceRuntime,
+    /// `conductor.token.Operator`.
+    TokenOperator,
     /// `conductor.tool.InstanceBroker`.
     ToolInstanceBroker,
 }
@@ -43,6 +79,11 @@ pub enum Actor {
 impl Actor {
     /// Every declared actor, ordered by qualified name.
     pub const ALL: &'static [Actor] = &[
+        Actor::AgentController,
+        Actor::AgentInstanceRuntime,
+        Actor::AgentOperator,
+        Actor::ConfigOperator,
+        Actor::ConfigTuner,
         Actor::DecisionConductor,
         Actor::DecisionOperator,
         Actor::DecisionRepositoryController,
@@ -50,17 +91,35 @@ impl Actor {
         Actor::DirectionOperator,
         Actor::DispatchConductor,
         Actor::DispatchRepositoryController,
+        Actor::HostBuildCaller,
+        Actor::HostInstanceRuntime,
+        Actor::HostOperator,
         Actor::ImprovementCollector,
         Actor::ImprovementConductorDev,
         Actor::ImprovementOperator,
+        Actor::InstanceConductord,
+        Actor::InstanceOperator,
         Actor::ObservationCollector,
+        Actor::OperatorConductord,
+        Actor::OperatorEngineer,
+        Actor::PlacementConductord,
+        Actor::SecretConductord,
+        Actor::SecretOperator,
         Actor::SessionConductor,
+        Actor::StoreOperator,
+        Actor::TokenInstanceRuntime,
+        Actor::TokenOperator,
         Actor::ToolInstanceBroker,
     ];
 
     /// The actor's qualified name, as the specification spells it.
     pub const fn name(self) -> &'static str {
         match self {
+            Actor::AgentController => "conductor.agent.Controller",
+            Actor::AgentInstanceRuntime => "conductor.agent.InstanceRuntime",
+            Actor::AgentOperator => "conductor.agent.Operator",
+            Actor::ConfigOperator => "conductor.config.Operator",
+            Actor::ConfigTuner => "conductor.config.Tuner",
             Actor::DecisionConductor => "conductor.decision.Conductor",
             Actor::DecisionOperator => "conductor.decision.Operator",
             Actor::DecisionRepositoryController => "conductor.decision.RepositoryController",
@@ -68,11 +127,24 @@ impl Actor {
             Actor::DirectionOperator => "conductor.direction.Operator",
             Actor::DispatchConductor => "conductor.dispatch.Conductor",
             Actor::DispatchRepositoryController => "conductor.dispatch.RepositoryController",
+            Actor::HostBuildCaller => "conductor.host.BuildCaller",
+            Actor::HostInstanceRuntime => "conductor.host.InstanceRuntime",
+            Actor::HostOperator => "conductor.host.Operator",
             Actor::ImprovementCollector => "conductor.improvement.Collector",
             Actor::ImprovementConductorDev => "conductor.improvement.ConductorDev",
             Actor::ImprovementOperator => "conductor.improvement.Operator",
+            Actor::InstanceConductord => "conductor.instance.Conductord",
+            Actor::InstanceOperator => "conductor.instance.Operator",
             Actor::ObservationCollector => "conductor.observation.Collector",
+            Actor::OperatorConductord => "conductor.operator.Conductord",
+            Actor::OperatorEngineer => "conductor.operator.Engineer",
+            Actor::PlacementConductord => "conductor.placement.Conductord",
+            Actor::SecretConductord => "conductor.secret.Conductord",
+            Actor::SecretOperator => "conductor.secret.Operator",
             Actor::SessionConductor => "conductor.session.Conductor",
+            Actor::StoreOperator => "conductor.store.Operator",
+            Actor::TokenInstanceRuntime => "conductor.token.InstanceRuntime",
+            Actor::TokenOperator => "conductor.token.Operator",
             Actor::ToolInstanceBroker => "conductor.tool.InstanceBroker",
         }
     }
@@ -82,6 +154,30 @@ impl Actor {
 /// actor that only observes.
 pub fn may(actor: Actor) -> &'static [&'static str] {
     match actor {
+        Actor::AgentController => &[
+            "conductor.agent.AttachAgent",
+            "conductor.agent.DeliverToAgent",
+        ],
+        Actor::AgentInstanceRuntime => &[
+            "conductor.agent.DeclareAgentKind",
+            "conductor.agent.DeliverToAgent",
+            "conductor.agent.RecordAgentReport",
+            "conductor.agent.RestartAgent",
+            "conductor.agent.StartAgent",
+            "conductor.agent.StopAgent",
+        ],
+        Actor::AgentOperator => &[
+            "conductor.agent.AttachAgent",
+            "conductor.agent.DeliverToAgent",
+            "conductor.agent.RestartAgent",
+            "conductor.agent.StopAgent",
+        ],
+        Actor::ConfigOperator => &[
+            "conductor.config.PutConfig",
+        ],
+        Actor::ConfigTuner => &[
+            "conductor.config.PutConfig",
+        ],
         Actor::DecisionConductor => &[
             "conductor.decision.AmendEscalatedRequest",
             "conductor.decision.AnswerRequest",
@@ -146,6 +242,29 @@ pub fn may(actor: Actor) -> &'static [&'static str] {
             "conductor.dispatch.ReportUnblocked",
             "conductor.dispatch.RequestResource",
         ],
+        Actor::HostBuildCaller => &[
+            "conductor.host.Reclaim",
+            "conductor.host.RecordPeak",
+            "conductor.host.ReleaseGrant",
+            "conductor.host.RequestDisk",
+            "conductor.host.ReserveDisk",
+            "conductor.host.StartRun",
+            "conductor.host.WithdrawDiskRequest",
+        ],
+        Actor::HostInstanceRuntime => &[
+            "conductor.host.Reclaim",
+            "conductor.host.ReleaseGrant",
+            "conductor.host.TakeHostGrant",
+        ],
+        Actor::HostOperator => &[
+            "conductor.host.Reclaim",
+            "conductor.host.RecordPeak",
+            "conductor.host.ReleaseGrant",
+            "conductor.host.RequestDisk",
+            "conductor.host.ReserveDisk",
+            "conductor.host.StartRun",
+            "conductor.host.WithdrawDiskRequest",
+        ],
         Actor::ImprovementCollector => &[
             "conductor.improvement.JudgeMetricReading",
             "conductor.improvement.RaiseFinding",
@@ -160,6 +279,21 @@ pub fn may(actor: Actor) -> &'static [&'static str] {
         ],
         Actor::ImprovementOperator => &[
             "conductor.improvement.SetMetricTarget",
+        ],
+        Actor::InstanceConductord => &[
+            "conductor.instance.ObserveInstance",
+            "conductor.instance.Reconcile",
+            "conductor.instance.RestartInstance",
+            "conductor.instance.StartInstance",
+            "conductor.instance.StopInstance",
+            "conductor.instance.UpgradeInstance",
+        ],
+        Actor::InstanceOperator => &[
+            "conductor.instance.PurgeInstance",
+            "conductor.instance.RestartInstance",
+            "conductor.instance.StartInstance",
+            "conductor.instance.StopInstance",
+            "conductor.instance.UpgradeInstance",
         ],
         Actor::ObservationCollector => &[
             "conductor.observation.CompleteSnapshot",
@@ -179,10 +313,37 @@ pub fn may(actor: Actor) -> &'static [&'static str] {
             "conductor.observation.ReviseDailySeries",
             "conductor.observation.StartSnapshot",
         ],
+        Actor::OperatorConductord => &[],
+        Actor::OperatorEngineer => &[
+            "conductor.operator.JoinInstance",
+            "conductor.operator.LeaveInstance",
+        ],
+        Actor::PlacementConductord => &[
+            "conductor.placement.CloseBox",
+            "conductor.placement.OpenBox",
+        ],
+        Actor::SecretConductord => &[
+            "conductor.secret.ResolveSecrets",
+        ],
+        Actor::SecretOperator => &[
+            "conductor.secret.PutSecret",
+        ],
         Actor::SessionConductor => &[
             "conductor.session.ClaimLease",
             "conductor.session.DeliverMessage",
             "conductor.session.RecordRunTick",
+        ],
+        Actor::StoreOperator => &[
+            "conductor.store.MigrateStore",
+        ],
+        Actor::TokenInstanceRuntime => &[
+            "conductor.token.LeaseToken",
+            "conductor.token.MarkTokenLimited",
+            "conductor.token.ReleaseToken",
+        ],
+        Actor::TokenOperator => &[
+            "conductor.token.ContributeToken",
+            "conductor.token.WithdrawToken",
         ],
         Actor::ToolInstanceBroker => &[
             "conductor.dispatch.ReceiveMessage",
@@ -212,5 +373,64 @@ impl Caller {
     /// `true` when this caller may invoke `command`, named by its qualified name.
     pub fn may(&self, command: &str) -> bool {
         may(self.actor).contains(&command)
+    }
+}
+
+/// The qualified names of the views `actor` may read, ordered by name: the views its grant
+/// names. A view no actor's grant names is open to every caller and listed for none.
+pub fn may_read(actor: Actor) -> &'static [&'static str] {
+    match actor {
+        Actor::AgentController => &[
+            "conductor.agent.AgentKinds",
+            "conductor.agent.Agents",
+        ],
+        Actor::AgentInstanceRuntime => &[
+            "conductor.agent.AgentKinds",
+            "conductor.agent.Agents",
+        ],
+        Actor::AgentOperator => &[
+            "conductor.agent.AgentKinds",
+            "conductor.agent.Agents",
+        ],
+        Actor::ConfigOperator => &[],
+        Actor::ConfigTuner => &[],
+        Actor::DecisionConductor => &[],
+        Actor::DecisionOperator => &[],
+        Actor::DecisionRepositoryController => &[],
+        Actor::DirectionConductor => &[],
+        Actor::DirectionOperator => &[],
+        Actor::DispatchConductor => &[],
+        Actor::DispatchRepositoryController => &[],
+        Actor::HostBuildCaller => &[],
+        Actor::HostInstanceRuntime => &[],
+        Actor::HostOperator => &[],
+        Actor::ImprovementCollector => &[],
+        Actor::ImprovementConductorDev => &[],
+        Actor::ImprovementOperator => &[],
+        Actor::InstanceConductord => &[],
+        Actor::InstanceOperator => &[],
+        Actor::ObservationCollector => &[],
+        Actor::OperatorConductord => &[
+            "conductor.operator.Operators",
+        ],
+        Actor::OperatorEngineer => &[
+            "conductor.operator.Operators",
+        ],
+        Actor::PlacementConductord => &[],
+        Actor::SecretConductord => &[],
+        Actor::SecretOperator => &[],
+        Actor::SessionConductor => &[],
+        Actor::StoreOperator => &[],
+        Actor::TokenInstanceRuntime => &[],
+        Actor::TokenOperator => &[],
+        Actor::ToolInstanceBroker => &[],
+    }
+}
+
+impl Caller {
+    /// `true` when this caller may read `view`, a view some actor's grant names, named by
+    /// its qualified name.
+    pub fn may_read(&self, view: &str) -> bool {
+        may_read(self.actor).contains(&view)
     }
 }

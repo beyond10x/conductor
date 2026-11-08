@@ -1,5 +1,5 @@
 // generated from conductor v1
-// contract digest 057692c7a57029c79cc9e78eb455da83a4c0aa80b4525dc295987296007b3391
+// contract digest 925e95ab19211d2883a7b63b82a83c2503c557df74d9a01d0be9ddc0a4f90d6c
 // do not edit: regenerate with `ess synthesize --layout crate`
 
 //! Direction — `conductor.direction`.
@@ -347,6 +347,8 @@ pub struct WritePlan {
 pub struct GoalData {
     /// The identity: `goal_id` — `conductor.direction.GoalId`.
     pub goal_id: GoalId,
+    /// `actor` — `conductor.operator.Actor`.
+    pub actor: crate::operator::Actor,
     /// `title` — `String`.
     pub title: String,
     /// `exit_evidence` — `String`.
@@ -574,6 +576,8 @@ impl AnyGoal {
 pub struct GoalServingData {
     /// The identity: `serving_id` — `conductor.direction.ServingId`.
     pub serving_id: ServingId,
+    /// `actor` — `conductor.operator.Actor`.
+    pub actor: crate::operator::Actor,
     /// `goal_id` — `conductor.direction.GoalId`.
     ///
     /// Carries `servings`: `conductor.direction.Goal` owns many `conductor.direction.GoalServing`.
@@ -737,6 +741,8 @@ pub struct RepositoryMarkData {
     pub repository: MarkedRepository,
     /// `marked_by` — `conductor.direction.MarkedBy`.
     pub marked_by: MarkedBy,
+    /// `actor` — `conductor.operator.Actor`.
+    pub actor: crate::operator::Actor,
     /// `session` — `Optional<String>`.
     pub session: Option<String>,
     /// `reason` — `String`.
@@ -914,6 +920,8 @@ impl AnyRepositoryMark {
 /// Everything it can result in is [`ActivateRepositoryOutcome`].
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ActivateRepository {
+    /// `actor` — `conductor.operator.Actor`.
+    pub actor: crate::operator::Actor,
     /// `repository` — `conductor.direction.MarkedRepository`.
     pub repository: MarkedRepository,
     /// `marked_by` — `conductor.direction.MarkedBy`.
@@ -957,6 +965,8 @@ pub enum ActivateRepositoryOutcome {
 /// Everything it can result in is [`AddServingOutcome`].
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct AddServing {
+    /// `actor` — `conductor.operator.Actor`.
+    pub actor: crate::operator::Actor,
     /// `goal_id` — `conductor.direction.GoalId`.
     pub goal_id: GoalId,
     /// `repository` — `conductor.observation.RepositoryName`.
@@ -998,6 +1008,8 @@ pub enum AddServingOutcome {
 /// Everything it can result in is [`ConfirmGoalOutcome`].
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ConfirmGoal {
+    /// `actor` — `conductor.operator.Actor`.
+    pub actor: crate::operator::Actor,
     /// `goal_id` — `conductor.direction.GoalId`.
     pub goal_id: GoalId,
 }
@@ -1009,6 +1021,13 @@ pub struct ConfirmGoal {
 /// outcomes exist to prevent.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ConfirmGoalOutcome {
+    /// `agent-actor` — when `actor.kind != Human`.
+    ///
+    /// Only a person issues this command (design architecture-next.md § 3, Actors); an agent actor is refused by name and nothing changed.
+    AgentActor {
+        /// Why it was refused: `conductor.operator.ActorNotHuman`.
+        error: crate::operator::ActorNotHuman,
+    },
     /// `invalid-goal-id` — when `(goal_id == "" or {utf8_bytes: goal_id} > 170)`.
     ///
     /// No goal can have this id, so nothing moved.
@@ -1042,6 +1061,8 @@ pub enum ConfirmGoalOutcome {
 /// Everything it can result in is [`DeactivateRepositoryOutcome`].
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct DeactivateRepository {
+    /// `actor` — `conductor.operator.Actor`.
+    pub actor: crate::operator::Actor,
     /// `repository` — `conductor.direction.MarkedRepository`.
     pub repository: MarkedRepository,
     /// `marked_by` — `conductor.direction.MarkedBy`.
@@ -1085,6 +1106,8 @@ pub enum DeactivateRepositoryOutcome {
 /// Everything it can result in is [`DropGoalOutcome`].
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct DropGoal {
+    /// `actor` — `conductor.operator.Actor`.
+    pub actor: crate::operator::Actor,
     /// `goal_id` — `conductor.direction.GoalId`.
     pub goal_id: GoalId,
     /// `reason` — `String`.
@@ -1098,6 +1121,13 @@ pub struct DropGoal {
 /// outcomes exist to prevent.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum DropGoalOutcome {
+    /// `agent-actor` — when `actor.kind != Human`.
+    ///
+    /// Only a person issues this command (design architecture-next.md § 3, Actors); an agent actor is refused by name and nothing changed.
+    AgentActor {
+        /// Why it was refused: `conductor.operator.ActorNotHuman`.
+        error: crate::operator::ActorNotHuman,
+    },
     /// `invalid-goal-id` — when `(goal_id == "" or {utf8_bytes: goal_id} > 170)`.
     ///
     /// No goal can have this id, so nothing moved.
@@ -1131,6 +1161,8 @@ pub enum DropGoalOutcome {
 /// Everything it can result in is [`MarkGoalMetOutcome`].
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct MarkGoalMet {
+    /// `actor` — `conductor.operator.Actor`.
+    pub actor: crate::operator::Actor,
     /// `goal_id` — `conductor.direction.GoalId`.
     pub goal_id: GoalId,
     /// `evidence` — `String`.
@@ -1177,6 +1209,8 @@ pub enum MarkGoalMetOutcome {
 /// Everything it can result in is [`MarkRepositoryOutcome`].
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct MarkRepository {
+    /// `actor` — `conductor.operator.Actor`.
+    pub actor: crate::operator::Actor,
     /// `repository` — `conductor.direction.MarkedRepository`.
     pub repository: MarkedRepository,
     /// `activity` — `conductor.direction.Activity`.
@@ -1224,6 +1258,8 @@ pub enum MarkRepositoryOutcome {
 /// Everything it can result in is [`ProposeGoalOutcome`].
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ProposeGoal {
+    /// `actor` — `conductor.operator.Actor`.
+    pub actor: crate::operator::Actor,
     /// `goal_id` — `conductor.direction.GoalId`.
     pub goal_id: GoalId,
     /// `title` — `String`.
@@ -1267,6 +1303,8 @@ pub enum ProposeGoalOutcome {
 /// Everything it can result in is [`RemoveServingOutcome`].
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct RemoveServing {
+    /// `actor` — `conductor.operator.Actor`.
+    pub actor: crate::operator::Actor,
     /// `serving_id` — `conductor.direction.ServingId`.
     pub serving_id: ServingId,
     /// `reason` — `String`.
@@ -1304,6 +1342,8 @@ pub enum RemoveServingOutcome {
 /// GoalConfirmed — the event `conductor.direction.GoalConfirmed`.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct GoalConfirmed {
+    /// `actor` — `conductor.operator.Actor`.
+    pub actor: crate::operator::Actor,
     /// `goal_id` — `conductor.direction.GoalId`.
     pub goal_id: GoalId,
 }
@@ -1311,6 +1351,8 @@ pub struct GoalConfirmed {
 /// GoalDropped — the event `conductor.direction.GoalDropped`.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct GoalDropped {
+    /// `actor` — `conductor.operator.Actor`.
+    pub actor: crate::operator::Actor,
     /// `goal_id` — `conductor.direction.GoalId`.
     pub goal_id: GoalId,
     /// `reason` — `String`.
@@ -1320,6 +1362,8 @@ pub struct GoalDropped {
 /// GoalMet — the event `conductor.direction.GoalMet`.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct GoalMet {
+    /// `actor` — `conductor.operator.Actor`.
+    pub actor: crate::operator::Actor,
     /// `goal_id` — `conductor.direction.GoalId`.
     pub goal_id: GoalId,
     /// `evidence` — `String`.
@@ -1329,6 +1373,8 @@ pub struct GoalMet {
 /// GoalProposed — the event `conductor.direction.GoalProposed`.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct GoalProposed {
+    /// `actor` — `conductor.operator.Actor`.
+    pub actor: crate::operator::Actor,
     /// `goal_id` — `conductor.direction.GoalId`.
     pub goal_id: GoalId,
     /// `title` — `String`.
@@ -1338,6 +1384,8 @@ pub struct GoalProposed {
 /// RepositoryActivated — the event `conductor.direction.RepositoryActivated`.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct RepositoryActivated {
+    /// `actor` — `conductor.operator.Actor`.
+    pub actor: crate::operator::Actor,
     /// `repository` — `conductor.direction.MarkedRepository`.
     pub repository: MarkedRepository,
     /// `marked_by` — `conductor.direction.MarkedBy`.
@@ -1347,6 +1395,8 @@ pub struct RepositoryActivated {
 /// RepositoryDeactivated — the event `conductor.direction.RepositoryDeactivated`.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct RepositoryDeactivated {
+    /// `actor` — `conductor.operator.Actor`.
+    pub actor: crate::operator::Actor,
     /// `repository` — `conductor.direction.MarkedRepository`.
     pub repository: MarkedRepository,
     /// `marked_by` — `conductor.direction.MarkedBy`.
@@ -1358,6 +1408,8 @@ pub struct RepositoryDeactivated {
 /// RepositoryMarked — the event `conductor.direction.RepositoryMarked`.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct RepositoryMarked {
+    /// `actor` — `conductor.operator.Actor`.
+    pub actor: crate::operator::Actor,
     /// `repository` — `conductor.direction.MarkedRepository`.
     pub repository: MarkedRepository,
     /// `activity` — `conductor.direction.Activity`.
@@ -1369,6 +1421,8 @@ pub struct RepositoryMarked {
 /// ServingAdded — the event `conductor.direction.ServingAdded`.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ServingAdded {
+    /// `actor` — `conductor.operator.Actor`.
+    pub actor: crate::operator::Actor,
     /// `serving_id` — `conductor.direction.ServingId`.
     pub serving_id: ServingId,
     /// `goal_id` — `conductor.direction.GoalId`.
@@ -1380,6 +1434,8 @@ pub struct ServingAdded {
 /// ServingRemoved — the event `conductor.direction.ServingRemoved`.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ServingRemoved {
+    /// `actor` — `conductor.operator.Actor`.
+    pub actor: crate::operator::Actor,
     /// `serving_id` — `conductor.direction.ServingId`.
     pub serving_id: ServingId,
     /// `reason` — `String`.
@@ -1482,6 +1538,8 @@ pub struct GoalServings {
     pub goal_id: GoalId,
     /// `repository` — `conductor.observation.RepositoryName`.
     pub repository: crate::observation::RepositoryName,
+    /// `actor` — `conductor.operator.Actor`.
+    pub actor: crate::operator::Actor,
 }
 
 /// Goals — one row of the view `conductor.direction.Goals`.
@@ -1503,6 +1561,8 @@ pub struct Goals {
     pub evidence: Option<String>,
     /// `reason` — `Optional<String>`.
     pub reason: Option<String>,
+    /// `actor` — `conductor.operator.Actor`.
+    pub actor: crate::operator::Actor,
 }
 
 /// Repository marks — one row of the view `conductor.direction.RepositoryMarks`.
@@ -1522,6 +1582,8 @@ pub struct RepositoryMarks {
     pub session: Option<String>,
     /// `reason` — `String`.
     pub reason: String,
+    /// `actor` — `conductor.operator.Actor`.
+    pub actor: crate::operator::Actor,
 }
 
 /// What this bounded context owes its implementor, and the seams of what is generated.

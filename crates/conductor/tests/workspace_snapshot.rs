@@ -454,6 +454,13 @@ impl Case {
                     Some(json!(taken.snapshot_id.0.0)),
                     "the blocker is filed under the snapshot taken"
                 );
+                assert_eq!(
+                    row.remove("actor"),
+                    Some(Value::from(conductor_cli::actor::written(
+                        &conductor_cli::actor::chosen(),
+                    ))),
+                    "the actor that wrote the row"
+                );
                 row.remove("observation_id");
                 Value::Object(row.clone())
             })

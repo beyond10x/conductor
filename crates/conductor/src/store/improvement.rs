@@ -122,6 +122,7 @@ impl MetricReadingStorage for Store {
 fn encode_metric(metric: &MetricSnapshot) -> Value {
     let data = &metric.data;
     json!({
+        "actor": crate::actor::to_json(&data.actor),
         "state": metric_state_name(metric.state),
         "metric_id": data.metric_id.0,
         "name": data.name,
@@ -143,6 +144,7 @@ fn decode_metric(body: &Value) -> Result<MetricSnapshot, String> {
         state: metric_state_named(&state)
             .ok_or_else(|| format!("unknown Metric state {state:?}"))?,
         data: MetricData {
+            actor: crate::actor::stored(body)?,
             metric_id: MetricId(text(body, "metric_id")?),
             name: text(body, "name")?,
             unit: text(body, "unit")?,
@@ -167,6 +169,7 @@ fn decode_metric(body: &Value) -> Result<MetricSnapshot, String> {
 fn encode_reading(reading: &MetricReadingSnapshot) -> Value {
     let data = &reading.data;
     json!({
+        "actor": crate::actor::to_json(&data.actor),
         "state": reading_state_name(reading.state),
         "reading_id": data.reading_id.0,
         "metric_id": data.metric_id.0,
@@ -202,6 +205,7 @@ fn decode_reading(body: &Value) -> Result<MetricReadingSnapshot, String> {
         state: reading_state_named(&state)
             .ok_or_else(|| format!("unknown MetricReading state {state:?}"))?,
         data: MetricReadingData {
+            actor: crate::actor::stored(body)?,
             reading_id: MetricReadingId(text(body, "reading_id")?),
             metric_id: MetricId(text(body, "metric_id")?),
             day: text(body, "day")?,

@@ -261,6 +261,7 @@ fn legacy_grant(id: &str, state: HostGrantState) -> HostGrantSnapshot {
     HostGrantSnapshot {
         state,
         data: HostGrantData {
+            actor: conductor_cli::actor::daemon(),
             grant_id: GrantId(id.to_owned()),
             instance: InstanceName("alpha".to_owned()),
             repository: Some(RepositoryName("example-repo".to_owned())),

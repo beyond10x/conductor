@@ -1,5 +1,5 @@
 // generated from conductor v1
-// contract digest 057692c7a57029c79cc9e78eb455da83a4c0aa80b4525dc295987296007b3391
+// contract digest 925e95ab19211d2883a7b63b82a83c2503c557df74d9a01d0be9ddc0a4f90d6c
 // do not edit: regenerate with `ess synthesize --layout crate`
 
 //! Semantic types synthesised from the `conductor` specification, v1.
@@ -15,6 +15,7 @@
 #![deny(missing_docs)]
 
 pub mod actor;
+pub mod agent;
 pub mod behaviour;
 pub mod config;
 pub mod decision;
@@ -22,11 +23,19 @@ pub mod direction;
 pub mod dispatch;
 pub mod host;
 pub mod improvement;
+pub mod instance;
 pub mod obligation;
 pub mod observation;
+pub mod operator;
+pub mod placement;
 pub mod primitives;
+pub mod secret;
 pub mod session;
+pub mod store;
+pub mod token;
 pub mod tool;
 
 pub mod ports;
 pub mod system;
+#[cfg(feature = "server")]
+pub mod server;

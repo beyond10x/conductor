@@ -1185,9 +1185,8 @@ fn write_host(case: &Case, roles: &str) {
 
 /// `story:maintainer-host-config`, item 4: `maintainer:start` and `maintainer:attach` read the
 /// maintainer from `host.roles` of `conductor config show`, and `dev:start` and `dev:attach`
-/// stay their names for this release. With `host.yaml` naming a maintainer it starts under the
-/// session name `maintainer`, on its model; without one, the maintainer an instance's `roles`
-/// still writes starts under the name it has there, as before.
+/// stay their names for this release. The maintainer is the one the instance's `roles` writes,
+/// under the name it has there: the host file that named another is gone (`story:spec-v1`).
 #[test]
 fn the_maintainer_tasks_read_the_host_s_roles_from_config_show() {
     let taskfile = taskfile();
@@ -1243,18 +1242,21 @@ fn the_maintainer_tasks_read_the_host_s_roles_from_config_show() {
             .starts_with("--bg -n a-conductor-dev --agent conductor-dev --model opus "),
         "{calls:?}"
     );
+    // The host file is gone in v1 (`story:spec-v1`): one naming another maintainer is read by
+    // nothing, and the instance's conductor-dev still starts and is attached to.
     write_host(
         &case,
         "  - {role: maintainer, harness: claude, model: haiku}\n",
     );
     for task in ["maintainer:start", "dev:start"] {
+        let _ = fs::remove_file(case.dir.join("claude/log"));
         let output = case.task(task, Some(&config));
         assert_eq!(output.status.code(), Some(0), "{task}: {}", shown(&output));
         let calls = case.calls();
         let (cwd, args) = calls.last().expect("a start");
         assert_eq!(cwd, &root(), "{task}: {args}");
         assert!(
-            args.starts_with("--bg -n maintainer --agent conductor-dev --model haiku "),
+            args.starts_with("--bg -n a-conductor-dev --agent conductor-dev --model opus "),
             "{task}: {args}"
         );
     }
@@ -1267,7 +1269,11 @@ fn the_maintainer_tasks_read_the_host_s_roles_from_config_show() {
         let _ = fs::remove_file(case.dir.join("claude/log"));
         let output = case.task(task, Some(&config));
         assert_eq!(output.status.code(), Some(0), "{task}: {}", shown(&output));
-        assert_eq!(case.calls(), [(root(), "attach s-m".to_owned())], "{task}");
+        assert_eq!(
+            case.calls(),
+            [(root(), "attach s-old".to_owned())],
+            "{task}"
+        );
     }
 }
 

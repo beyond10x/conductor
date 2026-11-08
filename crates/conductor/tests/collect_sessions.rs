@@ -180,6 +180,13 @@ fn session_rows(dir: &Path, taken: &Taken) -> Vec<Value> {
             let fields = row.as_object_mut().expect("a row is an object");
             fields.remove("observation_id");
             fields.remove("snapshot_id");
+            assert_eq!(
+                fields.remove("actor"),
+                Some(Value::from(conductor_cli::actor::written(
+                    &conductor_cli::actor::chosen(),
+                ))),
+                "the actor that wrote the row"
+            );
             row
         })
         .collect()

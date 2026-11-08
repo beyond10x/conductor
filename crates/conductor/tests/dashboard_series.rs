@@ -325,6 +325,7 @@ fn disk_peak_vs_reserved_charts_the_runs_peak_over_their_reservation() {
             HostGrantSnapshot {
                 state,
                 data: HostGrantData {
+                    actor: conductor_cli::actor::daemon(),
                     grant_id: GrantId(id.to_owned()),
                     instance: InstanceName("example-org".to_owned()),
                     repository: Some(RepositoryName(repository.to_owned())),

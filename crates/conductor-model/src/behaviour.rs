@@ -1,5 +1,5 @@
 // generated from conductor v1
-// contract digest 057692c7a57029c79cc9e78eb455da83a4c0aa80b4525dc295987296007b3391
+// contract digest 925e95ab19211d2883a7b63b82a83c2503c557df74d9a01d0be9ddc0a4f90d6c
 // do not edit: regenerate with `ess synthesize --layout crate`
 
 //! What the specification fully determines, generated: the behaviour of every command the plan
@@ -18,6 +18,60 @@
 //! or — as `entity invariant` — the declared outcome would leave an entity breaking an invariant.
 
 use crate::obligation::UnmetObligation;
+
+/// Where `conductor.agent.Agent` is stored — a port the implementor provides.
+///
+/// Keyed by the identity `name`. Generated network entries supply an ephemeral implementation; durable storage remains a port.
+pub trait AgentStorage {
+    /// The instance with this identity, or `None` where none is stored.
+    fn get(&self, identity: &crate::agent::AgentName) -> Option<crate::agent::AgentSnapshot>;
+
+    /// Stores this instance under its identity, replacing what was held.
+    fn put(&mut self, snapshot: crate::agent::AgentSnapshot);
+
+    /// Removes the instance with this identity.
+    fn delete(&mut self, identity: &crate::agent::AgentName);
+
+    /// Every stored instance, in the order the store keeps them: the order a generated query
+    /// answers an unordered view in.
+    fn list(&self) -> Vec<crate::agent::AgentSnapshot>;
+}
+
+/// Where `conductor.agent.AgentKind` is stored — a port the implementor provides.
+///
+/// Keyed by the identity `name`. Generated network entries supply an ephemeral implementation; durable storage remains a port.
+pub trait AgentKindStorage {
+    /// The instance with this identity, or `None` where none is stored.
+    fn get(&self, identity: &crate::agent::AgentKindName) -> Option<crate::agent::AgentKindSnapshot>;
+
+    /// Stores this instance under its identity, replacing what was held.
+    fn put(&mut self, snapshot: crate::agent::AgentKindSnapshot);
+
+    /// Removes the instance with this identity.
+    fn delete(&mut self, identity: &crate::agent::AgentKindName);
+
+    /// Every stored instance, in the order the store keeps them: the order a generated query
+    /// answers an unordered view in.
+    fn list(&self) -> Vec<crate::agent::AgentKindSnapshot>;
+}
+
+/// Where `conductor.config.ConfigRevision` is stored — a port the implementor provides.
+///
+/// Keyed by the identity `revision_id`. Generated network entries supply an ephemeral implementation; durable storage remains a port.
+pub trait ConfigRevisionStorage {
+    /// The instance with this identity, or `None` where none is stored.
+    fn get(&self, identity: &crate::config::RevisionId) -> Option<crate::config::ConfigRevisionSnapshot>;
+
+    /// Stores this instance under its identity, replacing what was held.
+    fn put(&mut self, snapshot: crate::config::ConfigRevisionSnapshot);
+
+    /// Removes the instance with this identity.
+    fn delete(&mut self, identity: &crate::config::RevisionId);
+
+    /// Every stored instance, in the order the store keeps them: the order a generated query
+    /// answers an unordered view in.
+    fn list(&self) -> Vec<crate::config::ConfigRevisionSnapshot>;
+}
 
 /// Where `conductor.decision.Decision` is stored — a port the implementor provides.
 ///
@@ -289,6 +343,42 @@ pub trait MetricReadingStorage {
     fn list(&self) -> Vec<crate::improvement::MetricReadingSnapshot>;
 }
 
+/// Where `conductor.instance.Instance` is stored — a port the implementor provides.
+///
+/// Keyed by the identity `name`. Generated network entries supply an ephemeral implementation; durable storage remains a port.
+pub trait InstanceStorage {
+    /// The instance with this identity, or `None` where none is stored.
+    fn get(&self, identity: &crate::config::InstanceName) -> Option<crate::instance::InstanceSnapshot>;
+
+    /// Stores this instance under its identity, replacing what was held.
+    fn put(&mut self, snapshot: crate::instance::InstanceSnapshot);
+
+    /// Removes the instance with this identity.
+    fn delete(&mut self, identity: &crate::config::InstanceName);
+
+    /// Every stored instance, in the order the store keeps them: the order a generated query
+    /// answers an unordered view in.
+    fn list(&self) -> Vec<crate::instance::InstanceSnapshot>;
+}
+
+/// Where `conductor.instance.Reconciliation` is stored — a port the implementor provides.
+///
+/// Keyed by the identity `reconciliation_id`. Generated network entries supply an ephemeral implementation; durable storage remains a port.
+pub trait ReconciliationStorage {
+    /// The instance with this identity, or `None` where none is stored.
+    fn get(&self, identity: &crate::instance::ReconciliationId) -> Option<crate::instance::ReconciliationSnapshot>;
+
+    /// Stores this instance under its identity, replacing what was held.
+    fn put(&mut self, snapshot: crate::instance::ReconciliationSnapshot);
+
+    /// Removes the instance with this identity.
+    fn delete(&mut self, identity: &crate::instance::ReconciliationId);
+
+    /// Every stored instance, in the order the store keeps them: the order a generated query
+    /// answers an unordered view in.
+    fn list(&self) -> Vec<crate::instance::ReconciliationSnapshot>;
+}
+
 /// Where `conductor.observation.BlockerObservation` is stored — a port the implementor provides.
 ///
 /// Keyed by the identity `observation_id`. Generated network entries supply an ephemeral implementation; durable storage remains a port.
@@ -555,6 +645,96 @@ pub trait WorkflowRunObservationStorage {
     fn list(&self) -> Vec<crate::observation::WorkflowRunObservationSnapshot>;
 }
 
+/// Where `conductor.operator.Operator` is stored — a port the implementor provides.
+///
+/// Keyed by the identity `key`. Generated network entries supply an ephemeral implementation; durable storage remains a port.
+pub trait OperatorStorage {
+    /// The instance with this identity, or `None` where none is stored.
+    fn get(&self, identity: &crate::operator::OperatorKey) -> Option<crate::operator::OperatorSnapshot>;
+
+    /// Stores this instance under its identity, replacing what was held.
+    fn put(&mut self, snapshot: crate::operator::OperatorSnapshot);
+
+    /// Removes the instance with this identity.
+    fn delete(&mut self, identity: &crate::operator::OperatorKey);
+
+    /// Every stored instance, in the order the store keeps them: the order a generated query
+    /// answers an unordered view in.
+    fn list(&self) -> Vec<crate::operator::OperatorSnapshot>;
+}
+
+/// Where `conductor.placement.Box` is stored — a port the implementor provides.
+///
+/// Keyed by the identity `box_id`. Generated network entries supply an ephemeral implementation; durable storage remains a port.
+pub trait BoxStorage {
+    /// The instance with this identity, or `None` where none is stored.
+    fn get(&self, identity: &crate::placement::BoxId) -> Option<crate::placement::BoxSnapshot>;
+
+    /// Stores this instance under its identity, replacing what was held.
+    fn put(&mut self, snapshot: crate::placement::BoxSnapshot);
+
+    /// Removes the instance with this identity.
+    fn delete(&mut self, identity: &crate::placement::BoxId);
+
+    /// Every stored instance, in the order the store keeps them: the order a generated query
+    /// answers an unordered view in.
+    fn list(&self) -> Vec<crate::placement::BoxSnapshot>;
+}
+
+/// Where `conductor.placement.BoxRefusal` is stored — a port the implementor provides.
+///
+/// Keyed by the identity `box_id`. Generated network entries supply an ephemeral implementation; durable storage remains a port.
+pub trait BoxRefusalStorage {
+    /// The instance with this identity, or `None` where none is stored.
+    fn get(&self, identity: &crate::placement::BoxId) -> Option<crate::placement::BoxRefusalSnapshot>;
+
+    /// Stores this instance under its identity, replacing what was held.
+    fn put(&mut self, snapshot: crate::placement::BoxRefusalSnapshot);
+
+    /// Removes the instance with this identity.
+    fn delete(&mut self, identity: &crate::placement::BoxId);
+
+    /// Every stored instance, in the order the store keeps them: the order a generated query
+    /// answers an unordered view in.
+    fn list(&self) -> Vec<crate::placement::BoxRefusalSnapshot>;
+}
+
+/// Where `conductor.placement.Placement` is stored — a port the implementor provides.
+///
+/// Keyed by the identity `name`. Generated network entries supply an ephemeral implementation; durable storage remains a port.
+pub trait PlacementStorage {
+    /// The instance with this identity, or `None` where none is stored.
+    fn get(&self, identity: &crate::placement::PlacementName) -> Option<crate::placement::PlacementSnapshot>;
+
+    /// Stores this instance under its identity, replacing what was held.
+    fn put(&mut self, snapshot: crate::placement::PlacementSnapshot);
+
+    /// Removes the instance with this identity.
+    fn delete(&mut self, identity: &crate::placement::PlacementName);
+
+    /// Every stored instance, in the order the store keeps them: the order a generated query
+    /// answers an unordered view in.
+    fn list(&self) -> Vec<crate::placement::PlacementSnapshot>;
+}
+
+/// Where `conductor.secret.Secret` is stored — a port the implementor provides.
+///
+/// Keyed by the identity `name`. Generated network entries supply an ephemeral implementation; durable storage remains a port.
+pub trait SecretStorage {
+    /// The instance with this identity, or `None` where none is stored.
+    fn get(&self, identity: &crate::secret::SecretName) -> Option<crate::secret::SecretSnapshot>;
+
+    /// Stores this instance under its identity, replacing what was held.
+    fn put(&mut self, snapshot: crate::secret::SecretSnapshot);
+
+    /// Removes the instance with this identity.
+    fn delete(&mut self, identity: &crate::secret::SecretName);
+
+    /// Every stored instance, in the order the store keeps them: the order a generated query
+    /// answers an unordered view in.
+    fn list(&self) -> Vec<crate::secret::SecretSnapshot>;
+}
+
 /// Where `conductor.session.Delivery` is stored — a port the implementor provides.
 ///
 /// Keyed by the identity `delivery_id`. Generated network entries supply an ephemeral implementation; durable storage remains a port.
@@ -609,6 +789,60 @@ pub trait RunTickStorage {
     fn list(&self) -> Vec<crate::session::RunTickSnapshot>;
 }
 
+/// Where `conductor.store.Migration` is stored — a port the implementor provides.
+///
+/// Keyed by the identity `instance`. Generated network entries supply an ephemeral implementation; durable storage remains a port.
+pub trait MigrationStorage {
+    /// The instance with this identity, or `None` where none is stored.
+    fn get(&self, identity: &crate::config::InstanceName) -> Option<crate::store::MigrationSnapshot>;
+
+    /// Stores this instance under its identity, replacing what was held.
+    fn put(&mut self, snapshot: crate::store::MigrationSnapshot);
+
+    /// Removes the instance with this identity.
+    fn delete(&mut self, identity: &crate::config::InstanceName);
+
+    /// Every stored instance, in the order the store keeps them: the order a generated query
+    /// answers an unordered view in.
+    fn list(&self) -> Vec<crate::store::MigrationSnapshot>;
+}
+
+/// Where `conductor.store.Store` is stored — a port the implementor provides.
+///
+/// Keyed by the identity `url`. Generated network entries supply an ephemeral implementation; durable storage remains a port.
+pub trait StoreStorage {
+    /// The instance with this identity, or `None` where none is stored.
+    fn get(&self, identity: &crate::store::StoreUrl) -> Option<crate::store::StoreSnapshot>;
+
+    /// Stores this instance under its identity, replacing what was held.
+    fn put(&mut self, snapshot: crate::store::StoreSnapshot);
+
+    /// Removes the instance with this identity.
+    fn delete(&mut self, identity: &crate::store::StoreUrl);
+
+    /// Every stored instance, in the order the store keeps them: the order a generated query
+    /// answers an unordered view in.
+    fn list(&self) -> Vec<crate::store::StoreSnapshot>;
+}
+
+/// Where `conductor.token.PoolToken` is stored — a port the implementor provides.
+///
+/// Keyed by the identity `token_id`. Generated network entries supply an ephemeral implementation; durable storage remains a port.
+pub trait PoolTokenStorage {
+    /// The instance with this identity, or `None` where none is stored.
+    fn get(&self, identity: &crate::token::TokenId) -> Option<crate::token::PoolTokenSnapshot>;
+
+    /// Stores this instance under its identity, replacing what was held.
+    fn put(&mut self, snapshot: crate::token::PoolTokenSnapshot);
+
+    /// Removes the instance with this identity.
+    fn delete(&mut self, identity: &crate::token::TokenId);
+
+    /// Every stored instance, in the order the store keeps them: the order a generated query
+    /// answers an unordered view in.
+    fn list(&self) -> Vec<crate::token::PoolTokenSnapshot>;
+}
+
 /// Where `conductor.tool.ToolCall` is stored — a port the implementor provides.
 ///
 /// Keyed by the identity `tool_call_id`. Generated network entries supply an ephemeral implementation; durable storage remains a port.
@@ -632,15 +866,30 @@ pub trait ToolCallStorage {
 /// This supplies facts, not authority: the context must verify its request-bound proof.
 #[derive(Debug, Clone, Copy)]
 pub enum ExternalCommand<'a> {
+    /// The executing `conductor.agent.RestartAgent` input.
+    ConductorAgentRestartAgent(&'a crate::agent::RestartAgent),
+    /// The executing `conductor.config.PutConfig` input.
+    ConductorConfigPutConfig(&'a crate::config::PutConfig),
+    /// The executing `conductor.instance.RestartInstance` input.
+    ConductorInstanceRestartInstance(&'a crate::instance::RestartInstance),
+    /// The executing `conductor.placement.OpenBox` input.
+    ConductorPlacementOpenBox(&'a crate::placement::OpenBox),
     /// The executing `conductor.session.DeliverMessage` input.
     ConductorSessionDeliverMessage(&'a crate::session::DeliverMessage),
+    /// The executing `conductor.token.LeaseToken` input.
+    ConductorTokenLeaseToken(&'a crate::token::LeaseToken),
 }
 
 impl ExternalCommand<'_> {
     /// The canonical qualified identity of this command.
     pub fn name(&self) -> &'static str {
         match self {
+            Self::ConductorAgentRestartAgent(_) => "conductor.agent.RestartAgent",
+            Self::ConductorConfigPutConfig(_) => "conductor.config.PutConfig",
+            Self::ConductorInstanceRestartInstance(_) => "conductor.instance.RestartInstance",
+            Self::ConductorPlacementOpenBox(_) => "conductor.placement.OpenBox",
             Self::ConductorSessionDeliverMessage(_) => "conductor.session.DeliverMessage",
+            Self::ConductorTokenLeaseToken(_) => "conductor.token.LeaseToken",
         }
     }
 }
@@ -650,6 +899,10 @@ impl ExternalCommand<'_> {
 /// The caller's attributes, the values the model says the implementation assigns, and the answer
 /// to each `external:` branch.
 pub trait Context {
+    /// A new `conductor.config.RevisionId`, which the model says the implementation assigns — a created identity, a
+    /// `{generated: true}` value, or an event field the model leaves undetermined.
+    fn generate_conductor_config_revision_id(&mut self) -> crate::config::RevisionId;
+
     /// A new `conductor.direction.ServingId`, which the model says the implementation assigns — a created identity, a
     /// `{generated: true}` value, or an event field the model leaves undetermined.
     fn generate_conductor_direction_serving_id(&mut self) -> crate::direction::ServingId;
@@ -674,6 +927,10 @@ pub trait Context {
     /// `{generated: true}` value, or an event field the model leaves undetermined.
     fn generate_conductor_host_reclaim_run_id(&mut self) -> crate::host::ReclaimRunId;
 
+    /// A new `conductor.instance.ReconciliationId`, which the model says the implementation assigns — a created identity, a
+    /// `{generated: true}` value, or an event field the model leaves undetermined.
+    fn generate_conductor_instance_reconciliation_id(&mut self) -> crate::instance::ReconciliationId;
+
     /// A new `conductor.observation.BoardId`, which the model says the implementation assigns — a created identity, a
     /// `{generated: true}` value, or an event field the model leaves undetermined.
     fn generate_conductor_observation_board_id(&mut self) -> crate::observation::BoardId;
@@ -686,6 +943,14 @@ pub trait Context {
     /// `{generated: true}` value, or an event field the model leaves undetermined.
     fn generate_conductor_observation_snapshot_id(&mut self) -> crate::observation::SnapshotId;
 
+    /// A new `conductor.placement.BoxId`, which the model says the implementation assigns — a created identity, a
+    /// `{generated: true}` value, or an event field the model leaves undetermined.
+    fn generate_conductor_placement_box_id(&mut self) -> crate::placement::BoxId;
+
+    /// A new `conductor.placement.RefusalReason`, which the model says the implementation assigns — a created identity, a
+    /// `{generated: true}` value, or an event field the model leaves undetermined.
+    fn generate_conductor_placement_refusal_reason(&mut self) -> crate::placement::RefusalReason;
+
     /// A new `conductor.session.DeliveryId`, which the model says the implementation assigns — a created identity, a
     /// `{generated: true}` value, or an event field the model leaves undetermined.
     fn generate_conductor_session_delivery_id(&mut self) -> crate::session::DeliveryId;
@@ -694,9 +959,17 @@ pub trait Context {
     /// `{generated: true}` value, or an event field the model leaves undetermined.
     fn generate_conductor_session_tick_id(&mut self) -> crate::session::TickId;
 
+    /// A new `conductor.token.TokenId`, which the model says the implementation assigns — a created identity, a
+    /// `{generated: true}` value, or an event field the model leaves undetermined.
+    fn generate_conductor_token_token_id(&mut self) -> crate::token::TokenId;
+
     /// A new `conductor.tool.ToolCallId`, which the model says the implementation assigns — a created identity, a
     /// `{generated: true}` value, or an event field the model leaves undetermined.
     fn generate_conductor_tool_tool_call_id(&mut self) -> crate::tool::ToolCallId;
+
+    /// A new `String`, which the model says the implementation assigns — a created identity, a
+    /// `{generated: true}` value, or an event field the model leaves undetermined.
+    fn generate_string(&mut self) -> String;
 
     /// Whether the external branch `outcome` of `command` is taken on this invocation.
     ///
@@ -710,6 +983,8 @@ pub trait Context {
 /// Existing `Context` implementations receive the blanket adapter.
 pub trait TryContext {
 /// Assigns the value, or names the unavailable answer.
+fn try_generate_conductor_config_revision_id(&mut self) -> Result<crate::config::RevisionId, UnmetObligation>;
+/// Assigns the value, or names the unavailable answer.
 fn try_generate_conductor_direction_serving_id(&mut self) -> Result<crate::direction::ServingId, UnmetObligation>;
 /// Assigns the value, or names the unavailable answer.
 fn try_generate_conductor_dispatch_guard_decision_id(&mut self) -> Result<crate::dispatch::GuardDecisionId, UnmetObligation>;
@@ -722,34 +997,50 @@ fn try_generate_conductor_host_grant_id(&mut self) -> Result<crate::host::GrantI
 /// Assigns the value, or names the unavailable answer.
 fn try_generate_conductor_host_reclaim_run_id(&mut self) -> Result<crate::host::ReclaimRunId, UnmetObligation>;
 /// Assigns the value, or names the unavailable answer.
+fn try_generate_conductor_instance_reconciliation_id(&mut self) -> Result<crate::instance::ReconciliationId, UnmetObligation>;
+/// Assigns the value, or names the unavailable answer.
 fn try_generate_conductor_observation_board_id(&mut self) -> Result<crate::observation::BoardId, UnmetObligation>;
 /// Assigns the value, or names the unavailable answer.
 fn try_generate_conductor_observation_observation_id(&mut self) -> Result<crate::observation::ObservationId, UnmetObligation>;
 /// Assigns the value, or names the unavailable answer.
 fn try_generate_conductor_observation_snapshot_id(&mut self) -> Result<crate::observation::SnapshotId, UnmetObligation>;
 /// Assigns the value, or names the unavailable answer.
+fn try_generate_conductor_placement_box_id(&mut self) -> Result<crate::placement::BoxId, UnmetObligation>;
+/// Assigns the value, or names the unavailable answer.
+fn try_generate_conductor_placement_refusal_reason(&mut self) -> Result<crate::placement::RefusalReason, UnmetObligation>;
+/// Assigns the value, or names the unavailable answer.
 fn try_generate_conductor_session_delivery_id(&mut self) -> Result<crate::session::DeliveryId, UnmetObligation>;
 /// Assigns the value, or names the unavailable answer.
 fn try_generate_conductor_session_tick_id(&mut self) -> Result<crate::session::TickId, UnmetObligation>;
 /// Assigns the value, or names the unavailable answer.
+fn try_generate_conductor_token_token_id(&mut self) -> Result<crate::token::TokenId, UnmetObligation>;
+/// Assigns the value, or names the unavailable answer.
 fn try_generate_conductor_tool_tool_call_id(&mut self) -> Result<crate::tool::ToolCallId, UnmetObligation>;
+/// Assigns the value, or names the unavailable answer.
+fn try_generate_string(&mut self) -> Result<String, UnmetObligation>;
 /// Decides the named external branch, or names the unavailable answer.
 fn try_external(&mut self, command: ExternalCommand<'_>, outcome: &'static str) -> Result<bool, UnmetObligation>;
 }
 
 impl<T: Context + ?Sized> TryContext for T {
+fn try_generate_conductor_config_revision_id(&mut self) -> Result<crate::config::RevisionId, UnmetObligation> { Ok(Context::generate_conductor_config_revision_id(self)) }
 fn try_generate_conductor_direction_serving_id(&mut self) -> Result<crate::direction::ServingId, UnmetObligation> { Ok(Context::generate_conductor_direction_serving_id(self)) }
 fn try_generate_conductor_dispatch_guard_decision_id(&mut self) -> Result<crate::dispatch::GuardDecisionId, UnmetObligation> { Ok(Context::generate_conductor_dispatch_guard_decision_id(self)) }
 fn try_generate_conductor_dispatch_message_id(&mut self) -> Result<crate::dispatch::MessageId, UnmetObligation> { Ok(Context::generate_conductor_dispatch_message_id(self)) }
 fn try_generate_conductor_dispatch_resource_request_id(&mut self) -> Result<crate::dispatch::ResourceRequestId, UnmetObligation> { Ok(Context::generate_conductor_dispatch_resource_request_id(self)) }
 fn try_generate_conductor_host_grant_id(&mut self) -> Result<crate::host::GrantId, UnmetObligation> { Ok(Context::generate_conductor_host_grant_id(self)) }
 fn try_generate_conductor_host_reclaim_run_id(&mut self) -> Result<crate::host::ReclaimRunId, UnmetObligation> { Ok(Context::generate_conductor_host_reclaim_run_id(self)) }
+fn try_generate_conductor_instance_reconciliation_id(&mut self) -> Result<crate::instance::ReconciliationId, UnmetObligation> { Ok(Context::generate_conductor_instance_reconciliation_id(self)) }
 fn try_generate_conductor_observation_board_id(&mut self) -> Result<crate::observation::BoardId, UnmetObligation> { Ok(Context::generate_conductor_observation_board_id(self)) }
 fn try_generate_conductor_observation_observation_id(&mut self) -> Result<crate::observation::ObservationId, UnmetObligation> { Ok(Context::generate_conductor_observation_observation_id(self)) }
 fn try_generate_conductor_observation_snapshot_id(&mut self) -> Result<crate::observation::SnapshotId, UnmetObligation> { Ok(Context::generate_conductor_observation_snapshot_id(self)) }
+fn try_generate_conductor_placement_box_id(&mut self) -> Result<crate::placement::BoxId, UnmetObligation> { Ok(Context::generate_conductor_placement_box_id(self)) }
+fn try_generate_conductor_placement_refusal_reason(&mut self) -> Result<crate::placement::RefusalReason, UnmetObligation> { Ok(Context::generate_conductor_placement_refusal_reason(self)) }
 fn try_generate_conductor_session_delivery_id(&mut self) -> Result<crate::session::DeliveryId, UnmetObligation> { Ok(Context::generate_conductor_session_delivery_id(self)) }
 fn try_generate_conductor_session_tick_id(&mut self) -> Result<crate::session::TickId, UnmetObligation> { Ok(Context::generate_conductor_session_tick_id(self)) }
+fn try_generate_conductor_token_token_id(&mut self) -> Result<crate::token::TokenId, UnmetObligation> { Ok(Context::generate_conductor_token_token_id(self)) }
 fn try_generate_conductor_tool_tool_call_id(&mut self) -> Result<crate::tool::ToolCallId, UnmetObligation> { Ok(Context::generate_conductor_tool_tool_call_id(self)) }
+fn try_generate_string(&mut self) -> Result<String, UnmetObligation> { Ok(Context::generate_string(self)) }
 fn try_external(&mut self, command: ExternalCommand<'_>, outcome: &'static str) -> Result<bool, UnmetObligation> { Ok(Context::external(self, command, outcome)) }
 }
 
@@ -770,6 +1061,183 @@ impl<P> Generated<P> {
     /// The generated behaviours, over `ports`.
     pub fn new(ports: P) -> Self {
         Self { ports }
+    }
+}
+
+impl<P: crate::agent::obligations::AttachAgentBehavior> crate::agent::obligations::AttachAgentBehavior for Generated<P> {
+    fn attach_agent(&mut self, input: crate::agent::AttachAgent) -> Result<crate::agent::AttachAgentOutcome, UnmetObligation> {
+        crate::agent::obligations::AttachAgentBehavior::attach_agent(&mut self.ports, input)
+    }
+}
+
+/// `conductor.agent.DeclareAgentKind`, generated: every outcome is one the specification fully determines.
+impl<P> crate::agent::obligations::DeclareAgentKindBehavior for Generated<P>
+where
+    P: AgentKindStorage,
+{
+    fn declare_agent_kind(&mut self, input: crate::agent::DeclareAgentKind) -> Result<crate::agent::DeclareAgentKindOutcome, UnmetObligation> {
+        let _ = &input;
+        // `redeclared`: the default.
+        let Some(held) = AgentKindStorage::get(&self.ports, &input.name) else {
+            let identity: crate::agent::AgentKindName = input.name.clone();
+            let data = crate::agent::AgentKindData {
+                name: identity.clone(),
+                capabilities: input.capabilities.clone(),
+                binary: input.binary.clone(),
+            };
+            let answer = crate::agent::DeclareAgentKindOutcome::Declared { agent_kind_declared: crate::agent::AgentKindDeclared { actor: input.actor.clone(), name: identity.clone(), capabilities: input.capabilities.clone(), binary: input.binary.clone() } };
+            AgentKindStorage::put(&mut self.ports, crate::agent::AnyAgentKind::Available(crate::agent::AgentKind::new(data)).snapshot());
+            return Ok(answer);
+        };
+        let _ = &held;
+        let mut next = held;
+        next.data.capabilities = input.capabilities.clone();
+        next.data.binary = input.binary.clone();
+        let answer = crate::agent::DeclareAgentKindOutcome::Redeclared { agent_kind_declared: crate::agent::AgentKindDeclared { actor: input.actor.clone(), name: input.name.clone(), capabilities: input.capabilities.clone(), binary: input.binary.clone() } };
+        AgentKindStorage::put(&mut self.ports, next);
+        return Ok(answer);
+    }
+}
+
+impl<P: crate::agent::obligations::DeliverToAgentBehavior> crate::agent::obligations::DeliverToAgentBehavior for Generated<P> {
+    fn deliver_to_agent(&mut self, input: crate::agent::DeliverToAgent) -> Result<crate::agent::DeliverToAgentOutcome, UnmetObligation> {
+        crate::agent::obligations::DeliverToAgentBehavior::deliver_to_agent(&mut self.ports, input)
+    }
+}
+
+/// `conductor.agent.RecordAgentReport`, generated: every outcome is one the specification fully determines.
+impl<P> crate::agent::obligations::RecordAgentReportBehavior for Generated<P>
+where
+    P: AgentStorage,
+{
+    fn record_agent_report(&mut self, input: crate::agent::RecordAgentReport) -> Result<crate::agent::RecordAgentReportOutcome, UnmetObligation> {
+        let _ = &input;
+        // `reported`: the default.
+        let Some(held) = AgentStorage::get(&self.ports, &input.name) else {
+            return Ok(crate::agent::RecordAgentReportOutcome::NoSuchAgent { error: crate::agent::AgentNotFound { name: input.name.clone() } });
+        };
+        let _ = &held;
+        let next = held;
+        if let Some(broken) = next.data.broken_invariant() {
+            let capability = "entity invariant";
+            return Err(UnmetObligation { capability, source: broken });
+        }
+        let answer = crate::agent::RecordAgentReportOutcome::Reported { agent_reported: crate::agent::AgentReported { actor: input.actor.clone(), name: input.name.clone(), line: input.line.clone(), exit_code: input.exit_code.clone(), events_path: input.events_path.clone(), reported_at: input.reported_at.clone() } };
+        AgentStorage::put(&mut self.ports, next);
+        return Ok(answer);
+    }
+}
+
+/// `conductor.agent.RestartAgent`, generated: every outcome is one the specification fully determines.
+impl<P> crate::agent::obligations::RestartAgentBehavior for Generated<P>
+where
+    P: TryContext + AgentStorage,
+{
+    fn restart_agent(&mut self, input: crate::agent::RestartAgent) -> Result<crate::agent::RestartAgentOutcome, UnmetObligation> {
+        let _ = &input;
+        // `launch-failed`: an external branch, where the context takes it.
+        if self.ports.try_external(ExternalCommand::ConductorAgentRestartAgent(&input), "launch-failed")? {
+            return Ok(crate::agent::RestartAgentOutcome::LaunchFailed { error: crate::agent::AgentLaunchFailed { name: input.name.clone() } });
+        }
+        // `restarted`: the default.
+        let Some(held) = AgentStorage::get(&self.ports, &input.name) else {
+            return Ok(crate::agent::RestartAgentOutcome::NoSuchAgent { error: crate::agent::AgentNotFound { name: input.name.clone() } });
+        };
+        let _ = &held;
+        let before = held.data.clone();
+        let moved = match held.refine() {
+            crate::agent::AnyAgent::Running(instance) => crate::agent::AnyAgent::Running(instance.restart()),
+            crate::agent::AnyAgent::Stopped(instance) => crate::agent::AnyAgent::Running(instance.restart()),
+        };
+        let mut next = moved.snapshot();
+        next.data.token_owner = input.token_owner.clone();
+        next.data.started_at = input.started_at.clone();
+        next.data.generation = before.generation + 1;
+        next.data.stopped_at = None;
+        next.data.exit_class = None;
+        next.data.exit_code = None;
+        if let Some(broken) = next.data.broken_invariant() {
+            let capability = "entity invariant";
+            return Err(UnmetObligation { capability, source: broken });
+        }
+        let answer = crate::agent::RestartAgentOutcome::Restarted { agent_started: crate::agent::AgentStarted { actor: input.actor.clone(), name: input.name.clone(), instance: before.instance.clone(), role: before.role.clone(), kind: before.kind.clone(), r#box: before.r#box.clone(), token_owner: input.token_owner.clone(), started_at: input.started_at.clone() } };
+        AgentStorage::put(&mut self.ports, next);
+        return Ok(answer);
+    }
+}
+
+impl<P: crate::agent::obligations::StartAgentBehavior> crate::agent::obligations::StartAgentBehavior for Generated<P> {
+    fn start_agent(&mut self, input: crate::agent::StartAgent) -> Result<crate::agent::StartAgentOutcome, UnmetObligation> {
+        crate::agent::obligations::StartAgentBehavior::start_agent(&mut self.ports, input)
+    }
+}
+
+/// `conductor.agent.StopAgent`, generated: every outcome is one the specification fully determines.
+impl<P> crate::agent::obligations::StopAgentBehavior for Generated<P>
+where
+    P: AgentStorage,
+{
+    fn stop_agent(&mut self, input: crate::agent::StopAgent) -> Result<crate::agent::StopAgentOutcome, UnmetObligation> {
+        let _ = &input;
+        // `stopped`: the default.
+        let Some(held) = AgentStorage::get(&self.ports, &input.name) else {
+            return Ok(crate::agent::StopAgentOutcome::NoSuchAgent { error: crate::agent::AgentNotFound { name: input.name.clone() } });
+        };
+        let _ = &held;
+        let moved = match held.refine() {
+            crate::agent::AnyAgent::Running(instance) => crate::agent::AnyAgent::Stopped(instance.stop()),
+            _ => return Ok(crate::agent::StopAgentOutcome::NotRunning { error: crate::agent::AgentNotRunning { name: input.name.clone() } }),
+        };
+        let mut next = moved.snapshot();
+        next.data.stopped_at = Some(input.stopped_at.clone());
+        next.data.exit_class = Some(input.exit_class.clone());
+        next.data.exit_code = input.exit_code.clone();
+        if let Some(broken) = next.data.broken_invariant() {
+            let capability = "entity invariant";
+            return Err(UnmetObligation { capability, source: broken });
+        }
+        let answer = crate::agent::StopAgentOutcome::Stopped { agent_stopped: crate::agent::AgentStopped { actor: input.actor.clone(), name: input.name.clone(), exit_class: input.exit_class.clone(), exit_code: input.exit_code.clone(), stopped_at: input.stopped_at.clone() } };
+        AgentStorage::put(&mut self.ports, next);
+        return Ok(answer);
+    }
+}
+
+/// `conductor.config.PutConfig`, generated: every outcome is one the specification fully determines.
+impl<P> crate::config::obligations::PutConfigBehavior for Generated<P>
+where
+    P: TryContext + ConfigRevisionStorage,
+{
+    fn put_config(&mut self, input: crate::config::PutConfig) -> Result<crate::config::PutConfigOutcome, UnmetObligation> {
+        let _ = &input;
+        // `level-scope-mismatch`: an input-guarded refusal, before the addressed subject is loaded.
+        if decided(any(&[all(&[equal(Some(&input.level).map(|value| match value { crate::config::Level::Global => "Global", crate::config::Level::Instance => "Instance", crate::config::Level::Role => "Role" }.to_owned()), Some("Global".to_owned())), Some(Some(&input.instance).and_then(|value| value.as_ref()).map(|value| &value.0).is_some())]), all(&[equal(Some(&input.level).map(|value| match value { crate::config::Level::Global => "Global", crate::config::Level::Instance => "Instance", crate::config::Level::Role => "Role" }.to_owned()), Some("Global".to_owned())), Some(Some(&input.role).and_then(|value| value.as_ref()).map(|value| &value.0).is_some())]), all(&[equal(Some(&input.level).map(|value| match value { crate::config::Level::Global => "Global", crate::config::Level::Instance => "Instance", crate::config::Level::Role => "Role" }.to_owned()), Some("Instance".to_owned())), (Some(Some(&input.instance).and_then(|value| value.as_ref()).map(|value| &value.0).is_some())).map(|value| !value)]), all(&[equal(Some(&input.level).map(|value| match value { crate::config::Level::Global => "Global", crate::config::Level::Instance => "Instance", crate::config::Level::Role => "Role" }.to_owned()), Some("Instance".to_owned())), Some(Some(&input.role).and_then(|value| value.as_ref()).map(|value| &value.0).is_some())]), all(&[equal(Some(&input.level).map(|value| match value { crate::config::Level::Global => "Global", crate::config::Level::Instance => "Instance", crate::config::Level::Role => "Role" }.to_owned()), Some("Role".to_owned())), (Some(Some(&input.instance).and_then(|value| value.as_ref()).map(|value| &value.0).is_some())).map(|value| !value)]), all(&[equal(Some(&input.level).map(|value| match value { crate::config::Level::Global => "Global", crate::config::Level::Instance => "Instance", crate::config::Level::Role => "Role" }.to_owned()), Some("Role".to_owned())), (Some(Some(&input.role).and_then(|value| value.as_ref()).map(|value| &value.0).is_some())).map(|value| !value)])]), "conductor.config.PutConfig")? {
+            return Ok(crate::config::PutConfigOutcome::LevelScopeMismatch { error: crate::config::LevelScopeMismatch { level: input.level.clone() } });
+        }
+        // `actor-not-human`: an external branch, where the context takes it and its input is eligible.
+        if self.ports.try_external(ExternalCommand::ConductorConfigPutConfig(&input), "actor-not-human")? && decided(equal(Some(&input.actor).map(|value| &value.kind).map(|value| match value { crate::operator::ActorKind::Human => "Human", crate::operator::ActorKind::Agent => "Agent", crate::operator::ActorKind::Daemon => "Daemon" }.to_owned()), Some("Human".to_owned())).map(|value| !value), "conductor.config.PutConfig")? {
+            return Ok(crate::config::PutConfigOutcome::ActorNotHuman { error: crate::operator::ActorNotHuman { actor: input.actor.clone() } });
+        }
+        // `invalid`: an external branch, where the context takes it.
+        if self.ports.try_external(ExternalCommand::ConductorConfigPutConfig(&input), "invalid")? {
+            return Ok(crate::config::PutConfigOutcome::Invalid { error: crate::config::ConfigInvalid { path: input.path.clone() } });
+        }
+        // `changed`: the default.
+        let identity: crate::config::RevisionId = self.ports.try_generate_conductor_config_revision_id()?;
+        let data = crate::config::ConfigRevisionData {
+            revision_id: identity.clone(),
+            actor: input.actor.clone(),
+            level: input.level.clone(),
+            instance: input.instance.clone(),
+            role: input.role.clone(),
+            path: input.path.clone(),
+            value: input.value.clone(),
+            reason: input.reason.clone(),
+            commit: self.ports.try_generate_string()?,
+            changed_at: input.changed_at.clone(),
+        };
+        let answer = crate::config::PutConfigOutcome::Changed { config_changed: crate::config::ConfigChanged { revision_id: identity.clone(), actor: input.actor.clone(), level: input.level.clone(), instance: input.instance.clone(), role: input.role.clone(), path: input.path.clone(), value: input.value.clone(), reason: input.reason.clone() } };
+        ConfigRevisionStorage::put(&mut self.ports, crate::config::AnyConfigRevision::Committed(crate::config::ConfigRevision::new(data)).snapshot());
+        return Ok(answer);
     }
 }
 
@@ -798,7 +1266,7 @@ where
             next.data.recommended_letters = input.recommended_letters.clone();
             next.data.default_letters = input.default_letters.clone();
             next.data.deadline = input.deadline.clone();
-            let answer = crate::decision::AmendEscalatedRequestOutcome::Amended { request_amended: crate::decision::RequestAmended { request_id: input.request_id.clone() } };
+            let answer = crate::decision::AmendEscalatedRequestOutcome::Amended { request_amended: crate::decision::RequestAmended { actor: input.actor.clone(), request_id: input.request_id.clone() } };
             DecisionRequestStorage::put(&mut self.ports, next);
             return Ok(answer);
         }
@@ -823,6 +1291,10 @@ where
             return Ok(crate::decision::AnswerEscalatedRequestOutcome::NoSuchDecision { error: crate::decision::DecisionNotFound { decision_id: input.decision_id.clone() } });
         }
         let _ = &related;
+        // `agent-actor`: an input-guarded refusal, before the addressed subject is loaded.
+        if decided(equal(Some(&input.actor).map(|value| &value.kind).map(|value| match value { crate::operator::ActorKind::Human => "Human", crate::operator::ActorKind::Agent => "Agent", crate::operator::ActorKind::Daemon => "Daemon" }.to_owned()), Some("Human".to_owned())).map(|value| !value), "conductor.decision.AnswerEscalatedRequest")? {
+            return Ok(crate::decision::AnswerEscalatedRequestOutcome::AgentActor { error: crate::operator::ActorNotHuman { actor: input.actor.clone() } });
+        }
         // The addressed row's existence and held state, for the branch the request selects
         // before any present related row's refusal.
         {
@@ -853,7 +1325,7 @@ where
         };
         let mut next = moved.snapshot();
         next.data.decision_id = Some(input.decision_id.clone());
-        let answer = crate::decision::AnswerEscalatedRequestOutcome::Answered { request_answered: crate::decision::RequestAnswered { request_id: input.request_id.clone(), decision_id: input.decision_id.clone() } };
+        let answer = crate::decision::AnswerEscalatedRequestOutcome::Answered { request_answered: crate::decision::RequestAnswered { actor: input.actor.clone(), request_id: input.request_id.clone(), decision_id: input.decision_id.clone() } };
         DecisionRequestStorage::put(&mut self.ports, next);
         return Ok(answer);
     }
@@ -888,6 +1360,12 @@ where
                 }
                 }
         }
+        // `agent-actor`: a present related row's refusal, before every accepting branch.
+        if let Some(related) = &related {
+        if decided(all(&[all(&[equal(Some(&related.data.decision_class).map(|value| match value { crate::decision::DecisionClass::C => "C", crate::decision::DecisionClass::O => "O", crate::decision::DecisionClass::H => "H" }.to_owned()), Some("H".to_owned())), equal(Some(&related.state).map(|value| match value { crate::decision::DecisionState::InForce => "InForce", crate::decision::DecisionState::Reversed => "Reversed" }.to_owned()), Some("InForce".to_owned()))]), equal(Some(&input.actor).map(|value| &value.kind).map(|value| match value { crate::operator::ActorKind::Human => "Human", crate::operator::ActorKind::Agent => "Agent", crate::operator::ActorKind::Daemon => "Daemon" }.to_owned()), Some("Human".to_owned())).map(|value| !value)]), "conductor.decision.AnswerRequest")? {
+            return Ok(crate::decision::AnswerRequestOutcome::AgentActor { error: crate::operator::ActorNotHuman { actor: input.actor.clone() } });
+        }
+        }
         // `reversed`: a present related row's refusal, before every accepting branch.
         if let Some(related) = &related {
         if decided(equal(Some(&related.state).map(|value| match value { crate::decision::DecisionState::InForce => "InForce", crate::decision::DecisionState::Reversed => "Reversed" }.to_owned()), Some("Reversed".to_owned())), "conductor.decision.AnswerRequest")? {
@@ -905,7 +1383,7 @@ where
         };
         let mut next = moved.snapshot();
         next.data.decision_id = Some(input.decision_id.clone());
-        let answer = crate::decision::AnswerRequestOutcome::Answered { request_answered: crate::decision::RequestAnswered { request_id: input.request_id.clone(), decision_id: input.decision_id.clone() } };
+        let answer = crate::decision::AnswerRequestOutcome::Answered { request_answered: crate::decision::RequestAnswered { actor: input.actor.clone(), request_id: input.request_id.clone(), decision_id: input.decision_id.clone() } };
         DecisionRequestStorage::put(&mut self.ports, next);
         return Ok(answer);
     }
@@ -949,7 +1427,7 @@ where
         next.data.recommended_letters = input.recommended_letters.clone();
         next.data.default_letters = input.default_letters.clone();
         next.data.deadline = input.deadline.clone();
-        let answer = crate::decision::EscalateRequestOutcome::Escalated { request_escalated: crate::decision::RequestEscalated { request_id: input.request_id.clone() } };
+        let answer = crate::decision::EscalateRequestOutcome::Escalated { request_escalated: crate::decision::RequestEscalated { actor: input.actor.clone(), request_id: input.request_id.clone() } };
         DecisionRequestStorage::put(&mut self.ports, next);
         return Ok(answer);
     }
@@ -970,6 +1448,7 @@ where
         let identity: crate::decision::RequestId = input.request_id.clone();
         let data = crate::decision::DecisionRequestData {
             request_id: identity.clone(),
+            actor: input.actor.clone(),
             repository: input.repository.clone(),
             question: input.question.clone(),
             options: input.options.clone(),
@@ -988,7 +1467,7 @@ where
             deadline: None,
             decision_id: None,
         };
-        let answer = crate::decision::RaiseDecisionRequestOutcome::Raised { decision_requested: crate::decision::DecisionRequested { request_id: identity.clone(), repository: input.repository.clone() } };
+        let answer = crate::decision::RaiseDecisionRequestOutcome::Raised { decision_requested: crate::decision::DecisionRequested { actor: input.actor.clone(), request_id: identity.clone(), repository: input.repository.clone() } };
         DecisionRequestStorage::put(&mut self.ports, crate::decision::AnyDecisionRequest::Open(crate::decision::DecisionRequest::new(data)).snapshot());
         return Ok(answer);
     }
@@ -1015,6 +1494,7 @@ where
             decision_id: identity.clone(),
             decision_class: input.decision_class.clone(),
             decided_by: crate::decision::Decider::Conductor,
+            actor: input.actor.clone(),
             question: input.question.clone(),
             options: input.options.clone(),
             choice: input.choice.clone(),
@@ -1027,7 +1507,7 @@ where
             decider_name: input.decider_name.clone(),
             prompt_sha256: input.prompt_sha256.clone(),
         };
-        let answer = crate::decision::RecordConductorDecisionOutcome::Recorded { decision_recorded: crate::decision::DecisionRecorded { decision_id: identity.clone(), decision_class: input.decision_class.clone(), decided_by: crate::decision::Decider::Conductor } };
+        let answer = crate::decision::RecordConductorDecisionOutcome::Recorded { decision_recorded: crate::decision::DecisionRecorded { actor: input.actor.clone(), decision_id: identity.clone(), decision_class: input.decision_class.clone(), decided_by: crate::decision::Decider::Conductor } };
         DecisionStorage::put(&mut self.ports, crate::decision::AnyDecision::InForce(crate::decision::Decision::new(data)).snapshot());
         return Ok(answer);
     }
@@ -1040,6 +1520,10 @@ where
 {
     fn record_operator_decision(&mut self, input: crate::decision::RecordOperatorDecision) -> Result<crate::decision::RecordOperatorDecisionOutcome, UnmetObligation> {
         let _ = &input;
+        // `agent-actor`: an input-guarded refusal, before the addressed subject is loaded.
+        if decided(equal(Some(&input.actor).map(|value| &value.kind).map(|value| match value { crate::operator::ActorKind::Human => "Human", crate::operator::ActorKind::Agent => "Agent", crate::operator::ActorKind::Daemon => "Daemon" }.to_owned()), Some("Human".to_owned())).map(|value| !value), "conductor.decision.RecordOperatorDecision")? {
+            return Ok(crate::decision::RecordOperatorDecisionOutcome::AgentActor { error: crate::operator::ActorNotHuman { actor: input.actor.clone() } });
+        }
         // `already-recorded`: an identity a record already carries, before any branch is taken.
         if DecisionStorage::get(&self.ports, &input.decision_id).is_some() {
             return Ok(crate::decision::RecordOperatorDecisionOutcome::AlreadyRecorded { error: crate::decision::DecisionExists { decision_id: input.decision_id.clone() } });
@@ -1050,6 +1534,7 @@ where
             decision_id: identity.clone(),
             decision_class: input.decision_class.clone(),
             decided_by: crate::decision::Decider::Operator,
+            actor: input.actor.clone(),
             question: input.question.clone(),
             options: input.options.clone(),
             choice: input.choice.clone(),
@@ -1062,7 +1547,7 @@ where
             decider_name: None,
             prompt_sha256: None,
         };
-        let answer = crate::decision::RecordOperatorDecisionOutcome::Recorded { decision_recorded: crate::decision::DecisionRecorded { decision_id: identity.clone(), decision_class: input.decision_class.clone(), decided_by: crate::decision::Decider::Operator } };
+        let answer = crate::decision::RecordOperatorDecisionOutcome::Recorded { decision_recorded: crate::decision::DecisionRecorded { actor: input.actor.clone(), decision_id: identity.clone(), decision_class: input.decision_class.clone(), decided_by: crate::decision::Decider::Operator } };
         DecisionStorage::put(&mut self.ports, crate::decision::AnyDecision::InForce(crate::decision::Decision::new(data)).snapshot());
         return Ok(answer);
     }
@@ -1100,7 +1585,7 @@ where
             _ => return Ok(crate::decision::ReverseConductorDecisionOutcome::WrongState { error: crate::decision::DecisionStateConflict { decision_id: input.decision_id.clone() } }),
         };
         let next = moved.snapshot();
-        let answer = crate::decision::ReverseConductorDecisionOutcome::Reversed { decision_reversed_event: crate::decision::DecisionReversedEvent { decision_id: input.decision_id.clone(), reason: input.reason.clone() } };
+        let answer = crate::decision::ReverseConductorDecisionOutcome::Reversed { decision_reversed_event: crate::decision::DecisionReversedEvent { actor: input.actor.clone(), decision_id: input.decision_id.clone(), reason: input.reason.clone() } };
         DecisionStorage::put(&mut self.ports, next);
         return Ok(answer);
     }
@@ -1113,6 +1598,10 @@ where
 {
     fn reverse_operator_decision(&mut self, input: crate::decision::ReverseOperatorDecision) -> Result<crate::decision::ReverseOperatorDecisionOutcome, UnmetObligation> {
         let _ = &input;
+        // `agent-actor`: an input-guarded refusal, before the addressed subject is loaded.
+        if decided(equal(Some(&input.actor).map(|value| &value.kind).map(|value| match value { crate::operator::ActorKind::Human => "Human", crate::operator::ActorKind::Agent => "Agent", crate::operator::ActorKind::Daemon => "Daemon" }.to_owned()), Some("Human".to_owned())).map(|value| !value), "conductor.decision.ReverseOperatorDecision")? {
+            return Ok(crate::decision::ReverseOperatorDecisionOutcome::AgentActor { error: crate::operator::ActorNotHuman { actor: input.actor.clone() } });
+        }
         // `reversed`: the default.
         let Some(held) = DecisionStorage::get(&self.ports, &input.decision_id) else {
             return Ok(crate::decision::ReverseOperatorDecisionOutcome::NoSuchDecision { error: crate::decision::DecisionNotFound { decision_id: input.decision_id.clone() } });
@@ -1123,7 +1612,7 @@ where
             _ => return Ok(crate::decision::ReverseOperatorDecisionOutcome::WrongState { error: crate::decision::DecisionStateConflict { decision_id: input.decision_id.clone() } }),
         };
         let next = moved.snapshot();
-        let answer = crate::decision::ReverseOperatorDecisionOutcome::Reversed { decision_reversed_event: crate::decision::DecisionReversedEvent { decision_id: input.decision_id.clone(), reason: input.reason.clone() } };
+        let answer = crate::decision::ReverseOperatorDecisionOutcome::Reversed { decision_reversed_event: crate::decision::DecisionReversedEvent { actor: input.actor.clone(), decision_id: input.decision_id.clone(), reason: input.reason.clone() } };
         DecisionStorage::put(&mut self.ports, next);
         return Ok(answer);
     }
@@ -1147,7 +1636,7 @@ where
             _ => return Ok(crate::decision::WithdrawRequestOutcome::WrongState { error: crate::decision::RequestStateConflict { request_id: input.request_id.clone() } }),
         };
         let next = moved.snapshot();
-        let answer = crate::decision::WithdrawRequestOutcome::Withdrawn { request_withdrawn: crate::decision::RequestWithdrawn { request_id: input.request_id.clone(), reason: input.reason.clone() } };
+        let answer = crate::decision::WithdrawRequestOutcome::Withdrawn { request_withdrawn: crate::decision::RequestWithdrawn { actor: input.actor.clone(), request_id: input.request_id.clone(), reason: input.reason.clone() } };
         DecisionRequestStorage::put(&mut self.ports, next);
         return Ok(answer);
     }
@@ -1171,9 +1660,10 @@ where
         };
         let mut next = moved.snapshot();
         next.data.marked_by = input.marked_by.clone();
+        next.data.actor = input.actor.clone();
         next.data.session = input.session.clone();
         next.data.reason = input.reason.clone();
-        let answer = crate::direction::ActivateRepositoryOutcome::Activated { repository_activated: crate::direction::RepositoryActivated { repository: input.repository.clone(), marked_by: input.marked_by.clone() } };
+        let answer = crate::direction::ActivateRepositoryOutcome::Activated { repository_activated: crate::direction::RepositoryActivated { actor: input.actor.clone(), repository: input.repository.clone(), marked_by: input.marked_by.clone() } };
         RepositoryMarkStorage::put(&mut self.ports, next);
         return Ok(answer);
     }
@@ -1205,10 +1695,11 @@ where
         let identity: crate::direction::ServingId = self.ports.try_generate_conductor_direction_serving_id()?;
         let data = crate::direction::GoalServingData {
             serving_id: identity.clone(),
+            actor: input.actor.clone(),
             goal_id: input.goal_id.clone(),
             repository: input.repository.clone(),
         };
-        let answer = crate::direction::AddServingOutcome::Added { serving_added: crate::direction::ServingAdded { serving_id: identity.clone(), goal_id: input.goal_id.clone(), repository: input.repository.clone() } };
+        let answer = crate::direction::AddServingOutcome::Added { serving_added: crate::direction::ServingAdded { actor: input.actor.clone(), serving_id: identity.clone(), goal_id: input.goal_id.clone(), repository: input.repository.clone() } };
         GoalServingStorage::put(&mut self.ports, crate::direction::AnyGoalServing::Serving(crate::direction::GoalServing::new(data)).snapshot());
         return Ok(answer);
     }
@@ -1221,6 +1712,10 @@ where
 {
     fn confirm_goal(&mut self, input: crate::direction::ConfirmGoal) -> Result<crate::direction::ConfirmGoalOutcome, UnmetObligation> {
         let _ = &input;
+        // `agent-actor`: an input-guarded refusal, before the addressed subject is loaded.
+        if decided(equal(Some(&input.actor).map(|value| &value.kind).map(|value| match value { crate::operator::ActorKind::Human => "Human", crate::operator::ActorKind::Agent => "Agent", crate::operator::ActorKind::Daemon => "Daemon" }.to_owned()), Some("Human".to_owned())).map(|value| !value), "conductor.direction.ConfirmGoal")? {
+            return Ok(crate::direction::ConfirmGoalOutcome::AgentActor { error: crate::operator::ActorNotHuman { actor: input.actor.clone() } });
+        }
         // `invalid-goal-id`: an input-guarded refusal, before the addressed subject is loaded.
         if decided(any(&[equal(Some(&input.goal_id).map(|value| &value.0).map(|value| value.clone()), Some("".to_owned())), compare_numbers(Some(&input.goal_id).map(|value| &value.0).map(|value| value.len().to_string()), Some("170".to_owned()), core::cmp::Ordering::is_gt)]), "conductor.direction.ConfirmGoal")? {
             return Ok(crate::direction::ConfirmGoalOutcome::InvalidGoalId { error: crate::direction::InvalidGoalId { goal_id: input.goal_id.clone() } });
@@ -1235,7 +1730,7 @@ where
             _ => return Ok(crate::direction::ConfirmGoalOutcome::WrongState { error: crate::direction::GoalStateConflict { goal_id: input.goal_id.clone() } }),
         };
         let next = moved.snapshot();
-        let answer = crate::direction::ConfirmGoalOutcome::Confirmed { goal_confirmed: crate::direction::GoalConfirmed { goal_id: input.goal_id.clone() } };
+        let answer = crate::direction::ConfirmGoalOutcome::Confirmed { goal_confirmed: crate::direction::GoalConfirmed { actor: input.actor.clone(), goal_id: input.goal_id.clone() } };
         GoalStorage::put(&mut self.ports, next);
         return Ok(answer);
     }
@@ -1259,9 +1754,10 @@ where
         };
         let mut next = moved.snapshot();
         next.data.marked_by = input.marked_by.clone();
+        next.data.actor = input.actor.clone();
         next.data.session = input.session.clone();
         next.data.reason = input.reason.clone();
-        let answer = crate::direction::DeactivateRepositoryOutcome::Deactivated { repository_deactivated: crate::direction::RepositoryDeactivated { repository: input.repository.clone(), marked_by: input.marked_by.clone(), reason: input.reason.clone() } };
+        let answer = crate::direction::DeactivateRepositoryOutcome::Deactivated { repository_deactivated: crate::direction::RepositoryDeactivated { actor: input.actor.clone(), repository: input.repository.clone(), marked_by: input.marked_by.clone(), reason: input.reason.clone() } };
         RepositoryMarkStorage::put(&mut self.ports, next);
         return Ok(answer);
     }
@@ -1274,6 +1770,10 @@ where
 {
     fn drop_goal(&mut self, input: crate::direction::DropGoal) -> Result<crate::direction::DropGoalOutcome, UnmetObligation> {
         let _ = &input;
+        // `agent-actor`: an input-guarded refusal, before the addressed subject is loaded.
+        if decided(equal(Some(&input.actor).map(|value| &value.kind).map(|value| match value { crate::operator::ActorKind::Human => "Human", crate::operator::ActorKind::Agent => "Agent", crate::operator::ActorKind::Daemon => "Daemon" }.to_owned()), Some("Human".to_owned())).map(|value| !value), "conductor.direction.DropGoal")? {
+            return Ok(crate::direction::DropGoalOutcome::AgentActor { error: crate::operator::ActorNotHuman { actor: input.actor.clone() } });
+        }
         // `invalid-goal-id`: an input-guarded refusal, before the addressed subject is loaded.
         if decided(any(&[equal(Some(&input.goal_id).map(|value| &value.0).map(|value| value.clone()), Some("".to_owned())), compare_numbers(Some(&input.goal_id).map(|value| &value.0).map(|value| value.len().to_string()), Some("170".to_owned()), core::cmp::Ordering::is_gt)]), "conductor.direction.DropGoal")? {
             return Ok(crate::direction::DropGoalOutcome::InvalidGoalId { error: crate::direction::InvalidGoalId { goal_id: input.goal_id.clone() } });
@@ -1290,7 +1790,7 @@ where
         };
         let mut next = moved.snapshot();
         next.data.reason = Some(input.reason.clone());
-        let answer = crate::direction::DropGoalOutcome::Dropped { goal_dropped: crate::direction::GoalDropped { goal_id: input.goal_id.clone(), reason: input.reason.clone() } };
+        let answer = crate::direction::DropGoalOutcome::Dropped { goal_dropped: crate::direction::GoalDropped { actor: input.actor.clone(), goal_id: input.goal_id.clone(), reason: input.reason.clone() } };
         GoalStorage::put(&mut self.ports, next);
         return Ok(answer);
     }
@@ -1318,7 +1818,7 @@ where
         };
         let mut next = moved.snapshot();
         next.data.evidence = Some(input.evidence.clone());
-        let answer = crate::direction::MarkGoalMetOutcome::Met { goal_met: crate::direction::GoalMet { goal_id: input.goal_id.clone(), evidence: input.evidence.clone() } };
+        let answer = crate::direction::MarkGoalMetOutcome::Met { goal_met: crate::direction::GoalMet { actor: input.actor.clone(), goal_id: input.goal_id.clone(), evidence: input.evidence.clone() } };
         GoalStorage::put(&mut self.ports, next);
         return Ok(answer);
     }
@@ -1341,10 +1841,11 @@ where
             let data = crate::direction::RepositoryMarkData {
                 repository: identity.clone(),
                 marked_by: input.marked_by.clone(),
+                actor: input.actor.clone(),
                 session: input.session.clone(),
                 reason: input.reason.clone(),
             };
-            let answer = crate::direction::MarkRepositoryOutcome::MarkedActive { repository_marked: crate::direction::RepositoryMarked { repository: identity.clone(), activity: input.activity.clone(), marked_by: input.marked_by.clone() } };
+            let answer = crate::direction::MarkRepositoryOutcome::MarkedActive { repository_marked: crate::direction::RepositoryMarked { actor: input.actor.clone(), repository: identity.clone(), activity: input.activity.clone(), marked_by: input.marked_by.clone() } };
             RepositoryMarkStorage::put(&mut self.ports, crate::direction::AnyRepositoryMark::Active(crate::direction::RepositoryMark::new_active(data)).snapshot());
             return Ok(answer);
         }
@@ -1353,10 +1854,11 @@ where
         let data = crate::direction::RepositoryMarkData {
             repository: identity.clone(),
             marked_by: input.marked_by.clone(),
+            actor: input.actor.clone(),
             session: input.session.clone(),
             reason: input.reason.clone(),
         };
-        let answer = crate::direction::MarkRepositoryOutcome::MarkedInactive { repository_marked: crate::direction::RepositoryMarked { repository: identity.clone(), activity: input.activity.clone(), marked_by: input.marked_by.clone() } };
+        let answer = crate::direction::MarkRepositoryOutcome::MarkedInactive { repository_marked: crate::direction::RepositoryMarked { actor: input.actor.clone(), repository: identity.clone(), activity: input.activity.clone(), marked_by: input.marked_by.clone() } };
         RepositoryMarkStorage::put(&mut self.ports, crate::direction::AnyRepositoryMark::Inactive(crate::direction::RepositoryMark::new(data)).snapshot());
         return Ok(answer);
     }
@@ -1381,12 +1883,13 @@ where
         let identity: crate::direction::GoalId = input.goal_id.clone();
         let data = crate::direction::GoalData {
             goal_id: identity.clone(),
+            actor: input.actor.clone(),
             title: input.title.clone(),
             exit_evidence: input.exit_evidence.clone(),
             evidence: None,
             reason: None,
         };
-        let answer = crate::direction::ProposeGoalOutcome::Proposed { goal_proposed: crate::direction::GoalProposed { goal_id: identity.clone(), title: input.title.clone() } };
+        let answer = crate::direction::ProposeGoalOutcome::Proposed { goal_proposed: crate::direction::GoalProposed { actor: input.actor.clone(), goal_id: identity.clone(), title: input.title.clone() } };
         GoalStorage::put(&mut self.ports, crate::direction::AnyGoal::Draft(crate::direction::Goal::new(data)).snapshot());
         return Ok(answer);
     }
@@ -1409,7 +1912,7 @@ where
             _ => return Ok(crate::direction::RemoveServingOutcome::WrongState { error: crate::direction::ServingStateConflict { serving_id: input.serving_id.clone() } }),
         };
         let next = moved.snapshot();
-        let answer = crate::direction::RemoveServingOutcome::Removed { serving_removed: crate::direction::ServingRemoved { serving_id: input.serving_id.clone(), reason: input.reason.clone() } };
+        let answer = crate::direction::RemoveServingOutcome::Removed { serving_removed: crate::direction::ServingRemoved { actor: input.actor.clone(), serving_id: input.serving_id.clone(), reason: input.reason.clone() } };
         GoalServingStorage::put(&mut self.ports, next);
         return Ok(answer);
     }
@@ -1438,7 +1941,7 @@ where
             let capability = "entity invariant";
             return Err(UnmetObligation { capability, source: broken });
         }
-        let answer = crate::dispatch::CancelDispatchOutcome::Cancelled { dispatch_cancelled: crate::dispatch::DispatchCancelled { dispatch_id: input.dispatch_id.clone(), reason: input.reason.clone() } };
+        let answer = crate::dispatch::CancelDispatchOutcome::Cancelled { dispatch_cancelled: crate::dispatch::DispatchCancelled { actor: input.actor.clone(), dispatch_id: input.dispatch_id.clone(), reason: input.reason.clone() } };
         DispatchStorage::put(&mut self.ports, next);
         return Ok(answer);
     }
@@ -1474,7 +1977,7 @@ where
             let capability = "entity invariant";
             return Err(UnmetObligation { capability, source: broken });
         }
-        let answer = crate::dispatch::GrantResourceOutcome::Granted { resource_granted: crate::dispatch::ResourceGranted { resource_request_id: input.resource_request_id.clone() } };
+        let answer = crate::dispatch::GrantResourceOutcome::Granted { resource_granted: crate::dispatch::ResourceGranted { actor: input.actor.clone(), resource_request_id: input.resource_request_id.clone() } };
         ResourceRequestStorage::put(&mut self.ports, next);
         return Ok(answer);
     }
@@ -1506,7 +2009,7 @@ where
             _ => return Ok(crate::dispatch::HandleMessageOutcome::WrongState { error: crate::dispatch::MessageStateConflict { message_id: input.message_id.clone() } }),
         };
         let next = moved.snapshot();
-        let answer = crate::dispatch::HandleMessageOutcome::Handled { message_handled: crate::dispatch::MessageHandled { message_id: input.message_id.clone() } };
+        let answer = crate::dispatch::HandleMessageOutcome::Handled { message_handled: crate::dispatch::MessageHandled { actor: input.actor.clone(), message_id: input.message_id.clone() } };
         MessageStorage::put(&mut self.ports, next);
         return Ok(answer);
     }
@@ -1533,7 +2036,7 @@ where
             let capability = "entity invariant";
             return Err(UnmetObligation { capability, source: broken });
         }
-        let answer = crate::dispatch::PauseControllerOutcome::Paused { controller_paused: crate::dispatch::ControllerPaused { controller_id: input.controller_id.clone() } };
+        let answer = crate::dispatch::PauseControllerOutcome::Paused { controller_paused: crate::dispatch::ControllerPaused { actor: input.actor.clone(), controller_id: input.controller_id.clone() } };
         ControllerStorage::put(&mut self.ports, next);
         return Ok(answer);
     }
@@ -1556,6 +2059,7 @@ where
             let data = crate::dispatch::MessageData {
                 message_id: identity.clone(),
                 sender: input.sender.clone(),
+                actor: input.actor.clone(),
                 recipient: input.recipient.clone(),
                 kind: input.kind.clone(),
                 first_line: input.first_line.clone(),
@@ -1564,7 +2068,7 @@ where
                 body_path: input.body_path.clone(),
                 dispatch_id: None,
             };
-            let answer = crate::dispatch::ReceiveMessageOutcome::Unparsed { message_received: crate::dispatch::MessageReceived { message_id: identity.clone(), sender: input.sender.clone(), kind: input.kind.clone() } };
+            let answer = crate::dispatch::ReceiveMessageOutcome::Unparsed { message_received: crate::dispatch::MessageReceived { actor: input.actor.clone(), message_id: identity.clone(), sender: input.sender.clone(), kind: input.kind.clone() } };
             MessageStorage::put(&mut self.ports, crate::dispatch::AnyMessage::Rejected(crate::dispatch::Message::new_rejected(data)).snapshot());
             return Ok(answer);
         }
@@ -1573,6 +2077,7 @@ where
         let data = crate::dispatch::MessageData {
             message_id: identity.clone(),
             sender: input.sender.clone(),
+            actor: input.actor.clone(),
             recipient: input.recipient.clone(),
             kind: input.kind.clone(),
             first_line: input.first_line.clone(),
@@ -1581,7 +2086,7 @@ where
             body_path: input.body_path.clone(),
             dispatch_id: None,
         };
-        let answer = crate::dispatch::ReceiveMessageOutcome::Received { message_received: crate::dispatch::MessageReceived { message_id: identity.clone(), sender: input.sender.clone(), kind: input.kind.clone() } };
+        let answer = crate::dispatch::ReceiveMessageOutcome::Received { message_received: crate::dispatch::MessageReceived { actor: input.actor.clone(), message_id: identity.clone(), sender: input.sender.clone(), kind: input.kind.clone() } };
         MessageStorage::put(&mut self.ports, crate::dispatch::AnyMessage::Received(crate::dispatch::Message::new(data)).snapshot());
         return Ok(answer);
     }
@@ -1598,6 +2103,7 @@ where
         let identity: crate::dispatch::GuardDecisionId = self.ports.try_generate_conductor_dispatch_guard_decision_id()?;
         let data = crate::dispatch::GuardDecisionData {
             guard_decision_id: identity.clone(),
+            actor: input.actor.clone(),
             repository: input.repository.clone(),
             session_ref: input.session_ref.clone(),
             tool: input.tool.clone(),
@@ -1606,7 +2112,7 @@ where
             reason: input.reason.clone(),
             decided_at: input.decided_at.clone(),
         };
-        let answer = crate::dispatch::RecordGuardDecisionOutcome::Recorded { guard_decision_recorded: crate::dispatch::GuardDecisionRecorded { guard_decision_id: identity.clone(), repository: input.repository.clone(), tool: input.tool.clone(), verdict: input.verdict.clone() } };
+        let answer = crate::dispatch::RecordGuardDecisionOutcome::Recorded { guard_decision_recorded: crate::dispatch::GuardDecisionRecorded { actor: input.actor.clone(), guard_decision_id: identity.clone(), repository: input.repository.clone(), tool: input.tool.clone(), verdict: input.verdict.clone() } };
         GuardDecisionStorage::put(&mut self.ports, crate::dispatch::AnyGuardDecision::Recorded(crate::dispatch::GuardDecision::new(data)).snapshot());
         return Ok(answer);
     }
@@ -1633,7 +2139,7 @@ where
             let capability = "entity invariant";
             return Err(UnmetObligation { capability, source: broken });
         }
-        let answer = crate::dispatch::RefuseResourceOutcome::Refused { resource_refused: crate::dispatch::ResourceRefused { resource_request_id: input.resource_request_id.clone(), reason: input.reason.clone() } };
+        let answer = crate::dispatch::RefuseResourceOutcome::Refused { resource_refused: crate::dispatch::ResourceRefused { actor: input.actor.clone(), resource_request_id: input.resource_request_id.clone(), reason: input.reason.clone() } };
         ResourceRequestStorage::put(&mut self.ports, next);
         return Ok(answer);
     }
@@ -1656,7 +2162,7 @@ where
             _ => return Ok(crate::dispatch::RejectMessageOutcome::WrongState { error: crate::dispatch::MessageStateConflict { message_id: input.message_id.clone() } }),
         };
         let next = moved.snapshot();
-        let answer = crate::dispatch::RejectMessageOutcome::Rejected { message_rejected: crate::dispatch::MessageRejected { message_id: input.message_id.clone(), reason: input.reason.clone() } };
+        let answer = crate::dispatch::RejectMessageOutcome::Rejected { message_rejected: crate::dispatch::MessageRejected { actor: input.actor.clone(), message_id: input.message_id.clone(), reason: input.reason.clone() } };
         MessageStorage::put(&mut self.ports, next);
         return Ok(answer);
     }
@@ -1683,7 +2189,7 @@ where
             let capability = "entity invariant";
             return Err(UnmetObligation { capability, source: broken });
         }
-        let answer = crate::dispatch::ReleaseResourceOutcome::Released { resource_released: crate::dispatch::ResourceReleased { resource_request_id: input.resource_request_id.clone() } };
+        let answer = crate::dispatch::ReleaseResourceOutcome::Released { resource_released: crate::dispatch::ResourceReleased { actor: input.actor.clone(), resource_request_id: input.resource_request_id.clone() } };
         ResourceRequestStorage::put(&mut self.ports, next);
         return Ok(answer);
     }
@@ -1710,7 +2216,7 @@ where
             let capability = "entity invariant";
             return Err(UnmetObligation { capability, source: broken });
         }
-        let answer = crate::dispatch::ReportBlockedOutcome::Blocked { dispatch_blocked: crate::dispatch::DispatchBlocked { dispatch_id: input.dispatch_id.clone(), reason: input.reason.clone() } };
+        let answer = crate::dispatch::ReportBlockedOutcome::Blocked { dispatch_blocked: crate::dispatch::DispatchBlocked { actor: input.actor.clone(), dispatch_id: input.dispatch_id.clone(), reason: input.reason.clone() } };
         DispatchStorage::put(&mut self.ports, next);
         return Ok(answer);
     }
@@ -1739,7 +2245,7 @@ where
             let capability = "entity invariant";
             return Err(UnmetObligation { capability, source: broken });
         }
-        let answer = crate::dispatch::ReportDoneOutcome::Done { dispatch_done: crate::dispatch::DispatchDone { dispatch_id: input.dispatch_id.clone(), evidence: input.evidence.clone() } };
+        let answer = crate::dispatch::ReportDoneOutcome::Done { dispatch_done: crate::dispatch::DispatchDone { actor: input.actor.clone(), dispatch_id: input.dispatch_id.clone(), evidence: input.evidence.clone() } };
         DispatchStorage::put(&mut self.ports, next);
         return Ok(answer);
     }
@@ -1767,7 +2273,7 @@ where
             let capability = "entity invariant";
             return Err(UnmetObligation { capability, source: broken });
         }
-        let answer = crate::dispatch::ReportFailedOutcome::Failed { dispatch_failed: crate::dispatch::DispatchFailed { dispatch_id: input.dispatch_id.clone(), reason: input.reason.clone() } };
+        let answer = crate::dispatch::ReportFailedOutcome::Failed { dispatch_failed: crate::dispatch::DispatchFailed { actor: input.actor.clone(), dispatch_id: input.dispatch_id.clone(), reason: input.reason.clone() } };
         DispatchStorage::put(&mut self.ports, next);
         return Ok(answer);
     }
@@ -1794,7 +2300,7 @@ where
             let capability = "entity invariant";
             return Err(UnmetObligation { capability, source: broken });
         }
-        let answer = crate::dispatch::ReportStartedOutcome::Started { dispatch_started: crate::dispatch::DispatchStarted { dispatch_id: input.dispatch_id.clone() } };
+        let answer = crate::dispatch::ReportStartedOutcome::Started { dispatch_started: crate::dispatch::DispatchStarted { actor: input.actor.clone(), dispatch_id: input.dispatch_id.clone() } };
         DispatchStorage::put(&mut self.ports, next);
         return Ok(answer);
     }
@@ -1821,7 +2327,7 @@ where
             let capability = "entity invariant";
             return Err(UnmetObligation { capability, source: broken });
         }
-        let answer = crate::dispatch::ReportUnblockedOutcome::Unblocked { dispatch_unblocked: crate::dispatch::DispatchUnblocked { dispatch_id: input.dispatch_id.clone() } };
+        let answer = crate::dispatch::ReportUnblockedOutcome::Unblocked { dispatch_unblocked: crate::dispatch::DispatchUnblocked { actor: input.actor.clone(), dispatch_id: input.dispatch_id.clone() } };
         DispatchStorage::put(&mut self.ports, next);
         return Ok(answer);
     }
@@ -1842,6 +2348,7 @@ where
         let identity: crate::dispatch::ResourceRequestId = self.ports.try_generate_conductor_dispatch_resource_request_id()?;
         let data = crate::dispatch::ResourceRequestData {
             resource_request_id: identity.clone(),
+            actor: input.actor.clone(),
             repository: input.repository.clone(),
             resource: input.resource.clone(),
             amount: input.amount.clone(),
@@ -1851,7 +2358,7 @@ where
             let capability = "entity invariant";
             return Err(UnmetObligation { capability, source: broken });
         }
-        let answer = crate::dispatch::RequestResourceOutcome::Requested { resource_requested: crate::dispatch::ResourceRequested { resource_request_id: identity.clone(), repository: input.repository.clone(), resource: input.resource.clone() } };
+        let answer = crate::dispatch::RequestResourceOutcome::Requested { resource_requested: crate::dispatch::ResourceRequested { actor: input.actor.clone(), resource_request_id: identity.clone(), repository: input.repository.clone(), resource: input.resource.clone() } };
         ResourceRequestStorage::put(&mut self.ports, crate::dispatch::AnyResourceRequest::Requested(crate::dispatch::ResourceRequest::new(data)).snapshot());
         return Ok(answer);
     }
@@ -1878,7 +2385,7 @@ where
             let capability = "entity invariant";
             return Err(UnmetObligation { capability, source: broken });
         }
-        let answer = crate::dispatch::ResumeControllerOutcome::Resumed { controller_resumed: crate::dispatch::ControllerResumed { controller_id: input.controller_id.clone() } };
+        let answer = crate::dispatch::ResumeControllerOutcome::Resumed { controller_resumed: crate::dispatch::ControllerResumed { actor: input.actor.clone(), controller_id: input.controller_id.clone() } };
         ControllerStorage::put(&mut self.ports, next);
         return Ok(answer);
     }
@@ -1909,7 +2416,7 @@ where
                 let capability = "entity invariant";
                 return Err(UnmetObligation { capability, source: broken });
             }
-            let answer = crate::dispatch::ReviseCharterOutcome::Revised { charter_revised: crate::dispatch::CharterRevised { controller_id: input.controller_id.clone() } };
+            let answer = crate::dispatch::ReviseCharterOutcome::Revised { charter_revised: crate::dispatch::CharterRevised { actor: input.actor.clone(), controller_id: input.controller_id.clone() } };
             ControllerStorage::put(&mut self.ports, next);
             return Ok(answer);
         }
@@ -1926,7 +2433,7 @@ where
                 let capability = "entity invariant";
                 return Err(UnmetObligation { capability, source: broken });
             }
-            let answer = crate::dispatch::ReviseCharterOutcome::PausedRevised { charter_revised: crate::dispatch::CharterRevised { controller_id: input.controller_id.clone() } };
+            let answer = crate::dispatch::ReviseCharterOutcome::PausedRevised { charter_revised: crate::dispatch::CharterRevised { actor: input.actor.clone(), controller_id: input.controller_id.clone() } };
             ControllerStorage::put(&mut self.ports, next);
             return Ok(answer);
         }
@@ -1962,7 +2469,7 @@ where
         };
         let mut next = moved.snapshot();
         next.data.dispatch_id = Some(input.dispatch_id.clone());
-        let answer = crate::dispatch::RouteNeedOutcome::Routed { need_routed: crate::dispatch::NeedRouted { message_id: input.message_id.clone(), dispatch_id: input.dispatch_id.clone() } };
+        let answer = crate::dispatch::RouteNeedOutcome::Routed { need_routed: crate::dispatch::NeedRouted { actor: input.actor.clone(), message_id: input.message_id.clone(), dispatch_id: input.dispatch_id.clone() } };
         MessageStorage::put(&mut self.ports, next);
         return Ok(answer);
     }
@@ -2006,6 +2513,7 @@ where
         let identity: crate::dispatch::DispatchId = input.dispatch_id.clone();
         let data = crate::dispatch::DispatchData {
             dispatch_id: identity.clone(),
+            actor: input.actor.clone(),
             repository: input.repository.clone(),
             goal_id: input.goal_id.clone(),
             brief: input.brief.clone(),
@@ -2017,7 +2525,7 @@ where
             let capability = "entity invariant";
             return Err(UnmetObligation { capability, source: broken });
         }
-        let answer = crate::dispatch::SendDispatchOutcome::Sent { dispatch_sent: crate::dispatch::DispatchSent { dispatch_id: identity.clone(), repository: input.repository.clone(), goal_id: input.goal_id.clone() } };
+        let answer = crate::dispatch::SendDispatchOutcome::Sent { dispatch_sent: crate::dispatch::DispatchSent { actor: input.actor.clone(), dispatch_id: identity.clone(), repository: input.repository.clone(), goal_id: input.goal_id.clone() } };
         DispatchStorage::put(&mut self.ports, crate::dispatch::AnyDispatch::Sent(crate::dispatch::Dispatch::new(data)).snapshot());
         return Ok(answer);
     }
@@ -2051,7 +2559,7 @@ where
             let capability = "entity invariant";
             return Err(UnmetObligation { capability, source: broken });
         }
-        let answer = crate::dispatch::StopControllerOutcome::Stopped { controller_stopped: crate::dispatch::ControllerStopped { controller_id: input.controller_id.clone(), reason: input.reason.clone() } };
+        let answer = crate::dispatch::StopControllerOutcome::Stopped { controller_stopped: crate::dispatch::ControllerStopped { actor: input.actor.clone(), controller_id: input.controller_id.clone(), reason: input.reason.clone() } };
         ControllerStorage::put(&mut self.ports, next);
         return Ok(answer);
     }
@@ -2079,13 +2587,14 @@ where
                 reclaimed_bytes: input.reclaimed_bytes.clone(),
                 shortfall_bytes: Some(input.shortfall_bytes.clone()),
                 left: input.left.clone(),
+                actor: input.actor.clone(),
                 ran_at: input.ran_at.clone(),
             };
             if let Some(broken) = data.broken_invariant() {
                 let capability = "entity invariant";
                 return Err(UnmetObligation { capability, source: broken });
             }
-            let answer = crate::host::ReclaimOutcome::FloorNotReached { reclaim_floor_not_reached: crate::host::ReclaimFloorNotReached { reclaim_run_id: identity.clone(), reclaimed_bytes: input.reclaimed_bytes.clone(), shortfall_bytes: input.shortfall_bytes.clone() } };
+            let answer = crate::host::ReclaimOutcome::FloorNotReached { reclaim_floor_not_reached: crate::host::ReclaimFloorNotReached { actor: input.actor.clone(), reclaim_run_id: identity.clone(), reclaimed_bytes: input.reclaimed_bytes.clone(), shortfall_bytes: input.shortfall_bytes.clone() } };
             ReclaimRunStorage::put(&mut self.ports, crate::host::AnyReclaimRun::Recorded(crate::host::ReclaimRun::new(data)).snapshot());
             return Ok(answer);
         }
@@ -2099,13 +2608,14 @@ where
             reclaimed_bytes: input.reclaimed_bytes.clone(),
             shortfall_bytes: None,
             left: input.left.clone(),
+            actor: input.actor.clone(),
             ran_at: input.ran_at.clone(),
         };
         if let Some(broken) = data.broken_invariant() {
             let capability = "entity invariant";
             return Err(UnmetObligation { capability, source: broken });
         }
-        let answer = crate::host::ReclaimOutcome::Reclaimed { disk_reclaimed: crate::host::DiskReclaimed { reclaim_run_id: identity.clone(), reclaimed_bytes: input.reclaimed_bytes.clone() } };
+        let answer = crate::host::ReclaimOutcome::Reclaimed { disk_reclaimed: crate::host::DiskReclaimed { actor: input.actor.clone(), reclaim_run_id: identity.clone(), reclaimed_bytes: input.reclaimed_bytes.clone() } };
         ReclaimRunStorage::put(&mut self.ports, crate::host::AnyReclaimRun::Recorded(crate::host::ReclaimRun::new(data)).snapshot());
         return Ok(answer);
     }
@@ -2136,7 +2646,7 @@ where
             let mut next = held;
             next.data.peak_bytes = Some(input.peak_bytes.clone());
             next.data.pauses = input.pauses.clone();
-            let answer = crate::host::RecordPeakOutcome::Recorded { peak_recorded: crate::host::PeakRecorded { grant_id: input.grant_id.clone(), peak_bytes: input.peak_bytes.clone() } };
+            let answer = crate::host::RecordPeakOutcome::Recorded { peak_recorded: crate::host::PeakRecorded { actor: input.actor.clone(), grant_id: input.grant_id.clone(), peak_bytes: input.peak_bytes.clone() } };
             HostGrantStorage::put(&mut self.ports, next);
             return Ok(answer);
         }
@@ -2168,7 +2678,7 @@ where
         next.data.cache_hits = input.cache_hits.clone();
         next.data.cache_misses = input.cache_misses.clone();
         next.data.lane_overrun = input.lane_overrun.clone();
-        let answer = crate::host::ReleaseGrantOutcome::Released { host_grant_released: crate::host::HostGrantReleased { grant_id: input.grant_id.clone(), reason: input.reason.clone() } };
+        let answer = crate::host::ReleaseGrantOutcome::Released { host_grant_released: crate::host::HostGrantReleased { actor: input.actor.clone(), grant_id: input.grant_id.clone(), reason: input.reason.clone() } };
         HostGrantStorage::put(&mut self.ports, next);
         return Ok(answer);
     }
@@ -2201,6 +2711,7 @@ where
             session_id: input.session_id.clone(),
             reclaimed_bytes: None,
             shortfall_bytes: None,
+            actor: input.actor.clone(),
             requested_at: input.requested_at.clone(),
             started_at: None,
             released_at: None,
@@ -2210,7 +2721,7 @@ where
             lane: input.lane.clone(),
             lane_overrun: None,
         };
-        let answer = crate::host::RequestDiskOutcome::Requested { disk_requested: crate::host::DiskRequested { grant_id: identity.clone(), instance: input.instance.clone(), bytes: input.bytes.clone() } };
+        let answer = crate::host::RequestDiskOutcome::Requested { disk_requested: crate::host::DiskRequested { actor: input.actor.clone(), grant_id: identity.clone(), instance: input.instance.clone(), bytes: input.bytes.clone() } };
         HostGrantStorage::put(&mut self.ports, crate::host::AnyHostGrant::Requested(crate::host::HostGrant::new(data)).snapshot());
         return Ok(answer);
     }
@@ -2241,7 +2752,7 @@ where
             let mut next = moved.snapshot();
             next.data.reclaimed_bytes = Some(input.reclaimed_bytes.clone());
             next.data.shortfall_bytes = Some(input.shortfall_bytes.clone());
-            let answer = crate::host::ReserveDiskOutcome::Refused { disk_reservation_refused: crate::host::DiskReservationRefused { grant_id: input.grant_id.clone(), bytes: before.bytes.clone(), shortfall_bytes: input.shortfall_bytes.clone() } };
+            let answer = crate::host::ReserveDiskOutcome::Refused { disk_reservation_refused: crate::host::DiskReservationRefused { actor: input.actor.clone(), grant_id: input.grant_id.clone(), bytes: before.bytes.clone(), shortfall_bytes: input.shortfall_bytes.clone() } };
             HostGrantStorage::put(&mut self.ports, next);
             return Ok(answer);
         }
@@ -2259,7 +2770,7 @@ where
             let mut next = moved.snapshot();
             next.data.reclaimed_bytes = Some(input.reclaimed_bytes.clone());
             next.data.lane = input.lane.clone();
-            let answer = crate::host::ReserveDiskOutcome::GrantedAfterReclaim { disk_reserved: crate::host::DiskReserved { grant_id: input.grant_id.clone(), bytes: before.bytes.clone(), reclaimed_bytes: input.reclaimed_bytes.clone() } };
+            let answer = crate::host::ReserveDiskOutcome::GrantedAfterReclaim { disk_reserved: crate::host::DiskReserved { actor: input.actor.clone(), grant_id: input.grant_id.clone(), bytes: before.bytes.clone(), reclaimed_bytes: input.reclaimed_bytes.clone() } };
             HostGrantStorage::put(&mut self.ports, next);
             return Ok(answer);
         }
@@ -2276,7 +2787,7 @@ where
         let mut next = moved.snapshot();
         next.data.reclaimed_bytes = Some(0);
         next.data.lane = input.lane.clone();
-        let answer = crate::host::ReserveDiskOutcome::Granted { disk_reserved: crate::host::DiskReserved { grant_id: input.grant_id.clone(), bytes: before.bytes.clone(), reclaimed_bytes: 0 } };
+        let answer = crate::host::ReserveDiskOutcome::Granted { disk_reserved: crate::host::DiskReserved { actor: input.actor.clone(), grant_id: input.grant_id.clone(), bytes: before.bytes.clone(), reclaimed_bytes: 0 } };
         HostGrantStorage::put(&mut self.ports, next);
         return Ok(answer);
     }
@@ -2310,7 +2821,7 @@ where
         let mut next = moved.snapshot();
         next.data.process_group = Some(input.process_group.clone());
         next.data.started_at = Some(input.started_at.clone());
-        let answer = crate::host::StartRunOutcome::Started { run_started: crate::host::RunStarted { grant_id: input.grant_id.clone(), process_group: input.process_group.clone() } };
+        let answer = crate::host::StartRunOutcome::Started { run_started: crate::host::RunStarted { actor: input.actor.clone(), grant_id: input.grant_id.clone(), process_group: input.process_group.clone() } };
         HostGrantStorage::put(&mut self.ports, next);
         return Ok(answer);
     }
@@ -2343,6 +2854,7 @@ where
             session_id: None,
             reclaimed_bytes: None,
             shortfall_bytes: None,
+            actor: input.actor.clone(),
             requested_at: input.requested_at.clone(),
             started_at: None,
             released_at: None,
@@ -2352,7 +2864,7 @@ where
             lane: None,
             lane_overrun: None,
         };
-        let answer = crate::host::TakeHostGrantOutcome::Granted { host_grant_taken: crate::host::HostGrantTaken { grant_id: identity.clone(), instance: input.instance.clone(), kind: input.kind.clone() } };
+        let answer = crate::host::TakeHostGrantOutcome::Granted { host_grant_taken: crate::host::HostGrantTaken { actor: input.actor.clone(), grant_id: identity.clone(), instance: input.instance.clone(), kind: input.kind.clone() } };
         HostGrantStorage::put(&mut self.ports, crate::host::AnyHostGrant::Granted(crate::host::HostGrant::new_granted(data)).snapshot());
         return Ok(answer);
     }
@@ -2377,7 +2889,7 @@ where
         let mut next = moved.snapshot();
         next.data.released_at = Some(input.withdrawn_at.clone());
         next.data.release_reason = input.reason.clone();
-        let answer = crate::host::WithdrawDiskRequestOutcome::Withdrawn { disk_request_withdrawn: crate::host::DiskRequestWithdrawn { grant_id: input.grant_id.clone() } };
+        let answer = crate::host::WithdrawDiskRequestOutcome::Withdrawn { disk_request_withdrawn: crate::host::DiskRequestWithdrawn { actor: input.actor.clone(), grant_id: input.grant_id.clone() } };
         HostGrantStorage::put(&mut self.ports, next);
         return Ok(answer);
     }
@@ -2408,8 +2920,9 @@ where
             direction: None,
             target_owner: None,
             target_set_at: None,
+            actor: input.actor.clone(),
         };
-        let answer = crate::improvement::DefineMetricOutcome::Defined { metric_defined: crate::improvement::MetricDefined { metric_id: identity.clone(), name: input.name.clone(), unit: input.unit.clone() } };
+        let answer = crate::improvement::DefineMetricOutcome::Defined { metric_defined: crate::improvement::MetricDefined { actor: input.actor.clone(), metric_id: identity.clone(), name: input.name.clone(), unit: input.unit.clone() } };
         MetricStorage::put(&mut self.ports, crate::improvement::AnyMetric::Untargeted(crate::improvement::Metric::new(data)).snapshot());
         return Ok(answer);
     }
@@ -2433,7 +2946,7 @@ where
         };
         let mut next = moved.snapshot();
         next.data.story = Some(input.story.clone());
-        let answer = crate::improvement::FileFindingOutcome::Filed { finding_filed: crate::improvement::FindingFiled { finding_id: input.finding_id.clone(), story: input.story.clone() } };
+        let answer = crate::improvement::FileFindingOutcome::Filed { finding_filed: crate::improvement::FindingFiled { actor: input.actor.clone(), finding_id: input.finding_id.clone(), story: input.story.clone() } };
         FrictionFindingStorage::put(&mut self.ports, next);
         return Ok(answer);
     }
@@ -2460,7 +2973,7 @@ where
             let mut next = held;
             next.data.target = Some(input.target.clone());
             next.data.met = Some(input.met.clone());
-            let answer = crate::improvement::JudgeMetricReadingOutcome::Judged { metric_reading_judged: crate::improvement::MetricReadingJudged { reading_id: input.reading_id.clone(), target: input.target.clone(), met: input.met.clone() } };
+            let answer = crate::improvement::JudgeMetricReadingOutcome::Judged { metric_reading_judged: crate::improvement::MetricReadingJudged { actor: input.actor.clone(), reading_id: input.reading_id.clone(), target: input.target.clone(), met: input.met.clone() } };
             MetricReadingStorage::put(&mut self.ports, next);
             return Ok(answer);
         }
@@ -2497,10 +3010,11 @@ where
             evidence: input.evidence.clone(),
             metric_id: input.metric_id.clone(),
             raised_at: input.raised_at.clone(),
+            actor: input.actor.clone(),
             story: None,
             verdict: None,
         };
-        let answer = crate::improvement::RaiseFindingOutcome::Raised { finding_raised: crate::improvement::FindingRaised { finding_id: identity.clone(), signature: input.signature.clone(), evidence: input.evidence.clone(), metric_id: input.metric_id.clone() } };
+        let answer = crate::improvement::RaiseFindingOutcome::Raised { finding_raised: crate::improvement::FindingRaised { actor: input.actor.clone(), finding_id: identity.clone(), signature: input.signature.clone(), evidence: input.evidence.clone(), metric_id: input.metric_id.clone() } };
         FrictionFindingStorage::put(&mut self.ports, crate::improvement::AnyFrictionFinding::Open(crate::improvement::FrictionFinding::new(data)).snapshot());
         return Ok(answer);
     }
@@ -2538,8 +3052,9 @@ where
             target: input.target.clone(),
             met: input.met.clone(),
             recorded_at: input.recorded_at.clone(),
+            actor: input.actor.clone(),
         };
-        let answer = crate::improvement::RecordMetricReadingOutcome::Recorded { metric_reading_recorded: crate::improvement::MetricReadingRecorded { reading_id: identity.clone(), metric_id: input.metric_id.clone(), day: input.day.clone(), scope: input.scope.clone(), value: input.value.clone() } };
+        let answer = crate::improvement::RecordMetricReadingOutcome::Recorded { metric_reading_recorded: crate::improvement::MetricReadingRecorded { actor: input.actor.clone(), reading_id: identity.clone(), metric_id: input.metric_id.clone(), day: input.day.clone(), scope: input.scope.clone(), value: input.value.clone() } };
         MetricReadingStorage::put(&mut self.ports, crate::improvement::AnyMetricReading::Recorded(crate::improvement::MetricReading::new(data)).snapshot());
         return Ok(answer);
     }
@@ -2568,7 +3083,7 @@ where
             _ => return Ok(crate::improvement::SupersedeMetricReadingOutcome::WrongState { error: crate::improvement::MetricReadingStateConflict { reading_id: input.reading_id.clone() } }),
         };
         let next = moved.snapshot();
-        let answer = crate::improvement::SupersedeMetricReadingOutcome::Superseded { metric_reading_superseded: crate::improvement::MetricReadingSuperseded { reading_id: input.reading_id.clone(), by: input.by.clone() } };
+        let answer = crate::improvement::SupersedeMetricReadingOutcome::Superseded { metric_reading_superseded: crate::improvement::MetricReadingSuperseded { actor: input.actor.clone(), reading_id: input.reading_id.clone(), by: input.by.clone() } };
         MetricReadingStorage::put(&mut self.ports, next);
         return Ok(answer);
     }
@@ -2593,7 +3108,7 @@ where
             };
             let mut next = moved.snapshot();
             next.data.verdict = Some(input.verdict.clone());
-            let answer = crate::improvement::VerifyFindingOutcome::Verified { finding_verified: crate::improvement::FindingVerified { finding_id: input.finding_id.clone(), verdict: input.verdict.clone() } };
+            let answer = crate::improvement::VerifyFindingOutcome::Verified { finding_verified: crate::improvement::FindingVerified { actor: input.actor.clone(), finding_id: input.finding_id.clone(), verdict: input.verdict.clone() } };
             FrictionFindingStorage::put(&mut self.ports, next);
             return Ok(answer);
         }
@@ -2608,9 +3123,243 @@ where
         };
         let mut next = moved.snapshot();
         next.data.verdict = Some(input.verdict.clone());
-        let answer = crate::improvement::VerifyFindingOutcome::Closed { finding_closed: crate::improvement::FindingClosed { finding_id: input.finding_id.clone(), verdict: input.verdict.clone() } };
+        let answer = crate::improvement::VerifyFindingOutcome::Closed { finding_closed: crate::improvement::FindingClosed { actor: input.actor.clone(), finding_id: input.finding_id.clone(), verdict: input.verdict.clone() } };
         FrictionFindingStorage::put(&mut self.ports, next);
         return Ok(answer);
+    }
+}
+
+/// `conductor.instance.ObserveInstance`, generated: every outcome is one the specification fully determines.
+impl<P> crate::instance::obligations::ObserveInstanceBehavior for Generated<P>
+where
+    P: InstanceStorage,
+{
+    fn observe_instance(&mut self, input: crate::instance::ObserveInstance) -> Result<crate::instance::ObserveInstanceOutcome, UnmetObligation> {
+        let _ = &input;
+        // `answering`: an accepting branch, in declaration order.
+        if decided(equal(Some(&input.answering).map(|value| *value), Some(true)), "conductor.instance.ObserveInstance")? {
+            let Some(held) = InstanceStorage::get(&self.ports, &input.name) else {
+                return Ok(crate::instance::ObserveInstanceOutcome::Unknown { error: crate::instance::UnknownInstance { name: input.name.clone() } });
+            };
+            let _ = &held;
+            let moved = match held.refine() {
+                crate::instance::AnyInstance::Running(instance) => crate::instance::AnyInstance::Running(instance.come_up()),
+                crate::instance::AnyInstance::Starting(instance) => crate::instance::AnyInstance::Running(instance.come_up()),
+                crate::instance::AnyInstance::Unreachable(instance) => crate::instance::AnyInstance::Running(instance.come_up()),
+                crate::instance::AnyInstance::Upgrading(instance) => crate::instance::AnyInstance::Running(instance.come_up()),
+                _ => return Ok(crate::instance::ObserveInstanceOutcome::NotRunning { error: crate::instance::InstanceStateConflict { name: input.name.clone() } }),
+            };
+            let mut next = moved.snapshot();
+            next.data.binary_version = input.binary_version.clone();
+            next.data.last_seen = Some(input.at.clone());
+            next.data.changed_by = input.actor.clone();
+            let answer = crate::instance::ObserveInstanceOutcome::Answering { instance_answered: crate::instance::InstanceAnswered { actor: input.actor.clone(), name: input.name.clone(), binary_version: input.binary_version.clone(), at: input.at.clone() } };
+            InstanceStorage::put(&mut self.ports, next);
+            return Ok(answer);
+        }
+        // `not-answering`: the default.
+        let Some(held) = InstanceStorage::get(&self.ports, &input.name) else {
+            return Ok(crate::instance::ObserveInstanceOutcome::Unknown { error: crate::instance::UnknownInstance { name: input.name.clone() } });
+        };
+        let _ = &held;
+        let moved = match held.refine() {
+            crate::instance::AnyInstance::Running(instance) => crate::instance::AnyInstance::Unreachable(instance.lose()),
+            crate::instance::AnyInstance::Starting(instance) => crate::instance::AnyInstance::Unreachable(instance.lose()),
+            crate::instance::AnyInstance::Unreachable(instance) => crate::instance::AnyInstance::Unreachable(instance.lose()),
+            crate::instance::AnyInstance::Upgrading(instance) => crate::instance::AnyInstance::Unreachable(instance.lose()),
+            _ => return Ok(crate::instance::ObserveInstanceOutcome::NotRunning { error: crate::instance::InstanceStateConflict { name: input.name.clone() } }),
+        };
+        let mut next = moved.snapshot();
+        next.data.changed_by = input.actor.clone();
+        let answer = crate::instance::ObserveInstanceOutcome::NotAnswering { instance_unreachable: crate::instance::InstanceUnreachable { actor: input.actor.clone(), name: input.name.clone(), at: input.at.clone() } };
+        InstanceStorage::put(&mut self.ports, next);
+        return Ok(answer);
+    }
+}
+
+/// `conductor.instance.PurgeInstance`, generated: every outcome is one the specification fully determines.
+impl<P> crate::instance::obligations::PurgeInstanceBehavior for Generated<P>
+where
+    P: InstanceStorage,
+{
+    fn purge_instance(&mut self, input: crate::instance::PurgeInstance) -> Result<crate::instance::PurgeInstanceOutcome, UnmetObligation> {
+        let _ = &input;
+        // `actor-not-human`: an input-guarded refusal, before the addressed subject is loaded.
+        if decided(equal(Some(&input.actor).map(|value| &value.kind).map(|value| match value { crate::operator::ActorKind::Human => "Human", crate::operator::ActorKind::Agent => "Agent", crate::operator::ActorKind::Daemon => "Daemon" }.to_owned()), Some("Human".to_owned())).map(|value| !value), "conductor.instance.PurgeInstance")? {
+            return Ok(crate::instance::PurgeInstanceOutcome::ActorNotHuman { error: crate::operator::ActorNotHuman { actor: input.actor.clone() } });
+        }
+        // `purged`: the default.
+        let Some(held) = InstanceStorage::get(&self.ports, &input.name) else {
+            return Ok(crate::instance::PurgeInstanceOutcome::Unknown { error: crate::instance::UnknownInstance { name: input.name.clone() } });
+        };
+        let _ = &held;
+        let moved = match held.refine() {
+            crate::instance::AnyInstance::Stopped(instance) => crate::instance::AnyInstance::Purged(instance.purge()),
+            _ => return Ok(crate::instance::PurgeInstanceOutcome::NotStopped { error: crate::instance::InstanceStateConflict { name: input.name.clone() } }),
+        };
+        let mut next = moved.snapshot();
+        next.data.changed_by = input.actor.clone();
+        let answer = crate::instance::PurgeInstanceOutcome::Purged { instance_purged: crate::instance::InstancePurged { actor: input.actor.clone(), name: input.name.clone(), at: input.at.clone() } };
+        InstanceStorage::put(&mut self.ports, next);
+        return Ok(answer);
+    }
+}
+
+/// `conductor.instance.Reconcile`, generated: every outcome is one the specification fully determines.
+impl<P> crate::instance::obligations::ReconcileBehavior for Generated<P>
+where
+    P: TryContext + ReconciliationStorage,
+{
+    fn reconcile(&mut self, input: crate::instance::Reconcile) -> Result<crate::instance::ReconcileOutcome, UnmetObligation> {
+        let _ = &input;
+        // `recorded`: the default.
+        let identity: crate::instance::ReconciliationId = self.ports.try_generate_conductor_instance_reconciliation_id()?;
+        let data = crate::instance::ReconciliationData {
+            reconciliation_id: identity.clone(),
+            instance: input.instance.clone(),
+            action: input.action.clone(),
+            reason: input.reason.clone(),
+            result: input.result.clone(),
+            detail: input.detail.clone(),
+            actor: input.actor.clone(),
+            at: input.at.clone(),
+        };
+        let answer = crate::instance::ReconcileOutcome::Recorded { instance_reconciled: crate::instance::InstanceReconciled { reconciliation_id: identity.clone(), actor: input.actor.clone(), instance: input.instance.clone(), action: input.action.clone(), reason: input.reason.clone(), result: input.result.clone(), at: input.at.clone() } };
+        ReconciliationStorage::put(&mut self.ports, crate::instance::AnyReconciliation::Recorded(crate::instance::Reconciliation::new(data)).snapshot());
+        return Ok(answer);
+    }
+}
+
+/// `conductor.instance.RestartInstance`, generated: every outcome is one the specification fully determines.
+impl<P> crate::instance::obligations::RestartInstanceBehavior for Generated<P>
+where
+    P: TryContext + InstanceStorage,
+{
+    fn restart_instance(&mut self, input: crate::instance::RestartInstance) -> Result<crate::instance::RestartInstanceOutcome, UnmetObligation> {
+        let _ = &input;
+        // `placement-refused`: an external branch, where the context takes it.
+        if self.ports.try_external(ExternalCommand::ConductorInstanceRestartInstance(&input), "placement-refused")? {
+            return Ok(crate::instance::RestartInstanceOutcome::PlacementRefused { error: crate::instance::PlacementRefused { name: input.name.clone(), placement: input.placement.clone() } });
+        }
+        // `restarted`: the default.
+        let Some(held) = InstanceStorage::get(&self.ports, &input.name) else {
+            return Ok(crate::instance::RestartInstanceOutcome::Unknown { error: crate::instance::UnknownInstance { name: input.name.clone() } });
+        };
+        let _ = &held;
+        let moved = match held.refine() {
+            crate::instance::AnyInstance::Running(instance) => crate::instance::AnyInstance::Starting(instance.restart()),
+            crate::instance::AnyInstance::Unreachable(instance) => crate::instance::AnyInstance::Starting(instance.restart()),
+            _ => return Ok(crate::instance::RestartInstanceOutcome::NotRunning { error: crate::instance::InstanceStateConflict { name: input.name.clone() } }),
+        };
+        let mut next = moved.snapshot();
+        next.data.placement = input.placement.clone();
+        next.data.roles = input.roles.clone();
+        next.data.box_id = Some(input.box_id.clone());
+        next.data.changed_by = input.actor.clone();
+        let answer = crate::instance::RestartInstanceOutcome::Restarted { instance_restarted: crate::instance::InstanceRestarted { actor: input.actor.clone(), name: input.name.clone(), placement: input.placement.clone(), box_id: input.box_id.clone(), at: input.at.clone() } };
+        InstanceStorage::put(&mut self.ports, next);
+        return Ok(answer);
+    }
+}
+
+impl<P: crate::instance::obligations::StartInstanceBehavior> crate::instance::obligations::StartInstanceBehavior for Generated<P> {
+    fn start_instance(&mut self, input: crate::instance::StartInstance) -> Result<crate::instance::StartInstanceOutcome, UnmetObligation> {
+        crate::instance::obligations::StartInstanceBehavior::start_instance(&mut self.ports, input)
+    }
+}
+
+/// `conductor.instance.StopInstance`, generated: every outcome is one the specification fully determines.
+impl<P> crate::instance::obligations::StopInstanceBehavior for Generated<P>
+where
+    P: InstanceStorage,
+{
+    fn stop_instance(&mut self, input: crate::instance::StopInstance) -> Result<crate::instance::StopInstanceOutcome, UnmetObligation> {
+        let _ = &input;
+        // The addressed row, read before the branches that select by it.
+        let Some(held) = InstanceStorage::get(&self.ports, &input.name) else {
+            return Ok(crate::instance::StopInstanceOutcome::Unknown { error: crate::instance::UnknownInstance { name: input.name.clone() } });
+        };
+        let _ = &held;
+        // `stopped`: selected by the addressed row.
+        if decided(Some(matches!(held.state, crate::instance::InstanceState::Running | crate::instance::InstanceState::Starting | crate::instance::InstanceState::Unreachable | crate::instance::InstanceState::Upgrading)), "conductor.instance.StopInstance")? {
+            let Some(held) = InstanceStorage::get(&self.ports, &input.name) else {
+                return Ok(crate::instance::StopInstanceOutcome::Unknown { error: crate::instance::UnknownInstance { name: input.name.clone() } });
+            };
+            let _ = &held;
+            let moved = match held.refine() {
+                crate::instance::AnyInstance::Running(instance) => crate::instance::AnyInstance::Stopped(instance.stop()),
+                crate::instance::AnyInstance::Starting(instance) => crate::instance::AnyInstance::Stopped(instance.stop()),
+                crate::instance::AnyInstance::Unreachable(instance) => crate::instance::AnyInstance::Stopped(instance.stop()),
+                crate::instance::AnyInstance::Upgrading(instance) => crate::instance::AnyInstance::Stopped(instance.stop()),
+                _ => return Err(undeclared("conductor.instance.StopInstance")),
+            };
+            let mut next = moved.snapshot();
+            next.data.box_id = None;
+            next.data.changed_by = input.actor.clone();
+            let answer = crate::instance::StopInstanceOutcome::Stopped { instance_stopped: crate::instance::InstanceStopped { actor: input.actor.clone(), name: input.name.clone(), at: input.at.clone() } };
+            InstanceStorage::put(&mut self.ports, next);
+            return Ok(answer);
+        }
+        // `already-stopped`: selected by the addressed row.
+        if decided(Some(matches!(held.state, crate::instance::InstanceState::Stopped)), "conductor.instance.StopInstance")? {
+            let Some(held) = InstanceStorage::get(&self.ports, &input.name) else {
+                return Ok(crate::instance::StopInstanceOutcome::Unknown { error: crate::instance::UnknownInstance { name: input.name.clone() } });
+            };
+            let _ = &held;
+            let answer = crate::instance::StopInstanceOutcome::AlreadyStopped;
+            return Ok(answer);
+        }
+        // `purged`: the default.
+        return Ok(crate::instance::StopInstanceOutcome::Purged { error: crate::instance::InstanceStateConflict { name: input.name.clone() } });
+    }
+}
+
+/// `conductor.instance.UpgradeInstance`, generated: every outcome is one the specification fully determines.
+impl<P> crate::instance::obligations::UpgradeInstanceBehavior for Generated<P>
+where
+    P: InstanceStorage,
+{
+    fn upgrade_instance(&mut self, input: crate::instance::UpgradeInstance) -> Result<crate::instance::UpgradeInstanceOutcome, UnmetObligation> {
+        let _ = &input;
+        // The addressed row, read before the branches that select by it.
+        let Some(held) = InstanceStorage::get(&self.ports, &input.name) else {
+            return Ok(crate::instance::UpgradeInstanceOutcome::Unknown { error: crate::instance::UnknownInstance { name: input.name.clone() } });
+        };
+        let _ = &held;
+        // `upgrading`: selected by the addressed row.
+        if decided(Some(matches!(held.state, crate::instance::InstanceState::Running)), "conductor.instance.UpgradeInstance")? {
+            let Some(held) = InstanceStorage::get(&self.ports, &input.name) else {
+                return Ok(crate::instance::UpgradeInstanceOutcome::Unknown { error: crate::instance::UnknownInstance { name: input.name.clone() } });
+            };
+            let _ = &held;
+            let moved = match held.refine() {
+                crate::instance::AnyInstance::Running(instance) => crate::instance::AnyInstance::Upgrading(instance.upgrade()),
+                _ => return Err(undeclared("conductor.instance.UpgradeInstance")),
+            };
+            let mut next = moved.snapshot();
+            next.data.changed_by = input.actor.clone();
+            let answer = crate::instance::UpgradeInstanceOutcome::Upgrading { instance_upgrading: crate::instance::InstanceUpgrading { actor: input.actor.clone(), name: input.name.clone(), binary_version: input.binary_version.clone(), at: input.at.clone() } };
+            InstanceStorage::put(&mut self.ports, next);
+            return Ok(answer);
+        }
+        // `rolled-back`: selected by the addressed row.
+        if decided(Some(matches!(held.state, crate::instance::InstanceState::Upgrading)), "conductor.instance.UpgradeInstance")? {
+            let Some(held) = InstanceStorage::get(&self.ports, &input.name) else {
+                return Ok(crate::instance::UpgradeInstanceOutcome::Unknown { error: crate::instance::UnknownInstance { name: input.name.clone() } });
+            };
+            let _ = &held;
+            let moved = match held.refine() {
+                crate::instance::AnyInstance::Upgrading(instance) => crate::instance::AnyInstance::Starting(instance.roll_back()),
+                _ => return Err(undeclared("conductor.instance.UpgradeInstance")),
+            };
+            let mut next = moved.snapshot();
+            next.data.changed_by = input.actor.clone();
+            let answer = crate::instance::UpgradeInstanceOutcome::RolledBack { instance_rolled_back: crate::instance::InstanceRolledBack { actor: input.actor.clone(), name: input.name.clone(), binary_version: input.binary_version.clone(), at: input.at.clone() } };
+            InstanceStorage::put(&mut self.ports, next);
+            return Ok(answer);
+        }
+        // `not-running`: the default.
+        return Ok(crate::instance::UpgradeInstanceOutcome::NotRunning { error: crate::instance::InstanceStateConflict { name: input.name.clone() } });
     }
 }
 
@@ -2635,7 +3384,7 @@ where
             let capability = "entity invariant";
             return Err(UnmetObligation { capability, source: broken });
         }
-        let answer = crate::observation::CompleteSnapshotOutcome::Completed { snapshot_completed: crate::observation::SnapshotCompleted { snapshot_id: input.snapshot_id.clone() } };
+        let answer = crate::observation::CompleteSnapshotOutcome::Completed { snapshot_completed: crate::observation::SnapshotCompleted { actor: input.actor.clone(), snapshot_id: input.snapshot_id.clone() } };
         SnapshotStorage::put(&mut self.ports, next);
         return Ok(answer);
     }
@@ -2663,7 +3412,7 @@ where
             let capability = "entity invariant";
             return Err(UnmetObligation { capability, source: broken });
         }
-        let answer = crate::observation::FailSnapshotOutcome::Failed { snapshot_failed: crate::observation::SnapshotFailed { snapshot_id: input.snapshot_id.clone(), reason: input.reason.clone() } };
+        let answer = crate::observation::FailSnapshotOutcome::Failed { snapshot_failed: crate::observation::SnapshotFailed { actor: input.actor.clone(), snapshot_id: input.snapshot_id.clone(), reason: input.reason.clone() } };
         SnapshotStorage::put(&mut self.ports, next);
         return Ok(answer);
     }
@@ -2699,6 +3448,7 @@ where
         let identity: crate::observation::BoardId = self.ports.try_generate_conductor_observation_board_id()?;
         let data = crate::observation::BoardData {
             board_id: identity.clone(),
+            actor: input.actor.clone(),
             snapshot_id: input.snapshot_id.clone(),
             previous_snapshot_id: input.previous_snapshot_id.clone(),
             deviation_rows: input.deviation_rows.clone(),
@@ -2708,7 +3458,7 @@ where
             let capability = "entity invariant";
             return Err(UnmetObligation { capability, source: broken });
         }
-        let answer = crate::observation::PublishBoardOutcome::Published { board_published: crate::observation::BoardPublished { board_id: identity.clone(), snapshot_id: input.snapshot_id.clone(), deviation_rows: input.deviation_rows.clone() } };
+        let answer = crate::observation::PublishBoardOutcome::Published { board_published: crate::observation::BoardPublished { actor: input.actor.clone(), board_id: identity.clone(), snapshot_id: input.snapshot_id.clone(), deviation_rows: input.deviation_rows.clone() } };
         BoardStorage::put(&mut self.ports, crate::observation::AnyBoard::Published(crate::observation::Board::new(data)).snapshot());
         return Ok(answer);
     }
@@ -2740,13 +3490,14 @@ where
         let identity: crate::observation::ObservationId = self.ports.try_generate_conductor_observation_observation_id()?;
         let data = crate::observation::BlockerObservationData {
             observation_id: identity.clone(),
+            actor: input.actor.clone(),
             snapshot_id: input.snapshot_id.clone(),
             repository: input.repository.clone(),
             reference: input.reference.clone(),
             blocker_kind: input.blocker_kind.clone(),
             title: input.title.clone(),
         };
-        let answer = crate::observation::RecordBlockerOutcome::Recorded { blocker_recorded: crate::observation::BlockerRecorded { observation_id: identity.clone(), snapshot_id: input.snapshot_id.clone(), repository: input.repository.clone(), reference: input.reference.clone() } };
+        let answer = crate::observation::RecordBlockerOutcome::Recorded { blocker_recorded: crate::observation::BlockerRecorded { actor: input.actor.clone(), observation_id: identity.clone(), snapshot_id: input.snapshot_id.clone(), repository: input.repository.clone(), reference: input.reference.clone() } };
         BlockerObservationStorage::put(&mut self.ports, crate::observation::AnyBlockerObservation::Recorded(crate::observation::BlockerObservation::new(data)).snapshot());
         return Ok(answer);
     }
@@ -2782,6 +3533,7 @@ where
         let identity: crate::observation::ObservationId = self.ports.try_generate_conductor_observation_observation_id()?;
         let data = crate::observation::CollectorRunObservationData {
             observation_id: identity.clone(),
+            actor: input.actor.clone(),
             snapshot_id: input.snapshot_id.clone(),
             collector: input.collector.clone(),
             started_at: input.started_at.clone(),
@@ -2794,7 +3546,7 @@ where
             let capability = "entity invariant";
             return Err(UnmetObligation { capability, source: broken });
         }
-        let answer = crate::observation::RecordCollectorRunOutcome::Recorded { collector_run_recorded: crate::observation::CollectorRunRecorded { observation_id: identity.clone(), snapshot_id: input.snapshot_id.clone(), collector: input.collector.clone(), duration_ms: input.duration_ms.clone(), outcome: input.outcome.clone() } };
+        let answer = crate::observation::RecordCollectorRunOutcome::Recorded { collector_run_recorded: crate::observation::CollectorRunRecorded { actor: input.actor.clone(), observation_id: identity.clone(), snapshot_id: input.snapshot_id.clone(), collector: input.collector.clone(), duration_ms: input.duration_ms.clone(), outcome: input.outcome.clone() } };
         CollectorRunObservationStorage::put(&mut self.ports, crate::observation::AnyCollectorRunObservation::Recorded(crate::observation::CollectorRunObservation::new(data)).snapshot());
         return Ok(answer);
     }
@@ -2815,6 +3567,7 @@ where
         let identity: crate::observation::DailySeriesId = input.daily_series_id.clone();
         let data = crate::observation::DailySeriesData {
             daily_series_id: identity.clone(),
+            actor: input.actor.clone(),
             series: input.series.clone(),
             day: input.day.clone(),
             by: input.by.clone(),
@@ -2823,7 +3576,7 @@ where
             items: input.items.clone(),
             snapshot_id: input.snapshot_id.clone(),
         };
-        let answer = crate::observation::RecordDailySeriesOutcome::Recorded { daily_series_recorded: crate::observation::DailySeriesRecorded { daily_series_id: identity.clone(), snapshot_id: input.snapshot_id.clone() } };
+        let answer = crate::observation::RecordDailySeriesOutcome::Recorded { daily_series_recorded: crate::observation::DailySeriesRecorded { actor: input.actor.clone(), daily_series_id: identity.clone(), snapshot_id: input.snapshot_id.clone() } };
         DailySeriesStorage::put(&mut self.ports, crate::observation::AnyDailySeries::Recorded(crate::observation::DailySeries::new(data)).snapshot());
         return Ok(answer);
     }
@@ -2855,12 +3608,13 @@ where
         let identity: crate::observation::ObservationId = self.ports.try_generate_conductor_observation_observation_id()?;
         let data = crate::observation::MemberFailureObservationData {
             observation_id: identity.clone(),
+            actor: input.actor.clone(),
             snapshot_id: input.snapshot_id.clone(),
             member: input.member.clone(),
             collector: input.collector.clone(),
             error_line: input.error_line.clone(),
         };
-        let answer = crate::observation::RecordMemberFailureOutcome::Recorded { member_failure_recorded: crate::observation::MemberFailureRecorded { observation_id: identity.clone(), snapshot_id: input.snapshot_id.clone(), member: input.member.clone(), collector: input.collector.clone() } };
+        let answer = crate::observation::RecordMemberFailureOutcome::Recorded { member_failure_recorded: crate::observation::MemberFailureRecorded { actor: input.actor.clone(), observation_id: identity.clone(), snapshot_id: input.snapshot_id.clone(), member: input.member.clone(), collector: input.collector.clone() } };
         MemberFailureObservationStorage::put(&mut self.ports, crate::observation::AnyMemberFailureObservation::Recorded(crate::observation::MemberFailureObservation::new(data)).snapshot());
         return Ok(answer);
     }
@@ -2896,6 +3650,7 @@ where
         let identity: crate::observation::ObservationId = self.ports.try_generate_conductor_observation_observation_id()?;
         let data = crate::observation::MergedPullRequestObservationData {
             observation_id: identity.clone(),
+            actor: input.actor.clone(),
             snapshot_id: input.snapshot_id.clone(),
             repository: input.repository.clone(),
             number: input.number.clone(),
@@ -2907,7 +3662,7 @@ where
             let capability = "entity invariant";
             return Err(UnmetObligation { capability, source: broken });
         }
-        let answer = crate::observation::RecordMergedPullRequestOutcome::Recorded { merged_pull_request_recorded: crate::observation::MergedPullRequestRecorded { observation_id: identity.clone(), snapshot_id: input.snapshot_id.clone(), repository: input.repository.clone(), number: input.number.clone() } };
+        let answer = crate::observation::RecordMergedPullRequestOutcome::Recorded { merged_pull_request_recorded: crate::observation::MergedPullRequestRecorded { actor: input.actor.clone(), observation_id: identity.clone(), snapshot_id: input.snapshot_id.clone(), repository: input.repository.clone(), number: input.number.clone() } };
         MergedPullRequestObservationStorage::put(&mut self.ports, crate::observation::AnyMergedPullRequestObservation::Recorded(crate::observation::MergedPullRequestObservation::new(data)).snapshot());
         return Ok(answer);
     }
@@ -2947,6 +3702,7 @@ where
         let identity: crate::observation::ObservationId = self.ports.try_generate_conductor_observation_observation_id()?;
         let data = crate::observation::PullRequestObservationData {
             observation_id: identity.clone(),
+            actor: input.actor.clone(),
             snapshot_id: input.snapshot_id.clone(),
             repository: input.repository.clone(),
             number: input.number.clone(),
@@ -2963,7 +3719,7 @@ where
             let capability = "entity invariant";
             return Err(UnmetObligation { capability, source: broken });
         }
-        let answer = crate::observation::RecordPullRequestOutcome::Recorded { pull_request_recorded: crate::observation::PullRequestRecorded { observation_id: identity.clone(), snapshot_id: input.snapshot_id.clone(), repository: input.repository.clone(), number: input.number.clone() } };
+        let answer = crate::observation::RecordPullRequestOutcome::Recorded { pull_request_recorded: crate::observation::PullRequestRecorded { actor: input.actor.clone(), observation_id: identity.clone(), snapshot_id: input.snapshot_id.clone(), repository: input.repository.clone(), number: input.number.clone() } };
         PullRequestObservationStorage::put(&mut self.ports, crate::observation::AnyPullRequestObservation::Recorded(crate::observation::PullRequestObservation::new(data)).snapshot());
         return Ok(answer);
     }
@@ -2995,13 +3751,14 @@ where
         let identity: crate::observation::ObservationId = self.ports.try_generate_conductor_observation_observation_id()?;
         let data = crate::observation::ReleaseObservationData {
             observation_id: identity.clone(),
+            actor: input.actor.clone(),
             snapshot_id: input.snapshot_id.clone(),
             repository: input.repository.clone(),
             tag: input.tag.clone(),
             published_at: input.published_at.clone(),
             url: input.url.clone(),
         };
-        let answer = crate::observation::RecordReleaseOutcome::Recorded { release_recorded: crate::observation::ReleaseRecorded { observation_id: identity.clone(), snapshot_id: input.snapshot_id.clone(), repository: input.repository.clone(), tag: input.tag.clone() } };
+        let answer = crate::observation::RecordReleaseOutcome::Recorded { release_recorded: crate::observation::ReleaseRecorded { actor: input.actor.clone(), observation_id: identity.clone(), snapshot_id: input.snapshot_id.clone(), repository: input.repository.clone(), tag: input.tag.clone() } };
         ReleaseObservationStorage::put(&mut self.ports, crate::observation::AnyReleaseObservation::Recorded(crate::observation::ReleaseObservation::new(data)).snapshot());
         return Ok(answer);
     }
@@ -3033,6 +3790,7 @@ where
         let identity: crate::observation::ObservationId = self.ports.try_generate_conductor_observation_observation_id()?;
         let data = crate::observation::RepositoryObservationData {
             observation_id: identity.clone(),
+            actor: input.actor.clone(),
             snapshot_id: input.snapshot_id.clone(),
             repository: input.repository.clone(),
             visibility: input.visibility.clone(),
@@ -3058,7 +3816,7 @@ where
             wave_ready: input.wave_ready.clone(),
             wave_reason: input.wave_reason.clone(),
         };
-        let answer = crate::observation::RecordRepositoryOutcome::Recorded { repository_recorded: crate::observation::RepositoryRecorded { observation_id: identity.clone(), snapshot_id: input.snapshot_id.clone(), repository: input.repository.clone() } };
+        let answer = crate::observation::RecordRepositoryOutcome::Recorded { repository_recorded: crate::observation::RepositoryRecorded { actor: input.actor.clone(), observation_id: identity.clone(), snapshot_id: input.snapshot_id.clone(), repository: input.repository.clone() } };
         RepositoryObservationStorage::put(&mut self.ports, crate::observation::AnyRepositoryObservation::Recorded(crate::observation::RepositoryObservation::new(data)).snapshot());
         return Ok(answer);
     }
@@ -3090,6 +3848,7 @@ where
         let identity: crate::observation::ObservationId = self.ports.try_generate_conductor_observation_observation_id()?;
         let data = crate::observation::SecretSyncObservationData {
             observation_id: identity.clone(),
+            actor: input.actor.clone(),
             snapshot_id: input.snapshot_id.clone(),
             sync: input.sync.clone(),
             repository: input.repository.clone(),
@@ -3099,7 +3858,7 @@ where
             secrets_updated_at: input.secrets_updated_at.clone(),
             error_line: input.error_line.clone(),
         };
-        let answer = crate::observation::RecordSecretSyncOutcome::Recorded { secret_sync_recorded: crate::observation::SecretSyncRecorded { observation_id: identity.clone(), snapshot_id: input.snapshot_id.clone(), sync: input.sync.clone(), repository: input.repository.clone() } };
+        let answer = crate::observation::RecordSecretSyncOutcome::Recorded { secret_sync_recorded: crate::observation::SecretSyncRecorded { actor: input.actor.clone(), observation_id: identity.clone(), snapshot_id: input.snapshot_id.clone(), sync: input.sync.clone(), repository: input.repository.clone() } };
         SecretSyncObservationStorage::put(&mut self.ports, crate::observation::AnySecretSyncObservation::Recorded(crate::observation::SecretSyncObservation::new(data)).snapshot());
         return Ok(answer);
     }
@@ -3131,6 +3890,7 @@ where
         let identity: crate::observation::ObservationId = self.ports.try_generate_conductor_observation_observation_id()?;
         let data = crate::observation::SessionObservationData {
             observation_id: identity.clone(),
+            actor: input.actor.clone(),
             snapshot_id: input.snapshot_id.clone(),
             harness: input.harness.clone(),
             session_ref: input.session_ref.clone(),
@@ -3147,7 +3907,7 @@ where
             envelope_writable: input.envelope_writable.clone(),
             envelope_unboxed: input.envelope_unboxed.clone(),
         };
-        let answer = crate::observation::RecordSessionOutcome::Recorded { session_recorded: crate::observation::SessionRecorded { observation_id: identity.clone(), snapshot_id: input.snapshot_id.clone(), harness: input.harness.clone(), session_ref: input.session_ref.clone() } };
+        let answer = crate::observation::RecordSessionOutcome::Recorded { session_recorded: crate::observation::SessionRecorded { actor: input.actor.clone(), observation_id: identity.clone(), snapshot_id: input.snapshot_id.clone(), harness: input.harness.clone(), session_ref: input.session_ref.clone() } };
         SessionObservationStorage::put(&mut self.ports, crate::observation::AnySessionObservation::Recorded(crate::observation::SessionObservation::new(data)).snapshot());
         return Ok(answer);
     }
@@ -3183,6 +3943,7 @@ where
         let identity: crate::observation::ObservationId = self.ports.try_generate_conductor_observation_observation_id()?;
         let data = crate::observation::SpecificationObservationData {
             observation_id: identity.clone(),
+            actor: input.actor.clone(),
             snapshot_id: input.snapshot_id.clone(),
             repository: input.repository.clone(),
             presence: input.presence.clone(),
@@ -3199,7 +3960,7 @@ where
             let capability = "entity invariant";
             return Err(UnmetObligation { capability, source: broken });
         }
-        let answer = crate::observation::RecordSpecificationOutcome::Recorded { specification_recorded: crate::observation::SpecificationRecorded { observation_id: identity.clone(), snapshot_id: input.snapshot_id.clone(), repository: input.repository.clone(), presence: input.presence.clone(), validation: input.validation.clone() } };
+        let answer = crate::observation::RecordSpecificationOutcome::Recorded { specification_recorded: crate::observation::SpecificationRecorded { actor: input.actor.clone(), observation_id: identity.clone(), snapshot_id: input.snapshot_id.clone(), repository: input.repository.clone(), presence: input.presence.clone(), validation: input.validation.clone() } };
         SpecificationObservationStorage::put(&mut self.ports, crate::observation::AnySpecificationObservation::Recorded(crate::observation::SpecificationObservation::new(data)).snapshot());
         return Ok(answer);
     }
@@ -3235,6 +3996,7 @@ where
         let identity: crate::observation::ObservationId = self.ports.try_generate_conductor_observation_observation_id()?;
         let data = crate::observation::UsageObservationData {
             observation_id: identity.clone(),
+            actor: input.actor.clone(),
             snapshot_id: input.snapshot_id.clone(),
             read_at: input.read_at.clone(),
             account: input.account.clone(),
@@ -3248,7 +4010,7 @@ where
             let capability = "entity invariant";
             return Err(UnmetObligation { capability, source: broken });
         }
-        let answer = crate::observation::RecordUsageOutcome::Recorded { usage_recorded: crate::observation::UsageRecorded { observation_id: identity.clone(), snapshot_id: input.snapshot_id.clone(), account: input.account.clone(), window: input.window.clone(), used_percent: input.used_percent.clone() } };
+        let answer = crate::observation::RecordUsageOutcome::Recorded { usage_recorded: crate::observation::UsageRecorded { actor: input.actor.clone(), observation_id: identity.clone(), snapshot_id: input.snapshot_id.clone(), account: input.account.clone(), window: input.window.clone(), used_percent: input.used_percent.clone() } };
         UsageObservationStorage::put(&mut self.ports, crate::observation::AnyUsageObservation::Recorded(crate::observation::UsageObservation::new(data)).snapshot());
         return Ok(answer);
     }
@@ -3280,13 +4042,14 @@ where
         let identity: crate::observation::ObservationId = self.ports.try_generate_conductor_observation_observation_id()?;
         let data = crate::observation::WorkflowRunObservationData {
             observation_id: identity.clone(),
+            actor: input.actor.clone(),
             snapshot_id: input.snapshot_id.clone(),
             repository: input.repository.clone(),
             workflow: input.workflow.clone(),
             conclusion: input.conclusion.clone(),
             run_at: input.run_at.clone(),
         };
-        let answer = crate::observation::RecordWorkflowRunOutcome::Recorded { workflow_run_recorded: crate::observation::WorkflowRunRecorded { observation_id: identity.clone(), snapshot_id: input.snapshot_id.clone(), repository: input.repository.clone(), workflow: input.workflow.clone() } };
+        let answer = crate::observation::RecordWorkflowRunOutcome::Recorded { workflow_run_recorded: crate::observation::WorkflowRunRecorded { actor: input.actor.clone(), observation_id: identity.clone(), snapshot_id: input.snapshot_id.clone(), repository: input.repository.clone(), workflow: input.workflow.clone() } };
         WorkflowRunObservationStorage::put(&mut self.ports, crate::observation::AnyWorkflowRunObservation::Recorded(crate::observation::WorkflowRunObservation::new(data)).snapshot());
         return Ok(answer);
     }
@@ -3314,7 +4077,7 @@ where
             next.data.value = input.value.clone();
             next.data.items = input.items.clone();
             next.data.snapshot_id = input.snapshot_id.clone();
-            let answer = crate::observation::ReviseDailySeriesOutcome::Revised { daily_series_revised: crate::observation::DailySeriesRevised { daily_series_id: input.daily_series_id.clone(), snapshot_id: input.snapshot_id.clone() } };
+            let answer = crate::observation::ReviseDailySeriesOutcome::Revised { daily_series_revised: crate::observation::DailySeriesRevised { actor: input.actor.clone(), daily_series_id: input.daily_series_id.clone(), snapshot_id: input.snapshot_id.clone() } };
             DailySeriesStorage::put(&mut self.ports, next);
             return Ok(answer);
         }
@@ -3338,6 +4101,7 @@ where
         let identity: crate::observation::SnapshotId = self.ports.try_generate_conductor_observation_snapshot_id()?;
         let data = crate::observation::SnapshotData {
             snapshot_id: identity.clone(),
+            actor: input.actor.clone(),
             started_at: input.started_at.clone(),
             disk_free_bytes: input.disk_free_bytes.clone(),
             failure_reason: None,
@@ -3346,9 +4110,172 @@ where
             let capability = "entity invariant";
             return Err(UnmetObligation { capability, source: broken });
         }
-        let answer = crate::observation::StartSnapshotOutcome::Started { snapshot_started: crate::observation::SnapshotStarted { snapshot_id: identity.clone(), started_at: input.started_at.clone() } };
+        let answer = crate::observation::StartSnapshotOutcome::Started { snapshot_started: crate::observation::SnapshotStarted { actor: input.actor.clone(), snapshot_id: identity.clone(), started_at: input.started_at.clone() } };
         SnapshotStorage::put(&mut self.ports, crate::observation::AnySnapshot::Collecting(crate::observation::Snapshot::new(data)).snapshot());
         return Ok(answer);
+    }
+}
+
+/// `conductor.operator.JoinInstance`, generated: every outcome is one the specification fully determines.
+impl<P> crate::operator::obligations::JoinInstanceBehavior for Generated<P>
+where
+    P: OperatorStorage,
+{
+    fn join_instance(&mut self, input: crate::operator::JoinInstance) -> Result<crate::operator::JoinInstanceOutcome, UnmetObligation> {
+        let _ = &input;
+        // `actor-not-human`: an input-guarded refusal, before the addressed subject is loaded.
+        if decided(equal(Some(&input.actor).map(|value| &value.kind).map(|value| match value { crate::operator::ActorKind::Human => "Human", crate::operator::ActorKind::Agent => "Agent", crate::operator::ActorKind::Daemon => "Daemon" }.to_owned()), Some("Human".to_owned())).map(|value| !value), "conductor.operator.JoinInstance")? {
+            return Ok(crate::operator::JoinInstanceOutcome::ActorNotHuman { error: crate::operator::ActorNotHuman { actor: input.actor.clone() } });
+        }
+        // `rejoined`: the default.
+        let Some(held) = OperatorStorage::get(&self.ports, &input.key) else {
+            let identity: crate::operator::OperatorKey = input.key.clone();
+            let data = crate::operator::OperatorData {
+                key: identity.clone(),
+                grants: input.grants.clone(),
+                joined_at: input.joined_at.clone(),
+                joined_by: input.actor.clone(),
+                left_at: None,
+                left_by: None,
+            };
+            let answer = crate::operator::JoinInstanceOutcome::Joined { operator_joined: crate::operator::OperatorJoined { key: identity.clone(), grants: input.grants.clone(), joined_at: input.joined_at.clone(), actor: input.actor.clone() } };
+            OperatorStorage::put(&mut self.ports, crate::operator::AnyOperator::Active(crate::operator::Operator::new(data)).snapshot());
+            return Ok(answer);
+        };
+        let _ = &held;
+        let moved = match held.refine() {
+            crate::operator::AnyOperator::Left(instance) => crate::operator::AnyOperator::Active(instance.rejoin()),
+            _ => return Ok(crate::operator::JoinInstanceOutcome::AlreadyJoined { error: crate::operator::AlreadyJoined { key: input.key.clone() } }),
+        };
+        let mut next = moved.snapshot();
+        next.data.grants = input.grants.clone();
+        next.data.joined_at = input.joined_at.clone();
+        next.data.joined_by = input.actor.clone();
+        next.data.left_at = None;
+        next.data.left_by = None;
+        let answer = crate::operator::JoinInstanceOutcome::Rejoined { operator_joined: crate::operator::OperatorJoined { key: input.key.clone(), grants: input.grants.clone(), joined_at: input.joined_at.clone(), actor: input.actor.clone() } };
+        OperatorStorage::put(&mut self.ports, next);
+        return Ok(answer);
+    }
+}
+
+/// `conductor.operator.LeaveInstance`, generated: every outcome is one the specification fully determines.
+impl<P> crate::operator::obligations::LeaveInstanceBehavior for Generated<P>
+where
+    P: OperatorStorage,
+{
+    fn leave_instance(&mut self, input: crate::operator::LeaveInstance) -> Result<crate::operator::LeaveInstanceOutcome, UnmetObligation> {
+        let _ = &input;
+        // `actor-not-human`: an input-guarded refusal, before the addressed subject is loaded.
+        if decided(equal(Some(&input.actor).map(|value| &value.kind).map(|value| match value { crate::operator::ActorKind::Human => "Human", crate::operator::ActorKind::Agent => "Agent", crate::operator::ActorKind::Daemon => "Daemon" }.to_owned()), Some("Human".to_owned())).map(|value| !value), "conductor.operator.LeaveInstance")? {
+            return Ok(crate::operator::LeaveInstanceOutcome::ActorNotHuman { error: crate::operator::ActorNotHuman { actor: input.actor.clone() } });
+        }
+        // `left`: the default.
+        let Some(held) = OperatorStorage::get(&self.ports, &input.key) else {
+            return Ok(crate::operator::LeaveInstanceOutcome::UnknownOperator { error: crate::operator::NotJoined { key: input.key.clone() } });
+        };
+        let _ = &held;
+        let moved = match held.refine() {
+            crate::operator::AnyOperator::Active(instance) => crate::operator::AnyOperator::Left(instance.leave()),
+            _ => return Ok(crate::operator::LeaveInstanceOutcome::NotJoined { error: crate::operator::NotJoined { key: input.key.clone() } }),
+        };
+        let mut next = moved.snapshot();
+        next.data.left_at = Some(input.left_at.clone());
+        next.data.left_by = Some(input.actor.clone());
+        let answer = crate::operator::LeaveInstanceOutcome::Left { operator_left: crate::operator::OperatorLeft { key: input.key.clone(), left_at: input.left_at.clone(), actor: input.actor.clone() } };
+        OperatorStorage::put(&mut self.ports, next);
+        return Ok(answer);
+    }
+}
+
+/// `conductor.placement.CloseBox`, generated: every outcome is one the specification fully determines.
+impl<P> crate::placement::obligations::CloseBoxBehavior for Generated<P>
+where
+    P: BoxStorage,
+{
+    fn close_box(&mut self, input: crate::placement::CloseBox) -> Result<crate::placement::CloseBoxOutcome, UnmetObligation> {
+        let _ = &input;
+        // `closed`: the default.
+        let Some(held) = BoxStorage::get(&self.ports, &input.box_id) else {
+            return Ok(crate::placement::CloseBoxOutcome::NoSuchBox { error: crate::placement::BoxNotFound { box_id: input.box_id.clone() } });
+        };
+        let _ = &held;
+        let moved = match held.refine() {
+            crate::placement::AnyBox::Opened(instance) => crate::placement::AnyBox::Closed(instance.close()),
+            _ => return Ok(crate::placement::CloseBoxOutcome::WrongState { error: crate::placement::BoxStateConflict { box_id: input.box_id.clone() } }),
+        };
+        let mut next = moved.snapshot();
+        next.data.closed_at = Some(input.at.clone());
+        next.data.closed_by = Some(input.actor.clone());
+        let answer = crate::placement::CloseBoxOutcome::Closed { box_closed: crate::placement::BoxClosed { box_id: input.box_id.clone(), actor: input.actor.clone(), closed_at: input.at.clone() } };
+        BoxStorage::put(&mut self.ports, next);
+        return Ok(answer);
+    }
+}
+
+/// `conductor.placement.OpenBox`, generated: every outcome is one the specification fully determines.
+impl<P> crate::placement::obligations::OpenBoxBehavior for Generated<P>
+where
+    P: TryContext + BoxStorage + BoxRefusalStorage,
+{
+    fn open_box(&mut self, input: crate::placement::OpenBox) -> Result<crate::placement::OpenBoxOutcome, UnmetObligation> {
+        let _ = &input;
+        // `refused`: an external branch, where the context takes it.
+        if self.ports.try_external(ExternalCommand::ConductorPlacementOpenBox(&input), "refused")? {
+            let identity: crate::placement::BoxId = self.ports.try_generate_conductor_placement_box_id()?;
+            let data = crate::placement::BoxRefusalData {
+                box_id: identity.clone(),
+                placement: input.placement.clone(),
+                instance: input.instance.clone(),
+                actor: input.actor.clone(),
+                reason: self.ports.try_generate_conductor_placement_refusal_reason()?,
+                refused_at: input.at.clone(),
+            };
+            let answer = crate::placement::OpenBoxOutcome::Refused { box_refused: crate::placement::BoxRefused { box_id: identity.clone(), actor: input.actor.clone(), placement: input.placement.clone(), instance: input.instance.clone(), reason: self.ports.try_generate_conductor_placement_refusal_reason()?, refused_at: input.at.clone() } };
+            BoxRefusalStorage::put(&mut self.ports, crate::placement::AnyBoxRefusal::Refused(crate::placement::BoxRefusal::new(data)).snapshot());
+            return Ok(answer);
+        }
+        // `adapter-refused`: an external branch, where the context takes it.
+        if self.ports.try_external(ExternalCommand::ConductorPlacementOpenBox(&input), "adapter-refused")? {
+            let identity: crate::placement::BoxId = self.ports.try_generate_conductor_placement_box_id()?;
+            let data = crate::placement::BoxRefusalData {
+                box_id: identity.clone(),
+                placement: input.placement.clone(),
+                instance: input.instance.clone(),
+                actor: input.actor.clone(),
+                reason: self.ports.try_generate_conductor_placement_refusal_reason()?,
+                refused_at: input.at.clone(),
+            };
+            let answer = crate::placement::OpenBoxOutcome::AdapterRefused { box_refused: crate::placement::BoxRefused { box_id: identity.clone(), actor: input.actor.clone(), placement: input.placement.clone(), instance: input.instance.clone(), reason: self.ports.try_generate_conductor_placement_refusal_reason()?, refused_at: input.at.clone() } };
+            BoxRefusalStorage::put(&mut self.ports, crate::placement::AnyBoxRefusal::Refused(crate::placement::BoxRefusal::new(data)).snapshot());
+            return Ok(answer);
+        }
+        // `opened`: the default.
+        let identity: crate::placement::BoxId = self.ports.try_generate_conductor_placement_box_id()?;
+        let data = crate::placement::BoxData {
+            box_id: identity.clone(),
+            placement: input.placement.clone(),
+            instance: input.instance.clone(),
+            actor: input.actor.clone(),
+            opened_at: input.at.clone(),
+            closed_at: None,
+            closed_by: None,
+        };
+        let answer = crate::placement::OpenBoxOutcome::Opened { box_opened: crate::placement::BoxOpened { box_id: identity.clone(), actor: input.actor.clone(), placement: input.placement.clone(), instance: input.instance.clone(), opened_at: input.at.clone() } };
+        BoxStorage::put(&mut self.ports, crate::placement::AnyBox::Opened(crate::placement::Box::new(data)).snapshot());
+        return Ok(answer);
+    }
+}
+
+impl<P: crate::secret::obligations::PutSecretBehavior> crate::secret::obligations::PutSecretBehavior for Generated<P> {
+    fn put_secret(&mut self, input: crate::secret::PutSecret) -> Result<crate::secret::PutSecretOutcome, UnmetObligation> {
+        crate::secret::obligations::PutSecretBehavior::put_secret(&mut self.ports, input)
+    }
+}
+
+impl<P: crate::secret::obligations::ResolveSecretsBehavior> crate::secret::obligations::ResolveSecretsBehavior for Generated<P> {
+    fn resolve_secrets(&mut self, input: crate::secret::ResolveSecrets) -> Result<crate::secret::ResolveSecretsOutcome, UnmetObligation> {
+        crate::secret::obligations::ResolveSecretsBehavior::resolve_secrets(&mut self.ports, input)
     }
 }
 
@@ -3373,12 +4300,13 @@ where
         let identity: crate::session::DeliveryId = self.ports.try_generate_conductor_session_delivery_id()?;
         let data = crate::session::DeliveryData {
             delivery_id: identity.clone(),
+            actor: input.actor.clone(),
             session_name: input.session_name.clone(),
             first_line: input.first_line.clone(),
             body_path: input.body_path.clone(),
             delivered_at: input.delivered_at.clone(),
         };
-        let answer = crate::session::DeliverMessageOutcome::Delivered { message_delivered: crate::session::MessageDelivered { delivery_id: identity.clone(), session_name: input.session_name.clone(), first_line: input.first_line.clone(), body_path: input.body_path.clone(), delivered_at: input.delivered_at.clone() } };
+        let answer = crate::session::DeliverMessageOutcome::Delivered { message_delivered: crate::session::MessageDelivered { actor: input.actor.clone(), delivery_id: identity.clone(), session_name: input.session_name.clone(), first_line: input.first_line.clone(), body_path: input.body_path.clone(), delivered_at: input.delivered_at.clone() } };
         DeliveryStorage::put(&mut self.ports, crate::session::AnyDelivery::Delivered(crate::session::Delivery::new(data)).snapshot());
         return Ok(answer);
     }
@@ -3399,6 +4327,7 @@ where
         let identity: crate::session::TickId = self.ports.try_generate_conductor_session_tick_id()?;
         let data = crate::session::RunTickData {
             tick_id: identity.clone(),
+            actor: input.actor.clone(),
             kind: input.kind.clone(),
             started_at: input.started_at.clone(),
             lines_handled: input.lines_handled.clone(),
@@ -3408,8 +4337,156 @@ where
             let capability = "entity invariant";
             return Err(UnmetObligation { capability, source: broken });
         }
-        let answer = crate::session::RecordRunTickOutcome::Recorded { run_tick_recorded: crate::session::RunTickRecorded { tick_id: identity.clone(), kind: input.kind.clone(), started_at: input.started_at.clone(), lines_handled: input.lines_handled.clone() } };
+        let answer = crate::session::RecordRunTickOutcome::Recorded { run_tick_recorded: crate::session::RunTickRecorded { actor: input.actor.clone(), tick_id: identity.clone(), kind: input.kind.clone(), started_at: input.started_at.clone(), lines_handled: input.lines_handled.clone() } };
         RunTickStorage::put(&mut self.ports, crate::session::AnyRunTick::Recorded(crate::session::RunTick::new(data)).snapshot());
+        return Ok(answer);
+    }
+}
+
+impl<P: crate::store::obligations::MigrateStoreBehavior> crate::store::obligations::MigrateStoreBehavior for Generated<P> {
+    fn migrate_store(&mut self, input: crate::store::MigrateStore) -> Result<crate::store::MigrateStoreOutcome, UnmetObligation> {
+        crate::store::obligations::MigrateStoreBehavior::migrate_store(&mut self.ports, input)
+    }
+}
+
+/// `conductor.token.ContributeToken`, generated: every outcome is one the specification fully determines.
+impl<P> crate::token::obligations::ContributeTokenBehavior for Generated<P>
+where
+    P: TryContext + PoolTokenStorage,
+{
+    fn contribute_token(&mut self, input: crate::token::ContributeToken) -> Result<crate::token::ContributeTokenOutcome, UnmetObligation> {
+        let _ = &input;
+        // `actor-not-human`: an input-guarded refusal, before the addressed subject is loaded.
+        if decided(equal(Some(&input.actor).map(|value| &value.kind).map(|value| match value { crate::operator::ActorKind::Human => "Human", crate::operator::ActorKind::Agent => "Agent", crate::operator::ActorKind::Daemon => "Daemon" }.to_owned()), Some("Human".to_owned())).map(|value| !value), "conductor.token.ContributeToken")? {
+            return Ok(crate::token::ContributeTokenOutcome::ActorNotHuman { error: crate::operator::ActorNotHuman { actor: input.actor.clone() } });
+        }
+        // `contributed`: the default.
+        let identity: crate::token::TokenId = self.ports.try_generate_conductor_token_token_id()?;
+        let data = crate::token::PoolTokenData {
+            token_id: identity.clone(),
+            instance: input.instance.clone(),
+            owner: input.owner.clone(),
+            seat: input.seat.clone(),
+            secret: input.secret.clone(),
+            token_state: crate::token::TokenState::Ok,
+            limited_until: None,
+            agent: None,
+            contributed_at: input.contributed_at.clone(),
+        };
+        let answer = crate::token::ContributeTokenOutcome::Contributed { token_contributed: crate::token::TokenContributed { actor: input.actor.clone(), token_id: identity.clone(), instance: input.instance.clone(), owner: input.owner.clone(), seat: input.seat.clone(), secret: input.secret.clone(), contributed_at: input.contributed_at.clone() } };
+        PoolTokenStorage::put(&mut self.ports, crate::token::AnyPoolToken::Available(crate::token::PoolToken::new(data)).snapshot());
+        return Ok(answer);
+    }
+}
+
+/// `conductor.token.LeaseToken`, generated: every outcome is one the specification fully determines.
+impl<P> crate::token::obligations::LeaseTokenBehavior for Generated<P>
+where
+    P: TryContext + PoolTokenStorage,
+{
+    fn lease_token(&mut self, input: crate::token::LeaseToken) -> Result<crate::token::LeaseTokenOutcome, UnmetObligation> {
+        let _ = &input;
+        // `none-available`: an external refusal answered before the row is read, where the context takes it.
+        if self.ports.try_external(ExternalCommand::ConductorTokenLeaseToken(&input), "none-available")? {
+            return Ok(crate::token::LeaseTokenOutcome::NoneAvailable { error: crate::token::NoTokenAvailable { instance: input.instance.clone() } });
+        }
+        // `leased`: the default.
+        let Some(held) = PoolTokenStorage::get(&self.ports, &input.token_id) else {
+            return Ok(crate::token::LeaseTokenOutcome::WrongStateUnknownInstance);
+        };
+        let _ = &held;
+        let before = held.data.clone();
+        let moved = match held.refine() {
+            crate::token::AnyPoolToken::Available(instance) => crate::token::AnyPoolToken::Leased(instance.lease()),
+            _ => return Ok(crate::token::LeaseTokenOutcome::WrongState { error: crate::token::TokenStateConflict { token_id: input.token_id.clone() } }),
+        };
+        let mut next = moved.snapshot();
+        next.data.agent = Some(input.agent.clone());
+        let answer = crate::token::LeaseTokenOutcome::Leased { token_leased: crate::token::TokenLeased { actor: input.actor.clone(), token_id: input.token_id.clone(), instance: input.instance.clone(), owner: before.owner.clone(), seat: before.seat.clone(), agent: input.agent.clone(), preferred_owner: input.preferred_owner.clone(), leased_at: input.leased_at.clone() } };
+        PoolTokenStorage::put(&mut self.ports, next);
+        return Ok(answer);
+    }
+}
+
+/// `conductor.token.MarkTokenLimited`, generated: every outcome is one the specification fully determines.
+impl<P> crate::token::obligations::MarkTokenLimitedBehavior for Generated<P>
+where
+    P: PoolTokenStorage,
+{
+    fn mark_token_limited(&mut self, input: crate::token::MarkTokenLimited) -> Result<crate::token::MarkTokenLimitedOutcome, UnmetObligation> {
+        let _ = &input;
+        // `limited`: the default.
+        let Some(held) = PoolTokenStorage::get(&self.ports, &input.token_id) else {
+            return Ok(crate::token::MarkTokenLimitedOutcome::WrongStateUnknownInstance);
+        };
+        let _ = &held;
+        let before = held.data.clone();
+        let moved = match held.refine() {
+            crate::token::AnyPoolToken::Leased(instance) => crate::token::AnyPoolToken::Limited(instance.limit()),
+            _ => return Ok(crate::token::MarkTokenLimitedOutcome::WrongState { error: crate::token::TokenStateConflict { token_id: input.token_id.clone() } }),
+        };
+        let mut next = moved.snapshot();
+        next.data.token_state = crate::token::TokenState::Limited;
+        next.data.limited_until = Some(input.limited_until.clone());
+        next.data.agent = None;
+        let answer = crate::token::MarkTokenLimitedOutcome::Limited { token_limited: crate::token::TokenLimited { actor: input.actor.clone(), token_id: input.token_id.clone(), owner: before.owner.clone(), agent: before.agent.clone(), limited_until: input.limited_until.clone(), limited_at: input.limited_at.clone() } };
+        PoolTokenStorage::put(&mut self.ports, next);
+        return Ok(answer);
+    }
+}
+
+/// `conductor.token.ReleaseToken`, generated: every outcome is one the specification fully determines.
+impl<P> crate::token::obligations::ReleaseTokenBehavior for Generated<P>
+where
+    P: PoolTokenStorage,
+{
+    fn release_token(&mut self, input: crate::token::ReleaseToken) -> Result<crate::token::ReleaseTokenOutcome, UnmetObligation> {
+        let _ = &input;
+        // `released`: the default.
+        let Some(held) = PoolTokenStorage::get(&self.ports, &input.token_id) else {
+            return Ok(crate::token::ReleaseTokenOutcome::WrongStateUnknownInstance);
+        };
+        let _ = &held;
+        let before = held.data.clone();
+        let moved = match held.refine() {
+            crate::token::AnyPoolToken::Leased(instance) => crate::token::AnyPoolToken::Available(instance.release()),
+            _ => return Ok(crate::token::ReleaseTokenOutcome::WrongState { error: crate::token::TokenStateConflict { token_id: input.token_id.clone() } }),
+        };
+        let mut next = moved.snapshot();
+        next.data.agent = None;
+        let answer = crate::token::ReleaseTokenOutcome::Released { token_released: crate::token::TokenReleased { actor: input.actor.clone(), token_id: input.token_id.clone(), agent: before.agent.clone(), released_at: input.released_at.clone() } };
+        PoolTokenStorage::put(&mut self.ports, next);
+        return Ok(answer);
+    }
+}
+
+/// `conductor.token.WithdrawToken`, generated: every outcome is one the specification fully determines.
+impl<P> crate::token::obligations::WithdrawTokenBehavior for Generated<P>
+where
+    P: PoolTokenStorage,
+{
+    fn withdraw_token(&mut self, input: crate::token::WithdrawToken) -> Result<crate::token::WithdrawTokenOutcome, UnmetObligation> {
+        let _ = &input;
+        // `actor-not-human`: an input-guarded refusal, before the addressed subject is loaded.
+        if decided(equal(Some(&input.actor).map(|value| &value.kind).map(|value| match value { crate::operator::ActorKind::Human => "Human", crate::operator::ActorKind::Agent => "Agent", crate::operator::ActorKind::Daemon => "Daemon" }.to_owned()), Some("Human".to_owned())).map(|value| !value), "conductor.token.WithdrawToken")? {
+            return Ok(crate::token::WithdrawTokenOutcome::ActorNotHuman { error: crate::operator::ActorNotHuman { actor: input.actor.clone() } });
+        }
+        // `withdrawn`: the default.
+        let Some(held) = PoolTokenStorage::get(&self.ports, &input.token_id) else {
+            return Ok(crate::token::WithdrawTokenOutcome::WrongStateUnknownInstance);
+        };
+        let _ = &held;
+        let before = held.data.clone();
+        let moved = match held.refine() {
+            crate::token::AnyPoolToken::Available(instance) => crate::token::AnyPoolToken::Withdrawn(instance.withdraw()),
+            crate::token::AnyPoolToken::Leased(instance) => crate::token::AnyPoolToken::Withdrawn(instance.withdraw()),
+            crate::token::AnyPoolToken::Limited(instance) => crate::token::AnyPoolToken::Withdrawn(instance.withdraw()),
+            _ => return Ok(crate::token::WithdrawTokenOutcome::WrongState { error: crate::token::TokenStateConflict { token_id: input.token_id.clone() } }),
+        };
+        let mut next = moved.snapshot();
+        next.data.agent = None;
+        let answer = crate::token::WithdrawTokenOutcome::Withdrawn { token_withdrawn: crate::token::TokenWithdrawn { actor: input.actor.clone(), token_id: input.token_id.clone(), owner: before.owner.clone(), agent: before.agent.clone(), withdrawn_at: input.withdrawn_at.clone() } };
+        PoolTokenStorage::put(&mut self.ports, next);
         return Ok(answer);
     }
 }
@@ -3425,6 +4502,7 @@ where
         let identity: crate::tool::ToolCallId = self.ports.try_generate_conductor_tool_tool_call_id()?;
         let data = crate::tool::ToolCallData {
             tool_call_id: identity.clone(),
+            actor: input.actor.clone(),
             instance: input.instance.clone(),
             session: input.session.clone(),
             verb: input.verb.clone(),
@@ -3439,9 +4517,91 @@ where
             let capability = "entity invariant";
             return Err(UnmetObligation { capability, source: broken });
         }
-        let answer = crate::tool::RecordToolCallOutcome::Recorded { tool_call_recorded: crate::tool::ToolCallRecorded { tool_call_id: identity.clone(), session: input.session.clone(), verb: input.verb.clone(), outcome: input.outcome.clone() } };
+        let answer = crate::tool::RecordToolCallOutcome::Recorded { tool_call_recorded: crate::tool::ToolCallRecorded { actor: input.actor.clone(), tool_call_id: identity.clone(), session: input.session.clone(), verb: input.verb.clone(), outcome: input.outcome.clone() } };
         ToolCallStorage::put(&mut self.ports, crate::tool::AnyToolCall::Recorded(crate::tool::ToolCall::new(data)).snapshot());
         return Ok(answer);
+    }
+}
+
+/// `conductor.agent.AgentKinds`, generated: every row is one the specification fully determines from the stored `conductor.agent.AgentKind`s.
+impl<P> crate::agent::obligations::AgentKindsQuery for Generated<P>
+where
+    P: AgentKindStorage,
+{
+    fn agent_kinds(&self) -> Result<Vec<crate::agent::AgentKinds>, UnmetObligation> {
+        let admitted = AgentKindStorage::list(&self.ports);
+        Ok(admitted
+            .into_iter()
+            .map(|held| crate::agent::AgentKinds {
+                name: held.data.name,
+                state: held.state,
+                capabilities: held.data.capabilities,
+                binary: held.data.binary,
+            })
+            .collect())
+    }
+}
+
+/// `conductor.agent.Agents`, generated: every row is one the specification fully determines from the stored `conductor.agent.Agent`s.
+impl<P> crate::agent::obligations::AgentsQuery for Generated<P>
+where
+    P: AgentStorage,
+{
+    fn agents(&self) -> Result<Vec<crate::agent::Agents>, UnmetObligation> {
+        let admitted = AgentStorage::list(&self.ports);
+        Ok(admitted
+            .into_iter()
+            .map(|held| crate::agent::Agents {
+                name: held.data.name,
+                state: held.state,
+                instance: held.data.instance,
+                role: held.data.role,
+                kind: held.data.kind,
+                capabilities: held.data.capabilities,
+                r#box: held.data.r#box,
+                profile: held.data.profile,
+                limits: held.data.limits,
+                token_owner: held.data.token_owner,
+                started_by: held.data.started_by,
+                started_at: held.data.started_at,
+                generation: held.data.generation,
+                stopped_at: held.data.stopped_at,
+                exit_class: held.data.exit_class,
+                exit_code: held.data.exit_code,
+            })
+            .collect())
+    }
+}
+
+/// `conductor.config.ConfigRevisions`, generated: every row is one the specification fully determines from the stored `conductor.config.ConfigRevision`s.
+impl<P> crate::config::obligations::ConfigRevisionsQuery for Generated<P>
+where
+    P: ConfigRevisionStorage,
+{
+    fn config_revisions(&self) -> Result<Vec<crate::config::ConfigRevisions>, UnmetObligation> {
+        let admitted = ConfigRevisionStorage::list(&self.ports);
+        Ok(admitted
+            .into_iter()
+            .map(|held| crate::config::ConfigRevisions {
+                revision_id: held.data.revision_id,
+                state: held.state,
+                actor: held.data.actor,
+                level: held.data.level,
+                instance: held.data.instance,
+                role: held.data.role,
+                path: held.data.path,
+                value: held.data.value,
+                reason: held.data.reason,
+                commit: held.data.commit,
+                changed_at: held.data.changed_at,
+            })
+            .collect())
+    }
+}
+
+impl<P: crate::config::obligations::EffectiveSettingsQuery> crate::config::obligations::EffectiveSettingsQuery for Generated<P> {
+    fn effective_settings(&self, instance: crate::config::InstanceName) -> Result<Vec<crate::config::EffectiveSettings>, UnmetObligation> {
+        crate::config::obligations::EffectiveSettingsQuery::effective_settings(&self.ports, instance)
     }
 }
 
@@ -3470,6 +4630,7 @@ where
                 repository: held.data.repository,
                 decider_name: held.data.decider_name,
                 prompt_sha256: held.data.prompt_sha256,
+                actor: held.data.actor,
             })
             .collect())
     }
@@ -3500,6 +4661,7 @@ where
                 blocker: held.data.blocker,
                 dry_run: held.data.dry_run,
                 no_dry_run: held.data.no_dry_run,
+                actor: held.data.actor,
             })
             .collect())
     }
@@ -3532,6 +4694,7 @@ where
                 recommended_letters: held.data.recommended_letters,
                 default_letters: held.data.default_letters,
                 deadline: held.data.deadline,
+                actor: held.data.actor,
             })
             .collect())
     }
@@ -3551,6 +4714,7 @@ where
                 state: held.state,
                 goal_id: held.data.goal_id,
                 repository: held.data.repository,
+                actor: held.data.actor,
             })
             .collect())
     }
@@ -3572,6 +4736,7 @@ where
                 exit_evidence: held.data.exit_evidence,
                 evidence: held.data.evidence,
                 reason: held.data.reason,
+                actor: held.data.actor,
             })
             .collect())
     }
@@ -3592,6 +4757,7 @@ where
                 marked_by: held.data.marked_by,
                 session: held.data.session,
                 reason: held.data.reason,
+                actor: held.data.actor,
             })
             .collect())
     }
@@ -3613,6 +4779,7 @@ where
                 harness: held.data.harness,
                 session_name: held.data.session_name,
                 charter_revision: held.data.charter_revision,
+                actor: held.data.actor,
             })
             .collect())
     }
@@ -3636,6 +4803,7 @@ where
                 sent_at: held.data.sent_at,
                 priority: held.data.priority,
                 waits_on: held.data.waits_on,
+                actor: held.data.actor,
             })
             .collect())
     }
@@ -3659,6 +4827,7 @@ where
                 verdict: held.data.verdict,
                 reason: held.data.reason,
                 decided_at: held.data.decided_at,
+                actor: held.data.actor,
             })
             .collect())
     }
@@ -3684,6 +4853,7 @@ where
                 received_at: held.data.received_at,
                 body_path: held.data.body_path,
                 dispatch_id: held.data.dispatch_id,
+                actor: held.data.actor,
             })
             .collect())
     }
@@ -3705,6 +4875,7 @@ where
                 resource: held.data.resource,
                 amount: held.data.amount,
                 requested_at: held.data.requested_at,
+                actor: held.data.actor,
             })
             .collect())
     }
@@ -3734,6 +4905,7 @@ where
                 session_id: held.data.session_id,
                 reclaimed_bytes: held.data.reclaimed_bytes,
                 shortfall_bytes: held.data.shortfall_bytes,
+                actor: held.data.actor,
                 requested_at: held.data.requested_at,
                 started_at: held.data.started_at,
                 released_at: held.data.released_at,
@@ -3765,6 +4937,7 @@ where
                 reclaimed_bytes: held.data.reclaimed_bytes,
                 shortfall_bytes: held.data.shortfall_bytes,
                 left: held.data.left,
+                actor: held.data.actor,
                 ran_at: held.data.ran_at,
             })
             .collect())
@@ -3787,6 +4960,7 @@ where
                 evidence: held.data.evidence,
                 metric_id: held.data.metric_id,
                 raised_at: held.data.raised_at,
+                actor: held.data.actor,
                 story: held.data.story,
                 verdict: held.data.verdict,
             })
@@ -3865,6 +5039,7 @@ where
                 target: held.data.target,
                 met: held.data.met,
                 recorded_at: held.data.recorded_at,
+                actor: held.data.actor,
             })
             .collect())
     }
@@ -3892,6 +5067,54 @@ where
                 direction: held.data.direction,
                 target_owner: held.data.target_owner,
                 target_set_at: held.data.target_set_at,
+                actor: held.data.actor,
+            })
+            .collect())
+    }
+}
+
+/// `conductor.instance.Instances`, generated: every row is one the specification fully determines from the stored `conductor.instance.Instance`s.
+impl<P> crate::instance::obligations::InstancesQuery for Generated<P>
+where
+    P: InstanceStorage,
+{
+    fn instances(&self) -> Result<Vec<crate::instance::Instances>, UnmetObligation> {
+        let admitted = InstanceStorage::list(&self.ports);
+        Ok(admitted
+            .into_iter()
+            .map(|held| crate::instance::Instances {
+                name: held.data.name,
+                state: held.state,
+                placement: held.data.placement,
+                roles: held.data.roles,
+                binary_version: held.data.binary_version,
+                last_seen: held.data.last_seen,
+                box_id: held.data.box_id,
+                changed_by: held.data.changed_by,
+            })
+            .collect())
+    }
+}
+
+/// `conductor.instance.Reconciliations`, generated: every row is one the specification fully determines from the stored `conductor.instance.Reconciliation`s.
+impl<P> crate::instance::obligations::ReconciliationsQuery for Generated<P>
+where
+    P: ReconciliationStorage,
+{
+    fn reconciliations(&self) -> Result<Vec<crate::instance::Reconciliations>, UnmetObligation> {
+        let admitted = ReconciliationStorage::list(&self.ports);
+        Ok(admitted
+            .into_iter()
+            .map(|held| crate::instance::Reconciliations {
+                reconciliation_id: held.data.reconciliation_id,
+                state: held.state,
+                instance: held.data.instance,
+                action: held.data.action,
+                reason: held.data.reason,
+                result: held.data.result,
+                detail: held.data.detail,
+                actor: held.data.actor,
+                at: held.data.at,
             })
             .collect())
     }
@@ -3913,6 +5136,7 @@ where
                 reference: held.data.reference,
                 blocker_kind: held.data.blocker_kind,
                 title: held.data.title,
+                actor: held.data.actor,
             })
             .collect())
     }
@@ -3933,6 +5157,7 @@ where
                 previous_snapshot_id: held.data.previous_snapshot_id,
                 deviation_rows: held.data.deviation_rows,
                 path: held.data.path,
+                actor: held.data.actor,
             })
             .collect())
     }
@@ -3956,6 +5181,7 @@ where
                 outcome: held.data.outcome,
                 read_bytes: held.data.read_bytes,
                 written_bytes: held.data.written_bytes,
+                actor: held.data.actor,
             })
             .collect())
     }
@@ -3976,6 +5202,7 @@ where
                 member: held.data.member,
                 collector: held.data.collector,
                 error_line: held.data.error_line,
+                actor: held.data.actor,
             })
             .collect())
     }
@@ -3998,6 +5225,7 @@ where
                 title: held.data.title,
                 merged_at: held.data.merged_at,
                 url: held.data.url,
+                actor: held.data.actor,
             })
             .collect())
     }
@@ -4025,6 +5253,7 @@ where
                 opened_at: held.data.opened_at,
                 updated_at: held.data.updated_at,
                 url: held.data.url,
+                actor: held.data.actor,
             })
             .collect())
     }
@@ -4046,6 +5275,7 @@ where
                 tag: held.data.tag,
                 published_at: held.data.published_at,
                 url: held.data.url,
+                actor: held.data.actor,
             })
             .collect())
     }
@@ -4086,6 +5316,7 @@ where
                 wave_width: held.data.wave_width,
                 wave_ready: held.data.wave_ready,
                 wave_reason: held.data.wave_reason,
+                actor: held.data.actor,
             })
             .collect())
     }
@@ -4110,6 +5341,7 @@ where
                 source_committed_at: held.data.source_committed_at,
                 secrets_updated_at: held.data.secrets_updated_at,
                 error_line: held.data.error_line,
+                actor: held.data.actor,
             })
             .collect())
     }
@@ -4141,6 +5373,7 @@ where
                 envelope_tasks_max: held.data.envelope_tasks_max,
                 envelope_writable: held.data.envelope_writable,
                 envelope_unboxed: held.data.envelope_unboxed,
+                actor: held.data.actor,
             })
             .collect())
     }
@@ -4161,6 +5394,7 @@ where
                 started_at: held.data.started_at,
                 disk_free_bytes: held.data.disk_free_bytes,
                 failure_reason: held.data.failure_reason,
+                actor: held.data.actor,
             })
             .collect())
     }
@@ -4188,6 +5422,7 @@ where
                 scenarios: held.data.scenarios,
                 synthesis_refusals: held.data.synthesis_refusals,
                 conformance_status: held.data.conformance_status,
+                actor: held.data.actor,
             })
             .collect())
     }
@@ -4212,6 +5447,7 @@ where
                 window: held.data.window,
                 used_percent: held.data.used_percent,
                 resets_at: held.data.resets_at,
+                actor: held.data.actor,
             })
             .collect())
     }
@@ -4233,6 +5469,117 @@ where
                 workflow: held.data.workflow,
                 conclusion: held.data.conclusion,
                 run_at: held.data.run_at,
+                actor: held.data.actor,
+            })
+            .collect())
+    }
+}
+
+/// `conductor.operator.Operators`, generated: every row is one the specification fully determines from the stored `conductor.operator.Operator`s.
+impl<P> crate::operator::obligations::OperatorsQuery for Generated<P>
+where
+    P: OperatorStorage,
+{
+    fn operators(&self) -> Result<Vec<crate::operator::Operators>, UnmetObligation> {
+        let admitted = OperatorStorage::list(&self.ports);
+        Ok(admitted
+            .into_iter()
+            .map(|held| crate::operator::Operators {
+                key: held.data.key,
+                state: held.state,
+                grants: held.data.grants,
+                joined_at: held.data.joined_at,
+                joined_by: held.data.joined_by,
+                left_at: held.data.left_at,
+                left_by: held.data.left_by,
+            })
+            .collect())
+    }
+}
+
+/// `conductor.placement.BoxRefusals`, generated: every row is one the specification fully determines from the stored `conductor.placement.BoxRefusal`s.
+impl<P> crate::placement::obligations::BoxRefusalsQuery for Generated<P>
+where
+    P: BoxRefusalStorage,
+{
+    fn box_refusals(&self) -> Result<Vec<crate::placement::BoxRefusals>, UnmetObligation> {
+        let admitted = BoxRefusalStorage::list(&self.ports);
+        Ok(admitted
+            .into_iter()
+            .map(|held| crate::placement::BoxRefusals {
+                box_id: held.data.box_id,
+                state: held.state,
+                placement: held.data.placement,
+                instance: held.data.instance,
+                actor: held.data.actor,
+                reason: held.data.reason,
+                refused_at: held.data.refused_at,
+            })
+            .collect())
+    }
+}
+
+/// `conductor.placement.Boxes`, generated: every row is one the specification fully determines from the stored `conductor.placement.Box`s.
+impl<P> crate::placement::obligations::BoxesQuery for Generated<P>
+where
+    P: BoxStorage,
+{
+    fn boxes(&self) -> Result<Vec<crate::placement::Boxes>, UnmetObligation> {
+        let admitted = BoxStorage::list(&self.ports);
+        Ok(admitted
+            .into_iter()
+            .map(|held| crate::placement::Boxes {
+                box_id: held.data.box_id,
+                state: held.state,
+                placement: held.data.placement,
+                instance: held.data.instance,
+                actor: held.data.actor,
+                opened_at: held.data.opened_at,
+                closed_at: held.data.closed_at,
+                closed_by: held.data.closed_by,
+            })
+            .collect())
+    }
+}
+
+/// `conductor.placement.Placements`, generated: every row is one the specification fully determines from the stored `conductor.placement.Placement`s.
+impl<P> crate::placement::obligations::PlacementsQuery for Generated<P>
+where
+    P: PlacementStorage,
+{
+    fn placements(&self) -> Result<Vec<crate::placement::Placements>, UnmetObligation> {
+        let admitted = PlacementStorage::list(&self.ports);
+        Ok(admitted
+            .into_iter()
+            .map(|held| crate::placement::Placements {
+                name: held.data.name,
+                state: held.state,
+                daemon: held.data.daemon,
+                adapter: held.data.adapter,
+                profile: held.data.profile,
+            })
+            .collect())
+    }
+}
+
+/// `conductor.secret.Secrets`, generated: every row is one the specification fully determines from the stored `conductor.secret.Secret`s.
+impl<P> crate::secret::obligations::SecretsQuery for Generated<P>
+where
+    P: SecretStorage,
+{
+    fn secrets(&self) -> Result<Vec<crate::secret::Secrets>, UnmetObligation> {
+        let admitted = SecretStorage::list(&self.ports);
+        Ok(admitted
+            .into_iter()
+            .map(|held| crate::secret::Secrets {
+                name: held.data.name,
+                state: held.state,
+                source: held.data.source,
+                namespace: held.data.namespace,
+                instances: held.data.instances,
+                created_by: held.data.created_by,
+                created_at: held.data.created_at,
+                last_resolved_at: held.data.last_resolved_at,
             })
             .collect())
     }
@@ -4254,6 +5601,7 @@ where
                 first_line: held.data.first_line,
                 body_path: held.data.body_path,
                 delivered_at: held.data.delivered_at,
+                actor: held.data.actor,
             })
             .collect())
     }
@@ -4276,6 +5624,7 @@ where
                 taken_at: held.data.taken_at,
                 taken_over_session_id: held.data.taken_over_session_id,
                 taken_over_pid: held.data.taken_over_pid,
+                actor: held.data.actor,
             })
             .collect())
     }
@@ -4297,6 +5646,74 @@ where
                 started_at: held.data.started_at,
                 lines_handled: held.data.lines_handled,
                 actions: held.data.actions,
+                actor: held.data.actor,
+            })
+            .collect())
+    }
+}
+
+/// `conductor.store.Migrations`, generated: every row is one the specification fully determines from the stored `conductor.store.Migration`s.
+impl<P> crate::store::obligations::MigrationsQuery for Generated<P>
+where
+    P: MigrationStorage,
+{
+    fn migrations(&self) -> Result<Vec<crate::store::Migrations>, UnmetObligation> {
+        let admitted = MigrationStorage::list(&self.ports);
+        Ok(admitted
+            .into_iter()
+            .map(|held| crate::store::Migrations {
+                instance: held.data.instance,
+                state: held.state,
+                source: held.data.source,
+                store: held.data.store,
+                events_copied: held.data.events_copied,
+                migrated_at: held.data.migrated_at,
+                actor: held.data.actor,
+            })
+            .collect())
+    }
+}
+
+/// `conductor.store.StoreStatus`, generated: every row is one the specification fully determines from the stored `conductor.store.Store`s.
+impl<P> crate::store::obligations::StoreStatusQuery for Generated<P>
+where
+    P: StoreStorage,
+{
+    fn store_status(&self) -> Result<Vec<crate::store::StoreStatus>, UnmetObligation> {
+        let admitted = StoreStorage::list(&self.ports);
+        Ok(admitted
+            .into_iter()
+            .map(|held| crate::store::StoreStatus {
+                url: held.data.url,
+                state: held.state,
+                backend: held.data.backend,
+                reachable: held.data.reachable,
+                last_event_id: held.data.last_event_id,
+                instance_last_event_ids: held.data.instance_last_event_ids,
+            })
+            .collect())
+    }
+}
+
+/// `conductor.token.Tokens`, generated: every row is one the specification fully determines from the stored `conductor.token.PoolToken`s.
+impl<P> crate::token::obligations::TokensQuery for Generated<P>
+where
+    P: PoolTokenStorage,
+{
+    fn tokens(&self) -> Result<Vec<crate::token::Tokens>, UnmetObligation> {
+        let admitted = PoolTokenStorage::list(&self.ports);
+        Ok(admitted
+            .into_iter()
+            .map(|held| crate::token::Tokens {
+                token_id: held.data.token_id,
+                state: held.state,
+                instance: held.data.instance,
+                owner: held.data.owner,
+                seat: held.data.seat,
+                token_state: held.data.token_state,
+                limited_until: held.data.limited_until,
+                agent: held.data.agent,
+                contributed_at: held.data.contributed_at,
             })
             .collect())
     }
@@ -4321,6 +5738,7 @@ where
                 duration_ms: held.data.duration_ms,
                 output_bytes: held.data.output_bytes,
                 called_at: held.data.called_at,
+                actor: held.data.actor,
             })
             .collect())
     }
