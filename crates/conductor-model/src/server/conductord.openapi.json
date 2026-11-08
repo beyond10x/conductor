@@ -8,7 +8,7 @@
     "x-ess-provenance": {
       "system": "conductor",
       "specification_version": "v1",
-      "contract_digest": "slice-sha256/2:25652bbcfe1c788ee29966a4f78a0d4582f9cc1931d5a24594be1dd772909ca4"
+      "contract_digest": "slice-sha256/2:86159d7264b12d31fdcee33320095bd38301a1111b91aac8ee699ac6ddfdea79"
     },
     "x-ess-reached-by": "network"
   },
@@ -2687,6 +2687,16 @@
                     "committed"
                   ],
                   "type": "object"
+                }
+              }
+            }
+          },
+          "502": {
+            "description": "Outcome `not-owner`: something outside the request refused. The input was acceptable, so the caller has nothing to correct and a retry is meaningful.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/conductor.token.WithdrawToken.not-owner.Response"
                 }
               }
             }
@@ -7419,7 +7429,7 @@
       },
       "conductor.token.LeaseToken.wrong-state.Response": {
         "additionalProperties": false,
-        "description": "The token named is not Available (leased, limited or withdrawn); nothing changed. Taken when the subject is in a state none of this command's declared moves start from. Which states those are is the lifecycle's answer, not this command's. For an instance no record carries, `payload` is absent, because an instance that does not exist has nothing for the error to describe.",
+        "description": "The token named is neither Available nor Limited (it is leased or withdrawn); nothing changed. Taken when the subject is in a state none of this command's declared moves start from. Which states those are is the lifecycle's answer, not this command's. For an instance no record carries, `payload` is absent, because an instance that does not exist has nothing for the error to describe.",
         "properties": {
           "error": {
             "const": "conductor.token.TokenStateConflict",
@@ -7558,6 +7568,22 @@
         },
         "required": [
           "instance"
+        ],
+        "additionalProperties": false
+      },
+      "conductor.token.NotTokenOwner.Error": {
+        "title": "NotTokenOwner payload",
+        "description": "The person who asked is not the token's owner, and only the owner withdraws a token; nothing changed.\n",
+        "x-ess-name": "conductor.token.NotTokenOwner",
+        "x-ess-kind": "error-payload",
+        "type": "object",
+        "properties": {
+          "token_id": {
+            "$ref": "#/components/schemas/conductor.token.TokenId"
+          }
+        },
+        "required": [
+          "token_id"
         ],
         "additionalProperties": false
       },
@@ -7988,6 +8014,36 @@
           },
           "payload": {
             "$ref": "#/components/schemas/conductor.operator.ActorNotHuman.Error"
+          },
+          "published": {
+            "description": "Every event this branch published, in publication order: its qualified name and its payload.",
+            "maxItems": 0,
+            "type": "array"
+          }
+        },
+        "required": [
+          "outcome",
+          "published",
+          "error",
+          "payload"
+        ],
+        "type": "object"
+      },
+      "conductor.token.WithdrawToken.not-owner.Response": {
+        "additionalProperties": false,
+        "description": "Someone other than the token's owner asked to withdraw it; the token is unchanged. Decided outside the request: the person who asked is not the token's owner.",
+        "properties": {
+          "error": {
+            "const": "conductor.token.NotTokenOwner",
+            "description": "The person who asked is not the token's owner, and only the owner withdraws a token; nothing changed.\n",
+            "type": "string"
+          },
+          "outcome": {
+            "const": "not-owner",
+            "description": "Which declared outcome the command took."
+          },
+          "payload": {
+            "$ref": "#/components/schemas/conductor.token.NotTokenOwner.Error"
           },
           "published": {
             "description": "Every event this branch published, in publication order: its qualified name and its payload.",

@@ -364,6 +364,7 @@ fn the_helper_runs_the_binary_on_the_case_s_home_without_either_variable() {
             (OsStr::new("HOME"), Some(refused.as_os_str())),
             (OsStr::new(CONFIG_VARIABLE), None),
             (OsStr::new(INSTANCE_VARIABLE), None),
+            (OsStr::new(conductor_cli::remote::VARIABLE), None),
             (OsStr::new("CLAUDE_CODE_SESSION_ID"), None),
             (OsStr::new("CONDUCTOR_SESSION"), None),
             (OsStr::new("USER"), Some(OsStr::new("operator"))),
@@ -372,7 +373,7 @@ fn the_helper_runs_the_binary_on_the_case_s_home_without_either_variable() {
                 Some(keychain.as_os_str()),
             ),
         ]),
-        "the command sets HOME, USER and the fake keychain under HOME, and removes both variables, the harness's session and \
+        "the command sets HOME, USER and the fake keychain under HOME, and removes both variables, the daemon's, the harness's session and \
          conductor's, and nothing \
          else"
     );

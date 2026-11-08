@@ -233,7 +233,7 @@ pub fn spawn_for(
         }
     };
 
-    let launch = controller_launch(
+    let mut launch = controller_launch(
         config_flag,
         &state_dir,
         &ControllerRole {
@@ -246,6 +246,22 @@ pub fn spawn_for(
         &checkout,
         &environment,
     )?;
+    // story:token-pool: the controller runs on a token leased from the instance's pool (its
+    // `token_owner`'s, for Remote Control, when the role names one); none in the pool, today's.
+    let lease = match crate::token::lease_into(instance, controller, &mut launch, false) {
+        Ok(lease) => lease,
+        Err(detail) => {
+            record_stopped(
+                state,
+                controller_id,
+                format!("{COMMAND}: no token to start on: {detail}"),
+            )?;
+            return refuse(
+                SpawnRefusal::LaunchFailed,
+                format!("{detail}; the controller is recorded stopped"),
+            );
+        }
+    };
     // The none provider's launch is `claude --bg`; another provider's is its own start.
     let launcher = if chosen.name() == "none" {
         format!("{CLAUDE} --bg")
@@ -317,6 +333,9 @@ pub fn spawn_for(
                 ),
             );
         }
+    }
+    if lease.is_some() {
+        crate::token::release_for_stop(instance, &session_name.0).context(COMMAND)?;
     }
     record_stopped(
         state,
@@ -524,6 +543,8 @@ pub fn end(
     provider
         .stop(&session, &request)
         .with_context(|| format!("stop the controller session {}", session_name.0))?;
+    // story:token-pool: the token the session ran on is Available again.
+    crate::token::release_for_stop(instance, &session_name.0)?;
     Ok(Some(format!(
         "{} ({})",
         session_name.0,
@@ -575,7 +596,7 @@ pub fn resume(
         role(instance).map_err(|(_, detail)| anyhow!("{detail}"))?;
     let settings = pinned_settings(instance, settings, &state_dir, session_name)?;
     let environment = Environment::from_process().context(COMMAND)?;
-    let launch = controller_launch(
+    let mut launch = controller_launch(
         config_flag,
         &state_dir,
         &ControllerRole {
@@ -588,11 +609,21 @@ pub fn resume(
         &checkout,
         &environment,
     )?;
+    // story:token-pool: resumed on a token of the pool: an Available one, else, with the
+    // account's headroom back, the Limited one (a pool of one is today's auto-resume).
+    let lease = crate::token::lease_into(instance, controller, &mut launch, true)
+        .map_err(|detail| anyhow!("{detail}"))?;
     let chosen = confine::choose(providers, &crate::config::legacy(instance).confinement)
         .map_err(|refusal| anyhow!("{}", refusal_detail(refusal)))?;
-    let started = chosen
-        .resume(&session, &launch, &state_dir)
-        .map_err(|refusal| anyhow!("{}", refusal_detail(refusal)))?;
+    let started = match chosen.resume(&session, &launch, &state_dir) {
+        Ok(started) => started,
+        Err(refusal) => {
+            if lease.is_some() {
+                let _ = crate::token::release_for_stop(instance, &session_name.0);
+            }
+            bail!("{}", refusal_detail(refusal));
+        }
+    };
     let id = started
         .session
         .session_id

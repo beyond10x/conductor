@@ -8,7 +8,7 @@
     "x-ess-provenance": {
       "system": "conductor",
       "specification_version": "v1",
-      "contract_digest": "slice-sha256/2:c915f3bca3d96beecf2b2e2d3273e01200fe9a69d932be1282d5c59f95f4e963"
+      "contract_digest": "slice-sha256/2:2136a269e26b737a3c4bce2fa2db6949a0ce046af17e01d668674f5d5362654a"
     },
     "x-ess-reached-by": "network"
   },

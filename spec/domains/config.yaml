@@ -248,6 +248,13 @@ types:
   # UNMAPPED: § 7 makes the kind the program that fills a role, which is what `harness` named
   # (`claude`, `codex`); whether `harness` is retired in favour of `kind` or stays as the
   # `claude-code` kind's own setting is not settled. Both are kept. Open question.
+  #
+  # `token_owner` (story:token-pool, design architecture-next § 17, decision 11) names the
+  # operator whose Claude token from the instance's pool the role's agent leases, so a controller
+  # started for Remote Control appears in that owner's Claude app. A controller's key only: on any
+  # other role it is a problem. Absent, the pool's lease rule applies (the token with the most
+  # headroom). A named owner with no Available token refuses the start (`NoTokenAvailable`); no
+  # other owner's token is taken.
   - name: conductor.config.Role
     kind: struct
     fields:
@@ -265,6 +272,7 @@ types:
       - {name: network, type: conductor.config.Network}
       - {name: forge_token_env, type: List<String>}
       - {name: grant, type: conductor.tool.RoleGrant}
+      - {name: token_owner, type: Optional<conductor.operator.OperatorName>}
 
   # The CPU, memory and process limits of a box (story:session-envelope-model), as systemd sets
   # them on a cgroup: `memory_max` its `MemoryMax`, in GiB, written as a size, `15G`;
@@ -640,8 +648,10 @@ types:
   # it back to its previous binary (story:instance-upgrade, § 10), a duration, absent 120 s;
   # `timeout`, how long an instance has to answer one federated read of the global API before it is
   # a row with `state: unreachable` (story:federated-views, § 5.2), a duration, absent 5 s.
-  # UNMAPPED: § 4 says "the loopback listener is off on a box that has no local operator"; which key
-  # turns it off (an absent `port`, or a key of its own) is not settled. Open question.
+  # `loopback`, whether the daemon serves the loopback listener on `port`, absent true: a box with
+  # no local operator writes false (story:daemon-remote, § 4), its API then the TLS listener alone,
+  # so false with no `tls` is refused at validate by the key's YAML path, and `daemon serve
+  # --install` writes a system unit for it rather than the user unit.
   # UNMAPPED: "the dashboard's served path" may be the URL path the app is served under (`/`, as
   # § 5.3 says) or the directory of the built app the daemon serves; read here as the URL path.
   # Open question.
@@ -649,6 +659,7 @@ types:
     kind: struct
     fields:
       - {name: port, type: Integer}
+      - {name: loopback, type: Boolean}
       - {name: tls, type: Optional<conductor.config.TlsListener>}
       - {name: cadence, type: conductor.config.DaemonCadence}
       - {name: store, type: conductor.store.StoreUrl}
@@ -887,11 +898,9 @@ types:
   # (`conductor.config.RoleName`: `Director`, `Lead`, `Maintainer`), a `README.md`, the workspace file
   # `.engineering/workspace.yaml` as `config workspace` writes it, and `decisions/`,
   # `dispatches/` and `charters/` — and commits it, refusing to overwrite any file. `instance` is
-  # selected as for `config show`; a config file must name it. Before the records, it installs
-  # the host's agent adapters, `conductor-supervisor.md` and `conductor-teacher.md`, as the
-  # binary ships them, under `~/.claude/agents/` (story:host-session-profiles), and prints one
-  # line per file: `installed: <path>` when it was missing, `kept: <path>` when it equals the
-  # shipped one, `differs: <path>` when it does not, which is never overwritten.
+  # selected as for `config show`; a config file must name it. It installs no agent adapter under
+  # `~/.claude/agents/`: the daemon starts the host roles, the supervisor and the teacher, from
+  # their profiles (story:host-roles-by-daemon, decision H4).
   - name: conductor.config.InitRecords
     kind: struct
     fields:

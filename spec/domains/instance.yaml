@@ -46,6 +46,11 @@ types:
   # its file. At most one is given. The story writes `conductor daemon --install`; the `ess-cli/1`
   # binding refuses a group that is also a command, so they are flags of `daemon serve`, as
   # `once` is of `run`.
+  # On a box with no local operator (`daemon.loopback: false`, story:daemon-remote) `install`
+  # writes the system unit `conductord.service` instead, running as the installing user with its
+  # home; it is refused while the config file lies in no git checkout (every `PutConfig` commits
+  # there) or while `daemon.secrets` names the OS keychain rather than the Secrets service, each
+  # naming its YAML path or the file, before the service manager is reached.
   - name: conductor.instance.ServeDaemon
     kind: struct
     fields:
@@ -63,6 +68,19 @@ types:
       - {name: instance, type: Optional<conductor.config.InstanceName>}
       - {name: tag, type: String}
       - {name: all, type: Optional<Boolean>}
+
+  # The input of `conductor daemon start-role` (story:host-roles-by-daemon, design § 10): the
+  # client of `POST /v1/roles/{role}/start` on the daemon of the config file, which asks the
+  # daemon to start the host role `role` now: `supervisor` or `teacher`, one `globals.roles`
+  # lists (decision H1: the teacher runs when the file lists it). The daemon starts it through
+  # `conductor session start --role <role>` at the `host` placement, its session in
+  # `conductor_host.slice`, and keeps it running; a role that is no host role, or one the file
+  # does not list, is refused naming `globals.roles`. `task supervisor:start` and `task
+  # teacher:start` run it.
+  - name: conductor.instance.StartHostRole
+    kind: struct
+    fields:
+      - {name: role, type: Optional<conductor.config.RoleName>}
 
 entities:
   # One instance the config names, keyed by its name. Desired fields are read from the config at
@@ -288,8 +306,9 @@ errors:
         type: conductor.placement.PlacementName
 
   # `POST /v1/ask` of the global API (story:federated-views, § 5.2): the text goes to the
-  # supervisor, and no supervisor runs until the daemon starts the host roles; the route answers
-  # this, naming the instance `--to` named when it named one.
+  # supervisor's session, which the daemon starts when `globals.roles` lists `supervisor`
+  # (story:host-roles-by-daemon); while none runs the route answers this, naming the instance
+  # `--to` named when it named one.
   - name: conductor.instance.SupervisorNotRunning
     summary: >
       No supervisor runs to take the question, so it was not delivered; nothing changed.

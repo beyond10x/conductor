@@ -7,7 +7,8 @@
 //! key, is read with one key left out at a time through `conductor_cli::config::parse`, and the
 //! value `conductor_cli::config::document` shows for it (what `conductor config show` prints; for
 //! the `daemon` and `globals` sections, `daemon_document` and `globals_document`) is its default.
-//! A key whose absence the library refuses is required.
+//! An instance key is left out of `globals` as well, so its default is the built-in one, not the
+//! global level's. A key whose absence the library refuses is required.
 
 use std::{collections::BTreeMap, fs, path::Path};
 
@@ -53,6 +54,7 @@ const SAMPLE: &str = "\
 version: conductor.config/2
 daemon:
   port: 7400
+  loopback: false
   tls:
     listen: 0.0.0.0:7443
     cert: /etc/conductor/tls.crt
@@ -95,6 +97,10 @@ globals:
         tasks_max: 512
       writable: [checkout, ~/example-org/shared]
       network: open
+    - role: lead
+      harness: claude
+      model: opus
+      token_owner: example-operator
   cadence:
     cycle: 3h
     daily: '07:00'
@@ -169,6 +175,7 @@ instances:
           tasks_max: 512
         writable: [checkout, ~/example-org/shared]
         network: open
+        token_owner: example-owner
     limits:
       memory_max: 32G
       cpu_weight: 200
@@ -565,13 +572,16 @@ fn lookup<'v>(value: &'v Value, path: &[Step]) -> Option<&'v Value> {
 }
 
 /// Reads [`SAMPLE`] with the instance key at `path` left out (or the file key, when `top`: a key
-/// of the file, or of one of its [`SECTIONS`]).
+/// of the file, or of one of its [`SECTIONS`]). An instance key is left out of `globals` too, so
+/// its default is the built-in one and not the value the sample sets at the global level.
 fn probe(sample: &Value, path: &[Step], top: bool) -> Result<Found> {
     let mut file = sample.clone();
     let removed = if top {
         remove(&mut file, path)
     } else {
-        remove(&mut file["instances"][0], path)
+        let removed = remove(&mut file["instances"][0], path);
+        remove(&mut file["globals"], path);
+        removed
     };
     ensure!(removed > 0, "the sample file sets no {}", written(path));
     let text = serde_yaml::to_string(&file)?;

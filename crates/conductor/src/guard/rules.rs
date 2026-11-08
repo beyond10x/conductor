@@ -956,7 +956,7 @@ const NOT_CONFIG: &str = "a controller does not write conductor's config";
 /// The global options of the `conductor` command tree that take a value (`src/cli.rs`), so that
 /// the value is not read as a group or a leaf. `tests/guard_rules.rs` runs each leaf with every
 /// global option of the tree that takes one.
-const GLOBAL_VALUES: [&str; 2] = ["--state-dir", "--config"];
+const GLOBAL_VALUES: [&str; 3] = ["--state-dir", "--config", "--daemon"];
 
 /// The [`Access`] the `conductor` command tree declares for the leaf named by `path`, the words
 /// after `conductor` ([`cli::LEAVES`]), or `None` when the tree has no such leaf.

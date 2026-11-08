@@ -14,6 +14,9 @@
 //! Three presentation options apply everywhere, and nothing else does: `--input-json -` on every
 //! command, `--format` on every view, and the global `--state-dir`, named by `globals.state` of
 //! the `ess-cli/1` binding `crates/conductor/cli.yaml`, before or after any subcommand.
+//! Beside them the global `--daemon <url>` (`story:daemon-remote`), which the binding declares
+//! no slot for: the daemon a command with a route on its global API talks to
+//! ([`crate::remote`]); every other command refuses it.
 //! `guard record-guard-decision` alone also takes `--from-pre-tool-use`, and `session claim` alone
 //! `--from-session-start`: each reads the payload of the Claude Code hook it is wired as. The
 //! guard also takes `--pid`, the calling session's process, which its payload does not name
@@ -87,6 +90,13 @@ pub struct Cli {
     /// else ~/.b10x/conductor/conductor.yaml. Every command reads it for its instance
     #[arg(long, global = true, value_name = "FILE")]
     pub config: Option<PathBuf>,
+
+    /// The daemon a command talks to, an https:// address; default: $CONDUCTOR_DAEMON for the
+    /// commands with a route on its global API (login, join, leave, config put, instance upgrade),
+    /// else this box. Any other command refuses it
+    // story:daemon-remote: the `ess-cli/1` binding declares no such global (decision R4).
+    #[arg(long, global = true, value_name = "URL")]
+    pub daemon: Option<String>,
 
     /// The group the command belongs to.
     #[command(subcommand)]
@@ -193,6 +203,10 @@ impl Cli {
     ///
     /// What [`Cli::run`] answers.
     pub fn run_with(self, providers: &dyn crate::confine::Providers) -> Result<ExitCode> {
+        // `--daemon` is taken only by a command with a route on the global API
+        // (`story:daemon-remote`).
+        crate::remote::refuse_unrouted(&self.leaf, self.daemon.as_deref())?;
+        let remote = crate::remote::chosen(self.daemon.as_deref());
         // The instance every handler reads (`crate::config::active`). The two config leaves read
         // the file themselves, to report each problem; the guard hook answers a file that does
         // not load by denying every call and naming it (`story:instance-isolation`).
@@ -210,10 +224,11 @@ impl Cli {
             | Group::Upgrade(_)
             | Group::Daemon(_)
             | Group::Instance(_)
-            | Group::Join
-            | Group::Leave
+            | Group::Join(_)
+            | Group::Leave(_)
             | Group::Login
             | Group::Secret(_)
+            | Group::Token(_)
             | Group::Tui => {}
             Group::Guard(_) => {
                 unloaded = crate::config::set_active(self.config.as_deref())
@@ -498,6 +513,12 @@ impl Cli {
                 }
                 FindingCommand::Findings(_) => crate::not_implemented("finding findings"),
             },
+            // The tuner's proposals (story:tuner).
+            Group::Tuner(command) => match command {
+                TunerCommand::SettingsProposals(view) => {
+                    crate::tune::settings_proposals(state, view)
+                }
+            },
             Group::Broker(command) => match command {
                 BrokerCommand::Serve => crate::broker::broker_serve(state),
             },
@@ -508,7 +529,10 @@ impl Cli {
                 ConfigCommand::Migrate(args) => {
                     crate::config::migrate(self.config.as_deref(), &args)
                 }
-                ConfigCommand::Put(args) => crate::config::put(self.config.as_deref(), &args),
+                ConfigCommand::Put(args) => match &remote {
+                    Some(daemon) => crate::remote::config_put(daemon, &args),
+                    None => crate::config::put(self.config.as_deref(), &args),
+                },
                 ConfigCommand::Show(args) => crate::config::show(self.config.as_deref(), &args),
                 ConfigCommand::Validate(args) => {
                     crate::config::validate(self.config.as_deref(), &args)
@@ -567,22 +591,31 @@ impl Cli {
                 DaemonCommand::Serve(args) => {
                     crate::daemon::daemon_serve(self.config.as_deref(), state, &args)
                 }
+                DaemonCommand::StartRole(args) => {
+                    crate::daemon::start_role(self.config.as_deref(), state, &args)
+                }
             },
             Group::Instance(command) => match command {
                 InstanceCommand::Serve => crate::instance::instance_serve(self.config.as_deref()),
-                InstanceCommand::Upgrade(args) => {
-                    crate::daemon::upgrade::instance_upgrade(self.config.as_deref(), &args)
-                }
+                InstanceCommand::Upgrade(args) => match &remote {
+                    Some(daemon) => crate::remote::instance_upgrade(daemon, &args),
+                    None => crate::daemon::upgrade::instance_upgrade(self.config.as_deref(), &args),
+                },
             },
-            Group::Join => crate::not_implemented("join"),
-            Group::Leave => crate::not_implemented("leave"),
-            Group::Login => crate::not_implemented("login"),
+            Group::Join(args) => crate::token::join(&args, remote.as_deref()),
+            Group::Leave(args) => crate::token::leave(&args, remote.as_deref()),
+            Group::Login => crate::login::login(remote.as_deref()),
             Group::Secret(command) => match command {
                 SecretCommand::Put(args) => {
                     crate::secret::secret_put(self.config.as_deref(), &args)
                 }
             },
-            Group::Tui => crate::not_implemented("tui"),
+            Group::Token(command) => match command {
+                TokenCommand::Reveal(args) => {
+                    crate::token::token_reveal(self.config.as_deref(), &args)
+                }
+            },
+            Group::Tui => crate::tui::tui(self.config.as_deref(), self.daemon.as_deref()),
         }
     }
 }
@@ -642,6 +675,10 @@ pub enum Group {
     #[command(subcommand)]
     Finding(FindingCommand),
 
+    /// The settings changes the tuner proposed after each daily tick, and whether each was applied, kept, reverted or refused
+    #[command(subcommand)]
+    Tuner(TunerCommand),
+
     // No help, as for `dashboard`: the binding declares the group only through `agent start`,
     // `deliver`, `attach` and `stop` (`story:spec-v1`).
     #[command(subcommand)]
@@ -675,7 +712,7 @@ pub enum Group {
     #[command(name = "gc")]
     Gc(GcArgs),
 
-    /// Install the host's supervisor and teacher agents in ~/.claude/agents/ where missing, printing installed, kept or differs per file, then write and commit the instance's records directory skeleton; refuse to overwrite any file
+    /// Write and commit the instance's records directory skeleton; refuse to overwrite any file
     #[command(name = "init")]
     Init(InitArgs),
 
@@ -684,15 +721,15 @@ pub enum Group {
     #[command(subcommand)]
     Instance(InstanceCommand),
 
-    /// Join an instance of a daemon as one of its operators and contribute a token to its pool; not written yet, exits 2
+    /// Join an instance of the daemon --daemon names as one of its operators (JoinInstance, with the grants daemon.operators gives you) and contribute your Claude token, read from standard input, to the instance's pool (ContributeToken): the value goes into the daemon's secrets source, the pool records its owner, seat (--seat, your operator name by default) and state, never the value
     #[command(name = "join")]
-    Join,
+    Join(JoinArgs),
 
-    /// Leave an instance of a daemon and withdraw the token contributed to its pool; not written yet, exits 2
+    /// Leave an instance of the daemon --daemon names (LeaveInstance) and withdraw every token you contributed to its pool (WithdrawToken); each agent on one is resumed on another token by the instance's loop
     #[command(name = "leave")]
-    Leave,
+    Leave(LeaveArgs),
 
-    /// Obtain an Identity bearer for a daemon's API and keep it in this client's keychain; not written yet, exits 2
+    /// Log in to the daemon --daemon or CONDUCTOR_DAEMON names through its Identity service, in a browser, and keep the Identity session in this client's keychain; each command against that daemon then presents a bearer minted from it
     #[command(name = "login")]
     Login,
 
@@ -736,11 +773,16 @@ pub enum Group {
     #[command(subcommand)]
     Store(StoreCommand),
 
+    // No help, as for `dashboard`: the binding declares the group only through `token reveal`
+    // (`story:token-pool`).
+    #[command(subcommand)]
+    Token(TokenCommand),
+
     /// Mark every git checkout under the instance's checkouts root, and its records directory, as trusted Claude Code workspaces in ~/.claude.json
     #[command(name = "trust")]
     Trust(TrustArgs),
 
-    /// Open the terminal UI over the daemon's global API; not written yet, exits 2
+    /// Open the terminal UI over the daemon's global API - the instances (state, open decisions, KPI flags), the sessions of the selected one (role, state, context, current work) and its settings, read-only; Enter attaches to the selected session, w watches it, l follows its terminal log, ctrl-] then d returns; the global --daemon names the daemon (default CONDUCTOR_DAEMON, else 127.0.0.1:daemon.port)
     #[command(name = "tui")]
     Tui,
 
@@ -997,6 +1039,7 @@ pub const LEAVES: &[(&[&str], Access)] = &[
     (&["agent", "start"], Access::Writes),
     (&["agent", "stop"], Access::Writes),
     (&["daemon", "serve"], Access::Writes),
+    (&["daemon", "start-role"], Access::Writes),
     (&["instance", "serve"], Access::Writes),
     // Asks the daemon to upgrade an instance's runtime (story:instance-upgrade).
     (&["instance", "upgrade"], Access::Writes),
@@ -1004,7 +1047,12 @@ pub const LEAVES: &[(&[&str], Access)] = &[
     (&["leave"], Access::Writes),
     (&["login"], Access::Writes),
     (&["secret", "put"], Access::Writes),
+    // Prints a leased token's value for the harness's apiKeyHelper; no session runs it through a tool
+    // call but conductor's (`story:token-pool`).
+    (&["token", "reveal"], Access::Writes),
     (&["tui"], Access::ConductorReads),
+    // A view of the tuner's proposals over the store (story:tuner).
+    (&["tuner", "settings-proposals"], Access::Reads),
 ];
 
 // `conductor agent`: the agents of an instance, each through its role's kind (design
@@ -1083,9 +1131,22 @@ pub struct AgentAttachArgs {
 #[allow(missing_docs)]
 #[derive(Debug, Subcommand)]
 pub enum DaemonCommand {
-    /// Run conductord, the daemon of the control host, reconciling the instance runtimes from the config file - start what is absent, stop what is gone, restart what changed placement or binary - on a config change, a lost runtime and every daemon.cadence.reconcile, recording one Reconciliation per action, and serving GET 127.0.0.1:<daemon.port>/v1/instances. --install writes, enables and starts the user unit conductord.service; --uninstall stops and removes it
+    /// Run conductord, the daemon of the control host, reconciling the instance runtimes from the config file - start what is absent, stop what is gone, restart what changed placement or binary - on a config change, a lost runtime and every daemon.cadence.reconcile, recording one Reconciliation per action, and serving GET 127.0.0.1:<daemon.port>/v1/instances. --install writes, enables and starts the user unit conductord.service, or the system unit when daemon.loopback is false (a box with no local operator, its config file in a git checkout, its secrets on the Secrets service); --uninstall stops and removes it
     #[command(name = "serve")]
     Serve(DaemonServeArgs),
+
+    /// Ask the daemon of the config file to start a host role now (POST /v1/roles/{role}/start) - supervisor or teacher, one globals.roles lists; the daemon starts it through conductor session start --role <role> at the host placement, its session in conductor_host.slice, and keeps it running; a role the file does not list is refused naming globals.roles
+    #[command(name = "start-role")]
+    StartRole(DaemonStartRoleArgs),
+}
+
+/// The input of the binding's `daemon-start-role` callable, `conductor.instance.StartHostRole`
+/// (`story:host-roles-by-daemon`).
+#[derive(Debug, Clone, Default, Args)]
+pub struct DaemonStartRoleArgs {
+    /// The host role to start: supervisor or teacher; required
+    #[arg(long, value_name = "ROLE")]
+    pub role: Option<String>,
 }
 
 /// The input of the binding's `daemon-serve` callable, `conductor.instance.ServeDaemon`
@@ -1129,6 +1190,43 @@ pub struct InstanceUpgradeArgs {
     /// `--all` alone is `--all true`
     #[arg(long, value_name = "BOOL", num_args = 0..=1, default_missing_value = "true")]
     pub all: Option<bool>,
+}
+
+/// The input of the binding's `join` callable, `conductor.token.JoinDaemon`
+/// (`story:token-pool`). The token is read from standard input, never from a flag.
+#[derive(Debug, Clone, Default, Args)]
+pub struct JoinArgs {
+    /// The instance joined
+    #[arg(long, value_name = "NAME")]
+    pub instance: Option<String>,
+    /// The Claude login the token draws on; absent, your operator name
+    #[arg(long, value_name = "SEAT")]
+    pub seat: Option<String>,
+}
+
+/// The input of the binding's `leave` callable, `conductor.token.LeaveDaemon`.
+#[derive(Debug, Clone, Default, Args)]
+pub struct LeaveArgs {
+    /// The instance left
+    #[arg(long, value_name = "NAME")]
+    pub instance: Option<String>,
+}
+
+/// The input of the binding's `token-reveal` callable, `conductor.token.RevealToken`.
+#[derive(Debug, Clone, Default, Args)]
+pub struct TokenRevealArgs {
+    /// The leased token's id
+    #[arg(long, value_name = "ID")]
+    pub token: Option<String>,
+}
+
+// `conductor token`: the instance's token pool (`story:token-pool`).
+#[allow(missing_docs)]
+#[derive(Debug, Subcommand)]
+pub enum TokenCommand {
+    /// Print the value of a leased token of the instance's pool from the daemon's secrets source, for the claude-code kind's harness, whose settings name this command as their apiKeyHelper; refuse a token that is not leased; nothing else prints a value
+    #[command(name = "reveal")]
+    Reveal(TokenRevealArgs),
 }
 
 // `conductor secret`: the secrets the config names (design architecture-next § 9,
@@ -1776,6 +1874,15 @@ pub enum FindingCommand {
     /// Friction findings
     #[command(name = "findings")]
     Findings(ViewArgs),
+}
+
+/// `conductor tuner`: the settings changes the tuner proposed after each daily tick
+/// (`story:tuner`).
+#[derive(Debug, Subcommand)]
+pub enum TunerCommand {
+    /// Settings proposals
+    #[command(name = "settings-proposals")]
+    SettingsProposals(ViewArgs),
 }
 
 /// The input of the binding's `gc-reclaim` callable, `conductor.host.ReclaimDisk`. The format is

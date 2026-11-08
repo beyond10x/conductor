@@ -432,6 +432,21 @@ pub fn attach(
     }
 }
 
+/// `l` of the terminal UI (`story:tui-readonly`): follows the terminal log of the session `name`
+/// of the instance `instance` of the config file, whether it runs under tmux or the launcher
+/// before it, until it ends or the operator presses `ctrl-]` then `d`.
+///
+/// # Errors
+///
+/// The config file does not load, names no such instance, or the log does not open.
+pub fn follow_log(config_flag: Option<&Path>, instance: &str, name: &str) -> Result<ExitCode> {
+    let places = places(config_flag, None, Some(instance))?;
+    let path = log_path(&places[0].sessions, name);
+    let mut file = File::open(&path).with_context(|| format!("open {}", path.display()))?;
+    let session = SessionName(name.to_owned());
+    watch_log(&mut file, || unit_active(&session))
+}
+
 /// Attaches to `row`, whose files are in `sessions`: its tmux, read-only under `watch`, or the
 /// follow of its terminal log when it runs under the launcher before tmux.
 fn open(sessions: &Path, row: &AttachableSession, watch: bool) -> Result<ExitCode> {

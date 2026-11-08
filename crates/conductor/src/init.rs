@@ -8,13 +8,8 @@
 //! directory is, `.engineering/workspace.yaml` as `conductor config workspace` writes it
 //! (`story:workspace-from-config`), and `decisions/`, `dispatches/` and `charters/`, then commits
 //! the files it wrote, and only those. It overwrites nothing: when any of those files is there, it writes
-//! nothing. The texts name no organization.
-//!
-//! Before the records, it installs the host's agent adapters, `conductor-supervisor.md` and
-//! `conductor-teacher.md` as this binary ships them, under `~/.claude/agents/`
-//! (`story:host-session-profiles`): a missing one is written, one that is there is never
-//! overwritten; one line per file says `installed`, `kept` (equal to the shipped one) or
-//! `differs`.
+//! nothing. The texts name no organization. It installs no agent adapter under `~/.claude/agents/`:
+//! the daemon starts the host roles from their profiles (`story:host-roles-by-daemon`).
 
 use std::fs::{self, File};
 use std::io::Write as _;
@@ -26,75 +21,6 @@ use time::OffsetDateTime;
 
 use crate::cli::InitArgs;
 use crate::config::{self, Environment};
-
-/// The host's agent adapters `conductor init` installs under `~/.claude/agents/`, by file name, as
-/// this checkout's `.claude/agents/` holds them (`story:host-session-profiles`).
-pub const ADAPTERS: [(&str, &str); 2] = [
-    (
-        "conductor-supervisor.md",
-        include_str!("../../../.claude/agents/conductor-supervisor.md"),
-    ),
-    (
-        "conductor-teacher.md",
-        include_str!("../../../.claude/agents/conductor-teacher.md"),
-    ),
-];
-
-/// What [`install_adapters`] did with one adapter.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum Adapter {
-    /// It was missing and is written.
-    Installed,
-    /// It is there and equals the shipped one.
-    Kept,
-    /// It is there and differs from the shipped one; it is left as it is.
-    Differs,
-}
-
-impl Adapter {
-    /// The word its line starts with.
-    #[must_use]
-    pub const fn word(self) -> &'static str {
-        match self {
-            Self::Installed => "installed",
-            Self::Kept => "kept",
-            Self::Differs => "differs",
-        }
-    }
-}
-
-/// Installs each of [`ADAPTERS`] missing under `agents` and answers, per adapter, its path and
-/// what was done; never writes over a file that is there (a link included).
-///
-/// # Errors
-///
-/// The directory cannot be made, or an adapter cannot be read or written.
-pub fn install_adapters(agents: &Path) -> Result<Vec<(PathBuf, Adapter)>> {
-    fs::create_dir_all(agents).with_context(|| format!("create {}", agents.display()))?;
-    let mut done = Vec::new();
-    for (name, text) in ADAPTERS {
-        let path = agents.join(name);
-        let outcome = if path.symlink_metadata().is_ok() {
-            let there = fs::read(&path).with_context(|| format!("read {}", path.display()))?;
-            if there == text.as_bytes() {
-                Adapter::Kept
-            } else {
-                Adapter::Differs
-            }
-        } else {
-            let mut out = File::options()
-                .write(true)
-                .create_new(true)
-                .open(&path)
-                .with_context(|| format!("create {}", path.display()))?;
-            out.write_all(text.as_bytes())
-                .with_context(|| format!("write {}", path.display()))?;
-            Adapter::Installed
-        };
-        done.push((path, outcome));
-    }
-    Ok(done)
-}
 
 /// The directories conductor writes its records into.
 pub const DIRECTORIES: [&str; 3] = ["decisions", "dispatches", "charters"];
@@ -311,24 +237,6 @@ pub fn init(config_flag: Option<&Path>, args: &InitArgs) -> Result<ExitCode> {
         );
     }
     let instance = config::select(&loaded, args.instance.as_deref(), &environment).context(WHAT)?;
-    // The host's adapters, before the records and whatever they answer: they belong to the host,
-    // not to the instance (`story:host-session-profiles`).
-    let Some(home) = environment.home.as_deref() else {
-        bail!("{WHAT}: HOME is not set; init installs the host's agents under ~/.claude/agents/");
-    };
-    for (path, outcome) in install_adapters(&home.join(".claude/agents")).context(WHAT)? {
-        match outcome {
-            Adapter::Differs => println!(
-                "{}: {}, left as it is; the shipped one is .claude/agents/{} of conductor",
-                outcome.word(),
-                path.display(),
-                path.file_name().unwrap_or_default().to_string_lossy()
-            ),
-            Adapter::Installed | Adapter::Kept => {
-                println!("{}: {}", outcome.word(), path.display());
-            }
-        }
-    }
     let records = PathBuf::from(&instance.records);
     let date = today();
     // Refuse before anything is made, `git init` included.
