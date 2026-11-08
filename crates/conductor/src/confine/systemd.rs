@@ -46,6 +46,7 @@ use std::io::ErrorKind;
 use std::os::unix::fs::MetadataExt as _;
 use std::path::{Path, PathBuf};
 use std::process::Command;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::thread;
 use std::time::{Duration, Instant};
 
@@ -557,7 +558,8 @@ pub fn tmux_call(sessions: &Path, name: &SessionName, args: &[&str]) -> Result<S
 }
 
 /// Types `text` into the session `name`'s pane, then Enter: `text` as one paste
-/// (`load-buffer` from `<sessions>/<name>.paste`, written for the call and removed after it,
+/// (`load-buffer` into a buffer of the call's own name ([`paste_buffer_name`]) from a paste file
+/// written for the call and removed after it,
 /// then `paste-buffer -p`, bracketed when the harness asked for it), and, after
 /// [`PASTE_SETTLE`], a carriage return pasted the same way unbracketed. Not `set-buffer` with
 /// the text as an argument: tmux refuses a command over its 16 KB limit ("command too long"),
@@ -569,37 +571,48 @@ pub fn tmux_call(sessions: &Path, name: &SessionName, args: &[&str]) -> Result<S
 /// The paste file cannot be written, or a tmux call fails.
 pub fn type_text(sessions: &Path, name: &SessionName, text: &str) -> Result<()> {
     let pane = target(name);
-    let paste = sessions.join(format!("{}.paste", name.0));
+    let buffer = paste_buffer_name();
+    let paste = sessions.join(format!("{}.{buffer}.paste", name.0));
     fs::write(&paste, text).with_context(|| format!("write {}", paste.display()))?;
     let loaded = tmux_call(
         sessions,
         name,
-        &[
-            "load-buffer",
-            "-b",
-            "conductor",
-            &paste.display().to_string(),
-        ],
+        &["load-buffer", "-b", &buffer, &paste.display().to_string()],
     );
     let _ = fs::remove_file(&paste);
     loaded?;
-    tmux_call(
-        sessions,
-        name,
-        &["paste-buffer", "-d", "-p", "-b", "conductor", "-t", &pane],
-    )?;
-    thread::sleep(PASTE_SETTLE);
-    tmux_call(
-        sessions,
-        name,
-        &["set-buffer", "-b", "conductor", "--", "\r"],
-    )?;
-    tmux_call(
-        sessions,
-        name,
-        &["paste-buffer", "-d", "-b", "conductor", "-t", &pane],
-    )?;
-    Ok(())
+    let typed = (|| {
+        tmux_call(
+            sessions,
+            name,
+            &["paste-buffer", "-d", "-p", "-b", &buffer, "-t", &pane],
+        )?;
+        thread::sleep(PASTE_SETTLE);
+        tmux_call(sessions, name, &["set-buffer", "-b", &buffer, "--", "\r"])?;
+        tmux_call(
+            sessions,
+            name,
+            &["paste-buffer", "-d", "-b", &buffer, "-t", &pane],
+        )
+    })();
+    if typed.is_err() {
+        // `paste-buffer -d` deletes the buffer it pastes; a call that failed before it leaves one.
+        let _ = tmux_call(sessions, name, &["delete-buffer", "-b", &buffer]);
+    }
+    typed.map(|_| ())
+}
+
+/// A tmux buffer name of this call alone: the process id and a counter, so two calls into one
+/// tmux server never load, paste or delete each other's buffer
+/// (`story:handover-restart-by-controller-id`).
+#[must_use]
+pub fn paste_buffer_name() -> String {
+    static COUNTER: AtomicU64 = AtomicU64::new(0);
+    format!(
+        "conductor-{}-{}",
+        std::process::id(),
+        COUNTER.fetch_add(1, Ordering::Relaxed)
+    )
 }
 
 /// The tmux target of the session `name`'s one pane: the session of exactly that name.

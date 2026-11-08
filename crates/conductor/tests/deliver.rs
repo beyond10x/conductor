@@ -156,7 +156,7 @@ impl Case {
                 call.strip_suffix(ARG)
                     .unwrap_or(call)
                     .split(ARG)
-                    .map(str::to_owned)
+                    .map(buffer_name_shown)
                     .collect()
             })
             .collect()
@@ -199,6 +199,23 @@ fn describe(output: &Output) -> String {
         String::from_utf8_lossy(&output.stdout),
         String::from_utf8_lossy(&output.stderr)
     )
+}
+
+/// A buffer name `type_text` gives one call, `conductor-<pid>-<n>`, shown as `conductor`; any
+/// other word as it is.
+fn buffer_name_shown(word: &str) -> String {
+    let own = word.strip_prefix("conductor-").is_some_and(|rest| {
+        rest.split_once('-').is_some_and(|(pid, n)| {
+            !pid.is_empty()
+                && !n.is_empty()
+                && pid.chars().chain(n.chars()).all(|c| c.is_ascii_digit())
+        })
+    });
+    if own {
+        "conductor".to_owned()
+    } else {
+        word.to_owned()
+    }
 }
 
 /// The four calls `type_text` makes on the session's socket from `<state>/sessions`: the text

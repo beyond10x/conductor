@@ -1147,6 +1147,105 @@ fn the_watch_asks_a_controller_at_the_threshold_once_and_restarts_it_idle_at_its
     assert_eq!(states_of(&case, "beta"), ["Running"]);
 }
 
+/// The id of the second session the story's cases start under the one session name.
+const SECOND: &str = "s0000002-0000";
+
+/// How many `stop` calls the fake `claude` has logged.
+fn stops(case: &Case) -> usize {
+    case.claude_calls()
+        .iter()
+        .filter(|call| call.starts_with("stop "))
+        .count()
+}
+
+/// `story:handover-restart-by-controller-id`, acceptance 1: an entry asked of controller A, the
+/// repository's controller replaced by B under the same session name: the tick stops nothing and
+/// forgets the entry, though a hand-over file is there and the session idle.
+#[test]
+fn a_hand_over_asked_of_one_controller_is_forgotten_once_another_runs_under_the_same_name() {
+    let case = Case::new("handover-controller-id");
+    case.spawn("alpha", FIRST);
+    case.tick(&[&format!(
+        "context: alpha 230k tokens (session {FIRST_SHORT})"
+    )]);
+    let kept = case.state().join("run/handover.json");
+    let asked: Value =
+        serde_json::from_str(&fs::read_to_string(&kept).expect("the hand-overs asked"))
+            .expect("JSON");
+    let old = case.view(&["controller", "all-controllers"])[0]["controller_id"]
+        .as_str()
+        .expect("the controller's id")
+        .to_owned();
+    assert_eq!(
+        asked[&old]["session"], "ex-alpha",
+        "keyed by controller: {asked}"
+    );
+    assert_eq!(asked[&old]["session_id"], FIRST_SHORT, "{asked}");
+
+    case.ok(&[
+        "controller",
+        "stop-controller",
+        "--controller-id",
+        &old,
+        "--reason",
+        "by hand",
+    ]);
+    case.spawn("alpha", SECOND);
+    let _ = fs::remove_file(case.fake().join(format!("agents/{FIRST}.json"))); // the stop may have removed it already
+    write(
+        &case
+            .checkout("alpha")
+            .join(".git/handoff/2026-11-08-alpha.md"),
+        "# Hand-over\n",
+    );
+    case.idle("alpha", SECOND);
+    let before = (stops(&case), case.launched());
+
+    let tick = case.tick(&[]);
+    assert_eq!(actions(&tick), Vec::<String>::new(), "{tick}");
+    assert_eq!(
+        (stops(&case), case.launched()),
+        before,
+        "nothing stopped or started"
+    );
+    let asked: Value =
+        serde_json::from_str(&fs::read_to_string(&kept).expect("the hand-overs")).expect("JSON");
+    assert_eq!(asked, json!({}), "the entry is forgotten");
+}
+
+/// `story:handover-restart-by-controller-id`, acceptance 2: a session started after the delivery,
+/// under the same controller record and the same name, is never stopped; the entry is forgotten.
+#[test]
+fn the_loop_never_stops_a_session_started_after_the_hand_over_was_asked() {
+    let case = Case::new("handover-younger-session");
+    case.spawn("alpha", FIRST);
+    case.tick(&[&format!(
+        "context: alpha 230k tokens (session {FIRST_SHORT})"
+    )]);
+    fs::remove_file(case.fake().join(format!("agents/{FIRST}.json"))).expect("the old one is gone");
+    case.live("alpha", SECOND, true);
+    write(
+        &case
+            .checkout("alpha")
+            .join(".git/handoff/2026-11-08-alpha.md"),
+        "# Hand-over\n",
+    );
+    case.idle("alpha", SECOND);
+    let before = (stops(&case), case.launched());
+
+    let tick = case.tick(&[]);
+    assert_eq!(actions(&tick), Vec::<String>::new(), "{tick}");
+    assert_eq!(
+        (stops(&case), case.launched()),
+        before,
+        "the younger session runs on"
+    );
+    let kept = case.state().join("run/handover.json");
+    let asked: Value =
+        serde_json::from_str(&fs::read_to_string(&kept).expect("the hand-overs")).expect("JSON");
+    assert_eq!(asked, json!({}), "the entry is forgotten");
+}
+
 /// `story:loop-restarts-controller-at-handover`: a controller asked for its hand-over that has
 /// written none after `thresholds.silent_session` is restarted from its charter and the newest
 /// hand-over it has, older than the request.
@@ -1170,7 +1269,12 @@ fn a_controller_with_no_hand_over_after_silent_session_is_restarted_from_its_new
         serde_json::from_str(&fs::read_to_string(&file).expect("the hand-overs asked"))
             .expect("JSON");
     let long_ago = (OffsetDateTime::now_utc() - time::Duration::hours(3)).unix_timestamp_nanos();
-    asked["ex-alpha"]["delivered"] = json!(long_ago.to_string());
+    let key = asked
+        .as_object()
+        .and_then(|kept| kept.keys().next().cloned())
+        .expect("one hand-over asked");
+    assert_eq!(asked[&key]["session"], "ex-alpha", "{asked}");
+    asked[&key]["delivered"] = json!(long_ago.to_string());
     write(&file, &asked.to_string());
     // The hand-over was written before the request, an hour before it.
     fs::File::options()

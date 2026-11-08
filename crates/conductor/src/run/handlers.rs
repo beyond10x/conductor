@@ -183,7 +183,7 @@ fn context(tick: &mut Tick<'_, '_>, line: &str, rest: &str) -> Result<bool> {
         return Ok(false);
     }
     let mut asked = read_json(&tick.dir, HANDOVER, json!({}));
-    if asked.get(&session).is_some() {
+    if asked_of(&asked, &session) {
         return Ok(false);
     }
     send(
@@ -192,8 +192,14 @@ fn context(tick: &mut Tick<'_, '_>, line: &str, rest: &str) -> Result<bool> {
         &session,
         &format!("[HANDOVER {repo}] context {thousands}k"),
     )?;
-    asked[session.as_str()] = json!({
+    let session_id = measured_id(line)
+        .map(str::to_owned)
+        .or_else(|| enveloped_id(tick, &session))
+        .unwrap_or_default();
+    asked[controller.as_str()] = json!({
         "repo": repo,
+        "session": session,
+        "session_id": session_id,
         "delivered": nanos(SystemTime::now()).to_string(),
         "line": line,
     });
@@ -210,26 +216,46 @@ fn context(tick: &mut Tick<'_, '_>, line: &str, rest: &str) -> Result<bool> {
 /// or a session without an envelope or without an id in it, is taken as the controller's, as
 /// before envelopes recorded ids.
 fn measured_is_enveloped(tick: &Tick<'_, '_>, session: &str, line: &str) -> bool {
-    let Some(measured) = line
-        .rsplit_once("(session ")
+    let Some(measured) = measured_id(line) else {
+        return true;
+    };
+    let Some(recorded) = enveloped_id(tick, session) else {
+        return true;
+    };
+    recorded.starts_with(measured)
+}
+
+/// The session id a `context:` line names, `(session <id>)` at its end.
+fn measured_id(line: &str) -> Option<&str> {
+    line.rsplit_once("(session ")
         .and_then(|(_, id)| id.strip_suffix(')'))
         .filter(|id| !id.is_empty())
-    else {
-        return true;
-    };
-    let Some(state) = tick.dir.parent() else {
-        return true;
-    };
+}
+
+/// The session id the envelope of the session name `session` records, if any.
+fn enveloped_id(tick: &Tick<'_, '_>, session: &str) -> Option<String> {
+    let state = tick.dir.parent()?;
     let envelope = crate::confine::record_path(state, &SessionName(session.to_owned()));
-    let Some(recorded) = fs::read_to_string(envelope)
+    fs::read_to_string(envelope)
         .ok()
         .and_then(|text| serde_json::from_str::<Value>(&text).ok())
         .and_then(|value| value["session"]["session_id"].as_str().map(str::to_owned))
         .filter(|id| !id.is_empty())
-    else {
-        return true;
-    };
-    recorded.starts_with(measured)
+}
+
+/// The session name a pending hand-over entry was asked of: its `session`, else (an entry kept
+/// by name before entries were keyed by controller id) its key.
+fn asked_session<'a>(key: &'a str, entry: &'a Value) -> &'a str {
+    entry["session"].as_str().unwrap_or(key)
+}
+
+/// Whether a hand-over is pending for the session name `session`.
+fn asked_of(asked: &Value, session: &str) -> bool {
+    asked.as_object().is_some_and(|asked| {
+        asked
+            .iter()
+            .any(|(key, entry)| asked_session(key, entry) == session)
+    })
 }
 
 /// Whether `tokens` lie over 1.25 times `threshold`.
@@ -260,8 +286,11 @@ fn hand_over(
 /// restarted once its checkout's `.git/handoff/` holds a file newer than the delivery and the
 /// session list shows it idle ([`Watch::idle`]); once its context is over 1.25 times the
 /// threshold; or once `thresholds.silent_session` passed since the delivery, from the newest
-/// hand-over file it has, older or newer. Forgotten once its repository's running controller is
-/// another session.
+/// hand-over file it has, older or newer. An entry is kept by the controller id it was asked of,
+/// with its session name and session id (`story:handover-restart-by-controller-id`); forgotten
+/// once its repository's running controller has another id, whatever the session name, or once
+/// the session list shows no live session of its name that is the session it was asked of: the
+/// loop never stops a session started after the delivery.
 fn handovers(tick: &mut Tick<'_, '_>) -> Result<()> {
     let asked = read_json(&tick.dir, HANDOVER, json!({}));
     let Some(asked) = asked.as_object() else {
@@ -275,13 +304,14 @@ fn handovers(tick: &mut Tick<'_, '_>) -> Result<()> {
     )
     .as_nanos();
     let mut watch: Option<Watch> = None;
-    for (session, entry) in asked {
+    for (key, entry) in asked {
+        let session = asked_session(key, entry);
         let repo = entry["repo"].as_str().unwrap_or_default().to_owned();
-        if tick
-            .running(&repo)?
-            .is_none_or(|(_, running)| running != *session)
-        {
-            forget(tick, session);
+        let same = tick.running(&repo)?.is_some_and(|(id, name)| {
+            name == session && (entry["session"].is_null() || id == *key)
+        });
+        if !same {
+            forget_handover(tick, key);
             continue;
         }
         let delivered: u128 = entry["delivered"]
@@ -295,6 +325,18 @@ fn handovers(tick: &mut Tick<'_, '_>) -> Result<()> {
         let Some(watch) = watch.as_ref() else {
             continue;
         };
+        let asked_id = entry["session_id"].as_str().unwrap_or_default();
+        if !asked_id.is_empty() {
+            let live = watch.live_session_ids(session)?;
+            if !live.is_empty()
+                && !live
+                    .iter()
+                    .any(|id| id.starts_with(asked_id) || asked_id.starts_with(id.as_str()))
+            {
+                forget_handover(tick, key);
+                continue;
+            }
+        }
         let checkout = tick.checkout(&repo);
         let written = newest_handoff(&checkout, delivered);
         if let Some(file) = &written
@@ -338,10 +380,31 @@ fn newest_handoff(checkout: &Path, since: u128) -> Option<PathBuf> {
         .map(|(_, path)| path)
 }
 
+/// Forgets the hand-over asked under `key`, a controller id.
+fn forget_handover(tick: &Tick<'_, '_>, key: &str) {
+    let mut kept = read_json(&tick.dir, HANDOVER, json!({}));
+    if let Some(map) = kept.as_object_mut()
+        && map.remove(key).is_some()
+        && let Err(error) = write_json(&tick.dir, HANDOVER, &kept)
+    {
+        tick.note(HANDOVER, &error);
+    }
+}
+
 /// Forgets what the ticks kept of `session`: a hand-over asked, a usage limit, a check-in, a
 /// resume.
 pub fn forget(tick: &Tick<'_, '_>, session: &str) {
-    for file in [HANDOVER, LIMITED, STALLED, RESUMED] {
+    let mut kept = read_json(&tick.dir, HANDOVER, json!({}));
+    if let Some(map) = kept.as_object_mut() {
+        let before = map.len();
+        map.retain(|key, entry| asked_session(key, entry) != session);
+        if map.len() != before
+            && let Err(error) = write_json(&tick.dir, HANDOVER, &kept)
+        {
+            tick.note(HANDOVER, &error);
+        }
+    }
+    for file in [LIMITED, STALLED, RESUMED] {
         let mut kept = read_json(&tick.dir, file, json!({}));
         if let Some(map) = kept.as_object_mut()
             && map.remove(session).is_some()
@@ -441,7 +504,7 @@ fn limited(tick: &mut Tick<'_, '_>) -> Result<()> {
         let repo = entry["repo"].as_str().unwrap_or("-").to_owned();
         let done = if repo == "-" {
             Ok(false)
-        } else if asked.get(session).is_some() {
+        } else if asked_of(&asked, session) {
             tick.restart(&repo, session, "limit over the context threshold", None)
                 .map(|()| false)
         } else {

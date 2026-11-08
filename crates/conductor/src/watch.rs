@@ -580,6 +580,21 @@ impl Watch {
             .and_then(|session| context_tokens(&self.transcript(session))))
     }
 
+    /// The session ids of the live sessions (ones with a `pid`) the session list names `name`
+    /// (`story:handover-restart-by-controller-id`).
+    ///
+    /// # Errors
+    ///
+    /// The session list cannot be read.
+    pub fn live_session_ids(&self, name: &str) -> Result<Vec<String>> {
+        Ok(self
+            .sessions()?
+            .into_iter()
+            .filter(|session| session.pid.is_some() && session.name == name)
+            .map(|session| session.session)
+            .collect())
+    }
+
     /// Whether the session `name` is idle: the session list shows no live session (one with a
     /// `pid`) of that name, or shows it neither `busy` nor `working` by its status, else its
     /// state (`story:loop-restarts-controller-at-handover`).
