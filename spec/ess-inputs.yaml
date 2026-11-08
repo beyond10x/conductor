@@ -83,3 +83,11 @@ scenarios:
   - scenarios/agent-restart-agent.yaml
   - scenarios/agent-start-agent.yaml
   - scenarios/agent-stop-agent.yaml
+  - scenarios/token-contribute-token.yaml
+  - scenarios/token-contribute-token-agent-refused.yaml
+  - scenarios/token-withdraw-token.yaml
+  - scenarios/token-withdraw-token-agent-refused.yaml
+  - scenarios/token-lease-token.yaml
+  - scenarios/token-lease-token-none-available.yaml
+  - scenarios/token-release-token.yaml
+  - scenarios/token-mark-token-limited.yaml
