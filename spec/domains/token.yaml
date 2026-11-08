@@ -223,9 +223,10 @@ commands:
   # token is the agent domain's reaction, not an outcome here.
   # The event names no `agent`: a token withdrawn from Available or Limited holds none, and ess
   # 0.90.0's interpreted target does not carry an absent Optional `{subject: agent}` after
-  # `sets: agent: {cleared: true}` while the synthesized suite expects it as `null`
-  # (beyond10x/ess issue 765). Until that is fixed the event carries `token_id` and `owner`, and
-  # the agent to resume is the one whose record names the token.
+  # `sets: agent: {cleared: true}` while the synthesized suite expects it as `null` (an ess
+  # defect: an Optional subject field carried into a payload after a clear). Until that is fixed
+  # the event carries `token_id` and `owner`, and the agent to resume is the one whose record
+  # names the token.
   # UNMAPPED: whether the agent domain finds that agent by the token (the design says the token's
   # owner is named on every agent record, § 5.3, not the token) is said nowhere. Open question.
   # UNMAPPED: whether only the token's owner may withdraw it, or any operator with a grant, is

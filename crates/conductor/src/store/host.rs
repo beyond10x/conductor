@@ -340,6 +340,7 @@ impl HostGrantStorage for Store {
 fn encode(grant: &HostGrantSnapshot) -> Value {
     let data = &grant.data;
     json!({
+        "actor": crate::actor::to_json(&data.actor),
         "state": state_name(grant.state),
         "grant_id": data.grant_id.0,
         "instance": data.instance.0,
@@ -371,6 +372,7 @@ fn decode(body: &Value) -> Result<HostGrantSnapshot, String> {
     Ok(HostGrantSnapshot {
         state: state_named(&state).ok_or_else(|| format!("unknown HostGrant state {state:?}"))?,
         data: HostGrantData {
+            actor: crate::actor::stored(body)?,
             grant_id: GrantId(text(body, "grant_id")?),
             instance: InstanceName(text(body, "instance")?),
             repository: optional_text(body, "repository")?.map(RepositoryName),

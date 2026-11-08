@@ -553,10 +553,13 @@ fn differing_views(case: &Case) -> Vec<String> {
         let mut args = args.to_vec();
         args.extend_from_slice(&["--format", "json"]);
         let answered = json(&case.ok(&args), file);
-        let source = json(
-            &fs::read_to_string(fixture().join("views").join(format!("{file}.json")))
-                .expect("read the fixture's answer"),
-            file,
+        let source = attributed(
+            json(
+                &fs::read_to_string(fixture().join("views").join(format!("{file}.json")))
+                    .expect("read the fixture's answer"),
+                file,
+            ),
+            &answered,
         );
         if answered != source {
             differing.push(format!(
@@ -565,6 +568,29 @@ fn differing_views(case: &Case) -> Vec<String> {
         }
     }
     differing
+}
+
+/// `source`, the answer a build before v1 gave, as v1 answers it: where the view shows an actor
+/// (`answered`'s rows, or the one object `decision show` prints, carry one), each row's is the
+/// daemon, which a record written without one reads as (`story:spec-v1`).
+fn attributed(mut source: Value, answered: &Value) -> Value {
+    let first = match answered {
+        Value::Array(rows) => rows.first(),
+        object => Some(object),
+    };
+    if !first.is_some_and(|row| row.get("actor").is_some()) {
+        return source;
+    }
+    let rows: Vec<&mut Value> = match &mut source {
+        Value::Array(rows) => rows.iter_mut().collect(),
+        object => vec![object],
+    };
+    for row in rows {
+        if let Some(row) = row.as_object_mut() {
+            row.insert("actor".to_owned(), Value::from("daemon"));
+        }
+    }
+    source
 }
 
 /// `conductor store migrate` over the fixture: every view answers row for row what the build
@@ -861,9 +887,12 @@ fn a_migration_finishes_what_an_interrupted_one_left() {
         &case.ok(&["goal", "goals", "--format", "json"]),
         "the goals",
     );
-    let source = json(
-        &fs::read_to_string(fixture().join("views/goal-goals.json")).expect("read"),
-        "the fixture's goals",
+    let source = attributed(
+        json(
+            &fs::read_to_string(fixture().join("views/goal-goals.json")).expect("read"),
+            "the fixture's goals",
+        ),
+        &goals,
     );
     assert_eq!(goals, source);
 }
@@ -1294,6 +1323,7 @@ fn put_goals(store: &mut Store, ids: impl Iterator<Item = usize>) {
             GoalSnapshot {
                 state: GoalState::Draft,
                 data: GoalData {
+                    actor: conductor_cli::actor::operator("operator"),
                     goal_id: GoalId(format!("G{n:05}")),
                     title: format!("Goal {n}"),
                     exit_evidence: "measured".to_owned(),

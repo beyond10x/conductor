@@ -1,5 +1,5 @@
 // generated from conductor v1
-// contract digest 057692c7a57029c79cc9e78eb455da83a4c0aa80b4525dc295987296007b3391
+// contract digest e3b967aa3e3d0f313417baefaaf92190635d03007992d259a68d9a4352490e1a
 // do not edit: regenerate with `ess synthesize --layout crate`
 
 //! conductor-cli — the `conductor-cli` component of `conductor` v1.
@@ -228,6 +228,7 @@ where
     pub fn answer_escalated_request(&mut self, input: crate::decision::AnswerEscalatedRequest) -> Result<crate::decision::AnswerEscalatedRequestOutcome, crate::obligation::UnmetObligation> {
         let outcome = self.behaviors.answer_escalated_request(input)?;
         match &outcome {
+            crate::decision::AnswerEscalatedRequestOutcome::AgentActor { .. } => {}
             crate::decision::AnswerEscalatedRequestOutcome::NoSuchDecision { .. } => {}
             crate::decision::AnswerEscalatedRequestOutcome::Reversed { .. } => {}
             crate::decision::AnswerEscalatedRequestOutcome::Answered { request_answered, .. } => {
@@ -248,6 +249,7 @@ where
         let outcome = self.behaviors.answer_request(input)?;
         match &outcome {
             crate::decision::AnswerRequestOutcome::NoSuchDecision { .. } => {}
+            crate::decision::AnswerRequestOutcome::AgentActor { .. } => {}
             crate::decision::AnswerRequestOutcome::Reversed { .. } => {}
             crate::decision::AnswerRequestOutcome::Answered { request_answered, .. } => {
                 self.outbox.push(PublishedEvent::RequestAnswered(request_answered.clone()));
@@ -319,6 +321,7 @@ where
     pub fn record_operator_decision(&mut self, input: crate::decision::RecordOperatorDecision) -> Result<crate::decision::RecordOperatorDecisionOutcome, crate::obligation::UnmetObligation> {
         let outcome = self.behaviors.record_operator_decision(input)?;
         match &outcome {
+            crate::decision::RecordOperatorDecisionOutcome::AgentActor { .. } => {}
             crate::decision::RecordOperatorDecisionOutcome::Recorded { decision_recorded, .. } => {
                 self.outbox.push(PublishedEvent::DecisionRecorded(decision_recorded.clone()));
             }
@@ -335,6 +338,7 @@ where
     pub fn record_operator_decision_for_request(&mut self, input: crate::decision::RecordOperatorDecisionForRequest) -> Result<crate::decision::RecordOperatorDecisionForRequestOutcome, crate::obligation::UnmetObligation> {
         let outcome = self.behaviors.record_operator_decision_for_request(input)?;
         match &outcome {
+            crate::decision::RecordOperatorDecisionForRequestOutcome::AgentActor { .. } => {}
             crate::decision::RecordOperatorDecisionForRequestOutcome::NoSuchRequest { .. } => {}
             crate::decision::RecordOperatorDecisionForRequestOutcome::NotEscalated { .. } => {}
             crate::decision::RecordOperatorDecisionForRequestOutcome::Recorded { decision_recorded, .. } => {
@@ -371,6 +375,7 @@ where
     pub fn reverse_operator_decision(&mut self, input: crate::decision::ReverseOperatorDecision) -> Result<crate::decision::ReverseOperatorDecisionOutcome, crate::obligation::UnmetObligation> {
         let outcome = self.behaviors.reverse_operator_decision(input)?;
         match &outcome {
+            crate::decision::ReverseOperatorDecisionOutcome::AgentActor { .. } => {}
             crate::decision::ReverseOperatorDecisionOutcome::Reversed { decision_reversed_event, .. } => {
                 self.outbox.push(PublishedEvent::DecisionReversedEvent(decision_reversed_event.clone()));
             }
@@ -439,6 +444,7 @@ where
     pub fn confirm_goal(&mut self, input: crate::direction::ConfirmGoal) -> Result<crate::direction::ConfirmGoalOutcome, crate::obligation::UnmetObligation> {
         let outcome = self.behaviors.confirm_goal(input)?;
         match &outcome {
+            crate::direction::ConfirmGoalOutcome::AgentActor { .. } => {}
             crate::direction::ConfirmGoalOutcome::InvalidGoalId { .. } => {}
             crate::direction::ConfirmGoalOutcome::Confirmed { goal_confirmed, .. } => {
                 self.outbox.push(PublishedEvent::GoalConfirmed(goal_confirmed.clone()));
@@ -474,6 +480,7 @@ where
     pub fn drop_goal(&mut self, input: crate::direction::DropGoal) -> Result<crate::direction::DropGoalOutcome, crate::obligation::UnmetObligation> {
         let outcome = self.behaviors.drop_goal(input)?;
         match &outcome {
+            crate::direction::DropGoalOutcome::AgentActor { .. } => {}
             crate::direction::DropGoalOutcome::InvalidGoalId { .. } => {}
             crate::direction::DropGoalOutcome::Dropped { goal_dropped, .. } => {
                 self.outbox.push(PublishedEvent::GoalDropped(goal_dropped.clone()));
@@ -1156,6 +1163,7 @@ where
     pub fn set_metric_target(&mut self, input: crate::improvement::SetMetricTarget) -> Result<crate::improvement::SetMetricTargetOutcome, crate::obligation::UnmetObligation> {
         let outcome = self.behaviors.set_metric_target(input)?;
         match &outcome {
+            crate::improvement::SetMetricTargetOutcome::ActorNotHuman { .. } => {}
             crate::improvement::SetMetricTargetOutcome::Targeted { metric_target_set, .. } => {
                 self.outbox.push(PublishedEvent::MetricTargetSet(metric_target_set.clone()));
             }

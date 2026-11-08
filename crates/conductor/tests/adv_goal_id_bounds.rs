@@ -51,6 +51,7 @@ fn at_bound(unit: &str, fill: &str) -> String {
 fn propose(generated: &mut Generated<Store>, goal: &str) -> ProposeGoalOutcome {
     generated
         .propose_goal(ProposeGoal {
+            actor: conductor_cli::actor::operator("operator"),
             goal_id: id(goal),
             title: "title".to_owned(),
             exit_evidence: "evidence".to_owned(),
@@ -100,7 +101,10 @@ fn adv_a_goal_proposed_at_the_bound_can_be_confirmed_met_and_dropped() {
     }
     for (what, goal) in &met {
         let confirmed = generated
-            .confirm_goal(ConfirmGoal { goal_id: id(goal) })
+            .confirm_goal(ConfirmGoal {
+                actor: conductor_cli::actor::operator("operator"),
+                goal_id: id(goal),
+            })
             .expect("ConfirmGoal decides an outcome");
         assert!(
             matches!(confirmed, ConfirmGoalOutcome::Confirmed { .. }),
@@ -108,6 +112,7 @@ fn adv_a_goal_proposed_at_the_bound_can_be_confirmed_met_and_dropped() {
         );
         let marked = generated
             .mark_goal_met(MarkGoalMet {
+                actor: conductor_cli::actor::operator("operator"),
                 goal_id: id(goal),
                 evidence: "evidence".to_owned(),
             })
@@ -120,6 +125,7 @@ fn adv_a_goal_proposed_at_the_bound_can_be_confirmed_met_and_dropped() {
     for (what, goal) in &dropped {
         let gone = generated
             .drop_goal(DropGoal {
+                actor: conductor_cli::actor::operator("operator"),
                 goal_id: id(goal),
                 reason: "reason".to_owned(),
             })
@@ -177,6 +183,7 @@ fn adv_a_goal_stored_past_the_bound_is_listed_and_refused_as_one_no_goal_can_hav
         GoalSnapshot {
             state: GoalState::Draft,
             data: GoalData {
+                actor: conductor_cli::actor::operator("operator"),
                 goal_id: id(&goal),
                 title: "kept before the bound".to_owned(),
                 exit_evidence: "evidence".to_owned(),
@@ -199,7 +206,10 @@ fn adv_a_goal_stored_past_the_bound_is_listed_and_refused_as_one_no_goal_can_hav
         .map(|row| row.goal_id.0)
         .collect();
     let confirmed = reopened
-        .confirm_goal(ConfirmGoal { goal_id: id(&goal) })
+        .confirm_goal(ConfirmGoal {
+            actor: conductor_cli::actor::operator("operator"),
+            goal_id: id(&goal),
+        })
         .expect("ConfirmGoal decides an outcome");
     assert_eq!(
         listed,

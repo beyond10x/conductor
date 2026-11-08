@@ -81,6 +81,34 @@ enum Accepts {
     OneOf(Vec<String>),
     /// `List<…>`: a JSON array, its elements as the handler reads them (`host record-reclaim`).
     JsonList,
+    /// A struct the test knows a value of: one JSON object, as the handler decodes it. The
+    /// values each such struct accepts and refuses are in [`json_object`].
+    JsonObject(String),
+}
+
+/// The structs a flag may hold, each with JSON values its flag accepts and refuses: the actor
+/// every command carries (`conductor.operator.Actor`, `story:spec-v1`), a kind and the field of
+/// that kind, nothing else.
+fn json_object(name: &str) -> Option<(Vec<String>, Vec<&'static str>)> {
+    match name {
+        "conductor.operator.Actor" => Some((
+            vec![
+                r#"{"kind":"Human","operator":"example-operator"}"#.to_owned(),
+                r#"{"kind":"Agent","agent":{"instance":"example-org","role":"controller","name":"example-org-alpha","kind":"claude-code"}}"#.to_owned(),
+                r#"{"kind":"Daemon"}"#.to_owned(),
+            ],
+            vec![
+                "x",
+                "[]",
+                "{}",
+                r#"{"kind":"Robot"}"#,
+                r#"{"kind":"Human"}"#,
+                r#"{"kind":"Daemon","operator":"example-operator"}"#,
+                r#"{"kind":"Daemon","extra":1}"#,
+            ],
+        )),
+        _ => None,
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -387,6 +415,9 @@ fn accepts(model: &Value, type_ref: &Value, context: &str) -> Accepts {
                         .map(|variant| text(variant, context).to_owned())
                         .collect(),
                 ),
+                Some("struct") if json_object(name).is_some() => {
+                    Accepts::JsonObject(name.to_owned())
+                }
                 other => panic!(
                     "{context}: type `{name}` has body kind {other:?}, which this test does not \
                      map onto a flag; teach it before placing such a field"
@@ -1024,6 +1055,9 @@ fn every_flag_accepts_what_its_field_holds() {
                                 owned(&["[]", r#"[{"path":"/example","bytes":1}]"#]),
                                 vec!["x", "{}"],
                             ),
+                            Accepts::JsonObject(name) => {
+                                json_object(name).expect("a struct `accepts` maps has values")
+                            }
                             Accepts::Prefixed(prefix) => {
                                 (vec![format!("{prefix}20261006-01")], vec!["20261006-01"])
                             }

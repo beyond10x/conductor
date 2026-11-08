@@ -244,6 +244,7 @@ pub fn collect_with(
         Ok(readings) => readings,
         Err(line) => {
             record.member_failure(RecordMemberFailure {
+                actor: crate::actor::daemon(),
                 snapshot_id: snapshot,
                 member: RepositoryName(COLLECTOR.to_owned()),
                 collector: COLLECTOR.to_owned(),
@@ -263,6 +264,7 @@ pub fn collect_with(
     );
     for reading in readings {
         record.usage(RecordUsage {
+            actor: crate::actor::daemon(),
             snapshot_id: snapshot.clone(),
             read_at: read_at.clone(),
             account: reading.account,

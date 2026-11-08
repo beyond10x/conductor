@@ -75,8 +75,7 @@ use std::process::ExitCode;
 
 use anyhow::{Context as _, Result, anyhow, bail};
 use conductor_model::config::{
-    CommandWord, ConfinementProvider, Harness as RoleHarness, Instance, Limits, Network, Role,
-    RoleName, SessionName,
+    CommandWord, Harness as RoleHarness, Instance, Limits, Network, Role, SessionName,
 };
 use conductor_model::dispatch::obligations::{StartControllerBehavior, StopControllerBehavior};
 use conductor_model::dispatch::{
@@ -89,7 +88,7 @@ use serde_json::Value;
 
 use crate::cli::SpawnArgs;
 use crate::collect::{self, Under};
-use crate::config::{self, Environment};
+use crate::config::{self, BuiltInRole, ConfinementProvider, Environment};
 use crate::confine::places::{self, Placement};
 use crate::confine::{self, CLAUDE, Launch, Providers, Refusal, live_session};
 
@@ -173,7 +172,7 @@ pub fn spawn_for(
     };
     let session_name = config::session_name(instance, &repository);
     // Under `strict`, a provider that is not available starts nothing and records nothing.
-    let chosen = match confine::choose(providers, &instance.confinement) {
+    let chosen = match confine::choose(providers, &crate::config::legacy(instance).confinement) {
         Ok(chosen) => chosen,
         Err(refusal) => return refuse_confined(&refuse, refusal),
     };
@@ -199,6 +198,7 @@ pub fn spawn_for(
         let mut generated = crate::controller::record(state)?;
         let outcome = generated
             .start_controller(StartController {
+                actor: crate::actor::chosen(),
                 repository: RepositoryName(repository.clone()),
                 harness: Harness::Claude,
                 session_name: session_name.clone(),
@@ -338,6 +338,7 @@ fn record_stopped(
     let mut generated = crate::controller::record(state)?;
     let outcome = generated
         .stop_controller(StopController {
+            actor: crate::actor::chosen(),
             controller_id,
             reason,
         })
@@ -442,7 +443,7 @@ fn controller_launch(
     Ok(Launch {
         request,
         session_prefix: instance.session_prefix.clone(),
-        instance_limits: instance.confinement.limits.clone(),
+        instance_limits: crate::config::legacy(instance).confinement.limits.clone(),
         state: state_dir.to_owned(),
         program: CLAUDE.to_owned(),
         args: [
@@ -587,7 +588,7 @@ pub fn resume(
         &checkout,
         &environment,
     )?;
-    let chosen = confine::choose(providers, &instance.confinement)
+    let chosen = confine::choose(providers, &crate::config::legacy(instance).confinement)
         .map_err(|refusal| anyhow!("{}", refusal_detail(refusal)))?;
     let started = chosen
         .resume(&session, &launch, &state_dir)
@@ -720,7 +721,7 @@ fn role(instance: &Instance) -> Result<(&Role, String, String, String), (SpawnRe
     let Some(role) = instance
         .roles
         .iter()
-        .find(|role| config::is_role(&role.role, RoleName::Lead))
+        .find(|role| config::is_role(&role.role, BuiltInRole::Lead))
     else {
         return Err((
             SpawnRefusal::NoControllerRole,

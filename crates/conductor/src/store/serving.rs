@@ -102,6 +102,7 @@ impl GoalServingStorage for Store {
 
 fn encode_goal_serving(serving: &GoalServingSnapshot) -> Value {
     json!({
+        "actor": crate::actor::to_json(&serving.data.actor),
         "state": goal_serving_state_name(serving.state),
         "serving_id": serving.data.serving_id.0.0,
         "goal_id": serving.data.goal_id.0,
@@ -115,6 +116,7 @@ fn decode_goal_serving(body: &Value) -> Result<GoalServingSnapshot, String> {
         state: goal_serving_state_named(&state)
             .ok_or_else(|| format!("unknown GoalServing state {state:?}"))?,
         data: GoalServingData {
+            actor: crate::actor::stored(body)?,
             serving_id: ServingId(Uuid(text(body, "serving_id")?)),
             goal_id: GoalId(text(body, "goal_id")?),
             repository: RepositoryName(text(body, "repository")?),
@@ -170,6 +172,7 @@ impl ResourceRequestStorage for Store {
 fn encode_resource_request(request: &ResourceRequestSnapshot) -> Value {
     let data = &request.data;
     json!({
+        "actor": crate::actor::to_json(&data.actor),
         "state": resource_request_state_name(request.state),
         "resource_request_id": data.resource_request_id.0.0,
         "repository": data.repository.0,
@@ -186,6 +189,7 @@ fn decode_resource_request(body: &Value) -> Result<ResourceRequestSnapshot, Stri
         state: resource_request_state_named(&state)
             .ok_or_else(|| format!("unknown ResourceRequest state {state:?}"))?,
         data: ResourceRequestData {
+            actor: crate::actor::stored(body)?,
             resource_request_id: ResourceRequestId(Uuid(text(body, "resource_request_id")?)),
             repository: RepositoryName(text(body, "repository")?),
             resource: resource_kind_named(&resource)

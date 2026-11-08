@@ -274,6 +274,7 @@ impl Case {
             let at = |text: &str| Timestamp(text.to_owned());
             for repository in ["alpha", "beta"] {
                 record.repository(RecordRepository {
+                    actor: conductor_cli::actor::daemon(),
                     snapshot_id: snapshot.clone(),
                     repository: name(repository),
                     visibility: Visibility::Public,
@@ -302,6 +303,7 @@ impl Case {
             }
             for (repository, number, opened_at) in &rows.open {
                 record.pull_request(RecordPullRequest {
+                    actor: conductor_cli::actor::daemon(),
                     snapshot_id: snapshot.clone(),
                     repository: name(repository),
                     number: *number,
@@ -317,6 +319,7 @@ impl Case {
             }
             for (repository, number, merged_at) in &rows.merged {
                 record.merged_pull_request(RecordMergedPullRequest {
+                    actor: conductor_cli::actor::daemon(),
                     snapshot_id: snapshot.clone(),
                     repository: name(repository),
                     number: *number,
@@ -327,6 +330,7 @@ impl Case {
             }
             for (repository, workflow, conclusion, run_at) in &rows.runs {
                 record.workflow_run(RecordWorkflowRun {
+                    actor: conductor_cli::actor::daemon(),
                     snapshot_id: snapshot.clone(),
                     repository: name(repository),
                     workflow: (*workflow).to_owned(),
@@ -336,6 +340,7 @@ impl Case {
             }
             for (repository, tag, published_at) in &rows.releases {
                 record.release(RecordRelease {
+                    actor: conductor_cli::actor::daemon(),
                     snapshot_id: snapshot.clone(),
                     repository: name(repository),
                     tag: (*tag).to_owned(),
@@ -361,6 +366,7 @@ impl Case {
             let snapshot = record.snapshot().clone();
             for (repository, tag, at) in &releases {
                 record.release(RecordRelease {
+                    actor: conductor_cli::actor::daemon(),
                     snapshot_id: snapshot.clone(),
                     repository: RepositoryName((*repository).to_owned()),
                     tag: (*tag).to_owned(),
@@ -370,6 +376,7 @@ impl Case {
             }
             for (repository, number, at) in &merged {
                 record.merged_pull_request(RecordMergedPullRequest {
+                    actor: conductor_cli::actor::daemon(),
                     snapshot_id: snapshot.clone(),
                     repository: RepositoryName((*repository).to_owned()),
                     number: *number,
@@ -387,6 +394,7 @@ impl Case {
     fn take(&self, started_at: &str, forge: Collector) {
         let store = store::open(&self.state()).expect("open the store");
         let start = StartSnapshot {
+            actor: conductor_cli::actor::daemon(),
             started_at: Timestamp(started_at.to_owned()),
             disk_free_bytes: 1,
             budget: None,

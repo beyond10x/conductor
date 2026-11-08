@@ -78,7 +78,7 @@ fn run_step(tick: &Tick<'_, '_>, words: &[&str]) -> Result<std::process::Output>
     if let Some(state) = tick.state {
         command.arg("--state-dir").arg(state);
     }
-    command.args(words);
+    command.args(words).env(crate::actor::DAEMON_VARIABLE, "1");
     crate::collect::run(&mut command, STEP_BOUND)
         .with_context(|| format!("run conductor {}", words.join(" ")))
 }

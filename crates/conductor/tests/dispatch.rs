@@ -141,7 +141,14 @@ impl Case {
     fn rows(&self, group: &str, view: &str) -> Vec<Value> {
         self.ok(&[group, view, "--format", "jsonl"])
             .lines()
-            .map(|line| serde_json::from_str(line).expect("each jsonl line is a JSON object"))
+            .map(|line| {
+                let mut row: Value =
+                    serde_json::from_str(line).expect("each jsonl line is a JSON object");
+                // Every command ran as the operator: `common::conductor` sets `USER`.
+                let actor = row.as_object_mut().and_then(|row| row.remove("actor"));
+                assert_eq!(actor, Some(Value::from("human:operator")), "{line}");
+                row
+            })
             .collect()
     }
 

@@ -454,6 +454,7 @@ fn plan() -> Collector {
     Collector::new("fixture", |record: &mut Recorder<'_>| {
         let snapshot = record.snapshot().clone();
         record.blocker(RecordBlocker {
+            actor: conductor_cli::actor::daemon(),
             snapshot_id: snapshot.clone(),
             repository: RepositoryName("alpha".to_owned()),
             reference: "story:partner-sandbox".to_owned(),
@@ -461,6 +462,7 @@ fn plan() -> Collector {
             title: "partner API keys".to_owned(),
         })?;
         record.specification(RecordSpecification {
+            actor: conductor_cli::actor::daemon(),
             snapshot_id: snapshot,
             repository: RepositoryName("alpha".to_owned()),
             presence: SpecificationPresence::Present,
@@ -486,6 +488,7 @@ fn fails() -> Collector {
 fn take(state: &Path, started_at: &str, collector: Collector) -> SnapshotState {
     let store = store::open(state).expect("open the store");
     let start = StartSnapshot {
+        actor: conductor_cli::actor::daemon(),
         started_at: Timestamp(started_at.to_owned()),
         disk_free_bytes: 1_000_000,
         budget: None,

@@ -43,6 +43,7 @@ fn propose(state: &Path, goal: &str, title: &str) {
     let mut generated = Generated::new(store::open(state).expect("open the store"));
     generated
         .propose_goal(ProposeGoal {
+            actor: conductor_cli::actor::operator("operator"),
             goal_id: GoalId(goal.to_owned()),
             title: title.to_owned(),
             exit_evidence: format!("{goal} is listed"),
@@ -238,6 +239,7 @@ fn adv_the_state_dir_given_before_and_after_the_subcommand_takes_the_later_value
             "exit_evidence": "G2 is listed",
             "evidence": null,
             "reason": null,
+            "actor": "human:operator",
         }]),
         "{infeasible}: {}",
         describe(&across)

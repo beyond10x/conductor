@@ -16,9 +16,9 @@ use std::path::Path;
 use std::process::ExitCode;
 
 use anyhow::{Context as _, Result};
-use conductor_model::config::{ConfinementProvider, Instance, SessionName};
+use conductor_model::config::{Instance, SessionName};
 
-use crate::config::{self, Environment};
+use crate::config::{self, ConfinementProvider, Environment};
 use crate::confine::systemd::{self, Service};
 
 /// The user unit `conductor run` runs in: `conductor_<instance>-run.service`, escaped as a
@@ -58,7 +58,7 @@ pub fn install(config_flag: Option<&Path>, state: Option<&Path>) -> Result<ExitC
     }
     command.push("run".to_owned());
     let mut out = io::stdout().lock();
-    if instance.confinement.provider == ConfinementProvider::None {
+    if crate::config::legacy(instance).confinement.provider == ConfinementProvider::None {
         let mut words = env.clone();
         words.extend(command);
         writeln!(
@@ -88,7 +88,7 @@ pub fn install(config_flag: Option<&Path>, state: Option<&Path>) -> Result<ExitC
                 .as_ref()
                 .map(|prefix| prefix.0.as_str()),
         ),
-        limits: instance.confinement.limits.clone(),
+        limits: crate::config::legacy(instance).confinement.limits.clone(),
         cwd,
         properties: ["Restart=on-failure", "RestartSec=30"]
             .map(str::to_owned)

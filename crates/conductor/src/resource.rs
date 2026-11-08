@@ -66,6 +66,7 @@ pub fn request_resource(state: Option<&Path>, args: RequestResourceArgs) -> Resu
     flags_only(args.input_json, "resource request-resource --input-json")?;
     let resource = flag(COMMAND, "--resource", args.resource)?;
     let input = RequestResource {
+        actor: crate::actor::chosen(),
         repository: RepositoryName(flag(COMMAND, "--repository", args.repository)?),
         resource: KINDS
             .into_iter()
@@ -107,6 +108,7 @@ pub fn grant_resource(state: Option<&Path>, args: GrantResourceArgs) -> Result<E
     const COMMAND: &str = "resource grant-resource";
     flags_only(args.input_json, "resource grant-resource --input-json")?;
     let input = GrantResource {
+        actor: crate::actor::chosen(),
         resource_request_id: request_id(COMMAND, args.resource_request_id)?,
         disk_free_bytes: flag(COMMAND, "--disk-free-bytes", args.disk_free_bytes)?,
     };
@@ -156,6 +158,7 @@ pub fn refuse_resource(state: Option<&Path>, args: RefuseResourceArgs) -> Result
     const COMMAND: &str = "resource refuse-resource";
     flags_only(args.input_json, "resource refuse-resource --input-json")?;
     let input = RefuseResource {
+        actor: crate::actor::chosen(),
         resource_request_id: request_id(COMMAND, args.resource_request_id)?,
         reason: flag(COMMAND, "--reason", args.reason)?,
     };
@@ -196,6 +199,7 @@ pub fn release_resource(state: Option<&Path>, args: ReleaseResourceArgs) -> Resu
     const COMMAND: &str = "resource release-resource";
     flags_only(args.input_json, "resource release-resource --input-json")?;
     let input = ReleaseResource {
+        actor: crate::actor::chosen(),
         resource_request_id: request_id(COMMAND, args.resource_request_id)?,
     };
     let mut generated = Generated::new(crate::state::open(state)?);
@@ -236,13 +240,14 @@ pub fn release_resource(state: Option<&Path>, args: ReleaseResourceArgs) -> Resu
 /// output.
 pub fn resource_requests(state: Option<&Path>, view: ViewArgs) -> Result<ExitCode> {
     /// The view's fields, in the specification's order (`spec/domains/dispatch.yaml`).
-    const COLUMNS: [&str; 6] = [
+    const COLUMNS: [&str; 7] = [
         "resource_request_id",
         "state",
         "repository",
         "resource",
         "amount",
         "requested_at",
+        "actor",
     ];
 
     /// The state's name as the specification spells it. Exhaustive, so a state the specification
@@ -270,6 +275,7 @@ pub fn resource_requests(state: Option<&Path>, view: ViewArgs) -> Result<ExitCod
                 Value::from(kind_name(row.resource)),
                 Value::from(row.amount),
                 Value::from(row.requested_at.0),
+                Value::from(crate::actor::written(&row.actor)),
             ]
         })
         .collect();
@@ -394,6 +400,53 @@ impl TryContext for Ports {
         _outcome: &'static str,
     ) -> Result<bool, UnmetObligation> {
         Err(conductor_model::behaviour::unmet_context(command.name()))
+    }
+
+    // The v1 domains' generated values (`story:spec-v1`): no command this handler runs
+    // generates one.
+
+    fn try_generate_conductor_config_revision_id(
+        &mut self,
+    ) -> Result<conductor_model::config::RevisionId, UnmetObligation> {
+        Err(conductor_model::behaviour::unmet_context(
+            "conductor.config.RevisionId",
+        ))
+    }
+
+    fn try_generate_conductor_instance_reconciliation_id(
+        &mut self,
+    ) -> Result<conductor_model::instance::ReconciliationId, UnmetObligation> {
+        Err(conductor_model::behaviour::unmet_context(
+            "conductor.instance.ReconciliationId",
+        ))
+    }
+
+    fn try_generate_conductor_placement_box_id(
+        &mut self,
+    ) -> Result<conductor_model::placement::BoxId, UnmetObligation> {
+        Err(conductor_model::behaviour::unmet_context(
+            "conductor.placement.BoxId",
+        ))
+    }
+
+    fn try_generate_conductor_placement_refusal_reason(
+        &mut self,
+    ) -> Result<conductor_model::placement::RefusalReason, UnmetObligation> {
+        Err(conductor_model::behaviour::unmet_context(
+            "conductor.placement.RefusalReason",
+        ))
+    }
+
+    fn try_generate_conductor_token_token_id(
+        &mut self,
+    ) -> Result<conductor_model::token::TokenId, UnmetObligation> {
+        Err(conductor_model::behaviour::unmet_context(
+            "conductor.token.TokenId",
+        ))
+    }
+
+    fn try_generate_string(&mut self) -> Result<String, UnmetObligation> {
+        Err(conductor_model::behaviour::unmet_context("String"))
     }
 }
 

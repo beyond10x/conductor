@@ -24,10 +24,9 @@
 //! `<conductor>` is the instance's conductor session name (`story:instance-session-names`):
 //! `<p>-conductor` when the instance has a `session_prefix` `<p>`, else `conductor`. A denied
 //! recipient whose name carries another instance's prefix is named with both instances. The
-//! instances a recipient is read against are those of the config file and, for a SendMessage
-//! only, those of every other file the host registry lists (`story:instance-names-unique`,
-//! [`Places::with_registered`]): a conductor without a prefix is no longer alone when another
-//! file's instance is registered, and a message to that instance's session is denied.
+//! instances a recipient is read against are those of the config file: the host registry that
+//! added every other file's is gone in v1 (design architecture-next § 11), one daemon reading one
+//! file.
 //! | Bash | a `cd`, `pushd` or `git -C` (`--git-dir`, `--work-tree`, `GIT_DIR=`, `GIT_WORK_TREE=`) reaches another repository's checkout or managed worktrees, or `<records>`; a git subcommand that writes ([`git_reads`]) has a target (the directory `-C` leaves it in, else the cwd; `--git-dir`, `--work-tree`, `GIT_DIR`, `GIT_WORK_TREE`) outside `<root>/<repo>/`, `<trees>/<repo>/` and the session's scratch; a `gh` or `glab` call that is not a read ([`forge_write`]), except, under `forge.route: direct`, `gh pr create|edit|comment|merge|ready` and `glab mr create|update|note|merge` naming the repository the checkout's `origin` names with `-R` ([`Session::direct_denial`]); a run of the bot route `b10x-gates gh` that is not `release create|upload|edit|view`, `run rerun` or `workflow run` with `--repository` naming the repository the checkout's `origin` names ([`bot_route`]); the command writes a `.claude/` settings file or a `<settings>` ([`Places::writes_settings`]); the command writes a `<profile>` ([`Places::writes_profile`]); the command names `<config>` and holds a write form ([`Places::names_config`], [`holds_write_form`]); it runs a `conductor` leaf the command tree does not declare a controller may run ([`cli::LEAVES`], [`conductor_run`]), or one whose leaf a shell expansion, `xargs` or a program word a substitution names decides at run time; or the command writes `<records>` or a path under it ([`Places::writes_records`]) | a `gh` or `glab` call that is not a read, except a direct write as for a controller, its own repository the one the `origin` of `<records>` names; a run of the bot route as for a controller, its own repository the one the `origin` of `<records>` names; the command writes a `.claude/` settings file or a `<settings>`; the command writes a `<profile>` |
 //!
 //! A Bash command that kills by pattern, name or group is denied for every role, before the rows
@@ -70,8 +69,9 @@ use std::path::{Component, Path, PathBuf};
 use std::process::Command;
 use std::time::Duration;
 
+use crate::config::BuiltInRole;
 use anyhow::{Context as _, Result, bail};
-use conductor_model::config::{ForgeRoute, Instance, RoleName, SessionPrefix};
+use conductor_model::config::{ForgeRoute, Instance, SessionPrefix};
 use conductor_model::dispatch::Verdict;
 use serde_json::Value;
 
@@ -262,7 +262,7 @@ impl Places {
                     .flat_map(|role| role.read_only_tools.iter().cloned())
                     .collect()
             }),
-            dashboard_port: instance.dashboard_port,
+            dashboard_port: config::legacy(instance).dashboard_port,
             forge_route: instance.forge.route,
         }
     }
@@ -303,8 +303,8 @@ impl Places {
     /// `conductor` and under `director`, the old one first, `<prefix>-conductor` and
     /// `<prefix>-director`.
     fn director_sessions(&self) -> Vec<String> {
-        let mut names = config::session_names_of(RoleName::Director, &self.conductor_session());
-        let old = config::old_role_word(RoleName::Director);
+        let mut names = config::session_names_of(BuiltInRole::Director, &self.conductor_session());
+        let old = config::old_role_word(BuiltInRole::Director);
         names.sort_by_key(|name| !name.ends_with(old));
         names
     }
@@ -388,33 +388,6 @@ impl Places {
     pub fn with_config_file(mut self, file: &Path) -> Self {
         self.config = file.to_path_buf();
         self
-    }
-
-    /// These places with the instances of every other config file the host registry lists
-    /// after the file's own (`story:instance-names-unique`, [`crate::registry::others`]), each
-    /// with the checkouts and prefix it registered; `None` without a config file, or when the
-    /// registry lists no other file or cannot be read.
-    #[must_use]
-    pub fn with_registered(&self) -> Option<Self> {
-        self.records.as_ref()?;
-        let file = config::physical(&self.config);
-        let others = crate::registry::others(&self.home, &file).ok()?;
-        if others.is_empty() {
-            return None;
-        }
-        let mut widened = self.clone();
-        for (_, other) in others {
-            let mut instance = config::built_in(&self.home, &self.home);
-            instance.name = other.name;
-            instance.session_prefix = other.session_prefix;
-            instance.dashboard_port = other.dashboard_port;
-            instance.records = String::new();
-            instance.state = String::new();
-            instance.cache = String::new();
-            instance.checkouts = other.checkouts;
-            widened.instances.push(instance);
-        }
-        Some(widened)
     }
 
     /// Conductor's records, as the config writes them: the instance's `records`, or without a
@@ -1004,10 +977,10 @@ pub(super) enum Rules {
 impl Rules {
     /// The config role whose sessions this rule set decides, under its name or its old name
     /// (`story:role-name-aliases`).
-    pub(super) const fn role_name(self) -> RoleName {
+    pub(super) const fn role_name(self) -> BuiltInRole {
         match self {
-            Self::Controller => RoleName::Lead,
-            Self::Conductor => RoleName::Director,
+            Self::Controller => BuiltInRole::Lead,
+            Self::Conductor => BuiltInRole::Director,
         }
     }
 
@@ -1256,25 +1229,8 @@ impl Session<'_> {
 
     /// SendMessage: the verdict on messaging `to`, whose `recipient` field, when present, must
     /// name the same session: in either form of its name ([`named`]), otherwise as `to` does.
-    /// Whose a recipient is, is read against the instances of every config file the host
-    /// registry lists (`story:instance-names-unique`, [`Places::with_registered`]), so a session
-    /// of another file's instance is refused too; only this call reads the registry.
+    /// Whose a recipient is, is read against the instances of the config file.
     pub(super) fn message(&self, to: Option<&str>, recipient: Option<&str>) -> (Verdict, String) {
-        match self.places.with_registered() {
-            Some(widened) => Session {
-                places: &widened,
-                cwd: self.cwd.clone(),
-                repository: self.repository.clone(),
-                rules: self.rules,
-                sessions: self.sessions,
-            }
-            .message_among(to, recipient),
-            None => self.message_among(to, recipient),
-        }
-    }
-
-    /// [`Session::message`] against the instances of its places.
-    fn message_among(&self, to: Option<&str>, recipient: Option<&str>) -> (Verdict, String) {
         match (self.rules, &self.places.prefix) {
             // Alone in its file, a conductor without a prefix keeps today's rule.
             (Rules::Conductor, None) if self.places.instances.len() <= 1 => (

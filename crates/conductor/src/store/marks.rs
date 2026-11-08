@@ -63,6 +63,7 @@ impl RepositoryMarkStorage for Store {
 fn encode(mark: &RepositoryMarkSnapshot) -> Value {
     let data = &mark.data;
     json!({
+        "actor": crate::actor::to_json(&data.actor),
         "state": state_name(mark.state),
         "repository": data.repository.0,
         "marked_by": marked_by_name(data.marked_by),
@@ -78,6 +79,7 @@ fn decode(body: &Value) -> Result<RepositoryMarkSnapshot, String> {
         state: state_named(&state)
             .ok_or_else(|| format!("unknown RepositoryMark state {state:?}"))?,
         data: RepositoryMarkData {
+            actor: crate::actor::stored(body)?,
             repository: MarkedRepository(text(body, "repository")?),
             marked_by: marked_by_named(&marked_by)
                 .ok_or_else(|| format!("unknown MarkedBy {marked_by:?}"))?,

@@ -179,6 +179,7 @@ pub fn publish_board(state: Option<&Path>, args: PublishBoardArgs) -> Result<Exi
 
     write_board(&path, &board)?;
     let input = PublishBoard {
+        actor: crate::actor::chosen(),
         snapshot_id: now.snapshot_id.clone(),
         previous_snapshot_id: before.as_ref().map(|held| held.snapshot_id.clone()),
         deviation_rows,
@@ -214,12 +215,13 @@ pub fn publish_board(state: Option<&Path>, args: PublishBoardArgs) -> Result<Exi
 /// There is no store, a read of it fails for a reason other than a record this build cannot read,
 /// or the rows cannot be written to standard output.
 pub fn boards(state: Option<&Path>, view: ViewArgs) -> Result<ExitCode> {
-    const COLUMNS: [&str; 5] = [
+    const COLUMNS: [&str; 6] = [
         "board_id",
         "snapshot_id",
         "previous_snapshot_id",
         "deviation_rows",
         "path",
+        "actor",
     ];
     let generated = Generated::new(crate::state::open_reader(state)?);
     let rows = generated
@@ -234,6 +236,7 @@ pub fn boards(state: Option<&Path>, view: ViewArgs) -> Result<ExitCode> {
                 Value::from(row.previous_snapshot_id.map(|id| id.0.0)),
                 Value::from(row.deviation_rows),
                 Value::from(row.path),
+                Value::from(crate::actor::written(&row.actor)),
             ]
         })
         .collect();
@@ -1660,5 +1663,52 @@ impl TryContext for Ports {
         _outcome: &'static str,
     ) -> Result<bool, UnmetObligation> {
         Err(conductor_model::behaviour::unmet_context(command.name()))
+    }
+
+    // The v1 domains' generated values (`story:spec-v1`): no command this handler runs
+    // generates one.
+
+    fn try_generate_conductor_config_revision_id(
+        &mut self,
+    ) -> Result<conductor_model::config::RevisionId, UnmetObligation> {
+        Err(conductor_model::behaviour::unmet_context(
+            "conductor.config.RevisionId",
+        ))
+    }
+
+    fn try_generate_conductor_instance_reconciliation_id(
+        &mut self,
+    ) -> Result<conductor_model::instance::ReconciliationId, UnmetObligation> {
+        Err(conductor_model::behaviour::unmet_context(
+            "conductor.instance.ReconciliationId",
+        ))
+    }
+
+    fn try_generate_conductor_placement_box_id(
+        &mut self,
+    ) -> Result<conductor_model::placement::BoxId, UnmetObligation> {
+        Err(conductor_model::behaviour::unmet_context(
+            "conductor.placement.BoxId",
+        ))
+    }
+
+    fn try_generate_conductor_placement_refusal_reason(
+        &mut self,
+    ) -> Result<conductor_model::placement::RefusalReason, UnmetObligation> {
+        Err(conductor_model::behaviour::unmet_context(
+            "conductor.placement.RefusalReason",
+        ))
+    }
+
+    fn try_generate_conductor_token_token_id(
+        &mut self,
+    ) -> Result<conductor_model::token::TokenId, UnmetObligation> {
+        Err(conductor_model::behaviour::unmet_context(
+            "conductor.token.TokenId",
+        ))
+    }
+
+    fn try_generate_string(&mut self) -> Result<String, UnmetObligation> {
+        Err(conductor_model::behaviour::unmet_context("String"))
     }
 }

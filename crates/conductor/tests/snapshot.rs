@@ -122,8 +122,11 @@ fn describe(output: &Output) -> String {
     )
 }
 
-/// The rows of `conductor snapshot <view> --format json` over `root`'s store.
+/// The rows of `conductor snapshot <view> --format json` over `root`'s store, each without its
+/// actor, the daemon: the snapshot driver and the collectors record as the daemon, whoever
+/// starts them.
 fn rows(root: &Path, view: &str) -> Vec<Value> {
+    let actor = "daemon";
     let output = conductor(root, &["snapshot", view, "--format", "json"]);
     assert!(
         output.status.success(),
@@ -132,7 +135,17 @@ fn rows(root: &Path, view: &str) -> Vec<Value> {
     );
     let text = String::from_utf8(output.stdout).expect("stdout is UTF-8");
     match serde_json::from_str(&text) {
-        Ok(Value::Array(rows)) => rows,
+        Ok(Value::Array(mut rows)) => {
+            for row in &mut rows {
+                let written = row.as_object_mut().and_then(|row| row.remove("actor"));
+                assert_eq!(
+                    written,
+                    Some(Value::from(actor)),
+                    "`snapshot {view}`: {text}"
+                );
+            }
+            rows
+        }
         other => panic!("`snapshot {view}` printed {text:?}: {other:?}"),
     }
 }
@@ -157,6 +170,7 @@ fn id(snapshot: &SnapshotId) -> &str {
 
 fn repository(snapshot: &SnapshotId, name: &str) -> RecordRepository {
     RecordRepository {
+        actor: conductor_cli::actor::daemon(),
         snapshot_id: snapshot.clone(),
         repository: RepositoryName(name.to_owned()),
         visibility: Visibility::Private,
@@ -410,6 +424,7 @@ fn a_refused_observation_fails_the_snapshot_with_the_refusal() {
     let root = case_dir("refused");
     let zero = Collector::new("pulls", |record: &mut Recorder<'_>| {
         let input = RecordPullRequest {
+            actor: conductor_cli::actor::daemon(),
             snapshot_id: record.snapshot().clone(),
             repository: RepositoryName("alpha".to_owned()),
             number: 0,
@@ -444,6 +459,7 @@ fn every_observation_kind_reads_back_through_its_view() {
         let snapshot = record.snapshot().clone();
         let repository = RepositoryName("alpha".to_owned());
         record.pull_request(RecordPullRequest {
+            actor: conductor_cli::actor::daemon(),
             snapshot_id: snapshot.clone(),
             repository: repository.clone(),
             number: 12,
@@ -457,6 +473,7 @@ fn every_observation_kind_reads_back_through_its_view() {
             url: None,
         })?;
         record.workflow_run(RecordWorkflowRun {
+            actor: conductor_cli::actor::daemon(),
             snapshot_id: snapshot.clone(),
             repository: repository.clone(),
             workflow: "check".to_owned(),
@@ -475,6 +492,7 @@ fn every_observation_kind_reads_back_through_its_view() {
             ..unmeasured()
         })?;
         record.blocker(RecordBlocker {
+            actor: conductor_cli::actor::daemon(),
             snapshot_id: snapshot.clone(),
             repository: repository.clone(),
             reference: "blocker:decide".to_owned(),
@@ -482,6 +500,7 @@ fn every_observation_kind_reads_back_through_its_view() {
             title: "Pick one".to_owned(),
         })?;
         record.specification(RecordSpecification {
+            actor: conductor_cli::actor::daemon(),
             snapshot_id: snapshot,
             repository,
             presence: SpecificationPresence::OptedOut,
@@ -585,6 +604,7 @@ fn every_observation_kind_reads_back_through_its_view() {
 /// case overrides.
 fn unmeasured() -> RecordSession {
     RecordSession {
+        actor: conductor_cli::actor::daemon(),
         snapshot_id: SnapshotId(conductor_model::primitives::Uuid(String::new())),
         harness: Harness::Claude,
         session_ref: String::new(),
@@ -852,6 +872,7 @@ fn a_collector_past_its_budget_is_over_budget_and_the_snapshot_completes() {
     let root = case_dir("over-budget");
     let store = store::open(&root.join("state")).expect("open the store");
     let start = StartSnapshot {
+        actor: conductor_cli::actor::daemon(),
         started_at: Timestamp("2026-10-13T10:00:00Z".to_owned()),
         disk_free_bytes: 1,
         budget: Some(1),

@@ -184,6 +184,7 @@ fn bytes_under(dir: &Path) -> u64 {
 
 fn repository(snapshot: &SnapshotId, name: &str) -> RecordRepository {
     RecordRepository {
+        actor: conductor_cli::actor::daemon(),
         snapshot_id: snapshot.clone(),
         repository: RepositoryName(name.to_owned()),
         visibility: Visibility::Public,
@@ -451,6 +452,7 @@ fn a_start_beside_a_snapshot_over_a_handed_store_leaves_it_collecting() {
     let outer = snapshot::take_from(
         store::open(&state).expect("open the store"),
         StartSnapshot {
+            actor: conductor_cli::actor::daemon(),
             started_at: Timestamp("2026-10-16T06:00:00Z".to_owned()),
             disk_free_bytes: 1,
             budget: None,

@@ -1162,7 +1162,7 @@ fn each_export_lists_rows_in_the_order_first_stored_and_is_byte_identical() {
              \"options\":\"A: one way; B: the other\",\"reason\":\"A is reversible\",\
              \"evidence\":\"the request's own text\",\"decided_at\":\"{AT}\",\
              \"recorded_by\":null,\"operator_words\":null,\"repository\":null,\
-             \"decider_name\":null,\"prompt_sha256\":null}}"
+             \"decider_name\":null,\"prompt_sha256\":null,\"actor\":\"human:operator\"}}"
         ),
         "the view's fields in the specification's order"
     );
@@ -1177,9 +1177,10 @@ fn each_export_lists_rows_in_the_order_first_stored_and_is_byte_identical() {
         .expect("a JSON object")
         .keys()
         .collect();
-    // Eleven fields, the rule that classified the request (story:decide-model-adapter), and the
-    // five of what the operator chooses from (story:decisions-page).
-    assert_eq!(keys.len(), 17);
+    // Eleven fields, the rule that classified the request (story:decide-model-adapter), the
+    // five of what the operator chooses from (story:decisions-page), and the actor
+    // (story:spec-v1).
+    assert_eq!(keys.len(), 18);
     assert_eq!(requests[1]["classification_rule"], Value::Null);
     assert_eq!(requests[1]["blocker"], Value::Null);
     assert_eq!(requests[1]["escalation_class"], Value::Null);
@@ -1593,15 +1594,15 @@ fn a_decision_names_its_repository_and_the_decisions_view_reads_it_back() {
     assert!(
         first.ends_with(
             ",\"operator_words\":null,\"repository\":\"alpha\",\"decider_name\":null,\
-             \"prompt_sha256\":null}"
+             \"prompt_sha256\":null,\"actor\":\"human:operator\"}"
         ),
-        "repository is the view's field before the decider's two: {first:?}"
+        "repository is the view's field before the decider's two and the actor: {first:?}"
     );
     let shown = case.ok(&["decision", "show", "--decision-id", &operators]);
     assert_eq!(
-        shown.lines().rev().nth(2),
+        shown.lines().rev().nth(3),
         Some("repository: beta"),
-        "`decision show` prints it before the decider's two fields: {shown:?}"
+        "`decision show` prints it before the decider's two fields and the actor: {shown:?}"
     );
 }
 
@@ -1692,8 +1693,10 @@ fn a_class_o_escalation_names_its_kind_options_recommendation_default_and_deadli
     assert!(
         raw.lines()
             .next()
-            .is_some_and(|line| line.ends_with(&format!("\"deadline\":\"{DEADLINE}\"}}"))),
-        "the deadline is the view's last field: {raw:?}"
+            .is_some_and(|line| line.ends_with(&format!(
+                "\"deadline\":\"{DEADLINE}\",\"actor\":\"human:operator\"}}"
+            ))),
+        "the deadline is the view's last field before the actor: {raw:?}"
     );
 }
 

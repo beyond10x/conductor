@@ -294,6 +294,7 @@ fn listed<T>(
 fn encode_snapshot(snapshot: &SnapshotSnapshot) -> Value {
     let data = &snapshot.data;
     json!({
+        "actor": crate::actor::to_json(&data.actor),
         "state": snapshot_state_name(snapshot.state),
         "snapshot_id": data.snapshot_id.0.0,
         "started_at": data.started_at.0,
@@ -306,6 +307,7 @@ fn decode_snapshot(body: &Value) -> Result<SnapshotSnapshot, String> {
     Ok(SnapshotSnapshot {
         state: named(body, "state", snapshot_state_named)?,
         data: SnapshotData {
+            actor: crate::actor::stored(body)?,
             snapshot_id: SnapshotId(Uuid(text(body, "snapshot_id")?)),
             started_at: Timestamp(text(body, "started_at")?),
             disk_free_bytes: integer(body, "disk_free_bytes")?,
@@ -318,6 +320,7 @@ fn encode_repository(observation: &RepositoryObservationSnapshot) -> Value {
     let RepositoryObservationState::Recorded = observation.state;
     let data = &observation.data;
     json!({
+        "actor": crate::actor::to_json(&data.actor),
         "state": RECORDED,
         "observation_id": data.observation_id.0.0,
         "snapshot_id": data.snapshot_id.0.0,
@@ -352,6 +355,7 @@ fn decode_repository(body: &Value) -> Result<RepositoryObservationSnapshot, Stri
     Ok(RepositoryObservationSnapshot {
         state: RepositoryObservationState::Recorded,
         data: RepositoryObservationData {
+            actor: crate::actor::stored(body)?,
             observation_id: observation_id(body)?,
             snapshot_id: snapshot_id(body)?,
             repository: RepositoryName(text(body, "repository")?),
@@ -385,6 +389,7 @@ fn encode_pull_request(observation: &PullRequestObservationSnapshot) -> Value {
     let PullRequestObservationState::Recorded = observation.state;
     let data = &observation.data;
     json!({
+        "actor": crate::actor::to_json(&data.actor),
         "state": RECORDED,
         "observation_id": data.observation_id.0.0,
         "snapshot_id": data.snapshot_id.0.0,
@@ -406,6 +411,7 @@ fn decode_pull_request(body: &Value) -> Result<PullRequestObservationSnapshot, S
     Ok(PullRequestObservationSnapshot {
         state: PullRequestObservationState::Recorded,
         data: PullRequestObservationData {
+            actor: crate::actor::stored(body)?,
             observation_id: observation_id(body)?,
             snapshot_id: snapshot_id(body)?,
             repository: RepositoryName(text(body, "repository")?),
@@ -428,6 +434,7 @@ fn encode_release(observation: &ReleaseObservationSnapshot) -> Value {
     let ReleaseObservationState::Recorded = observation.state;
     let data = &observation.data;
     json!({
+        "actor": crate::actor::to_json(&data.actor),
         "state": RECORDED,
         "observation_id": data.observation_id.0.0,
         "snapshot_id": data.snapshot_id.0.0,
@@ -443,6 +450,7 @@ fn decode_release(body: &Value) -> Result<ReleaseObservationSnapshot, String> {
     Ok(ReleaseObservationSnapshot {
         state: ReleaseObservationState::Recorded,
         data: ReleaseObservationData {
+            actor: crate::actor::stored(body)?,
             observation_id: observation_id(body)?,
             snapshot_id: snapshot_id(body)?,
             repository: RepositoryName(text(body, "repository")?),
@@ -457,6 +465,7 @@ fn encode_merged_pull_request(observation: &MergedPullRequestObservationSnapshot
     let MergedPullRequestObservationState::Recorded = observation.state;
     let data = &observation.data;
     json!({
+        "actor": crate::actor::to_json(&data.actor),
         "state": RECORDED,
         "observation_id": data.observation_id.0.0,
         "snapshot_id": data.snapshot_id.0.0,
@@ -475,6 +484,7 @@ fn decode_merged_pull_request(
     Ok(MergedPullRequestObservationSnapshot {
         state: MergedPullRequestObservationState::Recorded,
         data: MergedPullRequestObservationData {
+            actor: crate::actor::stored(body)?,
             observation_id: observation_id(body)?,
             snapshot_id: snapshot_id(body)?,
             repository: RepositoryName(text(body, "repository")?),
@@ -490,6 +500,7 @@ fn encode_workflow_run(observation: &WorkflowRunObservationSnapshot) -> Value {
     let WorkflowRunObservationState::Recorded = observation.state;
     let data = &observation.data;
     json!({
+        "actor": crate::actor::to_json(&data.actor),
         "state": RECORDED,
         "observation_id": data.observation_id.0.0,
         "snapshot_id": data.snapshot_id.0.0,
@@ -505,6 +516,7 @@ fn decode_workflow_run(body: &Value) -> Result<WorkflowRunObservationSnapshot, S
     Ok(WorkflowRunObservationSnapshot {
         state: WorkflowRunObservationState::Recorded,
         data: WorkflowRunObservationData {
+            actor: crate::actor::stored(body)?,
             observation_id: observation_id(body)?,
             snapshot_id: snapshot_id(body)?,
             repository: RepositoryName(text(body, "repository")?),
@@ -519,6 +531,7 @@ fn encode_session(observation: &SessionObservationSnapshot) -> Value {
     let SessionObservationState::Recorded = observation.state;
     let data = &observation.data;
     json!({
+        "actor": crate::actor::to_json(&data.actor),
         "state": RECORDED,
         "observation_id": data.observation_id.0.0,
         "snapshot_id": data.snapshot_id.0.0,
@@ -544,6 +557,7 @@ fn decode_session(body: &Value) -> Result<SessionObservationSnapshot, String> {
     Ok(SessionObservationSnapshot {
         state: SessionObservationState::Recorded,
         data: SessionObservationData {
+            actor: crate::actor::stored(body)?,
             observation_id: observation_id(body)?,
             snapshot_id: snapshot_id(body)?,
             harness: named(body, "harness", harness_named)?,
@@ -568,6 +582,7 @@ fn encode_blocker(observation: &BlockerObservationSnapshot) -> Value {
     let BlockerObservationState::Recorded = observation.state;
     let data = &observation.data;
     json!({
+        "actor": crate::actor::to_json(&data.actor),
         "state": RECORDED,
         "observation_id": data.observation_id.0.0,
         "snapshot_id": data.snapshot_id.0.0,
@@ -583,6 +598,7 @@ fn decode_blocker(body: &Value) -> Result<BlockerObservationSnapshot, String> {
     Ok(BlockerObservationSnapshot {
         state: BlockerObservationState::Recorded,
         data: BlockerObservationData {
+            actor: crate::actor::stored(body)?,
             observation_id: observation_id(body)?,
             snapshot_id: snapshot_id(body)?,
             repository: RepositoryName(text(body, "repository")?),
@@ -597,6 +613,7 @@ fn encode_specification(observation: &SpecificationObservationSnapshot) -> Value
     let SpecificationObservationState::Recorded = observation.state;
     let data = &observation.data;
     json!({
+        "actor": crate::actor::to_json(&data.actor),
         "state": RECORDED,
         "observation_id": data.observation_id.0.0,
         "snapshot_id": data.snapshot_id.0.0,
@@ -618,6 +635,7 @@ fn decode_specification(body: &Value) -> Result<SpecificationObservationSnapshot
     Ok(SpecificationObservationSnapshot {
         state: SpecificationObservationState::Recorded,
         data: SpecificationObservationData {
+            actor: crate::actor::stored(body)?,
             observation_id: observation_id(body)?,
             snapshot_id: snapshot_id(body)?,
             repository: RepositoryName(text(body, "repository")?),
@@ -638,6 +656,7 @@ fn encode_member_failure(observation: &MemberFailureObservationSnapshot) -> Valu
     let MemberFailureObservationState::Recorded = observation.state;
     let data = &observation.data;
     json!({
+        "actor": crate::actor::to_json(&data.actor),
         "state": RECORDED,
         "observation_id": data.observation_id.0.0,
         "snapshot_id": data.snapshot_id.0.0,
@@ -652,6 +671,7 @@ fn decode_member_failure(body: &Value) -> Result<MemberFailureObservationSnapsho
     Ok(MemberFailureObservationSnapshot {
         state: MemberFailureObservationState::Recorded,
         data: MemberFailureObservationData {
+            actor: crate::actor::stored(body)?,
             observation_id: observation_id(body)?,
             snapshot_id: snapshot_id(body)?,
             member: RepositoryName(text(body, "member")?),
@@ -665,6 +685,7 @@ fn encode_collector_run(observation: &CollectorRunObservationSnapshot) -> Value 
     let CollectorRunObservationState::Recorded = observation.state;
     let data = &observation.data;
     json!({
+        "actor": crate::actor::to_json(&data.actor),
         "state": RECORDED,
         "observation_id": data.observation_id.0.0,
         "snapshot_id": data.snapshot_id.0.0,
@@ -682,6 +703,7 @@ fn decode_collector_run(body: &Value) -> Result<CollectorRunObservationSnapshot,
     Ok(CollectorRunObservationSnapshot {
         state: CollectorRunObservationState::Recorded,
         data: CollectorRunObservationData {
+            actor: crate::actor::stored(body)?,
             observation_id: observation_id(body)?,
             snapshot_id: snapshot_id(body)?,
             collector: text(body, "collector")?,
@@ -698,6 +720,7 @@ fn encode_secret_sync(observation: &SecretSyncObservationSnapshot) -> Value {
     let SecretSyncObservationState::Recorded = observation.state;
     let data = &observation.data;
     json!({
+        "actor": crate::actor::to_json(&data.actor),
         "state": RECORDED,
         "observation_id": data.observation_id.0.0,
         "snapshot_id": data.snapshot_id.0.0,
@@ -716,6 +739,7 @@ fn decode_secret_sync(body: &Value) -> Result<SecretSyncObservationSnapshot, Str
     Ok(SecretSyncObservationSnapshot {
         state: SecretSyncObservationState::Recorded,
         data: SecretSyncObservationData {
+            actor: crate::actor::stored(body)?,
             observation_id: observation_id(body)?,
             snapshot_id: snapshot_id(body)?,
             sync: text(body, "sync")?,
@@ -733,6 +757,7 @@ fn encode_usage(observation: &UsageObservationSnapshot) -> Value {
     let UsageObservationState::Recorded = observation.state;
     let data = &observation.data;
     json!({
+        "actor": crate::actor::to_json(&data.actor),
         "state": RECORDED,
         "observation_id": data.observation_id.0.0,
         "snapshot_id": data.snapshot_id.0.0,
@@ -751,6 +776,7 @@ fn decode_usage(body: &Value) -> Result<UsageObservationSnapshot, String> {
     Ok(UsageObservationSnapshot {
         state: UsageObservationState::Recorded,
         data: UsageObservationData {
+            actor: crate::actor::stored(body)?,
             observation_id: observation_id(body)?,
             snapshot_id: snapshot_id(body)?,
             read_at: Timestamp(text(body, "read_at")?),

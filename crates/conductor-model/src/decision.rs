@@ -1,5 +1,5 @@
 // generated from conductor v1
-// contract digest 057692c7a57029c79cc9e78eb455da83a4c0aa80b4525dc295987296007b3391
+// contract digest e3b967aa3e3d0f313417baefaaf92190635d03007992d259a68d9a4352490e1a
 // do not edit: regenerate with `ess synthesize --layout crate`
 
 //! Decision — `conductor.decision`.
@@ -239,6 +239,8 @@ pub struct DecisionData {
     pub decision_class: DecisionClass,
     /// `decided_by` — `conductor.decision.Decider`.
     pub decided_by: Decider,
+    /// `actor` — `conductor.operator.Actor`.
+    pub actor: crate::operator::Actor,
     /// `question` — `String`.
     pub question: String,
     /// `options` — `String`.
@@ -416,6 +418,8 @@ impl AnyDecision {
 pub struct DecisionRequestData {
     /// The identity: `request_id` — `conductor.decision.RequestId`.
     pub request_id: RequestId,
+    /// `actor` — `conductor.operator.Actor`.
+    pub actor: crate::operator::Actor,
     /// `repository` — `conductor.observation.RepositoryName`.
     pub repository: crate::observation::RepositoryName,
     /// `question` — `String`.
@@ -676,6 +680,8 @@ impl AnyDecisionRequest {
 /// Everything it can result in is [`AmendEscalatedRequestOutcome`].
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct AmendEscalatedRequest {
+    /// `actor` — `conductor.operator.Actor`.
+    pub actor: crate::operator::Actor,
     /// `request_id` — `conductor.decision.RequestId`.
     pub request_id: RequestId,
     /// `reason` — `String`.
@@ -727,6 +733,8 @@ pub enum AmendEscalatedRequestOutcome {
 /// Everything it can result in is [`AnswerEscalatedRequestOutcome`].
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct AnswerEscalatedRequest {
+    /// `actor` — `conductor.operator.Actor`.
+    pub actor: crate::operator::Actor,
     /// `request_id` — `conductor.decision.RequestId`.
     pub request_id: RequestId,
     /// `decision_id` — `conductor.decision.DecisionId`.
@@ -740,6 +748,13 @@ pub struct AnswerEscalatedRequest {
 /// outcomes exist to prevent.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum AnswerEscalatedRequestOutcome {
+    /// `agent-actor` — when `actor.kind != Human`.
+    ///
+    /// Only a person issues this command (design architecture-next.md § 3, Actors); an agent actor is refused by name and nothing changed.
+    AgentActor {
+        /// Why it was refused: `conductor.operator.ActorNotHuman`.
+        error: crate::operator::ActorNotHuman,
+    },
     /// `no-such-decision` — when no `conductor.decision.Decision` carries the identity `input.decision_id` names.
     ///
     /// The cited decision does not exist, and the request stays where it was.
@@ -780,6 +795,8 @@ pub enum AnswerEscalatedRequestOutcome {
 /// Everything it can result in is [`AnswerRequestOutcome`].
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct AnswerRequest {
+    /// `actor` — `conductor.operator.Actor`.
+    pub actor: crate::operator::Actor,
     /// `request_id` — `conductor.decision.RequestId`.
     pub request_id: RequestId,
     /// `decision_id` — `conductor.decision.DecisionId`.
@@ -799,6 +816,13 @@ pub enum AnswerRequestOutcome {
     NoSuchDecision {
         /// Why it was refused: `conductor.decision.DecisionNotFound`.
         error: DecisionNotFound,
+    },
+    /// `agent-actor` — when the `conductor.decision.Decision` that `input.decision_id` names satisfies `(decision_class == H and state == InForce)` and `actor.kind != Human`.
+    ///
+    /// A class-H answer is a person's alone (design § 5); an actor that is not a person citing a class-H decision is refused by name and the request stays open.
+    AgentActor {
+        /// Why it was refused: `conductor.operator.ActorNotHuman`.
+        error: crate::operator::ActorNotHuman,
     },
     /// `reversed` — when the `conductor.decision.Decision` that `input.decision_id` names satisfies `state == Reversed`.
     ///
@@ -833,6 +857,8 @@ pub enum AnswerRequestOutcome {
 /// Everything it can result in is [`EscalateRequestOutcome`].
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct EscalateRequest {
+    /// `actor` — `conductor.operator.Actor`.
+    pub actor: crate::operator::Actor,
     /// `request_id` — `conductor.decision.RequestId`.
     pub request_id: RequestId,
     /// `escalation_class` — `conductor.decision.DecisionClass`.
@@ -909,6 +935,8 @@ pub enum EscalateRequestOutcome {
 /// Everything it can result in is [`RaiseDecisionRequestOutcome`].
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct RaiseDecisionRequest {
+    /// `actor` — `conductor.operator.Actor`.
+    pub actor: crate::operator::Actor,
     /// `request_id` — `conductor.decision.RequestId`.
     pub request_id: RequestId,
     /// `repository` — `conductor.observation.RepositoryName`.
@@ -955,6 +983,8 @@ pub enum RaiseDecisionRequestOutcome {
 /// Everything it can result in is [`RecordConductorDecisionOutcome`].
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct RecordConductorDecision {
+    /// `actor` — `conductor.operator.Actor`.
+    pub actor: crate::operator::Actor,
     /// `decision_id` — `conductor.decision.DecisionId`.
     pub decision_id: DecisionId,
     /// `decision_class` — `conductor.decision.DecisionClass`.
@@ -1014,6 +1044,8 @@ pub enum RecordConductorDecisionOutcome {
 /// Everything it can result in is [`RecordOperatorDecisionOutcome`].
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct RecordOperatorDecision {
+    /// `actor` — `conductor.operator.Actor`.
+    pub actor: crate::operator::Actor,
     /// `decision_id` — `conductor.decision.DecisionId`.
     pub decision_id: DecisionId,
     /// `decision_class` — `conductor.decision.DecisionClass`.
@@ -1045,6 +1077,13 @@ pub struct RecordOperatorDecision {
 /// outcomes exist to prevent.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum RecordOperatorDecisionOutcome {
+    /// `agent-actor` — when `actor.kind != Human`.
+    ///
+    /// Only a person issues this command (design architecture-next.md § 3, Actors); an agent actor is refused by name and nothing changed.
+    AgentActor {
+        /// Why it was refused: `conductor.operator.ActorNotHuman`.
+        error: crate::operator::ActorNotHuman,
+    },
     /// `recorded` — otherwise.
     ///
     /// The operator's decision of any class is in force.
@@ -1066,6 +1105,8 @@ pub enum RecordOperatorDecisionOutcome {
 /// Everything it can result in is [`RecordOperatorDecisionForRequestOutcome`].
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct RecordOperatorDecisionForRequest {
+    /// `actor` — `conductor.operator.Actor`.
+    pub actor: crate::operator::Actor,
     /// `request_id` — `conductor.decision.RequestId`.
     pub request_id: RequestId,
     /// `decision_id` — `conductor.decision.DecisionId`.
@@ -1099,6 +1140,13 @@ pub struct RecordOperatorDecisionForRequest {
 /// outcomes exist to prevent.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum RecordOperatorDecisionForRequestOutcome {
+    /// `agent-actor` — when `actor.kind != Human`.
+    ///
+    /// Only a person issues this command (design architecture-next.md § 3, Actors); an agent actor is refused by name and nothing changed.
+    AgentActor {
+        /// Why it was refused: `conductor.operator.ActorNotHuman`.
+        error: crate::operator::ActorNotHuman,
+    },
     /// `no-such-request` — when, of the `conductor.decision.DecisionRequest` rows satisfying `request_id == input.request_id`, no row is selected.
     ///
     /// No request has this id, and no decision was recorded.
@@ -1134,6 +1182,8 @@ pub enum RecordOperatorDecisionForRequestOutcome {
 /// Everything it can result in is [`ReverseConductorDecisionOutcome`].
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ReverseConductorDecision {
+    /// `actor` — `conductor.operator.Actor`.
+    pub actor: crate::operator::Actor,
     /// `decision_id` — `conductor.decision.DecisionId`.
     pub decision_id: DecisionId,
     /// `reason` — `String`.
@@ -1180,6 +1230,8 @@ pub enum ReverseConductorDecisionOutcome {
 /// Everything it can result in is [`ReverseOperatorDecisionOutcome`].
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ReverseOperatorDecision {
+    /// `actor` — `conductor.operator.Actor`.
+    pub actor: crate::operator::Actor,
     /// `decision_id` — `conductor.decision.DecisionId`.
     pub decision_id: DecisionId,
     /// `reason` — `String`.
@@ -1193,6 +1245,13 @@ pub struct ReverseOperatorDecision {
 /// outcomes exist to prevent.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ReverseOperatorDecisionOutcome {
+    /// `agent-actor` — when `actor.kind != Human`.
+    ///
+    /// Only a person issues this command (design architecture-next.md § 3, Actors); an agent actor is refused by name and nothing changed.
+    AgentActor {
+        /// Why it was refused: `conductor.operator.ActorNotHuman`.
+        error: crate::operator::ActorNotHuman,
+    },
     /// `reversed` — otherwise.
     ///
     /// The operator reversed the decision, whoever took it; a reversed decision becomes a rule in a profile (design § 13).
@@ -1219,6 +1278,8 @@ pub enum ReverseOperatorDecisionOutcome {
 /// Everything it can result in is [`WithdrawRequestOutcome`].
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct WithdrawRequest {
+    /// `actor` — `conductor.operator.Actor`.
+    pub actor: crate::operator::Actor,
     /// `request_id` — `conductor.decision.RequestId`.
     pub request_id: RequestId,
     /// `reason` — `String`.
@@ -1256,6 +1317,8 @@ pub enum WithdrawRequestOutcome {
 /// DecisionRecorded — the event `conductor.decision.DecisionRecorded`.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct DecisionRecorded {
+    /// `actor` — `conductor.operator.Actor`.
+    pub actor: crate::operator::Actor,
     /// `decision_id` — `conductor.decision.DecisionId`.
     pub decision_id: DecisionId,
     /// `decision_class` — `conductor.decision.DecisionClass`.
@@ -1267,6 +1330,8 @@ pub struct DecisionRecorded {
 /// DecisionRequested — the event `conductor.decision.DecisionRequested`.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct DecisionRequested {
+    /// `actor` — `conductor.operator.Actor`.
+    pub actor: crate::operator::Actor,
     /// `request_id` — `conductor.decision.RequestId`.
     pub request_id: RequestId,
     /// `repository` — `conductor.observation.RepositoryName`.
@@ -1276,6 +1341,8 @@ pub struct DecisionRequested {
 /// DecisionReversedEvent — the event `conductor.decision.DecisionReversedEvent`.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct DecisionReversedEvent {
+    /// `actor` — `conductor.operator.Actor`.
+    pub actor: crate::operator::Actor,
     /// `decision_id` — `conductor.decision.DecisionId`.
     pub decision_id: DecisionId,
     /// `reason` — `String`.
@@ -1285,6 +1352,8 @@ pub struct DecisionReversedEvent {
 /// RequestAmended — the event `conductor.decision.RequestAmended`.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct RequestAmended {
+    /// `actor` — `conductor.operator.Actor`.
+    pub actor: crate::operator::Actor,
     /// `request_id` — `conductor.decision.RequestId`.
     pub request_id: RequestId,
 }
@@ -1292,6 +1361,8 @@ pub struct RequestAmended {
 /// RequestAnswered — the event `conductor.decision.RequestAnswered`.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct RequestAnswered {
+    /// `actor` — `conductor.operator.Actor`.
+    pub actor: crate::operator::Actor,
     /// `request_id` — `conductor.decision.RequestId`.
     pub request_id: RequestId,
     /// `decision_id` — `conductor.decision.DecisionId`.
@@ -1301,6 +1372,8 @@ pub struct RequestAnswered {
 /// RequestEscalated — the event `conductor.decision.RequestEscalated`.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct RequestEscalated {
+    /// `actor` — `conductor.operator.Actor`.
+    pub actor: crate::operator::Actor,
     /// `request_id` — `conductor.decision.RequestId`.
     pub request_id: RequestId,
 }
@@ -1308,6 +1381,8 @@ pub struct RequestEscalated {
 /// RequestWithdrawn — the event `conductor.decision.RequestWithdrawn`.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct RequestWithdrawn {
+    /// `actor` — `conductor.operator.Actor`.
+    pub actor: crate::operator::Actor,
     /// `request_id` — `conductor.decision.RequestId`.
     pub request_id: RequestId,
     /// `reason` — `String`.
@@ -1477,6 +1552,8 @@ pub struct Decisions {
     pub decider_name: Option<String>,
     /// `prompt_sha256` — `Optional<conductor.decision.PromptHash>`.
     pub prompt_sha256: Option<PromptHash>,
+    /// `actor` — `conductor.operator.Actor`.
+    pub actor: crate::operator::Actor,
 }
 
 /// Class-H to-do — one row of the view `conductor.decision.HandsTodo`.
@@ -1512,6 +1589,8 @@ pub struct HandsTodo {
     pub dry_run: Option<String>,
     /// `no_dry_run` — `Optional<String>`.
     pub no_dry_run: Option<String>,
+    /// `actor` — `conductor.operator.Actor`.
+    pub actor: crate::operator::Actor,
 }
 
 /// Decision requests — one row of the view `conductor.decision.Requests`.
@@ -1555,6 +1634,8 @@ pub struct Requests {
     pub default_letters: Option<String>,
     /// `deadline` — `Optional<Timestamp>`.
     pub deadline: Option<crate::primitives::Timestamp>,
+    /// `actor` — `conductor.operator.Actor`.
+    pub actor: crate::operator::Actor,
 }
 
 /// What this bounded context owes its implementor, and the seams of what is generated.
@@ -1644,7 +1725,7 @@ pub mod obligations {
     ///
     /// Why it is not generated: kept an obligation by a guard over the rows a selector selects (`when_related: {entity, where, exists | count | forall}`), in `no-such-request`.
     ///
-    /// Contract: given `conductor.decision.RecordOperatorDecisionForRequest` input, decide and enact exactly one outcome. Declared outcomes (declaration order, not selection precedence): `no-such-request` when, of the `conductor.decision.DecisionRequest` rows satisfying `request_id == input.request_id`, no row is selected, error `conductor.decision.RequestNotFound`; `not-escalated` when, of the `conductor.decision.DecisionRequest` rows satisfying `(request_id == input.request_id and state != Escalated)`, at least one row is selected, error `conductor.decision.RequestStateConflict`; `recorded` otherwise, creates `conductor.decision.Decision`, emits `conductor.decision.DecisionRecorded`; `already-recorded` for an identity a record already carries, error `conductor.decision.DecisionExists`.
+    /// Contract: given `conductor.decision.RecordOperatorDecisionForRequest` input, decide and enact exactly one outcome. Declared outcomes (declaration order, not selection precedence): `agent-actor` when `actor.kind != Human`, error `conductor.operator.ActorNotHuman`; `no-such-request` when, of the `conductor.decision.DecisionRequest` rows satisfying `request_id == input.request_id`, no row is selected, error `conductor.decision.RequestNotFound`; `not-escalated` when, of the `conductor.decision.DecisionRequest` rows satisfying `(request_id == input.request_id and state != Escalated)`, at least one row is selected, error `conductor.decision.RequestStateConflict`; `recorded` otherwise, creates `conductor.decision.Decision`, emits `conductor.decision.DecisionRecorded`; `already-recorded` for an identity a record already carries, error `conductor.decision.DecisionExists`.
     pub trait RecordOperatorDecisionForRequestBehavior {
         /// Decides and enacts exactly one declared outcome of `conductor.decision.RecordOperatorDecisionForRequest`.
         ///

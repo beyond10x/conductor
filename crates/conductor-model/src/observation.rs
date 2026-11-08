@@ -1,5 +1,5 @@
 // generated from conductor v1
-// contract digest 057692c7a57029c79cc9e78eb455da83a4c0aa80b4525dc295987296007b3391
+// contract digest e3b967aa3e3d0f313417baefaaf92190635d03007992d259a68d9a4352490e1a
 // do not edit: regenerate with `ess synthesize --layout crate`
 
 //! Observation — `conductor.observation`.
@@ -589,6 +589,8 @@ pub enum WorkflowRunObservationState {
 pub struct BlockerObservationData {
     /// The identity: `observation_id` — `conductor.observation.ObservationId`.
     pub observation_id: ObservationId,
+    /// `actor` — `conductor.operator.Actor`.
+    pub actor: crate::operator::Actor,
     /// `snapshot_id` — `conductor.observation.SnapshotId`.
     ///
     /// Carries `snapshot`: `conductor.observation.BlockerObservation` references one `conductor.observation.Snapshot`.
@@ -729,6 +731,8 @@ impl AnyBlockerObservation {
 pub struct BoardData {
     /// The identity: `board_id` — `conductor.observation.BoardId`.
     pub board_id: BoardId,
+    /// `actor` — `conductor.operator.Actor`.
+    pub actor: crate::operator::Actor,
     /// `snapshot_id` — `conductor.observation.SnapshotId`.
     ///
     /// Carries `snapshot`: `conductor.observation.Board` references one `conductor.observation.Snapshot`.
@@ -885,6 +889,8 @@ impl AnyBoard {
 pub struct CollectorRunObservationData {
     /// The identity: `observation_id` — `conductor.observation.ObservationId`.
     pub observation_id: ObservationId,
+    /// `actor` — `conductor.operator.Actor`.
+    pub actor: crate::operator::Actor,
     /// `snapshot_id` — `conductor.observation.SnapshotId`.
     ///
     /// Carries `snapshot`: `conductor.observation.CollectorRunObservation` references one `conductor.observation.Snapshot`.
@@ -1043,6 +1049,8 @@ impl AnyCollectorRunObservation {
 pub struct DailySeriesData {
     /// The identity: `daily_series_id` — `conductor.observation.DailySeriesId`.
     pub daily_series_id: DailySeriesId,
+    /// `actor` — `conductor.operator.Actor`.
+    pub actor: crate::operator::Actor,
     /// `series` — `String`.
     pub series: String,
     /// `day` — `String`.
@@ -1185,6 +1193,8 @@ impl AnyDailySeries {
 pub struct MemberFailureObservationData {
     /// The identity: `observation_id` — `conductor.observation.ObservationId`.
     pub observation_id: ObservationId,
+    /// `actor` — `conductor.operator.Actor`.
+    pub actor: crate::operator::Actor,
     /// `snapshot_id` — `conductor.observation.SnapshotId`.
     ///
     /// Carries `snapshot`: `conductor.observation.MemberFailureObservation` references one `conductor.observation.Snapshot`.
@@ -1323,6 +1333,8 @@ impl AnyMemberFailureObservation {
 pub struct MergedPullRequestObservationData {
     /// The identity: `observation_id` — `conductor.observation.ObservationId`.
     pub observation_id: ObservationId,
+    /// `actor` — `conductor.operator.Actor`.
+    pub actor: crate::operator::Actor,
     /// `snapshot_id` — `conductor.observation.SnapshotId`.
     ///
     /// Carries `merged_pull_requests`: `conductor.observation.Snapshot` owns many `conductor.observation.MergedPullRequestObservation`.
@@ -1482,6 +1494,8 @@ impl AnyMergedPullRequestObservation {
 pub struct PullRequestObservationData {
     /// The identity: `observation_id` — `conductor.observation.ObservationId`.
     pub observation_id: ObservationId,
+    /// `actor` — `conductor.operator.Actor`.
+    pub actor: crate::operator::Actor,
     /// `snapshot_id` — `conductor.observation.SnapshotId`.
     ///
     /// Carries `pull_requests`: `conductor.observation.Snapshot` owns many `conductor.observation.PullRequestObservation`.
@@ -1651,6 +1665,8 @@ impl AnyPullRequestObservation {
 pub struct ReleaseObservationData {
     /// The identity: `observation_id` — `conductor.observation.ObservationId`.
     pub observation_id: ObservationId,
+    /// `actor` — `conductor.operator.Actor`.
+    pub actor: crate::operator::Actor,
     /// `snapshot_id` — `conductor.observation.SnapshotId`.
     ///
     /// Carries `releases`: `conductor.observation.Snapshot` owns many `conductor.observation.ReleaseObservation`.
@@ -1789,6 +1805,8 @@ impl AnyReleaseObservation {
 pub struct RepositoryObservationData {
     /// The identity: `observation_id` — `conductor.observation.ObservationId`.
     pub observation_id: ObservationId,
+    /// `actor` — `conductor.operator.Actor`.
+    pub actor: crate::operator::Actor,
     /// `snapshot_id` — `conductor.observation.SnapshotId`.
     ///
     /// Carries `repositories`: `conductor.observation.Snapshot` owns many `conductor.observation.RepositoryObservation`.
@@ -1965,6 +1983,8 @@ impl AnyRepositoryObservation {
 pub struct SecretSyncObservationData {
     /// The identity: `observation_id` — `conductor.observation.ObservationId`.
     pub observation_id: ObservationId,
+    /// `actor` — `conductor.operator.Actor`.
+    pub actor: crate::operator::Actor,
     /// `snapshot_id` — `conductor.observation.SnapshotId`.
     ///
     /// Carries `snapshot`: `conductor.observation.SecretSyncObservation` references one `conductor.observation.Snapshot`.
@@ -2109,6 +2129,8 @@ impl AnySecretSyncObservation {
 pub struct SessionObservationData {
     /// The identity: `observation_id` — `conductor.observation.ObservationId`.
     pub observation_id: ObservationId,
+    /// `actor` — `conductor.operator.Actor`.
+    pub actor: crate::operator::Actor,
     /// `snapshot_id` — `conductor.observation.SnapshotId`.
     ///
     /// Carries `sessions`: `conductor.observation.Snapshot` owns many `conductor.observation.SessionObservation`.
@@ -2269,6 +2291,8 @@ impl AnySessionObservation {
 pub struct SnapshotData {
     /// The identity: `snapshot_id` — `conductor.observation.SnapshotId`.
     pub snapshot_id: SnapshotId,
+    /// `actor` — `conductor.operator.Actor`.
+    pub actor: crate::operator::Actor,
     /// `started_at` — `Timestamp`.
     pub started_at: crate::primitives::Timestamp,
     /// `disk_free_bytes` — `Integer`.
@@ -2475,6 +2499,8 @@ impl AnySnapshot {
 pub struct SpecificationObservationData {
     /// The identity: `observation_id` — `conductor.observation.ObservationId`.
     pub observation_id: ObservationId,
+    /// `actor` — `conductor.operator.Actor`.
+    pub actor: crate::operator::Actor,
     /// `snapshot_id` — `conductor.observation.SnapshotId`.
     ///
     /// Carries `snapshot`: `conductor.observation.SpecificationObservation` references one `conductor.observation.Snapshot`.
@@ -2643,6 +2669,8 @@ impl AnySpecificationObservation {
 pub struct UsageObservationData {
     /// The identity: `observation_id` — `conductor.observation.ObservationId`.
     pub observation_id: ObservationId,
+    /// `actor` — `conductor.operator.Actor`.
+    pub actor: crate::operator::Actor,
     /// `snapshot_id` — `conductor.observation.SnapshotId`.
     ///
     /// Carries `snapshot`: `conductor.observation.UsageObservation` references one `conductor.observation.Snapshot`.
@@ -2803,6 +2831,8 @@ impl AnyUsageObservation {
 pub struct WorkflowRunObservationData {
     /// The identity: `observation_id` — `conductor.observation.ObservationId`.
     pub observation_id: ObservationId,
+    /// `actor` — `conductor.operator.Actor`.
+    pub actor: crate::operator::Actor,
     /// `snapshot_id` — `conductor.observation.SnapshotId`.
     ///
     /// Carries `workflow_runs`: `conductor.observation.Snapshot` owns many `conductor.observation.WorkflowRunObservation`.
@@ -2938,6 +2968,8 @@ impl AnyWorkflowRunObservation {
 /// Everything it can result in is [`CompleteSnapshotOutcome`].
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct CompleteSnapshot {
+    /// `actor` — `conductor.operator.Actor`.
+    pub actor: crate::operator::Actor,
     /// `snapshot_id` — `conductor.observation.SnapshotId`.
     pub snapshot_id: SnapshotId,
 }
@@ -2975,6 +3007,8 @@ pub enum CompleteSnapshotOutcome {
 /// Everything it can result in is [`FailSnapshotOutcome`].
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct FailSnapshot {
+    /// `actor` — `conductor.operator.Actor`.
+    pub actor: crate::operator::Actor,
     /// `snapshot_id` — `conductor.observation.SnapshotId`.
     pub snapshot_id: SnapshotId,
     /// `reason` — `String`.
@@ -3014,6 +3048,8 @@ pub enum FailSnapshotOutcome {
 /// Everything it can result in is [`PublishBoardOutcome`].
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct PublishBoard {
+    /// `actor` — `conductor.operator.Actor`.
+    pub actor: crate::operator::Actor,
     /// `snapshot_id` — `conductor.observation.SnapshotId`.
     pub snapshot_id: SnapshotId,
     /// `previous_snapshot_id` — `Optional<conductor.observation.SnapshotId>`.
@@ -3066,6 +3102,8 @@ pub enum PublishBoardOutcome {
 /// Everything it can result in is [`RecordBlockerOutcome`].
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct RecordBlocker {
+    /// `actor` — `conductor.operator.Actor`.
+    pub actor: crate::operator::Actor,
     /// `snapshot_id` — `conductor.observation.SnapshotId`.
     pub snapshot_id: SnapshotId,
     /// `repository` — `conductor.observation.RepositoryName`.
@@ -3113,6 +3151,8 @@ pub enum RecordBlockerOutcome {
 /// Everything it can result in is [`RecordCollectorRunOutcome`].
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct RecordCollectorRun {
+    /// `actor` — `conductor.operator.Actor`.
+    pub actor: crate::operator::Actor,
     /// `snapshot_id` — `conductor.observation.SnapshotId`.
     pub snapshot_id: SnapshotId,
     /// `collector` — `String`.
@@ -3171,6 +3211,8 @@ pub enum RecordCollectorRunOutcome {
 /// Everything it can result in is [`RecordDailySeriesOutcome`].
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct RecordDailySeries {
+    /// `actor` — `conductor.operator.Actor`.
+    pub actor: crate::operator::Actor,
     /// `daily_series_id` — `conductor.observation.DailySeriesId`.
     pub daily_series_id: DailySeriesId,
     /// `series` — `String`.
@@ -3217,6 +3259,8 @@ pub enum RecordDailySeriesOutcome {
 /// Everything it can result in is [`RecordMemberFailureOutcome`].
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct RecordMemberFailure {
+    /// `actor` — `conductor.operator.Actor`.
+    pub actor: crate::operator::Actor,
     /// `snapshot_id` — `conductor.observation.SnapshotId`.
     pub snapshot_id: SnapshotId,
     /// `member` — `conductor.observation.RepositoryName`.
@@ -3262,6 +3306,8 @@ pub enum RecordMemberFailureOutcome {
 /// Everything it can result in is [`RecordMergedPullRequestOutcome`].
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct RecordMergedPullRequest {
+    /// `actor` — `conductor.operator.Actor`.
+    pub actor: crate::operator::Actor,
     /// `snapshot_id` — `conductor.observation.SnapshotId`.
     pub snapshot_id: SnapshotId,
     /// `repository` — `conductor.observation.RepositoryName`.
@@ -3318,6 +3364,8 @@ pub enum RecordMergedPullRequestOutcome {
 /// Everything it can result in is [`RecordPullRequestOutcome`].
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct RecordPullRequest {
+    /// `actor` — `conductor.operator.Actor`.
+    pub actor: crate::operator::Actor,
     /// `snapshot_id` — `conductor.observation.SnapshotId`.
     pub snapshot_id: SnapshotId,
     /// `repository` — `conductor.observation.RepositoryName`.
@@ -3391,6 +3439,8 @@ pub enum RecordPullRequestOutcome {
 /// Everything it can result in is [`RecordReleaseOutcome`].
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct RecordRelease {
+    /// `actor` — `conductor.operator.Actor`.
+    pub actor: crate::operator::Actor,
     /// `snapshot_id` — `conductor.observation.SnapshotId`.
     pub snapshot_id: SnapshotId,
     /// `repository` — `conductor.observation.RepositoryName`.
@@ -3438,6 +3488,8 @@ pub enum RecordReleaseOutcome {
 /// Everything it can result in is [`RecordRepositoryOutcome`].
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct RecordRepository {
+    /// `actor` — `conductor.operator.Actor`.
+    pub actor: crate::operator::Actor,
     /// `snapshot_id` — `conductor.observation.SnapshotId`.
     pub snapshot_id: SnapshotId,
     /// `repository` — `conductor.observation.RepositoryName`.
@@ -3523,6 +3575,8 @@ pub enum RecordRepositoryOutcome {
 /// Everything it can result in is [`RecordSecretSyncOutcome`].
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct RecordSecretSync {
+    /// `actor` — `conductor.operator.Actor`.
+    pub actor: crate::operator::Actor,
     /// `snapshot_id` — `conductor.observation.SnapshotId`.
     pub snapshot_id: SnapshotId,
     /// `sync` — `String`.
@@ -3576,6 +3630,8 @@ pub enum RecordSecretSyncOutcome {
 /// Everything it can result in is [`RecordSessionOutcome`].
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct RecordSession {
+    /// `actor` — `conductor.operator.Actor`.
+    pub actor: crate::operator::Actor,
     /// `snapshot_id` — `conductor.observation.SnapshotId`.
     pub snapshot_id: SnapshotId,
     /// `harness` — `conductor.observation.Harness`.
@@ -3643,6 +3699,8 @@ pub enum RecordSessionOutcome {
 /// Everything it can result in is [`RecordSpecificationOutcome`].
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct RecordSpecification {
+    /// `actor` — `conductor.operator.Actor`.
+    pub actor: crate::operator::Actor,
     /// `snapshot_id` — `conductor.observation.SnapshotId`.
     pub snapshot_id: SnapshotId,
     /// `repository` — `conductor.observation.RepositoryName`.
@@ -3709,6 +3767,8 @@ pub enum RecordSpecificationOutcome {
 /// Everything it can result in is [`RecordUsageOutcome`].
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct RecordUsage {
+    /// `actor` — `conductor.operator.Actor`.
+    pub actor: crate::operator::Actor,
     /// `snapshot_id` — `conductor.observation.SnapshotId`.
     pub snapshot_id: SnapshotId,
     /// `read_at` — `Timestamp`.
@@ -3769,6 +3829,8 @@ pub enum RecordUsageOutcome {
 /// Everything it can result in is [`RecordWorkflowRunOutcome`].
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct RecordWorkflowRun {
+    /// `actor` — `conductor.operator.Actor`.
+    pub actor: crate::operator::Actor,
     /// `snapshot_id` — `conductor.observation.SnapshotId`.
     pub snapshot_id: SnapshotId,
     /// `repository` — `conductor.observation.RepositoryName`.
@@ -3816,6 +3878,8 @@ pub enum RecordWorkflowRunOutcome {
 /// Everything it can result in is [`ReviseDailySeriesOutcome`].
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ReviseDailySeries {
+    /// `actor` — `conductor.operator.Actor`.
+    pub actor: crate::operator::Actor,
     /// `daily_series_id` — `conductor.observation.DailySeriesId`.
     pub daily_series_id: DailySeriesId,
     /// `value` — `Decimal`.
@@ -3852,6 +3916,8 @@ pub enum ReviseDailySeriesOutcome {
 /// Everything it can result in is [`StartSnapshotOutcome`].
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct StartSnapshot {
+    /// `actor` — `conductor.operator.Actor`.
+    pub actor: crate::operator::Actor,
     /// `started_at` — `Timestamp`.
     pub started_at: crate::primitives::Timestamp,
     /// `disk_free_bytes` — `Integer`.
@@ -3886,6 +3952,8 @@ pub enum StartSnapshotOutcome {
 /// BlockerRecorded — the event `conductor.observation.BlockerRecorded`.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct BlockerRecorded {
+    /// `actor` — `conductor.operator.Actor`.
+    pub actor: crate::operator::Actor,
     /// `observation_id` — `conductor.observation.ObservationId`.
     pub observation_id: ObservationId,
     /// `snapshot_id` — `conductor.observation.SnapshotId`.
@@ -3899,6 +3967,8 @@ pub struct BlockerRecorded {
 /// BoardPublished — the event `conductor.observation.BoardPublished`.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct BoardPublished {
+    /// `actor` — `conductor.operator.Actor`.
+    pub actor: crate::operator::Actor,
     /// `board_id` — `conductor.observation.BoardId`.
     pub board_id: BoardId,
     /// `snapshot_id` — `conductor.observation.SnapshotId`.
@@ -3910,6 +3980,8 @@ pub struct BoardPublished {
 /// CollectorRunRecorded — the event `conductor.observation.CollectorRunRecorded`.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct CollectorRunRecorded {
+    /// `actor` — `conductor.operator.Actor`.
+    pub actor: crate::operator::Actor,
     /// `observation_id` — `conductor.observation.ObservationId`.
     pub observation_id: ObservationId,
     /// `snapshot_id` — `conductor.observation.SnapshotId`.
@@ -3925,6 +3997,8 @@ pub struct CollectorRunRecorded {
 /// DailySeriesRecorded — the event `conductor.observation.DailySeriesRecorded`.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct DailySeriesRecorded {
+    /// `actor` — `conductor.operator.Actor`.
+    pub actor: crate::operator::Actor,
     /// `daily_series_id` — `conductor.observation.DailySeriesId`.
     pub daily_series_id: DailySeriesId,
     /// `snapshot_id` — `conductor.observation.SnapshotId`.
@@ -3934,6 +4008,8 @@ pub struct DailySeriesRecorded {
 /// DailySeriesRevised — the event `conductor.observation.DailySeriesRevised`.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct DailySeriesRevised {
+    /// `actor` — `conductor.operator.Actor`.
+    pub actor: crate::operator::Actor,
     /// `daily_series_id` — `conductor.observation.DailySeriesId`.
     pub daily_series_id: DailySeriesId,
     /// `snapshot_id` — `conductor.observation.SnapshotId`.
@@ -3943,6 +4019,8 @@ pub struct DailySeriesRevised {
 /// MemberFailureRecorded — the event `conductor.observation.MemberFailureRecorded`.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct MemberFailureRecorded {
+    /// `actor` — `conductor.operator.Actor`.
+    pub actor: crate::operator::Actor,
     /// `observation_id` — `conductor.observation.ObservationId`.
     pub observation_id: ObservationId,
     /// `snapshot_id` — `conductor.observation.SnapshotId`.
@@ -3956,6 +4034,8 @@ pub struct MemberFailureRecorded {
 /// MergedPullRequestRecorded — the event `conductor.observation.MergedPullRequestRecorded`.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct MergedPullRequestRecorded {
+    /// `actor` — `conductor.operator.Actor`.
+    pub actor: crate::operator::Actor,
     /// `observation_id` — `conductor.observation.ObservationId`.
     pub observation_id: ObservationId,
     /// `snapshot_id` — `conductor.observation.SnapshotId`.
@@ -3969,6 +4049,8 @@ pub struct MergedPullRequestRecorded {
 /// PullRequestRecorded — the event `conductor.observation.PullRequestRecorded`.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct PullRequestRecorded {
+    /// `actor` — `conductor.operator.Actor`.
+    pub actor: crate::operator::Actor,
     /// `observation_id` — `conductor.observation.ObservationId`.
     pub observation_id: ObservationId,
     /// `snapshot_id` — `conductor.observation.SnapshotId`.
@@ -3982,6 +4064,8 @@ pub struct PullRequestRecorded {
 /// ReleaseRecorded — the event `conductor.observation.ReleaseRecorded`.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ReleaseRecorded {
+    /// `actor` — `conductor.operator.Actor`.
+    pub actor: crate::operator::Actor,
     /// `observation_id` — `conductor.observation.ObservationId`.
     pub observation_id: ObservationId,
     /// `snapshot_id` — `conductor.observation.SnapshotId`.
@@ -3995,6 +4079,8 @@ pub struct ReleaseRecorded {
 /// RepositoryRecorded — the event `conductor.observation.RepositoryRecorded`.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct RepositoryRecorded {
+    /// `actor` — `conductor.operator.Actor`.
+    pub actor: crate::operator::Actor,
     /// `observation_id` — `conductor.observation.ObservationId`.
     pub observation_id: ObservationId,
     /// `snapshot_id` — `conductor.observation.SnapshotId`.
@@ -4006,6 +4092,8 @@ pub struct RepositoryRecorded {
 /// SecretSyncRecorded — the event `conductor.observation.SecretSyncRecorded`.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SecretSyncRecorded {
+    /// `actor` — `conductor.operator.Actor`.
+    pub actor: crate::operator::Actor,
     /// `observation_id` — `conductor.observation.ObservationId`.
     pub observation_id: ObservationId,
     /// `snapshot_id` — `conductor.observation.SnapshotId`.
@@ -4019,6 +4107,8 @@ pub struct SecretSyncRecorded {
 /// SessionRecorded — the event `conductor.observation.SessionRecorded`.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SessionRecorded {
+    /// `actor` — `conductor.operator.Actor`.
+    pub actor: crate::operator::Actor,
     /// `observation_id` — `conductor.observation.ObservationId`.
     pub observation_id: ObservationId,
     /// `snapshot_id` — `conductor.observation.SnapshotId`.
@@ -4032,6 +4122,8 @@ pub struct SessionRecorded {
 /// SnapshotCompleted — the event `conductor.observation.SnapshotCompleted`.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SnapshotCompleted {
+    /// `actor` — `conductor.operator.Actor`.
+    pub actor: crate::operator::Actor,
     /// `snapshot_id` — `conductor.observation.SnapshotId`.
     pub snapshot_id: SnapshotId,
 }
@@ -4039,6 +4131,8 @@ pub struct SnapshotCompleted {
 /// SnapshotFailed — the event `conductor.observation.SnapshotFailed`.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SnapshotFailed {
+    /// `actor` — `conductor.operator.Actor`.
+    pub actor: crate::operator::Actor,
     /// `snapshot_id` — `conductor.observation.SnapshotId`.
     pub snapshot_id: SnapshotId,
     /// `reason` — `String`.
@@ -4048,6 +4142,8 @@ pub struct SnapshotFailed {
 /// SnapshotStarted — the event `conductor.observation.SnapshotStarted`.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SnapshotStarted {
+    /// `actor` — `conductor.operator.Actor`.
+    pub actor: crate::operator::Actor,
     /// `snapshot_id` — `conductor.observation.SnapshotId`.
     pub snapshot_id: SnapshotId,
     /// `started_at` — `Timestamp`.
@@ -4057,6 +4153,8 @@ pub struct SnapshotStarted {
 /// SpecificationRecorded — the event `conductor.observation.SpecificationRecorded`.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SpecificationRecorded {
+    /// `actor` — `conductor.operator.Actor`.
+    pub actor: crate::operator::Actor,
     /// `observation_id` — `conductor.observation.ObservationId`.
     pub observation_id: ObservationId,
     /// `snapshot_id` — `conductor.observation.SnapshotId`.
@@ -4072,6 +4170,8 @@ pub struct SpecificationRecorded {
 /// UsageRecorded — the event `conductor.observation.UsageRecorded`.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct UsageRecorded {
+    /// `actor` — `conductor.operator.Actor`.
+    pub actor: crate::operator::Actor,
     /// `observation_id` — `conductor.observation.ObservationId`.
     pub observation_id: ObservationId,
     /// `snapshot_id` — `conductor.observation.SnapshotId`.
@@ -4087,6 +4187,8 @@ pub struct UsageRecorded {
 /// WorkflowRunRecorded — the event `conductor.observation.WorkflowRunRecorded`.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct WorkflowRunRecorded {
+    /// `actor` — `conductor.operator.Actor`.
+    pub actor: crate::operator::Actor,
     /// `observation_id` — `conductor.observation.ObservationId`.
     pub observation_id: ObservationId,
     /// `snapshot_id` — `conductor.observation.SnapshotId`.
@@ -4179,6 +4281,8 @@ pub struct Blockers {
     pub blocker_kind: String,
     /// `title` — `String`.
     pub title: String,
+    /// `actor` — `conductor.operator.Actor`.
+    pub actor: crate::operator::Actor,
 }
 
 /// Boards — one row of the view `conductor.observation.Boards`.
@@ -4198,6 +4302,8 @@ pub struct Boards {
     pub deviation_rows: i64,
     /// `path` — `String`.
     pub path: String,
+    /// `actor` — `conductor.operator.Actor`.
+    pub actor: crate::operator::Actor,
 }
 
 /// Collector runs — one row of the view `conductor.observation.CollectorRuns`.
@@ -4223,6 +4329,8 @@ pub struct CollectorRuns {
     pub read_bytes: Option<i64>,
     /// `written_bytes` — `Optional<Integer>`.
     pub written_bytes: Option<i64>,
+    /// `actor` — `conductor.operator.Actor`.
+    pub actor: crate::operator::Actor,
 }
 
 /// Members a collector could not read — one row of the view `conductor.observation.MemberFailures`.
@@ -4242,6 +4350,8 @@ pub struct MemberFailures {
     pub collector: String,
     /// `error_line` — `String`.
     pub error_line: String,
+    /// `actor` — `conductor.operator.Actor`.
+    pub actor: crate::operator::Actor,
 }
 
 /// Merged pull requests — one row of the view `conductor.observation.MergedPullRequests`.
@@ -4265,6 +4375,8 @@ pub struct MergedPullRequests {
     pub merged_at: crate::primitives::Timestamp,
     /// `url` — `String`.
     pub url: String,
+    /// `actor` — `conductor.operator.Actor`.
+    pub actor: crate::operator::Actor,
 }
 
 /// Pull requests — one row of the view `conductor.observation.PullRequests`.
@@ -4298,6 +4410,8 @@ pub struct PullRequests {
     pub updated_at: crate::primitives::Timestamp,
     /// `url` — `Optional<String>`.
     pub url: Option<String>,
+    /// `actor` — `conductor.operator.Actor`.
+    pub actor: crate::operator::Actor,
 }
 
 /// Releases — one row of the view `conductor.observation.Releases`.
@@ -4319,6 +4433,8 @@ pub struct Releases {
     pub published_at: crate::primitives::Timestamp,
     /// `url` — `String`.
     pub url: String,
+    /// `actor` — `conductor.operator.Actor`.
+    pub actor: crate::operator::Actor,
 }
 
 /// Repositories — one row of the view `conductor.observation.Repositories`.
@@ -4378,6 +4494,8 @@ pub struct Repositories {
     pub wave_ready: Option<i64>,
     /// `wave_reason` — `Optional<String>`.
     pub wave_reason: Option<String>,
+    /// `actor` — `conductor.operator.Actor`.
+    pub actor: crate::operator::Actor,
 }
 
 /// Secret syncs — one row of the view `conductor.observation.SecretSyncs`.
@@ -4405,6 +4523,8 @@ pub struct SecretSyncs {
     pub secrets_updated_at: Option<crate::primitives::Timestamp>,
     /// `error_line` — `Optional<String>`.
     pub error_line: Option<String>,
+    /// `actor` — `conductor.operator.Actor`.
+    pub actor: crate::operator::Actor,
 }
 
 /// Sessions — one row of the view `conductor.observation.Sessions`.
@@ -4446,6 +4566,8 @@ pub struct Sessions {
     pub envelope_writable: Option<String>,
     /// `envelope_unboxed` — `Optional<String>`.
     pub envelope_unboxed: Option<String>,
+    /// `actor` — `conductor.operator.Actor`.
+    pub actor: crate::operator::Actor,
 }
 
 /// Snapshots — one row of the view `conductor.observation.Snapshots`.
@@ -4465,6 +4587,8 @@ pub struct Snapshots {
     pub disk_free_bytes: i64,
     /// `failure_reason` — `Optional<String>`.
     pub failure_reason: Option<String>,
+    /// `actor` — `conductor.operator.Actor`.
+    pub actor: crate::operator::Actor,
 }
 
 /// Specifications — one row of the view `conductor.observation.Specifications`.
@@ -4498,6 +4622,8 @@ pub struct Specifications {
     pub synthesis_refusals: Option<i64>,
     /// `conformance_status` — `Optional<String>`.
     pub conformance_status: Option<String>,
+    /// `actor` — `conductor.operator.Actor`.
+    pub actor: crate::operator::Actor,
 }
 
 /// Usage readings — one row of the view `conductor.observation.UsageReadings`.
@@ -4525,6 +4651,8 @@ pub struct UsageReadings {
     pub used_percent: i64,
     /// `resets_at` — `Optional<Timestamp>`.
     pub resets_at: Option<crate::primitives::Timestamp>,
+    /// `actor` — `conductor.operator.Actor`.
+    pub actor: crate::operator::Actor,
 }
 
 /// Workflow runs — one row of the view `conductor.observation.WorkflowRuns`.
@@ -4546,6 +4674,8 @@ pub struct WorkflowRuns {
     pub conclusion: RunConclusion,
     /// `run_at` — `Timestamp`.
     pub run_at: crate::primitives::Timestamp,
+    /// `actor` — `conductor.operator.Actor`.
+    pub actor: crate::operator::Actor,
 }
 
 /// What this bounded context owes its implementor, and the seams of what is generated.
