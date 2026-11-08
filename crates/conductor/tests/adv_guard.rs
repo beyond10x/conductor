@@ -380,7 +380,8 @@ fn adv_a_controller_cannot_write_the_project_settings_that_disable_its_hooks() {
 fn adv_the_wired_command_denies_when_conductor_cannot_be_run() {
     let settings: Value = serde_json::from_str(
         &fs::read_to_string(
-            Path::new(env!("CARGO_MANIFEST_DIR")).join("../../.claude/controller-settings.json"),
+            Path::new(env!("CARGO_MANIFEST_DIR"))
+                .join("kinds/claude-code/controller-settings.json"),
         )
         .expect("read the controller settings"),
     )

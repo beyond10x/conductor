@@ -31,16 +31,19 @@
 //! the instance's name and the config file's absolute path in `CONDUCTOR_INSTANCE` and
 //! `CONDUCTOR_CONFIG`, so the controller and its guard run as the instance that started it. The
 //! settings must not pin another instance (`InstanceNotPinned`, `story:instance-isolation`); ones
-//! that pin none, as the shipped `.claude/controller-settings.json` does, are passed as a copy
-//! pinned to the instance, `<state>/sessions/<session name>.settings.json`.
+//! that pin none, as the binary's `controller-settings.json` does, are passed as a copy
+//! pinned to the instance, `<state>/sessions/<session name>.settings.json`. A role that names no
+//! profile or no settings starts with the ones the binary carries for a controller, written into
+//! the state directory by the `claude-code` kind (`story:roles-in-the-binary`):
+//! `<state>/sessions/<session name>.profile.md` and `.settings.json`.
 //!
 //! In order, it refuses, recording and launching nothing: a repository that names no git
 //! checkout directly, or one group down, under the checkouts root, one whose physical path lies
 //! outside the root's physical path, or one an `exclude` entry of the instance's sources leaves out
 //! (`NoCheckout`); a checkout that is the instance's records directory, lies in it or holds it,
 //! where the guard takes a session for conductor's (`RecordsCheckout`); a role that is missing (`NoControllerRole`), runs
-//! on another harness (`NotClaude`), or names no profile or settings file (`NoProfile`,
-//! `NoSettings`); a checkout `~/.claude.json` does not mark trusted, where `claude --bg` would
+//! on another harness (`NotClaude`), or names a profile or settings file that is not a file
+//! (`NoProfile`, `NoSettings`); a checkout `~/.claude.json` does not mark trusted, where `claude --bg` would
 //! start nothing (`UntrustedCheckout`); a charter that is missing, empty, not UTF-8, or starts
 //! with `-`, which `claude` would read as a flag (`NoCharter`); and a live session that holds the
 //! session name in `claude agents --json`, as the sessions collector reads the list
@@ -86,6 +89,7 @@ use conductor_model::observation::{Harness, RepositoryName};
 use conductor_model::session::{SessionRequest, StartedSession};
 use serde_json::Value;
 
+use crate::agent::claude_code;
 use crate::cli::SpawnArgs;
 use crate::collect::{self, Under};
 use crate::config::{self, BuiltInRole, ConfinementProvider, Environment};
@@ -192,6 +196,7 @@ pub fn spawn_for(
     let state_dir = crate::state::dir(state)?;
     // Written before the controller is recorded, so a copy that cannot be written records nothing.
     let settings = pinned_settings(instance, settings, &state_dir, &session_name)?;
+    let profile = role_files(profile, &state_dir, &session_name)?;
 
     // The store is held only while a record is written, not while the session starts.
     let outcome = {
@@ -595,6 +600,7 @@ pub fn resume(
     let (controller, profile, settings, model) =
         role(instance).map_err(|(_, detail)| anyhow!("{detail}"))?;
     let settings = pinned_settings(instance, settings, &state_dir, session_name)?;
+    let profile = role_files(profile, &state_dir, session_name)?;
     let environment = Environment::from_process().context(COMMAND)?;
     let mut launch = controller_launch(
         config_flag,
@@ -746,9 +752,14 @@ fn outside_records(instance: &Instance, checkout: &Path) -> Result<(), String> {
     Ok(())
 }
 
+/// The controller role [`role`] answers: the role, the profile and settings files it names (`None`
+/// for one it names none of) and its model.
+type ControllerFiles<'r> = (&'r Role, Option<String>, Option<String>, String);
+
 /// The `lead` role, or one under its old name `controller` (`story:role-name-aliases`), with its
-/// profile, settings and model, each file checked to be one.
-fn role(instance: &Instance) -> Result<(&Role, String, String, String), (SpawnRefusal, String)> {
+/// profile, settings and model, each file it names checked to be one; a profile or settings file
+/// it does not name is the binary's (`story:roles-in-the-binary`, [`role_files`]).
+fn role(instance: &Instance) -> Result<ControllerFiles<'_>, (SpawnRefusal, String)> {
     let Some(role) = instance
         .roles
         .iter()
@@ -775,22 +786,20 @@ fn role(instance: &Instance) -> Result<(&Role, String, String, String), (SpawnRe
         ));
     }
     let file = |value: &Option<CommandWord>, refusal: SpawnRefusal, what: &str| match value {
-        Some(path) if Path::new(&path.0).is_file() => Ok(path.0.clone()),
+        Some(path) if Path::new(&path.0).is_file() => Ok(Some(path.0.clone())),
         Some(path) => Err((
             refusal,
             format!("the controller role's {what} {} is not a file", path.0),
         )),
-        None => Err((
-            refusal,
-            format!("the controller role names no {what} in conductor config show"),
-        )),
+        None => Ok(None),
     };
     let profile = file(profile, SpawnRefusal::NoProfile, "profile")?;
     let settings = file(settings, SpawnRefusal::NoSettings, "settings")?;
     // The settings select the instance the session's hooks act for (`story:instance-isolation`):
     // they must not pin another. Settings that pin none start pinned ([`pinned_settings`]).
     if config::active().from_file
-        && let Some(problem) = config::pin_refusal(Path::new(&settings), &instance.name.0)
+        && let Some(settings) = &settings
+        && let Some(problem) = config::pin_refusal(Path::new(settings), &instance.name.0)
     {
         return Err((
             SpawnRefusal::InstanceNotPinned,
@@ -803,14 +812,31 @@ fn role(instance: &Instance) -> Result<(&Role, String, String, String), (SpawnRe
 /// The settings the controller session `session_name` starts with (`story:instance-isolation`):
 /// under a config file, the role's `settings` when they pin the instance, else a copy of them
 /// pinned to it under the state directory ([`config::session_settings`]); without one, the
-/// role's `settings` as they are.
+/// role's `settings` as they are. A role that names none starts with the settings the binary
+/// carries for a controller ([`claude_code::CONTROLLER_SETTINGS`]), written under the state
+/// directory as the copy, pinned under a config file.
 fn pinned_settings(
     instance: &Instance,
-    settings: String,
+    settings: Option<String>,
     state_dir: &Path,
     session_name: &SessionName,
 ) -> Result<String> {
-    if !config::active().from_file {
+    let from_file = config::active().from_file;
+    let Some(settings) = settings else {
+        let file = if from_file {
+            config::write_pinned(
+                claude_code::settings_value(config::CONTROLLER)?,
+                &instance.name.0,
+                state_dir,
+                &session_name.0,
+            )
+        } else {
+            claude_code::write_settings(state_dir, &session_name.0, config::CONTROLLER)
+                .map(|file| file.unwrap_or_else(|| config::pinned_copy(state_dir, &session_name.0)))
+        };
+        return Ok(file.context(COMMAND)?.display().to_string());
+    };
+    if !from_file {
         return Ok(settings);
     }
     config::session_settings(
@@ -820,6 +846,24 @@ fn pinned_settings(
         &session_name.0,
     )
     .context(COMMAND)
+}
+
+/// The profile the controller session `session_name` starts with (`story:roles-in-the-binary`):
+/// the role's own, read by the harness at start; else the one the binary carries for a
+/// controller, written to `<state>/sessions/<session name>.profile.md`
+/// ([`claude_code::write_profile`]).
+fn role_files(
+    profile: Option<String>,
+    state_dir: &Path,
+    session_name: &SessionName,
+) -> Result<String> {
+    if let Some(profile) = profile {
+        return Ok(profile);
+    }
+    let file = claude_code::write_profile(state_dir, &session_name.0, config::CONTROLLER)
+        .context(COMMAND)?
+        .ok_or_else(|| anyhow!("{COMMAND}: the binary carries no controller profile"))?;
+    Ok(file.display().to_string())
 }
 
 /// Whether `~/.claude.json` under `home` marks `checkout`, a physical path, trusted:

@@ -1,5 +1,5 @@
 // generated from conductor v1
-// contract digest 92a4370ed302f5aecf042d1cd6448ff2d89bf65c94265e16af94376031e7bd63
+// contract digest a76aa63f2ad9f5b169861cd94a585925f67f9ddebf70caf04f301709ee2e64d1
 // do not edit: regenerate with `ess synthesize --layout crate`
 //! Every generated declaration, as JSON, in the renderings the published wire contracts fix.
 //!
@@ -243,6 +243,34 @@ pub fn decode_conductor_agent_exit_class(value: &json::Value, at: &str) -> Resul
         "UsageLimit" => crate::agent::ExitClass::UsageLimit,
         "Exited" => crate::agent::ExitClass::Exited,
         other => return Err(json::DecodeError { at: at.to_owned(), expected: "one of `Requested`, `UsageLimit`, `Exited`".to_owned(), found: format!("`{other}`") }),
+    })
+}
+
+/// Writes `conductor.agent.ShowRole` as JSON.
+pub fn encode_conductor_agent_show_role(value: &crate::agent::ShowRole, out: &mut String) {
+    out.push('{');
+    if let Some(held0) = &value.role {
+        json::member(out, "role");
+        json::push_text(out, &*held0);
+    }
+    out.push('}');
+}
+
+/// Reads `conductor.agent.ShowRole` from JSON.
+///
+/// # Errors
+///
+/// [`json::DecodeError`] naming the path and what the declaration says belongs there.
+pub fn decode_conductor_agent_show_role(value: &json::Value, at: &str) -> Result<crate::agent::ShowRole, json::DecodeError> {
+    json::closed_at(value, at, &["role"])?;
+    Ok(crate::agent::ShowRole {
+        role: match value.member("role") {
+            None | Some(json::Value::Null) => None,
+            Some(member0) => {
+                let at0 = json::nested(at, "role");
+                Some(json::text_at(member0, &at0, "a string")?.to_owned())
+            }
+        },
     })
 }
 

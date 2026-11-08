@@ -1,5 +1,5 @@
 // generated from conductor v1
-// contract digest 92a4370ed302f5aecf042d1cd6448ff2d89bf65c94265e16af94376031e7bd63
+// contract digest a76aa63f2ad9f5b169861cd94a585925f67f9ddebf70caf04f301709ee2e64d1
 // do not edit: regenerate with `ess synthesize --layout crate`
 
 //! How the specification's primitives are spelled in this workspace.

@@ -26,9 +26,9 @@
 //! kept: the store refuses the write decided on a stale read, and that claim exits 1.
 //!
 //! With `--from-session-start` the command is the SessionStart hook of the conductor role's
-//! settings (`.claude/conductor-settings.json`): it reads the payload Claude Code sends a
-//! SessionStart hook on standard input and takes the session's id from its `session_id`, as the
-//! guard reads a PreToolUse payload (`crate::guard`). The payload names no process, so the
+//! settings (the `claude-code` kind's `conductor-settings.json`): it reads the payload Claude Code
+//! sends a SessionStart hook on standard input and takes the session's id from its `session_id`,
+//! as the guard reads a PreToolUse payload (`crate::guard`). The payload names no process, so the
 //! settings pass it as `--pid "$PPID"`: Claude Code runs a hook command under `sh -c` from the
 //! session's own process, so the shell's parent is that process, the one `claude agents --json`
 //! lists as the session's `pid`, which lives exactly as long as the session does. This binary's
@@ -65,7 +65,7 @@ use anyhow::{Context as _, Result, anyhow, bail};
 use conductor_model::behaviour::{
     DeliveryStorage, ExternalCommand, Generated, LeaseStorage, TryContext, unmet_context,
 };
-use conductor_model::config::{CommandWord, Harness, Instance, InstanceName, Role, SessionName};
+use conductor_model::config::{Harness, Instance, InstanceName, Role, SessionName};
 use conductor_model::direction::ServingId;
 use conductor_model::dispatch::{DispatchLogEvent, GuardDecisionId, MessageId, ResourceRequestId};
 use conductor_model::host::{GrantId, ReclaimRunId};
@@ -90,6 +90,7 @@ use serde_json::{Value, json};
 use time::OffsetDateTime;
 use time::format_description::well_known::Rfc3339;
 
+use crate::agent::claude_code;
 use crate::cli::{ClaimLeaseArgs, DeliverArgs, SessionRoleArgs, ViewArgs};
 use crate::config::{self, BuiltInRole, ConfinementProvider, Environment};
 use crate::confine::places::{self, Placement};
@@ -850,10 +851,6 @@ instance's state directory (conductor config show prints state), then begin.";
 /// (`story:role-name-aliases`).
 const SESSION_ROLES: [BuiltInRole; 2] = [BuiltInRole::Director, BuiltInRole::Maintainer];
 
-/// The settings file conductor starts with when its role names none, under the working
-/// directory: the product checkout a director session is started from.
-const CONDUCTOR_SETTINGS: &str = ".claude/conductor-settings.json";
-
 /// The role `role` of the active instance, when it is one `session start` starts: `director` or
 /// `maintainer`, or their old names `conductor` and `conductor-dev`, on `claude`
 /// (`story:role-name-aliases`). The director is the instance's, under either name; so is the
@@ -889,9 +886,9 @@ fn session_role(instance: &Instance, role: &str) -> Result<Role, String> {
 
 /// The role `role` `session start` and `session stop` act on: a host role, `supervisor` or
 /// `teacher`, from `globals.roles` of the config file (`story:host-roles-by-daemon`), with what
-/// its session starts with ([`host_roles::Found`]) and, when it names neither a profile nor an
-/// agent, the profile `profiles/conductor-<role>.md` beside the file (no `~/.claude/agents/`
-/// adapter); else the instance's role [`session_role`] answers.
+/// its session starts with ([`host_roles::Found`]); one that names neither a profile nor an agent
+/// starts from the profile the binary carries ([`harness_args`]); else the instance's role
+/// [`session_role`] answers.
 fn resolve_role(
     instance: &Instance,
     role: &str,
@@ -906,15 +903,7 @@ fn resolve_role(
              only"
         ));
     }
-    let mut named = found.role.clone();
-    if named.profile.is_none() && named.agent.is_none() {
-        named.profile = Some(CommandWord(
-            host_roles::default_profile(&found.dir, role)
-                .display()
-                .to_string(),
-        ));
-    }
-    Ok((named, Some(found)))
+    Ok((found.role.clone(), Some(found)))
 }
 
 /// The session name of `role`: the role's, else the one derived for it.
@@ -996,16 +985,22 @@ fn request(instance: &Instance, role: &Role, cwd: &Path, home: &Path) -> Session
 }
 
 /// The arguments the harness of `role` starts with before its first prompt: its name, its profile
-/// (`--append-system-prompt-file`) or else its agent (`--agent`, by default the role's old name,
-/// `conductor` or `conductor-dev`, the adapters' file names for this release),
-/// its model, bypass permissions, no user settings (the `none` provider adds them for `claude --bg`,
-/// [`crate::confine::background_args`]), and its settings file; conductor's defaults to
-/// [`CONDUCTOR_SETTINGS`] under `cwd`.
-fn harness_args(role: &Role, name: &SessionName, settings: Option<String>) -> Vec<String> {
+/// (`--append-system-prompt-file`: the role's own, else the one the binary carries, written into
+/// the state directory, [`profile_for`]) or else its agent (`--agent`, by default the role's old
+/// name: `conductor` for the director, which the binary carries no profile for), its model,
+/// bypass permissions, no user settings (the `none` provider adds them for `claude --bg`,
+/// [`crate::confine::background_args`]), and its settings file; the director's defaults to the one
+/// the binary carries ([`claude_code::settings`]).
+fn harness_args(
+    role: &Role,
+    name: &SessionName,
+    profile: Option<String>,
+    settings: Option<String>,
+) -> Vec<String> {
     let mut args = vec!["-n".to_owned(), name.0.clone()];
-    match (&role.profile, &role.agent) {
+    match (profile, &role.agent) {
         (Some(profile), _) => {
-            args.extend(["--append-system-prompt-file".to_owned(), profile.0.clone()]);
+            args.extend(["--append-system-prompt-file".to_owned(), profile]);
         }
         (None, Some(agent)) => args.extend(["--agent".to_owned(), agent.0.clone()]),
         (None, None) => args.extend([
@@ -1033,49 +1028,38 @@ fn harness_args(role: &Role, name: &SessionName, settings: Option<String>) -> Ve
     args
 }
 
+/// The profile the session `name` of `role` appends to its system prompt
+/// (`story:roles-in-the-binary`): the role's own `profile`, which the harness reads at start;
+/// else, for a role that names no agent either, the one the binary carries, written to
+/// `<state>/sessions/<name>.profile.md` ([`claude_code::write_profile`]); else none.
+///
+/// # Errors
+///
+/// The binary's profile cannot be written.
+fn profile_for(role: &Role, state: &Path, name: &SessionName) -> Result<Option<String>> {
+    match (&role.profile, &role.agent) {
+        (Some(profile), _) => Ok(Some(profile.0.clone())),
+        (None, Some(_)) => Ok(None),
+        (None, None) => Ok(claude_code::write_profile(state, &name.0, &role.role)?
+            .map(|file| file.display().to_string())),
+    }
+}
+
 /// The settings a session of `role`, which names no settings file of its own, starts with under
-/// a config file (`story:instance-isolation`): the role's default ([`role_settings`]: for
-/// `conductor` [`CONDUCTOR_SETTINGS`] under `cwd`, an empty one for `conductor-dev`) pinned to
-/// `instance` ([`config::pinned`]), written to `<state>/sessions/<session name>.settings.json`,
+/// a config file (`story:instance-isolation`): the role's default ([`claude_code::settings`]: for
+/// the director the binary's `conductor-settings.json`, an empty one for every other role) pinned
+/// to `instance` ([`config::pinned`]), written to `<state>/sessions/<session name>.settings.json`,
 /// whose path it answers. The harness does not pass the environment it is started with on to the
 /// session it forks, so only the settings select the instance the session's hooks act for.
 ///
 /// # Errors
 ///
-/// The default is there and is no JSON, or the file cannot be written.
-fn write_pinned(
-    role: &Role,
-    cwd: &Path,
-    instance: &str,
-    state: &Path,
-    name: &SessionName,
-) -> Result<String> {
-    let base = match role_settings(role, cwd) {
-        Some(default) => match fs::read_to_string(&default) {
-            Ok(text) => serde_json::from_str(&text)
-                .with_context(|| format!("the settings {default} are no JSON"))?,
-            Err(error) if error.kind() == io::ErrorKind::NotFound => serde_json::json!({}),
-            Err(error) => {
-                return Err(error).with_context(|| format!("read the settings {default}"));
-            }
-        },
-        None => serde_json::json!({}),
-    };
+/// The file cannot be written.
+fn write_pinned(role: &Role, instance: &str, state: &Path, name: &SessionName) -> Result<String> {
+    let base = claude_code::settings_value(&role.role)?;
     Ok(config::write_pinned(base, instance, state, &name.0)?
         .display()
         .to_string())
-}
-
-/// The settings file a session of `role` starts with: its `settings`, else for `director`
-/// [`CONDUCTOR_SETTINGS`] under `cwd`, else none.
-fn role_settings(role: &Role, cwd: &Path) -> Option<String> {
-    role.settings
-        .as_ref()
-        .map(|settings| settings.0.clone())
-        .or_else(|| {
-            config::is_role(&role.role, BuiltInRole::Director)
-                .then(|| cwd.join(CONDUCTOR_SETTINGS).display().to_string())
-        })
 }
 
 /// Answers a refusal of `session start`: one line naming its `SessionStartRefusal`, and exit 1.
@@ -1195,15 +1179,19 @@ pub fn start(
     let state_dir = crate::state::dir(state)?;
     let settings = match (&found.settings, active.from_file) {
         (None, true) => Some(
-            write_pinned(found, cwd, &instance.name.0, &state_dir, &name)
-                .context("session start")?,
+            write_pinned(found, &instance.name.0, &state_dir, &name).context("session start")?,
         ),
         (Some(own), true) => Some(
             config::session_settings(Path::new(&own.0), &instance.name.0, &state_dir, &name.0)
                 .context("session start")?,
         ),
-        _ => role_settings(found, cwd),
+        (Some(own), false) => Some(own.0.clone()),
+        (None, false) => claude_code::write_settings(&state_dir, &name.0, &found.role)
+            .context("session start")?
+            .map(|file| file.display().to_string()),
     };
+    // The role's profile, else the binary's, written into the state (`story:roles-in-the-binary`).
+    let profile = profile_for(found, &state_dir, &name).context("session start")?;
     let request = request(instance, found, cwd, home);
     // The session's socket to the instance's broker (`story:tool-broker-read`): registered with
     // its role's grant before it starts, and named in its environment.
@@ -1223,7 +1211,7 @@ pub fn start(
     let mut launch = Launch {
         request,
         program: confine::CLAUDE.to_owned(),
-        args: harness_args(found, &name, settings),
+        args: harness_args(found, &name, profile, settings),
         env,
         session_prefix: instance.session_prefix.clone(),
         // A host role's slice, `conductor_host.slice`, takes `globals.limits`.

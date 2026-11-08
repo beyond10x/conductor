@@ -52,9 +52,9 @@ write the config for the paths inside the box:
 | the instance's `records` | conductor's records, a git repository |
 | the instance's `state` | the store, the conductor lease, the dashboard's pid file |
 | the instance's `cache` | the collectors' exports |
-| `~/.b10x/conductor/` | the config file and the installed profiles (`task profiles`) |
+| `~/.b10x/conductor/` | the config file; the role profiles and settings are in the binary |
 | `~/.claude/`, `~/.claude.json` | Claude Code's login, settings and session transcripts; `conductor trust` writes `~/.claude.json` |
-| the conductor checkout | the role settings files the config points at (`.claude/conductor-settings.json`, `.claude/controller-settings.json`) and the `Taskfile.yml` the start tasks run from |
+| the conductor checkout | the `Taskfile.yml` the start tasks run from; the settings each session starts with are written into the instance's `state` |
 
 Install inside the box what `conductor doctor` lists: `conductor`, `claude`, `git`, `task`, `jq`,
 `aep`, `worktree`, `ess`, and `gh` or `glab` for the forge of the instance's sources.

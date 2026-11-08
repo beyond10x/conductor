@@ -29,18 +29,12 @@ instances:
       - role: conductor
         harness: claude
         model: opus
-        profile: ~/.b10x/conductor/profiles/conductor.md
-        settings: ~/example-org/conductor/.claude/conductor-settings.json
       - role: conductor-dev
         harness: claude
         model: opus
-        profile: ~/.b10x/conductor/profiles/conductor-dev.md
       - role: controller
         harness: claude
         model: opus
-        agent: repo-controller
-        settings: ~/example-org/conductor/.claude/controller-settings.json
-        profile: ~/.b10x/conductor/profiles/repo-controller.md
 ```
 
 | key | why |
@@ -48,14 +42,14 @@ instances:
 | `sources` | where the repositories come from: `github: <owner>`, `local: <path>` or `gitlab: <group>` |
 | `checkouts.root`, `checkouts.trees` | where their checkouts and managed worktrees are; the guard and the collectors read them |
 | `records` | the directory conductor runs in and keeps its records in; the guard gives conductor its rules only there. Default `~/.b10x/conductor/<name>/records` |
-| `roles` | the harness and model of each session; a role's `profile` is the file its session starts with through `--append-system-prompt-file`, and its `settings` the settings file that wires the guard. A list given replaces the whole default |
+| `roles` | the harness and model of each session; a role starts from the profile and settings the binary carries for it; a `profile` the role names is the file its session starts with through `--append-system-prompt-file` in their place, and its `settings` the settings file that wires the guard. A list given replaces the whole default |
 
 Why a controller role that names an `agent` must name a `profile` too: a session the `systemd`
 provider starts passes `--setting-sources project,local`, which loads no user-level agent from
 `~/.claude/agents/`, and a
 repository's own checkout does not carry conductor's adapter. So a controller always starts from
-its profile, never from `--agent`, and `conductor config validate` refuses a controller role with
-an `agent` and no `profile`. With the `profile` line above removed:
+a profile, never from `--agent`, and `conductor config validate` refuses a controller role with
+an `agent` and no `profile`. With `agent: repo-controller` added to the controller above:
 
 ```console
 $ conductor config validate
@@ -109,7 +103,7 @@ value written `section.key` from its JSON form:
 $ conductor config show --format json | jq -c '.instances[0] | {records, state, cache}'
 {"records":"~/example-org/records","state":"~/.b10x/conductor/personal/state","cache":"~/.cache/b10x/conductor/personal"}
 $ conductor config show --format json | jq -c ".instances[0].roles[2]"
-{"role":"controller","harness":"claude","model":"opus","agent":"repo-controller","settings":"~/example-org/conductor/.claude/controller-settings.json","profile":"~/.b10x/conductor/profiles/repo-controller.md","session_name":null,"read_only_tools":[]}
+{"role":"controller","harness":"claude","model":"opus","agent":null,"settings":null,"profile":null,"session_name":null,"read_only_tools":[]}
 ```
 
 (The CLI prints the home directory in full; it is written `~` here.) `session_name` is derived,

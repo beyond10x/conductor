@@ -441,7 +441,7 @@ fn config_validate_names_a_role_whose_settings_pin_another_instance() {
     })
     .to_string();
     let shipped = fs::read_to_string(
-        PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../.claude/conductor-settings.json"),
+        PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("kinds/claude-code/conductor-settings.json"),
     )
     .unwrap();
     for (what, text) in [
