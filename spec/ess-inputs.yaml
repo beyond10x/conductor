@@ -61,3 +61,9 @@ scenarios:
   - scenarios/placement-open-box.yaml
   - scenarios/placement-open-box-refused.yaml
   - scenarios/placement-close-box.yaml
+  - scenarios/secret-put-secret.yaml
+  - scenarios/secret-put-secret-not-human.yaml
+  - scenarios/secret-put-secret-unreachable.yaml
+  - scenarios/secret-resolve-secrets.yaml
+  - scenarios/secret-resolve-secrets-missing.yaml
+  - scenarios/secret-resolve-secrets-unreachable.yaml
