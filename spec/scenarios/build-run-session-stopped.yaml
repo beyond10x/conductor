@@ -14,7 +14,9 @@ arrange:
 timeline:
   - at: 2026-10-15T07:40:00Z
     command: conductor.host.RequestDisk
+    actor: conductor.host.Operator
     input:
+      actor: {kind: Human, operator: example-operator}
       instance: example-org
       session_id: example-session-stopped
       bytes: 8589934592
@@ -25,7 +27,9 @@ timeline:
 
   - at: 2026-10-15T07:41:00Z
     command: conductor.host.WithdrawDiskRequest
+    actor: conductor.host.Operator
     input:
+      actor: {kind: Human, operator: example-operator}
       grant_id: {$instance: bound}
       withdrawn_at: 2026-10-15T07:41:00Z
       reason: SessionStopped
@@ -37,7 +41,9 @@ timeline:
 
   - at: 2026-10-15T07:42:00Z
     command: conductor.host.WithdrawDiskRequest
+    actor: conductor.host.Operator
     input:
+      actor: {kind: Human, operator: example-operator}
       grant_id: {$instance: bound}
       withdrawn_at: 2026-10-15T07:42:00Z
       reason: SessionStopped
@@ -48,6 +54,7 @@ timeline:
 assert:
   - view: conductor.host.Grants
     contains:
+      actor: {kind: Human, operator: example-operator}
       grant_id: {$instance: bound}
       state: Withdrawn
       session_id: example-session-stopped
