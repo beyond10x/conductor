@@ -1,5 +1,5 @@
 // generated from conductor v1
-// contract digest 0608eb83c8c48e1f8808cd29d3621f78091b34cac43c2b2e9143a335707a4202
+// contract digest 0be0922aec9b8f10c3509792e1441579a2719359e1cf48bcc0d06cbee2a292de
 // do not edit: regenerate with `ess synthesize --layout crate`
 
 //! The HTTP surface of `conductor` v1, synthesised.

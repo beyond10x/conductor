@@ -247,6 +247,11 @@ callables:
     input: null
     result: String
     errors: {}
+  instance-relay:
+    target: {kind: local, owner: conductor-cli, action: instance_relay}
+    input: null
+    result: String
+    errors: {}
   instance-upgrade:
     target: {kind: local, owner: conductor-cli, action: instance_upgrade}
     input: conductor.instance.UpgradeInstances
@@ -614,6 +619,10 @@ commands:
   - path: [instance, serve]
     callable: instance-serve
     about: Serve the instance API, the routes of the dashboard under /v1/, on the instance's <state>/api.sock until stopped; a write takes the token the daemon minted for the instance, in CONDUCTOR_API_TOKEN
+    arguments: []
+  - path: [instance, relay]
+    callable: instance-relay
+    about: Bridge one instance API exchange from standard input to the instance's api.sock (CONDUCTOR_API_SOCKET, else <state>/api.sock) and its answer to standard output; conductord runs it as a substrate pipe session in a box on a remote substrate daemon
     arguments: []
   - path: [instance, upgrade]
     callable: instance-upgrade

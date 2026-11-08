@@ -18,6 +18,16 @@
 //! ([`Sdk`]). `adapter: systemd` stays on conductor's `systemd-run` path until substrate takes
 //! the adapter on the wire (acceptance line 4 is deferred: `confine/systemd.rs` is kept).
 //!
+//! A remote daemon (`story:placement-substrate-remote`) is `placement: {daemon: https://…,
+//! adapter, bearer: secret:<name>, trust_roots, server_identity}` ([`read`]): the box opens
+//! through the SDK's remote transport ([`Sdk::remote`]), HTTPS with an Identity bearer the
+//! daemon's secrets source answers once per request ([`bearer_from`]); the bearer is never in
+//! the config, the environment, an argument or a log. A remote daemon that does not answer
+//! within [`REMOTE_TIMEOUT`] is [`UNREACHABLE`]; conductord shows its instance `Unreachable`.
+//! The runtime's instance API in a remote box is reached through one pipe session per request,
+//! `conductor instance relay` on its socket ([`Exchange`], [`RemoteRoute`]); the proxy and the
+//! federated views take that way unchanged.
+//!
 //! [`open_box`] is `conductor.placement.OpenBox`: it builds nothing itself; it asks the
 //! [`Substrate`] for the box with the profile of § 6 ([`request`]) and records `BoxOpened`, or,
 //! when substrate refuses, `BoxRefused` with substrate's own name, answered as
@@ -35,8 +45,11 @@ pub use conductor_model::placement::Adapter;
 use conductor_model::placement::obligations::{CloseBoxBehavior as _, OpenBoxBehavior as _};
 use conductor_model::placement::{
     BoxId, CloseBox, CloseBoxOutcome, OpenBox, OpenBoxOutcome, PlacementName, RefusalReason,
+    RemoteDaemon,
 };
 use conductor_model::primitives::Uuid;
+use conductor_model::secret::SecretName;
+use secrets_core::storage::SecretValue;
 use serde_json::Value;
 
 use crate::store::Store;
@@ -62,9 +75,6 @@ pub const SLOT_FD: u32 = 3;
 /// substrate's, since substrate said nothing.
 pub const UNREACHABLE: &str = "placement.substrate-unreachable";
 
-/// The name of the refusal of a placement this build does not open: a remote daemon (wave 6).
-pub const UNSERVED: &str = "placement.daemon-unserved";
-
 /// The adapters by the word the config writes.
 const ADAPTERS: [(&str, Adapter); 4] = [
     ("systemd", Adapter::Systemd),
@@ -74,7 +84,13 @@ const ADAPTERS: [(&str, Adapter); 4] = [
 ];
 
 /// The keys of a placement map.
-const KEYS: [&str; 2] = ["daemon", "adapter"];
+const KEYS: [&str; 5] = [
+    "daemon",
+    "adapter",
+    "bearer",
+    "trust_roots",
+    "server_identity",
+];
 
 /// The word the config writes for `adapter`.
 #[must_use]
@@ -143,13 +159,48 @@ pub fn boxed(instance: &Instance) -> bool {
     })
 }
 
-/// Reads an instance's `placement` at `path` (decisions P3, P5): its canonical name, or each
-/// problem as its YAML path and what is wrong there.
+/// A placement as the config writes it: its canonical name and, for a remote daemon, the daemon.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Read {
+    /// The canonical name ([`name_of`]).
+    pub name: String,
+    /// The remote daemon; `None` for a local one.
+    pub daemon: Option<RemoteDaemon>,
+}
+
+/// The host of an `https://` URL: what its certificate is checked for when the placement writes
+/// no `server_identity`.
+fn url_host(url: &str) -> String {
+    let authority = url
+        .strip_prefix("https://")
+        .unwrap_or(url)
+        .split('/')
+        .next()
+        .unwrap_or_default();
+    let authority = authority
+        .rsplit_once('@')
+        .map_or(authority, |(_, host)| host);
+    match authority.strip_prefix('[') {
+        Some(rest) => rest.split(']').next().unwrap_or_default().to_owned(),
+        None => authority
+            .rsplit_once(':')
+            .map_or(authority, |(host, _)| host)
+            .to_owned(),
+    }
+}
+
+/// Reads an instance's `placement` at `path` (decisions P3, P5; `story:placement-substrate-remote`):
+/// its canonical name and its remote daemon, or each problem as its YAML path and what is wrong
+/// there. A remote daemon writes `bearer: secret:<name>` and `trust_roots`, the PEM file of the
+/// roots its certificate is verified against (absolute or under `~`, which is `home`), and may
+/// write `server_identity`, the DNS name its certificate carries, the URL's host by default; a
+/// local daemon writes none of the three. A `bearer` that is not `secret:<name>` is the config's
+/// generic secret-bearing check's problem, at the same path, and is not reported twice.
 ///
 /// # Errors
 ///
 /// Each problem of the value, by path.
-pub fn read(value: &Value, path: &str) -> Result<String, Vec<(String, String)>> {
+pub fn read(value: &Value, path: &str, home: &Path) -> Result<Read, Vec<(String, String)>> {
     let local_refusal = |at: String, word: &str| {
         (
             at,
@@ -159,6 +210,7 @@ pub fn read(value: &Value, path: &str) -> Result<String, Vec<(String, String)>> 
             ),
         )
     };
+    let local = |name: String| Read { name, daemon: None };
     match value {
         Value::String(text) if text.trim().is_empty() => {
             Err(vec![(path.to_owned(), "is empty".to_owned())])
@@ -167,14 +219,17 @@ pub fn read(value: &Value, path: &str) -> Result<String, Vec<(String, String)>> 
             Some(adapter @ (Adapter::Oci | Adapter::Pod)) => {
                 Err(vec![local_refusal(path.to_owned(), adapter_word(adapter))])
             }
-            _ => Ok(text.clone()),
+            _ => Ok(local(text.clone())),
         },
         Value::Object(map) => {
             let mut problems = Vec::new();
             for key in map.keys().filter(|key| !KEYS.contains(&key.as_str())) {
                 problems.push((
                     format!("{path}.{key}"),
-                    format!("`{key}` is no key of a placement: write daemon and adapter"),
+                    format!(
+                        "`{key}` is no key of a placement: write daemon, adapter and, for a \
+                         remote daemon, bearer, trust_roots and server_identity"
+                    ),
                 ));
             }
             let daemon = match map.get("daemon") {
@@ -225,9 +280,98 @@ pub fn read(value: &Value, path: &str) -> Result<String, Vec<(String, String)>> 
                     adapter_word(adapter),
                 ));
             }
+            let text = |key: &str, problems: &mut Vec<(String, String)>| match map.get(key) {
+                None => None,
+                Some(Value::String(text)) if !text.trim().is_empty() => Some(text.clone()),
+                Some(other) => {
+                    problems.push((
+                        format!("{path}.{key}"),
+                        format!("{} is not text", shown(other)),
+                    ));
+                    None
+                }
+            };
+            let bearer = text("bearer", &mut problems);
+            let roots = text("trust_roots", &mut problems);
+            let identity = text("server_identity", &mut problems);
+            let remote = match &daemon {
+                Some(Where::Remote(url)) => {
+                    let bearer = match bearer {
+                        None => {
+                            problems.push((
+                                format!("{path}.bearer"),
+                                "missing: a remote daemon is reached with a bearer, written \
+                                 secret:<name>"
+                                    .to_owned(),
+                            ));
+                            None
+                        }
+                        Some(text) => text
+                            .strip_prefix("secret:")
+                            .filter(|_| crate::config::secret_name(&text))
+                            .map(|name| SecretName(name.to_owned())),
+                    };
+                    let roots = match roots {
+                        None => {
+                            problems.push((
+                                format!("{path}.trust_roots"),
+                                "missing: a remote daemon's certificate is verified against the \
+                                 PEM roots this file names, and against no others"
+                                    .to_owned(),
+                            ));
+                            None
+                        }
+                        Some(text) if text == "~" => Some(home.display().to_string()),
+                        Some(text) => match text.strip_prefix("~/") {
+                            Some(rest) => Some(home.join(rest).display().to_string()),
+                            None if Path::new(&text).is_absolute() => Some(text),
+                            None => {
+                                problems.push((
+                                    format!("{path}.trust_roots"),
+                                    format!(
+                                        "`{text}` is not absolute: write it absolute or under ~"
+                                    ),
+                                ));
+                                None
+                            }
+                        },
+                    };
+                    match (bearer, roots) {
+                        (Some(bearer), Some(trust_roots)) => Some(RemoteDaemon {
+                            url: url.clone(),
+                            bearer,
+                            trust_roots,
+                            server_identity: identity.unwrap_or_else(|| url_host(url)),
+                        }),
+                        _ => None,
+                    }
+                }
+                _ => {
+                    for (key, written) in [
+                        ("bearer", &bearer),
+                        ("trust_roots", &roots),
+                        ("server_identity", &identity),
+                    ] {
+                        if written.is_some() {
+                            problems.push((
+                                format!("{path}.{key}"),
+                                format!("`{key}` is for a remote daemon: a local one takes none"),
+                            ));
+                        }
+                    }
+                    None
+                }
+            };
             match (daemon, adapter) {
                 (Some(daemon), Some(adapter)) if problems.is_empty() => {
-                    Ok(name_of(&daemon, adapter))
+                    if matches!(daemon, Where::Remote(_)) && remote.is_none() {
+                        // The bearer is not `secret:<name>`: the generic check names it.
+                        return Err(problems);
+                    }
+                    Ok(Read {
+                        name: name_of(&daemon, adapter),
+                        daemon: remote,
+                    })
                 }
                 _ => Err(problems),
             }
@@ -387,6 +531,108 @@ pub trait Substrate {
     ///
     /// The daemon refused or cannot be asked.
     fn close(&mut self, workspace: &str) -> Result<()>;
+
+    /// Runs `exchange` as a pipe session in its box, writes `input` to its standard input,
+    /// closes it, and answers everything it wrote to its standard output by the time it exited
+    /// (`story:placement-substrate-remote`: one instance API exchange through
+    /// `conductor instance relay`).
+    ///
+    /// # Errors
+    ///
+    /// Substrate's refusal, by name, or [`REMOTE_API_UNSERVED`] where the daemon runs no session.
+    fn exchange(&mut self, exchange: &Exchange, input: &[u8]) -> Result<Vec<u8>, Refused> {
+        let _ = input;
+        Err(Refused {
+            name: REMOTE_API_UNSERVED.to_owned(),
+            detail: format!("no pipe session in the box {}", exchange.workspace),
+        })
+    }
+}
+
+/// One relay session in a box (`story:placement-substrate-remote`): `conductor --config <file>
+/// instance relay` with the instance's socket in its environment and the box's read-only roots,
+/// so the box's own binary bridges one exchange to the runtime's `api.sock`. Never a credential.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Exchange {
+    /// The box's substrate workspace.
+    pub workspace: String,
+    /// The relay's argument vector, the box's conductor first.
+    pub argv: Vec<String>,
+    /// The relay's environment: the instance's socket ([`crate::instance::SOCKET_VARIABLE`]).
+    pub env: Vec<(String, String)>,
+    /// Host directories the relay sees read-only, as the box's runtime does.
+    pub read_only_roots: Vec<String>,
+}
+
+impl Exchange {
+    /// The relay of the box `workspace` opened for `request`, reaching the runtime at `socket`.
+    #[must_use]
+    pub fn relay(workspace: &str, request: &BoxRequest, socket: &Path) -> Self {
+        let mut argv: Vec<String> = request.argv.iter().take(3).cloned().collect();
+        argv.extend(["instance".to_owned(), "relay".to_owned()]);
+        Self {
+            workspace: workspace.to_owned(),
+            argv,
+            env: vec![(
+                crate::instance::SOCKET_VARIABLE.to_owned(),
+                socket.display().to_string(),
+            )],
+            read_only_roots: request.read_only_roots.clone(),
+        }
+    }
+}
+
+/// The route of a runtime in a box on a remote daemon: the daemon, its bearer, what opens it,
+/// and the relay session an exchange runs as.
+#[derive(Clone)]
+pub struct RemoteRoute {
+    /// The daemon.
+    pub at: RemoteAt,
+    /// Its bearer, asked once per request.
+    pub bearer: Bearer,
+    /// What opens the daemon.
+    pub opener: RemoteSubstrate,
+    /// The relay session.
+    pub exchange: Exchange,
+}
+
+impl fmt::Debug for RemoteRoute {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("RemoteRoute")
+            .field("at", &self.at)
+            .field("exchange", &self.exchange)
+            .finish_non_exhaustive()
+    }
+}
+
+impl PartialEq for RemoteRoute {
+    fn eq(&self, other: &Self) -> bool {
+        self.at == other.at && self.exchange == other.exchange
+    }
+}
+
+impl Eq for RemoteRoute {}
+
+impl RemoteRoute {
+    /// Sends `request`, one whole HTTP request, to the runtime through one relay session, and
+    /// answers what it answered, byte for byte.
+    ///
+    /// # Errors
+    ///
+    /// The daemon refused the session or does not answer, or the relay wrote nothing.
+    pub fn send(&self, request: &[u8]) -> Result<Vec<u8>> {
+        let mut substrate = (self.opener)(&self.at, self.bearer.clone());
+        let answer = substrate
+            .exchange(&self.exchange, request)
+            .map_err(|why| anyhow!("{}: {}", why.name, why.detail))?;
+        if answer.is_empty() {
+            return Err(anyhow!(
+                "the relay in the box {} answered nothing",
+                self.exchange.workspace
+            ));
+        }
+        Ok(answer)
+    }
 }
 
 /// The default socket of the local substrate daemon: `$XDG_RUNTIME_DIR/substrate/daemon.sock`,
@@ -405,17 +651,137 @@ pub fn default_socket() -> PathBuf {
         .join(".cache/b10x/conductor/substrate.sock")
 }
 
-/// The local substrate daemon over its Unix socket, through the substrate SDK.
+/// A remote substrate daemon as conductord keeps it beside a box it opened there
+/// (`conductor.placement.RemoteDaemon`): its URL, the name of its bearer's secret, its trust
+/// roots' file and the DNS name its certificate carries. Never a credential.
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct RemoteAt {
+    /// The daemon's `https://` origin.
+    pub url: String,
+    /// The secret the bearer is kept under, without `secret:`.
+    pub bearer: String,
+    /// The PEM file of the roots its certificate is verified against.
+    pub trust_roots: String,
+    /// The DNS name its certificate carries.
+    pub server_identity: String,
+}
+
+impl From<&RemoteDaemon> for RemoteAt {
+    fn from(daemon: &RemoteDaemon) -> Self {
+        Self {
+            url: daemon.url.clone(),
+            bearer: daemon.bearer.0.clone(),
+            trust_roots: daemon.trust_roots.clone(),
+            server_identity: daemon.server_identity.clone(),
+        }
+    }
+}
+
+/// Where a remote daemon's bearer comes from: asked once per request, so the value is held only
+/// while that request is sent, and never in the config, the environment, an argument or a log.
+pub type Bearer = std::sync::Arc<dyn Fn() -> Option<SecretValue> + Send + Sync>;
+
+/// The bearer of `at` from the daemon's secrets source `source` ([`crate::secret`]): `None`
+/// when the source does not open, does not answer or holds no such secret.
+#[must_use]
+pub fn bearer_from(source: &conductor_model::config::SecretsSource, at: &RemoteAt) -> Bearer {
+    let source = source.clone();
+    let name = conductor_model::secret::SecretName(at.bearer.clone());
+    std::sync::Arc::new(move || {
+        crate::secret::open(&source)
+            .ok()?
+            .reveal(&name)
+            .ok()
+            .flatten()
+    })
+}
+
+/// The name of the refusal when a remote daemon's bearer cannot be had: the secrets source does
+/// not hold it, or it is not an Identity access credential.
+pub const BEARER_UNAVAILABLE: &str = "placement.bearer-unavailable";
+
+/// The name of the refusal of an instance API exchange by a box opener that runs no pipe session
+/// ([`Substrate::exchange`]'s default): substrate 0.16.1 offers no stream into a box but a
+/// session's own input and output, so an exchange with a runtime in a remote box is a relay
+/// session ([`Exchange`]).
+pub const REMOTE_API_UNSERVED: &str = "placement.remote-api-unserved";
+
+/// How long one question to a remote daemon may take before the daemon counts as silent.
+pub const REMOTE_TIMEOUT: Duration = Duration::from_secs(10);
+
+/// A remote daemon to reach: where, and its bearer.
+#[derive(Clone)]
+struct Remote {
+    at: RemoteAt,
+    bearer: Bearer,
+}
+
+impl fmt::Debug for Remote {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("Remote")
+            .field("at", &self.at)
+            .finish_non_exhaustive()
+    }
+}
+
+/// The substrate daemon of a box, through the substrate SDK: the local one over its Unix socket,
+/// or a remote one over HTTPS with its bearer ([`Sdk::remote`]).
 #[derive(Debug, Clone)]
 pub struct Sdk {
-    /// The daemon's socket.
+    /// The local daemon's socket.
     pub socket: PathBuf,
+    /// The remote daemon, when the box is opened on one.
+    remote: Option<Remote>,
+    /// How long one question to a remote daemon may take ([`REMOTE_TIMEOUT`]).
+    pub timeout: Duration,
 }
 
 impl Default for Sdk {
     fn default() -> Self {
         Self {
             socket: default_socket(),
+            remote: None,
+            timeout: REMOTE_TIMEOUT,
+        }
+    }
+}
+
+/// What makes the box opener of a remote daemon, given where it is and its bearer.
+/// Shared by the reconciler and every route the API proxies through ([`RemoteRoute`]).
+pub type RemoteSubstrate =
+    std::sync::Arc<dyn Fn(&RemoteAt, Bearer) -> Box<dyn Substrate + Send> + Send + Sync>;
+
+/// The remote daemons through the SDK's remote transport ([`Sdk::remote`]).
+pub fn sdk_remote() -> RemoteSubstrate {
+    std::sync::Arc::new(|at, bearer| Box::new(Sdk::remote(at.clone(), bearer)))
+}
+
+impl<T: Substrate + ?Sized> Substrate for &mut T {
+    fn open(&mut self, request: &BoxRequest) -> Result<Opened, Refused> {
+        (**self).open(request)
+    }
+    fn running(&mut self, session: &str) -> Result<bool> {
+        (**self).running(session)
+    }
+    fn stop(&mut self, session: &str) -> Result<()> {
+        (**self).stop(session)
+    }
+    fn close(&mut self, workspace: &str) -> Result<()> {
+        (**self).close(workspace)
+    }
+    fn exchange(&mut self, exchange: &Exchange, input: &[u8]) -> Result<Vec<u8>, Refused> {
+        (**self).exchange(exchange, input)
+    }
+}
+
+impl Sdk {
+    /// The remote daemon `at`, reached with the bearer `bearer` gives.
+    #[must_use]
+    pub fn remote(at: RemoteAt, bearer: Bearer) -> Self {
+        Self {
+            socket: PathBuf::new(),
+            remote: Some(Remote { at, bearer }),
+            timeout: REMOTE_TIMEOUT,
         }
     }
 }
@@ -436,6 +802,12 @@ fn refused(error: substrate_sdk::SdkError) -> Refused {
             name: refusal.code,
             detail: refusal.message,
         },
+        substrate_sdk::SdkError::TokenUnavailable => Refused {
+            name: BEARER_UNAVAILABLE.to_owned(),
+            detail: "the secrets source holds no Identity access credential under the \
+                     placement's bearer"
+                .to_owned(),
+        },
         substrate_sdk::SdkError::Transport(detail) => Refused {
             name: UNREACHABLE.to_owned(),
             detail,
@@ -448,6 +820,41 @@ fn refused(error: substrate_sdk::SdkError) -> Refused {
 }
 
 impl Sdk {
+    /// A client of this daemon: the local one over its socket, or the remote one over HTTPS,
+    /// trusting only its trust roots, its certificate checked for its server identity, and its
+    /// bearer asked of [`Bearer`] for each request.
+    async fn client(&self) -> Result<substrate_sdk::Client, substrate_sdk::SdkError> {
+        let Some(remote) = &self.remote else {
+            return substrate_sdk::Client::builder()
+                .unix_socket(&self.socket)
+                .connect()
+                .await;
+        };
+        // The SDK's TLS takes the process's provider; conductor's is ring.
+        let _ = rustls::crypto::ring::default_provider().install_default();
+        let origin = if remote.at.url.ends_with('/') {
+            remote.at.url.clone()
+        } else {
+            format!("{}/", remote.at.url)
+        };
+        let bearer = remote.bearer.clone();
+        substrate_sdk::Client::builder()
+            .https_endpoint(origin)
+            .trust_roots(&remote.at.trust_roots)
+            .server_identity(remote.at.server_identity.clone())
+            .token_provider(move |_reason| {
+                let value = bearer();
+                async move {
+                    let value = value.ok_or(substrate_sdk::SdkError::TokenUnavailable)?;
+                    let text = std::str::from_utf8(value.expose())
+                        .map_err(|_| substrate_sdk::SdkError::TokenUnavailable)?;
+                    substrate_sdk::AccessToken::new(text.trim().to_owned())
+                }
+            })
+            .connect()
+            .await
+    }
+
     fn block_on<T>(
         &self,
         work: impl AsyncFnOnce(substrate_sdk::Client) -> Result<T, substrate_sdk::SdkError>,
@@ -459,13 +866,22 @@ impl Sdk {
                 name: UNREACHABLE.to_owned(),
                 detail: format!("start the SDK's runtime: {error}"),
             })?;
-        runtime.block_on(async {
-            let client = substrate_sdk::Client::builder()
-                .unix_socket(&self.socket)
-                .connect()
-                .await
-                .map_err(refused)?;
+        let asked = async {
+            let client = self.client().await.map_err(refused)?;
             work(client).await.map_err(refused)
+        };
+        runtime.block_on(async {
+            if self.remote.is_none() {
+                return asked.await;
+            }
+            tokio::time::timeout(self.timeout, asked)
+                .await
+                .unwrap_or_else(|_| {
+                    Err(Refused {
+                        name: UNREACHABLE.to_owned(),
+                        detail: format!("the daemon did not answer within {:?}", self.timeout),
+                    })
+                })
         })
     }
 }
@@ -574,7 +990,81 @@ impl Substrate for Sdk {
         })
         .map_err(|why| anyhow!("{}: {}", why.name, why.detail))
     }
+
+    fn exchange(&mut self, exchange: &Exchange, input: &[u8]) -> Result<Vec<u8>, Refused> {
+        let exchange = exchange.clone();
+        let input = input.to_vec();
+        self.block_on(async move |client| {
+            let workspace = client.get_workspace(&exchange.workspace).await?;
+            let (program, args) = exchange
+                .argv
+                .split_first()
+                .ok_or(substrate_sdk::SdkError::Builder { field: "program" })?;
+            let policy = substrate_sdk::ExecutionPolicy::builder()
+                .timeout(RELAY_BOUND)
+                .cpu_time(RELAY_BOUND)
+                .memory_bytes(RELAY_MEMORY)
+                .processes(RELAY_PROCESSES)
+                .output_bytes(OUTPUT_BYTES)
+                .build()?;
+            let mut session = workspace
+                .pipe_session(program.clone())
+                .args(args.iter().cloned())
+                .policy(policy)
+                .lease(RELAY_BOUND)
+                .input_limit_bytes(substrate_sdk::MAX_SESSION_INPUT_BYTES)
+                .frame_limit_bytes(substrate_sdk::MAX_SESSION_FRAME_BYTES)
+                .queued_frames(substrate_sdk::MAX_SESSION_QUEUED_FRAMES);
+            for (name, value) in &exchange.env {
+                session = session.env(name.clone(), value.clone());
+            }
+            for root in &exchange.read_only_roots {
+                session = session.read_only_root(substrate_sdk::ReadOnlyRoot {
+                    host_path: root.clone(),
+                    mount: root.clone(),
+                });
+            }
+            let started = session.start().await?;
+            let mut channel = started.attach().await?;
+            for chunk in input.chunks(RELAY_CHUNK) {
+                channel.write(chunk).await?;
+            }
+            channel.close_input().await?;
+            let mut answer = Vec::new();
+            while let Some(frame) = channel.next_frame().await? {
+                match frame {
+                    substrate_sdk::PipeFrame::Output {
+                        stream: substrate_sdk::OutputStream::Stdout,
+                        bytes,
+                        ..
+                    } => answer.extend_from_slice(&bytes),
+                    substrate_sdk::PipeFrame::Exit { .. } => break,
+                    substrate_sdk::PipeFrame::ProtocolError { message, .. } => {
+                        return Err(substrate_sdk::SdkError::Protocol(message));
+                    }
+                    _ => {}
+                }
+            }
+            let _ = channel.close().await;
+            let _ = started.retire().await;
+            Ok(answer)
+        })
+    }
 }
+
+/// How long one relay session may run: one instance API exchange, as long as the daemon's proxy
+/// waits for an answer.
+const RELAY_BOUND: Duration = Duration::from_secs(60);
+
+/// The memory one relay session gets: 256 MiB.
+const RELAY_MEMORY: u64 = 256 << 20;
+
+/// The processes one relay session may run.
+const RELAY_PROCESSES: u32 = 16;
+
+/// The bytes of one standard-input frame of a relay session: half the frame bound, which the
+/// frame's base64 encoding stays within.
+const RELAY_CHUNK: usize = 32 * 1024;
 
 // ---------------------------------------------------------------------------------------------
 // OpenBox and CloseBox
@@ -589,6 +1079,9 @@ pub struct OpenedBox {
     pub workspace: String,
     /// Its runtime's session.
     pub session: String,
+    /// The remote daemon it was opened on; `None` for the local one.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub remote: Option<RemoteAt>,
 }
 
 /// A box substrate refused (`PlacementRefused` in design § 6), on record as `BoxRefused`.
@@ -733,13 +1226,7 @@ pub fn open_box(
     substrate: &mut dyn Substrate,
     request: &BoxRequest,
 ) -> Result<OpenedBox, PlacementRefusal> {
-    let answer = match resolve(&request.placement.0).map(|resolved| resolved.daemon) {
-        Some(Where::Remote(url)) => Err(Refused {
-            name: UNSERVED.to_owned(),
-            detail: format!("a remote substrate daemon ({url}) is not opened by this build"),
-        }),
-        _ => substrate.open(request),
-    };
+    let answer = substrate.open(request);
     let box_id = new_box_id();
     let (refusal, detail) = match &answer {
         Ok(_) => (None, String::new()),
@@ -777,6 +1264,7 @@ pub fn open_box(
             box_id: box_id.0.0.clone(),
             workspace: opened.workspace,
             session: opened.session,
+            remote: None,
         }),
         _ => Err(refuse(refusal.unwrap_or_default(), detail)),
     }

@@ -151,6 +151,7 @@ impl Case {
                 Route {
                     socket: self.socket(),
                     token: INSTANCE_TOKEN.to_owned(),
+                    remote: None,
                 },
             )]
             .into_iter()

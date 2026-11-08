@@ -79,6 +79,22 @@ pub fn unreachable(member: &Member, error: &str) -> Value {
 ///
 /// It does not connect, does not answer within `timeout`, or answers another status or no JSON.
 pub fn fetch(route: &Route, target: &str, timeout: Duration) -> Result<Value> {
+    // A runtime in a box on a remote substrate daemon answers through one relay session there
+    // (`story:placement-substrate-remote`), bounded by the remote daemon's own timeout.
+    if let Some(remote) = &route.remote {
+        let bytes = remote.send(
+            format!(
+                "GET {target} HTTP/1.1\r\nHost: localhost\r\nAccept: application/json\r\n\
+                 Connection: close\r\n\r\n"
+            )
+            .as_bytes(),
+        )?;
+        let (status, body) = super::api::split(&bytes)?;
+        if status != 200 {
+            bail!("it answered {status}");
+        }
+        return serde_json::from_slice(&body).context("its answer is no JSON");
+    }
     let deadline = Instant::now() + timeout;
     let mut stream = UnixStream::connect(&route.socket)
         .with_context(|| format!("connect to {}", route.socket.display()))?;

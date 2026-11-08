@@ -101,6 +101,9 @@ pub struct Route {
     pub socket: PathBuf,
     /// The token the instance takes a write with.
     pub token: String,
+    /// For a runtime in a box on a remote substrate daemon, the relay session its exchanges run
+    /// as there instead of the socket (`story:placement-substrate-remote`).
+    pub remote: Option<crate::placement::RemoteRoute>,
 }
 
 /// What the reconciler publishes after each tick.
@@ -1420,7 +1423,7 @@ fn writes(route: &str, method: &str) -> bool {
 const FORWARDED: [&str; 3] = ["if-none-match", "content-type", "accept"];
 
 /// Sends `request` to the instance at `target` as `/v1/<route>`, a write with the instance's token
-/// and `operator`, and answers what the instance answered, byte for byte.
+/// and `operator`, and answers what the instance answered, byte for byte ([`send`]).
 fn proxy(
     target: &Route,
     request: &Request,
@@ -1428,10 +1431,6 @@ fn proxy(
     body: &[u8],
     operator: Option<&str>,
 ) -> Result<Vec<u8>> {
-    let mut stream = UnixStream::connect(&target.socket)
-        .with_context(|| format!("connect to {}", target.socket.display()))?;
-    stream.set_read_timeout(Some(PROXY_TIMEOUT))?;
-    stream.set_write_timeout(Some(IO_TIMEOUT))?;
     let query = request
         .query()
         .map(|query| format!("?{query}"))
@@ -1455,8 +1454,28 @@ fn proxy(
         ));
     }
     head.push_str("\r\n");
-    stream.write_all(head.as_bytes())?;
-    stream.write_all(body)?;
+    let mut whole = head.into_bytes();
+    whole.extend_from_slice(body);
+    send(target, &whole)
+}
+
+/// Sends `request`, one whole HTTP request, to the instance at `target` and answers what it
+/// answered, byte for byte: over its socket, or, for a runtime in a box on a remote substrate
+/// daemon, through one relay session in its box (`story:placement-substrate-remote`,
+/// [`crate::placement::RemoteRoute`]).
+///
+/// # Errors
+///
+/// It does not connect, or closes the connection without an answer.
+pub fn send(target: &Route, request: &[u8]) -> Result<Vec<u8>> {
+    if let Some(remote) = &target.remote {
+        return remote.send(request);
+    }
+    let mut stream = UnixStream::connect(&target.socket)
+        .with_context(|| format!("connect to {}", target.socket.display()))?;
+    stream.set_read_timeout(Some(PROXY_TIMEOUT))?;
+    stream.set_write_timeout(Some(IO_TIMEOUT))?;
+    stream.write_all(request)?;
     stream.flush()?;
     stream.shutdown(Shutdown::Write)?;
     let mut answer = Vec::new();
