@@ -93,6 +93,7 @@ pub const fn reason_name(reason: ReconcileReason) -> &'static str {
         ReconcileReason::LostRuntime => "LostRuntime",
         ReconcileReason::Cadence => "Cadence",
         ReconcileReason::OperatorCommand => "OperatorCommand",
+        ReconcileReason::RunBound => "RunBound",
     }
 }
 
@@ -125,6 +126,7 @@ fn reason_named(name: &str) -> Option<ReconcileReason> {
         ReconcileReason::LostRuntime,
         ReconcileReason::Cadence,
         ReconcileReason::OperatorCommand,
+        ReconcileReason::RunBound,
     ]
     .into_iter()
     .find(|reason| reason_name(*reason) == name)

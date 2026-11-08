@@ -24,10 +24,12 @@ types:
   # Why the daemon reconciled (design § 4): a config change (the watched file, or an accepted
   # `PUT /v1/config`); a lost runtime (a placement event: an instance runtime stops answering);
   # the cadence (`cadence.reconcile`, default 60 s); an operator's command on
-  # `instances/{name}` (§ 5.2).
+  # `instances/{name}` (§ 5.2); the run bound: a runtime in a substrate box nears substrate's hard
+  # deadline of one run (`limits.timeout_ms`, 24 h), and the daemon restarts its session in the
+  # same box before it.
   - name: conductor.instance.ReconcileReason
     kind: enum
-    variants: [ConfigChange, LostRuntime, Cadence, OperatorCommand]
+    variants: [ConfigChange, LostRuntime, Cadence, OperatorCommand, RunBound]
 
   # What came of one action. `Succeeded`: the action was taken (for `Nothing`, the instance
   # matched its config). `Refused`: the placement refused the box with substrate's reason, and

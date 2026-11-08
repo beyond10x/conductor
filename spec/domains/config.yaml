@@ -652,6 +652,11 @@ types:
   # no local operator writes false (story:daemon-remote, § 4), its API then the TLS listener alone,
   # so false with no `tls` is refused at validate by the key's YAML path, and `daemon serve
   # --install` writes a system unit for it rather than the user unit.
+  # `substrate_slots`, the size of the local substrate daemon's model-token slot pool, absent 0
+  # (substrate 0.20.0, design 11: a slot is daemon configuration, never a per-request value): the
+  # operator declares `--secret-slot model_token_<i>=<daemon dir>/slots/model_token_<i>` for each
+  # `i` below it; before a box opens the daemon writes the instance's `model_token` into a free
+  # slot's file (mode 0600), names that slot in the start, and frees it when the box closes.
   # UNMAPPED: "the dashboard's served path" may be the URL path the app is served under (`/`, as
   # § 5.3 says) or the directory of the built app the daemon serves; read here as the URL path.
   # Open question.
@@ -668,9 +673,11 @@ types:
       - {name: operators, type: List<conductor.config.DaemonOperator>}
       - {name: upgrade_timeout, type: Duration}
       - {name: timeout, type: Duration}
+      - {name: substrate_slots, type: Integer}
     invariants:
       - port >= 1
       - port <= 65535
+      - substrate_slots >= 0
       - distinct: {in: operators, as: operator, by: operator.name}
 
   # The `globals` section (design architecture-next § 9, § 10): the defaults every instance starts
@@ -758,6 +765,10 @@ types:
       # checkout's hooks with (`b10x-gates install --policy`); absent, it installs none
       # (story:gates-hooks-fresh).
       - {name: gates_policy, type: Optional<String>}
+      # The secret the instance's box receives as its model token, written `secret:<name>`, sealed
+      # through a slot of the daemon's pool (`daemon.substrate_slots`); absent, the box receives
+      # no slot.
+      - {name: model_token, type: Optional<conductor.secret.SecretName>}
       # The route of the instance's forge writes (story:forge-route); absent, `gates`.
       - {name: forge, type: conductor.config.Forge}
       - {name: conductor, type: conductor.config.ConductorSession}

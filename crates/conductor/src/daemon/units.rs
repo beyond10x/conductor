@@ -9,7 +9,7 @@ use std::process::Command;
 use anyhow::{Context as _, Result, bail};
 
 use super::host_roles::HostStart;
-use crate::confine::systemd::{self, Service};
+use crate::systemd::{self, Service};
 
 /// What the daemon asks of the service manager.
 pub trait Units {

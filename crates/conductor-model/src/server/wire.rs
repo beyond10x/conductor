@@ -1,5 +1,5 @@
 // generated from conductor v1
-// contract digest 0be0922aec9b8f10c3509792e1441579a2719359e1cf48bcc0d06cbee2a292de
+// contract digest 92a4370ed302f5aecf042d1cd6448ff2d89bf65c94265e16af94376031e7bd63
 // do not edit: regenerate with `ess synthesize --layout crate`
 //! Every generated declaration, as JSON, in the renderings the published wire contracts fix.
 //!
@@ -1203,6 +1203,8 @@ pub fn encode_conductor_config_daemon(value: &crate::config::Daemon, out: &mut S
     json::push_text(out, &value.upgrade_timeout.0);
     json::member(out, "timeout");
     json::push_text(out, &value.timeout.0);
+    json::member(out, "substrate_slots");
+    json::push_integer(out, value.substrate_slots);
     out.push('}');
 }
 
@@ -1212,7 +1214,7 @@ pub fn encode_conductor_config_daemon(value: &crate::config::Daemon, out: &mut S
 ///
 /// [`json::DecodeError`] naming the path and what the declaration says belongs there.
 pub fn decode_conductor_config_daemon(value: &json::Value, at: &str) -> Result<crate::config::Daemon, json::DecodeError> {
-    json::closed_at(value, at, &["port", "loopback", "tls", "cadence", "store", "secrets", "dashboard", "operators", "upgrade_timeout", "timeout"])?;
+    json::closed_at(value, at, &["port", "loopback", "tls", "cadence", "store", "secrets", "dashboard", "operators", "upgrade_timeout", "timeout", "substrate_slots"])?;
     Ok(crate::config::Daemon {
         port: {
             let at0 = json::nested(at, "port");
@@ -1272,6 +1274,11 @@ pub fn decode_conductor_config_daemon(value: &json::Value, at: &str) -> Result<c
             let at9 = json::nested(at, "timeout");
             let member9 = json::member_at(value, at, "timeout")?;
             crate::primitives::Duration(json::text_at(member9, &at9, "an ISO 8601 duration")?.to_owned())
+        },
+        substrate_slots: {
+            let at10 = json::nested(at, "substrate_slots");
+            let member10 = json::member_at(value, at, "substrate_slots")?;
+            json::integer_at(member10, &at10, "an integer")?
         },
     })
 }
@@ -1900,6 +1907,10 @@ pub fn encode_conductor_config_instance(value: &crate::config::Instance, out: &m
         json::member(out, "gates_policy");
         json::push_text(out, &*held0);
     }
+    if let Some(held0) = &value.model_token {
+        json::member(out, "model_token");
+        encode_conductor_secret_secret_name(&*held0, out);
+    }
     json::member(out, "forge");
     encode_conductor_config_forge(&value.forge, out);
     json::member(out, "conductor");
@@ -1913,7 +1924,7 @@ pub fn encode_conductor_config_instance(value: &crate::config::Instance, out: &m
 ///
 /// [`json::DecodeError`] naming the path and what the declaration says belongs there.
 pub fn decode_conductor_config_instance(value: &json::Value, at: &str) -> Result<crate::config::Instance, json::DecodeError> {
-    json::closed_at(value, at, &["name", "placement", "remote", "session_prefix", "sources", "checkouts", "records", "state", "cache", "roles", "limits", "controllers", "repositories", "cadence", "thresholds", "retention", "reports", "authority", "usage", "operator", "catalog", "secret_syncs", "gates_policy", "forge", "conductor"])?;
+    json::closed_at(value, at, &["name", "placement", "remote", "session_prefix", "sources", "checkouts", "records", "state", "cache", "roles", "limits", "controllers", "repositories", "cadence", "thresholds", "retention", "reports", "authority", "usage", "operator", "catalog", "secret_syncs", "gates_policy", "model_token", "forge", "conductor"])?;
     Ok(crate::config::Instance {
         name: {
             let at0 = json::nested(at, "name");
@@ -2075,15 +2086,22 @@ pub fn decode_conductor_config_instance(value: &json::Value, at: &str) -> Result
                 Some(json::text_at(member22, &at22, "a string")?.to_owned())
             }
         },
+        model_token: match value.member("model_token") {
+            None | Some(json::Value::Null) => None,
+            Some(member23) => {
+                let at23 = json::nested(at, "model_token");
+                Some(decode_conductor_secret_secret_name(member23, &at23)?)
+            }
+        },
         forge: {
-            let at23 = json::nested(at, "forge");
-            let member23 = json::member_at(value, at, "forge")?;
-            decode_conductor_config_forge(member23, &at23)?
+            let at24 = json::nested(at, "forge");
+            let member24 = json::member_at(value, at, "forge")?;
+            decode_conductor_config_forge(member24, &at24)?
         },
         conductor: {
-            let at24 = json::nested(at, "conductor");
-            let member24 = json::member_at(value, at, "conductor")?;
-            decode_conductor_config_conductor_session(member24, &at24)?
+            let at25 = json::nested(at, "conductor");
+            let member25 = json::member_at(value, at, "conductor")?;
+            decode_conductor_config_conductor_session(member25, &at25)?
         },
     })
 }
@@ -7583,6 +7601,7 @@ pub fn encode_conductor_instance_reconcile_reason(value: &crate::instance::Recon
         crate::instance::ReconcileReason::LostRuntime => json::push_text(out, "LostRuntime"),
         crate::instance::ReconcileReason::Cadence => json::push_text(out, "Cadence"),
         crate::instance::ReconcileReason::OperatorCommand => json::push_text(out, "OperatorCommand"),
+        crate::instance::ReconcileReason::RunBound => json::push_text(out, "RunBound"),
     }
 }
 
@@ -7592,12 +7611,13 @@ pub fn encode_conductor_instance_reconcile_reason(value: &crate::instance::Recon
 ///
 /// [`json::DecodeError`] naming the path and what the declaration says belongs there.
 pub fn decode_conductor_instance_reconcile_reason(value: &json::Value, at: &str) -> Result<crate::instance::ReconcileReason, json::DecodeError> {
-    Ok(match json::text_at(value, at, "one of `ConfigChange`, `LostRuntime`, `Cadence`, `OperatorCommand`")? {
+    Ok(match json::text_at(value, at, "one of `ConfigChange`, `LostRuntime`, `Cadence`, `OperatorCommand`, `RunBound`")? {
         "ConfigChange" => crate::instance::ReconcileReason::ConfigChange,
         "LostRuntime" => crate::instance::ReconcileReason::LostRuntime,
         "Cadence" => crate::instance::ReconcileReason::Cadence,
         "OperatorCommand" => crate::instance::ReconcileReason::OperatorCommand,
-        other => return Err(json::DecodeError { at: at.to_owned(), expected: "one of `ConfigChange`, `LostRuntime`, `Cadence`, `OperatorCommand`".to_owned(), found: format!("`{other}`") }),
+        "RunBound" => crate::instance::ReconcileReason::RunBound,
+        other => return Err(json::DecodeError { at: at.to_owned(), expected: "one of `ConfigChange`, `LostRuntime`, `Cadence`, `OperatorCommand`, `RunBound`".to_owned(), found: format!("`{other}`") }),
     })
 }
 

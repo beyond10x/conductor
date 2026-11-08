@@ -36,6 +36,10 @@ const SOCKET_PATH_MAX: usize = 107;
 /// whatever temporary directory each sees.
 pub const SOCKET_VARIABLE: &str = "CONDUCTOR_API_SOCKET";
 
+/// The variable the daemon names the runtime's log file in: a runtime in a substrate box writes
+/// what it says there, not to its session, which substrate ends at its output bound.
+pub const LOG_VARIABLE: &str = "CONDUCTOR_API_LOG";
+
 /// The instance API's socket of the instance whose state directory is `state`: `<state>/api.sock`,
 /// or, where that is longer than a socket address holds, `conductor-api-<hash>.sock` in the
 /// temporary directory, the hash (FNV-1a, 64 bits) of the state directory's path.
@@ -136,6 +140,28 @@ pub fn instance_relay(config_flag: Option<&Path>) -> Result<ExitCode> {
 /// The longest request [`instance_relay`] reads: the instance API's body bound and a head.
 const RELAY_MAX: u64 = dashboard::MAX_BODY as u64 + 64 * 1024;
 
+/// Points this process's standard output and error at the end of `log` ([`LOG_VARIABLE`]),
+/// created mode 0600 with its directory when missing.
+///
+/// # Errors
+///
+/// The directory or the file cannot be created, or a descriptor not replaced.
+fn log_to(log: &Path) -> Result<()> {
+    use std::os::unix::fs::OpenOptionsExt as _;
+    if let Some(parent) = log.parent() {
+        fs::create_dir_all(parent).with_context(|| format!("create {}", parent.display()))?;
+    }
+    let file = fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .mode(0o600)
+        .open(log)
+        .with_context(|| format!("open the log {}", log.display()))?;
+    nix::unistd::dup2_stdout(&file)
+        .and_then(|()| nix::unistd::dup2_stderr(&file))
+        .with_context(|| format!("write the output to {}", log.display()))
+}
+
 /// `conductor instance serve`, as the module documentation says.
 ///
 /// # Errors
@@ -155,6 +181,9 @@ pub fn instance_serve(config_flag: Option<&Path>) -> Result<ExitCode> {
     let path = std::env::var_os(SOCKET_VARIABLE)
         .filter(|path| !path.is_empty())
         .map_or_else(|| socket(&state), PathBuf::from);
+    if let Some(log) = std::env::var_os(LOG_VARIABLE).filter(|log| !log.is_empty()) {
+        log_to(Path::new(&log)).context(WHAT)?;
+    }
     let listener = bind(&path).context(WHAT)?;
     println!(
         "conductor instance {}: serving /v1/ on {}",

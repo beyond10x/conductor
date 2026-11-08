@@ -11,7 +11,7 @@
 //!   `<binary> --config <file> --state-dir <daemon dir>/host session start --role <role>` in the
 //!   directory of the config file, at the placement [`PLACEMENT`]. That is the seam a placement
 //!   adapter replaces: on the systemd path ([`super::units::Systemd`]) the command runs as it is,
-//!   and `session start` puts the session's unit in [`crate::confine::systemd::HOST_SLICE`].
+//!   and `session start` puts the session's unit in [`crate::systemd::HOST_SLICE`].
 //! - `POST /v1/roles/{role}/start` asks the daemon for a listed host role now ([`ask`]); the
 //!   daemon's loop takes what was asked ([`take_asked`]) at its next tick. `conductor daemon
 //!   start-role --role <role>` is its client, which `task supervisor:start` and `task
@@ -30,7 +30,7 @@ use std::sync::{Mutex, PoisonError};
 use anyhow::{Result, anyhow};
 use conductor_model::config::{Config, Role, SessionName};
 
-use crate::confine::systemd;
+use crate::systemd;
 
 /// The supervisor: keeps every instance running and shipping (`.agents/conductor-supervisor.md`).
 pub const SUPERVISOR: &str = "supervisor";
@@ -204,7 +204,7 @@ pub struct Supervisor {
 /// The kind refuses: the session is not reached, or the delivery cannot be kept.
 pub fn deliver(supervisor: &Supervisor, text: &str) -> Result<()> {
     use crate::agent::Kind as _;
-    let host = crate::confine::Host::default();
+    let host = crate::confine::Host;
     let context = crate::agent::Context {
         config: None,
         state: Some(&supervisor.state),

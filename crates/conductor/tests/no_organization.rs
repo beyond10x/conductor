@@ -21,7 +21,10 @@
 //! - `b10x.toml`, the file the ecosystem installer writes its CLI pins to, which
 //!   `conductor doctor` reads (`story:install-prerequisites`);
 //! - `x-b10x-audience`, the header the Identity service reads the audience of a bearer from,
-//!   which the daemon sends when it resolves a bearer of its TLS listener (`story:instance-api`).
+//!   which the daemon sends when it resolves a bearer of its TLS listener (`story:instance-api`);
+//! - `x-b10x-contract`, the prefix of the two contract headers every substrate daemon answers
+//!   with and its SDK checks, which the fake local daemon of `tests/placement.rs` sends
+//!   (`story:placement-substrate-local`).
 //!
 //! `tests/fixtures/store/`, the eventlog-file store an earlier build wrote and the views that build
 //! answered over it, is read like every other file: its repositories belong to `example-org`
@@ -43,7 +46,7 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
-const ALLOWED: [&str; 14] = [
+const ALLOWED: [&str; 15] = [
     ".b10x/conductor",
     ".b10x/./conductor",
     "~/.b10x",
@@ -58,6 +61,7 @@ const ALLOWED: [&str; 14] = [
     "b10x-substrate-sdk",
     "b10x.toml",
     "x-b10x-audience",
+    "x-b10x-contract",
 ];
 
 /// The files read for the check: everything under `dir`, but this file.

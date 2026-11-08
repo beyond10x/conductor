@@ -77,7 +77,7 @@ fn child() {
     let spec: Value = serde_json::from_str(&spec).expect("the child's instructions are JSON");
     let file = PathBuf::from(std::env::var_os(config::CONFIG_VARIABLE).expect("a config file"));
     config::set_active(Some(&file)).expect("the case's config loads");
-    let host = conductor_cli::confine::Host::default();
+    let host = conductor_cli::confine::Host;
     let seams = Seams {
         providers: &host,
         deliverer: &Nobody,

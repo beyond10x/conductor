@@ -44,7 +44,7 @@ use serde_json::{Value, json};
 use super::reconcile::{Binary, Daemon, Done, Pinned, Started, Upgrading};
 use super::units::Units;
 use crate::cli::InstanceUpgradeArgs;
-use crate::confine::systemd::Service;
+use crate::systemd::Service;
 
 /// Where the daemon installs each release's binary, under its directory: `<version>/conductor`.
 pub const BINARIES_DIR: &str = "binaries";

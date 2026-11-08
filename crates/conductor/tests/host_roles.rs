@@ -19,11 +19,11 @@ use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 use anyhow::{Result, bail};
-use conductor_cli::confine::systemd::{self, Service};
 use conductor_cli::daemon::api::{self, Api};
 use conductor_cli::daemon::host_roles::{self, HostStart, Supervisor};
 use conductor_cli::daemon::reconcile::{Binary, Daemon};
 use conductor_cli::daemon::units::Units;
+use conductor_cli::systemd::{self, Service};
 use conductor_model::instance::{ReconcileAction, ReconcileReason, ReconcileResult};
 use serde_json::{Value, json};
 

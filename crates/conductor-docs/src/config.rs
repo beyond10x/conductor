@@ -76,6 +76,7 @@ daemon:
       grants: [answer-decisions, start-instances]
   upgrade_timeout: 5m
   timeout: 10s
+  substrate_slots: 4
 globals:
   roles:
     - role: supervisor
@@ -238,6 +239,7 @@ instances:
         command: example-sync publish ci/policy.json
         dry_run: example-sync publish ci/policy.json --dry-run
     gates_policy: ~/example-org/gates/policy.json
+    model_token: secret:example-org-model
     forge:
       route: direct
 ";

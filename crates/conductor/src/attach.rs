@@ -32,7 +32,7 @@ use serde_json::json;
 
 use crate::cli::{AttachArgs, ListSessionsArgs};
 use crate::config::{self, Environment};
-use crate::confine::systemd::{self, SYSTEMCTL, TMUX};
+use crate::systemd::{self, SYSTEMCTL, TMUX};
 
 /// The variable the provider sets in every process of a session, its session's name
 /// ([`systemd::TMUX_CONF`]); attach refuses to run where it is set.

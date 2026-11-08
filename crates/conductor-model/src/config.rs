@@ -1,5 +1,5 @@
 // generated from conductor v1
-// contract digest 0be0922aec9b8f10c3509792e1441579a2719359e1cf48bcc0d06cbee2a292de
+// contract digest 92a4370ed302f5aecf042d1cd6448ff2d89bf65c94265e16af94376031e7bd63
 // do not edit: regenerate with `ess synthesize --layout crate`
 
 //! Config — `conductor.config`.
@@ -290,6 +290,7 @@ pub struct Controllers {
 ///
 /// Every value satisfies `port >= 1` — declared here, enforced by whatever behaviour constructs one.
 /// Every value satisfies `port <= 65535` — declared here, enforced by whatever behaviour constructs one.
+/// Every value satisfies `substrate_slots >= 0` — declared here, enforced by whatever behaviour constructs one.
 /// Every value satisfies `distinct operator in operators by operator.name` — declared here, enforced by whatever behaviour constructs one.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Daemon {
@@ -313,6 +314,8 @@ pub struct Daemon {
     pub upgrade_timeout: crate::primitives::Duration,
     /// `timeout` — `Duration`.
     pub timeout: crate::primitives::Duration,
+    /// `substrate_slots` — `Integer`.
+    pub substrate_slots: i64,
 }
 
 /// DaemonCadence — `conductor.config.DaemonCadence`.
@@ -511,6 +514,8 @@ pub struct Instance {
     pub secret_syncs: Vec<SecretSync>,
     /// `gates_policy` — `Optional<String>`.
     pub gates_policy: Option<String>,
+    /// `model_token` — `Optional<conductor.secret.SecretName>`.
+    pub model_token: Option<crate::secret::SecretName>,
     /// `forge` — `conductor.config.Forge`.
     pub forge: Forge,
     /// `conductor` — `conductor.config.ConductorSession`.
