@@ -540,6 +540,14 @@ pub(crate) fn shared_rows(sources: &Sources) -> Vec<Row> {
 fn shared(sources: &Sources, rows: &mut Vec<Row>) {
     let timeout = sources.measure_timeout;
     for entry in entries(&sources.targets) {
+        // The locks of `build run`'s shared targets hold no build output
+        // (`story:build-shared-target-dir`).
+        if entry
+            .file_name()
+            .is_some_and(|name| name == crate::build::TARGET_LOCKS)
+        {
+            continue;
+        }
         rows.push(
             path_row(None, "shared build target", &entry, timeout)
                 .kept("shared: no session is known to be clear of it"),

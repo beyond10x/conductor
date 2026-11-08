@@ -699,3 +699,38 @@ fn a_controller_with_no_dispatch_reports_with_a_dash() {
         );
     }
 }
+
+/// `story:conductor-context-budget`, applied to the maintainer (measured 2026-11-08: three
+/// conductor-dev hand-overs in 70 minutes, each session at about 45k tokens before any reading):
+/// the start reads the hand-over first and `rules.md` by item titles, and leaves the design
+/// sections and the items in full to the step that needs them.
+#[test]
+fn conductor_dev_starts_on_the_hand_over_and_the_rules_titles() {
+    let dev = profile("conductor-dev.md");
+    let start = dev
+        .split("At session start read")
+        .nth(1)
+        .and_then(|rest| rest.split("You own,").next())
+        .expect("conductor-dev.md: a start list");
+    for phrase in [
+        "your newest hand-over in `<state>/conductor-dev/handoff/`",
+        "`conductor rules show --section conductor-dev --brief`",
+        "--section 'All sessions' --brief`",
+        "(`--item <n>`)",
+        "`conductor rules show --role maintainer`",
+        "No file is read twice",
+    ] {
+        assert!(
+            start.contains(phrase),
+            "conductor-dev.md: the start list holds {phrase:?}"
+        );
+    }
+    assert!(
+        start.find("hand-over") < start.find("rules show"),
+        "conductor-dev.md: the hand-over is read before the rules"
+    );
+    assert!(
+        !start.contains("design § 12 and §§ 2–6;"),
+        "conductor-dev.md: the design sections are not start reading"
+    );
+}

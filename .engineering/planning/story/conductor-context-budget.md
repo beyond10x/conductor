@@ -79,3 +79,22 @@ Read from the maintainer sessions' transcript usage lines, reported by the host 
 - the next successor started at 47,105 tokens and was at 98,947 after 44 turns, at 01:04 CET.
 
 The host supervisor counts this as a stalled instance by hand-over rate (two hand-overs within 2 hours; a first turn over a quarter of `thresholds.context_handover`) and moved this story to `active` as the maintainer's next unit. The acceptance above, written for the conductor session, applies to the maintainer session too.
+
+## Maintainer start reading (2026-11-08, conductor-dev session e8d630ac)
+
+Characters of each start-reading source on 2026-11-08 (`wc -c`, `conductor rules show`):
+
+| source | in full | as read after this change |
+|---|---|---|
+| `rules.md` conductor-dev sections (`--section conductor-dev`) | 29,178 | 2,414 (`--brief`) |
+| `rules.md` § All sessions | 45,426 | 4,488 (`--brief`) |
+| design §§ 2–6 and § 12 | 16,487 | 0 at start |
+| `AGENTS.md` | 19,741 | 19,741 |
+| newest hand-over | 3,941 | 3,941 |
+| total | 114,773 | 30,584 |
+
+The first turn, before any reading, was 45,550 tokens in this session (transcript's first `usage`); its first `CronCreate` came at 69,833, after reading the conductor-dev sections in full, design § 12 and the hand-over, and before design §§ 2–6, `AGENTS.md` and § All sessions.
+
+Tool deny, measured with two background `claude --bg` sessions on Haiku in an empty directory, prompt "reply ok": 28,269 first-turn tokens without a deny, 26,500 with `--disallowedTools Artifact,ArtifactComments,ArtifactData,Workflow,ScheduleWakeup,ShareOnboardingGuide,ReportFindings,AskUserQuestion`. A deny removes the definitions from the prompt (the open question above), worth 1,769 tokens there.
+
+Change: `.agents/conductor-dev.md` reads the hand-over first, `rules.md` by item titles (`--brief`) with an item in full by `--item <n>` when a step touches it, and design §§ 2–6 and § 12 only when a change touches them; held by `conductor_dev_starts_on_the_hand_over_and_the_rules_titles` in `crates/conductor/tests/profiles.rs`. The after reading is the first-`CronCreate` context of the next maintainer session started on it.
