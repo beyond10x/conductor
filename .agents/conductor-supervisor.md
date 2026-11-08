@@ -139,7 +139,11 @@ one background Bash that exits on it.
    command is safe), idle controllers (an idle controller is a stall: count them each pass; one
    idle over 15 min with no open dispatch gets the next dispatch from its charter, one idle with an
    open dispatch gets a nudge at most every 30 min, until the loop does both), controller start failures (`LaunchFailed` in `journalctl --user -u
-   conductor_<instance>-run`), rejected mailbox requests (`mailbox … request` lines in the same journal; tell the sender, it is not
+   conductor_<instance>-run`), `conductor run: resume after a usage limit: … exited <n>` in the same
+   journal (the loop cannot resume by itself: resume the named sessions by hand once, then file the
+   defect with the maintainer: the loop must read the JSON when it is printed and treat only a
+   missing or unparsable output as an error, with the exit code written into the journal line),
+   rejected mailbox requests (`mailbox … request` lines in the same journal; tell the sender, it is not
    told). A snapshot in progress shows as `PR checks done:` lines in the journal while `conductor
    status` line 1 still prints the old snapshot's age.
    Open controller requests: every `[DECISION-REQUEST …]` and `[NEED …]` in
