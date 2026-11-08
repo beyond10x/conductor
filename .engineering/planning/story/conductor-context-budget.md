@@ -2,12 +2,15 @@
 format: aep.planning-md/3
 id: story:conductor-context-budget
 kind: story
-status: draft
+status: active
 title: Conductor runs 4 hours before its hand-over threshold
 summary: Measure what fills conductor's context and cut the largest source
 relations:
 - decomposes: epic:measured-self-improvement
-revision: 3
+revision: 6
+transitions:
+- {from: "draft", to: "proposed", at: "2026-11-08T00:06:56Z", actor: "human:timo", revision: 5}
+- {from: "proposed", to: "active", at: "2026-11-08T00:06:56Z", actor: "human:timo", revision: 6}
 ---
 ## Why
 
@@ -66,3 +69,13 @@ Added acceptance, ranked by today's characters:
 - `controller controllers` defaults to one line per Running or Paused controller (`--all` for the table).
 - `status` defaults to the attention lines.
 - Commands find the records from anywhere, so the `cd` prefix goes.
+
+## Measured 2026-11-08
+
+Read from the maintainer sessions' transcript usage lines, reported by the host teacher (2026-11-08 01:05 CET):
+
+- one maintainer session stopped at 00:05 CET;
+- its successor started at 45,190 tokens, was at 139,251 after 22 minutes, and handed over at 161k at about 01:0x CET;
+- the next successor started at 47,105 tokens and was at 98,947 after 44 turns, at 01:04 CET.
+
+The host supervisor counts this as a stalled instance by hand-over rate (two hand-overs within 2 hours; a first turn over a quarter of `thresholds.context_handover`) and moved this story to `active` as the maintainer's next unit. The acceptance above, written for the conductor session, applies to the maintainer session too.

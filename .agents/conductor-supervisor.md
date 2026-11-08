@@ -12,8 +12,7 @@ Second objective: improve yourself and improve conductor.
   does better: a rule true on any host is a change to this profile, sent to conductor-dev as a
   request with evidence; a rule true on this host only goes in the host's own file (below).
 - Conductor: every friction you hit (a manual step, a missing command, a defect, a stall) goes to
-  conductor-dev as a request with evidence. It becomes a `draft` story (see "Requests are not
-  decisions").
+  conductor-dev as a request with evidence; it becomes a `draft` story ("Requests are not decisions").
 
 ## Start
 
@@ -307,10 +306,11 @@ metric compute --day <day>` again (or `supersede-metric-reading`), and compare `
   <owner/repo>`; `glab release list -R <group/repo>`) has its announcement record; a missing one is
   yours to post, or the controller's on your instruction.
 - An announcement route that is a session the operator runs and is not in `claude agents --json`:
-  hold each post in its record with `posted: pending (route down since <time from date>)`, post
-  them in order when it is back, write one line in the next brief (`announcement route <name> down
-  since <time>; <n> posts pending; its start is yours`), and ask nothing else. A script found on
-  disk is not a route; the route is what `rules.md` names.
+  hold each post in its record with `posted: pending (route down since <time from date>)`, write
+  one line in the next brief (`announcement route <name> down since <time>; <n> posts pending; its
+  start is yours`), and ask nothing else. A routine step: a route session named in an instance's
+  `rules.md` that is listed again while records hold `posted: pending`: send the posts in order on
+  this pass, then set each record to `posted: <time>`. A script on disk is not a route.
 
 ## Reporting to the operator
 
@@ -338,15 +338,17 @@ it: `claude stop <id>`, then the start command in its profile). With no teacher 
 command.
 
 Refresh the hand-off file at least every 2 h by `date`, and after every decision you record, not
-only at the context threshold: a successor after a crash or a stop starts from it. Evidence: a
-supervisor session ran almost 6 h without refreshing its hand-off while recording 21 decisions.
+only at the context threshold: a successor after a crash or a stop starts from it (a supervisor
+once ran 6 h and 21 decisions without a refresh).
 
 ## The maintainer session
 
 - It is always running and always busy: `claude agents --json` lists it `busy`. Gone: `task
   maintainer:start` in the conductor checkout, from its newest hand-over. `idle`: send it the next
   `active` story of the conductor store, else a draft serving a `met false` KPI or a stalled
-  instance, moved to `active` by you.
+  instance, moved to `active` by you. Two hand-overs of the maintainer within 2 h, or a first turn
+  over a quarter of `thresholds.context_handover`, count as a stalled instance: activate
+  `story:conductor-context-budget` and make it its next unit.
 - It is started only by `task maintainer:start` (`conductor session start --role maintainer`, which
   refuses a held name), as the unit `conductor_<session name>.service` in tmux
   (`<state>/sessions/<name>.tmux`); talk to it with `conductor session deliver --name <session
@@ -450,9 +452,7 @@ The conductor store of each instance holds the operator's selection; do not copy
 - The daily tick's records commit can be refused by `records check`; `conductor session run-ticks |
   grep daily` shows it in the actions column. Do not edit or move legacy records lines to get past
   it; send it to conductor-dev.
-- One forge rate-limit answer can fail a whole snapshot ("snapshot exited 1"); the next try is a
-  cycle later.
+- One forge rate-limit answer can fail a snapshot ("snapshot exited 1"); it retries next cycle.
 - `glab ci run --variables-env` refuses a value holding `=` or `,`; start such a pipeline with
   `glab api -X POST projects/<id>/pipeline --input <json file>` (`{ref, variables:[{key,value}]}`).
-- An account rotation that waits for 0 % headroom rotates only after sessions show `Usage limit
-  reached`; set its threshold above 0.
+- Account rotation at 0 % headroom waits for `Usage limit reached`; set its threshold above 0.
