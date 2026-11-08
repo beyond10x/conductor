@@ -2,12 +2,14 @@
 format: aep.planning-md/3
 id: epic:loom-agent-runner
 kind: epic
-status: draft
+status: archived
 title: conductor dispatches a story to a takt LoomAgent run on a local kind cluster
 summary: An interim runner that writes a LoomAgent Command resource, records the run from its status and reserves its disk; forge writes stay fenced on the host
 relations:
 - depends_on: epic:dispatch-runner
-revision: 1
+revision: 2
+transitions:
+- {from: "draft", to: "archived", at: "2026-11-07T23:41:22Z", actor: "human:timo", revision: 2}
 ---
 # Epic: loom-agent-runner
 

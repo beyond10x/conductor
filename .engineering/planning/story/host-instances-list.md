@@ -2,12 +2,14 @@
 format: aep.planning-md/3
 id: story:host-instances-list
 kind: story
-status: draft
+status: archived
 title: conductor host instances lists every instance registered on the host
 relations:
 - decomposes: epic:host-bridge
 - depends_on: story:instance-names-unique
-revision: 2
+revision: 3
+transitions:
+- {from: "draft", to: "archived", at: "2026-11-07T23:41:20Z", actor: "human:timo", revision: 3}
 ---
 # Story: host-instances-list
 

@@ -2,12 +2,16 @@
 format: aep.planning-md/3
 id: story:terminal-log-name
 kind: story
-status: draft
+status: active
 title: the session recording is the terminal log, not the typescript
 summary: rename <session>.typescript to <session>.terminal.log and say terminal log everywhere; the old name read for one release
 relations:
 - decomposes: epic:architecture-next
-revision: 1
+- depends_on: story:spec-v1
+revision: 3
+transitions:
+- {from: "draft", to: "proposed", at: "2026-11-07T23:41:29Z", actor: "human:timo", revision: 2}
+- {from: "proposed", to: "active", at: "2026-11-07T23:41:29Z", actor: "human:timo", revision: 3}
 ---
 ## Why
 

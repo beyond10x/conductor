@@ -2,7 +2,7 @@
 format: aep.planning-md/3
 id: story:host-dashboard-instances
 kind: story
-status: draft
+status: archived
 title: One host view shows every instance's sessions, with a switcher and watch or attach
 relations:
 - decomposes: epic:host-bridge
@@ -28,7 +28,9 @@ scope:
   path: spec/domains/host.yaml
 - confidence: inferred
   path: website/docs/reference
-revision: 13
+revision: 14
+transitions:
+- {from: "draft", to: "archived", at: "2026-11-07T23:41:21Z", actor: "human:timo", revision: 14}
 ---
 # Story: host-dashboard-instances
 

@@ -2,13 +2,17 @@
 format: aep.planning-md/3
 id: story:instance-upgrade
 kind: story
-status: draft
+status: active
 title: POST /v1/instances/{name}/upgrade installs a released binary at the placement with rollback
 summary: replaces conductor self-install; one instance at a time under the supervisor's grant
 relations:
 - decomposes: epic:architecture-next
+- depends_on: story:spec-v1
 - depends_on: story:daemon-reconcile
-revision: 1
+revision: 3
+transitions:
+- {from: "draft", to: "proposed", at: "2026-11-07T23:41:28Z", actor: "human:timo", revision: 2}
+- {from: "proposed", to: "active", at: "2026-11-07T23:41:29Z", actor: "human:timo", revision: 3}
 ---
 ## Why
 

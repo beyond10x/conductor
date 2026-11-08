@@ -2,14 +2,18 @@
 format: aep.planning-md/3
 id: story:tuner
 kind: story
-status: draft
+status: active
 title: a tuner host role proposes one settings change at a time inside a bounded grant and measures it
 summary: settings-proposal records; globals.tuning ranges; keep or revert after the window
 relations:
 - decomposes: epic:architecture-next
+- depends_on: story:spec-v1
 - depends_on: story:config-globals
 - depends_on: story:federated-views
-revision: 1
+revision: 3
+transitions:
+- {from: "draft", to: "proposed", at: "2026-11-07T23:41:29Z", actor: "human:timo", revision: 2}
+- {from: "proposed", to: "active", at: "2026-11-07T23:41:29Z", actor: "human:timo", revision: 3}
 ---
 ## Why
 

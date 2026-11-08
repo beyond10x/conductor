@@ -2,13 +2,15 @@
 format: aep.planning-md/3
 id: story:bridge-session
 kind: story
-status: draft
+status: archived
 title: One bridge session per host reads every instance and writes none
 relations:
 - decomposes: epic:host-bridge
 - depends_on: story:host-instances-list
 - depends_on: story:maintainer-host-config
-revision: 2
+revision: 3
+transitions:
+- {from: "draft", to: "archived", at: "2026-11-07T23:41:20Z", actor: "human:timo", revision: 3}
 ---
 # Story: bridge-session
 

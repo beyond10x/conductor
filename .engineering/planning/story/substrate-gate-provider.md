@@ -2,7 +2,7 @@
 format: aep.planning-md/3
 id: story:substrate-gate-provider
 kind: story
-status: draft
+status: archived
 title: Large gates run as substrate execs
 relations:
 - decomposes: epic:session-confinement
@@ -19,7 +19,9 @@ scope:
   path: crates/conductor/tests/gate.rs
 - confidence: cited
   path: docs/analysis/substrate-gate-run.md
-revision: 9
+revision: 10
+transitions:
+- {from: "draft", to: "archived", at: "2026-11-07T23:41:21Z", actor: "human:timo", revision: 10, decided_on: {"recorded":{"review_outcome":5}}}
 ---
 ## Why
 

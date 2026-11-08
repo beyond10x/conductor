@@ -2,7 +2,7 @@
 format: aep.planning-md/3
 id: story:session-forge-credentials
 kind: story
-status: draft
+status: archived
 title: A boxed session holds only read-only forge credentials
 relations:
 - decomposes: epic:session-confinement
@@ -30,7 +30,9 @@ scope:
   path: website/docs/security/overview.md
 - confidence: cited
   path: website/docs/security/the-guard.md
-revision: 22
+revision: 23
+transitions:
+- {from: "draft", to: "archived", at: "2026-11-07T23:41:22Z", actor: "human:timo", revision: 23, decided_on: {"recorded":{"review_outcome":8}}}
 ---
 ## Why
 

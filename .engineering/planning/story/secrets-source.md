@@ -2,21 +2,25 @@
 format: aep.planning-md/3
 id: story:secrets-source
 kind: story
-status: draft
-title: the daemon resolves secret:<name> references from an age file and passes them as slots
-summary: no secret in config or env; the daemon's secrets source; names only on the API
+status: active
+title: the daemon resolves secret:<name> through the secrets crates, keychain locally and the Secrets service remotely, and hands them to boxes as slots
+summary: no secret in config, env or argv; secrets-keychain and secrets-remote behind secrets-federation; names only on the API
 relations:
 - decomposes: epic:architecture-next
+- depends_on: story:spec-v1
 - depends_on: story:config-globals
-revision: 2
+revision: 5
+transitions:
+- {from: "draft", to: "proposed", at: "2026-11-07T23:41:26Z", actor: "human:timo", revision: 4}
+- {from: "proposed", to: "active", at: "2026-11-07T23:41:26Z", actor: "human:timo", revision: 5}
 ---
 ## Why
 
-Design §7: the config names secrets, never holds them; a placement receives them as sealed slots. ADR 0107 (Connectors issues access tokens), ADR 0023 (the Secrets service holds custody) and ADR 0110 (proposed: an agent process holds no credential for an external system) decide where secrets come from; a single host with neither service needs a local file. The source is the operator's choice (class H).
+Design §9: the config names secrets, never holds them; a placement receives them as sealed slots. Operator, 2026-11-08: "with local OS keychain - remotely something else of the b10x arsenal". The `secrets` workspace (0.6.0) already has the storage port, the OS keychain backend (`secrets-keychain`), the service backend (`secrets-remote`) and the router (`secrets-federation`); conductor writes no trait of its own. ADR 0110 (proposed): an agent process holds no credential for an external system.
 
 ## Acceptance
 
-- `daemon.secrets` names the source behind one trait with three implementations: Connectors (access tokens, never refresh tokens), the Secrets service, and an encrypted local file; a deployment names one explicitly, and the daemon refuses to start without one.
-- Every `secret:<name>` in the effective config resolves at instance start; a missing name is a named refusal before anything starts.
-- A session's box receives one slot, the model token; forge writes go through the gates route; `GET /v1/secrets` lists names and the instances that use them, never values; no log line carries a value (a test greps the daemon's log after a start).
-- For `placement: host`, secrets reach the session the way they do today (`forge_token_env`), unchanged for one release.
+- `daemon.secrets` names a namespace per source (`keychain` for the control host, `remote: <url>` for a deployment) routed by `secrets-federation`; the daemon refuses to start without one; `conductor doctor` names the source and whether it answers.
+- Every `secret:<name>` in the effective config resolves at box open (`ResolveSecrets`); a missing name is a named refusal before anything starts.
+- An agent's box receives one slot, the model token; forge writes go through the gates route; `GET /v1/secrets` lists names, sources and the instances that use them, never values; no log line carries a value (a test greps the daemon's log after a start).
+- `conductor secret put <name>` writes to the keychain through the same crates, so the operator never edits a secrets file by hand.

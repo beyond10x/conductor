@@ -2,13 +2,17 @@
 format: aep.planning-md/3
 id: story:tui-readonly
 kind: story
-status: draft
+status: active
 title: conductor tui lists instances and sessions over the global API, attaches and watches
 summary: 'a terminal UI over the daemon: instances, sessions, attach, watch, log'
 relations:
 - decomposes: epic:architecture-next
+- depends_on: story:spec-v1
 - depends_on: story:federated-views
-revision: 1
+revision: 3
+transitions:
+- {from: "draft", to: "proposed", at: "2026-11-07T23:41:24Z", actor: "human:timo", revision: 2}
+- {from: "proposed", to: "active", at: "2026-11-07T23:41:25Z", actor: "human:timo", revision: 3}
 ---
 ## Why
 

@@ -2,9 +2,11 @@
 format: aep.planning-md/3
 id: epic:host-bridge
 kind: epic
-status: draft
+status: archived
 title: One channel from the operator to every instance on the host
-revision: 2
+revision: 3
+transitions:
+- {from: "draft", to: "archived", at: "2026-11-07T23:41:22Z", actor: "human:timo", revision: 3}
 ---
 # Epic: host-bridge
 

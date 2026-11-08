@@ -2,13 +2,15 @@
 format: aep.planning-md/3
 id: story:placement-mantle
 kind: story
-status: draft
+status: archived
 title: 'placement: mantle runs a whole instance on a mantle worker'
 summary: 'a kind: Session manifest per instance; the instance API over mantle''s forwarded socket'
 relations:
 - decomposes: epic:architecture-next
 - depends_on: story:placement-substrate-remote
-revision: 1
+revision: 2
+transitions:
+- {from: "draft", to: "archived", at: "2026-11-07T23:41:19Z", actor: "human:timo", revision: 2}
 ---
 ## Why
 

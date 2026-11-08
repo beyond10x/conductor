@@ -2,14 +2,16 @@
 format: aep.planning-md/3
 id: story:placement-loom
 kind: story
-status: draft
+status: archived
 title: 'placement: loom runs a run-to-exit worker as a LoomAgent Command through Agency or the kube API'
 summary: takt or an implementer on one unit as a Loom Job; exit code and events as the report; refused for interactive roles
 relations:
 - decomposes: epic:architecture-next
 - depends_on: story:placement-substrate-local
 - informed_by: design:conductor-on-agency
-revision: 1
+revision: 2
+transitions:
+- {from: "draft", to: "archived", at: "2026-11-07T23:33:15Z", actor: "human:timo", revision: 2}
 ---
 ## Why
 

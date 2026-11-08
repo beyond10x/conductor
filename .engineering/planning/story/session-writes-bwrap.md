@@ -2,7 +2,7 @@
 format: aep.planning-md/3
 id: story:session-writes-bwrap
 kind: story
-status: draft
+status: archived
 title: A session can write only its own places
 relations:
 - decomposes: epic:session-confinement
@@ -33,7 +33,9 @@ scope:
   path: website/docs/security/overview.md
 - confidence: cited
   path: website/docs/security/the-guard.md
-revision: 21
+revision: 22
+transitions:
+- {from: "draft", to: "archived", at: "2026-11-07T23:41:21Z", actor: "human:timo", revision: 22, decided_on: {"recorded":{"review_outcome":11}}}
 ---
 ## Why
 
