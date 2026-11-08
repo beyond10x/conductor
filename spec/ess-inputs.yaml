@@ -91,3 +91,10 @@ scenarios:
   - scenarios/token-lease-token-none-available.yaml
   - scenarios/token-release-token.yaml
   - scenarios/token-mark-token-limited.yaml
+  - scenarios/direction-confirm-goal-agent-actor.yaml
+  - scenarios/direction-drop-goal-agent-actor.yaml
+  - scenarios/decision-record-operator-decision-agent-actor.yaml
+  - scenarios/decision-answer-escalated-as-operator-agent-actor.yaml
+  - scenarios/decision-answer-escalated-request-agent-actor.yaml
+  - scenarios/decision-reverse-operator-decision-agent-actor.yaml
+  - scenarios/decision-answer-request-agent-actor.yaml

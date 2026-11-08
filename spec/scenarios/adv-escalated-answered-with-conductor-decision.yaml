@@ -14,6 +14,7 @@ timeline:
     command: conductor.decision.RaiseDecisionRequest
     actor: conductor.decision.RepositoryController
     input:
+      actor: {kind: Agent, value: {instance: example-org, role: Lead, name: example-org-lead, kind: claude-code}}
       request_id: REQ-adv2-h1
       repository: cortex
       question: Set the deploy token secret
@@ -26,6 +27,7 @@ timeline:
     command: conductor.decision.EscalateRequest
     actor: conductor.decision.Conductor
     input:
+      actor: {kind: Agent, value: {instance: example-org, role: Director, name: example-org-conductor, kind: claude-code}}
       request_id: REQ-adv2-h1
       escalation_class: H
       reason: only the operator can set a repository secret
@@ -36,6 +38,7 @@ timeline:
     command: conductor.decision.RecordConductorDecision
     actor: conductor.decision.Conductor
     input:
+      actor: {kind: Agent, value: {instance: example-org, role: Director, name: example-org-conductor, kind: claude-code}}
       decision_id: DEC-adv2-c1
       decision_class: C
       question: Set the deploy token secret
@@ -50,6 +53,7 @@ timeline:
     command: conductor.decision.AnswerEscalatedRequest
     actor: conductor.decision.Operator
     input:
+      actor: {kind: Human, value: {operator: example-operator}}
       request_id: REQ-adv2-h1
       decision_id: DEC-adv2-c1
     outcome: answered

@@ -15,6 +15,7 @@ timeline:
     command: conductor.dispatch.RequestResource
     actor: conductor.dispatch.RepositoryController
     input:
+      actor: {kind: Agent, value: {instance: example-org, role: Lead, name: example-org-lead, kind: claude-code}}
       repository: cortex
       resource: BuildSlot
       amount: 1
@@ -26,6 +27,7 @@ timeline:
     command: conductor.dispatch.GrantResource
     actor: conductor.dispatch.Conductor
     input:
+      actor: {kind: Agent, value: {instance: example-org, role: Director, name: example-org-conductor, kind: claude-code}}
       resource_request_id: {$instance: slot}
       disk_free_bytes: 64424509440
     outcome: granted
@@ -34,6 +36,7 @@ timeline:
     command: conductor.dispatch.GrantResource
     actor: conductor.dispatch.Conductor
     input:
+      actor: {kind: Agent, value: {instance: example-org, role: Director, name: example-org-conductor, kind: claude-code}}
       resource_request_id: {$instance: slot}
       disk_free_bytes: 10737418240
     outcome: wrong-state

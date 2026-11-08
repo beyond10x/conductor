@@ -8,6 +8,7 @@ timeline:
     command: conductor.direction.ProposeGoal
     actor: conductor.direction.Conductor
     input:
+      actor: {kind: Agent, value: {instance: example-org, role: Director, name: example-org-conductor, kind: claude-code}}
       goal_id: G-twice
       title: Ship the local store
       exit_evidence: a reopened store lists the goal
@@ -17,6 +18,7 @@ timeline:
     command: conductor.direction.ProposeGoal
     actor: conductor.direction.Conductor
     input:
+      actor: {kind: Agent, value: {instance: example-org, role: Director, name: example-org-conductor, kind: claude-code}}
       goal_id: G-twice
       title: Ship it again
       exit_evidence: none

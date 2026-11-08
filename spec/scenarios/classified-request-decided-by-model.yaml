@@ -13,6 +13,7 @@ timeline:
     command: conductor.decision.RaiseDecisionRequest
     actor: conductor.decision.RepositoryController
     input:
+      actor: {kind: Agent, value: {instance: example-org, role: Lead, name: example-org-lead, kind: claude-code}}
       request_id: REQ-model-01
       repository: cortex
       question: Which test runner does the new crate use?
@@ -26,6 +27,7 @@ timeline:
     command: conductor.decision.RecordConductorDecision
     actor: conductor.decision.Conductor
     input:
+      actor: {kind: Agent, value: {instance: example-org, role: Director, name: example-org-conductor, kind: claude-code}}
       decision_id: DEC-model-01
       decision_class: C
       question: Which test runner does the new crate use?
@@ -43,6 +45,7 @@ timeline:
     command: conductor.decision.AnswerRequest
     actor: conductor.decision.Conductor
     input:
+      actor: {kind: Agent, value: {instance: example-org, role: Director, name: example-org-conductor, kind: claude-code}}
       request_id: REQ-model-01
       decision_id: DEC-model-01
     outcome: answered
@@ -51,6 +54,7 @@ timeline:
     command: conductor.decision.RecordConductorDecision
     actor: conductor.decision.Conductor
     input:
+      actor: {kind: Agent, value: {instance: example-org, role: Director, name: example-org-conductor, kind: claude-code}}
       decision_id: DEC-model-02
       decision_class: O
       question: Does the crate move to a repository of its own?

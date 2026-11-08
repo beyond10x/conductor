@@ -133,6 +133,8 @@ entities:
       name: request_id
       type: conductor.decision.RequestId
     fields:
+      - name: actor
+        type: conductor.operator.Actor
       - name: repository
         type: conductor.observation.RepositoryName
       - name: question
@@ -214,6 +216,10 @@ entities:
         type: conductor.decision.DecisionClass
       - name: decided_by
         type: conductor.decision.Decider
+      # `decided_by` is the deciding role by name (`Conductor` or `Operator`), bound to the command, as
+      # before; `actor` is the typed actor that issued it (design architecture-next.md § 3, Actors).
+      - name: actor
+        type: conductor.operator.Actor
       - name: question
         type: String
       - name: options
@@ -359,6 +365,17 @@ errors:
       - name: decision_id
         type: conductor.decision.DecisionId
 
+  # Declared here until the operator domain's `conductor.operator.ActorNotHuman` merges; the
+  # coordinator reconciles the two (story:spec-v1). ESS 0.90 cannot test a union's variant in a
+  # guard, so every command that refuses an agent actor does it as an `external:` outcome.
+  - name: conductor.decision.ActorNotHuman
+    summary: >
+      The command is a person's to issue (design architecture-next.md § 3, Actors; a class-H
+      answer, design § 5), and its actor is an agent. Nothing was recorded.
+    fields:
+      - name: actor
+        type: conductor.operator.Actor
+
   - name: conductor.decision.DecisionStateConflict
     summary: The decision is already reversed.
     fields:
@@ -393,6 +410,7 @@ commands:
       wire: raise-decision-request
       display: Raise a decision request
     input:
+      - {name: actor, type: conductor.operator.Actor}
       - name: request_id
         type: conductor.decision.RequestId
       - name: repository
@@ -416,6 +434,7 @@ commands:
         creates: conductor.decision.DecisionRequest
         instance: request_id
         sets:
+          actor: input.actor
           repository: input.repository
           question: input.question
           options: input.options
@@ -427,6 +446,7 @@ commands:
           - conductor.decision.DecisionRequested
         payload:
           conductor.decision.DecisionRequested:
+            actor: input.actor
             request_id: input.request_id
             repository: input.repository
         summary: The request is open and queued for the next cycle.
@@ -447,6 +467,7 @@ commands:
       wire: record-conductor-decision
       display: Record a decision taken by conductor
     input:
+      - {name: actor, type: conductor.operator.Actor}
       - name: decision_id
         type: conductor.decision.DecisionId
       - name: decision_class
@@ -485,6 +506,7 @@ commands:
         creates: conductor.decision.Decision
         instance: decision_id
         sets:
+          actor: input.actor
           decision_class: input.decision_class
           decided_by: Conductor
           question: input.question
@@ -500,6 +522,7 @@ commands:
           - conductor.decision.DecisionRecorded
         payload:
           conductor.decision.DecisionRecorded:
+            actor: input.actor
             decision_id: input.decision_id
             decision_class: input.decision_class
             decided_by: Conductor
@@ -519,6 +542,7 @@ commands:
       wire: record-operator-decision
       display: Record a decision taken by the operator
     input:
+      - {name: actor, type: conductor.operator.Actor}
       - name: decision_id
         type: conductor.decision.DecisionId
       - name: decision_class
@@ -547,10 +571,18 @@ commands:
       - name: repository
         type: Optional<conductor.observation.RepositoryName>
     outcomes:
+      - name: agent-actor
+        external: the actor is an agent, not a person
+        error: conductor.decision.ActorNotHuman
+        payload:
+          conductor.decision.ActorNotHuman:
+            actor: input.actor
+        summary: Only a person issues this command (design architecture-next.md § 3, Actors); an agent actor is refused by name and nothing changed.
       - name: recorded
         creates: conductor.decision.Decision
         instance: decision_id
         sets:
+          actor: input.actor
           decision_class: input.decision_class
           decided_by: Operator
           question: input.question
@@ -566,6 +598,7 @@ commands:
           - conductor.decision.DecisionRecorded
         payload:
           conductor.decision.DecisionRecorded:
+            actor: input.actor
             decision_id: input.decision_id
             decision_class: input.decision_class
             decided_by: Operator
@@ -584,11 +617,23 @@ commands:
       wire: answer-request
       display: Answer a decision request
     input:
+      - {name: actor, type: conductor.operator.Actor}
       - name: request_id
         type: conductor.decision.RequestId
       - name: decision_id
         type: conductor.decision.DecisionId
     outcomes:
+      # UNMAPPED: the brief reserves an answer "where the answered class is H" for a person, but this
+      # command answers only an Open request, which carries no class (`escalation_class` is set on
+      # escalation). Read here as the class of the cited decision. Is that the owner's meaning, or
+      # does a class-H request never reach this command, so that no refusal belongs here?
+      - name: agent-actor
+        external: the actor is an agent, not a person, and the decision the input cites is class H
+        error: conductor.decision.ActorNotHuman
+        payload:
+          conductor.decision.ActorNotHuman:
+            actor: input.actor
+        summary: A class-H answer is a person's alone (design § 5); an agent actor citing a class-H decision is refused by name and the request stays open.
       - name: no-such-decision
         when_related: {via: input.decision_id, exists: false}
         error: conductor.decision.DecisionNotFound
@@ -612,6 +657,7 @@ commands:
           - conductor.decision.RequestAnswered
         payload:
           conductor.decision.RequestAnswered:
+            actor: input.actor
             request_id: input.request_id
             decision_id: input.decision_id
         summary: The request is answered by a decision in force; the controller acts on it.
@@ -633,11 +679,19 @@ commands:
       wire: answer-escalated-request
       display: Answer an escalated decision request
     input:
+      - {name: actor, type: conductor.operator.Actor}
       - name: request_id
         type: conductor.decision.RequestId
       - name: decision_id
         type: conductor.decision.DecisionId
     outcomes:
+      - name: agent-actor
+        external: the actor is an agent, not a person
+        error: conductor.decision.ActorNotHuman
+        payload:
+          conductor.decision.ActorNotHuman:
+            actor: input.actor
+        summary: Only a person issues this command (design architecture-next.md § 3, Actors); an agent actor is refused by name and nothing changed.
       - name: no-such-decision
         when_related: {via: input.decision_id, exists: false}
         error: conductor.decision.DecisionNotFound
@@ -661,6 +715,7 @@ commands:
           - conductor.decision.RequestAnswered
         payload:
           conductor.decision.RequestAnswered:
+            actor: input.actor
             request_id: input.request_id
             decision_id: input.decision_id
         summary: The operator answered the escalated request; the controller acts on it.
@@ -692,6 +747,7 @@ commands:
       wire: answer-escalated-as-operator
       display: Answer an escalated request as the operator
     input:
+      - {name: actor, type: conductor.operator.Actor}
       - name: request_id
         type: conductor.decision.RequestId
       - name: decision_id
@@ -720,6 +776,13 @@ commands:
       - name: repository
         type: Optional<conductor.observation.RepositoryName>
     outcomes:
+      - name: agent-actor
+        external: the actor is an agent, not a person
+        error: conductor.decision.ActorNotHuman
+        payload:
+          conductor.decision.ActorNotHuman:
+            actor: input.actor
+        summary: Only a person issues this command (design architecture-next.md § 3, Actors); an agent actor is refused by name and nothing changed.
       - name: no-such-request
         when_related:
           entity: conductor.decision.DecisionRequest
@@ -749,6 +812,7 @@ commands:
         creates: conductor.decision.Decision
         instance: decision_id
         sets:
+          actor: input.actor
           decision_class: input.decision_class
           decided_by: Operator
           question: input.question
@@ -764,6 +828,7 @@ commands:
           - conductor.decision.DecisionRecorded
         payload:
           conductor.decision.DecisionRecorded:
+            actor: input.actor
             decision_id: input.decision_id
             decision_class: input.decision_class
             decided_by: Operator
@@ -785,6 +850,7 @@ commands:
       wire: escalate-request
       display: Escalate a decision request
     input:
+      - {name: actor, type: conductor.operator.Actor}
       - name: request_id
         type: conductor.decision.RequestId
       # O: the operator decides. H: the operator acts. C is never escalated (design § 5).
@@ -872,6 +938,7 @@ commands:
           - conductor.decision.RequestEscalated
         payload:
           conductor.decision.RequestEscalated:
+            actor: input.actor
             request_id: input.request_id
         summary: The request waits for the operator.
       - name: no-such-request
@@ -898,6 +965,7 @@ commands:
       wire: amend-escalated-request
       display: Amend an escalated decision request
     input:
+      - {name: actor, type: conductor.operator.Actor}
       - name: request_id
         type: conductor.decision.RequestId
       - name: reason
@@ -930,6 +998,7 @@ commands:
           - conductor.decision.RequestAmended
         payload:
           conductor.decision.RequestAmended:
+            actor: input.actor
             request_id: input.request_id
         summary: The escalated request carries the fields given and waits for the operator.
       - name: no-such-request
@@ -951,6 +1020,7 @@ commands:
       wire: withdraw-request
       display: Withdraw a decision request
     input:
+      - {name: actor, type: conductor.operator.Actor}
       - name: request_id
         type: conductor.decision.RequestId
       - name: reason
@@ -963,6 +1033,7 @@ commands:
           - conductor.decision.RequestWithdrawn
         payload:
           conductor.decision.RequestWithdrawn:
+            actor: input.actor
             request_id: input.request_id
             reason: input.reason
         summary: The controller no longer needs the decision.
@@ -989,6 +1060,7 @@ commands:
       wire: reverse-conductor-decision
       display: Reverse a decision taken by conductor
     input:
+      - {name: actor, type: conductor.operator.Actor}
       - name: decision_id
         type: conductor.decision.DecisionId
       - name: reason
@@ -1012,6 +1084,7 @@ commands:
           - conductor.decision.DecisionReversedEvent
         payload:
           conductor.decision.DecisionReversedEvent:
+            actor: input.actor
             decision_id: input.decision_id
             reason: input.reason
         summary: Conductor's decision no longer holds; a reversed decision becomes a rule in a profile (design § 13).
@@ -1034,11 +1107,19 @@ commands:
       wire: reverse-operator-decision
       display: Reverse a decision as the operator
     input:
+      - {name: actor, type: conductor.operator.Actor}
       - name: decision_id
         type: conductor.decision.DecisionId
       - name: reason
         type: String
     outcomes:
+      - name: agent-actor
+        external: the actor is an agent, not a person
+        error: conductor.decision.ActorNotHuman
+        payload:
+          conductor.decision.ActorNotHuman:
+            actor: input.actor
+        summary: Only a person issues this command (design architecture-next.md § 3, Actors); an agent actor is refused by name and nothing changed.
       - name: reversed
         moves: conductor.decision.Decision.reverse
         instance: decision_id
@@ -1046,6 +1127,7 @@ commands:
           - conductor.decision.DecisionReversedEvent
         payload:
           conductor.decision.DecisionReversedEvent:
+            actor: input.actor
             decision_id: input.decision_id
             reason: input.reason
         summary: The operator reversed the decision, whoever took it; a reversed decision becomes a rule in a profile (design § 13).
@@ -1066,6 +1148,8 @@ commands:
 events:
   - name: conductor.decision.DecisionRequested
     fields:
+      - name: actor
+        type: conductor.operator.Actor
       - name: request_id
         type: conductor.decision.RequestId
       - name: repository
@@ -1073,6 +1157,8 @@ events:
 
   - name: conductor.decision.DecisionRecorded
     fields:
+      - name: actor
+        type: conductor.operator.Actor
       - name: decision_id
         type: conductor.decision.DecisionId
       - name: decision_class
@@ -1082,6 +1168,8 @@ events:
 
   - name: conductor.decision.RequestAnswered
     fields:
+      - name: actor
+        type: conductor.operator.Actor
       - name: request_id
         type: conductor.decision.RequestId
       - name: decision_id
@@ -1089,16 +1177,22 @@ events:
 
   - name: conductor.decision.RequestEscalated
     fields:
+      - name: actor
+        type: conductor.operator.Actor
       - name: request_id
         type: conductor.decision.RequestId
 
   - name: conductor.decision.RequestAmended
     fields:
+      - name: actor
+        type: conductor.operator.Actor
       - name: request_id
         type: conductor.decision.RequestId
 
   - name: conductor.decision.RequestWithdrawn
     fields:
+      - name: actor
+        type: conductor.operator.Actor
       - name: request_id
         type: conductor.decision.RequestId
       - name: reason
@@ -1106,6 +1200,8 @@ events:
 
   - name: conductor.decision.DecisionReversedEvent
     fields:
+      - name: actor
+        type: conductor.operator.Actor
       - name: decision_id
         type: conductor.decision.DecisionId
       - name: reason
@@ -1152,6 +1248,8 @@ views:
         type: Optional<String>
       - name: deadline
         type: Optional<Timestamp>
+      - name: actor
+        type: conductor.operator.Actor
     naming:
       wire: requests
       display: Decision requests
@@ -1193,6 +1291,8 @@ views:
         type: Optional<String>
       - name: no_dry_run
         type: Optional<String>
+      - name: actor
+        type: conductor.operator.Actor
     naming:
       wire: hands-todo
       display: Class-H to-do
@@ -1231,6 +1331,8 @@ views:
         type: Optional<String>
       - name: prompt_sha256
         type: Optional<conductor.decision.PromptHash>
+      - name: actor
+        type: conductor.operator.Actor
     naming:
       wire: decisions
       display: Decisions

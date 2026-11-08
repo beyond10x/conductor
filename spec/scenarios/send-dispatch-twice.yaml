@@ -8,6 +8,7 @@ timeline:
     command: conductor.direction.ProposeGoal
     actor: conductor.direction.Conductor
     input:
+      actor: {kind: Agent, value: {instance: example-org, role: Director, name: example-org-conductor, kind: claude-code}}
       goal_id: G-twice-dsp
       title: Ship the pilot
       exit_evidence: the pilot runs
@@ -17,6 +18,7 @@ timeline:
     command: conductor.dispatch.SendDispatch
     actor: conductor.dispatch.Conductor
     input:
+      actor: {kind: Agent, value: {instance: example-org, role: Director, name: example-org-conductor, kind: claude-code}}
       dispatch_id: DSP-twice
       repository: cortex
       goal_id: G-twice-dsp
@@ -29,6 +31,7 @@ timeline:
     command: conductor.dispatch.SendDispatch
     actor: conductor.dispatch.Conductor
     input:
+      actor: {kind: Agent, value: {instance: example-org, role: Director, name: example-org-conductor, kind: claude-code}}
       dispatch_id: DSP-twice
       repository: delta
       goal_id: G-twice-dsp

@@ -10,6 +10,7 @@ timeline:
     command: conductor.direction.ProposeGoal
     actor: conductor.direction.Conductor
     input:
+      actor: {kind: Agent, value: {instance: example-org, role: Director, name: example-org-conductor, kind: claude-code}}
       goal_id: G-precedence
       title: Ship the store id
       exit_evidence: the store id is on origin/main
@@ -19,6 +20,7 @@ timeline:
     command: conductor.dispatch.SendDispatch
     actor: conductor.dispatch.Conductor
     input:
+      actor: {kind: Agent, value: {instance: example-org, role: Director, name: example-org-conductor, kind: claude-code}}
       dispatch_id: DSP-precedence
       repository: cortex
       goal_id: G-precedence

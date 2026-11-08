@@ -12,6 +12,7 @@ timeline:
     command: conductor.dispatch.ReceiveMessage
     actor: conductor.dispatch.Conductor
     input:
+      actor: {kind: Agent, value: {instance: example-org, role: Director, name: example-org-conductor, kind: claude-code}}
       sender: cortex
       recipient: conductor
       kind: Report
@@ -26,6 +27,7 @@ timeline:
     command: conductor.dispatch.HandleMessage
     actor: conductor.dispatch.Conductor
     input:
+      actor: {kind: Agent, value: {instance: example-org, role: Director, name: example-org-conductor, kind: claude-code}}
       message_id: {$instance: report}
     outcome: handled
 
@@ -33,6 +35,7 @@ timeline:
     command: conductor.dispatch.RouteNeed
     actor: conductor.dispatch.Conductor
     input:
+      actor: {kind: Agent, value: {instance: example-org, role: Director, name: example-org-conductor, kind: claude-code}}
       message_id: {$instance: report}
       dispatch_id: DSP-1
     outcome: wrong-state

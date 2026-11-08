@@ -1,0 +1,56 @@
+# Design architecture-next.md § 3, Actors, and § 5 of the conductor design: a class-H answer is a
+# person's alone. An agent actor answering an open request with a class-H decision is refused by
+# name, and the request stays open. (The cited decision's class is how this unit reads "the
+# answered class"; see the UNMAPPED marker on `AnswerRequest`.)
+type: ess-scenario/1
+domain: conductor.decision
+scenario: decision-answer-request-agent-actor
+summary: An agent actor answering an open request with a class-H decision is refused as not a person, and the request stays open.
+
+timeline:
+  - at: 2026-11-08T09:00:00Z
+    command: conductor.decision.RaiseDecisionRequest
+    actor: conductor.decision.RepositoryController
+    input:
+      actor: {kind: Agent, value: {instance: example-org, role: Lead, name: example-org-lead, kind: claude-code}}
+      request_id: REQ-agent-open1
+      repository: cortex
+      question: Set the deploy token secret
+      options: "A: set it now; B: wait"
+      recommendation: A
+      raised_at: 2026-11-08T09:00:00Z
+    outcome: raised
+
+  - at: 2026-11-08T09:00:01Z
+    command: conductor.decision.RecordOperatorDecision
+    actor: conductor.decision.Operator
+    input:
+      actor: {kind: Human, value: {operator: example-operator}}
+      decision_id: DEC-agent-open1
+      decision_class: H
+      question: Set the deploy token secret
+      options: "A: set it now; B: wait"
+      choice: done
+      reason: the secret is set
+      evidence: none
+      decided_at: 2026-11-08T09:00:01Z
+      recorded_by: operator-session
+      operator_words: "done"
+    outcome: recorded
+
+  - at: 2026-11-08T09:00:02Z
+    command: conductor.decision.AnswerRequest
+    actor: conductor.decision.Conductor
+    input:
+      actor: {kind: Agent, value: {instance: example-org, role: Director, name: example-org-conductor, kind: claude-code}}
+      request_id: REQ-agent-open1
+      decision_id: DEC-agent-open1
+    outcome: agent-actor
+    error:
+      name: conductor.decision.ActorNotHuman
+
+assert:
+  - view: conductor.decision.Requests
+    contains:
+      request_id: REQ-agent-open1
+      state: Open

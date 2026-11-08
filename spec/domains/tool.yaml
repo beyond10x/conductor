@@ -338,6 +338,8 @@ entities:
       name: tool_call_id
       type: conductor.tool.ToolCallId
     fields:
+      - name: actor
+        type: conductor.operator.Actor
       - name: instance
         type: conductor.config.InstanceName
       - name: session
@@ -459,6 +461,7 @@ commands:
       wire: record-tool-call
       display: Record a tool call
     input:
+      - {name: actor, type: conductor.operator.Actor}
       - name: instance
         type: conductor.config.InstanceName
       - name: session
@@ -482,6 +485,7 @@ commands:
         creates: conductor.tool.ToolCall
         instance: tool_call_id
         sets:
+          actor: input.actor
           instance: input.instance
           session: input.session
           verb: input.verb
@@ -495,6 +499,7 @@ commands:
           - conductor.tool.ToolCallRecorded
         payload:
           conductor.tool.ToolCallRecorded:
+            actor: input.actor
             tool_call_id: {generated: true}
             session: input.session
             verb: input.verb
@@ -504,6 +509,8 @@ commands:
 events:
   - name: conductor.tool.ToolCallRecorded
     fields:
+      - name: actor
+        type: conductor.operator.Actor
       - name: tool_call_id
         type: conductor.tool.ToolCallId
       - name: session
@@ -536,6 +543,8 @@ views:
         type: Integer
       - name: called_at
         type: Timestamp
+      - name: actor
+        type: conductor.operator.Actor
     naming:
       wire: tool-calls
       display: Tool calls
