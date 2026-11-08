@@ -1,0 +1,70 @@
+# docs/design/architecture-next.md § 5.1 and § 5.3: after a usage-limit stop the agent is
+# resumed on another owner's token as its next generation, through the `agents/{name}/restart`
+# route's command.
+# The runtime's own commands name the operator a single host implies (§ 5.3); the domain's
+# UNMAPPED marker on `InstanceRuntime` records that the runtime has no actor of its own.
+type: ess-scenario/1
+domain: conductor.agent
+scenario: agent-restart-agent
+summary: A stopped agent restarted on another owner's token runs again as generation 2, its stop cleared.
+
+timeline:
+  - at: 2026-11-08T09:00:00Z
+    command: conductor.agent.DeclareAgentKind
+    actor: conductor.agent.InstanceRuntime
+    input:
+      actor: {kind: Human, value: {operator: example-operator}}
+      name: claude-code
+      capabilities: [Interactive]
+      binary: claude
+    outcome: declared
+
+  - at: 2026-11-08T09:01:00Z
+    command: conductor.agent.StartAgent
+    actor: conductor.agent.InstanceRuntime
+    input:
+      actor: {kind: Human, value: {operator: example-operator}}
+      name: example-org-director
+      instance: example-org
+      role: Director
+      kind: claude-code
+      capabilities: [Interactive]
+      profile: ~/.b10x/conductor/profiles/repo-controller.md
+      limits: {tasks_max: 512}
+      token_owner: example-operator
+      started_at: 2026-11-08T09:01:00Z
+    outcome: started
+
+  - at: 2026-11-08T12:00:00Z
+    command: conductor.agent.StopAgent
+    actor: conductor.agent.InstanceRuntime
+    input:
+      actor: {kind: Human, value: {operator: example-operator}}
+      name: example-org-director
+      exit_class: UsageLimit
+      stopped_at: 2026-11-08T12:00:00Z
+    outcome: stopped
+
+  - at: 2026-11-08T12:00:05Z
+    command: conductor.agent.RestartAgent
+    actor: conductor.agent.InstanceRuntime
+    input:
+      actor: {kind: Human, value: {operator: example-operator}}
+      name: example-org-director
+      token_owner: example-colleague
+      started_at: 2026-11-08T12:00:05Z
+    outcome: restarted
+    events:
+      - event: conductor.agent.AgentStarted
+        payload:
+          name: example-org-director
+          token_owner: example-colleague
+
+assert:
+  - view: conductor.agent.Agents
+    contains:
+      name: example-org-director
+      state: Running
+      token_owner: example-colleague
+      generation: 2
+      started_at: 2026-11-08T12:00:05Z

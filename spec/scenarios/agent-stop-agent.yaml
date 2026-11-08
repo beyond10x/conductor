@@ -1,0 +1,70 @@
+# docs/design/architecture-next.md § 5.3: an agent whose token hit its usage limit is stopped with
+# the class UsageLimit; a second stop of a stopped agent is refused and changes nothing.
+# The runtime's own commands name the operator a single host implies (§ 5.3); the domain's
+# UNMAPPED marker on `InstanceRuntime` records that the runtime has no actor of its own.
+type: ess-scenario/1
+domain: conductor.agent
+scenario: agent-stop-agent
+summary: The runtime stops an agent on a usage limit; it is Stopped with its class, and a second stop is refused.
+
+timeline:
+  - at: 2026-11-08T09:00:00Z
+    command: conductor.agent.DeclareAgentKind
+    actor: conductor.agent.InstanceRuntime
+    input:
+      actor: {kind: Human, value: {operator: example-operator}}
+      name: claude-code
+      capabilities: [Interactive]
+      binary: claude
+    outcome: declared
+
+  - at: 2026-11-08T09:01:00Z
+    command: conductor.agent.StartAgent
+    actor: conductor.agent.InstanceRuntime
+    input:
+      actor: {kind: Human, value: {operator: example-operator}}
+      name: example-org-director
+      instance: example-org
+      role: Director
+      kind: claude-code
+      capabilities: [Interactive]
+      profile: ~/.b10x/conductor/profiles/repo-controller.md
+      limits: {tasks_max: 512}
+      token_owner: example-operator
+      started_at: 2026-11-08T09:01:00Z
+    outcome: started
+
+  - at: 2026-11-08T12:00:00Z
+    command: conductor.agent.StopAgent
+    actor: conductor.agent.InstanceRuntime
+    input:
+      actor: {kind: Human, value: {operator: example-operator}}
+      name: example-org-director
+      exit_class: UsageLimit
+      stopped_at: 2026-11-08T12:00:00Z
+    outcome: stopped
+    events:
+      - event: conductor.agent.AgentStopped
+        payload:
+          name: example-org-director
+          exit_class: UsageLimit
+
+  - at: 2026-11-08T12:01:00Z
+    command: conductor.agent.StopAgent
+    actor: conductor.agent.Operator
+    input:
+      actor: {kind: Human, value: {operator: example-operator}}
+      name: example-org-director
+      exit_class: Requested
+      stopped_at: 2026-11-08T12:01:00Z
+    outcome: not-running
+    error:
+      name: conductor.agent.AgentNotRunning
+
+assert:
+  - view: conductor.agent.Agents
+    contains:
+      name: example-org-director
+      state: Stopped
+      exit_class: UsageLimit
+      stopped_at: 2026-11-08T12:00:00Z
