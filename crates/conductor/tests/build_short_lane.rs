@@ -77,6 +77,7 @@ impl Case {
             walk: build::walk,
             sccache: None,
             targets: None,
+            target_rules: Vec::new(),
         }
     }
 

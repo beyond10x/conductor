@@ -104,7 +104,10 @@
 //!     time, so a run from another tree than the target's last marks its tree's files modified
 //!     first (`SharedTarget::claim`). A `CARGO_TARGET_DIR` the environment sets is kept, named
 //!     in one line, and the run takes no lock. The measured directories include the shared one.
-//!     `conductor gc` removes a shared target whose lock no run holds.
+//!     `conductor gc` removes a shared target whose lock no run holds. A repository whose
+//!     `repositories[]` rule sets `shared_target: false` gets `<tree>/target` instead
+//!     (`story:build-shared-target-opt-out`), said in one line, with no lock; a caller's
+//!     `CARGO_TARGET_DIR` still wins.
 
 use std::collections::HashSet;
 use std::ffi::OsString;
@@ -369,6 +372,10 @@ pub struct Sources {
     /// ([`targets_root`], `story:build-shared-target-dir`); none: a run sets no `CARGO_TARGET_DIR`
     /// and takes no repository lock.
     pub targets: Option<PathBuf>,
+    /// Each `repositories[]` rule that writes `shared_target`: its `match` and the value
+    /// (`story:build-shared-target-opt-out`). The first rule matching a run's repository decides;
+    /// `false` gives the run `<tree>/target` instead of the shared target.
+    pub target_rules: Vec<(String, bool)>,
 }
 
 /// The directory under the instance's cache that holds each repository's shared target directory,
@@ -411,6 +418,11 @@ impl Sources {
             walk,
             sccache: find_on_path("sccache"),
             targets: Some(targets_root(instance)),
+            target_rules: instance
+                .repositories
+                .iter()
+                .filter_map(|rule| Some((rule.r#match.clone(), rule.shared_target?)))
+                .collect(),
         }
     }
 }
@@ -1227,7 +1239,12 @@ pub fn run(
     let idle = ledger.unlock();
     // The repository's shared target directory (`story:build-shared-target-dir`), held under its
     // lock from here until the command ended. A signal while it waits is answered below.
-    let shared = shared_target(sources, request, &|line| say(line));
+    let own = own_target(sources, request, &|line| say(line));
+    let shared = if own.is_some() {
+        None
+    } else {
+        shared_target(sources, request, &|line| say(line))
+    };
     let mut held = shared.as_ref().and_then(|target| {
         target
             .hold(&|line| say(line), &|| received().is_some())
@@ -1290,6 +1307,9 @@ pub fn run(
     }
     if let Some(target) = &shared {
         command.env("CARGO_TARGET_DIR", &target.dir);
+    }
+    if let Some(dir) = &own {
+        command.env("CARGO_TARGET_DIR", dir);
     }
     if let Some(output) = &request.output {
         let opened = OpenOptions::new()
@@ -1742,6 +1762,45 @@ fn shared_target(sources: &Sources, request: &Request, say: &dyn Fn(&str)) -> Op
         queue: locks.join(format!("{key}.queue")),
         tree: work_tree_root(&request.cwd).unwrap_or_else(|| request.cwd.clone()),
     })
+}
+
+/// The tree's own target directory, `<tree>/target`, for a cargo-based command whose repository
+/// a rule of [`Sources::target_rules`] opts out of the shared target
+/// (`story:build-shared-target-opt-out`), said in one line; no lock is taken. None for any other
+/// run, and when the environment of `build run` sets `CARGO_TARGET_DIR`: the caller's value wins
+/// ([`shared_target`] names it).
+fn own_target(sources: &Sources, request: &Request, say: &dyn Fn(&str)) -> Option<PathBuf> {
+    if sources.target_rules.is_empty() || !cargo_based(request) {
+        return None;
+    }
+    if (sources.env)("CARGO_TARGET_DIR").is_some_and(|held| !held.is_empty()) {
+        return None;
+    }
+    let name = repository_name(&request.cwd);
+    let names = [request.repository.clone(), name];
+    let shared = sources
+        .target_rules
+        .iter()
+        .find(|(pattern, _)| {
+            let tail = pattern.rsplit('/').next().unwrap_or(pattern);
+            names
+                .iter()
+                .flatten()
+                .any(|name| name == pattern || name == tail)
+        })
+        .is_none_or(|(_, shared)| *shared);
+    if shared {
+        return None;
+    }
+    let dir = work_tree_root(&request.cwd)
+        .unwrap_or_else(|| request.cwd.clone())
+        .join("target");
+    say(&format!(
+        "conductor: build run: repositories[].shared_target is false for this repository: \
+         CARGO_TARGET_DIR is {}, the tree's own target",
+        dir.display()
+    ));
+    Some(dir)
 }
 
 impl SharedTarget {

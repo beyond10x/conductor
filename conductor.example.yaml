@@ -77,6 +77,7 @@ instances:
     repositories:
       - {match: legacy-service, activity: inactive}
       - {match: docs-site, no_releases: "published on merge, no release"}
+      - {match: wasm-app, shared_target: false}
     retention:
       snapshots: 24
     forge:

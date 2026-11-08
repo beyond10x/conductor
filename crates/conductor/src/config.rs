@@ -421,7 +421,7 @@ pub const DEFAULT_MAX_OUTPUT_BYTES: i64 = 65_536;
 const CONFINEMENT_KEYS: [&str; 3] = ["mode", "provider", "limits"];
 const LIMIT_KEYS: [&str; 3] = ["memory_max", "cpu_weight", "tasks_max"];
 const CONTROLLER_KEYS: [&str; 3] = ["max_working", "max_subagents", "max_open_reviews"];
-const REPOSITORY_KEYS: [&str; 3] = ["match", "activity", "no_releases"];
+const REPOSITORY_KEYS: [&str; 4] = ["match", "activity", "no_releases", "shared_target"];
 const CADENCE_KEYS: [&str; 4] = ["cycle", "daily", "watch", "ci"];
 const THRESHOLD_KEYS: [&str; 21] = [
     "context_handover",
@@ -3434,11 +3434,14 @@ impl Reader<'_> {
         });
         let no_releases =
             Self::get(map, "no_releases").map(|value| self.text(value, &join(path, "no_releases")));
-        if activity.is_none() && no_releases.is_none() {
+        let shared_target = Self::get(map, "shared_target")
+            .map(|value| self.flag(value, &join(path, "shared_target")));
+        if activity.is_none() && no_releases.is_none() && shared_target.is_none() {
             self.problem(
                 path,
                 "sets nothing: write `activity`, `no_releases` (the reason the repository ships \
-                 without releases), or both",
+                 without releases), `shared_target` (false: its trees build in their own \
+                 target), or several",
             );
             return None;
         }
@@ -3446,6 +3449,7 @@ impl Reader<'_> {
             r#match: pattern?,
             activity: activity.map_or(Some(None), |activity| activity.map(Some))?,
             no_releases: no_releases.map_or(Some(None), |reason| reason.map(Some))?,
+            shared_target: shared_target.map_or(Some(None), |flag| flag.map(Some))?,
         })
     }
 
@@ -3964,6 +3968,10 @@ pub fn document(instance: &Instance) -> Yaml {
                     }),
                 ),
                 ("no_releases", optional(rule.no_releases.as_ref())),
+                (
+                    "shared_target",
+                    rule.shared_target.map_or(Yaml::Null, Yaml::Bool),
+                ),
             ])
         })
         .collect();

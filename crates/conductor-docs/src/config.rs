@@ -96,6 +96,7 @@ instances:
       max_open_reviews: 2
     repositories:
       - {match: alpha, activity: inactive, no_releases: published on merge}
+      - {match: beta, shared_target: false}
     cadence:
       cycle: 1h
       daily: '09:00'

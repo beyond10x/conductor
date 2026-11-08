@@ -170,6 +170,7 @@ impl Case {
             walk: build::walk,
             sccache: None,
             targets: Some(self.targets()),
+            target_rules: Vec::new(),
         }
     }
 
@@ -380,5 +381,78 @@ fn a_command_without_cargo_gets_no_target() {
         !case
             .read("repo/env.txt")
             .contains(&case.targets().display().to_string())
+    );
+}
+
+/// `story:build-shared-target-opt-out` acceptance 1: a repository whose rule sets
+/// `shared_target: false` builds into `<tree>/target` and standard error says so; a repository
+/// without such a rule keeps the shared target.
+#[test]
+fn a_repository_opted_out_gets_its_trees_own_target() {
+    let case = Case::new("opt-out");
+    let sources = Sources {
+        target_rules: vec![("example-org/example-repo".to_owned(), false)],
+        ..case.sources()
+    };
+    let outcome = case.run(&sources, &case.script("repo", TARGET));
+    assert_eq!(outcome.exit_code(), 0, "{outcome:?}: {}", case.said());
+    let own = case.dir.join("repo/target");
+    assert_eq!(case.read("repo/env.txt").trim(), own.display().to_string());
+    assert!(case.shared().is_empty(), "{:?}", case.shared());
+    let said = case.said();
+    assert!(
+        said.lines().any(|line| line.contains("shared_target")
+            && line.contains("CARGO_TARGET_DIR")
+            && line.contains(&own.display().to_string())),
+        "{said}"
+    );
+
+    let other = Case::new("opt-out-other");
+    let sources = Sources {
+        target_rules: vec![("example-org/elsewhere".to_owned(), false)],
+        ..other.sources()
+    };
+    let outcome = other.run(&sources, &other.script("repo", TARGET));
+    assert_eq!(outcome.exit_code(), 0, "{outcome:?}: {}", other.said());
+    let seen = other.read("repo/env.txt");
+    assert!(
+        seen.trim()
+            .starts_with(&other.targets().display().to_string()),
+        "{seen}"
+    );
+    assert!(!other.said().contains("shared_target"), "{}", other.said());
+}
+
+/// Acceptance 1 and 4: a rule that sets `shared_target: true` keeps the shared target, and a
+/// `CARGO_TARGET_DIR` the caller set wins over an opt-out.
+#[test]
+fn an_opt_out_yields_to_a_caller_set_target_and_true_keeps_sharing() {
+    let case = Case::new("opt-out-caller");
+    let sources = Sources {
+        target_rules: vec![("example-repo".to_owned(), false)],
+        env: |name| (name == "CARGO_TARGET_DIR").then(|| "/elsewhere/target".to_owned()),
+        ..case.sources()
+    };
+    let outcome = case.run(&sources, &case.script("repo", TARGET));
+    assert_eq!(outcome.exit_code(), 0, "{outcome:?}: {}", case.said());
+    // The command inherits the real environment, which the fake `env` does not change: the run set nothing and said nothing.
+    assert_ne!(
+        case.read("repo/env.txt").trim(),
+        case.dir.join("repo/target").display().to_string()
+    );
+    assert!(!case.said().contains("shared_target"), "{}", case.said());
+
+    let kept = Case::new("opt-out-true");
+    let sources = Sources {
+        target_rules: vec![("example-repo".to_owned(), true)],
+        ..kept.sources()
+    };
+    let outcome = kept.run(&sources, &kept.script("repo", TARGET));
+    assert_eq!(outcome.exit_code(), 0, "{outcome:?}: {}", kept.said());
+    let seen = kept.read("repo/env.txt");
+    assert!(
+        seen.trim()
+            .starts_with(&kept.targets().display().to_string()),
+        "{seen}"
     );
 }

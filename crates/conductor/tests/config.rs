@@ -1542,7 +1542,7 @@ fn the_default_file_is_read_from_the_home_directory() {
     );
     assert_eq!(
         instance(&shown)["repositories"],
-        serde_json::json!([{"match": "ess", "activity": "active", "no_releases": null}]),
+        serde_json::json!([{"match": "ess", "activity": "active", "no_releases": null, "shared_target": null}]),
         "{shown:#}"
     );
 }
@@ -1888,8 +1888,8 @@ fn a_repository_rule_marks_a_repository_as_shipping_without_releases() {
     assert_eq!(
         instance(&json(&output))["repositories"],
         serde_json::json!([
-            {"match": "docs", "activity": null, "no_releases": "published on merge"},
-            {"match": "ess", "activity": "active", "no_releases": "consumed at main"},
+            {"match": "docs", "activity": null, "no_releases": "published on merge", "shared_target": null},
+            {"match": "ess", "activity": "active", "no_releases": "consumed at main", "shared_target": null},
         ])
     );
 
@@ -3789,4 +3789,42 @@ fn the_stall_and_queue_thresholds_default_show_as_written_and_are_refused_by_the
         let problems = refused(&case, &file);
         assert!(problems.contains(path), "{name}: {problems}");
     }
+}
+
+/// `story:build-shared-target-opt-out` acceptance 2: a repository rule that writes only
+/// `shared_target` is valid and `config show` prints it; a value that is no boolean is refused by
+/// its path.
+#[test]
+fn a_repository_rule_may_write_only_shared_target() {
+    let case = Case::new("shared-target");
+    let head = "version: conductor.config/1\n\
+                instances:\n\
+                \x20 - name: example-org\n\
+                \x20   session_prefix: ex\n\
+                \x20   sources: [{github: example-org}]\n\
+                \x20   checkouts: {root: ~/example-org, trees: ~/trees}\n\
+                \x20   repositories:\n";
+    let file = case.write(
+        "shared-target.yaml",
+        &format!("{head}\x20     - {{match: example-repo, shared_target: false}}\n"),
+    );
+    let output = case.with_file(&file, &["config", "validate"]);
+    assert_eq!(output.status.code(), Some(0), "{}", describe(&output));
+    let output = case.with_file(&file, &["config", "show", "--format", "json"]);
+    assert_eq!(
+        instance(&json(&output))["repositories"],
+        serde_json::json!([
+            {"match": "example-repo", "activity": null, "no_releases": null, "shared_target": false},
+        ])
+    );
+
+    let file = case.write(
+        "shared-target-refused.yaml",
+        &format!("{head}\x20     - {{match: example-repo, shared_target: \"no\"}}\n"),
+    );
+    let problems = refused(&case, &file);
+    assert!(
+        problems.contains("instances[0].repositories[0].shared_target: "),
+        "{problems}"
+    );
 }

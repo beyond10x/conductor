@@ -78,6 +78,7 @@ A key path written `a[].b` is the key `b` of each element of the list `a`. A def
 | `repositories[].match` | string | required |  |
 | `repositories[].activity` | `active` \| `inactive` | none |  |
 | `repositories[].no_releases` | string | none |  |
+| `repositories[].shared_target` | boolean | required |  |
 | `cadence.cycle` | duration | `2h` |  |
 | `cadence.daily` | [TimeOfDay](#timeofday) | `08:07` |  |
 | `cadence.watch` | duration | `180s` |  |
@@ -287,9 +288,9 @@ Keys: `max_working`, `max_subagents`, `max_open_reviews`. Specified as `conducto
 
 ### RepositoryRule
 
-What the instance holds true of the repository whose name `match` names: its activity, and whether it ships without releases. The file writes an activity in lower case: `active` or `inactive`. `no_releases` is the reason the repository ships without releases (docs published on merge, a specification consumed at `main`); a repository it marks is left out of every K5 reading of `metric compute`, which names it as skipped once. A rule writes at least one of the two.
+What the instance holds true of the repository whose name `match` names: its activity, and whether it ships without releases, and whether `conductor build run` shares its target directory between its trees. The file writes an activity in lower case: `active` or `inactive`. `no_releases` is the reason the repository ships without releases (docs published on merge, a specification consumed at `main`); a repository it marks is left out of every K5 reading of `metric compute`, which names it as skipped once. `shared_target: false` makes a cargo-based `build run` of the repository set `CARGO_TARGET_DIR` to `<tree>/target` instead of the shared target directory; absent or true keeps the shared one. A rule writes at least one of the three.
 
-Keys: `match`, `activity`, `no_releases`. Specified as `conductor.config.RepositoryRule`.
+Keys: `match`, `activity`, `no_releases`, `shared_target`. Specified as `conductor.config.RepositoryRule`.
 
 ### Cadence
 
