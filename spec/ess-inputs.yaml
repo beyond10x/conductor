@@ -58,3 +58,6 @@ scenarios:
   - scenarios/operator-join-instance-after-leave.yaml
   - scenarios/operator-join-instance-agent-refused.yaml
   - scenarios/operator-leave-instance-agent-refused.yaml
+  - scenarios/placement-open-box.yaml
+  - scenarios/placement-open-box-refused.yaml
+  - scenarios/placement-close-box.yaml

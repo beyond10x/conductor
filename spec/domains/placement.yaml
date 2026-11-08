@@ -5,17 +5,467 @@ summary: >
   remote one named by URL with a bearer, through one of the adapters `systemd`, `linux`
   (bubblewrap), `oci` or `pod` (design docs/design/architecture-next.md § 6, decision 3). A
   placement carries the box's profile: read-only roots, the writable workspace, limits, egress and
-  the secret slots. A refusal is recorded with substrate's own reason and nothing falls back.
+  the secret slots. Conductor implements no sandbox: conductord asks substrate to open the box
+  with the profile, and a refusal is recorded as a box refusal with substrate's own reason, by
+  name, and nothing falls back (ADR 0109, quoted in § 6). Replaces `confinement.provider`, `confinement.mode` and
+  the systemd provider's places (§ 3).
 
 naming:
   wire: placement
   display: Placement
 
 types:
+  # A placement's name, its identity.
+  # UNMAPPED: § 9 gives each `instances[]` entry a `placement` and § 2 makes a placement "one per
+  # instance, overridable per role"; neither says whether `conductor.config/2` declares placements
+  # by name and an instance names one, or each instance writes its placement inline (and then what
+  # the name is: the instance's name?). Open question for the owner and the config author.
+  - name: conductor.placement.PlacementName
+    kind: newtype
+    of: String
+
   - name: conductor.placement.BoxId
     kind: newtype
     of: Uuid
 
+  # The substrate adapter a box is opened through (§ 6, substrate 0.16.1): `systemd`, a unit in a
+  # slice with cpu, memory and task limits; `linux`, bubblewrap plus a delegated cgroup; `oci`, a
+  # container; `pod`, one pod per box in a cluster, on a remote substrate only.
+  # UNMAPPED: § 12 lists substrate's adapters as `local`, `linux`, `macos`, `systemd`, `oci`,
+  # `pod`; § 6 admits `local` (no isolation) only as "a configuration an instance writes on
+  # purpose, with a reason", and names no `macos` placement. Whether `Local` (and the reason it
+  # requires) and `Macos` belong here is not settled. Open question for the owner.
+  # UNMAPPED: § 6 offers `pod` on a `<url>` daemon only; the rule that a `Local` daemon refuses
+  # `Pod` is not written as an invariant, since nothing in the tree says whether conductord refuses
+  # that placement at config validation or substrate refuses it at box open. Open question.
   - name: conductor.placement.Adapter
     kind: enum
     variants: [Systemd, Linux, Oci, Pod]
+
+  # A substrate daemon on the control host, kept running by conductord: `substrate-daemon
+  # --socket <socket>`, reached over that Unix socket (§ 6, `placement.daemon: local`, the
+  # default).
+  - name: conductor.placement.LocalDaemon
+    kind: struct
+    fields:
+      - {name: socket, type: String}
+
+  # A substrate daemon on a remote host or cluster, `substrate-daemon --tcp-listen
+  # --tcp-bearer-file`, reached over HTTPS/WSS at `url` with an Identity bearer (§ 6,
+  # `placement.daemon: <url>`). The bearer is a secret the config names and never holds (§ 9).
+  - name: conductor.placement.RemoteDaemon
+    kind: struct
+    fields:
+      - {name: url, type: String}
+      - {name: bearer, type: conductor.secret.SecretName}
+
+  # The substrate daemon a placement uses.
+  - name: conductor.placement.Daemon
+    kind: union
+    tag: kind
+    variants:
+      Local: conductor.placement.LocalDaemon
+      Remote: conductor.placement.RemoteDaemon
+
+  # The limits of a box (§ 6): cpu, memory and pids as the role's and the instance's `limits`
+  # write them, and the box's storage.
+  # UNMAPPED: § 6 names a storage limit, and neither § 6 nor § 9 gives its unit or says whether
+  # `conductor.config.Limits` gains the key in `conductor.config/2` (today it holds `memory_max`,
+  # `cpu_weight` and `tasks_max` only). `storage_max` is typed in GiB like `memory_max` until the
+  # owner and the config author settle it.
+  - name: conductor.placement.BoxLimits
+    kind: struct
+    fields:
+      - {name: limits, type: conductor.config.Limits}
+      - {name: storage_max, type: Optional<conductor.config.Gibibytes>}
+
+  # A box's network (§ 6): default deny, and only the forge hosts of the instance's sources and
+  # the model API host are reachable; nothing else.
+  - name: conductor.placement.Egress
+    kind: struct
+    fields:
+      - {name: forge_hosts, type: List<String>}
+      - {name: model_host, type: String}
+
+  # What conductord passes to substrate for one instance (§ 6, the `ConfinementProfile`):
+  # `read_only_roots`, the conductor binary and its profiles, the agent kind's binary, and the
+  # instance's checkouts root when `checkouts.trees` is elsewhere; `workspace`, the one writable
+  # substrate workspace whose subdirectories are today's six writable places (checkout, trees,
+  # build cache, scratch, harness state, records); `limits`; `egress`; and `secret_slots`, the
+  # secrets resolved at box open and handed in as sealed memfd slots, never in argv or env (§ 9).
+  # UNMAPPED: § 6 gives the workspace "subdirectories" for the six places, and nothing says
+  # whether the profile lists them or substrate's workspace derives them. Open question.
+  - name: conductor.placement.BoxProfile
+    kind: struct
+    fields:
+      - {name: read_only_roots, type: List<String>}
+      - {name: workspace, type: String}
+      - {name: limits, type: conductor.placement.BoxLimits}
+      - {name: egress, type: conductor.placement.Egress}
+      - {name: secret_slots, type: List<conductor.secret.SecretName>}
+
+  # Substrate's name for why it refused to open a box, passed through verbatim (§ 6: "a refusal
+  # with substrate's name"; "conductor passes the refusal through with its name"). The one name
+  # the tree records is `exec.sandbox-unavailable`: the placement cannot give what the profile
+  # asks for. A host policy refusing an adapter is passed through under the name substrate gives
+  # it.
+  # UNMAPPED: the other refusal names substrate declares at box open, the host policy's refusal
+  # of an adapter among them, are read nowhere in this tree (it records `exec.metrics-unserved`
+  # and `exec.resource-usage`, which are exec refusals and withheld metrics, not box-open
+  # refusals). Substrate's refusal catalogue (substrate 0.16.1, the version `b10x.toml` pins)
+  # settles whether this becomes an enum of named reasons; until then it is the name as text.
+  - name: conductor.placement.RefusalReason
+    kind: newtype
+    of: String
+
+entities:
+  # One placement: the substrate daemon, the adapter and the box profile (§ 6). Placements are
+  # desired state, read from the config; no command of this domain creates one.
+  # UNMAPPED: § 6 and § 9 do not say which command records a placement (a `PutConfig` of
+  # `conductor.config`, or reconciliation), so no command here creates one; the single state
+  # `Configured` is this draft's name for "present in the config". Open question for the owner.
+  - name: conductor.placement.Placement
+    identity:
+      name: name
+      type: conductor.placement.PlacementName
+    fields:
+      - name: daemon
+        type: conductor.placement.Daemon
+      - name: adapter
+        type: conductor.placement.Adapter
+      - name: profile
+        type: conductor.placement.BoxProfile
+    lifecycle:
+      initial: Configured
+      states: [Configured]
+      terminal: [Configured]
+
+  # One box opened for an instance at a placement (§ 4: conductord opens and closes each
+  # instance's box): `Opened` until conductord closes it. `actor` is who asked for the box,
+  # `closed_by` who closed it.
+  # A box substrate refused is not a state of this lifecycle but its own record,
+  # `conductor.placement.BoxRefusal`: the brief's lifecycle (Opened -> Closed, with `Refused` the
+  # state of a refused box) is refused by ess 0.90 as `unreachable_state` (ESS-ENTITY-011), since a
+  # state a box is created into (`into: Refused`) must still be reachable from `initial` through a
+  # transition, and no transition leads from `Opened` to `Refused`. Reported to the owner.
+  - name: conductor.placement.Box
+    identity:
+      name: box_id
+      type: conductor.placement.BoxId
+    fields:
+      - name: placement
+        type: conductor.placement.PlacementName
+      - name: instance
+        type: conductor.config.InstanceName
+      - name: actor
+        type: conductor.operator.Actor
+      - name: opened_at
+        type: Timestamp
+      - name: closed_at
+        type: Optional<Timestamp>
+      - name: closed_by
+        type: Optional<conductor.operator.Actor>
+    relations:
+      - name: placement
+        kind: references
+        target: conductor.placement.Placement
+        cardinality: one
+        via: placement
+    # UNMAPPED: a box belongs to one instance (`instance`), and `conductor.instance.Instance`
+    # holds "box" among its actual fields (§ 3); whether that is a `references` from the instance
+    # to the box, from the box to the instance, or both, is the instance author's to settle with
+    # this domain. No relation to `conductor.instance.Instance` is declared here.
+    lifecycle:
+      initial: Opened
+      states: [Opened, Closed]
+      terminal: [Closed]
+      transitions:
+        - name: close
+          from: [Opened]
+          to: Closed
+
+  # One box substrate refused to open (§ 6): the placement cannot give what the profile asks for
+  # (`exec.sandbox-unavailable`), or substrate's host policy refuses the adapter. It holds
+  # substrate's reason by name; the instance does not start and nothing falls back. The design
+  # calls this record `PlacementRefused` (§ 3, § 6: "recorded as `PlacementRefused`"); ess 0.90
+  # refuses an outcome that both reports an error and records (`refusal_mutated_state`,
+  # ESS-COMMAND-004: "a refused command changes nothing"), so the refusal is recorded here and
+  # emitted as `BoxRefused`, and no error `PlacementRefused` is declared. Reported to the owner.
+  # Its identity is the id minted for the box that did not open, so a box id names either an
+  # opened box or a refused one.
+  - name: conductor.placement.BoxRefusal
+    identity:
+      name: box_id
+      type: conductor.placement.BoxId
+    fields:
+      - name: placement
+        type: conductor.placement.PlacementName
+      - name: instance
+        type: conductor.config.InstanceName
+      - name: actor
+        type: conductor.operator.Actor
+      - name: reason
+        type: conductor.placement.RefusalReason
+      - name: refused_at
+        type: Timestamp
+    relations:
+      - name: placement
+        kind: references
+        target: conductor.placement.Placement
+        cardinality: one
+        via: placement
+    lifecycle:
+      initial: Refused
+      states: [Refused]
+      terminal: [Refused]
+
+actors:
+  # conductord opens and closes each instance's box at its placement (§ 2, § 4); it is the only
+  # issuer of both commands.
+  - name: conductor.placement.Conductord
+    may:
+      - conductor.placement.OpenBox
+      - conductor.placement.CloseBox
+    naming:
+      display: conductord
+
+errors:
+  - name: conductor.placement.BoxStateConflict
+    summary: The box is already closed, so nothing was closed.
+    fields:
+      - name: box_id
+        type: conductor.placement.BoxId
+
+  - name: conductor.placement.BoxNotFound
+    summary: No box has this id, so nothing was closed.
+    fields:
+      - name: box_id
+        type: conductor.placement.BoxId
+
+commands:
+  # UNMAPPED: every command's first input is a `conductor.operator.Actor`, and conductord, the one
+  # issuer here, is neither `Human` (an operator) nor `Agent` (a program the instance runtime
+  # started in a role). § 3 "Actors" does not say what actor the daemon's own commands carry.
+  # Open question for the owner and the operator author.
+  - name: conductor.placement.OpenBox
+    naming:
+      wire: open-box
+      display: Open a box
+      summary: >
+        conductord asks the placement's substrate daemon to open a box for an instance with the
+        placement's profile, the secrets resolved into its slots (§ 6, § 9).
+    input:
+      - name: actor
+        type: conductor.operator.Actor
+      - name: placement
+        type: conductor.placement.PlacementName
+      - name: instance
+        type: conductor.config.InstanceName
+      - name: at
+        type: Timestamp
+    outcomes:
+      - name: refused
+        external: substrate cannot give what the placement's profile asks for and refuses by name (`exec.sandbox-unavailable`)
+        creates: conductor.placement.BoxRefusal
+        instance: box_id
+        sets:
+          placement: input.placement
+          instance: input.instance
+          actor: input.actor
+          reason: {generated: true}
+          refused_at: input.at
+        emits:
+          - conductor.placement.BoxRefused
+        payload:
+          conductor.placement.BoxRefused:
+            box_id: {generated: true}
+            actor: input.actor
+            placement: input.placement
+            instance: input.instance
+            reason: {generated: true}
+            refused_at: input.at
+        summary: Substrate refused the box; the refusal is on record with substrate's reason, the instance does not start and nothing falls back.
+      - name: adapter-refused
+        external: substrate's host policy refuses the placement's adapter, and substrate names the refusal
+        creates: conductor.placement.BoxRefusal
+        instance: box_id
+        sets:
+          placement: input.placement
+          instance: input.instance
+          actor: input.actor
+          reason: {generated: true}
+          refused_at: input.at
+        emits:
+          - conductor.placement.BoxRefused
+        payload:
+          conductor.placement.BoxRefused:
+            box_id: {generated: true}
+            actor: input.actor
+            placement: input.placement
+            instance: input.instance
+            reason: {generated: true}
+            refused_at: input.at
+        summary: The host policy refused the adapter; the refusal is on record with the name substrate gave it, passed through, and nothing falls back.
+      - name: opened
+        creates: conductor.placement.Box
+        instance: box_id
+        sets:
+          placement: input.placement
+          instance: input.instance
+          actor: input.actor
+          opened_at: input.at
+        emits:
+          - conductor.placement.BoxOpened
+        payload:
+          conductor.placement.BoxOpened:
+            box_id: {generated: true}
+            actor: input.actor
+            placement: input.placement
+            instance: input.instance
+            opened_at: input.at
+        summary: The box is open at the placement with the placement's profile.
+
+  - name: conductor.placement.CloseBox
+    naming:
+      wire: close-box
+      display: Close a box
+      summary: conductord closes an open box, as when an instance is gone from the config (§ 4).
+    input:
+      - name: actor
+        type: conductor.operator.Actor
+      - name: box_id
+        type: conductor.placement.BoxId
+      - name: at
+        type: Timestamp
+    outcomes:
+      - name: closed
+        moves: conductor.placement.Box.close
+        instance: box_id
+        sets:
+          closed_at: input.at
+          closed_by: input.actor
+        emits:
+          - conductor.placement.BoxClosed
+        payload:
+          conductor.placement.BoxClosed:
+            box_id: input.box_id
+            actor: input.actor
+            closed_at: input.at
+        summary: The box is closed.
+      - name: no-such-box
+        unknown_instance: true
+        error: conductor.placement.BoxNotFound
+        payload:
+          conductor.placement.BoxNotFound:
+            box_id: input.box_id
+        summary: No box has this id; nothing was closed.
+      - name: wrong-state
+        wrong_state: true
+        error: conductor.placement.BoxStateConflict
+        payload:
+          conductor.placement.BoxStateConflict:
+            box_id: input.box_id
+        summary: The box is already Closed, so nothing was closed.
+
+events:
+  - name: conductor.placement.BoxOpened
+    fields:
+      - name: box_id
+        type: conductor.placement.BoxId
+      - name: actor
+        type: conductor.operator.Actor
+      - name: placement
+        type: conductor.placement.PlacementName
+      - name: instance
+        type: conductor.config.InstanceName
+      - name: opened_at
+        type: Timestamp
+
+  - name: conductor.placement.BoxRefused
+    fields:
+      - name: box_id
+        type: conductor.placement.BoxId
+      - name: actor
+        type: conductor.operator.Actor
+      - name: placement
+        type: conductor.placement.PlacementName
+      - name: instance
+        type: conductor.config.InstanceName
+      - name: reason
+        type: conductor.placement.RefusalReason
+      - name: refused_at
+        type: Timestamp
+
+  - name: conductor.placement.BoxClosed
+    fields:
+      - name: box_id
+        type: conductor.placement.BoxId
+      - name: actor
+        type: conductor.operator.Actor
+      - name: closed_at
+        type: Timestamp
+
+views:
+  - name: conductor.placement.Placements
+    source: conductor.placement.Placement
+    consistency: read_your_writes
+    fields:
+      - name: name
+        type: conductor.placement.PlacementName
+      - name: state
+        type: conductor.placement.Placement.State
+      - name: daemon
+        type: conductor.placement.Daemon
+      - name: adapter
+        type: conductor.placement.Adapter
+      - name: profile
+        type: conductor.placement.BoxProfile
+    naming:
+      wire: placements
+      display: Placements
+
+  - name: conductor.placement.Boxes
+    source: conductor.placement.Box
+    consistency: read_your_writes
+    fields:
+      - name: box_id
+        type: conductor.placement.BoxId
+      - name: state
+        type: conductor.placement.Box.State
+      - name: placement
+        type: conductor.placement.PlacementName
+      - name: instance
+        type: conductor.config.InstanceName
+      - name: actor
+        type: conductor.operator.Actor
+      - name: opened_at
+        type: Timestamp
+      - name: closed_at
+        type: Optional<Timestamp>
+      - name: closed_by
+        type: Optional<conductor.operator.Actor>
+    naming:
+      wire: boxes
+      display: Boxes
+
+  - name: conductor.placement.BoxRefusals
+    source: conductor.placement.BoxRefusal
+    consistency: read_your_writes
+    fields:
+      - name: box_id
+        type: conductor.placement.BoxId
+      - name: state
+        type: conductor.placement.BoxRefusal.State
+      - name: placement
+        type: conductor.placement.PlacementName
+      - name: instance
+        type: conductor.config.InstanceName
+      - name: actor
+        type: conductor.operator.Actor
+      - name: reason
+        type: conductor.placement.RefusalReason
+      - name: refused_at
+        type: Timestamp
+    naming:
+      wire: box-refusals
+      display: Box refusals
