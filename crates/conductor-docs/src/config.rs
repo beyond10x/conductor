@@ -44,8 +44,10 @@ const HOME: &str = "/sample-home";
 const DERIVED: [(&str, &str); 1] = [("roles", "session_name")];
 
 /// The sections whose every key the library derives (`conductor`, the conductor that serves the
-/// instance): [`SAMPLE`] does not set them, and their keys' default is written `derived`.
-const DERIVED_SECTIONS: [&str; 1] = ["conductor"];
+/// instance; `remote`, the remote substrate daemon read from the instance's `placement`,
+/// `story:placement-substrate-remote`): [`SAMPLE`] does not set them, and their keys' default is
+/// written `derived`.
+const DERIVED_SECTIONS: [&str; 2] = ["conductor", "remote"];
 
 /// A config file that sets every key of the specification but [`DERIVED`] to a value that differs
 /// from its default, so that leaving one out shows the default the library fills. Generation fails
@@ -630,6 +632,7 @@ fn derived(prefix: &[Step], key: &str) -> bool {
     DERIVED.iter().any(|(list, field)| {
         matches!(prefix.last(), Some(Step::Each(each)) if each == list) && key == *field
     }) || matches!(prefix, [Step::Key(section)] if DERIVED_SECTIONS.contains(&section.as_str()))
+        || (prefix.is_empty() && DERIVED_SECTIONS.contains(&key))
 }
 
 fn written(path: &[Step]) -> String {

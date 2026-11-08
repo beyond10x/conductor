@@ -65,6 +65,7 @@ pub fn serve_tuned(
             Route {
                 socket: path,
                 token,
+                remote: None,
             },
         )]
         .into_iter()

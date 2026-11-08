@@ -86,7 +86,7 @@ fn fixture() -> PathBuf {
 
 /// Every view the fixture holds the answer of, by its file under `views/`, with the arguments
 /// before `--format json`.
-const VIEWS: [(&str, &[&str]); 25] = [
+const VIEWS: [(&str, &[&str]); 26] = [
     ("snapshot-snapshots", &["snapshot", "snapshots"]),
     ("snapshot-repositories", &["snapshot", "repositories"]),
     ("snapshot-pull-requests", &["snapshot", "pull-requests"]),
@@ -130,6 +130,7 @@ const VIEWS: [(&str, &[&str]); 25] = [
         &["resource", "resource-requests"],
     ),
     ("guard-guard-decisions", &["guard", "guard-decisions"]),
+    ("tuner-settings-proposals", &["tuner", "settings-proposals"]),
 ];
 
 /// One case: the directory the binary runs from, the state directory `--state-dir` names, and an
@@ -224,7 +225,8 @@ fn describe(output: &Output) -> String {
 
 /// The fixture's eventlog-file store with one observation of each kind no build before the views
 /// that read them could record, appended in the first snapshot: a secret sync
-/// (`story:policy-secret-drift`) and a usage reading (`story:usage-probe`). Built once per run
+/// (`story:policy-secret-drift`) and a usage reading (`story:usage-probe`); and one settings
+/// proposal (`story:tuner`), written without an actor as a build before v1 wrote it. Built once per run
 /// under this test target's temporary directory; the committed store is never written.
 fn fixture_store() -> &'static Path {
     static STORE: OnceLock<PathBuf> = OnceLock::new();
@@ -264,6 +266,23 @@ fn fixture_store() -> &'static Path {
                 }),
             ),
         ];
+        let proposal = json!({
+            "state": "Kept",
+            "proposal_id": "01a117f9-6a03-7a03-8a03-0a0000000003",
+            "instance": "example-org",
+            "key": "thresholds.build_slot",
+            "old": "2",
+            "new": "3",
+            "metric_id": "build-wait",
+            "reading": "01a117f9-6a04-7a04-8a04-0a0000000004",
+            "baseline": "12.5",
+            "window_days": 3,
+            "proposed_at": "2026-10-07T20:06:22Z",
+            "revision": "rev-1",
+            "reason": "the build wait rose above its target",
+            "finding": null,
+            "verdict": "improved",
+        });
         let runtime = tokio::runtime::Builder::new_current_thread()
             .build()
             .expect("a runtime");
@@ -271,10 +290,21 @@ fn fixture_store() -> &'static Path {
             let log = FileEventStore::open_existing(&store)
                 .await
                 .expect("open the copy of the fixture's eventlog-file store");
-            for (stream_type, observation, mut body) in observations {
-                body["state"] = json!("Recorded");
-                body["observation_id"] = json!(observation);
-                body["snapshot_id"] = json!("01a117f9-62e1-7681-b694-cec57cddaf22");
+            let observations =
+                observations
+                    .into_iter()
+                    .map(|(stream_type, observation, mut body)| {
+                        body["state"] = json!("Recorded");
+                        body["observation_id"] = json!(observation);
+                        body["snapshot_id"] = json!("01a117f9-62e1-7681-b694-cec57cddaf22");
+                        (stream_type, observation, body)
+                    });
+            let proposal = (
+                "conductor.improvement.SettingsProposal",
+                "01a117f9-6a03-7a03-8a03-0a0000000003",
+                proposal,
+            );
+            for (stream_type, observation, body) in observations.chain([proposal]) {
                 let tenant = TenantId::new("conductor").expect("the tenant");
                 let stream = StreamId::new(tenant, stream_type, observation)
                     .expect("the observation's stream");
@@ -294,7 +324,7 @@ fn fixture_store() -> &'static Path {
                 };
                 log.append(&stream, Expected::NoStream, &events, &meta)
                     .await
-                    .expect("append the observation");
+                    .expect("append the record");
             }
         });
         store

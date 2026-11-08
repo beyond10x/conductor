@@ -731,6 +731,9 @@ types:
     fields:
       - {name: name, type: conductor.config.InstanceName}
       - {name: placement, type: conductor.config.PlacementName}
+      # The remote substrate daemon of the placement, absent for a local one
+      # (story:placement-substrate-remote).
+      - {name: remote, type: Optional<conductor.placement.RemoteDaemon>}
       - {name: session_prefix, type: Optional<conductor.config.SessionPrefix>}
       - {name: sources, type: List<conductor.config.Source>}
       - {name: checkouts, type: conductor.config.Checkouts}
