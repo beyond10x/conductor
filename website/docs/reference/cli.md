@@ -133,7 +133,7 @@ Every command takes these, before or after its name.
 | [`conductor session deliveries`](#conductor-session-deliveries) | Deliveries to sessions |
 | [`conductor session leases`](#conductor-session-leases) | Conductor leases |
 | [`conductor session run-ticks`](#conductor-session-run-ticks) | Ticks of the run daemon |
-| [`conductor session attach`](#conductor-session-attach) | Attach this terminal to a live session's tmux, by --name or --role, or through a picker of every instance's sessions without either; detach with ctrl-] then d, the session runs on; --watch attaches read-only, and follows the typescript of a session started before the tmux launcher; refuse inside a session, an unknown session, and a read-write attach to a session started before the tmux launcher |
+| [`conductor session attach`](#conductor-session-attach) | Attach this terminal to a live session's tmux, by --name or --role, or through a picker of every instance's sessions without either; detach with ctrl-] then d, the session runs on; --watch attaches read-only, and follows the terminal log of a session started before the tmux launcher; refuse inside a session, an unknown session, and a read-write attach to a session started before the tmux launcher |
 | [`conductor session deliver`](#conductor-session-deliver) | Type a text into a running session's tmux, then Enter, and record the delivery and its dispatch line; --text is a file, or - for standard input, which is kept as &lt;state>/mailbox/delivered/&lt;ulid>.md; refuse a session whose launcher socket is absent or whose tmux does not take the text, naming it, without trying again |
 | [`conductor session list`](#conductor-session-list) | Print one line per live session of every instance (or --instance) whose state holds a launcher's files for it: its instance, its name, and attach (read-write or --watch) or watch (--watch only, started before the tmux launcher) |
 | [`conductor session start`](#conductor-session-start) | Start the session of the role director or maintainer (conductor or conductor-dev, their old names, for this release) in the box the instance's confinement asks for, measure the box at its boundary and write the measurement under the state directory; refuse an unknown role, a session of that name already running, and under strict a provider not available or a box short of the request |
@@ -181,7 +181,7 @@ Every command takes these, before or after its name.
 | [`conductor config validate`](#conductor-config-validate) | Check the config file and the host file host.yaml; exit 1 naming each problem by its YAML path |
 | [`conductor config workspace`](#conductor-config-workspace) | Write the instance's workspace file from its config; --check names each difference |
 | [`conductor daemon`](#conductor-daemon) |  |
-| [`conductor daemon serve`](#conductor-daemon-serve) | Run conductord, the daemon of the control host, reconciling every instance of the config file and serving the global API; not written yet, exits 2 |
+| [`conductor daemon serve`](#conductor-daemon-serve) | Run conductord, the daemon of the control host, reconciling the instance runtimes from the config file - start what is absent, stop what is gone, restart what changed placement or binary - on a config change, a lost runtime and every daemon.cadence.reconcile, recording one Reconciliation per action, and serving GET 127.0.0.1:&lt;daemon.port>/v1/instances. --install writes, enables and starts the user unit conductord.service; --uninstall stops and removes it |
 | [`conductor dashboard`](#conductor-dashboard) |  |
 | [`conductor dashboard serve`](#conductor-dashboard-serve) | Serve a live, read-only page of what every session works on |
 | [`conductor doctor`](#conductor-doctor) | Report the machine, each program conductor starts as present, with its version, or missing, each one older than its pin in the nearest b10x.toml, or else in the pins conductor was built with, and the account each forge CLI is logged in as on each host of the config file's sources |
@@ -198,14 +198,14 @@ Every command takes these, before or after its name.
 | [`conductor records check`](#conductor-records-check) | Check the records' dispatch and decision logs; exit 1 naming each decision id a dispatch line cites that no decision line or store decision holds, each line whose keys its log does not declare, and each decision line in the dispatch log |
 | [`conductor rules`](#conductor-rules) |  |
 | [`conductor rules show`](#conductor-rules-show) | Print items of the instance's rules.md verbatim, by number in the order given or every item under a heading, without opening the store; exit 1 naming a number or heading the file does not hold |
-| [`conductor run`](#conductor-run) | Run the instance's loop with no model call, recording each tick - every cadence.watch the watch pass, its handlers and the mailbox; every cadence.cycle the snapshot, the board, records check and dispatch v1; at cadence.daily metric compute, REPORT.md and a commit of the records through the bot route. --once runs one watch tick and one cycle tick and exits; --once --commit-records commits the records alone; --install starts it as the user unit conductor_&lt;instance>-run.service through systemd-run (under the none provider prints the command instead); --uninstall stops that unit |
+| [`conductor run`](#conductor-run) | Run the instance's loop with no model call, recording each tick - every cadence.watch the watch pass, its handlers and the mailbox; every cadence.cycle the snapshot, the board, records check and dispatch v1; at cadence.daily metric compute, REPORT.md and a commit of the records through the bot route. --once runs one watch tick and one cycle tick and exits; --once --commit-records commits the records alone |
 | [`conductor secret`](#conductor-secret) |  |
 | [`conductor secret put`](#conductor-secret-put) | Put a secret's value into the daemon's secrets source under the name the config writes; not written yet, exits 2 |
 | [`conductor setup`](#conductor-setup) | Check a repository's prerequisites, doctor's and its planning store, instance, records and trust; --apply writes the instance config, runs init and trust, and prints what only a person may run |
 | [`conductor spawn`](#conductor-spawn) | Start a repository's controller session in its checkout, with the controller role's profile, model and settings and its charter, and record it running; refuse while a session of that name runs |
 | [`conductor status`](#conductor-status) | Print what asks for attention, one line each, from the store alone (the newest complete snapshot's id and age, its deviations, blocked dispatches, waits, pending requests and usage); --full prints its sessions and every open dispatch besides; start no snapshot and create nothing |
 | [`conductor store`](#conductor-store) |  |
-| [`conductor store migrate`](#conductor-store-migrate) | Copy the eventlog-file store under the state directory into a tree store, keep the old one beside it, and print the counts moved |
+| [`conductor store migrate`](#conductor-store-migrate) | Read the eventlog tree under the state directory once into the store's database, record the migration there, and print the counts read; refuse a tree read before (AlreadyMigrated) or none there (SourceMissing) |
 | [`conductor trust`](#conductor-trust) | Mark every git checkout under the instance's checkouts root, and its records directory, as trusted Claude Code workspaces in ~/.claude.json |
 | [`conductor tui`](#conductor-tui) | Open the terminal UI over the daemon's global API; not written yet, exits 2 |
 | [`conductor upgrade`](#conductor-upgrade) | Check for a newer release of the repository conductor was built from; without --check, download its archive for this target and SHA256SUMS, verify the sum, run the new binary's --version and replace this binary, keeping conductor.previous; --release installs a named release |
@@ -1797,7 +1797,7 @@ Usage: conductor session run-ticks [OPTIONS]
 
 ## `conductor session attach`
 
-Attach this terminal to a live session's tmux, by --name or --role, or through a picker of every instance's sessions without either; detach with ctrl-] then d, the session runs on; --watch attaches read-only, and follows the typescript of a session started before the tmux launcher; refuse inside a session, an unknown session, and a read-write attach to a session started before the tmux launcher
+Attach this terminal to a live session's tmux, by --name or --role, or through a picker of every instance's sessions without either; detach with ctrl-] then d, the session runs on; --watch attaches read-only, and follows the terminal log of a session started before the tmux launcher; refuse inside a session, an unknown session, and a read-write attach to a session started before the tmux launcher
 
 ```text
 Usage: conductor session attach [OPTIONS]
@@ -2413,11 +2413,16 @@ Usage: conductor daemon [OPTIONS] <COMMAND>
 
 ## `conductor daemon serve`
 
-Run conductord, the daemon of the control host, reconciling every instance of the config file and serving the global API; not written yet, exits 2
+Run conductord, the daemon of the control host, reconciling the instance runtimes from the config file - start what is absent, stop what is gone, restart what changed placement or binary - on a config change, a lost runtime and every daemon.cadence.reconcile, recording one Reconciliation per action, and serving GET 127.0.0.1:&lt;daemon.port>/v1/instances. --install writes, enables and starts the user unit conductord.service; --uninstall stops and removes it
 
 ```text
 Usage: conductor daemon serve [OPTIONS]
 ```
+
+| Argument | Required | Default | Meaning |
+|---|---|---|---|
+| `--install <BOOL>` | no | none | Write the user unit conductord.service running this command, then enable and start it. `--install` alone is `--install true` One of `true`, `false`. |
+| `--uninstall <BOOL>` | no | none | Disable and stop the user unit conductord.service and remove its file. `--uninstall` alone is `--uninstall true` One of `true`, `false`. |
 
 ## `conductor dashboard`
 
@@ -2570,7 +2575,7 @@ Usage: conductor rules show [OPTIONS]
 
 ## `conductor run`
 
-Run the instance's loop with no model call, recording each tick - every cadence.watch the watch pass, its handlers and the mailbox; every cadence.cycle the snapshot, the board, records check and dispatch v1; at cadence.daily metric compute, REPORT.md and a commit of the records through the bot route. --once runs one watch tick and one cycle tick and exits; --once --commit-records commits the records alone; --install starts it as the user unit conductor_&lt;instance>-run.service through systemd-run (under the none provider prints the command instead); --uninstall stops that unit
+Run the instance's loop with no model call, recording each tick - every cadence.watch the watch pass, its handlers and the mailbox; every cadence.cycle the snapshot, the board, records check and dispatch v1; at cadence.daily metric compute, REPORT.md and a commit of the records through the bot route. --once runs one watch tick and one cycle tick and exits; --once --commit-records commits the records alone
 
 ```text
 Usage: conductor run [OPTIONS]
@@ -2579,8 +2584,6 @@ Usage: conductor run [OPTIONS]
 | Argument | Required | Default | Meaning |
 |---|---|---|---|
 | `--once <BOOL>` | no | none | Run one watch tick and one cycle tick, then exit 0. `--once` alone is `--once true` One of `true`, `false`. |
-| `--install <BOOL>` | no | none | Start the loop as the user unit conductor_&lt;instance>-run.service through systemd-run; under the none provider print the command to run instead. `--install` alone is `--install true` One of `true`, `false`. |
-| `--uninstall <BOOL>` | no | none | Stop the user unit conductor_&lt;instance>-run.service. `--uninstall` alone is `--uninstall true` One of `true`, `false`. |
 | `--commit-records <BOOL>` | no | none | With --once: commit the records directory through the bot route and push it when it has an origin, and run no tick. `--commit-records` alone is `--commit-records true` One of `true`, `false`. |
 
 ## `conductor secret`
@@ -2643,7 +2646,7 @@ Usage: conductor store [OPTIONS] <COMMAND>
 
 ## `conductor store migrate`
 
-Copy the eventlog-file store under the state directory into a tree store, keep the old one beside it, and print the counts moved
+Read the eventlog tree under the state directory once into the store's database, record the migration there, and print the counts read; refuse a tree read before (AlreadyMigrated) or none there (SourceMissing)
 
 ```text
 Usage: conductor store migrate [OPTIONS]

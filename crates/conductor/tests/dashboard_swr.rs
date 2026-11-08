@@ -416,8 +416,7 @@ fn a_request_before_the_first_answer_is_503() {
 }
 
 /// A writer appends to the store while the dashboard runs, has served its answers and computes
-/// them again after each write: the trees' writer locks are free whenever the dashboard has
-/// answered, and each snapshot's appends end within the bound, however often the dashboard reads.
+/// them again after each write: each snapshot's appends end within the bound, however often the dashboard reads.
 #[test]
 fn a_writer_appends_while_the_dashboard_serves() {
     const APPEND: Duration = Duration::from_secs(60);
@@ -428,15 +427,6 @@ fn a_writer_appends_while_the_dashboard_serves() {
         for path in [BOARD, "/api/repositories", "/api/unanswered", "/api/health"] {
             let answer = get(port, path, None);
             assert_eq!(answer.status, 200, "{path}: {}", answer.body);
-        }
-        for tree in ["tree", "observations"] {
-            let lock = File::options()
-                .write(true)
-                .open(case.state().join(tree).join(".lock"))
-                .expect("open the writer lock");
-            lock.try_lock().unwrap_or_else(|error| {
-                panic!("round {round}: the dashboard holds {tree}/.lock: {error}")
-            });
         }
         let (done, appended) = mpsc::channel();
         let state = case.state();
@@ -464,7 +454,7 @@ fn a_writer_appends_while_the_dashboard_serves() {
 }
 
 /// The dashboard's store handle reads a store another writer committed to since, without waiting
-/// on the trees' writer locks, which a writer holds for as long as it commits.
+/// on the lock a handle that opens the database takes.
 #[test]
 fn a_reader_does_not_wait_on_the_writer_lock() {
     let case = Case::new("lock");
@@ -491,19 +481,13 @@ fn a_reader_does_not_wait_on_the_writer_lock() {
     );
 
     case.complete("2026-10-13T08:00:00Z", 3);
-    let held: Vec<File> = ["tree", "observations"]
-        .iter()
-        .map(|tree| {
-            let lock = File::options()
-                .create(true)
-                .truncate(false)
-                .write(true)
-                .open(state.join(tree).join(".lock"))
-                .expect("open the writer lock");
-            lock.lock().expect("hold the writer lock");
-            lock
-        })
-        .collect();
+    let held = File::options()
+        .create(true)
+        .truncate(false)
+        .write(true)
+        .open(state.join("store.sqlite.open-lock"))
+        .expect("open the lock");
+    held.lock().expect("hold the lock");
     go_tx.send(()).expect("go");
     let second = read_rx.recv_timeout(Duration::from_secs(20));
     drop(held);

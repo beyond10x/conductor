@@ -254,7 +254,7 @@ fn seed(state: &Path, count: usize) {
 
 /// How many verdicts the store under `state` holds, or 0 where there is none.
 fn held(state: &Path) -> usize {
-    if !state.join("tree").exists() {
+    if !state.join("store.sqlite").exists() {
         return 0;
     }
     let generated = Generated::new(store::open_existing(state).expect("open the store"));

@@ -947,7 +947,7 @@ fn the_state_dir_flag_names_the_store() {
     );
     let printed = String::from_utf8_lossy(&started.stdout).trim().to_owned();
     assert!(
-        elsewhere.join("tree").is_dir(),
+        elsewhere.join("store.sqlite").is_file(),
         "start-snapshot created no store under --state-dir: {}",
         describe(&started)
     );

@@ -1,37 +1,34 @@
-//! Conductor's local store under the state directory: every accepted command's outcome, so a
-//! restarted conductor resumes from records rather than from context.
+//! Conductor's store: every accepted command's outcome, so a restarted conductor resumes from
+//! records rather than from context.
 //!
-//! Built on eventlog's tree provider (`story:store-on-eventlog-tree` records the choice): one
-//! immutable file per event, read through an in-memory index built when the store opens. Each
-//! stored instance is one stream, typed by its entity's qualified name and keyed by its identity.
-//! Every write a generated behaviour makes through a storage port appends the instance's new
-//! snapshot to that stream, and every read folds the stream back, so a reopened store answers the
-//! views from records.
+//! One shared database per deployment (`story:store-shared`, design architecture-next § 8),
+//! opened through Eventlog's port with one of two adapters: `eventlog-sqlite` for a deployment
+//! that is one host, `eventlog-postgres` for everything else. A URL names it ([`Location`]):
+//! `sqlite:<path>` or `postgres://…`. The daemon's `daemon.store` is the one URL; the daemon hands
+//! it to every instance runtime it starts in [`STORE_VARIABLE`]. A handle of the instance this
+//! process runs, on that instance's state directory, opens the URL the variable names, else the
+//! one the config file writes as `daemon.store`, else `<state>/store.sqlite` ([`STORE_FILE`]); a
+//! handle on any other state directory (a `--state-dir` of its own, the host's directory) opens
+//! `<state>/store.sqlite`.
 //!
-//! The records are kept in two tree stores (`story:observation-retention`). `state/tree/` keeps
-//! every record but the observations, in one tenant, `conductor`. `state/observations/` keeps every
-//! `*Observation` entity of the observation domain ([`observations`]), each snapshot's in a tenant
-//! of its own, named after the snapshot's id; the `Snapshot` itself is in `tree/`. A tree store
-//! re-reads every file when it opens, so a handle opens `tree/` when it is opened and
-//! `observations/` only at its first read or write of an observation: a command that touches no
-//! observation, the guard's hook among them, never opens it, and `tree/` does not grow with the
-//! observations. [`Store::retain`] drops the tenants of the snapshots retention does not keep.
+//! Every event names its instance: on the deployment's database its tenant is the instance's
+//! name, and so is its subject; a state directory's own `store.sqlite` holds one instance's
+//! records, as `conductor`, so `--state-dir` reads them as written. One database holds every
+//! instance's records and the daemon's own, each instance's in one ordered log. Each stored
+//! instance is one stream, typed by its entity's qualified name and keyed by its identity. Every
+//! write a generated behaviour makes through a storage port appends the
+//! instance's new snapshot to that stream, and every read folds the stream back, so a reopened
+//! store answers the views from records.
 //!
-//! The store before it was eventlog's File provider under `state/store/`. Where that store is and
-//! no tree store is, every command refuses and names `conductor store migrate` ([`migrate`]), which
-//! copies it; nothing reads or writes it otherwise. The same command splits a `tree/` that holds
-//! observations, as the build before this one wrote it.
+//! The observations (`story:observation-retention`) are kept, each snapshot's, in a tenant of
+//! their own, `<instance>/observations/<snapshot>` ([`observations`]); [`Store::retain`] drops the
+//! tenants of the snapshots retention does not keep. The `Snapshot` itself is in the instance's
+//! tenant, as every other record is.
 //!
-//! The tree keeps each stream in a directory named after its id, so an id whose name would be
-//! longer than a directory entry may be is kept under the digest of it instead ([`held`]): an
-//! identity of up to 51 bytes always keeps its stream id, and one of only ASCII letters and
-//! digits up to 255 bytes does.
-//!
-//! A tree store serves reads from the index it built, and rebuilds it only when it writes. So a
-//! handle takes the tree's [`Mark`] (its commit files and its tenants) before each read, and before
-//! a write to an instance it has not read, and reopens the tree when another writer has committed
-//! since or a tenant was dropped: a long-lived handle sees another handle's writes, as it did on
-//! the File provider.
+//! The store before it was eventlog's tree provider under `state/tree/` (and before that its File
+//! provider under `state/store/`). `conductor store migrate` reads that tree once into the
+//! database ([`migrate`]) and is its only reader afterwards; where a state directory holds a tree
+//! and the database holds no migration of it, every command refuses and names that command.
 //!
 //! The generated storage ports cannot report a failure: `put` and `delete` return nothing, and
 //! `get` answers `None` for absent. So a handle keeps every read or write that failed, refuses
@@ -47,33 +44,38 @@
 //! the meantime, and an update decided on a stale read as [`StoreError::Moved`].
 
 use std::cell::RefCell;
-use std::collections::{BTreeSet, HashMap};
-use std::ffi::OsString;
+use std::collections::HashMap;
+use std::env;
 use std::fmt::{self, Write as _};
 use std::fs::{self, File, OpenOptions};
 use std::io::{self, Write as _};
 use std::panic;
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
+use std::sync::OnceLock;
 use std::thread;
 
 use anyhow::{Context as _, Result, bail};
-use conductor_model::behaviour::{GoalStorage, GuardDecisionStorage};
+use conductor_model::behaviour::{GoalStorage, GuardDecisionStorage, MigrationStorage};
+use conductor_model::config::InstanceName;
 use conductor_model::direction::{GoalData, GoalId, GoalSnapshot, GoalState};
 use conductor_model::dispatch::{
     GuardDecisionData, GuardDecisionId, GuardDecisionSnapshot, GuardDecisionState, Verdict,
 };
 use conductor_model::observation::RepositoryName;
 use conductor_model::primitives::{Timestamp, Uuid};
+use conductor_model::store::Backend;
 use eventlog_core::{
-    AppendGroup, AtomicEventStore as _, CommandMeta, EventLogError, EventStore, Expected,
-    MAX_READ_LIMIT, NewEvent, RecordedEvent, StreamAppend, StreamId, TenantId, new_event_id,
-    request_hash,
+    AppendGroup, AtomicEventStore, CommandMeta, EventLogError, Expected, MAX_READ_LIMIT, NewEvent,
+    RecordedEvent, StreamAppend, StreamId, TenantId, new_event_id, request_hash,
 };
-use eventlog_tree::TreeEventStore;
+use eventlog_postgres::PostgresEventStore;
+use eventlog_sqlite::SqliteEventStore;
 use serde_json::{Value, json};
 use time::OffsetDateTime;
 use tokio::runtime::{Builder, Handle, Runtime};
+
+use crate::config;
 
 // The storage ports of the later stories, one child module each, so that units running at once
 // never edit this file. A child module reaches the private helpers below (`read`, `write`, `fail`).
@@ -87,6 +89,7 @@ mod marks;
 pub mod migrate;
 pub mod observations;
 mod reclaim;
+mod reconciliation;
 pub(crate) mod run;
 pub mod series;
 mod serving;
@@ -94,30 +97,40 @@ mod session;
 mod snapshot;
 mod tool;
 
-/// The directory under `state/` the tree store of every record but the observations lives in.
+/// The variable the daemon hands every instance runtime it starts the store's URL in
+/// (`daemon.store`).
+pub const STORE_VARIABLE: &str = "CONDUCTOR_STORE";
+
+/// The SQLite file under a state directory a handle opens when no URL names the store.
+pub const STORE_FILE: &str = "store.sqlite";
+
+/// The table prefix of conductor's tables in the database: one owner, every instance in it.
+pub const PREFIX: &str = "conductor";
+
+/// The directory under `state/` the tree store of every record but the observations lived in,
+/// before `conductor store migrate`.
 const TREE_DIR: &str = "tree";
 
-/// The directory under `state/` the observations live in, one tenant per snapshot.
+/// The directory under `state/` the observations lived in, one tenant per snapshot.
 const OBSERVATIONS_DIR: &str = "observations";
 
-/// The directory under `state/` the daily rollups live in ([`series`], `story:dashboard-history`).
+/// The directory under `state/` the daily rollups lived in ([`series`]).
 const SERIES_DIR: &str = "series";
 
-/// The directory under `state/` the File provider's store lived in, before `conductor store
-/// migrate`.
+/// The directory under `state/` the File provider's store lived in, before the tree.
 const FILE_STORE_DIR: &str = "store";
 
 /// The File provider's commit point: a store directory holding it holds that provider's store.
 const FILE_STORE_MANIFEST: &str = "manifest.json";
 
-/// The tree store's own description, written when it is created: a directory holding it holds a
-/// tree store.
+/// The tree store's own description: a directory holding it holds a tree store.
 const TREE_MANIFEST: &str = "store.json";
 
 /// The tree store's writer lock, one writer at a time (eventlog-tree's layout).
 const TREE_LOCK: &str = ".lock";
 
-/// The one tenant of conductor's log, and the opaque id every record is attributed to.
+/// The tenant, subject and actor of a store on a state directory of no instance, and the one
+/// tenant of the tree before the database.
 const CONDUCTOR: &str = "conductor";
 
 /// The event that holds an instance's snapshot after a write.
@@ -135,119 +148,288 @@ const GOAL: &str = "conductor.direction.Goal";
 /// `conductor.dispatch.GuardDecision`.
 const GUARD_DECISION: &str = "conductor.dispatch.GuardDecision";
 
-/// Opens the store kept under `state`, at `state/tree/` (and `state/observations/` at its first
-/// use), creating `tree/` when it is not there.
-///
-/// # Errors
-///
-/// `state/store/` holds a File provider's store and `state/tree/` holds no tree store, or
-/// `state/tree.next/` is there and `state/tree/` holds no tree store: nothing is written, and the
-/// one line names `conductor store migrate`. Or the directory cannot be created, or the tree in it
-/// does not open: eventlog verifies every file it replays.
-pub fn open(state: &Path) -> Result<Store> {
-    let root = state.join(TREE_DIR);
-    unmigrated(state, &root)?;
-    fs::create_dir_all(&root).with_context(|| format!("create {}", root.display()))?;
-    Store::at(state)
+/// Where the store is: the database a URL names.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Location {
+    /// `sqlite:<path>`: one file, on one host.
+    Sqlite(PathBuf),
+    /// `postgres://…`: a server every box reaches.
+    Postgres(String),
 }
 
-/// Opens the store kept under `state`, at `state/tree/`, only when it is there: nothing is
-/// created, so a read never plants a store, and a read of observations where `state/observations/`
-/// holds none reads nothing.
-///
-/// # Errors
-///
-/// As [`open`] for a store `conductor store migrate` is to move; or `state/tree/` holds no tree
-/// store (one line naming it), or the tree in it does not open.
-pub fn open_existing(state: &Path) -> Result<Store> {
-    let root = state.join(TREE_DIR);
-    unmigrated(state, &root)?;
-    if !is_file(&root.join(TREE_MANIFEST)) {
-        bail!("no store at {}", root.display());
+impl Location {
+    /// The location `url` names: `sqlite:<path>` (a path under `~/` is under the home directory)
+    /// or `postgres://…`.
+    ///
+    /// # Errors
+    ///
+    /// `url` is neither, names no path, or writes its password as `secret:<name>`: the daemon
+    /// resolves the secret and hands the runtime the URL in [`STORE_VARIABLE`].
+    pub fn parse(url: &str) -> Result<Self> {
+        if let Some(path) = url.strip_prefix("sqlite:") {
+            let path = path
+                .strip_prefix("//")
+                .filter(|rest| rest.starts_with('/'))
+                .unwrap_or(path);
+            if path.is_empty() {
+                bail!("the store URL {url:?} names no file: write sqlite:<path>");
+            }
+            let path = match path.strip_prefix("~/") {
+                Some(rest) => PathBuf::from(
+                    env::var_os("HOME").context("the store URL is under ~/ and HOME is not set")?,
+                )
+                .join(rest),
+                None => PathBuf::from(path),
+            };
+            return Ok(Self::Sqlite(path));
+        }
+        if url.starts_with("postgres://") || url.starts_with("postgresql://") {
+            if url.contains(":secret:") {
+                bail!(
+                    "the store URL {} writes its password as secret:<name>, which only the daemon \
+                     resolves: it hands the runtime the URL in {STORE_VARIABLE}",
+                    redacted(url)
+                );
+            }
+            return Ok(Self::Postgres(url.to_owned()));
+        }
+        bail!(
+            "{:?} is not a store URL: write sqlite:<path> or postgres://…, its password a \
+             secret:<name>",
+            redacted(url)
+        )
     }
-    Store::at(state)
+
+    /// The backend: `Sqlite` or `Postgres`.
+    #[must_use]
+    pub fn backend(&self) -> Backend {
+        match self {
+            Self::Sqlite(_) => Backend::Sqlite,
+            Self::Postgres(_) => Backend::Postgres,
+        }
+    }
+
+    /// The backend's name as `conductor doctor` writes it: `sqlite` or `postgres`.
+    #[must_use]
+    pub fn backend_name(&self) -> &'static str {
+        match self {
+            Self::Sqlite(_) => "sqlite",
+            Self::Postgres(_) => "postgres",
+        }
+    }
+
+    /// Where it is, as a person may read it: the SQLite file, or the Postgres URL without its
+    /// password.
+    #[must_use]
+    pub fn shown(&self) -> String {
+        match self {
+            Self::Sqlite(path) => path.display().to_string(),
+            Self::Postgres(url) => redacted(url),
+        }
+    }
+
+    /// The URL, as `daemon.store` writes it.
+    #[must_use]
+    pub fn url(&self) -> String {
+        match self {
+            Self::Sqlite(path) => format!("sqlite:{}", path.display()),
+            Self::Postgres(url) => url.clone(),
+        }
+    }
 }
 
-/// [`open_existing`] for a handle that only reads, as the dashboard's does: it never takes a tree's
-/// writer lock ([`read_unlocked`]), so it neither waits on a writer nor keeps one waiting, however
-/// long it reads. It never writes.
+/// `url` with the password of its user, if any, written `***`.
+fn redacted(url: &str) -> String {
+    let Some((scheme, rest)) = url.split_once("://") else {
+        return url.to_owned();
+    };
+    let Some((user, host)) = rest.split_once('@') else {
+        return url.to_owned();
+    };
+    match user.split_once(':') {
+        Some((name, _)) => format!("{scheme}://{name}:***@{host}"),
+        None => url.to_owned(),
+    }
+}
+
+/// Whether the store at `location` answers, without creating anything in a SQLite file that is
+/// not there: `Err` with why it does not.
+///
+/// # Errors
+///
+/// Why it does not answer, on one line.
+pub fn answers(location: &Location) -> Result<(), String> {
+    let runtime = Engine::start().map_err(|error| format!("{error:#}"))?;
+    let opened = match location {
+        Location::Sqlite(path) => {
+            if !is_file(path) {
+                return Err(format!("no database at {}", path.display()));
+            }
+            let path = path.to_string_lossy().into_owned();
+            runtime
+                .block_on(SqliteEventStore::open_existing(&path, PREFIX))
+                .map(|_| ())
+        }
+        Location::Postgres(url) => runtime
+            .block_on(PostgresEventStore::connect(url, PREFIX))
+            .map(|_| ()),
+    };
+    opened.map_err(|error| one_line(&error.to_string()))
+}
+
+/// `text` on one line.
+fn one_line(text: &str) -> String {
+    text.split(['\n', '\r'])
+        .map(str::trim)
+        .filter(|line| !line.is_empty())
+        .collect::<Vec<_>>()
+        .join(" ")
+}
+
+/// How a handle opens its store.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Mode {
+    /// Creates the database and its tables where they are not there.
+    Create,
+    /// Opens only a database that is there.
+    Existing,
+    /// As [`Mode::Existing`], for a handle that never writes.
+    Reader,
+}
+
+/// The store a handle on `state` opens, and the instance it writes as: the instance this process
+/// runs, on that instance's own state directory, at the URL [`STORE_VARIABLE`] names, else the
+/// config file's `daemon.store`. Otherwise the state directory's own `<state>/store.sqlite`, as
+/// [`CONDUCTOR`]: a file only that state directory writes, so `--state-dir` reads it as written.
+///
+/// # Errors
+///
+/// The URL is no store URL.
+pub fn located(state: &Path) -> Result<(Location, String)> {
+    if let Some(active) = config::active_if_set()
+        && active.from_file
+        && same_dir(state, Path::new(&active.instance.state))
+    {
+        let instance = active.instance.name.0.clone();
+        if let Some(url) = handed_or_written() {
+            return Ok((Location::parse(&url)?, instance));
+        }
+    }
+    Ok((
+        Location::Sqlite(state.join(STORE_FILE)),
+        CONDUCTOR.to_owned(),
+    ))
+}
+
+/// Whether `one` and `other` name one directory.
+fn same_dir(one: &Path, other: &Path) -> bool {
+    one == other || config::physical(one) == config::physical(other)
+}
+
+/// The URL [`STORE_VARIABLE`] names, else the `daemon.store` the config file this process read
+/// writes; none when neither does. A file that writes no `daemon.store` keeps each instance's
+/// store under its state directory.
+fn handed_or_written() -> Option<String> {
+    if let Some(url) = env::var(STORE_VARIABLE).ok().filter(|url| !url.is_empty()) {
+        return Some(url);
+    }
+    static WRITTEN: OnceLock<Option<String>> = OnceLock::new();
+    WRITTEN
+        .get_or_init(|| {
+            let text = fs::read_to_string(config::config_file()?).ok()?;
+            let file: serde_yaml::Value = serde_yaml::from_str(&text).ok()?;
+            file.get("daemon")?
+                .get("store")?
+                .as_str()
+                .map(str::to_owned)
+        })
+        .clone()
+}
+
+/// Opens the store of `state` ([`located`]), creating the database and its tables when they are
+/// not there.
+///
+/// # Errors
+///
+/// `state` holds an eventlog tree (or File store) the database holds no migration of: nothing is
+/// written, and the one line names `conductor store migrate`. Or the URL is no store URL, or the
+/// database does not open.
+pub fn open(state: &Path) -> Result<Store> {
+    opened_on(state, Mode::Create)
+}
+
+/// Opens the store of `state` ([`located`]) only when its database is there: nothing is created,
+/// so a read never plants a store.
+///
+/// # Errors
+///
+/// As [`open`]; or the database is not there (one line naming it).
+pub fn open_existing(state: &Path) -> Result<Store> {
+    opened_on(state, Mode::Existing)
+}
+
+/// [`open_existing`] for a handle that only reads, as the dashboard's does. It never writes.
 ///
 /// # Errors
 ///
 /// As [`open_existing`].
 pub fn open_reader(state: &Path) -> Result<Store> {
-    let root = state.join(TREE_DIR);
-    unmigrated(state, &root)?;
-    if !is_file(&root.join(TREE_MANIFEST)) {
-        bail!("no store at {}", root.display());
-    }
-    Store::opened(state, true)
+    opened_on(state, Mode::Reader)
 }
 
-/// How often a reader tries an open that fails beside a writer before it answers the failure.
-const READER_TRIES: usize = 3;
-
-/// The tree at `root`, which holds a store, opened without its writer lock, with the [`Mark`] taken
-/// before the open: eventlog-tree lists a tree's commit files before its event files, and a commit
-/// writes its events before its commit file, so an open beside a writer serves every commit it
-/// listed and none half written, and a commit after the mark is read again at the next read. An
-/// open that fails beside a writer (a tenant erased while it was read) is tried again, up to
-/// [`READER_TRIES`] times, never under the lock. Nothing is created: a tree without its
-/// description is an error.
-fn read_unlocked(runtime: &Engine, root: &Path) -> Result<(TreeEventStore, Mark), EventLogError> {
-    let mut last = None;
-    for _ in 0..READER_TRIES {
-        if !is_file(&root.join(TREE_MANIFEST)) {
-            return Err(EventLogError::Backend(format!(
-                "no store at {}",
-                root.display()
-            )));
-        }
-        let opened = mark(root)
-            .map_err(|error| backend(&error))
-            .and_then(|seen| {
-                let log = runtime.block_on(TreeEventStore::open(root))?;
-                Ok((log, seen))
-            });
-        match opened {
-            Ok(opened) => return Ok(opened),
-            Err(error) => last = Some(error),
-        }
-    }
-    let error = last.map_or_else(String::new, |error| error.to_string());
-    Err(EventLogError::Backend(format!(
-        "open the store at {}: {error}",
-        root.display()
-    )))
+/// Opens the store at `url` as `instance`, creating the database and its tables when they are not
+/// there: what the daemon opens, and what it hands every runtime.
+///
+/// # Errors
+///
+/// `url` is no store URL, `instance` is no tenant eventlog holds, or the database does not open.
+pub fn open_url(url: &str, instance: &str) -> Result<Store> {
+    let location = Location::parse(url)?;
+    let state = match &location {
+        Location::Sqlite(path) => path.parent().map_or_else(PathBuf::new, Path::to_owned),
+        Location::Postgres(_) => env::current_dir().unwrap_or_default(),
+    };
+    Store::opened(&state, location, instance, Mode::Create)
 }
 
-/// Refuses a state directory whose `tree/` holds no tree store while `store/` holds a File
-/// provider's store, whose records would otherwise be left behind unread; or while `tree.next/`
-/// is there, which `conductor store migrate` renames to `tree/` and which a new `tree/` would
-/// stand in the way of.
-fn unmigrated(state: &Path, tree: &Path) -> Result<()> {
-    if is_file(&tree.join(TREE_MANIFEST)) {
-        return Ok(());
+/// [`open`], [`open_existing`] or [`open_reader`], by `mode`.
+fn opened_on(state: &Path, mode: Mode) -> Result<Store> {
+    let (location, instance) = located(state)?;
+    let tree = holds_tree(state);
+    if tree
+        && let Location::Sqlite(path) = &location
+        && !is_file(path)
+    {
+        bail!(unmigrated_line(state));
     }
-    let file_store = state.join(FILE_STORE_DIR);
-    if fs::symlink_metadata(file_store.join(FILE_STORE_MANIFEST)).is_ok() {
-        bail!(
-            "{} holds an eventlog-file store and {} holds no tree store: run `conductor store \
-             migrate`",
-            file_store.display(),
-            tree.display()
-        );
+    let store = Store::opened(state, location, &instance, mode)?;
+    if tree && !store.migrated() {
+        bail!(unmigrated_line(state));
     }
-    let next = state.join(migrate::NEXT_DIR);
-    if fs::symlink_metadata(&next).is_ok() {
-        bail!(
-            "{} holds a tree `conductor store migrate` has not finished and {} holds no tree \
-             store: run `conductor store migrate`",
-            next.display(),
-            tree.display()
-        );
-    }
-    Ok(())
+    Ok(store)
+}
+
+/// [`open`] for `conductor store migrate`: on a state directory whose tree is not yet read.
+fn open_for_migration(state: &Path) -> Result<Store> {
+    let (location, instance) = located(state)?;
+    Store::opened(state, location, &instance, Mode::Create)
+}
+
+/// Whether `state` holds an eventlog tree (or a split of one stopped between its renames), or an
+/// eventlog-file store, of the builds before the database.
+fn holds_tree(state: &Path) -> bool {
+    is_file(&state.join(TREE_DIR).join(TREE_MANIFEST))
+        || is_file(&state.join(migrate::NEXT_DIR).join(TREE_MANIFEST))
+        || fs::symlink_metadata(state.join(FILE_STORE_DIR).join(FILE_STORE_MANIFEST)).is_ok()
+}
+
+/// The one line every command but `store migrate` refuses with on a state directory whose tree
+/// is not read into the database yet.
+fn unmigrated_line(state: &Path) -> String {
+    format!(
+        "{} holds an eventlog tree the store has not read: run `conductor store migrate`",
+        state.display()
+    )
 }
 
 /// Whether `path` is a regular file, not following a final link.
@@ -266,106 +448,49 @@ fn hold(path: &Path) -> io::Result<File> {
     Ok(file)
 }
 
-/// Whether another writer holds the writer lock of the store under `state` (`state/tree/.lock`)
-/// right now. Takes the lock without waiting and lets it go at once; a store with no lock file
-/// yet is not held.
+/// Whether another writer holds the store's writer lock right now: never, since the database
+/// serializes its writers itself. Kept for the callers that waited on the tree's lock.
 ///
 /// # Errors
 ///
-/// The lock file is there and cannot be opened, or the lock cannot be asked for.
-pub fn tree_held(state: &Path) -> io::Result<bool> {
-    let path = state.join(TREE_DIR).join(TREE_LOCK);
-    let file = match OpenOptions::new().write(true).open(&path) {
-        Ok(file) => file,
-        Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(false),
-        Err(error) => return Err(error),
-    };
-    match file.try_lock() {
-        Ok(()) => Ok(false),
-        Err(fs::TryLockError::WouldBlock) => Ok(true),
-        Err(fs::TryLockError::Error(error)) => Err(error),
-    }
+/// None.
+pub fn tree_held(_state: &Path) -> io::Result<bool> {
+    Ok(false)
 }
 
-/// Waits until no other writer holds the writer lock of the store under `state`, taking it and
-/// letting it go; a store with no lock file yet is not waited for.
+/// Waits until no other writer holds the store's writer lock: at once, since the database
+/// serializes its writers itself.
 ///
 /// # Errors
 ///
-/// The lock file is there and cannot be opened or locked.
-pub fn wait_for_tree(state: &Path) -> io::Result<()> {
-    let path = state.join(TREE_DIR).join(TREE_LOCK);
-    match OpenOptions::new().write(true).open(&path) {
-        Ok(file) => file.lock(),
-        Err(error) if error.kind() == io::ErrorKind::NotFound => Ok(()),
-        Err(error) => Err(error),
-    }
+/// None.
+pub fn wait_for_tree(_state: &Path) -> io::Result<()> {
+    Ok(())
 }
 
-/// What a tree holds, as far as a handle needs it to know whether another writer changed the tree
-/// since: how many commit files, one per command any writer committed
-/// (`tenants/<tenant>/groups/…/<digest>.json` in eventlog-tree's layout), and the directory of
-/// each tenant. A commit adds exactly one file. Nothing conductor runs removes one but
-/// [`Store::retain`], which erases whole tenants, and a dropped snapshot's tenant is never written
-/// again (its snapshot is no longer collecting). So two equal marks mean nobody committed or
-/// erased in between.
-#[derive(Debug, Clone, Default, PartialEq, Eq)]
-struct Mark {
-    /// The commit files.
-    commits: usize,
-    /// Each tenant's directory name.
-    tenants: BTreeSet<OsString>,
-}
-
-impl Mark {
-    /// Whether `after` is this mark and exactly one more commit, in `tenant`, which the commit may
-    /// have created.
-    fn one_more(&self, after: &Self, tenant: &TenantId) -> bool {
-        let mut tenants = self.tenants.clone();
-        tenants.insert(OsString::from(observations::segment(tenant.as_str())));
-        after.commits == self.commits + 1 && after.tenants == tenants
-    }
-}
-
-/// The [`Mark`] of the tree under `root`; an empty one where nothing is there.
-fn mark(root: &Path) -> io::Result<Mark> {
-    fn walk(directory: &Path, found: &mut usize) -> io::Result<()> {
-        let entries = match fs::read_dir(directory) {
-            Ok(entries) => entries,
-            Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(()),
-            Err(error) => return Err(error),
-        };
-        for entry in entries {
-            let entry = entry?;
-            let kind = entry.file_type()?;
-            let name = entry.file_name();
-            if kind.is_dir() {
-                walk(&entry.path(), found)?;
-            } else if kind.is_file()
-                && !name.to_string_lossy().starts_with('.')
-                && Path::new(&name)
-                    .extension()
-                    .is_some_and(|ext| ext == "json")
-            {
-                *found += 1;
-            }
+/// The files whose length and modification time move when the store of `state` is written: the
+/// SQLite file and its write-ahead log; none for a Postgres store. What the dashboard
+/// fingerprints its answers by.
+#[must_use]
+pub fn written_files(state: &Path) -> Vec<PathBuf> {
+    match located(state) {
+        Ok((Location::Sqlite(path), _)) => {
+            let mut wal = path.clone().into_os_string();
+            wal.push("-wal");
+            vec![path, PathBuf::from(wal)]
         }
-        Ok(())
+        _ => Vec::new(),
     }
-    let mut mark = Mark::default();
-    let tenants = match fs::read_dir(root.join("tenants")) {
-        Ok(tenants) => tenants,
-        Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(mark),
-        Err(error) => return Err(error),
-    };
-    for tenant in tenants {
-        let tenant = tenant?;
-        if tenant.file_type()?.is_dir() {
-            walk(&tenant.path().join("groups"), &mut mark.commits)?;
-            mark.tenants.insert(tenant.file_name());
-        }
+}
+
+/// Whether the store of `state` is there: its SQLite file, or any Postgres store.
+#[must_use]
+pub fn present(state: &Path) -> bool {
+    match located(state) {
+        Ok((Location::Sqlite(path), _)) => is_file(&path),
+        Ok((Location::Postgres(_), _)) => true,
+        Err(_) => false,
     }
-    Ok(mark)
 }
 
 /// An I/O failure as the log reports one.
@@ -410,6 +535,7 @@ struct Engine(Option<Runtime>);
 impl Engine {
     fn start() -> Result<Self> {
         let runtime = Builder::new_current_thread()
+            .enable_all()
             .build()
             .context("start the store's runtime")?;
         Ok(Self(Some(runtime)))
@@ -450,15 +576,16 @@ impl Drop for Engine {
 
 /// Conductor's records, behind the storage ports the generated behaviours and queries use.
 pub struct Store {
+    /// The log, dropped before the runtime it was opened on.
+    log: Box<dyn AtomicEventStore>,
     runtime: Engine,
-    /// `state/tree/`: every record but the observations, in the tenant [`Store::tenant`].
-    tree: Tree,
-    /// `state/observations/`: the observations, one tenant per snapshot; opened at its first use.
-    observations: Tree,
-    /// `state/series/`: the daily rollups ([`series`]), in the tenant [`Store::tenant`]; opened at
-    /// its first use, so no other command reads it.
-    series: Tree,
-    /// The one tenant of `tree`.
+    /// The state directory the handle was opened on.
+    state: PathBuf,
+    /// The database.
+    location: Location,
+    /// The instance every event of this handle names.
+    instance: String,
+    /// The instance's tenant: every record but the observations.
     tenant: TenantId,
     /// The stream version this handle last read or wrote, per `(entity, identity)`; `0` is a
     /// stream that did not exist. What the next write to it expects.
@@ -466,13 +593,13 @@ pub struct Store {
     /// Every read or write that failed on this handle, in the order they failed; a record that
     /// does not decode is kept once however often it is read.
     failures: RefCell<Vec<StoreError>>,
-    /// Whether this handle opens a tree that holds a store without its writer lock
-    /// ([`open_reader`]).
-    reader: bool,
     /// The observation records this handle holds back, while [`Store::hold_observations`] is on,
     /// to commit them together ([`Store::commit_observations`]); `None` while it writes each at
     /// once.
     held_back: RefCell<Option<Vec<HeldBack>>>,
+    /// The feed position of the instance's tenant this handle read snapshots up to, and the
+    /// tenant of each snapshot it met there, in the order met ([`Store::observation_tenants`]).
+    snapshot_tenants: RefCell<(u64, Vec<TenantId>)>,
 }
 
 /// One observation stream's records held back, in the order written, to commit with the others.
@@ -487,117 +614,38 @@ struct HeldBack {
     events: Vec<NewEvent>,
 }
 
-/// One of a handle's tree stores.
-struct Tree {
-    /// Its directory.
-    root: PathBuf,
-    /// The tree, as last opened: reopened when another writer has committed since. `None` until
-    /// the first use of a tree the handle opens at its first use.
-    log: RefCell<Option<TreeEventStore>>,
-    /// The [`Mark`] of what `log` is known to serve, when that is known: when the tree is at this
-    /// mark, `log` serves all of it. `None` after a write that cannot tell whether another writer
-    /// committed beside it.
-    seen: RefCell<Option<Mark>>,
-    /// What of the tree this handle holds in memory: the replays alive and the most alive at
-    /// once, and the bytes `log` was built from.
-    held: RefCell<Holding>,
-}
-
-/// What one tree of a handle holds in memory.
-#[derive(Debug, Clone, Copy, Default)]
-struct Holding {
-    /// The replays of the tree alive now: `log`, and one being built.
-    live: usize,
-    /// The most alive at once since the handle opened.
-    peak: usize,
-    /// The bytes of the files each live replay was built from, together.
-    bytes: u64,
-    /// Those of the replay `log` holds.
-    kept: u64,
-}
-
-/// What a handle holds of its trees in memory (`story:dashboard-memory-bound`), as
-/// [`Store::held`] reports it.
+/// What a handle holds of its store in memory (`story:dashboard-memory-bound`), as
+/// [`Store::held`] reports it: one open database, whose rows stay in it.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub struct Replays {
-    /// The trees held replayed now.
+    /// The stores held open now.
     pub live: usize,
-    /// The most replays of one tree alive at once since the handle opened: 1 while each reopen
-    /// drops the old replay before it builds the new one.
+    /// The most open at once since the handle opened.
     pub peak: usize,
-    /// The bytes of the files the replays held now were built from: what a replay holds is about
-    /// that much.
+    /// The bytes of records held in memory: none, the database keeps them.
     pub bytes: u64,
 }
 
-impl Tree {
-    /// A tree at `root`, opened at its first use.
-    fn unopened(root: PathBuf) -> Self {
-        Self {
-            root,
-            log: RefCell::new(None),
-            seen: RefCell::new(None),
-            held: RefCell::default(),
-        }
-    }
-
-    /// A replay of the tree, built from files of `bytes` bytes, is alive.
-    fn built(&self, bytes: u64) {
-        replayed();
-        let mut held = self.held.borrow_mut();
-        held.live += 1;
-        held.peak = held.peak.max(held.live);
-        held.bytes += bytes;
-    }
-
-    /// Keeps `log`, built from files of `bytes` bytes and counted by [`Tree::built`], as the
-    /// tree's replay, and drops the one it replaces.
-    fn keep(&self, log: TreeEventStore, bytes: u64) {
-        let old = self.log.replace(Some(log));
-        let mut held = self.held.borrow_mut();
-        if old.is_some() {
-            drop(old);
-            held.live -= 1;
-            held.bytes -= held.kept;
-        }
-        held.kept = bytes;
-    }
-
-    /// Drops the tree's replay, when it holds one, and what it is known to serve.
-    fn release(&self) {
-        let old = self.log.take();
-        *self.seen.borrow_mut() = None;
-        if old.is_some() {
-            drop(old);
-            let mut held = self.held.borrow_mut();
-            held.live -= 1;
-            held.bytes -= held.kept;
-            held.kept = 0;
-        }
-    }
-}
-
 thread_local! {
-    /// The replays of a tree this thread built: each open of a store, and each reopen.
+    /// The stores this thread opened.
     static REPLAYS: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
 }
 
-/// How long each replay waits on a slow disk ([`slow_replays`]), in nanoseconds; 0 for none.
+/// How long each open waits on a slow disk ([`slow_replays`]), in nanoseconds; 0 for none.
 static SLOW: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
 
-/// The one replay a slow disk serves at a time ([`slow_replays`]).
+/// The one open a slow disk serves at a time ([`slow_replays`]).
 static DISK: std::sync::Mutex<()> = std::sync::Mutex::new(());
 
-/// How many replays of a tree this thread has built so far: an open of a store, or a reopen
-/// because another writer committed (`story:build-queue-convoy` counts a run's).
+/// How many stores this thread has opened so far (`story:build-queue-convoy` counts a run's).
 #[must_use]
 pub fn replays_on_this_thread() -> usize {
     REPLAYS.with(std::cell::Cell::get)
 }
 
-/// A slow disk, for a case that measures what replays cost: from now on every replay of a tree
-/// in this process takes `delay` more, one replay at a time, as on a disk saturated by builds.
-/// `Duration::ZERO` ends it. Nothing but a case calls it.
+/// A slow disk, for a case that measures what opens cost: from now on every open of a store in
+/// this process takes `delay` more, one at a time. `Duration::ZERO` ends it. Nothing but a case
+/// calls it.
 #[doc(hidden)]
 pub fn slow_replays(delay: std::time::Duration) {
     SLOW.store(
@@ -606,7 +654,27 @@ pub fn slow_replays(delay: std::time::Duration) {
     );
 }
 
-/// Counts one replay on this thread, and waits as the slow disk of [`slow_replays`] makes it.
+thread_local! {
+    /// Whether the log refuses every write of this thread ([`refuse_writes`]).
+    static REFUSED: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
+}
+
+/// A log that refuses writes, for a case that checks how a failed write is reported: from now on
+/// every write a handle makes on this thread fails as the database would fail it, until `false`.
+/// Nothing but a case calls it.
+#[doc(hidden)]
+pub fn refuse_writes(refuse: bool) {
+    REFUSED.with(|refused| refused.set(refuse));
+}
+
+/// The failure of a write this thread refuses ([`refuse_writes`]), if it does.
+fn refused_write() -> Option<EventLogError> {
+    REFUSED
+        .with(std::cell::Cell::get)
+        .then(|| EventLogError::Backend("the database refused the write".to_owned()))
+}
+
+/// Counts one open on this thread, and waits as the slow disk of [`slow_replays`] makes it.
 fn replayed() {
     REPLAYS.with(|count| count.set(count.get() + 1));
     let slow = SLOW.load(std::sync::atomic::Ordering::SeqCst);
@@ -616,21 +684,6 @@ fn replayed() {
             .unwrap_or_else(std::sync::PoisonError::into_inner);
         thread::sleep(std::time::Duration::from_nanos(slow));
     }
-}
-
-/// The bytes of every file under `root`; what cannot be read counts nothing.
-fn replayed_bytes(root: &Path) -> u64 {
-    let Ok(entries) = fs::read_dir(root) else {
-        return 0;
-    };
-    entries
-        .filter_map(Result::ok)
-        .map(|entry| match entry.file_type() {
-            Ok(kind) if kind.is_dir() => replayed_bytes(&entry.path()),
-            Ok(kind) if kind.is_file() => entry.metadata().map_or(0, |metadata| metadata.len()),
-            _ => 0,
-        })
-        .sum()
 }
 
 /// Why the store could not keep or read a record.
@@ -740,138 +793,97 @@ impl std::error::Error for StoreError {
 }
 
 impl Store {
-    /// Opens the stores under `state`: `tree/`, which holds one or is to be created, now, and
-    /// `observations/` at its first use.
-    fn at(state: &Path) -> Result<Self> {
-        Self::opened(state, false)
-    }
-
-    /// [`Store::at`], as a reader ([`open_reader`]) when `reader` says so.
-    fn opened(state: &Path, reader: bool) -> Result<Self> {
-        let root = state.join(TREE_DIR);
+    /// The store at `location`, as `instance`, on the state directory `state`.
+    fn opened(state: &Path, location: Location, instance: &str, mode: Mode) -> Result<Self> {
         let runtime = Engine::start()?;
-        let (log, seen) = if reader {
-            read_unlocked(&runtime, &root)?
-        } else {
-            // Under the tree's writer lock, as in `reopened`.
-            let lock = hold(&root.join(TREE_LOCK))
-                .with_context(|| format!("hold the writer lock of {}", root.display()))?;
-            let seen = mark(&root).with_context(|| format!("read {}", root.display()))?;
-            let log = runtime
-                .block_on(TreeEventStore::open(&root))
-                .with_context(|| format!("open the store at {}", root.display()))?;
-            drop(lock);
-            (log, seen)
+        let tenant = TenantId::new(instance)
+            .with_context(|| format!("the instance {instance:?} names no tenant of the store"))?;
+        let shown = location.shown();
+        replayed();
+        let log: Box<dyn AtomicEventStore> = match &location {
+            Location::Sqlite(path) => {
+                let text = path.to_string_lossy().into_owned();
+                if mode != Mode::Create && !is_file(path) {
+                    bail!("no store at {shown}");
+                }
+                if let Some(parent) = path
+                    .parent()
+                    .filter(|parent| !parent.as_os_str().is_empty())
+                {
+                    fs::create_dir_all(parent)
+                        .with_context(|| format!("create {}", parent.display()))?;
+                }
+                // Opening sets the database's journal mode and creates its tables, which a second
+                // opener at the same instant finds locked: the openers of one file take turns.
+                let mut lock = path.clone().into_os_string();
+                lock.push(".open-lock");
+                let _turn = hold(Path::new(&lock))
+                    .with_context(|| format!("take the opening turn of {shown}"))?;
+                if mode == Mode::Create {
+                    Box::new(
+                        runtime
+                            .block_on(SqliteEventStore::open(&text, PREFIX))
+                            .with_context(|| format!("open the store at {shown}"))?,
+                    )
+                } else {
+                    Box::new(
+                        runtime
+                            .block_on(SqliteEventStore::open_existing(&text, PREFIX))
+                            .with_context(|| format!("open the store at {shown}"))?,
+                    )
+                }
+            }
+            Location::Postgres(url) => Box::new(
+                runtime
+                    .block_on(PostgresEventStore::connect(url, PREFIX))
+                    .with_context(|| format!("open the store at {shown}"))?,
+            ),
         };
-        let tree = Tree::unopened(root);
-        let bytes = replayed_bytes(&tree.root);
-        tree.built(bytes);
-        tree.keep(log, bytes);
-        *tree.seen.borrow_mut() = Some(seen);
         Ok(Self {
+            log,
             runtime,
-            tree,
-            observations: Tree::unopened(state.join(OBSERVATIONS_DIR)),
-            series: Tree::unopened(state.join(SERIES_DIR)),
-            tenant: TenantId::new(CONDUCTOR)?,
+            state: state.to_owned(),
+            location,
+            instance: instance.to_owned(),
+            tenant,
             versions: RefCell::default(),
             failures: RefCell::default(),
-            reader,
             held_back: RefCell::default(),
+            snapshot_tenants: RefCell::default(),
         })
     }
 
-    /// Brings `tree`'s log up to its files, and answers whether the tree holds a store. At the
-    /// tree's first use it opens it, creating it when `create` says so; where it is not there and
-    /// is not to be created, it answers `false`, a store of no records, and opens nothing. Later
-    /// it reopens the tree when the tree's [`Mark`] is not the one its log is known to serve:
-    /// another writer committed or erased since, so the log's index is behind the files.
-    fn fresh(&self, tree: &Tree, create: bool) -> Result<bool, EventLogError> {
-        if tree.log.borrow().is_none() {
-            if !create && !is_file(&tree.root.join(TREE_MANIFEST)) {
-                return Ok(false);
-            }
-            fs::create_dir_all(&tree.root).map_err(|error| backend(&error))?;
-        } else {
-            let now = mark(&tree.root).map_err(|error| backend(&error))?;
-            if tree.seen.borrow().as_ref() == Some(&now) {
-                return Ok(true);
-            }
-        }
-        // The old replay goes before the new one is built: a reopen never holds two replays of
-        // the tree at once (`story:dashboard-memory-bound`). Should the reopen fail, the next use
-        // opens the tree afresh.
-        tree.release();
-        let (log, seen) = self.reopened(tree)?;
-        let bytes = replayed_bytes(&tree.root);
-        tree.built(bytes);
-        tree.keep(log, bytes);
-        *tree.seen.borrow_mut() = Some(seen);
-        Ok(true)
+    /// Whether the database holds the migration of this handle's instance's tree.
+    fn migrated(&self) -> bool {
+        MigrationStorage::get(self, &InstanceName(self.instance.clone())).is_some()
     }
 
-    /// `tree` opened afresh from its files, with the [`Mark`] of the files it was opened from; a
-    /// failure names its directory, since a handle opens two.
-    ///
-    /// The open holds the tree's writer lock from start to end. It makes the second of two first
-    /// writers wait while the first writes the tree's description, then find it written, and keeps
-    /// a tenant from being erased while the open reads it. (eventlog-tree 0.8 lists the commit
-    /// files before the event files, so a commit landing during the open is not read, rather than
-    /// read as a commit whose event is missing.) The lock is released before this answers: every
-    /// commit takes it again itself, and a second hold of the lock file from this process would
-    /// wait on the first.
-    ///
-    /// A reader ([`open_reader`]) never takes the lock ([`read_unlocked`]).
-    fn reopened(&self, tree: &Tree) -> Result<(TreeEventStore, Mark), EventLogError> {
-        let root = &tree.root;
-        if self.reader {
-            return read_unlocked(&self.runtime, root);
-        }
-        let lock = hold(&root.join(TREE_LOCK)).map_err(|error| {
-            EventLogError::Backend(format!(
-                "hold the writer lock of {}: {error}",
-                root.display()
-            ))
-        })?;
-        let seen = mark(root).map_err(|error| backend(&error))?;
-        let log = self
-            .runtime
-            .block_on(TreeEventStore::open(root))
-            .map_err(|error| {
-                EventLogError::Backend(format!("open the store at {}: {error}", root.display()))
-            })?;
-        drop(lock);
-        Ok((log, seen))
-    }
-
-    /// The tree `entity`'s records are kept in, of those kept in the tenant [`Store::tenant`]:
-    /// `series/` for the daily rollups, `tree/` for every other.
-    fn tree_of(&self, entity: &str) -> &Tree {
-        if entity == series::DAILY_SERIES {
-            &self.series
-        } else {
-            &self.tree
-        }
-    }
-
-    /// What this handle holds of its trees in memory: the replays alive now, the most of one tree
-    /// alive at once since it opened, and the bytes they were built from.
+    /// What this handle holds of its store in memory: one open database, none of its records.
     #[must_use]
     pub fn held(&self) -> Replays {
-        [&self.tree, &self.observations, &self.series]
-            .iter()
-            .map(|tree| *tree.held.borrow())
-            .fold(Replays::default(), |sum, held| Replays {
-                live: sum.live + held.live,
-                peak: sum.peak.max(held.peak),
-                bytes: sum.bytes + held.bytes,
-            })
+        Replays {
+            live: 1,
+            peak: 1,
+            bytes: 0,
+        }
     }
 
-    /// The state directory this handle's store is kept under: the directory holding `tree/`.
+    /// The state directory this handle was opened on.
     #[must_use]
     pub fn state_dir(&self) -> &Path {
-        self.tree.root.parent().unwrap_or(&self.tree.root)
+        &self.state
+    }
+
+    /// The database this handle opened.
+    #[must_use]
+    pub fn location(&self) -> &Location {
+        &self.location
+    }
+
+    /// The instance every event this handle writes names.
+    #[must_use]
+    pub fn instance(&self) -> &str {
+        &self.instance
     }
 
     /// Whether every read and write on this handle since it was opened succeeded.
@@ -925,7 +937,7 @@ impl Store {
     }
 
     /// The stream of `entity`'s instance `identity` in `tenant`. An identity whose escaped form
-    /// eventlog refuses as a stream id names no stream, whatever form the tree keeps it under.
+    /// eventlog refuses as a stream id names no stream.
     fn stream(
         tenant: &TenantId,
         entity: &'static str,
@@ -947,19 +959,7 @@ impl Store {
                 .map(|found| found.map_or((0, None), |(_, version, body)| (version, body)))
         } else {
             let stream = Self::stream(&self.tenant, entity, identity).ok()?;
-            let tree = self.tree_of(entity);
-            let failed = |source| log_error(entity, Some(identity), source);
-            match self.unchanged(tree, &stream) {
-                Ok(Some((version, None))) => Ok((version, None)),
-                Ok(Some((version, Some(event)))) => {
-                    body(entity, event).map(|newest| (version, newest))
-                }
-                Ok(None) => self
-                    .fresh(tree, false)
-                    .map_err(failed)
-                    .and_then(|_| self.latest(tree, entity, identity, &stream)),
-                Err(source) => Err(failed(source)),
-            }
+            self.latest(entity, identity, &stream)
         };
         match held {
             Ok((version, body)) => {
@@ -975,80 +975,55 @@ impl Store {
         }
     }
 
-    /// The version of `stream` in `tree` and its newest event, from the log as it is open, when
-    /// no event was committed to that stream since the log was opened: the stream's directory
-    /// holds exactly as many event files as the log has events of it (`story:snapshot-store-cost`).
-    /// A commit adds one file per event and nothing conductor runs removes one from `tree/` or
-    /// `series/`, so an equal count is the stream as a reopened log would serve it; a commit to
-    /// another stream does not make the whole tree be read again for this one. `None` when the log
-    /// is not open yet or the stream gained a file (an event, or one written but not yet
-    /// committed): the caller brings the log up to the files.
-    ///
-    /// # Errors
-    ///
-    /// The log failed on the stream's version.
-    fn unchanged(
-        &self,
-        tree: &Tree,
-        stream: &StreamId,
-    ) -> Result<Option<(u64, Option<RecordedEvent>)>, EventLogError> {
-        let log = tree.log.borrow();
-        let Some(log) = log.as_ref() else {
-            return Ok(None);
-        };
-        let held = self
-            .runtime
-            .block_on(log.stream_version(stream))?
-            .unwrap_or(0);
-        let directory = tree
-            .root
-            .join("tenants")
-            .join(observations::segment(stream.tenant().as_str()))
-            .join("streams")
-            .join(observations::segment(stream.stream_type()))
-            .join(observations::segment(stream.stream_id()));
-        let files = match fs::read_dir(&directory) {
-            Ok(entries) => entries
-                .filter_map(Result::ok)
-                .filter(|entry| entry.file_type().is_ok_and(|kind| kind.is_file()))
-                .count(),
-            Err(error) if error.kind() == io::ErrorKind::NotFound => 0,
-            Err(_) => return Ok(None),
-        };
-        if u64::try_from(files).ok() != Some(held) {
-            return Ok(None);
-        }
-        if held == 0 {
-            return Ok(Some((0, None)));
-        }
-        let slice = self
-            .runtime
-            .block_on(log.read_stream(stream, held - 1, 1))?;
-        Ok(slice
-            .events
-            .into_iter()
-            .next()
-            .map(|event| (held, Some(event))))
+    /// The tenant of the observations of the snapshot `snapshot`.
+    fn observation_tenant(&self, snapshot: &str) -> Result<TenantId, EventLogError> {
+        observations::tenant(&self.instance, snapshot)
     }
 
-    /// The tenant of the observation store that holds `entity`'s instance `identity`, with its
-    /// stream's version and newest body; `None` when no tenant holds it, or the observation store
-    /// is not there.
+    /// The tenants that may hold observations: one per snapshot the instance's tenant holds a
+    /// stream of, the newest first. The feed is read from where this handle last read it, so a
+    /// read of an observation does not read the whole store again.
+    fn observation_tenants(&self, entity: &'static str) -> Result<Vec<TenantId>, StoreError> {
+        let failed = |source| log_error(entity, None, source);
+        let mut seen = self.snapshot_tenants.borrow_mut();
+        loop {
+            let page = self
+                .runtime
+                .block_on(self.log.read_feed(&self.tenant, seen.0, MAX_READ_LIMIT))
+                .map_err(failed)?;
+            let more = page.has_more && !page.events.is_empty();
+            if !page.events.is_empty() {
+                seen.0 = page.next_position;
+            }
+            for event in page.events {
+                if event.stream_type == snapshot::SNAPSHOT {
+                    let tenant = observations::tenant_of_stream(&self.instance, &event.stream_id)
+                        .map_err(failed)?;
+                    if !seen.1.contains(&tenant) {
+                        seen.1.push(tenant);
+                    }
+                }
+            }
+            if !more {
+                break;
+            }
+        }
+        Ok(seen.1.iter().rev().cloned().collect())
+    }
+
+    /// The tenant of the observations that holds `entity`'s instance `identity`, with its
+    /// stream's version and newest body; `None` when no tenant holds it.
     fn locate(
         &self,
         entity: &'static str,
         identity: &str,
     ) -> Result<Option<(TenantId, u64, Option<Value>)>, StoreError> {
-        let failed = |source| log_error(entity, Some(identity), source);
         self.commit_observations()?;
-        if !self.fresh(&self.observations, false).map_err(failed)? {
-            return Ok(None);
-        }
-        for tenant in observations::tenants(&self.observations.root).map_err(failed)? {
+        for tenant in self.observation_tenants(entity)? {
             let Ok(stream) = Self::stream(&tenant, entity, identity) else {
                 return Ok(None);
             };
-            let (version, body) = self.latest(&self.observations, entity, identity, &stream)?;
+            let (version, body) = self.latest(entity, identity, &stream)?;
             if version > 0 {
                 return Ok(Some((tenant, version, body)));
             }
@@ -1056,30 +1031,24 @@ impl Store {
         Ok(None)
     }
 
-    /// The version and newest body of `stream` in `tree`, whose log is opened: `(0, None)` for a
-    /// stream that does not exist, or a tree that is not there.
+    /// The version and newest body of `stream`: `(0, None)` for a stream that does not exist.
     fn latest(
         &self,
-        tree: &Tree,
         entity: &'static str,
         identity: &str,
         stream: &StreamId,
     ) -> Result<(u64, Option<Value>), StoreError> {
         let failed = |source| log_error(entity, Some(identity), source);
-        let log = tree.log.borrow();
-        let Some(log) = log.as_ref() else {
-            return Ok((0, None));
-        };
         let Some(head) = self
             .runtime
-            .block_on(log.stream_version(stream))
+            .block_on(self.log.stream_version(stream))
             .map_err(failed)?
         else {
             return Ok((0, None));
         };
         let slice = self
             .runtime
-            .block_on(log.read_stream(stream, head - 1, 1))
+            .block_on(self.log.read_stream(stream, head - 1, 1))
             .map_err(failed)?;
         let event = slice
             .events
@@ -1097,10 +1066,7 @@ impl Store {
         let folded = if observations::holds(entity) {
             self.fold_observations(entity)
         } else {
-            let tree = self.tree_of(entity);
-            self.fresh(tree, false)
-                .map_err(|source| log_error(entity, None, source))
-                .and_then(|_| self.fold(tree, &self.tenant, entity))
+            self.fold(&self.tenant, entity)
         };
         match folded {
             Ok(streams) => streams
@@ -1120,42 +1086,28 @@ impl Store {
         }
     }
 
-    /// [`Store::fold`] over every tenant of the observation store, in the order the streams were
-    /// first recorded: a tenant is replayed after the one before it in name order whatever the
-    /// instants, so the feed positions alone do not order two snapshots' observations.
+    /// [`Store::fold`] over every tenant of the observations, in the order the streams were first
+    /// recorded.
     fn fold_observations(&self, entity: &'static str) -> Result<Vec<Folded>, StoreError> {
-        let failed = |source| log_error(entity, None, source);
         self.commit_observations()?;
-        if !self.fresh(&self.observations, false).map_err(failed)? {
-            return Ok(Vec::new());
-        }
         let mut streams = Vec::new();
-        for tenant in observations::tenants(&self.observations.root).map_err(failed)? {
-            streams.extend(self.fold(&self.observations, &tenant, entity)?);
+        for tenant in self.observation_tenants(entity)? {
+            streams.extend(self.fold(&tenant, entity)?);
         }
         streams.sort_by_key(|folded| folded.first);
         Ok(streams)
     }
 
-    /// Every stream of `entity` in `tenant` of `tree`, whose log is opened, in the order they were
-    /// first stored, each with its newest body.
-    fn fold(
-        &self,
-        tree: &Tree,
-        tenant: &TenantId,
-        entity: &'static str,
-    ) -> Result<Vec<Folded>, StoreError> {
+    /// Every stream of `entity` in `tenant`, in the order they were first stored, each with its
+    /// newest body.
+    fn fold(&self, tenant: &TenantId, entity: &'static str) -> Result<Vec<Folded>, StoreError> {
         let mut order: Vec<(String, (OffsetDateTime, u64))> = Vec::new();
         let mut newest: HashMap<String, Result<Option<Value>, StoreError>> = HashMap::new();
         let mut after = 0;
-        let log = tree.log.borrow();
-        let Some(log) = log.as_ref() else {
-            return Ok(Vec::new());
-        };
         loop {
             let page = self
                 .runtime
-                .block_on(log.read_feed(tenant, after, MAX_READ_LIMIT))
+                .block_on(self.log.read_feed(tenant, after, MAX_READ_LIMIT))
                 .map_err(|source| log_error(entity, None, source))?;
             let more = page.has_more && !page.events.is_empty();
             after = page.next_position;
@@ -1187,6 +1139,30 @@ impl Store {
             .collect())
     }
 
+    /// The streams of `entity` in the instance's tenant, deleted ones too, and each one's events:
+    /// what the host's ledger counts.
+    fn stream_lengths(&self, entity: &'static str) -> Result<HashMap<String, u64>, EventLogError> {
+        let mut lengths: HashMap<String, u64> = HashMap::new();
+        let mut after = 0;
+        loop {
+            let page =
+                self.runtime
+                    .block_on(self.log.read_feed(&self.tenant, after, MAX_READ_LIMIT))?;
+            let more = page.has_more && !page.events.is_empty();
+            after = page.next_position;
+            for event in page.events {
+                if event.stream_type == entity {
+                    let length = lengths.entry(event.stream_id).or_default();
+                    *length = (*length).max(event.version);
+                }
+            }
+            if !more {
+                break;
+            }
+        }
+        Ok(lengths)
+    }
+
     /// Appends one event to an instance's stream, unless an earlier failure stopped this handle.
     fn write(&self, entity: &'static str, identity: &str, name: &'static str, body: Value) {
         if !self.failures.borrow().is_empty() {
@@ -1195,14 +1171,7 @@ impl Store {
         let written = if observations::holds(entity) {
             self.append_observation(entity, identity, name, body)
         } else {
-            self.append(
-                self.tree_of(entity),
-                &self.tenant,
-                entity,
-                identity,
-                name,
-                body,
-            )
+            self.append(&self.tenant, entity, identity, name, body)
         };
         if let Err(failure) = written {
             self.fail(failure);
@@ -1220,7 +1189,8 @@ impl Store {
         body: Value,
     ) -> Result<(), StoreError> {
         let tenant = match body.get("snapshot_id").and_then(Value::as_str) {
-            Some(snapshot) => observations::tenant(snapshot)
+            Some(snapshot) => self
+                .observation_tenant(snapshot)
                 .map_err(|source| log_error(entity, Some(identity), source))?,
             None => match self.locate(entity, identity)? {
                 Some((tenant, _, _)) => tenant,
@@ -1230,16 +1200,13 @@ impl Store {
         if self.held_back.borrow().is_some() {
             return self.hold_back(&tenant, entity, identity, name, body);
         }
-        self.append(&self.observations, &tenant, entity, identity, name, body)
+        self.append(&tenant, entity, identity, name, body)
     }
 
     /// Holds every observation record written from now on back, until
-    /// [`Store::commit_observations`] commits them together, as one command of the observation
-    /// store (`story:snapshot-store-cost`). Each commit of a tree lists every commit file of it,
-    /// in eventlog-tree and in this handle's [`Mark`], and the observation store keeps every kept
-    /// snapshot's: a collector that committed each of its records alone read the whole store's
-    /// listing three times per record. Any read of an observation commits what is held first, so
-    /// a read answers what was written.
+    /// [`Store::commit_observations`] commits them together, as one transaction per snapshot
+    /// (`story:snapshot-store-cost`). Any read of an observation commits what is held first, so a
+    /// read answers what was written.
     pub fn hold_observations(&self) {
         let mut held = self.held_back.borrow_mut();
         if held.is_none() {
@@ -1247,9 +1214,9 @@ impl Store {
         }
     }
 
-    /// Commits the observation records held back since [`Store::hold_observations`], one command
-    /// per snapshot tenant, and goes on holding. A failure is kept for [`Store::check`], as a
-    /// failed write is; none is committed after it.
+    /// Commits the observation records held back since [`Store::hold_observations`], one
+    /// transaction per snapshot tenant, and goes on holding. A failure is kept for
+    /// [`Store::check`], as a failed write is; none is committed after it.
     ///
     /// # Errors
     ///
@@ -1291,7 +1258,7 @@ impl Store {
     }
 
     /// Holds one observation record back, after any held for its stream; the first of a stream
-    /// expects the version this handle last read or wrote of it, or the one its log holds.
+    /// expects the version this handle last read or wrote of it, or the one the log holds.
     fn hold_back(
         &self,
         tenant: &TenantId,
@@ -1317,17 +1284,11 @@ impl Store {
         let known = self.versions.borrow().get(&key).copied();
         let read = match known {
             Some(version) => version,
-            None => {
-                if self.observations.log.borrow().is_none() {
-                    self.fresh(&self.observations, true).map_err(failed)?;
-                }
-                let log = self.observations.log.borrow();
-                let log = log.as_ref().ok_or_else(|| failed(EventLogError::Closed))?;
-                self.runtime
-                    .block_on(log.stream_version(&stream))
-                    .map_err(failed)?
-                    .unwrap_or(0)
-            }
+            None => self
+                .runtime
+                .block_on(self.log.stream_version(&stream))
+                .map_err(failed)?
+                .unwrap_or(0),
         };
         if let Some(held) = self.held_back.borrow_mut().as_mut() {
             held.push(HeldBack {
@@ -1340,7 +1301,7 @@ impl Store {
         Ok(())
     }
 
-    /// Commits `held`, every one in `tenant`, as one command of the observation store.
+    /// Commits `held`, every one in `tenant`, as one transaction.
     fn commit_group(&self, tenant: &TenantId, held: &[HeldBack]) -> Result<(), StoreError> {
         let Some(first) = held.first() else {
             return Ok(());
@@ -1365,28 +1326,12 @@ impl Store {
         let group = AppendGroup {
             tenant: tenant.clone(),
             appends,
-            meta: meta(&events).map_err(failed)?,
+            meta: meta(&events, &self.instance).map_err(failed)?,
         };
-        if self.observations.log.borrow().is_none() {
-            self.fresh(&self.observations, true).map_err(failed)?;
+        if let Some(refused) = refused_write() {
+            return Err(failed(refused));
         }
-        let tree = &self.observations;
-        let opened = tree.log.borrow();
-        let log = opened
-            .as_ref()
-            .ok_or_else(|| failed(EventLogError::Closed))?;
-        let before = tree.seen.borrow_mut().take();
-        let committed = self.runtime.block_on(log.append_group(&group));
-        drop(opened);
-        // As in `append`: one command adds exactly one commit file.
-        if committed.is_ok()
-            && let Some(before) = before
-            && let Ok(after) = mark(&tree.root)
-            && before.one_more(&after, tenant)
-        {
-            *tree.seen.borrow_mut() = Some(after);
-        }
-        match committed {
+        match self.runtime.block_on(self.log.append_group(&group)) {
             Ok(committed) => {
                 let mut versions = self.versions.borrow_mut();
                 for (back, appended) in held.iter().zip(committed.appends) {
@@ -1406,7 +1351,6 @@ impl Store {
 
     fn append(
         &self,
-        tree: &Tree,
         tenant: &TenantId,
         entity: &'static str,
         identity: &str,
@@ -1416,53 +1360,31 @@ impl Store {
         let stream = Self::stream(tenant, entity, identity)?;
         let failed = |source| log_error(entity, Some(identity), source);
         let key = (entity, identity.to_owned());
-        let read = self.versions.borrow().get(&key).copied();
-        let read = match read {
-            Some(version) => {
-                if tree.log.borrow().is_none() {
-                    self.fresh(tree, true).map_err(failed)?;
-                }
-                version
-            }
+        let known = self.versions.borrow().get(&key).copied();
+        let read = match known {
+            Some(version) => version,
             // Never read by this handle: the port replaces what is held, so it reads what is held
             // now.
-            None => {
-                self.fresh(tree, true).map_err(failed)?;
-                let log = tree.log.borrow();
-                let log = log.as_ref().ok_or_else(|| failed(EventLogError::Closed))?;
-                self.runtime
-                    .block_on(log.stream_version(&stream))
-                    .map_err(failed)?
-                    .unwrap_or(0)
-            }
+            None => self
+                .runtime
+                .block_on(self.log.stream_version(&stream))
+                .map_err(failed)?
+                .unwrap_or(0),
         };
-        let opened = tree.log.borrow();
-        let log = opened
-            .as_ref()
-            .ok_or_else(|| failed(EventLogError::Closed))?;
         let expected = if read == 0 {
             Expected::NoStream
         } else {
             Expected::Exact(read)
         };
         let events = [NewEvent::new(name, SCHEMA_VERSION, body).map_err(failed)?];
-        let meta = meta(&events).map_err(failed)?;
-        let before = tree.seen.borrow_mut().take();
-        let appended = self
-            .runtime
-            .block_on(log.append(&stream, expected, &events, &meta));
-        drop(opened);
-        // The append added exactly one commit file. When the tree gained only that one, the log
-        // serves all of it; when it gained more, another writer committed beside this one, and the
-        // next read reopens the tree.
-        if appended.is_ok()
-            && let Some(before) = before
-            && let Ok(after) = mark(&tree.root)
-            && before.one_more(&after, tenant)
-        {
-            *tree.seen.borrow_mut() = Some(after);
+        let meta = meta(&events, &self.instance).map_err(failed)?;
+        if let Some(refused) = refused_write() {
+            return Err(failed(refused));
         }
-        match appended {
+        match self
+            .runtime
+            .block_on(self.log.append(&stream, expected, &events, &meta))
+        {
             Ok(appended) => {
                 self.versions
                     .borrow_mut()
@@ -1804,13 +1726,13 @@ fn escaped(identity: &str) -> String {
     id
 }
 
-/// Who wrote a record: conductor, under a fresh key per write.
-fn meta(events: &[NewEvent]) -> Result<CommandMeta, EventLogError> {
+/// Who wrote a record: the instance `instance`, under a fresh key per write.
+fn meta(events: &[NewEvent], instance: &str) -> Result<CommandMeta, EventLogError> {
     let id = new_event_id();
     Ok(CommandMeta {
         idempotency_key: id.clone(),
         request_hash: request_hash(&events)?,
-        subject: CONDUCTOR.to_owned(),
+        subject: instance.to_owned(),
         actor: CONDUCTOR.to_owned(),
         request_id: id.clone(),
         trace_id: id,

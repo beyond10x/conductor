@@ -1,5 +1,5 @@
 // generated from conductor v1
-// contract digest e3b967aa3e3d0f313417baefaaf92190635d03007992d259a68d9a4352490e1a
+// contract digest 88f1c9e5b4ef578aa56eea73a14e4e509b870a0735bb11ab37ea1e0e49124b8a
 // do not edit: regenerate with `ess synthesize --layout crate`
 //! Every generated declaration, as JSON, in the renderings the published wire contracts fix.
 //!
@@ -7342,6 +7342,45 @@ pub fn decode_conductor_instance_reconciliation_id(value: &json::Value, at: &str
     Ok(crate::instance::ReconciliationId(crate::primitives::Uuid(json::uuid_at(value, at, "a UUID")?.to_owned())))
 }
 
+/// Writes `conductor.instance.ServeDaemon` as JSON.
+pub fn encode_conductor_instance_serve_daemon(value: &crate::instance::ServeDaemon, out: &mut String) {
+    out.push('{');
+    if let Some(held0) = &value.install {
+        json::member(out, "install");
+        json::push_bool(out, *held0);
+    }
+    if let Some(held0) = &value.uninstall {
+        json::member(out, "uninstall");
+        json::push_bool(out, *held0);
+    }
+    out.push('}');
+}
+
+/// Reads `conductor.instance.ServeDaemon` from JSON.
+///
+/// # Errors
+///
+/// [`json::DecodeError`] naming the path and what the declaration says belongs there.
+pub fn decode_conductor_instance_serve_daemon(value: &json::Value, at: &str) -> Result<crate::instance::ServeDaemon, json::DecodeError> {
+    json::closed_at(value, at, &["install", "uninstall"])?;
+    Ok(crate::instance::ServeDaemon {
+        install: match value.member("install") {
+            None | Some(json::Value::Null) => None,
+            Some(member0) => {
+                let at0 = json::nested(at, "install");
+                Some(json::bool_at(member0, &at0, "a boolean")?)
+            }
+        },
+        uninstall: match value.member("uninstall") {
+            None | Some(json::Value::Null) => None,
+            Some(member1) => {
+                let at1 = json::nested(at, "uninstall");
+                Some(json::bool_at(member1, &at1, "a boolean")?)
+            }
+        },
+    })
+}
+
 /// Writes `conductor.observation.BlockerObservation.State` as JSON.
 pub fn encode_conductor_observation_blocker_observation_state(value: &crate::observation::BlockerObservationState, out: &mut String) {
     match value {
@@ -10288,14 +10327,6 @@ pub fn encode_conductor_session_run_daemon(value: &crate::session::RunDaemon, ou
         json::member(out, "once");
         json::push_bool(out, *held0);
     }
-    if let Some(held0) = &value.install {
-        json::member(out, "install");
-        json::push_bool(out, *held0);
-    }
-    if let Some(held0) = &value.uninstall {
-        json::member(out, "uninstall");
-        json::push_bool(out, *held0);
-    }
     if let Some(held0) = &value.commit_records {
         json::member(out, "commit_records");
         json::push_bool(out, *held0);
@@ -10309,7 +10340,7 @@ pub fn encode_conductor_session_run_daemon(value: &crate::session::RunDaemon, ou
 ///
 /// [`json::DecodeError`] naming the path and what the declaration says belongs there.
 pub fn decode_conductor_session_run_daemon(value: &json::Value, at: &str) -> Result<crate::session::RunDaemon, json::DecodeError> {
-    json::closed_at(value, at, &["once", "install", "uninstall", "commit_records"])?;
+    json::closed_at(value, at, &["once", "commit_records"])?;
     Ok(crate::session::RunDaemon {
         once: match value.member("once") {
             None | Some(json::Value::Null) => None,
@@ -10318,25 +10349,11 @@ pub fn decode_conductor_session_run_daemon(value: &json::Value, at: &str) -> Res
                 Some(json::bool_at(member0, &at0, "a boolean")?)
             }
         },
-        install: match value.member("install") {
-            None | Some(json::Value::Null) => None,
-            Some(member1) => {
-                let at1 = json::nested(at, "install");
-                Some(json::bool_at(member1, &at1, "a boolean")?)
-            }
-        },
-        uninstall: match value.member("uninstall") {
-            None | Some(json::Value::Null) => None,
-            Some(member2) => {
-                let at2 = json::nested(at, "uninstall");
-                Some(json::bool_at(member2, &at2, "a boolean")?)
-            }
-        },
         commit_records: match value.member("commit_records") {
             None | Some(json::Value::Null) => None,
-            Some(member3) => {
-                let at3 = json::nested(at, "commit_records");
-                Some(json::bool_at(member3, &at3, "a boolean")?)
+            Some(member1) => {
+                let at1 = json::nested(at, "commit_records");
+                Some(json::bool_at(member1, &at1, "a boolean")?)
             }
         },
     })

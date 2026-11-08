@@ -174,10 +174,11 @@ catalog; [`docs/config.md`](docs/config.md) lists every field.
    `"skipDangerousModePermissionPrompt": true` in that user's `~/.claude/settings.json`. A
    background session takes it only from user or managed settings, not from the role's settings
    file.
-5. `conductor run --install` starts the instance's loop, `conductor run`, as the user unit
-   `conductor_<instance>-run.service`: the watch, the cycle, the mailbox and dispatch from the
-   charters in `<records>/charters/`, with no conductor session (`conductor run --once` runs one
-   watch and one cycle tick). `task sessions` lists the sessions and `task dashboard` serves the
+5. `conductor daemon serve --install` installs conductord as the user unit `conductord.service`; it
+   starts each instance's runtime from the config as `conductor_<instance>-runtime.service`, and
+   lists them at `http://127.0.0.1:7300/v1/instances`. The loop, `conductor run`, runs the watch,
+   the cycle, the mailbox and dispatch from the charters in `<records>/charters/`, with no
+   conductor session (`conductor run --once` runs one watch and one cycle tick). `task sessions` lists the sessions and `task dashboard` serves the
    dashboard on http://127.0.0.1:7313/.
 
 Sessions the `systemd` provider starts pass `--setting-sources project,local`, so your user-level

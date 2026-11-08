@@ -77,8 +77,8 @@ fn a_reopened_store_lists_a_proposed_goal_as_draft_and_refuses_it_again() {
         .check()
         .expect("the store kept the accepted outcome");
     assert!(
-        state.join("tree").is_dir(),
-        "the store lives under state/tree/"
+        state.join("store.sqlite").is_file(),
+        "the store lives in state/store.sqlite"
     );
 
     // 2. Drop the store and reopen it from the same directory.

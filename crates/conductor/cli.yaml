@@ -234,7 +234,7 @@ callables:
     errors: {}
   daemon-serve:
     target: {kind: local, owner: conductor-cli, action: daemon_serve}
-    input: null
+    input: conductor.instance.ServeDaemon
     result: String
     errors: {}
   instance-serve:
@@ -394,7 +394,7 @@ commands:
         source: {kind: option, long: check}
   - path: [store, migrate]
     callable: store-migrate
-    about: Copy the eventlog-file store under the state directory into a tree store, keep the old one beside it, and print the counts moved
+    about: Read the eventlog tree under the state directory once into the store's database, record the migration there, and print the counts read; refuse a tree read before (AlreadyMigrated) or none there (SourceMissing)
     arguments:
       - field: format
         source: {kind: option, long: format}
@@ -468,7 +468,7 @@ commands:
         source: {kind: option, long: role}
   - path: [session, attach]
     callable: session-attach
-    about: "Attach this terminal to a live session's tmux, by --name or --role, or through a picker of every instance's sessions without either; detach with ctrl-] then d, the session runs on; --watch attaches read-only, and follows the typescript of a session started before the tmux launcher; refuse inside a session, an unknown session, and a read-write attach to a session started before the tmux launcher"
+    about: "Attach this terminal to a live session's tmux, by --name or --role, or through a picker of every instance's sessions without either; detach with ctrl-] then d, the session runs on; --watch attaches read-only, and follows the terminal log of a session started before the tmux launcher; refuse inside a session, an unknown session, and a read-write attach to a session started before the tmux launcher"
     arguments:
       - field: name
         source: {kind: option, long: name}
@@ -568,20 +568,20 @@ commands:
     arguments: []
   - path: [run]
     callable: run
-    about: Run the instance's loop with no model call, recording each tick - every cadence.watch the watch pass, its handlers and the mailbox; every cadence.cycle the snapshot, the board, records check and dispatch v1; at cadence.daily metric compute, REPORT.md and a commit of the records through the bot route. --once runs one watch tick and one cycle tick and exits; --once --commit-records commits the records alone; --install starts it as the user unit conductor_<instance>-run.service through systemd-run (under the none provider prints the command instead); --uninstall stops that unit
+    about: Run the instance's loop with no model call, recording each tick - every cadence.watch the watch pass, its handlers and the mailbox; every cadence.cycle the snapshot, the board, records check and dispatch v1; at cadence.daily metric compute, REPORT.md and a commit of the records through the bot route. --once runs one watch tick and one cycle tick and exits; --once --commit-records commits the records alone
     arguments:
       - field: once
         source: {kind: option, long: once}
-      - field: install
-        source: {kind: option, long: install}
-      - field: uninstall
-        source: {kind: option, long: uninstall}
       - field: commit_records
         source: {kind: option, long: commit-records}
   - path: [daemon, serve]
     callable: daemon-serve
-    about: Run conductord, the daemon of the control host, reconciling every instance of the config file and serving the global API; not written yet, exits 2
-    arguments: []
+    about: Run conductord, the daemon of the control host, reconciling the instance runtimes from the config file - start what is absent, stop what is gone, restart what changed placement or binary - on a config change, a lost runtime and every daemon.cadence.reconcile, recording one Reconciliation per action, and serving GET 127.0.0.1:<daemon.port>/v1/instances. --install writes, enables and starts the user unit conductord.service; --uninstall stops and removes it
+    arguments:
+      - field: install
+        source: {kind: option, long: install}
+      - field: uninstall
+        source: {kind: option, long: uninstall}
   - path: [instance, serve]
     callable: instance-serve
     about: Run one instance's runtime in its box, its loop, its agents and the instance API; not written yet, exits 2

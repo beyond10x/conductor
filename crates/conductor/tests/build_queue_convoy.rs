@@ -35,7 +35,7 @@ use eventlog_core::{
     AtomicEventStore as _, CommandMeta, Expected, NewEvent, StreamAppend, StreamId, TenantId,
     new_event_id, request_hash,
 };
-use eventlog_tree::TreeEventStore;
+use eventlog_sqlite::SqliteEventStore;
 use nix::sys::signal::{Signal, killpg};
 use nix::unistd::Pid;
 use serde_json::json;
@@ -357,7 +357,10 @@ fn plant_closed(host: &Path, n: usize) {
         .build()
         .expect("a runtime");
     let log = runtime
-        .block_on(TreeEventStore::open(host.join("tree")))
+        .block_on(SqliteEventStore::open(
+            host.join(store::STORE_FILE).to_str().expect("a UTF-8 path"),
+            store::PREFIX,
+        ))
         .expect("open the host store");
     let tenant = TenantId::new("conductor").expect("the tenant");
     let old = (OffsetDateTime::now_utc() - time::Duration::days(2))

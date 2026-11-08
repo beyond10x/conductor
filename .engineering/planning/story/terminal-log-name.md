@@ -8,14 +8,33 @@ summary: rename <session>.typescript to <session>.terminal.log and say terminal 
 relations:
 - decomposes: epic:architecture-next
 - depends_on: story:spec-v1
-revision: 3
+scope:
+- confidence: cited
+  path: crates/conductor/cli.yaml
+- confidence: cited
+  path: crates/conductor/src/attach.rs
+- confidence: cited
+  path: crates/conductor/src/cli.rs
+- confidence: cited
+  path: crates/conductor/src/confine/systemd.rs
+- confidence: cited
+  path: crates/conductor/tests/confine_systemd.rs
+- confidence: cited
+  path: crates/conductor/tests/session_attach.rs
+- confidence: cited
+  path: spec/domains/session.yaml
+- confidence: cited
+  path: website/docs/concepts/architecture.md
+- confidence: cited
+  path: website/docs/reference/cli.md
+revision: 13
 transitions:
 - {from: "draft", to: "proposed", at: "2026-11-07T23:41:29Z", actor: "human:timo", revision: 2}
 - {from: "proposed", to: "active", at: "2026-11-07T23:41:29Z", actor: "human:timo", revision: 3}
 ---
 ## Why
 
-Operator, 2026-11-07: "I have seen typescript multiple times ... I am not really using typescript and find this confusing." The file `<session>.typescript` is the recording the `script` command writes (`crates/conductor/src/confine/systemd.rs:22,84,376`); the name is `script`'s, and every reader takes it for the language.
+Operator, 2026-11-07: "I have seen typescript multiple times ... I am not really using typescript and find this confusing." The file `<session>.typescript` is the session recording; tmux's `pipe-pane` writes it (`crates/conductor/src/confine/systemd.rs:95`), and the name is the one the `script` command used before. Every reader takes it for the language.
 
 ## Acceptance
 

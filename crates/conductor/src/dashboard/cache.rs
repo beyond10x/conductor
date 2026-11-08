@@ -59,10 +59,6 @@ pub(super) const WARM_EVERY: Duration = Duration::from_secs(1);
 /// the file system's clock, so its entries are counted too.
 const SETTLED: Duration = Duration::from_secs(2);
 
-/// The trees of a state directory a dashboard answer reads (`crate::store`'s `tree/`,
-/// `observations/` and `series/`).
-const TREES: [&str; 3] = ["tree", "observations", "series"];
-
 /// How long after a recompute of an answer started the next one may start: a store written
 /// almost constantly (the guard's hooks, messages, a snapshot's collectors) does not cause
 /// recomputes back to back.
@@ -192,29 +188,28 @@ impl Probe {
 // The fingerprint of a store
 // ---------------------------------------------------------------------------------------------
 
-/// Adds to `hasher` what changes whenever anything is written to the store under `state`, read
-/// without opening it: for each of its trees, the description and the `tenants/` directory; for
-/// each tenant, its `groups/` directory and each of that directory's buckets. Every write adds one
-/// commit file to one bucket (eventlog-tree's layout), which moves that bucket's modification
-/// time; a dropped tenant moves `tenants/`. A bucket changed within [`SETTLED`] has its entries
-/// counted as well, so two commits in one tick of a coarse clock still read as two.
+/// Adds to `hasher` what changes whenever anything is written to the store of `state`, read
+/// without opening it: the length and modification time of each file a write moves
+/// ([`store::written_files`]: the SQLite file and its write-ahead log). A store whose writes move
+/// no file this host sees (a Postgres store) changes its fingerprint every second, so the
+/// debounce alone spaces its recomputes.
 pub(super) fn fingerprint(state: &Path, hasher: &mut impl Hasher) {
     let now = SystemTime::now();
-    for tree in TREES {
-        let root = state.join(tree);
-        tree.hash(hasher);
-        stamp(&root.join("store.json"), now, hasher);
-        let tenants = root.join("tenants");
-        stamp(&tenants, now, hasher);
-        for tenant in sorted(&tenants) {
-            let groups = tenant.join("groups");
-            tenant.file_name().hash(hasher);
-            stamp(&groups, now, hasher);
-            for bucket in sorted(&groups) {
-                bucket.file_name().hash(hasher);
-                stamp(&bucket, now, hasher);
-            }
+    let files = store::written_files(state);
+    if files.is_empty() {
+        now.duration_since(SystemTime::UNIX_EPOCH)
+            .map_or(0, |since| since.as_secs())
+            .hash(hasher);
+    }
+    for file in files {
+        file.hash(hasher);
+        // A write-ahead log a connection just opened (empty) or one the last connection closed
+        // (gone) holds no write: the handles' own opening and closing must not move the mark.
+        if fs::metadata(&file).map_or(true, |metadata| metadata.len() == 0) {
+            0_u8.hash(hasher);
+            continue;
         }
+        stamp(&file, now, hasher);
     }
 }
 

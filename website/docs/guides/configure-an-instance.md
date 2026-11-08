@@ -132,10 +132,8 @@ $ conductor config show --format json | jq -c '.instances[0] | {session_prefix, 
 and the second 7314, unless the file writes a port. `task dashboard` serves the active instance's
 dashboard on that port, as the user service `<session_prefix>-conductor-dashboard`.
 
-`session_prefix` is required. No two instances on the host share a prefix, a port, a state or a
-records directory, even in different config files: `config validate` writes each valid file to the
-host registry, `~/.b10x/conductor/host/instances.json`, and refuses an instance that holds what
-another registered file's instance holds, naming both. A file written before the prefix was
+`session_prefix` is required. No two instances of the file share a prefix, a state or a records
+directory; one daemon reads one file, so no host registry compares files. A file written before the prefix was
 required gets one from `conductor config migrate`, which prints what it wrote
 (`--check` prints it only); stop the instance's sessions and dashboard first, since the prefix
 renames them.

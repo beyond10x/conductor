@@ -143,7 +143,7 @@ impl Case {
 
     /// Every decision of the case's store; none when there is no store.
     fn decisions(&self) -> Vec<Value> {
-        if !self.state().join("tree").exists() {
+        if !self.state().join("store.sqlite").exists() {
             return Vec::new();
         }
         let output = common::conductor(self.home())
@@ -324,7 +324,7 @@ fn the_board_reads_the_store_in_columns_and_creates_nothing() {
     assert_eq!(card["title"], "A board", "{card}");
     assert_eq!(card["lane"], "unplanned", "no scope recorded: {card}");
     assert!(
-        !case.state().join("tree").exists(),
+        !case.state().join("store.sqlite").exists(),
         "a view creates no store"
     );
     let unknown = get(port, "/api/plan?repository=..%2Fescape").json();

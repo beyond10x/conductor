@@ -17,7 +17,7 @@ use conductor_model::direction::{GoalId, ProposeGoal};
 use eventlog_core::{
     CommandMeta, EventStore, Expected, NewEvent, StreamId, TenantId, new_event_id, request_hash,
 };
-use eventlog_tree::TreeEventStore;
+use eventlog_sqlite::SqliteEventStore;
 use serde::de::{Deserialize, Deserializer, IgnoredAny, MapAccess, Visitor};
 use serde_json::{Value, json};
 use time::OffsetDateTime;
@@ -257,7 +257,13 @@ fn store_unknown_state(state: &Path, goal: &str) {
         .build()
         .expect("a runtime");
     let log = runtime
-        .block_on(TreeEventStore::open(state.join("tree")))
+        .block_on(SqliteEventStore::open(
+            state
+                .join(conductor_cli::store::STORE_FILE)
+                .to_str()
+                .expect("a UTF-8 path"),
+            conductor_cli::store::PREFIX,
+        ))
         .expect("open the log");
     let tenant = TenantId::new("conductor").expect("the tenant");
     let stream =

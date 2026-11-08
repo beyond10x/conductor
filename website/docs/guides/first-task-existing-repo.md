@@ -137,10 +137,10 @@ For a first task, use `merge: human`.
 
 Write the charter `<records>/charters/alpha.md` (the goal `first-task`, scope, boundaries, the
 line `merge: human`, the current dispatch), record the dispatch with
-`conductor dispatch send-dispatch`, and start the instance's loop:
+`conductor dispatch send-dispatch`, and start the daemon, which starts the instance's runtime:
 
 ```console
-conductor run --install
+conductor daemon serve --install
 ```
 
 Each cycle, the loop starts a controller for each Active repository (`conductor repository

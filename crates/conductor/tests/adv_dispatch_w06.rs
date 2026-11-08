@@ -65,7 +65,7 @@ fn receive(state: &PathBuf, first_line: &str) -> Output {
 
 /// The rows of `group view --format jsonl`; none when there is no store yet.
 fn rows(state: &PathBuf, group: &str, view: &str) -> Vec<Value> {
-    if !state.join("tree").exists() {
+    if !state.join("store.sqlite").exists() {
         return Vec::new();
     }
     let output = conductor(state, &[group, view, "--format", "jsonl"]);

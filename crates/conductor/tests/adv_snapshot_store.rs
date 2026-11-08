@@ -29,7 +29,7 @@ use eventlog_core::{
     CommandMeta, EventStore as _, Expected, NewEvent, StreamId, TenantId, new_event_id,
     request_hash,
 };
-use eventlog_tree::TreeEventStore;
+use eventlog_sqlite::SqliteEventStore;
 use serde_json::{Value, json};
 use time::OffsetDateTime;
 
@@ -47,26 +47,31 @@ fn state_dir(case: &str) -> PathBuf {
 }
 
 /// Appends one `stored` event at schema `version` with `body` to the new stream `key` of `entity`,
-/// where the store keeps it (`story:observation-retention`): an observation in the tenant of the
-/// snapshot its body names under `state/observations/`, every other record in `state/tree/`.
+/// with the raw log: what a crashed run or another build leaves in the store. It is kept where the
+/// store keeps it (`story:store-shared`): an observation in the tenant of the snapshot its body
+/// names, every other record in the tenant of the state directory, `conductor`, both in
+/// `state/store.sqlite`.
 fn append_raw(state: &Path, entity: &str, key: &str, version: u32, body: Value) {
     let observed = entity.starts_with("conductor.observation.") && entity.ends_with("Observation");
-    let (dir, tenant) = if observed {
-        (
-            state.join("observations"),
+    let tenant = if observed {
+        format!(
+            "conductor/observations/{}",
             body["snapshot_id"]
                 .as_str()
                 .expect("an observation names its snapshot")
-                .to_owned(),
         )
     } else {
-        (state.join("tree"), "conductor".to_owned())
+        "conductor".to_owned()
     };
+
+    let file = state.join(store::STORE_FILE);
     let runtime = tokio::runtime::Builder::new_current_thread()
         .build()
         .expect("a runtime for the raw log");
     runtime.block_on(async {
-        let log = TreeEventStore::open(&dir).await.expect("open the raw log");
+        let log = SqliteEventStore::open(file.to_str().expect("a UTF-8 path"), store::PREFIX)
+            .await
+            .expect("open the raw log");
         let tenant = TenantId::new(tenant).expect("tenant");
         let stream = StreamId::new(tenant, entity, key).expect("stream");
         let events = [NewEvent::new("stored", version, body).expect("event")];
