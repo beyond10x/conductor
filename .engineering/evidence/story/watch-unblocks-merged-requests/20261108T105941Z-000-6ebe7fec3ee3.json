@@ -1,0 +1,13 @@
+{
+  "at": "2026-11-08T10:59:41Z",
+  "actor": "human:timo",
+  "artifact": "story:watch-unblocks-merged-requests",
+  "kind": "story",
+  "revision": 2,
+  "change": {
+    "change": "evidence",
+    "kind": "approval",
+    "source": "conductor-supervisor D20, 2026-11-08",
+    "reference": "move to active: serves K5 met false on one instance (K5.p90 40.7 h, a 16 h controller stall)"
+  }
+}

@@ -2,12 +2,15 @@
 format: aep.planning-md/3
 id: story:watch-unblocks-merged-requests
 kind: story
-status: draft
+status: active
 title: A Blocked dispatch whose request merged or closed is unblocked and its controller told
 summary: A controller blocked on CI sat idle 16 h after its auto-merge request merged
 relations:
 - decomposes: epic:loop-without-handwork
-revision: 2
+revision: 4
+transitions:
+- {from: "draft", to: "proposed", at: "2026-11-08T10:59:41Z", actor: "human:timo", revision: 3, decided_on: {"recorded":{"approval":1}}}
+- {from: "proposed", to: "active", at: "2026-11-08T10:59:41Z", actor: "human:timo", revision: 4, decided_on: {"recorded":{"approval":1}}}
 ---
 # Story: watch-unblocks-merged-requests
 

@@ -414,8 +414,8 @@ The conductor store of each instance holds the operator's selection; do not copy
 - Report headers name the repository exactly as the dispatch does, slash included. The loop moves a
   dispatch only Sent -> Started -> Blocked/Done: a controller reports `started` first; `conductor
   dispatch report-unblocked --dispatch-id` once its pull or merge request is open.
-- A session `waiting` in `claude agents --json` is at a prompt: read its pane. Answer a guard refusal
-  No (key 2), tell the controller the guard's hint; carry an operator question as a decision.
+- A session `waiting` in `claude agents --json` is at a prompt: read its pane. Answer a guard refusal No
+  (`send-keys Down`, `Enter`, check the pane); tell the controller the hint; carry an operator question as a decision.
 - Talk to a controller with `printf '%s\n' "<text>" | CONDUCTOR_INSTANCE=<i> conductor session
   deliver --name <session> --text -` (returns a message id). Write a message to several targets as
   a script file: zsh does not word-split `$p`.
