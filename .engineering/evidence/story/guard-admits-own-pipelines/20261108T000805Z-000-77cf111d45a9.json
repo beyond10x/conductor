@@ -1,0 +1,13 @@
+{
+  "at": "2026-11-08T00:08:05Z",
+  "actor": "human:timo",
+  "artifact": "story:guard-admits-own-pipelines",
+  "kind": "story",
+  "revision": 4,
+  "change": {
+    "change": "evidence",
+    "kind": "test_result",
+    "source": "cargo test -p conductor-cli --test guard_rules: 146 passed, 0 failed",
+    "reference": "9d1a85db3"
+  }
+}

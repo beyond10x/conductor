@@ -6342,6 +6342,118 @@ fn under_the_direct_route_a_controller_writes_its_own_merge_requests_with_glab()
     }
 }
 
+// story:guard-admits-own-pipelines: under `forge.route: direct` a session retries and starts its
+// own repository's pipelines with `glab ci retry|run` and `glab api -X POST`; another
+// repository's stay denied.
+
+#[test]
+fn under_the_direct_route_a_controller_retries_and_starts_its_own_pipelines() {
+    let home = home("forge-direct-pipelines");
+    let (places, widget, _) = forge_layout(
+        &home,
+        Some("direct"),
+        "git@gitlab.example.com:example-group/widget.git",
+        "https://gitlab.example.com/example-group/records.git",
+    );
+    let src = widget.join("src");
+    fs::create_dir_all(&src).expect("create the working directory");
+    for cwd in [&widget, &src] {
+        for command in [
+            "glab ci retry 123",
+            "glab ci retry 123 -R example-group/widget",
+            "glab ci run",
+            "glab ci run -b main",
+            "glab ci run --branch main --repo gitlab.example.com/example-group/widget",
+            "glab -R example-group/widget ci retry 9",
+            "glab ci view",
+            "glab api -X POST projects/example-group%2Fwidget/pipeline?ref=main",
+            "glab api --method POST /projects/example-group%2fwidget/pipeline -f ref=main",
+            "glab api -XPOST api/v4/projects/example-group%2Fwidget/pipelines/77/retry",
+            "glab api --method=post projects/:fullpath/jobs/5/retry",
+            "glab api -X POST projects/:id/pipeline -f ref=main --hostname gitlab.example.com",
+        ] {
+            assert_verdict(&bash_by(&home, &places, cwd, command), Verdict::Allow, "");
+        }
+    }
+    for (command, because) in [
+        (
+            "glab ci retry 123 -R example-group/other",
+            "names the repository",
+        ),
+        (
+            "glab ci run -R example-group/widget -R example-group/other",
+            "names the repository",
+        ),
+        (
+            "glab ci retry https://gitlab.example.com/x/-/jobs/1",
+            "another repository",
+        ),
+        ("glab ci cancel 123", "under forge.route direct"),
+        ("glab ci delete 123", "under forge.route direct"),
+        ("glab ci --flag retry 123", "under forge.route direct"),
+        (
+            "GITLAB_HOST=example.invalid glab ci retry 123",
+            "assigns GITLAB_HOST",
+        ),
+        (
+            "glab api -X POST projects/example-group%2Fother/pipeline",
+            "no pipeline endpoint of example-group/widget",
+        ),
+        (
+            "glab api -X POST projects/42/pipeline",
+            "no pipeline endpoint",
+        ),
+        (
+            "glab api -X POST projects/example-group%2Fwidget/pipelines/x/retry",
+            "no pipeline endpoint",
+        ),
+        (
+            "glab api -X POST projects/example-group%2Fwidget/merge_requests",
+            "no pipeline endpoint",
+        ),
+        (
+            "glab api -X DELETE projects/example-group%2Fwidget/pipelines/7",
+            "no POST",
+        ),
+        (
+            "glab api -X POST projects/:id/pipeline --hostname gitlab.other.example",
+            "names the host",
+        ),
+        (
+            "glab api -X POST projects/:id/pipeline projects/:id/jobs/1/retry",
+            "no single endpoint",
+        ),
+    ] {
+        assert_verdict(
+            &bash_by(&home, &places, &widget, command),
+            Verdict::Deny,
+            because,
+        );
+    }
+}
+
+#[test]
+fn under_the_gates_route_a_pipeline_retry_stays_denied() {
+    let home = home("forge-gates-pipelines");
+    let (places, widget, _) = forge_layout(
+        &home,
+        Some("gates"),
+        "git@gitlab.example.com:example-group/widget.git",
+        "https://gitlab.example.com/example-group/records.git",
+    );
+    for command in [
+        "glab ci retry 123",
+        "glab ci run -R example-group/widget",
+        "glab api -X POST projects/example-group%2Fwidget/pipeline",
+    ] {
+        assert_verdict(
+            &bash_by(&home, &places, &widget, command),
+            Verdict::Deny,
+            "GitLab write",
+        );
+    }
+}
+
 #[test]
 fn under_the_direct_route_a_checkout_three_folders_deep_writes_its_own_merge_requests() {
     let home = home("forge-direct-glab-nested");

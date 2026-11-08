@@ -28,7 +28,7 @@
 //! only, those of every other file the host registry lists (`story:instance-names-unique`,
 //! [`Places::with_registered`]): a conductor without a prefix is no longer alone when another
 //! file's instance is registered, and a message to that instance's session is denied.
-//! | Bash | a `cd`, `pushd` or `git -C` (`--git-dir`, `--work-tree`, `GIT_DIR=`, `GIT_WORK_TREE=`) reaches another repository's checkout or managed worktrees, or `<records>`; a git subcommand that writes ([`git_reads`]) has a target (the directory `-C` leaves it in, else the cwd; `--git-dir`, `--work-tree`, `GIT_DIR`, `GIT_WORK_TREE`) outside `<root>/<repo>/`, `<trees>/<repo>/` and the session's scratch; a `gh` or `glab` call that is not a read ([`forge_write`]), except, under `forge.route: direct`, `gh pr create|edit|comment|merge|ready` and `glab mr create|update|note|merge` naming the repository the checkout's `origin` names with `-R` ([`Session::direct_denial`]); a run of the bot route `b10x-gates gh` that is not `release create|upload|edit|view`, `run rerun` or `workflow run` with `--repository` naming the repository the checkout's `origin` names ([`bot_route`]); the command writes a `.claude/` settings file or a `<settings>` ([`Places::writes_settings`]); the command writes a `<profile>` ([`Places::writes_profile`]); the command names `<config>` and holds a write form ([`Places::names_config`], [`holds_write_form`]); it runs a `conductor` leaf the command tree does not declare a controller may run ([`cli::LEAVES`], [`conductor_run`]), or one whose leaf a shell expansion, `xargs` or a program word a substitution names decides at run time; or the command writes `<records>` or a path under it ([`Places::writes_records`]) | a `gh` or `glab` call that is not a read, except a direct write as for a controller, its own repository the one the `origin` of `<records>` names; a run of the bot route as for a controller, its own repository the one the `origin` of `<records>` names; the command writes a `.claude/` settings file or a `<settings>`; the command writes a `<profile>` |
+//! | Bash | a `cd`, `pushd` or `git -C` (`--git-dir`, `--work-tree`, `GIT_DIR=`, `GIT_WORK_TREE=`) reaches another repository's checkout or managed worktrees, or `<records>`; a git subcommand that writes ([`git_reads`]) has a target (the directory `-C` leaves it in, else the cwd; `--git-dir`, `--work-tree`, `GIT_DIR`, `GIT_WORK_TREE`) outside `<root>/<repo>/`, `<trees>/<repo>/` and the session's scratch; a `gh` or `glab` call that is not a read ([`forge_write`]), except, under `forge.route: direct`, `gh pr create|edit|comment|merge|ready` and `glab mr create|update|note|merge` naming the repository the checkout's `origin` names with `-R` ([`Session::direct_denial`]), and `glab ci retry|run` of that repository (named with `-R`, or none) and `glab api -X POST` to its pipeline and job retry endpoints ([`own_pipeline_endpoint`]); a run of the bot route `b10x-gates gh` that is not `release create|upload|edit|view`, `run rerun` or `workflow run` with `--repository` naming the repository the checkout's `origin` names ([`bot_route`]); the command writes a `.claude/` settings file or a `<settings>` ([`Places::writes_settings`]); the command writes a `<profile>` ([`Places::writes_profile`]); the command names `<config>` and holds a write form ([`Places::names_config`], [`holds_write_form`]); it runs a `conductor` leaf the command tree does not declare a controller may run ([`cli::LEAVES`], [`conductor_run`]), or one whose leaf a shell expansion, `xargs` or a program word a substitution names decides at run time; or the command writes `<records>` or a path under it ([`Places::writes_records`]) | a `gh` or `glab` call that is not a read, except a direct write as for a controller, its own repository the one the `origin` of `<records>` names; a run of the bot route as for a controller, its own repository the one the `origin` of `<records>` names; the command writes a `.claude/` settings file or a `<settings>`; the command writes a `<profile>` |
 //!
 //! A Bash command that kills by pattern, name or group is denied for every role, before the rows
 //! above ([`kill_denial`], `story:guard-no-pattern-kill`): `pkill`, `killall`, and a `kill` that
@@ -800,6 +800,17 @@ const DIRECT_CARRIES_GH: [(&str, &[&str]); 1] =
 
 /// The `glab` counterpart of [`DIRECT_CARRIES_GH`].
 const DIRECT_CARRIES_GLAB: [(&str, &[&str]); 1] = [("mr", &["create", "update", "note", "merge"])];
+
+/// The pipeline writes `forge.route: direct` admits through `glab` for the session's own
+/// repository (`story:guard-admits-own-pipelines`): a retry or a start of its CI, named with
+/// `-R` or, without it, the repository of the checkout `glab` runs in.
+const DIRECT_PIPELINES_GLAB: [(&str, &[&str]); 1] = [("ci", &["retry", "run"])];
+
+/// The endpoints under `projects/<own project>/` that `glab api -X POST` may call under
+/// `forge.route: direct`: a pipeline's start, a pipeline's retry and a job's retry; `<id>` is a
+/// number ([`own_pipeline_endpoint`]).
+const DIRECT_PIPELINE_ENDPOINTS: [&str; 3] =
+    ["pipeline", "pipelines/<id>/retry", "jobs/<id>/retry"];
 
 /// The variables that point `gh` or `glab` at another host or repository than its `-R` names: a
 /// direct write that assigns one is denied.
@@ -1755,9 +1766,18 @@ impl Session<'_> {
             .iter()
             .map(|(group, verbs)| format!("`{program} {group} {}`", verbs.join("|")))
             .collect();
+        let pipelines = if forge == Forge::GitLab {
+            format!(
+                "; its pipelines with `glab ci retry|run` (-R its repository, or none) and `glab \
+                 api -X POST projects/<its path, encoded>/{}`",
+                DIRECT_PIPELINE_ENDPOINTS.join("|")
+            )
+        } else {
+            String::new()
+        };
         let carried = format!(
             "under forge.route direct a session writes only {} of its own repository, named with \
-             -R; {program} otherwise only reads ({})",
+             -R{pipelines}; {program} otherwise only reads ({})",
             carried.join(", "),
             forge.reads()
         );
@@ -1776,6 +1796,21 @@ impl Session<'_> {
             ));
         }
         let rest = &words[at + 1..];
+        if forge == Forge::GitLab
+            && rest
+                .iter()
+                .find(|word| !word.starts_with('-'))
+                .map(String::as_str)
+                == Some("api")
+        {
+            let (host, own) = match self.own_repository() {
+                Ok(own) => own,
+                Err(why) => return Some(format!("`{write}` is denied: {why}; {carried}")),
+            };
+            return own_pipeline_endpoint(rest, &host, &own)
+                .err()
+                .map(|why| format!("`{write}` {why}: {carried}"));
+        }
         let mut operands: Vec<&str> = Vec::new();
         let mut repos: Vec<&str> = Vec::new();
         let mut flag_before_verb = false;
@@ -1799,7 +1834,11 @@ impl Session<'_> {
             .direct_carries()
             .iter()
             .any(|(name, verbs)| *name == group && verbs.contains(&verb));
-        if !carries || flag_before_verb {
+        let pipeline = forge == Forge::GitLab
+            && DIRECT_PIPELINES_GLAB
+                .iter()
+                .any(|(name, verbs)| *name == group && verbs.contains(&verb));
+        if !(carries || pipeline) || flag_before_verb {
             return denied();
         }
         if let Some(url) = operands
@@ -1825,6 +1864,9 @@ impl Session<'_> {
             named.eq_ignore_ascii_case(&own) || named.eq_ignore_ascii_case(&format!("{host}/{own}"))
         };
         if repos.is_empty() {
+            if pipeline {
+                return None;
+            }
             return Some(format!(
                 "`{write}` names no repository: {carried}, written as `{program} {group} {verb} \
                  -R {own} …`"
@@ -3112,6 +3154,99 @@ fn glab_reads(group: &str, verb: &str) -> bool {
     GLAB_READS
         .iter()
         .any(|(name, verbs)| *name == group && verbs.contains(&verb))
+}
+
+/// Whether the arguments of `glab api`, `arguments`, call a pipeline endpoint of the project
+/// `own` on `host` that `forge.route: direct` admits ([`DIRECT_PIPELINE_ENDPOINTS`]): the method
+/// POST, the endpoint `projects/<own, its slashes written %2F>/…` or `projects/:fullpath/…` or
+/// `projects/:id/…` (which `glab` fills from the checkout it runs in), with or without a leading
+/// `/` or `api/v4/` and with any query, and a `--hostname`, if any, naming `host`. `Err` says why
+/// not.
+fn own_pipeline_endpoint(arguments: &[String], host: &str, own: &str) -> Result<(), String> {
+    /// Flags of `glab api` that take the next word as their value, besides the method and the
+    /// host.
+    const VALUED: &[&str] = &[
+        "-H",
+        "--header",
+        "-f",
+        "-F",
+        "--field",
+        "--raw-field",
+        "--input",
+    ];
+    let mut method: Option<&str> = None;
+    let mut hostname: Option<&str> = None;
+    let mut operands: Vec<&str> = Vec::new();
+    let mut next = 0;
+    while let Some(word) = arguments.get(next) {
+        let word = word.as_str();
+        next += 1;
+        if word == "-X" || word == "--method" {
+            method = arguments.get(next).map(String::as_str);
+            next += 1;
+        } else if let Some(value) = word.strip_prefix("--method=") {
+            method = Some(value);
+        } else if word == "--hostname" {
+            hostname = arguments.get(next).map(String::as_str);
+            next += 1;
+        } else if let Some(value) = word.strip_prefix("--hostname=") {
+            hostname = Some(value);
+        } else if VALUED.contains(&word) {
+            next += 1;
+        } else if word.starts_with("--") {
+            // A flag with no value: `--paginate`, `--silent`, `--include`.
+        } else if let Some(cluster) = word.strip_prefix('-').filter(|cluster| !cluster.is_empty()) {
+            for (at, flag) in cluster.char_indices() {
+                if matches!(flag, 'X' | 'f' | 'F' | 'H') {
+                    let value = &cluster[at + flag.len_utf8()..];
+                    let value = if value.is_empty() {
+                        next += 1;
+                        arguments.get(next - 1).map(String::as_str)
+                    } else {
+                        Some(value)
+                    };
+                    if flag == 'X' {
+                        method = value;
+                    }
+                    break;
+                }
+            }
+        } else {
+            operands.push(word);
+        }
+    }
+    if let Some(named) = hostname.filter(|named| !named.eq_ignore_ascii_case(host)) {
+        return Err(format!("names the host {named}, not {host}"));
+    }
+    if !method.is_some_and(|method| method.eq_ignore_ascii_case("POST")) {
+        return Err("is no POST to a pipeline endpoint".to_owned());
+    }
+    let ["api", endpoint] = operands.as_slice() else {
+        return Err("names no single endpoint".to_owned());
+    };
+    let endpoint = endpoint.split('?').next().unwrap_or_default();
+    let endpoint = endpoint.trim_start_matches('/');
+    let endpoint = endpoint.strip_prefix("api/v4/").unwrap_or(endpoint);
+    let not_own = || {
+        Err(format!(
+            "calls {endpoint}, which is no pipeline endpoint of {own}"
+        ))
+    };
+    let Some((project, tail)) = endpoint
+        .strip_prefix("projects/")
+        .and_then(|path| path.split_once('/'))
+    else {
+        return not_own();
+    };
+    let decoded = project.replace("%2F", "/").replace("%2f", "/");
+    let is_own = project == ":fullpath" || project == ":id" || decoded.eq_ignore_ascii_case(own);
+    let number = |word: &str| !word.is_empty() && word.bytes().all(|byte| byte.is_ascii_digit());
+    let carried = match tail.split('/').collect::<Vec<_>>().as_slice() {
+        ["pipeline"] => true,
+        ["pipelines" | "jobs", id, "retry"] => number(id),
+        _ => false,
+    };
+    if is_own && carried { Ok(()) } else { not_own() }
 }
 
 /// Whether the arguments of `gh api` or `glab api` make a read: GET (no method or GET named, by
