@@ -24,7 +24,7 @@ the system and inputs lists) is the base of every authoring unit.
 | A7 token | `spec/domains/token.yaml`, its scenarios | `spec/token` | `wt-10784dd2a894` | `wave-v1-1/token/scratch` | merged |
 | A8 config, improvement, host | the three domain files and their scenarios | `spec/config-host` | `wt-f39c1bc353ae` | `wave-v1-1/config-host/scratch` | merged |
 | A9 actor everywhere | the six unchanged domains and their scenarios | `spec/actor-everywhere` | `wt-3af7cf9a9ee3` | `wave-v1-1/actor-everywhere/scratch` | merged |
-| U1 integration | `spec/components.yaml`, `spec/ess-inputs.yaml` (merged), `crates/conductor-model` (regenerated), `crates/conductor/src/**`, `crates/conductor/tests/**`, `crates/conductor-docs/src/config.rs`, `docs/config.md`, generated reference pages | `impl/spec-v1` | (after A1 to A9 merge) | `wave-v1-1/spec-v1/scratch` | planned |
+| U1 integration | `spec/components.yaml`, `spec/ess-inputs.yaml` (merged), `crates/conductor-model` (regenerated), `crates/conductor/src/**`, `crates/conductor/tests/**`, `crates/conductor-docs/src/config.rs`, `docs/config.md`, generated reference pages | `impl/spec-v1` | (after A1 to A9 merge) | `wave-v1-1/spec-v1/scratch` | merged |
 
 Worktrees are under the worktree manager's tree root for this repository; scratch directories are
 under the session's scratch root. Each authoring unit's build directory is none: the authors run
@@ -76,10 +76,35 @@ merge of `wave/v1-1` into `v1`. No tag, no release, no merge into `main`.
 
 ## Outcome
 
-Interim, 2026-11-08: the nine authoring units are merged on `wave/v1-1` (2ed44ce95); `ess specify
-validate --path spec` prints `conductor v1 — 18 file(s), 81 scenario(s), valid`; the header is at
-`ess/25`. Open before U1: one reconcile unit (the Actor becomes a struct with a `kind` of Human,
-Agent or Daemon so an agent refusal is a `when:` predicate; one `ActorNotHuman` in the operator
-domain; the cross-domain relations the authors left to each other; the design and the page updated
-to the struct), then U1. The `UNMAPPED:` markers in `spec/` are the owner's open questions
-(`grep -rn UNMAPPED spec`).
+Delivered 2026-11-08; `story:spec-v1` is implemented (revision 45), on the `task check` run of
+pull request 107, merged into `v1` at 37b16db79.
+
+| unit | result |
+|---|---|
+| A1 to A9 | nine domains or domain groups authored in parallel, each validated alone and merged |
+| R1 reconcile | `Actor` became a struct with a kind (Human, Agent, Daemon), so a person-only refusal is a `when:` predicate synthesis tests; one `ActorNotHuman`; the cross-domain relations; design § 3 and § 13 row 14 |
+| spec fixes | the spec adversary's findings: four conformance failures, daemon-refused scenarios, actors on two records, the secret view |
+| U1 integration | components `conductord` and `conductor-instance`, an `ess-http/1` binding of 41 routes, the regenerated model, the crate on the new types, clap stubs exiting 2 |
+| crate fixes | the crate adversary's findings: the run loop's child steps record as the daemon; an agent session cannot claim a human actor |
+
+| gate | value |
+|---|---|
+| `ess specify validate --path spec` | 86 scenarios, valid |
+| conformance, interpreted target | 652 passed, 0 failed, 0 unsupported |
+| `cargo test -p conductor-cli` | 1425 passed, 0 failed, 7 ignored |
+| CI on pull request 107 | `task check`, Gates and the documentation build pass |
+
+Deviations from the plan:
+
+- The adversary ran twice, on the merged specification and on the merged crate, and not per
+  authoring unit.
+- `ess` refuses a client component that owns no domain, so the dashboard and the TUI are not
+  components and the v0 domains stay on `conductor-cli` (ESS-COMPONENT-001, 004, 005, 007).
+- Three `ess` gaps were filed on the `ess` repository: a union variant cannot be tested in a
+  predicate (764), an absent optional field carried into a payload (765), the swapped-caller
+  rerun renaming every `instance` string (766).
+
+Left for the owner: 74 `UNMAPPED:` markers in `spec/` (`grep -rn UNMAPPED spec`). Backlog: grants
+are not read by any command (the grant model has no effect yet); the guard's refusal of a message
+to another config file's instance is gone before conductord replaces it; the token commands'
+actor.

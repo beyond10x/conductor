@@ -2,7 +2,7 @@
 format: aep.planning-md/3
 id: story:spec-v1
 kind: story
-status: active
+status: implemented
 title: the whole v1 system is modelled in the ESS specification before a handler is written
 summary: new domains instance, placement, agent, store, secret, operator; config and improvement changed; host shrunk; the components of the two APIs; one scenario per new command; the model regenerated
 relations:
@@ -88,10 +88,11 @@ scope:
   path: website/docs/reference/cli.md
 - confidence: cited
   path: website/docs/reference/config.md
-revision: 44
+revision: 45
 transitions:
 - {from: "draft", to: "proposed", at: "2026-11-07T23:41:23Z", actor: "human:timo", revision: 2}
 - {from: "proposed", to: "active", at: "2026-11-07T23:41:23Z", actor: "human:timo", revision: 3}
+- {from: "active", to: "implemented", at: "2026-11-08T04:59:22Z", actor: "human:timo", revision: 45, decided_on: {"recorded":{"test_result":1}}}
 ---
 ## Why
 
