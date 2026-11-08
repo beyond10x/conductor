@@ -180,6 +180,11 @@ callables:
       rule-item-not-found: conductor.direction.RulesRefused
       rule-section-not-found: conductor.direction.RulesRefused
       revision-not-found: conductor.direction.RulesRefused
+  role-show:
+    target: {kind: local, owner: conductor-cli, action: role_show}
+    input: conductor.agent.ShowRole
+    result: String
+    errors: {}
   upgrade:
     target: {kind: local, owner: conductor-cli, action: upgrade}
     input: conductor.config.UpgradeBinary
@@ -534,6 +539,12 @@ commands:
         source: {kind: option, long: brief}
       - field: changed_since
         source: {kind: option, long: changed-since}
+      - field: role
+        source: {kind: option, long: role}
+  - path: [role, show]
+    callable: role-show
+    about: Print the profile the binary carries for a role (maintainer, supervisor, teacher, controller, or an old name of one), byte for byte, reading no config and no store; exit 1 naming a role the binary carries none for
+    arguments:
       - field: role
         source: {kind: option, long: role}
   - path: [upgrade]

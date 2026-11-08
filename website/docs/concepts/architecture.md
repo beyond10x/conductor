@@ -21,8 +21,8 @@ flowchart TB
   classDef nomodel fill:#e5e7eb,stroke:#4b5563,color:#111827
   classDef store fill:#ede9fe,stroke:#6d28d9,color:#111827
   op["operator: interactive harness session"]:::host
-  sup["supervisor: started by the daemon, reads profiles/conductor-supervisor.md"]:::host
-  tea["teacher: started by the daemon, reads profiles/conductor-teacher.md"]:::host
+  sup["supervisor: started by the daemon, from the binary's supervisor profile"]:::host
+  tea["teacher: started by the daemon, from the binary's teacher profile"]:::host
   op --- sup
   op -.-|names foreign sessions, answers his class| sup
   tea -.->|observes, edits the profile| sup
@@ -189,17 +189,15 @@ reconciles the two every pass.
 
 | task | does |
 |---|---|
-| `task install` | builds and installs the binary; `task profiles` installs `.agents/*.md` into `profiles/` next to the config file |
+| `task install` | builds and installs the binary, which carries the role profiles (`crates/conductor/roles/*.md`) |
 | `task maintainer:start` | `conductor session start --role maintainer`: the maintainer in its own tmux server and unit |
 | `task supervisor:start` | `conductor daemon start-role --role supervisor`: asks the daemon to start the supervisor now; the daemon keeps it running while `globals.roles` lists it, its session in `conductor_host.slice` |
 | `task teacher:start` | the same for the teacher, which runs when `globals.roles` lists it |
 | `task dashboard`, `task dashboard:stop` | the dashboard unit |
 | `task sessions`, `task conductor:attach`, `task maintainer:attach` | list sessions; attach to one |
-| `task agents:link REPO=<path>` | links the role adapters into a repository's `.claude/agents/` |
 
-The supervisor and the teacher are not units: they are the harness's own background sessions, read
-their 10-line adapter from `~/.claude/agents/<name>.md` and their whole definition from
-`profiles/<name>.md`. They have no tmux server, no envelope, no terminal log, and `conductor session
+The supervisor and the teacher are not units: they are the harness's own background sessions,
+started from the profile the binary carries for their role. They have no tmux server, no envelope, no terminal log, and `conductor session
 list` does not show them.
 
 ### The operator's chat session
@@ -702,7 +700,7 @@ Built-in roles ship with a profile each: `supervisor`, `controller`, `planner`, 
 ```yaml
 roles:
   - role: ui-pass
-    profile: ~/.b10x/conductor/profiles/ui-pass.md
+    profile: ~/example-org/roles/ui-pass.md
     model: sonnet
     scope: repository
     repositories: [manager]

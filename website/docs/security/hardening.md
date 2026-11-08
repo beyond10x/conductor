@@ -3,7 +3,7 @@ title: Hardening checklist
 sidebar_position: 6
 description: A checklist for running a conductor instance on repositories you care about; what to set up on the host, on the forge and in the config, and how to check that the guard runs.
 lede: The guard narrows what a session does; the host, the forge and the token decide what a mistake or a hostile prompt can reach.
-source: crates/conductor/src/guard.rs; crates/conductor/src/config.rs; crates/conductor/src/doctor.rs; crates/conductor/src/trust.rs; Taskfile.yml; .claude/controller-settings.json, .claude/conductor-settings.json
+source: crates/conductor/src/guard.rs; crates/conductor/src/config.rs; crates/conductor/src/doctor.rs; crates/conductor/src/trust.rs; Taskfile.yml; crates/conductor/kinds/claude-code/controller-settings.json, crates/conductor/kinds/claude-code/conductor-settings.json
 ---
 
 Work through this list before you start sessions on an instance, and again after an upgrade.
@@ -39,9 +39,9 @@ directories.
 - [ ] **Keep secrets out of the config file.** `conductor config validate` refuses a value that
   looks like a token (`ghp_`, `github_pat_`, `glpat-`, `xox<letter>-`) and never prints it; name where a
   secret lives instead.
-- [ ] **Name the settings file of every guarded role.** The `controller` role's `settings` points
-  at `.claude/controller-settings.json` or a file that wires the same hook; the `conductor` role's
-  defaults to this checkout's `.claude/conductor-settings.json`. Give `conductor-dev` one too if
+- [ ] **Name the settings file of every guarded role.** The `controller` and `conductor` roles start with
+  the settings the binary carries (`crates/conductor/kinds/claude-code/`), which wire the guard; a
+  `settings` either names instead wires the same hook. Give `conductor-dev` one too if
   it should be guarded ([config reference](/docs/reference/config#role)).
 - [ ] **Give the controller role a `profile`.** `conductor config validate` refuses a controller
   role with an `agent` and no `profile`.

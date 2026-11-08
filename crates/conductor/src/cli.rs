@@ -35,7 +35,8 @@
 //! `repository shipped` (`story:release-digest`), `repository activity`
 //! (`story:repository-marks`), `repository refresh-hooks` (`story:gates-hooks-fresh`), `resource
 //! usage` (`story:token-spend`), `store migrate` (`story:store-on-eventlog-tree`), `records check`
-//! (`story:records-from-commands`) and `rules show` (`story:rules-show`).
+//! (`story:records-from-commands`), `rules show` (`story:rules-show`) and `role show`
+//! (`story:roles-in-the-binary`).
 //! `host reclaim` (`story:disk-reclaim`) joins the `host` group, and `session start` and `session
 //! stop` (`story:sandbox-spec`) the `session` group; `build run` (`story:build-run`)
 //! alone also takes the words after `--`, as written: the command it runs.
@@ -550,6 +551,9 @@ impl Cli {
             Group::Records(command) => match command {
                 RecordsCommand::Check(args) => crate::records::records_check(state, &args),
             },
+            Group::Role(command) => match command {
+                RoleCommand::Show(args) => crate::role::role_show(&args),
+            },
             Group::Rules(command) => match command {
                 RulesCommand::Show(args) => crate::rules::rules_show(&args),
             },
@@ -743,6 +747,11 @@ pub enum Group {
     // (`story:records-from-commands`).
     #[command(subcommand)]
     Records(RecordsCommand),
+
+    // No help, as for `dashboard`: the binding declares the group only through `role show`
+    // (`story:roles-in-the-binary`).
+    #[command(subcommand)]
+    Role(RoleCommand),
 
     // No help, as for `dashboard`: the binding declares the group only through `rules show`
     // (`story:rules-show`).
@@ -1012,6 +1021,8 @@ pub const LEAVES: &[(&[&str], Access)] = &[
     (&["need", "new"], Access::Writes),
     // Reads conductor's records logs and the store's decisions (story:records-from-commands).
     (&["records", "check"], Access::ConductorReads),
+    // Prints a profile the binary carries; reads nothing else (story:roles-in-the-binary).
+    (&["role", "show"], Access::Reads),
     // Reads the instance's rules.md and nothing else; a controller cites its items in a worker's
     // brief (story:rules-show).
     (&["rules", "show"], Access::Reads),
@@ -2030,6 +2041,25 @@ pub struct NeedNewArgs {
     /// The UTC date the id is minted for, yyyy-mm-dd. Default: today
     #[arg(long)]
     pub day: Option<String>,
+}
+
+// `conductor role`: the command the binding declares over the `local` callable `role-show`
+// (`story:roles-in-the-binary`). A plain comment, as for `dashboard`.
+#[allow(missing_docs)]
+#[derive(Debug, Subcommand)]
+pub enum RoleCommand {
+    /// Print the profile the binary carries for a role (maintainer, supervisor, teacher, controller, or an old name of one), byte for byte, reading no config and no store; exit 1 naming a role the binary carries none for
+    #[command(name = "show")]
+    Show(RoleShowArgs),
+}
+
+/// The input of the binding's `role-show` callable, `conductor.agent.ShowRole`. The role is text
+/// the handler reads, so a name it carries no profile for is named there.
+#[derive(Debug, Clone, Args)]
+pub struct RoleShowArgs {
+    /// The role whose profile to print: maintainer, supervisor, teacher or controller
+    #[arg(long)]
+    pub role: Option<String>,
 }
 
 // `conductor rules`: the command the binding declares over the `local` callable `rules-show`

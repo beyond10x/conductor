@@ -20,6 +20,20 @@ types:
   # A kind's name, such as `claude-code`. The kinds are the ones the binary implements (§ 7, the
   # trait `agent::Kind`); the config names one per role slot. `takt` is a later story and is not
   # declared as data.
+  # The input of `conductor role show` (story:roles-in-the-binary). A role's profile is product
+  # data compiled into the binary, one Markdown file per role under `crates/conductor/roles/`:
+  # `maintainer`, `supervisor`, `teacher` and `controller`, each also by its old name
+  # (`conductor.config.RoleName`: `conductor-dev`, `lead`). It prints that text byte for byte on
+  # standard output and reads and writes nothing else, no config and no store. A role the binary
+  # carries no profile for, or none given, is refused on one line of standard error naming it,
+  # exit 1. The `claude-code` kind writes the text as the agent's appended system prompt,
+  # `<state>/sessions/<session name>.profile.md`, when it starts an agent whose role names no
+  # `profile` and no `agent`; a `profile` the role names overrides it and is read at start.
+  - name: conductor.agent.ShowRole
+    kind: struct
+    fields:
+      - {name: role, type: Optional<String>}
+
   - name: conductor.agent.AgentKindName
     kind: newtype
     of: String
@@ -132,8 +146,9 @@ entities:
       # The box the agent runs in. Absent: started unboxed.
       - name: box
         type: Optional<conductor.placement.BoxId>
-      # The role's profile file, appended to the harness (`--append-system-prompt-file`); absent
-      # where the role names none.
+      # The role's profile file, appended to the harness (`--append-system-prompt-file`): the one the
+      # role names, or the binary's text for the role written into the agent's state at start
+      # (`ShowRole`); absent where the role names none and the binary carries none.
       - name: profile
         type: Optional<String>
       - name: limits

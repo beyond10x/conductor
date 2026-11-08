@@ -66,7 +66,8 @@ directory relative to `<records>/.engineering/`. Two sources that give one name 
 are refused by both YAML paths. `--check` writes nothing and exits 1 naming each member that
 differs from the file. `conductor init` writes the same file into the skeleton it creates.
 
-The profiles in `.agents/` refer to config values as `section.key`, such as
+The role profiles the binary carries (`crates/conductor/roles/`, `conductor role show --role
+<role>`) refer to config values as `section.key`, such as
 `thresholds.disk_low`: that is the field of `conductor config show --format json` for the
 instance the session runs.
 
@@ -197,7 +198,7 @@ daemon's page with `?instance=<name>`. `conductor doctor` prints no confinement 
 ## Instance
 
 "Read by" names what uses a field today: the binary's commands, the tasks in `Taskfile.yml`, or a
-session profile in `.agents/` (conductor's or the controller's). A field read by nothing is
+role profile the binary carries (`crates/conductor/roles/`). A field read by nothing is
 accepted, defaulted and shown by `config show`.
 
 | key | type | default | read by | meaning |
@@ -217,9 +218,9 @@ accepted, defaulted and shown by `config show`.
 | `roles[].kind` | `claude-code` | `claude-code` | | the kind of agent that fills the role's slot; `claude-code`, today's sessions, is the only kind in v1 |
 | `roles[].harness` | `claude` \| `codex` | required | | the harness the role runs on; the start tasks start `claude` only |
 | `roles[].model` | string | required | | the model name passed to the harness |
-| `roles[].agent` | string | none | `task conductor:start` | the harness agent the role starts with when it names no `profile`, found only in the start directory's `.claude/agents/` (`--setting-sources project,local` loads no user-level agent); for the `conductor` role the start task defaults to `conductor`, for `conductor-dev` to `conductor-dev`. The `controller` role starts from its `profile`, never with `--agent`: `conductor config validate` refuses a controller role that names an `agent` and no `profile` |
-| `roles[].settings` | path | none | conductor profile, `task conductor:start`, `task dev:start` | the settings file the role starts with, such as the repository's `.claude/controller-settings.json`, which wires the guard. Sessions start without the user's settings, so this file carries everything else they need (below). Under a config file a file that pins no instance (no `env.CONDUCTOR_INSTANCE`) starts as a copy pinned to the instance, `<state>/sessions/<session name>.settings.json`, and `conductor config validate` notes it; one that pins another instance is refused (`InstanceNotPinned`) |
-| `roles[].profile` | path | none; required for a `controller` role that names an `agent` | conductor profile, `task conductor:start`, `task dev:start` | the profile file the role's session starts with through `--append-system-prompt-file`, such as this repository's `.agents/repo-controller.md`; when it is set the session starts with no `--agent`, so no adapter is needed. A `controller` role the file writes with an `agent` and without a profile is refused by this path |
+| `roles[].agent` | string | none | `task conductor:start` | the harness agent the role starts with when it names no `profile`, in place of the profile the binary carries, found only in the start directory's `.claude/agents/` (`--setting-sources project,local` loads no user-level agent); the `conductor` role, which the binary carries no profile for, defaults to `conductor`. The `controller` role starts from its `profile`, never with `--agent`: `conductor config validate` refuses a controller role that names an `agent` and no `profile` |
+| `roles[].settings` | path | none | conductor profile, `task conductor:start`, `task dev:start` | the settings file the role starts with, in place of the one the binary carries (`crates/conductor/kinds/claude-code/conductor-settings.json` for `conductor`, `controller-settings.json` for a controller, each wiring the guard; none for the other roles), written to `<state>/sessions/<session name>.settings.json` at start. Sessions start without the user's settings, so this file carries everything else they need (below). Under a config file a file that pins no instance (no `env.CONDUCTOR_INSTANCE`) starts as a copy pinned to the instance, `<state>/sessions/<session name>.settings.json`, and `conductor config validate` notes it; one that pins another instance is refused (`InstanceNotPinned`) |
+| `roles[].profile` | path | none; required for a `controller` role that names an `agent` | conductor profile, `task conductor:start`, `task dev:start` | a profile file that takes the place of the one the binary carries for the role (`crates/conductor/roles/<role>.md`, for `conductor-dev`, `controller`, `supervisor` and `teacher`), read by the harness at start through `--append-system-prompt-file`. Without it the session starts from the binary's text, which the `claude-code` kind writes to `<state>/sessions/<session name>.profile.md`; no adapter is needed either way. A `controller` role the file writes with an `agent` and without a profile is refused by this path |
 | `roles[].session_name` | string | derived | `task conductor:start`, `task conductor:restart`, `task dev:start`, `task conductor:attach`, `task dev:attach`, `task sessions` | the name the role's session starts under: `<session_prefix>-<role>`, or `<role>` without a prefix; none for `controller`, whose sessions are named per repository. Derived, never chosen: a file may write only that value. The session tasks act on the active instance's sessions by this full name and refuse a name more than one live background session holds |
 | `roles[].read_only_tools` | list of tool names | empty | guard | the tools, beyond the guard's built-in read-only allowlist (`Read`, `Glob`, `Grep`, `WebFetch`, the session's own task and schedule tools and the like; `READ_ONLY` in `crates/conductor/src/guard.rs`), that the guard allows this role's sessions, such as a read-only MCP tool `mcp__<server>__<tool>`. Read for the `conductor` and `controller` roles. Every other tool without a rule of its own is denied; `Edit`, `Write`, `NotebookEdit`, `SendMessage`, `Bash` and `Monitor` keep their rules whatever the list says |
 | `roles[].limits.memory_max` | GiB ≥ 1G | none | `session start`, `spawn` (the request); the systemd provider, as the session's unit's `-p MemoryMax=` | the most memory one session of the role may use (its cgroup's `MemoryMax`); at or under `confinement.limits.memory_max`, where that is set |
@@ -436,29 +437,28 @@ passes `--setting-sources user,project,local`: Claude Code starts a background s
 `bypassPermissions` only when the disclaimer acceptance is in user or managed settings, and the
 `--settings` file and local settings do not count (`story:bg-launch-reads-user-settings`). The
 `--settings` file wins over user settings on every key it sets.
-When a role names a `profile`, its session starts with `--append-system-prompt-file <profile>` and
-no `--agent`. With `project,local` Claude Code loads no user-level agent, so `--agent
+A role's session starts with `--append-system-prompt-file` and no `--agent`: its own `profile`, or
+the one the binary carries, written into the state directory (`story:roles-in-the-binary`). With `project,local` Claude Code loads no user-level agent, so `--agent
 <agent>` finds an agent only in the start directory's `.claude/agents/`, never in
 `~/.claude/agents/`; a controller, which starts in another repository's checkout, therefore always
-starts from its `profile`.
+starts from a profile.
 
 The start tasks read the `conductor` and `conductor-dev` roles' `harness`, `model`, `settings`
 and `profile`. `task conductor:start` starts conductor in the instance's `records` directory with
-the `conductor` role's `settings` (default this checkout's `.claude/conductor-settings.json`) and
+the `conductor` role's `settings` (default the binary's `conductor-settings.json`) and
 its `profile`, or without one its `agent` (default `conductor`). It refuses a `profile` that is
 not a file and, without a profile, an agent that is not a file in `<records>/.claude/agents/`.
 `task maintainer:start` (old name `task dev:start`, for this release) starts the maintainer,
 conductor-dev, in this checkout from the instance's maintainer role (Host roles, below) with its
-`settings` (default none) and its `profile`, or without one
-`--agent conductor-dev`, which this checkout's `.claude/agents/conductor-dev.md` holds; it refuses
-a `profile` that is not a file. `task maintainer:attach` (old name `task dev:attach`) opens it.
+`settings` (default none) and its `profile`, or without one the maintainer profile the binary
+carries; it refuses a `profile` that is not a file. `task maintainer:attach` (old name `task dev:attach`) opens it.
 
 Conductor starts each controller with the `controller` role's `model`, `settings` and `profile`,
 never with `--agent`: `conductor config validate` refuses a `controller` role that names an
-`agent` and no `profile`. The repository ships the profile `.agents/repo-controller.md`, its adapter
-`.claude/agents/repo-controller.md` and the settings file `.claude/controller-settings.json`,
-which wires the guard. A controller starts in another repository's checkout, where its `profile`
-is read from its path. `settings` and `profile` must be absolute or
+`agent` and no `profile`. The binary carries the controller's profile, `crates/conductor/roles/controller.md`, and its
+settings, `crates/conductor/kinds/claude-code/controller-settings.json`, which wire the guard; a
+role that names neither starts from them, written into the state directory. A controller starts
+in another repository's checkout, where a `profile` it names is read from its path. `settings` and `profile` must be absolute or
 `~/` paths. A start command passes `model`, `agent`, `settings` and `profile` to the harness as
 single shell words, so each holds only letters, digits and `.`, `_`, `:`, `/`, `-`
 (`conductor.config.CommandWord`). The guard denies every session a file-tool write to any role's
@@ -480,8 +480,9 @@ conductor-dev`, with a note) starts that role in the working directory, pinned t
 command runs for, and refuses (`UnknownRole`) an instance that names none.
 ## Sessions without the user's config
 
-With `--setting-sources project,local` (the `systemd` provider) a session reads no user settings, and the shipped
-`.claude/conductor-settings.json` and `.claude/controller-settings.json` carry only the guard
+With `--setting-sources project,local` (the `systemd` provider) a session reads no user settings, and the settings the
+binary carries, `crates/conductor/kinds/claude-code/conductor-settings.json` and
+`controller-settings.json`, carry only the guard
 wiring, and conductor's also the SessionStart hook that claims the instance's conductor lease
 (`conductor session claim`). An instance that needs more gives each role its own `settings` file,
 outside this repository, that carries both hooks of the shipped file and everything its sessions
@@ -528,8 +529,8 @@ used to take from the user's settings:
 ```
 
 The matcher is `*`, as in the shipped files: every tool call reaches the guard, which allows a tool
-without a rule of its own only from its read-only allowlist and the role's `read_only_tools`. Give the role a `profile` as well, and its sessions
-need nothing in `~/.claude/agents/`.
+without a rule of its own only from its read-only allowlist and the role's `read_only_tools`. Its sessions need nothing in `~/.claude/agents/`:
+the profile is the binary's, or the role's `profile`.
 
 ## Built-in instance
 

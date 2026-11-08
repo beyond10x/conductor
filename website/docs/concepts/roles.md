@@ -3,7 +3,7 @@ title: Roles
 sidebar_position: 1
 description: The operator, conductor, conductor-dev, one controller per repository, and their workers; who owns what and who talks to whom.
 lede: Five roles split the work, and every message runs through conductor, so each session reads only what its role needs.
-source: docs/design/conductor.md sections 2, 3, 11 and 12; docs/design/conductor-run.md; .agents/conductor-dev.md, .agents/repo-controller.md; crates/conductor/src/controller.rs
+source: docs/design/conductor.md sections 2, 3, 11 and 12; docs/design/conductor-run.md; crates/conductor/roles/maintainer.md, crates/conductor/roles/controller.md; crates/conductor/src/controller.rs
 ---
 
 ## The roles
@@ -12,7 +12,7 @@ source: docs/design/conductor.md sections 2, 3, 11 and 12; docs/design/conductor
 |---|---|---|---|
 | operator | the person running the instance | direction, architecture, new or retired repositories, credentials and spending, public-facing risk | routine approvals |
 | conductor | `conductor run`, one process per instance and no session ([start conductor](../guides/start-conductor.md)) | the cross-repository plan, decisions within its grant, dispatch, the loop's records, the operator brief | edits outside its records; anything that defines or runs conductor |
-| conductor-dev | one session, `<session_prefix>-conductor-dev`, in the conductor repository | conductor's code, specification, plan, design, profiles, adapters and tasks; the instance's `rules.md`; installing the binary; restarting `conductor run` | dispatching to controllers; writing conductor's records |
+| conductor-dev | one session, `<session_prefix>-conductor-dev`, in the conductor repository | conductor's code, specification, plan, design, profiles and tasks; the instance's `rules.md`; installing the binary; restarting `conductor run` | dispatching to controllers; writing conductor's records |
 | repository controller | one session per repository, `<session_prefix>-<repo>`, its working directory the checkout | its repository's plan, waves, reviews, releases and workers | messages to anyone but conductor, each a `conductor message send`; edits outside its repository |
 | worker | a sub-agent of a controller | one unit of work | anything outside the unit |
 
@@ -55,13 +55,15 @@ instance's confinement provider, and `resume-controller` resumes it from its tra
 
 ## Profiles and rules
 
-Every session follows a generic profile from the repository's `.agents/` directory, then the
-instance's `rules.md` in its records directory:
+Every session follows a generic profile the `conductor` binary carries (compiled in from
+`crates/conductor/roles/`; `conductor role show --role <role>` prints one), then the instance's
+`rules.md` in its records directory:
 
 | file | read by |
 |---|---|
-| `.agents/conductor-dev.md` | the conductor-dev session |
-| `.agents/repo-controller.md` | every repository controller |
+| `crates/conductor/roles/maintainer.md` | the conductor-dev session |
+| `crates/conductor/roles/controller.md` | every repository controller |
+| `crates/conductor/roles/supervisor.md`, `teacher.md` | the host's supervisor and teacher |
 | `rules.md`, in the instance's records | every session, after its profile: the organization's own rules, one section per role, each rule with its source |
 | `charters/<repo>.md`, in the records | one controller: its goal, boundaries, current dispatch and standing decisions |
 
@@ -69,19 +71,15 @@ The profiles name no organization. A value that differs per instance is written 
 such as `thresholds.disk_low`, and read from `conductor config show --format json`. What holds for
 one organization goes in its `rules.md`, which the repository does not ship.
 
-**Profile, not agent.** A role's `profile` in the config names its `.agents/` file, and the
-session starts with it through `--append-system-prompt-file`. A session the `systemd` provider
-starts passes `--setting-sources project,local`, so Claude Code loads no user-level agent from
-`~/.claude/agents/`; a role started with `--agent` finds its agent only in the start directory's
-`.claude/agents/`. That is why `conductor config validate` refuses a controller role that names an
-`agent` and no `profile`: a repository's checkout does not carry conductor's adapter.
-
-The repository's `.claude/agents/` still holds one adapter per profile (`conductor-dev.md`,
-`repo-controller.md`), each the agent front matter and a pointer at its
-`.agents/` file. They serve a session started in this checkout, such as conductor-dev without a
-profile, and harness sub-agents; `task agents:link REPO=<path>` links them into that repository's
-`.claude/agents/` (hidden through its `.git/info/exclude`) for sessions you start by hand there,
-not for the sessions the tasks start, and never into `~/.claude/agents/`.
+**Profile, not agent.** When a session starts, its agent kind writes what the harness reads from
+the binary: the `claude-code` kind writes the role's profile to
+`<state>/sessions/<session name>.profile.md` and appends it with `--append-system-prompt-file`, and
+writes the settings the binary carries for conductor and a controller, which wire the guard,
+beside it. A role's `profile` or `settings` in the config takes the place of the binary's and is
+read at start. Nothing is copied to the host: no profile directory, no adapter under
+`~/.claude/agents/`, and the repository commits none. A session the `systemd` provider starts
+passes `--setting-sources project,local`, so Claude Code loads no user-level agent; that is why
+`conductor config validate` refuses a controller role that names an `agent` and no `profile`.
 
 ## Developing conductor
 

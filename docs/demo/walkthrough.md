@@ -86,24 +86,18 @@ commands print `DEC-<date>-01` and `DEC-<date>-02`, the ids the answers pass on.
 
 ## Part C: the live sessions
 
-1. Give the roles their profiles and the guard's settings. No person: `task profiles` installs
-   the profiles, and the instance written in part A is the last entry of its file, so the roles
-   can be appended:
+1. Add the roles. No person: the binary carries their profiles and the guard's settings, and the
+   instance written in part A is the last entry of its file, so the roles can be appended:
 
    ```console
-   cd ~/conductor && task profiles
    cat >> ~/.b10x/conductor/conductor.yaml <<'EOF'
        roles:
          - role: conductor
            harness: claude
            model: opus
-           profile: ~/.b10x/conductor/profiles/conductor.md
-           settings: ~/conductor/.claude/conductor-settings.json
          - role: controller
            harness: claude
            model: opus
-           profile: ~/.b10x/conductor/profiles/repo-controller.md
-           settings: ~/conductor/.claude/controller-settings.json
    EOF
    conductor config validate
    ```

@@ -201,6 +201,8 @@ Every command takes these, before or after its name.
 | [`conductor need new`](#conductor-need-new) | Print the next NEED id no earlier NEED used, N-&lt;yyyymmdd>-&lt;nn>, and keep it in the state directory; skip an id the records' hand-overs, decisions and dispatches already cite |
 | [`conductor records`](#conductor-records) |  |
 | [`conductor records check`](#conductor-records-check) | Check the records' dispatch and decision logs; exit 1 naming each decision id a dispatch line cites that no decision line or store decision holds, each line whose keys its log does not declare, and each decision line in the dispatch log |
+| [`conductor role`](#conductor-role) |  |
+| [`conductor role show`](#conductor-role-show) | Print the profile the binary carries for a role (maintainer, supervisor, teacher, controller, or an old name of one), byte for byte, reading no config and no store; exit 1 naming a role the binary carries none for |
 | [`conductor rules`](#conductor-rules) |  |
 | [`conductor rules show`](#conductor-rules-show) | Print items of the instance's rules.md verbatim, by number in the order given or every item under a heading, without opening the store; exit 1 naming a number or heading the file does not hold |
 | [`conductor run`](#conductor-run) | Run the instance's loop with no model call, recording each tick - every cadence.watch the watch pass, its handlers and the mailbox; every cadence.cycle the snapshot, the board, records check and dispatch v1; at cadence.daily metric compute, REPORT.md and a commit of the records through the bot route. --once runs one watch tick and one cycle tick and exits; --once --commit-records commits the records alone |
@@ -2639,6 +2641,24 @@ Usage: conductor records check [OPTIONS]
 | Argument | Required | Default | Meaning |
 |---|---|---|---|
 | `--format <FORMAT>` | no | none | How the findings are printed: text or json. Default: text |
+
+## `conductor role`
+
+```text
+Usage: conductor role [OPTIONS] <COMMAND>
+```
+
+## `conductor role show`
+
+Print the profile the binary carries for a role (maintainer, supervisor, teacher, controller, or an old name of one), byte for byte, reading no config and no store; exit 1 naming a role the binary carries none for
+
+```text
+Usage: conductor role show [OPTIONS]
+```
+
+| Argument | Required | Default | Meaning |
+|---|---|---|---|
+| `--role <ROLE>` | no | none | The role whose profile to print: maintainer, supervisor, teacher or controller |
 
 ## `conductor rules`
 

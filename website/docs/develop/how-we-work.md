@@ -3,7 +3,7 @@ title: How changes are planned and shipped
 sidebar_position: 2
 description: The planning store and a story's lifecycle, waves, how conductor's own behaviour becomes stories, releases, and what may go into public text.
 lede: Every change starts as a story in the repository's own planning store, ships in a wave behind one gate, and reaches users in a tagged release.
-source: AGENTS.md (Commits, gates and public text; Releases); docs/design/conductor.md section 12; .agents/conductor-dev.md; docs/waves/; .engineering/project.yaml; aep plan artifact --help
+source: AGENTS.md (Commits, gates and public text; Releases); docs/design/conductor.md section 12; crates/conductor/roles/maintainer.md; docs/waves/; .engineering/project.yaml; aep plan artifact --help
 ---
 
 ## The planning store
@@ -80,7 +80,7 @@ units with their commits, the decisions taken, and the stories it filed.
 
 Conductor runs an organization's sessions; it does not build itself. A second session,
 `conductor-dev`, develops it ([design section 12](https://github.com/beyond10x/conductor/blob/main/docs/design/conductor.md#12-developing-conductor-conductor-dev),
-profile `.agents/conductor-dev.md`). It reads what conductor did and looks for:
+profile `crates/conductor/roles/maintainer.md`). It reads what conductor did and looks for:
 
 - decisions later reversed, and escalations that turned out to be routine;
 - the operator's corrections;
@@ -92,7 +92,7 @@ Each finding with a cause it can cite becomes a draft story, filed once. From th
 the same path as any other change: spec first, a wave, the gate, a merge. After a wave merges and
 `task check` is green on `main`, conductor-dev installs the new binary with `task install`, and
 restarts conductor only when something conductor reads at session start changed (its profile,
-its adapter, the controller profile, the instance's `rules.md`, the design or its settings).
+the controller profile, the instance's `rules.md`, the design or its settings).
 
 You do not need a conductor-dev session to contribute. A story you file by hand goes through the
 same lifecycle.

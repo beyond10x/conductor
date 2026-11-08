@@ -32,10 +32,10 @@ use conductor_model::config::{Config, Role, SessionName};
 
 use crate::systemd;
 
-/// The supervisor: keeps every instance running and shipping (`.agents/conductor-supervisor.md`).
+/// The supervisor: keeps every instance running and shipping (`crates/conductor/roles/supervisor.md`).
 pub const SUPERVISOR: &str = "supervisor";
 
-/// The teacher: reviews the supervisor from outside (`.agents/conductor-teacher.md`).
+/// The teacher: reviews the supervisor from outside (`crates/conductor/roles/teacher.md`).
 pub const TEACHER: &str = "teacher";
 
 /// The host roles, in the order the daemon starts them.
@@ -157,15 +157,6 @@ pub fn prompt(role: &str) -> &'static str {
         "Start of a fresh supervisor session. Read host/supervisor-handoff.md if it is there, run \
          your routine once, report blockers only, then wait for an event."
     }
-}
-
-/// The profile a host role that names none starts with: `profiles/conductor-<role>.md` beside the
-/// config file, which `task profiles` installs. No `~/.claude/agents/` adapter is read.
-#[must_use]
-pub fn default_profile(config_dir: &Path, role: &str) -> PathBuf {
-    config_dir
-        .join("profiles")
-        .join(format!("conductor-{role}.md"))
 }
 
 /// One host role as the daemon asks the service manager to start it: the seam a placement
