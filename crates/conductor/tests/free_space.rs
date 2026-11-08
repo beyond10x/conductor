@@ -109,6 +109,8 @@ fn space_of_a_missing_path_is_an_error_naming_it() {
     let missing = scratch("missing").join("not-there");
     let error = disk::space(&missing).expect_err("a missing path has no file system");
     let text = format!("{error:#}");
-    assert!(text.contains(&missing.display().to_string()), "{text}");
-    assert!(!text.contains("df"), "{text}");
+    let path = missing.display().to_string();
+    assert!(text.contains(&path), "{text}");
+    // The path itself may hold "df" (a tree named `wt-e83df1…`); the rest of the text may not.
+    assert!(!text.replace(&path, "").contains("df"), "{text}");
 }

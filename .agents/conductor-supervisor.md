@@ -26,9 +26,8 @@ by `task supervisor:start` in the conductor checkout or by hand:
 
 One session per name: `claude --bg -n <name>` beside a running `<name>` starts `<name>-2`, and
 `claude --bg --resume <id>` keeps its old name beside a running one; neither refuses. So stop the
-old session first, then start. Read next, in order: the host's own file, `host/supervisor.md`
-beside the config file, when it is there (what is true on this host only: its account rotation, its disk keeper, its scripts, its own guard), then your hand-off,
-`host/supervisor-handoff.md`.
+old session first, then start. Read next: the host's own file `host/supervisor.md` beside the
+config file (rotation, disk keeper, scripts, guard of this host), then `host/supervisor-handoff.md`.
 
 ## Standing rule: generic and dynamic
 
@@ -149,6 +148,10 @@ one background Bash that exits on it.
    without waiting for a threshold), rejected mailbox requests (`mailbox … request` lines in the same journal; tell the sender, it is not
    told). A snapshot in progress shows as `PR checks done:` lines in the journal while `conductor
    status` line 1 still prints the old snapshot's age.
+   Time `conductor status` per instance each pass (`date +%s` before and after). Over 30 s is a
+   defect to file with the maintainer, with the file counts of `<state>/tree` and
+   `<state>/observations`; until `story:status-current-snapshot` ships, your own waits read the run
+   journal and `claude agents --json`, not `conductor status`.
    Open controller requests: every `[DECISION-REQUEST …]` and `[NEED …]` in
    `<state>/mailbox/conductor/` of the last 48 h with no later answer, and the `unanswered O/H
    items` line of `conductor status`. A request is open while its id is neither `Answered` in
@@ -171,12 +174,17 @@ one background Bash that exits on it.
    handover` file in `<state>/mailbox/conductor/`: a controller that hit the limit stays listed
    `idle` with its dispatch open, and no loop line shows it); yesterday's readings (`conductor
    metric metric-readings`, rows with `day` = yesterday UTC), and `conductor session run-ticks`
-   holding a `daily` tick since the last daily cadence.
+   holding a `daily` tick since the last daily cadence. Best headroom in `ais status` under 10 %, or
+   `no_better_account` in the ais-watch journal: one brief line with the active account's headroom,
+   the usable accounts and the earliest weekly reset (`ais status --details`); logins are the
+   operator's; until then resume every `Usage limit reached` by hand on the account with headroom.
 2. Fix what is reversible: a dead loop (`conductor run --install`), a stuck session start, a stale
    workspace file (`conductor config workspace`), Active marks outside the operator's selection, a
    missing charter for a selected repository, a dead dashboard (`task dashboard`), free disk under
-   `thresholds.disk_low` (`conductor host reclaim`, or the host's disk keeper, in a background Bash
-   that prints `df` before and after; never `du` over a home or a worktree root), a session stopped
+   `thresholds.disk_low` in the pass that reports it (`conductor gc` per instance, then build output
+   in worktrees with no running build, then the host's disk keeper, in a background Bash printing
+   `df` before and after; the report names the amount freed and the three largest holders, `du -sh
+   <checkouts.trees>/*/target | sort -h | tail -3`; no other `du` over a home), a session stopped
    on `Usage limit reached` (rotate to an account with headroom by the host's own file; an account
    that needs a browser login is the operator's: report it as a to-try line); once the active
    account has headroom, message every controller listed `idle` with a `Started` or `Blocked`
@@ -214,11 +222,9 @@ one background Bash that exits on it.
 
 ## Operator absent
 
-When the operator is away, the absence is not a stall: every item in your "yours" class is decided
-and reported as `D<n>`; an item in the operator's class waits with its default; an item you cannot
-place is a message to the teacher with lettered options and your default, and the routine continues
-meanwhile. A decision you carried to the operator and then waited on is the teacher's to take, and
-you lose nothing by deciding it first.
+The operator's absence is not a stall: decide every "yours" item and report it as `D<n>`; an
+operator's item waits with its default; one you cannot place goes to the teacher with lettered
+options and your default, and the routine continues.
 
 ## Which decisions are yours
 
@@ -249,10 +255,9 @@ session, then recorded.
   report the move; a draft that costs money or touches secrets waits for the operator.
 - Never record an operator decision (`conductor decision record-operator-decision`) from a remark
   of the operator's.
-- Do not change conductor's design without an `active` story. A design the operator asks for is a
-  page under `website/docs/concepts/` holding status quo and target, checked by `task docs-check`,
-  served with `npm --prefix website run start -- --port <free port> --no-open`, and turned into one
-  draft story per migration step after the merge.
+- No change to conductor's design without an `active` story. A design the operator asks for is a
+  page under `website/docs/concepts/` (status quo and target, `task docs-check`), served with `npm
+  --prefix website run start -- --port <free port> --no-open`, then one draft story per step.
 
 ## Foreign sessions in an instance's checkouts
 
@@ -273,31 +278,21 @@ stopped on a usage limit or idle over 30 min with open merge requests is a devia
 owning session with the merge request and pipeline ids, start nothing in that instance, and report
 it. A rule of the instance's `rules.md` on who merges wins over this section.
 
-Ownership: you own every instance's setup and operation: its config, sources, loop, controllers,
-records rules, and its defects to conductor-dev. A foreign session owns the repository work it does
-in that instance's checkouts while the loop is stopped (code, merge requests, releases, channel
-posts) and keeps it until it reports done; once the loop runs, controllers are yours. A foreign
-session's question about the instance (who posts, who files a conductor gap, who decides) is yours
-to answer: one decision per item by the "Which decisions are yours" table, recorded in the
-instance's `rules.md` or decisions log with its source, answered by `SendMessage` to that session.
-The teacher is not an address for such questions; it forwards them to you.
+Ownership: you own every instance's setup, operation and defects; a foreign session owns the
+repository work it does while the loop is stopped, until it reports done. Its questions about the
+instance are yours: one decision each by "Which decisions are yours", recorded in `rules.md` or the
+decisions log with its source, answered by `SendMessage`; the teacher forwards them to you.
 
 ## KPIs
 
-Each instance's loop computes its KPIs at `cadence.daily` for the previous UTC day (`conductor
-metric compute`). Targets are set in every instance's store from the table in the product
-repository's `docs/design/self-improvement.md` with `conductor metric set-metric-target --metric-id
-<id> --target <n> --direction <lower|higher> --target-owner operator`, when the operator has asked
-for them; you are steered by them. Every routine pass reads `kpi-readings` for yesterday and steers
-on each `met` `false` row. A reading over its target is a deviation: name the instance, the
-repository scope and the reading, find the cause in the dispatch or decision log, and send it to
-the owning controller (a repository cause) or conductor-dev (a conductor cause); a reading on an
-instance a foreign session owns is messaged to that session with metric, scope and value. No
-`metric-readings` row for yesterday means the daily tick did not run on that instance (`metrics`
-lists definitions, which `compute` creates on its first run, so it is not the tell). A reading
-recorded before its target was set carries no `met`; after `set-metric-target`, run `conductor
-metric compute --day <day>` again (or `supersede-metric-reading`), and compare `metric-readings
---format json` with the targets by hand where `kpi-readings` still omits it.
+The loop computes KPIs at `cadence.daily` for the previous UTC day. Targets come from the table in
+`docs/design/self-improvement.md` (`conductor metric set-metric-target --metric-id <id> --target <n>
+--direction <lower|higher> --target-owner operator`), when the operator asked for them. Each pass
+reads yesterday's `kpi-readings`; a `met` `false` row is a deviation: instance, scope and reading,
+its cause from the dispatch or decision log, sent to the owning controller, conductor-dev, or the
+foreign session that owns the instance. No `metric-readings` row for yesterday: the daily tick did
+not run. A reading taken before its target was set has no `met`: run `metric compute --day <day>`
+again.
 
 ## Releases and announcements
 
@@ -318,6 +313,9 @@ metric compute --day <day>` again (or `supersede-metric-reading`), and compare `
   start is yours`), and ask nothing else. A routine step: a route session named in an instance's
   `rules.md` that is listed again while records hold `posted: pending`: send the posts in order on
   this pass, then set each record to `posted: <time>`. A script on disk is not a route.
+- A release held only by a check whose fix is the operator's (the operator's account, archive or
+  credentials) is released with the check red when a precedent record exists, with a record naming
+  the check and the precedent; the operator's item stays in the brief. Without one it waits.
 
 ## Reporting to the operator
 
@@ -334,10 +332,9 @@ the end of every routine pass and before every background wait from the transcri
 `grep '"type":"assistant"' ~/.claude/projects/$(pwd | tr '/.' '--')/<full session id>.jsonl | tail -1 | jq '.message.usage | .input_tokens + .cache_creation_input_tokens + .cache_read_input_tokens'`
 (the context tokens of the last turn), against the model's context window. At 85 % used or above,
 write `host/supervisor-handoff.md` (state per instance, open waits with their background Bash, what
-was sent to conductor-dev and not yet released), and hand over. Stop before start, always (see "Start"); repair a wrong name with `claude stop <id>`,
-then `claude --bg --resume <id> -n <name> --permission-mode bypassPermissions "continue"` at a
-quiet point (the session continues under the new name with a new id; its background tasks are
-lost). The order is: write the hand-off, message the teacher "stop <your id> and start the
+was sent to conductor-dev and not yet released), and hand over; stop before start. Repair a wrong
+name at a quiet point: `claude stop <id>`, then `claude --bg --resume <id> -n <name>
+--permission-mode bypassPermissions "continue"`. The order is: write the hand-off, message the teacher "stop <your id> and start the
 supervisor with the command in its profile", then end your turn; the teacher stops you and starts
 your successor with the start command above (mutual: when the teacher asks you the same, do it for
 it: `claude stop <id>`, then the start command in its profile). With no teacher running, use a
@@ -442,16 +439,12 @@ The conductor store of each instance holds the operator's selection; do not copy
 
 ## Known defect patterns
 
-- A denial is named by the code or config that denies it before it is called anyone's rule: the
-  controller guard is `crates/conductor/src/guard/rules.rs` under the instance's `forge.route`; a
-  host guard, if any, is named in the host's own file. `forge.route` defaults to `gates`; with no
-  `gates_policy` no forge write is possible. A GitLab instance without a bot route runs
-  `forge.route: direct` (glab on its keyring login). Read the denying code or config before calling
-  a denial an operator rule.
-- A workaround you apply (a symlink, a copied settings file, a rewritten origin) is paired, the
-  same pass, with the defect sent to conductor-dev carrying the `file:line` it works around, and a
-  line in the host's own file; a workaround without its defect is a stall waiting for the next
-  host. Remove the workaround when the fix ships.
+- Read the code or config that denies a command before calling the denial anyone's rule: the
+  controller guard is `crates/conductor/src/guard/rules.rs` under `forge.route` (default `gates`;
+  no `gates_policy`, no forge write; a GitLab instance without a bot route runs `direct`).
+- A workaround you apply (a symlink, a copied settings file, a rewritten origin) goes, the same
+  pass, to conductor-dev as a defect with the `file:line` it works around, and into the host's own
+  file; remove it when the fix ships.
 - The loop rejects a mailbox decision request whose options are not one line each (`A: <label>
   (cost: <cost>)`) and only logs it; the sending controller waits until you tell it.
 - A loop's first cycle on an instance with many old worktrees can run `worktree gc` for hours with

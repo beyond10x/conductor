@@ -1391,12 +1391,16 @@ mod tests {
     /// exhausted and still prints the whole JSON (2026-11-08 01:59); the headroom is read from it.
     #[test]
     fn headroom_is_read_from_printed_json_whatever_the_exit() {
-        let printed = br#"{"accounts":[{"active":true,"usage":{"limit_reached":false,"windows":[]}}]}"#;
+        let printed =
+            br#"{"accounts":[{"active":true,"usage":{"limit_reached":false,"windows":[]}}]}"#;
         assert!(headroom_read("ais status", "exited 3", printed).expect("JSON was printed"));
         let error = headroom_read("ais status", "exited 3", b"")
             .expect_err("nothing printed")
             .to_string();
-        assert!(error.contains("exited 3"), "the exit is in the line: {error}");
+        assert!(
+            error.contains("exited 3"),
+            "the exit is in the line: {error}"
+        );
         assert!(headroom_read("ais status", "exited 0", b"not json").is_err());
     }
 }

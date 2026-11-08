@@ -138,7 +138,8 @@ describe.each(PAGES)('the %s page', (_name, hash) => {
 
     expect(wrapper.html()).toMatchSnapshot();
     wrapper.unmount();
-  });
+    // axe over a whole page took 5.8 s on a host at load 34; the 5 s default failed it there.
+  }, 30_000);
 });
 
 /** The custom properties of the first block whose selector is `selector`. */
