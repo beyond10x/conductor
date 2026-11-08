@@ -1,13 +1,13 @@
 <!--
   generated from conductor v1
-  contract digest c0e5f57876522191690b7b7fa0b710a15b36d5bf4a50b987946bb580f924bf53
+  contract digest 575fcfe0b84fcb4b2dc3a52041bbf14840203191eb2cb53374eec07ea92207ab
   do not edit: regenerate with `ess synthesize --layout crate`
 -->
 # Synthesis plan — conductor v1
 
 Scope: `component-skeletons`, laid out as `crate`, planned by `ess-synth`. Regenerate with `ess synthesize --layout crate`.
 
-934 capabilities: **922 generated**, **12 obligations**, **0 refused**. An obligation is yours to implement against its contract; a refusal is a fact about this synthesis scope, not about the specification.
+944 capabilities: **932 generated**, **12 obligations**, **0 refused**. An obligation is yours to implement against its contract; a refusal is a fact about this synthesis scope, not about the specification.
 
 ## Generated
 
@@ -17,6 +17,9 @@ Scope: `component-skeletons`, laid out as `crate`, planned by `ess-synth`. Regen
 | domain type | `conductor.agent.AgentKind.State` |
 | domain type | `conductor.agent.AgentKindName` |
 | domain type | `conductor.agent.AgentName` |
+| domain type | `conductor.agent.AgentSlotSelection` |
+| domain type | `conductor.agent.AgentTerminalAttach` |
+| domain type | `conductor.agent.AgentTextDelivery` |
 | domain type | `conductor.agent.Capability` |
 | domain type | `conductor.agent.ExitClass` |
 | domain type | `conductor.config.ActivityChange` |
@@ -283,6 +286,7 @@ Scope: `component-skeletons`, laid out as `crate`, planned by `ess-synth`. Regen
 | domain type | `conductor.secret.Slot` |
 | domain type | `conductor.secret.SlotName` |
 | domain type | `conductor.secret.Source` |
+| domain type | `conductor.secret.WriteSecret` |
 | domain type | `conductor.session.AttachMode` |
 | domain type | `conductor.session.AttachSession` |
 | domain type | `conductor.session.AttachableSession` |
@@ -397,6 +401,8 @@ Scope: `component-skeletons`, laid out as `crate`, planned by `ess-synth`. Regen
 | command contract | `conductor.agent.DeclareAgentKind` |
 | command behaviour | `conductor.agent.DeclareAgentKind` |
 | command contract | `conductor.agent.DeliverToAgent` |
+| command contract | `conductor.agent.MarkAgentRunning` |
+| command behaviour | `conductor.agent.MarkAgentRunning` |
 | command contract | `conductor.agent.RecordAgentReport` |
 | command behaviour | `conductor.agent.RecordAgentReport` |
 | command contract | `conductor.agent.RestartAgent` |
@@ -596,6 +602,7 @@ Scope: `component-skeletons`, laid out as `crate`, planned by `ess-synth`. Regen
 | command behaviour | `conductor.tool.RecordToolCall` |
 | event type | `conductor.agent.AgentKindDeclared` |
 | event type | `conductor.agent.AgentReported` |
+| event type | `conductor.agent.AgentRunning` |
 | event type | `conductor.agent.AgentStarted` |
 | event type | `conductor.agent.AgentStopped` |
 | event type | `conductor.config.ConfigChanged` |
@@ -767,6 +774,7 @@ Scope: `component-skeletons`, laid out as `crate`, planned by `ess-synth`. Regen
 | error type | `conductor.improvement.MetricReadingStateConflict` |
 | error type | `conductor.instance.InstanceStateConflict` |
 | error type | `conductor.instance.PlacementRefused` |
+| error type | `conductor.instance.SupervisorNotRunning` |
 | error type | `conductor.instance.UnknownInstance` |
 | error type | `conductor.observation.DailySeriesExists` |
 | error type | `conductor.observation.DailySeriesNotFound` |
@@ -781,8 +789,10 @@ Scope: `component-skeletons`, laid out as `crate`, planned by `ess-synth`. Regen
 | error type | `conductor.operator.NotJoined` |
 | error type | `conductor.placement.BoxNotFound` |
 | error type | `conductor.placement.BoxStateConflict` |
+| error type | `conductor.secret.SecretExists` |
 | error type | `conductor.secret.SecretMissing` |
 | error type | `conductor.secret.SourceUnreachable` |
+| error type | `conductor.secret.SourceUnusable` |
 | error type | `conductor.session.InvalidLineCount` |
 | error type | `conductor.session.LeaseHeld` |
 | error type | `conductor.session.SessionNotReachable` |
@@ -956,7 +966,7 @@ What the specification fully determines is generated; what it cannot determine i
 | command behaviour | `conductor.dispatch.StartController` | kept an obligation by a guard over the rows a selector selects (`when_related: {entity, where, exists | count | forall}`), in `already-running` | given `conductor.dispatch.StartController` input, decide and enact exactly one outcome. Declared outcomes (declaration order, not selection precedence): `already-running` when, of the `conductor.dispatch.Controller` rows satisfying `(repository == input.repository and state in [Running, Paused])`, at least 1 rows are selected, error `conductor.dispatch.ControllerAlreadyRunning`; `started` otherwise, creates `conductor.dispatch.Controller`, emits `conductor.dispatch.ControllerStarted` |
 | command behaviour | `conductor.improvement.SetMetricTarget` | kept an obligation by a subject predicate choosing between a move and an update | given `conductor.improvement.SetMetricTarget` input, decide and enact exactly one outcome. Declared outcomes (declaration order, not selection precedence): `actor-not-human` when `actor.kind != Human`, error `conductor.operator.ActorNotHuman`; `targeted` when the existing subject is in Untargeted, takes `target` of `conductor.improvement.Metric`, emits `conductor.improvement.MetricTargetSet`; `retargeted` when the existing subject is in Targeted, updates `conductor.improvement.Metric`, emits `conductor.improvement.MetricTargetSet`; `no-such-metric` for an identity no record carries, error `conductor.improvement.MetricNotFound` |
 | command behaviour | `conductor.instance.StartInstance` | kept an obligation by `when_subject_state:` beside `external:` in one command | given `conductor.instance.StartInstance` input, decide and enact exactly one outcome. Declared outcomes (declaration order, not selection precedence): `created` for an identity no record carries, creates `conductor.instance.Instance`, emits `conductor.instance.InstanceStarted`; `started` when the existing subject is in Stopped, takes `start` of `conductor.instance.Instance`, emits `conductor.instance.InstanceStarted`; `already-started` when the existing subject is in Running or Starting or Upgrading, preserves `conductor.instance.Instance`; `not-in-config` externally decided (the config names no instance of this name), error `conductor.instance.UnknownInstance`; `placement-refused` externally decided (substrate refused the box the placement asks for), error `conductor.instance.PlacementRefused`; `not-startable` otherwise, error `conductor.instance.InstanceStateConflict` |
-| command behaviour | `conductor.secret.PutSecret` | kept an obligation by `creates:` leaving the required field `instances` of `conductor.secret.Secret` undetermined, in `stored` | given `conductor.secret.PutSecret` input, decide and enact exactly one outcome. Declared outcomes (declaration order, not selection precedence): `not-human` when `actor.kind != Human`, error `conductor.operator.ActorNotHuman`; `unreachable` externally decided (the OS keychain does not answer), error `conductor.secret.SourceUnreachable`; `stored` for an identity no record carries, creates `conductor.secret.Secret`, emits `conductor.secret.SecretPut`; `replaced` otherwise, updates `conductor.secret.Secret`, emits `conductor.secret.SecretPut` |
+| command behaviour | `conductor.secret.PutSecret` | kept an obligation by `creates:` leaving the required field `instances` of `conductor.secret.Secret` undetermined, in `stored` | given `conductor.secret.PutSecret` input, decide and enact exactly one outcome. Declared outcomes (declaration order, not selection precedence): `not-human` when `actor.kind != Human`, error `conductor.operator.ActorNotHuman`; `unreachable` externally decided (the OS keychain does not answer), error `conductor.secret.SourceUnreachable`; `stored` for an identity no record carries, creates `conductor.secret.Secret`, emits `conductor.secret.SecretPut`; `exists` externally decided (the secrets source already holds a value under the name and replace is false), error `conductor.secret.SecretExists`; `replaced` otherwise, updates `conductor.secret.Secret`, emits `conductor.secret.SecretPut` |
 | command behaviour | `conductor.secret.ResolveSecrets` | kept an obligation by the fields of error `conductor.secret.SourceUnreachable`, which the specification gives no source, in `unreachable` | given `conductor.secret.ResolveSecrets` input, decide and enact exactly one outcome. Declared outcomes (declaration order, not selection precedence): `unreachable` externally decided (the daemon's secrets source (the OS keychain or the Secrets service) does not answer), error `conductor.secret.SourceUnreachable`; `missing` externally decided (the secrets source holds no value under one or more of the names the slots carry), error `conductor.secret.SecretMissing`; `resolved` otherwise, emits `conductor.secret.SecretsResolved` |
 | command behaviour | `conductor.session.ClaimLease` | kept an obligation by an unknown identity, which reaches no declared outcome (neither `unknown_instance:` nor `wrong_state:`) | given `conductor.session.ClaimLease` input, decide and enact exactly one outcome. Declared outcomes (declaration order, not selection precedence): `taken` when, of the `conductor.session.Lease` rows satisfying `instance == input.instance`, no row is selected, creates `conductor.session.Lease`, emits `conductor.session.LeaseTaken`; `renewed` when, of the `conductor.session.Lease` rows satisfying `(instance == input.instance and pid == input.pid)`, at least one row is selected, updates `conductor.session.Lease`, emits `conductor.session.LeaseTaken`; `held` externally decided (the process the lease names lives and is not the claiming one), error `conductor.session.LeaseHeld`; `taken-over` otherwise, updates `conductor.session.Lease`, emits `conductor.session.LeaseTakenOver` |
 | command behaviour | `conductor.store.MigrateStore` | kept an obligation by a guard over the rows a selector selects (`when_related: {entity, where, exists | count | forall}`), in `already-migrated` | given `conductor.store.MigrateStore` input, decide and enact exactly one outcome. Declared outcomes (declaration order, not selection precedence): `not-human` when `actor.kind != Human`, error `conductor.operator.ActorNotHuman`; `negative-count` when `events_copied < 0`, error `conductor.store.InvalidEventCount`; `already-migrated` when, of the `conductor.store.Migration` rows satisfying `instance == input.instance`, at least one row is selected, error `conductor.store.AlreadyMigrated`; `source-missing` externally decided (no eventlog tree is at the source path), error `conductor.store.SourceMissing`; `migrated` otherwise, creates `conductor.store.Migration`, emits `conductor.store.StoreMigrated` |

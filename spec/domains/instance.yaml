@@ -287,6 +287,16 @@ errors:
       - name: placement
         type: conductor.placement.PlacementName
 
+  # `POST /v1/ask` of the global API (story:federated-views, § 5.2): the text goes to the
+  # supervisor, and no supervisor runs until the daemon starts the host roles; the route answers
+  # this, naming the instance `--to` named when it named one.
+  - name: conductor.instance.SupervisorNotRunning
+    summary: >
+      No supervisor runs to take the question, so it was not delivered; nothing changed.
+    fields:
+      - name: instance
+        type: Optional<conductor.config.InstanceName>
+
 commands:
   # The daemon's record step (§ 4 "record ─► one Reconciliation per action"): after each action
   # it took on one instance, including `Nothing` for an instance that matched its config, it

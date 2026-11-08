@@ -117,7 +117,7 @@ custom_edit_url: null
 
 | Capability | Status | What it means |
 |---|---|---|
-| [Session table](./reference/cli.md#conductor-dashboard-serve) | ● shipped | The dashboard's data holds one row per session of the instance, from its records, each controller with its dispatch. |
+| [Session table](./reference/cli.md#conductor-instance-serve) | ● shipped | The dashboard's data holds one row per session of the instance, from its records, each controller with its dispatch. |
 | Read-only | ● shipped | Every request reads the sources afresh and writes nothing. |
 | Disk waste | ● shipped | The disk panel lists the reclaimable rows largest first, with their total. |
 | Instance API | ● shipped | Each instance serves the dashboard's routes on its own socket and prints it first; conductord serves the page on loopback. |

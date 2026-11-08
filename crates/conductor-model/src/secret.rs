@@ -1,5 +1,5 @@
 // generated from conductor v1
-// contract digest c0e5f57876522191690b7b7fa0b710a15b36d5bf4a50b987946bb580f924bf53
+// contract digest 575fcfe0b84fcb4b2dc3a52041bbf14840203191eb2cb53374eec07ea92207ab
 // do not edit: regenerate with `ess synthesize --layout crate`
 
 //! Secret — `conductor.secret`.
@@ -50,6 +50,15 @@ pub enum Source {
     Keychain,
     /// `Remote`.
     Remote,
+}
+
+/// WriteSecret — `conductor.secret.WriteSecret`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct WriteSecret {
+    /// `name` — `Optional<conductor.secret.SecretName>`.
+    pub name: Option<SecretName>,
+    /// `replace` — `Optional<Boolean>`.
+    pub replace: Option<bool>,
 }
 
 /// What Secret — `conductor.secret.Secret` — holds, apart from where it is in its lifecycle.
@@ -203,6 +212,8 @@ pub struct PutSecret {
     pub name: SecretName,
     /// `put_at` — `Timestamp`.
     pub put_at: crate::primitives::Timestamp,
+    /// `replace` — `Boolean`.
+    pub replace: bool,
 }
 
 /// Everything `conductor.secret.PutSecret` can result in — one variant per declared outcome.
@@ -232,6 +243,13 @@ pub enum PutSecretOutcome {
     Stored {
         /// The `conductor.secret.SecretPut` this outcome publishes.
         secret_put: SecretPut,
+    },
+    /// `exists` — externally decided (the secrets source already holds a value under the name and replace is false).
+    ///
+    /// The name is on record and the put did not ask to replace it; nothing was written.
+    Exists {
+        /// Why it was refused: `conductor.secret.SecretExists`.
+        error: SecretExists,
     },
     /// `replaced` — otherwise.
     ///
@@ -317,6 +335,15 @@ pub struct SecretsResolved {
     pub resolved_at: crate::primitives::Timestamp,
 }
 
+/// The declared error `conductor.secret.SecretExists`.
+///
+/// The secrets source already holds a value under the name and the put did not ask to replace it, so nothing was written; `conductor secret put --replace` writes it again.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SecretExists {
+    /// `name` — `conductor.secret.SecretName`.
+    pub name: SecretName,
+}
+
 /// The declared error `conductor.secret.SecretMissing`.
 ///
 /// The secrets source holds no value under one or more of the names the instance's effective config writes as `secret:<name>`, so no slot was sealed and the box is not opened; the refusal names every missing name.
@@ -335,6 +362,15 @@ pub struct SecretMissing {
 /// The secrets source (the OS keychain, or the Secrets service) did not answer, so nothing was read or written; the refusal names which source.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SourceUnreachable {
+    /// `source` — `conductor.secret.Source`.
+    pub source: Source,
+}
+
+/// The declared error `conductor.secret.SourceUnusable`.
+///
+/// The secrets source `daemon.secrets` names cannot be used: `remote` writes no `url`, or the namespace is not one segment of lower-case letters, digits, `.`, `_` and `-`; the daemon does not start.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SourceUnusable {
     /// `source` — `conductor.secret.Source`.
     pub source: Source,
 }
@@ -368,7 +404,7 @@ pub mod obligations {
     ///
     /// Why it is not generated: kept an obligation by `creates:` leaving the required field `instances` of `conductor.secret.Secret` undetermined, in `stored`.
     ///
-    /// Contract: given `conductor.secret.PutSecret` input, decide and enact exactly one outcome. Declared outcomes (declaration order, not selection precedence): `not-human` when `actor.kind != Human`, error `conductor.operator.ActorNotHuman`; `unreachable` externally decided (the OS keychain does not answer), error `conductor.secret.SourceUnreachable`; `stored` for an identity no record carries, creates `conductor.secret.Secret`, emits `conductor.secret.SecretPut`; `replaced` otherwise, updates `conductor.secret.Secret`, emits `conductor.secret.SecretPut`.
+    /// Contract: given `conductor.secret.PutSecret` input, decide and enact exactly one outcome. Declared outcomes (declaration order, not selection precedence): `not-human` when `actor.kind != Human`, error `conductor.operator.ActorNotHuman`; `unreachable` externally decided (the OS keychain does not answer), error `conductor.secret.SourceUnreachable`; `stored` for an identity no record carries, creates `conductor.secret.Secret`, emits `conductor.secret.SecretPut`; `exists` externally decided (the secrets source already holds a value under the name and replace is false), error `conductor.secret.SecretExists`; `replaced` otherwise, updates `conductor.secret.Secret`, emits `conductor.secret.SecretPut`.
     pub trait PutSecretBehavior {
         /// Decides and enacts exactly one declared outcome of `conductor.secret.PutSecret`.
         ///

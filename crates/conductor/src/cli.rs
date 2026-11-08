@@ -197,6 +197,10 @@ impl Cli {
         // the file themselves, to report each problem; the guard hook answers a file that does
         // not load by denying every call and naming it (`story:instance-isolation`).
         let mut unloaded = None;
+        // `status` with no `--state-dir` reads the federated view when the daemon answers, and
+        // only then needs no instance (`story:federated-views`); a file that selects none is
+        // reported when the local read runs.
+        let mut deferred = None;
         match &self.group {
             Group::Config(_)
             | Group::Trust(_)
@@ -204,7 +208,6 @@ impl Cli {
             | Group::Doctor
             | Group::Setup(_)
             | Group::Upgrade(_)
-            | Group::Agent(_)
             | Group::Daemon(_)
             | Group::Instance(_)
             | Group::Join
@@ -220,6 +223,19 @@ impl Cli {
             // Attach and its listing read every instance of the file, from any directory, so
             // they select none.
             Group::Session(SessionCommand::Attach(_) | SessionCommand::List(_)) => {}
+            // `agent` selects the instance `--instance` names (`story:agent-kinds`); `agent
+            // attach`, like `session attach`, also runs where no instance is selected, and reads
+            // the kind of `claude-code` then.
+            Group::Agent(command) => {
+                let selected =
+                    crate::config::set_active_instance(self.config.as_deref(), command.instance());
+                if !matches!(command, AgentCommand::Attach(_)) {
+                    selected?;
+                }
+            }
+            Group::Status(_) if self.state_dir.is_none() => {
+                deferred = crate::config::set_active(self.config.as_deref()).err();
+            }
             _ => crate::config::set_active(self.config.as_deref())?,
         }
         // Who issues every command this process records (`conductor.operator.Actor`): the leaf's
@@ -404,10 +420,32 @@ impl Cli {
                 SessionCommand::Leases(view) => session::leases(state, view),
                 SessionCommand::RunTicks(view) => crate::run::run_ticks(state, view),
                 SessionCommand::Deliver(args) => session::deliver(state, &args),
-                SessionCommand::Start(args) => {
-                    session::start(self.config.as_deref(), state, &args, providers)
-                }
-                SessionCommand::Stop(args) => session::stop(state, &args, providers),
+                // Aliases of `agent start` and `agent stop` for this release
+                // (`story:agent-kinds`): through the role's kind, `claude-code` by default.
+                SessionCommand::Start(args) => crate::agent::cli::start(
+                    &crate::agent::Context {
+                        config: self.config.as_deref(),
+                        state,
+                        providers,
+                    },
+                    &AgentSlotArgs {
+                        instance: None,
+                        role: args.role,
+                    },
+                    "session start",
+                ),
+                SessionCommand::Stop(args) => crate::agent::cli::stop(
+                    &crate::agent::Context {
+                        config: self.config.as_deref(),
+                        state,
+                        providers,
+                    },
+                    &AgentSlotArgs {
+                        instance: None,
+                        role: args.role,
+                    },
+                    "session stop",
+                ),
                 SessionCommand::Attach(args) => {
                     crate::attach::attach(self.config.as_deref(), state, &args)
                 }
@@ -496,7 +534,9 @@ impl Cli {
             Group::Spawn(args) => {
                 crate::spawn::spawn(self.config.as_deref(), state, &args, providers)
             }
-            Group::Status(args) => status::status(state, &args),
+            Group::Status(args) => {
+                status::status_or_federated(self.config.as_deref(), state, &args, deferred)
+            }
             Group::Trust(args) => crate::trust::trust(self.config.as_deref(), &args),
             Group::Upgrade(args) => crate::upgrade::upgrade(&args),
             Group::Store(command) => match command {
@@ -505,14 +545,24 @@ impl Cli {
             Group::Watch(command) => match command {
                 WatchCommand::Run(args) => crate::watch::watch_run(state, &args),
             },
-            // The v1 commands of design architecture-next § 4, § 5 and § 7, placed before their
-            // stories land (`story:spec-v1`).
-            Group::Agent(command) => match command {
-                AgentCommand::Attach => crate::not_implemented("agent attach"),
-                AgentCommand::Deliver => crate::not_implemented("agent deliver"),
-                AgentCommand::Start => crate::not_implemented("agent start"),
-                AgentCommand::Stop => crate::not_implemented("agent stop"),
-            },
+            // The agent verbs, each through its role's kind (`story:agent-kinds`).
+            Group::Agent(command) => {
+                let context = crate::agent::Context {
+                    config: self.config.as_deref(),
+                    state,
+                    providers,
+                };
+                match command {
+                    AgentCommand::Attach(args) => crate::agent::cli::attach(&context, &args),
+                    AgentCommand::Deliver(args) => crate::agent::cli::deliver(state, &args),
+                    AgentCommand::Start(args) => {
+                        crate::agent::cli::start(&context, &args, "agent start")
+                    }
+                    AgentCommand::Stop(args) => {
+                        crate::agent::cli::stop(&context, &args, "agent stop")
+                    }
+                }
+            }
             Group::Daemon(command) => match command {
                 DaemonCommand::Serve(args) => {
                     crate::daemon::daemon_serve(self.config.as_deref(), state, &args)
@@ -528,7 +578,9 @@ impl Cli {
             Group::Leave => crate::not_implemented("leave"),
             Group::Login => crate::not_implemented("login"),
             Group::Secret(command) => match command {
-                SecretCommand::Put => crate::not_implemented("secret put"),
+                SecretCommand::Put(args) => {
+                    crate::secret::secret_put(self.config.as_deref(), &args)
+                }
             },
             Group::Tui => crate::not_implemented("tui"),
         }
@@ -955,23 +1007,75 @@ pub const LEAVES: &[(&[&str], Access)] = &[
     (&["tui"], Access::ConductorReads),
 ];
 
-// `conductor agent`: the agents of an instance, through the instance API (design
-// architecture-next § 5.1, § 7). Not written yet (`story:agent-kinds`).
+// `conductor agent`: the agents of an instance, each through its role's kind (design
+// architecture-next § 7, `story:agent-kinds`, `crate::agent::cli`).
 #[allow(missing_docs)]
 #[derive(Debug, Subcommand)]
 pub enum AgentCommand {
-    /// Attach this terminal to an interactive agent through the instance API; not written yet, exits 2
+    /// Attach this terminal to the agent of a role slot through its kind: for claude-code, conductor session attach --role; --watch attaches read-only; refuse a kind this binary does not implement and a kind that is not interactive (CapabilityMissing)
     #[command(name = "attach")]
-    Attach,
-    /// Deliver a text to a running agent through the instance API; not written yet, exits 2
+    Attach(AgentAttachArgs),
+    /// Deliver a text to the running agent of a role slot through its kind: for claude-code, conductor session deliver to the role's session name; --text is a file, or - for standard input; refuse a kind this binary does not implement and a kind that is not interactive (CapabilityMissing)
     #[command(name = "deliver")]
-    Deliver,
-    /// Start the agent of a role slot through the instance API; not written yet, exits 2
+    Deliver(AgentDeliverArgs),
+    /// Start the agent of a role slot through its kind (roles[].kind, claude-code by default): for claude-code, conductor session start, which stays its alias for this release; refuse a kind this binary does not implement (UnknownAgentKind), and what session start refuses
     #[command(name = "start")]
-    Start,
-    /// Stop a running agent through the instance API; not written yet, exits 2
+    Start(AgentSlotArgs),
+    /// Stop the running agent of a role slot through its kind: for claude-code, conductor session stop, which stays its alias for this release; refuse a kind this binary does not implement, and what session stop refuses
     #[command(name = "stop")]
-    Stop,
+    Stop(AgentSlotArgs),
+}
+
+impl AgentCommand {
+    /// The instance `--instance` names, if any.
+    #[must_use]
+    pub fn instance(&self) -> Option<&str> {
+        match self {
+            Self::Attach(args) => args.instance.as_deref(),
+            Self::Deliver(args) => args.instance.as_deref(),
+            Self::Start(args) | Self::Stop(args) => args.instance.as_deref(),
+        }
+    }
+}
+
+/// The input of the binding's `agent-start` and `agent-stop` callables,
+/// `conductor.agent.AgentSlotSelection`.
+#[derive(Debug, Clone, Default, Args)]
+pub struct AgentSlotArgs {
+    /// The instance of the config file. Default: the active one
+    #[arg(long, value_name = "NAME")]
+    pub instance: Option<String>,
+    /// The role whose slot starts or stops, as for `session start`
+    #[arg(long, value_name = "ROLE")]
+    pub role: Option<String>,
+}
+
+/// The input of the binding's `agent-deliver` callable, `conductor.agent.AgentTextDelivery`.
+#[derive(Debug, Clone, Default, Args)]
+pub struct AgentDeliverArgs {
+    /// The instance of the config file. Default: the active one
+    #[arg(long, value_name = "NAME")]
+    pub instance: Option<String>,
+    /// The role whose agent the text is delivered to
+    #[arg(long, value_name = "ROLE")]
+    pub role: Option<String>,
+    /// The file holding the text, or - for standard input
+    #[arg(long, value_name = "FILE")]
+    pub text: Option<String>,
+}
+
+/// The input of the binding's `agent-attach` callable, `conductor.agent.AgentTerminalAttach`.
+#[derive(Debug, Clone, Default, Args)]
+pub struct AgentAttachArgs {
+    /// The instance of the config file. Default: every instance, as `session attach` looks
+    #[arg(long, value_name = "NAME")]
+    pub instance: Option<String>,
+    /// The role whose agent this terminal attaches to
+    #[arg(long, value_name = "ROLE")]
+    pub role: Option<String>,
+    /// Attach read-only: nothing typed reaches the agent. `--watch` alone is `--watch true`
+    #[arg(long, value_name = "BOOL", num_args = 0..=1, default_missing_value = "true")]
+    pub watch: Option<bool>,
 }
 
 // `conductor daemon`: conductord, the daemon of the control host (design architecture-next § 4,
@@ -1027,14 +1131,29 @@ pub struct InstanceUpgradeArgs {
     pub all: Option<bool>,
 }
 
-// `conductor secret`: the secrets the config names (design architecture-next § 9). Not written
-// yet (`story:secrets-source`).
+// `conductor secret`: the secrets the config names (design architecture-next § 9,
+// `story:secrets-source`).
 #[allow(missing_docs)]
 #[derive(Debug, Subcommand)]
 pub enum SecretCommand {
-    /// Put a secret's value into the daemon's secrets source under the name the config writes; not written yet, exits 2
+    /// Put a secret's value, read from standard input, into the daemon's secrets source
+    /// (daemon.secrets) under --name through the secrets crates, and record its name and source in
+    /// the daemon's store; a name already on record is refused (SecretExists) unless --replace
     #[command(name = "put")]
-    Put,
+    Put(SecretPutArgs),
+}
+
+/// The input of the binding's `secret-put` callable, `conductor.secret.WriteSecret`
+/// (`story:secrets-source`). The value is read from standard input, never from a flag.
+#[derive(Debug, Clone, Default, Args)]
+pub struct SecretPutArgs {
+    /// The secret's name, as the config writes it after `secret:`; required
+    #[arg(long, value_name = "NAME")]
+    pub name: Option<String>,
+    /// Write the value again over a name already on record. `--replace` alone is
+    /// `--replace true`
+    #[arg(long, value_name = "BOOL", num_args = 0..=1, default_missing_value = "true")]
+    pub replace: Option<bool>,
 }
 
 /// `conductor snapshot`: one sense run and what it observed.

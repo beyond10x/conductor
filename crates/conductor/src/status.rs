@@ -63,6 +63,8 @@
 //! snapshot it says so and prints every other part. No wait is recorded in the store yet
 //! (`story:watch-waits`), so the waits part reads `None.` until that story's `Waits` view lands.
 
+pub mod federated;
+
 use std::cmp::Ordering;
 use std::collections::{BTreeMap, BTreeSet};
 use std::fs;
@@ -255,6 +257,36 @@ pub fn boards(state: Option<&Path>, view: ViewArgs) -> Result<ExitCode> {
 ///
 /// `--format` is neither text nor json; there is no store; a read of it fails for a reason other
 /// than a record this build cannot read; or standard output cannot be written.
+/// `conductor status` as the global flags give it: with no `--state-dir`, the federated view
+/// when conductord answers ([`federated`], `story:federated-views`); else [`status`], after the
+/// instance the file selects, whose problem `unloaded` carries when it selects none.
+///
+/// # Errors
+///
+/// What [`status`] answers, or `unloaded`.
+pub fn status_or_federated(
+    config_flag: Option<&Path>,
+    state: Option<&Path>,
+    args: &StatusArgs,
+    unloaded: Option<anyhow::Error>,
+) -> Result<ExitCode> {
+    let json = match args.format.as_deref() {
+        None | Some("text") => false,
+        Some("json") => true,
+        Some(other) => bail!("status: --format {other:?} is not one of text, json"),
+    };
+    if state.is_none()
+        && let Some(view) = federated::view(config_flag, json)
+    {
+        print!("{view}");
+        return Ok(ExitCode::SUCCESS);
+    }
+    if let Some(error) = unloaded {
+        return Err(error);
+    }
+    status(state, args)
+}
+
 pub fn status(state: Option<&Path>, args: &StatusArgs) -> Result<ExitCode> {
     const WHAT: &str = "status";
     let json = match args.format.as_deref() {

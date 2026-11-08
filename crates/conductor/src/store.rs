@@ -92,6 +92,8 @@ pub mod migrate;
 pub mod observations;
 mod reclaim;
 mod reconciliation;
+mod secret;
+pub use secret::source_name;
 pub(crate) mod run;
 pub mod series;
 mod serving;

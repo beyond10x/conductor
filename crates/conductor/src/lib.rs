@@ -11,6 +11,7 @@
 use std::fmt;
 
 pub mod actor;
+pub mod agent;
 pub mod attach;
 pub mod broker;
 pub mod build;
@@ -41,6 +42,7 @@ pub mod resource;
 pub mod rollup;
 pub mod rules;
 pub mod run;
+pub mod secret;
 pub mod session;
 pub mod setup;
 pub mod shipped;

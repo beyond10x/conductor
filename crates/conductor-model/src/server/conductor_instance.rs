@@ -1,5 +1,5 @@
 // generated from conductor v1
-// contract digest c0e5f57876522191690b7b7fa0b710a15b36d5bf4a50b987946bb580f924bf53
+// contract digest 575fcfe0b84fcb4b2dc3a52041bbf14840203191eb2cb53374eec07ea92207ab
 // do not edit: regenerate with `ess synthesize --layout crate`
 
 //! The `conductor-instance` component of `conductor` v1, on the wire.
@@ -48,7 +48,7 @@ pub const ROUTES: &[(&str, &str)] = &[
 /// Everything outside `runtime` is the same in every language this plan is emitted into, and
 /// `cargo xtask synth --check` starts both and compares them.
 pub const STARTUP: &[&str] = &[
-    "{\"log\":\"ess/1\",\"event\":\"system.starting\",\"system\":\"conductor\",\"version\":\"v1\",\"model_digest\":\"cd0c2070b2955c208cbc0c707b1f3bb7649392a75e6018f07aa772a9eae2d5fa\",\"contract_digest\":\"c0e5f57876522191690b7b7fa0b710a15b36d5bf4a50b987946bb580f924bf53\",\"components\":[\"conductor-broker\",\"conductor-cli\",\"conductor-instance\",\"conductord\"],\"capabilities\":{\"generated\":922,\"obligations\":12,\"refused\":0}",
+    "{\"log\":\"ess/1\",\"event\":\"system.starting\",\"system\":\"conductor\",\"version\":\"v1\",\"model_digest\":\"98062e79a7338d90417a0f0906a82a25ba9e27b95346961bcc18e42aa9fb46d8\",\"contract_digest\":\"575fcfe0b84fcb4b2dc3a52041bbf14840203191eb2cb53374eec07ea92207ab\",\"components\":[\"conductor-broker\",\"conductor-cli\",\"conductor-instance\",\"conductord\"],\"capabilities\":{\"generated\":932,\"obligations\":12,\"refused\":0}",
     "{\"log\":\"ess/1\",\"event\":\"surface.serving\",\"component\":\"conductor-instance\",\"reached_by\":\"network\",\"transport\":\"http/1.1\",\"routes\":11,\"paths\":[{\"method\":\"POST\",\"path\":\"/agent/commands/attach\",\"serves\":\"command\",\"name\":\"conductor.agent.AttachAgent\"},{\"method\":\"POST\",\"path\":\"/agent/commands/declare-kind\",\"serves\":\"command\",\"name\":\"conductor.agent.DeclareAgentKind\"},{\"method\":\"POST\",\"path\":\"/agent/commands/deliver\",\"serves\":\"command\",\"name\":\"conductor.agent.DeliverToAgent\"},{\"method\":\"POST\",\"path\":\"/agent/commands/record-report\",\"serves\":\"command\",\"name\":\"conductor.agent.RecordAgentReport\"},{\"method\":\"POST\",\"path\":\"/agent/commands/restart\",\"serves\":\"command\",\"name\":\"conductor.agent.RestartAgent\"},{\"method\":\"POST\",\"path\":\"/agent/commands/start\",\"serves\":\"command\",\"name\":\"conductor.agent.StartAgent\"},{\"method\":\"POST\",\"path\":\"/agent/commands/stop\",\"serves\":\"command\",\"name\":\"conductor.agent.StopAgent\"},{\"method\":\"GET\",\"path\":\"/agent/views/agent-kinds\",\"serves\":\"view\",\"name\":\"conductor.agent.AgentKinds\"},{\"method\":\"GET\",\"path\":\"/agent/views/agents\",\"serves\":\"view\",\"name\":\"conductor.agent.Agents\"},{\"method\":\"GET\",\"path\":\"/docs\",\"serves\":\"documentation\",\"name\":\"docs\"},{\"method\":\"GET\",\"path\":\"/openapi.json\",\"serves\":\"contract\",\"name\":\"openapi\"}]",
     "{\"log\":\"ess/1\",\"event\":\"system.ready\",\"system\":\"conductor\",\"surfaces\":2",
 ];

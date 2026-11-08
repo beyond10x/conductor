@@ -7,8 +7,9 @@
 //!   never started, or started and no longer running (recorded as `LostRuntime`);
 //! - restarts it when it runs on another placement than the config says, or another binary (path
 //!   or `--version`) than the instance's desired binary ([`Pinned`], `story:instance-upgrade`):
-//!   the daemon's own binary at the instance's first start, then what an upgrade or a rollback
-//!   put there ([`super::upgrade`]);
+//!   the daemon's own binary at the instance's first start, as a copy in its `binaries/<version>/`
+//!   so an install over the daemon's path changes no runtime's binary, then what an upgrade or a
+//!   rollback put there ([`super::upgrade`]);
 //! - rolls an upgrading instance whose runtime stopped running back to its previous binary
 //!   ([`Daemon::settle`]) rather than starting it again on the new one;
 //! - leaves it alone when it matches, and records nothing.
@@ -214,11 +215,39 @@ impl<U: Units> Daemon<U> {
         })
     }
 
-    /// The binary `name`'s runtime is to run: its desired one, else the daemon's.
+    /// The binary `name`'s runtime is to run: its desired one, else the daemon's own
+    /// ([`Self::own_copy`]).
     fn desired(&self, name: &str) -> Binary {
         self.pins
             .get(name)
-            .map_or_else(|| self.binary.clone(), |pinned| pinned.desired.clone())
+            .map_or_else(|| self.own_copy(), |pinned| pinned.desired.clone())
+    }
+
+    /// The daemon's own binary as an instance's first start pins it: a copy in
+    /// `<dir>/binaries/<version>/conductor` ([`super::upgrade::BINARIES_DIR`]), made once, so an
+    /// install over the daemon's own path never changes a runtime's pinned or rollback binary.
+    /// The daemon's path itself when its version is no x.y.z or the copy cannot be made.
+    fn own_copy(&self) -> Binary {
+        if crate::upgrade::parse_version(&self.binary.version).is_none() {
+            return self.binary.clone();
+        }
+        let dir = self
+            .dir
+            .join(super::upgrade::BINARIES_DIR)
+            .join(&self.binary.version);
+        let path = dir.join("conductor");
+        let copied = if path.is_file() {
+            Ok(path)
+        } else {
+            super::upgrade::install(&self.binary.path, &dir)
+        };
+        match copied {
+            Ok(path) => Binary {
+                path,
+                version: self.binary.version.clone(),
+            },
+            Err(_) => self.binary.clone(),
+        }
     }
 
     /// The config as the last pass read it.

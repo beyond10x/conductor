@@ -78,6 +78,7 @@
 //! A source that cannot be read is named in `errors`; the others still show. No path under the
 //! home directory is printed in full: every string `/v1/data.json` carries writes it as `~`.
 
+mod agents;
 mod answers;
 mod cache;
 pub mod configure;
@@ -424,6 +425,10 @@ struct Server {
     writes: Mutex<()>,
     /// The debounce and the cold wait of the kept answers.
     tuning: cache::Tuning,
+    /// The agents behind `agents/{name}/*` (`story:agent-kinds`).
+    agents: Mutex<crate::agent::Runtime>,
+    /// The providers an agent's kind starts and stops it through.
+    providers: crate::confine::Host,
 }
 
 /// A computation of a kept answer: of the key given, over the store given.
@@ -589,6 +594,8 @@ impl Server {
             token: answers::Token::given(token),
             writes: Mutex::new(()),
             tuning,
+            agents: Mutex::new(crate::agent::Runtime::new(Box::new(agents::print))),
+            providers: crate::confine::Host::default(),
         }
     }
 
@@ -916,6 +923,21 @@ pub fn serve_unix(listener: UnixListener, sources: Sources, state: Option<PathBu
     serve_unix_tuned(listener, sources, state, cache::Tuning::default(), token);
 }
 
+/// [`serve_unix`] with the agents of `runtime` behind the routes `agents/{name}/attach`,
+/// `deliver` and `restart` ([`agents`], `story:agent-kinds`); [`serve_unix`] serves an empty
+/// runtime of the built-in kinds.
+pub fn serve_unix_with_agents(
+    listener: UnixListener,
+    sources: Sources,
+    state: Option<PathBuf>,
+    token: String,
+    runtime: crate::agent::Runtime,
+) {
+    let mut server = Server::new(sources, state, cache::Tuning::default(), token);
+    server.agents = Mutex::new(runtime);
+    run(listener, Arc::new(server));
+}
+
 /// [`serve_unix`] with `tuning`: the seam a test shortens the waits of and watches the
 /// computations through.
 pub fn serve_unix_tuned(
@@ -925,7 +947,14 @@ pub fn serve_unix_tuned(
     tuning: cache::Tuning,
     token: String,
 ) {
-    let server = Arc::new(Server::new(sources, state, tuning, token));
+    run(
+        listener,
+        Arc::new(Server::new(sources, state, tuning, token)),
+    );
+}
+
+/// Serves `server` on `listener`, as [`serve_unix`] says.
+fn run(listener: UnixListener, server: Arc<Server>) {
     server.waste.refresh(&server.sources);
     server.usage.refresh(&server.sources);
     // The session list is read at start and every `SESSIONS_EVERY` after, off the request path;
@@ -1124,6 +1153,10 @@ fn answer(
     let snapshot: Option<&'static str> = overview::SNAPSHOT_PATHS
         .into_iter()
         .find(|known| *known == path);
+    // The agents of the instance (`story:agent-kinds`, design § 5.1).
+    if let Some(rest) = path.strip_prefix(agents::PREFIX) {
+        return agents::answer(method, rest, &header, server, body);
+    }
     if path == answers::ANSWERS_PATH {
         if *method != "POST" {
             return response(

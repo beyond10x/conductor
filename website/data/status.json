@@ -244,7 +244,7 @@
     {
       "area": "Dashboard",
       "detail": "The dashboard's data holds one row per session of the instance, from its records, each controller with its dispatch.",
-      "href": "/docs/reference/cli#conductor-dashboard-serve",
+      "href": "/docs/reference/cli#conductor-instance-serve",
       "label": "Session table",
       "status": "shipped"
     },

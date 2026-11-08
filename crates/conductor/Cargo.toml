@@ -14,6 +14,7 @@ path = "src/main.rs"
 
 [dependencies]
 anyhow = "1"
+async-trait = "0.1"
 clap = { version = "4.6", features = ["derive"] }
 conductor-broker = { path = "../conductor-broker" }
 conductor-model = { package = "conductor", path = "../conductor-model" }
@@ -24,7 +25,11 @@ eventlog-sqlite = { git = "https://github.com/beyond10x/eventlog", tag = "0.9.2"
 eventlog-tree = { git = "https://github.com/beyond10x/eventlog", tag = "0.9.2" }
 include_dir = "0.7"
 rustls = { version = "0.23", default-features = false, features = ["ring", "std", "tls12"] }
+keyring-core = { version = "1", features = ["sample"] }
 nix = { version = "0.30", default-features = false, features = ["fs", "poll", "signal", "term"] }
+secrets-core = { git = "https://github.com/beyond10x/secrets", tag = "v0.6.0" }
+secrets-federation = { git = "https://github.com/beyond10x/secrets", tag = "v0.6.0" }
+secrets-keychain = { git = "https://github.com/beyond10x/secrets", tag = "v0.6.0", features = ["native-keychain"] }
 serde = { version = "1", features = ["derive"] }
 signal-hook = { version = "0.4", default-features = false }
 serde_json = "1"

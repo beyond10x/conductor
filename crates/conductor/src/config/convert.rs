@@ -110,11 +110,37 @@ pub fn second(
                         })
                         .collect();
                     let mut globals = Mapping::new();
-                    globals.insert(Yaml::from("roles"), Yaml::Sequence(roles));
+                    globals.insert(Yaml::from("roles"), Yaml::Sequence(roles.clone()));
                     out.insert(Yaml::from("globals"), Yaml::Mapping(globals));
                     notes.push(format!(
                         "host.roles: moved to globals.roles (from {file}, which is no longer read)"
                     ));
+                    // A global role reaches an instance's role of the same role (its name or
+                    // its old name, `super::same_role`): a built-in role every instance has, or
+                    // one an instance writes. Any other is kept, and said to reach none.
+                    for (index, role) in roles.iter().enumerate() {
+                        let Some(name) = role.get("role").and_then(Yaml::as_str) else {
+                            continue;
+                        };
+                        let written = instances.iter().any(|instance| {
+                            instance
+                                .get("roles")
+                                .and_then(Yaml::as_sequence)
+                                .is_some_and(|own| {
+                                    own.iter().any(|one| {
+                                        one.get("role")
+                                            .and_then(Yaml::as_str)
+                                            .is_some_and(|own| super::same_role(own, name))
+                                    })
+                                })
+                        });
+                        if super::role_name(name).is_none() && !written {
+                            notes.push(format!(
+                                "globals.roles[{index}]: {name} is kept as the daemon's; it \
+                                 applies to no instance, none of which has a role of its name"
+                            ));
+                        }
+                    }
                 }
                 out.insert(key.clone(), Yaml::Sequence(instances.clone()));
             }
