@@ -2,7 +2,7 @@
 format: aep.planning-md/3
 id: story:placement-substrate-local
 kind: story
-status: active
+status: implemented
 title: a placement is a substrate box on this host; the runtime and every agent run inside it with sealed secrets
 summary: the substrate-daemon on the control host, the adapters systemd, linux and oci, the profile of design §6, named refusals, no provider of conductor's own
 relations:
@@ -11,10 +11,11 @@ relations:
 - depends_on: story:daemon-reconcile
 - depends_on: story:agent-kinds
 - depends_on: story:secrets-source
-revision: 4
+revision: 5
 transitions:
 - {from: "draft", to: "proposed", at: "2026-11-07T23:41:27Z", actor: "human:timo", revision: 3}
 - {from: "proposed", to: "active", at: "2026-11-07T23:41:27Z", actor: "human:timo", revision: 4}
+- {from: "active", to: "implemented", at: "2026-11-08T20:42:42Z", actor: "human:timo", revision: 5, decided_on: {"recorded":{"test_result":1}}}
 ---
 ## Why
 
