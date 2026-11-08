@@ -338,23 +338,23 @@ flowchart TB
   subgraph ctl["control host"]
     d["conductord: reconciles instances from the config, federates the instance APIs, serves the dashboard, hosts supervisor and teacher"]:::nomodel
     cfg[("conductor.yaml: desired state, in git")]:::store
-    sync[("synced copy of every instance's store")]:::store
     cfg --> d
-    d --> sync
   end
   style ctl fill:#f8fafc,stroke:#64748b,color:#111827
+  db[("the one shared store: sqlite on one host, postgres otherwise")]:::store
+  d --> db
   d -->|open the box; start, stop, upgrade; proxy /v1/instances/A/*| ra
   d -->|the same, over HTTPS| rb
   subgraph ia["instance A, a box on this host"]
-    ra["runtime: loop, API /v1, agents"]:::model --- sa[("store, authoritative")]:::store
+    ra["runtime: loop, API /v1, agents"]:::model
   end
   subgraph ib["instance B, a box on a remote substrate"]
-    rb["runtime: loop, API /v1, agents"]:::model --- sb[("store, authoritative")]:::store
+    rb["runtime: loop, API /v1, agents"]:::model
   end
   style ia fill:#f8fafc,stroke:#64748b,color:#111827
   style ib fill:#f8fafc,stroke:#64748b,color:#111827
-  sa -.->|events since id| sync
-  sb -.->|events since id| sync
+  ra --> db
+  rb --> db
 ```
 
 <details>
@@ -362,24 +362,25 @@ flowchart TB
 
 ```text
 dashboard ─┐                                         ┌─ instance A, a box on this host ────┐
-tui       ─┤                                         │ runtime: loop, API /v1, agents       │
-cli       ─┼─► conductord (control host) ───────────►│ store (authoritative) ─┐             │
-chat      ─┘    reconciles instances from config     └────────────────────────┼─────────────┘
-                global API /v1, serves the dashboard  ┌─ instance B, remote ──┼─────────────┐
-                conductor.yaml (desired state)  ◄─────│ store/events since id ◄┘ (sync)      │
-                synced copy of every instance's store └─────────────────────────────────────┘
+tui       ─┤                                         │ runtime: loop, API /v1, agents ──┐   │
+cli       ─┼─► conductord (control host) ───────────►└──────────────────────────────────┼───┘
+chat      ─┘    reconciles instances from config     ┌─ instance B, remote ─────────────┼───┐
+                global API /v1, serves the dashboard │ runtime: loop, API /v1, agents ──┤   │
+                conductor.yaml (desired state)       └──────────────────────────────────┼───┘
+                        │                                                               │
+                        └──────────► the one shared store (sqlite or postgres) ◄────────┘
 ```
 
 </details>
 
 | component | one per | does |
 |---|---|---|
-| `conductord` | control host | reads the config; opens a box and starts, stops and restarts instance runtimes so that what runs equals what the config says (every `cadence.reconcile`, on a config change, on a lost runtime); serves `/v1/` on `127.0.0.1:<daemon_port>` and on a TLS listener for a dashboard deployed elsewhere; proxies `instances/{name}/*`; federates `sessions`, `decisions`, `unanswered`, `kpis`, `events`, `ask`; serves the dashboard app; starts the supervisor and teacher; syncs every instance's store |
-| instance runtime | instance | `conductor instance serve`: the loop, the instance API on a socket in the box (today's dashboard routes under `/v1/`, plus `agents/{name}/attach`, `deliver`, `restart`, `store/events`), the starter of the controller, workers and custom roles |
+| `conductord` | control host | reads the config; opens a box and starts, stops and restarts instance runtimes so that what runs equals what the config says (every `cadence.reconcile`, on a config change, on a lost runtime); serves `/v1/` on `127.0.0.1:<daemon_port>` and on a TLS listener for a dashboard deployed elsewhere; proxies `instances/{name}/*`; federates `sessions`, `decisions`, `unanswered`, `kpis`, `events`, `ask`; serves the dashboard app; starts the supervisor and teacher; opens the one shared store and hands its URL to every runtime |
+| instance runtime | instance | `conductor instance serve`: the loop, the instance API on a socket in the box (today's dashboard routes under `/v1/`, plus `agents/{name}/attach`, `deliver`, `restart`), the starter of the controller, workers and custom roles |
 | UIs | any number | the dashboard, served by the daemon where the operator controls conductord and, at the same time, deployed in a cluster for colleagues against the daemon's TLS listener (read-only unless the bearer grants more); the TUI; the CLI as an API client; the operator's chat session through the supervisor; the Claude app, for a controller started for Remote Control on its owner's token |
 
-An instance that does not answer is a row with `state: unreachable` and its last sync time in every
-federated view, never an error. `conductor ask` becomes `POST /v1/ask`, delivered to the supervisor,
+An instance that does not answer is a row with `state: unreachable` and the time it last answered in
+every federated view, never an error. `conductor ask` becomes `POST /v1/ask`, delivered to the supervisor,
 whose first line names the route.
 
 The instance cluster has several operators, not one (operator, 2026-11-08). Every write on the global
@@ -463,7 +464,7 @@ config change.
 | kind | examples | lives | authoritative copy | survives the box |
 |---|---|---|---|---|
 | config | `conductor.yaml`: instances, placements, roles, settings, secret names | with the daemon, in a git repository | the file | yes |
-| records (the store) | decisions, dispatches, readings, findings, charters, hand-offs, config changes, reconciliations | with the instance that wrote them, in one SQLite file through Eventlog's persistence port (ADRs 0041, 0053, 0063) | the instance's file; the daemon keeps a synced copy | the synced copy does |
+| records (the store) | decisions, dispatches, readings, findings, charters, hand-offs, config changes, reconciliations | in the one shared database of the deployment, through Eventlog's persistence port (ADRs 0041, 0053, 0063) | the database | yes |
 | runtime state | agents, sockets, envelopes, leases, terminal logs | inside the box | the box | no; rebuilt from records |
 | cache | exports of `origin/main`, build caches | inside the box | none | no |
 
@@ -474,25 +475,30 @@ flowchart LR
   classDef nomodel fill:#e5e7eb,stroke:#4b5563,color:#111827
   classDef cmd fill:#fce7f3,stroke:#be185d,color:#111827
   t["the store: Eventlog's persistence port (append, read since id, indexed views)"]:::nomodel
-  t --> sq[("store.sqlite: one file per instance, in its box; one for the daemon")]:::store
-  sq -.->|store/events since id, every cadence.sync| sync[("the daemon's synced copy, one file per instance")]:::store
-  sync --> ui["federated views, dashboard, TUI"]:::cmd
-  sync --> restore["conductor instance restore: seed a new box"]:::cmd
+  t --> db[("one shared database per deployment: sqlite on one host, postgres otherwise")]:::store
+  d["conductord"]:::nomodel --> db
+  ia["instance A's runtime"]:::model --> db
+  ib["instance B's runtime, remote"]:::model --> db
+  db --> ui["federated views, dashboard, TUI, every operator"]:::cmd
 ```
 
 <details>
 <summary>plain text</summary>
 
 ```text
-Eventlog's port (append, read since id, views) ── store.sqlite in each box ──events since id──► the daemon's synced copy ──► views, restore
+Eventlog's port (append, read since id, views) ── one shared database (sqlite or postgres) ◄── conductord, every instance runtime ──► views, every operator
 ```
 
 </details>
 
-One backend, SQLite, everywhere: every instance writes one file inside its box, local or remote, and
-the daemon syncs it home; the synced copy is what the UIs read and what seeds a new box when the old
-one is gone. Today's eventlog tree is read once by `conductor store migrate` and not opened again;
-there is no database backend. Secrets never enter the config: it names them (`secret:<name>`), the
+One shared database per deployment (operator, 2026-11-08: "with this multi-user, multi-operator
+thing, we of course need some shared state database ... it's just one database and it will be
+shared"): `daemon.store` names one URL, the daemon opens it and hands it to every instance runtime it
+starts, every event names its instance, and every UI and every operator reads the same records. On
+one host that is a SQLite file under the daemon's state directory; anywhere else a Postgres server
+every box reaches, through Eventlog's own adapters. No copy per instance, no sync, no restore: a lost
+box has written nothing the database does not hold. Today's eventlog tree is read once by
+`conductor store migrate` and not opened again. Secrets never enter the config: it names them (`secret:<name>`), the
 daemon resolves them through the `secrets` crates (the OS keychain on the control host; the Secrets
 service where conductord is deployed) and passes them to the placement as sealed slots; an agent's box
 holds one slot, a model token leased from the instance's token pool, and forge writes keep going
@@ -668,7 +674,7 @@ conductor config show --effective --instance <i>   every key with the level it c
 
 | level | file section | holds |
 |---|---|---|
-| daemon | `daemon` | port and TLS listener, `cadence.reconcile`, `cadence.sync`, the secrets source, the dashboard's served path, the operators and their grants |
+| daemon | `daemon` | port and TLS listener, `cadence.reconcile`, `store`, the secrets source, the dashboard's served path, the operators and their grants |
 | global | `globals` | the defaults every instance starts from: the kind and model per role, cadence, thresholds, limits, retention, the announcement hook |
 | instance | `instances[].*` | overrides of any global key; `placement`, sources, checkouts, records, session prefix, the instance's roles |
 | role | `roles[].*` (under `globals` or an instance) | kind, profile, model, settings, tools, writable set, network, limits, schedule, placement |
@@ -763,7 +769,7 @@ The more goes, the better (operator, 2026-11-08). Removed, each replaced by some
 | `conductor run --install`, the per-instance run and dashboard units, `task supervisor:start`, `task teacher:start`, `task maintainer:start`, the adapters under `~/.claude/agents/` | the daemon starts every runtime and host role |
 | `confinement.provider`, `confinement.mode`, conductor's own systemd and no-op providers | Substrate placements |
 | the hard-wired `claude --bg` launcher | the `claude-code` agent kind behind one trait |
-| the eventlog tree as a backend, a database backend | SQLite with sync |
+| the eventlog tree as a backend, a store per instance | one shared database, SQLite on one host and Postgres otherwise |
 | the maintainer role and its separate session | conductor's repository as a repository of one instance, with a releaser |
 | the bridge session, per-instance harness config directories and binary pins of the earlier design | the federated API, the box and `instances/{name}/upgrade` |
 | a secrets trait of conductor's own | the `secrets` crates |
@@ -799,7 +805,7 @@ one.
 | 3 | federated-views, tui-readonly | the federated routes; `conductor tui` read-only with attach |
 | 3a | daemon-remote | the daemon as a system unit on a remote box; the TLS listener with Identity bearers as its only API; `conductor login`, `--daemon <url>`; the dashboard, the TUI and the CLI against it from a workstation |
 | 4 | config-globals | `conductor.config/2`: levels, precedence, `config show --effective`, `PUT /v1/config`, `config migrate`, operators and grants |
-| 5 | store-sqlite, store-sync | SQLite through Eventlog's port; `store migrate` from the tree; the daemon's sync and `instance restore` |
+| 5 | store-shared | the one shared database through Eventlog's SQLite and Postgres adapters; its URL handed to every runtime; `store migrate` from the tree |
 | 6 | agent-kinds | the agent trait with `claude-code`; today's session scenarios and tests pass unchanged; the `agents/*` routes |
 | 7 | placement-substrate-local, secrets-source | a local substrate box per instance and per agent; slots from the keychain |
 | 7a | token-pool | `conductor join` and `leave`; the instance's token pool in the secrets source; a `claude-code` agent leases a token at start and is resumed on another after a limit stop; owners on every agent record; the controller for Remote Control on a named owner's token |
@@ -816,7 +822,7 @@ one.
 | teacher: own role or part of the supervisor? | its own role, above the supervisor, outside the system like an adversarial review (operator, 2026-11-07: "the teacher should clearly be its own role, and it should just be above the supervisor. It's just like the concept of adversarial review. So we're stepping out of the system and then reviewing it from there") |
 | merge step by step, or one fork? | one integration branch, `v1`, where every story goes active; no merge into `main` until the cutover; v0 keeps shipping (operator, 2026-11-07 and 2026-11-08) |
 | Agency, Loom, takt? | Agency dropped ("forget entirely about agency, it was just a design"); Substrate for local and remote confinement (bubblewrap, Docker, Kubernetes); agents abstracted, any kind in any role at any placement, with today's Claude Code behaviour kept exactly (operator, 2026-11-08) |
-| a remote instance's store? | SQLite in the box, local and remote, synced to the daemon ("remote -> sqlite, local too - with sync", 2026-11-08) |
+| a remote instance's store? | first "remote -> sqlite, local too - with sync", then superseded the same day: one shared database per deployment, SQLite on one host and Postgres otherwise, no copy per instance and no sync ("with this multi-user, multi-operator thing, we of course need some shared state database ... it's just one database and it will be shared", 2026-11-08) |
 | the dashboard: served by the daemon or deployed separately? | both at the same time: served by the daemon where the operator controls conductord, and deployed in a cluster for colleagues (2026-11-08) |
 | the secrets source? | the `secrets` crates: the OS keychain locally, the Secrets service remotely (2026-11-08) |
 | the first tuning grant? | empty; the operator writes keys into it (taken as the reversible default, 2026-11-08) |
@@ -836,4 +842,4 @@ instance's box) must decide what takt works on next and whether a finished story
 |---|---|---|---|
 | A | a full worktree per repository, as every repository controller has today | read code, list the planning store, run the tests itself to check a claim | one checkout plus one build directory per repository per instance |
 | B (default) | read-only exports of each repository's `origin/main`, no build directory | read code and the planning store, plan, judge diffs; a check it wants is a worker's job | one export per repository, refreshed by the loop's fetch |
-| C | nothing | read the forge and the synced store only; every look at code is a worker it starts | the cheapest box; a controller that asks a worker for every fact |
+| C | nothing | read the forge and the shared store only; every look at code is a worker it starts | the cheapest box; a controller that asks a worker for every fact |
