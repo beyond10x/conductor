@@ -1,0 +1,50 @@
+# Design § 4: restart what changed placement; § 5.2 `instances/{name}` restart by an operator.
+type: ess-scenario/1
+domain: conductor.instance
+scenario: instance-restart-instance
+summary: An operator restarts a running instance onto the placement the config now names, in a new box.
+
+timeline:
+  - at: 2026-11-08T09:00:00Z
+    command: conductor.instance.StartInstance
+    actor: conductor.instance.Operator
+    input:
+      actor: {kind: Human, value: {operator: operator-one}}
+      name: example-org
+      placement: local
+      roles: [Director]
+      box_id: 6f1c1d2e-0000-4000-8000-000000000001
+      at: 2026-11-08T09:00:00Z
+    outcome: created
+
+  - at: 2026-11-08T09:00:10Z
+    command: conductor.instance.ObserveInstance
+    actor: conductor.instance.Conductord
+    input:
+      actor: {kind: Agent, value: {instance: example-org, role: Director, name: conductord, kind: conductord}}
+      name: example-org
+      answering: true
+      binary_version: 1.0.0
+      at: 2026-11-08T09:00:10Z
+    outcome: answering
+
+  - at: 2026-11-08T11:00:00Z
+    command: conductor.instance.RestartInstance
+    actor: conductor.instance.Operator
+    input:
+      actor: {kind: Human, value: {operator: operator-one}}
+      name: example-org
+      placement: remote-one
+      roles: [Director]
+      box_id: 6f1c1d2e-0000-4000-8000-000000000002
+      at: 2026-11-08T11:00:00Z
+    outcome: restarted
+
+assert:
+  - view: conductor.instance.Instances
+    contains:
+      name: example-org
+      state: Starting
+      placement: remote-one
+      box_id: 6f1c1d2e-0000-4000-8000-000000000002
+      changed_by: {kind: Human, value: {operator: operator-one}}

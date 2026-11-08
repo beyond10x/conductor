@@ -51,3 +51,11 @@ scenarios:
   - scenarios/answer-escalated-as-operator-twice.yaml
   - scenarios/amend-escalated-request.yaml
   - scenarios/report-done-from-sent-or-blocked.yaml
+  - scenarios/instance-start-instance.yaml
+  - scenarios/instance-observe-instance.yaml
+  - scenarios/instance-stop-instance.yaml
+  - scenarios/instance-restart-instance.yaml
+  - scenarios/instance-upgrade-instance.yaml
+  - scenarios/instance-purge-instance.yaml
+  - scenarios/instance-purge-instance-agent-refused.yaml
+  - scenarios/instance-reconcile.yaml
