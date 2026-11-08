@@ -66,6 +66,21 @@ pub fn boxed_unit(opened: &crate::placement::OpenedBox) -> String {
     format!("substrate:{}", opened.session)
 }
 
+/// The substrate daemon a box is on: `local`, or the box opener `remote` makes for the remote
+/// daemon `at`, its bearer from the secrets source `secrets`
+/// ([`crate::placement::bearer_from`]).
+fn substrate_of<'a>(
+    local: &'a mut (dyn crate::placement::Substrate + Send),
+    remote: &crate::placement::RemoteSubstrate,
+    secrets: &conductor_model::config::SecretsSource,
+    at: Option<&crate::placement::RemoteAt>,
+) -> Box<dyn crate::placement::Substrate + Send + 'a> {
+    match at {
+        Some(at) => remote(at, crate::placement::bearer_from(secrets, at)),
+        None => Box::new(local),
+    }
+}
+
 /// The unit an instance's runtime runs in: `conductor_<instance>-runtime.service`, escaped as a
 /// session's unit is ([`systemd::unit_name`]).
 #[must_use]
@@ -175,6 +190,9 @@ pub struct Daemon<U: Units> {
     /// The substrate daemon an instance whose placement is a substrate box runs in
     /// ([`crate::placement`]); the local daemon through the SDK by default.
     pub substrate: Box<dyn crate::placement::Substrate + Send>,
+    /// What opens a box opener for a remote substrate daemon, with its bearer
+    /// (`story:placement-substrate-remote`); the SDK's remote transport by default.
+    pub remote: crate::placement::RemoteSubstrate,
     pub(super) boxes: BTreeMap<String, crate::placement::OpenedBox>,
     store: Store,
     /// `daemon.store` as the file wrote it at start: the store above, handed every runtime.
@@ -226,6 +244,7 @@ impl<U: Units> Daemon<U> {
             units,
             releases: Box::new(super::upgrade::Github),
             substrate: Box::new(crate::placement::Sdk::default()),
+            remote: crate::placement::sdk_remote(),
             boxes,
             store,
             url,
@@ -342,7 +361,11 @@ impl<U: Units> Daemon<U> {
         let names: Vec<String> = self.started.keys().cloned().collect();
         for name in names {
             let unit = self.started[&name].unit.clone();
-            let running = self.runs(&name, &unit)?;
+            // A silent remote daemon: `Unreachable`, and no lost runtime to start again.
+            let Some(running) = self.look(&name, &unit)? else {
+                self.running.insert(name, false);
+                continue;
+            };
             if running {
                 if let Some(started) = self.started.get_mut(&name) {
                     started.last_seen = Some(at.0.clone());
@@ -517,7 +540,14 @@ impl<U: Units> Daemon<U> {
             };
             let held = self.started.get(&name).cloned();
             let running = match &held {
-                Some(held) => self.runs(&name, &held.unit)?,
+                Some(held) => match self.look(&name, &held.unit)? {
+                    Some(running) => running,
+                    // A silent remote daemon: its box may run on; nothing starts in its place.
+                    None => {
+                        self.running.insert(name, false);
+                        continue;
+                    }
+                },
                 None => false,
             };
             let (action, why, outcome) = match held {
@@ -597,22 +627,42 @@ impl<U: Units> Daemon<U> {
     }
 
     /// Whether the runtime of `name`, started as `unit`, runs: its session in its substrate box
-    /// when it was started in one ([`boxed_unit`]), else its unit.
+    /// when it was started in one ([`boxed_unit`]), else its unit. A silent remote daemon counts
+    /// as running here, so a box on it is closed, not forgotten ([`Daemon::look`]).
     fn runs(&mut self, name: &str, unit: &str) -> Result<bool> {
-        match self.boxes.get(name) {
-            Some(opened) if boxed_unit(opened) == unit => {
-                let session = opened.session.clone();
-                self.substrate.running(&session)
+        Ok(self.look(name, unit)?.unwrap_or(true))
+    }
+
+    /// What [`Daemon::runs`] answers, and `None` when the runtime is in a box on a remote daemon
+    /// that does not answer (`story:placement-substrate-remote`): its instance is `Unreachable`,
+    /// a row and never an error, and nothing is started in its place.
+    fn look(&mut self, name: &str, unit: &str) -> Result<Option<bool>> {
+        match self.boxes.get(name).cloned() {
+            Some(opened) if boxed_unit(&opened) == unit => {
+                let remote = opened.remote.is_some();
+                match substrate_of(
+                    self.substrate.as_mut(),
+                    &self.remote,
+                    &self.config.daemon.secrets,
+                    opened.remote.as_ref(),
+                )
+                .running(&opened.session)
+                {
+                    Ok(running) => Ok(Some(running)),
+                    Err(_) if remote => Ok(None),
+                    Err(error) => Err(error),
+                }
             }
-            _ => self.units.active(unit),
+            _ => self.units.active(unit).map(Some),
         }
     }
 
     /// Starts `instance`'s runtime as `service` says and answers the unit it runs as. An instance
     /// whose placement is a substrate box ([`crate::placement::boxed`]) runs in a box opened for
-    /// it ([`crate::placement::open_box`]), never through the service manager; a refusal is
-    /// `PlacementRefused` with substrate's name, and nothing falls back. The runtime's token is
-    /// not handed into the box: substrate 0.16.1 seals only slots its daemon declares.
+    /// it ([`crate::placement::open_box`]), on the remote daemon its placement names when it
+    /// names one, never through the service manager; a refusal is `PlacementRefused` with
+    /// substrate's name, and nothing falls back. The runtime's token is not handed into the box:
+    /// substrate 0.16.1 seals only slots its daemon declares.
     fn start_runtime(&mut self, instance: &Instance, service: &Service) -> Result<String> {
         if !crate::placement::boxed(instance) {
             self.units.start(service)?;
@@ -628,19 +678,40 @@ impl<U: Units> Daemon<U> {
             .collect();
         let binary = PathBuf::from(service.command.first().cloned().unwrap_or_default());
         let request = crate::placement::request(instance, &self.config_file, &binary, env);
-        let opened =
-            crate::placement::open_box(&mut self.store, self.substrate.as_mut(), &request)?;
+        let remote = instance
+            .remote
+            .as_ref()
+            .map(crate::placement::RemoteAt::from);
+        let mut substrate = substrate_of(
+            self.substrate.as_mut(),
+            &self.remote,
+            &self.config.daemon.secrets,
+            remote.as_ref(),
+        );
+        let opened = crate::placement::open_box(&mut self.store, substrate.as_mut(), &request);
+        drop(substrate);
+        let mut opened = opened?;
+        opened.remote = remote;
         let unit = boxed_unit(&opened);
         self.boxes.insert(instance.name.0.clone(), opened);
         Ok(unit)
     }
 
-    /// Stops the runtime of `name`, started as `unit`: closes its box when it runs in one
-    /// ([`crate::placement::close_box`]), else stops its unit.
+    /// Stops the runtime of `name`, started as `unit`: closes its box when it runs in one, on the
+    /// daemon it was opened on ([`crate::placement::close_box`]), else stops its unit.
     fn stop_runtime(&mut self, name: &str, unit: &str) -> Result<()> {
         match self.boxes.get(name).cloned() {
             Some(opened) if boxed_unit(&opened) == unit => {
-                crate::placement::close_box(&mut self.store, self.substrate.as_mut(), &opened)?;
+                let mut substrate = substrate_of(
+                    self.substrate.as_mut(),
+                    &self.remote,
+                    &self.config.daemon.secrets,
+                    opened.remote.as_ref(),
+                );
+                let closed =
+                    crate::placement::close_box(&mut self.store, substrate.as_mut(), &opened);
+                drop(substrate);
+                closed?;
                 self.boxes.remove(name);
                 Ok(())
             }
@@ -816,10 +887,11 @@ impl<U: Units> Daemon<U> {
             })
             .collect()
     }
-
     /// The runtimes the API proxies to (`story:instance-api`): each instance of the config whose
     /// runtime the daemon started, with a token, and that was not seen stopped, by name, at its
-    /// state directory's socket.
+    /// state directory's socket. A runtime in a box on a remote daemon is reached through a relay
+    /// session in its box instead (`story:placement-substrate-remote`): the box's own conductor
+    /// running `instance relay` on that socket ([`crate::placement::Exchange::relay`]).
     #[must_use]
     pub fn routes(&self) -> BTreeMap<String, Route> {
         self.config
@@ -830,12 +902,34 @@ impl<U: Units> Daemon<U> {
                 if self.running.get(name) == Some(&false) {
                     return None;
                 }
-                let token = self.started.get(name)?.token.clone()?;
+                let started = self.started.get(name)?;
+                let token = started.token.clone()?;
+                let socket = crate::instance::socket(Path::new(&instance.state));
+                let remote = self.boxes.get(name).and_then(|opened| {
+                    let at = opened.remote.clone()?;
+                    let request = crate::placement::request(
+                        instance,
+                        &self.config_file,
+                        Path::new(&started.binary),
+                        Vec::new(),
+                    );
+                    Some(crate::placement::RemoteRoute {
+                        bearer: crate::placement::bearer_from(&self.config.daemon.secrets, &at),
+                        at,
+                        opener: self.remote.clone(),
+                        exchange: crate::placement::Exchange::relay(
+                            &opened.workspace,
+                            &request,
+                            &socket,
+                        ),
+                    })
+                });
                 Some((
                     name.clone(),
                     Route {
-                        socket: crate::instance::socket(Path::new(&instance.state)),
+                        socket,
                         token,
+                        remote,
                     },
                 ))
             })

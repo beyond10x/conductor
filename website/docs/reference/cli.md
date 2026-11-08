@@ -191,6 +191,7 @@ Every command takes these, before or after its name.
 | [`conductor gc`](#conductor-gc) | Remove what the dashboard's disk panel marks reclaimable, and no tree a live session works in; print the bytes freed |
 | [`conductor init`](#conductor-init) | Write and commit the instance's records directory skeleton; refuse to overwrite any file |
 | [`conductor instance`](#conductor-instance) |  |
+| [`conductor instance relay`](#conductor-instance-relay) | Bridge one instance API exchange from standard input to the instance's api.sock (CONDUCTOR_API_SOCKET, else &lt;state>/api.sock) and its answer to standard output; conductord runs it as a substrate pipe session in a box on a remote substrate daemon |
 | [`conductor instance serve`](#conductor-instance-serve) | Serve the instance API, the routes of the dashboard under /v1/, on the instance's &lt;state>/api.sock until stopped; a write takes the token the daemon minted for the instance, in CONDUCTOR_API_TOKEN |
 | [`conductor instance upgrade`](#conductor-instance-upgrade) | Ask the daemon to upgrade an instance to a released binary (POST /v1/instances/\{name}/upgrade) - it fetches the release, installs its binary, runs its conductor doctor, restarts the runtime on it and rolls back to the previous binary unless it answers within daemon.upgrade_timeout; --all goes through every instance of the config file one at a time and stops at the first rollback |
 | [`conductor join`](#conductor-join) | Join an instance of the daemon --daemon names as one of its operators (JoinInstance, with the grants daemon.operators gives you) and contribute your Claude token, read from standard input, to the instance's pool (ContributeToken): the value goes into the daemon's secrets source, the pool records its owner, seat (--seat, your operator name by default) and state, never the value |
@@ -2538,6 +2539,14 @@ Usage: conductor init [OPTIONS]
 
 ```text
 Usage: conductor instance [OPTIONS] <COMMAND>
+```
+
+## `conductor instance relay`
+
+Bridge one instance API exchange from standard input to the instance's api.sock (CONDUCTOR_API_SOCKET, else &lt;state>/api.sock) and its answer to standard output; conductord runs it as a substrate pipe session in a box on a remote substrate daemon
+
+```text
+Usage: conductor instance relay [OPTIONS]
 ```
 
 ## `conductor instance serve`

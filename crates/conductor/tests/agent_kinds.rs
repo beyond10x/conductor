@@ -113,10 +113,23 @@ impl Kind for RunToExit {
     }
 
     fn start(&self, _context: &Context<'_>, slot: &Slot) -> Result<Handle, Refused> {
-        let child = Command::new(&self.program)
-            .arg(&self.events)
-            .spawn()
-            .map_err(|error| Refused::launch_failed(&slot.name, format!("{error}")))?;
+        // Tests run in parallel: another test's spawn can hold this script's write handle for the
+        // moment between its fork and its exec, which answers "Text file busy". That passes.
+        let mut tries = 0;
+        let child = loop {
+            match Command::new(&self.program).arg(&self.events).spawn() {
+                Err(error)
+                    if error.kind() == std::io::ErrorKind::ExecutableFileBusy && tries < 100 =>
+                {
+                    tries += 1;
+                    std::thread::sleep(Duration::from_millis(10));
+                }
+                spawned => {
+                    break spawned
+                        .map_err(|error| Refused::launch_failed(&slot.name, format!("{error}")))?;
+                }
+            }
+        };
         let id = child.id().to_string();
         self.children
             .lock()

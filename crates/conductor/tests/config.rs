@@ -546,6 +546,8 @@ fn show_without_a_file_prints_todays_constants() {
     );
     // story:instance-session-names: nor a session prefix; its sessions keep today's names.
     assert_eq!(instance["session_prefix"], Value::Null, "{shown:#}");
+    // story:placement-substrate-remote: nor a remote daemon; its placement is local.
+    assert_eq!(instance["remote"], Value::Null, "{shown:#}");
     // story:instance-scoped-tasks: src/dashboard.rs, `DEFAULT_PORT`, the port `task dashboard`
     // served before an instance had one.
     assert_eq!(instance["dashboard_port"], 7313, "{shown:#}");
@@ -571,6 +573,7 @@ fn show_without_a_file_prints_todays_constants() {
         "name",
         "operator",
         "records",
+        "remote",
         "repositories",
         "reports",
         "retention",

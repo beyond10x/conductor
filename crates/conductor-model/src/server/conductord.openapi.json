@@ -8,7 +8,7 @@
     "x-ess-provenance": {
       "system": "conductor",
       "specification_version": "v1",
-      "contract_digest": "slice-sha256/2:86159d7264b12d31fdcee33320095bd38301a1111b91aac8ee699ac6ddfdea79"
+      "contract_digest": "slice-sha256/2:6b95d7da4eb24cf5a28a70fe3ea2097af54e00dada1cbf29d951d0a277a5e3f7"
     },
     "x-ess-reached-by": "network"
   },
@@ -6205,11 +6205,19 @@
           },
           "bearer": {
             "$ref": "#/components/schemas/conductor.secret.SecretName"
+          },
+          "trust_roots": {
+            "type": "string"
+          },
+          "server_identity": {
+            "type": "string"
           }
         },
         "required": [
           "url",
-          "bearer"
+          "bearer",
+          "trust_roots",
+          "server_identity"
         ],
         "additionalProperties": false
       },
@@ -9005,11 +9013,19 @@
         },
         "bearer": {
           "$ref": "#/x-ess-entities/conductor.secret.SecretName"
+        },
+        "trust_roots": {
+          "type": "string"
+        },
+        "server_identity": {
+          "type": "string"
         }
       },
       "required": [
         "url",
-        "bearer"
+        "bearer",
+        "trust_roots",
+        "server_identity"
       ],
       "additionalProperties": false
     },

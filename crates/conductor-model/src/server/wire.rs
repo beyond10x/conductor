@@ -1,5 +1,5 @@
 // generated from conductor v1
-// contract digest 0608eb83c8c48e1f8808cd29d3621f78091b34cac43c2b2e9143a335707a4202
+// contract digest 0be0922aec9b8f10c3509792e1441579a2719359e1cf48bcc0d06cbee2a292de
 // do not edit: regenerate with `ess synthesize --layout crate`
 //! Every generated declaration, as JSON, in the renderings the published wire contracts fix.
 //!
@@ -1813,6 +1813,10 @@ pub fn encode_conductor_config_instance(value: &crate::config::Instance, out: &m
     encode_conductor_config_instance_name(&value.name, out);
     json::member(out, "placement");
     encode_conductor_config_placement_name(&value.placement, out);
+    if let Some(held0) = &value.remote {
+        json::member(out, "remote");
+        encode_conductor_placement_remote_daemon(&*held0, out);
+    }
     if let Some(held0) = &value.session_prefix {
         json::member(out, "session_prefix");
         encode_conductor_config_session_prefix(&*held0, out);
@@ -1909,7 +1913,7 @@ pub fn encode_conductor_config_instance(value: &crate::config::Instance, out: &m
 ///
 /// [`json::DecodeError`] naming the path and what the declaration says belongs there.
 pub fn decode_conductor_config_instance(value: &json::Value, at: &str) -> Result<crate::config::Instance, json::DecodeError> {
-    json::closed_at(value, at, &["name", "placement", "session_prefix", "sources", "checkouts", "records", "state", "cache", "roles", "limits", "controllers", "repositories", "cadence", "thresholds", "retention", "reports", "authority", "usage", "operator", "catalog", "secret_syncs", "gates_policy", "forge", "conductor"])?;
+    json::closed_at(value, at, &["name", "placement", "remote", "session_prefix", "sources", "checkouts", "records", "state", "cache", "roles", "limits", "controllers", "repositories", "cadence", "thresholds", "retention", "reports", "authority", "usage", "operator", "catalog", "secret_syncs", "gates_policy", "forge", "conductor"])?;
     Ok(crate::config::Instance {
         name: {
             let at0 = json::nested(at, "name");
@@ -1921,158 +1925,165 @@ pub fn decode_conductor_config_instance(value: &json::Value, at: &str) -> Result
             let member1 = json::member_at(value, at, "placement")?;
             decode_conductor_config_placement_name(member1, &at1)?
         },
-        session_prefix: match value.member("session_prefix") {
+        remote: match value.member("remote") {
             None | Some(json::Value::Null) => None,
             Some(member2) => {
-                let at2 = json::nested(at, "session_prefix");
-                Some(decode_conductor_config_session_prefix(member2, &at2)?)
+                let at2 = json::nested(at, "remote");
+                Some(decode_conductor_placement_remote_daemon(member2, &at2)?)
+            }
+        },
+        session_prefix: match value.member("session_prefix") {
+            None | Some(json::Value::Null) => None,
+            Some(member3) => {
+                let at3 = json::nested(at, "session_prefix");
+                Some(decode_conductor_config_session_prefix(member3, &at3)?)
             }
         },
         sources: {
-            let at3 = json::nested(at, "sources");
-            let member3 = json::member_at(value, at, "sources")?;
+            let at4 = json::nested(at, "sources");
+            let member4 = json::member_at(value, at, "sources")?;
             {
-                let mut items3 = Vec::new();
-                for (index3, element3) in json::items_at(member3, &at3, "an array")?.iter().enumerate() {
-                    let nested3 = json::nested(&at3, &index3.to_string());
-                    items3.push(decode_conductor_config_source(element3, &nested3)?);
+                let mut items4 = Vec::new();
+                for (index4, element4) in json::items_at(member4, &at4, "an array")?.iter().enumerate() {
+                    let nested4 = json::nested(&at4, &index4.to_string());
+                    items4.push(decode_conductor_config_source(element4, &nested4)?);
                 }
-                items3
+                items4
             }
         },
         checkouts: {
-            let at4 = json::nested(at, "checkouts");
-            let member4 = json::member_at(value, at, "checkouts")?;
-            decode_conductor_config_checkouts(member4, &at4)?
+            let at5 = json::nested(at, "checkouts");
+            let member5 = json::member_at(value, at, "checkouts")?;
+            decode_conductor_config_checkouts(member5, &at5)?
         },
         records: {
-            let at5 = json::nested(at, "records");
-            let member5 = json::member_at(value, at, "records")?;
-            json::text_at(member5, &at5, "a string")?.to_owned()
-        },
-        state: {
-            let at6 = json::nested(at, "state");
-            let member6 = json::member_at(value, at, "state")?;
+            let at6 = json::nested(at, "records");
+            let member6 = json::member_at(value, at, "records")?;
             json::text_at(member6, &at6, "a string")?.to_owned()
         },
-        cache: {
-            let at7 = json::nested(at, "cache");
-            let member7 = json::member_at(value, at, "cache")?;
+        state: {
+            let at7 = json::nested(at, "state");
+            let member7 = json::member_at(value, at, "state")?;
             json::text_at(member7, &at7, "a string")?.to_owned()
         },
+        cache: {
+            let at8 = json::nested(at, "cache");
+            let member8 = json::member_at(value, at, "cache")?;
+            json::text_at(member8, &at8, "a string")?.to_owned()
+        },
         roles: {
-            let at8 = json::nested(at, "roles");
-            let member8 = json::member_at(value, at, "roles")?;
+            let at9 = json::nested(at, "roles");
+            let member9 = json::member_at(value, at, "roles")?;
             {
-                let mut items8 = Vec::new();
-                for (index8, element8) in json::items_at(member8, &at8, "an array")?.iter().enumerate() {
-                    let nested8 = json::nested(&at8, &index8.to_string());
-                    items8.push(decode_conductor_config_role(element8, &nested8)?);
+                let mut items9 = Vec::new();
+                for (index9, element9) in json::items_at(member9, &at9, "an array")?.iter().enumerate() {
+                    let nested9 = json::nested(&at9, &index9.to_string());
+                    items9.push(decode_conductor_config_role(element9, &nested9)?);
                 }
-                items8
+                items9
             }
         },
         limits: {
-            let at9 = json::nested(at, "limits");
-            let member9 = json::member_at(value, at, "limits")?;
-            decode_conductor_config_limits(member9, &at9)?
+            let at10 = json::nested(at, "limits");
+            let member10 = json::member_at(value, at, "limits")?;
+            decode_conductor_config_limits(member10, &at10)?
         },
         controllers: {
-            let at10 = json::nested(at, "controllers");
-            let member10 = json::member_at(value, at, "controllers")?;
-            decode_conductor_config_controllers(member10, &at10)?
+            let at11 = json::nested(at, "controllers");
+            let member11 = json::member_at(value, at, "controllers")?;
+            decode_conductor_config_controllers(member11, &at11)?
         },
         repositories: {
-            let at11 = json::nested(at, "repositories");
-            let member11 = json::member_at(value, at, "repositories")?;
+            let at12 = json::nested(at, "repositories");
+            let member12 = json::member_at(value, at, "repositories")?;
             {
-                let mut items11 = Vec::new();
-                for (index11, element11) in json::items_at(member11, &at11, "an array")?.iter().enumerate() {
-                    let nested11 = json::nested(&at11, &index11.to_string());
-                    items11.push(decode_conductor_config_repository_rule(element11, &nested11)?);
+                let mut items12 = Vec::new();
+                for (index12, element12) in json::items_at(member12, &at12, "an array")?.iter().enumerate() {
+                    let nested12 = json::nested(&at12, &index12.to_string());
+                    items12.push(decode_conductor_config_repository_rule(element12, &nested12)?);
                 }
-                items11
+                items12
             }
         },
         cadence: {
-            let at12 = json::nested(at, "cadence");
-            let member12 = json::member_at(value, at, "cadence")?;
-            decode_conductor_config_cadence(member12, &at12)?
+            let at13 = json::nested(at, "cadence");
+            let member13 = json::member_at(value, at, "cadence")?;
+            decode_conductor_config_cadence(member13, &at13)?
         },
         thresholds: {
-            let at13 = json::nested(at, "thresholds");
-            let member13 = json::member_at(value, at, "thresholds")?;
-            decode_conductor_config_thresholds(member13, &at13)?
+            let at14 = json::nested(at, "thresholds");
+            let member14 = json::member_at(value, at, "thresholds")?;
+            decode_conductor_config_thresholds(member14, &at14)?
         },
         retention: {
-            let at14 = json::nested(at, "retention");
-            let member14 = json::member_at(value, at, "retention")?;
-            decode_conductor_config_retention(member14, &at14)?
+            let at15 = json::nested(at, "retention");
+            let member15 = json::member_at(value, at, "retention")?;
+            decode_conductor_config_retention(member15, &at15)?
         },
         reports: {
-            let at15 = json::nested(at, "reports");
-            let member15 = json::member_at(value, at, "reports")?;
+            let at16 = json::nested(at, "reports");
+            let member16 = json::member_at(value, at, "reports")?;
             {
-                let mut items15 = Vec::new();
-                for (index15, element15) in json::items_at(member15, &at15, "an array")?.iter().enumerate() {
-                    let nested15 = json::nested(&at15, &index15.to_string());
-                    items15.push(decode_conductor_config_report(element15, &nested15)?);
+                let mut items16 = Vec::new();
+                for (index16, element16) in json::items_at(member16, &at16, "an array")?.iter().enumerate() {
+                    let nested16 = json::nested(&at16, &index16.to_string());
+                    items16.push(decode_conductor_config_report(element16, &nested16)?);
                 }
-                items15
+                items16
             }
         },
         authority: {
-            let at16 = json::nested(at, "authority");
-            let member16 = json::member_at(value, at, "authority")?;
-            decode_conductor_config_authority(member16, &at16)?
+            let at17 = json::nested(at, "authority");
+            let member17 = json::member_at(value, at, "authority")?;
+            decode_conductor_config_authority(member17, &at17)?
         },
         usage: {
-            let at17 = json::nested(at, "usage");
-            let member17 = json::member_at(value, at, "usage")?;
-            decode_conductor_config_usage(member17, &at17)?
+            let at18 = json::nested(at, "usage");
+            let member18 = json::member_at(value, at, "usage")?;
+            decode_conductor_config_usage(member18, &at18)?
         },
         operator: match value.member("operator") {
             None | Some(json::Value::Null) => None,
-            Some(member18) => {
-                let at18 = json::nested(at, "operator");
-                Some(json::text_at(member18, &at18, "a string")?.to_owned())
+            Some(member19) => {
+                let at19 = json::nested(at, "operator");
+                Some(json::text_at(member19, &at19, "a string")?.to_owned())
             }
         },
         catalog: match value.member("catalog") {
             None | Some(json::Value::Null) => None,
-            Some(member19) => {
-                let at19 = json::nested(at, "catalog");
-                Some(decode_conductor_config_catalog(member19, &at19)?)
+            Some(member20) => {
+                let at20 = json::nested(at, "catalog");
+                Some(decode_conductor_config_catalog(member20, &at20)?)
             }
         },
         secret_syncs: {
-            let at20 = json::nested(at, "secret_syncs");
-            let member20 = json::member_at(value, at, "secret_syncs")?;
+            let at21 = json::nested(at, "secret_syncs");
+            let member21 = json::member_at(value, at, "secret_syncs")?;
             {
-                let mut items20 = Vec::new();
-                for (index20, element20) in json::items_at(member20, &at20, "an array")?.iter().enumerate() {
-                    let nested20 = json::nested(&at20, &index20.to_string());
-                    items20.push(decode_conductor_config_secret_sync(element20, &nested20)?);
+                let mut items21 = Vec::new();
+                for (index21, element21) in json::items_at(member21, &at21, "an array")?.iter().enumerate() {
+                    let nested21 = json::nested(&at21, &index21.to_string());
+                    items21.push(decode_conductor_config_secret_sync(element21, &nested21)?);
                 }
-                items20
+                items21
             }
         },
         gates_policy: match value.member("gates_policy") {
             None | Some(json::Value::Null) => None,
-            Some(member21) => {
-                let at21 = json::nested(at, "gates_policy");
-                Some(json::text_at(member21, &at21, "a string")?.to_owned())
+            Some(member22) => {
+                let at22 = json::nested(at, "gates_policy");
+                Some(json::text_at(member22, &at22, "a string")?.to_owned())
             }
         },
         forge: {
-            let at22 = json::nested(at, "forge");
-            let member22 = json::member_at(value, at, "forge")?;
-            decode_conductor_config_forge(member22, &at22)?
+            let at23 = json::nested(at, "forge");
+            let member23 = json::member_at(value, at, "forge")?;
+            decode_conductor_config_forge(member23, &at23)?
         },
         conductor: {
-            let at23 = json::nested(at, "conductor");
-            let member23 = json::member_at(value, at, "conductor")?;
-            decode_conductor_config_conductor_session(member23, &at23)?
+            let at24 = json::nested(at, "conductor");
+            let member24 = json::member_at(value, at, "conductor")?;
+            decode_conductor_config_conductor_session(member24, &at24)?
         },
     })
 }
@@ -10048,6 +10059,10 @@ pub fn encode_conductor_placement_remote_daemon(value: &crate::placement::Remote
     json::push_text(out, &value.url);
     json::member(out, "bearer");
     encode_conductor_secret_secret_name(&value.bearer, out);
+    json::member(out, "trust_roots");
+    json::push_text(out, &value.trust_roots);
+    json::member(out, "server_identity");
+    json::push_text(out, &value.server_identity);
     out.push('}');
 }
 
@@ -10057,7 +10072,7 @@ pub fn encode_conductor_placement_remote_daemon(value: &crate::placement::Remote
 ///
 /// [`json::DecodeError`] naming the path and what the declaration says belongs there.
 pub fn decode_conductor_placement_remote_daemon(value: &json::Value, at: &str) -> Result<crate::placement::RemoteDaemon, json::DecodeError> {
-    json::closed_at(value, at, &["url", "bearer"])?;
+    json::closed_at(value, at, &["url", "bearer", "trust_roots", "server_identity"])?;
     Ok(crate::placement::RemoteDaemon {
         url: {
             let at0 = json::nested(at, "url");
@@ -10068,6 +10083,16 @@ pub fn decode_conductor_placement_remote_daemon(value: &json::Value, at: &str) -
             let at1 = json::nested(at, "bearer");
             let member1 = json::member_at(value, at, "bearer")?;
             decode_conductor_secret_secret_name(member1, &at1)?
+        },
+        trust_roots: {
+            let at2 = json::nested(at, "trust_roots");
+            let member2 = json::member_at(value, at, "trust_roots")?;
+            json::text_at(member2, &at2, "a string")?.to_owned()
+        },
+        server_identity: {
+            let at3 = json::nested(at, "server_identity");
+            let member3 = json::member_at(value, at, "server_identity")?;
+            json::text_at(member3, &at3, "a string")?.to_owned()
         },
     })
 }

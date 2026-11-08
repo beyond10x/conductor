@@ -414,9 +414,10 @@ pub const TREE_STALE_HOURS: u64 = 48;
 
 /// The keys of each mapping the file holds, in the order `config show` writes them.
 const CONFIG_KEYS: [&str; 5] = ["version", "daemon", "globals", "default", "instances"];
-const INSTANCE_KEYS: [&str; 27] = [
+const INSTANCE_KEYS: [&str; 28] = [
     "name",
     "placement",
+    "remote",
     "session_prefix",
     "dashboard_port",
     "sources",
@@ -1506,6 +1507,7 @@ pub fn built_in(home: &Path, cwd: &Path) -> Instance {
         name: InstanceName(ORGANIZATION.to_owned()),
         // A box through systemd, the default confinement's provider ([`legacy`]).
         placement: PlacementName("systemd".to_owned()),
+        remote: None,
         // Without a prefix the sessions keep today's names (story:instance-session-names).
         session_prefix: None,
         sources: vec![Source::GitHub(GitHubSource {
@@ -2198,10 +2200,11 @@ impl Reader<'_> {
     }
 
     /// An instance's `placement` (`story:placement-substrate-local`, decisions P3 and P5): a map
-    /// `{daemon, adapter}` or a bare adapter, as its canonical name ([`crate::placement::read`]).
-    fn placement(&mut self, value: &Value, path: &str) -> Option<String> {
-        match crate::placement::read(value, path) {
-            Ok(name) => Some(name),
+    /// `{daemon, adapter}` or a bare adapter, as its canonical name and its remote daemon
+    /// ([`crate::placement::read`], `story:placement-substrate-remote`).
+    fn placement(&mut self, value: &Value, path: &str) -> Option<crate::placement::Read> {
+        match crate::placement::read(value, path, self.home) {
+            Ok(read) => Some(read),
             Err(problems) => {
                 for (at, message) in problems {
                     self.problem(&at, message);
@@ -3314,9 +3317,14 @@ impl Reader<'_> {
         };
         // An instance names its placement in a `conductor.config/2` file. A `/1` file writes
         // none: its placement is named after its confinement's provider.
+        let mut daemon = None;
         let placement = if self.second {
             self.required(map, path, "placement")
                 .and_then(|value| self.placement(value, &join(path, "placement")))
+                .map(|read| {
+                    daemon = read.daemon;
+                    read.name
+                })
         } else {
             confinement
                 .as_ref()
@@ -3327,6 +3335,27 @@ impl Reader<'_> {
                 })
                 .map(|(word, _)| (*word).to_owned())
         };
+        // `remote` is derived from the placement, as `config show` writes it: a file may write
+        // it null or as derived, so that the shown YAML reads back (`story:placement-substrate-remote`).
+        if let Some(written) = Self::get(map, "remote") {
+            let derived = daemon.as_ref().map_or(Value::Null, |remote| {
+                serde_json::to_value(shown::remote(remote)).unwrap_or(Value::Null)
+            });
+            if *written != derived {
+                self.problem(
+                    &join(path, "remote"),
+                    format!(
+                        "{} is not {}, the daemon derived from placement; leave it out",
+                        echo(written),
+                        if derived.is_null() {
+                            "nothing".to_owned()
+                        } else {
+                            echo(&derived)
+                        }
+                    ),
+                );
+            }
+        }
         // Every session of the instance runs inside the instance's box, so a role asks for no
         // more than it (`story:session-envelope-model`).
         if let (Some(roles), Some(limits)) = (&roles, &limits) {
@@ -3406,6 +3435,7 @@ impl Reader<'_> {
             conductor,
             name: InstanceName(name?),
             placement: PlacementName(placement?),
+            remote: daemon,
             session_prefix: session_prefix?,
             sources: sources?,
             checkouts: checkouts?,
@@ -4559,6 +4589,17 @@ mod shown {
         Yaml::from(value)
     }
 
+    /// A placement's remote daemon (`story:placement-substrate-remote`), its bearer by name
+    /// only, `secret:<name>` as the file writes it.
+    pub(super) fn remote(remote: &conductor_model::placement::RemoteDaemon) -> Yaml {
+        mapping([
+            ("url", text(&remote.url)),
+            ("bearer", text(&format!("secret:{}", remote.bearer.0))),
+            ("trust_roots", text(&remote.trust_roots)),
+            ("server_identity", text(&remote.server_identity)),
+        ])
+    }
+
     /// An optional text, null when it is absent.
     pub(super) fn optional(value: Option<&String>) -> Yaml {
         value.map_or(Yaml::Null, |value| text(value))
@@ -4754,6 +4795,12 @@ pub fn document(instance: &Instance) -> Yaml {
             optional(instance.session_prefix.as_ref().map(|prefix| &prefix.0)),
         ),
         ("placement", text(&instance.placement.0)),
+        // story:placement-substrate-remote: the placement's remote daemon, null for a local
+        // one; its bearer by name only, as the file writes it.
+        (
+            "remote",
+            instance.remote.as_ref().map_or(Yaml::Null, shown::remote),
+        ),
         (
             "dashboard_port",
             Yaml::Number(serde_yaml::Number::from(legacy.dashboard_port)),

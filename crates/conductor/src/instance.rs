@@ -91,6 +91,51 @@ pub fn bind(path: &Path) -> Result<UnixListener> {
     Ok(listener)
 }
 
+/// `conductor instance relay` (`story:placement-substrate-remote`): one instance API exchange,
+/// the request read from standard input to its end, sent to the instance's socket
+/// ([`SOCKET_VARIABLE`], else the active instance's `<state>/api.sock`), and its answer written
+/// to standard output. conductord runs it as a substrate pipe session in a box on a remote
+/// substrate daemon, where the runtime's socket is ([`crate::placement::Exchange`]).
+///
+/// # Errors
+///
+/// The config file does not load (without the variable), or the socket does not answer: one
+/// line naming it.
+pub fn instance_relay(config_flag: Option<&Path>) -> Result<ExitCode> {
+    use std::io::{Read as _, Write as _};
+    const WHAT: &str = "instance relay";
+    let path = match std::env::var_os(SOCKET_VARIABLE).filter(|path| !path.is_empty()) {
+        Some(path) => PathBuf::from(path),
+        None => {
+            config::set_active(config_flag).context(WHAT)?;
+            socket(Path::new(&config::active().instance.state))
+        }
+    };
+    let mut request = Vec::new();
+    std::io::stdin()
+        .take(RELAY_MAX)
+        .read_to_end(&mut request)
+        .context("instance relay: read the request")?;
+    let mut stream = UnixStream::connect(&path)
+        .with_context(|| format!("{WHAT}: connect to {}", path.display()))?;
+    stream
+        .write_all(&request)
+        .and_then(|()| stream.shutdown(std::net::Shutdown::Write))
+        .with_context(|| format!("{WHAT}: send to {}", path.display()))?;
+    let mut answer = Vec::new();
+    stream
+        .read_to_end(&mut answer)
+        .with_context(|| format!("{WHAT}: read from {}", path.display()))?;
+    let mut out = std::io::stdout().lock();
+    out.write_all(&answer)
+        .and_then(|()| out.flush())
+        .context("instance relay: write the answer")?;
+    Ok(ExitCode::SUCCESS)
+}
+
+/// The longest request [`instance_relay`] reads: the instance API's body bound and a head.
+const RELAY_MAX: u64 = dashboard::MAX_BODY as u64 + 64 * 1024;
+
 /// `conductor instance serve`, as the module documentation says.
 ///
 /// # Errors

@@ -53,11 +53,17 @@ types:
   # A substrate daemon on a remote host or cluster, `substrate-daemon --tcp-listen
   # --tcp-bearer-file`, reached over HTTPS/WSS at `url` with an Identity bearer (§ 6,
   # `placement.daemon: <url>`). The bearer is a secret the config names and never holds (§ 9).
+  # `trust_roots` is the PEM file of the roots the daemon's certificate is verified against and
+  # `server_identity` the DNS name it must carry: substrate 0.16.1's SDK has no ambient roots and
+  # takes both explicitly (story:placement-substrate-remote); `server_identity` written absent is
+  # the URL's host.
   - name: conductor.placement.RemoteDaemon
     kind: struct
     fields:
       - {name: url, type: String}
       - {name: bearer, type: conductor.secret.SecretName}
+      - {name: trust_roots, type: String}
+      - {name: server_identity, type: String}
 
   # The substrate daemon a placement uses.
   - name: conductor.placement.Daemon
