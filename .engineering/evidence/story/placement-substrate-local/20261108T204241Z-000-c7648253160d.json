@@ -1,0 +1,12 @@
+{
+  "at": "2026-11-08T20:42:41Z",
+  "actor": "human:timo",
+  "artifact": "story:placement-substrate-local",
+  "kind": "story",
+  "revision": 4,
+  "change": {
+    "change": "evidence",
+    "kind": "test_result",
+    "source": "https://github.com/beyond10x/conductor/actions/runs/42519351211/job/128849217452"
+  }
+}

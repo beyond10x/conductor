@@ -2,17 +2,18 @@
 format: aep.planning-md/3
 id: story:agent-kinds
 kind: story
-status: active
+status: implemented
 title: an agent kind fills any role at any placement; claude-code is the first, with today's behaviour kept exactly
 summary: the agent trait (start, deliver, attach, reports, stop, capabilities); roles.<role>.kind; the agents/* routes; today's session scenarios and tests pass unchanged
 relations:
 - decomposes: epic:architecture-next
 - depends_on: story:spec-v1
 - depends_on: story:instance-api
-revision: 3
+revision: 4
 transitions:
 - {from: "draft", to: "proposed", at: "2026-11-07T23:41:26Z", actor: "human:timo", revision: 2}
 - {from: "proposed", to: "active", at: "2026-11-07T23:41:26Z", actor: "human:timo", revision: 3}
+- {from: "active", to: "implemented", at: "2026-11-08T19:45:58Z", actor: "human:timo", revision: 4, decided_on: {"recorded":{"test_result":1}}}
 ---
 ## Why
 
