@@ -142,6 +142,7 @@ impl Case {
             walk: build::walk,
             sccache: Some(self.fake()),
             targets: None,
+            target_rules: Vec::new(),
         }
     }
 

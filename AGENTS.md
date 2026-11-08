@@ -148,7 +148,9 @@ runs without one) are green on its head commit. Run `task check` locally only wh
   whole command, not only cargo's build step, so no test runs a binary another tree uplifted
   meanwhile, and a run from another tree than the target's last marks its own files modified, so
   cargo rebuilds the repository's crates rather than reuse the other tree's. Runs of one
-  repository queue behind each other; `conductor gc` removes a shared target no run holds.
+  repository queue behind each other; `conductor gc` removes a shared target no run holds. A
+  repository whose tasks or tests need the target inside the tree sets `shared_target: false` in
+  its `repositories[]` rule: `build run` then sets `CARGO_TARGET_DIR` to `<tree>/target`.
 - Run at most one local `task check` per repository at a time; prefer `cargo test -p conductor-cli`
   on what you touched.
 

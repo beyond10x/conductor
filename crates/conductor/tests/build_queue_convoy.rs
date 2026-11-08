@@ -130,6 +130,7 @@ impl Case {
             // No compile cache: these cases run no cargo command.
             sccache: None,
             targets: None,
+            target_rules: Vec::new(),
         }
     }
 

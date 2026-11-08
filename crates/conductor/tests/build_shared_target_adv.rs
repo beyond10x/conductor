@@ -104,6 +104,7 @@ fn sources(dir: &Path) -> Sources {
         walk: build::walk,
         sccache: None,
         targets: Some(dir.join("targets")),
+        target_rules: Vec::new(),
     }
 }
 
