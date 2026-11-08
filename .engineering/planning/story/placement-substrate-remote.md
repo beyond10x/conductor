@@ -2,17 +2,18 @@
 format: aep.planning-md/3
 id: story:placement-substrate-remote
 kind: story
-status: active
+status: implemented
 title: a placement names a remote substrate daemon by URL; the box, the API and attach cross the network
 summary: HTTPS/WSS with an Identity bearer; the instance API over substrate's transport; attach as a stream; the pod adapter in a cluster
 relations:
 - decomposes: epic:architecture-next
 - depends_on: story:placement-substrate-local
 - depends_on: story:store-shared
-revision: 4
+revision: 5
 transitions:
 - {from: "draft", to: "proposed", at: "2026-11-07T23:41:28Z", actor: "human:timo", revision: 3}
 - {from: "proposed", to: "active", at: "2026-11-07T23:41:28Z", actor: "human:timo", revision: 4}
+- {from: "active", to: "implemented", at: "2026-11-08T19:46:03Z", actor: "human:timo", revision: 5, decided_on: {"recorded":{"test_result":1}}}
 ---
 ## Why
 

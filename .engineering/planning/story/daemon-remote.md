@@ -2,7 +2,7 @@
 format: aep.planning-md/3
 id: story:daemon-remote
 kind: story
-status: active
+status: implemented
 title: conductord runs on a remote box; its TLS listener with Identity bearers is its only API there
 summary: the daemon as a system unit on a shared machine with the config repository cloned; conductor login and --daemon <url>; the dashboard, the TUI and the CLI against it from a workstation; story approval and progress on the dashboard
 relations:
@@ -10,10 +10,11 @@ relations:
 - depends_on: story:spec-v1
 - depends_on: story:federated-views
 - depends_on: story:instance-api
-revision: 3
+revision: 4
 transitions:
 - {from: "draft", to: "proposed", at: "2026-11-08T00:00:50Z", actor: "human:timo", revision: 2}
 - {from: "proposed", to: "active", at: "2026-11-08T00:00:51Z", actor: "human:timo", revision: 3}
+- {from: "active", to: "implemented", at: "2026-11-08T19:46:02Z", actor: "human:timo", revision: 4, decided_on: {"recorded":{"test_result":1}}}
 ---
 ## Why
 
