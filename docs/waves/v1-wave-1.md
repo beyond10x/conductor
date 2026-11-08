@@ -15,15 +15,15 @@ the system and inputs lists) is the base of every authoring unit.
 
 | unit | files | branch | worktree | scratch | stage |
 |---|---|---|---|---|---|
-| A1 instance | `spec/domains/instance.yaml`, its scenarios | `spec/instance` | `wt-43aaf7b3c5ee` | `wave-v1-1/instance/scratch` | dispatched |
-| A2 placement | `spec/domains/placement.yaml`, its scenarios | `spec/placement` | `wt-21ada001a3e5` | `wave-v1-1/placement/scratch` | dispatched |
-| A3 agent | `spec/domains/agent.yaml`, its scenarios | `spec/agent` | `wt-49475d3bbeac` | `wave-v1-1/agent/scratch` | dispatched |
-| A4 store | `spec/domains/store.yaml`, its scenarios | `spec/store` | `wt-57c58018ac58` | `wave-v1-1/store/scratch` | dispatched |
-| A5 secret | `spec/domains/secret.yaml`, its scenarios | `spec/secret` | `wt-6f7ec5cdc0d4` | `wave-v1-1/secret/scratch` | dispatched |
-| A6 operator | `spec/domains/operator.yaml`, its scenarios | `spec/operator` | `wt-2c4141a265e7` | `wave-v1-1/operator/scratch` | dispatched |
-| A7 token | `spec/domains/token.yaml`, its scenarios | `spec/token` | `wt-10784dd2a894` | `wave-v1-1/token/scratch` | dispatched |
-| A8 config, improvement, host | the three domain files and their scenarios | `spec/config-host` | `wt-f39c1bc353ae` | `wave-v1-1/config-host/scratch` | dispatched |
-| A9 actor everywhere | the six unchanged domains and their scenarios | `spec/actor-everywhere` | `wt-3af7cf9a9ee3` | `wave-v1-1/actor-everywhere/scratch` | dispatched |
+| A1 instance | `spec/domains/instance.yaml`, its scenarios | `spec/instance` | `wt-43aaf7b3c5ee` | `wave-v1-1/instance/scratch` | merged |
+| A2 placement | `spec/domains/placement.yaml`, its scenarios | `spec/placement` | `wt-21ada001a3e5` | `wave-v1-1/placement/scratch` | merged |
+| A3 agent | `spec/domains/agent.yaml`, its scenarios | `spec/agent` | `wt-49475d3bbeac` | `wave-v1-1/agent/scratch` | merged |
+| A4 store | `spec/domains/store.yaml`, its scenarios | `spec/store` | `wt-57c58018ac58` | `wave-v1-1/store/scratch` | merged |
+| A5 secret | `spec/domains/secret.yaml`, its scenarios | `spec/secret` | `wt-6f7ec5cdc0d4` | `wave-v1-1/secret/scratch` | merged |
+| A6 operator | `spec/domains/operator.yaml`, its scenarios | `spec/operator` | `wt-2c4141a265e7` | `wave-v1-1/operator/scratch` | merged |
+| A7 token | `spec/domains/token.yaml`, its scenarios | `spec/token` | `wt-10784dd2a894` | `wave-v1-1/token/scratch` | merged |
+| A8 config, improvement, host | the three domain files and their scenarios | `spec/config-host` | `wt-f39c1bc353ae` | `wave-v1-1/config-host/scratch` | merged |
+| A9 actor everywhere | the six unchanged domains and their scenarios | `spec/actor-everywhere` | `wt-3af7cf9a9ee3` | `wave-v1-1/actor-everywhere/scratch` | merged |
 | U1 integration | `spec/components.yaml`, `spec/ess-inputs.yaml` (merged), `crates/conductor-model` (regenerated), `crates/conductor/src/**`, `crates/conductor/tests/**`, `crates/conductor-docs/src/config.rs`, `docs/config.md`, generated reference pages | `impl/spec-v1` | (after A1 to A9 merge) | `wave-v1-1/spec-v1/scratch` | planned |
 
 Worktrees are under the worktree manager's tree root for this repository; scratch directories are
@@ -76,4 +76,10 @@ merge of `wave/v1-1` into `v1`. No tag, no release, no merge into `main`.
 
 ## Outcome
 
-(filled at the close)
+Interim, 2026-11-08: the nine authoring units are merged on `wave/v1-1` (2ed44ce95); `ess specify
+validate --path spec` prints `conductor v1 — 18 file(s), 81 scenario(s), valid`; the header is at
+`ess/25`. Open before U1: one reconcile unit (the Actor becomes a struct with a `kind` of Human,
+Agent or Daemon so an agent refusal is a `when:` predicate; one `ActorNotHuman` in the operator
+domain; the cross-domain relations the authors left to each other; the design and the page updated
+to the struct), then U1. The `UNMAPPED:` markers in `spec/` are the owner's open questions
+(`grep -rn UNMAPPED spec`).
