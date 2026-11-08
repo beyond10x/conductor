@@ -1,18 +1,21 @@
-//! The observation store under `state/observations/` (`story:observation-retention`): which
-//! records it holds, the tenant each one is kept in, and how many snapshots' observations it keeps.
+//! The observations (`story:observation-retention`): which records they are, the tenant each one
+//! is kept in, and how many snapshots' observations the store keeps.
 //!
-//! It holds every `*Observation` entity of `spec/domains/observation.yaml` ([`ENTITIES`]), each
-//! instance in the tenant of the snapshot its record names ([`tenant`]): the snapshot's id as the
-//! store writes a stream id, so every id a `Snapshot` is stored under names a tenant. The
-//! `Snapshot` itself stays in `state/tree/`, as every other record does.
+//! They are every `*Observation` entity of `spec/domains/observation.yaml` ([`ENTITIES`]), each
+//! instance in the tenant of the snapshot its record names, `<instance>/observations/<snapshot>`
+//! ([`tenant`]), the snapshot's id as the store writes a stream id. The `Snapshot` itself stays in
+//! the instance's tenant, as every other record does.
 //!
 //! [`Store::retain`] runs when a snapshot completes. It keeps the observations of the newest
 //! `keep` complete snapshots: newest by the instant they started, and of equal starts the one
 //! stored later, as `repository activity` picks the newest. It drops the tenants of every other
 //! complete snapshot, and of every failed snapshot that started before the oldest one kept. A
-//! snapshot still collecting keeps its observations, and so does a tenant no readable `Snapshot`
-//! names. A tenant is dropped with eventlog's own erasure, `forget_tenant`, which removes its
-//! directory under the tree's writer lock. The `Snapshot` records stay.
+//! snapshot still collecting keeps its observations. A tenant is dropped with eventlog's own
+//! erasure, `forget_tenant`, in one transaction. The `Snapshot` records stay.
+//!
+//! The tree before the database kept each snapshot's observations under `state/observations/`,
+//! in a tenant named after the snapshot ([`tree_tenant`], [`tenants`]); `conductor store migrate`
+//! reads them from there.
 
 use std::ffi::OsStr;
 use std::fs;
@@ -22,7 +25,7 @@ use std::path::Path;
 use anyhow::{Context as _, Result};
 use conductor_model::behaviour::SnapshotStorage;
 use conductor_model::observation::{SnapshotId, SnapshotState};
-use eventlog_core::{EventLogError, EventStore as _, TenantId};
+use eventlog_core::{EventLogError, TenantId};
 use time::OffsetDateTime;
 use time::format_description::well_known::Rfc3339;
 
@@ -32,7 +35,7 @@ use super::snapshot::{
 };
 use super::{Store, backend, stream_id};
 
-/// The entities the observation store holds: every `*Observation` of the observation domain.
+/// The entities kept per snapshot: every `*Observation` of the observation domain.
 pub const ENTITIES: [&str; 12] = [
     REPOSITORY,
     PULL_REQUEST,
@@ -48,18 +51,32 @@ pub const ENTITIES: [&str; 12] = [
     USAGE,
 ];
 
-/// Whether `entity`'s records are kept in the observation store.
+/// Whether `entity`'s records are kept per snapshot.
 #[must_use]
 pub fn holds(entity: &str) -> bool {
     ENTITIES.contains(&entity)
 }
 
-/// The tenant the observations of the snapshot `snapshot` are kept in.
+/// The tenant the observations of the snapshot `snapshot` of `instance` are kept in.
+///
+/// # Errors
+///
+/// eventlog refuses the name: it is longer than a tenant may be.
+pub fn tenant(instance: &str, snapshot: &str) -> Result<TenantId, EventLogError> {
+    tenant_of_stream(instance, &stream_id(snapshot))
+}
+
+/// The tenant of the observations of the snapshot whose stream id is `stream`.
+pub(super) fn tenant_of_stream(instance: &str, stream: &str) -> Result<TenantId, EventLogError> {
+    TenantId::new(format!("{instance}/observations/{stream}"))
+}
+
+/// The tenant the tree before the database kept the observations of `snapshot` in.
 ///
 /// # Errors
 ///
 /// eventlog refuses the name; the form a stream id takes is always one it holds.
-pub fn tenant(snapshot: &str) -> Result<TenantId, EventLogError> {
+pub fn tree_tenant(snapshot: &str) -> Result<TenantId, EventLogError> {
     TenantId::new(stream_id(snapshot))
 }
 
@@ -127,8 +144,8 @@ impl Store {
     /// # Errors
     ///
     /// The snapshots cannot be read for a reason other than a record this build cannot read (an
-    /// unreadable `Snapshot` is left with its observations), the observation store does not open,
-    /// or a tenant cannot be erased; the tenants erased before that stay erased.
+    /// unreadable `Snapshot` is left with its observations), or a tenant cannot be erased; the
+    /// tenants erased before that stay erased.
     pub fn retain(&self, keep: usize) -> Result<Vec<SnapshotId>> {
         self.commit_observations()
             .context("commit the observations held back")?;
@@ -163,43 +180,21 @@ impl Store {
             })
             .map(|(_, (_, snapshot))| snapshot.data.snapshot_id)
             .collect();
-        let root = &self.observations.root;
-        if dropped.is_empty()
-            || !self
-                .fresh(&self.observations, false)
-                .with_context(|| format!("open the store at {}", root.display()))?
-        {
-            return Ok(Vec::new());
-        }
-        let present =
-            tenants(root).with_context(|| format!("read the tenants of {}", root.display()))?;
         let mut erased = Vec::new();
-        let erasing = (|| {
-            let log = self.observations.log.borrow();
-            let Some(log) = log.as_ref() else {
-                return Ok(());
-            };
-            for snapshot in dropped {
-                let tenant = tenant(&snapshot.0.0)?;
-                if !present.contains(&tenant) {
-                    continue;
-                }
-                self.runtime
-                    .block_on(log.forget_tenant(&tenant))
-                    .with_context(|| {
-                        format!(
-                            "drop the observations of snapshot {} from {}",
-                            snapshot.0.0,
-                            root.display()
-                        )
-                    })?;
-                erased.push(snapshot);
+        for snapshot in dropped {
+            let tenant = self.observation_tenant(&snapshot.0.0)?;
+            let first = self
+                .runtime
+                .block_on(self.log.read_feed(&tenant, 0, 1))
+                .with_context(|| format!("read the observations of snapshot {}", snapshot.0.0))?;
+            if first.events.is_empty() {
+                continue;
             }
-            Ok::<_, anyhow::Error>(())
-        })();
-        // The tree lost whole tenants: the next read takes its mark afresh.
-        *self.observations.seen.borrow_mut() = None;
-        erasing?;
+            self.runtime
+                .block_on(self.log.forget_tenant(&tenant))
+                .with_context(|| format!("drop the observations of snapshot {}", snapshot.0.0))?;
+            erased.push(snapshot);
+        }
         Ok(erased)
     }
 }

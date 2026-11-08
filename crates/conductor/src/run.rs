@@ -27,10 +27,9 @@
 //! `--once` runs one watch tick and one cycle tick and exits, 1 when either could not be
 //! recorded, else 0. `--once --commit-records` runs [`commit_records`] alone for today's UTC day,
 //! with no tick and without the daemon's lock (git's own lock keeps two commits apart): it prints
-//! what it did and exits 0, or 1 when the commit was refused. `--install` and `--uninstall` start
-//! and stop the user unit
-//! `conductor_<instance>-run.service` ([`unit`]). The design's `conductor run install` is a flag:
-//! the binding refuses a root command that is also a group.
+//! what it did and exits 0, or 1 when the commit was refused. The per-instance user unit and
+//! `--install` are gone (design architecture-next § 11): conductord starts every instance's runtime
+//! (`conductor daemon serve`, [`crate::daemon`]).
 //!
 //! The daemon acts through [`Seams`]: the confinement providers sessions start and stop through,
 //! the [`Deliverer`] that puts a text in front of a session (`conductor session deliver`,
@@ -42,7 +41,6 @@ pub mod dispatch;
 pub mod handlers;
 pub mod mailbox;
 pub mod records;
-pub mod unit;
 
 pub use records::{Committed, Route, commit_records};
 
@@ -227,8 +225,7 @@ pub struct Summary {
 ///
 /// # Errors
 ///
-/// More than one of `--once`, `--install` and `--uninstall` is given, `--commit-records` is given
-/// without `--once`, another daemon holds the lock, the state directory cannot be written, or a
+/// `--commit-records` is given without `--once`, another daemon holds the lock, the state directory cannot be written, or a
 /// tick cannot be recorded.
 pub fn run(
     config_flag: Option<&Path>,
@@ -236,38 +233,11 @@ pub fn run(
     args: &RunArgs,
     providers: &dyn Providers,
 ) -> Result<ExitCode> {
-    let given = [
-        ("--once", args.once),
-        ("--install", args.install),
-        ("--uninstall", args.uninstall),
-    ];
-    let modes: Vec<&str> = given
-        .iter()
-        .filter(|(_, set)| *set == Some(true))
-        .map(|(flag, _)| *flag)
-        .collect();
-    if modes.len() > 1 {
-        bail!(
-            "run: {} are given; give at most one of --once, --install and --uninstall",
-            modes.join(" and ")
-        );
-    }
     if args.commit_records == Some(true) {
         if args.once != Some(true) {
             bail!("run: --commit-records runs with --once; give both");
         }
         return commit_alone(config_flag, state);
-    }
-    if args.install == Some(true) {
-        return unit::install(config_flag, state);
-    }
-    if args.uninstall == Some(true) {
-        if let Some(started) = cycle_in_progress(&run_dir(state)?) {
-            eprintln!(
-                "conductor run: a cycle started {started} is in progress; the loop runs it again at its next start"
-            );
-        }
-        return unit::uninstall();
     }
     let deliverer = ShellDeliverer::current(config_flag, state)?;
     let seams = Seams {

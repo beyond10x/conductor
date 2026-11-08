@@ -118,7 +118,7 @@ types:
   # the operator's terminal, and the operator detaches with `ctrl-]` then `d`, the session
   # running on. `watch` (story:session-attach-watch) attaches read-only, so nothing typed reaches
   # the harness and the window keeps its size; on a session started before the tmux launcher,
-  # which has no socket, it follows the session's typescript instead, replaying its last 64 KiB,
+  # which has no socket, it follows the session's terminal log instead, replaying its last 64 KiB,
   # until its unit ends or `ctrl-]` then `d`.
   - name: conductor.session.AttachSession
     kind: struct
@@ -132,7 +132,7 @@ types:
   # `InsideSession` (story:session-attach-refuses-sessions), the client runs inside a session,
   # where the provider's `CONDUCTOR_SESSION` is set, whatever the harness, checked first;
   # `UnknownSession`, the role or the instance is unknown, or no live session holds the name (no
-  # tmux server answers on its socket, and no unit of the name runs that keeps a typescript);
+  # tmux server answers on its socket, and no unit of the name runs that keeps a terminal log);
   # `NotAttachable`, the session runs but was started before the tmux launcher, so only `watch`
   # reads it until it restarts; `Ambiguous`, `name` and `role` name different sessions, or two
   # instances hold a session of the name.
@@ -164,7 +164,7 @@ types:
 
   # How `conductor session attach` reaches a session: `Attach`, its tmux server answers, so it
   # attaches read-write or with `--watch`; `Watch`, its unit runs under the launcher before
-  # tmux, so only `--watch` follows its typescript.
+  # tmux, so only `--watch` follows its terminal log.
   - name: conductor.session.AttachMode
     kind: enum
     variants:
@@ -176,7 +176,7 @@ types:
   # last component is the repository; `busy`, the harness's own state of the session where the
   # harness reports one (Claude Code: the `status` of `claude agents --json`, `busy` or not, by
   # session name), else absent; `idle_seconds`, since its screen last changed (tmux's window
-  # activity, or the typescript's modification time), which decides busy (under 10) or idle only
+  # activity, or the terminal log's modification time), which decides busy (under 10) or idle only
   # where `busy` is absent.
   - name: conductor.session.AttachableSession
     kind: struct
@@ -228,18 +228,13 @@ types:
   # must remember between ticks in files under `<state>/run/`, never in memory alone. `once`
   # runs one watch tick, then one cycle tick, and exits 0, for a test and a host without
   # systemd; `once` with `commit_records` commits the records alone, for today's UTC day, and
-  # runs no tick. `install` starts it as the user unit `conductor_<instance>-run.service` through
-  # `systemd-run --user`, as the systemd provider starts a session (the `none` provider: it
-  # prints the command to run instead), and `uninstall` stops that unit; `conductor doctor`
-  # reports the unit's state. At most one of the three is given. The design writes `conductor
-  # run install` and `conductor run uninstall`; the `ess-cli/1` binding refuses a root command
-  # that is also a group ("a root command cannot also be a group"), so they are flags of `run`.
+  # runs no tick. The per-instance user unit and its `install` and `uninstall` are gone (design
+  # architecture-next § 11): conductord starts every instance's runtime
+  # (`conductor.instance.ServeDaemon`, story:daemon-reconcile).
   - name: conductor.session.RunDaemon
     kind: struct
     fields:
       - {name: once, type: Optional<Boolean>}
-      - {name: install, type: Optional<Boolean>}
-      - {name: uninstall, type: Optional<Boolean>}
       - {name: commit_records, type: Optional<Boolean>}
 
   # One writable place of a session resolved for its start (story:sandbox-spec): the place as the

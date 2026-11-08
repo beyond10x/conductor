@@ -215,7 +215,7 @@ its sessions by their full names, its dashboard by its port and unit.
 
 | task | does |
 |---|---|
-| `conductor run --install`, `--uninstall` | start or stop the active instance's loop as the user unit `conductor_<instance>-run.service`; `--uninstall`, then `--install` restarts it, with no hand-over (`docs/design/conductor-run.md`) |
+| `conductor daemon serve --install`, `--uninstall` | install and start, or stop and remove, conductord as the user unit `conductord.service`; it starts each instance's runtime from the config and restarts one on a new binary or placement, with no hand-over (design architecture-next § 4) |
 | `task maintainer:start` | start conductor-dev with `conductor session start --role maintainer`, in this checkout, under the maintainer's session name and on its model in `conductor config show` (`host.roles`), with `--permission-mode bypassPermissions --setting-sources project,local`; refuse unless its harness is `claude`, and while a session of that name runs. A `profile` is appended with `--append-system-prompt-file <profile>`; without one it starts with `--agent conductor-dev`, which is found only in this checkout's `.claude/agents/` |
 | `task supervisor:start`, `task teacher:start` | start the host's `conductor-supervisor` or `conductor-teacher` with the start command its `.agents/` profile writes, in the directory of the config file; refuse while a session of that name runs |
 | `task agents:link REPO=<path>` | links `.claude/agents/{repo-controller,conductor-dev}.md` into `<path>/.claude/agents/`, hidden through that repository's `.git/info/exclude`, for a session you start by hand there; never writes `~/.claude/agents/`, and removes its own old links there. It serves none of the sessions above |
@@ -235,7 +235,7 @@ conductor snapshot <view> --format json         # repositories, pull-requests, w
 conductor repository activity                   # each repository Active or Inactive
 conductor guard guard-decisions                 # the guard's recorded denials
 conductor store migrate                         # copy an older store into the tree layout; the old one is kept beside it
-conductor run --install                         # the instance's loop as a user unit; --once runs one watch and one cycle tick
+conductor daemon serve --install                # conductord as a user unit; conductor run --once runs one watch and one cycle tick
 conductor message send --to conductor --from <session name> --text -   # a controller's message, on standard input, into conductor's mailbox
 ```
 

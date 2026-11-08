@@ -524,20 +524,20 @@ fn without_conductor_instance_the_working_directory_selects_the_instance() {
         let output = run_in(&cwd);
         assert!(output.status.success(), "in beta's {sub}: {output:?}");
         assert!(
-            case.state("beta").join("tree").exists(),
+            case.state("beta").join("store.sqlite").exists(),
             "in beta's {sub}, beta's store is written"
         );
         assert!(
-            !case.state("alpha").join("tree").exists(),
+            !case.state("alpha").join("store.sqlite").exists(),
             "in beta's {sub}, alpha's store is not written"
         );
-        fs::remove_dir_all(case.state("beta").join("tree")).unwrap();
+        fs::remove_file(case.state("beta").join("store.sqlite")).unwrap();
         let _ = fs::remove_dir_all(case.dir.join("beta/records/decisions"));
     }
     let output = run_in(&case.dir.join("work"));
     assert!(output.status.success(), "elsewhere: {output:?}");
     assert!(
-        case.state("alpha").join("tree").exists(),
+        case.state("alpha").join("store.sqlite").exists(),
         "elsewhere, the default instance acts"
     );
 

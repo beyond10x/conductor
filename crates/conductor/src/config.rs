@@ -82,11 +82,11 @@
 //! default places ([`default_writable`]), and has the network `open`.
 //!
 //! No two instances of the file share a `state` or a `records` directory, each compared where it
-//! lands (`story:instance-names-unique`). Across config files, `conductor config validate`
-//! ([`validate`]) refuses an instance without a `session_prefix`, naming the one `conductor config
-//! migrate` ([`migrate`]) writes, and an instance holding a prefix, port, state or records
-//! directory another file in the host registry holds ([`crate::registry`]); a file without a
-//! prefix still loads, for one release, so a running instance keeps working until it is migrated.
+//! lands (`story:instance-names-unique`). `conductor config validate` ([`validate`]) refuses an
+//! instance without a `session_prefix`, naming the one `conductor config migrate` ([`migrate`])
+//! writes; a file without a prefix still loads, for one release, so a running instance keeps
+//! working until it is migrated. One daemon reads one file: no host registry compares files
+//! (design architecture-next § 11, `story:daemon-reconcile`).
 //!
 //! `conductor config workspace` (`story:workspace-from-config`) writes the instance's workspace
 //! file from it ([`workspace_members`], [`workspace`]).
@@ -392,7 +392,7 @@ pub const TREE_STALE_HOURS: u64 = 48;
 
 /// The keys of each mapping the file holds, in the order `config show` writes them.
 const CONFIG_KEYS: [&str; 5] = ["version", "daemon", "globals", "default", "instances"];
-const INSTANCE_KEYS: [&str; 26] = [
+const INSTANCE_KEYS: [&str; 27] = [
     "name",
     "placement",
     "session_prefix",
@@ -405,6 +405,7 @@ const INSTANCE_KEYS: [&str; 26] = [
     "roles",
     "limits",
     "confinement",
+    "store",
     "controllers",
     "repositories",
     "cadence",
@@ -459,7 +460,7 @@ const CONFINEMENT_KEYS: [&str; 3] = ["mode", "provider", "limits"];
 const SECOND_KEYS: [&str; 4] = ["daemon", "globals", "placement", "limits"];
 /// The keys `conductor.config/2` removed from an instance, each with why (design
 /// architecture-next § 9, § 11).
-const REMOVED_KEYS: [(&str, &str); 2] = [
+const REMOVED_KEYS: [(&str, &str); 3] = [
     (
         "dashboard_port",
         "the daemon serves the one dashboard, at daemon.dashboard",
@@ -467,6 +468,10 @@ const REMOVED_KEYS: [(&str, &str); 2] = [
     (
         "confinement",
         "an instance's box is its placement, and its limits are the instance's limits",
+    ),
+    (
+        "store",
+        "the store is the deployment's one database, at daemon.store",
     ),
 ];
 const DAEMON_KEYS: [&str; 7] = [
@@ -1397,6 +1402,13 @@ pub fn host_maintainer(instance: &Instance) -> Option<Role> {
         .iter()
         .find(|role| is_role(&role.role, BuiltInRole::Maintainer))
         .cloned()
+}
+
+/// The instance [`set_active`] fixed, or none when nothing did yet (a library test): unlike
+/// [`active`], it never resolves one from the environment.
+#[must_use]
+pub fn active_if_set() -> Option<&'static Active> {
+    ACTIVE.get()
 }
 
 /// The instance this process runs. [`crate::cli::Cli::run`] fixes it with [`set_active`]; a
@@ -4761,10 +4773,8 @@ fn report(what: &str, invalid: &Invalid) {
 /// YAML path.
 ///
 /// Of a file that was read it also refuses (`story:instance-names-unique`) an instance without a
-/// `session_prefix`, naming the prefix [`migrate`] writes ([`suggested_prefixes`]), and an
-/// instance that holds a prefix, port, state or records directory another registered config
-/// file's instance holds ([`registry::collisions`]). A valid file is written to the host registry
-/// ([`registry::register`]), which is all it writes.
+/// `session_prefix`, naming the prefix [`migrate`] writes ([`suggested_prefixes`]). It writes
+/// nothing.
 ///
 /// It reads the host file ([`read_host`], `story:maintainer-host-config`) whatever config file it
 /// reads, and exits 1 naming each of its problems by its path in that file; and it notes each
@@ -4773,8 +4783,7 @@ fn report(what: &str, invalid: &Invalid) {
 /// # Errors
 ///
 /// A named file is not there or cannot be read, the host file cannot be read, the home directory
-/// is not known, the instance
-/// named is not in the config, or the host registry cannot be read or written.
+/// is not known, or the instance named is not in the config.
 pub fn validate(config: Option<&Path>, args: &ValidateConfigArgs) -> Result<ExitCode> {
     const WHAT: &str = "config validate";
     let environment = Environment::from_process().context(WHAT)?;
@@ -4941,8 +4950,8 @@ pub fn name_prefix(name: &str, index: usize) -> String {
 ///
 /// # Errors
 ///
-/// No config file is there or it cannot be read or written, the home directory is not known, the
-/// host registry cannot be read, or the file cannot be edited in place.
+/// No config file is there or it cannot be read or written, the home directory is not known, or
+/// the file cannot be edited in place.
 pub fn migrate(config: Option<&Path>, args: &MigrateConfigArgs) -> Result<ExitCode> {
     const WHAT: &str = "config migrate";
     let environment = Environment::from_process().context(WHAT)?;
@@ -4963,6 +4972,36 @@ pub fn migrate(config: Option<&Path>, args: &MigrateConfigArgs) -> Result<ExitCo
             "{WHAT}: no config file at {}; nothing to migrate",
             loaded.path.display()
         );
+    }
+    // The per-instance `store:` key (`story:store-shared`): dropped, one note per instance.
+    {
+        let text = fs::read_to_string(&loaded.path)
+            .with_context(|| format!("{WHAT}: read {}", loaded.path.display()))?;
+        let stores = instance_stores(&text);
+        if !stores.is_empty() {
+            let Some(edited) = without_instance_stores(&text) else {
+                bail!(
+                    "{WHAT}: {} cannot be edited line by line, so nothing was written; remove the \
+                     store key of {} by hand",
+                    loaded.path.display(),
+                    stores
+                        .iter()
+                        .map(|index| format!("instances[{index}]"))
+                        .collect::<Vec<_>>()
+                        .join(", ")
+                );
+            };
+            if args.check != Some(true) {
+                fs::write(&loaded.path, edited)
+                    .with_context(|| format!("{WHAT}: write {}", loaded.path.display()))?;
+            }
+            for index in &stores {
+                println!(
+                    "instances[{index}].store: dropped (the store is the deployment's one \
+                     database, at daemon.store)"
+                );
+            }
+        }
     }
     let suggested = suggested_prefixes(&loaded.config);
     if suggested.is_empty() {
@@ -4998,6 +5037,60 @@ pub fn migrate(config: Option<&Path>, args: &MigrateConfigArgs) -> Result<ExitCo
         );
     }
     Ok(ExitCode::SUCCESS)
+}
+
+/// The index of each instance of the config file's `text` that writes a `store` key, which
+/// `conductor.config/2` removed (`story:store-shared`).
+#[must_use]
+pub fn instance_stores(text: &str) -> Vec<usize> {
+    let Ok(file) = serde_yaml::from_str::<Yaml>(text) else {
+        return Vec::new();
+    };
+    file.get("instances")
+        .and_then(Yaml::as_sequence)
+        .map(|instances| {
+            instances
+                .iter()
+                .enumerate()
+                .filter(|(_, instance)| instance.get("store").is_some())
+                .map(|(index, _)| index)
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
+/// The config file's `text` without the `store` key of any instance, or `None` when it cannot be
+/// edited line by line: the key is not one line of its own under `instances`, or the edited text
+/// does not read back as the old one without those keys.
+#[must_use]
+pub fn without_instance_stores(text: &str) -> Option<String> {
+    let mut top = "";
+    let mut kept = Vec::new();
+    for line in text.split_inclusive('\n') {
+        let trimmed = line.trim_start_matches(' ');
+        if trimmed.len() == line.len() && !trimmed.trim().is_empty() && !trimmed.starts_with('#') {
+            top = trimmed.split(':').next().unwrap_or("").trim();
+        }
+        let key = trimmed.strip_prefix("- ").unwrap_or(trimmed);
+        if top == "instances" && trimmed.len() < line.len() && key.starts_with("store:") {
+            if trimmed.starts_with("- ") {
+                return None;
+            }
+            continue;
+        }
+        kept.push(line);
+    }
+    let edited: String = kept.concat();
+    let mut before: Yaml = serde_yaml::from_str(text).ok()?;
+    if let Some(instances) = before.get_mut("instances").and_then(Yaml::as_sequence_mut) {
+        for instance in instances {
+            if let Some(map) = instance.as_mapping_mut() {
+                map.remove("store");
+            }
+        }
+    }
+    let after: Yaml = serde_yaml::from_str(&edited).ok()?;
+    (after == before).then_some(edited)
 }
 
 /// The config file's `text` with each of `suggested` written as its instance's

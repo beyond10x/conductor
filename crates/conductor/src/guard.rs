@@ -596,9 +596,8 @@ fn config_file(home: &Path) -> PathBuf {
 }
 
 /// Records `decision` on a thread of its own, and waits for it at most [`RECORD_DEADLINE`]. A
-/// recording still waiting for the store's writer lock, or still replaying the store's files as
-/// it opens, is then abandoned with the process; an append cut off leaves event files no commit
-/// names, which the store never reads.
+/// recording still waiting for the database's write lock is then abandoned with the process; an
+/// append cut off commits nothing.
 fn record_within(state: Option<PathBuf>, decision: Decision) -> Result<()> {
     let decided_at = OffsetDateTime::now_utc()
         .format(&Rfc3339)

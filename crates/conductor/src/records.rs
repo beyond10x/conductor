@@ -628,7 +628,7 @@ pub fn log_objects(records: &Path, log: &str) -> Result<(Vec<Map<String, Value>>
 /// nothing.
 fn stored_decisions(state: Option<&Path>) -> Result<Vec<String>> {
     let dir = crate::state::dir(state)?;
-    if !dir.join("tree").exists() {
+    if !crate::store::present(&dir) {
         return Ok(Vec::new());
     }
     let store = crate::state::open_reader(state)?;

@@ -620,11 +620,14 @@ fn a_migrated_fixture_store_answers_every_view_as_the_source_store_did() {
                 .to_string_lossy()
                 .into_owned(),
             "observations".to_owned(),
+            store::STORE_FILE.to_owned(),
+            format!("{}.open-lock", store::STORE_FILE),
             "tree".to_owned()
         ]
         .into_iter()
         .collect(),
-        "only the kept store, the observations and the tree are left in the state directory"
+        "only the kept store, the observations, the tree and the database are left in the state \
+         directory"
     );
     assert_eq!(
         observation_streams(&case.state.join("tree")),
@@ -641,17 +644,22 @@ fn a_migrated_fixture_store_answers_every_view_as_the_source_store_did() {
     let (streams, events) = counts.values().fold((0, 0), |(streams, events), (s, e)| {
         (streams + s, events + e)
     });
-    let mut expected: Vec<String> = counts
-        .iter()
-        .map(|(stream_type, (s, e))| format!("{stream_type}: {s} streams, {e} events"))
-        .collect();
-    expected.push(format!(
-        "moved {events} events in {streams} streams from {} to {} and {}; the eventlog-file \
-         store is kept at {}",
+    let mut expected = vec![format!(
+        "brought {} to the tree at {}; the eventlog-file store is kept at {}",
         case.state.join("store").display(),
         case.state.join("tree").display(),
-        case.state.join("observations").display(),
         kept.display()
+    )];
+    expected.extend(
+        counts
+            .iter()
+            .map(|(stream_type, (s, e))| format!("{stream_type}: {s} streams, {e} events")),
+    );
+    expected.push(format!(
+        "read {events} events in {streams} streams from {} into {} as instance conductor; the \
+         tree is not read again",
+        case.state.join("tree").display(),
+        case.state.join(store::STORE_FILE).display(),
     ));
     assert_eq!(
         printed.lines().collect::<Vec<_>>(),
@@ -699,22 +707,21 @@ fn the_migration_prints_the_counts_it_moved_as_json() {
     assert_eq!(printed["events"].as_u64(), Some(events as u64));
     assert_eq!(printed["streams"].as_u64(), Some(streams as u64));
     assert_eq!(
-        printed["tree"].as_str(),
+        printed["source"].as_str(),
         Some(case.state.join("tree").to_str().expect("UTF-8"))
     );
     assert_eq!(
-        printed["observations"].as_str(),
-        Some(case.state.join("observations").to_str().expect("UTF-8"))
+        printed["store"].as_str(),
+        Some(case.state.join(store::STORE_FILE).to_str().expect("UTF-8"))
     );
+    assert_eq!(printed["instance"].as_str(), Some("conductor"));
+    let before = &printed["before"];
     assert_eq!(
-        printed["source"].as_str(),
+        before["source"].as_str(),
         Some(case.state.join("store").to_str().expect("UTF-8"))
     );
-    assert_eq!(printed["kind"].as_str(), Some("eventlog-file"));
-    assert_eq!(
-        printed["kept"].as_str(),
-        Some(kept.to_str().expect("UTF-8"))
-    );
+    assert_eq!(before["kind"].as_str(), Some("eventlog-file"));
+    assert_eq!(before["kept"].as_str(), Some(kept.to_str().expect("UTF-8")));
 }
 
 /// A goal whose id the specification admits and whose stream id, as the File provider kept it,
@@ -804,7 +811,7 @@ fn a_migration_refuses_where_the_tree_exists_and_changes_nothing() {
     case.ok(&["store", "migrate"]);
     let before = walk(&case.state);
     let again = case.run(&["store", "migrate"]);
-    assert_refused(&again, "exists", "a second migration");
+    assert_refused(&again, "AlreadyMigrated", "a second migration");
     assert_eq!(
         walk(&case.state),
         before,
@@ -815,7 +822,7 @@ fn a_migration_refuses_where_the_tree_exists_and_changes_nothing() {
     fs::create_dir_all(empty.state.join("tree")).expect("create an empty tree directory");
     let before = walk(&empty.state);
     let output = empty.run(&["store", "migrate"]);
-    assert_refused(&output, "exists", "a migration onto an empty tree/");
+    assert_refused(&output, "SourceMissing", "a migration onto an empty tree/");
     assert_eq!(walk(&empty.state), before, "it changed files");
 }
 
@@ -824,7 +831,7 @@ fn a_migration_refuses_where_the_tree_exists_and_changes_nothing() {
 fn a_migration_without_an_eventlog_file_store_refuses_and_creates_nothing() {
     let case = Case::new("nothing");
     let output = case.run(&["store", "migrate"]);
-    assert_refused(&output, "no eventlog-file store", "a migration of nothing");
+    assert_refused(&output, "SourceMissing", "a migration of nothing");
     assert!(!case.state.exists(), "it created {}", case.state.display());
 
     let output = case.run(&["store", "migrate", "--format", "yaml"]);
@@ -868,7 +875,11 @@ fn a_migration_waits_for_the_eventlog_file_stores_writer_lock() {
         "it wrote tree, tree.next or store.migrating while the lock was held"
     );
     assert!(output.status.success(), "{}", describe(&output));
-    assert!(case.state.join("tree/store.json").is_file());
+    assert!(case.state.join(store::STORE_FILE).is_file());
+    assert!(
+        case.state.join("tree").is_dir(),
+        "the tree read is kept in place"
+    );
 }
 
 /// A migration that stopped before its first rename leaves `tree.next/` and `store.migrating/`;
@@ -994,8 +1005,8 @@ fn a_tree_that_holds_observations_is_split_and_answers_every_view_as_before() {
         printed.lines().last(),
         Some(
             format!(
-                "moved {} events in {} streams from {} to {} and {}; the tree before the split \
-                 is kept at {}",
+                "read {} events in {} streams from {} into {} as instance conductor; the tree is \
+                 not read again",
                 file_store_counts(fixture_store())
                     .values()
                     .map(|(_, events)| events)
@@ -1005,9 +1016,7 @@ fn a_tree_that_holds_observations_is_split_and_answers_every_view_as_before() {
                     .map(|(streams, _)| streams)
                     .sum::<usize>(),
                 case.state.join("tree").display(),
-                case.state.join("tree").display(),
-                case.state.join("observations").display(),
-                kept.display()
+                case.state.join(store::STORE_FILE).display(),
             )
             .as_str()
         ),
@@ -1039,18 +1048,29 @@ fn a_tree_that_holds_observations_is_split_and_answers_every_view_as_before() {
 
     let before = walk(&case.state);
     let again = case.run(&["store", "migrate"]);
-    assert_refused(&again, "exists", "a second migration after a split");
+    assert_refused(
+        &again,
+        "AlreadyMigrated",
+        "a second migration after a split",
+    );
     assert_eq!(walk(&case.state), before, "it changed files");
 }
 
-/// A split that stopped between its two renames leaves `tree.next/` and no `tree/`: every command
-/// and view refuses, naming `conductor store migrate`, and writes nothing; the next
-/// `store migrate` renames `tree.next/` `tree/`, and every view answers as the fixture says.
+/// A split that stopped between its two renames, before any database, leaves `tree.next/` and no
+/// `tree/`: every command and view refuses, naming `conductor store migrate`, and writes nothing;
+/// the next `store migrate` renames `tree.next/` `tree/`, reads it into the database, and every
+/// view answers as the fixture says.
 #[test]
 fn a_split_stopped_between_its_renames_is_refused_and_then_finished() {
     let case = with_observations_in_the_tree("split-stopped");
     case.ok(&["store", "migrate"]);
     let kept = split_kept(&case);
+    for database in [
+        store::STORE_FILE.to_owned(),
+        format!("{}.open-lock", store::STORE_FILE),
+    ] {
+        fs::remove_file(case.state.join(database)).expect("leave the split before the database");
+    }
     fs::rename(case.state.join("tree"), case.state.join("tree.next"))
         .expect("leave the split between its renames");
 
@@ -1080,16 +1100,20 @@ fn a_split_stopped_between_its_renames_is_refused_and_then_finished() {
 
     let printed = case.ok(&["store", "migrate"]);
     assert_eq!(
-        printed,
-        format!(
-            "finished the split a run left between its renames: renamed {} to {}; the tree \
-             before the split is kept at {}\n",
-            case.state.join("tree.next").display(),
-            case.state.join("tree").display(),
-            kept.display()
-        )
+        printed.lines().next(),
+        Some(
+            format!(
+                "brought {} to the tree at {}; the tree before the split is kept at {}",
+                case.state.join("tree.next").display(),
+                case.state.join("tree").display(),
+                kept.display()
+            )
+            .as_str()
+        ),
+        "{printed}"
     );
-    assert!(case.state.join("tree/store.json").is_file());
+    assert!(case.state.join(store::STORE_FILE).is_file());
+    assert!(case.state.join("tree").is_dir());
     assert!(!case.state.join("tree.next").exists());
     let differing = differing_views(&case);
     assert!(differing.is_empty(), "{}", differing.join("\n"));
@@ -1286,10 +1310,10 @@ fn every_command_refuses_an_unmigrated_store_and_writes_nothing() {
     );
 }
 
-/// A state directory with neither store: a command starts a tree store at `state/tree/`, and a
-/// view reads it.
+/// A state directory with neither store: a command starts the database at `state/store.sqlite`
+/// (`story:store-shared`) and no tree, and a view reads it.
 #[test]
-fn a_state_directory_with_neither_store_starts_a_tree_store() {
+fn a_state_directory_with_neither_store_starts_the_database() {
     let case = Case::new("neither");
     case.ok(&[
         "goal",
@@ -1301,7 +1325,8 @@ fn a_state_directory_with_neither_store_starts_a_tree_store() {
         "--exit-evidence",
         "a view lists it",
     ]);
-    assert!(case.state.join("tree/store.json").is_file());
+    assert!(case.state.join(store::STORE_FILE).is_file());
+    assert!(!case.state.join("tree").exists());
     assert!(!case.state.join("store").exists());
     let goals = json(
         &case.ok(&["goal", "goals", "--format", "json"]),

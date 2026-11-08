@@ -2,8 +2,8 @@
   "provenance": {
     "system": "conductor",
     "specification_version": "v1",
-    "source_digest": "1bf286dbd4a2b0e7a7a8448be1f91fb1c6e3328968f4356b5e113bc4f4b9a370",
-    "contract_digest": "e3b967aa3e3d0f313417baefaaf92190635d03007992d259a68d9a4352490e1a"
+    "source_digest": "1eafdfbdc747d7a5ce84c934135a28586fa502d2a6865f86334db8fcb240d7ab",
+    "contract_digest": "88f1c9e5b4ef578aa56eea73a14e4e509b870a0735bb11ab37ea1e0e49124b8a"
   },
   "scope": {
     "profile": "component-skeletons",
@@ -1350,6 +1350,13 @@
     {
       "kind": "domain_type",
       "source": "conductor.instance.ReconciliationId",
+      "disposition": {
+        "disposition": "generated"
+      }
+    },
+    {
+      "kind": "domain_type",
+      "source": "conductor.instance.ServeDaemon",
       "disposition": {
         "disposition": "generated"
       }

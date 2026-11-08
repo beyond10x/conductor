@@ -8,7 +8,38 @@ summary: daemon.store names one URL; the daemon hands it to every runtime it sta
 relations:
 - decomposes: epic:architecture-next
 - depends_on: story:spec-v1
-revision: 3
+scope:
+- confidence: inferred
+  path: crates/conductor-model
+- confidence: inferred
+  path: crates/conductor/Cargo.toml
+- confidence: inferred
+  path: crates/conductor/cli.yaml
+- confidence: cited
+  path: crates/conductor/src/cli.rs
+- confidence: inferred
+  path: crates/conductor/src/store
+- confidence: inferred
+  path: crates/conductor/src/store.rs
+- confidence: cited
+  path: crates/conductor/src/store/migrate.rs
+- confidence: inferred
+  path: crates/conductor/tests/fixtures/store
+- confidence: inferred
+  path: crates/conductor/tests/guard_rules.rs
+- confidence: inferred
+  path: crates/conductor/tests/snapshot_store_cost.rs
+- confidence: inferred
+  path: crates/conductor/tests/store.rs
+- confidence: inferred
+  path: crates/conductor/tests/store_tree.rs
+- confidence: cited
+  path: spec/domains/config.yaml
+- confidence: cited
+  path: spec/domains/instance.yaml
+- confidence: cited
+  path: spec/domains/store.yaml
+revision: 18
 transitions:
 - {from: "draft", to: "proposed", at: "2026-11-08T00:13:20Z", actor: "human:timo", revision: 2}
 - {from: "proposed", to: "active", at: "2026-11-08T00:13:20Z", actor: "human:timo", revision: 3}

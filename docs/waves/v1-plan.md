@@ -25,6 +25,20 @@ order below is the order the edges allow, and the design's § 14 order where the
 Stories of the plan: 18. Active stories outside the plan (the v0 line's backlog, delivered on
 `main` by its own waves) are not candidates for a wave of this plan.
 
+## How a wave lands on `v1`
+
+Every wave merges into `v1` through a pull request from its wave branch, and its closing commit
+(the story's evidence and move, the wave page's outcome) is on the wave branch before that merge
+(operator, 2026-11-08, option A). The bot route refuses a direct push to `v1` once `v1` holds a
+merge commit GitHub made rather than the bot.
+
+## How the coordinator decides
+
+A decision with a safe default (one that can be undone) is taken by the coordinator, done, and
+reported afterwards as a decision taken, with its reason. The coordinator stops for the operator
+only at a wave's approval and before an action that cannot be undone (operator, 2026-11-08). A
+question with a safe default once left the plan idle for three and a half hours.
+
 ## Backlog
 
 Drafts filed from findings during this plan's waves, each in `draft` until the operator accepts it:

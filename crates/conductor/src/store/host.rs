@@ -29,8 +29,7 @@ use conductor_model::primitives::Timestamp;
 use conductor_model::session::SessionId;
 use serde_json::{Value, json};
 
-use super::observations::segment;
-use super::{DELETED, STORED, Store, StoreError, stream_id, text, undecodable};
+use super::{DELETED, STORED, Store, StoreError, text, undecodable};
 use crate::host::{
     kind_name, kind_named, lane_name, lane_named, reason_name, reason_named, state_name,
     state_named,
@@ -114,42 +113,24 @@ fn replace(path: &Path, bytes: &[u8]) -> io::Result<()> {
 }
 
 impl Store {
-    /// The directory of the grants' streams in `tree/`.
-    fn grant_streams_dir(&self) -> PathBuf {
-        self.tree
-            .root
-            .join("tenants")
-            .join(segment(self.tenant.as_str()))
-            .join("streams")
-            .join(segment(HOST_GRANT))
-    }
-
-    /// How many grants the store holds: its streams of grants, each a directory.
+    /// How many grants the store holds: its streams of grants, closed and deleted ones too.
     fn grant_streams(&self) -> io::Result<u64> {
-        match fs::read_dir(self.grant_streams_dir()) {
-            Ok(entries) => Ok(count(entries.filter(Result::is_ok).count())),
-            Err(error) if error.kind() == io::ErrorKind::NotFound => Ok(0),
-            Err(error) => Err(error),
-        }
+        self.stream_lengths(HOST_GRANT)
+            .map(|lengths| count(lengths.len()))
+            .map_err(io::Error::other)
     }
 
-    /// The length of the stream of grant `id` in the store's files: its event files, one per event
-    /// committed; `None` when the directory does not read.
+    /// The length of the stream of grant `id` in the store: its events committed; `None` when the
+    /// store does not answer.
     fn grant_events(&self, id: &str) -> Option<u64> {
-        let directory = self.grant_streams_dir().join(segment(&stream_id(id)));
-        match fs::read_dir(directory) {
-            Ok(entries) => Some(count(
-                entries
-                    .filter_map(Result::ok)
-                    .filter(|entry| entry.file_type().is_ok_and(|kind| kind.is_file()))
-                    .count(),
-            )),
-            Err(error) if error.kind() == io::ErrorKind::NotFound => Some(0),
-            Err(_) => None,
-        }
+        let stream = Self::stream(&self.tenant, HOST_GRANT, id).ok()?;
+        self.runtime
+            .block_on(self.log.stream_version(&stream))
+            .ok()
+            .map(|version| version.unwrap_or(0))
     }
 
-    /// `ledger.open` of this store: beside `tree/`.
+    /// `ledger.open` of this store: in the state directory it was opened on.
     fn open_file(&self) -> PathBuf {
         self.state_dir().join(OPEN)
     }

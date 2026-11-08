@@ -103,7 +103,7 @@ impl Case {
     /// Every decision of the case's store, as the built binary's `decisions` view lists it; none
     /// when there is no store.
     fn decisions(&self) -> Vec<Value> {
-        if !self.state().join("tree").exists() {
+        if !self.state().join("store.sqlite").exists() {
             return Vec::new();
         }
         let output = common::conductor(self.home())
@@ -289,7 +289,7 @@ fn the_page_reads_every_key_with_its_default_and_creates_nothing() {
     assert_eq!(disk_low["takes_effect"], "WatchTick");
     assert_eq!(field("records")["takes_effect"], "Fixed");
     assert!(
-        !case.state().join("tree").exists(),
+        !case.state().join("store.sqlite").exists(),
         "a view creates no store"
     );
 }

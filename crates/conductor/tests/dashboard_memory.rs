@@ -308,7 +308,11 @@ fn memo_entries_and_store_handles_stay_bounded_across_writes() {
             1,
             "a reopen held the old replay while it built the new one: {memory}"
         );
-        assert!(count(&memory, "store_bytes") > 0, "{memory}");
+        assert_eq!(
+            count(&memory, "store_bytes"),
+            0,
+            "the handle reads the database and holds none of its records: {memory}"
+        );
         assert!(
             count(&memory, "memo_entries_peak_endpoint") <= PER_ENDPOINT,
             "one endpoint keeps more answers than its bound: {memory}"

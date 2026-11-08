@@ -685,7 +685,7 @@ impl Server {
     fn store_path(&self) -> Option<PathBuf> {
         self.state
             .clone()
-            .filter(|state| state.join("tree").exists())
+            .filter(|state| crate::store::present(state))
     }
 
     /// The answer of `kind` for `key` at `fingerprint`: kept and fresh; kept and stale, served at

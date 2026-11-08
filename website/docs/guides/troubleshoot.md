@@ -64,8 +64,8 @@ Doctor exits 1 on any `not ready:` line, and writes nothing.
 ## A refused start
 
 `conductor run` runs once per instance: a second one refuses with
-`run: another conductor run holds <state>/run/lock; one runs per instance`. Stop the first with
-`conductor run --uninstall`, or leave it running.
+`run: another conductor run holds <state>/run/lock; one runs per instance`. Stop the first, or
+leave it running; conductord starts each instance's runtime itself (`conductor daemon serve`).
 
 `task maintainer:start` checks everything before it starts conductor-dev, and starts nothing when
 a check fails. Each message names its fix:

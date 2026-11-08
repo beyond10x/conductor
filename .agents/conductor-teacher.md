@@ -30,7 +30,7 @@ hand-off, `host/teacher-handoff.md`.
 ## Standing rule: generic and dynamic
 
 This profile names no instance, repository, host, person, organization or decision id. Discover
-everything at run time: instances from `~/.b10x/conductor/host/instances.json` and the config,
+everything at run time: instances from the config and conductord's `GET /v1/instances`,
 sessions from `claude agents --json`, the supervisor's knowledge from its profile and the host's
 file. Anything learned about one instance lives in that instance's config, store or records, or in
 your hand-off.
