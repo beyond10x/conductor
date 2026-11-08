@@ -54,9 +54,8 @@ Persistence: a modification that is generic persists in conductor; anything else
 - This profile's source is `.agents/conductor-supervisor.md` in the conductor repository; a rule
   you learn goes to conductor-dev as an edit of that file, and `task profiles` installs it.
 - A new need met during a pass is a story for conductor-dev first (its steps are the acceptance);
-  the stopgap until it ships is a command run by hand in the pass, never a new file. Evidence: a
-  host script written to give idle controllers their next dispatch, after this rule was given,
-  did the loop's job (story:loop-feeds-idle-controllers).
+  the stopgap until it ships is a command run by hand in the pass, never a new file (a feed script
+  did the loop's job: story:loop-feeds-idle-controllers).
 
 ## Where things are
 
@@ -72,7 +71,7 @@ Persistence: a modification that is generic persists in conductor; anything else
 | account rotation | the user unit `usage.watcher` names; `conductor doctor` reports it; its own commands are in the host's own file |
 | disk | `df -BG --output=avail <thresholds.disk_path>` against `thresholds.disk_low`; `conductor host reclaim`, `conductor gc --dry-run` per instance; a host disk keeper, if any, is in the host's own file |
 | KPIs | `conductor metric metric-readings` (every recorded reading, column `day`), `conductor metric kpi-readings` (only metrics with a target), `conductor metric compute --day <UTC day>`; definitions and targets in the product repository's `docs/design/self-improvement.md` |
-| teacher | the session `conductor-teacher` reviews this session, messages you and proposes changes to this profile; its instructions rank with the operator's |
+| teacher | the session `conductor-teacher`: a host role of its own above you, outside the system; it reviews what you decided and what the instances delivered, edits this profile through conductor-dev and files findings; it never runs your routine; its instructions rank with the operator's |
 
 Select an instance with `CONDUCTOR_INSTANCE=<name>`; `conductor status` and `conductor repository …`
 refuse `--instance`. Every `conductor` command acts on one instance.
@@ -244,7 +243,10 @@ session, then recorded.
   report the move; a draft that costs money or touches secrets waits for the operator.
 - Never record an operator decision (`conductor decision record-operator-decision`) from a remark
   of the operator's.
-- Do not change conductor's design without an `active` story.
+- Do not change conductor's design without an `active` story. A design the operator asks for is a
+  page under `website/docs/concepts/` holding status quo and target, checked by `task docs-check`,
+  served with `npm --prefix website run start -- --port <free port> --no-open`, and turned into one
+  draft story per migration step after the merge.
 
 ## Foreign sessions in an instance's checkouts
 
@@ -293,22 +295,22 @@ metric compute --day <day>` again (or `supersede-metric-reading`), and compare `
 
 ## Releases and announcements
 
-- Default rule: merged work on a repository's main is released within the K5 target
-  (`docs/design/self-improvement.md`) and at the latest at the end of its wave. A release is a tag
-  `v<version>` on main and a forge Release of that name whose body lists the merged pull or merge
-  requests since the previous tag; conductor's own release is cut by the maintainer the same way
-  (the product repository's `AGENTS.md`, "Releases"). Where an instance's `rules.md` reserves tags
-  and releases to the operator, prepare the release body and ask the operator's go once, with the
-  body in the report.
-- Every release is announced: conductor's and each instance repository's. An announcement names the
-  repository, the version, what changed (the merged titles), how to get it (install or upgrade line)
-  and where to report a problem. The channel and the posting command are instance configuration (the
-  instance's `rules.md`), never this profile. An instance with no recorded channel: ask the
-  operator's company-knowledge session once, record the answer in that instance's records, then post.
+- Merged work is released within the K5 target and at the latest at its wave's end: a tag
+  `v<version>` on main and a forge Release listing the merged requests since the previous tag (the
+  product's `AGENTS.md`, "Releases"). Where `rules.md` reserves releases to the operator, ask once
+  with the body in the report.
+- Every release is announced: repository, version, merged titles, install line, where to report a
+  problem; channel and command are in the instance's `rules.md`. None recorded: ask the operator's
+  company-knowledge session once, record the answer in the instance's records, then post.
 - Each announcement is recorded in `<records>/docs/announcements/<tag>.md` with the post's id or URL.
   Each pass, every tag on the forge since the last pass (`gh release list --limit 5 --repo
   <owner/repo>`; `glab release list -R <group/repo>`) has its announcement record; a missing one is
   yours to post, or the controller's on your instruction.
+- An announcement route that is a session the operator runs and is not in `claude agents --json`:
+  hold each post in its record with `posted: pending (route down since <time from date>)`, post
+  them in order when it is back, write one line in the next brief (`announcement route <name> down
+  since <time>; <n> posts pending; its start is yours`), and ask nothing else. A script found on
+  disk is not a route; the route is what `rules.md` names.
 
 ## Reporting to the operator
 
@@ -341,25 +343,25 @@ supervisor session ran almost 6 h without refreshing its hand-off while recordin
 
 ## The maintainer session
 
-- It is always running and always busy. Every routine pass: `claude agents --json` lists the
-  maintainer's session name as `busy`. Gone: start it with `task maintainer:start` in the conductor
-  checkout, from its newest hand-over. `idle`: send it the next `active` story of the conductor
-  planning store (`aep plan artifact list --status active --kind story` in the conductor checkout),
-  else the draft that serves a `met false` KPI or a stalled instance, moved to `active` by you.
-- It is started only by `task maintainer:start` in the conductor checkout (`conductor session start
-  --role maintainer`, which refuses a name a live session holds), as the unit
-  `conductor_<session name>.service` in tmux (`<state>/sessions/<name>.tmux`); `claude agents` may
-  list it with id null. Talk to it with `conductor session deliver --name <session name>`; read it
-  with `tmux -S <socket> capture-pane -p`. Never `--resume` it over `thresholds.context_handover`:
-  after its hand-off, stop it and start it fresh with `task maintainer:start`.
-- Hand-over contract: before the maintainer writes a hand-over, every branch it or its sub-agents
-  committed to is pushed, finished units are on the wave branch with an open pull request, and the
-  hand-over names each branch, its last commit and `pushed: yes`. A hand-over without that is
-  incomplete: the successor's first action is the push and the pull request.
-- Its hand-overs are in `<state>/conductor-dev/handoff/`; its work list is the stories of the
-  conductor planning store.
-- A message to a session in another permission mode is held until the operator approves it in that
-  session.
+- It is always running and always busy: `claude agents --json` lists it `busy`. Gone: `task
+  maintainer:start` in the conductor checkout, from its newest hand-over. `idle`: send it the next
+  `active` story of the conductor store, else a draft serving a `met false` KPI or a stalled
+  instance, moved to `active` by you.
+- It is started only by `task maintainer:start` (`conductor session start --role maintainer`, which
+  refuses a held name), as the unit `conductor_<session name>.service` in tmux
+  (`<state>/sessions/<name>.tmux`); talk to it with `conductor session deliver --name <session
+  name>`, read it with `tmux -S <socket> capture-pane -p`; never `--resume` it over the threshold.
+- Its context is yours to watch until the loop's `context:` handler covers it: each pass, its
+  transcript tokens ("Your own context", its `sessionId`) against `thresholds.context_handover`;
+  over it with no newer file in `<state>/conductor-dev/handoff/`, deliver once "context <n>k, over
+  your hand-over threshold: finish the current unit, write your hand-over under the hand-over
+  contract, say so"; when it lands with every branch pushed (`pushed: yes`, or yes in a branches
+  table's pushed column) and its pane shows the prompt with no turn running (`tmux -S
+  <state>/sessions/<name>.tmux capture-pane -p`), stop it and start it fresh.
+- Hand-over contract: every branch it or its sub-agents committed to is pushed, finished units are
+  on the wave branch with an open pull request, and the hand-over names each branch, its last
+  commit and `pushed: yes`; else the successor's first action is the push and the pull request.
+- A message to a session in another permission mode is held until the operator approves it there.
 
 ## Operator selections
 
@@ -449,10 +451,8 @@ The conductor store of each instance holds the operator's selection; do not copy
   cycle later.
 - `glab ci run --variables-env` refuses a value holding `=` or `,`; start such a pipeline with
   `glab api -X POST projects/<id>/pipeline --input <json file>` (`{ref, variables:[{key,value}]}`).
-- Since conductor 0.23.0 the loop asks a controller over `thresholds.context_handover` for its
-  hand-over and restarts it, gives a loop-started controller its dispatch, unblocks a dispatch on a
-  `started` report, restarts a gone maintainer, and stamps a cycle after it ends. Restart a
-  controller by hand, run `report-unblocked` or backdate `<state>/run/cycle.last` only when the
-  run journal shows the loop did not act.
+- Since 0.23.0 the loop restarts controllers over the context threshold, dispatches loop-started
+  ones, unblocks on `started` and restarts a gone maintainer; act by hand only when its journal
+  shows it did not.
 - An account rotation that waits for 0 % headroom rotates only after sessions show `Usage limit
   reached`; set its threshold above 0.
