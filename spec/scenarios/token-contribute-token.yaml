@@ -1,0 +1,27 @@
+type: ess-scenario/1
+domain: conductor.token
+scenario: token-contribute-token
+summary: An operator joining the instance contributes their token; it is in the pool, Available and Ok, with its owner and seat and no agent on it.
+
+timeline:
+  - at: 2026-11-08T09:00:00Z
+    command: conductor.token.ContributeToken
+    actor: conductor.token.Operator
+    input:
+      actor: {kind: Human, value: {operator: alice}}
+      instance: example-org
+      owner: alice
+      seat: alice@example-org.example
+      secret: example-org-claude-alice
+      contributed_at: 2026-11-08T09:00:00Z
+    outcome: contributed
+
+assert:
+  - view: conductor.token.Tokens
+    contains:
+      state: Available
+      instance: example-org
+      owner: alice
+      seat: alice@example-org.example
+      token_state: Ok
+      contributed_at: 2026-11-08T09:00:00Z
