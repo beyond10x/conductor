@@ -1,0 +1,13 @@
+{
+  "at": "2026-11-08T08:26:19Z",
+  "actor": "human:timo",
+  "artifact": "story:kpi-scope-active-repositories",
+  "kind": "story",
+  "revision": 3,
+  "change": {
+    "change": "evidence",
+    "kind": "metric_observation",
+    "source": "conductor-supervisor, 2026-11-08",
+    "reference": "2026-11-07 readings: K5.unreleased 717, 111 and 60 on three instances; K6.closed_unmerged 54 % and 68 % on two; K4.p90 515 h on one; supervisor: K4 and K6 count every PR on the forge, not Active repositories or conductor-shipped requests. Next after 0.25.0; recompute 2026-11-07 after it ships"
+  }
+}

@@ -991,6 +991,38 @@ fn context_over_the_threshold_delivers_one_handover_per_session() {
     assert_eq!(case.launched(), ["ex-alpha"], "nothing restarted");
 }
 
+/// `story:context-watch-by-envelope`: a `context:` line measuring another session than the one
+/// the controller's envelope records delivers nothing and restarts nothing, however far over the
+/// threshold; the controller's own line still delivers.
+#[test]
+fn a_context_line_of_a_session_the_envelope_does_not_record_is_left_alone() {
+    let case = Case::new("context-foreign");
+    case.spawn("alpha", FIRST);
+    let sessions = case.state().join("sessions");
+    fs::create_dir_all(&sessions).expect("create the sessions directory");
+    write(
+        &sessions.join("ex-alpha.envelope.json"),
+        &json!({"session": {"session_id": format!("{FIRST}-4000"), "session_name": "ex-alpha"}})
+            .to_string(),
+    );
+
+    let foreign = case.tick(&["context: alpha 314k tokens (session 0d74d27e)"]);
+    assert_eq!(case.deliveries().len(), 0, "{foreign}");
+    assert_eq!(actions(&foreign), Vec::<String>::new());
+    assert_eq!(case.launched(), ["ex-alpha"], "nothing restarted");
+
+    case.tick(&[&format!(
+        "context: alpha 230k tokens (session {FIRST_SHORT})"
+    )]);
+    assert_eq!(
+        case.deliveries(),
+        [(
+            "ex-alpha".to_owned(),
+            "[HANDOVER alpha] context 230k".to_owned()
+        )]
+    );
+}
+
 /// Once `<checkout>/.git/handoff/` holds a file newer than the delivery, the session is stopped,
 /// the hand-over path appended to the charter as its resume point and the controller spawned
 /// again from it: `handover`, `sent`, `controller-restarted`.

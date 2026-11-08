@@ -137,7 +137,9 @@ fn defaults(value: &Yaml, index: usize, home: &Path) -> Vec<(String, String)> {
         Yaml::Sequence(vec![Yaml::Mapping(kept)]),
     );
     let text = serde_yaml::to_string(&Yaml::Mapping(file)).unwrap_or_default();
-    config::parse(&text, home)
+    // Unheld: the built file is a version-1 one, and holding its keys for the instance's name
+    // would show the real file's instance, read next, as a version-1 one.
+    config::parse_unheld(&text, home)
         .ok()
         .and_then(|config| config.instances.into_iter().next())
         .map(|instance| fields(&instance))

@@ -483,6 +483,17 @@ fn the_daemon_proxies_an_instance_route_and_a_browser_holds_the_daemons_token_on
     assert!(!page.body.contains(INSTANCE_TOKEN));
 
     let direct = over_socket(&case.socket(), &raw("GET", "/v1/settings", &[], None));
+    // The case's file is a `conductor.config/2` one: its settings are that version's keys, not
+    // those of the version-1 file the page builds to read each key's default.
+    let shown = direct.json();
+    let paths: Vec<&str> = shown["fields"]
+        .as_array()
+        .expect("the settings' fields")
+        .iter()
+        .filter_map(|field| field["path"].as_str())
+        .filter(|path| ["placement", "dashboard_port"].contains(path))
+        .collect();
+    assert_eq!(paths, ["placement"], "{}", direct.body);
     let proxied = over_tcp(
         port,
         &raw(
