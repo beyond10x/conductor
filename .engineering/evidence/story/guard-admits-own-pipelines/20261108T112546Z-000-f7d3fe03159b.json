@@ -1,0 +1,13 @@
+{
+  "at": "2026-11-08T11:25:46Z",
+  "actor": "human:timo",
+  "artifact": "story:guard-admits-own-pipelines",
+  "kind": "story",
+  "revision": 4,
+  "change": {
+    "change": "evidence",
+    "kind": "test_result",
+    "source": "task check, PR #110 head f99f0bb8d, release v0.25.0",
+    "reference": "https://github.com/beyond10x/conductor/actions/runs/42474106143/job/128711515879"
+  }
+}

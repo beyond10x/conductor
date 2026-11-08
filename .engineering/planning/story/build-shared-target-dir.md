@@ -2,13 +2,14 @@
 format: aep.planning-md/3
 id: story:build-shared-target-dir
 kind: story
-status: active
+status: implemented
 title: build run gives each repository one target directory, shared by its trees under a lock
 summary: 12 per-tree target directories held 77 GB under the disk floor
-revision: 3
+revision: 4
 transitions:
 - {from: "draft", to: "proposed", at: "2026-11-07T13:53:35Z", actor: "human:timo", revision: 2}
 - {from: "proposed", to: "active", at: "2026-11-07T13:53:36Z", actor: "human:timo", revision: 3}
+- {from: "active", to: "implemented", at: "2026-11-08T11:25:46Z", actor: "human:timo", revision: 4, decided_on: {"recorded":{"test_result":1}}}
 ---
 ## Why
 

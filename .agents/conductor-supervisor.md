@@ -209,8 +209,7 @@ one background Bash that exits on it.
    of a cycle: the cycle's work is lost. Restart one only when `conductor session run-ticks` shows
    its last `cycle` tick followed by `watch` ticks; after `conductor run --uninstall` and
    `--install`, restart the instance's dashboard too, so it runs the new binary.
-4. Use sub-agents for parallel work (one per instance or per independent job); do not do serially
-   what can run at once.
+4. Use sub-agents for parallel work, one per instance or per independent job, never in series.
 5. Never discard uncommitted work. Before stopping a session, ask it for a hand-off and wait for its
    reply. A session handing over while its own sub-agents still run is messaged "finish your
    sub-agents, commit, write your hand-off, reply"; its successor starts only after `claude stop
@@ -306,7 +305,9 @@ again.
 - Each announcement is recorded in `<records>/docs/announcements/<tag>.md` with the post's id or URL.
   Each pass, every tag on the forge since the last pass (`gh release list --limit 5 --repo
   <owner/repo>`; `glab release list -R <group/repo>`) has its announcement record; a missing one is
-  yours to post, or the controller's on your instruction.
+  yours to post, or the controller's on your instruction. A merged pull request is in a release
+  when `git merge-base --is-ancestor <merge commit> <tag>` holds in the product checkout after `git
+  fetch --tags`; release notes name features, not every fix.
 - An announcement route that is a session the operator runs and is not in `claude agents --json`:
   hold each post in its record with `posted: pending (route down since <time from date>)`, write
   one line in the next brief (`announcement route <name> down since <time>; <n> posts pending; its
@@ -319,7 +320,7 @@ again.
 
 ## Reporting to the operator
 
-A clock time in a report, message or record comes from `date` in the same pass, never from memory.
+A clock time in a report, message or record comes from `date` in the same pass, never from memory; a duration is two timestamps in one zone: a forge's `merged_at` (UTC) against `date -u`, never against local time (2026-11-08 13:38: '73 min' for a 14-min gap).
 Report by exception, in the operator's output style: a deviation, a blocker, a decision taken (`D<n>
 … reason`) or one the operator must take (a lettered table). An expected outcome is silence, not a
 line; "nothing needs you" is never sent. One message per routine pass at most, unless a blocker
@@ -347,23 +348,22 @@ once ran 6 h and 21 decisions without a refresh).
 
 ## The maintainer session
 
-- It is always running and always busy: `claude agents --json` lists it `busy`. Gone: `task
-  maintainer:start` in the conductor checkout, from its newest hand-over. `idle`: send it the next
-  `active` story of the conductor store, else a draft serving a `met false` KPI or a stalled
-  instance, moved to `active` by you. Two hand-overs of the maintainer within 2 h, or a first turn
-  over a quarter of `thresholds.context_handover`, count as a stalled instance: activate
-  `story:conductor-context-budget` and make it its next unit.
-- It is started only by `task maintainer:start` (`conductor session start --role maintainer`, which
-  refuses a held name), as the unit `conductor_<session name>.service` in tmux
-  (`<state>/sessions/<name>.tmux`); talk to it with `conductor session deliver --name <session
-  name>`, read it with `tmux -S <socket> capture-pane -p`; never `--resume` it over the threshold.
+- It is always running and always busy: `claude agents --json` lists it `busy`. Gone, or handed
+  over and idle: `claude stop <id>`; the loop restarts it on its next tick (journal: `session gone:
+  <name> <id>`, then the new `sessionId` in `claude agents --json` within 2 min). `task
+  maintainer:start` by hand only when the tick after the stop logs the loop's start `exited 1` for
+  a reason other than `SessionRunning` (teacher, 2026-11-08, journal 00:07–12:42: 4 of 4 hand
+  starts raced the loop). `idle`: send it the next `active` story of the conductor store, else a
+  draft serving a `met false` KPI or a stalled instance, moved to `active` by you. Two hand-overs in
+  2 h, or a first turn over ¼ of `thresholds.context_handover`: `story:conductor-context-budget`.
+- Its unit is `conductor_<session name>.service` in tmux (`<state>/sessions/<name>.tmux`); talk
+  to it with `conductor session deliver --name <name>`, read it with `tmux -S <socket> capture-pane
+  -p`, never `--resume` it over the threshold.
 - Its context is yours to watch until the loop's `context:` handler covers it: each pass, its
-  transcript tokens ("Your own context", its `sessionId`) against `thresholds.context_handover`;
-  over it with no newer file in `<state>/conductor-dev/handoff/`, deliver once "context <n>k, over
-  your hand-over threshold: finish the current unit, write your hand-over under the hand-over
-  contract, say so"; when it lands with every branch pushed (`pushed: yes`, or yes in a branches
-  table's pushed column) and its pane shows the prompt with no turn running (`tmux -S
-  <state>/sessions/<name>.tmux capture-pane -p`), stop it and start it fresh.
+  transcript tokens against `thresholds.context_handover`; over it with no newer file in
+  `<state>/conductor-dev/handoff/`, deliver once "context <n>k, over your hand-over threshold:
+  finish the current unit, write your hand-over under the hand-over contract, say so"; when it
+  lands with every branch `pushed: yes` and its pane at the prompt, stop it as above.
 - Hand-over contract: every branch it or its sub-agents committed to is pushed, finished units are
   on the wave branch with an open pull request, and the hand-over names each branch, its last
   commit and `pushed: yes`; else the successor's first action is the push and the pull request.

@@ -2,13 +2,14 @@
 format: aep.planning-md/3
 id: story:guard-admits-own-pipelines
 kind: story
-status: active
+status: implemented
 title: The controller guard admits pipeline retry and run of its own repository under forge.route direct
 summary: Controllers wait on the supervisor to retry or start their own pipelines
-revision: 4
+revision: 5
 transitions:
 - {from: "draft", to: "proposed", at: "2026-11-07T19:23:25Z", actor: "human:timo", revision: 3}
 - {from: "proposed", to: "active", at: "2026-11-07T19:23:25Z", actor: "human:timo", revision: 4}
+- {from: "active", to: "implemented", at: "2026-11-08T11:25:46Z", actor: "human:timo", revision: 5, decided_on: {"recorded":{"test_result":2}}}
 ---
 ## Why
 

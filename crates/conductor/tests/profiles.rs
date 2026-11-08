@@ -738,3 +738,48 @@ fn conductor_dev_starts_on_the_hand_over_and_the_rules_titles() {
         "conductor-dev.md: the design sections are not start reading"
     );
 }
+
+/// `story:controller-rm-guarded-variables`: a variable in an `rm` path is written `"${VAR:?}"`,
+/// because a bare `$VAR` stops the controller at a harness prompt nobody answers.
+#[test]
+fn a_controller_guards_every_variable_in_an_rm_path() {
+    let text = profile("repo-controller.md");
+    assert!(
+        text.contains(
+            "A variable path in `rm` is `\"${VAR:?}/${NAME:?}\"`: a bare `$VAR` stops on a \
+             permission prompt."
+        ),
+        "repo-controller.md: a variable in an rm path is guarded with :?"
+    );
+}
+
+/// The supervisor checks whether a merged request is in a release with `git merge-base
+/// --is-ancestor`, since release notes name features, not every fix.
+#[test]
+fn the_supervisor_checks_a_merge_against_a_tag() {
+    let text = profile("conductor-supervisor.md");
+    assert!(
+        text.contains("git merge-base --is-ancestor <merge commit> <tag>"),
+        "conductor-supervisor.md: a merged request is checked against a tag"
+    );
+    assert!(
+        text.contains(
+            "a duration is two timestamps in one zone: a forge's `merged_at` (UTC) against `date -u`"
+        ),
+        "conductor-supervisor.md: a duration is measured in one zone"
+    );
+}
+
+/// The supervisor stops a gone or idle maintainer and lets the loop restart it; a start by hand
+/// raced the loop 4 times of 4 on 2026-11-08.
+#[test]
+fn the_supervisor_leaves_the_maintainer_restart_to_the_loop() {
+    let text = profile("conductor-supervisor.md");
+    for phrase in [
+        "Gone, or handed over and idle: `claude stop <id>`; the loop restarts it on its next tick",
+        "`task maintainer:start` by hand only when the tick after the stop logs the loop's start \
+         `exited 1` for a reason other than `SessionRunning`",
+    ] {
+        assert!(text.contains(phrase), "conductor-supervisor.md: {phrase:?}");
+    }
+}
