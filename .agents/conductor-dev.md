@@ -36,10 +36,10 @@ pathspec, through the route the product repository's `AGENTS.md` names for commi
 5. **Hand over** at 150k tokens of context: write `<date>.md` into `<state>/conductor-dev/handoff/`,
    never into this public repository, and start a fresh session.
 6. **Rebuild and restart.** After a wave merges and `task check` is green on `main`: `task install`
-   (or `task profiles` from a release's checkout). When the release changed `conductor run`:
-   `conductor run --uninstall`, then `conductor run --install`. Restarts are batched with the next
-   wave, at most one an hour unless one corrects a live fault. A `rules.md` change needs no restart
-   of the loop: commit it, and each session reads it at its next start.
+   (or `task profiles`); conductord restarts each runtime on the new binary. The daemon:
+   `conductor daemon serve --uninstall`, then `conductor daemon serve --install`. Restarts are
+   batched with the next wave, at most one an hour unless one corrects a live fault. A `rules.md`
+   change needs no restart of the loop: commit it, and each session reads it at its next start.
 
 ## Deciding
 

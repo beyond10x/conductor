@@ -1,45 +1,39 @@
-//! `conductor store migrate` (`story:store-on-eventlog-tree`, `story:observation-retention`):
-//! moves the records under the state directory into the two tree stores the store reads,
-//! `tree/` and `observations/` (the store module says which records each holds), and keeps what it
-//! moved them from beside them. It moves one of two:
+//! `conductor store migrate` (`story:store-shared`, `conductor.store.MigrateStore`): reads the
+//! eventlog tree under the state directory once into the store's database, records the migration
+//! there (`conductor.store.Migration`, keyed by the instance) and is the only reader of the tree
+//! afterwards. The tree is left where it is; every other command refuses a state directory whose
+//! tree the database holds no migration of.
 //!
-//! - the File provider's store, `store/`, where there is no `tree/`;
-//! - a `tree/` that holds observations, as the build before `story:observation-retention` wrote
-//!   it: the run splits it.
+//! The tree is the one the builds before the database kept: `tree/` (every record but the
+//! observations, in the tenant `conductor`), `observations/` (each snapshot's observations in a
+//! tenant named after it) and `series/` (the daily rollups). Every event is appended anew, in
+//! feed order, to its stream in the instance's tenant, or, for an observation, in the tenant of
+//! its snapshot (`<instance>/observations/<snapshot>`), at the version it held in the tree, with
+//! its name, schema version, body and instant; the database assigns its own ids and positions,
+//! and every event names the instance. Each stream's event count and digest is then read back from
+//! the database and compared with the tree's before the migration is recorded.
+//!
+//! An older state directory is first brought to that tree as the build before this one did: an
+//! eventlog-file store at `store/` is moved into `tree/` and `observations/` (kept beside them as
+//! `store.eventlog-file-<UTC stamp>/`), and a `tree/` that holds observations is split.
+//!
+//! It refuses, copying nothing, a non-human actor (`ActorNotHuman`), an instance whose tree the
+//! database holds already (`AlreadyMigrated`), and a state directory that holds no tree
+//! (`SourceMissing`).
+//!
+//! The steps that bring an older state directory to the tree, as the build before wrote them:
 //!
 //! From the File store, the run holds the File store's writer lock from before it reads the store
-//! until it has renamed it, so no writer of that store appends in between. Every reader of a File
-//! store takes that lock too, this one's included, so the history is read from a copy made under
-//! the lock, `store.migrating/`, through eventlog's own inspection of a File store, and the copy is
-//! removed once read.
-//!
-//! Every event of the `conductor` tenant is appended anew, in feed order, with its stream, type,
-//! name, schema version and body, and with the subject, actor and instant its writer gave it; the
-//! tree assigns its own ids, record instants and feed positions. An observation is appended to
-//! `observations/`, in the tenant of the snapshot the newest record of its stream names; every
-//! other record to `tree.next/`. A stream whose id the tree cannot name a directory after is kept
-//! under the id the store reads it by (`held` in the store module). Each stream's event count and
-//! digest is then read back from `tree.next/` and `observations/`, opened afresh, and compared
-//! with the source's. Only then is `tree.next/` renamed `tree/`, and `store/` renamed
-//! `store.eventlog-file-<UTC stamp>/`, which nothing deletes.
-//!
-//! `observations/` is written in place: an observation stream it already holds as far as the
-//! source does, which a run that stopped left there, is not appended again, and the read-back
-//! finds whether it holds it alike.
-//!
-//! It refuses, before writing anything, where `tree/` exists and holds no observations, and where
-//! an observation's stream names no snapshot. A run that stops before its first rename leaves
-//! `store/` as it was; the next run removes the `tree.next/` and `store.migrating/` it left, under
-//! the lock, and starts again.
-//!
-//! A split holds `tree/`'s writer lock, which every writer of the tree takes, from before it reads
-//! `tree/` until it has renamed it, and reads every event of `tree/` from a handle opened afresh.
-//! It moves them as above, then renames `tree/` `tree.split-<UTC stamp>/`, which nothing deletes,
-//! and `tree.next/` `tree/`. Between the two renames every other command refuses and names this
-//! one (`unmigrated` in the store module). A split that stopped there is finished by the next run,
-//! which renames `tree.next/` `tree/` where no `tree/` and no File store are and a
-//! `tree.split-*/` is; one that stopped before its first rename leaves `tree/` as it was, and the
-//! next run removes the `tree.next/` it left and splits again.
+//! until it has renamed it, so no writer of that store appends in between. The history is read
+//! from a copy made under the lock, `store.migrating/`, through eventlog's own inspection of a
+//! File store, and the copy is removed once read. An observation is appended to `observations/`,
+//! in the tenant of the snapshot the newest record of its stream names; every other record to
+//! `tree.next/`. Each stream's event count and digest is then read back and compared with the
+//! source's. Only then is `tree.next/` renamed `tree/`, and `store/` renamed
+//! `store.eventlog-file-<UTC stamp>/`, which nothing deletes. A split holds `tree/`'s writer lock,
+//! moves its records as above, then renames `tree/` `tree.split-<UTC stamp>/`, which nothing
+//! deletes, and `tree.next/` `tree/`; a split that stopped between its renames is finished by the
+//! next run.
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::fs;
@@ -48,6 +42,11 @@ use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
 use anyhow::{Context as _, Result, bail};
+use conductor_model::behaviour::MigrationStorage;
+use conductor_model::config::InstanceName;
+use conductor_model::operator::ActorKind;
+use conductor_model::primitives::Timestamp;
+use conductor_model::store::{MigrationData, MigrationSnapshot, MigrationState, StoreUrl};
 use eventlog_core::{
     CommandMeta, EventStore as _, Expected, InspectHistory as _, InspectionLimits, MAX_READ_LIMIT,
     NewEvent, RecordedEvent, StreamId, TenantId, new_event_id, request_hash,
@@ -56,13 +55,18 @@ use eventlog_file::{FileEventStore, FileHistoryInspector};
 use eventlog_tree::TreeEventStore;
 use serde_json::{Value, json};
 use time::OffsetDateTime;
+use time::format_description::well_known::Rfc3339;
 
 use super::observations::{self, segment};
 use super::{
-    CONDUCTOR, Engine, FILE_STORE_DIR, FILE_STORE_MANIFEST, OBSERVATIONS_DIR, TREE_DIR, TREE_LOCK,
-    TREE_MANIFEST, held, hold, is_file,
+    CONDUCTOR, DELETED, Engine, FILE_STORE_DIR, FILE_STORE_MANIFEST, OBSERVATIONS_DIR, SERIES_DIR,
+    STORED, Store, StoreError, TREE_DIR, TREE_LOCK, TREE_MANIFEST, held, hold, is_file, text,
+    undecodable,
 };
 use crate::cli::StoreMigrateArgs;
+
+/// `conductor.store.Migration`.
+const MIGRATION: &str = "conductor.store.Migration";
 
 /// The File store's writer lock, which every writer and reader of it holds.
 const FILE_STORE_LOCK: &str = "writer.lock";
@@ -85,7 +89,7 @@ pub struct Moved {
     pub events: usize,
 }
 
-/// What a run of `store migrate` did.
+/// What a step that brought an older state directory to the tree did.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Kind {
     /// Moved the File provider's store.
@@ -96,42 +100,55 @@ pub enum Kind {
     Finished,
 }
 
-/// What a migration moved, and where the stores are now.
+/// What a step that brought an older state directory to the tree moved, and where it is now.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Migrated {
-    /// What the run did.
+    /// What the step did.
     pub kind: Kind,
-    /// Per stream type (an entity's qualified name), what was moved; nothing for
-    /// [`Kind::Finished`].
+    /// Per stream type, what was moved; nothing for [`Kind::Finished`].
     pub types: BTreeMap<String, Moved>,
-    /// What the records were moved from: `state/store/`, or `state/tree/` for a split, or
-    /// `state/tree.next/` for a split finished.
+    /// What the records were moved from.
     pub source: PathBuf,
     /// The tree store, `state/tree/`.
     pub tree: PathBuf,
     /// The observation store, `state/observations/`.
     pub observations: PathBuf,
-    /// Where what the records were moved from is kept: `state/store.eventlog-file-<UTC stamp>/`,
-    /// or `state/tree.split-<UTC stamp>/`.
+    /// Where what the records were moved from is kept.
     pub kept: PathBuf,
 }
 
-impl Migrated {
-    /// Every stream moved.
+/// What `store migrate` read into the database.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Read {
+    /// The step that brought an older state directory to the tree first, if one ran.
+    pub before: Option<Migrated>,
+    /// Per stream type (an entity's qualified name), what was read.
+    pub types: BTreeMap<String, Moved>,
+    /// The tree read: `state/tree/`.
+    pub source: PathBuf,
+    /// The database it was read into.
+    pub store: String,
+    /// The instance whose records they are.
+    pub instance: String,
+}
+
+impl Read {
+    /// Every stream read.
     #[must_use]
     pub fn streams(&self) -> usize {
         self.types.values().map(|moved| moved.streams).sum()
     }
 
-    /// Every event moved.
+    /// Every event read.
     #[must_use]
     pub fn events(&self) -> usize {
         self.types.values().map(|moved| moved.events).sum()
     }
 }
 
-/// `conductor store migrate`: [`migrate`] on the state directory (`--state-dir`, else `state/`),
-/// then the counts it moved on standard output, as text or, with `--format json`, one JSON object.
+/// `conductor store migrate`: [`migrate`] on the state directory (`--state-dir`, else the
+/// instance's), then the counts it read on standard output, as text or, with `--format json`, one
+/// JSON object. A refusal is one line on standard error naming the specification's error.
 ///
 /// # Errors
 ///
@@ -144,55 +161,53 @@ pub fn store_migrate(state: Option<&Path>, args: &StoreMigrateArgs) -> Result<Ex
         Some(other) => bail!("{COMMAND}: --format {other:?} is neither text nor json"),
     };
     let state = crate::state::dir(state).context(COMMAND)?;
-    let migrated = migrate(&state).context(COMMAND)?;
+    let read = migrate(&state).context(COMMAND)?;
     let rendered = if as_json {
-        json_report(&migrated)
+        json_report(&read)
     } else {
-        text_report(&migrated)
+        text_report(&read)
     };
     let mut stdout = io::stdout().lock();
     stdout
         .write_all(rendered.as_bytes())
         .and_then(|()| stdout.flush())
-        .context("write the counts moved to standard output")?;
+        .context("write the counts read to standard output")?;
     Ok(ExitCode::SUCCESS)
 }
 
-fn text_report(migrated: &Migrated) -> String {
-    if migrated.kind == Kind::Finished {
-        return format!(
-            "finished the split a run left between its renames: renamed {} to {}; the tree before \
-             the split is kept at {}\n",
-            migrated.source.display(),
-            migrated.tree.display(),
-            migrated.kept.display()
-        );
-    }
+fn text_report(read: &Read) -> String {
     let mut text = String::new();
-    for (stream_type, moved) in &migrated.types {
+    if let Some(before) = &read.before {
+        let kept = match before.kind {
+            Kind::EventlogFile => "the eventlog-file store",
+            Kind::Split | Kind::Finished => "the tree before the split",
+        };
+        text.push_str(&format!(
+            "brought {} to the tree at {}; {kept} is kept at {}\n",
+            before.source.display(),
+            before.tree.display(),
+            before.kept.display()
+        ));
+    }
+    for (stream_type, moved) in &read.types {
         text.push_str(&format!(
             "{stream_type}: {} streams, {} events\n",
             moved.streams, moved.events
         ));
     }
-    let kept = match migrated.kind {
-        Kind::EventlogFile => "the eventlog-file store",
-        Kind::Split | Kind::Finished => "the tree before the split",
-    };
     text.push_str(&format!(
-        "moved {} events in {} streams from {} to {} and {}; {kept} is kept at {}\n",
-        migrated.events(),
-        migrated.streams(),
-        migrated.source.display(),
-        migrated.tree.display(),
-        migrated.observations.display(),
-        migrated.kept.display()
+        "read {} events in {} streams from {} into {} as instance {}; the tree is not read again\n",
+        read.events(),
+        read.streams(),
+        read.source.display(),
+        read.store,
+        read.instance
     ));
     text
 }
 
-fn json_report(migrated: &Migrated) -> String {
-    let types: Vec<_> = migrated
+fn json_report(read: &Read) -> String {
+    let types: Vec<_> = read
         .types
         .iter()
         .map(|(stream_type, moved)| {
@@ -203,47 +218,307 @@ fn json_report(migrated: &Migrated) -> String {
             })
         })
         .collect();
-    let kind = match migrated.kind {
-        Kind::EventlogFile => "eventlog-file",
-        Kind::Split => "split",
-        Kind::Finished => "finished-split",
-    };
+    let before = read.before.as_ref().map(|before| {
+        json!({
+            "kind": match before.kind {
+                Kind::EventlogFile => "eventlog-file",
+                Kind::Split => "split",
+                Kind::Finished => "finished-split",
+            },
+            "source": before.source.display().to_string(),
+            "kept": before.kept.display().to_string(),
+        })
+    });
     format!(
         "{}\n",
         json!({
-            "kind": kind,
-            "streams": migrated.streams(),
-            "events": migrated.events(),
+            "instance": read.instance,
+            "streams": read.streams(),
+            "events": read.events(),
             "types": types,
-            "source": migrated.source.display().to_string(),
-            "tree": migrated.tree.display().to_string(),
-            "observations": migrated.observations.display().to_string(),
-            "kept": migrated.kept.display().to_string(),
+            "source": read.source.display().to_string(),
+            "store": read.store,
+            "before": before,
         })
     )
 }
 
-/// Moves the records under `state` as the module says, and answers what it moved.
+/// Reads the tree under `state` into the database, as the module says, and answers what it read.
 ///
 /// # Errors
 ///
-/// `state/tree/` exists and holds no observations, or neither `state/tree/` nor `state/store/`
-/// holds a store, or an observation's stream names no snapshot: nothing is written. The store
-/// moved from does not open or does not read, an event is refused by a tree, a tree read back does
-/// not hold what the source held (then `tree.next/` is left for inspection and the source is as it
-/// was), or a rename fails.
-pub fn migrate(state: &Path) -> Result<Migrated> {
+/// The actor is not a person (`ActorNotHuman`), the database holds the instance's migration
+/// already (`AlreadyMigrated`), or `state` holds no tree (`SourceMissing`): nothing is copied.
+/// Or the tree does not read, an event is refused by the database, or the database read back does
+/// not hold what the tree held (then no migration is recorded).
+pub fn migrate(state: &Path) -> Result<Read> {
+    let actor = crate::actor::chosen();
+    if actor.kind != ActorKind::Human {
+        bail!("ActorNotHuman: {}", crate::actor::not_human(&actor));
+    }
+    let source = state.join(TREE_DIR);
+    let missing = || {
+        format!(
+            "SourceMissing: no eventlog tree at {}, so nothing was copied",
+            source.display()
+        )
+    };
+    // What `to_tree` reads from, decided before anything is opened: a tree, a File store with no
+    // `tree/` in its way, or a split a run left between its renames.
+    let tree_there = fs::symlink_metadata(&source).is_ok();
+    let readable =
+        is_file(&source.join(TREE_MANIFEST)) || (!tree_there && super::holds_tree(state));
+    if !readable {
+        bail!(missing());
+    }
+    let mut store = super::open_for_migration(state)?;
+    let instance = store.instance().to_owned();
+    if store.migrated() {
+        bail!(
+            "AlreadyMigrated: the tree of instance {instance} is in the store already; it is read \
+             once and not opened again, so nothing was copied"
+        );
+    }
+    let before = to_tree(state)?;
+    if !is_file(&source.join(TREE_MANIFEST)) {
+        bail!(missing());
+    }
+    let types = into_database(&store, state)?;
+    let read = Read {
+        before,
+        types,
+        source: source.clone(),
+        store: store.location().shown(),
+        instance: instance.clone(),
+    };
+    let copied = i64::try_from(read.events()).unwrap_or(i64::MAX);
+    let url = StoreUrl(store.location().url());
+    MigrationStorage::put(
+        &mut store,
+        MigrationSnapshot {
+            state: MigrationState::Migrated,
+            data: MigrationData {
+                instance: InstanceName(instance),
+                source: source.display().to_string(),
+                store: url,
+                events_copied: copied,
+                migrated_at: Timestamp(
+                    OffsetDateTime::now_utc()
+                        .format(&Rfc3339)
+                        .context("write the instant")?,
+                ),
+                actor,
+            },
+        },
+    );
+    store
+        .check()
+        .context("the store did not keep the migration")?;
+    Ok(read)
+}
+
+/// Brings an older state directory to the tree: moves a File store, splits a tree that holds
+/// observations, or finishes a split; `None` where the tree is as this build reads it, or no store
+/// is there at all.
+fn to_tree(state: &Path) -> Result<Option<Migrated>> {
     let tree = state.join(TREE_DIR);
     if fs::symlink_metadata(&tree).is_ok() {
         if is_file(&tree.join(TREE_MANIFEST)) && holds_observations(&tree) {
-            return split(state);
+            return split(state).map(Some);
         }
-        refuse_migrated(&tree)?;
+        return Ok(None);
     }
     if let Some(finished) = finish_split(state)? {
-        return Ok(finished);
+        return Ok(Some(finished));
     }
-    from_file(state)
+    if fs::symlink_metadata(state.join(FILE_STORE_DIR).join(FILE_STORE_MANIFEST)).is_ok() {
+        return from_file(state).map(Some);
+    }
+    Ok(None)
+}
+
+/// Copies every event of the tree under `state` into `store`, then reads each stream back and
+/// compares it with the tree's; answers what it copied, per stream type.
+fn into_database(store: &Store, state: &Path) -> Result<BTreeMap<String, Moved>> {
+    let runtime = &store.runtime;
+    let conductor = TenantId::new(CONDUCTOR)?;
+    let mut pairs: Vec<(TenantId, RecordedEvent)> = Vec::new();
+    for dir in [TREE_DIR, SERIES_DIR] {
+        let root = state.join(dir);
+        if !is_file(&root.join(TREE_MANIFEST)) {
+            continue;
+        }
+        for event in read_all(runtime, &root, &conductor)? {
+            pairs.push((store.tenant.clone(), event));
+        }
+    }
+    let observed = state.join(OBSERVATIONS_DIR);
+    if is_file(&observed.join(TREE_MANIFEST)) {
+        for tenant in observations::tenants(&observed)
+            .with_context(|| format!("read the tenants of {}", observed.display()))?
+        {
+            let into = observations::tenant_of_stream(store.instance(), tenant.as_str())?;
+            for event in read_all(runtime, &observed, &tenant)? {
+                pairs.push((into.clone(), event));
+            }
+        }
+    }
+    let held = summary(pairs.iter().map(|(tenant, event)| (tenant.clone(), event)))?;
+    for (tenant, event) in &pairs {
+        let what = || {
+            format!(
+                "copy version {} of {} {:?} into the store",
+                event.version, event.stream_type, event.stream_id
+            )
+        };
+        let stream = StreamId::new(
+            tenant.clone(),
+            event.stream_type.clone(),
+            held_id(&event.stream_id).with_context(what)?,
+        )
+        .with_context(what)?;
+        let expected = match event.version {
+            1 => Expected::NoStream,
+            version => Expected::Exact(version - 1),
+        };
+        let appended =
+            [
+                NewEvent::new(event.name.clone(), event.schema_version, event.data.clone())
+                    .with_context(what)?,
+            ];
+        let id = new_event_id();
+        let meta = CommandMeta {
+            idempotency_key: id.clone(),
+            request_hash: request_hash(&appended).with_context(what)?,
+            subject: store.instance().to_owned(),
+            actor: event.actor.clone(),
+            request_id: id.clone(),
+            trace_id: id,
+            causation_id: None,
+            causation_depth: 0,
+            occurred_at: event.occurred_at,
+            claim: None,
+        };
+        runtime
+            .block_on(store.log.append(&stream, expected, &appended, &meta))
+            .with_context(what)?;
+    }
+    let tenants: BTreeSet<String> = held.keys().map(|(tenant, _, _)| tenant.clone()).collect();
+    let mut written = Vec::new();
+    for tenant in tenants {
+        let tenant = TenantId::new(tenant)?;
+        let mut after = 0;
+        loop {
+            let page = runtime
+                .block_on(store.log.read_feed(&tenant, after, MAX_READ_LIMIT))
+                .context("read the store back")?;
+            let more = page.has_more && !page.events.is_empty();
+            after = page.next_position;
+            written.extend(page.events);
+            if !more {
+                break;
+            }
+        }
+    }
+    let written = summary(written.iter().map(|event| (event.tenant.clone(), event)))?;
+    if let Some(difference) = first_difference(&held, &written, true) {
+        bail!(
+            "the store does not hold what {} holds ({difference}); no migration is recorded",
+            state.join(TREE_DIR).display()
+        );
+    }
+    let mut types: BTreeMap<String, Moved> = BTreeMap::new();
+    for ((_, stream_type, _), stream) in &held {
+        let moved = types.entry(stream_type.clone()).or_default();
+        moved.streams += 1;
+        moved.events += stream.events;
+    }
+    Ok(types)
+}
+
+/// The stream id the store keeps the stream `id` under: [`held`].
+fn held_id(id: &str) -> Result<String> {
+    held(id).map_err(Into::into)
+}
+
+impl MigrationStorage for Store {
+    fn get(&self, identity: &InstanceName) -> Option<MigrationSnapshot> {
+        let body = self.read(MIGRATION, &identity.0)?;
+        match decode_migration(&body) {
+            Ok(migration) if migration.data.instance == *identity => Some(migration),
+            Ok(migration) => {
+                self.fail(undecodable(
+                    MIGRATION,
+                    &identity.0,
+                    format!("holds instance {:?}", migration.data.instance.0),
+                ));
+                None
+            }
+            Err(detail) => {
+                self.fail(undecodable(MIGRATION, &identity.0, detail));
+                None
+            }
+        }
+    }
+
+    fn put(&mut self, snapshot: MigrationSnapshot) {
+        let body = encode_migration(&snapshot);
+        self.write(MIGRATION, &snapshot.data.instance.0, STORED, body);
+    }
+
+    fn delete(&mut self, identity: &InstanceName) {
+        self.write(MIGRATION, &identity.0, DELETED, json!({}));
+    }
+
+    fn list(&self) -> Vec<MigrationSnapshot> {
+        self.rows(MIGRATION)
+            .into_iter()
+            .filter_map(|(stream, body)| match decode_migration(&body) {
+                Ok(migration) => Some(migration),
+                Err(detail) => {
+                    self.fail(StoreError::Undecodable {
+                        entity: MIGRATION,
+                        stream,
+                        detail,
+                    });
+                    None
+                }
+            })
+            .collect()
+    }
+}
+
+fn encode_migration(migration: &MigrationSnapshot) -> Value {
+    json!({
+        "state": "Migrated",
+        "instance": migration.data.instance.0,
+        "source": migration.data.source,
+        "store": migration.data.store.0,
+        "events_copied": migration.data.events_copied,
+        "migrated_at": migration.data.migrated_at.0,
+        "actor": crate::actor::to_json(&migration.data.actor),
+    })
+}
+
+fn decode_migration(body: &Value) -> Result<MigrationSnapshot, String> {
+    let state = text(body, "state")?;
+    if state != "Migrated" {
+        return Err(format!("unknown Migration state {state:?}"));
+    }
+    Ok(MigrationSnapshot {
+        state: MigrationState::Migrated,
+        data: MigrationData {
+            instance: InstanceName(text(body, "instance")?),
+            source: text(body, "source")?,
+            store: StoreUrl(text(body, "store")?),
+            events_copied: body
+                .get("events_copied")
+                .and_then(Value::as_i64)
+                .ok_or_else(|| "events_copied is not a whole number".to_owned())?,
+            migrated_at: Timestamp(text(body, "migrated_at")?),
+            actor: crate::actor::stored(body)?,
+        },
+    })
 }
 
 /// Moves the File store at `state/store/`.
@@ -484,7 +759,7 @@ fn snapshot_tenants(
             .entry((event.stream_type.clone(), event.stream_id.clone()))
             .or_default();
         if let Some(snapshot) = event.data.get("snapshot_id").and_then(Value::as_str) {
-            *tenant = Some(observations::tenant(snapshot).with_context(|| {
+            *tenant = Some(observations::tree_tenant(snapshot).with_context(|| {
                 format!(
                     "{} {:?} names snapshot {snapshot:?}",
                     event.stream_type, event.stream_id

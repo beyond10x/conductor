@@ -2498,7 +2498,10 @@ fn the_binary_keeps_watching_without_a_line_while_no_source_answers() {
         state.join("watch").is_dir(),
         "its state is kept under <state>/watch/"
     );
-    assert!(!state.join("tree").exists(), "it wrote a store record");
+    assert!(
+        !state.join("store.sqlite").exists(),
+        "it wrote a store record"
+    );
     assert_eq!(
         fs::read_dir(&work).expect("read work/").count(),
         0,

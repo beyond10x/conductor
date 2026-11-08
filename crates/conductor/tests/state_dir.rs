@@ -150,8 +150,8 @@ fn goals_answer_from_the_state_dir_flag_and_leave_the_working_directory_alone() 
     );
     assert_eq!(
         entries(&elsewhere),
-        ["tree"],
-        "the store is <elsewhere>/tree"
+        ["store.sqlite", "store.sqlite.open-lock"],
+        "the store is <elsewhere>/store.sqlite"
     );
 }
 
@@ -385,7 +385,7 @@ fn a_view_on_a_missing_store_is_exit_1_and_creates_nothing() {
     );
     refused(
         &with,
-        &missing.join("tree"),
+        &missing.join("store.sqlite"),
         "`conductor --state-dir <missing> goal goals`",
     );
     assert!(
@@ -398,7 +398,7 @@ fn a_view_on_a_missing_store_is_exit_1_and_creates_nothing() {
         .canonicalize()
         .expect("the working directory resolves")
         .join("state")
-        .join("tree");
+        .join("store.sqlite");
     refused(&without, &looked_for, "`conductor goal goals`");
     assert_eq!(
         entries(&work),

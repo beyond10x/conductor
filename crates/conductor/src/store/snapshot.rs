@@ -54,7 +54,7 @@ use crate::snapshot::{
 };
 
 /// `conductor.observation.Snapshot`.
-const SNAPSHOT: &str = "conductor.observation.Snapshot";
+pub(super) const SNAPSHOT: &str = "conductor.observation.Snapshot";
 
 /// `conductor.observation.RepositoryObservation`.
 pub(super) const REPOSITORY: &str = "conductor.observation.RepositoryObservation";

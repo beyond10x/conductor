@@ -91,5 +91,5 @@ turns each finding into planned work in the repository, and after a merged chang
 gate runs `task install`. The CLI keeps no state outside its state directory, so a new binary
 needs no restart.
 
-`conductor run` keeps no context either. After a release that changed it, conductor-dev runs
-`conductor run --uninstall`, then `conductor run --install`; nothing is handed over.
+`conductor run` keeps no context either. After a release, conductord restarts each instance's
+runtime on the new binary at its next pass; nothing is handed over.

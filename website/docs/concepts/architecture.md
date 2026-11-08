@@ -27,7 +27,7 @@ flowchart TB
   op -.-|names foreign sessions, answers his class| sup
   tea -.->|observes, edits the profile| sup
   subgraph slice["conductor_‹instance›.slice, one per instance"]
-    run["‹instance›-run.service: conductor run, no model"]:::nomodel
+    run["‹instance›-runtime.service: conductor instance serve, no model"]:::nomodel
     dash["‹instance›-dashboard.service: 127.0.0.1:‹dashboard_port›"]:::nomodel
     s1["‹prefix›-‹repo A›.service: tmux server, controller"]:::model
     s2["‹prefix›-‹repo B›.service: tmux server, controller"]:::model
@@ -53,7 +53,7 @@ flowchart TB
 operator (chat session) ──── supervisor (claude --bg) ◄···· teacher (claude --bg)
                                   │ restarts, delivers, reads journals; defects to conductor-dev
   ┌─ conductor_<instance>.slice, one per instance ───────────────────────────────────┐
-  │ <instance>-run.service         conductor run, no model                           │
+  │ <instance>-runtime.service     conductor instance serve, no model                │
   │ <instance>-dashboard.service   127.0.0.1:<dashboard_port>                        │
   │ <prefix>-<repo A>.service      tmux server ── controller ── tree of repository A │
   │ <prefix>-<repo B>.service      tmux server ── controller ── tree of repository B │
@@ -71,7 +71,7 @@ operator (chat session) ──── supervisor (claude --bg) ◄···· teache
 | level | one per | what runs there | started by |
 |---|---|---|---|
 | host | machine | the supervisor session, the teacher session, the maintainer session (`conductor-dev`), the operator's own chat session | `task supervisor:start`, `task teacher:start`, `task maintainer:start`; the chat session by the operator |
-| instance | organization | the loop (`conductor run`), the dashboard, the instance's controllers | `conductor run --install`, `task dashboard`, the loop |
+| instance | organization | the loop (`conductor run`), the dashboard, the instance's controllers | conductord (`conductor daemon serve`), `task dashboard`, the loop |
 | repository | repository of an instance | one controller session, in its own tree | the loop, through `conductor spawn` |
 | unit of work | a story or task | the controller's sub-agents (planner, implementer, reviewer) | the controller, inside its own harness session |
 
@@ -116,7 +116,7 @@ process of the instance is one user unit inside it:
 
 | unit | runs | model |
 |---|---|---|
-| `conductor_<instance>-run.service` | `conductor run`: the loop | no |
+| `conductor_<instance>-runtime.service` | `conductor instance serve`: the instance's runtime, started by conductord (`conductord.service`) | no |
 | `conductor_<instance>-dashboard.service` | the dashboard on `127.0.0.1:<dashboard_port>` | no |
 | `conductor_<session>.service` | one tmux server, `tmux -D -S <state>/sessions/<session>.tmux`, whose only window runs the harness of a controller or the maintainer | yes |
 
@@ -167,7 +167,8 @@ Why one server per session:
   sessions and a crashed server takes no other session down.
 - The tmux config is per session too (`<session>.tmux.conf`: `exit-empty on`, prefix `C-]`, status
   off, `-x 160 -y 50`), so a session's terminal size and keys cannot be changed from another one.
-- Everything typed and printed is kept: `<session>.terminal.log` is the terminal log a watcher reads (today the file is still `<session>.typescript`, the `script` command's default name; the story terminal-log-name renames it), and a
+- Everything typed and printed is kept: `<session>.terminal.log` is the terminal log a watcher
+  reads (when it is absent, this release reads the old name `<session>.typescript`), and a
   session started before the tmux launcher can still be followed through it (`--watch`).
 - A session's settings file (`<session>.settings.json`) is written at start from the role's
   `settings` and its `read_only_tools`, so the harness reads a file conductor owns, not a shared one.

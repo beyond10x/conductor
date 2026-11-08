@@ -414,7 +414,7 @@ fn describe(output: &Output) -> String {
 }
 
 /// What one `systemd-run` call launches: the unit runs `tmux -D -S <socket> -f <conf>`, last;
-/// answers the socket, the typescript (`-E CONDUCTOR_TYPESCRIPT=`) and the harness command the
+/// answers the socket, the terminal log (`-E CONDUCTOR_TERMINAL_LOG=`) and the harness command the
 /// pane runs (`-E CONDUCTOR_HARNESS=`), and checks the session's name is `-E
 /// CONDUCTOR_SESSION=` and the configuration is [`systemd::TMUX_CONF`].
 fn launcher_tail(call: &[String]) -> (String, String, String) {
@@ -454,7 +454,7 @@ fn launcher_tail(call: &[String]) -> (String, String, String) {
     assert_eq!(set("CONDUCTOR_SESSION"), name, "{call:?}");
     (
         socket,
-        set("CONDUCTOR_TYPESCRIPT"),
+        set("CONDUCTOR_TERMINAL_LOG"),
         set("CONDUCTOR_HARNESS"),
     )
 }
@@ -620,11 +620,11 @@ fn a_controller_starts_in_its_unit_inside_the_prefixed_slice_with_its_role_limit
             "-E {set}: {run:?}"
         );
     }
-    let (socket, typescript, command) = launcher_tail(run);
+    let (socket, log, command) = launcher_tail(run);
     assert_eq!(socket, state.join("ex-alpha.tmux").display().to_string());
     assert_eq!(
-        typescript,
-        state.join("ex-alpha.typescript").display().to_string()
+        log,
+        state.join("ex-alpha.terminal.log").display().to_string()
     );
     let id = session_id_of(&command);
     assert_eq!(id.len(), 36, "a UUID: {command}");
@@ -654,7 +654,7 @@ fn a_controller_starts_in_its_unit_inside_the_prefixed_slice_with_its_role_limit
         command.starts_with(systemd::MOVE_BACK),
         "the harness runs in the unit's cgroup: {command}"
     );
-    assert!(typescript.ends_with("ex-alpha.typescript"), "{typescript}");
+    assert!(log.ends_with("ex-alpha.terminal.log"), "{log}");
     assert_eq!(case.typed(CHARTER), typed(CHARTER));
     // `tmux -D` runs its configuration, which creates the session, only when a first client
     // connects: the start connects one before it waits for the session to be live

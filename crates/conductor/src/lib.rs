@@ -19,6 +19,7 @@ pub mod collect;
 pub mod config;
 pub mod confine;
 pub mod controller;
+pub mod daemon;
 pub mod dashboard;
 pub mod decide;
 pub mod disk;

@@ -93,7 +93,7 @@ it for a `conductor.config/2` file.
 | `daemon.port` | port | `7300` | the loopback port of the global API on 127.0.0.1: a whole number from 1 to 65535 |
 | `daemon.tls.listen` | `<host>:<port>` | none (no TLS listener) | the TLS listener, for a dashboard deployed elsewhere and for every client of a daemon on a remote box |
 | `daemon.cadence.reconcile` | duration | `60s` | how often the daemon reconciles when nothing else starts a pass |
-| `daemon.store` | store URL | `sqlite:~/.b10x/conductor/conductor.sqlite` | the one store of the deployment, `sqlite:<path>` or `postgres://…` (its password a `secret:<name>`), which the daemon hands to every instance runtime |
+| `daemon.store` | store URL | `sqlite:~/.b10x/conductor/conductor.sqlite` | the one store of the deployment, `sqlite:<path>` or `postgres://…` (its password a `secret:<name>`), which the daemon hands to every instance runtime in `$CONDUCTOR_STORE`. A command of the instance on its own `state` opens that URL, else the `daemon.store` the file writes, else `<state>/store.sqlite`; on any other state directory, `<state>/store.sqlite`. `conductor doctor` names the backend and whether it answers |
 | `daemon.secrets.source` | `keychain` \| `remote` | `keychain` | where the `secret:<name>` values resolve: the OS keychain, or the Secrets service |
 | `daemon.secrets.namespace` | string | none | the secrets namespace the names live in |
 | `daemon.secrets.url` | string | none | the Secrets service's address; `remote` only |
@@ -129,10 +129,11 @@ came from, exits 2 (not written yet).
 |---|---|---|
 | `instances[].dashboard_port` | the daemon serves the one dashboard, at `daemon.dashboard` | read as before: the port `conductor dashboard serve` binds without `--port`; absent, 7313 plus the instance's position in the file |
 | `instances[].confinement` (`mode`, `provider`, `limits`) | an instance's box is its `placement` (a Substrate box); its limits are the instance's `limits` | read as before (Confinement, below); the instance's `placement` is named after the provider and its `limits` are `confinement.limits` |
+| `instances[].store` | the store is the deployment's one database, at `daemon.store` | ignored; `conductor config migrate` drops it with one note per instance |
 | `host.yaml`, the host file | the host's roles are `globals.roles` | not read: the maintainer is the instance's own maintainer role |
 | `instances.json`, the host registry | one daemon reads one file | not read or written |
 
-A `conductor.config/2` file that writes `dashboard_port` or `confinement` is refused by its YAML
+A `conductor.config/2` file that writes `dashboard_port`, `confinement` or `store` is refused by its YAML
 path, naming why. In a `/2` file an instance's sessions start through the `systemd` provider in
 `report` mode, inside the instance's `limits`, until placements are read; its dashboard port is
 7313 plus its position in the file. `conductor doctor` prints no confinement provider rows.

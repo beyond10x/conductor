@@ -1,5 +1,5 @@
 // generated from conductor v1
-// contract digest e3b967aa3e3d0f313417baefaaf92190635d03007992d259a68d9a4352490e1a
+// contract digest 88f1c9e5b4ef578aa56eea73a14e4e509b870a0735bb11ab37ea1e0e49124b8a
 // do not edit: regenerate with `ess synthesize --layout crate`
 
 //! What the specification fully determines, generated: the behaviour of every command the plan

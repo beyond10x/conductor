@@ -1,8 +1,7 @@
 //! `DailySeriesStorage` on [`super::Store`] (`story:dashboard-history`): each
-//! `conductor.observation.DailySeries` is one stream, keyed by its id, in the store's one tenant of
-//! `state/series/`, a tree of its own: a rollup is not an observation, so retention never drops
-//! it, and the tree every other command opens does not grow with it. It is opened at its first
-//! use, by the rollup a completed snapshot runs and by the dashboard's `/api/series`.
+//! `conductor.observation.DailySeries` is one stream, keyed by its id, in the instance's tenant: a
+//! rollup is not an observation, so retention never drops it. The rollup a completed snapshot runs
+//! writes it and the dashboard's `/api/series` reads it.
 
 use conductor_model::behaviour::DailySeriesStorage;
 use conductor_model::observation::{

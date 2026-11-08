@@ -39,7 +39,7 @@ use eventlog_core::{
     CommandMeta, EventStore as _, Expected, NewEvent, StreamId, TenantId, new_event_id,
     request_hash,
 };
-use eventlog_tree::TreeEventStore;
+use eventlog_sqlite::SqliteEventStore;
 use serde_json::{Value, json};
 use time::OffsetDateTime;
 
@@ -118,9 +118,15 @@ fn append_raw(
     data: Value,
 ) {
     callers_runtime().block_on(async {
-        let log = TreeEventStore::open(state.join("tree"))
-            .await
-            .expect("open the raw log");
+        let log = SqliteEventStore::open(
+            state
+                .join(conductor_cli::store::STORE_FILE)
+                .to_str()
+                .expect("a UTF-8 path"),
+            conductor_cli::store::PREFIX,
+        )
+        .await
+        .expect("open the raw log");
         let tenant = TenantId::new("conductor").expect("tenant");
         let stream = StreamId::new(tenant, entity, identity).expect("stream");
         let events = [NewEvent::new(name, version, data).expect("event")];

@@ -1195,9 +1195,10 @@ pub fn doctor_with(flag: Option<&Path>) -> Result<ExitCode> {
     for line in doctor.lines() {
         println!("{line}");
     }
-    for line in run_units(flag) {
+    if let Some(line) = store_line(flag) {
         println!("{line}");
     }
+    println!("{}", daemon_unit());
     let verdict = verdict_of(&doctor.failures());
     println!("{verdict}");
     Ok(if verdict == READY {
@@ -1207,32 +1208,20 @@ pub fn doctor_with(flag: Option<&Path>) -> Result<ExitCode> {
     })
 }
 
-/// One line per instance of the config file `flag` names (`story:run-daemon`): `run unit:
-/// <unit> running`, or `… not running (<why>)`, the state of `conductor_<instance>-run.service`
-/// as `systemctl --user is-active` answers it, as the usage watcher's is read. None without a
-/// config file. It changes no verdict: an instance may run its loop another way.
-fn run_units(flag: Option<&Path>) -> Vec<String> {
-    let Ok(loaded) = config::Environment::from_process()
-        .and_then(|environment| config::load(flag, &environment))
-    else {
-        return Vec::new();
-    };
-    if !loaded.read {
-        return Vec::new();
-    }
+/// The state of conductord's user unit (`story:daemon-reconcile`): `daemon unit:
+/// conductord.service running`, or `… not running (<why>)`, as `systemctl --user is-active`
+/// answers it, as the usage watcher's is read. It changes no verdict: the daemon may run another
+/// way.
+fn daemon_unit() -> String {
     let systemctl = env::var_os("PATH").and_then(|search| find_in("systemctl", &search));
-    loaded
-        .config
-        .instances
-        .iter()
-        .map(|instance| {
-            let unit = watcher(systemctl.as_deref(), crate::run::unit::unit_name(instance));
-            match &unit.not_running {
-                None => format!("run unit: {} running", unit.unit),
-                Some(why) => format!("run unit: {} not running ({why})", unit.unit),
-            }
-        })
-        .collect()
+    let unit = watcher(
+        systemctl.as_deref(),
+        crate::daemon::install::UNIT.to_owned(),
+    );
+    match &unit.not_running {
+        None => format!("daemon unit: {} running", unit.unit),
+        Some(why) => format!("daemon unit: {} not running ({why})", unit.unit),
+    }
 }
 
 /// The verdict of a run every program of which passed (`story:doctor-verdict`).
@@ -1290,6 +1279,31 @@ pub fn verdict_of(failures: &[String]) -> String {
     } else {
         format!("not ready: {}", failures.join(", "))
     }
+}
+
+/// The line of the deployment's store (`story:store-shared`): `store: <backend> <where>
+/// (answers)`, or `… (does not answer: <why>)`, for the `daemon.store` of the config `flag` names
+/// (its default without a file). None when the config does not load. It changes no verdict, and
+/// creates no SQLite file that is not there.
+fn store_line(flag: Option<&Path>) -> Option<String> {
+    let loaded = config::Environment::from_process()
+        .and_then(|environment| config::load(flag, &environment))
+        .ok()?;
+    let url = &loaded.config.daemon.store.0;
+    Some(match crate::store::Location::parse(url) {
+        Ok(location) => {
+            let answer = match crate::store::answers(&location) {
+                Ok(()) => "(answers)".to_owned(),
+                Err(why) => format!("(does not answer: {why})"),
+            };
+            format!(
+                "store: {} {} {answer}",
+                location.backend_name(),
+                location.shown()
+            )
+        }
+        Err(error) => format!("store: {url} (does not answer: {error:#})"),
+    })
 }
 
 #[cfg(test)]
