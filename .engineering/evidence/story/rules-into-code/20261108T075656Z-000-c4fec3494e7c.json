@@ -1,0 +1,13 @@
+{
+  "at": "2026-11-08T07:56:56Z",
+  "actor": "human:timo",
+  "artifact": "story:rules-into-code",
+  "kind": "story",
+  "revision": 2,
+  "change": {
+    "change": "evidence",
+    "kind": "health_observation",
+    "source": "conductor-dev start 2026-11-08T07:54Z",
+    "reference": "conductor rules show --role maintainer: RuleRoleNotFound, records hold no rules/maintainer.md; .agents/conductor-dev.md:7 names the step"
+  }
+}

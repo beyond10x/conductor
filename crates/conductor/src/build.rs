@@ -90,6 +90,21 @@
 //!    stopped; its grant is marked (`lane_overrun`) as it is released. The queued line and the
 //!    grant name the lane. Queue order, backfill and the disk rules of the regular slots are as
 //!    above.
+//! 10. **Shared target directory** (`story:build-shared-target-dir`). A cargo-based command gets
+//!     `CARGO_TARGET_DIR` set to its repository's one target directory, `<cache>/target/<key>`
+//!     under the instance's cache ([`targets_root`]), the key from the repository's origin
+//!     ([`repository_key`]), so every tree of a repository builds the dependencies once. Granted,
+//!     and before the command starts, the run takes the repository's lock
+//!     (`<cache>/target/.locks/<key>.lock`) and holds it until the command ended: cargo's own lock
+//!     covers only its build step, and a tree's tests would otherwise run the binary another tree
+//!     uplifted meanwhile (`target/debug/<bin>`, which `CARGO_BIN_EXE_<bin>` names). A run that
+//!     finds the lock held waits, says its position in the queue once, and leaves the queue on a
+//!     stopping signal like a waiting request. Cargo hashes the repository's own crates by their
+//!     path inside the workspace, the same in each tree, and finds them fresh by modification
+//!     time, so a run from another tree than the target's last marks its tree's files modified
+//!     first (`SharedTarget::claim`). A `CARGO_TARGET_DIR` the environment sets is kept, named
+//!     in one line, and the run takes no lock. The measured directories include the shared one.
+//!     `conductor gc` removes a shared target whose lock no run holds.
 
 use std::collections::HashSet;
 use std::ffi::OsString;
@@ -350,6 +365,18 @@ pub struct Sources {
     /// The `sccache` program on `PATH`, none when there is none (`story:build-run-repo-cache`). A
     /// case gives a fake one.
     pub sccache: Option<PathBuf>,
+    /// The directory holding each repository's shared target directory and its lock
+    /// ([`targets_root`], `story:build-shared-target-dir`); none: a run sets no `CARGO_TARGET_DIR`
+    /// and takes no repository lock.
+    pub targets: Option<PathBuf>,
+}
+
+/// The directory under the instance's cache that holds each repository's shared target directory,
+/// `<cache>/target/<key>`, and its lock, `<cache>/target/.locks/<key>.lock`
+/// (`story:build-shared-target-dir`). `conductor gc` reclaims each target there no run holds.
+#[must_use]
+pub fn targets_root(instance: &Instance) -> PathBuf {
+    Path::new(&instance.cache).join("target")
 }
 
 /// Writes `line` to standard error.
@@ -383,6 +410,7 @@ impl Sources {
             sessions: ["claude", "agents", "--json"].map(OsString::from).to_vec(),
             walk,
             sccache: find_on_path("sccache"),
+            targets: Some(targets_root(instance)),
         }
     }
 }
@@ -1197,8 +1225,24 @@ pub fn run(
     }
     // The store stays open until the command started: the grant's next writes need no reopen.
     let idle = ledger.unlock();
+    // The repository's shared target directory (`story:build-shared-target-dir`), held under its
+    // lock from here until the command ended. A signal while it waits is answered below.
+    let shared = shared_target(sources, request, &|line| say(line));
+    let mut held = shared.as_ref().and_then(|target| {
+        target
+            .hold(&|line| say(line), &|| received().is_some())
+            .unwrap_or_else(|error| {
+                say(&format!(
+                    "conductor: build run: the repository's target directory {} is not shared: \
+                     {error:#}",
+                    target.dir.display()
+                ));
+                None
+            })
+    });
+    let shared = shared.filter(|_| held.is_some());
     // Measured before the command starts, so a run's growth counts what a fast command wrote too.
-    let paths = measured(request, sources);
+    let paths = measured(request, sources, shared.as_ref().map(|target| &*target.dir));
     let start = (sources.walk)(&paths, WALK_BOUND);
     // A signal before the command starts: the granted reservation is released, and nothing runs.
     if let Some(signal) = received() {
@@ -1244,6 +1288,9 @@ pub fn run(
     for (name, value) in lean_debuginfo(settings, sources, request) {
         command.env(name, value);
     }
+    if let Some(target) = &shared {
+        command.env("CARGO_TARGET_DIR", &target.dir);
+    }
     if let Some(output) = &request.output {
         let opened = OpenOptions::new()
             .create(true)
@@ -1272,6 +1319,11 @@ pub fn run(
         }
     };
     let group = i64::from(child.id());
+    // The lock names the command's group while it runs: should this run be killed, the next one
+    // waits for the group ([`orphaned_group`]).
+    if let (Some(target), Some(file)) = (&shared, held.as_mut()) {
+        target.record_group(file, Some(group));
+    }
     let began = Instant::now();
     // The store is let go once the run started: the command may run for hours.
     let started = idle
@@ -1301,6 +1353,9 @@ pub fn run(
         thread::spawn(move || watch.run(&done))
     };
     let (status, stopped_by) = supervise(&mut child, group);
+    if let (Some(target), Some(file)) = (&shared, held.as_mut()) {
+        target.record_group(file, None);
+    }
     done.store(true, Ordering::SeqCst);
     let watched = watchdog
         .join()
@@ -1580,8 +1635,13 @@ fn repository_name(cwd: &Path) -> Option<String> {
     } else {
         common.file_name()?
     };
-    let named = named.to_string_lossy();
-    let named = named.strip_suffix(".git").unwrap_or(&named);
+    clean_name(&named.to_string_lossy())
+}
+
+/// `named` without a `.git` suffix, every character but letters, digits, `.`, `_` and `-`
+/// written `-`; none when that leaves nothing, `.` or `..`.
+fn clean_name(named: &str) -> Option<String> {
+    let named = named.strip_suffix(".git").unwrap_or(named);
     let clean: String = named
         .chars()
         .map(|c| {
@@ -1593,6 +1653,296 @@ fn repository_name(cwd: &Path) -> Option<String> {
         })
         .collect();
     (!clean.is_empty() && clean != "." && clean != "..").then_some(clean)
+}
+
+/// The directory under [`Sources::targets`] that holds the shared targets' locks and queues.
+pub const TARGET_LOCKS: &str = ".locks";
+
+/// How often a run waiting for its repository's target directory tries its lock again.
+const TARGET_POLL: Duration = Duration::from_millis(100);
+
+/// The key of the repository whose work tree holds `cwd` (`story:build-shared-target-dir`), the
+/// same in each of its trees and in each clone of one origin: the last step of `remote.origin.url`
+/// ([`clean_name`]) and a hash of the URL without a trailing `/` or `.git`; with no origin, the
+/// repository's name ([`repository_name`]) and a hash of its `git rev-parse --git-common-dir`.
+/// None outside a git repository.
+#[must_use]
+pub fn repository_key(cwd: &Path) -> Option<String> {
+    let git = |args: &[&str]| -> Option<String> {
+        let output = Command::new("git")
+            .args(args)
+            .current_dir(cwd)
+            .stdin(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null())
+            .output()
+            .ok()
+            .filter(|output| output.status.success())?;
+        let text = String::from_utf8(output.stdout).ok()?.trim().to_owned();
+        (!text.is_empty()).then_some(text)
+    };
+    if let Some(url) = git(&["config", "--get", "remote.origin.url"]) {
+        let url = url.trim_end_matches('/');
+        let url = url.strip_suffix(".git").unwrap_or(url);
+        let name = url.rsplit(['/', ':']).next().and_then(clean_name)?;
+        return Some(format!("{name}-{:016x}", fnv(url)));
+    }
+    let common = git(&["rev-parse", "--path-format=absolute", "--git-common-dir"])?;
+    let name = repository_name(cwd)?;
+    Some(format!("{name}-{:016x}", fnv(&common)))
+}
+
+/// The 64-bit FNV-1a hash of `text`: stable across builds and hosts, unlike the standard hasher.
+fn fnv(text: &str) -> u64 {
+    text.bytes().fold(0xcbf2_9ce4_8422_2325, |hash, byte| {
+        (hash ^ u64::from(byte)).wrapping_mul(0x0100_0000_01b3)
+    })
+}
+
+/// The shared target directory of one run's repository and its lock
+/// (`story:build-shared-target-dir`).
+struct SharedTarget {
+    /// `<targets>/<key>`: the run's `CARGO_TARGET_DIR`.
+    dir: PathBuf,
+    /// `<targets>/.locks/<key>.lock`, held for the whole command.
+    lock: PathBuf,
+    /// `<targets>/.locks/<key>.queue`: one empty file per run waiting for the lock, named
+    /// `<nanoseconds>-<pid>`, which gives each its position.
+    queue: PathBuf,
+    /// The root of the work tree the run builds: `git rev-parse --show-toplevel`, else its working
+    /// directory.
+    tree: PathBuf,
+}
+
+/// The shared target `request` gets: none when [`Sources::targets`] is none or the command is not
+/// cargo-based ([`cargo_based`]); none, said in one line, when the environment of `build run`
+/// sets `CARGO_TARGET_DIR` (it is kept) or the working directory is in no git repository.
+fn shared_target(sources: &Sources, request: &Request, say: &dyn Fn(&str)) -> Option<SharedTarget> {
+    let root = sources.targets.as_ref()?;
+    if !cargo_based(request) {
+        return None;
+    }
+    if let Some(held) = (sources.env)("CARGO_TARGET_DIR").filter(|held| !held.is_empty()) {
+        say(&format!(
+            "conductor: build run: CARGO_TARGET_DIR is set to {held}: kept; this run does not \
+             share its repository's target directory"
+        ));
+        return None;
+    }
+    let Some(key) = repository_key(&request.cwd) else {
+        say(
+            "conductor: build run: no shared target directory: the working directory is in no \
+             git repository",
+        );
+        return None;
+    };
+    let locks = root.join(TARGET_LOCKS);
+    Some(SharedTarget {
+        dir: root.join(&key),
+        lock: locks.join(format!("{key}.lock")),
+        queue: locks.join(format!("{key}.queue")),
+        tree: work_tree_root(&request.cwd).unwrap_or_else(|| request.cwd.clone()),
+    })
+}
+
+impl SharedTarget {
+    /// Takes the repository's lock, waiting while another run holds it, and while the lock names
+    /// the process group of a command that still runs ([`orphaned_group`]): its `build run` was
+    /// killed, and the kernel let the lock go with it. A run that waits says its position in the
+    /// queue once: one more than the runs still waiting that came before it. None when `stopping`
+    /// answers true while it waits. Once held, the target is made the run's tree's
+    /// ([`SharedTarget::claim`]).
+    ///
+    /// # Errors
+    ///
+    /// The lock or the queue cannot be written.
+    fn hold(&self, say: &dyn Fn(&str), stopping: &dyn Fn() -> bool) -> Result<Option<fs::File>> {
+        let locks = self.lock.parent().unwrap_or(&self.lock);
+        fs::create_dir_all(locks).with_context(|| format!("create {}", locks.display()))?;
+        let mut file = OpenOptions::new()
+            .create(true)
+            .truncate(false)
+            .read(true)
+            .write(true)
+            .open(&self.lock)
+            .with_context(|| format!("open {}", self.lock.display()))?;
+        let mut waiting: Option<PathBuf> = None;
+        let mut orphan_said = false;
+        let held = loop {
+            match file.try_lock() {
+                Ok(()) => match orphaned_group(&mut file) {
+                    None => break true,
+                    Some(group) => {
+                        let _ = file.unlock();
+                        if !orphan_said {
+                            orphan_said = true;
+                            say(&format!(
+                                "conductor: build run: the command of a stopped run, process \
+                                 group {group}, still runs in the target directory {}: this run \
+                                 waits until it ended",
+                                self.dir.display()
+                            ));
+                        }
+                    }
+                },
+                Err(fs::TryLockError::WouldBlock) => {}
+                Err(fs::TryLockError::Error(error)) => {
+                    return Err(error).with_context(|| format!("lock {}", self.lock.display()));
+                }
+            }
+            if waiting.is_none() {
+                waiting = Some(self.enqueue(say)?);
+            }
+            if stopping() {
+                break false;
+            }
+            thread::sleep(TARGET_POLL);
+        };
+        if let Some(mine) = waiting {
+            let _ = fs::remove_file(mine);
+        }
+        if !held {
+            return Ok(None);
+        }
+        self.claim(&mut file, say);
+        Ok(Some(file))
+    }
+
+    /// Makes the shared target the run's tree's, under its lock `file`. Cargo hashes a workspace member's
+    /// artifacts by its path relative to the workspace, the same in every tree, and finds a unit
+    /// fresh when no source file is newer than its last build: a tree whose files are older than
+    /// another tree's build would run that build. So when the target was last built from another
+    /// tree, or from an unknown one, every file of the tree git tracks or would add is marked
+    /// modified now, and cargo rebuilds the repository's own crates; the dependencies' artifacts,
+    /// keyed by their version, stay shared. The lock file then names the tree.
+    fn claim(&self, file: &mut fs::File, say: &dyn Fn(&str)) {
+        let tree = &self.tree;
+        use std::io::{Read as _, Seek as _};
+        let mut text = String::new();
+        let _ = file.rewind().and_then(|()| file.read_to_string(&mut text));
+        let last = text.lines().next().unwrap_or_default();
+        let ours = tree.display().to_string();
+        if last.trim() != ours && self.dir.exists() {
+            let marked = mark_modified(tree);
+            say(&format!(
+                "conductor: build run: the shared target {} was last built from {}: {marked} \
+                 files of this tree are marked modified, so cargo rebuilds the repository's own \
+                 crates",
+                self.dir.display(),
+                if last.trim().is_empty() {
+                    "an unknown tree"
+                } else {
+                    last.trim()
+                },
+            ));
+        }
+        self.record_group(file, None);
+    }
+
+    /// Writes the lock file `file` anew: the run's tree on its first line and, while the command
+    /// runs, its process group `group` on the second, which [`orphaned_group`] reads should this
+    /// `build run` be killed before its command ended.
+    fn record_group(&self, file: &mut fs::File, group: Option<i64>) {
+        use std::io::Seek as _;
+        let ours = self.tree.display().to_string();
+        let _ = file
+            .set_len(0)
+            .and_then(|()| file.rewind())
+            .and_then(|()| match group {
+                Some(group) => writeln!(file, "{ours}\n{group}"),
+                None => writeln!(file, "{ours}"),
+            });
+    }
+
+    /// Adds this run to the queue and says its position; answers its entry.
+    fn enqueue(&self, say: &dyn Fn(&str)) -> Result<PathBuf> {
+        fs::create_dir_all(&self.queue)
+            .with_context(|| format!("create {}", self.queue.display()))?;
+        let nanos = OffsetDateTime::now_utc().unix_timestamp_nanos();
+        let name = format!("{nanos:024}-{}", std::process::id());
+        let mine = self.queue.join(&name);
+        fs::write(&mine, "").with_context(|| format!("write {}", mine.display()))?;
+        let mut ahead = 0;
+        for entry in fs::read_dir(&self.queue).into_iter().flatten().flatten() {
+            let other = entry.file_name().to_string_lossy().into_owned();
+            let pid = other
+                .rsplit_once('-')
+                .and_then(|(_, pid)| pid.parse::<i32>().ok());
+            let alive = pid.is_some_and(|pid| {
+                pid > 0 && nix::sys::signal::kill(Pid::from_raw(pid), None).is_ok()
+            });
+            if !alive {
+                // A run that ended without leaving the queue.
+                let _ = fs::remove_file(entry.path());
+            } else if other < name {
+                ahead += 1;
+            }
+        }
+        say(&format!(
+            "conductor: build run: another run of this repository holds its target directory {}: \
+             queue position {}",
+            self.dir.display(),
+            ahead + 1
+        ));
+        Ok(mine)
+    }
+}
+
+/// The process group a shared target's lock `file` names on its second line, when a process of it
+/// still runs: the command of a `build run` that was killed while the command ran, which the
+/// kernel's release of the lock did not stop. None when the line is missing, not a group, or the
+/// group has no process left. A group id the kernel gave again to an unrelated group makes a run
+/// wait until that group ended.
+pub(crate) fn orphaned_group(file: &mut fs::File) -> Option<i32> {
+    use std::io::{Read as _, Seek as _};
+    let mut text = String::new();
+    file.rewind().ok()?;
+    file.read_to_string(&mut text).ok()?;
+    let group = text.lines().nth(1)?.trim().parse::<i32>().ok()?;
+    (group > 1 && nix::sys::signal::kill(Pid::from_raw(-group), None).is_ok()).then_some(group)
+}
+
+/// Sets the modification time of every regular file of the work tree `tree` that git tracks or
+/// would add (`git ls-files --cached --others --exclude-standard`) to now; answers how many. A
+/// submodule is one entry there, a directory: the work tree checked out in it is marked the same
+/// way, and so on down, as cargo builds a member or a path dependency there like any other.
+fn mark_modified(tree: &Path) -> usize {
+    mark_modified_now(tree, std::time::SystemTime::now())
+}
+
+fn mark_modified_now(tree: &Path, now: std::time::SystemTime) -> usize {
+    let Ok(output) = Command::new("git")
+        .args([
+            "ls-files",
+            "-z",
+            "--cached",
+            "--others",
+            "--exclude-standard",
+        ])
+        .current_dir(tree)
+        .stdin(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .output()
+    else {
+        return 0;
+    };
+    output
+        .stdout
+        .split(|byte| *byte == 0)
+        .filter(|name| !name.is_empty())
+        .map(|name| tree.join(String::from_utf8_lossy(name).as_ref()))
+        .map(|path| match fs::symlink_metadata(&path) {
+            Ok(meta) if meta.is_file() => usize::from(
+                fs::File::open(&path)
+                    .and_then(|file| file.set_modified(now))
+                    .is_ok(),
+            ),
+            // A submodule's work tree: its `.git` is a file, or a directory in an older layout.
+            Ok(meta) if meta.is_dir() && path.join(".git").exists() => {
+                mark_modified_now(&path, now)
+            }
+            _ => 0,
+        })
+        .sum()
 }
 
 /// The compile cache of one run's repository (`story:build-run-repo-cache`).
@@ -2310,7 +2660,7 @@ fn shared_reclaim(
 /// What a run writes: its `target/` when its working directory is a Cargo project or holds one,
 /// else the working directory itself; each `--measure` directory; and `CARGO_TARGET_DIR` when the
 /// environment of the command sets it. A relative path is relative to the working directory.
-fn measured(request: &Request, sources: &Sources) -> Vec<PathBuf> {
+fn measured(request: &Request, sources: &Sources, shared: Option<&Path>) -> Vec<PathBuf> {
     let cwd = &request.cwd;
     let target = cwd.join("target");
     let own = if target.exists() || cwd.join("Cargo.toml").exists() {
@@ -2324,6 +2674,7 @@ fn measured(request: &Request, sources: &Sources) -> Vec<PathBuf> {
         .iter()
         .cloned()
         .chain((sources.env)("CARGO_TARGET_DIR").map(PathBuf::from))
+        .chain(shared.map(Path::to_path_buf))
         .filter(|path| !path.as_os_str().is_empty());
     for path in named {
         let path = cwd.join(path);

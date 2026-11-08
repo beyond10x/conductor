@@ -1,0 +1,13 @@
+{
+  "at": "2026-11-08T07:55:32Z",
+  "actor": "human:timo",
+  "artifact": "story:conductor-context-budget",
+  "kind": "story",
+  "revision": 6,
+  "change": {
+    "change": "evidence",
+    "kind": "metric_observation",
+    "source": "conductor-dev session 142123a1 transcript usage, first turn after the start list",
+    "reference": "1d after: 60,093 tokens at 2026-11-08T07:54:21Z (before 69,833 partial); rules show --role maintainer refused, no role file"
+  }
+}

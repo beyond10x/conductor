@@ -121,12 +121,21 @@ impl Headroom for Ais {
             AIS_BOUND,
         )
         .with_context(|| format!("run `{shown}`"))?;
-        if !output.status.success() {
-            bail!("`{shown}` {}", crate::confine::exited(&output));
-        }
-        let status: Value = serde_json::from_slice(&output.stdout)
-            .with_context(|| format!("`{shown}` printed no JSON"))?;
-        Ok(headroom_of(&status))
+        headroom_read(shown, &crate::confine::exited(&output), &output.stdout)
+    }
+}
+
+/// The headroom in what `shown` printed, whatever its exit: `ais status` exits non-zero while
+/// one account of the pool is exhausted and still prints the whole status. Only output that is
+/// missing or no JSON object is an error, and its line names `exited`, the command's exit.
+///
+/// # Errors
+///
+/// `stdout` holds no JSON object.
+pub fn headroom_read(shown: &str, exited: &str, stdout: &[u8]) -> Result<bool> {
+    match serde_json::from_slice::<Value>(stdout) {
+        Ok(status) if status.is_object() => Ok(headroom_of(&status)),
+        _ => bail!("`{shown}` {exited} and printed no JSON status"),
     }
 }
 
@@ -1399,5 +1408,22 @@ mod tests {
     fn a_daily_that_does_not_read_is_never_due() {
         let dir = Dir::new("unread");
         assert_eq!(daily_due(&dir.0, at("2026-11-07T15:30:00Z"), "8h07"), None);
+    }
+
+    /// `story:resume-reads-ais-json`: `ais status` 0.5.1 exits 3 while one account of the pool is
+    /// exhausted and still prints the whole JSON (2026-11-08 01:59); the headroom is read from it.
+    #[test]
+    fn headroom_is_read_from_printed_json_whatever_the_exit() {
+        let printed =
+            br#"{"accounts":[{"active":true,"usage":{"limit_reached":false,"windows":[]}}]}"#;
+        assert!(headroom_read("ais status", "exited 3", printed).expect("JSON was printed"));
+        let error = headroom_read("ais status", "exited 3", b"")
+            .expect_err("nothing printed")
+            .to_string();
+        assert!(
+            error.contains("exited 3"),
+            "the exit is in the line: {error}"
+        );
+        assert!(headroom_read("ais status", "exited 0", b"not json").is_err());
     }
 }

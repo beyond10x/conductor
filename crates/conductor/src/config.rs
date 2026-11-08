@@ -1905,6 +1905,21 @@ pub fn default_globals() -> Globals {
 ///
 /// Every problem the file has, each named by its YAML path.
 pub fn parse(text: &str, home: &Path) -> Result<Config, Vec<Problem>> {
+    converted(text, home, true)
+}
+
+/// [`parse`], holding no instance's [`Legacy`] keys: for a file built only to read what a key
+/// defaults to, which must not change how the real file of the same instance is shown.
+///
+/// # Errors
+///
+/// Every problem the file has, each named by its YAML path.
+pub fn parse_unheld(text: &str, home: &Path) -> Result<Config, Vec<Problem>> {
+    converted(text, home, false)
+}
+
+/// [`parse`], holding each instance's [`Legacy`] keys when `held`.
+fn converted(text: &str, home: &Path, held: bool) -> Result<Config, Vec<Problem>> {
     let value = yaml_value(text)?;
     let mut reader = Reader {
         home,
@@ -1917,8 +1932,10 @@ pub fn parse(text: &str, home: &Path) -> Result<Config, Vec<Problem>> {
     let config = reader.config(&value);
     match (config, reader.problems.is_empty()) {
         (Some(config), true) => {
-            for (instance, legacy) in config.instances.iter().zip(reader.legacy) {
-                hold(&instance.name.0, legacy);
+            if held {
+                for (instance, legacy) in config.instances.iter().zip(reader.legacy) {
+                    hold(&instance.name.0, legacy);
+                }
             }
             Ok(config)
         }

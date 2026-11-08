@@ -32,6 +32,11 @@
 //! ends with one `trees  <repository>: …` line per repository: trees finished, stale and kept, each
 //! with GiB (`trees` in JSON).
 //!
+//! Beside them it lists each repository's shared target of `conductor build run` ([`targets`],
+//! `story:build-shared-target-dir`): one whose lock it takes without waiting has no build running,
+//! and is listed with its bytes and removed under that lock; one whose lock a build holds is a
+//! holder, kept.
+//!
 //! After the rows it prints one table of the holders it measures and never reclaims: the panel's
 //! shared rows ([`waste::shared_rows`]: shared build targets, sccache, the rustup toolchains, the
 //! Go build cache, the agents' scratch and `/var/tmp`), and the archive strip when it could not be
@@ -57,6 +62,7 @@
 
 mod archives;
 pub mod reclaim;
+mod targets;
 pub(crate) mod trees;
 
 use std::collections::{BTreeMap, HashSet};
@@ -173,8 +179,27 @@ pub fn gc(args: &GcArgs) -> Result<ExitCode> {
             take(&sources, row, &tree)
         }
     }));
+    // The repositories' shared targets of `build run` (`story:build-shared-target-dir`).
+    let root = crate::build::targets_root(&crate::config::active().instance);
+    let shared_targets = targets::list(&root);
+    for target in &shared_targets {
+        match shared_target(target, dry_run) {
+            Ok(row) => rows.push(row),
+            Err(holder) => holders.push(holder),
+        }
+    }
+    let handled = targets::handled(&root, &shared_targets);
     let shared = waste::shared_rows(&sources);
-    holders.extend(shared.iter().map(Holder::of));
+    holders.extend(
+        shared
+            .iter()
+            .filter(|row| {
+                row.path
+                    .as_ref()
+                    .is_none_or(|path| !handled.contains(&PathBuf::from(path)))
+            })
+            .map(Holder::of),
+    );
     print(&rows, &holders, &strip.measured, &summary, dry_run, json)?;
     let mut refused = false;
     let mut err = io::stderr().lock();
@@ -196,6 +221,46 @@ pub fn gc(args: &GcArgs) -> Result<ExitCode> {
     } else {
         ExitCode::SUCCESS
     })
+}
+
+/// The row of one repository's shared target no build holds: listed, or removed under its lock
+/// unless `dry_run`; or the holder of one a build holds, with why it is kept.
+fn shared_target(target: &targets::Target, dry_run: bool) -> Result<GarbageRow, Holder> {
+    let path = target.dir.display().to_string();
+    let bytes = allocated(std::slice::from_ref(&target.dir));
+    let held = target.hold().map_err(|kept| Holder {
+        repository: None,
+        what: targets::WHAT.to_owned(),
+        path: Some(path.clone()),
+        bytes: Some(bytes),
+        kept,
+    })?;
+    let mut row = GarbageRow {
+        repository: None,
+        what: targets::WHAT.to_owned(),
+        paths: vec![path],
+        count: Some(1),
+        bytes: i64::try_from(bytes).ok(),
+        freed: None,
+        outcome: GarbageOutcome::Reclaimable,
+        detail: None,
+        tree: None,
+        verdict: None,
+    };
+    if !dry_run {
+        let removed = target.remove(&held);
+        let after = allocated(std::slice::from_ref(&target.dir));
+        row.freed = i64::try_from(bytes.saturating_sub(after)).ok();
+        match removed {
+            Ok(()) => row.outcome = GarbageOutcome::Removed,
+            Err(why) => {
+                row.outcome = GarbageOutcome::Refused;
+                row.detail = Some(why);
+            }
+        }
+    }
+    drop(held);
+    Ok(row)
 }
 
 /// `thresholds.tree_stale` of the active instance.
