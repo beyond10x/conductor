@@ -107,3 +107,4 @@ scenarios:
   - scenarios/instance-purge-instance-daemon-refused.yaml
   - scenarios/token-contribute-token-daemon-refused.yaml
   - scenarios/secret-put-secret-daemon-refused.yaml
+  - scenarios/secret-put-secret-exists.yaml

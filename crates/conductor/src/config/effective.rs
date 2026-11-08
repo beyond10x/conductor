@@ -103,10 +103,11 @@ pub fn settings(file: &Value, index: usize, instance: &Instance) -> Vec<Setting>
 
 /// The role named `name` in the list `roles` of the file, if it writes one.
 fn named_role<'v>(roles: &'v Value, name: &str) -> Option<&'v Value> {
-    roles
-        .as_array()?
-        .iter()
-        .find(|role| role["role"].as_str() == Some(name))
+    roles.as_array()?.iter().find(|role| {
+        role["role"]
+            .as_str()
+            .is_some_and(|written| super::same_role(written, name))
+    })
 }
 
 /// The value at `steps` under `value`, if the file writes one there.

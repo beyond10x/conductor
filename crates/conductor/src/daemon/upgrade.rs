@@ -232,6 +232,13 @@ impl<U: Units> Daemon<U> {
             return Err(Refusal::InstanceStateConflict(name.to_owned()));
         };
         let version = version_of(tag).to_owned();
+        if crate::upgrade::parse_version(&version).is_none() {
+            // Before any path is built from it: the version names directories the daemon
+            // removes and writes, and a tag such as `../binaries` would name others.
+            return Err(Refusal::Refused {
+                detail: format!("fetch: {tag:?} is no x.y.z"),
+            });
+        }
         let reason = ReconcileReason::OperatorCommand;
         let step = |daemon: &mut Self, result: ReconcileResult, detail: String| {
             daemon
@@ -553,7 +560,7 @@ impl<U: Units> Daemon<U> {
 }
 
 /// Copies `fetched` to `<dir>/conductor`, executable, through a file beside it; answers that path.
-fn install(fetched: &Path, dir: &Path) -> Result<PathBuf> {
+pub(super) fn install(fetched: &Path, dir: &Path) -> Result<PathBuf> {
     fs::create_dir_all(dir).with_context(|| format!("create {}", dir.display()))?;
     let path = dir.join("conductor");
     let next = dir.join(".conductor.next");

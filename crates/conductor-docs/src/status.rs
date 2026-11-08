@@ -351,7 +351,7 @@ pub const CAPABILITIES: &[Capability] = &[
         "Session table",
         "The dashboard's data holds one row per session of the instance, from its records, each controller with its dispatch.",
         "crates/conductor/tests/dashboard.rs::data_json_holds_one_row_per_session_of_the_instance_with_its_dispatch",
-        Some("/docs/reference/cli#conductor-dashboard-serve"),
+        Some("/docs/reference/cli#conductor-instance-serve"),
     ),
     shipped(
         DASHBOARD,

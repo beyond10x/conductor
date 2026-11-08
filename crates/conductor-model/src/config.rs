@@ -1,5 +1,5 @@
 // generated from conductor v1
-// contract digest c0e5f57876522191690b7b7fa0b710a15b36d5bf4a50b987946bb580f924bf53
+// contract digest 575fcfe0b84fcb4b2dc3a52041bbf14840203191eb2cb53374eec07ea92207ab
 // do not edit: regenerate with `ess synthesize --layout crate`
 
 //! Config — `conductor.config`.
@@ -309,6 +309,8 @@ pub struct Daemon {
     pub operators: Vec<DaemonOperator>,
     /// `upgrade_timeout` — `Duration`.
     pub upgrade_timeout: crate::primitives::Duration,
+    /// `timeout` — `Duration`.
+    pub timeout: crate::primitives::Duration,
 }
 
 /// DaemonCadence — `conductor.config.DaemonCadence`.

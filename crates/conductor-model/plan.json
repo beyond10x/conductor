@@ -2,8 +2,8 @@
   "provenance": {
     "system": "conductor",
     "specification_version": "v1",
-    "source_digest": "cd0c2070b2955c208cbc0c707b1f3bb7649392a75e6018f07aa772a9eae2d5fa",
-    "contract_digest": "c0e5f57876522191690b7b7fa0b710a15b36d5bf4a50b987946bb580f924bf53"
+    "source_digest": "98062e79a7338d90417a0f0906a82a25ba9e27b95346961bcc18e42aa9fb46d8",
+    "contract_digest": "575fcfe0b84fcb4b2dc3a52041bbf14840203191eb2cb53374eec07ea92207ab"
   },
   "scope": {
     "profile": "component-skeletons",
@@ -34,6 +34,27 @@
     {
       "kind": "domain_type",
       "source": "conductor.agent.AgentName",
+      "disposition": {
+        "disposition": "generated"
+      }
+    },
+    {
+      "kind": "domain_type",
+      "source": "conductor.agent.AgentSlotSelection",
+      "disposition": {
+        "disposition": "generated"
+      }
+    },
+    {
+      "kind": "domain_type",
+      "source": "conductor.agent.AgentTerminalAttach",
+      "disposition": {
+        "disposition": "generated"
+      }
+    },
+    {
+      "kind": "domain_type",
+      "source": "conductor.agent.AgentTextDelivery",
       "disposition": {
         "disposition": "generated"
       }
@@ -1902,6 +1923,13 @@
     },
     {
       "kind": "domain_type",
+      "source": "conductor.secret.WriteSecret",
+      "disposition": {
+        "disposition": "generated"
+      }
+    },
+    {
+      "kind": "domain_type",
       "source": "conductor.session.AttachMode",
       "disposition": {
         "disposition": "generated"
@@ -2720,6 +2748,20 @@
           "construct": "the guard `exists c in capabilities: (c == Interactive)`, in `not-interactive`"
         },
         "contract": "given `conductor.agent.DeliverToAgent` input, decide and enact exactly one outcome. Declared outcomes (declaration order, not selection precedence): `not-interactive` when the existing subject's stored fields satisfy `not (exists c in capabilities: (c == Interactive))`, error `conductor.agent.CapabilityMissing`; `not-running` when the existing subject's stored fields satisfy `state == Stopped`, error `conductor.agent.AgentNotRunning`; `unreachable` externally decided (the agent's PTY does not answer), error `conductor.agent.AgentNotReachable`; `delivered` otherwise, preserves `conductor.agent.Agent`; `no-such-agent` for an identity no record carries, error `conductor.agent.AgentNotFound`"
+      }
+    },
+    {
+      "kind": "command_contract",
+      "source": "conductor.agent.MarkAgentRunning",
+      "disposition": {
+        "disposition": "generated"
+      }
+    },
+    {
+      "kind": "command_behavior",
+      "source": "conductor.agent.MarkAgentRunning",
+      "disposition": {
+        "disposition": "generated"
       }
     },
     {
@@ -4037,7 +4079,7 @@
           "class": "undetermined",
           "construct": "`creates:` leaving the required field `instances` of `conductor.secret.Secret` undetermined, in `stored`"
         },
-        "contract": "given `conductor.secret.PutSecret` input, decide and enact exactly one outcome. Declared outcomes (declaration order, not selection precedence): `not-human` when `actor.kind != Human`, error `conductor.operator.ActorNotHuman`; `unreachable` externally decided (the OS keychain does not answer), error `conductor.secret.SourceUnreachable`; `stored` for an identity no record carries, creates `conductor.secret.Secret`, emits `conductor.secret.SecretPut`; `replaced` otherwise, updates `conductor.secret.Secret`, emits `conductor.secret.SecretPut`"
+        "contract": "given `conductor.secret.PutSecret` input, decide and enact exactly one outcome. Declared outcomes (declaration order, not selection precedence): `not-human` when `actor.kind != Human`, error `conductor.operator.ActorNotHuman`; `unreachable` externally decided (the OS keychain does not answer), error `conductor.secret.SourceUnreachable`; `stored` for an identity no record carries, creates `conductor.secret.Secret`, emits `conductor.secret.SecretPut`; `exists` externally decided (the secrets source already holds a value under the name and replace is false), error `conductor.secret.SecretExists`; `replaced` otherwise, updates `conductor.secret.Secret`, emits `conductor.secret.SecretPut`"
       }
     },
     {
@@ -4219,6 +4261,13 @@
     {
       "kind": "event_type",
       "source": "conductor.agent.AgentReported",
+      "disposition": {
+        "disposition": "generated"
+      }
+    },
+    {
+      "kind": "event_type",
+      "source": "conductor.agent.AgentRunning",
       "disposition": {
         "disposition": "generated"
       }
@@ -5422,6 +5471,13 @@
     },
     {
       "kind": "error_type",
+      "source": "conductor.instance.SupervisorNotRunning",
+      "disposition": {
+        "disposition": "generated"
+      }
+    },
+    {
+      "kind": "error_type",
       "source": "conductor.instance.UnknownInstance",
       "disposition": {
         "disposition": "generated"
@@ -5520,6 +5576,13 @@
     },
     {
       "kind": "error_type",
+      "source": "conductor.secret.SecretExists",
+      "disposition": {
+        "disposition": "generated"
+      }
+    },
+    {
+      "kind": "error_type",
       "source": "conductor.secret.SecretMissing",
       "disposition": {
         "disposition": "generated"
@@ -5528,6 +5591,13 @@
     {
       "kind": "error_type",
       "source": "conductor.secret.SourceUnreachable",
+      "disposition": {
+        "disposition": "generated"
+      }
+    },
+    {
+      "kind": "error_type",
+      "source": "conductor.secret.SourceUnusable",
       "disposition": {
         "disposition": "generated"
       }

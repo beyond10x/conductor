@@ -1,5 +1,5 @@
 // generated from conductor v1
-// contract digest c0e5f57876522191690b7b7fa0b710a15b36d5bf4a50b987946bb580f924bf53
+// contract digest 575fcfe0b84fcb4b2dc3a52041bbf14840203191eb2cb53374eec07ea92207ab
 // do not edit: regenerate with `ess synthesize --layout crate`
 //! Every generated declaration, as JSON, in the renderings the published wire contracts fix.
 //!
@@ -13,6 +13,7 @@ use crate::server::json;
 pub fn encode_conductor_agent_agent_state(value: &crate::agent::AgentState, out: &mut String) {
     match value {
         crate::agent::AgentState::Running => json::push_text(out, "Running"),
+        crate::agent::AgentState::Starting => json::push_text(out, "Starting"),
         crate::agent::AgentState::Stopped => json::push_text(out, "Stopped"),
     }
 }
@@ -23,10 +24,11 @@ pub fn encode_conductor_agent_agent_state(value: &crate::agent::AgentState, out:
 ///
 /// [`json::DecodeError`] naming the path and what the declaration says belongs there.
 pub fn decode_conductor_agent_agent_state(value: &json::Value, at: &str) -> Result<crate::agent::AgentState, json::DecodeError> {
-    Ok(match json::text_at(value, at, "one of `Running`, `Stopped`")? {
+    Ok(match json::text_at(value, at, "one of `Running`, `Starting`, `Stopped`")? {
         "Running" => crate::agent::AgentState::Running,
+        "Starting" => crate::agent::AgentState::Starting,
         "Stopped" => crate::agent::AgentState::Stopped,
-        other => return Err(json::DecodeError { at: at.to_owned(), expected: "one of `Running`, `Stopped`".to_owned(), found: format!("`{other}`") }),
+        other => return Err(json::DecodeError { at: at.to_owned(), expected: "one of `Running`, `Starting`, `Stopped`".to_owned(), found: format!("`{other}`") }),
     })
 }
 
@@ -75,6 +77,129 @@ pub fn encode_conductor_agent_agent_name(value: &crate::agent::AgentName, out: &
 /// [`json::DecodeError`] naming the path and what the declaration says belongs there.
 pub fn decode_conductor_agent_agent_name(value: &json::Value, at: &str) -> Result<crate::agent::AgentName, json::DecodeError> {
     Ok(crate::agent::AgentName(json::text_at(value, at, "a string")?.to_owned()))
+}
+
+/// Writes `conductor.agent.AgentSlotSelection` as JSON.
+pub fn encode_conductor_agent_agent_slot_selection(value: &crate::agent::AgentSlotSelection, out: &mut String) {
+    out.push('{');
+    if let Some(held0) = &value.instance {
+        json::member(out, "instance");
+        encode_conductor_config_instance_name(&*held0, out);
+    }
+    json::member(out, "role");
+    json::push_text(out, &value.role);
+    out.push('}');
+}
+
+/// Reads `conductor.agent.AgentSlotSelection` from JSON.
+///
+/// # Errors
+///
+/// [`json::DecodeError`] naming the path and what the declaration says belongs there.
+pub fn decode_conductor_agent_agent_slot_selection(value: &json::Value, at: &str) -> Result<crate::agent::AgentSlotSelection, json::DecodeError> {
+    json::closed_at(value, at, &["instance", "role"])?;
+    Ok(crate::agent::AgentSlotSelection {
+        instance: match value.member("instance") {
+            None | Some(json::Value::Null) => None,
+            Some(member0) => {
+                let at0 = json::nested(at, "instance");
+                Some(decode_conductor_config_instance_name(member0, &at0)?)
+            }
+        },
+        role: {
+            let at1 = json::nested(at, "role");
+            let member1 = json::member_at(value, at, "role")?;
+            json::text_at(member1, &at1, "a string")?.to_owned()
+        },
+    })
+}
+
+/// Writes `conductor.agent.AgentTerminalAttach` as JSON.
+pub fn encode_conductor_agent_agent_terminal_attach(value: &crate::agent::AgentTerminalAttach, out: &mut String) {
+    out.push('{');
+    if let Some(held0) = &value.instance {
+        json::member(out, "instance");
+        encode_conductor_config_instance_name(&*held0, out);
+    }
+    json::member(out, "role");
+    json::push_text(out, &value.role);
+    if let Some(held0) = &value.watch {
+        json::member(out, "watch");
+        json::push_bool(out, *held0);
+    }
+    out.push('}');
+}
+
+/// Reads `conductor.agent.AgentTerminalAttach` from JSON.
+///
+/// # Errors
+///
+/// [`json::DecodeError`] naming the path and what the declaration says belongs there.
+pub fn decode_conductor_agent_agent_terminal_attach(value: &json::Value, at: &str) -> Result<crate::agent::AgentTerminalAttach, json::DecodeError> {
+    json::closed_at(value, at, &["instance", "role", "watch"])?;
+    Ok(crate::agent::AgentTerminalAttach {
+        instance: match value.member("instance") {
+            None | Some(json::Value::Null) => None,
+            Some(member0) => {
+                let at0 = json::nested(at, "instance");
+                Some(decode_conductor_config_instance_name(member0, &at0)?)
+            }
+        },
+        role: {
+            let at1 = json::nested(at, "role");
+            let member1 = json::member_at(value, at, "role")?;
+            json::text_at(member1, &at1, "a string")?.to_owned()
+        },
+        watch: match value.member("watch") {
+            None | Some(json::Value::Null) => None,
+            Some(member2) => {
+                let at2 = json::nested(at, "watch");
+                Some(json::bool_at(member2, &at2, "a boolean")?)
+            }
+        },
+    })
+}
+
+/// Writes `conductor.agent.AgentTextDelivery` as JSON.
+pub fn encode_conductor_agent_agent_text_delivery(value: &crate::agent::AgentTextDelivery, out: &mut String) {
+    out.push('{');
+    if let Some(held0) = &value.instance {
+        json::member(out, "instance");
+        encode_conductor_config_instance_name(&*held0, out);
+    }
+    json::member(out, "role");
+    json::push_text(out, &value.role);
+    json::member(out, "text");
+    json::push_text(out, &value.text);
+    out.push('}');
+}
+
+/// Reads `conductor.agent.AgentTextDelivery` from JSON.
+///
+/// # Errors
+///
+/// [`json::DecodeError`] naming the path and what the declaration says belongs there.
+pub fn decode_conductor_agent_agent_text_delivery(value: &json::Value, at: &str) -> Result<crate::agent::AgentTextDelivery, json::DecodeError> {
+    json::closed_at(value, at, &["instance", "role", "text"])?;
+    Ok(crate::agent::AgentTextDelivery {
+        instance: match value.member("instance") {
+            None | Some(json::Value::Null) => None,
+            Some(member0) => {
+                let at0 = json::nested(at, "instance");
+                Some(decode_conductor_config_instance_name(member0, &at0)?)
+            }
+        },
+        role: {
+            let at1 = json::nested(at, "role");
+            let member1 = json::member_at(value, at, "role")?;
+            json::text_at(member1, &at1, "a string")?.to_owned()
+        },
+        text: {
+            let at2 = json::nested(at, "text");
+            let member2 = json::member_at(value, at, "text")?;
+            json::text_at(member2, &at2, "a string")?.to_owned()
+        },
+    })
 }
 
 /// Writes `conductor.agent.Capability` as JSON.
@@ -1074,6 +1199,8 @@ pub fn encode_conductor_config_daemon(value: &crate::config::Daemon, out: &mut S
     out.push(']');
     json::member(out, "upgrade_timeout");
     json::push_text(out, &value.upgrade_timeout.0);
+    json::member(out, "timeout");
+    json::push_text(out, &value.timeout.0);
     out.push('}');
 }
 
@@ -1083,7 +1210,7 @@ pub fn encode_conductor_config_daemon(value: &crate::config::Daemon, out: &mut S
 ///
 /// [`json::DecodeError`] naming the path and what the declaration says belongs there.
 pub fn decode_conductor_config_daemon(value: &json::Value, at: &str) -> Result<crate::config::Daemon, json::DecodeError> {
-    json::closed_at(value, at, &["port", "tls", "cadence", "store", "secrets", "dashboard", "operators", "upgrade_timeout"])?;
+    json::closed_at(value, at, &["port", "tls", "cadence", "store", "secrets", "dashboard", "operators", "upgrade_timeout", "timeout"])?;
     Ok(crate::config::Daemon {
         port: {
             let at0 = json::nested(at, "port");
@@ -1133,6 +1260,11 @@ pub fn decode_conductor_config_daemon(value: &json::Value, at: &str) -> Result<c
             let at7 = json::nested(at, "upgrade_timeout");
             let member7 = json::member_at(value, at, "upgrade_timeout")?;
             crate::primitives::Duration(json::text_at(member7, &at7, "an ISO 8601 duration")?.to_owned())
+        },
+        timeout: {
+            let at8 = json::nested(at, "timeout");
+            let member8 = json::member_at(value, at, "timeout")?;
+            crate::primitives::Duration(json::text_at(member8, &at8, "an ISO 8601 duration")?.to_owned())
         },
     })
 }
@@ -9980,6 +10112,45 @@ pub fn decode_conductor_secret_source(value: &json::Value, at: &str) -> Result<c
     })
 }
 
+/// Writes `conductor.secret.WriteSecret` as JSON.
+pub fn encode_conductor_secret_write_secret(value: &crate::secret::WriteSecret, out: &mut String) {
+    out.push('{');
+    if let Some(held0) = &value.name {
+        json::member(out, "name");
+        encode_conductor_secret_secret_name(&*held0, out);
+    }
+    if let Some(held0) = &value.replace {
+        json::member(out, "replace");
+        json::push_bool(out, *held0);
+    }
+    out.push('}');
+}
+
+/// Reads `conductor.secret.WriteSecret` from JSON.
+///
+/// # Errors
+///
+/// [`json::DecodeError`] naming the path and what the declaration says belongs there.
+pub fn decode_conductor_secret_write_secret(value: &json::Value, at: &str) -> Result<crate::secret::WriteSecret, json::DecodeError> {
+    json::closed_at(value, at, &["name", "replace"])?;
+    Ok(crate::secret::WriteSecret {
+        name: match value.member("name") {
+            None | Some(json::Value::Null) => None,
+            Some(member0) => {
+                let at0 = json::nested(at, "name");
+                Some(decode_conductor_secret_secret_name(member0, &at0)?)
+            }
+        },
+        replace: match value.member("replace") {
+            None | Some(json::Value::Null) => None,
+            Some(member1) => {
+                let at1 = json::nested(at, "replace");
+                Some(json::bool_at(member1, &at1, "a boolean")?)
+            }
+        },
+    })
+}
+
 /// Writes `conductor.session.AttachMode` as JSON.
 pub fn encode_conductor_session_attach_mode(value: &crate::session::AttachMode, out: &mut String) {
     match value {
@@ -11981,6 +12152,43 @@ pub fn decode_event_conductor_agent_agent_reported(value: &json::Value, at: &str
             let at5 = json::nested(at, "reported_at");
             let member5 = json::member_at(value, at, "reported_at")?;
             crate::primitives::Timestamp(json::timestamp_at(member5, &at5, "an RFC 3339 instant")?.to_owned())
+        },
+    })
+}
+
+/// Writes the event `conductor.agent.AgentRunning` as JSON.
+pub fn encode_event_conductor_agent_agent_running(value: &crate::agent::AgentRunning, out: &mut String) {
+    out.push('{');
+    json::member(out, "actor");
+    encode_conductor_operator_actor(&value.actor, out);
+    json::member(out, "name");
+    encode_conductor_agent_agent_name(&value.name, out);
+    json::member(out, "running_at");
+    json::push_text(out, &value.running_at.0);
+    out.push('}');
+}
+
+/// Reads the event `conductor.agent.AgentRunning` from JSON, the payload [`encode_event_conductor_agent_agent_running`] writes.
+///
+/// # Errors
+///
+/// [`json::DecodeError`] naming the path and what the declaration says belongs there.
+pub fn decode_event_conductor_agent_agent_running(value: &json::Value, at: &str) -> Result<crate::agent::AgentRunning, json::DecodeError> {
+    Ok(crate::agent::AgentRunning {
+        actor: {
+            let at0 = json::nested(at, "actor");
+            let member0 = json::member_at(value, at, "actor")?;
+            decode_conductor_operator_actor(member0, &at0)?
+        },
+        name: {
+            let at1 = json::nested(at, "name");
+            let member1 = json::member_at(value, at, "name")?;
+            decode_conductor_agent_agent_name(member1, &at1)?
+        },
+        running_at: {
+            let at2 = json::nested(at, "running_at");
+            let member2 = json::member_at(value, at, "running_at")?;
+            crate::primitives::Timestamp(json::timestamp_at(member2, &at2, "an RFC 3339 instant")?.to_owned())
         },
     })
 }
@@ -17165,6 +17373,16 @@ pub fn encode_error_conductor_instance_placement_refused(value: &crate::instance
     out.push('}');
 }
 
+/// Writes the declared error `conductor.instance.SupervisorNotRunning` as JSON.
+pub fn encode_error_conductor_instance_supervisor_not_running(value: &crate::instance::SupervisorNotRunning, out: &mut String) {
+    out.push('{');
+    if let Some(held0) = &value.instance {
+        json::member(out, "instance");
+        encode_conductor_config_instance_name(&*held0, out);
+    }
+    out.push('}');
+}
+
 /// Writes the declared error `conductor.instance.UnknownInstance` as JSON.
 pub fn encode_error_conductor_instance_unknown_instance(value: &crate::instance::UnknownInstance, out: &mut String) {
     out.push('{');
@@ -17279,6 +17497,14 @@ pub fn encode_error_conductor_placement_box_state_conflict(value: &crate::placem
     out.push('}');
 }
 
+/// Writes the declared error `conductor.secret.SecretExists` as JSON.
+pub fn encode_error_conductor_secret_secret_exists(value: &crate::secret::SecretExists, out: &mut String) {
+    out.push('{');
+    json::member(out, "name");
+    encode_conductor_secret_secret_name(&value.name, out);
+    out.push('}');
+}
+
 /// Writes the declared error `conductor.secret.SecretMissing` as JSON.
 pub fn encode_error_conductor_secret_secret_missing(value: &crate::secret::SecretMissing, out: &mut String) {
     out.push('{');
@@ -17300,6 +17526,14 @@ pub fn encode_error_conductor_secret_secret_missing(value: &crate::secret::Secre
 
 /// Writes the declared error `conductor.secret.SourceUnreachable` as JSON.
 pub fn encode_error_conductor_secret_source_unreachable(value: &crate::secret::SourceUnreachable, out: &mut String) {
+    out.push('{');
+    json::member(out, "source");
+    encode_conductor_secret_source(&value.source, out);
+    out.push('}');
+}
+
+/// Writes the declared error `conductor.secret.SourceUnusable` as JSON.
+pub fn encode_error_conductor_secret_source_unusable(value: &crate::secret::SourceUnusable, out: &mut String) {
     out.push('{');
     json::member(out, "source");
     encode_conductor_secret_source(&value.source, out);
@@ -19375,6 +19609,94 @@ pub fn encode_outcome_conductor_agent_deliver_to_agent(value: &crate::agent::Del
             json::push_text(out, "conductor.agent.AgentNotFound");
             json::member(out, "payload");
             encode_error_conductor_agent_agent_not_found(error, out);
+            out.push('}');
+        }
+    }
+    out.push('}');
+}
+
+/// Writes the input of `conductor.agent.MarkAgentRunning` as JSON.
+pub fn encode_command_conductor_agent_mark_agent_running(value: &crate::agent::MarkAgentRunning, out: &mut String) {
+    out.push('{');
+    json::member(out, "actor");
+    encode_conductor_operator_actor(&value.actor, out);
+    json::member(out, "name");
+    encode_conductor_agent_agent_name(&value.name, out);
+    json::member(out, "running_at");
+    json::push_text(out, &value.running_at.0);
+    out.push('}');
+}
+
+/// Reads the input of `conductor.agent.MarkAgentRunning` from JSON.
+///
+/// # Errors
+///
+/// [`json::DecodeError`] naming the path and what the declaration says belongs there.
+pub fn decode_command_conductor_agent_mark_agent_running(value: &json::Value, at: &str) -> Result<crate::agent::MarkAgentRunning, json::DecodeError> {
+    json::closed_at(value, at, &["actor", "name", "running_at"])?;
+    Ok(crate::agent::MarkAgentRunning {
+        actor: {
+            let at0 = json::nested(at, "actor");
+            let member0 = json::member_at(value, at, "actor")?;
+            decode_conductor_operator_actor(member0, &at0)?
+        },
+        name: {
+            let at1 = json::nested(at, "name");
+            let member1 = json::member_at(value, at, "name")?;
+            decode_conductor_agent_agent_name(member1, &at1)?
+        },
+        running_at: {
+            let at2 = json::nested(at, "running_at");
+            let member2 = json::member_at(value, at, "running_at")?;
+            crate::primitives::Timestamp(json::timestamp_at(member2, &at2, "an RFC 3339 instant")?.to_owned())
+        },
+    })
+}
+
+/// Writes the outcome of `conductor.agent.MarkAgentRunning` as JSON: the branch taken, what it published, and the declared
+/// refusal it carries where it carries one.
+pub fn encode_outcome_conductor_agent_mark_agent_running(value: &crate::agent::MarkAgentRunningOutcome, out: &mut String) {
+    out.push('{');
+    match value {
+        crate::agent::MarkAgentRunningOutcome::Running { agent_running } => {
+            json::member(out, "outcome");
+            json::push_text(out, "running");
+            json::member(out, "published");
+            out.push('[');
+            out.push('{');
+            json::member(out, "event");
+            json::push_text(out, "conductor.agent.AgentRunning");
+            json::member(out, "payload");
+            encode_event_conductor_agent_agent_running(agent_running, out);
+            out.push('}');
+            out.push(']');
+        }
+        crate::agent::MarkAgentRunningOutcome::NoSuchAgent { error } => {
+            json::member(out, "outcome");
+            json::push_text(out, "no-such-agent");
+            json::member(out, "published");
+            out.push('[');
+            out.push(']');
+            json::member(out, "refusal");
+            out.push('{');
+            json::member(out, "error");
+            json::push_text(out, "conductor.agent.AgentNotFound");
+            json::member(out, "payload");
+            encode_error_conductor_agent_agent_not_found(error, out);
+            out.push('}');
+        }
+        crate::agent::MarkAgentRunningOutcome::NotStarting { error } => {
+            json::member(out, "outcome");
+            json::push_text(out, "not-starting");
+            json::member(out, "published");
+            out.push('[');
+            out.push(']');
+            json::member(out, "refusal");
+            out.push('{');
+            json::member(out, "error");
+            json::push_text(out, "conductor.agent.AgentNotRunning");
+            json::member(out, "payload");
+            encode_error_conductor_agent_agent_not_running(error, out);
             out.push('}');
         }
     }
@@ -30095,6 +30417,8 @@ pub fn encode_command_conductor_secret_put_secret(value: &crate::secret::PutSecr
     encode_conductor_secret_secret_name(&value.name, out);
     json::member(out, "put_at");
     json::push_text(out, &value.put_at.0);
+    json::member(out, "replace");
+    json::push_bool(out, value.replace);
     out.push('}');
 }
 
@@ -30104,7 +30428,7 @@ pub fn encode_command_conductor_secret_put_secret(value: &crate::secret::PutSecr
 ///
 /// [`json::DecodeError`] naming the path and what the declaration says belongs there.
 pub fn decode_command_conductor_secret_put_secret(value: &json::Value, at: &str) -> Result<crate::secret::PutSecret, json::DecodeError> {
-    json::closed_at(value, at, &["actor", "name", "put_at"])?;
+    json::closed_at(value, at, &["actor", "name", "put_at", "replace"])?;
     Ok(crate::secret::PutSecret {
         actor: {
             let at0 = json::nested(at, "actor");
@@ -30120,6 +30444,11 @@ pub fn decode_command_conductor_secret_put_secret(value: &json::Value, at: &str)
             let at2 = json::nested(at, "put_at");
             let member2 = json::member_at(value, at, "put_at")?;
             crate::primitives::Timestamp(json::timestamp_at(member2, &at2, "an RFC 3339 instant")?.to_owned())
+        },
+        replace: {
+            let at3 = json::nested(at, "replace");
+            let member3 = json::member_at(value, at, "replace")?;
+            json::bool_at(member3, &at3, "a boolean")?
         },
     })
 }
@@ -30169,6 +30498,20 @@ pub fn encode_outcome_conductor_secret_put_secret(value: &crate::secret::PutSecr
             encode_event_conductor_secret_secret_put(secret_put, out);
             out.push('}');
             out.push(']');
+        }
+        crate::secret::PutSecretOutcome::Exists { error } => {
+            json::member(out, "outcome");
+            json::push_text(out, "exists");
+            json::member(out, "published");
+            out.push('[');
+            out.push(']');
+            json::member(out, "refusal");
+            out.push('{');
+            json::member(out, "error");
+            json::push_text(out, "conductor.secret.SecretExists");
+            json::member(out, "payload");
+            encode_error_conductor_secret_secret_exists(error, out);
+            out.push('}');
         }
         crate::secret::PutSecretOutcome::Replaced { secret_put } => {
             json::member(out, "outcome");

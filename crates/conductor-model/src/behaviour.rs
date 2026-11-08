@@ -1,5 +1,5 @@
 // generated from conductor v1
-// contract digest c0e5f57876522191690b7b7fa0b710a15b36d5bf4a50b987946bb580f924bf53
+// contract digest 575fcfe0b84fcb4b2dc3a52041bbf14840203191eb2cb53374eec07ea92207ab
 // do not edit: regenerate with `ess synthesize --layout crate`
 
 //! What the specification fully determines, generated: the behaviour of every command the plan
@@ -1107,6 +1107,33 @@ impl<P: crate::agent::obligations::DeliverToAgentBehavior> crate::agent::obligat
     }
 }
 
+/// `conductor.agent.MarkAgentRunning`, generated: every outcome is one the specification fully determines.
+impl<P> crate::agent::obligations::MarkAgentRunningBehavior for Generated<P>
+where
+    P: AgentStorage,
+{
+    fn mark_agent_running(&mut self, input: crate::agent::MarkAgentRunning) -> Result<crate::agent::MarkAgentRunningOutcome, UnmetObligation> {
+        let _ = &input;
+        // `running`: the default.
+        let Some(held) = AgentStorage::get(&self.ports, &input.name) else {
+            return Ok(crate::agent::MarkAgentRunningOutcome::NoSuchAgent { error: crate::agent::AgentNotFound { name: input.name.clone() } });
+        };
+        let _ = &held;
+        let moved = match held.refine() {
+            crate::agent::AnyAgent::Starting(instance) => crate::agent::AnyAgent::Running(instance.run()),
+            _ => return Ok(crate::agent::MarkAgentRunningOutcome::NotStarting { error: crate::agent::AgentNotRunning { name: input.name.clone() } }),
+        };
+        let next = moved.snapshot();
+        if let Some(broken) = next.data.broken_invariant() {
+            let capability = "entity invariant";
+            return Err(UnmetObligation { capability, source: broken });
+        }
+        let answer = crate::agent::MarkAgentRunningOutcome::Running { agent_running: crate::agent::AgentRunning { actor: input.actor.clone(), name: input.name.clone(), running_at: input.running_at.clone() } };
+        AgentStorage::put(&mut self.ports, next);
+        return Ok(answer);
+    }
+}
+
 /// `conductor.agent.RecordAgentReport`, generated: every outcome is one the specification fully determines.
 impl<P> crate::agent::obligations::RecordAgentReportBehavior for Generated<P>
 where
@@ -1148,8 +1175,9 @@ where
         let _ = &held;
         let before = held.data.clone();
         let moved = match held.refine() {
-            crate::agent::AnyAgent::Running(instance) => crate::agent::AnyAgent::Running(instance.restart()),
-            crate::agent::AnyAgent::Stopped(instance) => crate::agent::AnyAgent::Running(instance.restart()),
+            crate::agent::AnyAgent::Running(instance) => crate::agent::AnyAgent::Starting(instance.restart()),
+            crate::agent::AnyAgent::Starting(instance) => crate::agent::AnyAgent::Starting(instance.restart()),
+            crate::agent::AnyAgent::Stopped(instance) => crate::agent::AnyAgent::Starting(instance.restart()),
         };
         let mut next = moved.snapshot();
         next.data.token_owner = input.token_owner.clone();
@@ -1188,6 +1216,7 @@ where
         let _ = &held;
         let moved = match held.refine() {
             crate::agent::AnyAgent::Running(instance) => crate::agent::AnyAgent::Stopped(instance.stop()),
+            crate::agent::AnyAgent::Starting(instance) => crate::agent::AnyAgent::Stopped(instance.stop()),
             _ => return Ok(crate::agent::StopAgentOutcome::NotRunning { error: crate::agent::AgentNotRunning { name: input.name.clone() } }),
         };
         let mut next = moved.snapshot();

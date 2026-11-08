@@ -167,10 +167,10 @@ Every command takes these, before or after its name.
 | [`conductor finding verify-finding`](#conductor-finding-verify-finding) | Verify a filed finding |
 | [`conductor finding findings`](#conductor-finding-findings) | Friction findings |
 | [`conductor agent`](#conductor-agent) |  |
-| [`conductor agent attach`](#conductor-agent-attach) | Attach this terminal to an interactive agent through the instance API; not written yet, exits 2 |
-| [`conductor agent deliver`](#conductor-agent-deliver) | Deliver a text to a running agent through the instance API; not written yet, exits 2 |
-| [`conductor agent start`](#conductor-agent-start) | Start the agent of a role slot through the instance API; not written yet, exits 2 |
-| [`conductor agent stop`](#conductor-agent-stop) | Stop a running agent through the instance API; not written yet, exits 2 |
+| [`conductor agent attach`](#conductor-agent-attach) | Attach this terminal to the agent of a role slot through its kind: for claude-code, conductor session attach --role; --watch attaches read-only; refuse a kind this binary does not implement and a kind that is not interactive (CapabilityMissing) |
+| [`conductor agent deliver`](#conductor-agent-deliver) | Deliver a text to the running agent of a role slot through its kind: for claude-code, conductor session deliver to the role's session name; --text is a file, or - for standard input; refuse a kind this binary does not implement and a kind that is not interactive (CapabilityMissing) |
+| [`conductor agent start`](#conductor-agent-start) | Start the agent of a role slot through its kind (roles[].kind, claude-code by default): for claude-code, conductor session start, which stays its alias for this release; refuse a kind this binary does not implement (UnknownAgentKind), and what session start refuses |
+| [`conductor agent stop`](#conductor-agent-stop) | Stop the running agent of a role slot through its kind: for claude-code, conductor session stop, which stays its alias for this release; refuse a kind this binary does not implement, and what session stop refuses |
 | [`conductor broker`](#conductor-broker) |  |
 | [`conductor broker serve`](#conductor-broker-serve) | Serve the instance's broker until stopped, on one socket per registered session under the state directory's broker/; check each call against the session's grant, run it and record it |
 | [`conductor build`](#conductor-build) |  |
@@ -200,7 +200,7 @@ Every command takes these, before or after its name.
 | [`conductor rules show`](#conductor-rules-show) | Print items of the instance's rules.md verbatim, by number in the order given or every item under a heading, without opening the store; exit 1 naming a number or heading the file does not hold |
 | [`conductor run`](#conductor-run) | Run the instance's loop with no model call, recording each tick - every cadence.watch the watch pass, its handlers and the mailbox; every cadence.cycle the snapshot, the board, records check and dispatch v1; at cadence.daily metric compute, REPORT.md and a commit of the records through the bot route. --once runs one watch tick and one cycle tick and exits; --once --commit-records commits the records alone |
 | [`conductor secret`](#conductor-secret) |  |
-| [`conductor secret put`](#conductor-secret-put) | Put a secret's value into the daemon's secrets source under the name the config writes; not written yet, exits 2 |
+| [`conductor secret put`](#conductor-secret-put) | Put a secret's value, read from standard input, into the daemon's secrets source (daemon.secrets) under --name through the secrets crates, and record its name and source in the daemon's store; a name already on record is refused (SecretExists) unless --replace |
 | [`conductor setup`](#conductor-setup) | Check a repository's prerequisites, doctor's and its planning store, instance, records and trust; --apply writes the instance config, runs init and trust, and prints what only a person may run |
 | [`conductor spawn`](#conductor-spawn) | Start a repository's controller session in its checkout, with the controller role's profile, model and settings and its charter, and record it running; refuse while a session of that name runs |
 | [`conductor status`](#conductor-status) | Print what asks for attention, one line each, from the store alone (the newest complete snapshot's id and age, its deviations, blocked dispatches, waits, pending requests and usage); --full prints its sessions and every open dispatch besides; start no snapshot and create nothing |
@@ -2283,35 +2283,57 @@ Usage: conductor agent [OPTIONS] <COMMAND>
 
 ## `conductor agent attach`
 
-Attach this terminal to an interactive agent through the instance API; not written yet, exits 2
+Attach this terminal to the agent of a role slot through its kind: for claude-code, conductor session attach --role; --watch attaches read-only; refuse a kind this binary does not implement and a kind that is not interactive (CapabilityMissing)
 
 ```text
 Usage: conductor agent attach [OPTIONS]
 ```
 
+| Argument | Required | Default | Meaning |
+|---|---|---|---|
+| `--instance <NAME>` | no | none | The instance of the config file. Default: every instance, as `session attach` looks |
+| `--role <ROLE>` | no | none | The role whose agent this terminal attaches to |
+| `--watch <BOOL>` | no | none | Attach read-only: nothing typed reaches the agent. `--watch` alone is `--watch true` One of `true`, `false`. |
+
 ## `conductor agent deliver`
 
-Deliver a text to a running agent through the instance API; not written yet, exits 2
+Deliver a text to the running agent of a role slot through its kind: for claude-code, conductor session deliver to the role's session name; --text is a file, or - for standard input; refuse a kind this binary does not implement and a kind that is not interactive (CapabilityMissing)
 
 ```text
 Usage: conductor agent deliver [OPTIONS]
 ```
 
+| Argument | Required | Default | Meaning |
+|---|---|---|---|
+| `--instance <NAME>` | no | none | The instance of the config file. Default: the active one |
+| `--role <ROLE>` | no | none | The role whose agent the text is delivered to |
+| `--text <FILE>` | no | none | The file holding the text, or - for standard input |
+
 ## `conductor agent start`
 
-Start the agent of a role slot through the instance API; not written yet, exits 2
+Start the agent of a role slot through its kind (roles[].kind, claude-code by default): for claude-code, conductor session start, which stays its alias for this release; refuse a kind this binary does not implement (UnknownAgentKind), and what session start refuses
 
 ```text
 Usage: conductor agent start [OPTIONS]
 ```
 
+| Argument | Required | Default | Meaning |
+|---|---|---|---|
+| `--instance <NAME>` | no | none | The instance of the config file. Default: the active one |
+| `--role <ROLE>` | no | none | The role whose slot starts or stops, as for `session start` |
+
 ## `conductor agent stop`
 
-Stop a running agent through the instance API; not written yet, exits 2
+Stop the running agent of a role slot through its kind: for claude-code, conductor session stop, which stays its alias for this release; refuse a kind this binary does not implement, and what session stop refuses
 
 ```text
 Usage: conductor agent stop [OPTIONS]
 ```
+
+| Argument | Required | Default | Meaning |
+|---|---|---|---|
+| `--instance <NAME>` | no | none | The instance of the config file. Default: the active one |
+| `--role <ROLE>` | no | none | The role whose slot starts or stops, as for `session start` |
 
 ## `conductor broker`
 
@@ -2606,11 +2628,16 @@ Usage: conductor secret [OPTIONS] <COMMAND>
 
 ## `conductor secret put`
 
-Put a secret's value into the daemon's secrets source under the name the config writes; not written yet, exits 2
+Put a secret's value, read from standard input, into the daemon's secrets source (daemon.secrets) under --name through the secrets crates, and record its name and source in the daemon's store; a name already on record is refused (SecretExists) unless --replace
 
 ```text
 Usage: conductor secret put [OPTIONS]
 ```
+
+| Argument | Required | Default | Meaning |
+|---|---|---|---|
+| `--name <NAME>` | no | none | The secret's name, as the config writes it after `secret:`; required |
+| `--replace <BOOL>` | no | none | Write the value again over a name already on record. `--replace` alone is `--replace true` One of `true`, `false`. |
 
 ## `conductor setup`
 

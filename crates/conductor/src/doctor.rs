@@ -1195,17 +1195,76 @@ pub fn doctor_with(flag: Option<&Path>) -> Result<ExitCode> {
     for line in doctor.lines() {
         println!("{line}");
     }
+    if let Some(line) = secrets_line(flag) {
+        println!("{line}");
+    }
     if let Some(line) = store_line(flag) {
         println!("{line}");
     }
     println!("{}", daemon_unit());
-    let verdict = verdict_of(&doctor.failures());
+    let mut failures = doctor.failures();
+    for (line, failure) in kind_lines(flag) {
+        println!("{line}");
+        failures.extend(failure);
+    }
+    let verdict = verdict_of(&failures);
     println!("{verdict}");
     Ok(if verdict == READY {
         ExitCode::SUCCESS
     } else {
         ExitCode::FAILURE
     })
+}
+
+/// One line per agent kind a role of the config file's instances names (`story:agent-kinds`), in
+/// the order first named: `agent kind <kind>: <binary> <its --version line>`, `… <binary>
+/// missing`, or `agent kind <kind>: not implemented by this binary`, which adds its failure to
+/// the verdict. A config that does not load names none: its problems are
+/// reported already.
+fn kind_lines(flag: Option<&Path>) -> Vec<(String, Option<String>)> {
+    let Ok(environment) = config::Environment::from_process() else {
+        return Vec::new();
+    };
+    let Ok(loaded) = config::load(flag, &environment) else {
+        return Vec::new();
+    };
+    let mut kinds: Vec<String> = Vec::new();
+    for role in loaded
+        .config
+        .instances
+        .iter()
+        .flat_map(|instance| instance.roles.iter())
+    {
+        if !kinds.contains(&role.kind.0) {
+            kinds.push(role.kind.0.clone());
+        }
+    }
+    kinds
+        .into_iter()
+        .map(|name| match crate::agent::built_in_kind(&name) {
+            None => (
+                format!("agent kind {name}: not implemented by this binary"),
+                Some(format!("agent kind {name} (not implemented)")),
+            ),
+            Some(kind) => {
+                let binary = kind.binary();
+                match find(&binary).map(|path| version_line(&path)) {
+                    Some(Ok(version)) => (format!("agent kind {name}: {binary} {version}"), None),
+                    Some(Err(why)) => (format!("agent kind {name}: {binary} ({why})"), None),
+                    None => (format!("agent kind {name}: {binary} missing"), None),
+                }
+            }
+        })
+        .collect()
+}
+
+/// The daemon's secrets source (`story:secrets-source`): its kind, namespace and whether it
+/// answers, from the config file; none when the config does not load. It changes no verdict.
+fn secrets_line(flag: Option<&Path>) -> Option<String> {
+    let loaded = config::Environment::from_process()
+        .and_then(|environment| config::load(flag, &environment))
+        .ok()?;
+    Some(crate::secret::doctor_line(&loaded.config.daemon.secrets))
 }
 
 /// The state of conductord's user unit (`story:daemon-reconcile`): `daemon unit:

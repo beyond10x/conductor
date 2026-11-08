@@ -1,6 +1,6 @@
 <!--
 generated from conductor v1
-contract digest slice-sha256/2:d45f706ed836f925f944dc478774c70c4ede0ec0e7315d917ed09181b941fe20
+contract digest slice-sha256/2:4dac8593ae4cddff26e61e47a26f08205b94020a9ce040aaee31fff41d4525ec
 do not edit: regenerate with `ess generate`
 -->
 
@@ -21,6 +21,29 @@ An agent kind fills any role at any placement (design docs/design/architecture-n
 
 `conductor.agent.AgentName` wraps `String` and is not interchangeable with one: the whole value of naming it separately is the crossings the model then refuses.
 
+### `AgentSlotSelection`
+
+`conductor.agent.AgentSlotSelection` is a record of two fields:
+
+- `instance` — `Optional<conductor.config.InstanceName>`, which may be absent
+- `role` — `String`
+
+### `AgentTerminalAttach`
+
+`conductor.agent.AgentTerminalAttach` is a record of three fields:
+
+- `instance` — `Optional<conductor.config.InstanceName>`, which may be absent
+- `role` — `String`
+- `watch` — `Optional<Boolean>`, which may be absent
+
+### `AgentTextDelivery`
+
+`conductor.agent.AgentTextDelivery` is a record of three fields:
+
+- `instance` — `Optional<conductor.config.InstanceName>`, which may be absent
+- `role` — `String`
+- `text` — `String`
+
 ### `Capability`
 
 `conductor.agent.Capability` is one of `Interactive` and `RunToExit`.
@@ -28,6 +51,8 @@ An agent kind fills any role at any placement (design docs/design/architecture-n
 ### `ExitClass`
 
 `conductor.agent.ExitClass` is one of `Requested`, `UsageLimit` and `Exited`.
+
+Three of the types above are reached by nothing else in this system: `conductor.agent.AgentSlotSelection`, `conductor.agent.AgentTerminalAttach` and `conductor.agent.AgentTextDelivery`. No entity, view, command, event, error or crossing names them, so it is either vocabulary something outside this specification uses or a leftover — and only a person can tell which.
 
 ## Entities
 
@@ -60,26 +85,32 @@ It references at most one [`AgentKind`](#agentkind), as `agent_kind`, carried by
 
 Every instance satisfies `generation >= 1` — a predicate over this entity's own fields, checked against them rather than stored as a sentence, so an invariant reading something the entity does not have is refused instead of documented.
 
-Its state is a `conductor.agent.Agent.State`, one of `Running` and `Stopped`. That enum is synthesised from the lifecycle rather than declared beside it, so the states a view's filter compares and the states drawn below cannot disagree.
+Its state is a `conductor.agent.Agent.State`, one of `Running`, `Starting` and `Stopped`. That enum is synthesised from the lifecycle rather than declared beside it, so the states a view's filter compares and the states drawn below cannot disagree.
 
-An instance is created in `Running`. No state is terminal: nothing in this lifecycle says an instance may stop moving.
+An instance is created in `Starting`. No state is terminal: nothing in this lifecycle says an instance may stop moving.
 
 ```mermaid
 stateDiagram-v2
-    [*] --> Running
+    [*] --> Starting
+    Starting --> Running: run (MarkAgentRunning)
     Running --> Stopped: stop (StopAgent)
-    Running --> Running: restart (RestartAgent)
-    Stopped --> Running: restart (RestartAgent)
+    Starting --> Stopped: stop (StopAgent)
+    Running --> Starting: restart (RestartAgent)
+    Starting --> Starting: restart (RestartAgent)
+    Stopped --> Starting: restart (RestartAgent)
 ```
 
 Each move is taken by a declared command outcome, and a move nothing takes is refused as `missing_causation` rather than left as a state change nobody can trigger:
 
+- `run` — taken by `conductor.agent.MarkAgentRunning` on its `running` outcome
 - `stop` — taken by `conductor.agent.StopAgent` on its `stopped` outcome
 - `restart` — taken by `conductor.agent.RestartAgent` on its `restarted` outcome
 
 An instance is brought into existence by `conductor.agent.StartAgent` on its `started` outcome.
 
-Every ordered pair of these states is connected by some move, so this lifecycle forbids nothing.
+Illegal transitions are illegal by absence: no rule forbids them, there is simply no arrow, because a rule would be a second place for the same truth to live. A diagram cannot show an absence, so the pairs it does not connect are listed here, derived from the same transitions — anything named below is a move this specification does not permit.
+
+- `Stopped` may not become `Running`
 
 One view projects it: [`Agents`](#agents).
 
@@ -238,6 +269,24 @@ It has five outcomes.
 
 **`no-such-agent`** — No agent of that name; nothing was delivered. Taken when the identity the command names is one no record carries, before any other answer for it. No entity in this specification changes. It reports `conductor.agent.AgentNotFound`, carrying `name`. It emits nothing. A test reaches it by sending an identity no record carries, arranging nothing.
 
+### `MarkAgentRunning`
+
+`conductor.agent.MarkAgentRunning`, shown to a person as "Mark an agent running" and called `mark-running` on the wire.
+
+It takes:
+
+- `actor` — `conductor.operator.Actor`
+- `name` — `conductor.agent.AgentName`
+- `running_at` — `Timestamp`
+
+It has three outcomes.
+
+**`running`** — The agent's program is up; the agent runs. The default branch, taken when no other outcome's condition matched. It moves a `conductor.agent.Agent` from `Starting` to `Running`, along the declared move `run`. The instance is the one named by the input field `name`. It emits `conductor.agent.AgentRunning`. A test reaches it by constructing an input that satisfies no other outcome's condition.
+
+**`no-such-agent`** — No agent of that name; nothing changed. Taken when the identity the command names is one no record carries, before any other answer for it. No entity in this specification changes. It reports `conductor.agent.AgentNotFound`, carrying `name`. It emits nothing. A test reaches it by sending an identity no record carries, arranging nothing.
+
+**`not-starting`** — The agent is not starting (running already, or stopped); nothing changed. Taken when the subject is resting in a state none of this command's moves start from — a `conductor.agent.Agent` in `Running` and `Stopped`, which is what is left of the lifecycle once this command's own moves are taken away. The document lists none of it. No entity in this specification changes. It reports `conductor.agent.AgentNotRunning`, carrying `name`. It emits nothing. A test reaches it by driving an instance into one of those states and then issuing the command, because no input selects this branch.
+
 ### `RecordAgentReport`
 
 `conductor.agent.RecordAgentReport`, shown to a person as "Record an agent's report" and called `record-report` on the wire.
@@ -272,7 +321,7 @@ It has three outcomes.
 
 **`launch-failed`** — The program did not come up again; the record is unchanged. Decided outside the input: the kind's start in the box failed, or its first prompt could not be delivered. No predicate over the input reaches this branch, and saying `when: false` instead would have claimed it is unreachable, which is a different and false statement. No entity in this specification changes. It reports `conductor.agent.AgentLaunchFailed`, carrying `name`. It emits nothing. A test reaches it by injecting the declared fault, because no input can.
 
-**`restarted`** — The agent runs again as its next generation. The default branch, taken when no other outcome's condition matched. It moves a `conductor.agent.Agent` from `Running` and `Stopped` to `Running`, along the declared move `restart`. The instance is the one named by the input field `name`. It emits `conductor.agent.AgentStarted`. It sets `token_owner` from `input.token_owner`, `started_at` from `input.started_at`, `generation` from `its previous value plus 1`, `stopped_at` cleared, `exit_class` cleared and `exit_code` cleared. A test reaches it by constructing an input that satisfies no other outcome's condition.
+**`restarted`** — The agent runs again as its next generation. The default branch, taken when no other outcome's condition matched. It moves a `conductor.agent.Agent` from `Running`, `Starting` and `Stopped` to `Starting`, along the declared move `restart`. The instance is the one named by the input field `name`. It emits `conductor.agent.AgentStarted`. It sets `token_owner` from `input.token_owner`, `started_at` from `input.started_at`, `generation` from `its previous value plus 1`, `stopped_at` cleared, `exit_class` cleared and `exit_code` cleared. A test reaches it by constructing an input that satisfies no other outcome's condition.
 
 **`no-such-agent`** — No agent of that name; nothing was started. Taken when the identity the command names is one no record carries, before any other answer for it. No entity in this specification changes. It reports `conductor.agent.AgentNotFound`, carrying `name`. It emits nothing. A test reaches it by sending an identity no record carries, arranging nothing.
 
@@ -301,7 +350,7 @@ It has four outcomes.
 **`launch-failed`** — The program did not come up; no agent is on record. Decided outside the input: the kind's start in the box failed, or its first prompt could not be delivered. No predicate over the input reaches this branch, and saying `when: false` instead would have claimed it is unreachable, which is a different and false statement. No entity in this specification changes. It reports `conductor.agent.AgentLaunchFailed`, carrying `name`. It emits nothing. A test reaches it by injecting the declared fault, because no input can.
 
 **`started`** — The agent runs in its role, generation 1, naming who started it and whose token it runs on.
- The default branch, taken when no other outcome's condition matched. It creates a `conductor.agent.Agent`, which starts in `Running`. The new instance's identity is published as `name` on `conductor.agent.AgentStarted`. It emits `conductor.agent.AgentStarted`. It sets `instance` from `input.instance`, `role` from `input.role`, `kind` from `input.kind`, `capabilities` from `input.capabilities`, `box` from `input.box`, `profile` from `input.profile`, `limits` from `input.limits`, `token_owner` from `input.token_owner`, `started_by` from `input.actor`, `started_at` from `input.started_at`, `generation` from `"1"`, `stopped_at` cleared, `exit_class` cleared and `exit_code` cleared. A test reaches it by constructing an input that satisfies no other outcome's condition.
+ The default branch, taken when no other outcome's condition matched. It creates a `conductor.agent.Agent`, which starts in `Starting`. The new instance's identity is published as `name` on `conductor.agent.AgentStarted`. It emits `conductor.agent.AgentStarted`. It sets `instance` from `input.instance`, `role` from `input.role`, `kind` from `input.kind`, `capabilities` from `input.capabilities`, `box` from `input.box`, `profile` from `input.profile`, `limits` from `input.limits`, `token_owner` from `input.token_owner`, `started_by` from `input.actor`, `started_at` from `input.started_at`, `generation` from `"1"`, `stopped_at` cleared, `exit_class` cleared and `exit_code` cleared. A test reaches it by constructing an input that satisfies no other outcome's condition.
 
 **`exists`** — An agent of that name is on record; nothing was started, the record unchanged. Taken when a record already carries the identity the command's creating branch would create, and no input-guarded refusal applies. No entity in this specification changes. It reports `conductor.agent.AgentExists`, carrying `name`. It emits nothing. A test reaches it by sending the command twice with one identity: the first call creates the record, the second is answered by this branch.
 
@@ -319,7 +368,7 @@ It takes:
 
 It has three outcomes.
 
-**`stopped`** — The agent is stopped, with why and, for an exit, its code. The default branch, taken when no other outcome's condition matched. It moves a `conductor.agent.Agent` from `Running` to `Stopped`, along the declared move `stop`. The instance is the one named by the input field `name`. It emits `conductor.agent.AgentStopped`. It sets `stopped_at` from `input.stopped_at`, `exit_class` from `input.exit_class` and `exit_code` from `input.exit_code`. A test reaches it by constructing an input that satisfies no other outcome's condition.
+**`stopped`** — The agent is stopped, with why and, for an exit, its code. The default branch, taken when no other outcome's condition matched. It moves a `conductor.agent.Agent` from `Running` and `Starting` to `Stopped`, along the declared move `stop`. The instance is the one named by the input field `name`. It emits `conductor.agent.AgentStopped`. It sets `stopped_at` from `input.stopped_at`, `exit_class` from `input.exit_class` and `exit_code` from `input.exit_code`. A test reaches it by constructing an input that satisfies no other outcome's condition.
 
 **`no-such-agent`** — No agent of that name; nothing was stopped. Taken when the identity the command names is one no record carries, before any other answer for it. No entity in this specification changes. It reports `conductor.agent.AgentNotFound`, carrying `name`. It emits nothing. A test reaches it by sending an identity no record carries, arranging nothing.
 
@@ -356,6 +405,20 @@ It carries:
 - `reported_at` — `Timestamp`
 
 Emitted by `conductor.agent.RecordAgentReport` on its `reported` outcome.
+
+Nothing in this system reacts to it.
+
+### `AgentRunning`
+
+`conductor.agent.AgentRunning`.
+
+It carries:
+
+- `actor` — `conductor.operator.Actor`
+- `name` — `conductor.agent.AgentName`
+- `running_at` — `Timestamp`
+
+Emitted by `conductor.agent.MarkAgentRunning` on its `running` outcome.
 
 Nothing in this system reacts to it.
 
@@ -434,6 +497,8 @@ Reported by `conductor.agent.AttachAgent` on its `no-such-agent` outcome.
 
 Reported by `conductor.agent.DeliverToAgent` on its `no-such-agent` outcome.
 
+Reported by `conductor.agent.MarkAgentRunning` on its `no-such-agent` outcome.
+
 Reported by `conductor.agent.RecordAgentReport` on its `no-such-agent` outcome.
 
 Reported by `conductor.agent.RestartAgent` on its `no-such-agent` outcome.
@@ -464,6 +529,8 @@ It carries:
 Reported by `conductor.agent.AttachAgent` on its `not-running` outcome.
 
 Reported by `conductor.agent.DeliverToAgent` on its `not-running` outcome.
+
+Reported by `conductor.agent.MarkAgentRunning` on its `not-starting` outcome.
 
 Reported by `conductor.agent.StopAgent` on its `not-running` outcome.
 
@@ -507,7 +574,7 @@ It may read [`AgentKinds`](#agentkinds) and [`Agents`](#agents), which an actor 
 
 `conductor.agent.InstanceRuntime`, shown to a person as "Instance runtime".
 
-It may invoke [`DeclareAgentKind`](#declareagentkind), [`DeliverToAgent`](#delivertoagent), [`RecordAgentReport`](#recordagentreport), [`RestartAgent`](#restartagent), [`StartAgent`](#startagent) and [`StopAgent`](#stopagent).
+It may invoke [`DeclareAgentKind`](#declareagentkind), [`DeliverToAgent`](#delivertoagent), [`MarkAgentRunning`](#markagentrunning), [`RecordAgentReport`](#recordagentreport), [`RestartAgent`](#restartagent), [`StartAgent`](#startagent) and [`StopAgent`](#stopagent).
 
 It may read [`AgentKinds`](#agentkinds) and [`Agents`](#agents), which an actor whose grant does not name it may not read.
 
@@ -522,4 +589,4 @@ It may read [`AgentKinds`](#agentkinds) and [`Agents`](#agents), which an actor 
 
 ---
 
-Generated from conductor v1 · contract digest `slice-sha256/2:d45f706ed836f925f944dc478774c70c4ede0ec0e7315d917ed09181b941fe20`. Do not edit this file; change the specification and regenerate it with `ess generate`.
+Generated from conductor v1 · contract digest `slice-sha256/2:4dac8593ae4cddff26e61e47a26f08205b94020a9ce040aaee31fff41d4525ec`. Do not edit this file; change the specification and regenerate it with `ess generate`.
