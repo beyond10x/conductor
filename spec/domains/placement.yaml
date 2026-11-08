@@ -28,9 +28,13 @@ types:
     kind: newtype
     of: Uuid
 
-  # The substrate adapter a box is opened through (§ 6, substrate 0.16.1): `systemd`, a unit in a
-  # slice with cpu, memory and task limits; `linux`, bubblewrap plus a delegated cgroup; `oci`, a
-  # container; `pod`, one pod per box in a cluster, on a remote substrate only.
+  # The substrate adapter a box is opened through (§ 6, substrate 0.20.0): `linux`, bubblewrap;
+  # `systemd`, `linux` inside a delegated systemd scope, which adds cpu, memory and task limits and
+  # whole-tree kill; `oci`, a container; `pod`, one pod per box in a cluster, on a remote
+  # substrate only. Substrate puts no adapter name on the wire (its ADR 0048): an adapter is the
+  # confinement facts the box requires, families and properties, checked against the daemon's
+  # published `confinement.family.*` and `confinement.*` facts before anything starts; a missing
+  # one is refused `confinement.family-unserved` or `confinement.fact-unserved`, substrate's names.
   # UNMAPPED: § 12 lists substrate's adapters as `local`, `linux`, `macos`, `systemd`, `oci`,
   # `pod`; § 6 admits `local` (no isolation) only as "a configuration an instance writes on
   # purpose, with a reason", and names no `macos` placement. Whether `Local` (and the reason it
@@ -54,7 +58,7 @@ types:
   # --tcp-bearer-file`, reached over HTTPS/WSS at `url` with an Identity bearer (§ 6,
   # `placement.daemon: <url>`). The bearer is a secret the config names and never holds (§ 9).
   # `trust_roots` is the PEM file of the roots the daemon's certificate is verified against and
-  # `server_identity` the DNS name it must carry: substrate 0.16.1's SDK has no ambient roots and
+  # `server_identity` the DNS name it must carry: substrate 0.20.0's SDK has no ambient roots and
   # takes both explicitly (story:placement-substrate-remote); `server_identity` written absent is
   # the URL's host.
   - name: conductor.placement.RemoteDaemon
@@ -118,7 +122,7 @@ types:
   # UNMAPPED: the other refusal names substrate declares at box open, the host policy's refusal
   # of an adapter among them, are read nowhere in this tree (it records `exec.metrics-unserved`
   # and `exec.resource-usage`, which are exec refusals and withheld metrics, not box-open
-  # refusals). Substrate's refusal catalogue (substrate 0.16.1, the version `b10x.toml` pins)
+  # refusals). Substrate's refusal catalogue (substrate 0.20.0, the version `b10x.toml` pins)
   # settles whether this becomes an enum of named reasons; until then it is the name as text.
   - name: conductor.placement.RefusalReason
     kind: newtype

@@ -23,14 +23,15 @@ use std::process::{Command, Output, Stdio};
 use serde_json::Value;
 
 /// Each program conductor starts but `git`, `gh` and `glab`, with the version line its fake
-/// prints; `aep`, `worktree` and `ess` newer than any pin a build carries.
-const PROGRAMS: [(&str, &str); 6] = [
+/// prints; `aep`, `worktree`, `ess` and `substrate-daemon` newer than any pin a build carries.
+const PROGRAMS: [(&str, &str); 7] = [
     ("claude", "2.1.295 (Claude Code)"),
     ("jq", "jq-1.8.2"),
     ("task", "3.53.1+ff3372fc"),
     ("aep", "aep 99.1.0"),
     ("worktree", "worktree-cli 99.1.0"),
     ("ess", "ess 99.1.0"),
+    ("substrate-daemon", "substrate-daemon 99.1.0"),
 ];
 
 /// The planning store version `aep` writes today, and one an older `aep` wrote.

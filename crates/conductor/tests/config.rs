@@ -570,6 +570,7 @@ fn show_without_a_file_prints_todays_constants() {
         "controllers",
         "forge",
         "gates_policy",
+        "model_token",
         "name",
         "operator",
         "records",

@@ -145,7 +145,7 @@ fn child() {
     } else {
         &file_headroom
     };
-    let host = conductor_cli::confine::Host::default();
+    let host = conductor_cli::confine::Host;
     let seams = Seams {
         providers: &host,
         deliverer: &deliverer,

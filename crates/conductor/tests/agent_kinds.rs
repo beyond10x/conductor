@@ -287,7 +287,7 @@ fn a_run_to_exit_kind_reports_one_line_from_its_exit_code_and_events_file() {
     let case = Case::new("exit-zero");
     let (program, events) = fake_program(&case, &[0]);
     let (mut runtime, lines) = runtime(RunToExit::new(program, events.clone()));
-    let host = conductor_cli::confine::Host::default();
+    let host = conductor_cli::confine::Host;
     let context = context(&host);
     let started = runtime
         .start(&context, worker_slot())
@@ -313,7 +313,7 @@ fn a_stopped_class_exit_becomes_a_new_generation() {
     let case = Case::new("exit-stopped");
     let (program, events) = fake_program(&case, &[STOPPED, 0]);
     let (mut runtime, lines) = runtime(RunToExit::new(program, events.clone()));
-    let host = conductor_cli::confine::Host::default();
+    let host = conductor_cli::confine::Host;
     let context = context(&host);
     runtime
         .start(&context, worker_slot())
@@ -341,7 +341,7 @@ fn a_failed_exit_is_no_new_generation() {
     let case = Case::new("exit-failed");
     let (program, events) = fake_program(&case, &[1, 0]);
     let (mut runtime, lines) = runtime(RunToExit::new(program, events.clone()));
-    let host = conductor_cli::confine::Host::default();
+    let host = conductor_cli::confine::Host;
     let context = context(&host);
     runtime
         .start(&context, worker_slot())
@@ -366,7 +366,7 @@ fn a_run_to_exit_agent_offers_no_interactive_route() {
     let case = Case::new("no-attach");
     let (program, events) = fake_program(&case, &[0]);
     let (mut runtime, _lines) = runtime(RunToExit::new(program, events));
-    let host = conductor_cli::confine::Host::default();
+    let host = conductor_cli::confine::Host;
     let context = context(&host);
     runtime
         .start(&context, worker_slot())
@@ -401,7 +401,7 @@ fn an_unknown_kind_and_a_second_start_are_refused() {
     let case = Case::new("unknown-kind");
     let (program, events) = fake_program(&case, &[0]);
     let (mut runtime, _lines) = runtime(RunToExit::new(program, events));
-    let host = conductor_cli::confine::Host::default();
+    let host = conductor_cli::confine::Host;
     let context = context(&host);
     let mut slot = worker_slot();
     slot.kind = AgentKindName("example-absent".to_owned());

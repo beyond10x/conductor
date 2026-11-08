@@ -34,8 +34,9 @@ fn child() {
 
 /// Each program conductor starts, with the version line its fake prints. `aep`, `worktree` and
 /// `ess` print a version newer than any pin a build carries (`story:doctor-minimum-versions`), so
-/// a case without a pin file passes whatever the repository's `b10x.toml` pins.
-const PROGRAMS: [(&str, &str); 8] = [
+/// a case without a pin file passes whatever the repository's `b10x.toml` pins; so does
+/// `substrate-daemon`, which every placement of a config file now needs.
+const PROGRAMS: [(&str, &str); 9] = [
     ("git", "git version 2.51.0"),
     ("gh", "gh version 2.100.0 (2026-09-04)"),
     ("claude", "2.1.295 (Claude Code)"),
@@ -44,6 +45,7 @@ const PROGRAMS: [(&str, &str); 8] = [
     ("aep", "aep 99.1.0"),
     ("worktree", "worktree-cli 99.1.0"),
     ("ess", "ess 99.1.0"),
+    ("substrate-daemon", "substrate-daemon 99.1.0"),
 ];
 
 /// The pins of the repository's own `b10x.toml`, which the build carries as its minimum versions.

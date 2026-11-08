@@ -18,6 +18,7 @@ use std::ffi::OsString;
 use std::fs;
 use std::io::{ErrorKind, Read as _, Write as _};
 use std::net::{TcpListener, TcpStream};
+use std::os::unix::fs::PermissionsExt as _;
 use std::os::unix::net::{UnixListener, UnixStream};
 use std::path::{Path, PathBuf};
 use std::process::{Child, Stdio};
@@ -300,6 +301,55 @@ impl Drop for Running {
         let _ = self.0.kill();
         let _ = self.0.wait();
     }
+}
+
+/// A runtime in a substrate box: substrate ends its session at the session's output bound, so
+/// the runtime writes what it says to the file `CONDUCTOR_API_LOG` names, creating its
+/// directory, and nothing to its standard output or error.
+#[test]
+fn instance_serve_writes_its_output_to_the_log_file_it_is_handed() {
+    let case = Case::new("log");
+    let log = case.state().join("sessions").join("runtime.log");
+    let child = common::conductor(case.home())
+        .current_dir(case.state())
+        .arg("--config")
+        .arg(case.file())
+        .args(["instance", "serve"])
+        .env(conductor_cli::config::INSTANCE_VARIABLE, "example-org")
+        .env(conductor_cli::instance::TOKEN_VARIABLE, INSTANCE_TOKEN)
+        .env(conductor_cli::instance::LOG_VARIABLE, &log)
+        .stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .expect("instance serve starts");
+    let mut running = Running(child);
+    let until = Instant::now() + Duration::from_secs(30);
+    while !fs::read_to_string(&log).is_ok_and(|text| text.contains("serving /v1/")) {
+        if let Ok(Some(status)) = running.0.try_wait() {
+            panic!("instance serve exited {status} before it logged");
+        }
+        assert!(
+            Instant::now() < until,
+            "nothing logged at {}",
+            log.display()
+        );
+        std::thread::sleep(Duration::from_millis(100));
+    }
+    let _ = running.0.kill();
+    let _ = running.0.wait();
+    let mut out = String::new();
+    let mut err = String::new();
+    if let Some(mut pipe) = running.0.stdout.take() {
+        let _ = pipe.read_to_string(&mut out);
+    }
+    if let Some(mut pipe) = running.0.stderr.take() {
+        let _ = pipe.read_to_string(&mut err);
+    }
+    assert_eq!(out, "", "nothing on standard output");
+    assert_eq!(err, "", "nothing on standard error");
+    let mode = fs::metadata(&log).expect("the log").permissions().mode() & 0o777;
+    assert_eq!(mode, 0o600, "the log is the owner's only");
 }
 
 #[test]

@@ -33,7 +33,7 @@ secrets-core = { git = "https://github.com/beyond10x/secrets", tag = "v0.6.0" }
 secrets-federation = { git = "https://github.com/beyond10x/secrets", tag = "v0.6.0" }
 secrets-keychain = { git = "https://github.com/beyond10x/secrets", tag = "v0.6.0", features = ["native-keychain"] }
 serde = { version = "1", features = ["derive"] }
-substrate-sdk = { package = "b10x-substrate-sdk", git = "https://github.com/beyond10x/substrate", tag = "0.16.1" }
+substrate-sdk = { package = "b10x-substrate-sdk", git = "https://github.com/beyond10x/substrate", rev = "546693082bcc10590fd4509f1b31926b3e3d1ddb" }
 signal-hook = { version = "0.4", default-features = false }
 serde_json = "1"
 serde_yaml = "0.9"

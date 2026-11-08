@@ -54,6 +54,7 @@ pub mod spawn;
 pub mod state;
 pub mod status;
 pub mod store;
+pub mod systemd;
 pub mod token;
 pub mod trust;
 pub mod tui;
