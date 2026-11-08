@@ -31,21 +31,34 @@ const ORIGIN: &str = "https://example.org/example-org/example.git";
 const MANIFEST: &str = "[package]\nname = \"example\"\nversion = \"0.1.0\"\nedition = \"2021\"\n\n\
                         [workspace]\n";
 
-const MAIN: &str = "fn main() {\n    println!(\"{}\", env!(\"CARGO_MANIFEST_DIR\"));\n}\n";
+/// The binary prints `TREE`, the path of the tree it was built in, a literal [`source`] writes into
+/// each tree's copy.
+const MAIN: &str = "fn main() {\n    println!(\"{TREE}\");\n}\n";
 
 /// The test reads the tree it runs for from its working directory, which cargo sets to the tree it
-/// was run in; it asserts that the test binary itself was built from that tree, waits long enough
-/// for the other tree's build to finish beside it, then asserts the binary the shared target
-/// holds prints that tree too.
+/// was run in; it asserts that the test binary itself was built from that tree (`TREE`, as in
+/// [`MAIN`]), waits long enough for the other tree's build to finish beside it, then asserts the
+/// binary the shared target holds prints that tree too.
 const TEST: &str = "#[test]\nfn the_binary_is_this_trees() {\n    \
                     let here = std::env::current_dir().expect(\"the working directory\");\n    \
                     let here = here.to_str().expect(\"text\");\n    \
-                    assert_eq!(env!(\"CARGO_MANIFEST_DIR\"), here, \"the test binary\");\n    \
+                    assert_eq!(TREE, here, \"the test binary\");\n    \
                     std::thread::sleep(std::time::Duration::from_secs(4));\n    \
                     let out = std::process::Command::new(env!(concat!(\"CARGO_BIN\", \"_EXE_example\")))\n        \
                     .output()\n        .expect(\"the binary runs\");\n    \
                     let printed = String::from_utf8(out.stdout).expect(\"text\");\n    \
                     assert_eq!(printed.trim(), here, \"the binary\");\n}\n";
+
+/// `body` ([`MAIN`] or [`TEST`]) as the tree `tree` holds it: after `const TREE`, the tree's path
+/// as a literal. Not `env!("CARGO_MANIFEST_DIR")`: cargo tracks that variable and rebuilds when
+/// it changes, so the trees' builds would differ by it alone; with a literal only the source
+/// tells them apart, as for a real repository's own crates.
+fn source(tree: &Path, body: &str) -> String {
+    format!(
+        "const TREE: &str = {:?};\n\n{body}",
+        tree.to_str().expect("text")
+    )
+}
 
 struct Case {
     dir: PathBuf,
@@ -72,13 +85,12 @@ impl Case {
         fs::create_dir_all(dir.join("repo/src")).expect("create the case's repository");
         fs::create_dir_all(dir.join("repo/tests")).expect("create the case's tests");
         fs::write(dir.join("repo/Cargo.toml"), MANIFEST).expect("write the manifest");
-        fs::write(dir.join("repo/src/main.rs"), MAIN).expect("write the binary");
-        fs::write(dir.join("repo/tests/own.rs"), TEST).expect("write the test");
         fs::write(dir.join("repo/.gitignore"), "/target\n").expect("write .gitignore");
         fs::write(dir.join("free.txt"), (100 * GIB).to_string()).expect("write free disk");
         let case = Self {
             dir: dir.canonicalize().expect("the case's directory"),
         };
+        case.write_sources("repo");
         case.git(&["init", "-q", "repo"]);
         case.git(&["-C", "repo", "remote", "add", "origin", ORIGIN]);
         case.git(&["-C", "repo", "add", "."]);
@@ -86,7 +98,16 @@ impl Case {
         case.git(&[
             "-C", "repo", "worktree", "add", "-q", "--detach", "../tree2",
         ]);
+        // tree2's sources name tree2, written before either tree builds.
+        case.write_sources("tree2");
         case
+    }
+
+    /// Writes the binary and the test of `tree`, each naming that tree ([`source`]).
+    fn write_sources(&self, tree: &str) {
+        let tree = self.dir.join(tree);
+        fs::write(tree.join("src/main.rs"), source(&tree, MAIN)).expect("write the binary");
+        fs::write(tree.join("tests/own.rs"), source(&tree, TEST)).expect("write the test");
     }
 
     /// Runs git in the case directory, reading no configuration of the host's user.

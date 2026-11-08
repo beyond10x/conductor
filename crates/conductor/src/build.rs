@@ -1850,8 +1850,14 @@ impl SharedTarget {
 }
 
 /// Sets the modification time of every regular file of the work tree `tree` that git tracks or
-/// would add (`git ls-files --cached --others --exclude-standard`) to now; answers how many.
+/// would add (`git ls-files --cached --others --exclude-standard`) to now; answers how many. A
+/// submodule is one entry there, a directory: the work tree checked out in it is marked the same
+/// way, and so on down, as cargo builds a member or a path dependency there like any other.
 fn mark_modified(tree: &Path) -> usize {
+    mark_modified_now(tree, std::time::SystemTime::now())
+}
+
+fn mark_modified_now(tree: &Path, now: std::time::SystemTime) -> usize {
     let Ok(output) = Command::new("git")
         .args([
             "ls-files",
@@ -1867,19 +1873,24 @@ fn mark_modified(tree: &Path) -> usize {
     else {
         return 0;
     };
-    let now = std::time::SystemTime::now();
     output
         .stdout
         .split(|byte| *byte == 0)
         .filter(|name| !name.is_empty())
         .map(|name| tree.join(String::from_utf8_lossy(name).as_ref()))
-        .filter(|path| fs::symlink_metadata(path).is_ok_and(|meta| meta.is_file()))
-        .filter(|path| {
-            fs::File::open(path)
-                .and_then(|file| file.set_modified(now))
-                .is_ok()
+        .map(|path| match fs::symlink_metadata(&path) {
+            Ok(meta) if meta.is_file() => usize::from(
+                fs::File::open(&path)
+                    .and_then(|file| file.set_modified(now))
+                    .is_ok(),
+            ),
+            // A submodule's work tree: its `.git` is a file, or a directory in an older layout.
+            Ok(meta) if meta.is_dir() && path.join(".git").exists() => {
+                mark_modified_now(&path, now)
+            }
+            _ => 0,
         })
-        .count()
+        .sum()
 }
 
 /// The compile cache of one run's repository (`story:build-run-repo-cache`).
