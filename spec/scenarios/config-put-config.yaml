@@ -24,7 +24,7 @@ timeline:
         payload:
           actor: {kind: Human, operator: example-operator}
           level: Instance
-          instance: example-org
+          instance_name: example-org
           path: thresholds.silent_session
           value: 45m
           reason: silence alarms fire on long gates

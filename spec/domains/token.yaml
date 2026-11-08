@@ -90,6 +90,10 @@ entities:
         type: Optional<conductor.agent.AgentName>
       - name: contributed_at
         type: Timestamp
+      # Who created or last moved the record (architecture-next § 3 "Actors": every record
+      # carries its actor).
+      - name: actor
+        type: conductor.operator.Actor
     relations:
       - name: secret
         kind: references
@@ -201,6 +205,7 @@ commands:
           limited_until: {cleared: true}
           agent: {cleared: true}
           contributed_at: input.contributed_at
+          actor: input.actor
         emits:
           - conductor.token.TokenContributed
         payload:
@@ -214,12 +219,15 @@ commands:
             contributed_at: input.contributed_at
         summary: The token is in the pool, Available and Ok, with its owner and seat.
 
-  # `conductor leave` withdraws the token (§ 5.3). The agent that held it is named on the event;
-  # resuming that agent on another token is the agent domain's reaction to the event, not an
-  # outcome here. A token withdrawn from Available or Limited holds no agent, so the event's
-  # `agent` is absent; ess 0.90's interpreted target does not carry an absent `{subject: agent}`
-  # while the synthesized suite expects it as `null` (with any `presence:`), so the two
-  # `withdrawn` scenarios fail there. That is reported to the coordinator, not modelled around.
+  # `conductor leave` withdraws the token (§ 5.3). Resuming the agent that held it on another
+  # token is the agent domain's reaction, not an outcome here.
+  # The event names no `agent`: a token withdrawn from Available or Limited holds none, and ess
+  # 0.90.0's interpreted target does not carry an absent Optional `{subject: agent}` after
+  # `sets: agent: {cleared: true}` while the synthesized suite expects it as `null`
+  # (beyond10x/ess issue 765). Until that is fixed the event carries `token_id` and `owner`, and
+  # the agent to resume is the one whose record names the token.
+  # UNMAPPED: whether the agent domain finds that agent by the token (the design says the token's
+  # owner is named on every agent record, § 5.3, not the token) is said nowhere. Open question.
   # UNMAPPED: whether only the token's owner may withdraw it, or any operator with a grant, is
   # said nowhere; no outcome compares `actor` with `owner`. Open question for the owner.
   - name: conductor.token.WithdrawToken
@@ -243,6 +251,7 @@ commands:
         instance: token_id
         sets:
           agent: {cleared: true}
+          actor: input.actor
         emits:
           - conductor.token.TokenWithdrawn
         payload:
@@ -250,7 +259,6 @@ commands:
             actor: input.actor
             token_id: input.token_id
             owner: {subject: owner}
-            agent: {subject: agent}
             withdrawn_at: input.withdrawn_at
         summary: The token is out of the pool; the agent that held it, if any, is named so it is resumed on another token.
       - name: wrong-state
@@ -310,6 +318,7 @@ commands:
         instance: token_id
         sets:
           agent: input.agent
+          actor: input.actor
         emits:
           - conductor.token.TokenLeased
         payload:
@@ -346,6 +355,7 @@ commands:
         instance: token_id
         sets:
           agent: {cleared: true}
+          actor: input.actor
         emits:
           - conductor.token.TokenReleased
         payload:
@@ -383,6 +393,7 @@ commands:
           token_state: Limited
           limited_until: input.limited_until
           agent: {cleared: true}
+          actor: input.actor
         emits:
           - conductor.token.TokenLimited
         payload:
@@ -418,7 +429,6 @@ events:
       - {name: actor, type: conductor.operator.Actor}
       - {name: token_id, type: conductor.token.TokenId}
       - {name: owner, type: conductor.operator.OperatorName}
-      - {name: agent, type: Optional<conductor.agent.AgentName>}
       - {name: withdrawn_at, type: Timestamp}
 
   - name: conductor.token.TokenLeased
@@ -473,6 +483,8 @@ views:
         type: Optional<conductor.agent.AgentName>
       - name: contributed_at
         type: Timestamp
+      - name: actor
+        type: conductor.operator.Actor
     naming:
       wire: tokens
       display: Tokens of the pool

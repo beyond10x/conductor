@@ -101,3 +101,8 @@ scenarios:
   - scenarios/config-put-config.yaml
   - scenarios/config-put-config-actor-not-human.yaml
   - scenarios/config-put-config-invalid.yaml
+  - scenarios/improvement-set-metric-target-actor-not-human.yaml
+  - scenarios/improvement-set-metric-target-daemon-refused.yaml
+  - scenarios/instance-purge-instance-daemon-refused.yaml
+  - scenarios/token-contribute-token-daemon-refused.yaml
+  - scenarios/secret-put-secret-daemon-refused.yaml

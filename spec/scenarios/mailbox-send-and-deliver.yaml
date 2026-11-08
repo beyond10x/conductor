@@ -62,7 +62,7 @@ timeline:
     command: conductor.session.DeliverMessage
     actor: conductor.session.Conductor
     input:
-      actor: {kind: Agent, agent: {instance: example-org, role: Director, name: example-org-conductor, kind: claude-code}}
+      actor: {kind: Daemon}
       session_name: cortex
       first_line: "[HANDOVER cortex] context 210k"
       body_path: mailbox/cortex/01K7Q0000000000000000000B0.md
