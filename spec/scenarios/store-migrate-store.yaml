@@ -1,0 +1,49 @@
+type: ess-scenario/1
+domain: conductor.store
+scenario: store-migrate-store
+summary: The operator reads one instance's eventlog tree into the store once; a second run for the same instance is refused as already migrated and copies nothing.
+
+timeline:
+  - at: 2026-11-08T09:00:00Z
+    command: conductor.store.MigrateStore
+    actor: conductor.store.Operator
+    input:
+      actor:
+        kind: Human
+        value:
+          operator: example-operator
+      instance: example-org
+      source: ~/.b10x/conductor/example-org/state/store
+      events_copied: 120
+      migrated_at: 2026-11-08T09:00:00Z
+    outcome: migrated
+    events:
+      - event: conductor.store.StoreMigrated
+        payload:
+          instance: example-org
+          events_copied: 120
+
+  - at: 2026-11-08T09:05:00Z
+    command: conductor.store.MigrateStore
+    actor: conductor.store.Operator
+    input:
+      actor:
+        kind: Human
+        value:
+          operator: example-operator
+      instance: example-org
+      source: ~/.b10x/conductor/example-org/state/store
+      events_copied: 120
+      migrated_at: 2026-11-08T09:05:00Z
+    outcome: already-migrated
+    error:
+      name: conductor.store.AlreadyMigrated
+
+assert:
+  - view: conductor.store.Migrations
+    contains:
+      instance: example-org
+      state: Migrated
+      source: ~/.b10x/conductor/example-org/state/store
+      events_copied: 120
+      migrated_at: 2026-11-08T09:00:00Z
