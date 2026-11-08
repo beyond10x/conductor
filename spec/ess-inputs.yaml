@@ -51,3 +51,6 @@ scenarios:
   - scenarios/answer-escalated-as-operator-twice.yaml
   - scenarios/amend-escalated-request.yaml
   - scenarios/report-done-from-sent-or-blocked.yaml
+  - scenarios/placement-open-box.yaml
+  - scenarios/placement-open-box-refused.yaml
+  - scenarios/placement-close-box.yaml
