@@ -22,6 +22,7 @@ Every command takes these, before or after its name.
 |---|---|---|---|
 | `--state-dir <DIR>` | no | none | The state directory; conductor's records are kept in its tree/. Default: the instance's state when a config file names it, else state/ under the working directory |
 | `--config <FILE>` | no | none | The config file, named by `globals.config` of the binding. Default: $CONDUCTOR_CONFIG, else ~/.b10x/conductor/conductor.yaml. Every command reads it for its instance |
+| `--daemon <URL>` | no | none | The daemon a command talks to, an https:// address; default: $CONDUCTOR_DAEMON for the commands with a route on its global API (login, join, leave, config put, instance upgrade), else this box. Any other command refuses it |
 
 ## Commands
 
@@ -166,6 +167,8 @@ Every command takes these, before or after its name.
 | [`conductor finding raise-finding`](#conductor-finding-raise-finding) | Raise a friction finding |
 | [`conductor finding verify-finding`](#conductor-finding-verify-finding) | Verify a filed finding |
 | [`conductor finding findings`](#conductor-finding-findings) | Friction findings |
+| [`conductor tuner`](#conductor-tuner) | The settings changes the tuner proposed after each daily tick, and whether each was applied, kept, reverted or refused |
+| [`conductor tuner settings-proposals`](#conductor-tuner-settings-proposals) | Settings proposals |
 | [`conductor agent`](#conductor-agent) |  |
 | [`conductor agent attach`](#conductor-agent-attach) | Attach this terminal to the agent of a role slot through its kind: for claude-code, conductor session attach --role; --watch attaches read-only; refuse a kind this binary does not implement and a kind that is not interactive (CapabilityMissing) |
 | [`conductor agent deliver`](#conductor-agent-deliver) | Deliver a text to the running agent of a role slot through its kind: for claude-code, conductor session deliver to the role's session name; --text is a file, or - for standard input; refuse a kind this binary does not implement and a kind that is not interactive (CapabilityMissing) |
@@ -182,16 +185,17 @@ Every command takes these, before or after its name.
 | [`conductor config validate`](#conductor-config-validate) | Check the config file and the host file host.yaml; exit 1 naming each problem by its YAML path |
 | [`conductor config workspace`](#conductor-config-workspace) | Write the instance's workspace file from its config; --check names each difference |
 | [`conductor daemon`](#conductor-daemon) |  |
-| [`conductor daemon serve`](#conductor-daemon-serve) | Run conductord, the daemon of the control host, reconciling the instance runtimes from the config file - start what is absent, stop what is gone, restart what changed placement or binary - on a config change, a lost runtime and every daemon.cadence.reconcile, recording one Reconciliation per action, and serving GET 127.0.0.1:&lt;daemon.port>/v1/instances. --install writes, enables and starts the user unit conductord.service; --uninstall stops and removes it |
+| [`conductor daemon serve`](#conductor-daemon-serve) | Run conductord, the daemon of the control host, reconciling the instance runtimes from the config file - start what is absent, stop what is gone, restart what changed placement or binary - on a config change, a lost runtime and every daemon.cadence.reconcile, recording one Reconciliation per action, and serving GET 127.0.0.1:&lt;daemon.port>/v1/instances. --install writes, enables and starts the user unit conductord.service, or the system unit when daemon.loopback is false (a box with no local operator, its config file in a git checkout, its secrets on the Secrets service); --uninstall stops and removes it |
+| [`conductor daemon start-role`](#conductor-daemon-start-role) | Ask the daemon of the config file to start a host role now (POST /v1/roles/\{role}/start) - supervisor or teacher, one globals.roles lists; the daemon starts it through conductor session start --role &lt;role> at the host placement, its session in conductor_host.slice, and keeps it running; a role the file does not list is refused naming globals.roles |
 | [`conductor doctor`](#conductor-doctor) | Report the machine, each program conductor starts as present, with its version, or missing, each one older than its pin in the nearest b10x.toml, or else in the pins conductor was built with, and the account each forge CLI is logged in as on each host of the config file's sources |
 | [`conductor gc`](#conductor-gc) | Remove what the dashboard's disk panel marks reclaimable, and no tree a live session works in; print the bytes freed |
-| [`conductor init`](#conductor-init) | Install the host's supervisor and teacher agents in ~/.claude/agents/ where missing, printing installed, kept or differs per file, then write and commit the instance's records directory skeleton; refuse to overwrite any file |
+| [`conductor init`](#conductor-init) | Write and commit the instance's records directory skeleton; refuse to overwrite any file |
 | [`conductor instance`](#conductor-instance) |  |
 | [`conductor instance serve`](#conductor-instance-serve) | Serve the instance API, the routes of the dashboard under /v1/, on the instance's &lt;state>/api.sock until stopped; a write takes the token the daemon minted for the instance, in CONDUCTOR_API_TOKEN |
 | [`conductor instance upgrade`](#conductor-instance-upgrade) | Ask the daemon to upgrade an instance to a released binary (POST /v1/instances/\{name}/upgrade) - it fetches the release, installs its binary, runs its conductor doctor, restarts the runtime on it and rolls back to the previous binary unless it answers within daemon.upgrade_timeout; --all goes through every instance of the config file one at a time and stops at the first rollback |
-| [`conductor join`](#conductor-join) | Join an instance of a daemon as one of its operators and contribute a token to its pool; not written yet, exits 2 |
-| [`conductor leave`](#conductor-leave) | Leave an instance of a daemon and withdraw the token contributed to its pool; not written yet, exits 2 |
-| [`conductor login`](#conductor-login) | Obtain an Identity bearer for a daemon's API and keep it in this client's keychain; not written yet, exits 2 |
+| [`conductor join`](#conductor-join) | Join an instance of the daemon --daemon names as one of its operators (JoinInstance, with the grants daemon.operators gives you) and contribute your Claude token, read from standard input, to the instance's pool (ContributeToken): the value goes into the daemon's secrets source, the pool records its owner, seat (--seat, your operator name by default) and state, never the value |
+| [`conductor leave`](#conductor-leave) | Leave an instance of the daemon --daemon names (LeaveInstance) and withdraw every token you contributed to its pool (WithdrawToken); each agent on one is resumed on another token by the instance's loop |
+| [`conductor login`](#conductor-login) | Log in to the daemon --daemon or CONDUCTOR_DAEMON names through its Identity service, in a browser, and keep the Identity session in this client's keychain; each command against that daemon then presents a bearer minted from it |
 | [`conductor need`](#conductor-need) |  |
 | [`conductor need new`](#conductor-need-new) | Print the next NEED id no earlier NEED used, N-&lt;yyyymmdd>-&lt;nn>, and keep it in the state directory; skip an id the records' hand-overs, decisions and dispatches already cite |
 | [`conductor records`](#conductor-records) |  |
@@ -206,8 +210,10 @@ Every command takes these, before or after its name.
 | [`conductor status`](#conductor-status) | Print what asks for attention, one line each, from the store alone (the newest complete snapshot's id and age, its deviations, blocked dispatches, waits, pending requests and usage); --full prints its sessions and every open dispatch besides; start no snapshot and create nothing |
 | [`conductor store`](#conductor-store) |  |
 | [`conductor store migrate`](#conductor-store-migrate) | Read the eventlog tree under the state directory once into the store's database, record the migration there, and print the counts read; refuse a tree read before (AlreadyMigrated) or none there (SourceMissing) |
+| [`conductor token`](#conductor-token) |  |
+| [`conductor token reveal`](#conductor-token-reveal) | Print the value of a leased token of the instance's pool from the daemon's secrets source, for the claude-code kind's harness, whose settings name this command as their apiKeyHelper; refuse a token that is not leased; nothing else prints a value |
 | [`conductor trust`](#conductor-trust) | Mark every git checkout under the instance's checkouts root, and its records directory, as trusted Claude Code workspaces in ~/.claude.json |
-| [`conductor tui`](#conductor-tui) | Open the terminal UI over the daemon's global API; not written yet, exits 2 |
+| [`conductor tui`](#conductor-tui) | Open the terminal UI over the daemon's global API - the instances (state, open decisions, KPI flags), the sessions of the selected one (role, state, context, current work) and its settings, read-only; Enter attaches to the selected session, w watches it, l follows its terminal log, ctrl-] then d returns; the global --daemon names the daemon (default CONDUCTOR_DAEMON, else 127.0.0.1:daemon.port) |
 | [`conductor upgrade`](#conductor-upgrade) | Check for a newer release of the repository conductor was built from; without --check, download its archive for this target and SHA256SUMS, verify the sum, run the new binary's --version and replace this binary, keeping conductor.previous; --release installs a named release |
 | [`conductor watch`](#conductor-watch) |  |
 | [`conductor watch run`](#conductor-watch-run) | Watch sessions, usage limits, conductor's context, free disk and main's CI; exit after the first pass that finds a change |
@@ -2275,6 +2281,26 @@ Usage: conductor finding findings [OPTIONS]
 |---|---|---|---|
 | `--format <FORMAT>` | no | `text` | How the rows are rendered One of `text`, `json`, `jsonl`, `markdown`. |
 
+## `conductor tuner`
+
+The settings changes the tuner proposed after each daily tick, and whether each was applied, kept, reverted or refused
+
+```text
+Usage: conductor tuner [OPTIONS] <COMMAND>
+```
+
+## `conductor tuner settings-proposals`
+
+Settings proposals
+
+```text
+Usage: conductor tuner settings-proposals [OPTIONS]
+```
+
+| Argument | Required | Default | Meaning |
+|---|---|---|---|
+| `--format <FORMAT>` | no | `text` | How the rows are rendered One of `text`, `json`, `jsonl`, `markdown`. |
+
 ## `conductor agent`
 
 ```text
@@ -2452,7 +2478,7 @@ Usage: conductor daemon [OPTIONS] <COMMAND>
 
 ## `conductor daemon serve`
 
-Run conductord, the daemon of the control host, reconciling the instance runtimes from the config file - start what is absent, stop what is gone, restart what changed placement or binary - on a config change, a lost runtime and every daemon.cadence.reconcile, recording one Reconciliation per action, and serving GET 127.0.0.1:&lt;daemon.port>/v1/instances. --install writes, enables and starts the user unit conductord.service; --uninstall stops and removes it
+Run conductord, the daemon of the control host, reconciling the instance runtimes from the config file - start what is absent, stop what is gone, restart what changed placement or binary - on a config change, a lost runtime and every daemon.cadence.reconcile, recording one Reconciliation per action, and serving GET 127.0.0.1:&lt;daemon.port>/v1/instances. --install writes, enables and starts the user unit conductord.service, or the system unit when daemon.loopback is false (a box with no local operator, its config file in a git checkout, its secrets on the Secrets service); --uninstall stops and removes it
 
 ```text
 Usage: conductor daemon serve [OPTIONS]
@@ -2462,6 +2488,18 @@ Usage: conductor daemon serve [OPTIONS]
 |---|---|---|---|
 | `--install <BOOL>` | no | none | Write the user unit conductord.service running this command, then enable and start it. `--install` alone is `--install true` One of `true`, `false`. |
 | `--uninstall <BOOL>` | no | none | Disable and stop the user unit conductord.service and remove its file. `--uninstall` alone is `--uninstall true` One of `true`, `false`. |
+
+## `conductor daemon start-role`
+
+Ask the daemon of the config file to start a host role now (POST /v1/roles/\{role}/start) - supervisor or teacher, one globals.roles lists; the daemon starts it through conductor session start --role &lt;role> at the host placement, its session in conductor_host.slice, and keeps it running; a role the file does not list is refused naming globals.roles
+
+```text
+Usage: conductor daemon start-role [OPTIONS]
+```
+
+| Argument | Required | Default | Meaning |
+|---|---|---|---|
+| `--role <ROLE>` | no | none | The host role to start: supervisor or teacher; required |
 
 ## `conductor doctor`
 
@@ -2486,7 +2524,7 @@ Usage: conductor gc [OPTIONS]
 
 ## `conductor init`
 
-Install the host's supervisor and teacher agents in ~/.claude/agents/ where missing, printing installed, kept or differs per file, then write and commit the instance's records directory skeleton; refuse to overwrite any file
+Write and commit the instance's records directory skeleton; refuse to overwrite any file
 
 ```text
 Usage: conductor init [OPTIONS]
@@ -2526,23 +2564,32 @@ Usage: conductor instance upgrade [OPTIONS]
 
 ## `conductor join`
 
-Join an instance of a daemon as one of its operators and contribute a token to its pool; not written yet, exits 2
+Join an instance of the daemon --daemon names as one of its operators (JoinInstance, with the grants daemon.operators gives you) and contribute your Claude token, read from standard input, to the instance's pool (ContributeToken): the value goes into the daemon's secrets source, the pool records its owner, seat (--seat, your operator name by default) and state, never the value
 
 ```text
 Usage: conductor join [OPTIONS]
 ```
 
+| Argument | Required | Default | Meaning |
+|---|---|---|---|
+| `--instance <NAME>` | no | none | The instance joined |
+| `--seat <SEAT>` | no | none | The Claude login the token draws on; absent, your operator name |
+
 ## `conductor leave`
 
-Leave an instance of a daemon and withdraw the token contributed to its pool; not written yet, exits 2
+Leave an instance of the daemon --daemon names (LeaveInstance) and withdraw every token you contributed to its pool (WithdrawToken); each agent on one is resumed on another token by the instance's loop
 
 ```text
 Usage: conductor leave [OPTIONS]
 ```
 
+| Argument | Required | Default | Meaning |
+|---|---|---|---|
+| `--instance <NAME>` | no | none | The instance left |
+
 ## `conductor login`
 
-Obtain an Identity bearer for a daemon's API and keep it in this client's keychain; not written yet, exits 2
+Log in to the daemon --daemon or CONDUCTOR_DAEMON names through its Identity service, in a browser, and keep the Identity session in this client's keychain; each command against that daemon then presents a bearer minted from it
 
 ```text
 Usage: conductor login [OPTIONS]
@@ -2695,6 +2742,24 @@ Usage: conductor store migrate [OPTIONS]
 |---|---|---|---|
 | `--format <FORMAT>` | no | none | How the counts moved are printed: text or json. Default: text |
 
+## `conductor token`
+
+```text
+Usage: conductor token [OPTIONS] <COMMAND>
+```
+
+## `conductor token reveal`
+
+Print the value of a leased token of the instance's pool from the daemon's secrets source, for the claude-code kind's harness, whose settings name this command as their apiKeyHelper; refuse a token that is not leased; nothing else prints a value
+
+```text
+Usage: conductor token reveal [OPTIONS]
+```
+
+| Argument | Required | Default | Meaning |
+|---|---|---|---|
+| `--token <ID>` | no | none | The leased token's id |
+
 ## `conductor trust`
 
 Mark every git checkout under the instance's checkouts root, and its records directory, as trusted Claude Code workspaces in ~/.claude.json
@@ -2709,7 +2774,7 @@ Usage: conductor trust [OPTIONS]
 
 ## `conductor tui`
 
-Open the terminal UI over the daemon's global API; not written yet, exits 2
+Open the terminal UI over the daemon's global API - the instances (state, open decisions, KPI flags), the sessions of the selected one (role, state, context, current work) and its settings, read-only; Enter attaches to the selected session, w watches it, l follows its terminal log, ctrl-] then d returns; the global --daemon names the daemon (default CONDUCTOR_DAEMON, else 127.0.0.1:daemon.port)
 
 ```text
 Usage: conductor tui [OPTIONS]

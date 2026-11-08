@@ -58,9 +58,23 @@ use crate::config;
 
 /// Every program conductor starts: its collectors, its gate and its tasks. A forge's CLI of
 /// [`FORGES`] is among them only for an instance with a source on that forge ([`forges`]).
-pub const PROGRAMS: [&str; 9] = [
-    "git", "gh", "glab", "claude", "jq", "task", "aep", "worktree", "ess",
+pub const PROGRAMS: [&str; 10] = [
+    "git",
+    "gh",
+    "glab",
+    "claude",
+    "jq",
+    "task",
+    "aep",
+    "worktree",
+    "ess",
+    SUBSTRATE_DAEMON,
 ];
+
+/// The substrate daemon a substrate placement opens its box through (`story:placement-substrate-local`):
+/// needed only when an instance of the config file runs in a substrate box ([`crate::placement::boxed`]),
+/// `not needed` otherwise, and checked against its pin in `b10x.toml` (decision P6).
+pub const SUBSTRATE_DAEMON: &str = "substrate-daemon";
 
 /// The forges' CLIs: `gh` for GitHub, `glab` for GitLab.
 pub const FORGES: [&str; 2] = ["gh", "glab"];
@@ -364,6 +378,7 @@ fn upstream(program: &str) -> Option<&'static str> {
         "glab" => "https://gitlab.com/gitlab-org/cli#installation",
         "git" => "https://git-scm.com/downloads",
         "claude" => "https://docs.anthropic.com/en/docs/claude-code/setup",
+        SUBSTRATE_DAEMON => "https://github.com/beyond10x/substrate/releases",
         _ => return None,
     })
 }
@@ -609,7 +624,9 @@ fn examine(
                 .iter()
                 .find(|(name, _)| name == program)
                 .map(|(_, spec)| spec.clone());
-            if FORGES.contains(program) && !needed.contains(program) {
+            if (FORGES.contains(program) || *program == SUBSTRATE_DAEMON)
+                && !needed.contains(program)
+            {
                 return Prerequisite {
                     program: (*program).to_owned(),
                     state: PrerequisiteState::NotNeeded,
@@ -885,6 +902,14 @@ fn read_config(
                         .iter()
                         .any(|instance| forges(instance).contains(forge))
                 })
+                .chain(
+                    loaded
+                        .config
+                        .instances
+                        .iter()
+                        .any(crate::placement::boxed)
+                        .then_some(SUBSTRATE_DAEMON),
+                )
                 .collect(),
             forge_hosts(&loaded.config),
             loaded
@@ -1391,10 +1416,10 @@ mod tests {
     }
 
     #[test]
-    fn each_build_pin_is_a_pin_of_aep_ess_or_worktree() {
+    fn each_build_pin_is_a_pin_of_aep_ess_worktree_or_substrate_daemon() {
         for (program, spec) in build_pins() {
             assert!(
-                ["aep", "ess", "worktree"].contains(&program.as_str()),
+                ["aep", "ess", "worktree", SUBSTRATE_DAEMON].contains(&program.as_str()),
                 "{program}"
             );
             assert!(Pin::parse(&spec).is_some(), "{program} = {spec:?}");

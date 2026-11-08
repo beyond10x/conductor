@@ -1,5 +1,5 @@
 // generated from conductor v1
-// contract digest 575fcfe0b84fcb4b2dc3a52041bbf14840203191eb2cb53374eec07ea92207ab
+// contract digest 0608eb83c8c48e1f8808cd29d3621f78091b34cac43c2b2e9143a335707a4202
 // do not edit: regenerate with `ess synthesize --layout crate`
 
 //! What the specification fully determines, generated: the behaviour of every command the plan
@@ -341,6 +341,24 @@ pub trait MetricReadingStorage {
     /// Every stored instance, in the order the store keeps them: the order a generated query
     /// answers an unordered view in.
     fn list(&self) -> Vec<crate::improvement::MetricReadingSnapshot>;
+}
+
+/// Where `conductor.improvement.SettingsProposal` is stored — a port the implementor provides.
+///
+/// Keyed by the identity `proposal_id`. Generated network entries supply an ephemeral implementation; durable storage remains a port.
+pub trait SettingsProposalStorage {
+    /// The instance with this identity, or `None` where none is stored.
+    fn get(&self, identity: &crate::improvement::ProposalId) -> Option<crate::improvement::SettingsProposalSnapshot>;
+
+    /// Stores this instance under its identity, replacing what was held.
+    fn put(&mut self, snapshot: crate::improvement::SettingsProposalSnapshot);
+
+    /// Removes the instance with this identity.
+    fn delete(&mut self, identity: &crate::improvement::ProposalId);
+
+    /// Every stored instance, in the order the store keeps them: the order a generated query
+    /// answers an unordered view in.
+    fn list(&self) -> Vec<crate::improvement::SettingsProposalSnapshot>;
 }
 
 /// Where `conductor.instance.Instance` is stored — a port the implementor provides.
@@ -878,6 +896,8 @@ pub enum ExternalCommand<'a> {
     ConductorSessionDeliverMessage(&'a crate::session::DeliverMessage),
     /// The executing `conductor.token.LeaseToken` input.
     ConductorTokenLeaseToken(&'a crate::token::LeaseToken),
+    /// The executing `conductor.token.WithdrawToken` input.
+    ConductorTokenWithdrawToken(&'a crate::token::WithdrawToken),
 }
 
 impl ExternalCommand<'_> {
@@ -890,6 +910,7 @@ impl ExternalCommand<'_> {
             Self::ConductorPlacementOpenBox(_) => "conductor.placement.OpenBox",
             Self::ConductorSessionDeliverMessage(_) => "conductor.session.DeliverMessage",
             Self::ConductorTokenLeaseToken(_) => "conductor.token.LeaseToken",
+            Self::ConductorTokenWithdrawToken(_) => "conductor.token.WithdrawToken",
         }
     }
 }
@@ -2926,6 +2947,34 @@ where
     }
 }
 
+/// `conductor.improvement.ApplyProposal`, generated: every outcome is one the specification fully determines.
+impl<P> crate::improvement::obligations::ApplyProposalBehavior for Generated<P>
+where
+    P: SettingsProposalStorage,
+{
+    fn apply_proposal(&mut self, input: crate::improvement::ApplyProposal) -> Result<crate::improvement::ApplyProposalOutcome, UnmetObligation> {
+        let _ = &input;
+        // `applied`: the default.
+        let Some(held) = SettingsProposalStorage::get(&self.ports, &input.proposal_id) else {
+            return Ok(crate::improvement::ApplyProposalOutcome::NoSuchProposal { error: crate::improvement::ProposalNotFound { proposal_id: input.proposal_id.clone() } });
+        };
+        let _ = &held;
+        let moved = match held.refine() {
+            crate::improvement::AnySettingsProposal::Proposed(instance) => crate::improvement::AnySettingsProposal::Applied(instance.apply()),
+            _ => return Ok(crate::improvement::ApplyProposalOutcome::WrongState { error: crate::improvement::ProposalStateConflict { proposal_id: input.proposal_id.clone() } }),
+        };
+        let mut next = moved.snapshot();
+        next.data.revision = Some(input.revision.clone());
+        if let Some(broken) = next.data.broken_invariant() {
+            let capability = "entity invariant";
+            return Err(UnmetObligation { capability, source: broken });
+        }
+        let answer = crate::improvement::ApplyProposalOutcome::Applied { proposal_applied: crate::improvement::ProposalApplied { actor: input.actor.clone(), proposal_id: input.proposal_id.clone(), revision: input.revision.clone() } };
+        SettingsProposalStorage::put(&mut self.ports, next);
+        return Ok(answer);
+    }
+}
+
 /// `conductor.improvement.DefineMetric`, generated: every outcome is one the specification fully determines.
 impl<P> crate::improvement::obligations::DefineMetricBehavior for Generated<P>
 where
@@ -3013,6 +3062,55 @@ where
     }
 }
 
+/// `conductor.improvement.ProposeSetting`, generated: every outcome is one the specification fully determines.
+impl<P> crate::improvement::obligations::ProposeSettingBehavior for Generated<P>
+where
+    P: MetricStorage + SettingsProposalStorage,
+{
+    fn propose_setting(&mut self, input: crate::improvement::ProposeSetting) -> Result<crate::improvement::ProposeSettingOutcome, UnmetObligation> {
+        let _ = &input;
+        // `already-proposed`: an identity a record already carries, before any branch is taken.
+        if SettingsProposalStorage::get(&self.ports, &input.proposal_id).is_some() {
+            return Ok(crate::improvement::ProposeSettingOutcome::AlreadyProposed { error: crate::improvement::ProposalExists { proposal_id: input.proposal_id.clone() } });
+        }
+        // `when_related:` reads the `conductor.improvement.Metric` row `input.metric_id` names, through its storage port; an absent
+        // reference reads no row and selects no related branch.
+        let reference = Some(&input.metric_id);
+        let related = reference.and_then(|identity| MetricStorage::get(&self.ports, identity));
+        // `no-such-metric`: the reference names an identity no row carries.
+        if reference.is_some() && related.is_none() {
+            return Ok(crate::improvement::ProposeSettingOutcome::NoSuchMetric { error: crate::improvement::MetricNotFound { metric_id: input.metric_id.clone() } });
+        }
+        let _ = &related;
+        // `proposed`: the default.
+        let identity: crate::improvement::ProposalId = input.proposal_id.clone();
+        let data = crate::improvement::SettingsProposalData {
+            proposal_id: identity.clone(),
+            instance: input.instance.clone(),
+            key: input.key.clone(),
+            old: input.old.clone(),
+            new: input.new.clone(),
+            metric_id: input.metric_id.clone(),
+            reading: input.reading.clone(),
+            baseline: input.baseline.clone(),
+            window_days: input.window_days.clone(),
+            proposed_at: input.proposed_at.clone(),
+            actor: input.actor.clone(),
+            revision: None,
+            reason: None,
+            finding: None,
+            verdict: None,
+        };
+        if let Some(broken) = data.broken_invariant() {
+            let capability = "entity invariant";
+            return Err(UnmetObligation { capability, source: broken });
+        }
+        let answer = crate::improvement::ProposeSettingOutcome::Proposed { setting_proposed: crate::improvement::SettingProposed { actor: input.actor.clone(), proposal_id: identity.clone(), instance: input.instance.clone(), key: input.key.clone(), old: input.old.clone(), new: input.new.clone(), metric_id: input.metric_id.clone() } };
+        SettingsProposalStorage::put(&mut self.ports, crate::improvement::AnySettingsProposal::Proposed(crate::improvement::SettingsProposal::new(data)).snapshot());
+        return Ok(answer);
+    }
+}
+
 /// `conductor.improvement.RaiseFinding`, generated: every outcome is one the specification fully determines.
 impl<P> crate::improvement::obligations::RaiseFindingBehavior for Generated<P>
 where
@@ -3091,9 +3189,87 @@ where
     }
 }
 
+/// `conductor.improvement.RefuseProposal`, generated: every outcome is one the specification fully determines.
+impl<P> crate::improvement::obligations::RefuseProposalBehavior for Generated<P>
+where
+    P: SettingsProposalStorage,
+{
+    fn refuse_proposal(&mut self, input: crate::improvement::RefuseProposal) -> Result<crate::improvement::RefuseProposalOutcome, UnmetObligation> {
+        let _ = &input;
+        // `refused`: the default.
+        let Some(held) = SettingsProposalStorage::get(&self.ports, &input.proposal_id) else {
+            return Ok(crate::improvement::RefuseProposalOutcome::NoSuchProposal { error: crate::improvement::ProposalNotFound { proposal_id: input.proposal_id.clone() } });
+        };
+        let _ = &held;
+        let moved = match held.refine() {
+            crate::improvement::AnySettingsProposal::Proposed(instance) => crate::improvement::AnySettingsProposal::Refused(instance.refuse()),
+            _ => return Ok(crate::improvement::RefuseProposalOutcome::WrongState { error: crate::improvement::ProposalStateConflict { proposal_id: input.proposal_id.clone() } }),
+        };
+        let mut next = moved.snapshot();
+        next.data.reason = Some(input.reason.clone());
+        next.data.finding = input.finding.clone();
+        if let Some(broken) = next.data.broken_invariant() {
+            let capability = "entity invariant";
+            return Err(UnmetObligation { capability, source: broken });
+        }
+        let answer = crate::improvement::RefuseProposalOutcome::Refused { proposal_refused: crate::improvement::ProposalRefused { actor: input.actor.clone(), proposal_id: input.proposal_id.clone(), reason: input.reason.clone() } };
+        SettingsProposalStorage::put(&mut self.ports, next);
+        return Ok(answer);
+    }
+}
+
 impl<P: crate::improvement::obligations::SetMetricTargetBehavior> crate::improvement::obligations::SetMetricTargetBehavior for Generated<P> {
     fn set_metric_target(&mut self, input: crate::improvement::SetMetricTarget) -> Result<crate::improvement::SetMetricTargetOutcome, UnmetObligation> {
         crate::improvement::obligations::SetMetricTargetBehavior::set_metric_target(&mut self.ports, input)
+    }
+}
+
+/// `conductor.improvement.SettleProposal`, generated: every outcome is one the specification fully determines.
+impl<P> crate::improvement::obligations::SettleProposalBehavior for Generated<P>
+where
+    P: SettingsProposalStorage,
+{
+    fn settle_proposal(&mut self, input: crate::improvement::SettleProposal) -> Result<crate::improvement::SettleProposalOutcome, UnmetObligation> {
+        let _ = &input;
+        // `kept`: an accepting branch, in declaration order.
+        if decided(equal(Some(&input.improved).map(|value| *value), Some(true)), "conductor.improvement.SettleProposal")? {
+            let Some(held) = SettingsProposalStorage::get(&self.ports, &input.proposal_id) else {
+                return Ok(crate::improvement::SettleProposalOutcome::NoSuchProposal { error: crate::improvement::ProposalNotFound { proposal_id: input.proposal_id.clone() } });
+            };
+            let _ = &held;
+            let moved = match held.refine() {
+                crate::improvement::AnySettingsProposal::Applied(instance) => crate::improvement::AnySettingsProposal::Kept(instance.keep()),
+                _ => return Ok(crate::improvement::SettleProposalOutcome::WrongState { error: crate::improvement::ProposalStateConflict { proposal_id: input.proposal_id.clone() } }),
+            };
+            let mut next = moved.snapshot();
+            next.data.verdict = Some(input.verdict.clone());
+            if let Some(broken) = next.data.broken_invariant() {
+                let capability = "entity invariant";
+                return Err(UnmetObligation { capability, source: broken });
+            }
+            let answer = crate::improvement::SettleProposalOutcome::Kept { proposal_kept: crate::improvement::ProposalKept { actor: input.actor.clone(), proposal_id: input.proposal_id.clone(), verdict: input.verdict.clone() } };
+            SettingsProposalStorage::put(&mut self.ports, next);
+            return Ok(answer);
+        }
+        // `reverted`: the default.
+        let Some(held) = SettingsProposalStorage::get(&self.ports, &input.proposal_id) else {
+            return Ok(crate::improvement::SettleProposalOutcome::NoSuchProposal { error: crate::improvement::ProposalNotFound { proposal_id: input.proposal_id.clone() } });
+        };
+        let _ = &held;
+        let moved = match held.refine() {
+            crate::improvement::AnySettingsProposal::Applied(instance) => crate::improvement::AnySettingsProposal::Reverted(instance.revert()),
+            _ => return Ok(crate::improvement::SettleProposalOutcome::WrongState { error: crate::improvement::ProposalStateConflict { proposal_id: input.proposal_id.clone() } }),
+        };
+        let mut next = moved.snapshot();
+        next.data.revision = input.revision.clone();
+        next.data.verdict = Some(input.verdict.clone());
+        if let Some(broken) = next.data.broken_invariant() {
+            let capability = "entity invariant";
+            return Err(UnmetObligation { capability, source: broken });
+        }
+        let answer = crate::improvement::SettleProposalOutcome::Reverted { proposal_reverted: crate::improvement::ProposalReverted { actor: input.actor.clone(), proposal_id: input.proposal_id.clone(), verdict: input.verdict.clone() } };
+        SettingsProposalStorage::put(&mut self.ports, next);
+        return Ok(answer);
     }
 }
 
@@ -4431,9 +4607,12 @@ where
         let before = held.data.clone();
         let moved = match held.refine() {
             crate::token::AnyPoolToken::Available(instance) => crate::token::AnyPoolToken::Leased(instance.lease()),
+            crate::token::AnyPoolToken::Limited(instance) => crate::token::AnyPoolToken::Leased(instance.lease()),
             _ => return Ok(crate::token::LeaseTokenOutcome::WrongState { error: crate::token::TokenStateConflict { token_id: input.token_id.clone() } }),
         };
         let mut next = moved.snapshot();
+        next.data.token_state = crate::token::TokenState::Ok;
+        next.data.limited_until = None;
         next.data.agent = Some(input.agent.clone());
         next.data.actor = input.actor.clone();
         let answer = crate::token::LeaseTokenOutcome::Leased { token_leased: crate::token::TokenLeased { actor: input.actor.clone(), token_id: input.token_id.clone(), instance: input.instance.clone(), owner: before.owner.clone(), seat: before.seat.clone(), agent: input.agent.clone(), preferred_owner: input.preferred_owner.clone(), leased_at: input.leased_at.clone() } };
@@ -4499,13 +4678,17 @@ where
 /// `conductor.token.WithdrawToken`, generated: every outcome is one the specification fully determines.
 impl<P> crate::token::obligations::WithdrawTokenBehavior for Generated<P>
 where
-    P: PoolTokenStorage,
+    P: TryContext + PoolTokenStorage,
 {
     fn withdraw_token(&mut self, input: crate::token::WithdrawToken) -> Result<crate::token::WithdrawTokenOutcome, UnmetObligation> {
         let _ = &input;
         // `actor-not-human`: an input-guarded refusal, before the addressed subject is loaded.
         if decided(equal(Some(&input.actor).map(|value| &value.kind).map(|value| match value { crate::operator::ActorKind::Human => "Human", crate::operator::ActorKind::Agent => "Agent", crate::operator::ActorKind::Daemon => "Daemon" }.to_owned()), Some("Human".to_owned())).map(|value| !value), "conductor.token.WithdrawToken")? {
             return Ok(crate::token::WithdrawTokenOutcome::ActorNotHuman { error: crate::operator::ActorNotHuman { actor: input.actor.clone() } });
+        }
+        // `not-owner`: an external branch, where the context takes it.
+        if self.ports.try_external(ExternalCommand::ConductorTokenWithdrawToken(&input), "not-owner")? {
+            return Ok(crate::token::WithdrawTokenOutcome::NotOwner { error: crate::token::NotTokenOwner { token_id: input.token_id.clone() } });
         }
         // `withdrawn`: the default.
         let Some(held) = PoolTokenStorage::get(&self.ports, &input.token_id) else {
@@ -5106,6 +5289,36 @@ where
                 target_owner: held.data.target_owner,
                 target_set_at: held.data.target_set_at,
                 actor: held.data.actor,
+            })
+            .collect())
+    }
+}
+
+/// `conductor.improvement.SettingsProposals`, generated: every row is one the specification fully determines from the stored `conductor.improvement.SettingsProposal`s.
+impl<P> crate::improvement::obligations::SettingsProposalsQuery for Generated<P>
+where
+    P: SettingsProposalStorage,
+{
+    fn settings_proposals(&self) -> Result<Vec<crate::improvement::SettingsProposals>, UnmetObligation> {
+        let admitted = SettingsProposalStorage::list(&self.ports);
+        Ok(admitted
+            .into_iter()
+            .map(|held| crate::improvement::SettingsProposals {
+                proposal_id: held.data.proposal_id,
+                state: held.state,
+                instance: held.data.instance,
+                key: held.data.key,
+                old: held.data.old,
+                new: held.data.new,
+                metric_id: held.data.metric_id,
+                reading: held.data.reading,
+                baseline: held.data.baseline,
+                window_days: held.data.window_days,
+                proposed_at: held.data.proposed_at,
+                revision: held.data.revision,
+                reason: held.data.reason,
+                finding: held.data.finding,
+                verdict: held.data.verdict,
             })
             .collect())
     }

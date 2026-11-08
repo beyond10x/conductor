@@ -1,5 +1,5 @@
 // generated from conductor v1
-// contract digest 575fcfe0b84fcb4b2dc3a52041bbf14840203191eb2cb53374eec07ea92207ab
+// contract digest 0608eb83c8c48e1f8808cd29d3621f78091b34cac43c2b2e9143a335707a4202
 // do not edit: regenerate with `ess synthesize --layout crate`
 
 //! conductord — the `conductord` component of `conductor` v1.
@@ -456,6 +456,7 @@ where
         let outcome = self.behaviors.withdraw_token(input)?;
         match &outcome {
             crate::token::WithdrawTokenOutcome::ActorNotHuman { .. } => {}
+            crate::token::WithdrawTokenOutcome::NotOwner { .. } => {}
             crate::token::WithdrawTokenOutcome::Withdrawn { token_withdrawn, .. } => {
                 self.outbox.push(PublishedEvent::TokenWithdrawn(token_withdrawn.clone()));
             }

@@ -14,7 +14,9 @@
 //!   ([`Daemon::settle`]) rather than starting it again on the new one;
 //! - leaves it alone when it matches, and records nothing.
 //!
-//! and stops each runtime it started whose instance the config no longer names. Each action is
+//! and stops each runtime it started whose instance the config no longer names; then it keeps the
+//! host roles `globals.roles` lists running and stops one it no longer lists ([`host_roles`],
+//! `story:host-roles-by-daemon`). Each instance action is
 //! one `conductor.instance.Reconciliation` in the daemon's store; a start or stop the service
 //! manager refuses is recorded `Refused`, with what it said as the detail. What the daemon
 //! started is kept beside its store in [`RUNTIMES_FILE`], so a restarted daemon finds the
@@ -25,7 +27,7 @@
 //! (`ConfigChange`), when a runtime it started stopped running (`LostRuntime`), and every
 //! `daemon.cadence.reconcile` (`Cadence`).
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::Command;
@@ -43,6 +45,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 
 use super::api::Route;
+use super::host_roles::{self, HostStart};
 use super::units::Units;
 use crate::confine::systemd::{self, Service};
 use crate::store::Store;
@@ -52,6 +55,16 @@ pub const RUNTIMES_FILE: &str = "runtimes.json";
 
 /// Each instance's binaries, beside [`RUNTIMES_FILE`]: one [`Pinned`] per instance, by name.
 pub const BINARIES_FILE: &str = "binaries.json";
+
+/// The box of each instance the daemon started in a substrate box, beside [`RUNTIMES_FILE`]: one
+/// [`crate::placement::OpenedBox`] per instance, by name (`story:placement-substrate-local`).
+pub const BOXES_FILE: &str = "boxes.json";
+
+/// The unit [`Started`] names for a runtime in a substrate box: `substrate:<session>`.
+#[must_use]
+pub fn boxed_unit(opened: &crate::placement::OpenedBox) -> String {
+    format!("substrate:{}", opened.session)
+}
 
 /// The unit an instance's runtime runs in: `conductor_<instance>-runtime.service`, escaped as a
 /// session's unit is ([`systemd::unit_name`]).
@@ -159,6 +172,10 @@ pub struct Daemon<U: Units> {
     pub units: U,
     /// What fetches a release and runs its doctor for an upgrade ([`super::upgrade`]).
     pub releases: Box<dyn super::upgrade::Releases>,
+    /// The substrate daemon an instance whose placement is a substrate box runs in
+    /// ([`crate::placement`]); the local daemon through the SDK by default.
+    pub substrate: Box<dyn crate::placement::Substrate + Send>,
+    pub(super) boxes: BTreeMap<String, crate::placement::OpenedBox>,
     store: Store,
     /// `daemon.store` as the file wrote it at start: the store above, handed every runtime.
     url: String,
@@ -167,6 +184,9 @@ pub struct Daemon<U: Units> {
     pub(super) started: BTreeMap<String, Started>,
     pub(super) running: BTreeMap<String, bool>,
     pub(super) pins: BTreeMap<String, Pinned>,
+    /// Each host role the daemon started, by role, and whether its unit ran at the last look
+    /// (`story:host-roles-by-daemon`).
+    hosts: BTreeMap<String, bool>,
     last_pass: Option<Instant>,
 }
 
@@ -197,6 +217,7 @@ impl<U: Units> Daemon<U> {
             .map_err(|error| anyhow!("daemon.store: {error:#}"))?;
         let started = read_kept(&dir.join(RUNTIMES_FILE))?;
         let pins = read_kept(&dir.join(BINARIES_FILE))?;
+        let boxes = read_kept(&dir.join(BOXES_FILE))?;
         Ok(Self {
             config_file,
             home,
@@ -204,6 +225,8 @@ impl<U: Units> Daemon<U> {
             binary,
             units,
             releases: Box::new(super::upgrade::Github),
+            substrate: Box::new(crate::placement::Sdk::default()),
+            boxes,
             store,
             url,
             config,
@@ -211,6 +234,7 @@ impl<U: Units> Daemon<U> {
             started,
             running: BTreeMap::new(),
             pins,
+            hosts: BTreeMap::new(),
             last_pass: None,
         })
     }
@@ -318,7 +342,7 @@ impl<U: Units> Daemon<U> {
         let names: Vec<String> = self.started.keys().cloned().collect();
         for name in names {
             let unit = self.started[&name].unit.clone();
-            let running = self.units.active(&unit)?;
+            let running = self.runs(&name, &unit)?;
             if running {
                 if let Some(started) = self.started.get_mut(&name) {
                     started.last_seen = Some(at.0.clone());
@@ -328,7 +352,140 @@ impl<U: Units> Daemon<U> {
             }
             self.running.insert(name, running);
         }
+        let roles: Vec<String> = self.hosts.keys().cloned().collect();
+        for role in roles {
+            let running = self.units.active(&host_roles::unit(&role))?;
+            lost |= !running && self.hosts.get(&role).copied().unwrap_or(false);
+            self.hosts.insert(role, running);
+        }
         Ok(lost)
+    }
+
+    /// Each host role the daemon started, by role, and whether its unit ran at the last look.
+    #[must_use]
+    pub const fn host_roles(&self) -> &BTreeMap<String, bool> {
+        &self.hosts
+    }
+
+    /// The supervisor's session as `POST /v1/ask` reaches it, while its unit runs.
+    #[must_use]
+    pub fn supervisor(&self) -> Option<host_roles::Supervisor> {
+        (self.hosts.get(host_roles::SUPERVISOR) == Some(&true)).then(|| host_roles::Supervisor {
+            state: host_roles::state_dir(&self.dir),
+            name: host_roles::SUPERVISOR.to_owned(),
+        })
+    }
+
+    /// The [`HostStart`] of `role`: `session start --role <role>` with the daemon's binary under
+    /// the host roles' state directory, beside the config file, at [`host_roles::PLACEMENT`]; the
+    /// instance it starts under is the file's `default`, else its first.
+    fn host_start(&self, role: &str) -> HostStart {
+        let file = self.config_file.display().to_string();
+        let state = host_roles::state_dir(&self.dir);
+        let mut env = vec![format!("{}={file}", crate::config::CONFIG_VARIABLE)];
+        let instance = self
+            .config
+            .default
+            .as_ref()
+            .map(|name| name.0.clone())
+            .or_else(|| {
+                self.config
+                    .instances
+                    .first()
+                    .map(|instance| instance.name.0.clone())
+            });
+        if let Some(instance) = instance {
+            env.push(format!("{}={instance}", crate::config::INSTANCE_VARIABLE));
+        }
+        if let Some(path) = std::env::var_os("PATH") {
+            env.push(format!("PATH={}", path.to_string_lossy()));
+        }
+        HostStart {
+            role: role.to_owned(),
+            placement: host_roles::PLACEMENT.to_owned(),
+            unit: host_roles::unit(role),
+            cwd: self
+                .config_file
+                .parent()
+                .map_or_else(|| self.home.clone(), Path::to_owned),
+            env,
+            command: vec![
+                self.binary.path.display().to_string(),
+                "--config".to_owned(),
+                file,
+                "--state-dir".to_owned(),
+                state.display().to_string(),
+                "session".to_owned(),
+                "start".to_owned(),
+                "--role".to_owned(),
+                role.to_owned(),
+            ],
+        }
+    }
+
+    /// Starts the host role `role` when its unit does not run; answers what was done.
+    fn start_host(&mut self, role: &str, reason: ReconcileReason) -> Result<Option<Done>> {
+        let unit = host_roles::unit(role);
+        if self.units.active(&unit)? {
+            self.hosts.insert(role.to_owned(), true);
+            return Ok(None);
+        }
+        let start = self.host_start(role);
+        let outcome = self.units.start_host_role(&start);
+        let started = outcome.is_ok();
+        self.hosts.insert(role.to_owned(), started);
+        Ok(Some(host_done(
+            role,
+            ReconcileAction::Start,
+            reason,
+            outcome,
+        )))
+    }
+
+    /// The host-role step of a pass (`story:host-roles-by-daemon`): starts each host role
+    /// `globals.roles` lists whose unit does not run, and stops the running unit of a host role
+    /// it does not list.
+    fn keep_host_roles(&mut self, reason: ReconcileReason) -> Result<Vec<Done>> {
+        let listed = host_roles::listed(&self.config);
+        let mut done = Vec::new();
+        for role in &listed {
+            done.extend(self.start_host(role, reason)?);
+        }
+        for role in host_roles::HOST_ROLES {
+            if listed.iter().any(|named| named == role) {
+                continue;
+            }
+            self.hosts.remove(role);
+            let unit = host_roles::unit(role);
+            if self.units.active(&unit)? {
+                let outcome = self.units.stop(&unit);
+                done.push(host_done(role, ReconcileAction::Stop, reason, outcome));
+            }
+        }
+        Ok(done)
+    }
+
+    /// Starts each host role of `roles` now, asked for through `POST /v1/roles/{role}/start`:
+    /// one `globals.roles` lists and whose unit does not run is started; one it does not list is
+    /// answered `Refused`, naming `globals.roles`.
+    ///
+    /// # Errors
+    ///
+    /// The service manager cannot be asked.
+    pub fn start_asked(&mut self, roles: &BTreeSet<String>) -> Result<Vec<Done>> {
+        let mut done = Vec::new();
+        for role in roles {
+            match host_roles::global_role(&self.config, role) {
+                Ok(_) => done.extend(self.start_host(role, ReconcileReason::Cadence)?),
+                Err(why) => done.push(host_done(
+                    role,
+                    ReconcileAction::Start,
+                    ReconcileReason::Cadence,
+                    Err(anyhow!(why)),
+                )),
+            }
+        }
+        Ok(done)
     }
 
     /// One pass for `reason` at `now`, as the module documentation says; answers the actions it
@@ -360,7 +517,7 @@ impl<U: Units> Daemon<U> {
             };
             let held = self.started.get(&name).cloned();
             let running = match &held {
-                Some(held) => self.units.active(&held.unit)?,
+                Some(held) => self.runs(&name, &held.unit)?,
                 None => false,
             };
             let (action, why, outcome) = match held {
@@ -379,9 +536,8 @@ impl<U: Units> Daemon<U> {
                     let service = self.service(instance, &desired, &token);
                     wanted.token = Some(token);
                     let outcome = self
-                        .units
-                        .stop(&held.unit)
-                        .and_then(|()| self.units.start(&service));
+                        .stop_runtime(&name, &held.unit)
+                        .and_then(|()| self.start_runtime(instance, &service));
                     (ReconcileAction::Restart, reason, outcome)
                 }
                 held => {
@@ -393,9 +549,16 @@ impl<U: Units> Daemon<U> {
                     let token = crate::dashboard::mint().context("mint the runtime's token")?;
                     let service = self.service(instance, &desired, &token);
                     wanted.token = Some(token);
-                    (ReconcileAction::Start, why, self.units.start(&service))
+                    (
+                        ReconcileAction::Start,
+                        why,
+                        self.start_runtime(instance, &service),
+                    )
                 }
             };
+            let outcome = outcome.map(|unit| {
+                wanted.unit = unit;
+            });
             let succeeded = outcome.is_ok();
             if succeeded {
                 self.started.insert(name.clone(), wanted);
@@ -423,13 +586,66 @@ impl<U: Units> Daemon<U> {
             let Some(held) = self.started.remove(&name) else {
                 continue;
             };
-            if self.units.active(&held.unit)? {
-                let outcome = self.units.stop(&held.unit);
+            if self.runs(&name, &held.unit)? {
+                let outcome = self.stop_runtime(&name, &held.unit);
                 done.push(self.record(&name, ReconcileAction::Stop, reason, outcome, &at)?);
             }
         }
+        done.extend(self.keep_host_roles(reason)?);
         self.save()?;
         Ok(done)
+    }
+
+    /// Whether the runtime of `name`, started as `unit`, runs: its session in its substrate box
+    /// when it was started in one ([`boxed_unit`]), else its unit.
+    fn runs(&mut self, name: &str, unit: &str) -> Result<bool> {
+        match self.boxes.get(name) {
+            Some(opened) if boxed_unit(opened) == unit => {
+                let session = opened.session.clone();
+                self.substrate.running(&session)
+            }
+            _ => self.units.active(unit),
+        }
+    }
+
+    /// Starts `instance`'s runtime as `service` says and answers the unit it runs as. An instance
+    /// whose placement is a substrate box ([`crate::placement::boxed`]) runs in a box opened for
+    /// it ([`crate::placement::open_box`]), never through the service manager; a refusal is
+    /// `PlacementRefused` with substrate's name, and nothing falls back. The runtime's token is
+    /// not handed into the box: substrate 0.16.1 seals only slots its daemon declares.
+    fn start_runtime(&mut self, instance: &Instance, service: &Service) -> Result<String> {
+        if !crate::placement::boxed(instance) {
+            self.units.start(service)?;
+            return Ok(service.unit.clone());
+        }
+        let token = format!("{}=", crate::instance::TOKEN_VARIABLE);
+        let env = service
+            .env
+            .iter()
+            .filter(|pair| !pair.starts_with(&token))
+            .filter_map(|pair| pair.split_once('='))
+            .map(|(name, value)| (name.to_owned(), value.to_owned()))
+            .collect();
+        let binary = PathBuf::from(service.command.first().cloned().unwrap_or_default());
+        let request = crate::placement::request(instance, &self.config_file, &binary, env);
+        let opened =
+            crate::placement::open_box(&mut self.store, self.substrate.as_mut(), &request)?;
+        let unit = boxed_unit(&opened);
+        self.boxes.insert(instance.name.0.clone(), opened);
+        Ok(unit)
+    }
+
+    /// Stops the runtime of `name`, started as `unit`: closes its box when it runs in one
+    /// ([`crate::placement::close_box`]), else stops its unit.
+    fn stop_runtime(&mut self, name: &str, unit: &str) -> Result<()> {
+        match self.boxes.get(name).cloned() {
+            Some(opened) if boxed_unit(&opened) == unit => {
+                crate::placement::close_box(&mut self.store, self.substrate.as_mut(), &opened)?;
+                self.boxes.remove(name);
+                Ok(())
+            }
+            _ => self.units.stop(unit),
+        }
     }
 
     /// The unit `instance`'s runtime is started as: `<binary> --config <file> instance serve` in
@@ -560,6 +776,7 @@ impl<U: Units> Daemon<U> {
     /// Writes [`RUNTIMES_FILE`] and [`BINARIES_FILE`].
     pub(super) fn save(&self) -> Result<()> {
         keep(&self.dir, RUNTIMES_FILE, &self.started)?;
+        keep(&self.dir, BOXES_FILE, &self.boxes)?;
         keep(&self.dir, BINARIES_FILE, &self.pins)
     }
 
@@ -623,6 +840,27 @@ impl<U: Units> Daemon<U> {
                 ))
             })
             .collect()
+    }
+}
+
+/// One action on the host role `role`, as a [`Done`] whose instance is `host:<role>`; it is not
+/// recorded, since a `Reconciliation` names an instance (`story:host-roles-by-daemon`).
+fn host_done(
+    role: &str,
+    action: ReconcileAction,
+    reason: ReconcileReason,
+    outcome: Result<()>,
+) -> Done {
+    let (result, detail) = match outcome {
+        Ok(()) => (ReconcileResult::Succeeded, None),
+        Err(error) => (ReconcileResult::Refused, Some(format!("{error:#}"))),
+    };
+    Done {
+        instance: format!("{}:{role}", host_roles::PLACEMENT),
+        action,
+        reason,
+        result,
+        detail,
     }
 }
 

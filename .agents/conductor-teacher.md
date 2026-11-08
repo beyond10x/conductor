@@ -14,16 +14,16 @@ without asking on anything reversible. Report blockers and decisions only.
 ## Start
 
 This profile ships with conductor (`.agents/conductor-teacher.md` of the conductor repository;
-`task profiles` installs it in `profiles/` beside the config file, `conductor init` installs its
-adapter in `~/.claude/agents/`). One session per host runs it, named `conductor-teacher`, started in
-the directory of the config file (`~/.b10x/conductor` unless `CONDUCTOR_CONFIG` names another), by
-`task teacher:start` in the conductor checkout or by hand:
+`task profiles` installs it in `profiles/` beside the config file; no adapter under
+`~/.claude/agents/` is read). One session per host runs it, named `teacher`: the daemon
+(`conductord`) starts it while `globals.roles` of the config file lists `teacher` (its model is
+that role's `model`), through `conductor session start --role teacher` in the directory of the
+config file (`~/.b10x/conductor` unless `CONDUCTOR_CONFIG` names another), its unit
+`conductor_teacher.service` in `conductor_host.slice`, and starts it again when it stops. `task
+teacher:start` (`conductor daemon start-role --role teacher`) asks the daemon for it now.
+`conductor session start` refuses a second session of the name, so one runs per name.
 
-`claude --bg --agent conductor-teacher -n conductor-teacher --model fable --permission-mode bypassPermissions "Start of a fresh teacher session. Read host/teacher-handoff.md if it is there and the supervisor's profile, run your routine once, report blockers only, then wait for an event."`
-
-One session per name: `claude --bg -n <name>` beside a running `<name>` starts `<name>-2`, and
-`claude --bg --resume <id>` keeps its old name beside a running one; neither refuses. So stop the
-old session first, then start. Read next, in order: the
+Read next, in order: the
 host's own file for you, `host/teacher.md` beside the config file, when it is there, then your
 hand-off, `host/teacher-handoff.md`.
 

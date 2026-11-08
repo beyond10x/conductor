@@ -237,6 +237,11 @@ callables:
     input: conductor.instance.ServeDaemon
     result: String
     errors: {}
+  daemon-start-role:
+    target: {kind: local, owner: conductor-cli, action: daemon_start_role}
+    input: conductor.instance.StartHostRole
+    result: String
+    errors: {}
   instance-serve:
     target: {kind: local, owner: conductor-cli, action: instance_serve}
     input: null
@@ -269,12 +274,17 @@ callables:
     errors: {}
   join:
     target: {kind: local, owner: conductor-cli, action: join}
-    input: null
+    input: conductor.token.JoinDaemon
     result: String
     errors: {}
   leave:
     target: {kind: local, owner: conductor-cli, action: leave}
-    input: null
+    input: conductor.token.LeaveDaemon
+    result: String
+    errors: {}
+  token-reveal:
+    target: {kind: local, owner: conductor-cli, action: token_reveal}
+    input: conductor.token.RevealToken
     result: String
     errors: {}
   login:
@@ -419,7 +429,7 @@ commands:
         source: {kind: option, long: instance}
   - path: [init]
     callable: init
-    about: Install the host's supervisor and teacher agents in ~/.claude/agents/ where missing, printing installed, kept or differs per file, then write and commit the instance's records directory skeleton; refuse to overwrite any file
+    about: Write and commit the instance's records directory skeleton; refuse to overwrite any file
     arguments:
       - field: instance
         source: {kind: option, long: instance}
@@ -589,12 +599,18 @@ commands:
         source: {kind: option, long: commit-records}
   - path: [daemon, serve]
     callable: daemon-serve
-    about: Run conductord, the daemon of the control host, reconciling the instance runtimes from the config file - start what is absent, stop what is gone, restart what changed placement or binary - on a config change, a lost runtime and every daemon.cadence.reconcile, recording one Reconciliation per action, and serving GET 127.0.0.1:<daemon.port>/v1/instances. --install writes, enables and starts the user unit conductord.service; --uninstall stops and removes it
+    about: Run conductord, the daemon of the control host, reconciling the instance runtimes from the config file - start what is absent, stop what is gone, restart what changed placement or binary - on a config change, a lost runtime and every daemon.cadence.reconcile, recording one Reconciliation per action, and serving GET 127.0.0.1:<daemon.port>/v1/instances. --install writes, enables and starts the user unit conductord.service, or the system unit when daemon.loopback is false (a box with no local operator, its config file in a git checkout, its secrets on the Secrets service); --uninstall stops and removes it
     arguments:
       - field: install
         source: {kind: option, long: install}
       - field: uninstall
         source: {kind: option, long: uninstall}
+  - path: [daemon, start-role]
+    callable: daemon-start-role
+    about: Ask the daemon of the config file to start a host role now (POST /v1/roles/{role}/start) - supervisor or teacher, one globals.roles lists; the daemon starts it through conductor session start --role <role> at the host placement, its session in conductor_host.slice, and keeps it running; a role the file does not list is refused naming globals.roles
+    arguments:
+      - field: role
+        source: {kind: option, long: role}
   - path: [instance, serve]
     callable: instance-serve
     about: Serve the instance API, the routes of the dashboard under /v1/, on the instance's <state>/api.sock until stopped; a write takes the token the daemon minted for the instance, in CONDUCTOR_API_TOKEN
@@ -647,15 +663,27 @@ commands:
         source: {kind: option, long: role}
   - path: [join]
     callable: join
-    about: Join an instance of a daemon as one of its operators and contribute a token to its pool; not written yet, exits 2
-    arguments: []
+    about: "Join an instance of the daemon --daemon names as one of its operators (JoinInstance, with the grants daemon.operators gives you) and contribute your Claude token, read from standard input, to the instance's pool (ContributeToken): the value goes into the daemon's secrets source, the pool records its owner, seat (--seat, your operator name by default) and state, never the value"
+    arguments:
+      - field: instance
+        source: {kind: option, long: instance}
+      - field: seat
+        source: {kind: option, long: seat}
   - path: [leave]
     callable: leave
-    about: Leave an instance of a daemon and withdraw the token contributed to its pool; not written yet, exits 2
-    arguments: []
+    about: "Leave an instance of the daemon --daemon names (LeaveInstance) and withdraw every token you contributed to its pool (WithdrawToken); each agent on one is resumed on another token by the instance's loop"
+    arguments:
+      - field: instance
+        source: {kind: option, long: instance}
+  - path: [token, reveal]
+    callable: token-reveal
+    about: "Print the value of a leased token of the instance's pool from the daemon's secrets source, for the claude-code kind's harness, whose settings name this command as their apiKeyHelper; refuse a token that is not leased; nothing else prints a value"
+    arguments:
+      - field: token
+        source: {kind: option, long: token}
   - path: [login]
     callable: login
-    about: Obtain an Identity bearer for a daemon's API and keep it in this client's keychain; not written yet, exits 2
+    about: Log in to the daemon --daemon or CONDUCTOR_DAEMON names through its Identity service, in a browser, and keep the Identity session in this client's keychain; each command against that daemon then presents a bearer minted from it
     arguments: []
   - path: [secret, put]
     callable: secret-put
@@ -667,5 +695,5 @@ commands:
         source: {kind: option, long: replace}
   - path: [tui]
     callable: tui
-    about: Open the terminal UI over the daemon's global API; not written yet, exits 2
+    about: "Open the terminal UI over the daemon's global API - the instances (state, open decisions, KPI flags), the sessions of the selected one (role, state, context, current work) and its settings, read-only; Enter attaches to the selected session, w watches it, l follows its terminal log, ctrl-] then d returns; the global --daemon names the daemon (default CONDUCTOR_DAEMON, else 127.0.0.1:daemon.port)"
     arguments: []

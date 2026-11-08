@@ -21,8 +21,8 @@ flowchart TB
   classDef nomodel fill:#e5e7eb,stroke:#4b5563,color:#111827
   classDef store fill:#ede9fe,stroke:#6d28d9,color:#111827
   op["operator: interactive harness session"]:::host
-  sup["supervisor: claude --bg, reads profiles/conductor-supervisor.md"]:::host
-  tea["teacher: claude --bg, reads profiles/conductor-teacher.md"]:::host
+  sup["supervisor: started by the daemon, reads profiles/conductor-supervisor.md"]:::host
+  tea["teacher: started by the daemon, reads profiles/conductor-teacher.md"]:::host
   op --- sup
   op -.-|names foreign sessions, answers his class| sup
   tea -.->|observes, edits the profile| sup
@@ -191,8 +191,8 @@ reconciles the two every pass.
 |---|---|
 | `task install` | builds and installs the binary; `task profiles` installs `.agents/*.md` into `profiles/` next to the config file |
 | `task maintainer:start` | `conductor session start --role maintainer`: the maintainer in its own tmux server and unit |
-| `task supervisor:start` | `claude --bg --agent conductor-supervisor -n conductor-supervisor …` in the config directory |
-| `task teacher:start` | the same for the teacher |
+| `task supervisor:start` | `conductor daemon start-role --role supervisor`: asks the daemon to start the supervisor now; the daemon keeps it running while `globals.roles` lists it, its session in `conductor_host.slice` |
+| `task teacher:start` | the same for the teacher, which runs when `globals.roles` lists it |
 | `task dashboard`, `task dashboard:stop` | the dashboard unit |
 | `task sessions`, `task conductor:attach`, `task maintainer:attach` | list sessions; attach to one |
 | `task agents:link REPO=<path>` | links the role adapters into a repository's `.claude/agents/` |
@@ -597,61 +597,67 @@ hand-over at the context threshold with pushed branches; the terminal log as the
 
 ### The TUI
 
-`conductor` with no arguments at a terminal (and `conductor tui`) opens a full-screen view built on
-tmux: the TUI itself is one tmux client, and entering a session switches that client to the session's
-socket, so the session keeps running untouched when the operator leaves.
+`conductor` with no arguments at a terminal (and `conductor tui`) opens a full-screen view over the
+daemon's global API, the same API the dashboard reads. It reads the daemon `--daemon <url>` names,
+else `CONDUCTOR_DAEMON`, else `127.0.0.1:<daemon.port>` of the config file, so it works from any
+machine that reaches the daemon. This first release is read-only; its settings editor comes with the
+tuner's grant.
 
 ```text
-┌ instances ─────────┬ sessions of <instance> ──────────────┬ settings ───────────────────┐
-│ > A   2 dec  K1 ok │ controller   busy  412k  wave/46     │ cadence.cycle        2h     │
-│   B   0 dec  K3 !  │ worker repo1 idle   38k  story:x     │ thresholds.disk_low  200G   │
-│   C   1 dec  K1 ok │ worker repo2 busy  120k  story:y     │ controllers.max_working 8   │
-│   host             │ ui-pass      sched 06:00 daily       │ roles[3].schedule    daily  │
-├────────────────────┴──────────────────────────────────────┴─────────────────────────────┤
-│ Enter attach  w watch  d deliver  s settings  r restart  l log  k kpis  ? keys  q quit    │
-└───────────────────────────────────────────────────────────────────────────────────────────┘
+┌ instances on <daemon> ─────────┬ sessions of A ─────────────────────────┬ settings of A (read-only) ─┐
+│ > A   running      2 dec  K ok │ > controller   busy   412k  wave/46    │ cadence.cycle        2h    │
+│   B   running      0 dec  K1 ! │   controller   idle    38k  story:x    │ thresholds.disk_low  200G  │
+│   C   unreachable  ? dec  K ?  │   conductor    busy      -  -          │ controllers.max_working 8  │
+├────────────────────────────────┴────────────────────────────────────────┴────────────────────────────┤
+│ Enter attach  w watch  l log  ctrl-] d back  Tab pane  j/k move  r refresh  q quit                   │
+└──────────────────────────────────────────────────────────────────────────────────────────────────────┘
 ```
 
 ```mermaid
 flowchart LR
   classDef host fill:#dbeafe,stroke:#1d4ed8,color:#111827
   classDef model fill:#dcfce7,stroke:#15803d,color:#111827
-  classDef store fill:#ede9fe,stroke:#6d28d9,color:#111827
   classDef cmd fill:#fce7f3,stroke:#be185d,color:#111827
-  term["terminal"]:::host --> tui["conductor tui: one tmux client"]:::cmd
-  tui -->|Enter: switch the client to the socket| sa["session socket, instance A"]:::model
-  tui -->|Enter| sb["session socket, instance B"]:::model
-  sa -.->|detach: back to the TUI| tui
-  tui -->|s: validate, then write| cfg["conductor.yaml"]:::store
-  tui -->|d, r, k: conductor commands| store[("the store: deliveries, restarts, readings")]:::store
-  store -.->|what the dashboard reads| tui
+  term["terminal"]:::host --> tui["conductor tui"]:::cmd
+  tui -->|"GET /v1/instances, decisions, kpis, sessions"| daemon["conductord"]:::host
+  tui -->|"GET /v1/instances/{name}/settings"| daemon
+  tui -->|"Enter, w, l: daemon on this host"| attach["conductor session attach"]:::cmd
+  attach --> sock["the session's tmux socket"]:::model
+  sock -.->|"ctrl-] then d: back to the TUI"| tui
 ```
 
 <details>
 <summary>plain text</summary>
 
 ```text
-terminal ── conductor tui (one tmux client)
-              ├─ Enter ──► session socket, instance A ── ctrl-] then d ──► back to the TUI
-              ├─ Enter ──► session socket, instance B
-              ├─ s     ──► validate, then write conductor.yaml
-              └─ d r k ──► conductor commands ──► the store ◄── read by the TUI and the dashboard
+terminal ── conductor tui
+              ├─ reads ──► conductord: /v1/instances, /v1/decisions, /v1/kpis, /v1/sessions,
+              │                        /v1/instances/{name}/settings
+              ├─ Enter, w ──► conductor session attach (daemon on this host) ──► tmux socket
+              │                 └─ ctrl-] then d ──► back to the TUI, the session untouched
+              └─ l ──► follow the session's terminal log, ctrl-] then d returns
 ```
 
 </details>
 
 | key | does |
 |---|---|
-| `Enter` | attach the selected session (`ctrl-]` then `d` returns to the TUI) |
+| `Enter` | attach the selected session (`ctrl-]` then `d` returns to the TUI, the session untouched) |
 | `w` | watch it read-only |
-| `d` | deliver a text to it (recorded like `conductor session deliver`) |
-| `s` | edit the selected instance's or role's settings; the TUI validates and writes the config file, and shows the effective value with the level it comes from |
-| `r` | restart the session (hand-over first, then stop, then start) |
 | `l` | follow its terminal log (`<session>.terminal.log`) |
-| `k` | the instance's KPI readings of the last 7 days |
+| `Tab`, `j`, `k` | switch between the instances and the sessions pane, and move in it |
+| `r` | read every pane again (they are also read again every 5 seconds) |
+| `q` | quit |
 
-The TUI reads what the dashboard reads (the store and `<state>/sessions/`) and writes only through
-conductor commands, so a thing done in the TUI is a record.
+The instances pane shows each instance's state, its open decision requests and its KPI flag (`K ok`,
+or `K<n> !` for `n` KPIs off their target); the sessions pane each session's role, state, context
+and current work; the settings pane the selected instance's effective settings. An instance that does
+not answer is shown `unreachable`, never an error for the whole view.
+
+Attach hands the terminal to `conductor session attach` when the daemon is on this host. Against a
+daemon on another host the TUI asks `GET /v1/instances/{name}/agents/{agent}/attach` through the
+daemon; a PTY stream over HTTP is not served yet, and the TUI shows that answer on its status line.
+The TUI writes nothing.
 
 ### Settings: global, instance, role
 

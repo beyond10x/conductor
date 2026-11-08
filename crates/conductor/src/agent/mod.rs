@@ -37,6 +37,7 @@ use conductor_model::agent::{
 };
 pub use conductor_model::agent::{AgentKindName, AgentName, AgentState, Capability, ExitClass};
 use conductor_model::config::{Instance, InstanceName, Limits, PlacementName};
+use conductor_model::operator::OperatorName;
 
 use crate::config::{self, BuiltInRole};
 use crate::confine::Providers;
@@ -396,6 +397,9 @@ pub struct Agent {
     pub exit_class: Option<ExitClass>,
     /// A run-to-exit program's exit code.
     pub exit_code: Option<i64>,
+    /// The owner of the pooled token the agent runs on (`story:token-pool`); none for an agent on
+    /// no pooled token.
+    pub token_owner: Option<OperatorName>,
 }
 
 /// The kinds and the agents of one instance runtime.
@@ -484,6 +488,7 @@ impl Runtime {
                 generation: 1,
                 exit_class: None,
                 exit_code: None,
+                token_owner: crate::token::owner_of(&AgentName(name.clone())),
             },
         );
         Ok(&self.agents[&name])
@@ -587,6 +592,7 @@ impl Runtime {
         agent.generation += 1;
         agent.exit_class = None;
         agent.exit_code = None;
+        agent.token_owner = crate::token::owner_of(&agent.slot.name);
         Ok(agent)
     }
 

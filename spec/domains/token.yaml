@@ -29,6 +29,31 @@ types:
     kind: newtype
     of: String
 
+  # The input of `conductor join` (story:token-pool), the binding's `join` callable: `instance`
+  # the instance joined, `seat` the Claude login the token draws on
+  # (absent, the operator's name). The token's value is read from standard input, never from a
+  # flag, the environment or the config. The daemon is the one the global `--daemon` or
+  # `CONDUCTOR_DAEMON` names (story:daemon-remote), as for every command with a route on its
+  # global API; it is no field of the input.
+  - name: conductor.token.JoinDaemon
+    kind: struct
+    fields:
+      - {name: instance, type: Optional<conductor.config.InstanceName>}
+      - {name: seat, type: Optional<conductor.token.Seat>}
+
+  # The input of `conductor leave`: the instance left, on the daemon `--daemon` names.
+  - name: conductor.token.LeaveDaemon
+    kind: struct
+    fields:
+      - {name: instance, type: Optional<conductor.config.InstanceName>}
+
+  # The input of `conductor token reveal`: the token whose value the `claude-code` kind's harness
+  # asks for (its settings' `apiKeyHelper`), by id.
+  - name: conductor.token.RevealToken
+    kind: struct
+    fields:
+      - {name: token, type: Optional<String>}
+
 entities:
   # The token pool of one instance (§ 5.3): a set of secrets in the instance's secrets namespace.
   # UNMAPPED: no command in the design creates a pool (neither `ContributeToken`, nor
@@ -105,17 +130,16 @@ entities:
         target: conductor.agent.Agent
         cardinality: one
         via: agent
-    # UNMAPPED: what moves a `Limited` token back to `Available` (the time `limited_until` passing
-    # on its own, a command the runtime issues then, or a lease that admits a Limited token whose
-    # `limited_until` is past) is said nowhere; no transition leaves `Limited` but the withdrawal.
-    # Open question for the owner.
+    # A `Limited` token is leased again (story:token-pool): the runtime's pick admits it once its
+    # `limited_until` is past, or, with a pool of one, when the account has headroom again (today's
+    # `auto-resume`); the lease sets it `Ok` and clears `limited_until`.
     lifecycle:
       initial: Available
       states: [Available, Leased, Limited, Withdrawn]
       terminal: [Withdrawn]
       transitions:
         - name: lease
-          from: [Available]
+          from: [Available, Limited]
           to: Leased
         - name: release
           from: [Leased]
@@ -170,6 +194,15 @@ errors:
     fields:
       - name: instance
         type: conductor.config.InstanceName
+
+  # story:token-pool, decision K5: only a token's owner withdraws it.
+  - name: conductor.token.NotTokenOwner
+    summary: >
+      The person who asked is not the token's owner, and only the owner withdraws a token;
+      nothing changed.
+    fields:
+      - name: token_id
+        type: conductor.token.TokenId
 commands:
   # `conductor join <daemon url> --instance <i>` contributes the joining engineer's Claude token
   # to the instance's pool (§ 5.3): the token's value is already in the instance's secrets
@@ -229,8 +262,9 @@ commands:
   # names the token.
   # UNMAPPED: whether the agent domain finds that agent by the token (the design says the token's
   # owner is named on every agent record, § 5.3, not the token) is said nowhere. Open question.
-  # UNMAPPED: whether only the token's owner may withdraw it, or any operator with a grant, is
-  # said nowhere; no outcome compares `actor` with `owner`. Open question for the owner.
+  # Only the token's owner withdraws it (story:token-pool, decision K5). The comparison of
+  # `actor.operator` with the token's `owner` is the implementation's (`not-owner`, external):
+  # a `when_subject` guard on an Optional member of the actor is not one ess 0.90 compares.
   - name: conductor.token.WithdrawToken
     naming:
       wire: withdraw-token
@@ -247,6 +281,13 @@ commands:
           conductor.operator.ActorNotHuman:
             actor: input.actor
         summary: An agent tried to withdraw a token; only a person withdraws one, and the token is unchanged.
+      - name: not-owner
+        external: the person who asked is not the token's owner
+        error: conductor.token.NotTokenOwner
+        payload:
+          conductor.token.NotTokenOwner:
+            token_id: input.token_id
+        summary: Someone other than the token's owner asked to withdraw it; the token is unchanged.
       - name: withdrawn
         moves: conductor.token.PoolToken.withdraw
         instance: token_id
@@ -276,7 +317,7 @@ commands:
   # `token_id`; `preferred_owner` is the owner the agent was asked for by (or the named owner of
   # `roles.controller.token_owner`, § 17), absent otherwise. When the pick finds no Available
   # token in `instance`'s pool the runtime answers `none-available` before any token is read
-  # (`before_row: true`, ess/25); otherwise the token named moves from Available to Leased, and a
+  # (`before_row: true`, ess/25); otherwise the token named moves from Available or Limited to Leased, and a
   # token that is not Available is a wrong state.
   # Why `none-available` is external: the row-set guard that says it (`when_related:
   # {entity: PoolToken, where: [instance == input.instance, state == Available], exists: false}`)
@@ -286,14 +327,14 @@ commands:
   # every transition after a lease went unscenarioed. That the token named is in `instance`'s
   # pool is the implementation's check: a `when_subject` guard beside a row-set guard is refused
   # (ESS-COMMAND-009).
-  # UNMAPPED: "the token with the most headroom" is not defined: headroom against what (the
-  # seat's usage limit, the tokens' recent usage, the time since `limited_until`), read from
-  # where, and how ties break, is said nowhere. Open question for the owner; until it is
-  # answered the ordering is the implementation's and no outcome checks it.
-  # UNMAPPED: whether a lease for a named owner (`preferred_owner`, or § 17's Remote Control
-  # controller on `roles.controller.token_owner`) whose tokens are none Available falls back to
-  # another owner's token or is refused is said nowhere; no outcome compares `owner` with
-  # `preferred_owner`. Open question for the owner.
+  # "The token with the most headroom" (story:token-pool, decision K3) is the Available token of
+  # the pool leased the fewest times, ties broken by `token_id`; the ordering is the
+  # implementation's and no outcome checks it.
+  # A lease for a named owner (`preferred_owner`, or § 17's Remote Control controller on
+  # `roles.controller.token_owner`) whose tokens are none Available is refused `none-available`
+  # (decision K4): no other owner's token is taken.
+  # A Limited token is leased again once its `limited_until` is past, or, with a pool of one,
+  # when the account has headroom again (today's `auto-resume`); the lease sets it `Ok`.
   - name: conductor.token.LeaseToken
     naming:
       wire: lease-token
@@ -318,6 +359,8 @@ commands:
         moves: conductor.token.PoolToken.lease
         instance: token_id
         sets:
+          token_state: Ok
+          limited_until: {cleared: true}
           agent: input.agent
           actor: input.actor
         emits:
@@ -339,7 +382,7 @@ commands:
         payload:
           conductor.token.TokenStateConflict:
             token_id: input.token_id
-        summary: The token named is not Available (leased, limited or withdrawn); nothing changed.
+        summary: The token named is neither Available nor Limited (it is leased or withdrawn); nothing changed.
 
   # The agent on the token stopped without a usage limit; the token is Available again.
   - name: conductor.token.ReleaseToken

@@ -1,5 +1,5 @@
 // generated from conductor v1
-// contract digest 575fcfe0b84fcb4b2dc3a52041bbf14840203191eb2cb53374eec07ea92207ab
+// contract digest 0608eb83c8c48e1f8808cd29d3621f78091b34cac43c2b2e9143a335707a4202
 // do not edit: regenerate with `ess synthesize --layout crate`
 
 //! Token — `conductor.token`.
@@ -7,6 +7,22 @@
 //! The token pool of an instance (design docs/design/architecture-next.md § 5.3, decisions 10 and 11): an engineer who joins an instance contributes their Claude token; the pool is a set of secrets, each with its owner, its seat and its state (`ok`, or `limited until <time>`); values never leave the secrets source except as a sealed slot. The `claude-code` kind leases one token per agent start, resumes an agent on another token after a usage-limit stop, and names the token's owner on every agent record. A controller started for Remote Control on a named owner's token appears in that owner's Claude app.
 //!
 //! Everything this bounded context declares that the synthesis plan marks generated.
+
+/// JoinDaemon — `conductor.token.JoinDaemon`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct JoinDaemon {
+    /// `instance` — `Optional<conductor.config.InstanceName>`.
+    pub instance: Option<crate::config::InstanceName>,
+    /// `seat` — `Optional<conductor.token.Seat>`.
+    pub seat: Option<Seat>,
+}
+
+/// LeaveDaemon — `conductor.token.LeaveDaemon`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct LeaveDaemon {
+    /// `instance` — `Optional<conductor.config.InstanceName>`.
+    pub instance: Option<crate::config::InstanceName>,
+}
 
 /// The states of `conductor.token.PoolToken`, as runtime values.
 ///
@@ -22,6 +38,13 @@ pub enum PoolTokenState {
     Limited,
     /// `Withdrawn`.
     Withdrawn,
+}
+
+/// RevealToken — `conductor.token.RevealToken`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RevealToken {
+    /// `token` — `Optional<String>`.
+    pub token: Option<String>,
 }
 
 /// Seat — `conductor.token.Seat`: a distinct wrapper around `String`.
@@ -218,6 +241,14 @@ impl PoolToken<pool_token_state::Leased> {
 }
 
 impl PoolToken<pool_token_state::Limited> {
+    /// `lease` — `Limited` → `Leased`. Taken by the `leased` outcome of `conductor.token.LeaseToken`.
+    pub fn lease(self) -> PoolToken<pool_token_state::Leased> {
+        PoolToken {
+            data: self.data,
+            state: core::marker::PhantomData,
+        }
+    }
+
     /// `withdraw` — `Limited` → `Withdrawn`. Taken by the `withdrawn` outcome of `conductor.token.WithdrawToken`.
     pub fn withdraw(self) -> PoolToken<pool_token_state::Withdrawn> {
         PoolToken {
@@ -524,7 +555,7 @@ pub enum LeaseTokenOutcome {
     },
     /// `wrong-state` — from a state no declared move starts in.
     ///
-    /// The token named is not Available (leased, limited or withdrawn); nothing changed.
+    /// The token named is neither Available nor Limited (it is leased or withdrawn); nothing changed.
     WrongState {
         /// Why it was refused: `conductor.token.TokenStateConflict`.
         error: TokenStateConflict,
@@ -647,6 +678,13 @@ pub enum WithdrawTokenOutcome {
         /// Why it was refused: `conductor.operator.ActorNotHuman`.
         error: crate::operator::ActorNotHuman,
     },
+    /// `not-owner` — externally decided (the person who asked is not the token's owner).
+    ///
+    /// Someone other than the token's owner asked to withdraw it; the token is unchanged.
+    NotOwner {
+        /// Why it was refused: `conductor.token.NotTokenOwner`.
+        error: NotTokenOwner,
+    },
     /// `withdrawn` — otherwise.
     ///
     /// The token is out of the pool; the agent that held it, if any, is named so it is resumed on another token.
@@ -758,6 +796,15 @@ pub struct TokenWithdrawn {
 pub struct NoTokenAvailable {
     /// `instance` — `conductor.config.InstanceName`.
     pub instance: crate::config::InstanceName,
+}
+
+/// The declared error `conductor.token.NotTokenOwner`.
+///
+/// The person who asked is not the token's owner, and only the owner withdraws a token; nothing changed.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct NotTokenOwner {
+    /// `token_id` — `conductor.token.TokenId`.
+    pub token_id: TokenId,
 }
 
 /// The declared error `conductor.token.TokenStateConflict`.

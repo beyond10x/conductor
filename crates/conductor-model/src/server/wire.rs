@@ -1,5 +1,5 @@
 // generated from conductor v1
-// contract digest 575fcfe0b84fcb4b2dc3a52041bbf14840203191eb2cb53374eec07ea92207ab
+// contract digest 0608eb83c8c48e1f8808cd29d3621f78091b34cac43c2b2e9143a335707a4202
 // do not edit: regenerate with `ess synthesize --layout crate`
 //! Every generated declaration, as JSON, in the renderings the published wire contracts fix.
 //!
@@ -1176,6 +1176,8 @@ pub fn encode_conductor_config_daemon(value: &crate::config::Daemon, out: &mut S
     out.push('{');
     json::member(out, "port");
     json::push_integer(out, value.port);
+    json::member(out, "loopback");
+    json::push_bool(out, value.loopback);
     if let Some(held0) = &value.tls {
         json::member(out, "tls");
         encode_conductor_config_tls_listener(&*held0, out);
@@ -1210,61 +1212,66 @@ pub fn encode_conductor_config_daemon(value: &crate::config::Daemon, out: &mut S
 ///
 /// [`json::DecodeError`] naming the path and what the declaration says belongs there.
 pub fn decode_conductor_config_daemon(value: &json::Value, at: &str) -> Result<crate::config::Daemon, json::DecodeError> {
-    json::closed_at(value, at, &["port", "tls", "cadence", "store", "secrets", "dashboard", "operators", "upgrade_timeout", "timeout"])?;
+    json::closed_at(value, at, &["port", "loopback", "tls", "cadence", "store", "secrets", "dashboard", "operators", "upgrade_timeout", "timeout"])?;
     Ok(crate::config::Daemon {
         port: {
             let at0 = json::nested(at, "port");
             let member0 = json::member_at(value, at, "port")?;
             json::integer_at(member0, &at0, "an integer")?
         },
+        loopback: {
+            let at1 = json::nested(at, "loopback");
+            let member1 = json::member_at(value, at, "loopback")?;
+            json::bool_at(member1, &at1, "a boolean")?
+        },
         tls: match value.member("tls") {
             None | Some(json::Value::Null) => None,
-            Some(member1) => {
-                let at1 = json::nested(at, "tls");
-                Some(decode_conductor_config_tls_listener(member1, &at1)?)
+            Some(member2) => {
+                let at2 = json::nested(at, "tls");
+                Some(decode_conductor_config_tls_listener(member2, &at2)?)
             }
         },
         cadence: {
-            let at2 = json::nested(at, "cadence");
-            let member2 = json::member_at(value, at, "cadence")?;
-            decode_conductor_config_daemon_cadence(member2, &at2)?
+            let at3 = json::nested(at, "cadence");
+            let member3 = json::member_at(value, at, "cadence")?;
+            decode_conductor_config_daemon_cadence(member3, &at3)?
         },
         store: {
-            let at3 = json::nested(at, "store");
-            let member3 = json::member_at(value, at, "store")?;
-            decode_conductor_store_store_url(member3, &at3)?
+            let at4 = json::nested(at, "store");
+            let member4 = json::member_at(value, at, "store")?;
+            decode_conductor_store_store_url(member4, &at4)?
         },
         secrets: {
-            let at4 = json::nested(at, "secrets");
-            let member4 = json::member_at(value, at, "secrets")?;
-            decode_conductor_config_secrets_source(member4, &at4)?
+            let at5 = json::nested(at, "secrets");
+            let member5 = json::member_at(value, at, "secrets")?;
+            decode_conductor_config_secrets_source(member5, &at5)?
         },
         dashboard: {
-            let at5 = json::nested(at, "dashboard");
-            let member5 = json::member_at(value, at, "dashboard")?;
-            json::text_at(member5, &at5, "a string")?.to_owned()
+            let at6 = json::nested(at, "dashboard");
+            let member6 = json::member_at(value, at, "dashboard")?;
+            json::text_at(member6, &at6, "a string")?.to_owned()
         },
         operators: {
-            let at6 = json::nested(at, "operators");
-            let member6 = json::member_at(value, at, "operators")?;
+            let at7 = json::nested(at, "operators");
+            let member7 = json::member_at(value, at, "operators")?;
             {
-                let mut items6 = Vec::new();
-                for (index6, element6) in json::items_at(member6, &at6, "an array")?.iter().enumerate() {
-                    let nested6 = json::nested(&at6, &index6.to_string());
-                    items6.push(decode_conductor_config_daemon_operator(element6, &nested6)?);
+                let mut items7 = Vec::new();
+                for (index7, element7) in json::items_at(member7, &at7, "an array")?.iter().enumerate() {
+                    let nested7 = json::nested(&at7, &index7.to_string());
+                    items7.push(decode_conductor_config_daemon_operator(element7, &nested7)?);
                 }
-                items6
+                items7
             }
         },
         upgrade_timeout: {
-            let at7 = json::nested(at, "upgrade_timeout");
-            let member7 = json::member_at(value, at, "upgrade_timeout")?;
-            crate::primitives::Duration(json::text_at(member7, &at7, "an ISO 8601 duration")?.to_owned())
+            let at8 = json::nested(at, "upgrade_timeout");
+            let member8 = json::member_at(value, at, "upgrade_timeout")?;
+            crate::primitives::Duration(json::text_at(member8, &at8, "an ISO 8601 duration")?.to_owned())
         },
         timeout: {
-            let at8 = json::nested(at, "timeout");
-            let member8 = json::member_at(value, at, "timeout")?;
-            crate::primitives::Duration(json::text_at(member8, &at8, "an ISO 8601 duration")?.to_owned())
+            let at9 = json::nested(at, "timeout");
+            let member9 = json::member_at(value, at, "timeout")?;
+            crate::primitives::Duration(json::text_at(member9, &at9, "an ISO 8601 duration")?.to_owned())
         },
     })
 }
@@ -2773,6 +2780,10 @@ pub fn encode_conductor_config_role(value: &crate::config::Role, out: &mut Strin
     out.push(']');
     json::member(out, "grant");
     encode_conductor_tool_role_grant(&value.grant, out);
+    if let Some(held0) = &value.token_owner {
+        json::member(out, "token_owner");
+        encode_conductor_operator_operator_name(&*held0, out);
+    }
     out.push('}');
 }
 
@@ -2782,7 +2793,7 @@ pub fn encode_conductor_config_role(value: &crate::config::Role, out: &mut Strin
 ///
 /// [`json::DecodeError`] naming the path and what the declaration says belongs there.
 pub fn decode_conductor_config_role(value: &json::Value, at: &str) -> Result<crate::config::Role, json::DecodeError> {
-    json::closed_at(value, at, &["role", "kind", "harness", "model", "agent", "settings", "profile", "session_name", "read_only_tools", "limits", "writable", "network", "forge_token_env", "grant"])?;
+    json::closed_at(value, at, &["role", "kind", "harness", "model", "agent", "settings", "profile", "session_name", "read_only_tools", "limits", "writable", "network", "forge_token_env", "grant", "token_owner"])?;
     Ok(crate::config::Role {
         role: {
             let at0 = json::nested(at, "role");
@@ -2882,6 +2893,13 @@ pub fn decode_conductor_config_role(value: &json::Value, at: &str) -> Result<cra
             let at13 = json::nested(at, "grant");
             let member13 = json::member_at(value, at, "grant")?;
             decode_conductor_tool_role_grant(member13, &at13)?
+        },
+        token_owner: match value.member("token_owner") {
+            None | Some(json::Value::Null) => None,
+            Some(member14) => {
+                let at14 = json::nested(at, "token_owner");
+                Some(decode_conductor_operator_operator_name(member14, &at14)?)
+            }
         },
     })
 }
@@ -7351,6 +7369,47 @@ pub fn decode_conductor_improvement_metric_reading_id(value: &json::Value, at: &
     Ok(crate::improvement::MetricReadingId(json::text_at(value, at, "a string")?.to_owned()))
 }
 
+/// Writes `conductor.improvement.ProposalId` as JSON.
+pub fn encode_conductor_improvement_proposal_id(value: &crate::improvement::ProposalId, out: &mut String) {
+    json::push_text(out, &value.0);
+}
+
+/// Reads `conductor.improvement.ProposalId` from JSON.
+///
+/// # Errors
+///
+/// [`json::DecodeError`] naming the path and what the declaration says belongs there.
+pub fn decode_conductor_improvement_proposal_id(value: &json::Value, at: &str) -> Result<crate::improvement::ProposalId, json::DecodeError> {
+    Ok(crate::improvement::ProposalId(json::text_at(value, at, "a string")?.to_owned()))
+}
+
+/// Writes `conductor.improvement.SettingsProposal.State` as JSON.
+pub fn encode_conductor_improvement_settings_proposal_state(value: &crate::improvement::SettingsProposalState, out: &mut String) {
+    match value {
+        crate::improvement::SettingsProposalState::Applied => json::push_text(out, "Applied"),
+        crate::improvement::SettingsProposalState::Kept => json::push_text(out, "Kept"),
+        crate::improvement::SettingsProposalState::Proposed => json::push_text(out, "Proposed"),
+        crate::improvement::SettingsProposalState::Refused => json::push_text(out, "Refused"),
+        crate::improvement::SettingsProposalState::Reverted => json::push_text(out, "Reverted"),
+    }
+}
+
+/// Reads `conductor.improvement.SettingsProposal.State` from JSON.
+///
+/// # Errors
+///
+/// [`json::DecodeError`] naming the path and what the declaration says belongs there.
+pub fn decode_conductor_improvement_settings_proposal_state(value: &json::Value, at: &str) -> Result<crate::improvement::SettingsProposalState, json::DecodeError> {
+    Ok(match json::text_at(value, at, "one of `Applied`, `Kept`, `Proposed`, `Refused`, `Reverted`")? {
+        "Applied" => crate::improvement::SettingsProposalState::Applied,
+        "Kept" => crate::improvement::SettingsProposalState::Kept,
+        "Proposed" => crate::improvement::SettingsProposalState::Proposed,
+        "Refused" => crate::improvement::SettingsProposalState::Refused,
+        "Reverted" => crate::improvement::SettingsProposalState::Reverted,
+        other => return Err(json::DecodeError { at: at.to_owned(), expected: "one of `Applied`, `Kept`, `Proposed`, `Refused`, `Reverted`".to_owned(), found: format!("`{other}`") }),
+    })
+}
+
 /// Writes `conductor.improvement.TargetDirection` as JSON.
 pub fn encode_conductor_improvement_target_direction(value: &crate::improvement::TargetDirection, out: &mut String) {
     match value {
@@ -7621,6 +7680,34 @@ pub fn decode_conductor_instance_serve_daemon(value: &json::Value, at: &str) -> 
             Some(member1) => {
                 let at1 = json::nested(at, "uninstall");
                 Some(json::bool_at(member1, &at1, "a boolean")?)
+            }
+        },
+    })
+}
+
+/// Writes `conductor.instance.StartHostRole` as JSON.
+pub fn encode_conductor_instance_start_host_role(value: &crate::instance::StartHostRole, out: &mut String) {
+    out.push('{');
+    if let Some(held0) = &value.role {
+        json::member(out, "role");
+        encode_conductor_config_role_name(&*held0, out);
+    }
+    out.push('}');
+}
+
+/// Reads `conductor.instance.StartHostRole` from JSON.
+///
+/// # Errors
+///
+/// [`json::DecodeError`] naming the path and what the declaration says belongs there.
+pub fn decode_conductor_instance_start_host_role(value: &json::Value, at: &str) -> Result<crate::instance::StartHostRole, json::DecodeError> {
+    json::closed_at(value, at, &["role"])?;
+    Ok(crate::instance::StartHostRole {
+        role: match value.member("role") {
+            None | Some(json::Value::Null) => None,
+            Some(member0) => {
+                let at0 = json::nested(at, "role");
+                Some(decode_conductor_config_role_name(member0, &at0)?)
             }
         },
     })
@@ -11192,6 +11279,73 @@ pub fn decode_conductor_store_store_url(value: &json::Value, at: &str) -> Result
     Ok(crate::store::StoreUrl(json::text_at(value, at, "a string")?.to_owned()))
 }
 
+/// Writes `conductor.token.JoinDaemon` as JSON.
+pub fn encode_conductor_token_join_daemon(value: &crate::token::JoinDaemon, out: &mut String) {
+    out.push('{');
+    if let Some(held0) = &value.instance {
+        json::member(out, "instance");
+        encode_conductor_config_instance_name(&*held0, out);
+    }
+    if let Some(held0) = &value.seat {
+        json::member(out, "seat");
+        encode_conductor_token_seat(&*held0, out);
+    }
+    out.push('}');
+}
+
+/// Reads `conductor.token.JoinDaemon` from JSON.
+///
+/// # Errors
+///
+/// [`json::DecodeError`] naming the path and what the declaration says belongs there.
+pub fn decode_conductor_token_join_daemon(value: &json::Value, at: &str) -> Result<crate::token::JoinDaemon, json::DecodeError> {
+    json::closed_at(value, at, &["instance", "seat"])?;
+    Ok(crate::token::JoinDaemon {
+        instance: match value.member("instance") {
+            None | Some(json::Value::Null) => None,
+            Some(member0) => {
+                let at0 = json::nested(at, "instance");
+                Some(decode_conductor_config_instance_name(member0, &at0)?)
+            }
+        },
+        seat: match value.member("seat") {
+            None | Some(json::Value::Null) => None,
+            Some(member1) => {
+                let at1 = json::nested(at, "seat");
+                Some(decode_conductor_token_seat(member1, &at1)?)
+            }
+        },
+    })
+}
+
+/// Writes `conductor.token.LeaveDaemon` as JSON.
+pub fn encode_conductor_token_leave_daemon(value: &crate::token::LeaveDaemon, out: &mut String) {
+    out.push('{');
+    if let Some(held0) = &value.instance {
+        json::member(out, "instance");
+        encode_conductor_config_instance_name(&*held0, out);
+    }
+    out.push('}');
+}
+
+/// Reads `conductor.token.LeaveDaemon` from JSON.
+///
+/// # Errors
+///
+/// [`json::DecodeError`] naming the path and what the declaration says belongs there.
+pub fn decode_conductor_token_leave_daemon(value: &json::Value, at: &str) -> Result<crate::token::LeaveDaemon, json::DecodeError> {
+    json::closed_at(value, at, &["instance"])?;
+    Ok(crate::token::LeaveDaemon {
+        instance: match value.member("instance") {
+            None | Some(json::Value::Null) => None,
+            Some(member0) => {
+                let at0 = json::nested(at, "instance");
+                Some(decode_conductor_config_instance_name(member0, &at0)?)
+            }
+        },
+    })
+}
+
 /// Writes `conductor.token.PoolToken.State` as JSON.
 pub fn encode_conductor_token_pool_token_state(value: &crate::token::PoolTokenState, out: &mut String) {
     match value {
@@ -11214,6 +11368,34 @@ pub fn decode_conductor_token_pool_token_state(value: &json::Value, at: &str) ->
         "Limited" => crate::token::PoolTokenState::Limited,
         "Withdrawn" => crate::token::PoolTokenState::Withdrawn,
         other => return Err(json::DecodeError { at: at.to_owned(), expected: "one of `Available`, `Leased`, `Limited`, `Withdrawn`".to_owned(), found: format!("`{other}`") }),
+    })
+}
+
+/// Writes `conductor.token.RevealToken` as JSON.
+pub fn encode_conductor_token_reveal_token(value: &crate::token::RevealToken, out: &mut String) {
+    out.push('{');
+    if let Some(held0) = &value.token {
+        json::member(out, "token");
+        json::push_text(out, &*held0);
+    }
+    out.push('}');
+}
+
+/// Reads `conductor.token.RevealToken` from JSON.
+///
+/// # Errors
+///
+/// [`json::DecodeError`] naming the path and what the declaration says belongs there.
+pub fn decode_conductor_token_reveal_token(value: &json::Value, at: &str) -> Result<crate::token::RevealToken, json::DecodeError> {
+    json::closed_at(value, at, &["token"])?;
+    Ok(crate::token::RevealToken {
+        token: match value.member("token") {
+            None | Some(json::Value::Null) => None,
+            Some(member0) => {
+                let at0 = json::nested(at, "token");
+                Some(json::text_at(member0, &at0, "a string")?.to_owned())
+            }
+        },
     })
 }
 
@@ -14594,6 +14776,219 @@ pub fn decode_event_conductor_improvement_metric_target_set(value: &json::Value,
     })
 }
 
+/// Writes the event `conductor.improvement.ProposalApplied` as JSON.
+pub fn encode_event_conductor_improvement_proposal_applied(value: &crate::improvement::ProposalApplied, out: &mut String) {
+    out.push('{');
+    json::member(out, "actor");
+    encode_conductor_operator_actor(&value.actor, out);
+    json::member(out, "proposal_id");
+    encode_conductor_improvement_proposal_id(&value.proposal_id, out);
+    json::member(out, "revision");
+    json::push_text(out, &value.revision);
+    out.push('}');
+}
+
+/// Reads the event `conductor.improvement.ProposalApplied` from JSON, the payload [`encode_event_conductor_improvement_proposal_applied`] writes.
+///
+/// # Errors
+///
+/// [`json::DecodeError`] naming the path and what the declaration says belongs there.
+pub fn decode_event_conductor_improvement_proposal_applied(value: &json::Value, at: &str) -> Result<crate::improvement::ProposalApplied, json::DecodeError> {
+    Ok(crate::improvement::ProposalApplied {
+        actor: {
+            let at0 = json::nested(at, "actor");
+            let member0 = json::member_at(value, at, "actor")?;
+            decode_conductor_operator_actor(member0, &at0)?
+        },
+        proposal_id: {
+            let at1 = json::nested(at, "proposal_id");
+            let member1 = json::member_at(value, at, "proposal_id")?;
+            decode_conductor_improvement_proposal_id(member1, &at1)?
+        },
+        revision: {
+            let at2 = json::nested(at, "revision");
+            let member2 = json::member_at(value, at, "revision")?;
+            json::text_at(member2, &at2, "a string")?.to_owned()
+        },
+    })
+}
+
+/// Writes the event `conductor.improvement.ProposalKept` as JSON.
+pub fn encode_event_conductor_improvement_proposal_kept(value: &crate::improvement::ProposalKept, out: &mut String) {
+    out.push('{');
+    json::member(out, "actor");
+    encode_conductor_operator_actor(&value.actor, out);
+    json::member(out, "proposal_id");
+    encode_conductor_improvement_proposal_id(&value.proposal_id, out);
+    json::member(out, "verdict");
+    json::push_text(out, &value.verdict);
+    out.push('}');
+}
+
+/// Reads the event `conductor.improvement.ProposalKept` from JSON, the payload [`encode_event_conductor_improvement_proposal_kept`] writes.
+///
+/// # Errors
+///
+/// [`json::DecodeError`] naming the path and what the declaration says belongs there.
+pub fn decode_event_conductor_improvement_proposal_kept(value: &json::Value, at: &str) -> Result<crate::improvement::ProposalKept, json::DecodeError> {
+    Ok(crate::improvement::ProposalKept {
+        actor: {
+            let at0 = json::nested(at, "actor");
+            let member0 = json::member_at(value, at, "actor")?;
+            decode_conductor_operator_actor(member0, &at0)?
+        },
+        proposal_id: {
+            let at1 = json::nested(at, "proposal_id");
+            let member1 = json::member_at(value, at, "proposal_id")?;
+            decode_conductor_improvement_proposal_id(member1, &at1)?
+        },
+        verdict: {
+            let at2 = json::nested(at, "verdict");
+            let member2 = json::member_at(value, at, "verdict")?;
+            json::text_at(member2, &at2, "a string")?.to_owned()
+        },
+    })
+}
+
+/// Writes the event `conductor.improvement.ProposalRefused` as JSON.
+pub fn encode_event_conductor_improvement_proposal_refused(value: &crate::improvement::ProposalRefused, out: &mut String) {
+    out.push('{');
+    json::member(out, "actor");
+    encode_conductor_operator_actor(&value.actor, out);
+    json::member(out, "proposal_id");
+    encode_conductor_improvement_proposal_id(&value.proposal_id, out);
+    json::member(out, "reason");
+    json::push_text(out, &value.reason);
+    out.push('}');
+}
+
+/// Reads the event `conductor.improvement.ProposalRefused` from JSON, the payload [`encode_event_conductor_improvement_proposal_refused`] writes.
+///
+/// # Errors
+///
+/// [`json::DecodeError`] naming the path and what the declaration says belongs there.
+pub fn decode_event_conductor_improvement_proposal_refused(value: &json::Value, at: &str) -> Result<crate::improvement::ProposalRefused, json::DecodeError> {
+    Ok(crate::improvement::ProposalRefused {
+        actor: {
+            let at0 = json::nested(at, "actor");
+            let member0 = json::member_at(value, at, "actor")?;
+            decode_conductor_operator_actor(member0, &at0)?
+        },
+        proposal_id: {
+            let at1 = json::nested(at, "proposal_id");
+            let member1 = json::member_at(value, at, "proposal_id")?;
+            decode_conductor_improvement_proposal_id(member1, &at1)?
+        },
+        reason: {
+            let at2 = json::nested(at, "reason");
+            let member2 = json::member_at(value, at, "reason")?;
+            json::text_at(member2, &at2, "a string")?.to_owned()
+        },
+    })
+}
+
+/// Writes the event `conductor.improvement.ProposalReverted` as JSON.
+pub fn encode_event_conductor_improvement_proposal_reverted(value: &crate::improvement::ProposalReverted, out: &mut String) {
+    out.push('{');
+    json::member(out, "actor");
+    encode_conductor_operator_actor(&value.actor, out);
+    json::member(out, "proposal_id");
+    encode_conductor_improvement_proposal_id(&value.proposal_id, out);
+    json::member(out, "verdict");
+    json::push_text(out, &value.verdict);
+    out.push('}');
+}
+
+/// Reads the event `conductor.improvement.ProposalReverted` from JSON, the payload [`encode_event_conductor_improvement_proposal_reverted`] writes.
+///
+/// # Errors
+///
+/// [`json::DecodeError`] naming the path and what the declaration says belongs there.
+pub fn decode_event_conductor_improvement_proposal_reverted(value: &json::Value, at: &str) -> Result<crate::improvement::ProposalReverted, json::DecodeError> {
+    Ok(crate::improvement::ProposalReverted {
+        actor: {
+            let at0 = json::nested(at, "actor");
+            let member0 = json::member_at(value, at, "actor")?;
+            decode_conductor_operator_actor(member0, &at0)?
+        },
+        proposal_id: {
+            let at1 = json::nested(at, "proposal_id");
+            let member1 = json::member_at(value, at, "proposal_id")?;
+            decode_conductor_improvement_proposal_id(member1, &at1)?
+        },
+        verdict: {
+            let at2 = json::nested(at, "verdict");
+            let member2 = json::member_at(value, at, "verdict")?;
+            json::text_at(member2, &at2, "a string")?.to_owned()
+        },
+    })
+}
+
+/// Writes the event `conductor.improvement.SettingProposed` as JSON.
+pub fn encode_event_conductor_improvement_setting_proposed(value: &crate::improvement::SettingProposed, out: &mut String) {
+    out.push('{');
+    json::member(out, "actor");
+    encode_conductor_operator_actor(&value.actor, out);
+    json::member(out, "proposal_id");
+    encode_conductor_improvement_proposal_id(&value.proposal_id, out);
+    json::member(out, "instance");
+    json::push_text(out, &value.instance);
+    json::member(out, "key");
+    json::push_text(out, &value.key);
+    json::member(out, "old");
+    json::push_text(out, &value.old);
+    json::member(out, "new");
+    json::push_text(out, &value.new);
+    json::member(out, "metric_id");
+    encode_conductor_improvement_metric_id(&value.metric_id, out);
+    out.push('}');
+}
+
+/// Reads the event `conductor.improvement.SettingProposed` from JSON, the payload [`encode_event_conductor_improvement_setting_proposed`] writes.
+///
+/// # Errors
+///
+/// [`json::DecodeError`] naming the path and what the declaration says belongs there.
+pub fn decode_event_conductor_improvement_setting_proposed(value: &json::Value, at: &str) -> Result<crate::improvement::SettingProposed, json::DecodeError> {
+    Ok(crate::improvement::SettingProposed {
+        actor: {
+            let at0 = json::nested(at, "actor");
+            let member0 = json::member_at(value, at, "actor")?;
+            decode_conductor_operator_actor(member0, &at0)?
+        },
+        proposal_id: {
+            let at1 = json::nested(at, "proposal_id");
+            let member1 = json::member_at(value, at, "proposal_id")?;
+            decode_conductor_improvement_proposal_id(member1, &at1)?
+        },
+        instance: {
+            let at2 = json::nested(at, "instance");
+            let member2 = json::member_at(value, at, "instance")?;
+            json::text_at(member2, &at2, "a string")?.to_owned()
+        },
+        key: {
+            let at3 = json::nested(at, "key");
+            let member3 = json::member_at(value, at, "key")?;
+            json::text_at(member3, &at3, "a string")?.to_owned()
+        },
+        old: {
+            let at4 = json::nested(at, "old");
+            let member4 = json::member_at(value, at, "old")?;
+            json::text_at(member4, &at4, "a string")?.to_owned()
+        },
+        new: {
+            let at5 = json::nested(at, "new");
+            let member5 = json::member_at(value, at, "new")?;
+            json::text_at(member5, &at5, "a string")?.to_owned()
+        },
+        metric_id: {
+            let at6 = json::nested(at, "metric_id");
+            let member6 = json::member_at(value, at, "metric_id")?;
+            decode_conductor_improvement_metric_id(member6, &at6)?
+        },
+    })
+}
+
 /// Writes the event `conductor.instance.InstanceAnswered` as JSON.
 pub fn encode_event_conductor_instance_instance_answered(value: &crate::instance::InstanceAnswered, out: &mut String) {
     out.push('{');
@@ -17355,6 +17750,30 @@ pub fn encode_error_conductor_improvement_metric_reading_state_conflict(value: &
     out.push('}');
 }
 
+/// Writes the declared error `conductor.improvement.ProposalExists` as JSON.
+pub fn encode_error_conductor_improvement_proposal_exists(value: &crate::improvement::ProposalExists, out: &mut String) {
+    out.push('{');
+    json::member(out, "proposal_id");
+    encode_conductor_improvement_proposal_id(&value.proposal_id, out);
+    out.push('}');
+}
+
+/// Writes the declared error `conductor.improvement.ProposalNotFound` as JSON.
+pub fn encode_error_conductor_improvement_proposal_not_found(value: &crate::improvement::ProposalNotFound, out: &mut String) {
+    out.push('{');
+    json::member(out, "proposal_id");
+    encode_conductor_improvement_proposal_id(&value.proposal_id, out);
+    out.push('}');
+}
+
+/// Writes the declared error `conductor.improvement.ProposalStateConflict` as JSON.
+pub fn encode_error_conductor_improvement_proposal_state_conflict(value: &crate::improvement::ProposalStateConflict, out: &mut String) {
+    out.push('{');
+    json::member(out, "proposal_id");
+    encode_conductor_improvement_proposal_id(&value.proposal_id, out);
+    out.push('}');
+}
+
 /// Writes the declared error `conductor.instance.InstanceStateConflict` as JSON.
 pub fn encode_error_conductor_instance_instance_state_conflict(value: &crate::instance::InstanceStateConflict, out: &mut String) {
     out.push('{');
@@ -17599,6 +18018,14 @@ pub fn encode_error_conductor_token_no_token_available(value: &crate::token::NoT
     out.push('{');
     json::member(out, "instance");
     encode_conductor_config_instance_name(&value.instance, out);
+    out.push('}');
+}
+
+/// Writes the declared error `conductor.token.NotTokenOwner` as JSON.
+pub fn encode_error_conductor_token_not_token_owner(value: &crate::token::NotTokenOwner, out: &mut String) {
+    out.push('{');
+    json::member(out, "token_id");
+    encode_conductor_token_token_id(&value.token_id, out);
     out.push('}');
 }
 
@@ -18473,6 +18900,50 @@ pub fn encode_view_conductor_improvement_metrics(value: &crate::improvement::Met
     }
     json::member(out, "actor");
     encode_conductor_operator_actor(&value.actor, out);
+    out.push('}');
+}
+
+/// Writes one row of the view `conductor.improvement.SettingsProposals` as JSON.
+pub fn encode_view_conductor_improvement_settings_proposals(value: &crate::improvement::SettingsProposals, out: &mut String) {
+    out.push('{');
+    json::member(out, "proposal_id");
+    encode_conductor_improvement_proposal_id(&value.proposal_id, out);
+    json::member(out, "state");
+    encode_conductor_improvement_settings_proposal_state(&value.state, out);
+    json::member(out, "instance");
+    json::push_text(out, &value.instance);
+    json::member(out, "key");
+    json::push_text(out, &value.key);
+    json::member(out, "old");
+    json::push_text(out, &value.old);
+    json::member(out, "new");
+    json::push_text(out, &value.new);
+    json::member(out, "metric_id");
+    encode_conductor_improvement_metric_id(&value.metric_id, out);
+    json::member(out, "reading");
+    encode_conductor_improvement_metric_reading_id(&value.reading, out);
+    json::member(out, "baseline");
+    json::push_text(out, &value.baseline.0);
+    json::member(out, "window_days");
+    json::push_integer(out, value.window_days);
+    json::member(out, "proposed_at");
+    json::push_text(out, &value.proposed_at.0);
+    if let Some(held0) = &value.revision {
+        json::member(out, "revision");
+        json::push_text(out, &*held0);
+    }
+    if let Some(held0) = &value.reason {
+        json::member(out, "reason");
+        json::push_text(out, &*held0);
+    }
+    if let Some(held0) = &value.finding {
+        json::member(out, "finding");
+        encode_conductor_improvement_finding_id(&*held0, out);
+    }
+    if let Some(held0) = &value.verdict {
+        json::member(out, "verdict");
+        json::push_text(out, &*held0);
+    }
     out.push('}');
 }
 
@@ -25802,6 +26273,94 @@ pub fn encode_outcome_conductor_host_withdraw_disk_request(value: &crate::host::
     out.push('}');
 }
 
+/// Writes the input of `conductor.improvement.ApplyProposal` as JSON.
+pub fn encode_command_conductor_improvement_apply_proposal(value: &crate::improvement::ApplyProposal, out: &mut String) {
+    out.push('{');
+    json::member(out, "actor");
+    encode_conductor_operator_actor(&value.actor, out);
+    json::member(out, "proposal_id");
+    encode_conductor_improvement_proposal_id(&value.proposal_id, out);
+    json::member(out, "revision");
+    json::push_text(out, &value.revision);
+    out.push('}');
+}
+
+/// Reads the input of `conductor.improvement.ApplyProposal` from JSON.
+///
+/// # Errors
+///
+/// [`json::DecodeError`] naming the path and what the declaration says belongs there.
+pub fn decode_command_conductor_improvement_apply_proposal(value: &json::Value, at: &str) -> Result<crate::improvement::ApplyProposal, json::DecodeError> {
+    json::closed_at(value, at, &["actor", "proposal_id", "revision"])?;
+    Ok(crate::improvement::ApplyProposal {
+        actor: {
+            let at0 = json::nested(at, "actor");
+            let member0 = json::member_at(value, at, "actor")?;
+            decode_conductor_operator_actor(member0, &at0)?
+        },
+        proposal_id: {
+            let at1 = json::nested(at, "proposal_id");
+            let member1 = json::member_at(value, at, "proposal_id")?;
+            decode_conductor_improvement_proposal_id(member1, &at1)?
+        },
+        revision: {
+            let at2 = json::nested(at, "revision");
+            let member2 = json::member_at(value, at, "revision")?;
+            json::text_at(member2, &at2, "a string")?.to_owned()
+        },
+    })
+}
+
+/// Writes the outcome of `conductor.improvement.ApplyProposal` as JSON: the branch taken, what it published, and the declared
+/// refusal it carries where it carries one.
+pub fn encode_outcome_conductor_improvement_apply_proposal(value: &crate::improvement::ApplyProposalOutcome, out: &mut String) {
+    out.push('{');
+    match value {
+        crate::improvement::ApplyProposalOutcome::Applied { proposal_applied } => {
+            json::member(out, "outcome");
+            json::push_text(out, "applied");
+            json::member(out, "published");
+            out.push('[');
+            out.push('{');
+            json::member(out, "event");
+            json::push_text(out, "conductor.improvement.ProposalApplied");
+            json::member(out, "payload");
+            encode_event_conductor_improvement_proposal_applied(proposal_applied, out);
+            out.push('}');
+            out.push(']');
+        }
+        crate::improvement::ApplyProposalOutcome::NoSuchProposal { error } => {
+            json::member(out, "outcome");
+            json::push_text(out, "no-such-proposal");
+            json::member(out, "published");
+            out.push('[');
+            out.push(']');
+            json::member(out, "refusal");
+            out.push('{');
+            json::member(out, "error");
+            json::push_text(out, "conductor.improvement.ProposalNotFound");
+            json::member(out, "payload");
+            encode_error_conductor_improvement_proposal_not_found(error, out);
+            out.push('}');
+        }
+        crate::improvement::ApplyProposalOutcome::WrongState { error } => {
+            json::member(out, "outcome");
+            json::push_text(out, "wrong-state");
+            json::member(out, "published");
+            out.push('[');
+            out.push(']');
+            json::member(out, "refusal");
+            out.push('{');
+            json::member(out, "error");
+            json::push_text(out, "conductor.improvement.ProposalStateConflict");
+            json::member(out, "payload");
+            encode_error_conductor_improvement_proposal_state_conflict(error, out);
+            out.push('}');
+        }
+    }
+    out.push('}');
+}
+
 /// Writes the input of `conductor.improvement.DefineMetric` as JSON.
 pub fn encode_command_conductor_improvement_define_metric(value: &crate::improvement::DefineMetric, out: &mut String) {
     out.push('{');
@@ -26102,6 +26661,150 @@ pub fn encode_outcome_conductor_improvement_judge_metric_reading(value: &crate::
     out.push('}');
 }
 
+/// Writes the input of `conductor.improvement.ProposeSetting` as JSON.
+pub fn encode_command_conductor_improvement_propose_setting(value: &crate::improvement::ProposeSetting, out: &mut String) {
+    out.push('{');
+    json::member(out, "actor");
+    encode_conductor_operator_actor(&value.actor, out);
+    json::member(out, "proposal_id");
+    encode_conductor_improvement_proposal_id(&value.proposal_id, out);
+    json::member(out, "instance");
+    json::push_text(out, &value.instance);
+    json::member(out, "key");
+    json::push_text(out, &value.key);
+    json::member(out, "old");
+    json::push_text(out, &value.old);
+    json::member(out, "new");
+    json::push_text(out, &value.new);
+    json::member(out, "metric_id");
+    encode_conductor_improvement_metric_id(&value.metric_id, out);
+    json::member(out, "reading");
+    encode_conductor_improvement_metric_reading_id(&value.reading, out);
+    json::member(out, "baseline");
+    json::push_text(out, &value.baseline.0);
+    json::member(out, "window_days");
+    json::push_integer(out, value.window_days);
+    json::member(out, "proposed_at");
+    json::push_text(out, &value.proposed_at.0);
+    out.push('}');
+}
+
+/// Reads the input of `conductor.improvement.ProposeSetting` from JSON.
+///
+/// # Errors
+///
+/// [`json::DecodeError`] naming the path and what the declaration says belongs there.
+pub fn decode_command_conductor_improvement_propose_setting(value: &json::Value, at: &str) -> Result<crate::improvement::ProposeSetting, json::DecodeError> {
+    json::closed_at(value, at, &["actor", "proposal_id", "instance", "key", "old", "new", "metric_id", "reading", "baseline", "window_days", "proposed_at"])?;
+    Ok(crate::improvement::ProposeSetting {
+        actor: {
+            let at0 = json::nested(at, "actor");
+            let member0 = json::member_at(value, at, "actor")?;
+            decode_conductor_operator_actor(member0, &at0)?
+        },
+        proposal_id: {
+            let at1 = json::nested(at, "proposal_id");
+            let member1 = json::member_at(value, at, "proposal_id")?;
+            decode_conductor_improvement_proposal_id(member1, &at1)?
+        },
+        instance: {
+            let at2 = json::nested(at, "instance");
+            let member2 = json::member_at(value, at, "instance")?;
+            json::text_at(member2, &at2, "a string")?.to_owned()
+        },
+        key: {
+            let at3 = json::nested(at, "key");
+            let member3 = json::member_at(value, at, "key")?;
+            json::text_at(member3, &at3, "a string")?.to_owned()
+        },
+        old: {
+            let at4 = json::nested(at, "old");
+            let member4 = json::member_at(value, at, "old")?;
+            json::text_at(member4, &at4, "a string")?.to_owned()
+        },
+        new: {
+            let at5 = json::nested(at, "new");
+            let member5 = json::member_at(value, at, "new")?;
+            json::text_at(member5, &at5, "a string")?.to_owned()
+        },
+        metric_id: {
+            let at6 = json::nested(at, "metric_id");
+            let member6 = json::member_at(value, at, "metric_id")?;
+            decode_conductor_improvement_metric_id(member6, &at6)?
+        },
+        reading: {
+            let at7 = json::nested(at, "reading");
+            let member7 = json::member_at(value, at, "reading")?;
+            decode_conductor_improvement_metric_reading_id(member7, &at7)?
+        },
+        baseline: {
+            let at8 = json::nested(at, "baseline");
+            let member8 = json::member_at(value, at, "baseline")?;
+            crate::primitives::Decimal(json::decimal_at(member8, &at8, "a decimal string")?.to_owned())
+        },
+        window_days: {
+            let at9 = json::nested(at, "window_days");
+            let member9 = json::member_at(value, at, "window_days")?;
+            json::integer_at(member9, &at9, "an integer")?
+        },
+        proposed_at: {
+            let at10 = json::nested(at, "proposed_at");
+            let member10 = json::member_at(value, at, "proposed_at")?;
+            crate::primitives::Timestamp(json::timestamp_at(member10, &at10, "an RFC 3339 instant")?.to_owned())
+        },
+    })
+}
+
+/// Writes the outcome of `conductor.improvement.ProposeSetting` as JSON: the branch taken, what it published, and the declared
+/// refusal it carries where it carries one.
+pub fn encode_outcome_conductor_improvement_propose_setting(value: &crate::improvement::ProposeSettingOutcome, out: &mut String) {
+    out.push('{');
+    match value {
+        crate::improvement::ProposeSettingOutcome::AlreadyProposed { error } => {
+            json::member(out, "outcome");
+            json::push_text(out, "already-proposed");
+            json::member(out, "published");
+            out.push('[');
+            out.push(']');
+            json::member(out, "refusal");
+            out.push('{');
+            json::member(out, "error");
+            json::push_text(out, "conductor.improvement.ProposalExists");
+            json::member(out, "payload");
+            encode_error_conductor_improvement_proposal_exists(error, out);
+            out.push('}');
+        }
+        crate::improvement::ProposeSettingOutcome::NoSuchMetric { error } => {
+            json::member(out, "outcome");
+            json::push_text(out, "no-such-metric");
+            json::member(out, "published");
+            out.push('[');
+            out.push(']');
+            json::member(out, "refusal");
+            out.push('{');
+            json::member(out, "error");
+            json::push_text(out, "conductor.improvement.MetricNotFound");
+            json::member(out, "payload");
+            encode_error_conductor_improvement_metric_not_found(error, out);
+            out.push('}');
+        }
+        crate::improvement::ProposeSettingOutcome::Proposed { setting_proposed } => {
+            json::member(out, "outcome");
+            json::push_text(out, "proposed");
+            json::member(out, "published");
+            out.push('[');
+            out.push('{');
+            json::member(out, "event");
+            json::push_text(out, "conductor.improvement.SettingProposed");
+            json::member(out, "payload");
+            encode_event_conductor_improvement_setting_proposed(setting_proposed, out);
+            out.push('}');
+            out.push(']');
+        }
+    }
+    out.push('}');
+}
+
 /// Writes the input of `conductor.improvement.RaiseFinding` as JSON.
 pub fn encode_command_conductor_improvement_raise_finding(value: &crate::improvement::RaiseFinding, out: &mut String) {
     out.push('{');
@@ -26384,6 +27087,105 @@ pub fn encode_outcome_conductor_improvement_record_metric_reading(value: &crate:
     out.push('}');
 }
 
+/// Writes the input of `conductor.improvement.RefuseProposal` as JSON.
+pub fn encode_command_conductor_improvement_refuse_proposal(value: &crate::improvement::RefuseProposal, out: &mut String) {
+    out.push('{');
+    json::member(out, "actor");
+    encode_conductor_operator_actor(&value.actor, out);
+    json::member(out, "proposal_id");
+    encode_conductor_improvement_proposal_id(&value.proposal_id, out);
+    json::member(out, "reason");
+    json::push_text(out, &value.reason);
+    if let Some(held0) = &value.finding {
+        json::member(out, "finding");
+        encode_conductor_improvement_finding_id(&*held0, out);
+    }
+    out.push('}');
+}
+
+/// Reads the input of `conductor.improvement.RefuseProposal` from JSON.
+///
+/// # Errors
+///
+/// [`json::DecodeError`] naming the path and what the declaration says belongs there.
+pub fn decode_command_conductor_improvement_refuse_proposal(value: &json::Value, at: &str) -> Result<crate::improvement::RefuseProposal, json::DecodeError> {
+    json::closed_at(value, at, &["actor", "proposal_id", "reason", "finding"])?;
+    Ok(crate::improvement::RefuseProposal {
+        actor: {
+            let at0 = json::nested(at, "actor");
+            let member0 = json::member_at(value, at, "actor")?;
+            decode_conductor_operator_actor(member0, &at0)?
+        },
+        proposal_id: {
+            let at1 = json::nested(at, "proposal_id");
+            let member1 = json::member_at(value, at, "proposal_id")?;
+            decode_conductor_improvement_proposal_id(member1, &at1)?
+        },
+        reason: {
+            let at2 = json::nested(at, "reason");
+            let member2 = json::member_at(value, at, "reason")?;
+            json::text_at(member2, &at2, "a string")?.to_owned()
+        },
+        finding: match value.member("finding") {
+            None | Some(json::Value::Null) => None,
+            Some(member3) => {
+                let at3 = json::nested(at, "finding");
+                Some(decode_conductor_improvement_finding_id(member3, &at3)?)
+            }
+        },
+    })
+}
+
+/// Writes the outcome of `conductor.improvement.RefuseProposal` as JSON: the branch taken, what it published, and the declared
+/// refusal it carries where it carries one.
+pub fn encode_outcome_conductor_improvement_refuse_proposal(value: &crate::improvement::RefuseProposalOutcome, out: &mut String) {
+    out.push('{');
+    match value {
+        crate::improvement::RefuseProposalOutcome::Refused { proposal_refused } => {
+            json::member(out, "outcome");
+            json::push_text(out, "refused");
+            json::member(out, "published");
+            out.push('[');
+            out.push('{');
+            json::member(out, "event");
+            json::push_text(out, "conductor.improvement.ProposalRefused");
+            json::member(out, "payload");
+            encode_event_conductor_improvement_proposal_refused(proposal_refused, out);
+            out.push('}');
+            out.push(']');
+        }
+        crate::improvement::RefuseProposalOutcome::NoSuchProposal { error } => {
+            json::member(out, "outcome");
+            json::push_text(out, "no-such-proposal");
+            json::member(out, "published");
+            out.push('[');
+            out.push(']');
+            json::member(out, "refusal");
+            out.push('{');
+            json::member(out, "error");
+            json::push_text(out, "conductor.improvement.ProposalNotFound");
+            json::member(out, "payload");
+            encode_error_conductor_improvement_proposal_not_found(error, out);
+            out.push('}');
+        }
+        crate::improvement::RefuseProposalOutcome::WrongState { error } => {
+            json::member(out, "outcome");
+            json::push_text(out, "wrong-state");
+            json::member(out, "published");
+            out.push('[');
+            out.push(']');
+            json::member(out, "refusal");
+            out.push('{');
+            json::member(out, "error");
+            json::push_text(out, "conductor.improvement.ProposalStateConflict");
+            json::member(out, "payload");
+            encode_error_conductor_improvement_proposal_state_conflict(error, out);
+            out.push('}');
+        }
+    }
+    out.push('}');
+}
+
 /// Writes the input of `conductor.improvement.SetMetricTarget` as JSON.
 pub fn encode_command_conductor_improvement_set_metric_target(value: &crate::improvement::SetMetricTarget, out: &mut String) {
     out.push('{');
@@ -26500,6 +27302,125 @@ pub fn encode_outcome_conductor_improvement_set_metric_target(value: &crate::imp
             json::push_text(out, "conductor.improvement.MetricNotFound");
             json::member(out, "payload");
             encode_error_conductor_improvement_metric_not_found(error, out);
+            out.push('}');
+        }
+    }
+    out.push('}');
+}
+
+/// Writes the input of `conductor.improvement.SettleProposal` as JSON.
+pub fn encode_command_conductor_improvement_settle_proposal(value: &crate::improvement::SettleProposal, out: &mut String) {
+    out.push('{');
+    json::member(out, "actor");
+    encode_conductor_operator_actor(&value.actor, out);
+    json::member(out, "proposal_id");
+    encode_conductor_improvement_proposal_id(&value.proposal_id, out);
+    json::member(out, "improved");
+    json::push_bool(out, value.improved);
+    json::member(out, "verdict");
+    json::push_text(out, &value.verdict);
+    if let Some(held0) = &value.revision {
+        json::member(out, "revision");
+        json::push_text(out, &*held0);
+    }
+    out.push('}');
+}
+
+/// Reads the input of `conductor.improvement.SettleProposal` from JSON.
+///
+/// # Errors
+///
+/// [`json::DecodeError`] naming the path and what the declaration says belongs there.
+pub fn decode_command_conductor_improvement_settle_proposal(value: &json::Value, at: &str) -> Result<crate::improvement::SettleProposal, json::DecodeError> {
+    json::closed_at(value, at, &["actor", "proposal_id", "improved", "verdict", "revision"])?;
+    Ok(crate::improvement::SettleProposal {
+        actor: {
+            let at0 = json::nested(at, "actor");
+            let member0 = json::member_at(value, at, "actor")?;
+            decode_conductor_operator_actor(member0, &at0)?
+        },
+        proposal_id: {
+            let at1 = json::nested(at, "proposal_id");
+            let member1 = json::member_at(value, at, "proposal_id")?;
+            decode_conductor_improvement_proposal_id(member1, &at1)?
+        },
+        improved: {
+            let at2 = json::nested(at, "improved");
+            let member2 = json::member_at(value, at, "improved")?;
+            json::bool_at(member2, &at2, "a boolean")?
+        },
+        verdict: {
+            let at3 = json::nested(at, "verdict");
+            let member3 = json::member_at(value, at, "verdict")?;
+            json::text_at(member3, &at3, "a string")?.to_owned()
+        },
+        revision: match value.member("revision") {
+            None | Some(json::Value::Null) => None,
+            Some(member4) => {
+                let at4 = json::nested(at, "revision");
+                Some(json::text_at(member4, &at4, "a string")?.to_owned())
+            }
+        },
+    })
+}
+
+/// Writes the outcome of `conductor.improvement.SettleProposal` as JSON: the branch taken, what it published, and the declared
+/// refusal it carries where it carries one.
+pub fn encode_outcome_conductor_improvement_settle_proposal(value: &crate::improvement::SettleProposalOutcome, out: &mut String) {
+    out.push('{');
+    match value {
+        crate::improvement::SettleProposalOutcome::Kept { proposal_kept } => {
+            json::member(out, "outcome");
+            json::push_text(out, "kept");
+            json::member(out, "published");
+            out.push('[');
+            out.push('{');
+            json::member(out, "event");
+            json::push_text(out, "conductor.improvement.ProposalKept");
+            json::member(out, "payload");
+            encode_event_conductor_improvement_proposal_kept(proposal_kept, out);
+            out.push('}');
+            out.push(']');
+        }
+        crate::improvement::SettleProposalOutcome::Reverted { proposal_reverted } => {
+            json::member(out, "outcome");
+            json::push_text(out, "reverted");
+            json::member(out, "published");
+            out.push('[');
+            out.push('{');
+            json::member(out, "event");
+            json::push_text(out, "conductor.improvement.ProposalReverted");
+            json::member(out, "payload");
+            encode_event_conductor_improvement_proposal_reverted(proposal_reverted, out);
+            out.push('}');
+            out.push(']');
+        }
+        crate::improvement::SettleProposalOutcome::NoSuchProposal { error } => {
+            json::member(out, "outcome");
+            json::push_text(out, "no-such-proposal");
+            json::member(out, "published");
+            out.push('[');
+            out.push(']');
+            json::member(out, "refusal");
+            out.push('{');
+            json::member(out, "error");
+            json::push_text(out, "conductor.improvement.ProposalNotFound");
+            json::member(out, "payload");
+            encode_error_conductor_improvement_proposal_not_found(error, out);
+            out.push('}');
+        }
+        crate::improvement::SettleProposalOutcome::WrongState { error } => {
+            json::member(out, "outcome");
+            json::push_text(out, "wrong-state");
+            json::member(out, "published");
+            out.push('[');
+            out.push(']');
+            json::member(out, "refusal");
+            out.push('{');
+            json::member(out, "error");
+            json::push_text(out, "conductor.improvement.ProposalStateConflict");
+            json::member(out, "payload");
+            encode_error_conductor_improvement_proposal_state_conflict(error, out);
             out.push('}');
         }
     }
@@ -31547,6 +32468,20 @@ pub fn encode_outcome_conductor_token_withdraw_token(value: &crate::token::Withd
             encode_error_conductor_operator_actor_not_human(error, out);
             out.push('}');
         }
+        crate::token::WithdrawTokenOutcome::NotOwner { error } => {
+            json::member(out, "outcome");
+            json::push_text(out, "not-owner");
+            json::member(out, "published");
+            out.push('[');
+            out.push(']');
+            json::member(out, "refusal");
+            out.push('{');
+            json::member(out, "error");
+            json::push_text(out, "conductor.token.NotTokenOwner");
+            json::member(out, "payload");
+            encode_error_conductor_token_not_token_owner(error, out);
+            out.push('}');
+        }
         crate::token::WithdrawTokenOutcome::Withdrawn { token_withdrawn } => {
             json::member(out, "outcome");
             json::push_text(out, "withdrawn");
@@ -31786,6 +32721,11 @@ pub fn encode_system_event(value: &crate::system::SystemEvent) -> String {
         crate::system::SystemEvent::MetricReadingRecorded(event) => encode_event_conductor_improvement_metric_reading_recorded(event, &mut out),
         crate::system::SystemEvent::MetricReadingSuperseded(event) => encode_event_conductor_improvement_metric_reading_superseded(event, &mut out),
         crate::system::SystemEvent::MetricTargetSet(event) => encode_event_conductor_improvement_metric_target_set(event, &mut out),
+        crate::system::SystemEvent::ProposalApplied(event) => encode_event_conductor_improvement_proposal_applied(event, &mut out),
+        crate::system::SystemEvent::ProposalKept(event) => encode_event_conductor_improvement_proposal_kept(event, &mut out),
+        crate::system::SystemEvent::ProposalRefused(event) => encode_event_conductor_improvement_proposal_refused(event, &mut out),
+        crate::system::SystemEvent::ProposalReverted(event) => encode_event_conductor_improvement_proposal_reverted(event, &mut out),
+        crate::system::SystemEvent::SettingProposed(event) => encode_event_conductor_improvement_setting_proposed(event, &mut out),
         crate::system::SystemEvent::InstanceAnswered(event) => encode_event_conductor_instance_instance_answered(event, &mut out),
         crate::system::SystemEvent::InstancePurged(event) => encode_event_conductor_instance_instance_purged(event, &mut out),
         crate::system::SystemEvent::InstanceReconciled(event) => encode_event_conductor_instance_instance_reconciled(event, &mut out),
@@ -31907,6 +32847,11 @@ pub fn decode_system_event(value: &json::Value) -> Result<crate::system::SystemE
         "conductor.improvement.MetricReadingRecorded" => crate::system::SystemEvent::MetricReadingRecorded(decode_event_conductor_improvement_metric_reading_recorded(json::member_at(value, "", "payload")?, "payload")?),
         "conductor.improvement.MetricReadingSuperseded" => crate::system::SystemEvent::MetricReadingSuperseded(decode_event_conductor_improvement_metric_reading_superseded(json::member_at(value, "", "payload")?, "payload")?),
         "conductor.improvement.MetricTargetSet" => crate::system::SystemEvent::MetricTargetSet(decode_event_conductor_improvement_metric_target_set(json::member_at(value, "", "payload")?, "payload")?),
+        "conductor.improvement.ProposalApplied" => crate::system::SystemEvent::ProposalApplied(decode_event_conductor_improvement_proposal_applied(json::member_at(value, "", "payload")?, "payload")?),
+        "conductor.improvement.ProposalKept" => crate::system::SystemEvent::ProposalKept(decode_event_conductor_improvement_proposal_kept(json::member_at(value, "", "payload")?, "payload")?),
+        "conductor.improvement.ProposalRefused" => crate::system::SystemEvent::ProposalRefused(decode_event_conductor_improvement_proposal_refused(json::member_at(value, "", "payload")?, "payload")?),
+        "conductor.improvement.ProposalReverted" => crate::system::SystemEvent::ProposalReverted(decode_event_conductor_improvement_proposal_reverted(json::member_at(value, "", "payload")?, "payload")?),
+        "conductor.improvement.SettingProposed" => crate::system::SystemEvent::SettingProposed(decode_event_conductor_improvement_setting_proposed(json::member_at(value, "", "payload")?, "payload")?),
         "conductor.instance.InstanceAnswered" => crate::system::SystemEvent::InstanceAnswered(decode_event_conductor_instance_instance_answered(json::member_at(value, "", "payload")?, "payload")?),
         "conductor.instance.InstancePurged" => crate::system::SystemEvent::InstancePurged(decode_event_conductor_instance_instance_purged(json::member_at(value, "", "payload")?, "payload")?),
         "conductor.instance.InstanceReconciled" => crate::system::SystemEvent::InstanceReconciled(decode_event_conductor_instance_instance_reconciled(json::member_at(value, "", "payload")?, "payload")?),
@@ -31951,7 +32896,7 @@ pub fn decode_system_event(value: &json::Value) -> Result<crate::system::SystemE
         "conductor.token.TokenWithdrawn" => crate::system::SystemEvent::TokenWithdrawn(decode_event_conductor_token_token_withdrawn(json::member_at(value, "", "payload")?, "payload")?),
         "conductor.tool.ToolCallRecorded" => crate::system::SystemEvent::ToolCallRecorded(decode_event_conductor_tool_tool_call_recorded(json::member_at(value, "", "payload")?, "payload")?),
         other => {
-            return Err(json::DecodeError { at: "event".to_owned(), expected: "one of `conductor.agent.AgentKindDeclared`, `conductor.agent.AgentReported`, `conductor.agent.AgentStarted`, `conductor.agent.AgentStopped`, `conductor.config.ConfigChanged`, `conductor.decision.DecisionRecorded`, `conductor.decision.DecisionRequested`, `conductor.decision.DecisionReversedEvent`, `conductor.decision.RequestAmended`, `conductor.decision.RequestAnswered`, `conductor.decision.RequestEscalated`, `conductor.decision.RequestWithdrawn`, `conductor.direction.GoalConfirmed`, `conductor.direction.GoalDropped`, `conductor.direction.GoalMet`, `conductor.direction.GoalProposed`, `conductor.direction.RepositoryActivated`, `conductor.direction.RepositoryDeactivated`, `conductor.direction.RepositoryMarked`, `conductor.direction.ServingAdded`, `conductor.direction.ServingRemoved`, `conductor.dispatch.CharterRevised`, `conductor.dispatch.ControllerPaused`, `conductor.dispatch.ControllerResumed`, `conductor.dispatch.ControllerStarted`, `conductor.dispatch.ControllerStopped`, `conductor.dispatch.DispatchBlocked`, `conductor.dispatch.DispatchCancelled`, `conductor.dispatch.DispatchDone`, `conductor.dispatch.DispatchFailed`, `conductor.dispatch.DispatchSent`, `conductor.dispatch.DispatchStarted`, `conductor.dispatch.DispatchUnblocked`, `conductor.dispatch.GuardDecisionRecorded`, `conductor.dispatch.MessageHandled`, `conductor.dispatch.MessageReceived`, `conductor.dispatch.MessageRejected`, `conductor.dispatch.NeedRouted`, `conductor.dispatch.ResourceGranted`, `conductor.dispatch.ResourceRefused`, `conductor.dispatch.ResourceReleased`, `conductor.dispatch.ResourceRequested`, `conductor.host.DiskReclaimed`, `conductor.host.DiskRequestWithdrawn`, `conductor.host.DiskRequested`, `conductor.host.DiskReservationRefused`, `conductor.host.DiskReserved`, `conductor.host.HostGrantReleased`, `conductor.host.HostGrantTaken`, `conductor.host.PeakRecorded`, `conductor.host.ReclaimFloorNotReached`, `conductor.host.RunStarted`, `conductor.improvement.FindingClosed`, `conductor.improvement.FindingFiled`, `conductor.improvement.FindingRaised`, `conductor.improvement.FindingVerified`, `conductor.improvement.MetricDefined`, `conductor.improvement.MetricReadingJudged`, `conductor.improvement.MetricReadingRecorded`, `conductor.improvement.MetricReadingSuperseded`, `conductor.improvement.MetricTargetSet`, `conductor.instance.InstanceAnswered`, `conductor.instance.InstancePurged`, `conductor.instance.InstanceReconciled`, `conductor.instance.InstanceRestarted`, `conductor.instance.InstanceRolledBack`, `conductor.instance.InstanceStarted`, `conductor.instance.InstanceStopped`, `conductor.instance.InstanceUnreachable`, `conductor.instance.InstanceUpgrading`, `conductor.observation.BlockerRecorded`, `conductor.observation.BoardPublished`, `conductor.observation.CollectorRunRecorded`, `conductor.observation.MemberFailureRecorded`, `conductor.observation.MergedPullRequestRecorded`, `conductor.observation.PullRequestRecorded`, `conductor.observation.ReleaseRecorded`, `conductor.observation.RepositoryRecorded`, `conductor.observation.SecretSyncRecorded`, `conductor.observation.SessionRecorded`, `conductor.observation.SnapshotCompleted`, `conductor.observation.SnapshotFailed`, `conductor.observation.SnapshotStarted`, `conductor.observation.SpecificationRecorded`, `conductor.observation.UsageRecorded`, `conductor.observation.WorkflowRunRecorded`, `conductor.operator.OperatorJoined`, `conductor.operator.OperatorLeft`, `conductor.placement.BoxClosed`, `conductor.placement.BoxOpened`, `conductor.placement.BoxRefused`, `conductor.secret.SecretPut`, `conductor.secret.SecretsResolved`, `conductor.session.LeaseTaken`, `conductor.session.LeaseTakenOver`, `conductor.session.MessageDelivered`, `conductor.session.RunTickRecorded`, `conductor.store.StoreMigrated`, `conductor.token.TokenContributed`, `conductor.token.TokenLeased`, `conductor.token.TokenLimited`, `conductor.token.TokenReleased`, `conductor.token.TokenWithdrawn`, `conductor.tool.ToolCallRecorded`".to_owned(), found: format!("`{other}`") })
+            return Err(json::DecodeError { at: "event".to_owned(), expected: "one of `conductor.agent.AgentKindDeclared`, `conductor.agent.AgentReported`, `conductor.agent.AgentStarted`, `conductor.agent.AgentStopped`, `conductor.config.ConfigChanged`, `conductor.decision.DecisionRecorded`, `conductor.decision.DecisionRequested`, `conductor.decision.DecisionReversedEvent`, `conductor.decision.RequestAmended`, `conductor.decision.RequestAnswered`, `conductor.decision.RequestEscalated`, `conductor.decision.RequestWithdrawn`, `conductor.direction.GoalConfirmed`, `conductor.direction.GoalDropped`, `conductor.direction.GoalMet`, `conductor.direction.GoalProposed`, `conductor.direction.RepositoryActivated`, `conductor.direction.RepositoryDeactivated`, `conductor.direction.RepositoryMarked`, `conductor.direction.ServingAdded`, `conductor.direction.ServingRemoved`, `conductor.dispatch.CharterRevised`, `conductor.dispatch.ControllerPaused`, `conductor.dispatch.ControllerResumed`, `conductor.dispatch.ControllerStarted`, `conductor.dispatch.ControllerStopped`, `conductor.dispatch.DispatchBlocked`, `conductor.dispatch.DispatchCancelled`, `conductor.dispatch.DispatchDone`, `conductor.dispatch.DispatchFailed`, `conductor.dispatch.DispatchSent`, `conductor.dispatch.DispatchStarted`, `conductor.dispatch.DispatchUnblocked`, `conductor.dispatch.GuardDecisionRecorded`, `conductor.dispatch.MessageHandled`, `conductor.dispatch.MessageReceived`, `conductor.dispatch.MessageRejected`, `conductor.dispatch.NeedRouted`, `conductor.dispatch.ResourceGranted`, `conductor.dispatch.ResourceRefused`, `conductor.dispatch.ResourceReleased`, `conductor.dispatch.ResourceRequested`, `conductor.host.DiskReclaimed`, `conductor.host.DiskRequestWithdrawn`, `conductor.host.DiskRequested`, `conductor.host.DiskReservationRefused`, `conductor.host.DiskReserved`, `conductor.host.HostGrantReleased`, `conductor.host.HostGrantTaken`, `conductor.host.PeakRecorded`, `conductor.host.ReclaimFloorNotReached`, `conductor.host.RunStarted`, `conductor.improvement.FindingClosed`, `conductor.improvement.FindingFiled`, `conductor.improvement.FindingRaised`, `conductor.improvement.FindingVerified`, `conductor.improvement.MetricDefined`, `conductor.improvement.MetricReadingJudged`, `conductor.improvement.MetricReadingRecorded`, `conductor.improvement.MetricReadingSuperseded`, `conductor.improvement.MetricTargetSet`, `conductor.improvement.ProposalApplied`, `conductor.improvement.ProposalKept`, `conductor.improvement.ProposalRefused`, `conductor.improvement.ProposalReverted`, `conductor.improvement.SettingProposed`, `conductor.instance.InstanceAnswered`, `conductor.instance.InstancePurged`, `conductor.instance.InstanceReconciled`, `conductor.instance.InstanceRestarted`, `conductor.instance.InstanceRolledBack`, `conductor.instance.InstanceStarted`, `conductor.instance.InstanceStopped`, `conductor.instance.InstanceUnreachable`, `conductor.instance.InstanceUpgrading`, `conductor.observation.BlockerRecorded`, `conductor.observation.BoardPublished`, `conductor.observation.CollectorRunRecorded`, `conductor.observation.MemberFailureRecorded`, `conductor.observation.MergedPullRequestRecorded`, `conductor.observation.PullRequestRecorded`, `conductor.observation.ReleaseRecorded`, `conductor.observation.RepositoryRecorded`, `conductor.observation.SecretSyncRecorded`, `conductor.observation.SessionRecorded`, `conductor.observation.SnapshotCompleted`, `conductor.observation.SnapshotFailed`, `conductor.observation.SnapshotStarted`, `conductor.observation.SpecificationRecorded`, `conductor.observation.UsageRecorded`, `conductor.observation.WorkflowRunRecorded`, `conductor.operator.OperatorJoined`, `conductor.operator.OperatorLeft`, `conductor.placement.BoxClosed`, `conductor.placement.BoxOpened`, `conductor.placement.BoxRefused`, `conductor.secret.SecretPut`, `conductor.secret.SecretsResolved`, `conductor.session.LeaseTaken`, `conductor.session.LeaseTakenOver`, `conductor.session.MessageDelivered`, `conductor.session.RunTickRecorded`, `conductor.store.StoreMigrated`, `conductor.token.TokenContributed`, `conductor.token.TokenLeased`, `conductor.token.TokenLimited`, `conductor.token.TokenReleased`, `conductor.token.TokenWithdrawn`, `conductor.tool.ToolCallRecorded`".to_owned(), found: format!("`{other}`") })
         }
     })
 }

@@ -2912,7 +2912,7 @@ fn default_writable(role: &str) -> Value {
 }
 
 /// `role`, a role as `config show` writes it, with the envelope of a role that writes none: no
-/// limit, its default places, the network open and the agent kind `claude-code`.
+/// limit, its default places, the network open, the agent kind `claude-code` and no token owner.
 fn with_envelope(mut role: Value) -> Value {
     let name = role["role"].as_str().expect("a role's name").to_owned();
     let map = role.as_object_mut().expect("a role is a mapping");
@@ -2922,6 +2922,7 @@ fn with_envelope(mut role: Value) -> Value {
     map.insert("forge_token_env".to_owned(), serde_json::json!([]));
     map.insert("grant".to_owned(), default_grant());
     map.insert("kind".to_owned(), Value::from("claude-code"));
+    map.insert("token_owner".to_owned(), Value::Null);
     role
 }
 

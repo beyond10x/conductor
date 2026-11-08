@@ -17,16 +17,16 @@ Second objective: improve yourself and improve conductor.
 ## Start
 
 This profile ships with conductor (`.agents/conductor-supervisor.md` of the conductor repository;
-`task profiles` installs it in `profiles/` beside the config file, `conductor init` installs its
-adapter in `~/.claude/agents/`). One session per host runs it, named `conductor-supervisor`, started
-in the directory of the config file (`~/.b10x/conductor` unless `CONDUCTOR_CONFIG` names another),
-by `task supervisor:start` in the conductor checkout or by hand:
+`task profiles` installs it in `profiles/` beside the config file; no adapter under
+`~/.claude/agents/` is read). One session per host runs it, named `supervisor`: the daemon
+(`conductord`) starts it while `globals.roles` of the config file lists `supervisor`, through
+`conductor session start --role supervisor` in the directory of the config file
+(`~/.b10x/conductor` unless `CONDUCTOR_CONFIG` names another), its unit
+`conductor_supervisor.service` in `conductor_host.slice`, and starts it again when it stops.
+`task supervisor:start` (`conductor daemon start-role --role supervisor`) asks the daemon for it
+now. `conductor session start` refuses a second session of the name, so one runs per name.
 
-`claude --bg --agent conductor-supervisor -n conductor-supervisor --permission-mode bypassPermissions "Start of a fresh supervisor session. Read host/supervisor-handoff.md if it is there, run your routine once, report blockers only, then wait for an event."`
-
-One session per name: `claude --bg -n <name>` beside a running `<name>` starts `<name>-2`, and
-`claude --bg --resume <id>` keeps its old name beside a running one; neither refuses. So stop the
-old session first, then start. Read next, in order: the host's own file, `host/supervisor.md`
+Read next, in order: the host's own file, `host/supervisor.md`
 beside the config file, when it is there (what is true on this host only: its account rotation, its disk keeper, its scripts, its own guard), then your hand-off,
 `host/supervisor-handoff.md`.
 

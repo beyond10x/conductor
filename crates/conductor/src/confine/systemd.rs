@@ -8,7 +8,9 @@
 //!   instance's slice is a child of the user manager's root slice, a sibling of every other
 //!   instance's. Before a unit starts in it, `systemctl --user set-property --runtime <slice>`
 //!   sets the instance's `confinement.limits` on it: `MemoryMax`, `CPUWeight` and `TasksMax`,
-//!   each reset (`infinity`, or an empty `CPUWeight=`) where the instance sets none.
+//!   each reset (`infinity`, or an empty `CPUWeight=`) where the instance sets none. A host
+//!   role's session, the supervisor's or the teacher's, runs in [`HOST_SLICE`] instead
+//!   ([`session_slice`], `story:host-roles-by-daemon`).
 //! - [`Provider::start`] runs the session in the unit `conductor_<session name>.service`
 //!   ([`unit_name`]), once no unit of that name is left ([`Systemd::wait_gone`]): `systemd-run
 //!   --user --unit <unit> --slice <slice> --collect`, `-p
@@ -151,6 +153,22 @@ pub fn slice_name(prefix: Option<&str>) -> String {
             slice
         },
     )
+}
+
+/// The slice of the host roles' sessions, the supervisor's and the teacher's
+/// (`story:host-roles-by-daemon`, decision H2): a sibling of every instance's slice.
+pub const HOST_SLICE: &str = "conductor_host.slice";
+
+/// The slice a session of the role `role` runs in: [`HOST_SLICE`] for a host role
+/// ([`crate::daemon::host_roles::is_host_role`]), else its instance's ([`slice_name`] of
+/// `prefix`).
+#[must_use]
+pub fn session_slice(role: &str, prefix: Option<&str>) -> String {
+    if crate::daemon::host_roles::is_host_role(role) {
+        HOST_SLICE.to_owned()
+    } else {
+        slice_name(prefix)
+    }
 }
 
 /// The user manager's `cgroup.controllers` of the user `uid` under `root`.
@@ -365,7 +383,8 @@ impl Systemd {
         let request = &launch.request;
         let unit = unit_name(&request.session_name);
         Self::wait_gone(&unit)?;
-        let slice = slice_name(
+        let slice = session_slice(
+            &request.role,
             launch
                 .session_prefix
                 .as_ref()
