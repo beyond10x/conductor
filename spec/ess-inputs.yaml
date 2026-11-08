@@ -98,3 +98,6 @@ scenarios:
   - scenarios/decision-answer-escalated-request-agent-actor.yaml
   - scenarios/decision-reverse-operator-decision-agent-actor.yaml
   - scenarios/decision-answer-request-agent-actor.yaml
+  - scenarios/config-put-config.yaml
+  - scenarios/config-put-config-actor-not-human.yaml
+  - scenarios/config-put-config-invalid.yaml

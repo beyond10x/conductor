@@ -1,0 +1,56 @@
+# design docs/design/architecture-next.md § 9: an operator changes one key of an instance at the
+# instance level; the change is committed with the operator as its actor and the reason, recorded
+# as ConfigChanged, and listed with both. A change whose level and scope do not fit is refused.
+type: ess-scenario/1
+domain: conductor.config
+scenario: config-put-config
+summary: An operator's instance-level change is committed and recorded with its actor and reason; a global change that names an instance is refused.
+
+timeline:
+  - at: 2026-11-08T09:00:00Z
+    command: conductor.config.PutConfig
+    actor: conductor.config.Operator
+    input:
+      actor: {kind: Human, operator: example-operator}
+      level: Instance
+      instance: example-org
+      path: thresholds.silent_session
+      value: 45m
+      reason: silence alarms fire on long gates
+      changed_at: 2026-11-08T09:00:00Z
+    outcome: changed
+    events:
+      - event: conductor.config.ConfigChanged
+        payload:
+          actor: {kind: Human, operator: example-operator}
+          level: Instance
+          instance: example-org
+          path: thresholds.silent_session
+          value: 45m
+          reason: silence alarms fire on long gates
+
+  - at: 2026-11-08T09:05:00Z
+    command: conductor.config.PutConfig
+    actor: conductor.config.Operator
+    input:
+      actor: {kind: Human, operator: example-operator}
+      level: Global
+      instance: example-org
+      path: cadence.watch
+      value: 5m
+      reason: a global key names no instance
+      changed_at: 2026-11-08T09:05:00Z
+    outcome: level-scope-mismatch
+    error:
+      name: conductor.config.LevelScopeMismatch
+
+assert:
+  - view: conductor.config.ConfigRevisions
+    contains:
+      state: Committed
+      actor: {kind: Human, operator: example-operator}
+      level: Instance
+      instance: example-org
+      path: thresholds.silent_session
+      value: 45m
+      reason: silence alarms fire on long gates

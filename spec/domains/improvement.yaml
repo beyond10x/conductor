@@ -54,6 +54,50 @@ types:
     kind: newtype
     of: String
 
+  # One key the tuner may change, and the range it may change it within (design
+  # architecture-next § 9, § 13 row 7): `path` is the key's YAML path as `config show --effective`
+  # names it (`thresholds.silent_session`, `cadence.watch`), `min` and `max` the bounds, both
+  # inclusive.
+  # UNMAPPED: the design says "keys with bounded ranges" and names no unit for a bound. A key whose
+  # value is a duration (`2h`) or a size (`15G`) needs one: seconds and GiB, or the config's own
+  # spelling as text? The bounds are `Decimal` here until the owner says. Open question.
+  # UNMAPPED: whether a key the grant names is one key at every level, or the grant names a level
+  # (global, an instance, a role) with each key, is not settled. Open question.
+  - name: conductor.improvement.TunableKey
+    kind: struct
+    fields:
+      - {name: path, type: String}
+      - {name: min, type: Decimal}
+      - {name: max, type: Decimal}
+    invariants:
+      - min <= max
+
+  # The tuning grant (design architecture-next § 3 row `conductor.improvement`, § 9, § 13 row 7):
+  # the keys the tuner may change, each with its bounded range. Empty by default: the tuner
+  # proposes, the brief shows the proposals, and the operator writes keys into the grant. A tuner
+  # proposal is applied only through `conductor.config.PutConfig`, and only when its key is one of
+  # the grant's and its value lies inside that key's range; otherwise `PutConfig` refuses the
+  # agent (`ActorNotHuman`).
+  #
+  # A struct, not an entity: the grant is desired state, so it lives in the config (§ 8: "config is
+  # desired state and is not kept in the store"), at `globals.tuning` (`conductor.config.Globals`),
+  # and changes only as the config does, through `PutConfig` by a human actor, with a
+  # `ConfigRevision` recording who and why. No proposal type exists in this domain to carry it.
+  # The grant never names a key under `tuning`, so an agent never widens its own grant.
+  # UNMAPPED: the design names "the tuner's settings proposals" and says "the brief shows the
+  # proposals", and designs no proposal record: no identity, no lifecycle (proposed, applied,
+  # refused), no owner. Is a proposal a record of this domain, or only a `PutConfig` an agent
+  # issues? Open question for the owner.
+  # UNMAPPED: whether an instance (or a role) may override `globals.tuning` like any other global
+  # key, so that one instance grants more than another, is not settled. Open question.
+  - name: conductor.improvement.TuningGrant
+    kind: struct
+    fields:
+      - {name: keys, type: List<conductor.improvement.TunableKey>}
+    invariants:
+      - distinct: {in: keys, as: key, by: key.path}
+      - forall: {in: keys, as: key, that: {not: {key.path: {starts_with: "tuning"}}}}
+
 entities:
   # One measured quantity (story:metrics-naming): `name` its short title (`operator touches per
   # merged PR`); `unit` what a value of it counts in (`ratio`, `percent`, `hours`, `tokens`,
@@ -91,6 +135,10 @@ entities:
         type: Optional<String>
       - name: target_set_at
         type: Optional<Timestamp>
+      # Who defined the metric (design architecture-next § 3, Actors); who set its target is
+      # `target_owner`, kept as the operator's name.
+      - name: actor
+        type: conductor.operator.Actor
     relations:
       - name: readings
         kind: owns
@@ -143,6 +191,9 @@ entities:
         type: Optional<Boolean>
       - name: recorded_at
         type: Timestamp
+      # Who recorded it: the instrument's run.
+      - name: actor
+        type: conductor.operator.Actor
     lifecycle:
       initial: Recorded
       states: [Recorded, Superseded]
@@ -177,6 +228,9 @@ entities:
         type: conductor.improvement.MetricId
       - name: raised_at
         type: Timestamp
+      # Who raised it (design architecture-next § 3, Actors).
+      - name: actor
+        type: conductor.operator.Actor
       - name: story
         type: Optional<String>
       - name: verdict
@@ -203,6 +257,10 @@ entities:
           to: Closed
 
 actors:
+  # UNMAPPED: v1 retires the maintainer and conductor-dev's separate session (design
+  # architecture-next § 2, § 11): conductor's repository is a repository of one instance. Which
+  # role then defines metrics and files findings as draft stories (that instance's controller, a
+  # worker, the tuner) is not settled; the actor keeps its name until the owner says. Open question.
   # Conductor-dev owns the instruments, the thresholds of detection and the draft stories
   # (design § 5, "what the loop changes alone").
   - name: conductor.improvement.ConductorDev
@@ -291,6 +349,8 @@ commands:
       wire: define-metric
       display: Define a metric
     input:
+      - name: actor
+        type: conductor.operator.Actor
       - name: metric_id
         type: conductor.improvement.MetricId
         example: "K1"
@@ -322,10 +382,12 @@ commands:
           definition: input.definition
           baseline: input.baseline
           baseline_period: input.baseline_period
+          actor: input.actor
         emits:
           - conductor.improvement.MetricDefined
         payload:
           conductor.improvement.MetricDefined:
+            actor: input.actor
             metric_id: input.metric_id
             name: input.name
             unit: input.unit
@@ -348,6 +410,8 @@ commands:
       wire: set-metric-target
       display: Set a metric's target
     input:
+      - name: actor
+        type: conductor.operator.Actor
       - name: metric_id
         type: conductor.improvement.MetricId
         example: "K1"
@@ -376,6 +440,7 @@ commands:
           - conductor.improvement.MetricTargetSet
         payload:
           conductor.improvement.MetricTargetSet:
+            actor: input.actor
             metric_id: input.metric_id
             target: input.target
             direction: input.direction
@@ -394,6 +459,7 @@ commands:
           - conductor.improvement.MetricTargetSet
         payload:
           conductor.improvement.MetricTargetSet:
+            actor: input.actor
             metric_id: input.metric_id
             target: input.target
             direction: input.direction
@@ -414,6 +480,8 @@ commands:
       wire: record-metric-reading
       display: Record a metric's reading
     input:
+      - name: actor
+        type: conductor.operator.Actor
       - name: reading_id
         type: conductor.improvement.MetricReadingId
         example: "K1|instance|2026-10-14"
@@ -465,10 +533,12 @@ commands:
           target: input.target
           met: input.met
           recorded_at: input.recorded_at
+          actor: input.actor
         emits:
           - conductor.improvement.MetricReadingRecorded
         payload:
           conductor.improvement.MetricReadingRecorded:
+            actor: input.actor
             reading_id: input.reading_id
             metric_id: input.metric_id
             day: input.day
@@ -484,6 +554,8 @@ commands:
       wire: supersede-metric-reading
       display: Supersede a metric's reading
     input:
+      - name: actor
+        type: conductor.operator.Actor
       - name: reading_id
         type: conductor.improvement.MetricReadingId
         example: "K1|instance|2026-10-13"
@@ -498,6 +570,7 @@ commands:
           - conductor.improvement.MetricReadingSuperseded
         payload:
           conductor.improvement.MetricReadingSuperseded:
+            actor: input.actor
             reading_id: input.reading_id
             by: input.by
         summary: The reading is no longer its metric's newest for its scope.
@@ -524,6 +597,8 @@ commands:
       wire: judge-metric-reading
       display: Judge a metric's reading against its target
     input:
+      - name: actor
+        type: conductor.operator.Actor
       - name: reading_id
         type: conductor.improvement.MetricReadingId
         example: "K1|instance|2026-10-14"
@@ -544,6 +619,7 @@ commands:
           - conductor.improvement.MetricReadingJudged
         payload:
           conductor.improvement.MetricReadingJudged:
+            actor: input.actor
             reading_id: input.reading_id
             target: input.target
             met: input.met
@@ -569,6 +645,8 @@ commands:
       wire: raise-finding
       display: Raise a friction finding
     input:
+      - name: actor
+        type: conductor.operator.Actor
       - name: finding_id
         type: conductor.improvement.FindingId
         example: "FF-2026-10-15-guard-denial"
@@ -606,12 +684,14 @@ commands:
           evidence: input.evidence
           metric_id: input.metric_id
           raised_at: input.raised_at
+          actor: input.actor
           story: {cleared: true}
           verdict: {cleared: true}
         emits:
           - conductor.improvement.FindingRaised
         payload:
           conductor.improvement.FindingRaised:
+            actor: input.actor
             finding_id: input.finding_id
             signature: input.signature
             evidence: input.evidence
@@ -625,6 +705,8 @@ commands:
       wire: file-finding
       display: File a finding as a draft story
     input:
+      - name: actor
+        type: conductor.operator.Actor
       - name: finding_id
         type: conductor.improvement.FindingId
       - name: story
@@ -640,6 +722,7 @@ commands:
           - conductor.improvement.FindingFiled
         payload:
           conductor.improvement.FindingFiled:
+            actor: input.actor
             finding_id: input.finding_id
             story: input.story
         summary: The finding is filed as the draft story, which names the metric it should move.
@@ -664,6 +747,8 @@ commands:
       wire: verify-finding
       display: Verify a filed finding
     input:
+      - name: actor
+        type: conductor.operator.Actor
       - name: finding_id
         type: conductor.improvement.FindingId
       - name: moved
@@ -682,6 +767,7 @@ commands:
           - conductor.improvement.FindingVerified
         payload:
           conductor.improvement.FindingVerified:
+            actor: input.actor
             finding_id: input.finding_id
             verdict: input.verdict
         summary: The metric moved; the finding's story did what it was filed for.
@@ -694,6 +780,7 @@ commands:
           - conductor.improvement.FindingClosed
         payload:
           conductor.improvement.FindingClosed:
+            actor: input.actor
             finding_id: input.finding_id
             verdict: input.verdict
         summary: The metric did not move; the friction is raised again as a new finding.
@@ -714,6 +801,8 @@ commands:
 events:
   - name: conductor.improvement.MetricDefined
     fields:
+      - name: actor
+        type: conductor.operator.Actor
       - name: metric_id
         type: conductor.improvement.MetricId
       - name: name
@@ -723,6 +812,8 @@ events:
 
   - name: conductor.improvement.MetricTargetSet
     fields:
+      - name: actor
+        type: conductor.operator.Actor
       - name: metric_id
         type: conductor.improvement.MetricId
       - name: target
@@ -734,6 +825,8 @@ events:
 
   - name: conductor.improvement.MetricReadingRecorded
     fields:
+      - name: actor
+        type: conductor.operator.Actor
       - name: reading_id
         type: conductor.improvement.MetricReadingId
       - name: metric_id
@@ -747,6 +840,8 @@ events:
 
   - name: conductor.improvement.MetricReadingSuperseded
     fields:
+      - name: actor
+        type: conductor.operator.Actor
       - name: reading_id
         type: conductor.improvement.MetricReadingId
       - name: by
@@ -754,6 +849,8 @@ events:
 
   - name: conductor.improvement.MetricReadingJudged
     fields:
+      - name: actor
+        type: conductor.operator.Actor
       - name: reading_id
         type: conductor.improvement.MetricReadingId
       - name: target
@@ -763,6 +860,8 @@ events:
 
   - name: conductor.improvement.FindingRaised
     fields:
+      - name: actor
+        type: conductor.operator.Actor
       - name: finding_id
         type: conductor.improvement.FindingId
       - name: signature
@@ -774,6 +873,8 @@ events:
 
   - name: conductor.improvement.FindingFiled
     fields:
+      - name: actor
+        type: conductor.operator.Actor
       - name: finding_id
         type: conductor.improvement.FindingId
       - name: story
@@ -781,6 +882,8 @@ events:
 
   - name: conductor.improvement.FindingVerified
     fields:
+      - name: actor
+        type: conductor.operator.Actor
       - name: finding_id
         type: conductor.improvement.FindingId
       - name: verdict
@@ -788,6 +891,8 @@ events:
 
   - name: conductor.improvement.FindingClosed
     fields:
+      - name: actor
+        type: conductor.operator.Actor
       - name: finding_id
         type: conductor.improvement.FindingId
       - name: verdict
@@ -823,6 +928,8 @@ views:
         type: Optional<String>
       - name: target_set_at
         type: Optional<Timestamp>
+      - name: actor
+        type: conductor.operator.Actor
     naming:
       wire: metrics
       display: Metrics
@@ -887,6 +994,8 @@ views:
         type: Optional<Boolean>
       - name: recorded_at
         type: Timestamp
+      - name: actor
+        type: conductor.operator.Actor
     naming:
       wire: metric-readings
       display: Metric readings
@@ -939,6 +1048,8 @@ views:
         type: conductor.improvement.MetricId
       - name: raised_at
         type: Timestamp
+      - name: actor
+        type: conductor.operator.Actor
       - name: story
         type: Optional<String>
       - name: verdict

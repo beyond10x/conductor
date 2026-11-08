@@ -84,6 +84,7 @@ components:
         - conductor.session.ClaimLease
         - conductor.session.DeliverMessage
         - conductor.session.RecordRunTick
+        - conductor.config.PutConfig
         - conductor.host.TakeHostGrant
         - conductor.host.RequestDisk
         - conductor.host.ReserveDisk
@@ -159,6 +160,7 @@ components:
         - conductor.session.LeaseTakenOver
         - conductor.session.MessageDelivered
         - conductor.session.RunTickRecorded
+        - conductor.config.ConfigChanged
         - conductor.host.HostGrantTaken
         - conductor.host.DiskRequested
         - conductor.host.DiskReserved
@@ -310,6 +312,13 @@ components:
             - conductor.session.Leases
             - conductor.session.Deliveries
             - conductor.session.RunTicks
+        - name: settings
+          summary: The config conductord reconciles from, its changes and every instance's effective settings
+          commands:
+            - conductor.config.PutConfig
+          views:
+            - conductor.config.ConfigRevisions
+            - conductor.config.EffectiveSettings
         - name: host
           summary: The host ledger of slots and disk reservations every instance shares, and the reclaim runs that free disk
           commands:
