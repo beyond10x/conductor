@@ -1,4 +1,4 @@
-//! `/api/decisions`, what the Decisions page reads (`story:decisions-page`).
+//! `/v1/decisions`, what the Decisions page reads (`story:decisions-page`).
 //!
 //! It answers `{open, history, errors}`:
 //! - `open`: every decision request escalated as class O or H and not answered or withdrawn, in
@@ -34,7 +34,7 @@ use time::format_description::well_known::Rfc3339;
 use crate::store::Store;
 
 /// The path of the Decisions page's data.
-pub const DECISIONS_PATH: &str = "/api/decisions";
+pub const DECISIONS_PATH: &str = "/v1/decisions";
 
 /// The answer over `store` (none: no open item) and the decision log's lines `log`, in file
 /// order, with the log's read problems `errors`.

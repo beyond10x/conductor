@@ -1,10 +1,10 @@
 //! What the charts and the KPI panels read (`story:dashboard-series-api`,
-//! `story:dashboard-kpi-panels`): `/api/series` and `/api/kpis`, from the daily rollups
+//! `story:dashboard-kpi-panels`): `/v1/series` and `/v1/kpis`, from the daily rollups
 //! ([`crate::rollup`]) of the store under the instance's state directory.
 //!
-//! `GET /api/series` lists [`SERIES`]: each one's `series`, `title`, `unit`, the dimensions it is
+//! `GET /v1/series` lists [`SERIES`]: each one's `series`, `title`, `unit`, the dimensions it is
 //! grouped `by`, its `kpi` and `source`, and for a series without a source (`source` null) the
-//! `story` that adds one. `GET /api/series?series=<name>&by=<dimension>&days=<n>` answers
+//! `story` that adds one. `GET /v1/series?series=<name>&by=<dimension>&days=<n>` answers
 //! `{series, by, days, unit, rows}`, each row `{day, key, value}`, by day and key: `day` a UTC
 //! date, `key` the group, or `total` without `by`; `days` (default 30, 1 to 365) the days up to
 //! today. A day with no data is absent. A series without a source answers 404
@@ -18,7 +18,7 @@
 //! usage's value is the peaks of the day's runs over the bytes they reserved, in percent
 //! ([`Kind::Usage`]).
 //!
-//! `GET /api/kpis` answers [`KPIS`], in their order: a measured KPI with its `value` over the
+//! `GET /v1/kpis` answers [`KPIS`], in their order: a measured KPI with its `value` over the
 //! last [`WINDOW_DAYS`] days up to today (null when its denominator counts nothing there) and the
 //! `series` its trend reads; a KPI without a source with `measured: false` and the `story` that
 //! adds it, and no value. The definitions are those of the self-improvement design's § 2.
@@ -33,10 +33,10 @@ use crate::rollup::{self, TOTAL};
 use crate::store::Store;
 
 /// The path of the series.
-pub const SERIES_PATH: &str = "/api/series";
+pub const SERIES_PATH: &str = "/v1/series";
 
 /// The path of the KPIs.
-pub const KPIS_PATH: &str = "/api/kpis";
+pub const KPIS_PATH: &str = "/v1/kpis";
 
 /// The days a series answers without `days`, and the most it answers.
 pub const DEFAULT_DAYS: i64 = 30;
@@ -71,7 +71,7 @@ pub enum Kind {
     NoSource(&'static str),
 }
 
-/// One series `/api/series` lists.
+/// One series `/v1/series` lists.
 #[derive(Debug, Clone, Copy)]
 pub struct Series {
     pub name: &'static str,
@@ -143,7 +143,7 @@ const fn ratio(
 
 const REPOSITORY: &[&str] = &["repository"];
 
-/// Every series `/api/series` answers, in the order it lists them.
+/// Every series `/v1/series` answers, in the order it lists them.
 pub const SERIES: [Series; 23] = [
     count(
         "prs_opened",
@@ -481,7 +481,7 @@ fn first_day(today: Date, days: i64) -> Date {
         .unwrap_or(Date::MIN)
 }
 
-/// The list of every series, as `GET /api/series` answers it.
+/// The list of every series, as `GET /v1/series` answers it.
 #[must_use]
 pub fn list() -> Value {
     Value::Array(
@@ -505,7 +505,7 @@ pub fn list() -> Value {
     )
 }
 
-/// The status and JSON body `/api/series` answers the request target `target` with, over `store`
+/// The status and JSON body `/v1/series` answers the request target `target` with, over `store`
 /// (none without one), its days ending `today`.
 #[must_use]
 pub fn answer(target: &str, store: Option<&Store>, today: Date) -> (u16, Value) {
@@ -584,7 +584,7 @@ enum Measure {
     Story(&'static str),
 }
 
-/// One KPI `/api/kpis` answers.
+/// One KPI `/v1/kpis` answers.
 #[derive(Debug, Clone, Copy)]
 pub struct Kpi {
     pub id: &'static str,
@@ -594,7 +594,7 @@ pub struct Kpi {
     /// The target; none until the first measurement sets one.
     pub target: Option<f64>,
     pub source: &'static str,
-    /// The `/api/series` series its trend reads, and the key of it where it has several.
+    /// The `/v1/series` series its trend reads, and the key of it where it has several.
     pub series: Option<(&'static str, Option<&'static str>)>,
     measure: Measure,
 }
@@ -763,7 +763,7 @@ pub const KPIS: [Kpi; 16] = [
     },
 ];
 
-/// What `/api/kpis` answers over `store` (none without one), its window ending `today`.
+/// What `/v1/kpis` answers over `store` (none without one), its window ending `today`.
 #[must_use]
 pub fn kpis(store: Option<&Store>, today: Date) -> Value {
     let rollups = Rollups::of(store);

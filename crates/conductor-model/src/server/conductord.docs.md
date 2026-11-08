@@ -1,6 +1,6 @@
 <!--
 generated from conductor v1
-contract digest slice-sha256/2:207796f03b2f0750ce769a3d269fc1185fa9ba75d51a15fb657cf72ba637a166
+contract digest slice-sha256/2:f3994c5243d6b3e95a4c2df6531c1e0d0295ceb3615268da3cf95f2ad534633b
 do not edit: regenerate with `ess generate`
 -->
 
@@ -48,6 +48,17 @@ The one file conductord reconciles from, `conductor.config/2`, read from `--conf
 ### `CatalogNames`
 
 `conductor.config.CatalogNames` is one of `Plain` and `Hex`.
+
+### `ChangeConfig`
+
+`conductor.config.ChangeConfig` is a record of six fields:
+
+- `level` — `String`
+- `instance` — `Optional<String>`, which may be absent
+- `role` — `Optional<String>`, which may be absent
+- `path` — `String`
+- `value` — `Optional<String>`, which may be absent
+- `reason` — `String`
 
 ### `Checkouts`
 
@@ -163,7 +174,7 @@ Every value satisfies `max_working >= 1`, `max_subagents >= 1` and `max_open_rev
 
 ### `Daemon`
 
-`conductor.config.Daemon` is a record of seven fields:
+`conductor.config.Daemon` is a record of eight fields:
 
 - `port` — `Integer`
 - `tls` — `Optional<conductor.config.TlsListener>`, which may be absent
@@ -172,6 +183,7 @@ Every value satisfies `max_working >= 1`, `max_subagents >= 1` and `max_open_rev
 - `secrets` — `conductor.config.SecretsSource`
 - `dashboard` — `String`
 - `operators` — `List<conductor.config.DaemonOperator>`
+- `upgrade_timeout` — `Duration`
 
 Every value satisfies `port >= 1`, `port <= 65535` and `distinct operator in operators by operator.name`.
 
@@ -317,7 +329,7 @@ Every value satisfies `distinct role in roles by role.role`.
 
 ### `Level`
 
-`conductor.config.Level` is one of `Global`, `Instance` and `Role`.
+`conductor.config.Level` is one of `Default`, `Global`, `Instance` and `Role`.
 
 ### `Limits`
 
@@ -557,9 +569,12 @@ Every value satisfies `gate_resume > gate_stop`, `cpu_reserve >= 0`, `build_slot
 
 ### `TlsListener`
 
-`conductor.config.TlsListener` is a record of one field:
+`conductor.config.TlsListener` is a record of four fields:
 
 - `listen` — `String`
+- `cert` — `Optional<String>`, which may be absent
+- `key` — `Optional<String>`, which may be absent
+- `identity` — `Optional<String>`, which may be absent
 
 ### `Tokens`
 
@@ -644,7 +659,7 @@ Every value satisfies `gate_resume > gate_stop`, `cpu_reserve >= 0`, `build_slot
 - `instance` — `Optional<String>`, which may be absent
 - `check` — `Optional<Boolean>`, which may be absent
 
-19 of the types above are reached by nothing else in this system: `conductor.config.Config`, `conductor.config.ConfigPage`, `conductor.config.ConfigWriteRefused`, `conductor.config.ConfigWritten`, `conductor.config.InitRecords`, `conductor.config.InstanceRefused`, `conductor.config.MigrateConfig`, `conductor.config.SetupReport`, `conductor.config.SetupRepository`, `conductor.config.ShowConfig`, `conductor.config.SuggestedPrefix`, `conductor.config.TrustWorkspaces`, `conductor.config.UpgradeBinary`, `conductor.config.UpgradeRefused`, `conductor.config.UpgradeReport`, `conductor.config.ValidateConfig`, `conductor.config.WorkspaceMember`, `conductor.config.WriteConfig` and `conductor.config.WriteWorkspace`. No entity, view, command, event, error or crossing names them, so it is either vocabulary something outside this specification uses or a leftover — and only a person can tell which.
+20 of the types above are reached by nothing else in this system: `conductor.config.ChangeConfig`, `conductor.config.Config`, `conductor.config.ConfigPage`, `conductor.config.ConfigWriteRefused`, `conductor.config.ConfigWritten`, `conductor.config.InitRecords`, `conductor.config.InstanceRefused`, `conductor.config.MigrateConfig`, `conductor.config.SetupReport`, `conductor.config.SetupRepository`, `conductor.config.ShowConfig`, `conductor.config.SuggestedPrefix`, `conductor.config.TrustWorkspaces`, `conductor.config.UpgradeBinary`, `conductor.config.UpgradeRefused`, `conductor.config.UpgradeReport`, `conductor.config.ValidateConfig`, `conductor.config.WorkspaceMember`, `conductor.config.WriteConfig` and `conductor.config.WriteWorkspace`. No entity, view, command, event, error or crossing names them, so it is either vocabulary something outside this specification uses or a leftover — and only a person can tell which.
 
 ## Entities
 
@@ -797,7 +812,7 @@ It takes:
 
 It has four outcomes.
 
-**`level-scope-mismatch`** — The level and the instance or role named do not fit; nothing was written. Taken when `((level == Global and defined(instance)) or (level == Global and defined(role)) or (level == Instance and not (defined(instance))) or (level == Instance and defined(role)) or (level == Role and not (defined(instance))) or (level == Role and not (defined(role))))` holds of the input. No entity in this specification changes. It reports `conductor.config.LevelScopeMismatch`, carrying `level`. It emits nothing. A test reaches it by constructing an input that satisfies that condition.
+**`level-scope-mismatch`** — The level and the instance or role named do not fit; nothing was written. Taken when `(level == Default or (level == Global and defined(instance)) or (level == Global and defined(role)) or (level == Instance and not (defined(instance))) or (level == Instance and defined(role)) or (level == Role and not (defined(instance))) or (level == Role and not (defined(role))))` holds of the input. No entity in this specification changes. It reports `conductor.config.LevelScopeMismatch`, carrying `level`. It emits nothing. A test reaches it by constructing an input that satisfies that condition.
 
 **`actor-not-human`** — An agent's change of a key the tuning grant does not name, or to a value outside its range, is refused; nothing was written.
  Eligible when actor.kind != Human; externally decided: the change lies outside the tuning grant. No entity in this specification changes. It reports `conductor.operator.ActorNotHuman`, carrying `actor`. It emits nothing. A test reaches it by injecting the declared fault, because no input can.
@@ -843,7 +858,7 @@ Reported by `conductor.config.PutConfig` on its `invalid` outcome.
 
 ### `LevelScopeMismatch`
 
-A `Global` change names no instance and no role, an `Instance` change names an instance and no role, and a `Role` change names both; this one does not, and nothing was written.
+A `Global` change names no instance and no role, an `Instance` change names an instance and no role, a `Role` change names both, and no change is written at `Default`; this one does not fit, and nothing was written.
 
 
 It carries:
@@ -884,11 +899,11 @@ It may invoke [`PutConfig`](#putconfig).
 
 ---
 
-Generated from conductor v1 · contract digest `slice-sha256/2:207796f03b2f0750ce769a3d269fc1185fa9ba75d51a15fb657cf72ba637a166`. Do not edit this file; change the specification and regenerate it with `ess generate`.
+Generated from conductor v1 · contract digest `slice-sha256/2:f3994c5243d6b3e95a4c2df6531c1e0d0295ceb3615268da3cf95f2ad534633b`. Do not edit this file; change the specification and regenerate it with `ess generate`.
 
 <!--
 generated from conductor v1
-contract digest slice-sha256/2:e188789166bed70512b5c9185a359a0b56028b1649734d7ad053d3cca0b170ac
+contract digest slice-sha256/2:3693927bcf0fc44979261d51d1bfe594fdf0ee969292899403384259bd884faf
 do not edit: regenerate with `ess generate`
 -->
 
@@ -924,7 +939,15 @@ The instances conductord reconciles (design docs/design/architecture-next.md § 
 - `install` — `Optional<Boolean>`, which may be absent
 - `uninstall` — `Optional<Boolean>`, which may be absent
 
-One of the types above is reached by nothing else in this system: `conductor.instance.ServeDaemon`. No entity, view, command, event, error or crossing names it, so it is either vocabulary something outside this specification uses or a leftover — and only a person can tell which.
+### `UpgradeInstances`
+
+`conductor.instance.UpgradeInstances` is a record of three fields:
+
+- `instance` — `Optional<conductor.config.InstanceName>`, which may be absent
+- `tag` — `String`
+- `all` — `Optional<Boolean>`, which may be absent
+
+Two of the types above are reached by nothing else in this system: `conductor.instance.ServeDaemon` and `conductor.instance.UpgradeInstances`. No entity, view, command, event, error or crossing names them, so it is either vocabulary something outside this specification uses or a leftover — and only a person can tell which.
 
 ## Entities
 
@@ -972,6 +995,7 @@ stateDiagram-v2
     Running --> Starting: restart (RestartInstance)
     Unreachable --> Starting: restart (RestartInstance)
     Running --> Upgrading: upgrade (UpgradeInstance)
+    Unreachable --> Starting: roll_back (UpgradeInstance)
     Upgrading --> Starting: roll_back (UpgradeInstance)
     Stopped --> Purged: purge (PurgeInstance)
     Purged --> [*]
@@ -1249,7 +1273,7 @@ It has four outcomes.
 
 **`upgrading`** — The new binary is installed and the runtime restarted on it; the instance runs again once it answers. Taken when the existing subject is in Running. It moves a `conductor.instance.Instance` from `Running` to `Upgrading`, along the declared move `upgrade`. The instance is the one named by the input field `name`. It emits `conductor.instance.InstanceUpgrading`. It sets `changed_by` from `input.actor`. A test establishes the declared subject state and constructs input selecting this branch in that state.
 
-**`rolled-back`** — The upgraded runtime did not come up; the previous binary is back and its runtime starting. Taken when the existing subject is in Upgrading. It moves a `conductor.instance.Instance` from `Upgrading` to `Starting`, along the declared move `roll_back`. The instance is the one named by the input field `name`. It emits `conductor.instance.InstanceRolledBack`. It sets `changed_by` from `input.actor`. A test establishes the declared subject state and constructs input selecting this branch in that state.
+**`rolled-back`** — The upgraded runtime did not come up; the previous binary is back and its runtime starting. Taken when the existing subject is in Unreachable or Upgrading. It moves a `conductor.instance.Instance` from `Unreachable` and `Upgrading` to `Starting`, along the declared move `roll_back`. The instance is the one named by the input field `name`. It emits `conductor.instance.InstanceRolledBack`. It sets `changed_by` from `input.actor`. A test establishes the declared subject state and constructs input selecting this branch in that state.
 
 **`not-running`** — Only a running instance is upgraded; nothing changed. The default branch, taken when no other outcome's condition matched. No entity in this specification changes. It reports `conductor.instance.InstanceStateConflict`, carrying `name`. It emits nothing. A test reaches it by constructing an input that satisfies no other outcome's condition.
 
@@ -1468,11 +1492,11 @@ It may invoke [`PurgeInstance`](#purgeinstance), [`RestartInstance`](#restartins
 
 ---
 
-Generated from conductor v1 · contract digest `slice-sha256/2:e188789166bed70512b5c9185a359a0b56028b1649734d7ad053d3cca0b170ac`. Do not edit this file; change the specification and regenerate it with `ess generate`.
+Generated from conductor v1 · contract digest `slice-sha256/2:3693927bcf0fc44979261d51d1bfe594fdf0ee969292899403384259bd884faf`. Do not edit this file; change the specification and regenerate it with `ess generate`.
 
 <!--
 generated from conductor v1
-contract digest slice-sha256/2:17aad63e5eb0e38f5716d14ccb371a8db8cefca24c22ac242009117148f6fc21
+contract digest slice-sha256/2:d181f27b5653173d68929bfc37b5e8db4aa07eed098ef71ca6f84ac55688677b
 do not edit: regenerate with `ess generate`
 -->
 
@@ -1720,6 +1744,18 @@ It carries:
 
 Reported by `conductor.operator.JoinInstance` on its `already-joined` outcome.
 
+### `GrantMissing`
+
+The operator is a person, and holds no grant for the write asked. Nothing was written.
+
+
+It carries:
+
+- `operator` — `conductor.operator.OperatorName`
+- `grant` — `conductor.operator.Grant`
+
+No outcome in this system reports it: it is declared and unreachable.
+
 ### `NotJoined`
 
 The operator is not an active operator of the instance, so there is nothing to leave.
@@ -1753,11 +1789,11 @@ It may read [`Operators`](#operators), which an actor whose grant does not name 
 
 ---
 
-Generated from conductor v1 · contract digest `slice-sha256/2:17aad63e5eb0e38f5716d14ccb371a8db8cefca24c22ac242009117148f6fc21`. Do not edit this file; change the specification and regenerate it with `ess generate`.
+Generated from conductor v1 · contract digest `slice-sha256/2:d181f27b5653173d68929bfc37b5e8db4aa07eed098ef71ca6f84ac55688677b`. Do not edit this file; change the specification and regenerate it with `ess generate`.
 
 <!--
 generated from conductor v1
-contract digest slice-sha256/2:d8c55450fa319cfae4036002df92686bfb5d757215fdda4800b53dd244a291bc
+contract digest slice-sha256/2:1c81fa6a30a79a6d8d8c323a2d8aa18747d6e4f3290cb6ec96ef5ab8322f2149
 do not edit: regenerate with `ess generate`
 -->
 
@@ -2140,11 +2176,11 @@ It may invoke [`CloseBox`](#closebox) and [`OpenBox`](#openbox).
 
 ---
 
-Generated from conductor v1 · contract digest `slice-sha256/2:d8c55450fa319cfae4036002df92686bfb5d757215fdda4800b53dd244a291bc`. Do not edit this file; change the specification and regenerate it with `ess generate`.
+Generated from conductor v1 · contract digest `slice-sha256/2:1c81fa6a30a79a6d8d8c323a2d8aa18747d6e4f3290cb6ec96ef5ab8322f2149`. Do not edit this file; change the specification and regenerate it with `ess generate`.
 
 <!--
 generated from conductor v1
-contract digest slice-sha256/2:a4b48f694fa0cf2aa9c06d6a0efc539471fc75d9093f98ae74aab3a80071f9a7
+contract digest slice-sha256/2:c9d709d9264624077611123886c04c966d5e32d7613b1141ecd8366d0527eef6
 do not edit: regenerate with `ess generate`
 -->
 
@@ -2369,11 +2405,11 @@ It may invoke [`PutSecret`](#putsecret).
 
 ---
 
-Generated from conductor v1 · contract digest `slice-sha256/2:a4b48f694fa0cf2aa9c06d6a0efc539471fc75d9093f98ae74aab3a80071f9a7`. Do not edit this file; change the specification and regenerate it with `ess generate`.
+Generated from conductor v1 · contract digest `slice-sha256/2:c9d709d9264624077611123886c04c966d5e32d7613b1141ecd8366d0527eef6`. Do not edit this file; change the specification and regenerate it with `ess generate`.
 
 <!--
 generated from conductor v1
-contract digest slice-sha256/2:cae155622c34702936a5fdf44119f1004e49f23ca03dd2377cb26b9a7ac6975e
+contract digest slice-sha256/2:3637e977b6d7c46a55dd0ae5a7710c45dc2d8512b60079293c6aaa290c98bbd5
 do not edit: regenerate with `ess generate`
 -->
 
@@ -2611,11 +2647,11 @@ It may invoke [`MigrateStore`](#migratestore).
 
 ---
 
-Generated from conductor v1 · contract digest `slice-sha256/2:cae155622c34702936a5fdf44119f1004e49f23ca03dd2377cb26b9a7ac6975e`. Do not edit this file; change the specification and regenerate it with `ess generate`.
+Generated from conductor v1 · contract digest `slice-sha256/2:3637e977b6d7c46a55dd0ae5a7710c45dc2d8512b60079293c6aaa290c98bbd5`. Do not edit this file; change the specification and regenerate it with `ess generate`.
 
 <!--
 generated from conductor v1
-contract digest slice-sha256/2:5abaf9ff14fc5ac90b9aa17a9656e837983e11e2b5eecf7c6c2b3f72581ab472
+contract digest slice-sha256/2:f74a0e12ae80cfb35b3024c6725a75a017b9154fe3e5c1700b5aff94ff7cbb35
 do not edit: regenerate with `ess generate`
 -->
 
@@ -2989,4 +3025,4 @@ It may invoke [`ContributeToken`](#contributetoken) and [`WithdrawToken`](#withd
 
 ---
 
-Generated from conductor v1 · contract digest `slice-sha256/2:5abaf9ff14fc5ac90b9aa17a9656e837983e11e2b5eecf7c6c2b3f72581ab472`. Do not edit this file; change the specification and regenerate it with `ess generate`.
+Generated from conductor v1 · contract digest `slice-sha256/2:f74a0e12ae80cfb35b3024c6725a75a017b9154fe3e5c1700b5aff94ff7cbb35`. Do not edit this file; change the specification and regenerate it with `ess generate`.

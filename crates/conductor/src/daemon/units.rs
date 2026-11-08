@@ -33,6 +33,16 @@ pub trait Units {
     /// The manager cannot be reached.
     fn active(&mut self, unit: &str) -> Result<bool>;
 
+    /// Whether the unit `unit` answers: it runs and is not starting again after a failure. An
+    /// upgraded runtime that never gets there is rolled back (`story:instance-upgrade`).
+    ///
+    /// # Errors
+    ///
+    /// The manager cannot be reached.
+    fn answers(&mut self, unit: &str) -> Result<bool> {
+        self.active(unit)
+    }
+
     /// Reads the unit files again, then enables and starts the installed unit `unit`.
     ///
     /// # Errors
@@ -86,6 +96,12 @@ impl Units for Systemd {
             active.as_str(),
             "active" | "activating" | "reloading"
         ))
+    }
+
+    fn answers(&mut self, unit: &str) -> Result<bool> {
+        // A runtime that fails and waits to be started again is `activating`, never `active`.
+        let (_, active) = systemd::unit_state(unit)?;
+        Ok(active == "active")
     }
 
     fn enable(&mut self, unit: &str) -> Result<()> {

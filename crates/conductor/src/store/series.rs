@@ -1,7 +1,7 @@
 //! `DailySeriesStorage` on [`super::Store`] (`story:dashboard-history`): each
 //! `conductor.observation.DailySeries` is one stream, keyed by its id, in the instance's tenant: a
 //! rollup is not an observation, so retention never drops it. The rollup a completed snapshot runs
-//! writes it and the dashboard's `/api/series` reads it.
+//! writes it and the dashboard's `/v1/series` reads it.
 
 use conductor_model::behaviour::DailySeriesStorage;
 use conductor_model::observation::{
@@ -51,7 +51,7 @@ impl DailySeriesStorage for Store {
 
 impl Store {
     /// Every rollup the store holds, in the order they were first stored. The specification
-    /// declares no view of them, so the generated port lists none: `/api/series` and the rollup
+    /// declares no view of them, so the generated port lists none: `/v1/series` and the rollup
     /// read them here. A rollup whose record does not decode is left out and kept for
     /// [`Store::check`].
     #[must_use]

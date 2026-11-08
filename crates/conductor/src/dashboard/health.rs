@@ -1,4 +1,4 @@
-//! The health view's data (`story:dashboard-health`): `GET /api/health`, read-only.
+//! The health view's data (`story:dashboard-health`): `GET /v1/health`, read-only.
 //!
 //! - `doctor`: the rows and the verdict of `conductor doctor`, computed by doctor's own checks
 //!   ([`doctor::check_in`]) on a thread of their own: at start, then whenever the last result is
@@ -270,7 +270,7 @@ fn fix(class: FailureClass) -> (&'static str, &'static str) {
         .map_or(("other", ""), |(_, name, fix)| (*name, *fix))
 }
 
-/// `/api/health` from `sources`, with the last disk-waste measurement `waste`, the doctor cache
+/// `/v1/health` from `sources`, with the last disk-waste measurement `waste`, the doctor cache
 /// `doctor` and the newest snapshot with its rows `newest` ([`newest`], which the server keeps
 /// until the store is written), the home directory written `~`.
 pub(super) fn answer(

@@ -55,6 +55,9 @@ daemon:
   port: 7400
   tls:
     listen: 0.0.0.0:7443
+    cert: /etc/conductor/tls.crt
+    key: /etc/conductor/tls.key
+    identity: https://identity.example.com
   cadence:
     reconcile: 30s
   store: postgres://conductor@db.example.com/conductor
@@ -67,6 +70,7 @@ daemon:
     - name: example-operator
       role: owner
       grants: [answer-decisions, start-instances]
+  upgrade_timeout: 5m
 globals:
   roles:
     - role: supervisor

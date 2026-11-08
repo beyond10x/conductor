@@ -166,6 +166,19 @@ errors:
       - name: actor
         type: conductor.operator.Actor
 
+  # story:instance-api (design § 5.3 "Several operators"): a human actor on the daemon's API whose
+  # operator holds no grant for the write asked, a read-only bearer's write among them. The refusal
+  # is the daemon's admission before any command; nothing was written. Told apart from
+  # `ActorNotHuman`, which refuses an agent or the daemon whatever it holds.
+  - name: conductor.operator.GrantMissing
+    summary: >
+      The operator is a person, and holds no grant for the write asked. Nothing was written.
+    fields:
+      - name: operator
+        type: conductor.operator.OperatorName
+      - name: grant
+        type: conductor.operator.Grant
+
   - name: conductor.operator.AlreadyJoined
     summary: The operator is an active operator of the instance already; nothing changed.
     fields:

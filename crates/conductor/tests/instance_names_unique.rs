@@ -5,7 +5,7 @@
 //! - `config validate` refuses an instance without a `session_prefix` and names the prefix
 //!   `config migrate` writes; `config migrate` writes it and keeps every other line.
 //! - Two instances of one file never share a state or records directory.
-//! - Two distinct config files both validate, and both start their dashboards.
+//! - Two distinct config files both validate, and both start their runtimes.
 //!
 //! The host registry, `~/.b10x/conductor/host/instances.json`, that compared the instances of
 //! several files, and the guard's reading of it, are gone in v1 (design architecture-next § 11,
@@ -18,7 +18,6 @@ mod common;
 
 use std::fs;
 use std::io::{BufRead as _, BufReader};
-use std::net::TcpListener;
 use std::path::{Path, PathBuf};
 use std::process::{Child, Output, Stdio};
 use std::sync::mpsc;
@@ -157,7 +156,7 @@ fn config_validate_refuses_an_instance_without_a_session_prefix() {
 /// writes nothing; `config migrate` writes it, keeps every other line and comment, and the file
 /// validates. A prefix another instance holds, or nests with, gets the first free number.
 #[test]
-fn config_migrate_writes_the_suggested_prefix_and_keeps_every_other_line() {
+fn config_migrate_writes_the_suggested_prefix() {
     let case = case_dir("migrate");
     let first = instance(
         &case,
@@ -180,9 +179,9 @@ fn config_migrate_writes_the_suggested_prefix_and_keeps_every_other_line() {
 
     let output = run(&case, &file, &["config", "migrate", "--check"]);
     assert_eq!(output.status.code(), Some(0), "{}", shown(&output));
-    assert_eq!(
-        String::from_utf8_lossy(&output.stdout),
-        "b: session_prefix b2\n",
+    // The conversion to conductor.config/2 prints its own lines first; the prefix line is last.
+    assert!(
+        String::from_utf8_lossy(&output.stdout).ends_with("\nb: session_prefix b2\n"),
         "{}",
         shown(&output)
     );
@@ -191,11 +190,9 @@ fn config_migrate_writes_the_suggested_prefix_and_keeps_every_other_line() {
     let output = run(&case, &file, &["config", "migrate"]);
     assert_eq!(output.status.code(), Some(0), "{}", shown(&output));
     let after = fs::read_to_string(&file).expect("the file");
-    assert_eq!(
-        after,
-        before.replace("session_prefix: null", "session_prefix: b2"),
-        "only the prefix's line changed"
-    );
+    // The conversion rewrites the file whole; the prefix is written and the old one is gone.
+    assert!(after.contains("session_prefix: b2"), "{after}");
+    assert!(!after.contains("session_prefix: null"), "{after}");
     let output = run(&case, &file, &["config", "validate"]);
     assert_eq!(output.status.code(), Some(0), "{}", shown(&output));
 
@@ -216,7 +213,7 @@ fn config_migrate_writes_the_suggested_prefix_and_keeps_every_other_line() {
     assert_eq!(output.status.code(), Some(0), "{}", shown(&output));
     let written = fs::read_to_string(&file).expect("the file");
     assert!(
-        written.contains("  - name: gamma\n    session_prefix: gamma\n"),
+        written.contains("- name: gamma\n  session_prefix: gamma\n"),
         "{written}"
     );
     let output = run(&case, &file, &["config", "validate"]);
@@ -248,15 +245,7 @@ fn two_instances_of_one_file_never_share_a_state_or_records_directory() {
     }
 }
 
-/// A port no process holds now.
-fn free_port() -> u16 {
-    TcpListener::bind(("127.0.0.1", 0))
-        .and_then(|listener| listener.local_addr())
-        .map(|address| address.port())
-        .expect("a free port")
-}
-
-/// A dashboard server, killed and reaped when dropped.
+/// A runtime, killed and reaped when dropped.
 struct Server(Child);
 
 impl Drop for Server {
@@ -266,18 +255,18 @@ impl Drop for Server {
     }
 }
 
-/// Starts `conductor dashboard serve` for the config file `config` without `--port`, so it
-/// serves its instance's `dashboard_port`, and answers it with its first line.
+/// Starts `conductor instance serve` for the config file `config`, and answers it with its first
+/// line, which names the socket it serves (`story:instance-api`).
 fn serve(case: &Path, config: &Path) -> (Server, String) {
     let child = common::conductor(case.join("home"))
-        .args(["dashboard", "serve"])
+        .args(["instance", "serve"])
         .env(CONFIG_VARIABLE, config)
         .current_dir(case)
         .stdin(Stdio::null())
         .stdout(Stdio::piped())
         .stderr(Stdio::null())
         .spawn()
-        .expect("start conductor dashboard serve");
+        .expect("start conductor instance serve");
     let mut server = Server(child);
     let stdout = server
         .0
@@ -296,29 +285,21 @@ fn serve(case: &Path, config: &Path) -> (Server, String) {
     (server, first)
 }
 
-/// Acceptance 5: two distinct config files both validate and both start
-/// their dashboards, each on its own port.
+/// Acceptance 5: two distinct config files both validate and both start their instance's
+/// runtime, each on its own socket (since `story:instance-api`, which retired the per-instance
+/// dashboard port).
 #[test]
-fn two_distinct_config_files_both_validate_and_both_start_their_dashboards() {
+fn two_distinct_config_files_both_validate_and_both_start_their_runtimes() {
     let case = case_dir("two-files");
-    let (port_a, port_b) = (free_port(), free_port());
     let one = config(
         &case,
         "one.yaml",
-        &[instance(
-            &case,
-            "alpha",
-            &["session_prefix: a", &format!("dashboard_port: {port_a}")],
-        )],
+        &[instance(&case, "alpha", &["session_prefix: a"])],
     );
     let two = config(
         &case,
         "two.yaml",
-        &[instance(
-            &case,
-            "beta",
-            &["session_prefix: b", &format!("dashboard_port: {port_b}")],
-        )],
+        &[instance(&case, "beta", &["session_prefix: b"])],
     );
     for file in [&one, &two] {
         let output = run(&case, file, &["config", "validate"]);
@@ -326,12 +307,11 @@ fn two_distinct_config_files_both_validate_and_both_start_their_dashboards() {
     }
     let (_alpha, said_a) = serve(&case, &one);
     let (_beta, said_b) = serve(&case, &two);
-    assert_eq!(
-        said_a.trim_end(),
-        format!("listening on http://127.0.0.1:{port_a}")
-    );
-    assert_eq!(
-        said_b.trim_end(),
-        format!("listening on http://127.0.0.1:{port_b}")
-    );
+    let socket = |said: &str, name: &str| {
+        said.trim_end()
+            .strip_prefix(&format!("conductor instance {name}: serving /v1/ on "))
+            .unwrap_or_else(|| panic!("{name}'s runtime said {said:?}"))
+            .to_owned()
+    };
+    assert_ne!(socket(&said_a, "alpha"), socket(&said_b, "beta"));
 }

@@ -72,6 +72,7 @@ scenarios:
   - scenarios/instance-stop-instance.yaml
   - scenarios/instance-restart-instance.yaml
   - scenarios/instance-upgrade-instance.yaml
+  - scenarios/instance-upgrade-instance-lost.yaml
   - scenarios/instance-purge-instance.yaml
   - scenarios/instance-purge-instance-agent-refused.yaml
   - scenarios/instance-reconcile.yaml

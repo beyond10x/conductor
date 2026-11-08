@@ -25,7 +25,7 @@
 //!   of its own every [`SESSIONS_EVERY`] ([`SessionList`]); a request takes the last list, with
 //!   when it was read.
 //!
-//! The server's warmer ([`super::serve_over`]) computes every answer once at start, and looks at
+//! The server's warmer ([`super::serve_unix`]) computes every answer once at start, and looks at
 //! every kept answer every [`WARM_EVERY`] and starts a computation of those whose fingerprint
 //! moved, as the debounce lets it, so the request after a write mostly finds the new answer
 //! already computed.

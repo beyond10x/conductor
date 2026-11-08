@@ -13,13 +13,13 @@ use std::fs;
 use std::io::{Read as _, Write as _};
 use std::net::{TcpListener, TcpStream};
 use std::path::{Path, PathBuf};
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 use std::thread;
 use std::time::{Duration, Instant};
 
 use anyhow::{Result, bail};
 use conductor_cli::confine::systemd::Service;
-use conductor_cli::daemon::reconcile::{Binary, Daemon, RUNTIMES_FILE, unit_name};
+use conductor_cli::daemon::reconcile::{BINARIES_FILE, Binary, Daemon, RUNTIMES_FILE, unit_name};
 use conductor_cli::daemon::units::Units;
 use conductor_cli::daemon::{api, install};
 use conductor_model::behaviour::ReconciliationStorage;
@@ -211,6 +211,52 @@ fn a_pass_starts_every_absent_instance_and_a_second_pass_records_nothing() {
     assert_eq!(daemon.units.calls.len(), calls);
 }
 
+/// `story:instance-api`: each runtime is started with a token of its own and the socket it serves,
+/// and the API's routes name each running runtime at that socket with that token; a restart mints
+/// a new token.
+#[test]
+fn each_runtime_gets_its_own_token_and_socket_and_the_routes_name_them() {
+    let case = Case::new("routes");
+    case.config("{port: 7300}", &[("alpha", "box-a"), ("beta", "box-b")]);
+    let mut daemon = case.daemon(Fake::default());
+    daemon
+        .pass(ReconcileReason::ConfigChange, Instant::now())
+        .expect("pass");
+    let routes = daemon.routes();
+    assert_eq!(routes.len(), 2, "{routes:?}");
+    let env = |index: usize, variable: &str| {
+        daemon.units.envs[index]
+            .iter()
+            .find_map(|line| line.strip_prefix(&format!("{variable}=")))
+            .unwrap_or_else(|| panic!("no {variable}: {:?}", daemon.units.envs[index]))
+            .to_owned()
+    };
+    for (index, name) in ["alpha", "beta"].into_iter().enumerate() {
+        let route = &routes[name];
+        let state = case.dir.join(name).join("state");
+        assert_eq!(route.socket, conductor_cli::instance::socket(&state));
+        assert_eq!(route.token.len(), 64, "{route:?}");
+        assert_eq!(
+            env(index, conductor_cli::instance::TOKEN_VARIABLE),
+            route.token
+        );
+        assert_eq!(
+            env(index, conductor_cli::instance::SOCKET_VARIABLE),
+            route.socket.display().to_string()
+        );
+    }
+    assert_ne!(routes["alpha"].token, routes["beta"].token);
+
+    case.config("{port: 7300}", &[("alpha", "box-c"), ("beta", "box-b")]);
+    daemon
+        .pass(ReconcileReason::ConfigChange, Instant::now())
+        .expect("pass");
+    assert_ne!(daemon.routes()["alpha"].token, routes["alpha"].token);
+    daemon.units.running.clear();
+    daemon.due(Instant::now()).expect("due");
+    assert!(daemon.routes().is_empty(), "a stopped runtime is no route");
+}
+
 #[test]
 fn an_instance_gone_from_the_config_is_stopped() {
     let case = Case::new("stop");
@@ -238,7 +284,7 @@ fn an_instance_gone_from_the_config_is_stopped() {
 }
 
 #[test]
-fn a_changed_placement_or_binary_restarts_the_runtime() {
+fn a_changed_placement_or_desired_binary_restarts_the_runtime_and_the_daemons_binary_does_not() {
     let case = Case::new("restart");
     case.config("{port: 7300}", &[("alpha", "box-a"), ("beta", "box-b")]);
     let mut daemon = case.daemon(Fake::default());
@@ -258,23 +304,48 @@ fn a_changed_placement_or_binary_restarts_the_runtime() {
     let tail: Vec<&String> = daemon.units.calls.iter().rev().take(2).collect();
     assert!(tail[1] == &format!("stop {unit}") && tail[0].starts_with(&format!("start {unit} ")));
 
+    // The binary a runtime is compared against is its instance's desired binary, kept in the
+    // runtime record (`story:instance-upgrade`), not the daemon's own: a new daemon binary
+    // restarts nothing.
     daemon.binary = binary("1.1.0");
-    let done = daemon.pass(ReconcileReason::Cadence, now).expect("pass");
-    assert_eq!(
-        actions(&done),
-        [
-            ("alpha".to_owned(), ReconcileAction::Restart),
-            ("beta".to_owned(), ReconcileAction::Restart)
-        ]
-    );
-    assert_eq!(daemon.started()["beta"].version, "1.1.0");
     assert!(
         daemon
             .pass(ReconcileReason::Cadence, now)
             .expect("pass")
             .is_empty()
     );
-    assert_eq!(recorded(&daemon), 2 + 1 + 2);
+
+    // alpha's desired binary changes in the record: alpha restarts on it, beta does not.
+    let units = daemon.units.clone();
+    drop(daemon);
+    let file = case.dir.join("daemon").join(BINARIES_FILE);
+    let mut pins: Value =
+        serde_json::from_str(&fs::read_to_string(&file).expect("read the binaries")).expect("JSON");
+    pins["alpha"]["desired"] = serde_json::json!({
+        "path": "/opt/conductor/1.2.0/conductor",
+        "version": "1.2.0"
+    });
+    fs::write(&file, pins.to_string()).expect("write the binaries");
+    let mut daemon = case.daemon(units);
+    let done = daemon.pass(ReconcileReason::Cadence, now).expect("pass");
+    assert_eq!(
+        actions(&done),
+        [("alpha".to_owned(), ReconcileAction::Restart)]
+    );
+    assert_eq!(daemon.started()["alpha"].version, "1.2.0");
+    assert_eq!(daemon.started()["beta"].version, "1.0.0");
+    let last = daemon.units.calls.last().expect("a call");
+    assert!(
+        last.starts_with(&format!("start {unit} /opt/conductor/1.2.0/conductor ")),
+        "{last}"
+    );
+    assert!(
+        daemon
+            .pass(ReconcileReason::Cadence, now)
+            .expect("pass")
+            .is_empty()
+    );
+    assert_eq!(recorded(&daemon), 2 + 1 + 1);
 }
 
 #[test]
@@ -408,7 +479,8 @@ fn get_v1_instances_lists_every_instance_with_placement_state_version_and_last_s
     units.refuse.insert(unit_name("beta"));
     let mut daemon = case.daemon(units);
     daemon.tick(Instant::now()).expect("tick");
-    let rows: api::Rows = Arc::new(Mutex::new(daemon.rows()));
+    let rows = Arc::new(api::Api::new("0".repeat(64), "operator".to_owned(), None));
+    rows.publish(daemon.rows(), daemon.routes(), Vec::new());
     let listener = TcpListener::bind(("127.0.0.1", 0)).expect("bind");
     let port = listener.local_addr().expect("address").port();
     let served = Arc::clone(&rows);
@@ -441,7 +513,7 @@ fn get_v1_instances_lists_every_instance_with_placement_state_version_and_last_s
     // The runtime stops: the next look marks it unreachable.
     daemon.units.running.clear();
     daemon.due(Instant::now()).expect("due");
-    *rows.lock().expect("rows") = daemon.rows();
+    rows.publish(daemon.rows(), daemon.routes(), Vec::new());
     let (_, body) = http(port, "GET /v1/instances HTTP/1.1\r\n\r\n");
     let list: Value = serde_json::from_str(&body).expect("a JSON body");
     assert_eq!(list[0]["state"], "Unreachable");
