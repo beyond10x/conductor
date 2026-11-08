@@ -1228,7 +1228,7 @@ pub fn run(
     // The repository's shared target directory (`story:build-shared-target-dir`), held under its
     // lock from here until the command ended. A signal while it waits is answered below.
     let shared = shared_target(sources, request, &|line| say(line));
-    let held = shared.as_ref().and_then(|target| {
+    let mut held = shared.as_ref().and_then(|target| {
         target
             .hold(&|line| say(line), &|| received().is_some())
             .unwrap_or_else(|error| {
@@ -1319,6 +1319,11 @@ pub fn run(
         }
     };
     let group = i64::from(child.id());
+    // The lock names the command's group while it runs: should this run be killed, the next one
+    // waits for the group ([`orphaned_group`]).
+    if let (Some(target), Some(file)) = (&shared, held.as_mut()) {
+        target.record_group(file, Some(group));
+    }
     let began = Instant::now();
     // The store is let go once the run started: the command may run for hours.
     let started = idle
@@ -1348,6 +1353,9 @@ pub fn run(
         thread::spawn(move || watch.run(&done))
     };
     let (status, stopped_by) = supervise(&mut child, group);
+    if let (Some(target), Some(file)) = (&shared, held.as_mut()) {
+        target.record_group(file, None);
+    }
     done.store(true, Ordering::SeqCst);
     let watched = watchdog
         .join()
@@ -1737,10 +1745,12 @@ fn shared_target(sources: &Sources, request: &Request, say: &dyn Fn(&str)) -> Op
 }
 
 impl SharedTarget {
-    /// Takes the repository's lock, waiting while another run holds it. A run that waits says its
-    /// position in the queue once: one more than the runs still waiting that came before it.
-    /// None when `stopping` answers true while it waits. Once held, the target is made the run's
-    /// tree's ([`SharedTarget::claim`]).
+    /// Takes the repository's lock, waiting while another run holds it, and while the lock names
+    /// the process group of a command that still runs ([`orphaned_group`]): its `build run` was
+    /// killed, and the kernel let the lock go with it. A run that waits says its position in the
+    /// queue once: one more than the runs still waiting that came before it. None when `stopping`
+    /// answers true while it waits. Once held, the target is made the run's tree's
+    /// ([`SharedTarget::claim`]).
     ///
     /// # Errors
     ///
@@ -1756,9 +1766,24 @@ impl SharedTarget {
             .open(&self.lock)
             .with_context(|| format!("open {}", self.lock.display()))?;
         let mut waiting: Option<PathBuf> = None;
+        let mut orphan_said = false;
         let held = loop {
             match file.try_lock() {
-                Ok(()) => break true,
+                Ok(()) => match orphaned_group(&mut file) {
+                    None => break true,
+                    Some(group) => {
+                        let _ = file.unlock();
+                        if !orphan_said {
+                            orphan_said = true;
+                            say(&format!(
+                                "conductor: build run: the command of a stopped run, process \
+                                 group {group}, still runs in the target directory {}: this run \
+                                 waits until it ended",
+                                self.dir.display()
+                            ));
+                        }
+                    }
+                },
                 Err(fs::TryLockError::WouldBlock) => {}
                 Err(fs::TryLockError::Error(error)) => {
                     return Err(error).with_context(|| format!("lock {}", self.lock.display()));
@@ -1792,8 +1817,9 @@ impl SharedTarget {
     fn claim(&self, file: &mut fs::File, say: &dyn Fn(&str)) {
         let tree = &self.tree;
         use std::io::{Read as _, Seek as _};
-        let mut last = String::new();
-        let _ = file.read_to_string(&mut last);
+        let mut text = String::new();
+        let _ = file.rewind().and_then(|()| file.read_to_string(&mut text));
+        let last = text.lines().next().unwrap_or_default();
         let ours = tree.display().to_string();
         if last.trim() != ours && self.dir.exists() {
             let marked = mark_modified(tree);
@@ -1809,10 +1835,22 @@ impl SharedTarget {
                 },
             ));
         }
+        self.record_group(file, None);
+    }
+
+    /// Writes the lock file `file` anew: the run's tree on its first line and, while the command
+    /// runs, its process group `group` on the second, which [`orphaned_group`] reads should this
+    /// `build run` be killed before its command ended.
+    fn record_group(&self, file: &mut fs::File, group: Option<i64>) {
+        use std::io::Seek as _;
+        let ours = self.tree.display().to_string();
         let _ = file
             .set_len(0)
             .and_then(|()| file.rewind())
-            .and_then(|()| writeln!(file, "{ours}"));
+            .and_then(|()| match group {
+                Some(group) => writeln!(file, "{ours}\n{group}"),
+                None => writeln!(file, "{ours}"),
+            });
     }
 
     /// Adds this run to the queue and says its position; answers its entry.
@@ -1847,6 +1885,20 @@ impl SharedTarget {
         ));
         Ok(mine)
     }
+}
+
+/// The process group a shared target's lock `file` names on its second line, when a process of it
+/// still runs: the command of a `build run` that was killed while the command ran, which the
+/// kernel's release of the lock did not stop. None when the line is missing, not a group, or the
+/// group has no process left. A group id the kernel gave again to an unrelated group makes a run
+/// wait until that group ended.
+pub(crate) fn orphaned_group(file: &mut fs::File) -> Option<i32> {
+    use std::io::{Read as _, Seek as _};
+    let mut text = String::new();
+    file.rewind().ok()?;
+    file.read_to_string(&mut text).ok()?;
+    let group = text.lines().nth(1)?.trim().parse::<i32>().ok()?;
+    (group > 1 && nix::sys::signal::kill(Pid::from_raw(-group), None).is_ok()).then_some(group)
 }
 
 /// Sets the modification time of every regular file of the work tree `tree` that git tracks or

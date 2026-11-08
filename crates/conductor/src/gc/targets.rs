@@ -9,7 +9,7 @@
 use std::fs::{self, File, OpenOptions, TryLockError};
 use std::path::{Path, PathBuf};
 
-use crate::build::TARGET_LOCKS;
+use crate::build::{TARGET_LOCKS, orphaned_group};
 
 /// What gc calls one repository's shared target.
 pub(super) const WHAT: &str = "shared build target";
@@ -54,17 +54,23 @@ pub(super) fn handled(root: &Path, targets: &[Target]) -> Vec<PathBuf> {
 }
 
 impl Target {
-    /// Takes the target's lock without waiting; why it is kept when a run holds it or the lock
-    /// cannot be taken.
+    /// Takes the target's lock without waiting; why it is kept when a run holds it, the command of
+    /// a killed run still builds into it ([`orphaned_group`]), or the lock cannot be taken.
     pub(super) fn hold(&self) -> Result<File, String> {
-        let file = OpenOptions::new()
+        let mut file = OpenOptions::new()
+            .read(true)
             .write(true)
             .open(&self.lock)
             .map_err(|error| {
                 format!("its lock {} cannot be opened: {error}", self.lock.display())
             })?;
         match file.try_lock() {
-            Ok(()) => Ok(file),
+            Ok(()) => match orphaned_group(&mut file) {
+                None => Ok(file),
+                Some(group) => Err(format!(
+                    "the command of a stopped build, process group {group}, still runs in it"
+                )),
+            },
             Err(TryLockError::WouldBlock) => {
                 Err("a build of the repository holds its lock: a build is running".to_owned())
             }

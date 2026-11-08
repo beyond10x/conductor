@@ -150,12 +150,18 @@ fn a_crate_in_a_submodule_is_rebuilt_from_this_tree() {
 
     let repo = dir.join("repo");
     fs::create_dir_all(&repo).expect("create the repository");
-    fs::write(repo.join("Cargo.toml"), "[workspace]\nmembers = [\"sub\"]\nresolver = \"2\"\n")
-        .expect("write the workspace");
+    fs::write(
+        repo.join("Cargo.toml"),
+        "[workspace]\nmembers = [\"sub\"]\nresolver = \"2\"\n",
+    )
+    .expect("write the workspace");
     fs::write(repo.join(".gitignore"), "/target\n").expect("write .gitignore");
     git(&dir, &["init", "-q", "repo"]);
     git(&repo, &["remote", "add", "origin", ORIGIN]);
-    git(&repo, &["submodule", "add", "-q", sub.to_str().expect("text"), "sub"]);
+    git(
+        &repo,
+        &["submodule", "add", "-q", sub.to_str().expect("text"), "sub"],
+    );
     git(&repo, &["add", "."]);
     git(&repo, &["commit", "-q", "-m", "workspace"]);
     git(&repo, &["worktree", "add", "-q", "--detach", "../tree2"]);
