@@ -156,7 +156,9 @@ fn first_word(text: &str) -> &str {
 
 /// `context: <repo> <n>k tokens (session <id>)`: the running controller of `<repo>` at or above
 /// the threshold is asked to hand over once per session, or restarted at once over 1.25 times
-/// the threshold.
+/// the threshold. A line whose session id is not the one the controller's envelope
+/// (`<state>/sessions/<session>.envelope.json`) records is another session named like the
+/// repository, and is left alone (`story:context-watch-by-envelope`).
 fn context(tick: &mut Tick<'_, '_>, line: &str, rest: &str) -> Result<bool> {
     let mut words = rest.split_whitespace();
     let repo = words.next().unwrap_or_default();
@@ -168,6 +170,9 @@ fn context(tick: &mut Tick<'_, '_>, line: &str, rest: &str) -> Result<bool> {
     let Some((controller, session)) = tick.running(repo)? else {
         return Ok(false);
     };
+    if !measured_is_enveloped(tick, &session, line) {
+        return Ok(false);
+    }
     let threshold = u64::try_from(tick.instance().thresholds.context_handover.0).unwrap_or(0);
     let tokens = thousands.saturating_mul(1000);
     if over(tokens, threshold) {
@@ -198,6 +203,33 @@ fn context(tick: &mut Tick<'_, '_>, line: &str, rest: &str) -> Result<bool> {
     written.line = Some(line.to_owned());
     tick.write(&written)?;
     Ok(true)
+}
+
+/// Whether the session a `context:` line measured, `(session <id>)` at its end, is the one the
+/// envelope of the session name `session` records under `<state>/sessions/`. A line naming no id,
+/// or a session without an envelope or without an id in it, is taken as the controller's, as
+/// before envelopes recorded ids.
+fn measured_is_enveloped(tick: &Tick<'_, '_>, session: &str, line: &str) -> bool {
+    let Some(measured) = line
+        .rsplit_once("(session ")
+        .and_then(|(_, id)| id.strip_suffix(')'))
+        .filter(|id| !id.is_empty())
+    else {
+        return true;
+    };
+    let Some(state) = tick.dir.parent() else {
+        return true;
+    };
+    let envelope = crate::confine::record_path(state, &SessionName(session.to_owned()));
+    let Some(recorded) = fs::read_to_string(envelope)
+        .ok()
+        .and_then(|text| serde_json::from_str::<Value>(&text).ok())
+        .and_then(|value| value["session"]["session_id"].as_str().map(str::to_owned))
+        .filter(|id| !id.is_empty())
+    else {
+        return true;
+    };
+    recorded.starts_with(measured)
 }
 
 /// Whether `tokens` lie over 1.25 times `threshold`.
