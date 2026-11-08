@@ -87,8 +87,6 @@ entities:
       name: name
       type: conductor.agent.AgentName
     fields:
-      # UNMAPPED: the agent's instance is `conductor.instance.Instance` (unit A1); the
-      # `references` relation via `instance` is the coordinator's once that entity is declared.
       - name: instance
         type: conductor.config.InstanceName
       - name: role
@@ -99,8 +97,7 @@ entities:
       # read them.
       - name: capabilities
         type: List<conductor.agent.Capability>
-      # UNMAPPED: the box is `conductor.placement.Box` (unit A2); the `references` relation via
-      # `box` is the coordinator's once that entity is declared. Absent: started unboxed.
+      # The box the agent runs in. Absent: started unboxed.
       - name: box
         type: Optional<conductor.placement.BoxId>
       # The role's profile file, appended to the harness (`--append-system-prompt-file`); absent
@@ -109,9 +106,12 @@ entities:
         type: Optional<String>
       - name: limits
         type: conductor.config.Limits
-      # UNMAPPED: the owner is `conductor.operator.Operator` (unit A6); the `references` relation
-      # via `token_owner` is the coordinator's once that entity is declared. Absent: the agent
-      # runs on no pooled token (a host role on the host's own login).
+      # UNMAPPED: the owner is `conductor.operator.Operator`, keyed by `OperatorKey {operator,
+      # instance}`; a `references` relation via `token_owner` (an `OperatorName`) is refused by
+      # ess 0.90, which wants the field typed `Optional<OperatorKey>` (type_mismatch,
+      # ESS-ENTITY-002). Open question for the owner: retype the field to the key, or keep the
+      # name unrelated. Absent: the agent runs on no pooled token (a host role on the host's own
+      # login).
       - name: token_owner
         type: Optional<conductor.operator.OperatorName>
       - name: started_by
@@ -132,6 +132,16 @@ entities:
         target: conductor.agent.AgentKind
         cardinality: one
         via: kind
+      - name: instance
+        kind: references
+        target: conductor.instance.Instance
+        cardinality: one
+        via: instance
+      - name: box
+        kind: references
+        target: conductor.placement.Box
+        cardinality: one
+        via: box
     invariants:
       - generation >= 1
     lifecycle:
@@ -152,11 +162,8 @@ actors:
   # what they report, and delivers the loop's texts into them (today's run daemon). A controller
   # starts its workers through the runtime (§ 10), so the runtime issues `StartAgent` and the
   # command's `actor` names the controller.
-  # UNMAPPED: the runtime is a process, not an agent the runtime started and not an operator, and
-  # `conductor.operator.Actor` is `Human` or `Agent` only (§ 3 "Actors"); what `actor` names on a
-  # command the runtime issues on its own account (declaring its kinds, a stop it observed, a
-  # report it records) is not settled. The scenarios name the operator a single host implies.
-  # Open question for the owner.
+  # A command the runtime issues on its own account (declaring its kinds, a stop it observed)
+  # carries the actor `{kind: Daemon}`; a report it records names the agent that reported.
   - name: conductor.agent.InstanceRuntime
     may:
       - conductor.agent.DeclareAgentKind

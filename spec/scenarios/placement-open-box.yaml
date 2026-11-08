@@ -1,8 +1,6 @@
 # docs/design/architecture-next.md § 4 and § 6: conductord opens an instance's box at its
 # placement through the placement's substrate daemon, and the box is on record as Opened.
-# The actor is a human operator only because the `Agent` variant cannot be written: its tag
-# `kind` collides with `AgentActor.kind` (ESS-AUTHOR-047), and which actor conductord carries is
-# an open question (see the UNMAPPED marker on the commands of `conductor.placement`).
+# conductord acts on its own account, so the actor is `{kind: Daemon}`.
 type: ess-scenario/1
 domain: conductor.placement
 scenario: placement-open-box
@@ -17,7 +15,7 @@ timeline:
     command: conductor.placement.OpenBox
     actor: conductor.placement.Conductord
     input:
-      actor: {kind: Human, operator: example-operator}
+      actor: {kind: Daemon}
       placement: example-org-local
       instance: example-org
       at: 2026-11-08T09:00:00Z

@@ -11,7 +11,7 @@ timeline:
     command: conductor.decision.RecordConductorDecision
     actor: conductor.decision.Conductor
     input:
-      actor: {kind: Agent, value: {instance: example-org, role: Director, name: example-org-conductor, kind: claude-code}}
+      actor: {kind: Agent, agent: {instance: example-org, role: Director, name: example-org-conductor, kind: claude-code}}
       decision_id: DEC-agent-rev1
       decision_class: C
       question: Which store backs the pilot?
@@ -26,12 +26,12 @@ timeline:
     command: conductor.decision.ReverseOperatorDecision
     actor: conductor.decision.Operator
     input:
-      actor: {kind: Agent, value: {instance: example-org, role: Director, name: example-org-conductor, kind: claude-code}}
+      actor: {kind: Agent, agent: {instance: example-org, role: Director, name: example-org-conductor, kind: claude-code}}
       decision_id: DEC-agent-rev1
       reason: changed course
     outcome: agent-actor
     error:
-      name: conductor.decision.ActorNotHuman
+      name: conductor.operator.ActorNotHuman
 
 assert:
   - view: conductor.decision.Decisions

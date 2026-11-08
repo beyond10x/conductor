@@ -10,18 +10,19 @@ timeline:
     input:
       actor:
         kind: Agent
-        value:
+        agent:
           instance: example-org
           role: Director
           name: example-org-director
           kind: claude-code
       instance: example-org
       source: ~/.b10x/conductor/example-org/state/store
+      store: sqlite:~/.b10x/conductor/conductor.db
       events_copied: 120
       migrated_at: 2026-11-08T09:00:00Z
     outcome: not-human
     error:
-      name: conductor.store.ActorNotHuman
+      name: conductor.operator.ActorNotHuman
 
   - at: 2026-11-08T09:10:00Z
     command: conductor.store.MigrateStore
@@ -29,10 +30,10 @@ timeline:
     input:
       actor:
         kind: Human
-        value:
-          operator: example-operator
+        operator: example-operator
       instance: example-org
       source: ~/.b10x/conductor/example-org/state/store
+      store: sqlite:~/.b10x/conductor/conductor.db
       events_copied: 120
       migrated_at: 2026-11-08T09:10:00Z
     outcome: migrated

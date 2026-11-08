@@ -12,7 +12,7 @@ timeline:
     command: conductor.decision.RaiseDecisionRequest
     actor: conductor.decision.RepositoryController
     input:
-      actor: {kind: Agent, value: {instance: example-org, role: Lead, name: example-org-lead, kind: claude-code}}
+      actor: {kind: Agent, agent: {instance: example-org, role: Lead, name: example-org-lead, kind: claude-code}}
       request_id: REQ-agent-open1
       repository: cortex
       question: Set the deploy token secret
@@ -25,7 +25,7 @@ timeline:
     command: conductor.decision.RecordOperatorDecision
     actor: conductor.decision.Operator
     input:
-      actor: {kind: Human, value: {operator: example-operator}}
+      actor: {kind: Human, operator: example-operator}
       decision_id: DEC-agent-open1
       decision_class: H
       question: Set the deploy token secret
@@ -42,12 +42,12 @@ timeline:
     command: conductor.decision.AnswerRequest
     actor: conductor.decision.Conductor
     input:
-      actor: {kind: Agent, value: {instance: example-org, role: Director, name: example-org-conductor, kind: claude-code}}
+      actor: {kind: Agent, agent: {instance: example-org, role: Director, name: example-org-conductor, kind: claude-code}}
       request_id: REQ-agent-open1
       decision_id: DEC-agent-open1
     outcome: agent-actor
     error:
-      name: conductor.decision.ActorNotHuman
+      name: conductor.operator.ActorNotHuman
 
 assert:
   - view: conductor.decision.Requests

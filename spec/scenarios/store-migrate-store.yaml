@@ -10,10 +10,10 @@ timeline:
     input:
       actor:
         kind: Human
-        value:
-          operator: example-operator
+        operator: example-operator
       instance: example-org
       source: ~/.b10x/conductor/example-org/state/store
+      store: sqlite:~/.b10x/conductor/conductor.db
       events_copied: 120
       migrated_at: 2026-11-08T09:00:00Z
     outcome: migrated
@@ -29,10 +29,10 @@ timeline:
     input:
       actor:
         kind: Human
-        value:
-          operator: example-operator
+        operator: example-operator
       instance: example-org
       source: ~/.b10x/conductor/example-org/state/store
+      store: sqlite:~/.b10x/conductor/conductor.db
       events_copied: 120
       migrated_at: 2026-11-08T09:05:00Z
     outcome: already-migrated
@@ -45,5 +45,6 @@ assert:
       instance: example-org
       state: Migrated
       source: ~/.b10x/conductor/example-org/state/store
+      store: sqlite:~/.b10x/conductor/conductor.db
       events_copied: 120
       migrated_at: 2026-11-08T09:00:00Z

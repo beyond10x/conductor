@@ -93,24 +93,28 @@ against the generated types (`AGENTS.md` rule 1). The first story on `v1` is the
 | `conductor.agent` | new | `AgentKind` (`claude-code` in v1), `Capabilities` (`interactive`: PTY, attach, deliver, hand-over; `run-to-exit`: an exit code and an events file), `Agent` (a role slot filled: kind, placement, profile, limits, state), commands `StartAgent`, `DeliverToAgent`, `AttachAgent`, `StopAgent`, events `AgentStarted`, `AgentReported`, `AgentStopped`. `conductor.session` becomes the `claude-code` kind's behaviour, kept scenario for scenario |
 | `conductor.store` | new | `Backend` (`sqlite` for one host, `postgres` for a deployment), `Store` (the one URL the daemon and every instance runtime open; the password a `secret:<name>`), command `MigrateStore` (today's tree into the database, once), view `StoreStatus` (backend, reachable, last event id per instance). One database per deployment, shared by every operator, instance and UI (operator, 2026-11-08); no copy per instance, no sync. The records directory stays a projection |
 | `conductor.secret` | new | `SecretName` (what the config names), `Source` (`keychain`, `remote`), `Slot` (a sealed slot handed to a box), command `ResolveSecrets` at box open, view `Secrets` (names and sources, never values) |
-| `conductor.operator` | new | `Actor`, a sum type: `human` (an `Operator`, an Identity principal) or `agent` (an `Agent` of `conductor.agent`: instance, role, name, kind); `Operator`, `Grant` (answer decisions, change settings, start, stop and upgrade instances, purge, join); every command, event and record carries its `Actor`; `JoinInstance`, `LeaveInstance`; views `Operators`, `Actors`. The instance cluster has several operators (operator, 2026-11-08); a human and an agent are told apart by type, never by name (operator, 2026-11-08: "we have the actors, and we kind of need to distinguish between who is an agent actor and who is a human actor") |
+| `conductor.operator` | new | `Actor`, a kind and the fields of that kind: `human` (an `Operator`, an Identity principal), `agent` (an `Agent` of `conductor.agent`: instance, role, name, kind) or `daemon` (conductord or an instance runtime on its own account); `Operator`, `Grant` (answer decisions, change settings, start, stop and upgrade instances, purge, join); every command, event and record carries its `Actor`; `JoinInstance`, `LeaveInstance`; views `Operators`, `Actors`. The instance cluster has several operators (operator, 2026-11-08); a human and an agent are told apart by type, never by name (operator, 2026-11-08: "we have the actors, and we kind of need to distinguish between who is an agent actor and who is a human actor") |
 | `conductor.token` | new | `TokenPool` (per instance), `PoolToken` (owner, seat, state `ok` or `limited until`), commands `ContributeToken`, `WithdrawToken`, `LeaseToken`, `ReleaseToken`, `MarkTokenLimited`, view `Tokens` (owners, seats, states, never values); the `claude-code` kind's lease per agent start (§5.3) |
 | `conductor.config` | changed | `Level` (global, instance, role) and precedence, `EffectiveSettings` view, command `PutConfig` (validated, written, committed, reconciled) with event `ConfigChanged`; `dashboard_port` and `confinement.*` removed; `conductor.config/2` |
 | `conductor.improvement` | changed | `TuningGrant` (keys with bounded ranges; empty by default), a proposal applied only inside the grant through `PutConfig` |
 | `conductor.host` | shrunk | keeps grants, disk reservations, build runs and reclaim (the host ledger for boxes on this host); loses the registry, the dashboard instance and the host-roles config |
 | `conductor.observation`, `conductor.direction`, `conductor.decision`, `conductor.dispatch`, `conductor.tool` | unchanged | the loop's facts, goals, decisions, dispatches and tools |
 
-**Actors.** Every command the specification accepts names who issued it, and the type says whether
-that is a person or a program: `Actor::Human(operator)` or `Actor::Agent(agent)`. An agent actor is
-the agent the runtime started (its instance, role, name and kind), so a decision a controller took,
-a report a worker wrote, a message the supervisor sent and a guard denial each name the program and
-its role; a human actor is an operator with grants, so an answer, a config change, a join and a
-purge each name the person. A grant belongs to an operator only; an agent holds none, and a command
-that needs a grant refuses an agent actor by name (`ActorNotHuman`). Every event and every record
-carries its actor, every view shows it, and the records projection writes it as `human:<name>` or
-`agent:<instance>/<role>/<name>`; the `human:` prefix is the one AEP's transitions already write. The
-design's class H decision is the one only a human actor may answer; class C is the one an agent may
-take and record (§ 5 of the conductor design).
+**Actors.** Every command the specification accepts names who issued it. An actor is a record with
+a kind, human, agent or daemon, and the fields of that kind. A human actor is an operator with
+grants, named by the operator's name, so an answer, a config change, a join and a purge each name
+the person. An agent actor is the agent the runtime started, named by its instance, role, name and
+kind, so a decision a controller took, a report a worker wrote, a message the supervisor sent and a
+guard denial each name the program and its role. A daemon actor is conductord or an instance
+runtime acting on its own account, when it reconciles, observes an instance, opens or closes a box,
+resolves secrets or records a stop it observed; it carries no other field. A grant belongs to an
+operator only; an agent and the daemon hold none. A grant is checked on the kind, so a command that
+needs one refuses every actor whose kind is not human by name (`ActorNotHuman`), and that refusal
+is a predicate in the specification that synthesis tests. Every event and every record carries its
+actor, every view shows it, and the records projection writes it as `human:<name>`,
+`agent:<instance>/<role>/<name>` or `daemon`; the `human:` prefix is the one AEP's transitions
+already write. The design's class H decision is the one only a human actor may answer; class C is
+the one an agent may take and record (§ 5 of the conductor design).
 
 Components (`spec/components.yaml`): `conductord` (owns instance, placement, store, secret, config),
 `conductor-instance` (owns observation, direction, decision, dispatch, agent, improvement, tool),
@@ -426,8 +430,9 @@ reopened.
 | 9 | how many operators? | "multiple operators possible of the instance cluster" (2026-11-08): §3 `conductor.operator`, §5.3 |
 | 10 | the daemon on a remote box; how engineers join | "conductor D, the daemon itself, is running also on the remote host ... we can connect via API. So this must of course be secured ... some engineer of us is basically joining ... an instance ... they would basically hand out their token to the pool of Claude tokens. And the agents of kind Claude Code, they would make use of these tokens" (2026-11-08): §4, §5.3, `conductor.token` |
 | 11 | the Claude app as a UI? | option A: the `claude-code` kind starts a controller for Remote Control on a named owner's token from the pool, so it appears in that owner's Claude app ("yes, kind of option A. Yeah, this is option A", 2026-11-08): §17 |
-| 12 | who issues a command: a person or a program? | told apart by type, `Actor::Human` or `Actor::Agent`, on every command, event and record; a grant belongs to a human actor only ("we have the actors, and we kind of need to distinguish between who is an agent actor and who is a human actor. I think it's important", 2026-11-08): §3 |
+| 12 | who issues a command: a person or a program? | told apart by type, `Actor::Human` or `Actor::Agent`, on every command, event and record; a grant belongs to a human actor only ("we have the actors, and we kind of need to distinguish between who is an agent actor and who is a human actor. I think it's important", 2026-11-08): §3; the form, superseded by row 14 |
 | 13 | one store per instance with sync, or one shared database? | one shared database per deployment, `sqlite` on one host and `postgres` otherwise, through Eventlog's adapters; no per-instance copy, no sync, no restore ("with this multi-user, multi-operator thing, we of course need some shared state database ... this complexity with instance level state synced to the operator's machine, it doesn't make any sense ... it's just one database and it will be shared", 2026-11-08): §8, `conductor.store` |
+| 14 | how is an actor written? | Actor is a kind and its fields, not a sum type; Daemon is the third kind (ess tests a field in a predicate, not a union's variant, so the refusal of a non-human actor is synthesized; taken by this design, 2026-11-08): §3 |
 
 ## 14. The integration branch and the order of work
 
@@ -439,7 +444,7 @@ records directory, `example-org` sources) and on a scratch remote substrate when
 
 | step | story | what lands on `v1` |
 |---|---|---|
-| 0 | spec-v1 | the domains and components of §3 in `spec/`, the `Actor` type (human or agent) on every command, `ess specify validate`, `task regen`, one scenario per new command; the generated types every later step builds on |
+| 0 | spec-v1 | the domains and components of §3 in `spec/`, the `Actor` type (human, agent or daemon) on every command, `ess specify validate`, `task regen`, one scenario per new command; the generated types every later step builds on |
 | 1 | daemon-reconcile | `conductor daemon serve`: `Reconcile`, `Instances`, `Reconciliations`; the registry file gone |
 | 2 | instance-api | `conductor instance serve` with `/v1/` on its socket; the daemon proxies and serves the dashboard app at `/` and on the TLS listener; the per-instance dashboard server gone |
 | 3 | federated-views, tui-readonly | the federated routes; `conductor tui` read-only with attach |

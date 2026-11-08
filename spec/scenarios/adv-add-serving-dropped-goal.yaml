@@ -11,7 +11,7 @@ timeline:
     command: conductor.direction.ProposeGoal
     actor: conductor.direction.Conductor
     input:
-      actor: {kind: Agent, value: {instance: example-org, role: Director, name: example-org-conductor, kind: claude-code}}
+      actor: {kind: Agent, agent: {instance: example-org, role: Director, name: example-org-conductor, kind: claude-code}}
       goal_id: G-adv-dropped
       title: Retire the old gateway
       exit_evidence: the old gateway is archived
@@ -21,7 +21,7 @@ timeline:
     command: conductor.direction.DropGoal
     actor: conductor.direction.Operator
     input:
-      actor: {kind: Human, value: {operator: example-operator}}
+      actor: {kind: Human, operator: example-operator}
       goal_id: G-adv-dropped
       reason: superseded
     outcome: dropped
@@ -30,7 +30,7 @@ timeline:
     command: conductor.direction.AddServing
     actor: conductor.direction.Conductor
     input:
-      actor: {kind: Agent, value: {instance: example-org, role: Director, name: example-org-conductor, kind: claude-code}}
+      actor: {kind: Agent, agent: {instance: example-org, role: Director, name: example-org-conductor, kind: claude-code}}
       goal_id: G-adv-dropped
       repository: cortex
 

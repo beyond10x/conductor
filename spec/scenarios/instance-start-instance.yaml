@@ -1,7 +1,6 @@
 # Design § 4: the daemon starts what the config names and nothing runs; a second start of an
 # instance that is coming up changes nothing.
-# UNMAPPED: how the daemon is written as an `Actor` is open (see `conductor.instance.Conductord`);
-# the agent actor below is a placeholder.
+# The daemon acts on its own account: `{kind: Daemon}`.
 type: ess-scenario/1
 domain: conductor.instance
 scenario: instance-start-instance
@@ -12,7 +11,7 @@ timeline:
     command: conductor.instance.StartInstance
     actor: conductor.instance.Conductord
     input:
-      actor: {kind: Agent, value: {instance: example-org, role: Director, name: conductord, kind: conductord}}
+      actor: {kind: Daemon}
       name: example-org
       placement: local
       roles: [Director]
@@ -24,7 +23,7 @@ timeline:
     command: conductor.instance.StartInstance
     actor: conductor.instance.Conductord
     input:
-      actor: {kind: Agent, value: {instance: example-org, role: Director, name: conductord, kind: conductord}}
+      actor: {kind: Daemon}
       name: example-org
       placement: local
       roles: [Director]

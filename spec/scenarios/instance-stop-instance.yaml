@@ -1,6 +1,6 @@
 # Design § 4: removing an instance from the config stops its runtime and keeps its records; a
 # second stop changes nothing.
-# UNMAPPED: the daemon's `Actor` is open (see `conductor.instance.Conductord`); placeholder below.
+# The daemon acts on its own account: `{kind: Daemon}`.
 type: ess-scenario/1
 domain: conductor.instance
 scenario: instance-stop-instance
@@ -11,7 +11,7 @@ timeline:
     command: conductor.instance.StartInstance
     actor: conductor.instance.Conductord
     input:
-      actor: {kind: Agent, value: {instance: example-org, role: Director, name: conductord, kind: conductord}}
+      actor: {kind: Daemon}
       name: example-org
       placement: local
       roles: [Director]
@@ -23,7 +23,7 @@ timeline:
     command: conductor.instance.ObserveInstance
     actor: conductor.instance.Conductord
     input:
-      actor: {kind: Agent, value: {instance: example-org, role: Director, name: conductord, kind: conductord}}
+      actor: {kind: Daemon}
       name: example-org
       answering: true
       binary_version: 1.0.0
@@ -34,7 +34,7 @@ timeline:
     command: conductor.instance.StopInstance
     actor: conductor.instance.Conductord
     input:
-      actor: {kind: Agent, value: {instance: example-org, role: Director, name: conductord, kind: conductord}}
+      actor: {kind: Daemon}
       name: example-org
       at: 2026-11-08T10:00:00Z
     outcome: stopped
@@ -43,7 +43,7 @@ timeline:
     command: conductor.instance.StopInstance
     actor: conductor.instance.Conductord
     input:
-      actor: {kind: Agent, value: {instance: example-org, role: Director, name: conductord, kind: conductord}}
+      actor: {kind: Daemon}
       name: example-org
       at: 2026-11-08T10:01:00Z
     outcome: already-stopped

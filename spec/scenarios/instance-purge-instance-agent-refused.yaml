@@ -10,7 +10,7 @@ timeline:
     command: conductor.instance.StartInstance
     actor: conductor.instance.Operator
     input:
-      actor: {kind: Human, value: {operator: operator-one}}
+      actor: {kind: Human, operator: operator-one}
       name: example-org
       placement: local
       roles: [Director]
@@ -22,7 +22,7 @@ timeline:
     command: conductor.instance.StopInstance
     actor: conductor.instance.Operator
     input:
-      actor: {kind: Human, value: {operator: operator-one}}
+      actor: {kind: Human, operator: operator-one}
       name: example-org
       at: 2026-11-08T10:00:00Z
     outcome: stopped
@@ -31,7 +31,7 @@ timeline:
     command: conductor.instance.PurgeInstance
     actor: conductor.instance.Operator
     input:
-      actor: {kind: Agent, value: {instance: example-org, role: Lead, name: controller-one, kind: claude-code}}
+      actor: {kind: Agent, agent: {instance: example-org, role: Lead, name: controller-one, kind: claude-code}}
       name: example-org
       at: 2026-11-08T10:05:00Z
     outcome: actor-not-human

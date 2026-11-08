@@ -1210,17 +1210,6 @@ errors:
       - name: state
         type: String
 
-  # Stand-in for `conductor.operator.ActorNotHuman`, which the operator unit declares; the
-  # coordinator replaces every use with that error and removes this one. A command only a person
-  # may issue refused an agent actor (design architecture-next § 3, Actors): nothing changed.
-  - name: conductor.config.ActorNotHuman
-    summary: >
-      The command needs a person and an agent issued it; for `PutConfig`, the agent's change lies
-      outside the tuning grant. Nothing was written.
-    fields:
-      - name: actor
-        type: conductor.operator.Actor
-
   # The config with the change does not validate, as `conductor config validate` would name it.
   - name: conductor.config.ConfigInvalid
     summary: >
@@ -1369,13 +1358,12 @@ commands:
           conductor.config.LevelScopeMismatch:
             level: input.level
         summary: The level and the instance or role named do not fit; nothing was written.
-      # ESS 0.90 cannot test which variant an `Actor` value is in a predicate (`actor.kind ==
-      # Agent` is refused as `unobservable_fact`), so this refusal is decided outside the model.
       - name: actor-not-human
-        external: the actor is an agent, not a person, and the change lies outside the tuning grant
-        error: conductor.config.ActorNotHuman
+        when: actor.kind != Human
+        external: the change lies outside the tuning grant
+        error: conductor.operator.ActorNotHuman
         payload:
-          conductor.config.ActorNotHuman:
+          conductor.operator.ActorNotHuman:
             actor: input.actor
         summary: >
           An agent's change of a key the tuning grant does not name, or to a value outside its

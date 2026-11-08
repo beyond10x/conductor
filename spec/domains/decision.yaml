@@ -365,17 +365,6 @@ errors:
       - name: decision_id
         type: conductor.decision.DecisionId
 
-  # Declared here until the operator domain's `conductor.operator.ActorNotHuman` merges; the
-  # coordinator reconciles the two (story:spec-v1). ESS 0.90 cannot test a union's variant in a
-  # guard, so every command that refuses an agent actor does it as an `external:` outcome.
-  - name: conductor.decision.ActorNotHuman
-    summary: >
-      The command is a person's to issue (design architecture-next.md § 3, Actors; a class-H
-      answer, design § 5), and its actor is an agent. Nothing was recorded.
-    fields:
-      - name: actor
-        type: conductor.operator.Actor
-
   - name: conductor.decision.DecisionStateConflict
     summary: The decision is already reversed.
     fields:
@@ -572,10 +561,10 @@ commands:
         type: Optional<conductor.observation.RepositoryName>
     outcomes:
       - name: agent-actor
-        external: the actor is an agent, not a person
-        error: conductor.decision.ActorNotHuman
+        when: actor.kind != Human
+        error: conductor.operator.ActorNotHuman
         payload:
-          conductor.decision.ActorNotHuman:
+          conductor.operator.ActorNotHuman:
             actor: input.actor
         summary: Only a person issues this command (design architecture-next.md § 3, Actors); an agent actor is refused by name and nothing changed.
       - name: recorded
@@ -623,17 +612,6 @@ commands:
       - name: decision_id
         type: conductor.decision.DecisionId
     outcomes:
-      # UNMAPPED: the brief reserves an answer "where the answered class is H" for a person, but this
-      # command answers only an Open request, which carries no class (`escalation_class` is set on
-      # escalation). Read here as the class of the cited decision. Is that the owner's meaning, or
-      # does a class-H request never reach this command, so that no refusal belongs here?
-      - name: agent-actor
-        external: the actor is an agent, not a person, and the decision the input cites is class H
-        error: conductor.decision.ActorNotHuman
-        payload:
-          conductor.decision.ActorNotHuman:
-            actor: input.actor
-        summary: A class-H answer is a person's alone (design § 5); an agent actor citing a class-H decision is refused by name and the request stays open.
       - name: no-such-decision
         when_related: {via: input.decision_id, exists: false}
         error: conductor.decision.DecisionNotFound
@@ -641,6 +619,20 @@ commands:
           conductor.decision.DecisionNotFound:
             decision_id: input.decision_id
         summary: The cited decision does not exist, and the request stays where it was.
+      # UNMAPPED: the brief reserves an answer "where the answered class is H" for a person, but this
+      # command answers only an Open request, which carries no class (`escalation_class` is set on
+      # escalation). Read here as the class of the cited decision. Is that the owner's meaning, or
+      # does a class-H request never reach this command, so that no refusal belongs here?
+      # The refusal reads the cited decision's class, so it follows the branch for a missing one;
+      # a reversed decision is `reversed`'s, whoever cites it (ess/25 needs the guards disjoint).
+      - name: agent-actor
+        when: actor.kind != Human
+        when_related: {via: input.decision_id, predicate: {all: [decision_class == H, state == InForce]}}
+        error: conductor.operator.ActorNotHuman
+        payload:
+          conductor.operator.ActorNotHuman:
+            actor: input.actor
+        summary: A class-H answer is a person's alone (design § 5); an actor that is not a person citing a class-H decision is refused by name and the request stays open.
       - name: reversed
         when_related: {via: input.decision_id, predicate: state == Reversed}
         error: conductor.decision.DecisionReversed
@@ -686,10 +678,10 @@ commands:
         type: conductor.decision.DecisionId
     outcomes:
       - name: agent-actor
-        external: the actor is an agent, not a person
-        error: conductor.decision.ActorNotHuman
+        when: actor.kind != Human
+        error: conductor.operator.ActorNotHuman
         payload:
-          conductor.decision.ActorNotHuman:
+          conductor.operator.ActorNotHuman:
             actor: input.actor
         summary: Only a person issues this command (design architecture-next.md § 3, Actors); an agent actor is refused by name and nothing changed.
       - name: no-such-decision
@@ -777,10 +769,10 @@ commands:
         type: Optional<conductor.observation.RepositoryName>
     outcomes:
       - name: agent-actor
-        external: the actor is an agent, not a person
-        error: conductor.decision.ActorNotHuman
+        when: actor.kind != Human
+        error: conductor.operator.ActorNotHuman
         payload:
-          conductor.decision.ActorNotHuman:
+          conductor.operator.ActorNotHuman:
             actor: input.actor
         summary: Only a person issues this command (design architecture-next.md § 3, Actors); an agent actor is refused by name and nothing changed.
       - name: no-such-request
@@ -1114,10 +1106,10 @@ commands:
         type: String
     outcomes:
       - name: agent-actor
-        external: the actor is an agent, not a person
-        error: conductor.decision.ActorNotHuman
+        when: actor.kind != Human
+        error: conductor.operator.ActorNotHuman
         payload:
-          conductor.decision.ActorNotHuman:
+          conductor.operator.ActorNotHuman:
             actor: input.actor
         summary: Only a person issues this command (design architecture-next.md § 3, Actors); an agent actor is refused by name and nothing changed.
       - name: reversed

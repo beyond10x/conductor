@@ -1,7 +1,7 @@
 # Design § 4 "observe" and § 5.2: an instance whose runtime answers runs, with the version it
 # reported and the time it answered; one that stops answering is a row with state Unreachable and
 # the time it last answered, never an error.
-# UNMAPPED: the daemon's `Actor` is open (see `conductor.instance.Conductord`); placeholder below.
+# The daemon acts on its own account: `{kind: Daemon}`.
 type: ess-scenario/1
 domain: conductor.instance
 scenario: instance-observe-instance
@@ -12,7 +12,7 @@ timeline:
     command: conductor.instance.StartInstance
     actor: conductor.instance.Conductord
     input:
-      actor: {kind: Agent, value: {instance: example-org, role: Director, name: conductord, kind: conductord}}
+      actor: {kind: Daemon}
       name: example-org
       placement: local
       roles: [Director]
@@ -24,7 +24,7 @@ timeline:
     command: conductor.instance.ObserveInstance
     actor: conductor.instance.Conductord
     input:
-      actor: {kind: Agent, value: {instance: example-org, role: Director, name: conductord, kind: conductord}}
+      actor: {kind: Daemon}
       name: example-org
       answering: true
       binary_version: 1.0.0
@@ -35,7 +35,7 @@ timeline:
     command: conductor.instance.ObserveInstance
     actor: conductor.instance.Conductord
     input:
-      actor: {kind: Agent, value: {instance: example-org, role: Director, name: conductord, kind: conductord}}
+      actor: {kind: Daemon}
       name: example-org
       answering: false
       at: 2026-11-08T09:01:10Z

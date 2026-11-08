@@ -1,8 +1,7 @@
 # docs/design/architecture-next.md § 6: a placement that cannot give what the profile asks for is
 # refused by substrate with its name (`exec.sandbox-unavailable`), and a host policy may refuse
 # the adapter; each refusal is on record with substrate's reason, the instance does not start and
-# nothing falls back: no box is opened. The actor is a human operator for the reason
-# `placement-open-box.yaml` gives.
+# nothing falls back: no box is opened. The actor is `{kind: Daemon}`.
 type: ess-scenario/1
 domain: conductor.placement
 scenario: placement-open-box-refused
@@ -19,7 +18,7 @@ timeline:
     command: conductor.placement.OpenBox
     actor: conductor.placement.Conductord
     input:
-      actor: {kind: Human, operator: example-operator}
+      actor: {kind: Daemon}
       placement: example-org-local
       instance: example-org
       at: 2026-11-08T09:00:00Z
@@ -30,7 +29,7 @@ timeline:
     command: conductor.placement.OpenBox
     actor: conductor.placement.Conductord
     input:
-      actor: {kind: Human, operator: example-operator}
+      actor: {kind: Daemon}
       placement: example-org-remote
       instance: example-org
       at: 2026-11-08T09:01:00Z

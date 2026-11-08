@@ -10,7 +10,7 @@ timeline:
     command: conductor.direction.ProposeGoal
     actor: conductor.direction.Conductor
     input:
-      actor: {kind: Agent, value: {instance: example-org, role: Director, name: example-org-conductor, kind: claude-code}}
+      actor: {kind: Agent, agent: {instance: example-org, role: Director, name: example-org-conductor, kind: claude-code}}
       goal_id: G-agent-drop
       title: Ship the local store
       exit_evidence: a reopened store lists the goal
@@ -20,12 +20,12 @@ timeline:
     command: conductor.direction.DropGoal
     actor: conductor.direction.Operator
     input:
-      actor: {kind: Agent, value: {instance: example-org, role: Director, name: example-org-conductor, kind: claude-code}}
+      actor: {kind: Agent, agent: {instance: example-org, role: Director, name: example-org-conductor, kind: claude-code}}
       goal_id: G-agent-drop
       reason: no longer needed
     outcome: agent-actor
     error:
-      name: conductor.decision.ActorNotHuman
+      name: conductor.operator.ActorNotHuman
 
 assert:
   - view: conductor.direction.Goals
