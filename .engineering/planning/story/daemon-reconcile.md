@@ -2,7 +2,7 @@
 format: aep.planning-md/3
 id: story:daemon-reconcile
 kind: story
-status: active
+status: implemented
 title: conductor daemon serve reconciles instances from the config and lists them; the registry file goes
 summary: the daemon starts and stops instance runtimes so the running set equals the config; GET /v1/instances; one Reconciliation per action
 relations:
@@ -43,10 +43,11 @@ scope:
   path: spec/domains/config.yaml
 - confidence: cited
   path: spec/domains/instance.yaml
-revision: 22
+revision: 23
 transitions:
 - {from: "draft", to: "proposed", at: "2026-11-07T23:41:23Z", actor: "human:timo", revision: 3}
 - {from: "proposed", to: "active", at: "2026-11-07T23:41:24Z", actor: "human:timo", revision: 4}
+- {from: "active", to: "implemented", at: "2026-11-08T10:59:44Z", actor: "human:timo", revision: 23, decided_on: {"recorded":{"test_result":1}}}
 ---
 ## Why
 

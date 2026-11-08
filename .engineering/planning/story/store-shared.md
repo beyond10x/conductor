@@ -2,7 +2,7 @@
 format: aep.planning-md/3
 id: story:store-shared
 kind: story
-status: active
+status: implemented
 title: one shared database per deployment, opened by the daemon and every instance runtime through Eventlog's sqlite and postgres adapters
 summary: daemon.store names one URL; the daemon hands it to every runtime it starts; every event names its instance; store migrate reads today's tree once; no copy per instance, no sync, no restore
 relations:
@@ -39,10 +39,11 @@ scope:
   path: spec/domains/instance.yaml
 - confidence: cited
   path: spec/domains/store.yaml
-revision: 18
+revision: 19
 transitions:
 - {from: "draft", to: "proposed", at: "2026-11-08T00:13:20Z", actor: "human:timo", revision: 2}
 - {from: "proposed", to: "active", at: "2026-11-08T00:13:20Z", actor: "human:timo", revision: 3}
+- {from: "active", to: "implemented", at: "2026-11-08T10:59:44Z", actor: "human:timo", revision: 19, decided_on: {"recorded":{"test_result":1}}}
 ---
 ## Why
 

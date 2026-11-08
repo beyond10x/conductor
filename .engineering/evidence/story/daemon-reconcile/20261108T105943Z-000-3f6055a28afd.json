@@ -1,0 +1,12 @@
+{
+  "at": "2026-11-08T10:59:43Z",
+  "actor": "human:timo",
+  "artifact": "story:daemon-reconcile",
+  "kind": "story",
+  "revision": 22,
+  "change": {
+    "change": "evidence",
+    "kind": "test_result",
+    "source": "https://github.com/beyond10x/conductor/actions/runs/42472468590"
+  }
+}

@@ -2,7 +2,7 @@
 format: aep.planning-md/3
 id: story:terminal-log-name
 kind: story
-status: active
+status: implemented
 title: the session recording is the terminal log, not the typescript
 summary: rename <session>.typescript to <session>.terminal.log and say terminal log everywhere; the old name read for one release
 relations:
@@ -27,10 +27,11 @@ scope:
   path: website/docs/concepts/architecture.md
 - confidence: cited
   path: website/docs/reference/cli.md
-revision: 13
+revision: 14
 transitions:
 - {from: "draft", to: "proposed", at: "2026-11-07T23:41:29Z", actor: "human:timo", revision: 2}
 - {from: "proposed", to: "active", at: "2026-11-07T23:41:29Z", actor: "human:timo", revision: 3}
+- {from: "active", to: "implemented", at: "2026-11-08T10:59:44Z", actor: "human:timo", revision: 14, decided_on: {"recorded":{"test_result":1}}}
 ---
 ## Why
 
