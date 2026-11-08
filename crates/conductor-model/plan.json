@@ -2,8 +2,8 @@
   "provenance": {
     "system": "conductor",
     "specification_version": "v1",
-    "source_digest": "98062e79a7338d90417a0f0906a82a25ba9e27b95346961bcc18e42aa9fb46d8",
-    "contract_digest": "575fcfe0b84fcb4b2dc3a52041bbf14840203191eb2cb53374eec07ea92207ab"
+    "source_digest": "1bfe189965973bb766214957260f7935cfea2caa2547b0d97577a81fd5de6d11",
+    "contract_digest": "0608eb83c8c48e1f8808cd29d3621f78091b34cac43c2b2e9143a335707a4202"
   },
   "scope": {
     "profile": "component-skeletons",
@@ -1321,6 +1321,20 @@
     },
     {
       "kind": "domain_type",
+      "source": "conductor.improvement.ProposalId",
+      "disposition": {
+        "disposition": "generated"
+      }
+    },
+    {
+      "kind": "domain_type",
+      "source": "conductor.improvement.SettingsProposal.State",
+      "disposition": {
+        "disposition": "generated"
+      }
+    },
+    {
+      "kind": "domain_type",
       "source": "conductor.improvement.TargetDirection",
       "disposition": {
         "disposition": "generated"
@@ -1385,6 +1399,13 @@
     {
       "kind": "domain_type",
       "source": "conductor.instance.ServeDaemon",
+      "disposition": {
+        "disposition": "generated"
+      }
+    },
+    {
+      "kind": "domain_type",
+      "source": "conductor.instance.StartHostRole",
       "disposition": {
         "disposition": "generated"
       }
@@ -2133,7 +2154,28 @@
     },
     {
       "kind": "domain_type",
+      "source": "conductor.token.JoinDaemon",
+      "disposition": {
+        "disposition": "generated"
+      }
+    },
+    {
+      "kind": "domain_type",
+      "source": "conductor.token.LeaveDaemon",
+      "disposition": {
+        "disposition": "generated"
+      }
+    },
+    {
+      "kind": "domain_type",
       "source": "conductor.token.PoolToken.State",
+      "disposition": {
+        "disposition": "generated"
+      }
+    },
+    {
+      "kind": "domain_type",
+      "source": "conductor.token.RevealToken",
       "disposition": {
         "disposition": "generated"
       }
@@ -2456,6 +2498,13 @@
     {
       "kind": "entity_lifecycle",
       "source": "conductor.improvement.MetricReading",
+      "disposition": {
+        "disposition": "generated"
+      }
+    },
+    {
+      "kind": "entity_lifecycle",
+      "source": "conductor.improvement.SettingsProposal",
       "disposition": {
         "disposition": "generated"
       }
@@ -3537,6 +3586,20 @@
     },
     {
       "kind": "command_contract",
+      "source": "conductor.improvement.ApplyProposal",
+      "disposition": {
+        "disposition": "generated"
+      }
+    },
+    {
+      "kind": "command_behavior",
+      "source": "conductor.improvement.ApplyProposal",
+      "disposition": {
+        "disposition": "generated"
+      }
+    },
+    {
+      "kind": "command_contract",
       "source": "conductor.improvement.DefineMetric",
       "disposition": {
         "disposition": "generated"
@@ -3579,6 +3642,20 @@
     },
     {
       "kind": "command_contract",
+      "source": "conductor.improvement.ProposeSetting",
+      "disposition": {
+        "disposition": "generated"
+      }
+    },
+    {
+      "kind": "command_behavior",
+      "source": "conductor.improvement.ProposeSetting",
+      "disposition": {
+        "disposition": "generated"
+      }
+    },
+    {
+      "kind": "command_contract",
       "source": "conductor.improvement.RaiseFinding",
       "disposition": {
         "disposition": "generated"
@@ -3601,6 +3678,20 @@
     {
       "kind": "command_behavior",
       "source": "conductor.improvement.RecordMetricReading",
+      "disposition": {
+        "disposition": "generated"
+      }
+    },
+    {
+      "kind": "command_contract",
+      "source": "conductor.improvement.RefuseProposal",
+      "disposition": {
+        "disposition": "generated"
+      }
+    },
+    {
+      "kind": "command_behavior",
+      "source": "conductor.improvement.RefuseProposal",
       "disposition": {
         "disposition": "generated"
       }
@@ -3622,6 +3713,20 @@
           "construct": "a subject predicate choosing between a move and an update"
         },
         "contract": "given `conductor.improvement.SetMetricTarget` input, decide and enact exactly one outcome. Declared outcomes (declaration order, not selection precedence): `actor-not-human` when `actor.kind != Human`, error `conductor.operator.ActorNotHuman`; `targeted` when the existing subject is in Untargeted, takes `target` of `conductor.improvement.Metric`, emits `conductor.improvement.MetricTargetSet`; `retargeted` when the existing subject is in Targeted, updates `conductor.improvement.Metric`, emits `conductor.improvement.MetricTargetSet`; `no-such-metric` for an identity no record carries, error `conductor.improvement.MetricNotFound`"
+      }
+    },
+    {
+      "kind": "command_contract",
+      "source": "conductor.improvement.SettleProposal",
+      "disposition": {
+        "disposition": "generated"
+      }
+    },
+    {
+      "kind": "command_behavior",
+      "source": "conductor.improvement.SettleProposal",
+      "disposition": {
+        "disposition": "generated"
       }
     },
     {
@@ -4687,6 +4792,41 @@
     },
     {
       "kind": "event_type",
+      "source": "conductor.improvement.ProposalApplied",
+      "disposition": {
+        "disposition": "generated"
+      }
+    },
+    {
+      "kind": "event_type",
+      "source": "conductor.improvement.ProposalKept",
+      "disposition": {
+        "disposition": "generated"
+      }
+    },
+    {
+      "kind": "event_type",
+      "source": "conductor.improvement.ProposalRefused",
+      "disposition": {
+        "disposition": "generated"
+      }
+    },
+    {
+      "kind": "event_type",
+      "source": "conductor.improvement.ProposalReverted",
+      "disposition": {
+        "disposition": "generated"
+      }
+    },
+    {
+      "kind": "event_type",
+      "source": "conductor.improvement.SettingProposed",
+      "disposition": {
+        "disposition": "generated"
+      }
+    },
+    {
+      "kind": "event_type",
       "source": "conductor.instance.InstanceAnswered",
       "disposition": {
         "disposition": "generated"
@@ -5457,6 +5597,27 @@
     },
     {
       "kind": "error_type",
+      "source": "conductor.improvement.ProposalExists",
+      "disposition": {
+        "disposition": "generated"
+      }
+    },
+    {
+      "kind": "error_type",
+      "source": "conductor.improvement.ProposalNotFound",
+      "disposition": {
+        "disposition": "generated"
+      }
+    },
+    {
+      "kind": "error_type",
+      "source": "conductor.improvement.ProposalStateConflict",
+      "disposition": {
+        "disposition": "generated"
+      }
+    },
+    {
+      "kind": "error_type",
       "source": "conductor.instance.InstanceStateConflict",
       "disposition": {
         "disposition": "generated"
@@ -5647,6 +5808,13 @@
     {
       "kind": "error_type",
       "source": "conductor.token.NoTokenAvailable",
+      "disposition": {
+        "disposition": "generated"
+      }
+    },
+    {
+      "kind": "error_type",
+      "source": "conductor.token.NotTokenOwner",
       "disposition": {
         "disposition": "generated"
       }
@@ -6023,6 +6191,20 @@
     {
       "kind": "view_query",
       "source": "conductor.improvement.Metrics",
+      "disposition": {
+        "disposition": "generated"
+      }
+    },
+    {
+      "kind": "view_type",
+      "source": "conductor.improvement.SettingsProposals",
+      "disposition": {
+        "disposition": "generated"
+      }
+    },
+    {
+      "kind": "view_query",
+      "source": "conductor.improvement.SettingsProposals",
       "disposition": {
         "disposition": "generated"
       }
@@ -6541,6 +6723,13 @@
     {
       "kind": "actor_grants",
       "source": "conductor.improvement.Operator",
+      "disposition": {
+        "disposition": "generated"
+      }
+    },
+    {
+      "kind": "actor_grants",
+      "source": "conductor.improvement.Tuner",
       "disposition": {
         "disposition": "generated"
       }

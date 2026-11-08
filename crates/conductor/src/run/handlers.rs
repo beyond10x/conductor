@@ -82,6 +82,9 @@ pub fn pending(tick: &mut Tick<'_, '_>) {
     if let Err(error) = limited(tick) {
         tick.note("resume after a usage limit", &error);
     }
+    if let Err(error) = withdrawn(tick) {
+        tick.note("resume after a token was withdrawn", &error);
+    }
     if let Err(error) = handovers(tick) {
         tick.note("hand-over", &error);
     }
@@ -334,8 +337,50 @@ fn usage_limit(tick: &mut Tick<'_, '_>, line: &str) -> Result<bool> {
     for name in &names {
         let repo = tick.repo_of(name)?.unwrap_or_else(|| "-".to_owned());
         mark(tick, name, &repo, line, None)?;
+        on_limit(tick, name, &repo);
     }
     Ok(!names.is_empty())
+}
+
+/// `story:token-pool`: the token `name` ran on is Limited; when another token of the pool is
+/// Available the session is resumed on it now, rather than once the account has headroom.
+fn on_limit(tick: &mut Tick<'_, '_>, name: &str, repo: &str) {
+    let instance = &crate::config::active().instance;
+    match crate::token::on_limit(instance, name) {
+        Ok(true) if repo != "-" => match resume(tick, repo, name) {
+            Ok(true) => {
+                forget(tick, name);
+                let mut resumed = read_json(&tick.dir, RESUMED, json!({}));
+                resumed[name] = json!(nanos(SystemTime::now()).to_string());
+                if let Err(error) = write_json(&tick.dir, RESUMED, &resumed) {
+                    tick.note(RESUMED, &error);
+                }
+            }
+            Ok(false) => {}
+            Err(error) => tick.note(&format!("resume {name} on another token"), &error),
+        },
+        Ok(_) => {}
+        Err(error) => tick.note(&format!("mark the token of {name} limited"), &error),
+    }
+}
+
+/// `story:token-pool`: each session on a token its owner withdrew (`conductor leave`), named in
+/// `<state>/run/tokens-withdrawn.json`: ended, then resumed on another token.
+fn withdrawn(tick: &mut Tick<'_, '_>) -> Result<()> {
+    for session in crate::token::take_withdrawn(&tick.dir) {
+        let Some(repo) = tick.repo_of(&session)? else {
+            continue;
+        };
+        let name = SessionName(session.clone());
+        if let Err(error) = crate::spawn::end(tick.state, &repo, &name, tick.seams.providers) {
+            tick.note(&format!("end {session}"), &error);
+            continue;
+        }
+        if let Err(error) = resume(tick, &repo, &session) {
+            tick.note(&format!("resume {session} on another token"), &error);
+        }
+    }
+    Ok(())
 }
 
 /// `session exited (blocked): <name> <id>`, a session the list keeps blocked with no `pid`, as

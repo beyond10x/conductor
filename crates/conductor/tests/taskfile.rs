@@ -151,7 +151,8 @@ fn the_dashboard_task_prints_the_daemon_s_url_for_the_instance() {
         );
     }
     assert!(
-        commands.contains("http://127.0.0.1:{{.PORT}}/?instance={{.INSTANCE}}"),
+        commands
+            .contains("http://127.0.0.1:{{shellQuote .PORT}}/?instance={{shellQuote .INSTANCE}}"),
         "the dashboard task prints the daemon's URL: {commands}"
     );
     let port = taskfile["tasks"]["dashboard"]["vars"]["PORT"]["sh"]
@@ -1403,85 +1404,37 @@ fn status_publishes_the_snapshot_it_took_and_nothing_when_it_failed() {
 }
 
 // ---------------------------------------------------------------------------------------------
-// The host's supervisor and teacher (`story:host-session-profiles`)
+// The host's supervisor and teacher (`story:host-roles-by-daemon`)
 
-/// The host sessions' start tasks and the profiles whose start command each runs.
-const HOST_TASKS: [(&str, &str); 2] = [
-    ("supervisor:start", "conductor-supervisor"),
-    ("teacher:start", "conductor-teacher"),
+/// The host roles' start tasks, the role each asks the daemon for, and the profile it starts from.
+const HOST_TASKS: [(&str, &str, &str); 2] = [
+    ("supervisor:start", "supervisor", "conductor-supervisor"),
+    ("teacher:start", "teacher", "conductor-teacher"),
 ];
 
-/// The start command `.agents/<name>.md` writes: its one line that starts with `claude --bg
-/// --agent <name>`, in backticks.
-fn profile_start_command(name: &str) -> String {
-    let text = fs::read_to_string(root().join(".agents").join(format!("{name}.md")))
-        .unwrap_or_else(|error| panic!(".agents/{name}.md: {error}"));
-    let head = format!("`claude --bg --agent {name} ");
-    let lines: Vec<&str> = text
-        .lines()
-        .filter(|line| line.starts_with(&head))
-        .collect();
-    assert_eq!(lines.len(), 1, "{name}.md: one start command: {lines:?}");
-    lines[0].trim_matches('`').to_owned()
-}
-
-/// `story:host-session-profiles`: `task supervisor:start` and `task teacher:start` each run, in
-/// the directory of the config file, the start command its profile writes, and refuse while a
-/// live session of that name runs.
+/// `story:host-roles-by-daemon`: `task supervisor:start` and `task teacher:start` ask the daemon
+/// for their role (`conductor daemon start-role --role <role>`), which starts it from the profile
+/// `task profiles` installs; neither runs the harness itself. Replaces the case of
+/// `story:host-session-profiles`, whose tasks ran the profile's `claude --bg` start command.
 #[test]
-fn the_host_session_tasks_run_their_profile_s_start_command() {
+fn the_host_session_tasks_ask_the_daemon_for_their_role() {
     let taskfile = taskfile();
-    for (task, name) in HOST_TASKS {
+    let profiles = shell_commands(&taskfile["tasks"]["profiles"]).join("\n");
+    for (task, role, profile) in HOST_TASKS {
         assert_eq!(
             shell_commands(&taskfile["tasks"][task]),
-            [format!(
-                "cd {{{{shellQuote .DIR}}}} && {}",
-                profile_start_command(name)
-            )],
-            "{task} runs the start command of .agents/{name}.md"
+            [format!("conductor daemon start-role --role {role}")],
+            "{task} asks the daemon for the {role}"
         );
-        let profiles = shell_commands(&taskfile["tasks"]["profiles"]).join("\n");
         assert!(
-            profiles.contains(&format!(" .agents/{name}.md ")),
-            "task profiles installs .agents/{name}.md: {profiles}"
+            profiles.contains(&format!(" .agents/{profile}.md ")),
+            "task profiles installs .agents/{profile}.md: {profiles}"
         );
-    }
-
-    let Some(case) = Case::new("host-sessions") else {
-        return;
-    };
-    let config = case.config("opus", None);
-    for (task, name) in HOST_TASKS {
-        let _ = fs::remove_file(case.dir.join("claude/log"));
-        let _ = fs::remove_file(case.dir.join("claude/live"));
-        let output = case.task(task, Some(&config));
-        assert_eq!(output.status.code(), Some(0), "{task}: {}", shown(&output));
-        let calls = case.calls();
-        assert_eq!(calls.len(), 1, "{task}: {calls:?}");
-        let (cwd, args) = &calls[0];
-        assert_eq!(cwd, &case.dir, "{task} starts beside the config file");
-        // The teacher runs on the fable model, the supervisor on the agent's own.
-        let model = if name == "conductor-teacher" {
-            "--model fable "
-        } else {
-            ""
-        };
+        let text = fs::read_to_string(root().join(".agents").join(format!("{profile}.md")))
+            .unwrap_or_else(|error| panic!(".agents/{profile}.md: {error}"));
         assert!(
-            args.starts_with(&format!(
-                "--bg --agent {name} -n {name} {model}--permission-mode bypassPermissions "
-            )),
-            "{task}: {args}"
+            !text.contains(&format!("`claude --bg --agent {profile} ")),
+            ".agents/{profile}.md still writes a claude --bg start command"
         );
-
-        let _ = fs::remove_file(case.dir.join("claude/log"));
-        fs::write(case.dir.join("claude/live"), name).expect("a live session of that name");
-        let output = case.task(task, Some(&config));
-        assert_ne!(output.status.code(), Some(0), "{task}: {}", shown(&output));
-        assert!(
-            String::from_utf8_lossy(&output.stderr).contains(&format!("{name} is already running")),
-            "{task} names the running session: {}",
-            shown(&output)
-        );
-        assert_eq!(case.calls(), [], "{task} starts nothing while {name} runs");
     }
 }

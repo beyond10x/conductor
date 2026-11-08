@@ -599,6 +599,11 @@ const HARNESS: &[&str] = &["help"];
 /// (`story:version-flag`), each with its short flag.
 const ROOT_HARNESS: &[&str] = &["help", "version"];
 
+/// The global flag that names the daemon a command talks to (`story:daemon-remote`): the
+/// `ess-cli/1` binding declares no such global (decision R4), so the tree takes it beside the
+/// binding's globals, on every level.
+const DAEMON_GLOBAL: &str = "daemon";
+
 /// Every word on `command` besides its subcommands and the `harness` flags clap adds on its own:
 /// long flags, plus a problem for anything that is not a long flag (a positional, a short flag,
 /// an alias). The one exception is a field of `trailing`, which the binding takes from the words
@@ -690,8 +695,12 @@ fn derive_tree_is_the_cli_block() {
     let root = derive_tree();
     let mut problems = Vec::new();
     // The words the tree takes on every level: the binding's state-directory and config-file
-    // flags.
-    let global = BTreeSet::from([binding.state.clone(), binding.config.clone()]);
+    // flags, and `--daemon` ([`DAEMON_GLOBAL`]).
+    let global = BTreeSet::from([
+        binding.state.clone(),
+        binding.config.clone(),
+        DAEMON_GLOBAL.to_owned(),
+    ]);
 
     if root.get_name() != spec.binary {
         problems.push(format!(
@@ -717,7 +726,7 @@ fn derive_tree_is_the_cli_block() {
         )),
     }
     compare_flags(&spec.binary, &global, &root_flags, &mut problems);
-    for flag in [&binding.state, &binding.config] {
+    for flag in [&binding.state, &binding.config, &DAEMON_GLOBAL.to_owned()] {
         match root
             .get_arguments()
             .find(|arg| arg.get_long() == Some(flag.as_str()))

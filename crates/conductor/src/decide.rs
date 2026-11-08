@@ -2138,7 +2138,9 @@ impl RecordOperatorDecisionForRequestBehavior for Ports {
             });
         }
         let data = DecisionData {
-            actor: crate::actor::chosen(),
+            // The operator the answer was given by (`as_operator`), not the process's actor:
+            // through the daemon it is the bearer's operator (`story:daemon-remote`).
+            actor: input.actor.clone(),
             decision_id: input.decision_id.clone(),
             decision_class: input.decision_class,
             decided_by: Decider::Operator,
@@ -2157,7 +2159,7 @@ impl RecordOperatorDecisionForRequestBehavior for Ports {
         DecisionStorage::put(self, AnyDecision::InForce(Decision::new(data)).snapshot());
         Ok(RecordOperatorDecisionForRequestOutcome::Recorded {
             decision_recorded: DecisionRecorded {
-                actor: crate::actor::chosen(),
+                actor: input.actor,
                 decision_id: input.decision_id,
                 decision_class: input.decision_class,
                 decided_by: Decider::Operator,

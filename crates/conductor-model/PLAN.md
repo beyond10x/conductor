@@ -1,13 +1,13 @@
 <!--
   generated from conductor v1
-  contract digest 575fcfe0b84fcb4b2dc3a52041bbf14840203191eb2cb53374eec07ea92207ab
+  contract digest 0608eb83c8c48e1f8808cd29d3621f78091b34cac43c2b2e9143a335707a4202
   do not edit: regenerate with `ess synthesize --layout crate`
 -->
 # Synthesis plan — conductor v1
 
 Scope: `component-skeletons`, laid out as `crate`, planned by `ess-synth`. Regenerate with `ess synthesize --layout crate`.
 
-944 capabilities: **932 generated**, **12 obligations**, **0 refused**. An obligation is yours to implement against its contract; a refusal is a fact about this synthesis scope, not about the specification.
+971 capabilities: **959 generated**, **12 obligations**, **0 refused**. An obligation is yours to implement against its contract; a refusal is a fact about this synthesis scope, not about the specification.
 
 ## Generated
 
@@ -200,6 +200,8 @@ Scope: `component-skeletons`, laid out as `crate`, planned by `ess-synth`. Regen
 | domain type | `conductor.improvement.MetricId` |
 | domain type | `conductor.improvement.MetricReading.State` |
 | domain type | `conductor.improvement.MetricReadingId` |
+| domain type | `conductor.improvement.ProposalId` |
+| domain type | `conductor.improvement.SettingsProposal.State` |
 | domain type | `conductor.improvement.TargetDirection` |
 | domain type | `conductor.improvement.TunableKey` |
 | domain type | `conductor.improvement.TuningGrant` |
@@ -210,6 +212,7 @@ Scope: `component-skeletons`, laid out as `crate`, planned by `ess-synth`. Regen
 | domain type | `conductor.instance.Reconciliation.State` |
 | domain type | `conductor.instance.ReconciliationId` |
 | domain type | `conductor.instance.ServeDaemon` |
+| domain type | `conductor.instance.StartHostRole` |
 | domain type | `conductor.instance.UpgradeInstances` |
 | domain type | `conductor.observation.BlockerObservation.State` |
 | domain type | `conductor.observation.Board.State` |
@@ -316,7 +319,10 @@ Scope: `component-skeletons`, laid out as `crate`, planned by `ess-synth`. Regen
 | domain type | `conductor.store.Migration.State` |
 | domain type | `conductor.store.Store.State` |
 | domain type | `conductor.store.StoreUrl` |
+| domain type | `conductor.token.JoinDaemon` |
+| domain type | `conductor.token.LeaveDaemon` |
 | domain type | `conductor.token.PoolToken.State` |
+| domain type | `conductor.token.RevealToken` |
 | domain type | `conductor.token.Seat` |
 | domain type | `conductor.token.TokenId` |
 | domain type | `conductor.token.TokenPool.State` |
@@ -363,6 +369,7 @@ Scope: `component-skeletons`, laid out as `crate`, planned by `ess-synth`. Regen
 | entity lifecycle | `conductor.improvement.FrictionFinding` |
 | entity lifecycle | `conductor.improvement.Metric` |
 | entity lifecycle | `conductor.improvement.MetricReading` |
+| entity lifecycle | `conductor.improvement.SettingsProposal` |
 | entity lifecycle | `conductor.instance.Instance` |
 | entity lifecycle | `conductor.instance.Reconciliation` |
 | entity lifecycle | `conductor.observation.BlockerObservation` |
@@ -508,17 +515,25 @@ Scope: `component-skeletons`, laid out as `crate`, planned by `ess-synth`. Regen
 | command behaviour | `conductor.host.TakeHostGrant` |
 | command contract | `conductor.host.WithdrawDiskRequest` |
 | command behaviour | `conductor.host.WithdrawDiskRequest` |
+| command contract | `conductor.improvement.ApplyProposal` |
+| command behaviour | `conductor.improvement.ApplyProposal` |
 | command contract | `conductor.improvement.DefineMetric` |
 | command behaviour | `conductor.improvement.DefineMetric` |
 | command contract | `conductor.improvement.FileFinding` |
 | command behaviour | `conductor.improvement.FileFinding` |
 | command contract | `conductor.improvement.JudgeMetricReading` |
 | command behaviour | `conductor.improvement.JudgeMetricReading` |
+| command contract | `conductor.improvement.ProposeSetting` |
+| command behaviour | `conductor.improvement.ProposeSetting` |
 | command contract | `conductor.improvement.RaiseFinding` |
 | command behaviour | `conductor.improvement.RaiseFinding` |
 | command contract | `conductor.improvement.RecordMetricReading` |
 | command behaviour | `conductor.improvement.RecordMetricReading` |
+| command contract | `conductor.improvement.RefuseProposal` |
+| command behaviour | `conductor.improvement.RefuseProposal` |
 | command contract | `conductor.improvement.SetMetricTarget` |
+| command contract | `conductor.improvement.SettleProposal` |
+| command behaviour | `conductor.improvement.SettleProposal` |
 | command contract | `conductor.improvement.SupersedeMetricReading` |
 | command behaviour | `conductor.improvement.SupersedeMetricReading` |
 | command contract | `conductor.improvement.VerifyFinding` |
@@ -662,6 +677,11 @@ Scope: `component-skeletons`, laid out as `crate`, planned by `ess-synth`. Regen
 | event type | `conductor.improvement.MetricReadingRecorded` |
 | event type | `conductor.improvement.MetricReadingSuperseded` |
 | event type | `conductor.improvement.MetricTargetSet` |
+| event type | `conductor.improvement.ProposalApplied` |
+| event type | `conductor.improvement.ProposalKept` |
+| event type | `conductor.improvement.ProposalRefused` |
+| event type | `conductor.improvement.ProposalReverted` |
+| event type | `conductor.improvement.SettingProposed` |
 | event type | `conductor.instance.InstanceAnswered` |
 | event type | `conductor.instance.InstancePurged` |
 | event type | `conductor.instance.InstanceReconciled` |
@@ -772,6 +792,9 @@ Scope: `component-skeletons`, laid out as `crate`, planned by `ess-synth`. Regen
 | error type | `conductor.improvement.MetricReadingExists` |
 | error type | `conductor.improvement.MetricReadingNotFound` |
 | error type | `conductor.improvement.MetricReadingStateConflict` |
+| error type | `conductor.improvement.ProposalExists` |
+| error type | `conductor.improvement.ProposalNotFound` |
+| error type | `conductor.improvement.ProposalStateConflict` |
 | error type | `conductor.instance.InstanceStateConflict` |
 | error type | `conductor.instance.PlacementRefused` |
 | error type | `conductor.instance.SupervisorNotRunning` |
@@ -800,6 +823,7 @@ Scope: `component-skeletons`, laid out as `crate`, planned by `ess-synth`. Regen
 | error type | `conductor.store.InvalidEventCount` |
 | error type | `conductor.store.SourceMissing` |
 | error type | `conductor.token.NoTokenAvailable` |
+| error type | `conductor.token.NotTokenOwner` |
 | error type | `conductor.token.TokenStateConflict` |
 | error type | `conductor.tool.BuildFailed` |
 | error type | `conductor.tool.CommitRefused` |
@@ -852,6 +876,8 @@ Scope: `component-skeletons`, laid out as `crate`, planned by `ess-synth`. Regen
 | view query | `conductor.improvement.MetricReadings` |
 | view type | `conductor.improvement.Metrics` |
 | view query | `conductor.improvement.Metrics` |
+| view type | `conductor.improvement.SettingsProposals` |
+| view query | `conductor.improvement.SettingsProposals` |
 | view type | `conductor.instance.Instances` |
 | view query | `conductor.instance.Instances` |
 | view type | `conductor.instance.Reconciliations` |
@@ -926,6 +952,7 @@ Scope: `component-skeletons`, laid out as `crate`, planned by `ess-synth`. Regen
 | actor grants | `conductor.improvement.Collector` |
 | actor grants | `conductor.improvement.ConductorDev` |
 | actor grants | `conductor.improvement.Operator` |
+| actor grants | `conductor.improvement.Tuner` |
 | actor grants | `conductor.instance.Conductord` |
 | actor grants | `conductor.instance.Operator` |
 | actor grants | `conductor.observation.Collector` |

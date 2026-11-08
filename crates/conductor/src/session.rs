@@ -65,7 +65,7 @@ use anyhow::{Context as _, Result, anyhow, bail};
 use conductor_model::behaviour::{
     DeliveryStorage, ExternalCommand, Generated, LeaseStorage, TryContext, unmet_context,
 };
-use conductor_model::config::{Harness, Instance, InstanceName, Role, SessionName};
+use conductor_model::config::{CommandWord, Harness, Instance, InstanceName, Role, SessionName};
 use conductor_model::direction::ServingId;
 use conductor_model::dispatch::{DispatchLogEvent, GuardDecisionId, MessageId, ResourceRequestId};
 use conductor_model::host::{GrantId, ReclaimRunId};
@@ -94,6 +94,7 @@ use crate::cli::{ClaimLeaseArgs, DeliverArgs, SessionRoleArgs, ViewArgs};
 use crate::config::{self, BuiltInRole, ConfinementProvider, Environment};
 use crate::confine::places::{self, Placement};
 use crate::confine::{self, Launch, Providers, Refusal, systemd};
+use crate::daemon::host_roles;
 use crate::not_implemented;
 use crate::records;
 use crate::store::Store;
@@ -885,6 +886,36 @@ fn session_role(instance: &Instance, role: &str) -> Result<Role, String> {
     Ok(found)
 }
 
+/// The role `role` `session start` and `session stop` act on: a host role, `supervisor` or
+/// `teacher`, from `globals.roles` of the config file (`story:host-roles-by-daemon`), with what
+/// its session starts with ([`host_roles::Found`]) and, when it names neither a profile nor an
+/// agent, the profile `profiles/conductor-<role>.md` beside the file (no `~/.claude/agents/`
+/// adapter); else the instance's role [`session_role`] answers.
+fn resolve_role(
+    instance: &Instance,
+    role: &str,
+) -> Result<(Role, Option<host_roles::Found>), String> {
+    if !host_roles::is_host_role(role) {
+        return session_role(instance, role).map(|found| (found, None));
+    }
+    let found = host_roles::found(role)?;
+    if found.role.harness != Harness::Claude {
+        return Err(format!(
+            "the role {role} does not run on claude (globals.roles); session start starts claude \
+             only"
+        ));
+    }
+    let mut named = found.role.clone();
+    if named.profile.is_none() && named.agent.is_none() {
+        named.profile = Some(CommandWord(
+            host_roles::default_profile(&found.dir, role)
+                .display()
+                .to_string(),
+        ));
+    }
+    Ok((named, Some(found)))
+}
+
 /// The session name of `role`: the role's, else the one derived for it.
 fn role_session_name(instance: &Instance, role: &Role) -> SessionName {
     role.session_name
@@ -1119,7 +1150,7 @@ pub fn start(
     let instance = &active.instance;
     let environment = Environment::from_process().context("session start")?;
     let home = environment.home().context("session start")?;
-    let found = match session_role(instance, &role) {
+    let (found, host) = match resolve_role(instance, &role) {
         Ok(found) => found,
         Err(detail) => return refuse(SessionStartRefusal::UnknownRole, detail),
     };
@@ -1146,7 +1177,8 @@ pub fn start(
         Ok(chosen) => chosen,
         Err(refusal) => return refuse_start(&refuse, refusal),
     };
-    let cwd = &environment.cwd;
+    // A host role's session starts beside the config file (`story:host-roles-by-daemon`).
+    let cwd = host.as_ref().map_or(&environment.cwd, |host| &host.dir);
     let mut env = Vec::new();
     if active.from_file {
         let (file, _) = config::locate(config_flag, &environment).context("session start")?;
@@ -1187,16 +1219,33 @@ pub fn start(
         conductor_broker::SOCKET_VARIABLE.to_owned(),
         socket.display().to_string(),
     ));
-    let launch = Launch {
+    let mut launch = Launch {
         request,
         program: confine::CLAUDE.to_owned(),
         args: harness_args(found, &name, settings),
         env,
         session_prefix: instance.session_prefix.clone(),
-        instance_limits: crate::config::legacy(instance).confinement.limits.clone(),
+        // A host role's slice, `conductor_host.slice`, takes `globals.limits`.
+        instance_limits: host.as_ref().map_or_else(
+            || crate::config::legacy(instance).confinement.limits.clone(),
+            |host| host.limits.clone(),
+        ),
         state: state_dir.clone(),
     };
-    let prompt = if config::is_role(&found.role, BuiltInRole::Director) {
+    // story:token-pool: the agent runs on a token leased from the instance's pool, which its
+    // settings name; with no token in the pool the launch is today's.
+    let lease = match crate::token::lease_into(instance, found, &mut launch, false) {
+        Ok(lease) => lease,
+        Err(detail) => {
+            if let Err(error) = crate::broker::unregister_session(&state_dir, &name) {
+                eprintln!("conductor: session start: {error:#}");
+            }
+            return refuse(SessionStartRefusal::LaunchFailed, detail);
+        }
+    };
+    let prompt = if host.is_some() {
+        host_roles::prompt(&found.role)
+    } else if config::is_role(&found.role, BuiltInRole::Director) {
         DIRECTOR_PROMPT
     } else {
         DEV_PROMPT
@@ -1221,6 +1270,12 @@ pub fn start(
             if let Some(reason) = &started.measurement.unboxed {
                 line.push_str(&format!(", unboxed: {reason}"));
             }
+            if let Some(lease) = &lease {
+                line.push_str(&format!(
+                    ", token {} of {}",
+                    lease.token_id.0.0, lease.owner.0
+                ));
+            }
             // A refusal stays one line; the note on an old name goes with the start.
             note_old_name("session start", &role)?;
             writeln!(io::stdout().lock(), "{line}").context("write the started session")?;
@@ -1229,6 +1284,11 @@ pub fn start(
         Err(refusal) => {
             // A session that did not start has no calls to make.
             if let Err(error) = crate::broker::unregister_session(&state_dir, &name) {
+                eprintln!("conductor: session start: {error:#}");
+            }
+            if lease.is_some()
+                && let Err(error) = crate::token::release_for_stop(instance, &name.0)
+            {
                 eprintln!("conductor: session start: {error:#}");
             }
             refuse_start(&refuse, refusal)
@@ -1282,11 +1342,12 @@ pub fn stop(
     let instance = &config::active().instance;
     let environment = Environment::from_process().context("session stop")?;
     let home = environment.home().context("session stop")?;
-    let found = match session_role(instance, &role) {
+    let (found, host) = match resolve_role(instance, &role) {
         Ok(found) => found,
         Err(detail) => return refuse(SessionStopRefusal::UnknownRole, detail),
     };
     let found = &found;
+    let cwd = host.as_ref().map_or(&environment.cwd, |host| &host.dir);
     let name = role_session_name(instance, found);
     let Some((id, name)) = live_role_session(found, &name).context("session stop")? else {
         return refuse(
@@ -1304,7 +1365,7 @@ pub fn stop(
         "systemd" => providers.provider(ConfinementProvider::Systemd),
         _ => providers.provider(ConfinementProvider::None),
     };
-    let request = request(instance, found, &environment.cwd, home);
+    let request = request(instance, found, cwd, home);
     let session = StartedSession {
         role: role.clone(),
         session_name: name.clone(),
@@ -1317,6 +1378,8 @@ pub fn stop(
         .with_context(|| format!("session stop: stop {} ({id})", name.0))?;
     confine::remove_measurement(&state_dir, &name).context("session stop")?;
     crate::broker::unregister_session(&state_dir, &name).context("session stop")?;
+    // story:token-pool: the token the session ran on is Available again.
+    crate::token::release_for_stop(instance, &name.0).context("session stop")?;
     note_old_name("session stop", &role)?;
     writeln!(io::stdout().lock(), "stopped {} ({id})", name.0)
         .context("write the stopped session")?;

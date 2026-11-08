@@ -8,10 +8,14 @@
 //! `--state-dir`, else `~/.b10x/conductor/daemon` ([`DIR`]): what it started. Its store is the
 //! deployment's one database, the URL `daemon.store` writes, opened under the tenant [`TENANT`];
 //! it refuses to start on a file that writes none. `--install` and `--uninstall` make it the user
-//! unit `conductord.service` ([`install`]).
+//! unit `conductord.service` ([`install`]). On a box with no local operator
+//! (`daemon.loopback: false`, `story:daemon-remote`) the loopback listener is off, the TLS
+//! listener is its only API, and `--install` writes the system unit instead.
 
 pub mod api;
+pub mod browser;
 pub mod federate;
+pub mod host_roles;
 pub mod install;
 pub mod reconcile;
 pub mod units;
@@ -65,6 +69,36 @@ pub fn daemon_serve(
     let state = state.map(|state| environment.cwd.join(state));
     let xdg = std::env::var_os("XDG_CONFIG_HOME").map(std::path::PathBuf::from);
     let unit_file = install::unit_file(&home, xdg.as_deref());
+    // A box with no local operator (`daemon.loopback: false`) installs the system unit
+    // (`story:daemon-remote`).
+    if args.install == Some(true) || args.uninstall == Some(true) {
+        let loaded = config::load(config_flag, &environment).context(WHAT)?;
+        if !loaded.config.daemon.loopback {
+            let system = install::system_unit_file();
+            if args.uninstall == Some(true) {
+                println!(
+                    "{}",
+                    install::uninstall_system(&mut Systemd, &system).context(WHAT)?
+                );
+                return Ok(ExitCode::SUCCESS);
+            }
+            install::remote_ready(&file, &loaded.config.daemon).context(WHAT)?;
+            let program =
+                std::env::current_exe().context("daemon serve --install: read the binary")?;
+            let user = std::env::var("SUDO_USER")
+                .or_else(|_| std::env::var("USER"))
+                .ok()
+                .filter(|user| !user.is_empty());
+            let path = std::env::var("PATH").ok();
+            let text =
+                install::system_unit_text(&program, &file, user.as_deref(), &home, path.as_deref());
+            println!(
+                "{}",
+                install::install_system(&mut Systemd, &system, &text).context(WHAT)?
+            );
+            return Ok(ExitCode::SUCCESS);
+        }
+    }
     if args.install == Some(true) {
         let program = std::env::current_exe().context("daemon serve --install: read the binary")?;
         let path = std::env::var("PATH").ok();
@@ -102,10 +136,22 @@ pub fn daemon_serve(
         Err(unusable) => bail!("{WHAT}: {unusable}; the daemon does not start"),
     }
     let port = u16::try_from(daemon.config().daemon.port).context("daemon serve: daemon.port")?;
-    let listener = TcpListener::bind(("127.0.0.1", port))
-        .with_context(|| format!("daemon serve: listen on 127.0.0.1:{port}"))?;
+    // The loopback listener is off on a box with no local operator (`story:daemon-remote`); the
+    // TLS listener is then the daemon's only API.
+    let listener = if daemon.config().daemon.loopback {
+        Some(
+            TcpListener::bind(("127.0.0.1", port))
+                .with_context(|| format!("daemon serve: listen on 127.0.0.1:{port}"))?,
+        )
+    } else {
+        None
+    };
     let secure = match &daemon.config().daemon.tls {
         Some(tls) => Some(tls_listener(tls)?),
+        None if listener.is_none() => bail!(
+            "{WHAT}: daemon.loopback: is false and daemon.tls names no TLS listener: the daemon \
+             would serve no API"
+        ),
         None => None,
     };
     let local = crate::actor::human()
@@ -128,11 +174,18 @@ pub fn daemon_serve(
     publish(&api, &daemon);
     let served = Arc::clone(&api);
     let upgrades = upgrade::listen();
-    thread::spawn(move || api::serve(&listener, &served));
-    println!(
-        "conductord: config {}, serving the dashboard and /v1/ on http://127.0.0.1:{port}/",
-        file.display(),
-    );
+    if let Some(listener) = listener {
+        thread::spawn(move || api::serve(&listener, &served));
+        println!(
+            "conductord: config {}, serving the dashboard and /v1/ on http://127.0.0.1:{port}/",
+            file.display(),
+        );
+    } else {
+        println!(
+            "conductord: config {}, the loopback listener off (daemon.loopback: false)",
+            file.display(),
+        );
+    }
     if let Some((secure, config, _)) = secure {
         let address = secure
             .local_addr()
@@ -147,11 +200,16 @@ pub fn daemon_serve(
         }
         let now = Instant::now();
         // An upgrade that answered or is to roll back is settled first, so a runtime lost while
-        // upgrading rolls back rather than starting again on the new binary.
+        // upgrading rolls back rather than starting again on the new binary. A host role asked
+        // for through `POST /v1/roles/{role}/start` starts after the pass.
         let passed = daemon.settle(SystemTime::now()).and_then(|mut done| {
             if let Some(reason) = daemon.due(now)? {
                 daemon.binary = reconcile::probe(&program);
                 done.extend(daemon.pass(reason, now)?);
+            }
+            let asked = host_roles::take_asked();
+            if !asked.is_empty() {
+                done.extend(daemon.start_asked(&asked)?);
             }
             Ok(done)
         });
@@ -177,6 +235,56 @@ pub fn daemon_serve(
     }
 }
 
+/// `conductor daemon start-role --role <role>` (`story:host-roles-by-daemon`): asks the daemon of
+/// the config file for the host role `role` now, `POST /v1/roles/{role}/start` on its loopback
+/// listener with the token it keeps in its directory (the global `--state-dir`, else [`DIR`]).
+/// Prints one line naming the role asked for.
+///
+/// # Errors
+///
+/// `--role` is missing, the config does not load, the daemon is not reached, or it refuses the
+/// role (no host role, or one `globals.roles` does not list).
+pub fn start_role(
+    config_flag: Option<&Path>,
+    state: Option<&Path>,
+    args: &crate::cli::DaemonStartRoleArgs,
+) -> Result<ExitCode> {
+    const WHAT: &str = "daemon start-role";
+    let Some(role) = args.role.as_deref().filter(|role| !role.trim().is_empty()) else {
+        bail!("{WHAT}: --role is required: supervisor or teacher");
+    };
+    let environment = Environment::from_process().context(WHAT)?;
+    let loaded = config::load(config_flag, &environment).context(WHAT)?;
+    let port =
+        u16::try_from(loaded.config.daemon.port).context("daemon start-role: daemon.port")?;
+    let dir = match state {
+        Some(state) => environment.cwd.join(state),
+        None => environment.home().context(WHAT)?.join(DIR),
+    };
+    let token = api::kept_token(&dir);
+    let (status, body) = upgrade::request(
+        token.as_deref(),
+        port,
+        "POST",
+        &format!("{}{role}/start", api::ROLES),
+        Some("{}"),
+    )
+    .context(WHAT)?;
+    if status != 202 {
+        bail!(
+            "{WHAT}: refused: {}",
+            body["error"]
+                .as_str()
+                .unwrap_or("the daemon answered no reason")
+        );
+    }
+    println!(
+        "asked the daemon for the {role} at {}",
+        body["placement"].as_str().unwrap_or(host_roles::PLACEMENT)
+    );
+    Ok(ExitCode::SUCCESS)
+}
+
 /// Publishes what `daemon` last saw to `api`: the instances' rows, the routes to their runtimes and
 /// the deployment's operators.
 fn publish(api: &api::Api, daemon: &Daemon<Systemd>) {
@@ -185,6 +293,7 @@ fn publish(api: &api::Api, daemon: &Daemon<Systemd>) {
         daemon.routes(),
         daemon.config().daemon.operators.clone(),
     );
+    api.publish_host(host_roles::listed(daemon.config()), daemon.supervisor());
 }
 
 /// The TLS listener `daemon.tls` names, bound, with its rustls config and the Identity service

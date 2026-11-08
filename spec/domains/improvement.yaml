@@ -98,6 +98,12 @@ types:
       - distinct: {in: keys, as: key, by: key.path}
       - forall: {in: keys, as: key, that: {not: {key.path: {starts_with: "tuning"}}}}
 
+  # The id of one settings proposal (story:tuner): `<instance>|<key>|<day>`, the instance it
+  # tunes, the key it changes and the UTC day of the daily tick that proposed it.
+  - name: conductor.improvement.ProposalId
+    kind: newtype
+    of: String
+
 entities:
   # One measured quantity (story:metrics-naming): `name` its short title (`operator touches per
   # merged PR`); `unit` what a value of it counts in (`ratio`, `percent`, `hours`, `tokens`,
@@ -256,6 +262,93 @@ entities:
           from: [Filed]
           to: Closed
 
+  # One settings change the tuner proposed (story:tuner, design architecture-next § 9, § 13 row 7;
+  # the public page's "Self-improvement over settings"): after the daily tick it reads the KPI
+  # readings that miss their target and the open findings, and proposes one change at a time.
+  # `instance` is the instance it tunes, `key` the key's path under it (`controllers.max_working`),
+  # `old` the effective value before and `new` the value proposed; `metric_id` the KPI it should
+  # move, `reading` the reading that missed its target and `baseline` that reading's value, which
+  # the reading after the window is compared with; `window_days` how many days after it is applied
+  # the metric is read again.
+  #
+  # `Proposed` when written. The tuner applies it through `conductor.config.PutConfig` when the
+  # grant (`TuningGrant`) names the key and the value lies inside its range, `Applied` with
+  # `revision` that change's `ConfigRevision`; otherwise it is `Refused`, with `reason` why (the
+  # key outside the grant, the value outside its range, or a value that is not a number: a
+  # duration or a size is never tuned) and, for a key outside the grant, `finding` the friction
+  # finding raised for it. After the window it is `Kept` when the metric's newest reading improved
+  # on `baseline` in its target's direction, else `Reverted` through `PutConfig` with `old`, with
+  # `verdict` the reading it was judged on and `revision` the revert's `ConfigRevision`.
+  - name: conductor.improvement.SettingsProposal
+    identity:
+      name: proposal_id
+      type: conductor.improvement.ProposalId
+    fields:
+      - name: instance
+        type: String
+      - name: key
+        type: String
+      - name: old
+        type: String
+      - name: new
+        type: String
+      - name: metric_id
+        type: conductor.improvement.MetricId
+      - name: reading
+        type: conductor.improvement.MetricReadingId
+      - name: baseline
+        type: Decimal
+      - name: window_days
+        type: Integer
+      - name: proposed_at
+        type: Timestamp
+      # Who proposed it: the tuner (design architecture-next § 3, Actors).
+      - name: actor
+        type: conductor.operator.Actor
+      - name: revision
+        type: Optional<String>
+      - name: reason
+        type: Optional<String>
+      - name: finding
+        type: Optional<conductor.improvement.FindingId>
+      - name: verdict
+        type: Optional<String>
+    relations:
+      - name: metric
+        kind: references
+        target: conductor.improvement.Metric
+        cardinality: one
+        via: metric_id
+      - name: finding
+        kind: references
+        target: conductor.improvement.FrictionFinding
+        cardinality: one
+        via: finding
+      - name: reading
+        kind: references
+        target: conductor.improvement.MetricReading
+        cardinality: one
+        via: reading
+    invariants:
+      - window_days >= 1
+    lifecycle:
+      initial: Proposed
+      states: [Proposed, Applied, Kept, Reverted, Refused]
+      terminal: [Kept, Reverted, Refused]
+      transitions:
+        - name: apply
+          from: [Proposed]
+          to: Applied
+        - name: refuse
+          from: [Proposed]
+          to: Refused
+        - name: keep
+          from: [Applied]
+          to: Kept
+        - name: revert
+          from: [Applied]
+          to: Reverted
+
 actors:
   # UNMAPPED: v1 retires the maintainer and conductor-dev's separate session (design
   # architecture-next § 2, § 11): conductor's repository is a repository of one instance. Which
@@ -289,6 +382,19 @@ actors:
       - conductor.improvement.SetMetricTarget
     naming:
       display: Operator
+
+  # The tuner, a host role run as a step of the instance's daily tick (story:tuner): it proposes
+  # one settings change at a time, applies it only inside the tuning grant, keeps or reverts it
+  # after the window, and raises a finding for a key outside the grant.
+  - name: conductor.improvement.Tuner
+    may:
+      - conductor.improvement.ProposeSetting
+      - conductor.improvement.ApplyProposal
+      - conductor.improvement.RefuseProposal
+      - conductor.improvement.SettleProposal
+      - conductor.improvement.RaiseFinding
+    naming:
+      display: Tuner
 
 errors:
   - name: conductor.improvement.MetricExists
@@ -340,6 +446,24 @@ errors:
     fields:
       - name: finding_id
         type: conductor.improvement.FindingId
+
+  - name: conductor.improvement.ProposalExists
+    summary: A proposal already has this id, so nothing was proposed; the held proposal is unchanged.
+    fields:
+      - name: proposal_id
+        type: conductor.improvement.ProposalId
+
+  - name: conductor.improvement.ProposalNotFound
+    summary: No settings proposal has this id.
+    fields:
+      - name: proposal_id
+        type: conductor.improvement.ProposalId
+
+  - name: conductor.improvement.ProposalStateConflict
+    summary: The proposal is not in a state this command acts from, so nothing moved.
+    fields:
+      - name: proposal_id
+        type: conductor.improvement.ProposalId
 
 commands:
   # A metric the design names, with the instrument that computes it (design § 2). It starts
@@ -807,6 +931,239 @@ commands:
             finding_id: input.finding_id
         summary: Only a filed finding is verified.
 
+  # The tuner's proposal (story:tuner): one key of one instance, its old and new value, the KPI
+  # reading it should move and the window it is measured over.
+  - name: conductor.improvement.ProposeSetting
+    naming:
+      wire: propose-setting
+      display: Propose a settings change
+    input:
+      - name: actor
+        type: conductor.operator.Actor
+      - name: proposal_id
+        type: conductor.improvement.ProposalId
+        example: "example-org|controllers.max_working|2026-11-07"
+      - name: instance
+        type: String
+        example: "example-org"
+      - name: key
+        type: String
+        example: "controllers.max_working"
+      - name: old
+        type: String
+        example: "2"
+      - name: new
+        type: String
+        example: "3"
+      - name: metric_id
+        type: conductor.improvement.MetricId
+        example: "K4.median"
+      - name: reading
+        type: conductor.improvement.MetricReadingId
+        example: "K4.median|instance|2026-11-07"
+      - name: baseline
+        type: Decimal
+        example: 2.5
+      - name: window_days
+        type: Integer
+        example: 7
+      - name: proposed_at
+        type: Timestamp
+        example: "2026-11-08T08:07:00Z"
+    outcomes:
+      - name: already-proposed
+        existing_instance: true
+        error: conductor.improvement.ProposalExists
+        payload:
+          conductor.improvement.ProposalExists:
+            proposal_id: input.proposal_id
+        summary: A proposal already has this id; the held proposal is unchanged.
+      - name: no-such-metric
+        when_related: {via: input.metric_id, exists: false}
+        error: conductor.improvement.MetricNotFound
+        payload:
+          conductor.improvement.MetricNotFound:
+            metric_id: input.metric_id
+        summary: No metric has this id, and nothing was proposed.
+      - name: proposed
+        creates: conductor.improvement.SettingsProposal
+        instance: proposal_id
+        sets:
+          instance: input.instance
+          key: input.key
+          old: input.old
+          new: input.new
+          metric_id: input.metric_id
+          reading: input.reading
+          baseline: input.baseline
+          window_days: input.window_days
+          proposed_at: input.proposed_at
+          actor: input.actor
+          revision: {cleared: true}
+          reason: {cleared: true}
+          finding: {cleared: true}
+          verdict: {cleared: true}
+        emits:
+          - conductor.improvement.SettingProposed
+        payload:
+          conductor.improvement.SettingProposed:
+            actor: input.actor
+            proposal_id: input.proposal_id
+            instance: input.instance
+            key: input.key
+            old: input.old
+            new: input.new
+            metric_id: input.metric_id
+        summary: The proposal is recorded; the tuner applies it inside the grant or refuses it.
+
+  # The proposal applied through `conductor.config.PutConfig`, inside the grant; `revision` is
+  # that change's `ConfigRevision`.
+  - name: conductor.improvement.ApplyProposal
+    naming:
+      wire: apply-proposal
+      display: Apply a settings proposal
+    input:
+      - name: actor
+        type: conductor.operator.Actor
+      - name: proposal_id
+        type: conductor.improvement.ProposalId
+      - name: revision
+        type: String
+    outcomes:
+      - name: applied
+        moves: conductor.improvement.SettingsProposal.apply
+        instance: proposal_id
+        sets:
+          revision: input.revision
+        emits:
+          - conductor.improvement.ProposalApplied
+        payload:
+          conductor.improvement.ProposalApplied:
+            actor: input.actor
+            proposal_id: input.proposal_id
+            revision: input.revision
+        summary: The change is in the config; its window is open.
+      - name: no-such-proposal
+        unknown_instance: true
+        error: conductor.improvement.ProposalNotFound
+        payload:
+          conductor.improvement.ProposalNotFound:
+            proposal_id: input.proposal_id
+      - name: wrong-state
+        wrong_state: true
+        error: conductor.improvement.ProposalStateConflict
+        payload:
+          conductor.improvement.ProposalStateConflict:
+            proposal_id: input.proposal_id
+        summary: Only a proposed change is applied.
+
+  # The proposal not applied: `reason` why, and `finding` the friction finding raised for a key
+  # outside the grant.
+  - name: conductor.improvement.RefuseProposal
+    naming:
+      wire: refuse-proposal
+      display: Refuse a settings proposal
+    input:
+      - name: actor
+        type: conductor.operator.Actor
+      - name: proposal_id
+        type: conductor.improvement.ProposalId
+      - name: reason
+        type: String
+        example: "controllers.max_working is not in globals.tuning"
+      - name: finding
+        type: Optional<conductor.improvement.FindingId>
+    outcomes:
+      - name: refused
+        moves: conductor.improvement.SettingsProposal.refuse
+        instance: proposal_id
+        sets:
+          reason: input.reason
+          finding: input.finding
+        emits:
+          - conductor.improvement.ProposalRefused
+        payload:
+          conductor.improvement.ProposalRefused:
+            actor: input.actor
+            proposal_id: input.proposal_id
+            reason: input.reason
+        summary: Nothing was applied; the brief shows the proposal and why.
+      - name: no-such-proposal
+        unknown_instance: true
+        error: conductor.improvement.ProposalNotFound
+        payload:
+          conductor.improvement.ProposalNotFound:
+            proposal_id: input.proposal_id
+      - name: wrong-state
+        wrong_state: true
+        error: conductor.improvement.ProposalStateConflict
+        payload:
+          conductor.improvement.ProposalStateConflict:
+            proposal_id: input.proposal_id
+        summary: Only a proposed change is refused.
+
+  # After the window: `improved` says whether the metric's newest reading improved on the
+  # baseline, `verdict` the reading it was judged on; a change that did not improve it was put
+  # back through `PutConfig`, `revision` that revert's `ConfigRevision`.
+  - name: conductor.improvement.SettleProposal
+    naming:
+      wire: settle-proposal
+      display: Keep or revert an applied settings change
+    input:
+      - name: actor
+        type: conductor.operator.Actor
+      - name: proposal_id
+        type: conductor.improvement.ProposalId
+      - name: improved
+        type: Boolean
+      - name: verdict
+        type: String
+        example: "K4.median|instance|2026-11-14"
+      - name: revision
+        type: Optional<String>
+    outcomes:
+      - name: kept
+        when: improved == true
+        moves: conductor.improvement.SettingsProposal.keep
+        instance: proposal_id
+        sets:
+          verdict: input.verdict
+        emits:
+          - conductor.improvement.ProposalKept
+        payload:
+          conductor.improvement.ProposalKept:
+            actor: input.actor
+            proposal_id: input.proposal_id
+            verdict: input.verdict
+        summary: The reading improved; the change stays.
+      - name: reverted
+        moves: conductor.improvement.SettingsProposal.revert
+        instance: proposal_id
+        sets:
+          verdict: input.verdict
+          revision: input.revision
+        emits:
+          - conductor.improvement.ProposalReverted
+        payload:
+          conductor.improvement.ProposalReverted:
+            actor: input.actor
+            proposal_id: input.proposal_id
+            verdict: input.verdict
+        summary: The reading did not improve; the old value is back.
+      - name: no-such-proposal
+        unknown_instance: true
+        error: conductor.improvement.ProposalNotFound
+        payload:
+          conductor.improvement.ProposalNotFound:
+            proposal_id: input.proposal_id
+      - name: wrong-state
+        wrong_state: true
+        error: conductor.improvement.ProposalStateConflict
+        payload:
+          conductor.improvement.ProposalStateConflict:
+            proposal_id: input.proposal_id
+        summary: Only an applied change is kept or reverted.
+
 events:
   - name: conductor.improvement.MetricDefined
     fields:
@@ -904,6 +1261,59 @@ events:
         type: conductor.operator.Actor
       - name: finding_id
         type: conductor.improvement.FindingId
+      - name: verdict
+        type: String
+
+  - name: conductor.improvement.SettingProposed
+    fields:
+      - name: actor
+        type: conductor.operator.Actor
+      - name: proposal_id
+        type: conductor.improvement.ProposalId
+      - name: instance
+        type: String
+      - name: key
+        type: String
+      - name: old
+        type: String
+      - name: new
+        type: String
+      - name: metric_id
+        type: conductor.improvement.MetricId
+
+  - name: conductor.improvement.ProposalApplied
+    fields:
+      - name: actor
+        type: conductor.operator.Actor
+      - name: proposal_id
+        type: conductor.improvement.ProposalId
+      - name: revision
+        type: String
+
+  - name: conductor.improvement.ProposalRefused
+    fields:
+      - name: actor
+        type: conductor.operator.Actor
+      - name: proposal_id
+        type: conductor.improvement.ProposalId
+      - name: reason
+        type: String
+
+  - name: conductor.improvement.ProposalKept
+    fields:
+      - name: actor
+        type: conductor.operator.Actor
+      - name: proposal_id
+        type: conductor.improvement.ProposalId
+      - name: verdict
+        type: String
+
+  - name: conductor.improvement.ProposalReverted
+    fields:
+      - name: actor
+        type: conductor.operator.Actor
+      - name: proposal_id
+        type: conductor.improvement.ProposalId
       - name: verdict
         type: String
 
@@ -1066,3 +1476,43 @@ views:
     naming:
       wire: findings
       display: Friction findings
+
+  # Every settings proposal with its state, key, values, the reading it should move and how it
+  # ended (story:tuner): what the daily brief lists.
+  - name: conductor.improvement.SettingsProposals
+    source: conductor.improvement.SettingsProposal
+    consistency: read_your_writes
+    fields:
+      - name: proposal_id
+        type: conductor.improvement.ProposalId
+      - name: state
+        type: conductor.improvement.SettingsProposal.State
+      - name: instance
+        type: String
+      - name: key
+        type: String
+      - name: old
+        type: String
+      - name: new
+        type: String
+      - name: metric_id
+        type: conductor.improvement.MetricId
+      - name: reading
+        type: conductor.improvement.MetricReadingId
+      - name: baseline
+        type: Decimal
+      - name: window_days
+        type: Integer
+      - name: proposed_at
+        type: Timestamp
+      - name: revision
+        type: Optional<String>
+      - name: reason
+        type: Optional<String>
+      - name: finding
+        type: Optional<conductor.improvement.FindingId>
+      - name: verdict
+        type: Optional<String>
+    naming:
+      wire: settings-proposals
+      display: Settings proposals

@@ -177,6 +177,11 @@ components:
         - conductor.improvement.FindingFiled
         - conductor.improvement.FindingVerified
         - conductor.improvement.FindingClosed
+        - conductor.improvement.SettingProposed
+        - conductor.improvement.ProposalApplied
+        - conductor.improvement.ProposalRefused
+        - conductor.improvement.ProposalKept
+        - conductor.improvement.ProposalReverted
     reached_by: command_line
     cli:
       binary: conductor
@@ -346,6 +351,12 @@ components:
             - conductor.improvement.VerifyFinding
           views:
             - conductor.improvement.Findings
+        # story:tuner: the tuner runs as a step of the daily tick, not as a command; its
+        # proposals are read here.
+        - name: tuner
+          summary: The settings changes the tuner proposed after each daily tick, and whether each was applied, kept, reverted or refused
+          views:
+            - conductor.improvement.SettingsProposals
 
   # story:tool-broker-read, design docs/design/roles-and-surfaces.md § 6.1: the instance's broker,
   # run by `conductor broker serve`, and the `tool` binary every session of the instance calls it

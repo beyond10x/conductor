@@ -8,7 +8,7 @@ use std::process::Command;
 use conductor_cli::config::{CONFIG_VARIABLE, INSTANCE_VARIABLE};
 
 /// The built binary, with `HOME` naming `home` and neither `CONDUCTOR_CONFIG` nor
-/// `CONDUCTOR_INSTANCE` set, so no config file of the real home, and no variable of the shell
+/// `CONDUCTOR_INSTANCE` (nor `CONDUCTOR_DAEMON`) set, so no config file of the real home, and no variable of the shell
 /// the tests run in, decides what it reads. A case that wants a config file sets
 /// `CONDUCTOR_CONFIG` on the command afterwards; one that clears the environment sets `HOME`
 /// again after `env_clear`. A case that needs only the binary's path, to put it on a `PATH`,
@@ -26,6 +26,7 @@ pub fn conductor(home: impl AsRef<Path>) -> Command {
         .env("HOME", home.as_ref())
         .env_remove(CONFIG_VARIABLE)
         .env_remove(INSTANCE_VARIABLE)
+        .env_remove(conductor_cli::remote::VARIABLE)
         .env_remove("CLAUDE_CODE_SESSION_ID")
         .env_remove(conductor_cli::actor::SESSION_VARIABLE)
         .env("USER", "operator")

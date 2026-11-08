@@ -12,7 +12,7 @@ use std::fs;
 use std::path::PathBuf;
 
 /// The programs whose pins the build carries.
-const PINNED: [&str; 3] = ["aep", "ess", "worktree"];
+const PINNED: [&str; 4] = ["aep", "ess", "worktree", "substrate-daemon"];
 
 fn main() {
     let manifest = PathBuf::from(env::var_os("CARGO_MANIFEST_DIR").unwrap_or_default());

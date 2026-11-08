@@ -2,3 +2,4 @@
 aep = "0.79"
 ess = "0.90"
 worktree = "0.18.1"
+substrate-daemon = "0.16.1"

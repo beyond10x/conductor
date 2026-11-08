@@ -257,7 +257,8 @@ pub fn deactivate_repository(
 }
 
 /// Marks `repository` with `activity`, by the operator, for `reason`, as the dashboard's
-/// Configuration page writes it (`story:dashboard-config-page`): `MarkRepository` when it holds
+/// Configuration page writes it (`story:dashboard-config-page`), as the operator the write is done
+/// for (`crate::actor::human`, `story:daemon-remote`): `MarkRepository` when it holds
 /// no mark, else `ActivateRepository` or `DeactivateRepository`; nothing when its mark is
 /// `activity` already.
 ///
@@ -282,7 +283,7 @@ pub fn mark_as_operator(
         None => {
             let outcome = generated
                 .mark_repository(MarkRepository {
-                    actor: crate::actor::chosen(),
+                    actor: crate::actor::human(),
                     repository: name,
                     activity,
                     marked_by: MarkedBy::Operator,
@@ -297,7 +298,7 @@ pub fn mark_as_operator(
         Some(_) if activity == Activity::Active => {
             let outcome = generated
                 .activate_repository(ActivateRepository {
-                    actor: crate::actor::chosen(),
+                    actor: crate::actor::human(),
                     repository: name,
                     marked_by: MarkedBy::Operator,
                     session,
@@ -311,7 +312,7 @@ pub fn mark_as_operator(
         Some(_) => {
             let outcome = generated
                 .deactivate_repository(DeactivateRepository {
-                    actor: crate::actor::chosen(),
+                    actor: crate::actor::human(),
                     repository: name,
                     marked_by: MarkedBy::Operator,
                     session,
