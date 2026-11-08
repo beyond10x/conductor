@@ -323,6 +323,21 @@ pub fn report_blocked(state: Option<&Path>, args: ReportBlockedArgs) -> Result<E
 /// store does not open or keep the move, or the specification refuses it: `DispatchNotFound`,
 /// `DispatchStateConflict`.
 pub fn report_unblocked(state: Option<&Path>, args: ReportUnblockedArgs) -> Result<ExitCode> {
+    report_unblocked_filled(state, args, |_| {})
+}
+
+/// [`report_unblocked`], its `unblocked` line filled by `fill` before it is appended: the run
+/// daemon's, once the watch read the request the dispatch waits on merged or closed, carries the
+/// tick and the watch line (`story:watch-unblocks-merged-requests`).
+///
+/// # Errors
+///
+/// What [`report_unblocked`] answers.
+pub fn report_unblocked_filled(
+    state: Option<&Path>,
+    args: ReportUnblockedArgs,
+    fill: impl FnOnce(&mut DispatchLogLine),
+) -> Result<ExitCode> {
     const COMMAND: &str = "dispatch report-unblocked";
     flags_only(args.input_json, "dispatch report-unblocked --input-json")?;
     let input = ReportUnblocked {
@@ -337,7 +352,7 @@ pub fn report_unblocked(state: Option<&Path>, args: ReportUnblockedArgs) -> Resu
             &store,
             &dispatch_unblocked.dispatch_id,
             DispatchLogEvent::Unblocked,
-            |_| {},
+            fill,
         ),
         ReportUnblockedOutcome::NoSuchDispatch { error } => {
             no_dispatch(COMMAND, &error.dispatch_id)

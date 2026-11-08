@@ -22,7 +22,8 @@
 //! | sessions | the session list (`claude agents --json`); only the entries whose working directory lies in the instance's checkouts root or managed trees, or in its records when a config file names them, so no other session is ever named | `session exited (blocked): <name> <id>`, `session gone: <name> <id>`, `conductors: <n> live sessions named <name>: <id> <id>…` |
 //! | usage limit | the last [`TAIL`] lines of each such session's transcript | `usage limit: <text>; <n> sessions: <names>` |
 //! | context | the newest line with a usage in the transcript of each such session that has a `pid` | `context: <repo> <n>k tokens (session <id>)` |
-//! | silent controllers | the modification times of the transcript of each such session that is a controller, and of its sub-agents' transcripts | `session silent: <name> <id> <minutes>m` |
+//! | silent controllers | the modification times of the transcript of each such session that is a controller, and of its sub-agents' transcripts; its typescript ([`screen`], [`Watch::with_typescripts`]) | `session silent: <name> <id> <minutes>m; turn ended <minutes>m ago, at the prompt`, `…; turn running, not at the prompt` or `…; no typescript` |
+//! | requests of Blocked dispatches | the dispatch log, and the pull or merge request each Blocked dispatch blocked for `ci`, `review` or `mr-route` names, on its forge ([`requests`]) | `request merged: <repo> <dispatch> <url> at <t>`, `request closed: …`, `request red: <repo> <dispatch> <url> head <sha> job <job url> <job name>` |
 //! | stalled sessions | the dispatch log's `sent` and report lines of each such session that is a live controller, and the newest commit of its checkout and managed trees (`git log -1`) | `session stalled: <name> <id> <minutes>m` |
 //! | queued builds | the open grants of the host ledger in the host directory ([`Watch::with_host`]) | `build queued: <grant> <repository\|session> <minutes>m` |
 //! | `main` CI, on the first pass and then every [`Options::ci_every`] | the newest completed `main` run per workflow of each repository the newest complete snapshot holds Active ([`crate::repository::activity`]); for a project of a `gitlab` source, the newest pipeline of its default branch that decided something, the workflow `pipeline` (`story:watch-gitlab-ci`) | `CI red on main: <repo> / <workflow> (run <id>)`, `CI green again on main: <repo> / <workflow>` |
@@ -66,7 +67,10 @@
 //!   to their transcripts for longer than the instance's `silent_session`, by the newest
 //!   modification time among them (`story:watch-silent-controller`). Once per silence
 //!   (`silent.reported`, `<sessionId> <newest write>` per line): it is reported again only after
-//!   it has written and fallen silent anew. A session without a transcript is not read.
+//!   it has written and fallen silent anew. A session without a transcript is not read. A live
+//!   controller the list shows `idle` is read too while a dispatch of its repository is open by
+//!   the dispatch log (`story:watch-unblocks-merged-requests`): idle at its prompt with work
+//!   open. The line says what the session's typescript says of its pane ([`screen`]).
 //! - **stalled** when a live controller a `sent` line of the dispatch log names has had neither
 //!   a report conductor received nor a commit in its checkout or any of its managed trees for
 //!   longer than the instance's `stalled_session`, however its transcript moves
@@ -108,7 +112,7 @@
 //! with [`Options::follow`] it prints and goes on, for the harness `Monitor` tool. Its state is
 //! kept under `<state>/watch/`: `sessions.json` (the kept list and the instant it was taken),
 //! `exited.seen`, `conductors.reported` (the ids last reported, on one line), `silent.reported`,
-//! `stalled.reported`, `build-queued.reported`,
+//! `stalled.reported`, `build-queued.reported`, `requests.printed` ([`requests`]),
 //! `review.full` (the repositories last reported full, one per line), `gates-hooks.snapshot`
 //! (the id of the snapshot the Gates hooks probe read last), `escalated.seen` (each escalated
 //! request printed, when, whether its 30-minute unanswered line was, and whether its line at the
@@ -152,6 +156,9 @@ use crate::collect::{self, BOUND, Origins};
 use crate::config::{self, Active};
 use crate::gc::reclaim::ReclaimReport;
 use crate::{repository, state};
+
+pub mod requests;
+pub mod screen;
 
 /// How recent a dispatch line must be to explain a session's exit.
 pub const EXPLAINED_WITHIN: Duration = Duration::from_secs(15 * 60);
@@ -255,6 +262,22 @@ pub const UNANSWERED_AFTER: Duration = Duration::from_secs(30 * 60);
 /// The states of the session list in which a live controller is expected to write to its
 /// transcripts.
 const LIVE: [&str; 2] = ["working", "waiting"];
+
+/// The state of the session list of a live controller at its prompt, reported silent while its
+/// repository has an open dispatch (`story:watch-unblocks-merged-requests`).
+const IDLE: &str = "idle";
+
+/// The reader of one pull request of [`Watch::of_instance`] (`story:watch-unblocks-merged-requests`).
+const PULL_VIEW: [&str; 8] = [
+    "gh",
+    "pr",
+    "view",
+    "{number}",
+    "-R",
+    "{organization}/{repository}",
+    "--json",
+    "state,url,mergedAt,closedAt,headRefOid,statusCheckRollup",
+];
 
 /// The source a CI pass names on standard error while no complete snapshot names its
 /// repositories.
@@ -559,6 +582,8 @@ impl Watch {
         )
         .with_settings(Settings::of(&active.instance))
         .with_gitlab(Forge::all(&active.instance))
+        .with_pull(PULL_VIEW.iter().map(|word| (*word).to_owned()).collect())
+        .with_typescripts(state.join("sessions"))
         .with_usage(state.clone())
         .with_decisions(state.clone())
         .with_reclaim(state, crate::gc::reclaim::reclaim)
@@ -649,6 +674,12 @@ pub struct Watch {
     /// The state directory whose store's escalated decision requests the decisions probe reads;
     /// none: no `escalated` or `unanswered` line (`story:decisions-notify`).
     decisions: Option<PathBuf>,
+    /// The program and arguments that print one pull request as one JSON object, `{organization}`,
+    /// `{repository}` and `{number}` filled in ([`requests`]); empty: no pull request is read.
+    pull: Vec<String>,
+    /// The directory of the sessions' typescripts, `<state>/sessions/` ([`screen`]); none: no
+    /// typescript is read.
+    typescripts: Option<PathBuf>,
 }
 
 /// A reclaim run to a floor, recorded under a state directory: [`crate::gc::reclaim::reclaim`],
@@ -750,7 +781,27 @@ impl Watch {
             host: None,
             usage: None,
             decisions: None,
+            pull: Vec::new(),
+            typescripts: None,
         }
+    }
+
+    /// This watch reading the pull request a Blocked dispatch waits on with `pull`, a command
+    /// whose words have `{organization}`, `{repository}` and `{number}` filled in and which
+    /// prints the object `gh pr view --json state,url,mergedAt,closedAt,headRefOid,statusCheckRollup`
+    /// prints (`story:watch-unblocks-merged-requests`).
+    #[must_use]
+    pub fn with_pull(mut self, pull: Vec<String>) -> Self {
+        self.pull = pull;
+        self
+    }
+
+    /// This watch reading each session's typescript, `<sessions>/<session name>.typescript`, for
+    /// its `session silent:` line (`story:watch-unblocks-merged-requests`).
+    #[must_use]
+    pub fn with_typescripts(mut self, sessions: PathBuf) -> Self {
+        self.typescripts = Some(sessions);
+        self
     }
 
     /// This watch printing the `escalated` and `unanswered` lines of the decision requests of the
@@ -865,6 +916,7 @@ impl Watch {
             }
             Err(error) => self.failed("sessions", &error, notes),
         }
+        self.requests(now, &mut lines, notes)?;
         if ci {
             self.ci(&mut lines, notes)?;
             self.reviews(&mut lines)?;
@@ -1324,6 +1376,11 @@ impl Watch {
             .lines()
             .filter_map(|line| line.split_once(' '))
             .collect();
+        let open: BTreeSet<String> = requests::dispatch_states(&self.sources.dispatches, now)
+            .into_values()
+            .filter(requests::DispatchState::open)
+            .map(|state| state.repo)
+            .collect();
         let now = SystemTime::from(now);
         let mut kept = String::new();
         for session in sessions {
@@ -1342,13 +1399,19 @@ impl Watch {
                 continue;
             }
             let silence = now.duration_since(newest).unwrap_or_default();
-            let live = session.pid.is_some() && LIVE.contains(&session.phase.as_str());
+            let waits = session.phase == IDLE
+                && self
+                    .sources
+                    .repository(&session.cwd)
+                    .is_some_and(|repository| open.contains(&repository));
+            let live = session.pid.is_some() && (LIVE.contains(&session.phase.as_str()) || waits);
             if live && silence > self.settings.silent_session {
                 lines.push(format!(
-                    "session silent: {} {} {}m",
+                    "session silent: {} {} {}m; {}",
                     session.name,
                     session.id,
-                    silence.as_secs() / 60
+                    silence.as_secs() / 60,
+                    self.pane(session, now)
                 ));
                 kept.push_str(&format!("{} {written}\n", session.session));
             }
@@ -1357,6 +1420,25 @@ impl Watch {
             replace(&file, &kept)?;
         }
         Ok(())
+    }
+
+    /// What the typescript of `session` says of its pane at `now` ([`screen`]): `turn ended
+    /// <minutes>m ago, at the prompt`, `turn running, not at the prompt`, or `no typescript`.
+    fn pane(&self, session: &Session, now: SystemTime) -> String {
+        let read = self.typescripts.as_ref().and_then(|sessions| {
+            screen::read(&sessions.join(format!("{}.typescript", session.name)))
+        });
+        match read {
+            None => "no typescript".to_owned(),
+            Some(screen) if screen.at_prompt => format!(
+                "turn ended {}m ago, at the prompt",
+                now.duration_since(screen.written)
+                    .unwrap_or_default()
+                    .as_secs()
+                    / 60
+            ),
+            Some(_) => "turn running, not at the prompt".to_owned(),
+        }
     }
 
     // -----------------------------------------------------------------------------------------
@@ -2241,8 +2323,8 @@ struct Pull {
     status_check_rollup: Option<Vec<Check>>,
 }
 
-/// One entry of a pull request's check rollup: a check run (`status`, `conclusion`) or a status
-/// context (`state`).
+/// One entry of a pull request's check rollup: a check run (`status`, `conclusion`, `name`,
+/// `detailsUrl`) or a status context (`state`, `context`, `targetUrl`).
 #[derive(Deserialize)]
 struct Check {
     #[serde(default)]
@@ -2251,6 +2333,14 @@ struct Check {
     conclusion: Option<String>,
     #[serde(default)]
     state: Option<String>,
+    #[serde(default)]
+    name: Option<String>,
+    #[serde(default)]
+    context: Option<String>,
+    #[serde(default, rename = "detailsUrl")]
+    details_url: Option<String>,
+    #[serde(default, rename = "targetUrl")]
+    target_url: Option<String>,
 }
 
 impl Check {

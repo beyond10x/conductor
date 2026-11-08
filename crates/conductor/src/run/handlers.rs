@@ -7,6 +7,8 @@
 //! | `usage limit: …; <n> sessions: <names>` | mark each session; a later tick whose [`Headroom`](super::Headroom) is back resumes each once (`spawn::resume`), or restarts one a hand-over was asked of; a session resumed and stopped again is said in one journal line | `usage-limit`, `resumed`, `controller-restarted` |
 //! | `session exited (blocked): <name> …` | marked as a usage limit marks it, when its repository has an open dispatch | `usage-limit`, `resumed` |
 //! | `PR checks done: <repo>#…`, `CI red on main: <repo> / …`, `CI green again on main: <repo> / …` | deliver `[REPORT <repo> -] watch: <line>` to the running controller; a red `main` with none spawns one when the repository has a charter, within `controllers.max_working` | `relayed`, `red-ci` |
+//! | `request merged: <repo> <dispatch> <url> at <t>`, `request closed: …` | report the dispatch unblocked, its `unblocked` line carrying the watch line; deliver `PR <url> merged\|closed at <t>, continue` to the running controller, else keep it for its next start (`story:watch-unblocks-merged-requests`) | `unblocked`, `relayed` |
+//! | `request red: <repo> <dispatch> <url> head <sha> job <job url> <job name>` | deliver `PR <url> red at head <sha>: job <job name> failed, <job url>` to the running controller, else keep it | `relayed` |
 //! | `session stalled: <name> …`, `session silent: <name> …` | first a delivered check-in; the second time, a restart | `stalled`, `controller-restarted` |
 //! | `session gone: <name> …` | a restart, when the repository has an open dispatch and no usage limit marked the session; the instance's conductor-dev started again in the checkout it worked in, when that checkout's plan holds an `active` story ([`conductor_dev`]) | `controller-restarted` |
 //! | `disk low: …` | `gc`, beside the tick ([`cleaned`]) | `cleanup` |
@@ -120,6 +122,11 @@ fn act(tick: &mut Tick<'_, '_>, line: &str) -> Result<bool> {
         if let Some(rest) = line.strip_prefix(prefix) {
             let repo = rest.split(" / ").next().unwrap_or_default();
             return relay(tick, line, repo);
+        }
+    }
+    for prefix in ["request merged: ", "request closed: ", "request red: "] {
+        if let Some(rest) = line.strip_prefix(prefix) {
+            return request(tick, line, rest);
         }
     }
     for prefix in ["session stalled: ", "session silent: "] {
@@ -1021,4 +1028,65 @@ fn deliveries(tick: &mut Tick<'_, '_>) -> Result<()> {
         }
     }
     write_json(&tick.dir, PENDING, &Value::Array(left)).context("keep the deliveries left")
+}
+
+// ---------------------------------------------------------------------------------------------
+// The request a Blocked dispatch waits on (story:watch-unblocks-merged-requests)
+// ---------------------------------------------------------------------------------------------
+
+/// `request merged|closed: <repo> <dispatch> <url> at <t>`: the dispatch reported unblocked, its
+/// `unblocked` line carrying the tick and `line`, and `PR <url> merged|closed at <t>, continue`
+/// delivered to the running controller of `<repo>`, else kept for its next start (`relayed`, with
+/// the dispatch's id). `request red: <repo> <dispatch> <url> head <sha> job <job url> <job
+/// name>`: `PR <url> red at head <sha>: job <job name> failed, <job url>` delivered or kept the
+/// same way; the dispatch stays blocked.
+fn request(tick: &mut Tick<'_, '_>, line: &str, rest: &str) -> Result<bool> {
+    let mut words = rest.splitn(4, ' ');
+    let (Some(repo), Some(dispatch), Some(url), Some(tail)) =
+        (words.next(), words.next(), words.next(), words.next())
+    else {
+        return Err(anyhow!(
+            "the line names no repository, dispatch, request and what became of it"
+        ));
+    };
+    let text = if line.starts_with("request red: ") {
+        let (head, job) = tail
+            .strip_prefix("head ")
+            .and_then(|tail| tail.split_once(" job "))
+            .ok_or_else(|| anyhow!("the line names no head and job"))?;
+        let (job_url, name) = job.split_once(' ').unwrap_or((job, "-"));
+        format!("PR {url} red at head {head}: job {name} failed, {job_url}")
+    } else {
+        let became = if line.starts_with("request merged: ") {
+            "merged"
+        } else {
+            "closed"
+        };
+        let at = tail.strip_prefix("at ").unwrap_or(tail);
+        let tick_id = tick.id.clone();
+        crate::dispatch::report_unblocked_filled(
+            tick.state,
+            crate::cli::ReportUnblockedArgs {
+                dispatch_id: Some(dispatch.to_owned()),
+                input_json: None,
+            },
+            |written| {
+                written.tick_id = Some(tick_id);
+                written.line = Some(line.to_owned());
+            },
+        )?;
+        tick.wrote(DispatchLogEvent::Unblocked);
+        format!("PR {url} {became} at {at}, continue")
+    };
+    deliver_or_keep(
+        tick,
+        json!({
+            "repo": repo,
+            "text": text,
+            "event": "relayed",
+            "id": dispatch,
+            "line": line,
+        }),
+    )?;
+    Ok(true)
 }

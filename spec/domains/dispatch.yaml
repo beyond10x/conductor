@@ -193,8 +193,11 @@ types:
   # (after a hand-over, a second stall, or a gone session with an open dispatch); `usage-limit`,
   # sessions marked by a usage limit; `resumed`, a marked session resumed once headroom is back;
   # `relayed`, a watch line delivered to the live controller as `[REPORT <repo> -] watch: …`, a
-  # mailbox `[NEED]` delivered to the live controller of the repository it asks, or the answer to
-  # a mailbox `[RESOURCE]`; `red-ci`, a red main with no controller, dispatched or noted;
+  # mailbox `[NEED]` delivered to the live controller of the repository it asks, the answer to a
+  # mailbox `[RESOURCE]`, or what the watch read of the request a Blocked dispatch waits on
+  # (`PR <url> merged|closed at <t>, continue`, or the failing job of its red head pipeline;
+  # story:watch-unblocks-merged-requests); `unblocked` is the daemon's too, once the watch read
+  # that request merged or closed; `red-ci`, a red main with no controller, dispatched or noted;
   # `stalled`, a check-in delivered to a stalled or silent session; `cleanup`, `gc` run on `disk
   # low`; `decision-sent`, an answered request's `[DECISION]` delivered to the controller that
   # raised it; `cycle`, one per cycle tick, after `snapshot start-snapshot`, `publish-board`,
@@ -265,7 +268,10 @@ types:
   #   when any);
   # - `resumed`: `session`;
   # - `relayed`: `session` (the controller delivered to) and `line` (the watch line, or the
-  #   mailbox message's first line);
+  #   mailbox message's first line); for a watch line about the request a Blocked dispatch waits
+  #   on (`request merged:`, `request closed:`, `request red:`), also `id`, that dispatch;
+  # - `unblocked` by the daemon (story:watch-unblocks-merged-requests): `id`, and `line`, the
+  #   watch line `request merged: …` or `request closed: …` it acted on;
   # - `red-ci`: `line`, `reason` (`spawned`, `no charter` or why the spawn was refused) and
   #   `session` when one was spawned;
   # - `cleanup`: `line`, and `evidence`, what `gc` reports freed; in the loop the `gc` a
