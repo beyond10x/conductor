@@ -109,6 +109,13 @@ pub const NO_FENCE: &str = "the systemd provider sets up no write fence yet";
 /// How long the TUI is given between the pasted prompt and Enter.
 const PASTE_SETTLE: Duration = Duration::from_millis(500);
 
+/// How many carriage returns more [`type_text`] pastes while the input line still holds the start
+/// of the delivered text.
+const RETURNS_MORE: u32 = 3;
+
+/// How many characters of the delivered text's first line the input line is compared on.
+const PREFIX_CHARS: usize = 24;
+
 /// How long a unit of a session's name may take to be gone before a start or resume refuses.
 pub const GONE_WAIT: Duration = Duration::from_secs(30);
 
@@ -581,6 +588,7 @@ pub fn type_text(sessions: &Path, name: &SessionName, text: &str) -> Result<()> 
     );
     let _ = fs::remove_file(&paste);
     loaded?;
+    let mut returns = 0_u32;
     let typed = (|| {
         tmux_call(
             sessions,
@@ -588,18 +596,148 @@ pub fn type_text(sessions: &Path, name: &SessionName, text: &str) -> Result<()> 
             &["paste-buffer", "-d", "-p", "-b", &buffer, "-t", &pane],
         )?;
         thread::sleep(PASTE_SETTLE);
-        tmux_call(sessions, name, &["set-buffer", "-b", &buffer, "--", "\r"])?;
-        tmux_call(
-            sessions,
-            name,
-            &["paste-buffer", "-d", "-b", &buffer, "-t", &pane],
-        )
+        loop {
+            tmux_call(sessions, name, &["set-buffer", "-b", &buffer, "--", "\r"])?;
+            tmux_call(
+                sessions,
+                name,
+                &["paste-buffer", "-d", "-b", &buffer, "-t", &pane],
+            )?;
+            thread::sleep(PASTE_SETTLE);
+            let shown = tmux_call(sessions, name, &["capture-pane", "-p", "-e", "-t", &pane])?;
+            if !input_holds(&shown, text) {
+                return Ok(true);
+            }
+            if returns >= RETURNS_MORE {
+                return Ok(false);
+            }
+            returns += 1;
+        }
     })();
     if typed.is_err() {
         // `paste-buffer -d` deletes the buffer it pastes; a call that failed before it leaves one.
         let _ = tmux_call(sessions, name, &["delete-buffer", "-b", &buffer]);
     }
-    typed.map(|_| ())
+    let id = crate::message::ulid().unwrap_or(buffer);
+    let Some(submitted) = typed.as_ref().ok().copied() else {
+        return typed.map(|_| ());
+    };
+    eprintln!("{}", delivery_line(&id, &name.0, submitted, returns));
+    if submitted {
+        Ok(())
+    } else {
+        bail!(
+            "the session {} is unsubmitted after {returns} returns",
+            name.0
+        )
+    }
+}
+
+/// The journal line of one delivery: its id, the session, and `submitted` or
+/// `unsubmitted after <n> returns`, `n` the returns pasted after the first.
+#[must_use]
+pub fn delivery_line(id: &str, session: &str, submitted: bool, returns: u32) -> String {
+    let outcome = if submitted {
+        "submitted".to_owned()
+    } else {
+        format!("unsubmitted after {returns} returns")
+    };
+    format!("conductor: delivery {id}: session {session}: {outcome}")
+}
+
+/// Whether the pane `captured` (`capture-pane -p -e`) still shows the start of `text` on its
+/// input line, so the harness has not taken it. The input line is the last line that starts with
+/// the harness prompt `❯`, else the last non-empty line; text in SGR 2 (dim), a prompt
+/// suggestion, and every escape code are left out first.
+#[must_use]
+pub fn input_holds(captured: &str, text: &str) -> bool {
+    let prefix: String = text
+        .lines()
+        .next()
+        .unwrap_or_default()
+        .trim()
+        .chars()
+        .take(PREFIX_CHARS)
+        .collect();
+    if prefix.is_empty() {
+        return false;
+    }
+    let lines: Vec<&str> = captured.lines().collect();
+    let shown = |line: &str| strip_escapes(line).trim().to_owned();
+    let input = lines
+        .iter()
+        .rev()
+        .map(|line| shown(line))
+        .find(|line| line.starts_with('❯'))
+        .or_else(|| {
+            lines
+                .iter()
+                .rev()
+                .find(|line| !line.trim().is_empty())
+                .map(|line| shown(line))
+        });
+    input.is_some_and(|line| {
+        line.strip_prefix('❯')
+            .unwrap_or(&line)
+            .trim()
+            .starts_with(&prefix)
+    })
+}
+
+/// `line` without its escape codes and without the text between SGR 2 (dim) and the reset
+/// (`0`, `22` or none).
+fn strip_escapes(line: &str) -> String {
+    let mut out = String::new();
+    let mut dim = false;
+    let mut chars = line.chars().peekable();
+    while let Some(c) = chars.next() {
+        if c != '\u{1b}' {
+            if !dim {
+                out.push(c);
+            }
+            continue;
+        }
+        match chars.next() {
+            Some('[') => {
+                let mut params = String::new();
+                let mut last = None;
+                for next in chars.by_ref() {
+                    if ('\u{40}'..='\u{7e}').contains(&next) {
+                        last = Some(next);
+                        break;
+                    }
+                    params.push(next);
+                }
+                if last == Some('m') {
+                    let mut codes = params.split(';');
+                    if params.is_empty() {
+                        dim = false;
+                    }
+                    for code in codes.by_ref() {
+                        match code {
+                            "" | "0" | "22" => dim = false,
+                            "2" => dim = true,
+                            _ => {}
+                        }
+                    }
+                }
+            }
+            Some(']') => {
+                // An operating-system command ends at BEL or ESC `\`.
+                while let Some(next) = chars.next() {
+                    if next == '\u{7}' {
+                        break;
+                    }
+                    if next == '\u{1b}' {
+                        chars.next();
+                        break;
+                    }
+                }
+            }
+            _ => {}
+        }
+    }
+    out
 }
 
 /// A tmux buffer name of this call alone: the process id and a counter, so two calls into one
@@ -756,5 +894,60 @@ impl Provider for Systemd {
             fence_missing: Some(NO_FENCE.to_owned()),
             unboxed: None,
         })
+    }
+}
+
+#[cfg(test)]
+mod delivery_tests {
+    use super::{delivery_line, input_holds};
+
+    const TEXT: &str = "[REPORT cortex -] watch: PR checks done: cortex#176 green\n";
+
+    #[test]
+    fn typed_text_on_the_prompt_line_is_held() {
+        let pane = "output\n\u{276f} [REPORT cortex -] watch: PR checks done: cortex#176 green\n";
+        assert!(input_holds(pane, TEXT));
+        let styled = "x\n\u{1b}[1m\u{276f}\u{1b}[0m [REPORT cortex -] watch: PR\n";
+        assert!(input_holds(styled, TEXT));
+    }
+
+    #[test]
+    fn an_empty_prompt_or_other_text_is_submitted() {
+        assert!(!input_holds("done\n\u{276f} \n", TEXT));
+        assert!(!input_holds(
+            "[REPORT cortex -] watch: sent\n\u{276f} \n",
+            TEXT
+        ));
+        assert!(!input_holds("", TEXT));
+    }
+
+    #[test]
+    fn dim_ghost_text_is_not_the_delivery() {
+        let ghost = "\u{276f} \u{1b}[2m[REPORT cortex -] watch: PR checks done\u{1b}[0m\n";
+        assert!(!input_holds(ghost, TEXT));
+        let ghost22 = "\u{276f} \u{1b}[2m[REPORT cortex -] watch\u{1b}[22m\n";
+        assert!(!input_holds(ghost22, TEXT));
+        let typed_then_dim = "\u{276f} [REPORT cortex -] watch: PR \u{1b}[2mghost\u{1b}[0m\n";
+        assert!(input_holds(typed_then_dim, TEXT));
+    }
+
+    #[test]
+    fn the_last_non_empty_line_is_the_input_without_a_prompt() {
+        assert!(input_holds(
+            "a\n[REPORT cortex -] watch: PR checks\n\n\n",
+            TEXT
+        ));
+    }
+
+    #[test]
+    fn the_journal_line_names_id_session_and_outcome() {
+        assert_eq!(
+            delivery_line("01ABC", "ex-a", true, 1),
+            "conductor: delivery 01ABC: session ex-a: submitted"
+        );
+        assert_eq!(
+            delivery_line("01ABC", "ex-a", false, 3),
+            "conductor: delivery 01ABC: session ex-a: unsubmitted after 3 returns"
+        );
     }
 }

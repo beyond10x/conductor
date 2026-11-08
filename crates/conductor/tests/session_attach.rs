@@ -426,6 +426,40 @@ fn two_concurrent_type_text_calls_never_consume_each_others_buffer() {
     );
 }
 
+/// `story:delivery-submitted-or-reported`: a line typed into a real pane is not dim, so the
+/// pane check sees it as the input's text; the same line as a dim suggestion is not.
+#[test]
+fn a_real_typed_line_is_not_dim() {
+    let mut case = Case::new("typed-not-dim");
+    case.start_session("ex-delta", r#"printf '❯ '; sleep 60"#);
+    let sessions = case.sessions();
+    let socket = "ex-delta.tmux";
+    let pane = "=ex-delta:";
+    wait_for("the prompt", || {
+        case.session_screen("ex-delta").contains('❯')
+    });
+    // Pasted without the carriage return: what a harness's input shows before a submit.
+    let buffer = systemd::paste_buffer_name();
+    let paste = sessions.join("typed.paste");
+    fs::write(&paste, "typed line one").expect("write the paste");
+    for args in [
+        vec!["load-buffer", "-b", &buffer, paste.to_str().expect("utf-8")],
+        vec!["paste-buffer", "-d", "-p", "-b", &buffer, "-t", pane],
+    ] {
+        let output = Case::tmux(&sessions, socket, &args);
+        assert!(output.status.success(), "{args:?}");
+    }
+    wait_for("the typed line", || {
+        case.session_screen("ex-delta").contains("typed line one")
+    });
+    let shown = Case::tmux(&sessions, socket, &["capture-pane", "-p", "-e", "-t", pane]);
+    let shown = String::from_utf8_lossy(&shown.stdout).into_owned();
+    assert!(
+        systemd::input_holds(&shown, "typed line one"),
+        "a typed line is not dim: {shown:?}"
+    );
+}
+
 /// Inside a session (`CONDUCTOR_SESSION` set, whatever the harness) attach exits 1 naming
 /// `inside-session`, before it looks at any session.
 #[test]
