@@ -1,0 +1,40 @@
+# design § 5: the KPI targets are the operator's alone; docs/design/architecture-next.md § 3
+# (Actors): a command that needs a grant refuses every actor whose kind is not human. An agent
+# setting a target is refused, and the metric stays untargeted.
+type: ess-scenario/1
+domain: conductor.improvement
+scenario: improvement-set-metric-target-actor-not-human
+summary: An agent setting a KPI target is refused as ActorNotHuman, and the metric keeps no target.
+
+timeline:
+  - at: 2026-11-08T09:00:00Z
+    command: conductor.improvement.DefineMetric
+    actor: conductor.improvement.ConductorDev
+    input:
+      actor: {kind: Agent, agent: {instance: example-org, role: maintainer, name: example-org-conductor-dev, kind: claude-code}}
+      metric_id: K1
+      name: operator touches per merged PR
+      unit: ratio
+      instrument: decision store + forge PRs
+      definition: operator-decided decisions divided by PRs merged
+    outcome: defined
+
+  - at: 2026-11-08T09:05:00Z
+    command: conductor.improvement.SetMetricTarget
+    actor: conductor.improvement.Operator
+    input:
+      actor: {kind: Agent, agent: {instance: example-org, role: maintainer, name: example-org-conductor-dev, kind: claude-code}}
+      metric_id: K1
+      target: 0.1
+      direction: AtMost
+      target_owner: operator
+      target_set_at: 2026-11-08T09:05:00Z
+    outcome: actor-not-human
+    error:
+      name: conductor.operator.ActorNotHuman
+
+assert:
+  - view: conductor.improvement.Metrics
+    contains:
+      metric_id: K1
+      state: Untargeted

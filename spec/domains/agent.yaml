@@ -62,6 +62,10 @@ entities:
         type: List<conductor.agent.Capability>
       - name: binary
         type: String
+      # Who created or last moved the record (architecture-next § 3 "Actors": every record
+      # carries its actor).
+      - name: actor
+        type: conductor.operator.Actor
     lifecycle:
       initial: Available
       states: [Available]
@@ -276,6 +280,7 @@ commands:
         sets:
           capabilities: input.capabilities
           binary: input.binary
+          actor: input.actor
         emits:
           - conductor.agent.AgentKindDeclared
         payload:
@@ -291,6 +296,7 @@ commands:
         sets:
           capabilities: input.capabilities
           binary: input.binary
+          actor: input.actor
         emits:
           - conductor.agent.AgentKindDeclared
         payload:
@@ -705,6 +711,7 @@ views:
       - {name: state, type: conductor.agent.AgentKind.State}
       - {name: capabilities, type: List<conductor.agent.Capability>}
       - {name: binary, type: String}
+      - {name: actor, type: conductor.operator.Actor}
     naming:
       wire: agent-kinds
       display: Agent kinds

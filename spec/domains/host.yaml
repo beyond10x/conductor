@@ -405,13 +405,18 @@ events:
       - name: kind
         type: conductor.host.GrantKind
 
+  # The instance is `instance_name` here, not `instance`: ess 0.90.0's caller-swapped rerun
+  # (`rename` in ess-conformance `synthesize/caller.rs`) suffixes every JSON string under a key
+  # named `instance` in the steps it appends, an expected event payload's own field included,
+  # while the command input's literal keeps its value, so the synthesized payload check fails.
+  # UNMAPPED: no ess issue is filed for it yet; once ess fixes it the field is `instance` again.
   - name: conductor.host.DiskRequested
     fields:
       - name: actor
         type: conductor.operator.Actor
       - name: grant_id
         type: conductor.host.GrantId
-      - name: instance
+      - name: instance_name
         type: conductor.config.InstanceName
       - name: bytes
         type: Integer
@@ -617,7 +622,7 @@ commands:
           conductor.host.DiskRequested:
             actor: input.actor
             grant_id: {generated: true}
-            instance: input.instance
+            instance_name: input.instance
             bytes: input.bytes
         summary: The request counts against the host while the ledger answers it.
 
