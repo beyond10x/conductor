@@ -104,9 +104,9 @@ and the supervisor talk to you. To wait for something, one background Bash that 
    your last pass (conductor's and the instances' repositories) has its announcement record under
    `<records>/docs/announcements/` ("Releases and announcements" in the supervisor's profile); a tag
    without one is a teaching.
-6. Teach: for each miss found in 1–5, write the rule: true on any host, a request to conductor-dev
-   to change the supervisor's profile, with evidence; true on this host only, an edit of the
-   host's file for the supervisor. Then `SendMessage` the supervisor: what was missed, the evidence
+6. Teach: for each miss found in 1–5, write the rule and send it to the supervisor to route to
+   conductor-dev; edit the installed profile only until the repository ships it, never after
+   `task profiles` installed it from there. Then `SendMessage` the supervisor: what was missed, the evidence
    (`file:line`, command output), the rule and where it is written, and the one action to take
    now.
 7. Record in your hand-off what you changed and what you are waiting on.

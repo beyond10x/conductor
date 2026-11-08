@@ -58,7 +58,8 @@
 //!   stopped by the same limit.
 //! - **context** at or above the instance's `context_handover` tokens, once per session
 //!   (`story:controller-context`). `<repo>` is the directory the session works in under the
-//!   managed trees or the checkouts root, else the session's name; conductor's line reads
+//!   managed trees or the checkouts root, and a session in neither is not reported (a role's
+//!   session excepted); conductor's line reads
 //!   `context: conductor` either way.
 //! - **silent** when a live controller (a `pid`, its list `state` `working` or `waiting`, and not
 //!   named as one of the instance's roles) and every one of its sub-agents have written nothing
@@ -1247,7 +1248,8 @@ impl Watch {
 
     /// The context of each live session, one with a `pid`, at or above the instance's
     /// `context_handover`, once per session. The session is named by the repository it works on
-    /// ([`Sources::repository`]), else by its name: conductor's line reads `context: conductor`
+    /// ([`Sources::repository`]); a session in none is not reported. A role's session is named by
+    /// its role: conductor's line reads `context: conductor`
     /// either way.
     fn context(&self, sessions: &[Session], lines: &mut Vec<String>) -> Result<()> {
         let file = self.state(CONTEXT_REPORTED);
@@ -1263,12 +1265,15 @@ impl Watch {
                 // A role's session is matched by its session name (`<session_prefix>-<role>`, or
                 // the role without a prefix) and labelled by the role, so conductor's line reads
                 // `context: conductor` whatever the prefix (story:instance-session-names).
+                // A session in no repository's directory is not a controller, whatever its name
+                // (`story:context-watch-by-envelope`): a session named `codespec` working in the
+                // checkouts root drove four hand-overs to the codespec controller on 2026-11-08.
                 let named = if let Some(role) = role_named(&session.name) {
                     role
+                } else if let Some(repository) = self.sources.repository(&session.cwd) {
+                    repository
                 } else {
-                    self.sources
-                        .repository(&session.cwd)
-                        .unwrap_or_else(|| session.name.clone())
+                    continue;
                 };
                 lines.push(format!(
                     "context: {} {}k tokens (session {})",

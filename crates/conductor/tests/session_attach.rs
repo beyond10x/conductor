@@ -134,6 +134,9 @@ impl Case {
             .args(["-f", &format!("{name}.tmux.conf")])
             .env("CONDUCTOR_SESSION", name)
             .env("CONDUCTOR_HARNESS", harness)
+            // The configuration starts the pane in `$CONDUCTOR_CWD`; unset, the case would inherit
+            // the value of whatever session runs the suite.
+            .env("CONDUCTOR_CWD", &sessions)
             .env(variable, sessions.join(format!("{name}.{suffix}")))
             .env("SHELL", "/bin/sh")
             .stdin(Stdio::null())

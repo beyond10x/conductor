@@ -189,19 +189,21 @@ fn find(place: &Place, name: &str) -> Option<AttachableSession> {
                 "-p",
                 "-t",
                 &systemd::target(&session),
-                "#{pane_current_path}\t#{window_activity}",
+                // The activity first and a space: tmux 3.7 prints a tab in a format as `_`, and
+                // the seconds never hold a space while a directory may.
+                "#{window_activity} #{pane_current_path}",
             ],
         )
     {
-        let mut fields = text.trim_end().splitn(2, '\t');
-        let directory = fields
-            .next()
-            .filter(|dir| !dir.is_empty())
-            .map(str::to_owned);
+        let mut fields = text.trim_end_matches('\n').splitn(2, ' ');
         let idle = fields
             .next()
             .and_then(|at| at.parse::<i64>().ok())
             .map(|at| (now() - at).max(0));
+        let directory = fields
+            .next()
+            .filter(|dir| !dir.is_empty())
+            .map(str::to_owned);
         return Some(row(AttachMode::Attach, directory, idle));
     }
     let log = log_path(&place.sessions, name);
