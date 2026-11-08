@@ -8,7 +8,7 @@
 //! [`systemd::TMUX_CONF`]), with a stand-in harness that prints `ready`, reads a line and prints
 //! `got <line>`; and an outer server whose one pane runs `conductor session attach`, standing in
 //! for the operator's terminal, typed into with `send-keys`. A session started before the tmux
-//! launcher is a typescript and a FIFO with no socket, its unit answered by a fake `systemctl`
+//! launcher is a terminal log and a FIFO with no socket, its unit answered by a fake `systemctl`
 //! first on `PATH`. No real session, unit or harness is touched.
 
 mod common;
@@ -114,6 +114,13 @@ impl Case {
     /// Starts the session `name`'s server as the provider's unit does, running `harness`, and
     /// waits until it answers.
     fn start_session(&mut self, name: &str, harness: &str) {
+        self.start_session_logging(name, harness, "CONDUCTOR_TERMINAL_LOG", "terminal.log");
+    }
+
+    /// [`Case::start_session`], with the terminal log's path `<name>.<suffix>` passed in the
+    /// variable `variable`: the launcher before `story:terminal-log-name` passed
+    /// `CONDUCTOR_TYPESCRIPT`.
+    fn start_session_logging(&mut self, name: &str, harness: &str, variable: &str, suffix: &str) {
         let sessions = self.sessions();
         fs::write(
             sessions.join(format!("{name}.tmux.conf")),
@@ -127,10 +134,7 @@ impl Case {
             .args(["-f", &format!("{name}.tmux.conf")])
             .env("CONDUCTOR_SESSION", name)
             .env("CONDUCTOR_HARNESS", harness)
-            .env(
-                "CONDUCTOR_TYPESCRIPT",
-                sessions.join(format!("{name}.typescript")),
-            )
+            .env(variable, sessions.join(format!("{name}.{suffix}")))
             .env("SHELL", "/bin/sh")
             .stdin(Stdio::null())
             .stdout(Stdio::null())
@@ -286,7 +290,7 @@ fn describe(output: &Output) -> String {
 
 /// Attach shows the session's screen, then its live output; what the operator types reaches the
 /// harness; `ctrl-]` then `d` ends the client with exit 0 and the session runs on; the
-/// typescript still records the harness's output; `session list` marks the session attachable.
+/// terminal log still records the harness's output; `session list` marks the session attachable.
 #[test]
 fn attach_types_into_the_session_and_detaches_with_ctrl_bracket_d() {
     let mut case = Case::new("read-write");
@@ -335,12 +339,25 @@ fn attach_types_into_the_session_and_detaches_with_ctrl_bracket_d() {
         &["has-session", "-t", "=ex-alpha"],
     );
     assert!(alive.status.success(), "the session runs on");
-    wait_for("the typescript", || {
-        fs::read_to_string(case.sessions().join("ex-alpha.typescript"))
+    wait_for("the terminal log", || {
+        fs::read_to_string(case.sessions().join("ex-alpha.terminal.log"))
             .unwrap_or_default()
             .contains("got hello")
     });
     case.kill_outer();
+}
+
+/// A launcher that passes the old variable `CONDUCTOR_TYPESCRIPT` still has its session's output
+/// recorded at the path it names, for one release (`story:terminal-log-name`).
+#[test]
+fn the_old_variable_still_names_the_terminal_log() {
+    let mut case = Case::new("old-variable");
+    case.start_session_logging("ex-alpha", HARNESS, "CONDUCTOR_TYPESCRIPT", "typescript");
+    wait_for("the old file", || {
+        fs::read_to_string(case.sessions().join("ex-alpha.typescript"))
+            .unwrap_or_default()
+            .contains("ready")
+    });
 }
 
 /// `--watch` shows the screen and the live output, and nothing typed reaches the harness;
@@ -416,20 +433,33 @@ fn attach_refuses_an_unknown_session() {
     );
 }
 
-/// A session started before the tmux launcher (a typescript and a FIFO, no socket): a read-write
-/// attach exits 1 naming `not-attachable` and the restart; `--watch` replays the last 64 KiB of
-/// its typescript, follows it, never writes to its FIFO, and exits 0 once its unit is gone;
-/// `session list` marks it `watch`.
+/// A session started before the tmux launcher (a terminal log and a FIFO, no socket): a
+/// read-write attach exits 1 naming `not-attachable` and the restart; `--watch` replays the last
+/// 64 KiB of its terminal log, follows it, never writes to its FIFO, and exits 0 once its unit is
+/// gone; `session list` marks it `watch`.
 #[test]
-fn watch_follows_the_typescript_of_a_session_before_tmux() {
-    let case = Case::new("before-tmux");
+fn watch_follows_the_terminal_log_of_a_session_before_tmux() {
+    watch_follows("terminal.log");
+}
+
+/// The same for a session whose log still has the old name `<session>.typescript`, read for one
+/// release when the new one is absent (`story:terminal-log-name`).
+#[test]
+fn watch_follows_the_old_file_name_of_a_session_before_tmux() {
+    watch_follows("typescript");
+}
+
+/// The case of [`watch_follows_the_terminal_log_of_a_session_before_tmux`], with the log at
+/// `ex-old.<suffix>`.
+fn watch_follows(suffix: &str) {
+    let case = Case::new(&format!("before-tmux-{suffix}"));
     case.fake_systemctl("active");
     let sessions = case.sessions();
-    let typescript = sessions.join("ex-old.typescript");
+    let log = sessions.join(format!("ex-old.{suffix}"));
     let mut screen = String::from("HEAD-BEYOND-THE-TAIL");
     screen.push_str(&"x".repeat(70 * 1024));
     screen.push_str("the old screen\n");
-    fs::write(&typescript, &screen).expect("write the typescript");
+    fs::write(&log, &screen).expect("write the terminal log");
     let fifo = sessions.join("ex-old.fifo");
     nix::unistd::mkfifo(
         &fifo,
@@ -489,8 +519,8 @@ fn watch_follows_the_typescript_of_a_session_before_tmux() {
     std::thread::sleep(Duration::from_millis(500));
     fs::OpenOptions::new()
         .append(true)
-        .open(&typescript)
-        .expect("open the typescript")
+        .open(&log)
+        .expect("open the terminal log")
         .write_all(b"live output\n")
         .expect("the harness writes");
     std::thread::sleep(Duration::from_millis(1500));
@@ -511,7 +541,7 @@ fn watch_follows_the_typescript_of_a_session_before_tmux() {
     assert!(shown.contains("live output"), "the follow: {shown:.200}");
     assert!(
         !shown.contains("HEAD-BEYOND-THE-TAIL"),
-        "the replay is the typescript's last 64 KiB only"
+        "the replay is the terminal log's last 64 KiB only"
     );
     let mut buffer = [0_u8; 64];
     match keyboard.read(&mut buffer) {

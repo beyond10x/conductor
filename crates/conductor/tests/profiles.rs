@@ -524,7 +524,7 @@ fn restarts_are_rare_and_a_rules_change_needs_none() {
     for sentence in [
         "Restarts are batched with the next wave, at most one an hour unless one corrects a \
          live fault.",
-        "`conductor run --uninstall`, then `conductor run --install`",
+        "`conductor daemon serve --uninstall`, then `conductor daemon serve --install`",
         "A `rules.md` change needs no restart of the loop: commit it, and each session reads it \
          at its next start.",
     ] {

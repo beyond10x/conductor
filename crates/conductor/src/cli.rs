@@ -516,7 +516,9 @@ impl Cli {
                 AgentCommand::Stop => crate::not_implemented("agent stop"),
             },
             Group::Daemon(command) => match command {
-                DaemonCommand::Serve => crate::not_implemented("daemon serve"),
+                DaemonCommand::Serve(args) => {
+                    crate::daemon::daemon_serve(self.config.as_deref(), state, &args)
+                }
             },
             Group::Instance(command) => match command {
                 InstanceCommand::Serve => crate::not_implemented("instance serve"),
@@ -660,7 +662,7 @@ pub enum Group {
     #[command(subcommand)]
     Rules(RulesCommand),
 
-    /// Run the instance's loop with no model call, recording each tick - every cadence.watch the watch pass, its handlers and the mailbox; every cadence.cycle the snapshot, the board, records check and dispatch v1; at cadence.daily metric compute, REPORT.md and a commit of the records through the bot route. --once runs one watch tick and one cycle tick and exits; --once --commit-records commits the records alone; --install starts it as the user unit conductor_<instance>-run.service through systemd-run (under the none provider prints the command instead); --uninstall stops that unit
+    /// Run the instance's loop with no model call, recording each tick - every cadence.watch the watch pass, its handlers and the mailbox; every cadence.cycle the snapshot, the board, records check and dispatch v1; at cadence.daily metric compute, REPORT.md and a commit of the records through the bot route. --once runs one watch tick and one cycle tick and exits; --once --commit-records commits the records alone
     #[command(name = "run")]
     Run(RunArgs),
 
@@ -905,9 +907,7 @@ pub const LEAVES: &[(&[&str], Access)] = &[
     // Writes a session_prefix into the config file (story:instance-names-unique).
     (&["config", "migrate"], Access::Writes),
     (&["config", "show"], Access::Reads),
-    // Every session checks its config. Its one write is the host registry's entry of the file it
-    // found valid (story:instance-names-unique): what the file says, under the registry's lock,
-    // none of the store, the records or the instance's files.
+    // Every session checks its config; it writes nothing (story:daemon-reconcile).
     (&["config", "validate"], Access::Reads),
     (&["config", "workspace"], Access::Writes),
     (&["dashboard", "serve"], Access::ConductorReads),
@@ -974,14 +974,28 @@ pub enum AgentCommand {
     Stop,
 }
 
-// `conductor daemon`: conductord, the daemon of the control host (design architecture-next § 4).
-// Not written yet (`story:daemon-reconcile`).
+// `conductor daemon`: conductord, the daemon of the control host (design architecture-next § 4,
+// `story:daemon-reconcile`).
 #[allow(missing_docs)]
 #[derive(Debug, Subcommand)]
 pub enum DaemonCommand {
-    /// Run conductord, the daemon of the control host, reconciling every instance of the config file and serving the global API; not written yet, exits 2
+    /// Run conductord, the daemon of the control host, reconciling the instance runtimes from the config file - start what is absent, stop what is gone, restart what changed placement or binary - on a config change, a lost runtime and every daemon.cadence.reconcile, recording one Reconciliation per action, and serving GET 127.0.0.1:<daemon.port>/v1/instances. --install writes, enables and starts the user unit conductord.service; --uninstall stops and removes it
     #[command(name = "serve")]
-    Serve,
+    Serve(DaemonServeArgs),
+}
+
+/// The input of the binding's `daemon-serve` callable, `conductor.instance.ServeDaemon`
+/// (`story:daemon-reconcile`).
+#[derive(Debug, Clone, Default, Args)]
+pub struct DaemonServeArgs {
+    /// Write the user unit conductord.service running this command, then enable and start it.
+    /// `--install` alone is `--install true`
+    #[arg(long, value_name = "BOOL", num_args = 0..=1, default_missing_value = "true")]
+    pub install: Option<bool>,
+    /// Disable and stop the user unit conductord.service and remove its file. `--uninstall`
+    /// alone is `--uninstall true`
+    #[arg(long, value_name = "BOOL", num_args = 0..=1, default_missing_value = "true")]
+    pub uninstall: Option<bool>,
 }
 
 // `conductor instance`: one instance's runtime (design architecture-next § 2, § 5.1). Not
@@ -1480,7 +1494,7 @@ pub enum SessionCommand {
     #[command(name = "run-ticks")]
     RunTicks(ViewArgs),
 
-    /// Attach this terminal to a live session's tmux, by --name or --role, or through a picker of every instance's sessions without either; detach with ctrl-] then d, the session runs on; --watch attaches read-only, and follows the typescript of a session started before the tmux launcher; refuse inside a session, an unknown session, and a read-write attach to a session started before the tmux launcher
+    /// Attach this terminal to a live session's tmux, by --name or --role, or through a picker of every instance's sessions without either; detach with ctrl-] then d, the session runs on; --watch attaches read-only, and follows the terminal log of a session started before the tmux launcher; refuse inside a session, an unknown session, and a read-write attach to a session started before the tmux launcher
     #[command(name = "attach")]
     Attach(AttachArgs),
 
@@ -1839,7 +1853,7 @@ pub struct RulesShowArgs {
 #[allow(missing_docs)]
 #[derive(Debug, Subcommand)]
 pub enum StoreCommand {
-    /// Copy the eventlog-file store under the state directory into a tree store, keep the old one beside it, and print the counts moved
+    /// Read the eventlog tree under the state directory once into the store's database, record the migration there, and print the counts read; refuse a tree read before (AlreadyMigrated) or none there (SourceMissing)
     #[command(name = "migrate")]
     Migrate(StoreMigrateArgs),
 }
@@ -4427,15 +4441,6 @@ pub struct RunArgs {
     /// Run one watch tick and one cycle tick, then exit 0. `--once` alone is `--once true`
     #[arg(long, value_name = "BOOL", num_args = 0..=1, default_missing_value = "true")]
     pub once: Option<bool>,
-    /// Start the loop as the user unit conductor_<instance>-run.service through systemd-run;
-    /// under the none provider print the command to run instead. `--install` alone is
-    /// `--install true`
-    #[arg(long, value_name = "BOOL", num_args = 0..=1, default_missing_value = "true")]
-    pub install: Option<bool>,
-    /// Stop the user unit conductor_<instance>-run.service. `--uninstall` alone is
-    /// `--uninstall true`
-    #[arg(long, value_name = "BOOL", num_args = 0..=1, default_missing_value = "true")]
-    pub uninstall: Option<bool>,
     /// With --once: commit the records directory through the bot route and push it when it has
     /// an origin, and run no tick. `--commit-records` alone is `--commit-records true`
     #[arg(long, value_name = "BOOL", num_args = 0..=1, default_missing_value = "true")]

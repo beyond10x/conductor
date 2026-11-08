@@ -216,7 +216,7 @@ pub fn answer(sources: &Sources, state: Option<&Path>, port: u16) -> Value {
         );
     }
     page["instances"] = json!(instances(port));
-    if let Some(state) = state.filter(|state| state.join("tree").exists()) {
+    if let Some(state) = state.filter(|state| crate::store::present(state)) {
         match crate::store::open_reader(state) {
             Ok(store) => {
                 let rows: Vec<Value> = repository::activity(&store)

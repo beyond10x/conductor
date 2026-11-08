@@ -61,12 +61,12 @@ Persistence: a modification that is generic persists in conductor; anything else
 | what | where |
 |---|---|
 | config of all instances | `~/.b10x/conductor/conductor.yaml` (`conductor config show --instance <name>`) |
-| host registry | `~/.b10x/conductor/host/instances.json` |
+| instances | conductord's `GET http://127.0.0.1:<daemon.port>/v1/instances`: each instance of the config with its placement, state, binary version and last seen |
 | product repository | the conductor checkout the maintainer works in (read its `AGENTS.md` before acting) |
 | per instance | `records`, `state` from the config; charters in `<records>/charters/` |
-| units | `systemctl --user list-units 'conductor_*' --all`; loop = `conductor_<instance>-run.service` |
+| units | `systemctl --user list-units 'conductor_*' --all`; the daemon = `conductord.service`; an instance's runtime = `conductor_<instance>-runtime.service`, started by the daemon |
 | sessions | `claude agents --json`; `claude logs <id>`, `claude attach <id>`, `claude stop <id>` (conversation kept) |
-| dashboards | one per instance, started by `task dashboard` with that instance active; its port is `dashboard_port` of the instance in the host registry; the page is `http://127.0.0.1:<port>/` |
+| dashboards | one per instance, started by `task dashboard` with that instance active; its port is `dashboard_port` of the instance in `conductor config show`; the page is `http://127.0.0.1:<port>/` |
 | account rotation | the user unit `usage.watcher` names; `conductor doctor` reports it; its own commands are in the host's own file |
 | disk | `df -BG --output=avail <thresholds.disk_path>` against `thresholds.disk_low`; `conductor host reclaim`, `conductor gc --dry-run` per instance; a host disk keeper, if any, is in the host's own file |
 | KPIs | `conductor metric metric-readings` (every recorded reading, column `day`), `conductor metric kpi-readings` (only metrics with a target), `conductor metric compute --day <UTC day>`; definitions and targets in the product repository's `docs/design/self-improvement.md` |
@@ -85,7 +85,7 @@ refuse `--instance`. Every `conductor` command acts on one instance.
 | an instance's rules, charters, decisions, dispatches, north star | `<records>/`, a git repository | only when it has a remote and is pushed (check `git status -sb` in every routine pass; commit and push by the instance's rules) |
 | an instance's store, mailbox, metrics, session settings | `<state>/` | no |
 | hand-offs (yours, the teacher's, the maintainer's) | `host/`, `<state>/conductor-dev/handoff/` | no |
-| loops and dashboards | `systemd-run` units | no: gone at reboot; after a reboot run `conductor run --install` and `task dashboard` per instance, in the routine's first pass |
+| runtimes and dashboards | `systemd-run` units | no: gone at reboot; `conductord.service` (installed with `conductor daemon serve --install`) starts at login and starts every runtime again; run `task dashboard` per instance in the routine's first pass |
 
 A rule that must outlive this host goes into the conductor repository through conductor-dev.
 
@@ -165,7 +165,7 @@ one background Bash that exits on it.
    `idle` with its dispatch open, and no loop line shows it); yesterday's readings (`conductor
    metric metric-readings`, rows with `day` = yesterday UTC), and `conductor session run-ticks`
    holding a `daily` tick since the last daily cadence.
-2. Fix what is reversible: a dead loop (`conductor run --install`), a stuck session start, a stale
+2. Fix what is reversible: a dead daemon (`conductor daemon serve --install`; it starts a dead runtime again itself), a stuck session start, a stale
    workspace file (`conductor config workspace`), Active marks outside the operator's selection, a
    missing charter for a selected repository, a dead dashboard (`task dashboard`), free disk under
    `thresholds.disk_low` (`conductor host reclaim`, or the host's disk keeper, in a background Bash
@@ -192,8 +192,8 @@ one background Bash that exits on it.
    minutes): start a missing controller now with `CONDUCTOR_INSTANCE=<name> conductor spawn
    --repository <repo>` (refused while one of that name runs). Do not restart a loop in the middle
    of a cycle: the cycle's work is lost. Restart one only when `conductor session run-ticks` shows
-   its last `cycle` tick followed by `watch` ticks; after `conductor run --uninstall` and
-   `--install`, restart the instance's dashboard too, so it runs the new binary.
+   its last `cycle` tick followed by `watch` ticks; after the daemon restarted a runtime on a new
+   binary, restart the instance's dashboard too, so it runs the new binary.
 4. Use sub-agents for parallel work (one per instance or per independent job); do not do serially
    what can run at once.
 5. Never discard uncommitted work. Before stopping a session, ask it for a hand-off and wait for its
@@ -415,7 +415,7 @@ The conductor store of each instance holds the operator's selection; do not copy
   a script file: zsh does not word-split `$p`.
 - Since 0.23.0 the loop restarts controllers over the context threshold, dispatches loop-started
   ones, unblocks on `started` and restarts a gone maintainer. Before any restart by hand, read
-  `journalctl --user -u conductor_<instance>-run.service --since '-20min'` for the session's name.
+  `journalctl --user -u conductor_<instance>-runtime.service --since '-20min'` for the session's name.
   A `blocked handover` report younger than 15 min with no `session gone` line means the loop is
   still working on it. Act only after the 15 min have passed and the journal shows no restart, and
   quote the journal line in the report. Then restart it fresh: `systemctl --user stop

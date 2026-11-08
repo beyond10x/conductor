@@ -55,7 +55,7 @@ impl Case {
     /// working directory, where `state/` is looked for without the flag, holds nothing.
     fn kept_under_the_state_dir(&self) {
         assert!(
-            self.state.join("tree").is_dir(),
+            self.state.join("store.sqlite").is_file(),
             "no store under --state-dir {}",
             self.state.display()
         );

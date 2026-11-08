@@ -24,7 +24,7 @@
 //! library in a child of this test binary ([`child`]), with a [`Recorder`] in place of the real
 //! deliverer (which runs `conductor session deliver`, `story:mailbox-send-and-deliver`) and a
 //! headroom read from `fake/headroom`; the handlers are fed fixture watch lines. `run --once`,
-//! `--install`, `--uninstall`, `doctor` and the tick views are run through the built binary.
+//! `doctor` and the tick views are run through the built binary.
 
 mod common;
 
@@ -2475,96 +2475,21 @@ fn a_tick_is_recorded_and_listed() {
     assert_eq!(case.view(&["session", "run-ticks"]).len(), 1);
 }
 
-/// `run --install` starts `conductor_<instance>-run.service` through `systemd-run`, in the
-/// instance's slice, running this binary's `run` with the instance's config.
+/// `doctor` reports the state of conductord's user unit (`story:daemon-reconcile`); the
+/// per-instance run unit is gone with `run --install`.
 #[test]
-fn install_starts_the_user_unit_through_systemd_run() {
-    let case = Case::new("install");
-    case.configure("{provider: systemd}", "{max_working: 4}");
-    let output = case.conductor(&["run", "--install"]);
-    assert!(output.status.success(), "{}", describe(&output));
-    let args = fs::read_to_string(case.fake().join("systemd-run.args")).expect("systemd-run ran");
-    let args: Vec<&str> = args.lines().collect();
-    let config = format!("CONDUCTOR_CONFIG={}", case.config().display());
-    for expected in [
-        "--user",
-        "--unit",
-        "conductor_example-org-run.service",
-        "--slice",
-        "conductor_ex.slice",
-        "CONDUCTOR_INSTANCE=example-org",
-        config.as_str(),
-    ] {
-        assert!(args.contains(&expected), "{expected}: {args:?}");
-    }
-    assert_eq!(args.last(), Some(&"run"), "{args:?}");
-    assert_eq!(
-        args[args.len() - 2],
-        case.program().display().to_string(),
-        "{args:?}"
-    );
-    assert!(
-        String::from_utf8_lossy(&output.stdout).contains("conductor_example-org-run.service"),
-        "{}",
-        describe(&output)
-    );
-}
-
-/// Under the `none` provider `run --install` starts nothing and prints the command to run.
-#[test]
-fn install_under_the_none_provider_prints_the_command() {
-    let case = Case::new("install-none");
-    let output = case.conductor(&["run", "--install"]);
-    assert!(output.status.success(), "{}", describe(&output));
-    let stdout = String::from_utf8_lossy(&output.stdout);
-    assert!(
-        stdout.contains(&format!("CONDUCTOR_CONFIG={}", case.config().display())),
-        "{stdout}"
-    );
-    assert!(stdout.trim_end().ends_with(" run"), "{stdout}");
-    assert!(!case.fake().join("systemd-run.args").exists());
-}
-
-/// `run --uninstall` stops the unit; with no unit loaded it says so and stops nothing.
-#[test]
-fn uninstall_stops_the_unit() {
-    let case = Case::new("uninstall");
-    let idle = case.conductor(&["run", "--uninstall"]);
-    assert!(idle.status.success(), "{}", describe(&idle));
-    assert!(
-        String::from_utf8_lossy(&idle.stdout).contains("not installed"),
-        "{}",
-        describe(&idle)
-    );
-    let calls = fs::read_to_string(case.fake().join("systemctl.calls")).unwrap_or_default();
-    assert!(!calls.contains(" stop "), "{calls}");
-
-    write(&case.fake().join("unit.loaded"), "");
-    let output = case.conductor(&["run", "--uninstall"]);
-    assert!(output.status.success(), "{}", describe(&output));
-    let calls = fs::read_to_string(case.fake().join("systemctl.calls")).expect("systemctl ran");
-    assert!(
-        calls
-            .lines()
-            .any(|call| call == "--user stop conductor_example-org-run.service"),
-        "{calls}"
-    );
-}
-
-/// `doctor` reports the run unit's state.
-#[test]
-fn doctor_reports_the_run_unit() {
+fn doctor_reports_the_daemon_unit() {
     let case = Case::new("doctor");
     let line = |output: &Output| {
         String::from_utf8_lossy(&output.stdout)
             .lines()
-            .find(|line| line.starts_with("run unit:"))
+            .find(|line| line.starts_with("daemon unit:") || line.starts_with("run unit:"))
             .map(str::to_owned)
     };
     let stopped = case.conductor(&["doctor"]);
     assert_eq!(
         line(&stopped).as_deref(),
-        Some("run unit: conductor_example-org-run.service not running (inactive)"),
+        Some("daemon unit: conductord.service not running (inactive)"),
         "{}",
         describe(&stopped)
     );
@@ -2572,32 +2497,10 @@ fn doctor_reports_the_run_unit() {
     let running = case.conductor(&["doctor"]);
     assert_eq!(
         line(&running).as_deref(),
-        Some("run unit: conductor_example-org-run.service running"),
+        Some("daemon unit: conductord.service running"),
         "{}",
         describe(&running)
     );
-}
-
-/// At most one of `--once`, `--install` and `--uninstall` is given.
-#[test]
-fn run_refuses_two_modes() {
-    let case = Case::new("two-modes");
-    let output = case.conductor(&["run", "--once", "--install"]);
-    assert_eq!(output.status.code(), Some(1), "{}", describe(&output));
-    assert!(!case.fake().join("systemd-run.args").exists());
-    assert!(case.view_or_none().is_none(), "nothing ran");
-}
-
-impl Case {
-    /// The ticks recorded, or none when there is no store.
-    fn view_or_none(&self) -> Option<Vec<Value>> {
-        let output = self.conductor(&["session", "run-ticks", "--format", "json"]);
-        output
-            .status
-            .success()
-            .then(|| serde_json::from_slice(&output.stdout).expect("JSON"))
-            .filter(|rows: &Vec<Value>| !rows.is_empty())
-    }
 }
 
 /// The run daemon retires the conductor session: an instance with no `conductor` role is valid.

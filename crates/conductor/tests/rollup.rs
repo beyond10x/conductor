@@ -235,7 +235,11 @@ fn the_rollup_is_kept_apart_from_the_other_records() {
     let case = Case::new("rollup", "apart");
     case.take(B, series_fixture::day_b());
     assert!(
-        case.state().join("series").is_dir(),
-        "the rollups are kept under state/series/"
+        !rollups(&case).is_empty(),
+        "the rollups are records of the instance's tenant, apart from its observations"
+    );
+    assert!(
+        !case.state().join("series").exists(),
+        "no tree of their own is kept under state/series/"
     );
 }

@@ -344,7 +344,7 @@ fn a_session_without_a_socket_is_not_reachable() {
     );
     assert!(case.dispatch_lines().is_empty(), "no dispatch line");
     assert!(
-        !case.state().join("tree").exists(),
+        !case.state().join("store.sqlite").exists(),
         "no store is created for a delivery that was not made"
     );
 }

@@ -1,5 +1,6 @@
-//! `story:observation-retention`: the observations live in their own store, `state/observations/`,
-//! one tenant per snapshot, and only the newest `retention.snapshots` complete snapshots' are kept.
+//! `story:observation-retention`, on the shared store (`story:store-shared`): the observations live
+//! in a tenant of their own per snapshot, `<instance>/observations/<snapshot>`, and only the newest
+//! `retention.snapshots` complete snapshots' are kept.
 //!
 //! A case keeps its state directory in this test target's temporary directory in `target/`. It
 //! takes snapshots through the library ([`snapshot::take_from`], over collectors that record fixed
@@ -32,7 +33,7 @@ use eventlog_core::{
     AppendGroup, AtomicEventStore as _, CommandMeta, EventStore as _, Expected, MAX_READ_LIMIT,
     NewEvent, StreamAppend, StreamId, TenantId, new_event_id, request_hash,
 };
-use eventlog_tree::TreeEventStore;
+use eventlog_sqlite::SqliteEventStore;
 use serde_json::{Value, json};
 use time::OffsetDateTime;
 
@@ -235,50 +236,38 @@ fn at(hours: u32) -> String {
     format!("2026-10-{:02}T{:02}:00:00Z", 1 + hours / 24, hours % 24)
 }
 
-/// The names of the directories directly under `dir`; none where it is not there.
-fn names(dir: &Path) -> BTreeSet<String> {
-    let Ok(entries) = fs::read_dir(dir) else {
-        return BTreeSet::new();
-    };
-    entries
-        .map(|entry| {
-            entry
-                .expect("a directory entry")
-                .file_name()
-                .to_string_lossy()
-                .into_owned()
-        })
-        .collect()
+/// The raw log of the store under `state`: its SQLite file, opened afresh.
+async fn raw(state: &Path) -> SqliteEventStore {
+    SqliteEventStore::open(
+        state
+            .join(store::STORE_FILE)
+            .to_str()
+            .expect("a UTF-8 path"),
+        store::PREFIX,
+    )
+    .await
+    .expect("open the store's database")
 }
 
-/// The tenants of the observation store under `state`.
-fn tenants(state: &Path) -> BTreeSet<String> {
-    names(&state.join("observations/tenants"))
+/// The tenant of the observations of `snapshot` in the store of a state directory of no instance.
+fn observation_tenant(snapshot: &str) -> TenantId {
+    TenantId::new(format!("conductor/observations/{snapshot}")).expect("the snapshot's tenant")
 }
 
-/// The stream types of conductor's tenant in the tree under `state`, by their directories.
-fn tree_stream_types(state: &Path) -> BTreeSet<String> {
-    names(&state.join("tree/tenants/conductor/streams"))
-}
-
-/// Every event of conductor's tenant in the tree under `state`, as `(stream type, stream id)`,
-/// read from a handle opened afresh.
-fn tree_events(state: &Path) -> Vec<(String, String)> {
+/// Every event of `tenant` in the store under `state`, as `(stream type, stream id)`.
+fn events_of(state: &Path, tenant: &TenantId) -> Vec<(String, String)> {
     let runtime = tokio::runtime::Builder::new_current_thread()
         .build()
         .expect("a runtime");
     runtime.block_on(async {
-        let log = TreeEventStore::open(state.join("tree"))
-            .await
-            .expect("open the tree");
-        let tenant = TenantId::new("conductor").expect("the tenant");
+        let log = raw(state).await;
         let mut events = Vec::new();
         let mut after = 0;
         loop {
             let page = log
-                .read_feed(&tenant, after, MAX_READ_LIMIT)
+                .read_feed(tenant, after, MAX_READ_LIMIT)
                 .await
-                .expect("read the tree's feed");
+                .expect("read the feed");
             let more = page.has_more && !page.events.is_empty();
             after = page.next_position;
             events.extend(
@@ -294,16 +283,39 @@ fn tree_events(state: &Path) -> Vec<(String, String)> {
     })
 }
 
-/// Plants a `Snapshot` left collecting, started at `started_at`, in the tree under `state`, as a
+/// The snapshots whose observations the store under `state` holds: those whose tenant holds an
+/// event.
+fn tenants(state: &Path) -> BTreeSet<String> {
+    tree_events(state)
+        .into_iter()
+        .filter(|(stream_type, _)| stream_type == SNAPSHOT)
+        .map(|(_, snapshot)| snapshot)
+        .filter(|snapshot| !events_of(state, &observation_tenant(snapshot)).is_empty())
+        .collect()
+}
+
+/// The stream types of the tenant of the state directory, `conductor`, in the store under `state`.
+fn tree_stream_types(state: &Path) -> BTreeSet<String> {
+    tree_events(state)
+        .into_iter()
+        .map(|(stream_type, _)| stream_type)
+        .collect()
+}
+
+/// Every event of the tenant of the state directory, `conductor`, in the store under `state`, as
+/// `(stream type, stream id)`, read from a handle opened afresh.
+fn tree_events(state: &Path) -> Vec<(String, String)> {
+    events_of(state, &TenantId::new("conductor").expect("the tenant"))
+}
+
+/// Plants a `Snapshot` left collecting, started at `started_at`, in the store under `state`, as a
 /// run that stopped leaves one.
 fn left_collecting(state: &Path, snapshot: &str, started_at: &str) {
     let runtime = tokio::runtime::Builder::new_current_thread()
         .build()
         .expect("a runtime");
     runtime.block_on(async {
-        let log = TreeEventStore::open(state.join("tree"))
-            .await
-            .expect("open the tree");
+        let log = raw(state).await;
         let tenant = TenantId::new("conductor").expect("the tenant");
         let stream = StreamId::new(tenant, SNAPSHOT, snapshot).expect("the snapshot's stream");
         let events = [NewEvent::new(
@@ -573,13 +585,10 @@ fn every_observation_entity_of_the_specification_is_kept_in_its_snapshots_tenant
     let taken = case.take(&at(0), &[every_kind()]);
     assert_eq!(taken.state, SnapshotState::Complete, "{taken:?}");
     let snapshot = &taken.snapshot_id.0.0;
-    let held = names(
-        &case
-            .state
-            .join("observations/tenants")
-            .join(snapshot)
-            .join("streams"),
-    );
+    let held: BTreeSet<String> = events_of(&case.state, &observation_tenant(snapshot))
+        .into_iter()
+        .map(|(stream_type, _)| stream_type)
+        .collect();
     let observations = observation_entities();
     let missing: Vec<&String> = observations.difference(&held).collect();
     assert!(
@@ -609,7 +618,7 @@ const RECORDED: usize = 10;
 /// One command that writes `count` repository observations of `snapshot` into its tenant, each as
 /// the store writes one (`encode_repository` in `src/store/snapshot.rs`).
 fn observations_of(snapshot: &str, count: usize) -> AppendGroup {
-    let tenant = TenantId::new(snapshot).expect("the snapshot's tenant");
+    let tenant = observation_tenant(snapshot);
     let appends = (0..count)
         .map(|n| {
             let observation = new_event_id();
@@ -680,9 +689,7 @@ fn plant(state: &Path, snapshots: &[String], count: usize) {
         .build()
         .expect("a runtime");
     runtime.block_on(async {
-        let log = TreeEventStore::open(state.join("observations"))
-            .await
-            .expect("open the observation store");
+        let log = raw(state).await;
         for snapshot in snapshots {
             log.append_group(&observations_of(snapshot, count))
                 .await
@@ -704,25 +711,6 @@ fn open_times(state: &Path) -> (Duration, Duration) {
         drop(opened);
     }
     (times[0], *times.iter().min().expect("an open"))
-}
-
-/// The number of files under `state/tree/tenants/`.
-fn tree_files(state: &Path) -> usize {
-    fn count(dir: &Path) -> usize {
-        fs::read_dir(dir).map_or(0, |entries| {
-            entries
-                .map(|entry| {
-                    let entry = entry.expect("a directory entry");
-                    if entry.file_type().expect("its type").is_dir() {
-                        count(&entry.path())
-                    } else {
-                        1
-                    }
-                })
-                .sum()
-        })
-    }
-    count(&state.join("tree/tenants"))
 }
 
 /// With 10,000 observation events over 10 snapshots, opening the store (`state/tree/`) takes no
@@ -752,9 +740,9 @@ fn opening_the_tree_with_10000_observations_takes_no_longer_than_with_none() {
     );
 
     assert_eq!(
-        tree_files(&many.state),
-        tree_files(&none.state),
-        "state/tree/ holds the same files with 10,000 observations as with none"
+        tree_events(&many.state).len(),
+        tree_events(&none.state).len(),
+        "the instance's tenant holds the same events with 10,000 observations as with none"
     );
     let (none_first, none_open) = open_times(&none.state);
     let (many_first, many_open) = open_times(&many.state);
@@ -943,38 +931,5 @@ fn completing_a_snapshot_keeps_the_newest_complete_ones_and_drops_the_older_and_
         case.snapshots_in("snapshots").len(),
         8,
         "every Snapshot record stays"
-    );
-}
-
-/// A command that reads no observation never opens `state/observations/`: with its description
-/// damaged, proposing a goal and listing the snapshots succeed, and a view of observations names
-/// it.
-#[test]
-fn a_command_that_reads_no_observation_never_opens_the_observation_store() {
-    let case = Case::new("lazy");
-    let taken = case.take(&at(0), &[every_kind()]);
-    assert_eq!(taken.state, SnapshotState::Complete, "{taken:?}");
-    fs::write(case.state.join("observations/store.json"), b"not json")
-        .expect("damage the observation store's description");
-
-    case.ok(&[
-        "goal",
-        "propose-goal",
-        "--goal-id",
-        "G1",
-        "--title",
-        "Unhindered",
-        "--exit-evidence",
-        "the observation store is never opened",
-    ]);
-    assert_eq!(case.view("snapshots").len(), 1);
-    let output = case.run(&["snapshot", "repositories", "--format", "json"]);
-    let observations = case.state.join("observations");
-    assert!(
-        output.status.code() == Some(1)
-            && String::from_utf8_lossy(&output.stderr)
-                .contains(observations.to_str().expect("UTF-8")),
-        "a view of observations names the store it cannot open: {}",
-        describe(&output)
     );
 }

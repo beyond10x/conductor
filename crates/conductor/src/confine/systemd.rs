@@ -19,7 +19,7 @@
 //!   -S <state>/sessions/<session name>.tmux -f <session name>.tmux.conf` ([`TMUX_CONF`]): it
 //!   holds the PTY of the session's one pane, which runs the harness command, `<program>
 //!   --session-id <id> <arguments>`, whichever harness the role names, and copies its output to
-//!   the typescript `<session name>.typescript`. The id is chosen here. `conductor session
+//!   the terminal log `<session name>.terminal.log`. The id is chosen here. `conductor session
 //!   attach` attaches a terminal to that server (`crate::attach`).
 //! - [`Provider::prompt`] waits until the session list shows the session live, then types the
 //!   prompt into the pane as one paste through tmux ([`type_text`]: `load-buffer` from a file,
@@ -82,7 +82,8 @@ pub const TMUX: &str = "tmux";
 /// which `-D` turns off); panes run `/bin/sh`, not the operator's login shell; the prefix is
 /// `ctrl-]`, so `ctrl-]` then `d` detaches and `ctrl-b` stays the harness's; no status line, so
 /// the harness has the whole screen; the window is 160 by 50; the pane runs the harness command
-/// `CONDUCTOR_HARNESS` and copies its output to the typescript `CONDUCTOR_TYPESCRIPT`. The
+/// `CONDUCTOR_HARNESS` and copies its output to the terminal log `CONDUCTOR_TERMINAL_LOG` (the old
+/// variable `CONDUCTOR_TYPESCRIPT` when that is unset, for one release). The
 /// session's name is `CONDUCTOR_SESSION`, which also marks every process of the session as one
 /// (`story:session-attach-refuses-sessions`). Nothing here names a harness.
 pub const TMUX_CONF: &str = r#"set -s exit-empty on
@@ -93,7 +94,7 @@ set -g prefix 'C-]'
 unbind C-b
 bind 'C-]' send-prefix
 new-session -d -s "$CONDUCTOR_SESSION" -c "$CONDUCTOR_CWD" -x 160 -y 50 'exec /bin/sh -c "$CONDUCTOR_HARNESS"'
-pipe-pane -o -t "=$CONDUCTOR_SESSION:" 'exec cat >> "$CONDUCTOR_TYPESCRIPT"'
+pipe-pane -o -t "=$CONDUCTOR_SESSION:" 'exec cat >> "${CONDUCTOR_TERMINAL_LOG:-$CONDUCTOR_TYPESCRIPT}"'
 "#;
 
 /// What the pane runs before the harness: tmux, built with systemd, moves each pane it spawns
@@ -374,7 +375,7 @@ impl Systemd {
         let name = &request.session_name;
         let socket = session_file(&launch.state, name, "tmux");
         let conf = session_file(&launch.state, name, "tmux.conf");
-        let typescript = session_file(&launch.state, name, "typescript");
+        let log = session_file(&launch.state, name, "terminal.log");
         let dir = socket.parent().unwrap_or(&launch.state);
         fs::create_dir_all(dir).with_context(|| format!("create {}", dir.display()))?;
         // A socket a server killed without cleanup left behind is replaced by the new server.
@@ -420,7 +421,7 @@ impl Systemd {
             "SHELL=/bin/bash".to_owned(),
             format!("CONDUCTOR_SESSION={}", name.0),
             format!("CONDUCTOR_CWD={}", request.cwd),
-            format!("CONDUCTOR_TYPESCRIPT={}", typescript.display()),
+            format!("CONDUCTOR_TERMINAL_LOG={}", log.display()),
             format!("CONDUCTOR_HARNESS={command}"),
         ];
         if let Some(path) = std::env::var_os("PATH") {

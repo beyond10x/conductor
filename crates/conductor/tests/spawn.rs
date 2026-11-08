@@ -327,7 +327,7 @@ impl Case {
 
     /// Whether the store was created at all.
     fn recorded(&self) -> bool {
-        self.state().join("tree").exists()
+        self.state().join("store.sqlite").exists()
     }
 }
 

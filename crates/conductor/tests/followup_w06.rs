@@ -615,7 +615,7 @@ fn a_collector_reads_the_state_directory_through_its_recorder() {
         Some(case.state.as_path())
     );
     assert!(
-        case.state.join("tree").is_dir(),
+        case.state.join("store.sqlite").is_file(),
         "the store is kept under the state directory"
     );
 

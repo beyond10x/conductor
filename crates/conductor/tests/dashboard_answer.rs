@@ -904,31 +904,28 @@ fn adv_concurrent_page_and_cli_answers_leave_one_decision_in_force() {
 }
 
 /// Risk 1: the second of the two writes (the request's move to Answered) fails for a reason other
-/// than another writer (here its stream cannot be written, as on a full disk). The doc of
+/// than another writer (here the database refuses its stream, as on a full disk). The doc of
 /// `answer_as_operator` promises "no decision answers no request": the decision just recorded
 /// is not to stay in force while its request is still Escalated.
-#[cfg(unix)]
 #[test]
 fn adv_a_failed_move_of_the_request_leaves_no_decision_in_force() {
-    use std::os::unix::fs::PermissionsExt as _;
     let case = Case::new("adv-failed-move");
     let port = case.start();
     let token = token(port);
-    let stream = fs::read_dir(case.state().join("tree/tenants"))
-        .expect("the store's tenants")
-        .filter_map(Result::ok)
-        .map(|tenant| {
-            tenant
-                .path()
-                .join("streams/conductor.decision.DecisionRequest")
-                .join(YES_NO)
-        })
-        .find(|stream| stream.is_dir())
-        .expect("the yes-no request's stream directory");
-    fs::set_permissions(&stream, fs::Permissions::from_mode(0o555)).expect("make it read-only");
+    let database =
+        rusqlite::Connection::open(case.state().join("store.sqlite")).expect("open the database");
+    database
+        .execute_batch(&format!(
+            "CREATE TRIGGER refuse_the_request BEFORE INSERT ON conductor_events \
+             WHEN NEW.stream_type = 'conductor.decision.DecisionRequest' \
+             AND NEW.stream_id = '{YES_NO}' BEGIN SELECT RAISE(ABORT, 'disk full'); END"
+        ))
+        .expect("refuse the request's stream");
     let body = serde_json::to_vec(&json!({"answers": one_answer()})).expect("a JSON body");
     let answer = post_with(port, &body, &[("X-Conductor-Token", Some(token))]);
-    fs::set_permissions(&stream, fs::Permissions::from_mode(0o755)).expect("make it writable");
+    database
+        .execute_batch("DROP TRIGGER refuse_the_request")
+        .expect("write the request's stream again");
     let row = result(&answer, YES_NO);
     assert_ne!(row["outcome"], "recorded", "the move failed: {row}");
     assert_eq!(case.request(YES_NO)["state"], "Escalated");

@@ -40,6 +40,18 @@ types:
     kind: enum
     variants: [Succeeded, Refused, RolledBack]
 
+  # The input of `conductor daemon serve` (design § 4, story:daemon-reconcile): without a flag it
+  # runs conductord in the foreground; `install` writes the user unit `conductord.service`
+  # running it, then enables and starts it; `uninstall` disables and stops that unit and removes
+  # its file. At most one is given. The story writes `conductor daemon --install`; the `ess-cli/1`
+  # binding refuses a group that is also a command, so they are flags of `daemon serve`, as
+  # `once` is of `run`.
+  - name: conductor.instance.ServeDaemon
+    kind: struct
+    fields:
+      - {name: install, type: Optional<Boolean>}
+      - {name: uninstall, type: Optional<Boolean>}
+
 entities:
   # One instance the config names, keyed by its name. Desired fields are read from the config at
   # each reconciliation (`placement`, `roles`); actual fields from what runs (`state`,

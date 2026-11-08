@@ -170,12 +170,12 @@ fn adv2_a_view_on_an_empty_store_directory_refuses_and_writes_nothing() {
 
     // The mutation, expressed here rather than in the source: opening it with `open`.
     let probe = root.join("probe");
-    fs::create_dir_all(probe.join("tree")).expect("create the probe's store directory");
+    fs::create_dir_all(probe.join("tree")).expect("create the probe's old store directory");
     drop(store::open(&probe).expect("`store::open` mints a store in an empty directory"));
-    assert_eq!(
-        walk(&probe.join("tree")),
-        [".lock", "store.json"],
-        "what `open` leaves behind, and what the case below must not find"
+    assert!(
+        walk(&probe).contains(&"store.sqlite".to_owned()),
+        "what `open` leaves behind, and what the case below must not find: {:?}",
+        walk(&probe)
     );
 
     let output = conductor(
@@ -189,7 +189,7 @@ fn adv2_a_view_on_an_empty_store_directory_refuses_and_writes_nothing() {
             "json",
         ],
     );
-    assert_refused_untouched(&output, &store_dir, &[], "an empty tree/");
+    assert_refused_untouched(&output, &state, &["tree".to_owned()], "an empty tree/");
     assert_eq!(walk(&work), Vec::<String>::new());
 }
 
@@ -218,8 +218,8 @@ fn adv2_a_view_on_a_store_with_a_lock_and_no_manifest_refuses_and_writes_nothing
     );
     assert_refused_untouched(
         &output,
-        &store_dir,
-        &[".lock".to_owned()],
+        &state,
+        &["tree".to_owned(), "tree/.lock".to_owned()],
         "a lock without a manifest",
     );
     assert_eq!(walk(&work), Vec::<String>::new());
