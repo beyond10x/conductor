@@ -427,6 +427,15 @@ commands:
         type: Timestamp
         example: "2026-10-15T09:00:00Z"
     outcomes:
+      # The KPI targets are a person's (design § 5; architecture-next § 3 "Actors"): an agent or
+      # the daemon is refused by kind before the metric is read.
+      - name: actor-not-human
+        when: actor.kind != Human
+        error: conductor.operator.ActorNotHuman
+        payload:
+          conductor.operator.ActorNotHuman:
+            actor: input.actor
+        summary: An agent or the daemon tried to set a KPI target; only a person sets one, and the metric is unchanged.
       - name: targeted
         when_subject_state: Untargeted
         moves: conductor.improvement.Metric.target

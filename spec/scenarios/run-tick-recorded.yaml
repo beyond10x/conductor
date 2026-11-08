@@ -11,7 +11,7 @@ timeline:
     command: conductor.session.RecordRunTick
     actor: conductor.session.Conductor
     input:
-      actor: {kind: Agent, agent: {instance: example-org, role: Director, name: example-org-conductor, kind: claude-code}}
+      actor: {kind: Daemon}
       kind: watch
       started_at: 2026-10-17T09:00:00Z
       lines_handled: 3
@@ -22,7 +22,7 @@ timeline:
     command: conductor.session.RecordRunTick
     actor: conductor.session.Conductor
     input:
-      actor: {kind: Agent, agent: {instance: example-org, role: Director, name: example-org-conductor, kind: claude-code}}
+      actor: {kind: Daemon}
       kind: cycle
       started_at: 2026-10-17T09:10:00Z
       lines_handled: 0
@@ -33,7 +33,7 @@ timeline:
     command: conductor.session.RecordRunTick
     actor: conductor.session.Conductor
     input:
-      actor: {kind: Agent, agent: {instance: example-org, role: Director, name: example-org-conductor, kind: claude-code}}
+      actor: {kind: Daemon}
       kind: daily
       started_at: 2026-10-17T09:10:30Z
       lines_handled: -1

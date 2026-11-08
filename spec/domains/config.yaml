@@ -1395,7 +1395,7 @@ commands:
             revision_id: {generated: true}
             actor: input.actor
             level: input.level
-            instance: input.instance
+            instance_name: input.instance
             role: input.role
             path: input.path
             value: input.value
@@ -1405,6 +1405,11 @@ commands:
           reconciles the instances the change touches.
 
 events:
+  # The instance is `instance_name` here, not `instance`: ess 0.90.0's caller-swapped rerun
+  # (`rename` in ess-conformance `synthesize/caller.rs`) suffixes every JSON string under a key
+  # named `instance` in the steps it appends, an expected event payload's own field included,
+  # while the command input's literal keeps its value, so the synthesized payload check fails.
+  # UNMAPPED: no ess issue is filed for it yet; once ess fixes it the field is `instance` again.
   - name: conductor.config.ConfigChanged
     fields:
       - name: revision_id
@@ -1413,7 +1418,7 @@ events:
         type: conductor.operator.Actor
       - name: level
         type: conductor.config.Level
-      - name: instance
+      - name: instance_name
         type: Optional<conductor.config.InstanceName>
       - name: role
         type: Optional<conductor.config.RoleName>

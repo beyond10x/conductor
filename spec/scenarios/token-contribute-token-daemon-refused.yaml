@@ -1,0 +1,27 @@
+# docs/design/architecture-next.md § 3 (Actors), § 5.3: only a person contributes a token; the
+# daemon holds no grant and is refused by kind, so a guard narrowed to `actor.kind == Agent`
+# fails here.
+type: ess-scenario/1
+domain: conductor.token
+scenario: token-contribute-token-daemon-refused
+summary: The daemon trying to contribute a token is refused with ActorNotHuman, and the pool holds no token.
+
+timeline:
+  - at: 2026-11-08T09:00:00Z
+    command: conductor.token.ContributeToken
+    actor: conductor.token.Operator
+    input:
+      actor: {kind: Daemon}
+      instance: example-org
+      owner: alice
+      seat: alice@example-org.example
+      secret: example-org-claude-alice
+      contributed_at: 2026-11-08T09:00:00Z
+    outcome: actor-not-human
+    error:
+      name: conductor.operator.ActorNotHuman
+
+assert:
+  - view: conductor.token.Tokens
+    excludes:
+      owner: alice

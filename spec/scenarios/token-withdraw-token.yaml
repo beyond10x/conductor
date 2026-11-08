@@ -45,7 +45,6 @@ timeline:
         payload:
           token_id: {$instance: token}
           owner: alice
-          agent: example-org-controller
 
   - at: 2026-11-08T18:01:00Z
     command: conductor.token.WithdrawToken
