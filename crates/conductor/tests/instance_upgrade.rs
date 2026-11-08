@@ -19,11 +19,11 @@ use std::thread;
 use std::time::{Duration, Instant, SystemTime};
 
 use anyhow::{Result, bail};
-use conductor_cli::confine::systemd::Service;
 use conductor_cli::daemon::reconcile::{Binary, Daemon, unit_name};
 use conductor_cli::daemon::units::Units;
 use conductor_cli::daemon::upgrade::{self, Refusal, Releases, Upgraded};
 use conductor_cli::daemon::{api, reconcile::Done};
+use conductor_cli::systemd::Service;
 use conductor_model::behaviour::ReconciliationStorage;
 use conductor_model::instance::{ReconcileAction, ReconcileReason, ReconcileResult};
 use conductor_model::operator::ActorKind;

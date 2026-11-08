@@ -47,8 +47,8 @@ use serde_json::{Value, json};
 use super::api::Route;
 use super::host_roles::{self, HostStart};
 use super::units::Units;
-use crate::confine::systemd::{self, Service};
 use crate::store::Store;
+use crate::systemd::{self, Service};
 
 /// What the daemon started, beside its store: one [`Started`] per instance, by name.
 pub const RUNTIMES_FILE: &str = "runtimes.json";
@@ -193,6 +193,9 @@ pub struct Daemon<U: Units> {
     /// What opens a box opener for a remote substrate daemon, with its bearer
     /// (`story:placement-substrate-remote`); the SDK's remote transport by default.
     pub remote: crate::placement::RemoteSubstrate,
+    /// Where a box's model token comes from: the daemon's secrets source by default
+    /// ([`crate::placement::token_source`]).
+    pub tokens: crate::placement::TokenSource,
     pub(super) boxes: BTreeMap<String, crate::placement::OpenedBox>,
     store: Store,
     /// `daemon.store` as the file wrote it at start: the store above, handed every runtime.
@@ -245,6 +248,7 @@ impl<U: Units> Daemon<U> {
             releases: Box::new(super::upgrade::Github),
             substrate: Box::new(crate::placement::Sdk::default()),
             remote: crate::placement::sdk_remote(),
+            tokens: crate::placement::token_source(),
             boxes,
             store,
             url,
@@ -342,16 +346,139 @@ impl<U: Units> Daemon<U> {
             .then_some(ReconcileReason::Cadence))
     }
 
-    /// [`Daemon::due`], then the pass it calls for.
+    /// [`Daemon::due`], then the pass it calls for, then [`Daemon::keep_boxes`].
     ///
     /// # Errors
     ///
     /// What [`Daemon::due`] or [`Daemon::pass`] answers.
     pub fn tick(&mut self, now: Instant) -> Result<Vec<Done>> {
-        match self.due(now)? {
-            Some(reason) => self.pass(reason, now),
-            None => Ok(Vec::new()),
+        let mut done = match self.due(now)? {
+            Some(reason) => self.pass(reason, now)?,
+            None => Vec::new(),
+        };
+        done.extend(self.keep_boxes(std::time::SystemTime::now())?);
+        Ok(done)
+    }
+
+    /// Keeps each box the daemon opened past substrate's bounds at `now`.
+    ///
+    /// # Errors
+    ///
+    /// A reconciliation cannot be recorded.
+    /// A box's leases are renewed every [`crate::placement::RENEW_EVERY`], each by
+    /// [`crate::placement::RUN_BOUND`]; its runtime, whose run substrate ends at its hard
+    /// deadline, is stopped and started anew in the same box
+    /// [`crate::placement::RESTART_BEFORE`] that deadline, recorded as a `Restart` for
+    /// `RunBound`, with substrate's name when it refuses. A silent daemon is asked again at the
+    /// next tick.
+    pub fn keep_boxes(&mut self, now: std::time::SystemTime) -> Result<Vec<Done>> {
+        let now = epoch(now);
+        let renew_every = crate::placement::RENEW_EVERY.as_secs();
+        let restart_at = (crate::placement::RUN_BOUND - crate::placement::RESTART_BEFORE).as_secs();
+        let mut done = Vec::new();
+        let mut changed = false;
+        let names: Vec<String> = self.boxes.keys().cloned().collect();
+        for name in names {
+            let Some(mut opened) = self.boxes.get(&name).cloned() else {
+                continue;
+            };
+            if opened.started_at == 0 {
+                opened.started_at = now;
+            }
+            if now.saturating_sub(opened.started_at) >= restart_at {
+                let instance = self
+                    .config
+                    .instances
+                    .iter()
+                    .find(|instance| instance.name.0 == name)
+                    .cloned();
+                if let Some(instance) = instance {
+                    done.push(self.restart_in_box(&instance, &mut opened, now)?);
+                }
+            } else if now.saturating_sub(opened.renewed_at) >= renew_every {
+                let renewed = substrate_of(
+                    self.substrate.as_mut(),
+                    &self.remote,
+                    &self.config.daemon.secrets,
+                    opened.remote.as_ref(),
+                )
+                .renew(
+                    &opened.workspace,
+                    &opened.session,
+                    crate::placement::RUN_BOUND,
+                );
+                if renewed.is_ok() {
+                    opened.renewed_at = now;
+                }
+            }
+            if self.boxes.get(&name) != Some(&opened) {
+                changed = true;
+                self.boxes.insert(name, opened);
+            }
         }
+        if changed {
+            self.save()?;
+        }
+        Ok(done)
+    }
+
+    /// Stops the runtime of `instance` in its box `opened` and starts it anew there, at `now`.
+    fn restart_in_box(
+        &mut self,
+        instance: &Instance,
+        opened: &mut crate::placement::OpenedBox,
+        now: u64,
+    ) -> Result<Done> {
+        let name = instance.name.0.clone();
+        let desired = self.desired(&name);
+        let token = crate::dashboard::mint().context("mint the runtime's token")?;
+        let service = self.service(instance, &desired, &token);
+        let mut request = self.box_request(instance, &service);
+        if opened.remote.is_none() {
+            request.secret_slots = opened.slot.iter().cloned().collect();
+        }
+        let mut substrate = substrate_of(
+            self.substrate.as_mut(),
+            &self.remote,
+            &self.config.daemon.secrets,
+            opened.remote.as_ref(),
+        );
+        let restarted = substrate
+            .stop(&opened.session)
+            .map_err(|error| crate::placement::Refused {
+                name: crate::placement::UNREACHABLE.to_owned(),
+                detail: format!("{error:#}"),
+            })
+            .and_then(|()| substrate.restart(&opened.workspace, &request));
+        drop(substrate);
+        let outcome = match restarted {
+            Ok(session) => {
+                opened.session = session;
+                opened.started_at = now;
+                opened.renewed_at = now;
+                let unit = boxed_unit(opened);
+                if let Some(started) = self.started.get_mut(&name) {
+                    started.unit = unit;
+                    started.token = Some(token);
+                }
+                self.running.insert(name.clone(), true);
+                Ok(())
+            }
+            Err(refused) => Err(anyhow!(
+                "the runtime of {name} did not restart in its box {}: {}: {}",
+                opened.workspace,
+                refused.name,
+                refused.detail
+            )),
+        };
+        let at = crate::records::now()?;
+        self.record(
+            &name,
+            ReconcileAction::Restart,
+            ReconcileReason::RunBound,
+            outcome,
+            &at,
+        )
     }
 
     /// Which started runtimes run, and whether one that ran at the last look no longer does.
@@ -525,6 +652,9 @@ impl<U: Units> Daemon<U> {
         self.config = config;
         self.last_pass = Some(now);
         let at = crate::records::now()?;
+        self.pool()
+            .prepare()
+            .context("daemon.substrate_slots: prepare the slot files")?;
         let mut done = self.settle(std::time::SystemTime::now())?;
         let instances = self.config.instances.clone();
         for instance in &instances {
@@ -579,11 +709,21 @@ impl<U: Units> Daemon<U> {
                     let token = crate::dashboard::mint().context("mint the runtime's token")?;
                     let service = self.service(instance, &desired, &token);
                     wanted.token = Some(token);
-                    (
-                        ReconcileAction::Start,
-                        why,
-                        self.start_runtime(instance, &service),
-                    )
+                    // A runtime whose session substrate ended (its run bound, its output bound)
+                    // leaves its box open: closed, and its slot freed, before a new one opens.
+                    let outcome = match held {
+                        Some(held)
+                            if self
+                                .boxes
+                                .get(&name)
+                                .is_some_and(|opened| boxed_unit(opened) == held.unit) =>
+                        {
+                            self.stop_runtime(&name, &held.unit)
+                                .and_then(|()| self.start_runtime(instance, &service))
+                        }
+                        _ => self.start_runtime(instance, &service),
+                    };
+                    (ReconcileAction::Start, why, outcome)
                 }
             };
             let outcome = outcome.map(|unit| {
@@ -662,12 +802,82 @@ impl<U: Units> Daemon<U> {
     /// it ([`crate::placement::open_box`]), on the remote daemon its placement names when it
     /// names one, never through the service manager; a refusal is `PlacementRefused` with
     /// substrate's name, and nothing falls back. The runtime's token is not handed into the box:
-    /// substrate 0.16.1 seals only slots its daemon declares.
+    /// substrate seals only slots its daemon declares, and its model token goes through the
+    /// slot pool ([`crate::placement::SlotPool`]).
     fn start_runtime(&mut self, instance: &Instance, service: &Service) -> Result<String> {
         if !crate::placement::boxed(instance) {
             self.units.start(service)?;
             return Ok(service.unit.clone());
         }
+        let mut request = self.box_request(instance, service);
+        let remote = instance
+            .remote
+            .as_ref()
+            .map(crate::placement::RemoteAt::from);
+        // A local box's model token goes through a free slot of the pool; a box without one
+        // receives no slot. Conductor cannot make the request: refused before substrate is asked.
+        let mut slot = None;
+        let mut refusal = None;
+        if remote.is_none() {
+            request.secret_slots.clear();
+            if let Some(name) = &instance.model_token {
+                match (self.tokens)(&self.config.daemon.secrets, name) {
+                    Some(value) => match self.pool().acquire(&self.held_slots(), &value) {
+                        Ok(acquired) => {
+                            request.secret_slots.push(acquired.clone());
+                            slot = Some(acquired);
+                        }
+                        Err(refused) => refusal = Some(refused),
+                    },
+                    None => {
+                        refusal = Some(crate::placement::Refused {
+                            name: crate::placement::MODEL_TOKEN_UNAVAILABLE.to_owned(),
+                            detail: format!(
+                                "the secrets source holds no secret {} for model_token",
+                                name.0
+                            ),
+                        });
+                    }
+                }
+            }
+        }
+        let mut refusing;
+        let mut substrate = match refusal {
+            Some(refused) => {
+                refusing = crate::placement::Refusing(refused);
+                Box::new(&mut refusing) as Box<dyn crate::placement::Substrate + Send + '_>
+            }
+            None => substrate_of(
+                self.substrate.as_mut(),
+                &self.remote,
+                &self.config.daemon.secrets,
+                remote.as_ref(),
+            ),
+        };
+        let opened = crate::placement::open_box(&mut self.store, substrate.as_mut(), &request);
+        drop(substrate);
+        let mut opened = match opened {
+            Ok(opened) => opened,
+            Err(refused) => {
+                if let Some(slot) = &slot {
+                    let _ = self.pool().free(slot);
+                }
+                return Err(refused.into());
+            }
+        };
+        let now = epoch(std::time::SystemTime::now());
+        opened.remote = remote;
+        opened.slot = slot;
+        opened.started_at = now;
+        opened.renewed_at = now;
+        let unit = boxed_unit(&opened);
+        self.boxes.insert(instance.name.0.clone(), opened);
+        Ok(unit)
+    }
+
+    /// The box `instance` asks for, its runtime started as `service` says, with no credential in
+    /// its environment: substrate seals only slots its daemon declares.
+    fn box_request(&self, instance: &Instance, service: &Service) -> crate::placement::BoxRequest {
         let token = format!("{}=", crate::instance::TOKEN_VARIABLE);
         let env = service
             .env
@@ -677,24 +887,24 @@ impl<U: Units> Daemon<U> {
             .map(|(name, value)| (name.to_owned(), value.to_owned()))
             .collect();
         let binary = PathBuf::from(service.command.first().cloned().unwrap_or_default());
-        let request = crate::placement::request(instance, &self.config_file, &binary, env);
-        let remote = instance
-            .remote
-            .as_ref()
-            .map(crate::placement::RemoteAt::from);
-        let mut substrate = substrate_of(
-            self.substrate.as_mut(),
-            &self.remote,
-            &self.config.daemon.secrets,
-            remote.as_ref(),
-        );
-        let opened = crate::placement::open_box(&mut self.store, substrate.as_mut(), &request);
-        drop(substrate);
-        let mut opened = opened?;
-        opened.remote = remote;
-        let unit = boxed_unit(&opened);
-        self.boxes.insert(instance.name.0.clone(), opened);
-        Ok(unit)
+        crate::placement::request(instance, &self.config_file, &binary, env)
+    }
+
+    /// The local substrate daemon's model-token slot pool (`daemon.substrate_slots`), under the
+    /// daemon's directory.
+    fn pool(&self) -> crate::placement::SlotPool {
+        crate::placement::SlotPool {
+            dir: self.dir.join(crate::placement::SLOTS_DIR),
+            size: usize::try_from(self.config.daemon.substrate_slots).unwrap_or(0),
+        }
+    }
+
+    /// The slots the open boxes hold.
+    fn held_slots(&self) -> BTreeSet<String> {
+        self.boxes
+            .values()
+            .filter_map(|opened| opened.slot.clone())
+            .collect()
     }
 
     /// Stops the runtime of `name`, started as `unit`: closes its box when it runs in one, on the
@@ -713,6 +923,9 @@ impl<U: Units> Daemon<U> {
                 drop(substrate);
                 closed?;
                 self.boxes.remove(name);
+                if let Some(slot) = &opened.slot {
+                    self.pool().free(slot)?;
+                }
                 Ok(())
             }
             _ => self.units.stop(unit),
@@ -742,6 +955,8 @@ impl<U: Units> Daemon<U> {
         // The runtime starts in its state directory, which a first start creates; a directory
         // that cannot be made fails the start, which names it.
         let _ = fs::create_dir_all(&instance.state);
+        // The box's writable host root, which substrate refuses by name when it is absent.
+        let _ = crate::placement::prepare_sessions(Path::new(&instance.state));
         Service {
             unit: unit_name(name),
             slice: systemd::slice_name(
@@ -1035,4 +1250,10 @@ fn read_config(file: &Path, home: &Path) -> Result<(String, Config)> {
         anyhow!("{}", lines.join("\n"))
     })?;
     Ok((text, config))
+}
+
+/// `at` in whole seconds since the epoch; 0 before it.
+fn epoch(at: std::time::SystemTime) -> u64 {
+    at.duration_since(std::time::UNIX_EPOCH)
+        .map_or(0, |since| since.as_secs())
 }

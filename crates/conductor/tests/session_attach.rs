@@ -21,7 +21,7 @@ use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Output, Stdio};
 use std::time::{Duration, Instant};
 
-use conductor_cli::confine::systemd;
+use conductor_cli::systemd;
 use conductor_model::config::SessionName;
 use scratch::Scratch;
 

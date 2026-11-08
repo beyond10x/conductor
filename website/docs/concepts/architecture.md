@@ -796,7 +796,7 @@ Surveyed on 2026-11-07 at each repository's newest commit, so nobody reads them 
 | Loom 0.57.2 | a run-once Job in a cluster that reports its exit code; no attach, no message in, no Substrate in the pod | no: a cluster is substrate's `pod` adapter |
 | mantle 0.3.1 | a whole session on a remote worker with attach | no: a remote substrate gives the same box as the local one |
 | takt 0.34.0 | one case to a named exit (0 to 9) with an events file; no dispatcher; cross-repository work deferred to conductor | after v1: the first run-to-exit agent kind |
-| substrate 0.16.1 | adapters `local`, `linux`, `macos`, `systemd`, `oci`, `pod`; a daemon over a socket or HTTPS; sealed secret slots; named refusals | yes: the only placement |
+| substrate 0.20.0 | adapters `local`, `linux`, `macos`, `systemd`, `oci`, `pod`; a daemon over a socket or HTTPS; sealed secret slots; writable host roots the daemon declares by name; named refusals | yes: the only placement |
 | secrets 0.6.0 | a storage port with the OS keychain and the Secrets service as backends, routed per namespace | yes: the secrets source |
 
 ### The integration branch and the order of work

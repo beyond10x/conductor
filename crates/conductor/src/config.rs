@@ -414,7 +414,7 @@ pub const TREE_STALE_HOURS: u64 = 48;
 
 /// The keys of each mapping the file holds, in the order `config show` writes them.
 const CONFIG_KEYS: [&str; 5] = ["version", "daemon", "globals", "default", "instances"];
-const INSTANCE_KEYS: [&str; 28] = [
+const INSTANCE_KEYS: [&str; 29] = [
     "name",
     "placement",
     "remote",
@@ -441,6 +441,7 @@ const INSTANCE_KEYS: [&str; 28] = [
     "catalog",
     "secret_syncs",
     "gates_policy",
+    "model_token",
     "forge",
     "conductor",
 ];
@@ -498,7 +499,7 @@ const REMOVED_KEYS: [(&str, &str); 3] = [
         "the store is the deployment's one database, at daemon.store",
     ),
 ];
-const DAEMON_KEYS: [&str; 10] = [
+const DAEMON_KEYS: [&str; 11] = [
     "port",
     "loopback",
     "tls",
@@ -509,6 +510,7 @@ const DAEMON_KEYS: [&str; 10] = [
     "operators",
     "upgrade_timeout",
     "timeout",
+    "substrate_slots",
 ];
 const TLS_KEYS: [&str; 4] = ["listen", "cert", "key", "identity"];
 const DAEMON_CADENCE_KEYS: [&str; 1] = ["reconcile"];
@@ -1541,6 +1543,8 @@ pub fn built_in(home: &Path, cwd: &Path) -> Instance {
         secret_syncs: Vec::new(),
         // A Gates policy is named only by a user (story:gates-hooks-fresh).
         gates_policy: None,
+        // A model token is named only by a user.
+        model_token: None,
         // Forge writes take the bot route unless a user names another (story:forge-route).
         forge: default_forge(),
         // Its own conductor, the built-in director role's session, under the role's old name for
@@ -1876,6 +1880,7 @@ pub fn default_daemon(home: &Path) -> Daemon {
         operators: Vec::new(),
         upgrade_timeout: Duration(format!("PT{UPGRADE_TIMEOUT}S")),
         timeout: Duration(format!("PT{FEDERATED_TIMEOUT}S")),
+        substrate_slots: 0,
     }
 }
 
@@ -1999,6 +2004,32 @@ fn url_password(url: &str) -> Option<&str> {
     })
 }
 
+/// The placement map that `config show`'s `placement: <adapter>@<url>` and `remote` mapping
+/// were printed from (`story:placement-substrate-remote`): the daemon at `url` with the remote's
+/// bearer, trust roots and server identity. `None` when `placement` names no remote daemon or
+/// `remote` is no mapping of that same url; the placement is then read as written.
+fn shown_remote_placement(placement: &Value, remote: Option<&Value>) -> Option<Value> {
+    let crate::placement::Resolved {
+        daemon: crate::placement::Where::Remote(url),
+        adapter,
+    } = crate::placement::resolve(placement.as_str()?)?
+    else {
+        return None;
+    };
+    let remote = remote?.as_object()?;
+    if remote.get("url")?.as_str()? != url {
+        return None;
+    }
+    let mut map = remote.clone();
+    map.remove("url");
+    map.insert("daemon".to_owned(), Value::String(url));
+    map.insert(
+        "adapter".to_owned(),
+        Value::String(crate::placement::adapter_word(adapter).to_owned()),
+    );
+    Some(Value::Object(map))
+}
+
 /// The YAML path of `key` under `parent`.
 fn join(parent: &str, key: &str) -> String {
     let key = if looks_like_token(key) {
@@ -2119,7 +2150,8 @@ impl Reader<'_> {
                     // A secret-bearing key names its secret and holds none
                     // (`story:config-globals`); its value is never echoed.
                     if secret_bearing(key) {
-                        if !item.as_str().is_some_and(secret_name) {
+                        // `null` is an absent secret, as `config show` writes one.
+                        if !item.is_null() && !item.as_str().is_some_and(secret_name) {
                             self.problem(
                                 &at,
                                 "holds a secret by its name: write secret:<name>, the name the \
@@ -2598,6 +2630,26 @@ impl Reader<'_> {
             Some(value) => self.duration(value, &join(path, "timeout")),
             None => Some(defaults.timeout.clone()),
         };
+        // The local substrate daemon's model-token slot pool (substrate 0.20.0): a whole number.
+        let substrate_slots = match Self::get(map, "substrate_slots") {
+            Some(value) => {
+                let slots = value
+                    .as_i64()
+                    .filter(|slots| (0..=crate::placement::MAX_SLOTS).contains(slots));
+                if slots.is_none() {
+                    self.problem(
+                        &join(path, "substrate_slots"),
+                        format!(
+                            "`{}` is no slot count: write a whole number from 0 to {}",
+                            value,
+                            crate::placement::MAX_SLOTS
+                        ),
+                    );
+                }
+                slots
+            }
+            None => Some(defaults.substrate_slots),
+        };
         Some(Daemon {
             port: port?,
             loopback: loopback?,
@@ -2609,6 +2661,7 @@ impl Reader<'_> {
             operators: operators?,
             upgrade_timeout: upgrade_timeout?,
             timeout: timeout?,
+            substrate_slots: substrate_slots?,
         })
     }
 
@@ -3320,7 +3373,10 @@ impl Reader<'_> {
         let mut daemon = None;
         let placement = if self.second {
             self.required(map, path, "placement")
-                .and_then(|value| self.placement(value, &join(path, "placement")))
+                .and_then(|value| {
+                    let shown = shown_remote_placement(value, Self::get(map, "remote"));
+                    self.placement(shown.as_ref().unwrap_or(value), &join(path, "placement"))
+                })
                 .map(|read| {
                     daemon = read.daemon;
                     read.name
@@ -3421,6 +3477,16 @@ impl Reader<'_> {
             Some(value) => self.path(value, &join(path, "gates_policy")).map(Some),
             None => Some(None),
         };
+        // The box's model token, `secret:<name>`: anything else is the generic secret-bearing
+        // check's problem at the same path, since the key ends in `token`.
+        let model_token = match Self::get(map, "model_token") {
+            Some(Value::String(text)) if secret_name(text) => Some(
+                text.strip_prefix("secret:")
+                    .map(|name| conductor_model::secret::SecretName(name.to_owned())),
+            ),
+            Some(_) => None,
+            None => Some(None),
+        };
         let forge = match Self::get(map, "forge") {
             Some(value) => self.forge(value, &join(path, "forge")),
             None => Some(default_forge()),
@@ -3456,6 +3522,7 @@ impl Reader<'_> {
             catalog: catalog?,
             secret_syncs: secret_syncs?,
             gates_policy: gates_policy?,
+            model_token: model_token?,
             forge: forge?,
         })
     }
@@ -4941,6 +5008,16 @@ pub fn document(instance: &Instance) -> Yaml {
         ),
         ("gates_policy", optional(instance.gates_policy.as_ref())),
         (
+            "model_token",
+            optional(
+                instance
+                    .model_token
+                    .as_ref()
+                    .map(|name| format!("secret:{}", name.0))
+                    .as_ref(),
+            ),
+        ),
+        (
             "forge",
             mapping([("route", text(forge_route_word(instance.forge.route)))]),
         ),
@@ -5111,6 +5188,10 @@ pub fn daemon_document(daemon: &Daemon) -> Yaml {
         ),
         ("upgrade_timeout", text(&written(&daemon.upgrade_timeout))),
         ("timeout", text(&written(&daemon.timeout))),
+        (
+            "substrate_slots",
+            Yaml::Number(daemon.substrate_slots.into()),
+        ),
     ])
 }
 

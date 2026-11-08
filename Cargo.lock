@@ -281,8 +281,8 @@ dependencies = [
 
 [[package]]
 name = "b10x-substrate-sdk"
-version = "0.16.1"
-source = "git+https://github.com/beyond10x/substrate?tag=0.16.1#f2fd606b88a0b778970e8babe9a96eb600cd57b2"
+version = "0.20.0"
+source = "git+https://github.com/beyond10x/substrate?rev=546693082bcc10590fd4509f1b31926b3e3d1ddb#546693082bcc10590fd4509f1b31926b3e3d1ddb"
 dependencies = [
  "b10x-substrate-wire",
  "base64 0.23.1",
@@ -312,8 +312,8 @@ dependencies = [
 
 [[package]]
 name = "b10x-substrate-wire"
-version = "0.16.1"
-source = "git+https://github.com/beyond10x/substrate?tag=0.16.1#f2fd606b88a0b778970e8babe9a96eb600cd57b2"
+version = "0.20.0"
+source = "git+https://github.com/beyond10x/substrate?rev=546693082bcc10590fd4509f1b31926b3e3d1ddb#546693082bcc10590fd4509f1b31926b3e3d1ddb"
 dependencies = [
  "base64 0.23.1",
  "chrono",
@@ -999,7 +999,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "39cab71617ae0d63f51a36d69f866391735b51691dbda63cf6f96d042b63efeb"
 dependencies = [
  "libc",
- "windows-sys 0.52.0",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -2272,7 +2272,7 @@ dependencies = [
  "errno",
  "libc",
  "linux-raw-sys",
- "windows-sys 0.52.0",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -2721,7 +2721,7 @@ dependencies = [
  "getrandom 0.4.3",
  "once_cell",
  "rustix",
- "windows-sys 0.52.0",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]

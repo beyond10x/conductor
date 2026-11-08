@@ -28,7 +28,7 @@ The file, `conductor.config/2` (design architecture-next § 9). A key it does no
 
 ## Daemon
 
-The `daemon` section (design architecture-next § 4, § 5.2, § 8, § 9): `port`, the loopback port of the global API on 127.0.0.1, 1 to 65535, absent 7300; `tls`, the TLS listener, absent when none is configured; `cadence.reconcile`; `store`, the one URL of the deployment's shared database, which the daemon hands to every instance runtime it starts; `secrets`, the secrets source; `dashboard`, the path the daemon serves the dashboard app at, absent `/`; `operators`, the deployment's operators, at least the one the Unix user names on a single host; `upgrade_timeout`, how long an upgraded instance runtime has to answer before the daemon rolls it back to its previous binary, a duration, absent 120 s; `timeout`, how long an instance has to answer one federated read of the global API before it is a row with `state: unreachable`, a duration, absent 5 s. `loopback`, whether the daemon serves the loopback listener on `port`, absent true: a box with no local operator writes false, its API then the TLS listener alone, so false with no `tls` is refused at validate by the key's YAML path, and `daemon serve --install` writes a system unit for it rather than the user unit.
+The `daemon` section (design architecture-next § 4, § 5.2, § 8, § 9): `port`, the loopback port of the global API on 127.0.0.1, 1 to 65535, absent 7300; `tls`, the TLS listener, absent when none is configured; `cadence.reconcile`; `store`, the one URL of the deployment's shared database, which the daemon hands to every instance runtime it starts; `secrets`, the secrets source; `dashboard`, the path the daemon serves the dashboard app at, absent `/`; `operators`, the deployment's operators, at least the one the Unix user names on a single host; `upgrade_timeout`, how long an upgraded instance runtime has to answer before the daemon rolls it back to its previous binary, a duration, absent 120 s; `timeout`, how long an instance has to answer one federated read of the global API before it is a row with `state: unreachable`, a duration, absent 5 s. `loopback`, whether the daemon serves the loopback listener on `port`, absent true: a box with no local operator writes false, its API then the TLS listener alone, so false with no `tls` is refused at validate by the key's YAML path, and `daemon serve --install` writes a system unit for it rather than the user unit. `substrate_slots`, the size of the local substrate daemon's model-token slot pool, absent 0 (substrate 0.20.0, design 11: a slot is daemon configuration, never a per-request value): the operator declares `--secret-slot model_token_<i>=<daemon dir>/slots/model_token_<i>` for each `i` below it; before a box opens the daemon writes the instance's `model_token` into a free slot's file (mode 0600), names that slot in the start, and frees it when the box closes.
 
 | Key | Type | Default | Rule |
 |---|---|---|---|
@@ -51,6 +51,7 @@ The `daemon` section (design architecture-next § 4, § 5.2, § 8, § 9): `port`
 | `daemon.operators[].grants` | list of `answerdecisions` \| `changesettings` \| `startinstances` \| `stopinstances` \| `upgradeinstances` \| `purge` \| `join` | `[]` | `grant` distinct across `grants` |
 | `daemon.upgrade_timeout` | duration | `120s` |  |
 | `daemon.timeout` | duration | `5s` |  |
+| `daemon.substrate_slots` | integer | `0` | `substrate_slots >= 0` |
 
 ## Globals
 
@@ -225,6 +226,7 @@ A key path written `a[].b` is the key `b` of each element of the list `a`. A def
 | `secret_syncs[].command` | string | required |  |
 | `secret_syncs[].dry_run` | string | none |  |
 | `gates_policy` | string | none |  |
+| `model_token` | [SecretName](#secretname) | none |  |
 | `forge.route` | `gates` \| `direct` | `gates` |  |
 | `conductor.served_by` | [InstanceName](#instancename) | derived |  |
 | `conductor.session_name` | [SessionName](#sessionname) | derived |  |
@@ -533,7 +535,7 @@ Keys: `path`, `min`, `max`. Specified as `conductor.improvement.TunableKey`.
 
 ### RemoteDaemon
 
-A substrate daemon on a remote host or cluster, `substrate-daemon --tcp-listen --tcp-bearer-file`, reached over HTTPS/WSS at `url` with an Identity bearer (§ 6, `placement.daemon: <url>`). The bearer is a secret the config names and never holds (§ 9). `trust_roots` is the PEM file of the roots the daemon's certificate is verified against and `server_identity` the DNS name it must carry: substrate 0.16.1's SDK has no ambient roots and takes both explicitly; `server_identity` written absent is the URL's host.
+A substrate daemon on a remote host or cluster, `substrate-daemon --tcp-listen --tcp-bearer-file`, reached over HTTPS/WSS at `url` with an Identity bearer (§ 6, `placement.daemon: <url>`). The bearer is a secret the config names and never holds (§ 9). `trust_roots` is the PEM file of the roots the daemon's certificate is verified against and `server_identity` the DNS name it must carry: substrate 0.20.0's SDK has no ambient roots and takes both explicitly; `server_identity` written absent is the URL's host.
 
 Keys: `url`, `bearer`, `trust_roots`, `server_identity`. Specified as `conductor.placement.RemoteDaemon`.
 

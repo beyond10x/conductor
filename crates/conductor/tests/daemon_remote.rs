@@ -22,9 +22,9 @@ use std::thread;
 use std::time::{Duration, Instant};
 
 use anyhow::{Result, bail};
-use conductor_cli::confine::systemd::Service;
 use conductor_cli::daemon::install;
 use conductor_cli::daemon::units::Units;
+use conductor_cli::systemd::Service;
 use serde_json::{Value, json};
 
 struct Case {
