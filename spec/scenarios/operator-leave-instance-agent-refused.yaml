@@ -1,0 +1,31 @@
+type: ess-scenario/1
+domain: conductor.operator
+scenario: operator-leave-instance-agent-refused
+summary: A leave issued by an agent actor is refused by name, ActorNotHuman, and the operator stays active.
+
+timeline:
+  - at: 2026-11-08T09:00:00Z
+    command: conductor.operator.JoinInstance
+    actor: conductor.operator.Engineer
+    input:
+      actor: {kind: Human, value: {operator: operator-one}}
+      key: {operator: operator-one, instance: example-org}
+      grants: [AnswerDecisions]
+      joined_at: 2026-11-08T09:00:00Z
+    outcome: joined
+
+  - at: 2026-11-08T10:00:00Z
+    command: conductor.operator.LeaveInstance
+    actor: conductor.operator.Engineer
+    input:
+      actor: {kind: Agent, value: {instance: example-org, role: controller, name: example-org-controller, kind: claude-code}}
+      key: {operator: operator-one, instance: example-org}
+      left_at: 2026-11-08T10:00:00Z
+    outcome: actor-not-human
+    error: {name: conductor.operator.ActorNotHuman}
+
+assert:
+  - view: conductor.operator.Operators
+    contains:
+      key: {operator: operator-one, instance: example-org}
+      state: Active

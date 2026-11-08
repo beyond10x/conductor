@@ -1,0 +1,34 @@
+type: ess-scenario/1
+domain: conductor.operator
+scenario: operator-join-instance
+summary: An engineer joins an instance and is its active operator with the grants given; a second join while active is refused and changes nothing.
+
+timeline:
+  - at: 2026-11-08T09:00:00Z
+    command: conductor.operator.JoinInstance
+    actor: conductor.operator.Engineer
+    input:
+      actor: {kind: Human, value: {operator: operator-one}}
+      key: {operator: operator-one, instance: example-org}
+      grants: [AnswerDecisions, ChangeSettings]
+      joined_at: 2026-11-08T09:00:00Z
+    outcome: joined
+
+  - at: 2026-11-08T09:05:00Z
+    command: conductor.operator.JoinInstance
+    actor: conductor.operator.Engineer
+    input:
+      actor: {kind: Human, value: {operator: operator-one}}
+      key: {operator: operator-one, instance: example-org}
+      grants: [AnswerDecisions]
+      joined_at: 2026-11-08T09:05:00Z
+    outcome: already-joined
+    error: {name: conductor.operator.AlreadyJoined}
+
+assert:
+  - view: conductor.operator.Operators
+    contains:
+      key: {operator: operator-one, instance: example-org}
+      state: Active
+      grants: [AnswerDecisions, ChangeSettings]
+      joined_at: 2026-11-08T09:00:00Z
