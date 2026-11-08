@@ -46,4 +46,24 @@ One commit per unit on its branch, their merges into `wave/v1-2`, the closing co
 
 ## Outcome
 
-(filled at the close)
+Delivered 2026-11-08; the three stories are implemented, on the `task check` run of pull request
+109, merged into `v1` at 421c1d982.
+
+| unit | result |
+|---|---|
+| T terminal-log-name | the recording is `<session>.terminal.log`; the old name read for one release; a test greps every `--help` and docs page |
+| D daemon-reconcile | `conductor daemon serve` reconciles runtimes from the config, one Reconciliation per action, `GET /v1/instances`, `conductord.service`; `run --install` gone |
+| S store-shared | one database per deployment through eventlog 0.9.2's sqlite and postgres adapters; tenants per instance; `store migrate` reads the tree once |
+| integration | the daemon opens `daemon.store` under its own tenant, refuses to start without it, and hands it to every runtime |
+
+| gate | value |
+|---|---|
+| `cargo test -p conductor-cli` | 1441 passed, 0 failed, 7 ignored |
+| CI on pull request 109 | `task check`, Gates and the documentation build pass |
+
+Deviations from the plan:
+
+- Merge order D before S (D finished first); one conflict, in `doctor.rs`, resolved by keeping the store line and the daemon unit line.
+- The install command is `conductor daemon serve --install`: `ess-cli/1` cannot bind a group that is also a command.
+- The bot route refuses to push any branch cut from `v1` (its ancestry holds a merge GitHub made off the default branch); the wave branch was published as one commit through the GitHub data API, and this closing commit went onto `v1` the same way after the merge.
+- No adversary pass this wave.
