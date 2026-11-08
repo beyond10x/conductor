@@ -31,6 +31,7 @@ pub mod goal;
 pub mod guard;
 pub mod host;
 pub mod init;
+pub mod instance;
 pub mod message;
 pub mod metric;
 pub mod need;

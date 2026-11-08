@@ -292,7 +292,7 @@ pub struct OperatorItem {
 }
 
 /// The unanswered operator items of `store` (decision requests in state `Escalated`), the one
-/// raised first first, then by id. `conductor status`, the dashboard's `/api/unanswered` and the
+/// raised first first, then by id. `conductor status`, the dashboard's `/v1/unanswered` and the
 /// watch's `escalated`/`unanswered` lines read them here (`story:decisions-notify`).
 #[must_use]
 pub fn unanswered(store: &Store) -> Vec<OperatorItem> {
@@ -920,7 +920,7 @@ fn failing_checks(pulls: &[&PullRequestObservationData]) -> Vec<String> {
 }
 
 /// The figures of each repository of the snapshot `held` in `store` that is not archived, in name
-/// order, as `conductor.observation.RepositoryFigures`: the rows the dashboard's `/api/board`
+/// order, as `conductor.observation.RepositoryFigures`: the rows the dashboard's `/v1/board`
 /// answers (`story:dashboard-overview`), worked out by the one [`figures`] the board's deviations
 /// and delta are, so the two never disagree.
 pub(crate) fn repository_figures(store: &Store, held: &SnapshotSnapshot) -> Vec<RepositoryFigures> {
@@ -1141,7 +1141,7 @@ pub(crate) fn waiting_for_review(
 }
 
 /// The pull requests of the snapshot `held` in `store` that wait for review, oldest first
-/// ([`waiting_for_review`]): the dashboard's `/api/reviews` and the watch's count read these, so
+/// ([`waiting_for_review`]): the dashboard's `/v1/reviews` and the watch's count read these, so
 /// they never disagree with the board.
 pub(crate) fn waiting_in(
     store: &Store,

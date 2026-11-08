@@ -14,6 +14,7 @@
 
 mod active;
 mod common;
+mod served;
 
 use std::collections::BTreeMap;
 use std::ffi::OsString;
@@ -24,7 +25,7 @@ use std::path::{Path, PathBuf};
 use std::process::{Output, Stdio};
 use std::time::{Duration, Instant};
 
-use conductor_cli::dashboard::{self, Sources};
+use conductor_cli::dashboard::Sources;
 use serde_json::{Value, json};
 use time::OffsetDateTime;
 
@@ -626,14 +627,14 @@ fn the_dashboard_carries_the_repository_table_under_usage() {
 
     let listener = TcpListener::bind("127.0.0.1:0").expect("bind a free port");
     let port = listener.local_addr().expect("the bound address").port();
-    std::thread::spawn(move || dashboard::serve(listener, sources));
+    served::serve(listener, sources, conductor_cli::state::dir(None).ok());
 
     let deadline = Instant::now() + Duration::from_secs(60);
     let data = loop {
-        let body = get(port, "/data.json");
-        let data = json_of(&body, "/data.json");
+        let body = get(port, "/v1/instances/example-org/data.json");
+        let data = json_of(&body, "/v1/instances/example-org/data.json");
         if data["usage"]["measured_at"].is_string() {
-            assert_private_kept(&body, "/data.json");
+            assert_private_kept(&body, "/v1/instances/example-org/data.json");
             break data;
         }
         assert!(

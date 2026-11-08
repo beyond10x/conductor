@@ -14,11 +14,11 @@ order below is the order the edges allow, and the design's § 14 order where the
 
 | wave | stories | objective | status |
 |---|---|---|---|
-| 1 | spec-v1 | the whole v1 system modelled in `spec/`, the model regenerated; every other story reads its domain here | proposed |
-| 2 | daemon-reconcile, store-shared, terminal-log-name | the daemon that reconciles instances; the one shared database; the terminal log's name | planned |
+| 1 | spec-v1 | the whole v1 system modelled in `spec/`, the model regenerated; every other story reads its domain here | implemented |
+| 2 | daemon-reconcile, store-shared, terminal-log-name | the daemon that reconciles instances; the one shared database; the terminal log's name | implemented |
 | 3 | instance-api, config-globals, instance-upgrade | the instance runtime with its API; the config levels and `PutConfig`; upgrade with rollback | planned |
-| 4 | federated-views, agent-kinds, secrets-source, host-roles-by-daemon | the global API's federated routes; the agent trait with `claude-code`; secrets as slots; the host roles under the daemon | planned |
-| 5 | tui-readonly, tuner, daemon-remote, placement-substrate-local, token-pool | the TUI; the tuning grant; the daemon on a remote box; a substrate box per instance and agent; the token pool | planned |
+| 4 | federated-views, agent-kinds, secrets-source | the global API's federated routes; the agent trait with `claude-code`; secrets as slots | planned |
+| 5 | tui-readonly, tuner, daemon-remote, placement-substrate-local, token-pool, host-roles-by-daemon | the TUI; the tuning grant; the daemon on a remote box; a substrate box per instance and agent; the token pool; the host roles under the daemon, after the substrate (design § 14 orders placement before host roles) | planned |
 | 6 | placement-substrate-remote | a remote substrate daemon over HTTPS; attach as a stream | planned |
 | cutover | — | the live instance moves to `v1`'s binary and config once; `v1` merges into `main` after one day; release 1.0.0 | planned |
 
@@ -38,6 +38,15 @@ A decision with a safe default (one that can be undone) is taken by the coordina
 reported afterwards as a decision taken, with its reason. The coordinator stops for the operator
 only at a wave's approval and before an action that cannot be undone (operator, 2026-11-08). A
 question with a safe default once left the plan idle for three and a half hours.
+
+The operator approved every remaining wave of this plan ahead of time (2026-11-08). Each wave
+starts when the one before it closes, with no approval stop; the coordinator still stops before
+an action that cannot be undone, such as the cutover onto `main`.
+
+No unit and no wave runs the full gate locally (operator, 2026-11-08). A unit runs only the checks
+its change touches: `ess specify validate`, `task regen` when the specification changed, the test
+files it added or changed, the unit tests of the modules it changed, and `cargo fmt --check`. The
+full gate runs once, at the end, in CI.
 
 ## Backlog
 

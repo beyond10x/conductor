@@ -169,9 +169,10 @@ pub struct Places {
     /// (`story:guard-all-tools`): the tools each rule set allows beyond the built-in read-only
     /// allowlist.
     read_only: [Vec<String>; 2],
-    /// The instance's `dashboard_port`: a Bash call that posts to it is denied
-    /// (`story:decisions-batch-answer`).
-    dashboard_port: i64,
+    /// The file's `daemon.port`, where conductord serves the dashboard and its API: a Bash call that
+    /// posts to it is denied
+    /// (`story:decisions-batch-answer`, `story:instance-api`).
+    daemon_port: i64,
     /// The instance's `forge.route` (`story:forge-route`): under `direct` a session's own pull or
     /// merge requests are written with `gh` or `glab` ([`Session::direct_denial`]).
     forge_route: ForgeRoute,
@@ -191,13 +192,15 @@ impl Places {
     /// records are; without one, [`Places::built_in`].
     #[must_use]
     pub fn active(home: &Path, active: &Active) -> Self {
-        Self::of(
+        let mut places = Self::of(
             home,
             &active.instance,
             active.from_file,
             &active.others,
             active.default.as_ref().map(|name| name.0.clone()),
-        )
+        );
+        places.daemon_port = active.daemon_port;
+        places
     }
 
     fn of(
@@ -262,26 +265,33 @@ impl Places {
                     .flat_map(|role| role.read_only_tools.iter().cloned())
                     .collect()
             }),
-            dashboard_port: config::legacy(instance).dashboard_port,
+            daemon_port: config::DAEMON_PORT,
             forge_route: instance.forge.route,
         }
     }
 
     /// Whether the Bash `command` answers for the operator through the dashboard
-    /// (`story:decisions-batch-answer`): it names the answers endpoint, `/api/answers`, or names the
-    /// instance's dashboard port as `:<port>` (whatever spells the loopback address before it:
-    /// `127.0.0.1`, `localhost`, `[::1]`, `0x7f000001`, none) and sends a POST or a body by any client
-    /// ([`posts`]). A substring test, a speed bump and not a boundary: a script the command runs, a
-    /// port or path a variable holds, or a percent-encoded path is not caught.
+    /// (`story:decisions-batch-answer`, `story:instance-api`): it names an answers endpoint (the
+    /// instance API's `/v1/answers`, or `/answers` of an instance through the daemon), or names an
+    /// instance's socket `api.sock` or the daemon's port as `:<port>` (whatever spells the loopback
+    /// address before it: `127.0.0.1`, `localhost`, `[::1]`, `0x7f000001`, none) and sends a POST or
+    /// a body by any client ([`posts`]). A substring test, a speed bump and not a boundary: a
+    /// script the command runs, a port or path a variable holds, or a percent-encoded path is not
+    /// caught.
     fn posts_to_dashboard(&self, command: &str) -> bool {
-        let port = format!(":{}", self.dashboard_port);
+        let answers = command.contains(crate::dashboard::ANSWERS_PATH)
+            || (command.contains("/v1/instances/") && command.contains("/answers"));
+        if answers || (command.contains(crate::instance::SOCKET) && posts(command)) {
+            return true;
+        }
+        let port = format!(":{}", self.daemon_port);
         let names_port = command.match_indices(&port).any(|(at, _)| {
             !command[at + port.len()..]
                 .chars()
                 .next()
                 .is_some_and(|next| next.is_ascii_digit())
         });
-        command.contains(crate::dashboard::ANSWERS_PATH) || (names_port && posts(command))
+        names_port && posts(command)
     }
 
     /// The tools `rules` allows beyond the built-in read-only allowlist: its role's
@@ -1546,11 +1556,12 @@ impl Session<'_> {
             return (
                 Verdict::Deny,
                 format!(
-                    "the command posts to the dashboard (it names {} or posts to port {}): only \
+                    "the command posts to the dashboard (it names {}, an instance's api.sock, or \
+                     posts to the daemon's port {}): only \
                      the operator sends the operator's answers, from the Decisions page; relay \
                      his words with `conductor decision answer-escalated-as-operator`",
                     crate::dashboard::ANSWERS_PATH,
-                    self.places.dashboard_port
+                    self.places.daemon_port
                 ),
             );
         }

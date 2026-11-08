@@ -3,7 +3,7 @@
 //! a repeat request from memory, and `304 Not Modified` to one whose `If-None-Match` names the
 //! answer it holds; a new write to the store refreshes the answer.
 //!
-//! The cases serve [`dashboard::serve_over`] in this process on a free port of `127.0.0.1` over a
+//! The cases serve [`served::serve`] in this process on a free port of `127.0.0.1` over a
 //! fixture store under this test target's temporary directory, as `dashboard_overview.rs` does.
 //! Nothing is read from the environment: the home, the records, the watch and the store are the
 //! case's, and the session list is `cat` of a file of the case.
@@ -17,6 +17,7 @@
 //! ```
 
 mod active;
+mod served;
 
 use std::ffi::OsString;
 use std::fs;
@@ -26,7 +27,7 @@ use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
 
 use conductor_cli::collect::Collector;
-use conductor_cli::dashboard::{self, Sources};
+use conductor_cli::dashboard::Sources;
 use conductor_cli::snapshot::{self, Recorder};
 use conductor_cli::store;
 use conductor_model::observation::{
@@ -41,27 +42,27 @@ use serde_json::Value;
 /// The endpoints whose answer is the store's alone, so that a repeat request with nothing
 /// written in between is `304`.
 const STORE_ENDPOINTS: [&str; 12] = [
-    "/api/board",
-    "/api/repositories",
-    "/api/pull-requests",
-    "/api/workflow-runs",
-    "/api/releases",
-    "/api/reviews",
-    "/api/events?since=2026-10-13T00%3A00%3A00Z",
-    "/api/series",
-    "/api/series?series=prs_merged&days=30",
-    "/api/kpis",
-    "/api/blockers",
-    "/api/specifications",
+    "/v1/instances/example-org/board",
+    "/v1/instances/example-org/repositories",
+    "/v1/instances/example-org/pull-requests",
+    "/v1/instances/example-org/workflow-runs",
+    "/v1/instances/example-org/releases",
+    "/v1/instances/example-org/reviews",
+    "/v1/instances/example-org/events?since=2026-10-13T00%3A00%3A00Z",
+    "/v1/instances/example-org/series",
+    "/v1/instances/example-org/series?series=prs_merged&days=30",
+    "/v1/instances/example-org/kpis",
+    "/v1/instances/example-org/blockers",
+    "/v1/instances/example-org/specifications",
 ];
 
 /// The endpoints that read a live source beside the store (the session list, the free disk, the
 /// clock): each still answers with an `ETag` and from memory where it reads the store.
 const LIVE_ENDPOINTS: [&str; 4] = [
-    "/data.json",
-    "/api/health",
-    "/api/waiting-on",
-    "/api/sessions?repository=repo-00",
+    "/v1/instances/example-org/data.json",
+    "/v1/instances/example-org/health",
+    "/v1/instances/example-org/waiting-on",
+    "/v1/instances/example-org/sessions?repository=repo-00",
 ];
 
 /// How long a repeat request may take.
@@ -151,7 +152,7 @@ impl Case {
         let listener = TcpListener::bind("127.0.0.1:0").expect("bind a free port");
         let port = listener.local_addr().expect("the bound address").port();
         let (sources, state) = (self.sources(), self.state());
-        std::thread::spawn(move || dashboard::serve_over(listener, sources, Some(state)));
+        served::serve(listener, sources, Some(state));
         port
     }
 
@@ -428,7 +429,11 @@ fn a_new_write_refreshes_the_cached_answer() {
     let case = Case::new("refresh");
     case.complete("2026-10-13T06:00:00Z", 2, 1);
     let port = case.start();
-    let paths = ["/api/board", "/api/repositories", "/api/blockers"];
+    let paths = [
+        "/v1/instances/example-org/board",
+        "/v1/instances/example-org/repositories",
+        "/v1/instances/example-org/blockers",
+    ];
     let held: Vec<(String, Answer)> = paths
         .iter()
         .map(|path| ((*path).to_owned(), get(port, path, None)))

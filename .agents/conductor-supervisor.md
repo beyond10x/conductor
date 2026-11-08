@@ -66,7 +66,7 @@ Persistence: a modification that is generic persists in conductor; anything else
 | per instance | `records`, `state` from the config; charters in `<records>/charters/` |
 | units | `systemctl --user list-units 'conductor_*' --all`; the daemon = `conductord.service`; an instance's runtime = `conductor_<instance>-runtime.service`, started by the daemon |
 | sessions | `claude agents --json`; `claude logs <id>`, `claude attach <id>`, `claude stop <id>` (conversation kept) |
-| dashboards | one per instance, started by `task dashboard` with that instance active; its port is `dashboard_port` of the instance in `conductor config show`; the page is `http://127.0.0.1:<port>/` |
+| dashboard | one page for every instance, served by conductord: `http://127.0.0.1:<daemon.port>/?instance=<name>` (`task dashboard` prints it for the active instance); no per-instance dashboard process runs |
 | account rotation | the user unit `usage.watcher` names; `conductor doctor` reports it; its own commands are in the host's own file |
 | disk | `df -BG --output=avail <thresholds.disk_path>` against `thresholds.disk_low`; `conductor host reclaim`, `conductor gc --dry-run` per instance; a host disk keeper, if any, is in the host's own file |
 | KPIs | `conductor metric metric-readings` (every recorded reading, column `day`), `conductor metric kpi-readings` (only metrics with a target), `conductor metric compute --day <UTC day>`; definitions and targets in the product repository's `docs/design/self-improvement.md` |
@@ -85,7 +85,7 @@ refuse `--instance`. Every `conductor` command acts on one instance.
 | an instance's rules, charters, decisions, dispatches, north star | `<records>/`, a git repository | only when it has a remote and is pushed (check `git status -sb` in every routine pass; commit and push by the instance's rules) |
 | an instance's store, mailbox, metrics, session settings | `<state>/` | no |
 | hand-offs (yours, the teacher's, the maintainer's) | `host/`, `<state>/conductor-dev/handoff/` | no |
-| runtimes and dashboards | `systemd-run` units | no: gone at reboot; `conductord.service` (installed with `conductor daemon serve --install`) starts at login and starts every runtime again; run `task dashboard` per instance in the routine's first pass |
+| runtimes | `systemd-run` units | no: gone at reboot; `conductord.service` (installed with `conductor daemon serve --install`) starts at login, serves the dashboard and starts every runtime again |
 
 A rule that must outlive this host goes into the conductor repository through conductor-dev.
 
@@ -153,8 +153,8 @@ one background Bash that exits on it.
    `answer-escalated-as-operator`, or a reply delivered to the controller for a `[NEED]`), by the
    "Which decisions are yours" table; a controller whose request waits is idle, and the loop does
    not answer for you.
-   Host checks in the same step: every dashboard port answering 200 (`curl -s -o /dev/null -w
-   '%{http_code}' http://127.0.0.1:<port>/`); the `usage.watcher` unit active and its newest journal
+   Host checks in the same step: the daemon's page answering 200 (`curl -s -o /dev/null -w
+   '%{http_code}' http://127.0.0.1:<daemon.port>/`); the `usage.watcher` unit active and its newest journal
    lines naming an account with headroom; free disk at or above `thresholds.disk_low`;
    `context: <session> <n>k tokens` lines in each run journal against
    `thresholds.context_handover`; a `Usage limit reached` banner in any session's `claude logs`
@@ -167,7 +167,7 @@ one background Bash that exits on it.
    holding a `daily` tick since the last daily cadence.
 2. Fix what is reversible: a dead daemon (`conductor daemon serve --install`; it starts a dead runtime again itself), a stuck session start, a stale
    workspace file (`conductor config workspace`), Active marks outside the operator's selection, a
-   missing charter for a selected repository, a dead dashboard (`task dashboard`), free disk under
+   missing charter for a selected repository, free disk under
    `thresholds.disk_low` (`conductor host reclaim`, or the host's disk keeper, in a background Bash
    that prints `df` before and after; never `du` over a home or a worktree root), a session stopped
    on `Usage limit reached` (rotate to an account with headroom by the host's own file; an account
@@ -192,8 +192,7 @@ one background Bash that exits on it.
    minutes): start a missing controller now with `CONDUCTOR_INSTANCE=<name> conductor spawn
    --repository <repo>` (refused while one of that name runs). Do not restart a loop in the middle
    of a cycle: the cycle's work is lost. Restart one only when `conductor session run-ticks` shows
-   its last `cycle` tick followed by `watch` ticks; after the daemon restarted a runtime on a new
-   binary, restart the instance's dashboard too, so it runs the new binary.
+   its last `cycle` tick followed by `watch` ticks.
 4. Use sub-agents for parallel work (one per instance or per independent job); do not do serially
    what can run at once.
 5. Never discard uncommitted work. Before stopping a session, ask it for a hand-off and wait for its

@@ -148,7 +148,7 @@ const PAGE: ConfigPage = {
   instance: 'example-org',
   index: 0,
   fields: FIELDS,
-  instances: [{ name: 'example-org', dashboard_port: 7313, session_prefix: 'eo', forge: 'github', current: true }],
+  instances: [{ name: 'example-org', session_prefix: 'eo', forge: 'github', current: true }],
   repositories: [{ repository: 'alpha', activity: 'Active', decided_by: 'Snapshot', marked_by: null, reason: null }],
   errors: [],
   writable: true,

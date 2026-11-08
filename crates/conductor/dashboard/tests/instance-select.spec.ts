@@ -1,17 +1,18 @@
-// story:dashboard-instance-switch: the header's selector lists the host's instances from
-// /api/instances, marks the one this page shows, and opens another instance's own dashboard at
-// the same view; with one instance it shows just its name.
+// story:dashboard-instance-switch, story:instance-api: the header's selector lists the daemon's
+// instances from /v1/instances, marks the one this page shows (its ?instance=, else the first),
+// and opens the same page for another instance at the same view; with one instance it shows just
+// its name.
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { flushPromises, mount } from '@vue/test-utils';
 import InstanceSelect from '../src/components/InstanceSelect.vue';
-import type { DashboardInstance } from '../src/api/instances';
+import type { InstanceRow } from '../src/api/instances';
 
-function row(name: string, port: number, current: boolean): DashboardInstance {
-  return { name, dashboard_port: port, url: `http://127.0.0.1:${port}/`, current };
+function row(name: string): InstanceRow {
+  return { name, state: 'Running', placement: 'local' };
 }
 
-function answering(instances: DashboardInstance[]) {
-  return vi.fn(async () => Response.json({ instances, errors: [] }));
+function answering(instances: InstanceRow[]) {
+  return vi.fn(async () => Response.json(instances));
 }
 
 afterEach(() => {
@@ -21,12 +22,12 @@ afterEach(() => {
 describe('InstanceSelect', () => {
   it('lists three instances, marks this one, and opens another at the same view', async () => {
     window.location.hash = '#/decisions';
-    const fetcher = answering([row('alpha', 7313, false), row('beta', 7314, true), row('gamma', 7315, false)]);
+    const fetcher = answering([row('alpha'), row('beta'), row('gamma')]);
     const navigate = vi.fn();
-    const wrapper = mount(InstanceSelect, { props: { fetcher, navigate } });
+    const wrapper = mount(InstanceSelect, { props: { fetcher, navigate, named: 'beta' } });
     await flushPromises();
 
-    expect(fetcher).toHaveBeenCalledWith('/api/instances', expect.anything());
+    expect(fetcher).toHaveBeenCalledWith('/v1/instances', expect.anything());
     const select = wrapper.find('select');
     expect(select.attributes('aria-label')).toBe('Instance');
     expect(wrapper.findAll('option').map((option) => option.text())).toEqual([
@@ -34,21 +35,30 @@ describe('InstanceSelect', () => {
       'beta (this page)',
       'gamma',
     ]);
-    expect((select.element as HTMLSelectElement).value).toBe('http://127.0.0.1:7314/');
+    expect((select.element as HTMLSelectElement).value).toBe('beta');
     expect(wrapper.find('option[aria-current="page"]').text()).toBe('beta (this page)');
 
-    await select.setValue('http://127.0.0.1:7315/');
-    expect(navigate).toHaveBeenCalledWith('http://127.0.0.1:7315/#/decisions');
+    await select.setValue('gamma');
+    expect(navigate).toHaveBeenCalledWith('?instance=gamma#/decisions');
 
     navigate.mockClear();
-    await select.setValue('http://127.0.0.1:7314/');
+    await select.setValue('beta');
     expect(navigate).not.toHaveBeenCalled();
     wrapper.unmount();
   });
 
-  it('shows just the name when the host has one instance', async () => {
+  it('shows the first instance when the page names none', async () => {
     const wrapper = mount(InstanceSelect, {
-      props: { fetcher: answering([row('alpha', 7313, true)]), navigate: vi.fn() },
+      props: { fetcher: answering([row('alpha'), row('beta')]), navigate: vi.fn(), named: null },
+    });
+    await flushPromises();
+    expect(wrapper.find('option[aria-current="page"]').text()).toBe('alpha (this page)');
+    wrapper.unmount();
+  });
+
+  it('shows just the name when the daemon has one instance', async () => {
+    const wrapper = mount(InstanceSelect, {
+      props: { fetcher: answering([row('alpha')]), navigate: vi.fn(), named: null },
     });
     await flushPromises();
     expect(wrapper.find('select').exists()).toBe(false);
@@ -56,7 +66,7 @@ describe('InstanceSelect', () => {
     wrapper.unmount();
   });
 
-  it('shows nothing when /api/instances cannot be read', async () => {
+  it('shows nothing when /v1/instances cannot be read', async () => {
     const wrapper = mount(InstanceSelect, {
       props: { fetcher: vi.fn(async () => new Response('nope', { status: 404 })), navigate: vi.fn() },
     });

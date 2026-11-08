@@ -176,19 +176,19 @@ Every command takes these, before or after its name.
 | [`conductor build`](#conductor-build) |  |
 | [`conductor build run`](#conductor-build-run) | Reserve disk for a command's expected peak in the host ledger, reclaiming first when it does not fit; run it in its own process group under the disk watchdog, record its peak, release the reservation when it exits or is killed, and exit with its status; exit 2 naming the shortfall when reclaim cannot reach the size |
 | [`conductor config`](#conductor-config) |  |
-| [`conductor config migrate`](#conductor-config-migrate) | Write a session_prefix into each instance of the config file that names none; --check prints them and writes nothing |
+| [`conductor config migrate`](#conductor-config-migrate) | Convert a conductor.config/1 file to conductor.config/2 once, noting each key dropped or moved, and write a session_prefix into each instance that names none; --check prints what it would write and writes nothing |
+| [`conductor config put`](#conductor-config-put) | Change one key of the config file at one level - global, instance or role - validated, written, committed to the config repository with the actor and the reason, and recorded in the daemon's store as a ConfigRevision; the daemon reconciles on the changed file |
 | [`conductor config show`](#conductor-config-show) | Print one instance's effective config, after defaults, as a config file, and the host's roles from host.yaml under `host` (not in yaml) |
 | [`conductor config validate`](#conductor-config-validate) | Check the config file and the host file host.yaml; exit 1 naming each problem by its YAML path |
 | [`conductor config workspace`](#conductor-config-workspace) | Write the instance's workspace file from its config; --check names each difference |
 | [`conductor daemon`](#conductor-daemon) |  |
 | [`conductor daemon serve`](#conductor-daemon-serve) | Run conductord, the daemon of the control host, reconciling the instance runtimes from the config file - start what is absent, stop what is gone, restart what changed placement or binary - on a config change, a lost runtime and every daemon.cadence.reconcile, recording one Reconciliation per action, and serving GET 127.0.0.1:&lt;daemon.port>/v1/instances. --install writes, enables and starts the user unit conductord.service; --uninstall stops and removes it |
-| [`conductor dashboard`](#conductor-dashboard) |  |
-| [`conductor dashboard serve`](#conductor-dashboard-serve) | Serve a live, read-only page of what every session works on |
 | [`conductor doctor`](#conductor-doctor) | Report the machine, each program conductor starts as present, with its version, or missing, each one older than its pin in the nearest b10x.toml, or else in the pins conductor was built with, and the account each forge CLI is logged in as on each host of the config file's sources |
 | [`conductor gc`](#conductor-gc) | Remove what the dashboard's disk panel marks reclaimable, and no tree a live session works in; print the bytes freed |
 | [`conductor init`](#conductor-init) | Install the host's supervisor and teacher agents in ~/.claude/agents/ where missing, printing installed, kept or differs per file, then write and commit the instance's records directory skeleton; refuse to overwrite any file |
 | [`conductor instance`](#conductor-instance) |  |
-| [`conductor instance serve`](#conductor-instance-serve) | Run one instance's runtime in its box, its loop, its agents and the instance API; not written yet, exits 2 |
+| [`conductor instance serve`](#conductor-instance-serve) | Serve the instance API, the routes of the dashboard under /v1/, on the instance's &lt;state>/api.sock until stopped; a write takes the token the daemon minted for the instance, in CONDUCTOR_API_TOKEN |
+| [`conductor instance upgrade`](#conductor-instance-upgrade) | Ask the daemon to upgrade an instance to a released binary (POST /v1/instances/\{name}/upgrade) - it fetches the release, installs its binary, runs its conductor doctor, restarts the runtime on it and rolls back to the previous binary unless it answers within daemon.upgrade_timeout; --all goes through every instance of the config file one at a time and stops at the first rollback |
 | [`conductor join`](#conductor-join) | Join an instance of a daemon as one of its operators and contribute a token to its pool; not written yet, exits 2 |
 | [`conductor leave`](#conductor-leave) | Leave an instance of a daemon and withdraw the token contributed to its pool; not written yet, exits 2 |
 | [`conductor login`](#conductor-login) | Obtain an Identity bearer for a daemon's API and keep it in this client's keychain; not written yet, exits 2 |
@@ -2356,7 +2356,7 @@ Usage: conductor config [OPTIONS] <COMMAND>
 
 ## `conductor config migrate`
 
-Write a session_prefix into each instance of the config file that names none; --check prints them and writes nothing
+Convert a conductor.config/1 file to conductor.config/2 once, noting each key dropped or moved, and write a session_prefix into each instance that names none; --check prints what it would write and writes nothing
 
 ```text
 Usage: conductor config migrate [OPTIONS]
@@ -2365,6 +2365,23 @@ Usage: conductor config migrate [OPTIONS]
 | Argument | Required | Default | Meaning |
 |---|---|---|---|
 | `--check <BOOL>` | no | none | Write nothing; print the session_prefix each instance without one would get. `--check` alone is `--check true` One of `true`, `false`. |
+
+## `conductor config put`
+
+Change one key of the config file at one level - global, instance or role - validated, written, committed to the config repository with the actor and the reason, and recorded in the daemon's store as a ConfigRevision; the daemon reconciles on the changed file
+
+```text
+Usage: conductor config put [OPTIONS]
+```
+
+| Argument | Required | Default | Meaning |
+|---|---|---|---|
+| `--level <LEVEL>` | no | none | The level the key is written at: global, instance or role; required |
+| `--instance <NAME>` | no | none | The instance an instance or role change is written under |
+| `--role <ROLE>` | no | none | The role of the instance a role change is written under |
+| `--path <PATH>` | no | none | The key under the level, its words joined by '.', such as thresholds.silent_session; required |
+| `--value <VALUE>` | no | none | The new value, as YAML reads it. Absent, the key is removed at that level |
+| `--reason <TEXT>` | no | none | Why, written into the commit and the revision; required |
 
 ## `conductor config show`
 
@@ -2378,7 +2395,7 @@ Usage: conductor config show [OPTIONS]
 |---|---|---|---|
 | `--format <FORMAT>` | no | none | How the config is rendered: text, one `path: value` line each; json; each with the host's roles under `host`; or yaml, a config file, without them. Default: text |
 | `--instance <NAME>` | no | none | The instance shown. Default: $CONDUCTOR_INSTANCE, else the config's only instance |
-| `--effective <BOOL>` | no | none | Print every key of the instance with its effective value and the level it came from (`conductor.config.EffectiveSettings`); not written yet, exits 2. `--effective` alone is `--effective true` One of `true`, `false`. |
+| `--effective <BOOL>` | no | none | Print every key of the instance with its effective value and the level it came from, default, global, instance or role (`conductor.config.EffectiveSettings`). `--effective` alone is `--effective true` One of `true`, `false`. |
 
 ## `conductor config validate`
 
@@ -2424,25 +2441,6 @@ Usage: conductor daemon serve [OPTIONS]
 | `--install <BOOL>` | no | none | Write the user unit conductord.service running this command, then enable and start it. `--install` alone is `--install true` One of `true`, `false`. |
 | `--uninstall <BOOL>` | no | none | Disable and stop the user unit conductord.service and remove its file. `--uninstall` alone is `--uninstall true` One of `true`, `false`. |
 
-## `conductor dashboard`
-
-```text
-Usage: conductor dashboard [OPTIONS] <COMMAND>
-```
-
-## `conductor dashboard serve`
-
-Serve a live, read-only page of what every session works on
-
-```text
-Usage: conductor dashboard serve [OPTIONS]
-```
-
-| Argument | Required | Default | Meaning |
-|---|---|---|---|
-| `--port <PORT>` | no | none | The port on 127.0.0.1; 0 picks a free one. Default: 7313 |
-| `--root <DIR>` | no | none | The conductor repository, whose dispatches/ and decisions/ are read. Default: the instance's records when a config file names it, else the nearest directory holding both, from the working directory up |
-
 ## `conductor doctor`
 
 Report the machine, each program conductor starts as present, with its version, or missing, each one older than its pin in the nearest b10x.toml, or else in the pins conductor was built with, and the account each forge CLI is logged in as on each host of the config file's sources
@@ -2484,11 +2482,25 @@ Usage: conductor instance [OPTIONS] <COMMAND>
 
 ## `conductor instance serve`
 
-Run one instance's runtime in its box, its loop, its agents and the instance API; not written yet, exits 2
+Serve the instance API, the routes of the dashboard under /v1/, on the instance's &lt;state>/api.sock until stopped; a write takes the token the daemon minted for the instance, in CONDUCTOR_API_TOKEN
 
 ```text
 Usage: conductor instance serve [OPTIONS]
 ```
+
+## `conductor instance upgrade`
+
+Ask the daemon to upgrade an instance to a released binary (POST /v1/instances/\{name}/upgrade) - it fetches the release, installs its binary, runs its conductor doctor, restarts the runtime on it and rolls back to the previous binary unless it answers within daemon.upgrade_timeout; --all goes through every instance of the config file one at a time and stops at the first rollback
+
+```text
+Usage: conductor instance upgrade [OPTIONS]
+```
+
+| Argument | Required | Default | Meaning |
+|---|---|---|---|
+| `--instance <INSTANCE>` | no | none | The instance to upgrade |
+| `--tag <TAG>` | no | none | The release to install, v&lt;x.y.z>; required |
+| `--all <BOOL>` | no | none | Upgrade every instance of the config file, one at a time, stopping at the first rollback. `--all` alone is `--all true` One of `true`, `false`. |
 
 ## `conductor join`
 

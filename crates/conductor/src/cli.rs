@@ -27,8 +27,8 @@
 //! `--input-json -` instead: the handler decides what is missing.
 //!
 //! Beside the `cli:` block, the tree presents each command the binding declares over a `local`
-//! callable, with exactly the option flags the binding maps its input fields to: `dashboard
-//! serve` (`story:live-dashboard`), `decision show`, `watch run` (`story:watch-command`),
+//! callable, with exactly the option flags the binding maps its input fields to:
+//! `decision show`, `watch run` (`story:watch-command`),
 //! `repository shipped` (`story:release-digest`), `repository activity`
 //! (`story:repository-marks`), `repository refresh-hooks` (`story:gates-hooks-fresh`), `resource
 //! usage` (`story:token-spend`), `store migrate` (`story:store-on-eventlog-tree`), `records check`
@@ -70,8 +70,8 @@ use time::OffsetDateTime;
 use time::format_description::well_known::Rfc3339;
 
 use crate::{
-    build, controller, dashboard, decide, dispatch, goal, guard, host, message, metric, repository,
-    resource, session, shipped, snapshot, status,
+    build, controller, decide, dispatch, goal, guard, host, message, metric, repository, resource,
+    session, shipped, snapshot, status,
 };
 
 /// The records conductor and the repository controllers keep.
@@ -470,6 +470,7 @@ impl Cli {
                 ConfigCommand::Migrate(args) => {
                     crate::config::migrate(self.config.as_deref(), &args)
                 }
+                ConfigCommand::Put(args) => crate::config::put(self.config.as_deref(), &args),
                 ConfigCommand::Show(args) => crate::config::show(self.config.as_deref(), &args),
                 ConfigCommand::Validate(args) => {
                     crate::config::validate(self.config.as_deref(), &args)
@@ -477,9 +478,6 @@ impl Cli {
                 ConfigCommand::Workspace(args) => {
                     crate::config::workspace(self.config.as_deref(), &args)
                 }
-            },
-            Group::Dashboard(command) => match command {
-                DashboardCommand::Serve(args) => dashboard::dashboard_serve(&args),
             },
             Group::Doctor => crate::doctor::doctor_with(self.config.as_deref()),
             Group::Gc(args) => crate::gc::gc(&args),
@@ -521,7 +519,10 @@ impl Cli {
                 }
             },
             Group::Instance(command) => match command {
-                InstanceCommand::Serve => crate::not_implemented("instance serve"),
+                InstanceCommand::Serve => crate::instance::instance_serve(self.config.as_deref()),
+                InstanceCommand::Upgrade(args) => {
+                    crate::daemon::upgrade::instance_upgrade(self.config.as_deref(), &args)
+                }
             },
             Group::Join => crate::not_implemented("join"),
             Group::Leave => crate::not_implemented("leave"),
@@ -613,10 +614,6 @@ pub enum Group {
     // (`story:spec-v1`).
     #[command(subcommand)]
     Daemon(DaemonCommand),
-
-    // No help: the binding declares this group only through its command, and no group summary.
-    #[command(subcommand)]
-    Dashboard(DashboardCommand),
 
     /// Report the machine, each program conductor starts as present, with its version, or missing, each one older than its pin in the nearest b10x.toml, or else in the pins conductor was built with, and the account each forge CLI is logged in as on each host of the config file's sources
     #[command(name = "doctor")]
@@ -712,7 +709,7 @@ pub enum Access {
     /// Writes nothing; every session runs it.
     Reads,
     /// Writes nothing, but only conductor's session runs it: it is not among the reads a
-    /// controller is given (`dashboard serve`, `repository shipped`, `resource usage`).
+    /// controller is given (`repository shipped`, `resource usage`).
     ConductorReads,
     /// Writes: the store under the state directory, conductor's records, the instance's files or
     /// `~/.claude.json`, removes what the disk panel marks reclaimable (`gc`), or starts a
@@ -906,11 +903,12 @@ pub const LEAVES: &[(&[&str], Access)] = &[
     (&["build", "run"], Access::RunWrites),
     // Writes a session_prefix into the config file (story:instance-names-unique).
     (&["config", "migrate"], Access::Writes),
+    // Writes the config file, commits it and records the revision (story:config-globals).
+    (&["config", "put"], Access::Writes),
     (&["config", "show"], Access::Reads),
     // Every session checks its config; it writes nothing (story:daemon-reconcile).
     (&["config", "validate"], Access::Reads),
     (&["config", "workspace"], Access::Writes),
-    (&["dashboard", "serve"], Access::ConductorReads),
     (&["doctor"], Access::Reads),
     // Removes the build caches, trees and targets the disk panel marks reclaimable.
     (&["gc"], Access::Writes),
@@ -948,6 +946,8 @@ pub const LEAVES: &[(&[&str], Access)] = &[
     (&["agent", "stop"], Access::Writes),
     (&["daemon", "serve"], Access::Writes),
     (&["instance", "serve"], Access::Writes),
+    // Asks the daemon to upgrade an instance's runtime (story:instance-upgrade).
+    (&["instance", "upgrade"], Access::Writes),
     (&["join"], Access::Writes),
     (&["leave"], Access::Writes),
     (&["login"], Access::Writes),
@@ -998,14 +998,33 @@ pub struct DaemonServeArgs {
     pub uninstall: Option<bool>,
 }
 
-// `conductor instance`: one instance's runtime (design architecture-next § 2, § 5.1). Not
-// written yet (`story:instance-api`).
+// `conductor instance`: one instance's runtime (design architecture-next § 2, § 5.1,
+// `story:instance-api`).
 #[allow(missing_docs)]
 #[derive(Debug, Subcommand)]
 pub enum InstanceCommand {
-    /// Run one instance's runtime in its box, its loop, its agents and the instance API; not written yet, exits 2
+    /// Serve the instance API, the routes of the dashboard under /v1/, on the instance's <state>/api.sock until stopped; a write takes the token the daemon minted for the instance, in CONDUCTOR_API_TOKEN
     #[command(name = "serve")]
     Serve,
+    /// Ask the daemon to upgrade an instance to a released binary (POST /v1/instances/{name}/upgrade) - it fetches the release, installs its binary, runs its conductor doctor, restarts the runtime on it and rolls back to the previous binary unless it answers within daemon.upgrade_timeout; --all goes through every instance of the config file one at a time and stops at the first rollback
+    #[command(name = "upgrade")]
+    Upgrade(InstanceUpgradeArgs),
+}
+
+/// The input of the binding's `instance-upgrade` callable, `conductor.instance.UpgradeInstances`
+/// (`story:instance-upgrade`).
+#[derive(Debug, Clone, Default, Args)]
+pub struct InstanceUpgradeArgs {
+    /// The instance to upgrade
+    #[arg(long, value_name = "INSTANCE")]
+    pub instance: Option<String>,
+    /// The release to install, v<x.y.z>; required
+    #[arg(long, value_name = "TAG")]
+    pub tag: Option<String>,
+    /// Upgrade every instance of the config file, one at a time, stopping at the first rollback.
+    /// `--all` alone is `--all true`
+    #[arg(long, value_name = "BOOL", num_args = 0..=1, default_missing_value = "true")]
+    pub all: Option<bool>,
 }
 
 // `conductor secret`: the secrets the config names (design architecture-next § 9). Not written
@@ -1690,30 +1709,6 @@ pub enum BrokerCommand {
     Serve,
 }
 
-// `conductor dashboard`: the commands the binding declares over the `local` callable
-// `dashboard-serve`. A plain comment, since clap would make a doc comment the group's help, and
-// the binding declares none.
-#[allow(missing_docs)]
-#[derive(Debug, Subcommand)]
-pub enum DashboardCommand {
-    /// Serve a live, read-only page of what every session works on
-    #[command(name = "serve")]
-    Serve(DashboardServeArgs),
-}
-
-/// The input of the binding's `dashboard-serve` callable, `conductor.observation.DashboardServe`.
-#[derive(Debug, Clone, Args)]
-pub struct DashboardServeArgs {
-    /// The port on 127.0.0.1; 0 picks a free one. Default: 7313
-    #[arg(long)]
-    pub port: Option<u16>,
-    /// The conductor repository, whose dispatches/ and decisions/ are read. Default: the
-    /// instance's records when a config file names it, else the nearest directory holding both,
-    /// from the working directory up
-    #[arg(long, value_name = "DIR")]
-    pub root: Option<PathBuf>,
-}
-
 // `conductor watch`: the command the binding declares over the `local` callable `watch-run`
 // (`story:watch-command`). A plain comment, as for `dashboard`.
 #[allow(missing_docs)]
@@ -1923,10 +1918,17 @@ pub struct RepositoryActivityArgs {
 #[allow(missing_docs)]
 #[derive(Debug, Subcommand)]
 pub enum ConfigCommand {
-    /// Write a session_prefix into each instance of the config file that names none; --check
-    /// prints them and writes nothing
+    /// Convert a conductor.config/1 file to conductor.config/2 once, noting each key dropped or
+    /// moved, and write a session_prefix into each instance that names none; --check prints what
+    /// it would write and writes nothing
     #[command(name = "migrate")]
     Migrate(MigrateConfigArgs),
+
+    /// Change one key of the config file at one level - global, instance or role - validated,
+    /// written, committed to the config repository with the actor and the reason, and recorded
+    /// in the daemon's store as a ConfigRevision; the daemon reconciles on the changed file
+    #[command(name = "put")]
+    Put(PutConfigArgs),
 
     /// Print one instance's effective config, after defaults, as a config file, and the host's
     /// roles from host.yaml under `host` (not in yaml)
@@ -1964,6 +1966,31 @@ pub struct MigrateConfigArgs {
     /// alone is `--check true`
     #[arg(long, value_name = "BOOL", num_args = 0..=1, default_missing_value = "true")]
     pub check: Option<bool>,
+}
+
+/// The input of the binding's `config-put` callable, `conductor.config.ChangeConfig`
+/// (`story:config-globals`).
+#[derive(Debug, Clone, Args)]
+pub struct PutConfigArgs {
+    /// The level the key is written at: global, instance or role; required
+    #[arg(long, value_name = "LEVEL")]
+    pub level: Option<String>,
+    /// The instance an instance or role change is written under
+    #[arg(long, value_name = "NAME")]
+    pub instance: Option<String>,
+    /// The role of the instance a role change is written under
+    #[arg(long, value_name = "ROLE")]
+    pub role: Option<String>,
+    /// The key under the level, its words joined by '.', such as thresholds.silent_session;
+    /// required
+    #[arg(long, value_name = "PATH")]
+    pub path: Option<String>,
+    /// The new value, as YAML reads it. Absent, the key is removed at that level
+    #[arg(long, value_name = "VALUE")]
+    pub value: Option<String>,
+    /// Why, written into the commit and the revision; required
+    #[arg(long, value_name = "TEXT")]
+    pub reason: Option<String>,
 }
 
 /// The input of the binding's `config-validate` callable, `conductor.config.ValidateConfig`.
@@ -2113,9 +2140,9 @@ pub struct ShowConfigArgs {
     /// The instance shown. Default: $CONDUCTOR_INSTANCE, else the config's only instance
     #[arg(long, value_name = "NAME")]
     pub instance: Option<String>,
-    /// Print every key of the instance with its effective value and the level it came from
-    /// (`conductor.config.EffectiveSettings`); not written yet, exits 2. `--effective` alone is
-    /// `--effective true`
+    /// Print every key of the instance with its effective value and the level it came from,
+    /// default, global, instance or role (`conductor.config.EffectiveSettings`). `--effective`
+    /// alone is `--effective true`
     #[arg(long, value_name = "BOOL", num_args = 0..=1, default_missing_value = "true")]
     pub effective: Option<bool>,
 }

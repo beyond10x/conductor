@@ -24,7 +24,6 @@ export interface ConfigField {
 
 export interface ConfigInstance {
   name: string;
-  dashboard_port: number;
   session_prefix: string | null;
   forge: string;
   current: boolean;

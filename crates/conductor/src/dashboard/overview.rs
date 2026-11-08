@@ -1,21 +1,21 @@
 //! What the overview reads (`story:dashboard-overview`): the newest complete snapshot's board,
 //! repositories, open pull and merge requests, `main` workflow runs and releases
-//! (`/api/board`, `/api/repositories`, `/api/pull-requests`, `/api/workflow-runs`,
-//! `/api/releases`), the pull requests that wait for review (`/api/reviews`,
-//! `story:review-limit`), and the day's events (`/api/events?since=<rfc3339>`).
+//! (`/v1/board`, `/v1/repositories`, `/v1/pull-requests`, `/v1/workflow-runs`,
+//! `/v1/releases`), the pull requests that wait for review (`/v1/reviews`,
+//! `story:review-limit`), and the day's events (`/v1/events?since=<rfc3339>`).
 //!
 //! Each snapshot endpoint answers `{snapshot: {id, started_at}, rows: [...]}` from the complete
 //! snapshot that started last, so a newer one still collecting, or one that failed, is never read;
-//! with no store, or no complete snapshot in it, `{snapshot: null, rows: []}`. `/api/board`'s rows
+//! with no store, or no complete snapshot in it, `{snapshot: null, rows: []}`. `/v1/board`'s rows
 //! are [`crate::status::repository_figures`], the one place `publish-board`'s deviations are
-//! worked out too: the app does not recompute them. `/api/reviews`' rows are
+//! worked out too: the app does not recompute them. `/v1/reviews`' rows are
 //! [`crate::status::waiting_in`], oldest first, each `{repository, number, title, opened_at, url}`:
 //! the pull requests `STATUS.md`'s **Waiting for review** lists.
 //!
-//! `/api/unanswered` answers `{count, oldest}`: the unanswered operator items, read as `conductor
+//! `/v1/unanswered` answers `{count, oldest}`: the unanswered operator items, read as `conductor
 //! status` reads them ([`unanswered`], `story:decisions-notify`).
 //!
-//! `/api/events` answers `{rows: [...]}`, one row per event at or after `since`, newest first, each
+//! `/v1/events` answers `{rows: [...]}`, one row per event at or after `since`, newest first, each
 //! `{at, repository, kind, text, link}` (`repository` and `link` null where there is none), of
 //! five kinds:
 //!
@@ -47,21 +47,21 @@ use crate::store::Store;
 
 /// The endpoints that answer rows of the newest complete snapshot, by path.
 pub const SNAPSHOT_PATHS: [&str; 6] = [
-    "/api/board",
-    "/api/repositories",
-    "/api/pull-requests",
-    "/api/workflow-runs",
-    "/api/releases",
-    "/api/reviews",
+    "/v1/board",
+    "/v1/repositories",
+    "/v1/pull-requests",
+    "/v1/workflow-runs",
+    "/v1/releases",
+    "/v1/reviews",
 ];
 
 /// The path of the day's events.
-pub const EVENTS_PATH: &str = "/api/events";
+pub const EVENTS_PATH: &str = "/v1/events";
 
 /// The path of the unanswered operator items (`story:decisions-notify`).
-pub const UNANSWERED_PATH: &str = "/api/unanswered";
+pub const UNANSWERED_PATH: &str = "/v1/unanswered";
 
-/// `/api/unanswered`: `{count, oldest}`, the number of decision requests escalated as class O or
+/// `/v1/unanswered`: `{count, oldest}`, the number of decision requests escalated as class O or
 /// H and not answered or withdrawn, and the one raised first as `{request_id, class, raised_at,
 /// age_seconds}` at `now`, or null; `{count: 0, oldest: null}` without a store
 /// (`story:decisions-notify`). `items` is the store's reading as `conductor status` takes it
@@ -79,7 +79,7 @@ pub fn unanswered(items: &[crate::status::OperatorItem], now: OffsetDateTime) ->
     json!({"count": items.len(), "oldest": oldest})
 }
 
-/// The kinds of event `/api/events` answers, in the order the table above lists them.
+/// The kinds of event `/v1/events` answers, in the order the table above lists them.
 pub const KINDS: [&str; 5] = ["dispatch", "report", "decision", "release", "merge"];
 
 // ---------------------------------------------------------------------------------------------
@@ -114,17 +114,17 @@ fn answer(
 #[must_use]
 pub fn snapshot_endpoint(path: &str, store: Option<&Store>) -> Option<Value> {
     Some(match path {
-        "/api/board" => board(store),
-        "/api/repositories" => repositories(store),
-        "/api/pull-requests" => pull_requests(store),
-        "/api/workflow-runs" => workflow_runs(store),
-        "/api/releases" => releases(store),
-        "/api/reviews" => reviews(store),
+        "/v1/board" => board(store),
+        "/v1/repositories" => repositories(store),
+        "/v1/pull-requests" => pull_requests(store),
+        "/v1/workflow-runs" => workflow_runs(store),
+        "/v1/releases" => releases(store),
+        "/v1/reviews" => reviews(store),
         _ => return None,
     })
 }
 
-/// `/api/board`: one row per repository that is not archived, in name order, with its deviations
+/// `/v1/board`: one row per repository that is not archived, in name order, with its deviations
 /// and the five counts the board compares.
 #[must_use]
 pub fn board(store: Option<&Store>) -> Value {
@@ -146,7 +146,7 @@ pub fn board(store: Option<&Store>) -> Value {
     })
 }
 
-/// `/api/reviews`: one row per pull request that waits for review, oldest first, as the board
+/// `/v1/reviews`: one row per pull request that waits for review, oldest first, as the board
 /// lists them (`story:review-limit`).
 #[must_use]
 pub fn reviews(store: Option<&Store>) -> Value {
@@ -166,7 +166,7 @@ pub fn reviews(store: Option<&Store>) -> Value {
     })
 }
 
-/// `/api/repositories`: one row per repository the snapshot observed, in name order, with the
+/// `/v1/repositories`: one row per repository the snapshot observed, in name order, with the
 /// fields of the `repositories` view.
 #[must_use]
 pub fn repositories(store: Option<&Store>) -> Value {
@@ -206,7 +206,7 @@ pub fn repositories(store: Option<&Store>) -> Value {
     })
 }
 
-/// `/api/pull-requests`: one row per open pull or merge request the snapshot observed, by
+/// `/v1/pull-requests`: one row per open pull or merge request the snapshot observed, by
 /// repository and number, with its `url`.
 #[must_use]
 pub fn pull_requests(store: Option<&Store>) -> Value {
@@ -239,7 +239,7 @@ pub fn pull_requests(store: Option<&Store>) -> Value {
     })
 }
 
-/// `/api/workflow-runs`: the latest `main` run of each workflow the snapshot observed, by
+/// `/v1/workflow-runs`: the latest `main` run of each workflow the snapshot observed, by
 /// repository and workflow.
 #[must_use]
 pub fn workflow_runs(store: Option<&Store>) -> Value {
@@ -267,7 +267,7 @@ pub fn workflow_runs(store: Option<&Store>) -> Value {
     })
 }
 
-/// `/api/releases`: each release the snapshot observed, by repository and publication.
+/// `/v1/releases`: each release the snapshot observed, by repository and publication.
 #[must_use]
 pub fn releases(store: Option<&Store>) -> Value {
     answer(store, |store, held| {
@@ -347,7 +347,7 @@ struct Event {
     row: Value,
 }
 
-/// `/api/events`: the events at or after `since`, newest first, from the dispatch lines
+/// `/v1/events`: the events at or after `since`, newest first, from the dispatch lines
 /// `dispatches` and decision lines `decisions` (as `dashboard.rs`'s `jsonl()` reads them, in file
 /// order), the controller sessions of `instance`, and the newest complete snapshot of `store`.
 #[must_use]

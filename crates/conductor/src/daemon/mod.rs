@@ -1,8 +1,10 @@
 //! `conductor daemon serve` (`story:daemon-reconcile`, design architecture-next § 4): conductord,
 //! the one daemon of the control host. It reads the config file the global `--config` or
 //! `CONDUCTOR_CONFIG` names (else `~/.b10x/conductor/conductor.yaml`), reconciles the instance
-//! runtimes from it ([`reconcile`]), records each action in its store, and serves
-//! `GET 127.0.0.1:<daemon.port>/v1/instances` ([`api`]). Its directory is the global
+//! runtimes from it ([`reconcile`]), records each action in its store, and serves its API ([`api`]):
+//! the dashboard app and `/v1/` on `127.0.0.1:<daemon.port>` and on the TLS listener `daemon.tls`
+//! names, the instances proxied (`story:instance-api`), and upgrades an instance on
+//! `POST /v1/instances/{name}/upgrade` ([`upgrade`]). Its directory is the global
 //! `--state-dir`, else `~/.b10x/conductor/daemon` ([`DIR`]): what it started. Its store is the
 //! deployment's one database, the URL `daemon.store` writes, opened under the tenant [`TENANT`];
 //! it refuses to start on a file that writes none. `--install` and `--uninstall` make it the user
@@ -12,13 +14,14 @@ pub mod api;
 pub mod install;
 pub mod reconcile;
 pub mod units;
+pub mod upgrade;
 
 use std::net::TcpListener;
 use std::path::Path;
 use std::process::ExitCode;
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 use std::thread;
-use std::time::{Duration, Instant};
+use std::time::{Duration, Instant, SystemTime};
 
 use anyhow::{Context as _, Result, bail};
 
@@ -80,27 +83,63 @@ pub fn daemon_serve(
     }
     let dir = state.unwrap_or_else(|| home.join(DIR));
     let program = std::env::current_exe().context("daemon serve: read the binary")?;
-    let mut daemon =
-        Daemon::open(file.clone(), home, dir, reconcile::probe(&program), Systemd).context(WHAT)?;
+    let mut daemon = Daemon::open(
+        file.clone(),
+        home.clone(),
+        dir.clone(),
+        reconcile::probe(&program),
+        Systemd,
+    )
+    .context(WHAT)?;
     let port = u16::try_from(daemon.config().daemon.port).context("daemon serve: daemon.port")?;
     let listener = TcpListener::bind(("127.0.0.1", port))
         .with_context(|| format!("daemon serve: listen on 127.0.0.1:{port}"))?;
-    let rows: api::Rows = Arc::new(Mutex::new(daemon.rows()));
-    let served = Arc::clone(&rows);
+    let secure = match &daemon.config().daemon.tls {
+        Some(tls) => Some(tls_listener(tls)?),
+        None => None,
+    };
+    let local = crate::actor::human()
+        .operator
+        .map_or_else(|| "operator".to_owned(), |name| name.0);
+    let token = crate::dashboard::mint().context("daemon serve: mint the daemon's token")?;
+    api::keep_token(&dir, &token).context(WHAT)?;
+    let api = Arc::new(
+        api::Api::new(
+            token,
+            local,
+            secure.as_ref().map(|(_, _, identity)| identity.clone()),
+        )
+        .with_config(file.clone(), home, daemon.config().daemon.store.0.clone()),
+    );
+    publish(&api, &daemon);
+    let served = Arc::clone(&api);
+    let upgrades = upgrade::listen();
     thread::spawn(move || api::serve(&listener, &served));
     println!(
-        "conductord: config {}, serving http://127.0.0.1:{port}{}",
+        "conductord: config {}, serving the dashboard and /v1/ on http://127.0.0.1:{port}/",
         file.display(),
-        api::INSTANCES
     );
+    if let Some((secure, config, _)) = secure {
+        let address = secure
+            .local_addr()
+            .map_or_else(|_| "?".to_owned(), |address| address.to_string());
+        let served = Arc::clone(&api);
+        thread::spawn(move || api::serve_tls(&secure, &served, &config));
+        println!("conductord: serving the dashboard and /v1/ on https://{address}/ with bearers");
+    }
     loop {
+        while let Ok(request) = upgrades.try_recv() {
+            daemon.answer(request);
+        }
         let now = Instant::now();
-        let passed = daemon.due(now).and_then(|due| match due {
-            Some(reason) => {
+        // An upgrade that answered or is to roll back is settled first, so a runtime lost while
+        // upgrading rolls back rather than starting again on the new binary.
+        let passed = daemon.settle(SystemTime::now()).and_then(|mut done| {
+            if let Some(reason) = daemon.due(now)? {
                 daemon.binary = reconcile::probe(&program);
-                daemon.pass(reason, now)
+                done.extend(daemon.pass(reason, now)?);
             }
-            None => Ok(Vec::new()),
+            Ok(done)
         });
         match passed {
             Ok(done) => {
@@ -119,9 +158,45 @@ pub fn daemon_serve(
             }
             Err(error) => eprintln!("conductor: {WHAT}: {error:#}"),
         }
-        if let Ok(mut published) = rows.lock() {
-            *published = daemon.rows();
-        }
+        publish(&api, &daemon);
         thread::sleep(TICK);
     }
+}
+
+/// Publishes what `daemon` last saw to `api`: the instances' rows, the routes to their runtimes and
+/// the deployment's operators.
+fn publish(api: &api::Api, daemon: &Daemon<Systemd>) {
+    api.publish(
+        daemon.rows(),
+        daemon.routes(),
+        daemon.config().daemon.operators.clone(),
+    );
+}
+
+/// The TLS listener `daemon.tls` names, bound, with its rustls config and the Identity service
+/// that resolves its bearers; refused while `cert`, `key` or `identity` is absent, naming its YAML
+/// path (`story:instance-api`).
+fn tls_listener(
+    tls: &conductor_model::config::TlsListener,
+) -> Result<(TcpListener, Arc<rustls::ServerConfig>, api::Identity)> {
+    const WHAT: &str = "daemon serve";
+    let named = |value: &Option<String>, key: &str| {
+        value
+            .as_deref()
+            .filter(|value| !value.trim().is_empty())
+            .map(str::to_owned)
+            .with_context(|| format!("{WHAT}: daemon.tls.{key}: the TLS listener needs it"))
+    };
+    let (cert, key, identity) = (
+        named(&tls.cert, "cert")?,
+        named(&tls.key, "key")?,
+        named(&tls.identity, "identity")?,
+    );
+    let config = api::tls_config(Path::new(&cert), Path::new(&key))
+        .with_context(|| format!("{WHAT}: daemon.tls.cert, daemon.tls.key"))?;
+    let identity = api::Identity::new(&identity, api::AUDIENCE)
+        .with_context(|| format!("{WHAT}: daemon.tls.identity"))?;
+    let listener = TcpListener::bind(tls.listen.as_str())
+        .with_context(|| format!("{WHAT}: daemon.tls.listen: listen on {}", tls.listen))?;
+    Ok((listener, config, identity))
 }
