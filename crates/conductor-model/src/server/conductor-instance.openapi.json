@@ -8,7 +8,7 @@
     "x-ess-provenance": {
       "system": "conductor",
       "specification_version": "v1",
-      "contract_digest": "slice-sha256/2:d61e8cb1ea60633f8df0306c67a0f6c4af75f1b50db1eedd54ec4a0c242d1336"
+      "contract_digest": "slice-sha256/2:0efea7af654690129d00a8992798c8fe57558ff2df69ff82f8d73a70b7ab97b2"
     },
     "x-ess-reached-by": "network"
   },
@@ -1074,13 +1074,17 @@
           },
           "binary": {
             "type": "string"
+          },
+          "actor": {
+            "$ref": "#/components/schemas/conductor.operator.Actor"
           }
         },
         "required": [
           "name",
           "state",
           "capabilities",
-          "binary"
+          "binary",
+          "actor"
         ],
         "additionalProperties": false
       },
@@ -2651,6 +2655,9 @@
         "binary": {
           "type": "string"
         },
+        "actor": {
+          "$ref": "#/x-ess-entities/conductor.operator.Actor"
+        },
         "state": {
           "$ref": "#/x-ess-entities/conductor.agent.AgentKind.State"
         }
@@ -2659,6 +2666,7 @@
         "name",
         "capabilities",
         "binary",
+        "actor",
         "state"
       ],
       "additionalProperties": false

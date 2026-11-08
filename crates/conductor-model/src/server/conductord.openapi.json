@@ -8,7 +8,7 @@
     "x-ess-provenance": {
       "system": "conductor",
       "specification_version": "v1",
-      "contract_digest": "slice-sha256/2:1dc6eb1bc2b6338397852fa0af14a7e83da637f98c6673fc9ec92c0094a61752"
+      "contract_digest": "slice-sha256/2:8cfb2087a12b6e40983f412bbae65d40a3ce13ed41838c4439141427fb9a0e48"
     },
     "x-ess-reached-by": "network"
   },
@@ -2732,7 +2732,7 @@
           "level": {
             "$ref": "#/components/schemas/conductor.config.Level"
           },
-          "instance": {
+          "instance_name": {
             "$ref": "#/components/schemas/conductor.config.InstanceName"
           },
           "role": {
@@ -6188,12 +6188,6 @@
         ],
         "additionalProperties": false
       },
-      "conductor.secret.Namespace": {
-        "title": "Namespace",
-        "x-ess-name": "conductor.secret.Namespace",
-        "x-ess-kind": "newtype",
-        "type": "string"
-      },
       "conductor.secret.PutSecret.Input": {
         "title": "Put a secret into the keychain input",
         "x-ess-name": "conductor.secret.PutSecret",
@@ -6598,23 +6592,10 @@
           "source": {
             "$ref": "#/components/schemas/conductor.secret.Source"
           },
-          "namespace": {
-            "$ref": "#/components/schemas/conductor.secret.Namespace"
-          },
-          "instances": {
-            "type": "array",
-            "items": {
-              "$ref": "#/components/schemas/conductor.config.InstanceName"
-            }
-          },
           "created_by": {
             "$ref": "#/components/schemas/conductor.operator.Actor"
           },
           "created_at": {
-            "type": "string",
-            "format": "date-time"
-          },
-          "last_resolved_at": {
             "type": "string",
             "format": "date-time"
           }
@@ -6623,7 +6604,6 @@
           "name",
           "state",
           "source",
-          "instances",
           "created_by",
           "created_at"
         ],
@@ -7823,9 +7803,6 @@
           "owner": {
             "$ref": "#/components/schemas/conductor.operator.OperatorName"
           },
-          "agent": {
-            "$ref": "#/components/schemas/conductor.agent.AgentName"
-          },
           "withdrawn_at": {
             "type": "string",
             "format": "date-time"
@@ -7890,6 +7867,9 @@
           "contributed_at": {
             "type": "string",
             "format": "date-time"
+          },
+          "actor": {
+            "$ref": "#/components/schemas/conductor.operator.Actor"
           }
         },
         "required": [
@@ -7899,7 +7879,8 @@
           "owner",
           "seat",
           "token_state",
-          "contributed_at"
+          "contributed_at",
+          "actor"
         ],
         "additionalProperties": false
       },
@@ -9193,6 +9174,9 @@
           "type": "string",
           "format": "date-time"
         },
+        "actor": {
+          "$ref": "#/x-ess-entities/conductor.operator.Actor"
+        },
         "state": {
           "$ref": "#/x-ess-entities/conductor.token.PoolToken.State"
         }
@@ -9205,6 +9189,7 @@
         "secret",
         "token_state",
         "contributed_at",
+        "actor",
         "state"
       ],
       "additionalProperties": false

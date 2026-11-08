@@ -1,5 +1,5 @@
 // generated from conductor v1
-// contract digest 925e95ab19211d2883a7b63b82a83c2503c557df74d9a01d0be9ddc0a4f90d6c
+// contract digest e3b967aa3e3d0f313417baefaaf92190635d03007992d259a68d9a4352490e1a
 // do not edit: regenerate with `ess synthesize --layout crate`
 
 //! Improvement — `conductor.improvement`.
@@ -940,6 +940,13 @@ pub struct SetMetricTarget {
 /// outcomes exist to prevent.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum SetMetricTargetOutcome {
+    /// `actor-not-human` — when `actor.kind != Human`.
+    ///
+    /// An agent or the daemon tried to set a KPI target; only a person sets one, and the metric is unchanged.
+    ActorNotHuman {
+        /// Why it was refused: `conductor.operator.ActorNotHuman`.
+        error: crate::operator::ActorNotHuman,
+    },
     /// `targeted` — when the existing subject is in Untargeted.
     ///
     /// The metric has a target and is a KPI from now on.
@@ -1451,7 +1458,7 @@ pub mod obligations {
     ///
     /// Why it is not generated: kept an obligation by a subject predicate choosing between a move and an update.
     ///
-    /// Contract: given `conductor.improvement.SetMetricTarget` input, decide and enact exactly one outcome. Declared outcomes (declaration order, not selection precedence): `targeted` when the existing subject is in Untargeted, takes `target` of `conductor.improvement.Metric`, emits `conductor.improvement.MetricTargetSet`; `retargeted` when the existing subject is in Targeted, updates `conductor.improvement.Metric`, emits `conductor.improvement.MetricTargetSet`; `no-such-metric` for an identity no record carries, error `conductor.improvement.MetricNotFound`.
+    /// Contract: given `conductor.improvement.SetMetricTarget` input, decide and enact exactly one outcome. Declared outcomes (declaration order, not selection precedence): `actor-not-human` when `actor.kind != Human`, error `conductor.operator.ActorNotHuman`; `targeted` when the existing subject is in Untargeted, takes `target` of `conductor.improvement.Metric`, emits `conductor.improvement.MetricTargetSet`; `retargeted` when the existing subject is in Targeted, updates `conductor.improvement.Metric`, emits `conductor.improvement.MetricTargetSet`; `no-such-metric` for an identity no record carries, error `conductor.improvement.MetricNotFound`.
     pub trait SetMetricTargetBehavior {
         /// Decides and enacts exactly one declared outcome of `conductor.improvement.SetMetricTarget`.
         ///

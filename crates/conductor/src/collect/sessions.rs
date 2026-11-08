@@ -357,7 +357,7 @@ impl Live {
             None => (String::new(), None, String::new(), None, None),
         };
         RecordSession {
-            actor: crate::actor::chosen(),
+            actor: crate::actor::daemon(),
             snapshot_id: snapshot,
             harness: self.harness,
             session_ref,

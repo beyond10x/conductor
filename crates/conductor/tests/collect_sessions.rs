@@ -182,10 +182,8 @@ fn session_rows(dir: &Path, taken: &Taken) -> Vec<Value> {
             fields.remove("snapshot_id");
             assert_eq!(
                 fields.remove("actor"),
-                Some(Value::from(conductor_cli::actor::written(
-                    &conductor_cli::actor::chosen(),
-                ))),
-                "the actor that wrote the row"
+                Some(Value::from("daemon")),
+                "the collectors record as the daemon"
             );
             row
         })

@@ -148,7 +148,7 @@ pub struct Taken {
 pub fn take_in(state: &Path, collectors: &[Collector]) -> Result<Taken> {
     let state = absolute(state)?;
     let start = StartSnapshot {
-        actor: crate::actor::chosen(),
+        actor: crate::actor::daemon(),
         started_at: Timestamp(now()?),
         disk_free_bytes: disk_free_bytes(Path::new(DISK))?,
         budget: None,
@@ -164,7 +164,7 @@ pub fn take_in(state: &Path, collectors: &[Collector]) -> Result<Taken> {
 /// As [`take_in`], but for opening the store.
 pub fn take(store: Store, collectors: &[Collector]) -> Result<Taken> {
     let start = StartSnapshot {
-        actor: crate::actor::chosen(),
+        actor: crate::actor::daemon(),
         started_at: Timestamp(now()?),
         disk_free_bytes: disk_free_bytes(Path::new(DISK))?,
         budget: None,
@@ -268,7 +268,7 @@ fn drive(
         record_run(
             &mut generated,
             RecordCollectorRun {
-                actor: crate::actor::chosen(),
+                actor: crate::actor::daemon(),
                 snapshot_id: snapshot_id.clone(),
                 collector: collector.name().to_owned(),
                 started_at,
@@ -505,7 +505,7 @@ fn fail_gone(generated: &mut Generated<Ports>, dir: &Path) -> Result<()> {
     for snapshot in gone {
         match generated
             .fail_snapshot(FailSnapshot {
-                actor: crate::actor::chosen(),
+                actor: crate::actor::daemon(),
                 snapshot_id: snapshot.clone(),
                 reason: PROCESS_GONE.to_owned(),
             })
@@ -569,7 +569,7 @@ fn complete(
 ) -> Result<()> {
     match generated
         .complete_snapshot(CompleteSnapshot {
-            actor: crate::actor::chosen(),
+            actor: crate::actor::daemon(),
             snapshot_id,
         })
         .map_err(|unmet| anyhow!("{unmet}"))?
@@ -588,7 +588,7 @@ fn fail(
 ) -> Result<()> {
     match generated
         .fail_snapshot(FailSnapshot {
-            actor: crate::actor::chosen(),
+            actor: crate::actor::daemon(),
             snapshot_id,
             reason,
         })
@@ -990,7 +990,7 @@ pub fn start_snapshot(state: Option<&Path>, args: StartSnapshotArgs) -> Result<E
             None => disk_free_bytes(Path::new(DISK))?,
         };
         let start = StartSnapshot {
-            actor: crate::actor::chosen(),
+            actor: crate::actor::daemon(),
             started_at: Timestamp(started_at),
             disk_free_bytes,
             budget: args.budget,

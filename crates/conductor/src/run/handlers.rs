@@ -657,6 +657,7 @@ fn start_maintainer(tick: &Tick<'_, '_>, cwd: &Path) -> Result<()> {
     }
     command
         .args(["session", "start", "--role", "maintainer"])
+        .env(crate::actor::DAEMON_VARIABLE, "1")
         .current_dir(cwd)
         .stdin(Stdio::null());
     let shown = "conductor session start --role maintainer";

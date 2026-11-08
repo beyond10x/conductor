@@ -1,5 +1,5 @@
 // generated from conductor v1
-// contract digest 925e95ab19211d2883a7b63b82a83c2503c557df74d9a01d0be9ddc0a4f90d6c
+// contract digest e3b967aa3e3d0f313417baefaaf92190635d03007992d259a68d9a4352490e1a
 // do not edit: regenerate with `ess synthesize --layout crate`
 
 //! conductor-cli — the `conductor-cli` component of `conductor` v1.
@@ -1163,6 +1163,7 @@ where
     pub fn set_metric_target(&mut self, input: crate::improvement::SetMetricTarget) -> Result<crate::improvement::SetMetricTargetOutcome, crate::obligation::UnmetObligation> {
         let outcome = self.behaviors.set_metric_target(input)?;
         match &outcome {
+            crate::improvement::SetMetricTargetOutcome::ActorNotHuman { .. } => {}
             crate::improvement::SetMetricTargetOutcome::Targeted { metric_target_set, .. } => {
                 self.outbox.push(PublishedEvent::MetricTargetSet(metric_target_set.clone()));
             }

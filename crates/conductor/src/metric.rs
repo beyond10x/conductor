@@ -161,7 +161,7 @@ pub fn define_metric(state: Option<&Path>, args: DefineMetricArgs) -> Result<Exi
 /// # Errors
 ///
 /// A flag is missing, `--input-json` is given, the store does not open or keep the target, or
-/// the specification refuses it: `MetricNotFound`.
+/// the specification refuses it: `MetricNotFound`, `ActorNotHuman`.
 pub fn set_metric_target(state: Option<&Path>, args: SetMetricTargetArgs) -> Result<ExitCode> {
     const COMMAND: &str = "metric set-metric-target";
     flags_only(args.input_json, "metric set-metric-target --input-json")?;
@@ -190,6 +190,11 @@ pub fn set_metric_target(state: Option<&Path>, args: SetMetricTargetArgs) -> Res
         SetMetricTargetOutcome::NoSuchMetric { error } => {
             refused(COMMAND, "MetricNotFound", &no_metric(&error.metric_id))
         }
+        SetMetricTargetOutcome::ActorNotHuman { error } => refused(
+            COMMAND,
+            "ActorNotHuman",
+            &crate::actor::not_human(&error.actor),
+        ),
     }
 }
 
@@ -1515,14 +1520,20 @@ impl MetricReadingStorage for Ports {
 }
 
 impl SetMetricTargetBehavior for Ports {
-    /// The contract: `targeted` when the held metric is `Untargeted`, taking `target` to
-    /// `Targeted`; `retargeted` when it is `Targeted`, updating it; `no-such-metric` for an id no
-    /// metric carries. Both accepting outcomes set `target`, `direction`, `target_owner` and
+    /// The contract: `actor-not-human` when the actor is not a person, changing nothing;
+    /// `targeted` when the held metric is `Untargeted`, taking `target` to `Targeted`;
+    /// `retargeted` when it is `Targeted`, updating it; `no-such-metric` for an id no metric
+    /// carries. Both accepting outcomes set `target`, `direction`, `target_owner` and
     /// `target_set_at` from the input and emit `MetricTargetSet`.
     fn set_metric_target(
         &mut self,
         input: SetMetricTarget,
     ) -> Result<SetMetricTargetOutcome, UnmetObligation> {
+        if input.actor.kind != conductor_model::operator::ActorKind::Human {
+            return Ok(SetMetricTargetOutcome::ActorNotHuman {
+                error: conductor_model::operator::ActorNotHuman { actor: input.actor },
+            });
+        }
         let Some(held) = MetricStorage::get(&self.store, &input.metric_id) else {
             return Ok(SetMetricTargetOutcome::NoSuchMetric {
                 error: MetricNotFound {

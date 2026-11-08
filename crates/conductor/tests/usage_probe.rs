@@ -313,8 +313,8 @@ fn the_snapshot_records_each_window_of_each_account_by_its_id_and_never_its_addr
         fields.remove("snapshot_id");
         assert_eq!(
             fields.remove("actor"),
-            Some(Value::from("human:operator")),
-            "the actor that wrote the row"
+            Some(Value::from("daemon")),
+            "the collectors record as the daemon"
         );
         let read_at = fields
             .remove("read_at")

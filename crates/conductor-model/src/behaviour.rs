@@ -1,5 +1,5 @@
 // generated from conductor v1
-// contract digest 925e95ab19211d2883a7b63b82a83c2503c557df74d9a01d0be9ddc0a4f90d6c
+// contract digest e3b967aa3e3d0f313417baefaaf92190635d03007992d259a68d9a4352490e1a
 // do not edit: regenerate with `ess synthesize --layout crate`
 
 //! What the specification fully determines, generated: the behaviour of every command the plan
@@ -1084,6 +1084,7 @@ where
                 name: identity.clone(),
                 capabilities: input.capabilities.clone(),
                 binary: input.binary.clone(),
+                actor: input.actor.clone(),
             };
             let answer = crate::agent::DeclareAgentKindOutcome::Declared { agent_kind_declared: crate::agent::AgentKindDeclared { actor: input.actor.clone(), name: identity.clone(), capabilities: input.capabilities.clone(), binary: input.binary.clone() } };
             AgentKindStorage::put(&mut self.ports, crate::agent::AnyAgentKind::Available(crate::agent::AgentKind::new(data)).snapshot());
@@ -1093,6 +1094,7 @@ where
         let mut next = held;
         next.data.capabilities = input.capabilities.clone();
         next.data.binary = input.binary.clone();
+        next.data.actor = input.actor.clone();
         let answer = crate::agent::DeclareAgentKindOutcome::Redeclared { agent_kind_declared: crate::agent::AgentKindDeclared { actor: input.actor.clone(), name: input.name.clone(), capabilities: input.capabilities.clone(), binary: input.binary.clone() } };
         AgentKindStorage::put(&mut self.ports, next);
         return Ok(answer);
@@ -1235,7 +1237,7 @@ where
             commit: self.ports.try_generate_string()?,
             changed_at: input.changed_at.clone(),
         };
-        let answer = crate::config::PutConfigOutcome::Changed { config_changed: crate::config::ConfigChanged { revision_id: identity.clone(), actor: input.actor.clone(), level: input.level.clone(), instance: input.instance.clone(), role: input.role.clone(), path: input.path.clone(), value: input.value.clone(), reason: input.reason.clone() } };
+        let answer = crate::config::PutConfigOutcome::Changed { config_changed: crate::config::ConfigChanged { revision_id: identity.clone(), actor: input.actor.clone(), level: input.level.clone(), instance_name: input.instance.clone(), role: input.role.clone(), path: input.path.clone(), value: input.value.clone(), reason: input.reason.clone() } };
         ConfigRevisionStorage::put(&mut self.ports, crate::config::AnyConfigRevision::Committed(crate::config::ConfigRevision::new(data)).snapshot());
         return Ok(answer);
     }
@@ -2721,7 +2723,7 @@ where
             lane: input.lane.clone(),
             lane_overrun: None,
         };
-        let answer = crate::host::RequestDiskOutcome::Requested { disk_requested: crate::host::DiskRequested { actor: input.actor.clone(), grant_id: identity.clone(), instance: input.instance.clone(), bytes: input.bytes.clone() } };
+        let answer = crate::host::RequestDiskOutcome::Requested { disk_requested: crate::host::DiskRequested { actor: input.actor.clone(), grant_id: identity.clone(), instance_name: input.instance.clone(), bytes: input.bytes.clone() } };
         HostGrantStorage::put(&mut self.ports, crate::host::AnyHostGrant::Requested(crate::host::HostGrant::new(data)).snapshot());
         return Ok(answer);
     }
@@ -4372,6 +4374,7 @@ where
             limited_until: None,
             agent: None,
             contributed_at: input.contributed_at.clone(),
+            actor: input.actor.clone(),
         };
         let answer = crate::token::ContributeTokenOutcome::Contributed { token_contributed: crate::token::TokenContributed { actor: input.actor.clone(), token_id: identity.clone(), instance: input.instance.clone(), owner: input.owner.clone(), seat: input.seat.clone(), secret: input.secret.clone(), contributed_at: input.contributed_at.clone() } };
         PoolTokenStorage::put(&mut self.ports, crate::token::AnyPoolToken::Available(crate::token::PoolToken::new(data)).snapshot());
@@ -4402,6 +4405,7 @@ where
         };
         let mut next = moved.snapshot();
         next.data.agent = Some(input.agent.clone());
+        next.data.actor = input.actor.clone();
         let answer = crate::token::LeaseTokenOutcome::Leased { token_leased: crate::token::TokenLeased { actor: input.actor.clone(), token_id: input.token_id.clone(), instance: input.instance.clone(), owner: before.owner.clone(), seat: before.seat.clone(), agent: input.agent.clone(), preferred_owner: input.preferred_owner.clone(), leased_at: input.leased_at.clone() } };
         PoolTokenStorage::put(&mut self.ports, next);
         return Ok(answer);
@@ -4429,6 +4433,7 @@ where
         next.data.token_state = crate::token::TokenState::Limited;
         next.data.limited_until = Some(input.limited_until.clone());
         next.data.agent = None;
+        next.data.actor = input.actor.clone();
         let answer = crate::token::MarkTokenLimitedOutcome::Limited { token_limited: crate::token::TokenLimited { actor: input.actor.clone(), token_id: input.token_id.clone(), owner: before.owner.clone(), agent: before.agent.clone(), limited_until: input.limited_until.clone(), limited_at: input.limited_at.clone() } };
         PoolTokenStorage::put(&mut self.ports, next);
         return Ok(answer);
@@ -4454,6 +4459,7 @@ where
         };
         let mut next = moved.snapshot();
         next.data.agent = None;
+        next.data.actor = input.actor.clone();
         let answer = crate::token::ReleaseTokenOutcome::Released { token_released: crate::token::TokenReleased { actor: input.actor.clone(), token_id: input.token_id.clone(), agent: before.agent.clone(), released_at: input.released_at.clone() } };
         PoolTokenStorage::put(&mut self.ports, next);
         return Ok(answer);
@@ -4485,7 +4491,8 @@ where
         };
         let mut next = moved.snapshot();
         next.data.agent = None;
-        let answer = crate::token::WithdrawTokenOutcome::Withdrawn { token_withdrawn: crate::token::TokenWithdrawn { actor: input.actor.clone(), token_id: input.token_id.clone(), owner: before.owner.clone(), agent: before.agent.clone(), withdrawn_at: input.withdrawn_at.clone() } };
+        next.data.actor = input.actor.clone();
+        let answer = crate::token::WithdrawTokenOutcome::Withdrawn { token_withdrawn: crate::token::TokenWithdrawn { actor: input.actor.clone(), token_id: input.token_id.clone(), owner: before.owner.clone(), withdrawn_at: input.withdrawn_at.clone() } };
         PoolTokenStorage::put(&mut self.ports, next);
         return Ok(answer);
     }
@@ -4537,6 +4544,7 @@ where
                 state: held.state,
                 capabilities: held.data.capabilities,
                 binary: held.data.binary,
+                actor: held.data.actor,
             })
             .collect())
     }
@@ -5575,11 +5583,8 @@ where
                 name: held.data.name,
                 state: held.state,
                 source: held.data.source,
-                namespace: held.data.namespace,
-                instances: held.data.instances,
                 created_by: held.data.created_by,
                 created_at: held.data.created_at,
-                last_resolved_at: held.data.last_resolved_at,
             })
             .collect())
     }
@@ -5714,6 +5719,7 @@ where
                 limited_until: held.data.limited_until,
                 agent: held.data.agent,
                 contributed_at: held.data.contributed_at,
+                actor: held.data.actor,
             })
             .collect())
     }

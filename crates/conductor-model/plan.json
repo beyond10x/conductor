@@ -2,8 +2,8 @@
   "provenance": {
     "system": "conductor",
     "specification_version": "v1",
-    "source_digest": "a753f58a42ed0c29c0b0484fa4aa471a95d78b1a0c9045eb578466cc0b53ae98",
-    "contract_digest": "925e95ab19211d2883a7b63b82a83c2503c557df74d9a01d0be9ddc0a4f90d6c"
+    "source_digest": "1bf286dbd4a2b0e7a7a8448be1f91fb1c6e3328968f4356b5e113bc4f4b9a370",
+    "contract_digest": "e3b967aa3e3d0f313417baefaaf92190635d03007992d259a68d9a4352490e1a"
   },
   "scope": {
     "profile": "component-skeletons",
@@ -3565,7 +3565,7 @@
           "class": "undetermined",
           "construct": "a subject predicate choosing between a move and an update"
         },
-        "contract": "given `conductor.improvement.SetMetricTarget` input, decide and enact exactly one outcome. Declared outcomes (declaration order, not selection precedence): `targeted` when the existing subject is in Untargeted, takes `target` of `conductor.improvement.Metric`, emits `conductor.improvement.MetricTargetSet`; `retargeted` when the existing subject is in Targeted, updates `conductor.improvement.Metric`, emits `conductor.improvement.MetricTargetSet`; `no-such-metric` for an identity no record carries, error `conductor.improvement.MetricNotFound`"
+        "contract": "given `conductor.improvement.SetMetricTarget` input, decide and enact exactly one outcome. Declared outcomes (declaration order, not selection precedence): `actor-not-human` when `actor.kind != Human`, error `conductor.operator.ActorNotHuman`; `targeted` when the existing subject is in Untargeted, takes `target` of `conductor.improvement.Metric`, emits `conductor.improvement.MetricTargetSet`; `retargeted` when the existing subject is in Targeted, updates `conductor.improvement.Metric`, emits `conductor.improvement.MetricTargetSet`; `no-such-metric` for an identity no record carries, error `conductor.improvement.MetricNotFound`"
       }
     },
     {

@@ -242,8 +242,8 @@ impl Case {
                 fields.remove("snapshot_id");
                 assert_eq!(
                     fields.remove("actor"),
-                    Some(Value::from("human:operator")),
-                    "the actor that wrote the row"
+                    Some(Value::from("daemon")),
+                    "the collectors record as the daemon"
                 );
                 row
             })

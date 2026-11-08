@@ -253,10 +253,8 @@ impl Case {
                 row.remove("snapshot_id");
                 assert_eq!(
                     row.remove("actor"),
-                    Some(Value::from(conductor_cli::actor::written(
-                        &conductor_cli::actor::chosen(),
-                    ))),
-                    "the actor that wrote the row"
+                    Some(Value::from("daemon")),
+                    "the collectors record as the daemon"
                 );
                 Value::Object(row.clone())
             })

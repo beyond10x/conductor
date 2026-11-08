@@ -123,15 +123,10 @@ fn describe(output: &Output) -> String {
 }
 
 /// The rows of `conductor snapshot <view> --format json` over `root`'s store, each without its
-/// actor: the daemon for an observation, which the collectors here record as the run daemon's
-/// ticks do; this process's own actor for a snapshot and a collector's run, which the driver
-/// records.
+/// actor, the daemon: the snapshot driver and the collectors record as the daemon, whoever
+/// starts them.
 fn rows(root: &Path, view: &str) -> Vec<Value> {
-    let actor = if ["snapshots", "collector-runs"].contains(&view) {
-        conductor_cli::actor::written(&conductor_cli::actor::chosen())
-    } else {
-        "daemon".to_owned()
-    };
+    let actor = "daemon";
     let output = conductor(root, &["snapshot", view, "--format", "json"]);
     assert!(
         output.status.success(),
@@ -145,7 +140,7 @@ fn rows(root: &Path, view: &str) -> Vec<Value> {
                 let written = row.as_object_mut().and_then(|row| row.remove("actor"));
                 assert_eq!(
                     written,
-                    Some(Value::from(actor.as_str())),
+                    Some(Value::from(actor)),
                     "`snapshot {view}`: {text}"
                 );
             }

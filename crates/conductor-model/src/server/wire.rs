@@ -1,5 +1,5 @@
 // generated from conductor v1
-// contract digest 925e95ab19211d2883a7b63b82a83c2503c557df74d9a01d0be9ddc0a4f90d6c
+// contract digest e3b967aa3e3d0f313417baefaaf92190635d03007992d259a68d9a4352490e1a
 // do not edit: regenerate with `ess synthesize --layout crate`
 //! Every generated declaration, as JSON, in the renderings the published wire contracts fix.
 //!
@@ -11992,8 +11992,8 @@ pub fn encode_event_conductor_config_config_changed(value: &crate::config::Confi
     encode_conductor_operator_actor(&value.actor, out);
     json::member(out, "level");
     encode_conductor_config_level(&value.level, out);
-    if let Some(held0) = &value.instance {
-        json::member(out, "instance");
+    if let Some(held0) = &value.instance_name {
+        json::member(out, "instance_name");
         encode_conductor_config_instance_name(&*held0, out);
     }
     if let Some(held0) = &value.role {
@@ -12033,10 +12033,10 @@ pub fn decode_event_conductor_config_config_changed(value: &json::Value, at: &st
             let member2 = json::member_at(value, at, "level")?;
             decode_conductor_config_level(member2, &at2)?
         },
-        instance: match value.member("instance") {
+        instance_name: match value.member("instance_name") {
             None | Some(json::Value::Null) => None,
             Some(member3) => {
-                let at3 = json::nested(at, "instance");
+                let at3 = json::nested(at, "instance_name");
                 Some(decode_conductor_config_instance_name(member3, &at3)?)
             }
         },
@@ -13503,8 +13503,8 @@ pub fn encode_event_conductor_host_disk_requested(value: &crate::host::DiskReque
     encode_conductor_operator_actor(&value.actor, out);
     json::member(out, "grant_id");
     encode_conductor_host_grant_id(&value.grant_id, out);
-    json::member(out, "instance");
-    encode_conductor_config_instance_name(&value.instance, out);
+    json::member(out, "instance_name");
+    encode_conductor_config_instance_name(&value.instance_name, out);
     json::member(out, "bytes");
     json::push_integer(out, value.bytes);
     out.push('}');
@@ -13527,9 +13527,9 @@ pub fn decode_event_conductor_host_disk_requested(value: &json::Value, at: &str)
             let member1 = json::member_at(value, at, "grant_id")?;
             decode_conductor_host_grant_id(member1, &at1)?
         },
-        instance: {
-            let at2 = json::nested(at, "instance");
-            let member2 = json::member_at(value, at, "instance")?;
+        instance_name: {
+            let at2 = json::nested(at, "instance_name");
+            let member2 = json::member_at(value, at, "instance_name")?;
             decode_conductor_config_instance_name(member2, &at2)?
         },
         bytes: {
@@ -16394,10 +16394,6 @@ pub fn encode_event_conductor_token_token_withdrawn(value: &crate::token::TokenW
     encode_conductor_token_token_id(&value.token_id, out);
     json::member(out, "owner");
     encode_conductor_operator_operator_name(&value.owner, out);
-    if let Some(held0) = &value.agent {
-        json::member(out, "agent");
-        encode_conductor_agent_agent_name(&*held0, out);
-    }
     json::member(out, "withdrawn_at");
     json::push_text(out, &value.withdrawn_at.0);
     out.push('}');
@@ -16425,17 +16421,10 @@ pub fn decode_event_conductor_token_token_withdrawn(value: &json::Value, at: &st
             let member2 = json::member_at(value, at, "owner")?;
             decode_conductor_operator_operator_name(member2, &at2)?
         },
-        agent: match value.member("agent") {
-            None | Some(json::Value::Null) => None,
-            Some(member3) => {
-                let at3 = json::nested(at, "agent");
-                Some(decode_conductor_agent_agent_name(member3, &at3)?)
-            }
-        },
         withdrawn_at: {
-            let at4 = json::nested(at, "withdrawn_at");
-            let member4 = json::member_at(value, at, "withdrawn_at")?;
-            crate::primitives::Timestamp(json::timestamp_at(member4, &at4, "an RFC 3339 instant")?.to_owned())
+            let at3 = json::nested(at, "withdrawn_at");
+            let member3 = json::member_at(value, at, "withdrawn_at")?;
+            crate::primitives::Timestamp(json::timestamp_at(member3, &at3, "an RFC 3339 instant")?.to_owned())
         },
     })
 }
@@ -17322,6 +17311,8 @@ pub fn encode_view_conductor_agent_agent_kinds(value: &crate::agent::AgentKinds,
     out.push(']');
     json::member(out, "binary");
     json::push_text(out, &value.binary);
+    json::member(out, "actor");
+    encode_conductor_operator_actor(&value.actor, out);
     out.push('}');
 }
 
@@ -18720,27 +18711,10 @@ pub fn encode_view_conductor_secret_secrets(value: &crate::secret::Secrets, out:
     encode_conductor_secret_secret_state(&value.state, out);
     json::member(out, "source");
     encode_conductor_secret_source(&value.source, out);
-    if let Some(held0) = &value.namespace {
-        json::member(out, "namespace");
-        encode_conductor_secret_namespace(&*held0, out);
-    }
-    json::member(out, "instances");
-    out.push('[');
-    for (index0, item0) in value.instances.iter().enumerate() {
-        if index0 > 0 {
-            out.push(',');
-        }
-        encode_conductor_config_instance_name(&*item0, out);
-    }
-    out.push(']');
     json::member(out, "created_by");
     encode_conductor_operator_actor(&value.created_by, out);
     json::member(out, "created_at");
     json::push_text(out, &value.created_at.0);
-    if let Some(held0) = &value.last_resolved_at {
-        json::member(out, "last_resolved_at");
-        json::push_text(out, &(*held0).0);
-    }
     out.push('}');
 }
 
@@ -18891,6 +18865,8 @@ pub fn encode_view_conductor_token_tokens(value: &crate::token::Tokens, out: &mu
     }
     json::member(out, "contributed_at");
     json::push_text(out, &value.contributed_at.0);
+    json::member(out, "actor");
+    encode_conductor_operator_actor(&value.actor, out);
     out.push('}');
 }
 
@@ -26003,6 +25979,20 @@ pub fn decode_command_conductor_improvement_set_metric_target(value: &json::Valu
 pub fn encode_outcome_conductor_improvement_set_metric_target(value: &crate::improvement::SetMetricTargetOutcome, out: &mut String) {
     out.push('{');
     match value {
+        crate::improvement::SetMetricTargetOutcome::ActorNotHuman { error } => {
+            json::member(out, "outcome");
+            json::push_text(out, "actor-not-human");
+            json::member(out, "published");
+            out.push('[');
+            out.push(']');
+            json::member(out, "refusal");
+            out.push('{');
+            json::member(out, "error");
+            json::push_text(out, "conductor.operator.ActorNotHuman");
+            json::member(out, "payload");
+            encode_error_conductor_operator_actor_not_human(error, out);
+            out.push('}');
+        }
         crate::improvement::SetMetricTargetOutcome::Targeted { metric_target_set } => {
             json::member(out, "outcome");
             json::push_text(out, "targeted");

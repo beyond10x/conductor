@@ -4,9 +4,11 @@
 //! A process records every command under one actor, [`chosen`], which [`crate::cli::Cli::run`]
 //! fixes once ([`choose`]): the leaf's `--actor` when it was given; else the run daemon itself
 //! (`conductor run`), a [`daemon`]; else the session the command runs in, an [`agent`] of the
-//! instance, where the provider that started the session set `CONDUCTOR_SESSION`; else the
-//! operator at the terminal, a [`human`] named by the Unix user. A caller that did not fix it (a
-//! library test) records as the operator.
+//! instance, where the provider that started the session set `CONDUCTOR_SESSION`; else a step
+//! the run daemon started ([`DAEMON_VARIABLE`]), a [`daemon`]; else the operator at the
+//! terminal, a [`human`] named by the Unix user. Inside a session `--actor` names an agent only.
+//! A caller that did not fix it (a library test) records as the operator. The collectors and the
+//! snapshot driver record as the daemon whoever starts them.
 //!
 //! The tie of a kind to its field (`Human` with `operator`, `Agent` with `agent`, `Daemon` with
 //! neither) is the decoder's to check ([`parse`]): the specification leaves it to the handler.
@@ -21,6 +23,12 @@ use serde_json::{Map, Value};
 
 /// The variable a provider sets in the session it starts: the session's name.
 pub const SESSION_VARIABLE: &str = "CONDUCTOR_SESSION";
+
+/// The variable the run daemon sets, to `1`, on each `conductor` step it runs as a child (a
+/// snapshot, the board, the records check, the metrics, the status page, a session's start or a
+/// delivery), so the step records as the [`daemon`]. A session's own `CONDUCTOR_SESSION` comes
+/// first: an agent started by such a step records as itself.
+pub const DAEMON_VARIABLE: &str = "CONDUCTOR_DAEMON_STEP";
 
 /// The agent kind every session conductor starts runs as in v1 (`conductor.agent`, § 7).
 pub const KIND: &str = "claude-code";
@@ -103,16 +111,40 @@ pub fn default_actor() -> Actor {
 }
 
 /// Fixes the actor of this process: `flag`, the leaf's `--actor`, when given; else the run
-/// daemon ([`daemon`]) when `run_daemon`; else [`default_actor`].
+/// daemon ([`daemon`]) when `run_daemon`; else the calling session as an agent where
+/// `CONDUCTOR_SESSION` names one; else the daemon where the run daemon started this process as
+/// one of its steps ([`DAEMON_VARIABLE`]); else the operator ([`human`]).
+///
+/// A session is an agent (design § 3: a human and an agent are told apart by type): in one,
+/// `--actor` may name an agent only, never a person or the daemon, so no session takes a grant
+/// that only a person holds.
 ///
 /// # Errors
 ///
-/// `flag` is not an actor ([`parse`]).
+/// `flag` is not an actor ([`parse`]), or names a human or the daemon inside a session.
 pub fn choose(flag: Option<&str>, run_daemon: bool) -> Result<()> {
+    let session = std::env::var(SESSION_VARIABLE)
+        .ok()
+        .map(|name| name.trim().to_owned())
+        .filter(|name| !name.is_empty());
     let actor = match flag {
-        Some(text) => parse(text).map_err(|error| anyhow!("--actor: {error}"))?,
+        Some(text) => {
+            let actor = parse(text).map_err(|error| anyhow!("--actor: {error}"))?;
+            if let Some(name) = &session
+                && actor.kind != ActorKind::Agent
+            {
+                bail!(
+                    "--actor: the session {name} is an agent and records as one; it cannot \
+                     write the actor {}",
+                    written(&actor)
+                );
+            }
+            actor
+        }
         None if run_daemon => daemon(),
-        None => default_actor(),
+        None if session.is_some() => default_actor(),
+        None if std::env::var(DAEMON_VARIABLE).is_ok_and(|value| value == "1") => daemon(),
+        None => human(),
     };
     *CHOSEN
         .write()
@@ -247,8 +279,8 @@ pub fn stored(body: &Value) -> Result<Actor, String> {
 #[must_use]
 pub fn not_human(actor: &Actor) -> String {
     format!(
-        "the actor {} is not a person, and only a human actor issues this command (pass --actor \
-         with kind Human for the operator); nothing changed",
+        "the actor {} is not a person, and only a human actor issues this command; nothing \
+         changed",
         written(actor)
     )
 }
