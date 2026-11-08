@@ -5,11 +5,13 @@ kind: story
 status: draft
 title: The loop restarts at the hand-over report and acts on session ids, not names
 summary: A 15-minute gap after a hand-over, and a respawned successor at risk of being stopped by name
-revision: 2
+revision: 3
 ---
 ## Why
 
-The host supervisor, 2026-11-07: after a controller reports `blocked handover`, the loop waits up to 15 minutes before it restarts the controller (`story:loop-restarts-controller-at-handover`); and when a session was respawned after a gone one, a restart keyed by the session name can stop the live successor (`story:loop-restarts-gone-conductor-dev`). The evidence lines (journal times, session ids) are to be added from the supervisor's report.
+The host supervisor, 2026-11-07: after a controller reports `blocked handover`, the loop waits up to 15 minutes before it restarts the controller (`story:loop-restarts-controller-at-handover`, whose acceptance waits for an idle session or `thresholds.silent_session` and does not restart on the report itself); and when a session was respawned after a gone one, a restart keyed by the session name can stop the live successor (`story:loop-restarts-gone-conductor-dev`).
+
+Evidence: one controller instance, 2026-11-07 23:12 to 23:21 CET: two sessions held one dispatch after a respawn (host supervisor's report, 23:24 CET; host teacher, 23:2x CET).
 
 ## Acceptance
 
