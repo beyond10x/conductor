@@ -29,7 +29,7 @@ timeline:
       role: Director
       kind: example-run-to-exit
       capabilities: [RunToExit]
-      profile: ~/.b10x/conductor/profiles/repo-controller.md
+      profile: ~/example-org/roles/controller.md
       limits: {tasks_max: 512}
       token_owner: example-operator
       started_at: 2026-11-08T09:01:00Z

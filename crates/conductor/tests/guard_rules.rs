@@ -4850,17 +4850,16 @@ fn an_instance_without_a_prefix_beside_one_with_keeps_today_s_rules() {
 // Adversary, wave 03 U1 (`story:instance-session-names`).
 // -------------------------------------------------------------------------------------------------
 
-/// The controller profile, `.agents/repo-controller.md`, tells a controller how its messages go:
+/// The controller profile, `crates/conductor/roles/controller.md`, tells a controller how its messages go:
 /// every report is sent as the `conductor message send` command it names
 /// (`story:controller-profile-for-run`). A controller that follows its profile must be let through
 /// by the guard: that command, its session name filled in and the message on standard input, is
 /// allowed from the controller's checkout and from a worker's tree.
 #[test]
 fn adv_w03_u1_the_report_command_the_controller_profile_names_is_allowed() {
-    let profile = fs::read_to_string(
-        Path::new(env!("CARGO_MANIFEST_DIR")).join("../../.agents/repo-controller.md"),
-    )
-    .expect("read the controller profile");
+    let profile =
+        fs::read_to_string(Path::new(env!("CARGO_MANIFEST_DIR")).join("roles/controller.md"))
+            .expect("read the controller profile");
     let marker = "is sent as `";
     let start = profile
         .find(marker)

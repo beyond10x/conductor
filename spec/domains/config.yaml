@@ -184,7 +184,8 @@ types:
   # (`conductor.config.RoleName`, or its old name, as the file writes it); the
   # harness agent the role starts with, such as `repo-controller`; the settings file it starts
   # with; and the profile file its session starts with through `--append-system-prompt-file`, in
-  # place of the agent. The settings and profile files are written absolute or under `~`. Absent,
+  # place of the agent and of the text the binary carries for the role (story:roles-in-the-binary,
+  # `conductor.agent.ShowRole`), read at start. The settings and profile files are written absolute or under `~`. Absent,
   # a role names no agent, no settings file and no profile. `session_name` is derived, never
   # chosen: the name the role's session starts under, `<session_prefix>-<role>`, or `<role>` when
   # the instance has no prefix, `<role>` as the file writes it; absent for `lead` (`controller`),
@@ -195,8 +196,9 @@ types:
   # under their old names `conductor`, `conductor-dev` and `controller`, which the start tasks and
   # the watch's context lines select them by; they move to the new names with the tasks
   # (story:role-names-in-files), so that no running instance's sessions are renamed. Without a
-  # profile or an agent, `director` and `maintainer` start with the agents `conductor` and
-  # `conductor-dev`, the adapters' file names for this release. In v1 the maintainer is retired and
+  # profile or an agent, a role the binary carries a profile for (`maintainer`, `supervisor`,
+  # `teacher`, `controller`) starts from that text, which the `claude-code` kind writes into the
+  # agent's state, and `director` with the agent `conductor`. In v1 the maintainer is retired and
   # the host's file `host.yaml` is gone: the host roles are `globals.roles` (`Globals`, design
   # architecture-next § 9, § 11). `read_only_tools` (story:guard-all-tools) names the tools, beyond the guard's
   # built-in read-only allowlist, that the guard allows the role's sessions without a rule of its
@@ -207,7 +209,7 @@ types:
   # (story:agent-needs-user-setting-source): a session the `systemd` provider starts passes
   # `--setting-sources project,local`, which loads no user-level agent (the `none` provider adds
   # `user` for `claude --bg`, story:bg-launch-reads-user-settings), so a controller starts
-  # only from its profile, never from its agent; a controller role with an agent and no profile
+  # only from a profile, never from its agent; a controller role with an agent and no profile
   # is refused by its `profile` path. One with neither is valid, as the built-in role is.
   # `limits`, `writable` and `network` are the envelope each session of the role asks for
   # (story:session-envelope-model): the limits of one session, the places it may write, and its
@@ -234,7 +236,7 @@ types:
   # first, `CONDUCTOR_INSTANCE=<name> conductor guard …`, since the harness does not pass the
   # environment its starter set on to a session it forks. A role's own settings file that pins
   # no instance (no `env.CONDUCTOR_INSTANCE`, or a hook command that runs `conductor` without the
-  # prefix), as the shipped ones do, starts pinned: `session start` and `spawn` write its content
+  # prefix), as the binary's do, starts pinned: `session start` and `spawn` write its content
   # with the pin set to `<state>/sessions/<session name>.settings.json` and start the session with
   # that copy, and `config validate` reports it, by its `settings` path, as a note. A settings file
   # that pins another instance, or cannot be read as JSON, is a problem `config validate` names by
@@ -914,7 +916,7 @@ types:
   # `dispatches/` and `charters/` — and commits it, refusing to overwrite any file. `instance` is
   # selected as for `config show`; a config file must name it. It installs no agent adapter under
   # `~/.claude/agents/`: the daemon starts the host roles, the supervisor and the teacher, from
-  # their profiles (story:host-roles-by-daemon, decision H4).
+  # the profiles the binary carries (story:host-roles-by-daemon, story:roles-in-the-binary).
   - name: conductor.config.InitRecords
     kind: struct
     fields:

@@ -8,7 +8,7 @@ sessions' --brief`, an item in full (`--item <n>`) when a step touches it; your 
 --status draft`. Design § 12 and §§ 2–6 only when a change touches them. No file is read twice.
 
 You own, in the product repository, `crates/`, `spec/`, `.engineering/`, `docs/`, `website/`,
-`.agents/`, `.claude/`, `Taskfile.yml`, `Cargo.*`, `AGENTS.md`, `README.md`, and the instance's
+`Taskfile.yml`, `Cargo.*`, `AGENTS.md`, `README.md`, and the instance's
 `rules.md`. The rest of the records (`decisions/`, `dispatches/`, `charters/`, `STATUS.md`,
 `REPORT.md`, `docs/handoff/`) is conductor's: never write it. Commit only your own files, with a
 pathspec, through the route the product repository's `AGENTS.md` names for commits and pushes.
@@ -37,7 +37,7 @@ pathspec, through the route the product repository's `AGENTS.md` names for commi
 5. **Hand over** at 150k tokens of context: write `<date>.md` into `<state>/conductor-dev/handoff/`,
    never into this public repository, and start a fresh session.
 6. **Rebuild and restart.** After a wave merges and `task check` is green on `main`: `task install`
-   (or `task profiles`); conductord restarts each runtime on the new binary. The daemon:
+   (it carries the profiles); conductord restarts each runtime on the new binary. The daemon:
    `conductor daemon serve --uninstall`, then `conductor daemon serve --install`. Restarts are
    batched with the next wave, at most one an hour unless one corrects a live fault. A `rules.md`
    change needs no restart of the loop: commit it, and each session reads it at its next start.

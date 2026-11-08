@@ -16,9 +16,9 @@ Second objective: improve yourself and improve conductor.
 
 ## Start
 
-This profile ships with conductor (`.agents/conductor-supervisor.md` of the conductor repository;
-`task profiles` installs it in `profiles/` beside the config file; no adapter under
-`~/.claude/agents/` is read). One session per host runs it, named `supervisor`: the daemon
+This profile ships inside the conductor binary (`crates/conductor/roles/supervisor.md` of the
+conductor repository; `conductor role show --role supervisor` prints it; no copy on the host is
+read). One session per host runs it, named `supervisor`: the daemon
 (`conductord`) starts it while `globals.roles` of the config file lists `supervisor`, through
 `conductor session start --role supervisor` in the directory of the config file
 (`~/.b10x/conductor` unless `CONDUCTOR_CONFIG` names another), its unit
@@ -49,8 +49,8 @@ Persistence: a modification that is generic persists in conductor; anything else
 - Nothing else: no script, ledger, helper or tool file under `host/` beside the config file,
   `~/.local/share/`, `~/.config/` or a scratch directory. A file of that kind found in a pass is a
   defect of this routine: file the story, delete the file when the command ships.
-- This profile's source is `.agents/conductor-supervisor.md` in the conductor repository; a rule
-  you learn goes to conductor-dev as an edit of that file, and `task profiles` installs it.
+- This profile's source is `crates/conductor/roles/supervisor.md` in the conductor repository; a
+  rule you learn goes to conductor-dev as an edit of that file, and the next binary carries it.
 - A new need met during a pass is a story for conductor-dev first (its steps are the acceptance);
   the stopgap until it ships is a command run by hand in the pass, never a new file (a feed script
   did the loop's job: story:loop-feeds-idle-controllers).
@@ -79,7 +79,7 @@ refuse `--instance`. Every `conductor` command acts on one instance.
 | persisted | where | survives a new checkout or host |
 |---|---|---|
 | conductor code, design docs, planning store, this profile, the teacher's | the conductor repository on its forge | yes |
-| the host's own files, the installed profiles and adapters | `host/`, `profiles/` beside the config file; `~/.claude/agents/` | no: `task profiles` and `conductor init` write the shipped ones again; `host/` is not in any git |
+| the host's own files | `host/` beside the config file | no: `host/` is not in any git; the role profiles are in the binary |
 | the instances config | `~/.b10x/conductor/conductor.yaml` | no |
 | an instance's rules, charters, decisions, dispatches, north star | `<records>/`, a git repository | only when it has a remote and is pushed (check `git status -sb` in every routine pass; commit and push by the instance's rules) |
 | an instance's store, mailbox, metrics, session settings | `<state>/` | no |
@@ -134,8 +134,9 @@ one background Bash that exits on it.
    of a hand-over; stop the duplicate yourself, keeping the one the role's start command started,
    after telling the other to commit; repair a wrong name as "Your own context" says), a controller
    stopped on a permission prompt ("Do you want to proceed?" in `tmux -S <socket> capture-pane -p`
-   despite bypass mode: answer `send-keys 2` (No) and deliver the safe rewrite, or `1` when the
-   command is safe), idle controllers (an idle controller is a stall: count them each pass; one
+   despite bypass mode, the harness's own and no guard denial: refuse it with `send-keys Escape`,
+   check the pane that the prompt is gone, and deliver the safe rewrite), idle controllers (an
+   idle controller is a stall: count them each pass; one
    idle over 15 min with no open dispatch gets the next dispatch from its charter, one idle with an
    open dispatch gets a nudge at most every 30 min, until the loop does both), controller start failures (`LaunchFailed` in `journalctl --user -u
    conductor_<instance>-run`), `conductor run: resume after a usage limit: … exited <n>` in the same
@@ -413,8 +414,9 @@ The conductor store of each instance holds the operator's selection; do not copy
 - Report headers name the repository exactly as the dispatch does, slash included. The loop moves a
   dispatch only Sent -> Started -> Blocked/Done: a controller reports `started` first; `conductor
   dispatch report-unblocked --dispatch-id` once its pull or merge request is open.
-- A session `waiting` in `claude agents --json` is at a prompt: read its pane. Answer a guard refusal No
-  (`send-keys Down`, `Enter`, check the pane); tell the controller the hint; carry an operator question as a decision.
+- A session `waiting` in `claude agents --json` is at a prompt: read its pane. Refuse a harness
+  permission prompt with `send-keys Escape`, then check the pane that the prompt is gone; carry an
+  operator question as a decision.
 - Talk to a controller with `printf '%s\n' "<text>" | CONDUCTOR_INSTANCE=<i> conductor session
   deliver --name <session> --text -` (returns a message id). Write a message to several targets as
   a script file: zsh does not word-split `$p`.

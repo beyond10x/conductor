@@ -255,9 +255,10 @@ config file, the instance's `state` directory and everything under it. The rest 
 `~/.b10x/conductor/` is not the config: an instance's `records` are there by default, and keep
 their own rule (conductor writes them, a controller does not).
 
-The guard is a Claude Code PreToolUse hook. The repository ships it wired in
-`.claude/conductor-settings.json` (conductor) and `.claude/controller-settings.json` (each
-controller, named by the controller role's `settings`), on the matcher `*`, so every tool call
+The guard is a Claude Code PreToolUse hook. The binary carries it wired in
+`crates/conductor/kinds/claude-code/conductor-settings.json` (conductor) and
+`controller-settings.json` (each controller, unless the controller role's `settings` names
+another), on the matcher `*`, so every tool call
 reaches it; a tool without a rule of its own is allowed only from the read-only allowlist and the
 role's `read_only_tools`, and denied otherwise:
 
@@ -479,9 +480,8 @@ Not implemented yet; each answers exit 2:
 
 | profile | used by |
 |---|---|
-| `.agents/conductor.md` | the conductor session |
-| `.agents/conductor-dev.md` | the conductor-dev session |
-| `.agents/repo-controller.md` | every repository controller |
+| `crates/conductor/roles/maintainer.md` | the conductor-dev session |
+| `crates/conductor/roles/controller.md` | every repository controller |
 | `rules.md` (in the instance's records) | every session, after its profile: the instance's own rules, one section per role, each with its source |
 | `charters/<repo>.md` (in the records) | the per-repository brief: goal, boundaries, current dispatch, standing decisions, the paths of the controller profile and `rules.md` |
 
@@ -490,12 +490,15 @@ written `section.key` and read from the config (§ 9). What holds for one organi
 its `rules.md`, which this repository does not ship. There is one controller profile.
 Per-repository differences go in the charter, so a rule changes in one place.
 
-A profile's rules live in `.agents/`, readable by any harness. For Claude Code, `.claude/agents/`
-holds one adapter per profile (`conductor.md`, `conductor-dev.md`, `repo-controller.md`), each
-carrying only the agent frontmatter and a pointer at its `.agents/` file. A role's `agent` in the
-config names the adapter its session starts with, and its `settings` the settings file:
-`.claude/controller-settings.json` for a controller, which wires the guard (§ 7).
-`task conductor:start` starts conductor with `.claude/conductor-settings.json`.
+The profiles are product data compiled into the binary (`crates/conductor/roles/`, one per role,
+kind-neutral; `conductor role show --role <role>` prints one), so a role always starts from the
+text of the binary that starts it and nothing is copied to the host. An agent kind turns a
+profile into what its harness reads: the `claude-code` kind writes it into the agent's own state,
+`<state>/sessions/<session name>.profile.md`, and appends it with `--append-system-prompt-file`;
+it writes the settings the binary carries the same way, `<session name>.settings.json`
+(`crates/conductor/kinds/claude-code/`: conductor's and a controller's, which wire the guard,
+§ 7). No adapter is committed, and none is written under `~/.claude/agents/`. A role's `profile`
+or `settings` in the config takes the place of the binary's, read at start.
 
 A controller's `charter_revision` counts the revisions sent to that running controller. It starts
 at 1 and `controller revise-charter` raises it.
@@ -508,7 +511,7 @@ owns conductor's development, watches how conductor behaves, and rebuilds and re
 | who | writes |
 |---|---|
 | conductor | its records: `decisions/`, `dispatches/`, `charters/`, `docs/handoff/`, `goals.jsonl`, `STATUS.md`, `NORTHSTAR.md`, `REPORT.md`; `.engineering/workspace.yaml`, through `conductor config workspace` |
-| conductor-dev | `crates/`, `spec/`, `.engineering/`, `docs/`, `.agents/`, `.claude/`, `Taskfile.yml`, `Cargo.*`, `AGENTS.md`, `README.md`; the instance's `rules.md` |
+| conductor-dev | `crates/`, `spec/`, `.engineering/`, `docs/`, `Taskfile.yml`, `Cargo.*`, `AGENTS.md`, `README.md`; the instance's `rules.md` |
 
 Conductor sends its faults and requests to conductor-dev as `[NEED conductor <id>] conductor-dev
 <what>`, instead of editing its own profile or design.

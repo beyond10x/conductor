@@ -1,5 +1,5 @@
 // generated from conductor v1
-// contract digest 92a4370ed302f5aecf042d1cd6448ff2d89bf65c94265e16af94376031e7bd63
+// contract digest a76aa63f2ad9f5b169861cd94a585925f67f9ddebf70caf04f301709ee2e64d1
 // do not edit: regenerate with `ess synthesize --layout crate`
 
 //! Agent — `conductor.agent`.
@@ -89,6 +89,13 @@ pub enum ExitClass {
     UsageLimit,
     /// `Exited`.
     Exited,
+}
+
+/// ShowRole — `conductor.agent.ShowRole`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ShowRole {
+    /// `role` — `Optional<String>`.
+    pub role: Option<String>,
 }
 
 /// What Agent — `conductor.agent.Agent` — holds, apart from where it is in its lifecycle.

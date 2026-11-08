@@ -2572,7 +2572,7 @@ fn adv2_session_names(value: &Value, names: &mut Vec<String>) {
     }
 }
 
-/// `.agents/repo-controller.md` § Talking: a controller's messages go to "your instance's
+/// `crates/conductor/roles/controller.md` § Talking: a controller's messages go to "your instance's
 /// conductor, whose session name `conductor config show` prints"; "An instance that names no
 /// `conductor` role is served by the `default` instance's conductor, and its session name is the
 /// one to use". The guard lets a controller of the served `gamma` message only `a-conductor`, the

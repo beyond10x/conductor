@@ -80,7 +80,9 @@ types:
   # --append-system-prompt-file <profile> --model <model> --permission-mode bypassPermissions
   # --setting-sources user,project,local --settings <settings> <charter>`: the session name is the
   # instance's for the repository, as `StartController` takes it; profile, model and settings are
-  # the `controller` role's in `conductor config show`; the charter is the text of
+  # the `controller` role's in `conductor config show`, a profile or settings file it does not name
+  # being the one the binary carries, written by the `claude-code` kind under
+  # `<state>/sessions/<session name>.profile.md` and `.settings.json` (story:roles-in-the-binary); the charter is the text of
   # `<records>/charters/<repository>.md`, one argument. It records `StartController` before it
   # launches, and `StopController` when the launch fails. It prints what `claude --bg` printed: the
   # background session's id. A launch that succeeds appends one `sent` line to the records'
@@ -99,8 +101,8 @@ types:
   # (`StartController`'s `already-running`); `SessionRunning`, a live session holds the session
   # name; `SessionsUnread`, the session list (`claude agents --json`) could not be read, so a live
   # one could not be told apart; `NoControllerRole`, the instance names no `controller` role;
-  # `NotClaude`, that role runs on another harness; `NoProfile`, `NoSettings`, the role names no
-  # profile or settings, or names one that is not a file; `NoCheckout`, the repository names no git
+  # `NotClaude`, that role runs on another harness; `NoProfile`, `NoSettings`, the role names a
+  # profile or settings file that is not a file (one it does not name is the binary's); `NoCheckout`, the repository names no git
   # checkout directly, or one group down, under the checkouts root, or one whose physical path lies
   # outside the root's (a link out of it); `RecordsCheckout`, the checkout is the instance's records
   # directory, lies inside it or holds it, where a session is conductor's, never a controller;

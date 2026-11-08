@@ -3,12 +3,12 @@ title: The guard
 sidebar_position: 2
 description: The PreToolUse hook that decides every tool call of conductor and its controllers; its tool table, its rules per role, how it fails, and what it records.
 lede: One hook reads each tool call, finds the place the session runs in, applies that place's rule and answers with an exit code.
-source: crates/conductor/src/guard.rs, crates/conductor/src/guard/rules.rs, crates/conductor/src/guard/shell.rs, crates/conductor/src/session.rs; .claude/conductor-settings.json, .claude/controller-settings.json; crates/conductor/tests/guard_rules.rs, crates/conductor/tests/guard_hook.rs, crates/conductor/tests/adv_guard.rs
+source: crates/conductor/src/guard.rs, crates/conductor/src/guard/rules.rs, crates/conductor/src/guard/shell.rs, crates/conductor/src/session.rs; crates/conductor/kinds/claude-code/conductor-settings.json, crates/conductor/kinds/claude-code/controller-settings.json; crates/conductor/tests/guard_rules.rs, crates/conductor/tests/guard_hook.rs, crates/conductor/tests/adv_guard.rs
 ---
 
-The guard is a Claude Code PreToolUse hook. The repository ships it wired in two settings files,
-`.claude/conductor-settings.json` for conductor and `.claude/controller-settings.json` for each
-controller, on the matcher `*`:
+The guard is a Claude Code PreToolUse hook. The binary carries it wired in two settings files,
+`crates/conductor/kinds/claude-code/conductor-settings.json` for conductor and
+`controller-settings.json` for each controller, written into the session's state at start, on the matcher `*`:
 
 ```console
 conductor guard record-guard-decision --from-pre-tool-use || exit 2

@@ -19,8 +19,9 @@ on a repository you have: [one task in an existing repository](https://beyond10x
 - The `conductor` CLI, written in Rust. It reads the repositories, keeps the records in an
   append-only store, guards every tool call of the sessions, watches for events, and serves a
   dashboard where the operator reads the state and answers decisions.
-- Three generic profiles in [`.agents/`](.agents/) that tell each session what to do. The rules of
-  one organization go in its own `rules.md`; this repository ships none.
+- The generic role profiles that tell each session what to do, compiled into the binary from
+  [`crates/conductor/roles/`](crates/conductor/roles/) (`conductor role show --role <role>`). The
+  rules of one organization go in its own `rules.md`; this repository ships none.
 
 ## Who it is for
 
@@ -151,20 +152,18 @@ catalog; [`docs/config.md`](docs/config.md) lists every field.
 1. `conductor init` writes the instance's records directory: a git repository with `NORTHSTAR.md`,
    `rules.md` (one section per role), a first hand-over in `docs/handoff/`, and the workspace file.
    It refuses to overwrite a file. Write your organization's rules into `rules.md`.
-2. Add the roles to the instance. Each `profile` points at this checkout's `.agents/` file, each
-   `settings` at its `.claude/` settings file, which wires the guard:
+2. Add the roles to the instance. A role starts from the profile the binary carries for it and,
+   for a controller, the settings the binary carries, which wire the guard; a `profile` or
+   `settings` the role names takes their place:
 
    ```yaml
        roles:
          - role: conductor-dev
            harness: claude
            model: opus
-           profile: ~/.b10x/conductor/profiles/conductor-dev.md
          - role: controller
            harness: claude
            model: opus
-           profile: ~/.b10x/conductor/profiles/repo-controller.md
-           settings: ~/example-org/conductor/.claude/controller-settings.json
    ```
 
 3. `task trust` marks every checkout under `checkouts.root` and the records directory as trusted
@@ -186,10 +185,9 @@ settings and agents are not loaded; the role's settings file carries what the se
 `none` provider's `claude --bg` sessions pass `user,project,local`, because Claude Code keeps the
 disclaimer acceptance in user settings; the role's settings file still wins on every key it sets.
 
-For an interactive session of your own in one repository, `task agents:link REPO=<path>` links
-this checkout's agents (`repo-controller`, `conductor-dev`) into
-`<path>/.claude/agents/` and lists each link in that repository's `.git/info/exclude`. It writes
-nothing to `~/.claude/agents/`, and removes the links an earlier version of the task left there.
+Nothing is copied to the host to make a role run: no profile under `~/.b10x/conductor/`, no
+adapter under `~/.claude/agents/`. At start the session's profile and settings are written into
+its state directory, from the binary that starts it.
 
 ## How it works
 

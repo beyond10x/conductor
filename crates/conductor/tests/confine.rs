@@ -107,8 +107,9 @@ impl Case {
             ),
         );
         // `story:instance-isolation`: conductor-dev's own settings pin the instance; conductor names
-        // none, and starts with the default of the working directory, which pins none, written
-        // pinned under the state directory.
+        // none, and starts with the settings the binary carries, which pin none, written pinned
+        // under the state directory (`story:roles-in-the-binary`). A settings file of the working
+        // directory is not read: the one written here is not what conductor starts with.
         write(&case.conductor_settings(), SHIPPED);
         write(&case.dev_settings(), &pinned("alpha"));
         case.agents(&json!([]));
@@ -131,8 +132,9 @@ impl Case {
         self.dir.join("home")
     }
 
-    /// The conductor role's default settings, `.claude/conductor-settings.json` of the working
-    /// directory, as this checkout ships them: no instance pinned.
+    /// A settings file in the working directory where the conductor role's default once was,
+    /// `.claude/conductor-settings.json`; the binary carries the default now
+    /// (`story:roles-in-the-binary`), so no start reads it.
     fn conductor_settings(&self) -> PathBuf {
         self.work().join(".claude/conductor-settings.json")
     }
@@ -487,7 +489,7 @@ fn a_role_whose_settings_pin_another_instance_is_refused() {
 }
 
 /// `story:instance-isolation`, item 1: a role whose own settings file pins no instance, as the
-/// shipped `.claude/conductor-settings.json` the guides name does, starts with a copy of it pinned
+/// binary's `kinds/claude-code/conductor-settings.json` does, starts with a copy of it pinned
 /// to the role's instance, `<state>/sessions/<session name>.settings.json`: every other key kept,
 /// `env.CONDUCTOR_INSTANCE` set and each hook command that runs `conductor` prefixed
 /// `CONDUCTOR_INSTANCE=alpha `. The file itself is not changed. A file that pins the instance
@@ -495,7 +497,7 @@ fn a_role_whose_settings_pin_another_instance_is_refused() {
 #[test]
 fn a_role_whose_settings_pin_no_instance_starts_with_a_pinned_copy() {
     let shipped = fs::read_to_string(
-        Path::new(env!("CARGO_MANIFEST_DIR")).join("../../.claude/conductor-settings.json"),
+        Path::new(env!("CARGO_MANIFEST_DIR")).join("kinds/claude-code/conductor-settings.json"),
     )
     .expect("the shipped conductor settings");
     let env_only = json!({
@@ -709,9 +711,15 @@ fn the_provider_is_given_the_role_s_request_and_first_prompt() {
     assert_eq!(pinned["env"]["CONDUCTOR_INSTANCE"], "alpha", "{pinned}");
     assert_eq!(
         pinned["hooks"]["PreToolUse"][0]["hooks"][0]["command"],
-        "CONDUCTOR_INSTANCE=alpha conductor guard record-guard-decision --from-pre-tool-use || \
-         exit 2",
+        "CONDUCTOR_INSTANCE=alpha conductor guard record-guard-decision --from-pre-tool-use --pid \
+         \"$PPID\" || exit 2",
         "{pinned}"
+    );
+    assert_eq!(
+        pinned["hooks"]["SessionStart"][0]["hooks"][0]["command"],
+        "CONDUCTOR_INSTANCE=alpha conductor session claim --from-session-start --pid \"$PPID\" || \
+         exit 2",
+        "the binary's conductor settings, pinned: {pinned}"
     );
     assert_eq!(
         logged[0]["args"],
@@ -746,8 +754,11 @@ fn the_provider_is_given_the_role_s_request_and_first_prompt() {
         json!([
             "-n",
             "conductor-dev",
-            "--agent",
-            "conductor-dev",
+            "--append-system-prompt-file",
+            case.state()
+                .join("sessions/conductor-dev.profile.md")
+                .display()
+                .to_string(),
             "--model",
             "sonnet",
             "--permission-mode",
@@ -757,6 +768,14 @@ fn the_provider_is_given_the_role_s_request_and_first_prompt() {
             "--settings",
             case.dev_settings().display().to_string(),
         ])
+    );
+    // `story:roles-in-the-binary`: conductor-dev names no profile, so it starts from the
+    // maintainer profile the binary carries, written into its state.
+    assert_eq!(
+        fs::read_to_string(case.state().join("sessions/conductor-dev.profile.md"))
+            .expect("the written profile"),
+        fs::read_to_string(Path::new(env!("CARGO_MANIFEST_DIR")).join("roles/maintainer.md"))
+            .expect("the maintainer profile")
     );
     assert!(
         logged
