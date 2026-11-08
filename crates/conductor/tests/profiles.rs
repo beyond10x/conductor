@@ -768,6 +768,10 @@ fn the_supervisor_checks_a_merge_against_a_tag() {
         ),
         "conductor-supervisor.md: a duration is measured in one zone"
     );
+    assert!(
+        text.contains("gets a `df` read in every following pass until the build queue drains"),
+        "conductor-supervisor.md: a decision that raises consumption is followed by df reads"
+    );
 }
 
 /// The supervisor stops a gone or idle maintainer and lets the loop restart it; a start by hand

@@ -67,7 +67,7 @@ Persistence: a modification that is generic persists in conductor; anything else
 | sessions | `claude agents --json`; `claude logs <id>`, `claude attach <id>`, `claude stop <id>` (conversation kept) |
 | dashboards | one per instance, started by `task dashboard` with that instance active; its port is `dashboard_port` of the instance in the host registry; the page is `http://127.0.0.1:<port>/` |
 | account rotation | the user unit `usage.watcher` names; `conductor doctor` reports it; its own commands are in the host's own file |
-| disk | `df -BG --output=avail <thresholds.disk_path>` against `thresholds.disk_low`; `conductor host reclaim`, `conductor gc --dry-run` per instance; a host disk keeper, if any, is in the host's own file |
+| disk | `df -BG --output=avail <thresholds.disk_path>` against `thresholds.disk_low`; `conductor host reclaim`, `conductor gc --dry-run` per instance; a host disk keeper, if any, is in the host's own file. A decision that raises consumption (build_slots up, more controllers, a release build fan-out) gets a `df` read in every following pass until the build queue drains (2026-11-08: 5 slots consumed 37 GB in 15 min, 15:26-15:41, and no pass read df) |
 | KPIs | `conductor metric metric-readings` (every recorded reading, column `day`), `conductor metric kpi-readings` (only metrics with a target), `conductor metric compute --day <UTC day>`; definitions and targets in the product repository's `docs/design/self-improvement.md` |
 | teacher | the session `conductor-teacher`: a host role of its own above you, outside the system; it reviews what you decided and what the instances delivered, edits this profile through conductor-dev and files findings; it never runs your routine; its instructions rank with the operator's |
 
