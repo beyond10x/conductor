@@ -251,7 +251,7 @@ impl Usage {
             .collect()
     }
 
-    /// The repository rows as JSON objects, as `/data.json` carries them.
+    /// The repository rows as JSON objects, as `/v1/data.json` carries them.
     #[must_use]
     pub fn repository_objects(&self) -> Value {
         Value::Array(

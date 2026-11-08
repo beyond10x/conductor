@@ -88,12 +88,6 @@ types:
     kind: newtype
     of: String
 
-  - name: conductor.observation.DashboardServe
-    kind: struct
-    fields:
-      - {name: port, type: Optional<Integer>}
-      - {name: root, type: Optional<String>}
-
   # The `memory` part of the dashboard's health view (story:dashboard-memory-bound): what the
   # serving process holds. `rss_bytes` is its resident set (`VmRSS` of `/proc/self/status`) and
   # `swap_bytes` what of it the system swapped out (`VmSwap`), each absent where the system does

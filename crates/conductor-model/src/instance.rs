@@ -1,5 +1,5 @@
 // generated from conductor v1
-// contract digest 88f1c9e5b4ef578aa56eea73a14e4e509b870a0735bb11ab37ea1e0e49124b8a
+// contract digest c0e5f57876522191690b7b7fa0b710a15b36d5bf4a50b987946bb580f924bf53
 // do not edit: regenerate with `ess synthesize --layout crate`
 
 //! Instance — `conductor.instance`.
@@ -90,6 +90,17 @@ pub struct ServeDaemon {
     pub install: Option<bool>,
     /// `uninstall` — `Optional<Boolean>`.
     pub uninstall: Option<bool>,
+}
+
+/// UpgradeInstances — `conductor.instance.UpgradeInstances`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct UpgradeInstances {
+    /// `instance` — `Optional<conductor.config.InstanceName>`.
+    pub instance: Option<crate::config::InstanceName>,
+    /// `tag` — `String`.
+    pub tag: String,
+    /// `all` — `Optional<Boolean>`.
+    pub all: Option<bool>,
 }
 
 /// What Instance — `conductor.instance.Instance` — holds, apart from where it is in its lifecycle.
@@ -335,6 +346,14 @@ impl Instance<instance_state::Unreachable> {
 
     /// `restart` — `Unreachable` → `Starting`. Taken by the `restarted` outcome of `conductor.instance.RestartInstance`.
     pub fn restart(self) -> Instance<instance_state::Starting> {
+        Instance {
+            data: self.data,
+            state: core::marker::PhantomData,
+        }
+    }
+
+    /// `roll_back` — `Unreachable` → `Starting`. Taken by the `rolled-back` outcome of `conductor.instance.UpgradeInstance`.
+    pub fn roll_back(self) -> Instance<instance_state::Starting> {
         Instance {
             data: self.data,
             state: core::marker::PhantomData,
@@ -972,7 +991,7 @@ pub enum UpgradeInstanceOutcome {
         /// The `conductor.instance.InstanceUpgrading` this outcome publishes.
         instance_upgrading: InstanceUpgrading,
     },
-    /// `rolled-back` — when the existing subject is in Upgrading.
+    /// `rolled-back` — when the existing subject is in Unreachable or Upgrading.
     ///
     /// The upgraded runtime did not come up; the previous binary is back and its runtime starting.
     RolledBack {

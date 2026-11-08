@@ -540,12 +540,12 @@ types:
   # The level a key of the effective config came from (design architecture-next § 9). Precedence
   # is role over instance over global: a key a role writes wins over the same key its instance
   # writes, which wins over `globals`; a key none of them writes is conductor's built-in default,
-  # shown as `Global`.
-  # UNMAPPED: whether a built-in default is a level of its own (a fourth variant, `Default`) or
-  # reads as `Global` is not settled; `Global` here. Open question.
+  # `Default` (story:config-globals: `config show --effective` names a built-in value apart from
+  # one `globals` writes). `Default` is a level a key comes from, never one a change is written
+  # at: `PutConfig` refuses it.
   - name: conductor.config.Level
     kind: enum
-    variants: [Global, Instance, Role]
+    variants: [Default, Global, Instance, Role]
 
   # Stand-in for `conductor.placement.PlacementName`, which the placement unit declares (design
   # architecture-next § 6). Declared here only so that this branch validates on its own; the
@@ -596,10 +596,17 @@ types:
   # UNMAPPED: where the listener's certificate and key come from (files, a `secret:<name>`, the
   # Identity service) and which Identity service issues and checks the bearers are not settled.
   # Open question.
+  # story:instance-api: `cert` and `key` are the PEM files of the listener's certificate chain and
+  # private key; `identity` the Identity service's origin, which resolves each bearer
+  # (`GET <identity>/v1/access-authority`, audience `conductor`). The daemon refuses to open the
+  # listener while any of the three is absent, naming its YAML path.
   - name: conductor.config.TlsListener
     kind: struct
     fields:
       - {name: listen, type: String}
+      - {name: cert, type: Optional<String>}
+      - {name: key, type: Optional<String>}
+      - {name: identity, type: Optional<String>}
 
   # Where the daemon resolves the `secret:<name>` values the file names (design architecture-next
   # § 9, decision 6): `keychain`, the OS keychain on the control host (`secrets-keychain`), or
@@ -628,7 +635,9 @@ types:
   # when none is configured; `cadence.reconcile`; `store`, the one URL of the deployment's shared
   # database, which the daemon hands to every instance runtime it starts; `secrets`, the secrets
   # source; `dashboard`, the path the daemon serves the dashboard app at, absent `/`; `operators`,
-  # the deployment's operators, at least the one the Unix user names on a single host.
+  # the deployment's operators, at least the one the Unix user names on a single host;
+  # `upgrade_timeout`, how long an upgraded instance runtime has to answer before the daemon rolls
+  # it back to its previous binary (story:instance-upgrade, § 10), a duration, absent 120 s.
   # UNMAPPED: § 4 says "the loopback listener is off on a box that has no local operator"; which key
   # turns it off (an absent `port`, or a key of its own) is not settled. Open question.
   # UNMAPPED: "the dashboard's served path" may be the URL path the app is served under (`/`, as
@@ -644,6 +653,7 @@ types:
       - {name: secrets, type: conductor.config.SecretsSource}
       - {name: dashboard, type: String}
       - {name: operators, type: List<conductor.config.DaemonOperator>}
+      - {name: upgrade_timeout, type: Duration}
     invariants:
       - port >= 1
       - port <= 65535
@@ -736,7 +746,10 @@ types:
       - {name: conductor, type: conductor.config.ConductorSession}
 
   # The file, `conductor.config/2` (design architecture-next § 9). A key it does not declare is an
-  # error, and so is a value that looks like a token. `daemon` is conductord's own section,
+  # error, and so is a value that looks like a token. A value under a secret-bearing key (one
+  # whose name ends in `token`, `password`, `secret` or `bearer`, and the password of a
+  # `daemon.store` URL) is `secret:<name>` and nothing else (story:config-globals; § 9: "Secrets
+  # never enter the file"). `daemon` is conductord's own section,
   # `globals` the defaults every instance starts from, `instances` the instances it reconciles.
   # `default` is the instance a command runs when neither `--instance` nor the
   # `conductor-instance` setting names one (story:grouped-instance); it names an instance of the
@@ -778,13 +791,15 @@ types:
   # write. A prefix renames the instance's sessions: stop them before migrating and start them
   # again after.
   #
-  # From `conductor.config/1` to `/2` (design architecture-next § 9), once: it writes `version:
-  # conductor.config/2`, drops `dashboard_port`, every `confinement.*` key and the per-instance
-  # `store:` key with one note each naming its YAML path, and moves the host's roles (`host.roles`,
-  # read before v1 from `host.yaml`) to `globals.roles`. A `/2` file it leaves unchanged.
-  # UNMAPPED: what `config migrate` writes for the keys `/2` requires and `/1` has no value for
-  # (`daemon.store`, `daemon.secrets`, each instance's `placement`) is not settled: a default, a
-  # prompt, or a refusal naming each. Open question.
+  # From `conductor.config/1` to `/2` (design architecture-next § 9), once (story:config-globals):
+  # it writes `version: conductor.config/2`; drops `dashboard_port`, `confinement.mode`,
+  # `confinement.provider` and the per-instance `store:` key with one note each naming its YAML
+  # path; writes each instance's `placement` as the name a `/1` file's provider reads as
+  # (`systemd`, `none`), and moves `confinement.limits` to the instance's `limits`; and moves the
+  # host's roles (`host.roles`, read before v1 from `host.yaml` in the host's directory) to
+  # `globals.roles`. The converted file is written whole, so its comments are not kept: the old
+  # file is kept beside it as `<file>.config-1.bak`. It writes no `daemon` section, and notes
+  # that the daemon starts only on a written `daemon.store`. A `/2` file it leaves unchanged.
   - name: conductor.config.MigrateConfig
     kind: struct
     fields:
@@ -813,6 +828,22 @@ types:
       - {name: format, type: Optional<String>}
       - {name: instance, type: Optional<String>}
       - {name: effective, type: Optional<Boolean>}
+
+  # The input of `conductor config put` (story:config-globals), the CLI path of `PutConfig`, the
+  # function `PUT /v1/config` calls: `level` is one of global, instance, role, read by the
+  # handler; `instance` and `role` the scope the level needs; `path` the key under that level;
+  # `value` the new value as YAML reads it, absent to remove the key at that level; `reason` why.
+  # The actor is the process's (the calling session as an agent, else the operator) and the time
+  # is now.
+  - name: conductor.config.ChangeConfig
+    kind: struct
+    fields:
+      - {name: level, type: String}
+      - {name: instance, type: Optional<String>}
+      - {name: role, type: Optional<String>}
+      - {name: path, type: String}
+      - {name: value, type: Optional<String>}
+      - {name: reason, type: String}
 
   # The input of `conductor config workspace` (story:workspace-from-config), which writes the
   # instance's `<records>/.engineering/workspace.yaml` (`aep.workspace/1`) from its config,
@@ -1223,7 +1254,8 @@ errors:
   - name: conductor.config.LevelScopeMismatch
     summary: >
       A `Global` change names no instance and no role, an `Instance` change names an instance and
-      no role, and a `Role` change names both; this one does not, and nothing was written.
+      no role, a `Role` change names both, and no change is written at `Default`; this one does
+      not fit, and nothing was written.
     fields:
       - name: level
         type: conductor.config.Level
@@ -1347,6 +1379,7 @@ commands:
       - name: level-scope-mismatch
         when:
           any:
+            - level == Default
             - all: [level == Global, defined(instance)]
             - all: [level == Global, defined(role)]
             - all: [level == Instance, not defined(instance)]

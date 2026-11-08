@@ -47,7 +47,7 @@ const CLOSED: [&str; 3] = ["done", "cancelled", "failed"];
 pub(super) struct Roster {
     /// The controllers `Running` or `Paused`, by session name.
     pub controllers: Vec<Controller>,
-    /// The open class-O and class-H items, as `/api/decisions` lists them before the log is read.
+    /// The open class-O and class-H items, as `/v1/decisions` lists them before the log is read.
     pub open: Vec<Value>,
     /// The newest complete snapshot's id and start, as `conductor status` reads it.
     pub snapshot: Option<(String, String)>,

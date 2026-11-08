@@ -80,6 +80,8 @@ use crate::config;
 // The storage ports of the later stories, one child module each, so that units running at once
 // never edit this file. A child module reaches the private helpers below (`read`, `write`, `fail`).
 mod board;
+mod config_revision;
+pub use config_revision::{level_name, level_named};
 mod controller;
 mod decision;
 pub(crate) mod dispatch;

@@ -31,13 +31,10 @@ function everything(): Record<string, unknown> {
     '/api/specifications': specifications,
     '/api/health': health,
     '/api/decisions': decisions,
-    '/api/instances': {
-      instances: [
-        { name: 'alpha', dashboard_port: 7313, url: 'http://127.0.0.1:7313/', current: true },
-        { name: 'beta', dashboard_port: 7314, url: 'http://127.0.0.1:7314/', current: false },
-      ],
-      errors: [],
-    },
+    '/v1/instances': [
+      { name: 'alpha', state: 'Running' },
+      { name: 'beta', state: 'Running' },
+    ],
     '/api/config': {
       file: '~/.b10x/conductor/conductor.yaml',
       instance: 'alpha',
@@ -52,7 +49,7 @@ function everything(): Record<string, unknown> {
         { path: 'authority.class_c', value: 'conductor', default: null, takes_effect: 'Cycle' },
       ],
       instances: [
-        { name: 'alpha', dashboard_port: 7313, session_prefix: 'al', forge: 'github', current: true },
+        { name: 'alpha', session_prefix: 'al', forge: 'github', current: true },
       ],
       repositories: [
         { repository: 'alpha', activity: 'Active', decided_by: 'Snapshot', marked_by: null, reason: null },

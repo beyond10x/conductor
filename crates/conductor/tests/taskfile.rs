@@ -133,19 +133,37 @@ fn the_conductor_session_tasks_are_retired() {
     }
 }
 
+/// `story:instance-api`: the dashboard is the daemon's page; `task dashboard` starts no process of
+/// its own and prints the daemon's URL naming the active instance.
 #[test]
-fn the_dashboard_reads_the_instances_records_not_this_checkout() {
+fn the_dashboard_task_prints_the_daemon_s_url_for_the_instance() {
     let taskfile = taskfile();
     let commands = shell_commands(&taskfile["tasks"]["dashboard"]).join("\n");
+    for gone in [
+        "dashboard serve",
+        "systemd-run",
+        "nohup",
+        "-conductor-dashboard",
+    ] {
+        assert!(
+            !commands.contains(gone),
+            "the dashboard task runs {gone:?}: {commands}"
+        );
+    }
     assert!(
-        commands.contains("dashboard serve"),
-        "the dashboard task serves the dashboard: {commands}"
+        commands.contains("http://127.0.0.1:{{.PORT}}/?instance={{.INSTANCE}}"),
+        "the dashboard task prints the daemon's URL: {commands}"
     );
-    // Without --root the dashboard reads the active instance's records (`dashboard serve --help`);
-    // this checkout holds no decisions/ or dispatches/ once the records live apart.
+    let port = taskfile["tasks"]["dashboard"]["vars"]["PORT"]["sh"]
+        .as_str()
+        .expect("PORT is a shell variable");
     assert!(
-        !commands.contains("--root"),
-        "the dashboard task passes no --root: {commands}"
+        port.contains(".daemon.port"),
+        "PORT reads daemon.port: {port}"
+    );
+    assert!(
+        taskfile["tasks"]["dashboard:stop"].is_null(),
+        "no dashboard process is left to stop"
     );
 }
 
@@ -801,278 +819,6 @@ fn adv_agents_link_links_nothing_when_only_the_last_adapter_is_in_the_way() {
 // ---------------------------------------------------------------------------------------------
 
 // ---------------------------------------------------------------------------------------------
-// The dashboard without systemd (wave 02, U6, `story:portable-dashboard-service`)
-// ---------------------------------------------------------------------------------------------
-
-/// The programs the dashboard tasks and the fake `conductor` run, besides `conductor` itself.
-/// `systemctl` is not among them.
-const DASHBOARD_TOOLS: [&str; 9] = [
-    "sh", "jq", "nohup", "ps", "cat", "mkdir", "rm", "sleep", "grep",
-];
-
-/// The pid file and log of the dashboard in the state directory `conductor config show` names
-/// for the case's instance (`~/.b10x/conductor/alpha/state` by default).
-fn dashboard_files(case: &Case) -> (PathBuf, PathBuf) {
-    let state = case.dir.join("home/.b10x/conductor/alpha/state");
-    (state.join("dashboard.pid"), state.join("dashboard.log"))
-}
-
-/// Replaces the case's `conductor` with one that logs a `dashboard ...` call to
-/// `claude/conductor-log` and then runs until it is killed, without binding a port, and passes
-/// every other call to the built `conductor`.
-fn fake_dashboard_conductor(case: &Case) {
-    let conductor = case.dir.join("bin/conductor");
-    fs::remove_file(&conductor).expect("remove the linked conductor");
-    fs::write(
-        &conductor,
-        format!(
-            "#!/bin/sh\n\
-             if [ \"$1\" = dashboard ]; then\n\
-             \x20 printf '%s\\n' \"$*\" >> '{log}'\n\
-             \x20 while :; do sleep 1; done\n\
-             fi\n\
-             exec '{real}' \"$@\"\n",
-            log = case.dir.join("claude/conductor-log").display(),
-            real = Path::new(common::conductor(case.dir.join("home")).get_program()).display(),
-        ),
-    )
-    .expect("write a fake conductor");
-    fs::set_permissions(&conductor, fs::Permissions::from_mode(0o755)).expect("make it runnable");
-}
-
-/// A `PATH` of one directory, `nosystemd/`, holding links to [`DASHBOARD_TOOLS`] and the case's
-/// `conductor`: no `systemctl`, whatever the host has.
-fn path_without_systemctl(case: &Case) -> PathBuf {
-    let dir = case.dir.join("nosystemd");
-    fs::create_dir_all(&dir).expect("create nosystemd/");
-    for tool in DASHBOARD_TOOLS {
-        let found = which(tool).unwrap_or_else(|| panic!("{tool} is not on PATH"));
-        std::os::unix::fs::symlink(found, dir.join(tool)).expect("link a tool");
-    }
-    std::os::unix::fs::symlink(case.dir.join("bin/conductor"), dir.join("conductor"))
-        .expect("link conductor");
-    assert!(!dir.join("systemctl").exists());
-    dir
-}
-
-/// The calls the fake conductor logged for `dashboard`.
-fn dashboard_calls(case: &Case) -> Vec<String> {
-    fs::read_to_string(case.dir.join("claude/conductor-log"))
-        .unwrap_or_default()
-        .lines()
-        .map(str::to_owned)
-        .collect()
-}
-
-/// Whether `pid` is a process that has not exited (a zombie has).
-fn running(pid: u32) -> bool {
-    fs::read_to_string(format!("/proc/{pid}/stat")).is_ok_and(|stat| {
-        stat.rsplit_once(") ")
-            .is_some_and(|(_, rest)| !rest.starts_with('Z'))
-    })
-}
-
-/// Kills the process `pid` when dropped, so a failed case leaves no fake dashboard running.
-struct Reap(u32);
-
-impl Drop for Reap {
-    fn drop(&mut self) {
-        let _ = Command::new("kill")
-            .args(["-9", &self.0.to_string()])
-            .stderr(Stdio::null())
-            .status();
-    }
-}
-
-/// Where `systemctl` is not on `PATH`, `task dashboard` starts `conductor dashboard serve` in the
-/// background with its pid and log in the instance's state directory, refuses a second start while
-/// that pid runs, and `task dashboard:stop` stops it and removes the pid file.
-#[test]
-fn dashboard_without_systemctl_runs_in_the_background_with_its_pid_in_the_state_directory() {
-    let Some(case) = Case::new("w02-dashboard-no-systemd") else {
-        return;
-    };
-    let config = case.config("opus", None);
-    fake_dashboard_conductor(&case);
-    let path = path_without_systemctl(&case);
-    let (pid_file, log) = dashboard_files(&case);
-
-    let output = case
-        .command("dashboard", Some(&config))
-        .env("PATH", &path)
-        .output()
-        .expect("task runs");
-    assert_eq!(output.status.code(), Some(0), "{}", shown(&output));
-    assert!(
-        String::from_utf8_lossy(&output.stdout).contains("http://127.0.0.1:7313/"),
-        "{}",
-        shown(&output)
-    );
-    let pid: u32 = fs::read_to_string(&pid_file)
-        .unwrap_or_else(|error| panic!("{}: {error}\n{}", pid_file.display(), shown(&output)))
-        .trim()
-        .parse()
-        .expect("the pid file holds a pid");
-    let _reap = Reap(pid);
-    assert!(running(pid), "the dashboard {pid} is not running");
-    assert!(
-        log.is_file(),
-        "no log beside the pid file: {}",
-        log.display()
-    );
-    let mut calls = dashboard_calls(&case);
-    for _ in 0..50 {
-        if !calls.is_empty() {
-            break;
-        }
-        std::thread::sleep(std::time::Duration::from_millis(100));
-        calls = dashboard_calls(&case);
-    }
-    assert_eq!(calls, ["dashboard serve --port 7313"], "{}", shown(&output));
-
-    // A second start while that pid runs is refused and starts nothing.
-    let output = case
-        .command("dashboard", Some(&config))
-        .env("PATH", &path)
-        .output()
-        .expect("task runs");
-    // A second dashboard that did start would write its pid over the first one's.
-    let _reap_second = fs::read_to_string(&pid_file)
-        .ok()
-        .and_then(|text| text.trim().parse::<u32>().ok())
-        .filter(|second| *second != pid)
-        .map(Reap);
-    assert_ne!(output.status.code(), Some(0), "{}", shown(&output));
-    assert!(
-        String::from_utf8_lossy(&output.stderr).contains(&pid.to_string()),
-        "the refusal names the running pid: {}",
-        shown(&output)
-    );
-    std::thread::sleep(std::time::Duration::from_millis(300));
-    assert_eq!(
-        dashboard_calls(&case).len(),
-        1,
-        "a second dashboard started"
-    );
-    assert_eq!(
-        fs::read_to_string(&pid_file).expect("the pid file").trim(),
-        pid.to_string()
-    );
-
-    let output = case
-        .command("dashboard:stop", Some(&config))
-        .env("PATH", &path)
-        .output()
-        .expect("task runs");
-    assert_eq!(output.status.code(), Some(0), "{}", shown(&output));
-    assert!(!pid_file.exists(), "the pid file is still there");
-    let mut alive = running(pid);
-    for _ in 0..50 {
-        if !alive {
-            break;
-        }
-        std::thread::sleep(std::time::Duration::from_millis(100));
-        alive = running(pid);
-    }
-    assert!(
-        !alive,
-        "the dashboard {pid} still runs after dashboard:stop"
-    );
-}
-
-/// A pid file whose process has gone does not stop a new start, and `dashboard:stop` on it only
-/// removes the file.
-#[test]
-fn dashboard_without_systemctl_replaces_a_stale_pid_file() {
-    let Some(case) = Case::new("w02-dashboard-stale-pid") else {
-        return;
-    };
-    let config = case.config("opus", None);
-    fake_dashboard_conductor(&case);
-    let path = path_without_systemctl(&case);
-    let (pid_file, _) = dashboard_files(&case);
-    fs::create_dir_all(pid_file.parent().expect("the state directory")).expect("create state/");
-    // A process that ran and exited: its pid is free.
-    let gone = Command::new("true").spawn().expect("run true");
-    let gone_pid = gone.id();
-    let mut gone = gone;
-    gone.wait().expect("true exits");
-    fs::write(&pid_file, format!("{gone_pid}\n")).expect("write a stale pid file");
-
-    let output = case
-        .command("dashboard:stop", Some(&config))
-        .env("PATH", &path)
-        .output()
-        .expect("task runs");
-    assert_eq!(output.status.code(), Some(0), "{}", shown(&output));
-    assert!(!pid_file.exists(), "the stale pid file is still there");
-
-    fs::write(&pid_file, format!("{gone_pid}\n")).expect("write a stale pid file");
-    let output = case
-        .command("dashboard", Some(&config))
-        .env("PATH", &path)
-        .output()
-        .expect("task runs");
-    assert_eq!(output.status.code(), Some(0), "{}", shown(&output));
-    let pid: u32 = fs::read_to_string(&pid_file)
-        .expect("the pid file")
-        .trim()
-        .parse()
-        .expect("a pid");
-    let _reap = Reap(pid);
-    assert_ne!(pid, gone_pid, "{}", shown(&output));
-    assert!(running(pid), "the new dashboard {pid} is not running");
-}
-
-/// Where `systemctl` is on `PATH`, the dashboard stays the user service `conductor-dashboard`: no
-/// pid file. The case's `systemctl` and `systemd-run` only log, so no real unit is touched.
-#[test]
-fn dashboard_with_systemctl_keeps_the_user_service() {
-    let Some(case) = Case::new("w02-dashboard-systemd") else {
-        return;
-    };
-    let config = case.config("opus", None);
-    let log = case.dir.join("claude/systemd-log");
-    // `is-active` answers "inactive" (3), so the task starts the unit.
-    for tool in ["systemctl", "systemd-run"] {
-        let file = case.dir.join("bin").join(tool);
-        fs::write(
-            &file,
-            format!(
-                "#!/bin/sh\nprintf '%s\\n' \"{tool} $*\" >> '{}'\n\
-                 case \"$*\" in *is-active*) exit 3 ;; esac\nexit 0\n",
-                log.display()
-            ),
-        )
-        .expect("write a fake systemd tool");
-        fs::set_permissions(&file, fs::Permissions::from_mode(0o755)).expect("make it runnable");
-    }
-
-    let output = case.task("dashboard", Some(&config));
-    assert_eq!(output.status.code(), Some(0), "{}", shown(&output));
-    let output = case.task("dashboard:stop", Some(&config));
-    assert_eq!(output.status.code(), Some(0), "{}", shown(&output));
-
-    let calls = fs::read_to_string(&log).expect("the systemd log");
-    let calls: Vec<&str> = calls.lines().collect();
-    assert_eq!(calls.len(), 3, "{calls:?}");
-    assert_eq!(
-        calls[0],
-        "systemctl --user is-active --quiet conductor-dashboard"
-    );
-    assert!(
-        calls[1].starts_with("systemd-run --user --unit conductor-dashboard --collect ")
-            && calls[1].ends_with(&format!(
-                "{} dashboard serve --port 7313",
-                case.dir.join("bin/conductor").display()
-            )),
-        "{calls:?}"
-    );
-    assert_eq!(calls[2], "systemctl --user stop conductor-dashboard");
-    assert!(!dashboard_files(&case).0.exists());
-}
-
-// ---------------------------------------------------------------------------------------------
 // The bypass-permissions disclaimer (wave 02, U6, `story:first-run-bypass-disclaimer`)
 // ---------------------------------------------------------------------------------------------
 
@@ -1302,8 +1048,7 @@ fn scalars(value: &serde_yaml::Value) -> Vec<String> {
 
 /// Writes a config file of two instances: `alpha`, `session_prefix: a`, whose records are the
 /// case's `records/`, and `beta`, `session_prefix: b`, whose records are `records-b/`; neither
-/// is the file's default, so each task runs the one `CONDUCTOR_INSTANCE` names. Neither writes a
-/// `dashboard_port`: alpha's is 7313 and beta's 7314.
+/// is the file's default, so each task runs the one `CONDUCTOR_INSTANCE` names.
 fn two_instance_config(case: &Case) -> PathBuf {
     fs::create_dir_all(case.dir.join("records-b")).expect("create records-b/");
     let text = format!(
@@ -1557,177 +1302,6 @@ fn a_name_more_than_one_live_session_holds_is_refused() {
         assert!(case.calls().is_empty(), "{task}: {:?}", case.calls());
         assert_eq!(live_sessions(&case), before, "{task} stopped a session");
     }
-}
-
-/// Replaces the case's `conductor` with one that logs a `dashboard ...` call, after the instance
-/// `CONDUCTOR_INSTANCE` names, to `claude/conductor-log` and then runs until it is killed, and
-/// passes every other call to the built `conductor`.
-fn fake_instance_dashboard_conductor(case: &Case) {
-    let conductor = case.dir.join("bin/conductor");
-    fs::remove_file(&conductor).expect("remove the linked conductor");
-    fs::write(
-        &conductor,
-        format!(
-            "#!/bin/sh\n\
-             if [ \"$1\" = dashboard ]; then\n\
-             \x20 printf '%s %s\\n' \"$CONDUCTOR_INSTANCE\" \"$*\" >> '{log}'\n\
-             \x20 while :; do sleep 1; done\n\
-             fi\n\
-             exec '{real}' \"$@\"\n",
-            log = case.dir.join("claude/conductor-log").display(),
-            real = Path::new(common::conductor(case.dir.join("home")).get_program()).display(),
-        ),
-    )
-    .expect("write a fake conductor");
-    fs::set_permissions(&conductor, fs::Permissions::from_mode(0o755)).expect("make it runnable");
-}
-
-/// The pid the pid file `file` holds.
-fn pid_in(file: &Path) -> u32 {
-    fs::read_to_string(file)
-        .unwrap_or_else(|error| panic!("{}: {error}", file.display()))
-        .trim()
-        .parse()
-        .expect("the pid file holds a pid")
-}
-
-/// Without `systemctl`, the second instance's dashboard starts beside the first one's on its own
-/// port, serving its own instance, with its pid in its own state directory; `dashboard:stop` of
-/// one leaves the other running.
-#[test]
-fn the_second_instance_s_dashboard_serves_its_own_port_beside_the_first() {
-    let Some(case) = Case::new("scoped-dashboard") else {
-        return;
-    };
-    let config = two_instance_config(&case);
-    fake_instance_dashboard_conductor(&case);
-    let path = path_without_systemctl(&case);
-    let pid_file = |instance: &str| {
-        case.dir.join(format!(
-            "home/.b10x/conductor/{instance}/state/dashboard.pid"
-        ))
-    };
-    let start = |instance: &str| {
-        let output = case
-            .command("dashboard", Some(&config))
-            .env("PATH", &path)
-            .env("CONDUCTOR_INSTANCE", instance)
-            .output()
-            .expect("task runs");
-        assert_eq!(
-            output.status.code(),
-            Some(0),
-            "{instance}: {}",
-            shown(&output)
-        );
-        output
-    };
-
-    let output = start("alpha");
-    let alpha = pid_in(&pid_file("alpha"));
-    let _reap_alpha = Reap(alpha);
-    assert!(
-        String::from_utf8_lossy(&output.stdout).contains("http://127.0.0.1:7313/"),
-        "{}",
-        shown(&output)
-    );
-    let output = start("beta");
-    let beta = pid_in(&pid_file("beta"));
-    let _reap_beta = Reap(beta);
-    assert!(
-        String::from_utf8_lossy(&output.stdout).contains("http://127.0.0.1:7314/"),
-        "{}",
-        shown(&output)
-    );
-    assert_ne!(alpha, beta);
-    assert!(running(alpha), "the first dashboard {alpha} is not running");
-    assert!(running(beta), "the second dashboard {beta} is not running");
-
-    let mut calls = dashboard_calls(&case);
-    for _ in 0..50 {
-        if calls.len() >= 2 {
-            break;
-        }
-        std::thread::sleep(std::time::Duration::from_millis(100));
-        calls = dashboard_calls(&case);
-    }
-    calls.sort();
-    assert_eq!(
-        calls,
-        [
-            "alpha dashboard serve --port 7313",
-            "beta dashboard serve --port 7314"
-        ]
-    );
-
-    let output = case
-        .command("dashboard:stop", Some(&config))
-        .env("PATH", &path)
-        .env("CONDUCTOR_INSTANCE", "beta")
-        .output()
-        .expect("task runs");
-    assert_eq!(output.status.code(), Some(0), "{}", shown(&output));
-    assert!(!pid_file("beta").exists(), "beta's pid file is still there");
-    let mut alive = running(beta);
-    for _ in 0..50 {
-        if !alive {
-            break;
-        }
-        std::thread::sleep(std::time::Duration::from_millis(100));
-        alive = running(beta);
-    }
-    assert!(
-        !alive,
-        "the second dashboard {beta} still runs after its stop"
-    );
-    assert!(running(alpha), "stopping beta's dashboard stopped alpha's");
-    assert_eq!(pid_in(&pid_file("alpha")), alpha);
-}
-
-/// Where `systemctl` is on `PATH`, each instance's dashboard is a user service of its own,
-/// `<session_prefix>-conductor-dashboard`, serving its instance on its port.
-#[test]
-fn each_instance_s_dashboard_service_is_its_own_unit() {
-    let Some(case) = Case::new("scoped-dashboard-systemd") else {
-        return;
-    };
-    let config = two_instance_config(&case);
-    let log = case.dir.join("claude/systemd-log");
-    for tool in ["systemctl", "systemd-run"] {
-        let file = case.dir.join("bin").join(tool);
-        fs::write(
-            &file,
-            format!(
-                "#!/bin/sh\nprintf '%s\\n' \"{tool} $*\" >> '{}'\n\
-                 case \"$*\" in *is-active*) exit 3 ;; esac\nexit 0\n",
-                log.display()
-            ),
-        )
-        .expect("write a fake systemd tool");
-        fs::set_permissions(&file, fs::Permissions::from_mode(0o755)).expect("make it runnable");
-    }
-
-    for task in ["dashboard", "dashboard:stop"] {
-        let output = instance_task(&case, task, &config, "beta");
-        assert_eq!(output.status.code(), Some(0), "{task}: {}", shown(&output));
-    }
-    let calls = fs::read_to_string(&log).expect("the systemd log");
-    let calls: Vec<&str> = calls.lines().collect();
-    assert_eq!(calls.len(), 3, "{calls:?}");
-    assert_eq!(
-        calls[0],
-        "systemctl --user is-active --quiet b-conductor-dashboard"
-    );
-    assert!(
-        calls[1].starts_with("systemd-run --user --unit b-conductor-dashboard --collect ")
-            && calls[1].contains(" --setenv=CONDUCTOR_INSTANCE=beta ")
-            && calls[1].ends_with(&format!(
-                "{} dashboard serve --port 7314",
-                case.dir.join("bin/conductor").display()
-            )),
-        "{calls:?}"
-    );
-    assert_eq!(calls[2], "systemctl --user stop b-conductor-dashboard");
 }
 
 /// `story:agents-link-local`: `task agents:link` serves a session started by hand in the

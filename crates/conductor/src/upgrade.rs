@@ -130,6 +130,49 @@ pub fn upgrade(args: &UpgradeArgs) -> Result<ExitCode> {
 /// Downloads, verifies, unpacks and runs `release`'s archive for [`TARGET`] under `work`, and
 /// puts its binary in place of `binary`.
 fn install(work: &Path, release: &Release, binary: &Path) -> Result<(), Refusal> {
+    let directory = binary.parent().unwrap_or_else(|| Path::new("/"));
+    let name = binary.file_name().map_or_else(
+        || "conductor".to_owned(),
+        |name| name.to_string_lossy().into_owned(),
+    );
+    let staged = directory.join(format!(".{name}.upgrade-{}", std::process::id()));
+    // Found before anything is downloaded: the directory takes a new file.
+    if let Err(error) = fs::write(&staged, b"") {
+        return Err(not_writable(directory, &error));
+    }
+    let _ = fs::remove_file(&staged);
+    let new = fetch(work, release)?;
+    replace(&new, &staged, binary, directory, &name)
+}
+
+/// The release `tag` (`v<x.y.z>` or `x.y.z`) downloaded, verified, unpacked and run under `work`,
+/// as `conductor upgrade` does it; answers the unpacked binary
+/// (`story:instance-upgrade`: the daemon installs it for an instance).
+///
+/// # Errors
+///
+/// The refusal, rendered as `conductor upgrade` names it.
+pub fn fetch_tag(tag: &str, work: &Path) -> Result<PathBuf, String> {
+    let version = tag.trim().trim_start_matches('v');
+    let render = |(refusal, detail): Refusal| {
+        format!(
+            "{}: release {version}, target {TARGET}: {detail}",
+            refusal_name(refusal)
+        )
+    };
+    if parse_version(version).is_none() {
+        return Err(render((
+            UpgradeRefusal::ReleaseUnread,
+            format!("{tag:?} is no x.y.z"),
+        )));
+    }
+    let release = read_release(work, Some(version)).map_err(render)?;
+    fetch(work, &release).map_err(render)
+}
+
+/// Downloads, verifies, unpacks and runs `release`'s archive for [`TARGET`] under `work`;
+/// answers the unpacked binary.
+fn fetch(work: &Path, release: &Release) -> Result<PathBuf, Refusal> {
     let package = format!("conductor-{}-{TARGET}", release.version);
     let archive_name = format!("{package}.tar.gz");
     let Some(archive_url) = release.asset(&archive_name) else {
@@ -144,17 +187,6 @@ fn install(work: &Path, release: &Release, binary: &Path) -> Result<(), Refusal>
             format!("release {} has no SHA256SUMS", release.version),
         ));
     };
-    let directory = binary.parent().unwrap_or_else(|| Path::new("/"));
-    let name = binary.file_name().map_or_else(
-        || "conductor".to_owned(),
-        |name| name.to_string_lossy().into_owned(),
-    );
-    let staged = directory.join(format!(".{name}.upgrade-{}", std::process::id()));
-    // Found before anything is downloaded: the directory takes a new file.
-    if let Err(error) = fs::write(&staged, b"") {
-        return Err(not_writable(directory, &error));
-    }
-    let _ = fs::remove_file(&staged);
 
     let archive = work.join(&archive_name);
     download(archive_url, &archive)?;
@@ -228,8 +260,7 @@ fn install(work: &Path, release: &Release, binary: &Path) -> Result<(), Refusal>
             ));
         }
     }
-
-    replace(&new, &staged, binary, directory, &name)
+    Ok(new)
 }
 
 /// Stages `new` as `staged` beside `binary`, then renames `binary` to `<name>.previous` and

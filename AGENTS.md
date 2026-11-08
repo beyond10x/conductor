@@ -211,7 +211,7 @@ unique within the config file (`conductor config validate` checks it; v1 has no 
 design `docs/design/architecture-next.md` § 11); an instance written before that keeps `conductor` and
 `conductor-dev` until `conductor config migrate` writes its prefix. Both run in permission mode `bypassPermissions`, so messages
 between sessions are not held for approval. Every task below acts on the active instance only:
-its sessions by their full names, its dashboard by its port and unit.
+its sessions by their full names, its dashboard page by its name in `?instance=`.
 
 | task | does |
 |---|---|
@@ -222,7 +222,7 @@ its sessions by their full names, its dashboard by its port and unit.
 | `task conductor:attach`, `task maintainer:attach` | open the active instance's session of that role, by its full name, in this terminal; refuse when no live background session or more than one holds that name |
 | `task sessions` | list the active instance's two sessions by their full names; exit 1 naming each name more than one live background session holds |
 | `task trust` | mark every checkout under `checkouts.root` and the instance's `records` directory as trusted Claude Code workspaces, so conductor and each controller can start there |
-| `task dashboard`, `task dashboard:stop` | the active instance's page on 127.0.0.1, read-only except the Decisions page's answers (a per-process token, same origin) at its dashboard port (7313 plus the instance's position in the file; a `conductor.config/1` file may write `dashboard_port`, `conductor.config/2` has no such key); where systemctl is on PATH the user service `<session_prefix>-conductor-dashboard` (`conductor-dashboard` without a prefix), elsewhere a background process whose pid is in `dashboard.pid` of the instance's `state` directory |
+| `task dashboard` | prints the active instance's page, `http://127.0.0.1:<daemon.port>/?instance=<name>`: conductord serves the app and proxies `/v1/instances/<name>/<route>` to the instance's runtime (`conductor instance serve`, on `api.sock` of its state directory); read-only except the answers and settings writes, which carry the daemon's token (same origin) and an operator holding the grant; with `daemon.tls` set, the same app is served on the TLS listener to Identity bearers. No per-instance dashboard process or unit runs |
 
 ## CLI quick reference
 

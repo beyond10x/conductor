@@ -3,10 +3,11 @@
 //! store handle, whose reopens drop the old replay before they build the new one, and at most
 //! [`PER_ENDPOINT`] answers kept for any one endpoint, however many query strings were asked.
 //!
-//! The case serves [`dashboard::serve_tuned`] in this process on a free port of `127.0.0.1` over a
+//! The case serves [`served::serve_tuned`] in this process on a free port of `127.0.0.1` over a
 //! fixture store under this test target's temporary directory, as `dashboard_swr.rs` does.
 
 mod active;
+mod served;
 
 use std::ffi::OsString;
 use std::fs;
@@ -17,7 +18,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use conductor_cli::collect::Collector;
-use conductor_cli::dashboard::{self, Probe, Sources, Tuning};
+use conductor_cli::dashboard::{Probe, Sources, Tuning};
 use conductor_cli::snapshot::{self, Recorder};
 use conductor_cli::store;
 use conductor_model::behaviour::RepositoryMarkStorage;
@@ -131,7 +132,7 @@ impl Case {
             cold_wait: PATIENCE,
             probe,
         };
-        std::thread::spawn(move || dashboard::serve_tuned(listener, sources, Some(state), tuning));
+        served::serve_tuned(listener, sources, Some(state), tuning);
         port
     }
 
@@ -229,7 +230,7 @@ fn get(port: u16, path: &str) -> (u16, String) {
 
 /// The health view's `memory` part.
 fn memory(port: u16) -> Value {
-    let (status, body) = get(port, "/api/health");
+    let (status, body) = get(port, "/v1/instances/example-org/health");
     assert_eq!(status, 200, "{body}");
     let health: Value = serde_json::from_str(&body).expect("the health view is JSON");
     health["memory"].clone()
@@ -296,7 +297,10 @@ fn memo_entries_and_store_handles_stay_bounded_across_writes() {
     for round in 0..ROUNDS {
         case.writes(round);
         for query in 0..QUERIES {
-            let (status, body) = get(port, &format!("/api/board?view={round}-{query}"));
+            let (status, body) = get(
+                port,
+                &format!("/v1/instances/example-org/board?view={round}-{query}"),
+            );
             assert_eq!(status, 200, "round {round}, query {query}: {body}");
         }
         let memory = memory(port);
@@ -343,10 +347,10 @@ fn every_store_computation_reads_on_one_thread() {
         case.writes(round);
         std::thread::sleep(SETTLE);
         for path in [
-            "/api/board",
-            "/api/repositories",
-            "/api/unanswered",
-            "/api/health",
+            "/v1/instances/example-org/board",
+            "/v1/instances/example-org/repositories",
+            "/v1/instances/example-org/unanswered",
+            "/v1/instances/example-org/health",
         ] {
             let (status, body) = get(port, path);
             assert_eq!(status, 200, "round {round}, {path}: {body}");

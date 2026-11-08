@@ -1,4 +1,5 @@
-//! `POST /api/answers`, the Decisions page's one write (`story:decisions-batch-answer`).
+//! `POST /v1/answers`, the Decisions page's one write (`story:decisions-batch-answer`), on the
+//! instance API (`story:instance-api`).
 //!
 //! The page sends the operator's answers to open escalated requests as one batch,
 //! `{"answers": [{"request_id", "choice": [<letter>…], "words"?}…]}`, and each is recorded as his
@@ -8,26 +9,27 @@
 //! "outcome": "refused", "error", "reason"} | {"request_id", "outcome": "failed", "reason"}…]}`,
 //! in the batch's order; a refused row records nothing.
 //!
-//! A batch is taken only when the request carries all of:
-//! - the server's own `Host` (as every request must) and its own `Origin`, `http://127.0.0.1:<port>`
-//!   or `http://localhost:<port>`, or no `Origin` with `Sec-Fetch-Site: same-origin`; else `403`;
-//! - `X-Conductor-Token` equal to the token the page was served with ([`Token`]), compared in
-//!   constant time; else `403`, naming neither the token given nor the right one;
-//! - `Content-Type: application/json`; else `415`, so a cross-site form cannot send it without a
-//!   preflight the server never answers;
+//! The browser's page, its host and its origin are the daemon's to admit
+//! ([`crate::daemon::api`]); the instance takes a batch only when the request carries all of:
+//! - `X-Conductor-Token` equal to the token the daemon minted for the instance ([`Token`]),
+//!   compared in constant time; else `403`, naming neither the token given nor the right one;
+//! - `Content-Type: application/json`; else `415`;
 //! - a `Content-Length` of at most [`MAX_BODY`] and no `Transfer-Encoding`; else `411`, or `413`
 //!   before the body is read;
 //! - at most [`MAX_ROWS`] rows; else `413`. A body that is no such batch is `400`.
 //!
+//! The operator the daemon admitted is named in [`OPERATOR_HEADER`], and the batch is recorded as
+//! that operator's ([`crate::actor::as_operator`]).
+//!
 //! Every answer carries `Cache-Control: no-store`, `X-Content-Type-Options: nosniff` and the
 //! page's `Content-Security-Policy`. The batches of one server are recorded one at a time, and
 //! after one the answers kept in memory are dropped, so the page's next read of
-//! `/api/decisions` shows what was recorded.
+//! `/v1/decisions` shows what was recorded.
 //!
 //! The boundary is a speed bump against a session of conductor or a controller, not a wall: the
-//! guard denies a Bash call that names this path or posts to the dashboard's port
-//! ([`crate::guard`]), but a local process that reads the page, and so its token, can post as the
-//! operator, and is recorded as him (`website/docs/security/overview.md`).
+//! guard denies a Bash call that names this path or posts to the daemon's port
+//! ([`crate::guard`]), but a local process that reads the daemon's page, and so its token, can post
+//! as the operator, and is recorded as him (`website/docs/security/overview.md`).
 
 use std::fs::File;
 use std::io::{self, Read as _};
@@ -38,7 +40,7 @@ use serde_json::{Value, json};
 use crate::decide::{self, OperatorAnswer, OperatorAnswered};
 
 /// The path the page posts its batch to.
-pub const ANSWERS_PATH: &str = "/api/answers";
+pub const ANSWERS_PATH: &str = "/v1/answers";
 
 /// The session an answer from the page is recorded by.
 pub const RECORDED_BY: &str = "dashboard";
@@ -49,43 +51,61 @@ pub const MAX_BODY: usize = 64 * 1024;
 /// The most rows one batch holds.
 pub const MAX_ROWS: usize = 50;
 
-/// The header the page sends its token in.
-const TOKEN_HEADER: &str = "x-conductor-token";
+/// The header a write carries its token in.
+pub const TOKEN_HEADER: &str = "x-conductor-token";
 
-/// The token one server process serves its page with and takes a batch with: 32 random bytes,
-/// written as 64 hex digits, minted when the server starts. It is never logged, never echoed and
-/// never set as a cookie; the page reads it from its `<meta name="conductor-token">`.
+/// The header the daemon names the operator of a write in (`story:instance-api`).
+pub const OPERATOR_HEADER: &str = "x-conductor-operator";
+
+/// 32 random bytes from the system's random source, written as 64 hex digits: a token the daemon
+/// mints for itself and for each instance it starts.
+///
+/// # Errors
+///
+/// The random source does not read.
+pub fn mint() -> io::Result<String> {
+    let mut bytes = [0_u8; 32];
+    File::open("/dev/urandom")?.read_exact(&mut bytes)?;
+    Ok(bytes.iter().map(|byte| format!("{byte:02x}")).collect())
+}
+
+/// Whether `given` is `token`, compared in constant time over the token's length.
+#[must_use]
+pub fn same(token: &str, given: &str) -> bool {
+    let (token, given) = (token.as_bytes(), given.as_bytes());
+    token.len() == given.len()
+        && token
+            .iter()
+            .zip(given)
+            .fold(0_u8, |differs, (a, b)| differs | (a ^ b))
+            == 0
+}
+
+/// `page` (the app's `index.html`) with `token` in a `<meta name="conductor-token">` before
+/// `</head>`.
+#[must_use]
+pub fn page_with(page: &[u8], token: &str) -> Vec<u8> {
+    let meta = format!(r#"<meta name="conductor-token" content="{token}">"#);
+    let text = String::from_utf8_lossy(page);
+    match text.find("</head>") {
+        Some(at) => format!("{}{meta}{}", &text[..at], &text[at..]).into_bytes(),
+        None => format!("{meta}{text}").into_bytes(),
+    }
+}
+
+/// The token the instance takes a write with: the one the daemon minted for it at its start. It is
+/// never logged and never echoed.
 pub(super) struct Token(String);
 
 impl Token {
-    /// A new token from the system's random source.
-    pub(super) fn mint() -> io::Result<Self> {
-        let mut bytes = [0_u8; 32];
-        File::open("/dev/urandom")?.read_exact(&mut bytes)?;
-        Ok(Self(
-            bytes.iter().map(|byte| format!("{byte:02x}")).collect(),
-        ))
+    /// The token `token`.
+    pub(super) const fn given(token: String) -> Self {
+        Self(token)
     }
 
-    /// Whether `given` is the token, compared in constant time over the token's length.
+    /// Whether `given` is the token.
     fn admits(&self, given: &str) -> bool {
-        let (token, given) = (self.0.as_bytes(), given.as_bytes());
-        token.len() == given.len()
-            && token
-                .iter()
-                .zip(given)
-                .fold(0_u8, |differs, (a, b)| differs | (a ^ b))
-                == 0
-    }
-
-    /// `index.html` with the token in a `<meta name="conductor-token">` before `</head>`.
-    pub(super) fn page_with(&self, page: &[u8]) -> Vec<u8> {
-        let meta = format!(r#"<meta name="conductor-token" content="{}">"#, self.0);
-        let text = String::from_utf8_lossy(page);
-        match text.find("</head>") {
-            Some(at) => format!("{}{meta}{}", &text[..at], &text[at..]).into_bytes(),
-            None => format!("{meta}{text}").into_bytes(),
-        }
+        same(&self.0, given)
     }
 }
 
@@ -121,36 +141,33 @@ fn refuse(status: u16, reason: &'static str, why: impl Into<String>) -> Refused 
     }
 }
 
-/// Whether the request's headers, `header` reading one by name, are those of the page served on
-/// `port`, posting JSON with `token`; the length of its body when they are.
-pub(super) fn admitted<'a>(
-    header: impl Fn(&str) -> Option<&'a str>,
-    port: u16,
-    token: &Token,
-) -> Result<usize, Refused> {
+/// Whether the request's headers, `header` reading one by name, come from the page served on
+/// `127.0.0.1:<port>`: its own `Origin`, or no `Origin` with `Sec-Fetch-Site: same-origin`. The
+/// daemon's loopback listener asks it of every write it forwards (`story:instance-api`).
+pub fn same_origin<'a>(header: impl Fn(&str) -> Option<&'a str>, port: u16) -> bool {
     let own = [
         format!("http://127.0.0.1:{port}"),
         format!("http://localhost:{port}"),
     ];
-    let same_origin = match header("origin") {
+    match header("origin") {
         Some(origin) => own.iter().any(|own| own.eq_ignore_ascii_case(origin)),
         None => {
             header("sec-fetch-site").is_some_and(|site| site.eq_ignore_ascii_case("same-origin"))
         }
-    };
-    if !same_origin {
-        return Err(refuse(
-            403,
-            "Forbidden",
-            "answers are taken only from this server's own page\n",
-        ));
     }
+}
+
+/// Whether the request's headers, `header` reading one by name, post JSON with `token`; the
+/// length of its body when they do.
+pub(super) fn admitted<'a>(
+    header: impl Fn(&str) -> Option<&'a str>,
+    token: &Token,
+) -> Result<usize, Refused> {
     if !header(TOKEN_HEADER).is_some_and(|given| token.admits(given)) {
         return Err(refuse(
             403,
             "Forbidden",
-            "the request carries no token, or not the one this server's page was served with; \
-             reload the page\n",
+            "the request carries no token, or not the one the daemon minted for this instance\n",
         ));
     }
     let media = header("content-type")

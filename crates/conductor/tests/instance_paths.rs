@@ -15,7 +15,7 @@ mod common;
 
 use std::fs::{self, File};
 use std::io::{BufRead as _, BufReader, Read as _, Write as _};
-use std::net::TcpStream;
+use std::os::unix::net::UnixStream;
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Output, Stdio};
 use std::sync::mpsc;
@@ -299,10 +299,10 @@ fn without_a_config_file_the_state_is_state_under_the_working_directory() {
     assert_eq!(case.decision_ids(&work, None, &[]), [FIRST]);
 }
 
-/// A running `conductor dashboard serve`, stopped when dropped.
+/// A running `conductor instance serve`, stopped when dropped.
 struct Served {
     child: Child,
-    port: u16,
+    socket: PathBuf,
 }
 
 impl Drop for Served {
@@ -312,15 +312,14 @@ impl Drop for Served {
     }
 }
 
-/// Starts `conductor dashboard serve --port 0 <more>` from `cwd`, with `PATH` naming the case's
-/// empty `bin/`, and reads the port from its first line.
-fn serve(case: &Case, cwd: &Path, config: Option<&Path>, more: &[&str]) -> Served {
+/// Starts `conductor instance serve` from `cwd`, with `PATH` naming the case's empty `bin/`, and
+/// reads the socket of the instance API from its first line (`story:instance-api`).
+fn serve(case: &Case, cwd: &Path, config: Option<&Path>) -> Served {
     let errors = case.dir.join("serve.stderr");
     let mut child = case
         .command(cwd, config)
         .env("PATH", case.dir.join("bin"))
-        .args(["dashboard", "serve", "--port", "0"])
-        .args(more)
+        .args(["instance", "serve"])
         .stdout(Stdio::piped())
         .stderr(File::create(&errors).expect("create the server's stderr file"))
         .spawn()
@@ -335,33 +334,28 @@ fn serve(case: &Case, cwd: &Path, config: Option<&Path>, more: &[&str]) -> Serve
     let line = first
         .recv_timeout(Duration::from_secs(30))
         .unwrap_or_default();
-    let port = line
+    let socket = line
         .trim_end()
-        .strip_prefix("listening on http://127.0.0.1:")
-        .and_then(|port| port.parse().ok());
-    let Some(port) = port else {
+        .split_once(": serving /v1/ on ")
+        .map(|(_, socket)| PathBuf::from(socket));
+    let Some(socket) = socket else {
         let _ = child.kill();
         let status = child.wait();
         panic!(
-            "dashboard serve printed {line:?} and ended {status:?}; stderr: {}",
+            "instance serve printed {line:?} and ended {status:?}; stderr: {}",
             fs::read_to_string(&errors).unwrap_or_default()
         );
     };
-    Served { child, port }
+    Served { child, socket }
 }
 
 /// The body of `GET <path>` to `served`, which must answer 200.
 fn get(served: &Served, path: &str) -> String {
-    let mut stream = TcpStream::connect(("127.0.0.1", served.port)).expect("connect");
+    let mut stream = UnixStream::connect(&served.socket).expect("connect");
     stream
         .set_read_timeout(Some(Duration::from_secs(30)))
         .expect("set a read timeout");
-    write!(
-        stream,
-        "GET {path} HTTP/1.1\r\nHost: 127.0.0.1:{}\r\nConnection: close\r\n\r\n",
-        served.port
-    )
-    .expect("send the request");
+    write!(stream, "GET {path} HTTP/1.1\r\nConnection: close\r\n\r\n").expect("send the request");
     let mut raw = String::new();
     stream.read_to_string(&mut raw).expect("read the answer");
     let (head, body) = raw.split_once("\r\n\r\n").expect("a head and a body");
@@ -370,7 +364,7 @@ fn get(served: &Served, path: &str) -> String {
 }
 
 fn data(served: &Served) -> Value {
-    serde_json::from_str(&get(served, "/data.json")).expect("/data.json is JSON")
+    serde_json::from_str(&get(served, "/v1/data.json")).expect("/v1/data.json is JSON")
 }
 
 fn ids(rows: &Value) -> Vec<&str> {
@@ -439,7 +433,7 @@ fn with_a_config_file_the_dashboard_serves_the_instance_records_and_its_watch_st
     let config = case.config();
     let work = two_roots(&case);
 
-    let served = serve(&case, &work, Some(&config), &[]);
+    let served = serve(&case, &work, Some(&config));
     let data = data(&served);
     assert_eq!(data["reading"]["root"], "~/records", "{data:#}");
     assert_eq!(
@@ -465,33 +459,12 @@ fn with_a_config_file_the_dashboard_serves_the_instance_records_and_its_watch_st
 }
 
 #[test]
-fn the_root_flag_beats_the_instance_records_and_the_watch_state_stays_the_instance() {
-    let case = Case::new("dashboard-root");
-    let config = case.config();
-    let work = two_roots(&case);
-    let decoy = case.dir.join("decoy");
-
-    let served = serve(&case, &work, Some(&config), &["--root", text(&decoy)]);
-    let data = data(&served);
-    assert_eq!(data["reading"]["root"], text(&decoy), "{data:#}");
-    assert_eq!(ids(&data["decisions"]), ["DEC-20261008-09"], "{data:#}");
-    assert_eq!(
-        data["reading"]["ci_state"], "~/state/watch/ci.state",
-        "{data:#}"
-    );
-    // Red CI on main is the Overview's, from the snapshot, not this payload's
-    // (story:sessions-page-coherent); the watch state read shows in its limits.
-    assert!(data.get("red_ci").is_none(), "{data:#}");
-    assert_eq!(limits(&data), ["Instance limit reached"], "{data:#}");
-}
-
-#[test]
 fn without_a_config_file_the_dashboard_reads_today_s_root_and_watch_stopgap() {
     let case = Case::new("dashboard-no-file");
     let work = two_roots(&case);
     let decoy = case.dir.join("decoy");
 
-    let served = serve(&case, &work, None, &[]);
+    let served = serve(&case, &work, None);
     let data = data(&served);
     assert_eq!(data["reading"]["root"], text(&decoy), "{data:#}");
     assert_eq!(ids(&data["decisions"]), ["DEC-20261008-09"], "{data:#}");

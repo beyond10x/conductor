@@ -1,6 +1,6 @@
-//! The Configuration page (`story:dashboard-config-page`): `GET /api/config` answers the
+//! The Configuration page (`story:dashboard-config-page`): `GET /v1/settings` answers the
 //! effective config of the instance whose dashboard answers (`conductor.config.ConfigPage`), and
-//! `POST /api/config` checks or writes the page's staged changes (`conductor.config.WriteConfig`).
+//! `POST /v1/settings` checks or writes the page's staged changes (`conductor.config.WriteConfig`).
 //!
 //! The view reads the config file and an existing store, and writes nothing.
 //! Every key `config show` writes for the instance is one `ConfigField`, its path under the
@@ -34,7 +34,7 @@ use super::answers::{RECORDED_BY, Refused};
 use crate::{config, decide, repository};
 
 /// The page's data and its write.
-pub const CONFIG_PATH: &str = "/api/config";
+pub const CONFIG_PATH: &str = "/v1/settings";
 
 /// The keys under an instance the page shows and never changes: `config migrate` moves them.
 const FIXED: [&str; 7] = [
@@ -155,9 +155,9 @@ fn forge(instance: &Instance) -> &'static str {
     }
 }
 
-/// The answer of `GET /api/config` for the server on `port`.
+/// The answer of `GET /v1/settings`: the instance's effective settings, each with its default.
 #[must_use]
-pub fn answer(sources: &Sources, state: Option<&Path>, port: u16) -> Value {
+pub fn answer(sources: &Sources, state: Option<&Path>) -> Value {
     let mut errors = Vec::new();
     let home = &sources.home;
     let file = sources.config_file.clone();
@@ -215,7 +215,7 @@ pub fn answer(sources: &Sources, state: Option<&Path>, port: u16) -> Value {
                 .to_owned(),
         );
     }
-    page["instances"] = json!(instances(port));
+    page["instances"] = json!(instances());
     if let Some(state) = state.filter(|state| crate::store::present(state)) {
         match crate::store::open_reader(state) {
             Ok(store) => {
@@ -240,9 +240,11 @@ pub fn answer(sources: &Sources, state: Option<&Path>, port: u16) -> Value {
     page
 }
 
-/// The instances of the config file this process read, each with its forge. The host registry
-/// that listed every config file's is gone in v1 (design architecture-next § 11).
-fn instances(port: u16) -> Vec<Value> {
+/// The instances of the config file this process read, each with its forge, the one this runtime
+/// serves marked `current`; another is shown through the daemon's page for it
+/// (`story:instance-api`). The host registry that listed every config file's is gone in v1
+/// (design architecture-next § 11).
+fn instances() -> Vec<Value> {
     let active = config::active();
     if !active.from_file {
         return Vec::new();
@@ -251,13 +253,11 @@ fn instances(port: u16) -> Vec<Value> {
         .all()
         .into_iter()
         .map(|instance| {
-            let dashboard_port = config::legacy(instance).dashboard_port;
             json!({
                 "name": instance.name.0,
-                "dashboard_port": dashboard_port,
                 "session_prefix": instance.session_prefix.as_ref().map(|prefix| prefix.0.clone()),
                 "forge": forge(instance),
-                "current": dashboard_port == i64::from(port),
+                "current": instance.name == active.instance.name,
             })
         })
         .collect()

@@ -1,5 +1,5 @@
-//! `story:dashboard-series-api`: `GET /api/series` lists the series, and
-//! `GET /api/series?series=<name>&by=<key>&days=<n>` answers each one's rows of day, key and value
+//! `story:dashboard-series-api`: `GET /v1/instances/example-org/series` lists the series, and
+//! `GET /v1/instances/example-org/series?series=<name>&by=<key>&days=<n>` answers each one's rows of day, key and value
 //! from the daily rollups of the fixture (`series_fixture/mod.rs`); a series without a source
 //! answers 404 naming the story that adds it, an unknown series or `by` 400 naming the allowed
 //! values. The rows are read through [`series::answer`] at the fixture's "today"; the served route
@@ -7,6 +7,7 @@
 
 mod active;
 mod series_fixture;
+mod served;
 
 use std::ffi::OsString;
 use std::io::{Read as _, Write as _};
@@ -14,7 +15,7 @@ use std::net::{TcpListener, TcpStream};
 use std::path::Path;
 use std::time::Duration;
 
-use conductor_cli::dashboard::{self, Sources, series};
+use conductor_cli::dashboard::{Sources, series};
 use conductor_model::behaviour::HostGrantStorage;
 use conductor_model::config::InstanceName;
 use conductor_model::host::{GrantId, GrantKind, HostGrantData, HostGrantSnapshot, HostGrantState};
@@ -34,7 +35,7 @@ fn ask(case: &Case, target: &str) -> (u16, Value) {
 
 /// The rows of `series` grouped by `by` over 30 days, as `(day, key, value)`.
 fn rows(case: &Case, query: &str) -> Vec<Row> {
-    let (status, answer) = ask(case, &format!("/api/series?{query}"));
+    let (status, answer) = ask(case, &format!("/v1/instances/example-org/series?{query}"));
     assert_eq!(status, 200, "{query}: {answer}");
     answer["rows"]
         .as_array()
@@ -63,7 +64,7 @@ fn case(name: &str) -> Case {
 #[test]
 fn the_list_names_every_series_with_its_source_or_story() {
     let case = case("list");
-    let (status, answer) = ask(&case, "/api/series");
+    let (status, answer) = ask(&case, "/v1/instances/example-org/series");
     assert_eq!(status, 200);
     let list = answer.as_array().expect("an array");
     let names: Vec<&str> = list
@@ -356,7 +357,7 @@ fn disk_peak_vs_reserved_charts_the_runs_peak_over_their_reservation() {
     store.check().expect("the store kept the rollups");
     drop(store);
 
-    let (status, list) = ask(&case, "/api/series");
+    let (status, list) = ask(&case, "/v1/instances/example-org/series");
     assert_eq!(status, 200);
     let entry = list
         .as_array()
@@ -389,7 +390,10 @@ fn disk_peak_vs_reserved_charts_the_runs_peak_over_their_reservation() {
             row("2026-10-13", "total", json!(50)),
         ]
     );
-    let (_, answer) = ask(&case, "/api/series?series=disk_peak_vs_reserved");
+    let (_, answer) = ask(
+        &case,
+        "/v1/instances/example-org/series?series=disk_peak_vs_reserved",
+    );
     assert_eq!(answer["unit"], "percent");
 }
 
@@ -397,13 +401,16 @@ fn disk_peak_vs_reserved_charts_the_runs_peak_over_their_reservation() {
 fn the_answer_names_its_series_by_days_and_unit() {
     let case = case("head");
     case.build();
-    let (status, answer) = ask(&case, "/api/series?series=prs_merged&by=repository&days=7");
+    let (status, answer) = ask(
+        &case,
+        "/v1/instances/example-org/series?series=prs_merged&by=repository&days=7",
+    );
     assert_eq!(status, 200);
     assert_eq!(answer["series"], "prs_merged");
     assert_eq!(answer["by"], "repository");
     assert_eq!(answer["days"], 7);
     assert_eq!(answer["unit"], "count");
-    let (_, total) = ask(&case, "/api/series?series=prs_merged");
+    let (_, total) = ask(&case, "/v1/instances/example-org/series?series=prs_merged");
     assert_eq!(total["by"], Value::Null, "absent by: the total");
     assert_eq!(total["days"], 30, "30 days without days");
 }
@@ -424,7 +431,10 @@ fn days_bounds_the_rows_to_the_last_days() {
         ]
     );
     for days in ["0", "366", "many", "-1"] {
-        let (status, answer) = ask(&case, &format!("/api/series?series=prs_merged&days={days}"));
+        let (status, answer) = ask(
+            &case,
+            &format!("/v1/instances/example-org/series?series=prs_merged&days={days}"),
+        );
         assert_eq!(status, 400, "days={days}: {answer}");
         assert!(answer["error"].is_string(), "{answer}");
     }
@@ -435,7 +445,10 @@ fn a_series_without_a_source_answers_404_naming_its_story() {
     let case = case("no-source");
     case.build();
     for name in ["tokens_in", "tokens_out", "idle_hours", "waiting_hours"] {
-        let (status, answer) = ask(&case, &format!("/api/series?series={name}&by=session"));
+        let (status, answer) = ask(
+            &case,
+            &format!("/v1/instances/example-org/series?series={name}&by=session"),
+        );
         assert_eq!(status, 404, "{name}");
         assert_eq!(
             answer,
@@ -449,7 +462,7 @@ fn a_series_without_a_source_answers_404_naming_its_story() {
 fn an_unknown_series_or_by_answers_400_naming_the_allowed_values() {
     let case = case("unknown");
     case.build();
-    let (status, answer) = ask(&case, "/api/series?series=nothing");
+    let (status, answer) = ask(&case, "/v1/instances/example-org/series?series=nothing");
     assert_eq!(status, 400);
     let allowed: Vec<&str> = answer["allowed"]
         .as_array()
@@ -462,12 +475,15 @@ fn an_unknown_series_or_by_answers_400_naming_the_allowed_values() {
         !allowed.contains(&"escalations"),
         "a rollup only a KPI reads is no series: {answer}"
     );
-    let (status, answer) = ask(&case, "/api/series?series=prs_merged&by=workflow");
+    let (status, answer) = ask(
+        &case,
+        "/v1/instances/example-org/series?series=prs_merged&by=workflow",
+    );
     assert_eq!(status, 400);
     assert_eq!(answer["allowed"], json!(["repository"]), "{answer}");
     let (status, answer) = ask(
         &case,
-        "/api/series?series=merged_to_released_hours&by=repository",
+        "/v1/instances/example-org/series?series=merged_to_released_hours&by=repository",
     );
     assert_eq!(status, 400);
     assert_eq!(answer["allowed"], json!([]), "{answer}");
@@ -476,7 +492,11 @@ fn an_unknown_series_or_by_answers_400_naming_the_allowed_values() {
 #[test]
 fn without_a_store_a_series_has_no_rows() {
     let case = case("no-store");
-    let (status, answer) = series::answer("/api/series?series=prs_merged", None, today());
+    let (status, answer) = series::answer(
+        "/v1/instances/example-org/series?series=prs_merged",
+        None,
+        today(),
+    );
     assert_eq!(status, 200);
     assert_eq!(answer["rows"], json!([]));
     drop(case);
@@ -503,7 +523,7 @@ fn start(case: &Case) -> u16 {
     sources.ci_state = home.join("watch/ci.state");
     sources.var_tmp = home.join("var-tmp");
     let state = case.state();
-    std::thread::spawn(move || dashboard::serve_over(listener, sources, Some(state)));
+    served::serve(listener, sources, Some(state));
     port
 }
 
@@ -534,28 +554,36 @@ fn the_dashboard_serves_the_series() {
     let case = case("served");
     case.build();
     let port = start(&case);
-    let (status, body) = request(port, "GET", "/api/series");
+    let (status, body) = request(port, "GET", "/v1/instances/example-org/series");
     assert_eq!(status, 200, "{body}");
     let list: Value = serde_json::from_str(&body).expect("JSON");
     assert!(list.as_array().is_some_and(|list| !list.is_empty()));
     let (status, body) = request(
         port,
         "GET",
-        "/api/series?series=prs_merged&by=repository&days=365",
+        "/v1/instances/example-org/series?series=prs_merged&by=repository&days=365",
     );
     assert_eq!(status, 200, "{body}");
     let answer: Value = serde_json::from_str(&body).expect("JSON");
     assert_eq!(answer["series"], "prs_merged");
     assert!(answer["rows"].is_array());
-    let (status, body) = request(port, "GET", "/api/series?series=tokens_out");
+    let (status, body) = request(
+        port,
+        "GET",
+        "/v1/instances/example-org/series?series=tokens_out",
+    );
     assert_eq!(status, 404, "{body}");
     let answer: Value = serde_json::from_str(&body).expect("JSON");
     assert_eq!(answer["story"], "story:kpi-transcripts");
-    let (status, body) = request(port, "GET", "/api/series?series=nothing");
+    let (status, body) = request(
+        port,
+        "GET",
+        "/v1/instances/example-org/series?series=nothing",
+    );
     assert_eq!(status, 400, "{body}");
-    let (status, _) = request(port, "POST", "/api/series");
+    let (status, _) = request(port, "POST", "/v1/instances/example-org/series");
     assert_eq!(status, 405);
-    let (status, body) = request(port, "GET", "/api/kpis");
+    let (status, body) = request(port, "GET", "/v1/instances/example-org/kpis");
     assert_eq!(status, 200, "{body}");
     let kpis: Value = serde_json::from_str(&body).expect("JSON");
     assert_eq!(kpis.as_array().map(Vec::len), Some(16), "{kpis}");

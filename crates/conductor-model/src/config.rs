@@ -1,5 +1,5 @@
 // generated from conductor v1
-// contract digest 88f1c9e5b4ef578aa56eea73a14e4e509b870a0735bb11ab37ea1e0e49124b8a
+// contract digest c0e5f57876522191690b7b7fa0b710a15b36d5bf4a50b987946bb580f924bf53
 // do not edit: regenerate with `ess synthesize --layout crate`
 
 //! Config — `conductor.config`.
@@ -59,6 +59,23 @@ pub enum CatalogNames {
     Plain,
     /// `Hex`.
     Hex,
+}
+
+/// ChangeConfig — `conductor.config.ChangeConfig`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ChangeConfig {
+    /// `level` — `String`.
+    pub level: String,
+    /// `instance` — `Optional<String>`.
+    pub instance: Option<String>,
+    /// `role` — `Optional<String>`.
+    pub role: Option<String>,
+    /// `path` — `String`.
+    pub path: String,
+    /// `value` — `Optional<String>`.
+    pub value: Option<String>,
+    /// `reason` — `String`.
+    pub reason: String,
 }
 
 /// Checkouts — `conductor.config.Checkouts`.
@@ -290,6 +307,8 @@ pub struct Daemon {
     pub dashboard: String,
     /// `operators` — `List<conductor.config.DaemonOperator>`.
     pub operators: Vec<DaemonOperator>,
+    /// `upgrade_timeout` — `Duration`.
+    pub upgrade_timeout: crate::primitives::Duration,
 }
 
 /// DaemonCadence — `conductor.config.DaemonCadence`.
@@ -519,6 +538,8 @@ pub struct InstanceRefused {
 /// Level — `conductor.config.Level`: one of a closed set of names.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Level {
+    /// `Default`.
+    Default,
     /// `Global`.
     Global,
     /// `Instance`.
@@ -912,6 +933,12 @@ pub struct TimeOfDay(pub String);
 pub struct TlsListener {
     /// `listen` — `String`.
     pub listen: String,
+    /// `cert` — `Optional<String>`.
+    pub cert: Option<String>,
+    /// `key` — `Optional<String>`.
+    pub key: Option<String>,
+    /// `identity` — `Optional<String>`.
+    pub identity: Option<String>,
 }
 
 /// Tokens — `conductor.config.Tokens`: a distinct wrapper around `Integer`.
@@ -1349,7 +1376,7 @@ pub struct PutConfig {
 /// outcomes exist to prevent.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum PutConfigOutcome {
-    /// `level-scope-mismatch` — when `((level == Global and defined(instance)) or (level == Global and defined(role)) or (level == Instance and not (defined(instance))) or (level == Instance and defined(role)) or (level == Role and not (defined(instance))) or (level == Role and not (defined(role))))`.
+    /// `level-scope-mismatch` — when `(level == Default or (level == Global and defined(instance)) or (level == Global and defined(role)) or (level == Instance and not (defined(instance))) or (level == Instance and defined(role)) or (level == Role and not (defined(instance))) or (level == Role and not (defined(role))))`.
     ///
     /// The level and the instance or role named do not fit; nothing was written.
     LevelScopeMismatch {
@@ -1411,7 +1438,7 @@ pub struct ConfigInvalid {
 
 /// The declared error `conductor.config.LevelScopeMismatch`.
 ///
-/// A `Global` change names no instance and no role, an `Instance` change names an instance and no role, and a `Role` change names both; this one does not, and nothing was written.
+/// A `Global` change names no instance and no role, an `Instance` change names an instance and no role, a `Role` change names both, and no change is written at `Default`; this one does not fit, and nothing was written.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct LevelScopeMismatch {
     /// `level` — `conductor.config.Level`.

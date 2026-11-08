@@ -11,11 +11,6 @@ callables:
     input: null
     result: String
     errors: {}
-  dashboard-serve:
-    target: {kind: local, owner: conductor-cli, action: dashboard_serve}
-    input: conductor.observation.DashboardServe
-    result: String
-    errors: {}
   watch-run:
     target: {kind: local, owner: conductor-cli, action: watch_run}
     input: conductor.observation.WatchRun
@@ -64,6 +59,11 @@ callables:
   config-migrate:
     target: {kind: local, owner: conductor-cli, action: config_migrate}
     input: conductor.config.MigrateConfig
+    result: String
+    errors: {}
+  config-put:
+    target: {kind: local, owner: conductor-cli, action: config_put}
+    input: conductor.config.ChangeConfig
     result: String
     errors: {}
   config-show:
@@ -242,6 +242,11 @@ callables:
     input: null
     result: String
     errors: {}
+  instance-upgrade:
+    target: {kind: local, owner: conductor-cli, action: instance_upgrade}
+    input: conductor.instance.UpgradeInstances
+    result: String
+    errors: {}
   agent-start:
     target: {kind: local, owner: conductor-cli, action: agent_start}
     input: null
@@ -292,14 +297,6 @@ commands:
     callable: goals
     about: Goals
     arguments: []
-  - path: [dashboard, serve]
-    callable: dashboard-serve
-    about: Serve a live, read-only page of what every session works on
-    arguments:
-      - field: port
-        source: {kind: option, long: port}
-      - field: root
-        source: {kind: option, long: root}
   - path: [watch, run]
     callable: watch-run
     about: Watch sessions, usage limits, conductor's context, free disk and main's CI; exit after the first pass that finds a change
@@ -370,10 +367,26 @@ commands:
         source: {kind: option, long: instance}
   - path: [config, migrate]
     callable: config-migrate
-    about: Write a session_prefix into each instance of the config file that names none; --check prints them and writes nothing
+    about: Convert a conductor.config/1 file to conductor.config/2 once, noting each key dropped or moved, and write a session_prefix into each instance that names none; --check prints what it would write and writes nothing
     arguments:
       - field: check
         source: {kind: option, long: check}
+  - path: [config, put]
+    callable: config-put
+    about: Change one key of the config file at one level - global, instance or role - validated, written, committed to the config repository with the actor and the reason, and recorded in the daemon's store as a ConfigRevision; the daemon reconciles on the changed file
+    arguments:
+      - field: level
+        source: {kind: option, long: level}
+      - field: instance
+        source: {kind: option, long: instance}
+      - field: role
+        source: {kind: option, long: role}
+      - field: path
+        source: {kind: option, long: path}
+      - field: value
+        source: {kind: option, long: value}
+      - field: reason
+        source: {kind: option, long: reason}
   - path: [config, show]
     callable: config-show
     about: Print one instance's effective config, after defaults, as a config file, and the host's roles from host.yaml under `host` (not in yaml)
@@ -584,8 +597,18 @@ commands:
         source: {kind: option, long: uninstall}
   - path: [instance, serve]
     callable: instance-serve
-    about: Run one instance's runtime in its box, its loop, its agents and the instance API; not written yet, exits 2
+    about: Serve the instance API, the routes of the dashboard under /v1/, on the instance's <state>/api.sock until stopped; a write takes the token the daemon minted for the instance, in CONDUCTOR_API_TOKEN
     arguments: []
+  - path: [instance, upgrade]
+    callable: instance-upgrade
+    about: Ask the daemon to upgrade an instance to a released binary (POST /v1/instances/{name}/upgrade) - it fetches the release, installs its binary, runs its conductor doctor, restarts the runtime on it and rolls back to the previous binary unless it answers within daemon.upgrade_timeout; --all goes through every instance of the config file one at a time and stops at the first rollback
+    arguments:
+      - field: instance
+        source: {kind: option, long: instance}
+      - field: tag
+        source: {kind: option, long: tag}
+      - field: all
+        source: {kind: option, long: all}
   - path: [agent, start]
     callable: agent-start
     about: Start the agent of a role slot through the instance API; not written yet, exits 2

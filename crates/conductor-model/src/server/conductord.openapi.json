@@ -8,7 +8,7 @@
     "x-ess-provenance": {
       "system": "conductor",
       "specification_version": "v1",
-      "contract_digest": "slice-sha256/2:87c841716007281b0c4eed3f79e47e0da77b6dbf0c4d948148ca968feef60f5b"
+      "contract_digest": "slice-sha256/2:afa97ce6e93ea12a8a9e89939d4695d71a5dd24364e0e22ba168fea27c4c0a52"
     },
     "x-ess-reached-by": "network"
   },
@@ -2934,6 +2934,7 @@
         "x-ess-kind": "enum",
         "type": "string",
         "enum": [
+          "Default",
           "Global",
           "Instance",
           "Role"
@@ -2941,7 +2942,7 @@
       },
       "conductor.config.LevelScopeMismatch.Error": {
         "title": "LevelScopeMismatch payload",
-        "description": "A `Global` change names no instance and no role, an `Instance` change names an instance and no role, and a `Role` change names both; this one does not, and nothing was written.\n",
+        "description": "A `Global` change names no instance and no role, an `Instance` change names an instance and no role, a `Role` change names both, and no change is written at `Default`; this one does not fit, and nothing was written.\n",
         "x-ess-name": "conductor.config.LevelScopeMismatch",
         "x-ess-kind": "error-payload",
         "type": "object",
@@ -3131,11 +3132,11 @@
       },
       "conductor.config.PutConfig.level-scope-mismatch.Response": {
         "additionalProperties": false,
-        "description": "The level and the instance or role named do not fit; nothing was written. Taken when `((level == Global and defined(instance)) or (level == Global and defined(role)) or (level == Instance and not (defined(instance))) or (level == Instance and defined(role)) or (level == Role and not (defined(instance))) or (level == Role and not (defined(role))))` holds of the input.",
+        "description": "The level and the instance or role named do not fit; nothing was written. Taken when `(level == Default or (level == Global and defined(instance)) or (level == Global and defined(role)) or (level == Instance and not (defined(instance))) or (level == Instance and defined(role)) or (level == Role and not (defined(instance))) or (level == Role and not (defined(role))))` holds of the input.",
         "properties": {
           "error": {
             "const": "conductor.config.LevelScopeMismatch",
-            "description": "A `Global` change names no instance and no role, an `Instance` change names an instance and no role, and a `Role` change names both; this one does not, and nothing was written.\n",
+            "description": "A `Global` change names no instance and no role, an `Instance` change names an instance and no role, a `Role` change names both, and no change is written at `Default`; this one does not fit, and nothing was written.\n",
             "type": "string"
           },
           "outcome": {
@@ -4697,7 +4698,7 @@
       },
       "conductor.instance.UpgradeInstance.rolled-back.Response": {
         "additionalProperties": false,
-        "description": "The upgraded runtime did not come up; the previous binary is back and its runtime starting. Taken when the existing subject is in Upgrading. A `conductor.instance.Instance` has moved to `Starting`, along `roll_back`. The instance is the one `name` names. Emits `InstanceRolledBack`, published to consumers and listed under `published`.",
+        "description": "The upgraded runtime did not come up; the previous binary is back and its runtime starting. Taken when the existing subject is in Unreachable or Upgrading. A `conductor.instance.Instance` has moved to `Starting`, along `roll_back`. The instance is the one `name` names. Emits `InstanceRolledBack`, published to consumers and listed under `published`.",
         "properties": {
           "outcome": {
             "const": "rolled-back",
@@ -8150,6 +8151,7 @@
       "x-ess-kind": "enum",
       "type": "string",
       "enum": [
+        "Default",
         "Global",
         "Instance",
         "Role"
