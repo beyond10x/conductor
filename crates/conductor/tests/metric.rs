@@ -348,17 +348,63 @@ impl Case {
         self.take(started_at, forge);
     }
 
-    /// Takes one complete snapshot started at `started_at` holding `releases` and `merged`.
+    /// Takes one complete snapshot started at `started_at` holding `releases` and `merged`, in
+    /// which every repository they name is Active.
     fn snapshot(
         &self,
         started_at: &str,
         releases: &[(&'static str, &'static str, &'static str)],
         merged: &[(&'static str, i64, &'static str)],
     ) {
+        self.snapshot_without_activity(started_at, releases, merged, &[]);
+    }
+
+    /// As [`Case::snapshot`], the repositories in `inactive` observed without a commit in 7 days.
+    fn snapshot_without_activity(
+        &self,
+        started_at: &str,
+        releases: &[(&'static str, &'static str, &'static str)],
+        merged: &[(&'static str, i64, &'static str)],
+        inactive: &[&'static str],
+    ) {
         let releases = releases.to_vec();
         let merged = merged.to_vec();
+        let inactive = inactive.to_vec();
         let forge = Collector::new("forge", move |record: &mut Recorder<'_>| {
             let snapshot = record.snapshot().clone();
+            let named: std::collections::BTreeSet<&str> = releases
+                .iter()
+                .map(|(repository, ..)| *repository)
+                .chain(merged.iter().map(|(repository, ..)| *repository))
+                .collect();
+            for repository in named {
+                record.repository(RecordRepository {
+                    snapshot_id: snapshot.clone(),
+                    repository: RepositoryName(repository.to_owned()),
+                    visibility: Visibility::Public,
+                    archived: false,
+                    local_checkout: true,
+                    main_head: CommitSha(format!("head-of-{repository}")),
+                    main_committed_at: Timestamp("2026-10-12T00:00:00Z".to_owned()),
+                    main_commits_7d: 1,
+                    real_commits_7d: i64::from(!inactive.contains(&repository)),
+                    behind_main: 0,
+                    dirty_files: 0,
+                    worktrees: 0,
+                    open_issues: 0,
+                    oldest_open_issue_at: None,
+                    latest_release: None,
+                    latest_release_at: None,
+                    unreleased_commits: None,
+                    planning_store_version: None,
+                    in_catalog: None,
+                    gates_hooks_version: None,
+                    gates_version: None,
+                    wave_width: None,
+                    wave_ready: None,
+                    wave_reason: None,
+                })?;
+            }
             for (repository, tag, at) in &releases {
                 record.release(RecordRelease {
                     snapshot_id: snapshot.clone(),
@@ -664,6 +710,101 @@ fn k5_counts_a_semver_tag_as_a_release_and_skips_a_repository_marked_as_shipping
         skipped[0].contains("skipped") && skipped[0].contains("published on merge"),
         "{printed}"
     );
+}
+
+/// `story:kpi-scope-active-repositories`: the fixture's newest snapshot also holds `idle`,
+/// observed with no commit in 7 days (Inactive), with two merges (idle#1 10-14 11:00, never
+/// released; idle#2 08:00, released by v1.0.0 at 10:00) and a dispatch D-90 done on the day (4 h).
+/// The case is computed once, `idle` marked Active first when `marked`.
+fn with_idle(name: &str, marked: bool) -> Case {
+    let case = Case::fixture(name);
+    let dispatches = case.records().join("dispatches/2026-10.jsonl");
+    let mut text = fs::read_to_string(&dispatches).expect("read the dispatch log");
+    text.push_str(concat!(
+        r#"{"at":"2026-10-14T01:00:00Z","event":"sent","repo":"idle","id":"D-90"}"#,
+        "\n",
+        r#"{"at":"2026-10-14T05:00:00Z","event":"done","repo":"idle","id":"D-90"}"#,
+        "\n",
+    ));
+    fs::write(&dispatches, text).expect("write the dispatch log");
+    let mut releases = RELEASES.to_vec();
+    releases.push(("idle", "v1.0.0", "2026-10-14T10:00:00Z"));
+    let mut merged = MERGED.to_vec();
+    merged.extend([
+        ("idle", 1, "2026-10-14T11:00:00Z"),
+        ("idle", 2, "2026-10-14T08:00:00Z"),
+    ]);
+    case.snapshot_without_activity("2026-10-15T01:00:00Z", &releases, &merged, &["idle"]);
+    if marked {
+        case.ok(&[
+            "repository",
+            "mark-repository",
+            "--repository",
+            "idle",
+            "--activity",
+            "Active",
+            "--marked-by",
+            "Operator",
+            "--reason",
+            "worked on",
+        ]);
+    }
+    case.compute();
+    case
+}
+
+/// An Inactive repository is in no scope of a repository-scoped KPI: K5.unreleased reads alpha#4
+/// only (1, alpha's 1), K5.median is the fixture's 8 h (1, 6, 10, 24), K4.median its 2.75 h (1,
+/// 14, 2.5, 3), and `idle` has no reading of K4 or K5.
+#[test]
+fn repository_scoped_kpis_leave_out_an_inactive_repository() {
+    let case = with_idle("kpi-inactive-scope", false);
+    close(
+        case.value("K5.unreleased", "alpha"),
+        1.0,
+        "K5.unreleased of alpha",
+    );
+    close(
+        case.value("K5.unreleased", "instance"),
+        1.0,
+        "K5.unreleased",
+    );
+    close(case.value("K5.median", "instance"), 8.0, "K5.median");
+    close(case.value("K4.median", "instance"), 2.75, "K4.median");
+    for metric in [
+        "K4.median",
+        "K4.p90",
+        "K5.median",
+        "K5.p90",
+        "K5.unreleased",
+    ] {
+        assert!(
+            case.reading(metric, "idle").is_none(),
+            "{metric} has a reading for the Inactive idle: {:#?}",
+            case.all()
+        );
+    }
+}
+
+/// The same repository marked Active reads its own scope and the instance's sums it: K5.unreleased
+/// of idle 1 and the instance 2, K4.median of idle 4 h and the instance 3 h (1, 14, 2.5, 3, 4),
+/// K5.median 6 h (1, 2, 6, 10, 24 over alpha#3, idle#2, alpha#2, beta#5, beta#6).
+#[test]
+fn repository_scoped_kpis_count_a_repository_marked_active() {
+    let case = with_idle("kpi-active-marked-scope", true);
+    close(
+        case.value("K5.unreleased", "idle"),
+        1.0,
+        "K5.unreleased of idle",
+    );
+    close(
+        case.value("K5.unreleased", "instance"),
+        2.0,
+        "K5.unreleased",
+    );
+    close(case.value("K4.median", "idle"), 4.0, "K4.median of idle");
+    close(case.value("K4.median", "instance"), 3.0, "K4.median");
+    close(case.value("K5.median", "instance"), 6.0, "K5.median");
 }
 
 /// The rework fixture ([`Case::rework`]), computed for [`DAY`].
