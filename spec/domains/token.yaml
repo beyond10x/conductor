@@ -1,0 +1,19 @@
+domain: conductor.token
+
+summary: >
+  The token pool of an instance (design docs/design/architecture-next.md § 5.3, decisions 10 and
+  11): an engineer who joins an instance contributes their Claude token; the pool is a set of
+  secrets, each with its owner, its seat and its state (`ok`, or `limited until <time>`); values
+  never leave the secrets source except as a sealed slot. The `claude-code` kind leases one token
+  per agent start, resumes an agent on another token after a usage-limit stop, and names the
+  token's owner on every agent record. A controller started for Remote Control on a named owner's
+  token appears in that owner's Claude app.
+
+naming:
+  wire: token
+  display: Token
+
+types:
+  - name: conductor.token.TokenState
+    kind: enum
+    variants: [Ok, Limited]

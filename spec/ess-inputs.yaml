@@ -12,6 +12,13 @@ specification:
   - domains/host.yaml
   - domains/improvement.yaml
   - domains/tool.yaml
+  - domains/instance.yaml
+  - domains/placement.yaml
+  - domains/agent.yaml
+  - domains/store.yaml
+  - domains/secret.yaml
+  - domains/operator.yaml
+  - domains/token.yaml
 scenarios:
   - scenarios/grant-disk-under-floor.yaml
   - scenarios/adv-route-need-unsent-dispatch.yaml

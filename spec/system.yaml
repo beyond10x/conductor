@@ -12,3 +12,10 @@ domains:
   - conductor.host
   - conductor.improvement
   - conductor.tool
+  - conductor.instance
+  - conductor.placement
+  - conductor.agent
+  - conductor.store
+  - conductor.secret
+  - conductor.operator
+  - conductor.token

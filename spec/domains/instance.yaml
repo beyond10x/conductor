@@ -1,0 +1,16 @@
+domain: conductor.instance
+
+summary: >
+  The instances conductord reconciles (design docs/design/architecture-next.md § 4): desired state
+  from the config (name, placement, roles, settings), actual state from what runs (state, binary
+  version, last seen, box), and one `Reconciliation` record per action the daemon takes (start,
+  stop, restart, upgrade, nothing). Replaces the registry types of `conductor.host`.
+
+naming:
+  wire: instance
+  display: Instance
+
+types:
+  - name: conductor.instance.ReconciliationId
+    kind: newtype
+    of: Uuid

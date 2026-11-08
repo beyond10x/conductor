@@ -1,0 +1,24 @@
+domain: conductor.store
+
+summary: >
+  One shared database per deployment (design docs/design/architecture-next.md § 8, decision 13),
+  opened through Eventlog's port: `sqlite` for a deployment that is one host, `postgres` for
+  everything else. `daemon.store` names the one URL; the daemon hands it to every instance runtime
+  it starts; every event names its instance; every UI and every operator reads the same records.
+  No copy per instance, no sync, no restore. Today's eventlog tree is read once by the migration
+  and not opened again.
+
+naming:
+  wire: store
+  display: Store
+
+types:
+  - name: conductor.store.Backend
+    kind: enum
+    variants: [Sqlite, Postgres]
+
+  # The one URL of the deployment's store: `sqlite:<path>` or `postgres://…`, its password a
+  # `secret:<name>`.
+  - name: conductor.store.StoreUrl
+    kind: newtype
+    of: String

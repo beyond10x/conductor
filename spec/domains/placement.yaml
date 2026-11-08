@@ -1,0 +1,21 @@
+domain: conductor.placement
+
+summary: >
+  Where an instance runs: a Substrate box, opened by a substrate daemon on this host or by a
+  remote one named by URL with a bearer, through one of the adapters `systemd`, `linux`
+  (bubblewrap), `oci` or `pod` (design docs/design/architecture-next.md § 6, decision 3). A
+  placement carries the box's profile: read-only roots, the writable workspace, limits, egress and
+  the secret slots. A refusal is recorded with substrate's own reason and nothing falls back.
+
+naming:
+  wire: placement
+  display: Placement
+
+types:
+  - name: conductor.placement.BoxId
+    kind: newtype
+    of: Uuid
+
+  - name: conductor.placement.Adapter
+    kind: enum
+    variants: [Systemd, Linux, Oci, Pod]

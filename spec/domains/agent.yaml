@@ -1,0 +1,28 @@
+domain: conductor.agent
+
+summary: >
+  An agent kind fills any role at any placement (design docs/design/architecture-next.md § 7,
+  decision 3). A kind is the program that fills a role slot and the way conductor starts, feeds,
+  reads and stops it; `claude-code` is the only kind in v1, with today's session behaviour kept
+  exactly. A kind's capabilities are `Interactive` (a PTY to attach to, a mailbox the runtime
+  delivers into, a hand-over at a context threshold, a terminal log) or `RunToExit` (one unit of
+  work in; an exit code and an events file out).
+
+naming:
+  wire: agent
+  display: Agent
+
+types:
+  # A kind's name, such as `claude-code`.
+  - name: conductor.agent.AgentKindName
+    kind: newtype
+    of: String
+
+  # An agent's name inside its instance: the session name today.
+  - name: conductor.agent.AgentName
+    kind: newtype
+    of: String
+
+  - name: conductor.agent.Capability
+    kind: enum
+    variants: [Interactive, RunToExit]

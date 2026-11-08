@@ -1,0 +1,44 @@
+domain: conductor.operator
+
+summary: >
+  Who acts on conductor, told apart by type (design docs/design/architecture-next.md § 3 "Actors",
+  § 5.3, decisions 9, 11 and 12). An `Actor` is `Human`, an operator (an Identity principal with
+  grants), or `Agent`, a program the runtime started in a role of an instance. Every command in
+  every domain carries its `actor`; every event and every record derived from one carries the
+  same; a grant belongs to a human actor only, and a command that needs one refuses an agent
+  actor by name. The instance cluster has several operators; an operator joins an instance and
+  leaves it; the records projection writes an actor as `human:<name>` or
+  `agent:<instance>/<role>/<name>`.
+
+naming:
+  wire: operator
+  display: Operator
+
+types:
+  # An operator's name: the Identity principal, or the Unix user on a single host with no Identity.
+  - name: conductor.operator.OperatorName
+    kind: newtype
+    of: String
+
+  # A person acting: an operator.
+  - name: conductor.operator.HumanActor
+    kind: struct
+    fields:
+      - {name: operator, type: conductor.operator.OperatorName}
+
+  # A program acting: the agent the runtime started, by its instance, role, name and kind.
+  - name: conductor.operator.AgentActor
+    kind: struct
+    fields:
+      - {name: instance, type: conductor.config.InstanceName}
+      - {name: role, type: conductor.config.RoleName}
+      - {name: name, type: conductor.agent.AgentName}
+      - {name: kind, type: conductor.agent.AgentKindName}
+
+  # Who issued a command: a person or a program, by type and never by naming convention.
+  - name: conductor.operator.Actor
+    kind: union
+    tag: kind
+    variants:
+      Human: conductor.operator.HumanActor
+      Agent: conductor.operator.AgentActor
