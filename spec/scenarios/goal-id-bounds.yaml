@@ -10,6 +10,7 @@ timeline:
     command: conductor.direction.ProposeGoal
     actor: conductor.direction.Conductor
     input:
+      actor: {kind: Agent, value: {instance: example-org, role: Director, name: example-org-conductor, kind: claude-code}}
       goal_id: ""
       title: An empty id
       exit_evidence: none
@@ -19,6 +20,7 @@ timeline:
     command: conductor.direction.ProposeGoal
     actor: conductor.direction.Conductor
     input:
+      actor: {kind: Agent, value: {instance: example-org, role: Director, name: example-org-conductor, kind: claude-code}}
       goal_id: éééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééx
       title: 85 two-byte characters and one more byte
       exit_evidence: none
@@ -28,6 +30,7 @@ timeline:
     command: conductor.direction.ConfirmGoal
     actor: conductor.direction.Operator
     input:
+      actor: {kind: Human, value: {operator: example-operator}}
       goal_id: ""
     outcome: invalid-goal-id
 
@@ -35,6 +38,7 @@ timeline:
     command: conductor.direction.ProposeGoal
     actor: conductor.direction.Conductor
     input:
+      actor: {kind: Agent, value: {instance: example-org, role: Director, name: example-org-conductor, kind: claude-code}}
       goal_id: ééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééé
       title: 85 two-byte characters
       exit_evidence: the reopened store lists it
@@ -44,6 +48,7 @@ timeline:
     command: conductor.direction.ProposeGoal
     actor: conductor.direction.Conductor
     input:
+      actor: {kind: Agent, value: {instance: example-org, role: Director, name: example-org-conductor, kind: claude-code}}
       goal_id: G
       title: One byte
       exit_evidence: the reopened store lists it

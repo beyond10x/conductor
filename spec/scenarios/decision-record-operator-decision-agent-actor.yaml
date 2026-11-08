@@ -1,0 +1,32 @@
+# Design architecture-next.md § 3, Actors, and § 5 of the conductor design: the operator's
+# decision is a person's; an agent actor under the operator's grant is refused by name and
+# nothing is recorded.
+type: ess-scenario/1
+domain: conductor.decision
+scenario: decision-record-operator-decision-agent-actor
+summary: An agent actor recording an operator's decision is refused as not a person, and no decision is recorded.
+
+timeline:
+  - at: 2026-11-08T09:00:00Z
+    command: conductor.decision.RecordOperatorDecision
+    actor: conductor.decision.Operator
+    input:
+      actor: {kind: Agent, value: {instance: example-org, role: Director, name: example-org-conductor, kind: claude-code}}
+      decision_id: DEC-agent-op1
+      decision_class: H
+      question: Set the deploy token secret
+      options: "A: set it now; B: wait"
+      choice: done
+      reason: the secret is set
+      evidence: none
+      decided_at: 2026-11-08T09:00:00Z
+      recorded_by: example-org-conductor
+      operator_words: "done"
+    outcome: agent-actor
+    error:
+      name: conductor.decision.ActorNotHuman
+
+assert:
+  - view: conductor.decision.Decisions
+    excludes:
+      decision_id: DEC-agent-op1

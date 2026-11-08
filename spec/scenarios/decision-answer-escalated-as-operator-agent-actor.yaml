@@ -1,0 +1,62 @@
+# Design architecture-next.md § 3, Actors, and § 5 of the conductor design: the operator's answer
+# to an escalated request is a person's; an agent actor under the operator's grant is refused by
+# name, no decision is recorded and the request stays escalated.
+type: ess-scenario/1
+domain: conductor.decision
+scenario: decision-answer-escalated-as-operator-agent-actor
+summary: An agent actor answering an escalated request as the operator is refused as not a person; nothing is recorded and the request stays escalated.
+
+timeline:
+  - at: 2026-11-08T09:00:00Z
+    command: conductor.decision.RaiseDecisionRequest
+    actor: conductor.decision.RepositoryController
+    input:
+      actor: {kind: Agent, value: {instance: example-org, role: Lead, name: example-org-lead, kind: claude-code}}
+      request_id: REQ-agent-esc1
+      repository: cortex
+      question: Set the deploy token secret
+      options: "A: set it now; B: wait"
+      recommendation: A
+      raised_at: 2026-11-08T09:00:00Z
+    outcome: raised
+
+  - at: 2026-11-08T09:00:01Z
+    command: conductor.decision.EscalateRequest
+    actor: conductor.decision.Conductor
+    input:
+      actor: {kind: Agent, value: {instance: example-org, role: Director, name: example-org-conductor, kind: claude-code}}
+      request_id: REQ-agent-esc1
+      escalation_class: H
+      reason: only the operator can set a repository secret
+      no_dry_run: setting a secret has no step that runs without the credential
+    outcome: escalated
+
+  - at: 2026-11-08T09:00:02Z
+    command: conductor.decision.RecordOperatorDecisionForRequest
+    actor: conductor.decision.Operator
+    input:
+      actor: {kind: Agent, value: {instance: example-org, role: Director, name: example-org-conductor, kind: claude-code}}
+      request_id: REQ-agent-esc1
+      decision_id: DEC-agent-esc1
+      decision_class: H
+      question: Set the deploy token secret
+      options: "A: set it now; B: wait"
+      choice: done
+      reason: the secret is set
+      evidence: none
+      decided_at: 2026-11-08T09:00:02Z
+      recorded_by: example-org-conductor
+      operator_words: "done"
+      repository: cortex
+    outcome: agent-actor
+    error:
+      name: conductor.decision.ActorNotHuman
+
+assert:
+  - view: conductor.decision.Requests
+    contains:
+      request_id: REQ-agent-esc1
+      state: Escalated
+  - view: conductor.decision.Decisions
+    excludes:
+      decision_id: DEC-agent-esc1

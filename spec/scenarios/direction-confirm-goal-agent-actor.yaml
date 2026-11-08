@@ -1,0 +1,41 @@
+# Design architecture-next.md § 3, Actors: a goal change by the operator is a person's; an agent
+# actor under the operator's grant is refused by name, and the goal stays a draft.
+type: ess-scenario/1
+domain: conductor.direction
+scenario: direction-confirm-goal-agent-actor
+summary: An agent actor confirming a goal is refused as not a person, and the goal stays a draft.
+
+timeline:
+  - at: 2026-11-08T09:00:00Z
+    command: conductor.direction.ProposeGoal
+    actor: conductor.direction.Conductor
+    input:
+      actor: {kind: Agent, value: {instance: example-org, role: Director, name: example-org-conductor, kind: claude-code}}
+      goal_id: G-agent-confirm
+      title: Ship the local store
+      exit_evidence: a reopened store lists the goal
+    outcome: proposed
+
+  - at: 2026-11-08T09:00:01Z
+    command: conductor.direction.ConfirmGoal
+    actor: conductor.direction.Operator
+    input:
+      actor: {kind: Agent, value: {instance: example-org, role: Director, name: example-org-conductor, kind: claude-code}}
+      goal_id: G-agent-confirm
+    outcome: agent-actor
+    error:
+      name: conductor.decision.ActorNotHuman
+
+  - at: 2026-11-08T09:00:02Z
+    command: conductor.direction.ConfirmGoal
+    actor: conductor.direction.Operator
+    input:
+      actor: {kind: Human, value: {operator: example-operator}}
+      goal_id: G-agent-confirm
+    outcome: confirmed
+
+assert:
+  - view: conductor.direction.Goals
+    contains:
+      goal_id: G-agent-confirm
+      state: Confirmed

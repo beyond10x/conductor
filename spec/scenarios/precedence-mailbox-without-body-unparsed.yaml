@@ -11,6 +11,7 @@ timeline:
     command: conductor.dispatch.ReceiveMessage
     actor: conductor.dispatch.Conductor
     input:
+      actor: {kind: Agent, value: {instance: example-org, role: Director, name: example-org-conductor, kind: claude-code}}
       sender: cortex
       recipient: conductor
       kind: Unknown
