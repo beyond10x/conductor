@@ -7,8 +7,9 @@
 //!
 //! The file is written whole, as YAML reads it back, so a comment of the file is not kept. A
 //! file in no git checkout, or one its checkout ignores, is written and not committed: its
-//! revision's `commit` is empty. A commit that fails puts the old text back, and nothing is
-//! recorded.
+//! revision's `commit` is empty. A commit that fails puts the old text back, when the file still
+//! holds this run's text, and nothing is recorded. One run at a time reads, writes, commits and
+//! records: each holds an exclusive lock on `.<name>.lock` beside the file.
 
 use std::fmt;
 use std::fs;
@@ -258,6 +259,31 @@ fn commit(file: &Path, subject: &str, body: &str) -> Result<Option<String>> {
     git(dir, &["rev-parse", "HEAD"]).map(Some)
 }
 
+/// The exclusive lock of the config file `file`, held while the returned file is open: on
+/// `.<name>.lock` beside it, since the file itself is replaced by a rename on each write. Waits
+/// for another run that holds it.
+///
+/// # Errors
+///
+/// The lock file cannot be opened or locked.
+fn lock(file: &Path) -> Result<fs::File> {
+    let dir = file.parent().unwrap_or_else(|| Path::new("."));
+    let name = file
+        .file_name()
+        .and_then(|name| name.to_str())
+        .ok_or_else(|| anyhow!("{} has no file name", file.display()))?;
+    let path = dir.join(format!(".{name}.lock"));
+    let held = fs::OpenOptions::new()
+        .create(true)
+        .truncate(false)
+        .write(true)
+        .open(&path)
+        .with_context(|| format!("open the config file's lock {}", path.display()))?;
+    held.lock()
+        .with_context(|| format!("lock {}", path.display()))?;
+    Ok(held)
+}
+
 /// Changes one key of the config file `file` (`~` read as `home`) as `input` says, and records
 /// the revision in `store`, the daemon's: the refusal when the level does not fit its scope, the
 /// actor is an agent outside the tuning grant, or the changed file does not validate.
@@ -286,6 +312,9 @@ pub fn put_config(
             problems: Vec::new(),
         }));
     }
+    // Read, write, commit and record under one exclusive lock: a run that read the file before
+    // another wrote it would write the others' changes away, or put its old text back over them.
+    let _held = lock(file)?;
     let old = fs::read_to_string(file)
         .with_context(|| format!("read the config file {}", file.display()))?;
     let mut yaml: Yaml = match serde_yaml::from_str(&old) {
@@ -358,7 +387,18 @@ pub fn put_config(
     let committed = match commit(file, &subject, &body) {
         Ok(committed) => committed,
         Err(error) => {
-            fs::write(file, &old)
+            // Only this run's own text is taken back: a file that holds another text now was
+            // changed by someone else since, and is left as it is.
+            let ours = fs::read_to_string(file).is_ok_and(|now| now == new);
+            if !ours {
+                return Err(error.context(format!(
+                    "commit {}; the file was changed since this run wrote it, so it is left as \
+                     it is, and nothing was recorded",
+                    file.display()
+                )));
+            }
+            fs::write(&next, &old)
+                .and_then(|()| fs::rename(&next, file))
                 .with_context(|| format!("put the old text back into {}", file.display()))?;
             return Err(error.context(format!(
                 "commit {}; the old text is back and nothing was recorded",

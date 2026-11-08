@@ -1,5 +1,5 @@
 // generated from conductor v1
-// contract digest c0e5f57876522191690b7b7fa0b710a15b36d5bf4a50b987946bb580f924bf53
+// contract digest 575fcfe0b84fcb4b2dc3a52041bbf14840203191eb2cb53374eec07ea92207ab
 // do not edit: regenerate with `ess synthesize --layout crate`
 
 //! Agent — `conductor.agent`.
@@ -16,6 +16,8 @@
 pub enum AgentState {
     /// `Running`.
     Running,
+    /// `Starting`.
+    Starting,
     /// `Stopped`.
     Stopped,
 }
@@ -37,6 +39,37 @@ pub struct AgentKindName(pub String);
 /// AgentName — `conductor.agent.AgentName`: a distinct wrapper around `String`.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct AgentName(pub String);
+
+/// AgentSlotSelection — `conductor.agent.AgentSlotSelection`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct AgentSlotSelection {
+    /// `instance` — `Optional<conductor.config.InstanceName>`.
+    pub instance: Option<crate::config::InstanceName>,
+    /// `role` — `String`.
+    pub role: String,
+}
+
+/// AgentTerminalAttach — `conductor.agent.AgentTerminalAttach`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct AgentTerminalAttach {
+    /// `instance` — `Optional<conductor.config.InstanceName>`.
+    pub instance: Option<crate::config::InstanceName>,
+    /// `role` — `String`.
+    pub role: String,
+    /// `watch` — `Optional<Boolean>`.
+    pub watch: Option<bool>,
+}
+
+/// AgentTextDelivery — `conductor.agent.AgentTextDelivery`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct AgentTextDelivery {
+    /// `instance` — `Optional<conductor.config.InstanceName>`.
+    pub instance: Option<crate::config::InstanceName>,
+    /// `role` — `String`.
+    pub role: String,
+    /// `text` — `String`.
+    pub text: String,
+}
 
 /// Capability — `conductor.agent.Capability`: one of a closed set of names.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -130,6 +163,7 @@ pub mod agent_state {
         /// Implemented only by the marker types beside this module.
         pub trait Sealed {}
         impl Sealed for super::Running {}
+        impl Sealed for super::Starting {}
         impl Sealed for super::Stopped {}
     }
 
@@ -139,11 +173,18 @@ pub mod agent_state {
         const STATE: super::AgentState;
     }
 
-    /// `Running`. Where a new instance starts.
+    /// `Running`.
     pub struct Running;
 
     impl Marker for Running {
         const STATE: super::AgentState = super::AgentState::Running;
+    }
+
+    /// `Starting`. Where a new instance starts.
+    pub struct Starting;
+
+    impl Marker for Starting {
+        const STATE: super::AgentState = super::AgentState::Starting;
     }
 
     /// `Stopped`.
@@ -156,7 +197,7 @@ pub mod agent_state {
 
 /// Agent — `conductor.agent.Agent` — with its lifecycle state carried by the type.
 ///
-/// The one constructor rests in `Running`, and the only way to change `S` is a method generated from
+/// The one constructor rests in `Starting`, and the only way to change `S` is a method generated from
 /// a declared transition. A move the specification does not declare is therefore not an error
 /// case: it does not compile. Where the state is data — wire, storage — use [`AgentSnapshot`]
 /// and [`AgentSnapshot::refine`].
@@ -182,8 +223,8 @@ impl<S: agent_state::Marker> Agent<S> {
     }
 }
 
-impl Agent<agent_state::Running> {
-    /// A new instance, resting in `Running` — the only state the lifecycle starts one in.
+impl Agent<agent_state::Starting> {
+    /// A new instance, resting in `Starting` — the only state the lifecycle starts one in.
     pub fn new(data: AgentData) -> Self {
         Self {
             data,
@@ -201,8 +242,34 @@ impl Agent<agent_state::Running> {
         }
     }
 
-    /// `restart` — `Running` → `Running`. Taken by the `restarted` outcome of `conductor.agent.RestartAgent`.
-    pub fn restart(self) -> Agent<agent_state::Running> {
+    /// `restart` — `Running` → `Starting`. Taken by the `restarted` outcome of `conductor.agent.RestartAgent`.
+    pub fn restart(self) -> Agent<agent_state::Starting> {
+        Agent {
+            data: self.data,
+            state: core::marker::PhantomData,
+        }
+    }
+}
+
+impl Agent<agent_state::Starting> {
+    /// `run` — `Starting` → `Running`. Taken by the `running` outcome of `conductor.agent.MarkAgentRunning`.
+    pub fn run(self) -> Agent<agent_state::Running> {
+        Agent {
+            data: self.data,
+            state: core::marker::PhantomData,
+        }
+    }
+
+    /// `stop` — `Starting` → `Stopped`. Taken by the `stopped` outcome of `conductor.agent.StopAgent`.
+    pub fn stop(self) -> Agent<agent_state::Stopped> {
+        Agent {
+            data: self.data,
+            state: core::marker::PhantomData,
+        }
+    }
+
+    /// `restart` — `Starting` → `Starting`. Taken by the `restarted` outcome of `conductor.agent.RestartAgent`.
+    pub fn restart(self) -> Agent<agent_state::Starting> {
         Agent {
             data: self.data,
             state: core::marker::PhantomData,
@@ -211,8 +278,8 @@ impl Agent<agent_state::Running> {
 }
 
 impl Agent<agent_state::Stopped> {
-    /// `restart` — `Stopped` → `Running`. Taken by the `restarted` outcome of `conductor.agent.RestartAgent`.
-    pub fn restart(self) -> Agent<agent_state::Running> {
+    /// `restart` — `Stopped` → `Starting`. Taken by the `restarted` outcome of `conductor.agent.RestartAgent`.
+    pub fn restart(self) -> Agent<agent_state::Starting> {
         Agent {
             data: self.data,
             state: core::marker::PhantomData,
@@ -236,6 +303,8 @@ pub struct AgentSnapshot {
 pub enum AnyAgent {
     /// Resting in `Running`.
     Running(Agent<agent_state::Running>),
+    /// Resting in `Starting`.
+    Starting(Agent<agent_state::Starting>),
     /// Resting in `Stopped`.
     Stopped(Agent<agent_state::Stopped>),
 }
@@ -248,6 +317,10 @@ impl AgentSnapshot {
     pub fn refine(self) -> AnyAgent {
         match self.state {
             AgentState::Running => AnyAgent::Running(Agent {
+                data: self.data,
+                state: core::marker::PhantomData,
+            }),
+            AgentState::Starting => AnyAgent::Starting(Agent {
                 data: self.data,
                 state: core::marker::PhantomData,
             }),
@@ -264,6 +337,7 @@ impl AnyAgent {
     pub fn state(&self) -> AgentState {
         match self {
             Self::Running(_) => AgentState::Running,
+            Self::Starting(_) => AgentState::Starting,
             Self::Stopped(_) => AgentState::Stopped,
         }
     }
@@ -273,6 +347,10 @@ impl AnyAgent {
         match self {
             Self::Running(instance) => AgentSnapshot {
                 state: AgentState::Running,
+                data: instance.into_data(),
+            },
+            Self::Starting(instance) => AgentSnapshot {
+                state: AgentState::Starting,
                 data: instance.into_data(),
             },
             Self::Stopped(instance) => AgentSnapshot {
@@ -563,6 +641,49 @@ pub enum DeliverToAgentOutcome {
     },
 }
 
+/// Mark an agent running — the input of `conductor.agent.MarkAgentRunning`.
+///
+/// Everything it can result in is [`MarkAgentRunningOutcome`].
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct MarkAgentRunning {
+    /// `actor` — `conductor.operator.Actor`.
+    pub actor: crate::operator::Actor,
+    /// `name` — `conductor.agent.AgentName`.
+    pub name: AgentName,
+    /// `running_at` — `Timestamp`.
+    pub running_at: crate::primitives::Timestamp,
+}
+
+/// Everything `conductor.agent.MarkAgentRunning` can result in — one variant per declared outcome.
+///
+/// An infrastructure failure is deliberately not in here: a refusal is a fact about the domain,
+/// a transport fault is a fact about the run, and conflating the two is what the declared
+/// outcomes exist to prevent.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum MarkAgentRunningOutcome {
+    /// `running` — otherwise.
+    ///
+    /// The agent's program is up; the agent runs.
+    Running {
+        /// The `conductor.agent.AgentRunning` this outcome publishes.
+        agent_running: AgentRunning,
+    },
+    /// `no-such-agent` — for an identity no record carries.
+    ///
+    /// No agent of that name; nothing changed.
+    NoSuchAgent {
+        /// Why it was refused: `conductor.agent.AgentNotFound`.
+        error: AgentNotFound,
+    },
+    /// `not-starting` — from a state no declared move starts in.
+    ///
+    /// The agent is not starting (running already, or stopped); nothing changed.
+    NotStarting {
+        /// Why it was refused: `conductor.agent.AgentNotRunning`.
+        error: AgentNotRunning,
+    },
+}
+
 /// Record an agent's report — the input of `conductor.agent.RecordAgentReport`.
 ///
 /// Everything it can result in is [`RecordAgentReportOutcome`].
@@ -793,6 +914,17 @@ pub struct AgentReported {
     pub reported_at: crate::primitives::Timestamp,
 }
 
+/// AgentRunning — the event `conductor.agent.AgentRunning`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct AgentRunning {
+    /// `actor` — `conductor.operator.Actor`.
+    pub actor: crate::operator::Actor,
+    /// `name` — `conductor.agent.AgentName`.
+    pub name: AgentName,
+    /// `running_at` — `Timestamp`.
+    pub running_at: crate::primitives::Timestamp,
+}
+
 /// AgentStarted — the event `conductor.agent.AgentStarted`.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct AgentStarted {
@@ -995,6 +1127,17 @@ pub mod obligations {
         /// `Err` is the typed refusal of an obligation nothing has satisfied; a satisfying
         /// implementation never returns it.
         fn deliver_to_agent(&mut self, input: super::DeliverToAgent) -> Result<super::DeliverToAgentOutcome, crate::obligation::UnmetObligation>;
+    }
+
+    /// The behaviour `conductor.agent.MarkAgentRunning` — generated.
+    ///
+    /// The specification fully determines it: [`crate::behaviour::Generated`] implements it
+    /// over the storage and context ports. Implement it yourself to replace that behaviour.
+    pub trait MarkAgentRunningBehavior {
+        /// Decides and enacts exactly one declared outcome of `conductor.agent.MarkAgentRunning`.
+        ///
+        /// `Err` is the typed refusal of a request the model declares no outcome for.
+        fn mark_agent_running(&mut self, input: super::MarkAgentRunning) -> Result<super::MarkAgentRunningOutcome, crate::obligation::UnmetObligation>;
     }
 
     /// The behaviour `conductor.agent.RecordAgentReport` — generated.

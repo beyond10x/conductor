@@ -35,6 +35,19 @@ timeline:
       started_at: 2026-11-08T09:01:00Z
     outcome: started
 
+  - at: 2026-11-08T09:01:01Z
+    command: conductor.agent.MarkAgentRunning
+    actor: conductor.agent.InstanceRuntime
+    input:
+      actor: {kind: Daemon}
+      name: example-org-director
+      running_at: 2026-11-08T09:01:01Z
+    outcome: running
+    events:
+      - event: conductor.agent.AgentRunning
+        payload:
+          name: example-org-director
+
   - at: 2026-11-08T12:00:00Z
     command: conductor.agent.StopAgent
     actor: conductor.agent.InstanceRuntime
@@ -59,6 +72,19 @@ timeline:
         payload:
           name: example-org-director
           token_owner: example-colleague
+
+  - at: 2026-11-08T12:00:06Z
+    command: conductor.agent.MarkAgentRunning
+    actor: conductor.agent.InstanceRuntime
+    input:
+      actor: {kind: Daemon}
+      name: example-org-director
+      running_at: 2026-11-08T12:00:06Z
+    outcome: running
+    events:
+      - event: conductor.agent.AgentRunning
+        payload:
+          name: example-org-director
 
 assert:
   - view: conductor.agent.Agents

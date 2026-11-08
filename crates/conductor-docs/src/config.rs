@@ -71,6 +71,7 @@ daemon:
       role: owner
       grants: [answer-decisions, start-instances]
   upgrade_timeout: 5m
+  timeout: 10s
 globals:
   roles:
     - role: supervisor

@@ -17,6 +17,9 @@ use conductor_cli::config::{CONFIG_VARIABLE, INSTANCE_VARIABLE};
 /// session list (`story:build-run-session-bound`); a case that wants one sets it. Every command
 /// records as one actor (`conductor.operator.Actor`): with no conductor session named and `USER`
 /// set to `operator`, a written row reads `human:operator`, whoever runs the tests.
+/// The keychain is a fake: `CONDUCTOR_TEST_KEYCHAIN_FILE` names a file under `home`
+/// (`story:secrets-source`), so no case reaches the OS keychain; a case that clears the
+/// environment sets it again.
 pub fn conductor(home: impl AsRef<Path>) -> Command {
     let mut command = Command::new(env!("CARGO_BIN_EXE_conductor"));
     command
@@ -25,6 +28,10 @@ pub fn conductor(home: impl AsRef<Path>) -> Command {
         .env_remove(INSTANCE_VARIABLE)
         .env_remove("CLAUDE_CODE_SESSION_ID")
         .env_remove(conductor_cli::actor::SESSION_VARIABLE)
-        .env("USER", "operator");
+        .env("USER", "operator")
+        .env(
+            conductor_cli::secret::TEST_KEYCHAIN_VARIABLE,
+            home.as_ref().join(".test-keychain.ron"),
+        );
     command
 }

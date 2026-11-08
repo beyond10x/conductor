@@ -1,5 +1,5 @@
 // generated from conductor v1
-// contract digest c0e5f57876522191690b7b7fa0b710a15b36d5bf4a50b987946bb580f924bf53
+// contract digest 575fcfe0b84fcb4b2dc3a52041bbf14840203191eb2cb53374eec07ea92207ab
 // do not edit: regenerate with `ess synthesize --layout crate`
 
 //! Instance — `conductor.instance`.
@@ -1146,6 +1146,15 @@ pub struct PlacementRefused {
     pub name: crate::config::InstanceName,
     /// `placement` — `conductor.placement.PlacementName`.
     pub placement: crate::placement::PlacementName,
+}
+
+/// The declared error `conductor.instance.SupervisorNotRunning`.
+///
+/// No supervisor runs to take the question, so it was not delivered; nothing changed.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SupervisorNotRunning {
+    /// `instance` — `Optional<conductor.config.InstanceName>`.
+    pub instance: Option<crate::config::InstanceName>,
 }
 
 /// The declared error `conductor.instance.UnknownInstance`.

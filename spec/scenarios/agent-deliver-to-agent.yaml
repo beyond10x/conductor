@@ -34,6 +34,19 @@ timeline:
       started_at: 2026-11-08T09:01:00Z
     outcome: started
 
+  - at: 2026-11-08T09:01:01Z
+    command: conductor.agent.MarkAgentRunning
+    actor: conductor.agent.InstanceRuntime
+    input:
+      actor: {kind: Daemon}
+      name: example-org-planner
+      running_at: 2026-11-08T09:01:01Z
+    outcome: running
+    events:
+      - event: conductor.agent.AgentRunning
+        payload:
+          name: example-org-planner
+
   - at: 2026-11-08T09:05:00Z
     command: conductor.agent.DeliverToAgent
     actor: conductor.agent.Controller

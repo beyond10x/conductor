@@ -289,11 +289,33 @@ pub fn deliver(state: Option<&Path>, args: &DeliverArgs) -> Result<ExitCode> {
         );
     }
     let text = crate::message::read_text(WHAT, &input.text)?;
-    let first_line = crate::message::first_line(&text).to_owned();
+    let file = (input.text != "-").then(|| Path::new(&input.text));
+    deliver_text(state, &input.name, &text, file)
+}
+
+/// [`deliver`] of `text`, already read, to the session `name`: the text was read from `file`,
+/// whose path the delivery records, or, when none is given, it is kept as
+/// `<state>/mailbox/delivered/<ulid>.md`, as `--text -` is. The `claude-code` kind's `deliver`
+/// (`story:agent-kinds`).
+///
+/// # Errors
+///
+/// What [`deliver`] answers, but for the flags.
+pub fn deliver_text(
+    state: Option<&Path>,
+    name: &str,
+    text: &str,
+    file: Option<&Path>,
+) -> Result<ExitCode> {
+    const WHAT: &str = "session deliver";
+    if !crate::message::plain_name(name) {
+        bail!("{WHAT}: --name {name:?} names no session: one name, without `/`, not `.` or `..`");
+    }
+    let first_line = crate::message::first_line(text).to_owned();
     let typed = text.trim_end_matches(['\n', '\r']);
     let dir = crate::state::dir(state)?;
     let sessions = dir.join("sessions");
-    let name = SessionName(input.name);
+    let name = SessionName(name.to_owned());
     let socket = sessions.join(format!("{}.tmux", name.0));
     let unreached = if fs::symlink_metadata(&socket).is_err() {
         Some(format!(
@@ -324,17 +346,17 @@ pub fn deliver(state: Option<&Path>, args: &DeliverArgs) -> Result<ExitCode> {
     let body_path = if unreached.is_some() {
         None
     } else {
-        let body_path = if input.text == "-" {
+        let body_path = if let Some(file) = file {
+            body_path_of(file, &dir)
+        } else {
             let body_path = format!(
                 "{}/{DELIVERED}/{}.md",
                 crate::message::MAILBOX,
                 crate::message::ulid()?
             );
-            crate::message::keep(&dir.join(&body_path), &text)
+            crate::message::keep(&dir.join(&body_path), text)
                 .with_context(|| format!("{WHAT}: keep the text"))?;
             body_path
-        } else {
-            body_path_of(Path::new(&input.text), &dir)
         };
         generated.ports.store = Some(crate::state::open(Some(&dir))?);
         Some(body_path)

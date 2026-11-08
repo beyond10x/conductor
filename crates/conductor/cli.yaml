@@ -249,22 +249,22 @@ callables:
     errors: {}
   agent-start:
     target: {kind: local, owner: conductor-cli, action: agent_start}
-    input: null
+    input: conductor.agent.AgentSlotSelection
     result: String
     errors: {}
   agent-deliver:
     target: {kind: local, owner: conductor-cli, action: agent_deliver}
-    input: null
+    input: conductor.agent.AgentTextDelivery
     result: String
     errors: {}
   agent-attach:
     target: {kind: local, owner: conductor-cli, action: agent_attach}
-    input: null
+    input: conductor.agent.AgentTerminalAttach
     result: String
     errors: {}
   agent-stop:
     target: {kind: local, owner: conductor-cli, action: agent_stop}
-    input: null
+    input: conductor.agent.AgentSlotSelection
     result: String
     errors: {}
   join:
@@ -284,7 +284,7 @@ callables:
     errors: {}
   secret-put:
     target: {kind: local, owner: conductor-cli, action: secret_put}
-    input: null
+    input: conductor.secret.WriteSecret
     result: String
     errors: {}
   tui:
@@ -611,20 +611,40 @@ commands:
         source: {kind: option, long: all}
   - path: [agent, start]
     callable: agent-start
-    about: Start the agent of a role slot through the instance API; not written yet, exits 2
-    arguments: []
+    about: "Start the agent of a role slot through its kind (roles[].kind, claude-code by default): for claude-code, conductor session start, which stays its alias for this release; refuse a kind this binary does not implement (UnknownAgentKind), and what session start refuses"
+    arguments:
+      - field: instance
+        source: {kind: option, long: instance}
+      - field: role
+        source: {kind: option, long: role}
   - path: [agent, deliver]
     callable: agent-deliver
-    about: Deliver a text to a running agent through the instance API; not written yet, exits 2
-    arguments: []
+    about: "Deliver a text to the running agent of a role slot through its kind: for claude-code, conductor session deliver to the role's session name; --text is a file, or - for standard input; refuse a kind this binary does not implement and a kind that is not interactive (CapabilityMissing)"
+    arguments:
+      - field: instance
+        source: {kind: option, long: instance}
+      - field: role
+        source: {kind: option, long: role}
+      - field: text
+        source: {kind: option, long: text}
   - path: [agent, attach]
     callable: agent-attach
-    about: Attach this terminal to an interactive agent through the instance API; not written yet, exits 2
-    arguments: []
+    about: "Attach this terminal to the agent of a role slot through its kind: for claude-code, conductor session attach --role; --watch attaches read-only; refuse a kind this binary does not implement and a kind that is not interactive (CapabilityMissing)"
+    arguments:
+      - field: instance
+        source: {kind: option, long: instance}
+      - field: role
+        source: {kind: option, long: role}
+      - field: watch
+        source: {kind: option, long: watch}
   - path: [agent, stop]
     callable: agent-stop
-    about: Stop a running agent through the instance API; not written yet, exits 2
-    arguments: []
+    about: "Stop the running agent of a role slot through its kind: for claude-code, conductor session stop, which stays its alias for this release; refuse a kind this binary does not implement, and what session stop refuses"
+    arguments:
+      - field: instance
+        source: {kind: option, long: instance}
+      - field: role
+        source: {kind: option, long: role}
   - path: [join]
     callable: join
     about: Join an instance of a daemon as one of its operators and contribute a token to its pool; not written yet, exits 2
@@ -639,8 +659,12 @@ commands:
     arguments: []
   - path: [secret, put]
     callable: secret-put
-    about: Put a secret's value into the daemon's secrets source under the name the config writes; not written yet, exits 2
-    arguments: []
+    about: Put a secret's value, read from standard input, into the daemon's secrets source (daemon.secrets) under --name through the secrets crates, and record its name and source in the daemon's store; a name already on record is refused (SecretExists) unless --replace
+    arguments:
+      - field: name
+        source: {kind: option, long: name}
+      - field: replace
+        source: {kind: option, long: replace}
   - path: [tui]
     callable: tui
     about: Open the terminal UI over the daemon's global API; not written yet, exits 2

@@ -13,6 +13,13 @@
 //!   not proxied; `POST /v1/instances/{name}/upgrade` hands an upgrade to the loop
 //!   ([`super::upgrade::post`]), the others are not served yet;
 //! - `PUT /v1/config`: one key of the config changed ([`crate::config::put::put_config`]).
+//! - `GET /v1/sessions`, `decisions`, `unanswered`, `kpis` and `events` (SSE): the union of every
+//!   instance's answer, each row carrying `instance`, an instance that does not answer within
+//!   `daemon.timeout` a row `state: unreachable` ([`federate`], `story:federated-views`);
+//!   `POST /v1/ask`: refused with `conductor.instance.SupervisorNotRunning` until a supervisor
+//!   runs; `GET /v1/secrets`: the secrets' names, sources and instances, never a value
+//!   ([`crate::secret::view`]);
+//! - an instance's `agents/{name}/deliver` and `restart` are proxied as writes, `attach` bare.
 //!
 //! A local client that is no browser (`conductor instance upgrade`) writes with the token the
 //! daemon keeps in [`TOKEN_FILE`] of its directory, mode 0600, naming the listener's origin.
@@ -45,11 +52,13 @@ use std::time::Duration;
 
 use anyhow::{Context as _, Result, anyhow, bail};
 use conductor_model::config::{DaemonOperator, OperatorGrant};
+use conductor_model::secret::Source;
 use rustls::pki_types::pem::PemObject as _;
 use rustls::pki_types::{CertificateDer, PrivateKeyDer, ServerName};
 use serde::Deserialize;
 use serde_json::{Value, json};
 
+use super::federate;
 use crate::dashboard;
 
 /// The route of the instances list.
@@ -105,6 +114,12 @@ pub struct Api {
     local: String,
     identity: Option<Identity>,
     config: Option<ConfigTarget>,
+    /// How long an instance has to answer one federated read.
+    timeout: Duration,
+    /// When each instance last answered a federated read, RFC 3339.
+    answered: Mutex<BTreeMap<String, String>>,
+    /// The secrets source a name only the config writes is listed with.
+    secrets: Source,
 }
 
 impl Api {
@@ -118,6 +133,9 @@ impl Api {
             local,
             identity,
             config: None,
+            timeout: Duration::from_secs(crate::config::FEDERATED_TIMEOUT),
+            answered: Mutex::new(BTreeMap::new()),
+            secrets: Source::Keychain,
         }
     }
 
@@ -127,6 +145,22 @@ impl Api {
     #[must_use]
     pub fn with_config(mut self, file: PathBuf, home: PathBuf, store: String) -> Self {
         self.config = Some(ConfigTarget { file, home, store });
+        self
+    }
+
+    /// The API with `timeout`, how long an instance has to answer one federated read
+    /// (`daemon.timeout`, `story:federated-views`).
+    #[must_use]
+    pub fn with_timeout(mut self, timeout: Duration) -> Self {
+        self.timeout = timeout;
+        self
+    }
+
+    /// The API with `source`, the secrets source `GET /v1/secrets` names for a name only the
+    /// config writes (`daemon.secrets.source`).
+    #[must_use]
+    pub const fn with_secrets(mut self, source: Source) -> Self {
+        self.secrets = source;
         self
     }
 
@@ -161,6 +195,43 @@ impl Api {
             .lock()
             .ok()
             .and_then(|published| published.routes.get(name).cloned())
+    }
+
+    /// Every published instance as a federated route asks it: its route, and when it was last
+    /// seen, the later of its last answer and the reconciler's last sight of it.
+    fn members(&self) -> Vec<federate::Member> {
+        let answered = self
+            .answered
+            .lock()
+            .map(|answered| answered.clone())
+            .unwrap_or_default();
+        let Ok(published) = self.published.lock() else {
+            return Vec::new();
+        };
+        published
+            .rows
+            .iter()
+            .filter_map(|row| {
+                let name = row["name"].as_str()?.to_owned();
+                let seen = row["last_seen"].as_str().map(str::to_owned);
+                let last_seen = match (seen, answered.get(&name).cloned()) {
+                    (Some(seen), Some(answer)) => Some(seen.max(answer)),
+                    (seen, answer) => seen.or(answer),
+                };
+                Some(federate::Member {
+                    route: published.routes.get(&name).cloned(),
+                    name,
+                    last_seen,
+                })
+            })
+            .collect()
+    }
+
+    /// Notes that the instance `name` answered a federated read now.
+    fn seen(&self, name: &str) {
+        if let (Ok(now), Ok(mut answered)) = (crate::records::now(), self.answered.lock()) {
+            answered.insert(name.to_owned(), now.0);
+        }
     }
 
     fn operators(&self) -> Vec<DaemonOperator> {
@@ -380,7 +451,12 @@ enum Who {
     Bearer { name: String, human: bool },
 }
 
-fn answer<S: Read>(request: &Request, stream: &mut S, listener: Listener, api: &Api) -> Vec<u8> {
+fn answer<S: Read + Write>(
+    request: &Request,
+    stream: &mut S,
+    listener: Listener,
+    api: &Api,
+) -> Vec<u8> {
     let path = request.path().to_owned();
     if matches!(listener, Listener::Tls) && request.method == "OPTIONS" {
         return preflight();
@@ -445,6 +521,9 @@ fn answer<S: Read>(request: &Request, stream: &mut S, listener: Listener, api: &
         let (code, reason, answer) = put_config(api, &body, &operator);
         return reply(code, reason, &answer, listener);
     }
+    if let Some(answer) = federated(request, stream, listener, &who, api) {
+        return answer;
+    }
     if path == INSTANCES {
         if request.method != "GET" {
             return reply(
@@ -507,7 +586,7 @@ fn answer<S: Read>(request: &Request, stream: &mut S, listener: Listener, api: &
     };
     // Only an instance's writing routes are admitted and carry its token; any other method is
     // forwarded bare, and the instance answers it 405.
-    let write = WRITES.contains(&(route, request.method.as_str()));
+    let write = writes(route, &request.method);
     let operator = if write {
         match admit_write(request, listener, &who, route, api) {
             Ok(operator) => Some(operator),
@@ -786,6 +865,174 @@ fn put_config(api: &Api, body: &[u8], operator: &str) -> (u16, &'static str, Val
     }
 }
 
+/// The route of the secrets' names (`story:secrets-source`): `GET` lists them
+/// ([`crate::secret::view`]), never a value.
+pub const SECRETS: &str = "/v1/secrets";
+
+/// The answer of the global API's federated routes, `ask` and `secrets`
+/// (`story:federated-views`, [`federate`]), or none for another path. The events stream is
+/// written to `stream` here and answers nothing more.
+fn federated<S: Read + Write>(
+    request: &Request,
+    stream: &mut S,
+    listener: Listener,
+    who: &Who,
+    api: &Api,
+) -> Option<Vec<u8>> {
+    let path = request.path();
+    let only = |method: &str| {
+        reply(
+            405,
+            "Method Not Allowed",
+            &json!({"error": format!("{path} answers {method} only")}),
+            listener,
+        )
+    };
+    if path == SECRETS {
+        if request.method != "GET" {
+            return Some(only("GET"));
+        }
+        let (code, reason, answer) = secrets(api);
+        return Some(reply(code, reason, &answer, listener));
+    }
+    if path == federate::ASK {
+        if request.method != "POST" {
+            return Some(only("POST"));
+        }
+        if let Err(refusal) = admit_write(request, listener, who, "ask", api) {
+            return Some(refusal);
+        }
+        let body = match read_body(request, stream) {
+            Ok(body) => body,
+            Err(refusal) => return Some(refusal(listener)),
+        };
+        let (code, reason, answer) = ask(api, &body);
+        return Some(reply(code, reason, &answer, listener));
+    }
+    let route = path
+        .strip_prefix("/v1/")
+        .filter(|route| federate::ROUTES.contains(route))?;
+    if request.method != "GET" {
+        return Some(only("GET"));
+    }
+    let seen = |name: &str| api.seen(name);
+    if route == "events" {
+        let cors = if matches!(listener, Listener::Tls) {
+            CORS
+        } else {
+            ""
+        };
+        let head = format!(
+            "HTTP/1.1 200 OK\r\nContent-Type: text/event-stream\r\nCache-Control: no-store\r\n\
+             X-Content-Type-Options: nosniff\r\nConnection: close\r\n{cors}\r\n"
+        );
+        federate::events(
+            stream,
+            head.as_bytes(),
+            &|| api.members(),
+            request.query(),
+            api.timeout,
+            &seen,
+        );
+        return Some(Vec::new());
+    }
+    let answer = federate::view(&api.members(), route, request.query(), api.timeout, &seen);
+    Some(reply(200, "OK", &answer, listener))
+}
+
+/// `GET /v1/secrets`: the rows of [`crate::secret::view`] over the daemon's store and its config
+/// file; `503` when the daemon was given no config file.
+fn secrets(api: &Api) -> (u16, &'static str, Value) {
+    let Some(target) = &api.config else {
+        return (
+            503,
+            "Service Unavailable",
+            json!({"error": "this daemon was given no config file to read"}),
+        );
+    };
+    let failed = |error: anyhow::Error| {
+        (
+            500,
+            "Internal Server Error",
+            json!({"error": format!("{error:#}")}),
+        )
+    };
+    let text = match fs::read_to_string(&target.file)
+        .with_context(|| format!("read {}", target.file.display()))
+    {
+        Ok(text) => text,
+        Err(error) => return failed(error),
+    };
+    let store = match crate::store::open_url(&target.store, super::TENANT)
+        .map_err(|error| anyhow!("daemon.store: {error:#}"))
+    {
+        Ok(store) => store,
+        Err(error) => return failed(error),
+    };
+    let rows = crate::secret::view(&store, &text, api.secrets);
+    (200, "OK", serde_json::to_value(rows).unwrap_or_default())
+}
+
+/// The body of `POST /v1/ask`: the question, and the instance whose controller it is for.
+#[derive(Deserialize)]
+struct Question {
+    text: String,
+    to: Option<String>,
+}
+
+/// `POST /v1/ask` with `body` (decision F4): the question is for the supervisor, or with `to` for
+/// that instance's controller through it; no supervisor runs until the daemon starts the host
+/// roles, so a question is refused with `conductor.instance.SupervisorNotRunning` (`503`), and one
+/// for an instance the daemon does not list with `conductor.instance.UnknownInstance` (`404`).
+fn ask(api: &Api, body: &[u8]) -> (u16, &'static str, Value) {
+    use conductor_model::config::InstanceName;
+    use conductor_model::instance::{SupervisorNotRunning, UnknownInstance};
+    let question = match serde_json::from_slice::<Question>(body) {
+        Ok(question) if !question.text.trim().is_empty() => question,
+        Ok(_) => {
+            return (
+                400,
+                "Bad Request",
+                json!({"error": "the question is empty: write {\"text\": \"...\"}"}),
+            );
+        }
+        Err(error) => {
+            return (
+                400,
+                "Bad Request",
+                json!({"error": format!(
+                    "the body is not a question: {error}; write {{\"text\", \"to\"}}, \"to\" an instance or absent"
+                )}),
+            );
+        }
+    };
+    if let Some(to) = &question.to
+        && !api.members().iter().any(|member| member.name == *to)
+    {
+        let refusal = UnknownInstance {
+            name: InstanceName(to.clone()),
+        };
+        return (
+            404,
+            "Not Found",
+            json!({"error": "conductor.instance.UnknownInstance", "name": refusal.name.0}),
+        );
+    }
+    let refusal = SupervisorNotRunning {
+        instance: question.to.map(InstanceName),
+    };
+    (
+        503,
+        "Service Unavailable",
+        json!({
+            "error": "conductor.instance.SupervisorNotRunning",
+            "instance": refusal.instance.map(|name| name.0),
+            "detail": "no supervisor runs to take the question; the daemon starts the host roles \
+                       in a later release, and nothing was delivered",
+        }),
+    )
+}
+
 /// The code and reason of a status line such as `202 Accepted`.
 fn status_parts(status: &'static str) -> (u16, &'static str) {
     status
@@ -853,6 +1100,19 @@ fn read_body<S: Read>(request: &Request, stream: &mut S) -> Result<Vec<u8>, Refu
 /// The instance routes that write, each with its method: the answers, the settings and the Plan
 /// page's moves.
 const WRITES: [(&str, &str); 3] = [("answers", "POST"), ("settings", "PUT"), ("plan", "POST")];
+
+/// Whether `method` on the instance route `route` writes: one of [`WRITES`], or `POST` on an
+/// agent's `deliver` or `restart` (`agents/{name}/deliver`, `story:agent-kinds`).
+fn writes(route: &str, method: &str) -> bool {
+    if WRITES.contains(&(route, method)) {
+        return true;
+    }
+    method == "POST"
+        && route
+            .strip_prefix("agents/")
+            .and_then(|rest| rest.split_once('/'))
+            .is_some_and(|(name, verb)| !name.is_empty() && matches!(verb, "deliver" | "restart"))
+}
 
 /// The headers a proxied request keeps.
 const FORWARDED: [&str; 3] = ["if-none-match", "content-type", "accept"];
@@ -1094,7 +1354,7 @@ fn exchange<S: Read + Write>(stream: &mut S, request: &str) -> Result<Vec<u8>> {
 }
 
 /// The status and the body of an HTTP answer, a chunked body joined.
-fn split(bytes: &[u8]) -> Result<(u16, Vec<u8>)> {
+pub(crate) fn split(bytes: &[u8]) -> Result<(u16, Vec<u8>)> {
     let end = bytes
         .windows(4)
         .position(|window| window == b"\r\n\r\n")

@@ -42,6 +42,19 @@ timeline:
           kind: claude-code
           token_owner: example-operator
 
+  - at: 2026-11-08T09:01:01Z
+    command: conductor.agent.MarkAgentRunning
+    actor: conductor.agent.InstanceRuntime
+    input:
+      actor: {kind: Daemon}
+      name: example-org-director
+      running_at: 2026-11-08T09:01:01Z
+    outcome: running
+    events:
+      - event: conductor.agent.AgentRunning
+        payload:
+          name: example-org-director
+
   - at: 2026-11-08T09:02:00Z
     command: conductor.agent.StartAgent
     actor: conductor.agent.InstanceRuntime
