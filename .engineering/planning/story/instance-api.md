@@ -2,17 +2,18 @@
 format: aep.planning-md/3
 id: story:instance-api
 kind: story
-status: active
+status: implemented
 title: the instance runtime serves /v1/ on its socket; the daemon proxies it and serves the one dashboard, locally and for a remote deployment
 summary: today's dashboard routes become the instance API; one dashboard app served by the daemon at / and on a TLS listener; the per-instance dashboard server retired
 relations:
 - decomposes: epic:architecture-next
 - depends_on: story:spec-v1
 - depends_on: story:daemon-reconcile
-revision: 4
+revision: 5
 transitions:
 - {from: "draft", to: "proposed", at: "2026-11-07T23:41:24Z", actor: "human:timo", revision: 3}
 - {from: "proposed", to: "active", at: "2026-11-07T23:41:24Z", actor: "human:timo", revision: 4}
+- {from: "active", to: "implemented", at: "2026-11-08T19:46:03Z", actor: "human:timo", revision: 5, decided_on: {"recorded":{"test_result":1}}}
 ---
 ## Why
 

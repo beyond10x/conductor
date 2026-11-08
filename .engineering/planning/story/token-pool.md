@@ -2,7 +2,7 @@
 format: aep.planning-md/3
 id: story:token-pool
 kind: story
-status: active
+status: implemented
 title: an engineer joins an instance and contributes their Claude token to its pool; claude-code agents lease from the pool
 summary: conductor join and leave; the pool in the secrets source with owner, seat and state per token; a lease per agent start, resume on another token after a limit stop; the owner on every agent record; the controller for Remote Control on a named owner's token
 relations:
@@ -10,10 +10,11 @@ relations:
 - depends_on: story:spec-v1
 - depends_on: story:secrets-source
 - depends_on: story:agent-kinds
-revision: 3
+revision: 4
 transitions:
 - {from: "draft", to: "proposed", at: "2026-11-08T00:00:44Z", actor: "human:timo", revision: 2}
 - {from: "proposed", to: "active", at: "2026-11-08T00:00:50Z", actor: "human:timo", revision: 3}
+- {from: "active", to: "implemented", at: "2026-11-08T19:46:04Z", actor: "human:timo", revision: 4, decided_on: {"recorded":{"test_result":1}}}
 ---
 ## Why
 
