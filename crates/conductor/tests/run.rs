@@ -2669,3 +2669,118 @@ fn ais_reads_headroom_from_the_active_account() {
         ["resumed"]
     );
 }
+
+// ---------------------------------------------------------------------------------------------
+// The requests Blocked dispatches wait on (story:watch-unblocks-merged-requests)
+// ---------------------------------------------------------------------------------------------
+
+/// The pull request every case below blocks its dispatch on.
+const PULL: &str = "https://github.com/example-org/alpha/pull/7";
+
+impl Case {
+    /// Sends a dispatch for `repo` and has its controller report it started and blocked for
+    /// `reason`, through the mailbox; answers its id.
+    fn blocked(&self, repo: &str, reason: &str) -> String {
+        let id = self.dispatch(repo);
+        self.mail("0001", &format!("[REPORT {repo} {id}] started\n"));
+        self.mail("0002", &format!("[REPORT {repo} {id}] blocked {reason}\n"));
+        self.tick(&[]);
+        assert_eq!(self.dispatch_state(&id), "Blocked");
+        id
+    }
+}
+
+/// Acceptance 1 and 2: a watch tick reads the pull request a Blocked dispatch waits on (`ci
+/// <url>`) on the forge, a fake `gh` answering it merged; the controller is sent `PR <url> merged
+/// at <t>, continue`, and the dispatch is reported unblocked, its `unblocked` line in the dispatch
+/// log carrying the watch line and the tick.
+#[test]
+fn a_watch_tick_unblocks_a_dispatch_whose_pull_request_merged_and_tells_its_controller() {
+    let case = Case::new("request-merged");
+    case.spawn("alpha", FIRST);
+    let id = case.blocked("alpha", &format!("ci {PULL}"));
+    write(
+        &case.fake().join("pr.json"),
+        &json!({"state": "MERGED", "url": PULL, "mergedAt": "2026-10-17T09:00:00Z",
+                "closedAt": "2026-10-17T09:00:00Z", "headRefOid": "0a1b2c3",
+                "statusCheckRollup": []})
+        .to_string(),
+    );
+    executable(
+        &case.bin().join("gh"),
+        &format!(
+            "#!/bin/sh\nif [ \"$1 $2\" = 'pr view' ]; then cat '{}'; exit 0; fi\necho '[]'\n",
+            case.fake().join("pr.json").display()
+        ),
+    );
+    let (tick, said) = case.watch();
+    let text = format!("PR {PULL} merged at 2026-10-17T09:00:00Z, continue");
+    assert!(
+        case.deliveries()
+            .contains(&("ex-alpha".to_owned(), text.clone())),
+        "{:?} {said:?}",
+        case.deliveries()
+    );
+    assert_eq!(case.dispatch_state(&id), "Started");
+    let written = case.lines_of(&tick);
+    let unblocked = written
+        .iter()
+        .find(|line| line["event"] == "unblocked")
+        .unwrap_or_else(|| panic!("an unblocked line of the tick: {written:?}"));
+    assert_eq!(unblocked["id"], id.as_str());
+    assert_eq!(
+        unblocked["line"],
+        format!("request merged: alpha {id} {PULL} at 2026-10-17T09:00:00Z").as_str()
+    );
+    let relayed = written
+        .iter()
+        .find(|line| line["event"] == "relayed")
+        .unwrap_or_else(|| panic!("a relayed line of the tick: {written:?}"));
+    assert_eq!(relayed["session"], "ex-alpha");
+    assert_eq!(relayed["id"], id.as_str());
+
+    let (_, _) = case.watch();
+    assert_eq!(
+        case.deliveries()
+            .iter()
+            .filter(|(_, said)| *said == text)
+            .count(),
+        1,
+        "the next tick neither reads nor sends it again"
+    );
+}
+
+/// Acceptance 2 and 3 at the handler: `request red:` sends the controller the failing job's name
+/// and URL and leaves the dispatch Blocked; `request closed:` sends `PR <url> closed at <t>,
+/// continue` and reports the dispatch unblocked.
+#[test]
+fn a_red_request_sends_its_failing_job_and_a_closed_one_unblocks_its_dispatch() {
+    let case = Case::new("request-red-closed");
+    case.spawn("alpha", FIRST);
+    let id = case.blocked("alpha", &format!("ci {PULL}"));
+    let job = "https://github.com/example-org/alpha/actions/runs/5/job/2";
+    let red = format!("request red: alpha {id} {PULL} head 1a1a1a1 job {job} unit tests");
+    let tick = case.tick(&[&red]);
+    assert_eq!(actions(&tick), ["relayed"]);
+    assert_eq!(
+        case.deliveries().last(),
+        Some(&(
+            "ex-alpha".to_owned(),
+            format!("PR {PULL} red at head 1a1a1a1: job unit tests failed, {job}")
+        ))
+    );
+    assert_eq!(case.dispatch_state(&id), "Blocked");
+    assert_eq!(case.lines_of(&tick)[0]["line"], red.as_str());
+
+    let closed = format!("request closed: alpha {id} {PULL} at 2026-10-17T10:00:00Z");
+    let tick = case.tick(&[&closed]);
+    assert_eq!(actions(&tick), ["unblocked", "relayed"]);
+    assert_eq!(
+        case.deliveries().last(),
+        Some(&(
+            "ex-alpha".to_owned(),
+            format!("PR {PULL} closed at 2026-10-17T10:00:00Z, continue")
+        ))
+    );
+    assert_eq!(case.dispatch_state(&id), "Started");
+}

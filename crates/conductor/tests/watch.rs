@@ -961,8 +961,8 @@ fn a_live_controller_whose_transcripts_stay_silent_is_reported_once_per_silence(
     assert_eq!(
         pass(&mut watch),
         [
-            "session silent: alpha a1a1a1a1 35m",
-            "session silent: gamma e5e5e5e5 45m",
+            "session silent: alpha a1a1a1a1 35m; no typescript",
+            "session silent: gamma e5e5e5e5 45m; no typescript",
         ],
         "alpha's newest write is its sub-agent's; beta's nested sub-agent wrote 5 minutes ago"
     );
@@ -981,8 +981,8 @@ fn a_live_controller_whose_transcripts_stay_silent_is_reported_once_per_silence(
     assert_eq!(
         pass(&mut watch),
         [
-            "session silent: alpha a1a1a1a1 61m",
-            "session silent: beta b2b2b2b2 65m",
+            "session silent: alpha a1a1a1a1 61m; no typescript",
+            "session silent: beta b2b2b2b2 65m; no typescript",
         ],
         "an hour later alpha has fallen silent anew and beta's sub-agent too; gamma's silence \
          was reported already, however long it lasts"
@@ -1006,7 +1006,10 @@ fn the_silence_threshold_is_the_instances() {
         silent_session: Duration::from_secs(40 * 60),
         ..Settings::default()
     });
-    assert_eq!(pass(&mut watch), ["session silent: gamma e5e5e5e5 45m"]);
+    assert_eq!(
+        pass(&mut watch),
+        ["session silent: gamma e5e5e5e5 45m; no typescript"]
+    );
 }
 
 /// A session without a transcript is not reported: nothing says how long it has been silent.
@@ -3884,4 +3887,346 @@ fn a_gitlab_merge_request_s_concluded_pipeline_is_printed_once_per_head() {
         "{asked}"
     );
     assert!(asked.contains("projects/101/merge_requests/5"), "{asked}");
+}
+
+// ---------------------------------------------------------------------------------------------
+// The requests Blocked dispatches wait on (story:watch-unblocks-merged-requests)
+// ---------------------------------------------------------------------------------------------
+
+/// The dispatch log lines of the dispatch `id` of `repository` sent, started and blocked for
+/// `reason` on 2026-10-07.
+fn blocked_dispatch(id: &str, repository: &str, reason: &str) -> Vec<Value> {
+    vec![
+        json!({"at": "2026-10-07T08:00:00Z", "event": "sent", "repo": repository, "id": id,
+               "to": repository, "goal": "G1", "brief": "a unit", "priority": 1}),
+        json!({"at": "2026-10-07T08:05:00Z", "event": "started", "repo": repository, "id": id}),
+        json!({"at": "2026-10-07T09:00:00Z", "event": "blocked", "repo": repository, "id": id,
+               "reason": reason}),
+    ]
+}
+
+impl Case {
+    /// The pull request `<owner>/<repository>#<number>` as the GitHub reader of one request
+    /// answers it: `pull/<owner>-<repository>-<number>.json`; without the file it fails.
+    fn pull(&self, owner: &str, repository: &str, number: u64, answer: &Value) {
+        let dir = self.dir.join("pull");
+        fs::create_dir_all(&dir).expect("create pull/");
+        replace(
+            &dir.join(format!("{owner}-{repository}-{number}.json")),
+            &answer.to_string(),
+        );
+    }
+
+    /// The reader of one pull request: `cat` of the file [`Case::pull`] writes.
+    fn pull_reader(&self) -> Vec<String> {
+        vec![
+            "sh".to_owned(),
+            "-c".to_owned(),
+            "cat \"$0\"".to_owned(),
+            format!(
+                "{}/pull/{{organization}}-{{repository}}-{{number}}.json",
+                self.dir.display()
+            ),
+        ]
+    }
+
+    /// A fake `glab` answering each API path from `glab/<path, each of / % ? = & written _>.json`,
+    /// which [`Case::glab_answer`] writes, and failing on any other; its words logged to
+    /// `glab.log`. Answers the forge of `gitlab.example.com`, group `example-org`, that reads it.
+    fn request_forge(&self) -> Forge {
+        let dir = self.dir.display();
+        let glab = self.dir.join("glab-requests");
+        fs::write(
+            &glab,
+            format!(
+                "#!/bin/sh\nprintf '%s\\n' \"$*\" >> '{dir}/glab.log'\n\
+                 for last in \"$@\"; do :; done\n\
+                 f=$(printf '%s' \"$last\" | tr '/%?=&' '_____')\n\
+                 exec cat \"{dir}/glab/$f.json\"\n"
+            ),
+        )
+        .expect("write the fake glab");
+        fs::set_permissions(&glab, fs::Permissions::from_mode(0o755)).expect("make it runnable");
+        Forge {
+            glab: vec![glab.display().to_string()],
+            host: "gitlab.example.com".to_owned(),
+            group: "example-org".to_owned(),
+            exclude: Vec::new(),
+            bound: Duration::from_secs(10),
+        }
+    }
+
+    /// What the fake `glab` of [`Case::request_forge`] answers for the API path `path`.
+    fn glab_answer(&self, path: &str, answer: &Value) {
+        let dir = self.dir.join("glab");
+        fs::create_dir_all(&dir).expect("create glab/");
+        let name: String = path
+            .chars()
+            .map(|c| if "/%?=&".contains(c) { '_' } else { c })
+            .collect();
+        replace(&dir.join(format!("{name}.json")), &answer.to_string());
+    }
+
+    /// A watch over an empty session list reading pull requests with [`Case::pull_reader`].
+    fn request_watch(&self) -> Watch {
+        self.sessions(&[]);
+        Watch::new(self.sources(None), self.state()).with_pull(self.pull_reader())
+    }
+}
+
+/// Acceptance 1 and 2: at a pass, each Blocked dispatch whose reason is `ci`, `review` or
+/// `mr-route` and names a pull request has that request read on the forge; merged or closed, the
+/// watch prints `request merged|closed: <repo> <dispatch> <url> at <t>`, once. A dispatch blocked
+/// for another reason, or unblocked since, is not read.
+#[test]
+fn a_blocked_dispatch_whose_pull_request_merged_or_closed_is_printed_once() {
+    let case = Case::new("requests-merged");
+    let mut log = Vec::new();
+    log.extend(blocked_dispatch(
+        "d-merged",
+        "alpha",
+        "ci https://github.com/example-org/alpha/pull/7",
+    ));
+    log.extend(blocked_dispatch("d-closed", "beta", "review #9, waiting"));
+    log.extend(blocked_dispatch("d-disk", "gamma", "disk: 40G free #3"));
+    log.extend(blocked_dispatch("d-moved", "alpha", "ci #8"));
+    log.push(
+        json!({"at": "2026-10-07T10:00:00Z", "event": "unblocked", "repo": "alpha",
+                    "id": "d-moved"}),
+    );
+    case.dispatches(&log);
+    case.pull(
+        "example-org",
+        "alpha",
+        7,
+        &json!({"state": "MERGED", "url": "https://github.com/example-org/alpha/pull/7",
+                "mergedAt": "2026-10-07T11:30:00Z", "closedAt": "2026-10-07T11:30:00Z",
+                "headRefOid": "0a0a0a0", "statusCheckRollup": []}),
+    );
+    case.pull(
+        "fixture-org",
+        "beta",
+        9,
+        &json!({"state": "CLOSED", "url": "https://github.com/fixture-org/beta/pull/9",
+                "mergedAt": null, "closedAt": "2026-10-07T11:40:00Z",
+                "headRefOid": "0b0b0b0", "statusCheckRollup": []}),
+    );
+    let mut watch = case.request_watch();
+    let (lines, notes) = passed(&mut watch, false);
+    assert_eq!(
+        lines,
+        [
+            "request closed: beta d-closed https://github.com/fixture-org/beta/pull/9 at \
+             2026-10-07T11:40:00Z",
+            "request merged: alpha d-merged https://github.com/example-org/alpha/pull/7 at \
+             2026-10-07T11:30:00Z",
+        ],
+        "in the order of the dispatches' ids"
+    );
+    assert_eq!(
+        notes, "",
+        "the dispatch blocked on disk and the one unblocked are not read"
+    );
+    assert_eq!(pass(&mut watch), NOTHING, "each once");
+}
+
+/// Acceptance 3: open with a red head, the watch prints the failing job's name and URL, `request
+/// red: <repo> <dispatch> <url> head <sha> job <job url> <job name>`, once per head commit; a
+/// head whose checks have not failed is not printed.
+#[test]
+fn a_blocked_dispatch_whose_pull_request_is_red_is_printed_once_per_head() {
+    let case = Case::new("requests-red");
+    case.dispatches(&blocked_dispatch(
+        "d-red",
+        "alpha",
+        "ci https://github.com/example-org/alpha/pull/7",
+    ));
+    let open = |head: &str, test: &str| {
+        let status = if test == "PENDING" {
+            "IN_PROGRESS"
+        } else {
+            "COMPLETED"
+        };
+        json!({"state": "OPEN", "url": "https://github.com/example-org/alpha/pull/7",
+        "mergedAt": null, "closedAt": null, "headRefOid": head,
+        "statusCheckRollup": [
+            {"name": "build", "status": "COMPLETED", "conclusion": "SUCCESS",
+             "detailsUrl": "https://github.com/example-org/alpha/actions/runs/5/job/1"},
+            {"name": "unit tests", "status": status, "conclusion": test,
+             "detailsUrl": "https://github.com/example-org/alpha/actions/runs/5/job/2"},
+        ]})
+    };
+    case.pull("example-org", "alpha", 7, &open("1a1a1a1", "PENDING"));
+    let mut watch = case.request_watch();
+    assert_eq!(pass(&mut watch), NOTHING, "nothing failed yet");
+
+    case.pull("example-org", "alpha", 7, &open("1a1a1a1", "FAILURE"));
+    let red = "request red: alpha d-red https://github.com/example-org/alpha/pull/7 head 1a1a1a1 \
+               job https://github.com/example-org/alpha/actions/runs/5/job/2 unit tests";
+    assert_eq!(pass(&mut watch), [red]);
+    assert_eq!(pass(&mut watch), NOTHING, "once per head");
+
+    case.pull("example-org", "alpha", 7, &open("2b2b2b2", "FAILURE"));
+    assert_eq!(
+        pass(&mut watch),
+        [red.replace("1a1a1a1", "2b2b2b2")],
+        "a new head that fails is printed again"
+    );
+}
+
+/// Acceptance 1 to 3 on GitLab: a merge request named by its URL is read from the forge of its
+/// host, one named `!<iid>` from the first forge under its group and the dispatch's repository;
+/// a red head pipeline names its failed job.
+#[test]
+fn a_blocked_dispatch_on_a_gitlab_merge_request_is_read_from_its_forge() {
+    let case = Case::new("requests-gitlab");
+    let mut log = blocked_dispatch(
+        "d-merged",
+        "alpha",
+        "mr-route https://gitlab.example.com/example-org/alpha/-/merge_requests/4",
+    );
+    log.extend(blocked_dispatch("d-red", "beta", "ci !5"));
+    case.dispatches(&log);
+    let forge = case.request_forge();
+    case.glab_answer(
+        "projects/example-org%2Falpha/merge_requests/4",
+        &json!({"iid": 4, "state": "merged", "merged_at": "2026-10-07T11:20:00Z",
+                "closed_at": null, "sha": "3c3c3c3",
+                "web_url": "https://gitlab.example.com/example-org/alpha/-/merge_requests/4"}),
+    );
+    case.glab_answer(
+        "projects/example-org%2Fbeta/merge_requests/5",
+        &json!({"iid": 5, "state": "opened", "merged_at": null, "closed_at": null,
+                "sha": "4d4d4d4",
+                "web_url": "https://gitlab.example.com/example-org/beta/-/merge_requests/5",
+                "head_pipeline": {"id": 900, "status": "failed", "sha": "4d4d4d4",
+                    "web_url": "https://gitlab.example.com/example-org/beta/-/pipelines/900"}}),
+    );
+    case.glab_answer(
+        "projects/example-org%2Fbeta/pipelines/900/jobs?scope=failed",
+        &json!([{"id": 31, "name": "lint", "status": "failed",
+                 "web_url": "https://gitlab.example.com/example-org/beta/-/jobs/31"}]),
+    );
+    let mut watch = case.request_watch().with_gitlab(vec![forge]);
+    let (lines, notes) = passed(&mut watch, false);
+    assert_eq!(
+        lines,
+        [
+            "request merged: alpha d-merged \
+             https://gitlab.example.com/example-org/alpha/-/merge_requests/4 at \
+             2026-10-07T11:20:00Z",
+            "request red: beta d-red https://gitlab.example.com/example-org/beta/-/merge_requests/5 \
+             head 4d4d4d4 job https://gitlab.example.com/example-org/beta/-/jobs/31 lint",
+        ]
+    );
+    assert_eq!(notes, "");
+    assert_eq!(pass(&mut watch), NOTHING);
+}
+
+/// A request that does not answer is named on standard error once, and printed once it answers.
+#[test]
+fn a_request_that_does_not_answer_is_named_once_and_read_again() {
+    let case = Case::new("requests-failing");
+    case.dispatches(&blocked_dispatch("d-1", "alpha", "ci #7"));
+    let mut watch = case.request_watch();
+    let (lines, notes) = passed(&mut watch, false);
+    assert_eq!(lines, NOTHING);
+    assert_eq!(notes.lines().count(), 1, "{notes}");
+    assert!(notes.contains("d-1"), "{notes}");
+    assert_eq!(passed(&mut watch, false), (Vec::new(), String::new()));
+    case.pull(
+        "fixture-org",
+        "alpha",
+        7,
+        &json!({"state": "MERGED", "url": "https://github.com/fixture-org/alpha/pull/7",
+                "mergedAt": "2026-10-07T11:50:00Z", "closedAt": "2026-10-07T11:50:00Z",
+                "headRefOid": "5e5e5e5", "statusCheckRollup": []}),
+    );
+    assert_eq!(
+        pass(&mut watch),
+        [
+            "request merged: alpha d-1 https://github.com/fixture-org/alpha/pull/7 at \
+             2026-10-07T11:50:00Z"
+        ]
+    );
+}
+
+// ---------------------------------------------------------------------------------------------
+// The silent line read from the typescript (story:watch-unblocks-merged-requests, acceptance 4)
+// ---------------------------------------------------------------------------------------------
+
+/// The tail of a typescript whose pane ended its turn and stands at the prompt: a spinner line,
+/// then the answer, then the input box redrawn below it and the status line.
+const AT_PROMPT: &str = "\x1b[2K\x1b[38;5;174m\u{2722}\x1b[39m Kneading\u{2026} (40s \u{b7} esc to \
+                         interrupt)\r\n\x1b[2K\u{256d}\u{2500}\u{2500}\u{256e}\r\n\u{2502} \u{276f} \
+                         \u{2502}\r\n\x1b[6A\x1b[2K\u{25cf} Done: the pull request is open.\r\n\
+                         \x1b[2K\u{2500}\u{2500}\u{2500}\r\n\u{276f} \x1b[7m \x1b[27m\r\n\
+                         \u{2500}\u{2500}\u{2500}\r\n  \u{23f5}\u{23f5} bypass permissions on \
+                         (shift+tab to cycle)\r\n";
+
+/// The tail of a typescript whose turn runs: the input box, then the spinner redrawn in place
+/// above it.
+const RUNNING: &str = "\u{2500}\u{2500}\u{2500}\r\n\u{276f} \r\n\u{2500}\u{2500}\u{2500}\r\n  \
+                       \u{23f5}\u{23f5} bypass permissions on \u{b7} esc to interrupt\r\n\
+                       \x1b[5A\x1b[2K\u{2722} Kneading\u{2026} (40s \u{b7} \u{2193} 15 tokens)\r\n";
+
+/// Writes the typescript of the session `name` under `sessions`, last modified `minutes` before
+/// [`noon`].
+fn typescript(sessions: &Path, name: &str, text: &str, minutes: i64) {
+    let file = sessions.join(format!("{name}.typescript"));
+    fs::create_dir_all(sessions).expect("create the sessions directory");
+    fs::write(&file, text).expect("write the typescript");
+    let at = std::time::SystemTime::from(noon() - time::Duration::minutes(minutes));
+    fs::File::options()
+        .write(true)
+        .open(&file)
+        .and_then(|file| file.set_modified(at))
+        .expect("set the typescript's modification time");
+}
+
+/// Acceptance 4: the `session silent:` line carries the minutes since the session's last turn
+/// ended and whether its pane is at the prompt, both read from its typescript: alpha ended its
+/// turn 50 minutes ago at the prompt, gamma's turn runs; and delta, idle at its prompt with an
+/// open dispatch of its repository, is a line too, where epsilon, idle with none, is not.
+#[test]
+fn the_silent_line_carries_the_last_turn_and_the_prompt_from_the_typescript() {
+    let case = Case::new("silent-typescript");
+    let projects = case.dir.join("projects");
+    let sessions = case.dir.join("sessions");
+    let gamma = in_state(gamma(), "waiting");
+    let delta = in_state(delta(), "idle");
+    let epsilon = in_state(
+        session(
+            "e8e8e8e8-0000-4000-8000-000000000008",
+            "epsilon",
+            2108,
+            "/fixture-home/example-org/epsilon",
+        ),
+        "idle",
+    );
+    written_before_noon(&transcript_of(&projects, &alpha()), 40);
+    written_before_noon(&transcript_of(&projects, &gamma), 45);
+    written_before_noon(&transcript_of(&projects, &delta), 90);
+    written_before_noon(&transcript_of(&projects, &epsilon), 90);
+    typescript(&sessions, "alpha", AT_PROMPT, 50);
+    typescript(&sessions, "gamma", RUNNING, 1);
+    typescript(&sessions, "delta", AT_PROMPT, 88);
+    typescript(&sessions, "epsilon", AT_PROMPT, 88);
+    case.dispatches(&blocked_dispatch("d-delta", "delta", "ci #4"));
+    case.sessions(&[alpha(), delta, epsilon, gamma]);
+    let mut sources = case.sources(None);
+    sources.projects = projects;
+    let mut watch = Watch::new(sources, case.state()).with_typescripts(sessions);
+    let lines: Vec<String> = pass(&mut watch)
+        .into_iter()
+        .filter(|line| line.starts_with("session silent: "))
+        .collect();
+    assert_eq!(
+        lines,
+        [
+            "session silent: alpha a1a1a1a1 40m; turn ended 50m ago, at the prompt",
+            "session silent: delta d7d7d7d7 90m; turn ended 88m ago, at the prompt",
+            "session silent: gamma e5e5e5e5 45m; turn running, not at the prompt",
+        ]
+    );
 }
