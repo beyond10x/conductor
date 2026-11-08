@@ -143,7 +143,10 @@ one background Bash that exits on it.
    journal (the loop cannot resume by itself: resume the named sessions by hand once, then file the
    defect with the maintainer: the loop must read the JSON when it is printed and treat only a
    missing or unparsable output as an error, with the exit code written into the journal line),
-   rejected mailbox requests (`mailbox … request` lines in the same journal; tell the sender, it is not
+   `context:` lines (a context: line names a session id in brackets: it is the controller's only if
+   it equals the controller's sessionId in `claude agents --json`; a line about another session is
+   a conductor defect to file, and the hand-over it induced is restarted from the hand-over file
+   without waiting for a threshold), rejected mailbox requests (`mailbox … request` lines in the same journal; tell the sender, it is not
    told). A snapshot in progress shows as `PR checks done:` lines in the journal while `conductor
    status` line 1 still prints the old snapshot's age.
    Open controller requests: every `[DECISION-REQUEST …]` and `[NEED …]` in
