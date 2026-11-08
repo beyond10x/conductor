@@ -75,3 +75,11 @@ scenarios:
   - scenarios/instance-purge-instance.yaml
   - scenarios/instance-purge-instance-agent-refused.yaml
   - scenarios/instance-reconcile.yaml
+  - scenarios/agent-declare-agent-kind.yaml
+  - scenarios/agent-attach-agent.yaml
+  - scenarios/agent-attach-agent-run-to-exit.yaml
+  - scenarios/agent-deliver-to-agent.yaml
+  - scenarios/agent-record-agent-report.yaml
+  - scenarios/agent-restart-agent.yaml
+  - scenarios/agent-start-agent.yaml
+  - scenarios/agent-stop-agent.yaml

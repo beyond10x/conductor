@@ -6,23 +6,698 @@ summary: >
   reads and stops it; `claude-code` is the only kind in v1, with today's session behaviour kept
   exactly. A kind's capabilities are `Interactive` (a PTY to attach to, a mailbox the runtime
   delivers into, a hand-over at a context threshold, a terminal log) or `RunToExit` (one unit of
-  work in; an exit code and an events file out).
+  work in; an exit code and an events file out). An agent is a role slot filled, `(role, kind,
+  placement, profile, limits)`, started by the instance runtime and named by its instance and its
+  name; the instance API's `agents/{name}/attach`, `deliver` and `restart` routes (§ 5.1) are the
+  kind's trait over HTTP. `conductor.session` stays the `claude-code` kind's behaviour: its
+  scenarios and tests are the pin, and nothing here replaces them.
 
 naming:
   wire: agent
   display: Agent
 
 types:
-  # A kind's name, such as `claude-code`.
+  # A kind's name, such as `claude-code`. The kinds are the ones the binary implements (§ 7, the
+  # trait `agent::Kind`); the config names one per role slot. `takt` is a later story and is not
+  # declared as data.
   - name: conductor.agent.AgentKindName
     kind: newtype
     of: String
 
-  # An agent's name inside its instance: the session name today.
+  # An agent's name inside its instance: the session name today
+  # (`conductor.config.SessionName`, `<session_prefix>-<role>`).
   - name: conductor.agent.AgentName
     kind: newtype
     of: String
 
+  # What a kind can do (§ 7): `Interactive`, a PTY the operator can attach to, a mailbox the
+  # runtime delivers into, a hand-over at a context threshold, a terminal log; `RunToExit`, one
+  # unit of work in, an exit code and an events file out, a message to it a new generation.
   - name: conductor.agent.Capability
     kind: enum
     variants: [Interactive, RunToExit]
+
+  # Why an agent stopped. `Requested`, a `StopAgent` someone issued (the `agents/*` routes, the
+  # runtime at the instance's stop); `UsageLimit`, the agent's token hit its usage limit, and the
+  # runtime releases the token as `limited` and resumes the agent on another (§ 5.3, today's
+  # `auto-resume`); `Exited`, a run-to-exit kind's program ended with its exit code (§ 7).
+  # UNMAPPED: the design names these three ways an agent ends and no others; whether a crash of
+  # the harness, a hand-over at the context threshold, a box closed under the agent or a token
+  # withdrawn by `conductor leave` (§ 5.3) is a class of its own or one of these is not settled.
+  # Open question for the owner.
+  - name: conductor.agent.ExitClass
+    kind: enum
+    variants: [Requested, UsageLimit, Exited]
+
+entities:
+  # A kind the binary implements (§ 7): its capabilities and the program it starts (`claude` for
+  # `claude-code`). The instance runtime declares each kind it can start when it comes up; a
+  # second declaration of the same name records what the binary says now.
+  - name: conductor.agent.AgentKind
+    identity:
+      name: name
+      type: conductor.agent.AgentKindName
+    fields:
+      - name: capabilities
+        type: List<conductor.agent.Capability>
+      - name: binary
+        type: String
+    lifecycle:
+      initial: Available
+      states: [Available]
+      terminal: [Available]
+
+  # A role slot filled (§ 7): the agent the runtime started in a role of an instance, on a kind,
+  # in the placement's box, with the role's profile and limits, on a token leased from the
+  # instance's pool whose owner it names (§ 5.3), and the actor that started it (§ 3 "Actors").
+  # For the `claude-code` kind an agent is today's session (`conductor.session`, the session of a
+  # role under its session name); that correspondence is behaviour, not a relation.
+  # `generation` counts the starts of the slot: 1 at `StartAgent`, one more at each
+  # `RestartAgent`, which is how a run-to-exit kind takes a message (§ 7) and how an agent is
+  # resumed on another token after a usage limit (§ 5.3).
+  # The name is unique within its instance: today's session names are `<session_prefix>-<role>`,
+  # and the prefix is unique on the host. The identity is the name alone, see the report.
+  # UNMAPPED: § 7 writes a "starting" phase into the trait (`start(slot) -> Handle`) but nothing
+  # says what moves an agent from starting to running (the harness's first prompt delivered, its
+  # pane up, its session id printed) or what records it; today `conductor session start` returns
+  # once the session runs or refuses (`LaunchFailed`, `MeasurementShort`). So an agent is created
+  # `Running` and no `Starting` state is declared. Open question for the owner.
+  - name: conductor.agent.Agent
+    identity:
+      name: name
+      type: conductor.agent.AgentName
+    fields:
+      # UNMAPPED: the agent's instance is `conductor.instance.Instance` (unit A1); the
+      # `references` relation via `instance` is the coordinator's once that entity is declared.
+      - name: instance
+        type: conductor.config.InstanceName
+      - name: role
+        type: conductor.config.RoleName
+      - name: kind
+        type: conductor.agent.AgentKindName
+      # The kind's capabilities at the start, as the runtime passed them; attach and deliver
+      # read them.
+      - name: capabilities
+        type: List<conductor.agent.Capability>
+      # UNMAPPED: the box is `conductor.placement.Box` (unit A2); the `references` relation via
+      # `box` is the coordinator's once that entity is declared. Absent: started unboxed.
+      - name: box
+        type: Optional<conductor.placement.BoxId>
+      # The role's profile file, appended to the harness (`--append-system-prompt-file`); absent
+      # where the role names none.
+      - name: profile
+        type: Optional<String>
+      - name: limits
+        type: conductor.config.Limits
+      # UNMAPPED: the owner is `conductor.operator.Operator` (unit A6); the `references` relation
+      # via `token_owner` is the coordinator's once that entity is declared. Absent: the agent
+      # runs on no pooled token (a host role on the host's own login).
+      - name: token_owner
+        type: Optional<conductor.operator.OperatorName>
+      - name: started_by
+        type: conductor.operator.Actor
+      - name: started_at
+        type: Timestamp
+      - name: generation
+        type: Integer
+      - name: stopped_at
+        type: Optional<Timestamp>
+      - name: exit_class
+        type: Optional<conductor.agent.ExitClass>
+      - name: exit_code
+        type: Optional<Integer>
+    relations:
+      - name: agent_kind
+        kind: references
+        target: conductor.agent.AgentKind
+        cardinality: one
+        via: kind
+    invariants:
+      - generation >= 1
+    lifecycle:
+      initial: Running
+      states: [Running, Stopped]
+      terminal: []
+      transitions:
+        - name: stop
+          from: [Running]
+          to: Stopped
+        - name: restart
+          from: [Running, Stopped]
+          to: Running
+
+actors:
+  # The instance runtime (`conductor instance serve`) is the starter of the instance's agents
+  # (§ 2): it declares the kinds its binary implements, starts, stops and restarts agents, records
+  # what they report, and delivers the loop's texts into them (today's run daemon). A controller
+  # starts its workers through the runtime (§ 10), so the runtime issues `StartAgent` and the
+  # command's `actor` names the controller.
+  # UNMAPPED: the runtime is a process, not an agent the runtime started and not an operator, and
+  # `conductor.operator.Actor` is `Human` or `Agent` only (§ 3 "Actors"); what `actor` names on a
+  # command the runtime issues on its own account (declaring its kinds, a stop it observed, a
+  # report it records) is not settled. The scenarios name the operator a single host implies.
+  # Open question for the owner.
+  - name: conductor.agent.InstanceRuntime
+    may:
+      - conductor.agent.DeclareAgentKind
+      - conductor.agent.StartAgent
+      - conductor.agent.DeliverToAgent
+      - conductor.agent.StopAgent
+      - conductor.agent.RestartAgent
+      - conductor.agent.RecordAgentReport
+      - conductor.agent.Agents
+      - conductor.agent.AgentKinds
+    naming:
+      display: Instance runtime
+
+  # An operator, through the instance API's `agents/{name}/attach`, `deliver` and `restart`
+  # routes (§ 5.1) and the UIs over them (§ 5.3).
+  - name: conductor.agent.Operator
+    may:
+      - conductor.agent.DeliverToAgent
+      - conductor.agent.AttachAgent
+      - conductor.agent.StopAgent
+      - conductor.agent.RestartAgent
+      - conductor.agent.Agents
+      - conductor.agent.AgentKinds
+    naming:
+      display: Operator
+
+  # An instance's controller, toward its workers: the star runs workers to their controller (§ 10).
+  - name: conductor.agent.Controller
+    may:
+      - conductor.agent.DeliverToAgent
+      - conductor.agent.AttachAgent
+      - conductor.agent.Agents
+      - conductor.agent.AgentKinds
+    naming:
+      display: Controller
+
+errors:
+  - name: conductor.agent.UnknownAgentKind
+    summary: The binary implements no kind of that name, so nothing was started.
+    fields:
+      - name: kind
+        type: conductor.agent.AgentKindName
+
+  - name: conductor.agent.AgentExists
+    summary: >
+      An agent of that name is on record already; a stopped one is started again with
+      `RestartAgent`. Nothing was started.
+    fields:
+      - name: name
+        type: conductor.agent.AgentName
+
+  - name: conductor.agent.AgentLaunchFailed
+    summary: >
+      The kind's start failed (the program did not come up in the box, or its first prompt could
+      not be delivered), so no agent is on record.
+    fields:
+      - name: name
+        type: conductor.agent.AgentName
+
+  - name: conductor.agent.AgentNotFound
+    summary: No agent of that name is on record; nothing was done.
+    fields:
+      - name: name
+        type: conductor.agent.AgentName
+
+  - name: conductor.agent.AgentNotRunning
+    summary: The agent is stopped, so nothing reached it and nothing changed.
+    fields:
+      - name: name
+        type: conductor.agent.AgentName
+
+  - name: conductor.agent.AgentNotReachable
+    summary: >
+      The agent is on record as running, but its PTY does not answer (no tmux server on its
+      launcher socket for the `claude-code` kind), so nothing was typed or opened; the caller is
+      told which agent, and does not retry in a loop.
+    fields:
+      - name: name
+        type: conductor.agent.AgentName
+
+  - name: conductor.agent.CapabilityMissing
+    summary: >
+      The agent's kind lacks the capability the command needs, named here (`Interactive` for
+      attach and deliver), so nothing was done.
+    fields:
+      - name: name
+        type: conductor.agent.AgentName
+      - name: capability
+        type: conductor.agent.Capability
+
+commands:
+  # The runtime records each kind its binary implements when it comes up (§ 7, the trait's
+  # `capabilities()`); the first declaration creates the kind, a later one records what the
+  # binary says now. The kind is selected as a row set by its name, as `ClaimLease` selects its
+  # lease.
+  - name: conductor.agent.DeclareAgentKind
+    naming:
+      wire: declare-kind
+      display: Declare an agent kind
+    input:
+      - {name: actor, type: conductor.operator.Actor}
+      - {name: name, type: conductor.agent.AgentKindName}
+      - {name: capabilities, type: List<conductor.agent.Capability>}
+      - {name: binary, type: String}
+    outcomes:
+      - name: declared
+        unknown_instance: true
+        creates: conductor.agent.AgentKind
+        instance: name
+        sets:
+          capabilities: input.capabilities
+          binary: input.binary
+        emits:
+          - conductor.agent.AgentKindDeclared
+        payload:
+          conductor.agent.AgentKindDeclared:
+            actor: input.actor
+            name: input.name
+            capabilities: input.capabilities
+            binary: input.binary
+        summary: The kind is on record with its capabilities and its program.
+      - name: redeclared
+        updates: conductor.agent.AgentKind
+        instance: name
+        sets:
+          capabilities: input.capabilities
+          binary: input.binary
+        emits:
+          - conductor.agent.AgentKindDeclared
+        payload:
+          conductor.agent.AgentKindDeclared:
+            actor: input.actor
+            name: input.name
+            capabilities: input.capabilities
+            binary: input.binary
+        summary: The kind was on record; it now holds what the binary says.
+
+  # `StartAgent` fills a role slot (§ 7): the kind's `start(slot)`, in the placement's box, with
+  # the role's profile and limits. The `claude-code` kind writes today's settings file and
+  # `tmux.conf`, starts one tmux server in the box and the harness with the role's profile
+  # appended (`conductor.session`), and leases one token from the instance's pool per start
+  # (§ 5.3: the owner's own token first for an agent the owner asked for, else the one with the
+  # most headroom), whose owner the agent records. The lease is `conductor.token.LeaseToken`; one
+  # command does not span two domains here, so the runtime leases first and passes the owner.
+  # UNMAPPED: § 7 lets a kind fill a role "when its capabilities cover what the role needs", and
+  # lists what each role needs; which roles those are in v1's `conductor.config.RoleName`, and
+  # whether a start whose kind does not cover its role is refused here, is not settled. Open
+  # question for the owner.
+  # UNMAPPED: § 5.3 does not say what a start does when the pool holds no token in state `ok`
+  # (refuse, wait, or start on a limited one when its time has passed). Open question for the
+  # owner.
+  - name: conductor.agent.StartAgent
+    naming:
+      wire: start
+      display: Start an agent
+    input:
+      - {name: actor, type: conductor.operator.Actor}
+      - {name: name, type: conductor.agent.AgentName}
+      - {name: instance, type: conductor.config.InstanceName}
+      - {name: role, type: conductor.config.RoleName}
+      - {name: kind, type: conductor.agent.AgentKindName}
+      # The kind's capabilities as the runtime read them from the kind (`AgentKind`), which
+      # attach and deliver read on the agent. Copying them from the kind in the model
+      # (`{related: {via: input.kind, field: capabilities}}`) validates, and synthesis then finds
+      # no stored list selecting the attach and deliver branches (ESS-SYNTH-003), so the runtime
+      # passes them.
+      - {name: capabilities, type: List<conductor.agent.Capability>}
+      - {name: box, type: Optional<conductor.placement.BoxId>}
+      - {name: profile, type: Optional<String>}
+      - {name: limits, type: conductor.config.Limits}
+      - {name: token_owner, type: Optional<conductor.operator.OperatorName>}
+      - {name: started_at, type: Timestamp}
+    outcomes:
+      - name: unknown-kind
+        when_related: {via: input.kind, exists: false}
+        error: conductor.agent.UnknownAgentKind
+        payload:
+          conductor.agent.UnknownAgentKind:
+            kind: input.kind
+        summary: The binary implements no such kind; nothing was started.
+      - name: launch-failed
+        external: the kind's start in the box failed, or its first prompt could not be delivered
+        error: conductor.agent.AgentLaunchFailed
+        payload:
+          conductor.agent.AgentLaunchFailed:
+            name: input.name
+        summary: The program did not come up; no agent is on record.
+      - name: started
+        creates: conductor.agent.Agent
+        instance: name
+        sets:
+          instance: input.instance
+          role: input.role
+          kind: input.kind
+          capabilities: input.capabilities
+          box: input.box
+          profile: input.profile
+          limits: input.limits
+          token_owner: input.token_owner
+          started_by: input.actor
+          started_at: input.started_at
+          generation: 1
+          stopped_at: {cleared: true}
+          exit_class: {cleared: true}
+          exit_code: {cleared: true}
+        emits:
+          - conductor.agent.AgentStarted
+        payload:
+          conductor.agent.AgentStarted:
+            actor: input.actor
+            name: input.name
+            instance: input.instance
+            role: input.role
+            kind: input.kind
+            box: input.box
+            token_owner: input.token_owner
+            started_at: input.started_at
+        summary: >
+          The agent runs in its role, generation 1, naming who started it and whose token it runs
+          on.
+      - name: exists
+        existing_instance: true
+        error: conductor.agent.AgentExists
+        payload:
+          conductor.agent.AgentExists:
+            name: input.name
+        summary: An agent of that name is on record; nothing was started, the record unchanged.
+
+  # The `agents/{name}/deliver` route (§ 5.1), the kind's `deliver(handle, text)`, for interactive
+  # kinds only: a message to a run-to-exit kind is a new generation (`RestartAgent`, § 7). For the
+  # `claude-code` kind the text is typed into the agent's tmux server, today's
+  # `conductor session deliver`, and recorded there as `conductor.session.DeliverMessage`.
+  # UNMAPPED: the design lists no event for a delivery (§ 3 names `AgentStarted`,
+  # `AgentReported`, `AgentStopped` only), so a delivery leaves the agent as it was and records
+  # nothing in this domain. Open question for the owner.
+  - name: conductor.agent.DeliverToAgent
+    naming:
+      wire: deliver
+      display: Deliver a text to an agent
+    input:
+      - {name: actor, type: conductor.operator.Actor}
+      - {name: name, type: conductor.agent.AgentName}
+      - {name: first_line, type: String}
+      - {name: body_path, type: Optional<String>}
+    outcomes:
+      - name: not-interactive
+        when_subject:
+          predicate:
+            not:
+              exists: {in: capabilities, as: c, that: c == Interactive}
+        error: conductor.agent.CapabilityMissing
+        payload:
+          conductor.agent.CapabilityMissing:
+            name: input.name
+            capability: Interactive
+        summary: The agent's kind is not interactive; nothing was delivered.
+      - name: not-running
+        when_subject:
+          predicate: state == Stopped
+        error: conductor.agent.AgentNotRunning
+        payload:
+          conductor.agent.AgentNotRunning:
+            name: input.name
+        summary: The agent is stopped; nothing was delivered.
+      - name: unreachable
+        external: the agent's PTY does not answer
+        error: conductor.agent.AgentNotReachable
+        payload:
+          conductor.agent.AgentNotReachable:
+            name: input.name
+        summary: Nothing was typed; the caller names the agent and does not retry in a loop.
+      - name: delivered
+        preserves: conductor.agent.Agent
+        instance: name
+        summary: The text is in front of the agent.
+      - name: no-such-agent
+        unknown_instance: true
+        error: conductor.agent.AgentNotFound
+        payload:
+          conductor.agent.AgentNotFound:
+            name: input.name
+        summary: No agent of that name; nothing was delivered.
+
+  # The `agents/{name}/attach` route (§ 5.1), the kind's `attach(handle) -> PtyStream`, for
+  # interactive kinds only: a run-to-exit kind has no PTY and is refused by the capability's
+  # name. For the `claude-code` kind it is today's `conductor session attach` on the agent's tmux
+  # server; `watch` attaches read-only. The stream itself is a WebSocket the model does not type.
+  - name: conductor.agent.AttachAgent
+    naming:
+      wire: attach
+      display: Attach to an agent
+    input:
+      - {name: actor, type: conductor.operator.Actor}
+      - {name: name, type: conductor.agent.AgentName}
+      - {name: watch, type: Optional<Boolean>}
+    outcomes:
+      - name: not-interactive
+        when_subject:
+          predicate:
+            not:
+              exists: {in: capabilities, as: c, that: c == Interactive}
+        error: conductor.agent.CapabilityMissing
+        payload:
+          conductor.agent.CapabilityMissing:
+            name: input.name
+            capability: Interactive
+        summary: The agent's kind has no PTY to attach to; nothing was opened.
+      - name: not-running
+        when_subject:
+          predicate: state == Stopped
+        error: conductor.agent.AgentNotRunning
+        payload:
+          conductor.agent.AgentNotRunning:
+            name: input.name
+        summary: The agent is stopped; nothing was opened.
+      - name: unreachable
+        external: the agent's PTY does not answer
+        error: conductor.agent.AgentNotReachable
+        payload:
+          conductor.agent.AgentNotReachable:
+            name: input.name
+        summary: Nothing was opened; the caller names the agent.
+      - name: attached
+        preserves: conductor.agent.Agent
+        instance: name
+        summary: The caller holds the agent's PTY stream, read-only with `watch`.
+      - name: no-such-agent
+        unknown_instance: true
+        error: conductor.agent.AgentNotFound
+        payload:
+          conductor.agent.AgentNotFound:
+            name: input.name
+        summary: No agent of that name; nothing was opened.
+
+  # The kind's `stop(handle)`. Issued for a stop someone asked for (`Requested`), and by the
+  # runtime for a stop it observed: a usage limit (`UsageLimit`, after which the runtime releases
+  # the token as `limited` through `conductor.token.MarkTokenLimited` and restarts the agent on
+  # another, § 5.3) or a run-to-exit program's exit (`Exited`, with its code, § 7).
+  - name: conductor.agent.StopAgent
+    naming:
+      wire: stop
+      display: Stop an agent
+    input:
+      - {name: actor, type: conductor.operator.Actor}
+      - {name: name, type: conductor.agent.AgentName}
+      - {name: exit_class, type: conductor.agent.ExitClass}
+      - {name: exit_code, type: Optional<Integer>}
+      - {name: stopped_at, type: Timestamp}
+    outcomes:
+      - name: stopped
+        moves: conductor.agent.Agent.stop
+        instance: name
+        sets:
+          stopped_at: input.stopped_at
+          exit_class: input.exit_class
+          exit_code: input.exit_code
+        emits:
+          - conductor.agent.AgentStopped
+        payload:
+          conductor.agent.AgentStopped:
+            actor: input.actor
+            name: input.name
+            exit_class: input.exit_class
+            exit_code: input.exit_code
+            stopped_at: input.stopped_at
+        summary: The agent is stopped, with why and, for an exit, its code.
+      - name: no-such-agent
+        unknown_instance: true
+        error: conductor.agent.AgentNotFound
+        payload:
+          conductor.agent.AgentNotFound:
+            name: input.name
+        summary: No agent of that name; nothing was stopped.
+      - name: not-running
+        wrong_state: true
+        error: conductor.agent.AgentNotRunning
+        payload:
+          conductor.agent.AgentNotRunning:
+            name: input.name
+        summary: The agent is stopped already; nothing changed.
+
+  # The `agents/{name}/restart` route (§ 5.1): the slot started again as its next generation, on
+  # the token the runtime leased for it (another one after a usage limit, § 5.3). A running agent
+  # is stopped by the kind first. It is also how a run-to-exit kind takes a message (§ 7).
+  # Today's `claude-code` behaviour keeps the session's name across a restart; the record keeps
+  # who first started the slot, and the event names who restarted it.
+  - name: conductor.agent.RestartAgent
+    naming:
+      wire: restart
+      display: Restart an agent
+    input:
+      - {name: actor, type: conductor.operator.Actor}
+      - {name: name, type: conductor.agent.AgentName}
+      - {name: token_owner, type: Optional<conductor.operator.OperatorName>}
+      - {name: started_at, type: Timestamp}
+    outcomes:
+      - name: launch-failed
+        external: the kind's start in the box failed, or its first prompt could not be delivered
+        error: conductor.agent.AgentLaunchFailed
+        payload:
+          conductor.agent.AgentLaunchFailed:
+            name: input.name
+        summary: The program did not come up again; the record is unchanged.
+      - name: restarted
+        moves: conductor.agent.Agent.restart
+        instance: name
+        sets:
+          token_owner: input.token_owner
+          started_at: input.started_at
+          generation: {increment: 1}
+          stopped_at: {cleared: true}
+          exit_class: {cleared: true}
+          exit_code: {cleared: true}
+        emits:
+          - conductor.agent.AgentStarted
+        payload:
+          conductor.agent.AgentStarted:
+            actor: input.actor
+            name: input.name
+            instance: {subject: instance}
+            role: {subject: role}
+            kind: {subject: kind}
+            box: {subject: box}
+            token_owner: input.token_owner
+            started_at: input.started_at
+        summary: The agent runs again as its next generation.
+      - name: no-such-agent
+        unknown_instance: true
+        error: conductor.agent.AgentNotFound
+        payload:
+          conductor.agent.AgentNotFound:
+            name: input.name
+        summary: No agent of that name; nothing was started.
+
+  # The kind's `reports(handle)` (§ 7): one line of the report vocabulary of the conductor
+  # design § 6 (`[REPORT]`, `[NEED]`, `[DECISION-REQUEST]`) an agent wrote, recorded by the runtime
+  # with the agent as the actor. A run-to-exit kind's adapter writes the line from the program's
+  # exit code and its events file, which it names here.
+  - name: conductor.agent.RecordAgentReport
+    naming:
+      wire: record-report
+      display: Record an agent's report
+    input:
+      - {name: actor, type: conductor.operator.Actor}
+      - {name: name, type: conductor.agent.AgentName}
+      - {name: line, type: String}
+      - {name: exit_code, type: Optional<Integer>}
+      - {name: events_path, type: Optional<String>}
+      - {name: reported_at, type: Timestamp}
+    outcomes:
+      - name: reported
+        updates: conductor.agent.Agent
+        instance: name
+        emits:
+          - conductor.agent.AgentReported
+        payload:
+          conductor.agent.AgentReported:
+            actor: input.actor
+            name: input.name
+            line: input.line
+            exit_code: input.exit_code
+            events_path: input.events_path
+            reported_at: input.reported_at
+        summary: The report is on record against the agent.
+      - name: no-such-agent
+        unknown_instance: true
+        error: conductor.agent.AgentNotFound
+        payload:
+          conductor.agent.AgentNotFound:
+            name: input.name
+        summary: No agent of that name; nothing was recorded.
+
+events:
+  - name: conductor.agent.AgentKindDeclared
+    fields:
+      - {name: actor, type: conductor.operator.Actor}
+      - {name: name, type: conductor.agent.AgentKindName}
+      - {name: capabilities, type: List<conductor.agent.Capability>}
+      - {name: binary, type: String}
+
+  - name: conductor.agent.AgentStarted
+    fields:
+      - {name: actor, type: conductor.operator.Actor}
+      - {name: name, type: conductor.agent.AgentName}
+      - {name: instance, type: conductor.config.InstanceName}
+      - {name: role, type: conductor.config.RoleName}
+      - {name: kind, type: conductor.agent.AgentKindName}
+      - {name: box, type: Optional<conductor.placement.BoxId>}
+      - {name: token_owner, type: Optional<conductor.operator.OperatorName>}
+      - {name: started_at, type: Timestamp}
+
+  - name: conductor.agent.AgentReported
+    fields:
+      - {name: actor, type: conductor.operator.Actor}
+      - {name: name, type: conductor.agent.AgentName}
+      - {name: line, type: String}
+      - {name: exit_code, type: Optional<Integer>}
+      - {name: events_path, type: Optional<String>}
+      - {name: reported_at, type: Timestamp}
+
+  - name: conductor.agent.AgentStopped
+    fields:
+      - {name: actor, type: conductor.operator.Actor}
+      - {name: name, type: conductor.agent.AgentName}
+      - {name: exit_class, type: conductor.agent.ExitClass}
+      - {name: exit_code, type: Optional<Integer>}
+      - {name: stopped_at, type: Timestamp}
+
+views:
+  - name: conductor.agent.Agents
+    source: conductor.agent.Agent
+    consistency: read_your_writes
+    fields:
+      - {name: name, type: conductor.agent.AgentName}
+      - {name: state, type: conductor.agent.Agent.State}
+      - {name: instance, type: conductor.config.InstanceName}
+      - {name: role, type: conductor.config.RoleName}
+      - {name: kind, type: conductor.agent.AgentKindName}
+      - {name: capabilities, type: List<conductor.agent.Capability>}
+      - {name: box, type: Optional<conductor.placement.BoxId>}
+      - {name: profile, type: Optional<String>}
+      - {name: limits, type: conductor.config.Limits}
+      - {name: token_owner, type: Optional<conductor.operator.OperatorName>}
+      - {name: started_by, type: conductor.operator.Actor}
+      - {name: started_at, type: Timestamp}
+      - {name: generation, type: Integer}
+      - {name: stopped_at, type: Optional<Timestamp>}
+      - {name: exit_class, type: Optional<conductor.agent.ExitClass>}
+      - {name: exit_code, type: Optional<Integer>}
+    naming:
+      wire: agents
+      display: Agents
+
+  - name: conductor.agent.AgentKinds
+    source: conductor.agent.AgentKind
+    consistency: read_your_writes
+    fields:
+      - {name: name, type: conductor.agent.AgentKindName}
+      - {name: state, type: conductor.agent.AgentKind.State}
+      - {name: capabilities, type: List<conductor.agent.Capability>}
+      - {name: binary, type: String}
+    naming:
+      wire: agent-kinds
+      display: Agent kinds
