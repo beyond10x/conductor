@@ -42,3 +42,289 @@ types:
     variants:
       Human: conductor.operator.HumanActor
       Agent: conductor.operator.AgentActor
+
+  # What an operator may do (design § 3, row `conductor.operator`): answer decisions, change
+  # settings, start, stop and upgrade instances, purge, join. A grant belongs to a human actor
+  # only; an agent holds none. The enum names the grant; which instance it applies to is the
+  # `Operator` record that holds it (one record per operator and instance, below).
+  # UNMAPPED: the design lists "join" as a grant and gives no meaning: the right to join an
+  # instance oneself (held before the join, from the config), or the right to admit another
+  # engineer? Open question for the owner; the variant is kept as the design names it.
+  - name: conductor.operator.Grant
+    kind: enum
+    variants:
+      - AnswerDecisions
+      - ChangeSettings
+      - StartInstances
+      - StopInstances
+      - UpgradeInstances
+      - Purge
+      - Join
+
+  # The identity of an operator of one instance: who, and which instance. An engineer who joins
+  # two instances is two records, each with the grants the config gives their role there.
+  # UNMAPPED: the brief allows a grant bound "to every instance"; the design binds grants to the
+  # instance an engineer joins (§ 5.3) and names no grant over every instance. The one place it
+  # could apply is the operator "implied by the Unix user, named in the config" on a single host
+  # with no Identity, who joins nothing: how that operator is recorded, and with which grants, is
+  # not settled. Open question for the owner.
+  - name: conductor.operator.OperatorKey
+    kind: struct
+    fields:
+      - {name: operator, type: conductor.operator.OperatorName}
+      - {name: instance, type: conductor.config.InstanceName}
+
+entities:
+  # An operator of one instance (design § 5.3 "Several operators", "Joining an instance"):
+  # recorded by `conductor join <daemon url> --instance <i>` with the grants the config gives
+  # their role, `Active` until `conductor leave` makes it `Left`; a later join makes it `Active`
+  # again with the grants the config gives then. The operator's name is its Identity principal
+  # (`OperatorName` above), so no second principal field is kept. `joined_by` and `left_by` name
+  # the actor that issued the join and the leave.
+  # UNMAPPED: the record's `instance` is a reference to `conductor.instance.Instance`, which is
+  # not declared in this tree (the instance author's unit); the `references` relation, and the
+  # refusal of a join into an instance the config does not hold, wait on it. Open question for
+  # the coordinator.
+  # UNMAPPED: "the grants the config gives their role": the design names no operator role in
+  # `conductor.config/2` (§ 9 lists `daemon`, `globals`, `instances[]`), so the join takes the
+  # grants already resolved; where the config maps an operator role to grants, and whether a
+  # config change re-grants a joined operator, is not settled. Open question for the owner.
+  - name: conductor.operator.Operator
+    identity:
+      name: key
+      type: conductor.operator.OperatorKey
+    fields:
+      - name: grants
+        type: List<conductor.operator.Grant>
+      - name: joined_at
+        type: Timestamp
+      - name: joined_by
+        type: conductor.operator.Actor
+      - name: left_at
+        type: Optional<Timestamp>
+      - name: left_by
+        type: Optional<conductor.operator.Actor>
+    lifecycle:
+      initial: Active
+      states: [Active, Left]
+      terminal: []
+      transitions:
+        - name: leave
+          from: [Active]
+          to: Left
+        - name: rejoin
+          from: [Left]
+          to: Active
+
+actors:
+  # The engineer who joins an instance and, once joined, is its operator: a person, through the
+  # CLI with an Identity bearer (design § 4, § 5.3). Named `Engineer` because the entity is
+  # `Operator`; the CLI checks the human variant of `actor` as the commands' refusals say.
+  - name: conductor.operator.Engineer
+    may:
+      - conductor.operator.JoinInstance
+      - conductor.operator.LeaveInstance
+      - conductor.operator.Operators
+    naming:
+      display: Engineer
+
+  # conductord reads the operators of each instance (to route a request by grant, § 5.3) and
+  # issues none of these commands.
+  - name: conductor.operator.Conductord
+    may:
+      - conductor.operator.Operators
+    naming:
+      display: conductord
+
+errors:
+  # Declared here; every domain's person-only command refers to it as
+  # `conductor.operator.ActorNotHuman` (design § 3 "Actors": "a command that needs a grant refuses
+  # an agent actor by name").
+  - name: conductor.operator.ActorNotHuman
+    summary: >
+      The command needs a grant, a grant belongs to a human actor only, and the actor that issued
+      it is an agent. Nothing was written.
+    fields:
+      - name: actor
+        type: conductor.operator.Actor
+
+  - name: conductor.operator.AlreadyJoined
+    summary: The operator is an active operator of the instance already; nothing changed.
+    fields:
+      - name: key
+        type: conductor.operator.OperatorKey
+
+  - name: conductor.operator.NotJoined
+    summary: The operator is not an active operator of the instance, so there is nothing to leave.
+    fields:
+      - name: key
+        type: conductor.operator.OperatorKey
+
+commands:
+  # `conductor join <daemon url> --instance <i>` (design § 5.3): the engineer logs in through
+  # Identity (`conductor login`, § 4; the bearer is the API's check, before any command), the
+  # daemon records them as an operator of the instance with the grants the config gives their
+  # role, and the same CLI step contributes their Claude token to the instance's pool, which is
+  # `conductor.token.ContributeToken` and not this command.
+  #
+  # Which actor is an agent is a fact of the union's variant, and ESS 0.90 cannot guard on it:
+  # `actor.kind == Agent` is refused as `unobservable_fact` (ESS-COMMAND-003), `actor == Agent` as
+  # `type_mismatch`. So the refusal is `external:`, decided by the implementation from the
+  # input's variant. The construct that would close it: a guard over a union value's variant
+  # (`when: {actor: {variant: Agent}}` or `actor.kind == Agent` over a union's `tag:`).
+  # UNMAPPED: the design does not say whether the human actor must be the operator the join
+  # records (an engineer joins themselves) or may join a colleague; ESS cannot compare a union's
+  # member with an input either. The record keeps both, `key.operator` and `joined_by`. Open
+  # question for the owner.
+  - name: conductor.operator.JoinInstance
+    naming:
+      wire: join-instance
+      display: Join an instance
+    input:
+      - {name: actor, type: conductor.operator.Actor}
+      - {name: key, type: conductor.operator.OperatorKey}
+      - {name: grants, type: List<conductor.operator.Grant>}
+      - {name: joined_at, type: Timestamp}
+    outcomes:
+      - name: joined
+        unknown_instance: true
+        creates: conductor.operator.Operator
+        instance: key
+        sets:
+          grants: input.grants
+          joined_at: input.joined_at
+          joined_by: input.actor
+          left_at: {cleared: true}
+          left_by: {cleared: true}
+        emits:
+          - conductor.operator.OperatorJoined
+        payload:
+          conductor.operator.OperatorJoined:
+            key: input.key
+            grants: input.grants
+            joined_at: input.joined_at
+            actor: input.actor
+        summary: The engineer is an active operator of the instance, with the grants given.
+      - name: rejoined
+        moves: conductor.operator.Operator.rejoin
+        instance: key
+        sets:
+          grants: input.grants
+          joined_at: input.joined_at
+          joined_by: input.actor
+          left_at: {cleared: true}
+          left_by: {cleared: true}
+        emits:
+          - conductor.operator.OperatorJoined
+        payload:
+          conductor.operator.OperatorJoined:
+            key: input.key
+            grants: input.grants
+            joined_at: input.joined_at
+            actor: input.actor
+        summary: An operator who had left joins again and is active, with the grants given now.
+      - name: already-joined
+        wrong_state: true
+        error: conductor.operator.AlreadyJoined
+        payload:
+          conductor.operator.AlreadyJoined:
+            key: input.key
+        summary: The operator is active on the instance already; the record is unchanged.
+      - name: actor-not-human
+        external: the actor is an agent, not a person
+        error: conductor.operator.ActorNotHuman
+        payload:
+          conductor.operator.ActorNotHuman:
+            actor: input.actor
+        summary: An agent cannot join an instance; nothing was written.
+
+  # `conductor leave` (design § 5.3): the operator stops being an operator of the instance; the
+  # token withdrawal and the resumption of the agents on it are `conductor.token.WithdrawToken`,
+  # not this command.
+  # UNMAPPED: § 5.3 writes `conductor leave` with no `--instance`; that it names the instance as
+  # `join` does is taken from the join's form. Whether one operator may remove another is not
+  # settled (as for the join). Open question for the owner.
+  - name: conductor.operator.LeaveInstance
+    naming:
+      wire: leave-instance
+      display: Leave an instance
+    input:
+      - {name: actor, type: conductor.operator.Actor}
+      - {name: key, type: conductor.operator.OperatorKey}
+      - {name: left_at, type: Timestamp}
+    outcomes:
+      - name: left
+        moves: conductor.operator.Operator.leave
+        instance: key
+        sets:
+          left_at: input.left_at
+          left_by: input.actor
+        emits:
+          - conductor.operator.OperatorLeft
+        payload:
+          conductor.operator.OperatorLeft:
+            key: input.key
+            left_at: input.left_at
+            actor: input.actor
+        summary: The operator has left the instance; the record stays, `Left`, with who and when.
+      - name: not-joined
+        wrong_state: true
+        error: conductor.operator.NotJoined
+        payload:
+          conductor.operator.NotJoined:
+            key: input.key
+        summary: The operator had left the instance already; the record is unchanged.
+      - name: unknown-operator
+        unknown_instance: true
+        error: conductor.operator.NotJoined
+        payload:
+          conductor.operator.NotJoined:
+            key: input.key
+        summary: The engineer never joined the instance; nothing was written.
+      - name: actor-not-human
+        external: the actor is an agent, not a person
+        error: conductor.operator.ActorNotHuman
+        payload:
+          conductor.operator.ActorNotHuman:
+            actor: input.actor
+        summary: An agent cannot make an operator leave; nothing was written.
+
+events:
+  - name: conductor.operator.OperatorJoined
+    fields:
+      - {name: key, type: conductor.operator.OperatorKey}
+      - {name: grants, type: List<conductor.operator.Grant>}
+      - {name: joined_at, type: Timestamp}
+      - {name: actor, type: conductor.operator.Actor}
+
+  - name: conductor.operator.OperatorLeft
+    fields:
+      - {name: key, type: conductor.operator.OperatorKey}
+      - {name: left_at, type: Timestamp}
+      - {name: actor, type: conductor.operator.Actor}
+
+views:
+  # UNMAPPED: the view `Actors` (design § 3: every distinct actor that has issued a command,
+  # human or agent, with its kind and its last command's time) is not declared. Its rows come
+  # from every command of every domain, and ESS 0.90 has no construct for them: a view's
+  # `source:` is one entity, and no entity records "an actor issued a command"; declaring one,
+  # with a command every domain would invoke, is an invention the design does not make. Two
+  # constructs would close it: a view sourced from the events of every domain grouped by a
+  # field they all carry (`source: {events: all, group_by: actor, last: at}`), and a read of a
+  # union's variant as a value (`kind` of `Actor`, as a guard cannot read it either, see
+  # `JoinInstance`). Open question for the owner and for ESS.
+  # Every operator of every instance, active and left, with the grants each holds there.
+  - name: conductor.operator.Operators
+    source: conductor.operator.Operator
+    consistency: read_your_writes
+    fields:
+      - {name: key, type: conductor.operator.OperatorKey}
+      - {name: state, type: conductor.operator.Operator.State}
+      - {name: grants, type: List<conductor.operator.Grant>}
+      - {name: joined_at, type: Timestamp}
+      - {name: joined_by, type: conductor.operator.Actor}
+      - {name: left_at, type: Optional<Timestamp>}
+      - {name: left_by, type: Optional<conductor.operator.Actor>}
+    naming:
+      wire: operators
+      display: Operators

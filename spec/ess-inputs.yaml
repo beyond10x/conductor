@@ -53,3 +53,8 @@ scenarios:
   - scenarios/report-done-from-sent-or-blocked.yaml
   - scenarios/store-migrate-store.yaml
   - scenarios/store-migrate-store-actor-not-human.yaml
+  - scenarios/operator-join-instance.yaml
+  - scenarios/operator-leave-instance.yaml
+  - scenarios/operator-join-instance-after-leave.yaml
+  - scenarios/operator-join-instance-agent-refused.yaml
+  - scenarios/operator-leave-instance-agent-refused.yaml
