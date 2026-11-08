@@ -1,8 +1,8 @@
-//! The Configuration page (`story:dashboard-config-page`): `GET /api/config` answers the
+//! The Configuration page (`story:dashboard-config-page`): `GET /v1/settings` answers the
 //! effective config of the instance whose dashboard answers (`conductor.config.ConfigPage`), and
-//! `POST /api/config` checks or writes the page's staged changes (`conductor.config.WriteConfig`).
+//! `POST /v1/settings` checks or writes the page's staged changes (`conductor.config.WriteConfig`).
 //!
-//! The view reads the config file, the host registry and an existing store, and writes nothing.
+//! The view reads the config file and an existing store, and writes nothing.
 //! Every key `config show` writes for the instance is one `ConfigField`, its path under the
 //! instance (`cadence.watch`), with the value the file's instance takes when it writes no such
 //! key, and when a change of it takes effect ([`effect`]).
@@ -31,10 +31,10 @@ use time::OffsetDateTime;
 
 use super::Sources;
 use super::answers::{RECORDED_BY, Refused};
-use crate::{config, decide, registry, repository};
+use crate::{config, decide, repository};
 
 /// The page's data and its write.
-pub const CONFIG_PATH: &str = "/api/config";
+pub const CONFIG_PATH: &str = "/v1/settings";
 
 /// The keys under an instance the page shows and never changes: `config migrate` moves them.
 const FIXED: [&str; 7] = [
@@ -137,7 +137,9 @@ fn defaults(value: &Yaml, index: usize, home: &Path) -> Vec<(String, String)> {
         Yaml::Sequence(vec![Yaml::Mapping(kept)]),
     );
     let text = serde_yaml::to_string(&Yaml::Mapping(file)).unwrap_or_default();
-    config::parse(&text, home)
+    // Unheld: the built file is a version-1 one, and holding its keys for the instance's name
+    // would show the real file's instance, read next, as a version-1 one.
+    config::parse_unheld(&text, home)
         .ok()
         .and_then(|config| config.instances.into_iter().next())
         .map(|instance| fields(&instance))
@@ -155,9 +157,9 @@ fn forge(instance: &Instance) -> &'static str {
     }
 }
 
-/// The answer of `GET /api/config` for the server on `port`.
+/// The answer of `GET /v1/settings`: the instance's effective settings, each with its default.
 #[must_use]
-pub fn answer(sources: &Sources, state: Option<&Path>, port: u16) -> Value {
+pub fn answer(sources: &Sources, state: Option<&Path>) -> Value {
     let mut errors = Vec::new();
     let home = &sources.home;
     let file = sources.config_file.clone();
@@ -215,8 +217,8 @@ pub fn answer(sources: &Sources, state: Option<&Path>, port: u16) -> Value {
                 .to_owned(),
         );
     }
-    page["instances"] = json!(instances(home, port, &mut errors));
-    if let Some(state) = state.filter(|state| state.join("tree").exists()) {
+    page["instances"] = json!(instances());
+    if let Some(state) = state.filter(|state| crate::store::present(state)) {
         match crate::store::open_reader(state) {
             Ok(store) => {
                 let rows: Vec<Value> = repository::activity(&store)
@@ -240,40 +242,27 @@ pub fn answer(sources: &Sources, state: Option<&Path>, port: u16) -> Value {
     page
 }
 
-/// The host registry's instances, each with its forge read from its config file.
-fn instances(home: &Path, port: u16, errors: &mut Vec<String>) -> Vec<Value> {
-    let registry = match registry::read(home) {
-        Ok(registry) => registry,
-        Err(error) => {
-            errors.push(format!("{error:#}"));
-            return Vec::new();
-        }
-    };
-    let mut rows = Vec::new();
-    for file in registry.files {
-        let parsed = fs::read_to_string(&file.config)
-            .ok()
-            .and_then(|text| config::parse(&text, home).ok());
-        for instance in file.instances {
-            let forge = parsed
-                .as_ref()
-                .and_then(|parsed| {
-                    parsed
-                        .instances
-                        .iter()
-                        .find(|held| held.name == instance.name)
-                })
-                .map_or("", forge);
-            rows.push(json!({
-                "name": instance.name.0,
-                "dashboard_port": instance.dashboard_port,
-                "session_prefix": instance.session_prefix.map(|prefix| prefix.0),
-                "forge": forge,
-                "current": instance.dashboard_port == i64::from(port),
-            }));
-        }
+/// The instances of the config file this process read, each with its forge, the one this runtime
+/// serves marked `current`; another is shown through the daemon's page for it
+/// (`story:instance-api`). The host registry that listed every config file's is gone in v1
+/// (design architecture-next § 11).
+fn instances() -> Vec<Value> {
+    let active = config::active();
+    if !active.from_file {
+        return Vec::new();
     }
-    rows
+    active
+        .all()
+        .into_iter()
+        .map(|instance| {
+            json!({
+                "name": instance.name.0,
+                "session_prefix": instance.session_prefix.as_ref().map(|prefix| prefix.0.clone()),
+                "forge": forge(instance),
+                "current": instance.name == active.instance.name,
+            })
+        })
+        .collect()
 }
 
 /// The write as the page sends it (`conductor.config.WriteConfig`).
@@ -601,15 +590,15 @@ pub(super) fn write(
         }
     };
     if let Some(new) = &new {
-        // As `config validate` refuses it: a prefix, port, state or records another registered
-        // file's instance holds.
-        let physical = config::physical(&file);
-        if let Ok(found) = config::unique_problems(home, &physical, new) {
-            problems.extend(found.into_iter().map(|problem| ConfigProblem {
-                path: problem.path,
-                message: problem.message,
-            }));
-        }
+        // As `config validate` refuses it: an instance without a prefix.
+        problems.extend(
+            config::unique_problems(new)
+                .into_iter()
+                .map(|problem| ConfigProblem {
+                    path: problem.path,
+                    message: problem.message,
+                }),
+        );
     }
     let before = old.instances.get(index).map(fields).unwrap_or_default();
     let after = new
@@ -693,9 +682,6 @@ pub(super) fn write(
         fs::write(&next, &new_text)
             .and_then(|()| fs::rename(&next, &file))
             .map_err(|error| failed(format!("write {}: {error}", file.display())))?;
-        if let Some(new) = &new {
-            let _ = registry::register(home, &config::physical(&file), new);
-        }
         backup = Some(kept.display().to_string());
     }
     for change in &staged.activity {

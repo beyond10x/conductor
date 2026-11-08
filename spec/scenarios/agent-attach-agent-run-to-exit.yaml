@@ -1,0 +1,69 @@
+# docs/design/architecture-next.md § 7: a run-to-exit kind has no PTY, so attach refuses it by
+# the capability's name. The kind is a fixture, `example-run-to-exit`: v1 implements
+# `claude-code` only, and `takt` is a later story.
+# The runtime's own commands (declaring its kinds, a stop it observed) carry `{kind: Daemon}`;
+# a start names the operator a single host implies (§ 5.3), who asked for it.
+type: ess-scenario/1
+domain: conductor.agent
+scenario: agent-attach-agent-run-to-exit
+summary: Attaching to an agent of a run-to-exit kind is refused naming the Interactive capability it lacks, and the agent is unchanged.
+
+timeline:
+  - at: 2026-11-08T09:00:00Z
+    command: conductor.agent.DeclareAgentKind
+    actor: conductor.agent.InstanceRuntime
+    input:
+      actor: {kind: Daemon}
+      name: example-run-to-exit
+      capabilities: [RunToExit]
+      binary: example-runner
+    outcome: declared
+
+  - at: 2026-11-08T09:01:00Z
+    command: conductor.agent.StartAgent
+    actor: conductor.agent.InstanceRuntime
+    input:
+      actor: {kind: Human, operator: example-operator}
+      name: example-org-implementer
+      instance: example-org
+      role: Director
+      kind: example-run-to-exit
+      capabilities: [RunToExit]
+      profile: ~/example-org/roles/controller.md
+      limits: {tasks_max: 512}
+      token_owner: example-operator
+      started_at: 2026-11-08T09:01:00Z
+    outcome: started
+
+  - at: 2026-11-08T09:01:01Z
+    command: conductor.agent.MarkAgentRunning
+    actor: conductor.agent.InstanceRuntime
+    input:
+      actor: {kind: Daemon}
+      name: example-org-implementer
+      running_at: 2026-11-08T09:01:01Z
+    outcome: running
+    events:
+      - event: conductor.agent.AgentRunning
+        payload:
+          name: example-org-implementer
+
+  - at: 2026-11-08T09:05:00Z
+    command: conductor.agent.AttachAgent
+    actor: conductor.agent.Operator
+    input:
+      actor: {kind: Human, operator: example-operator}
+      name: example-org-implementer
+    outcome: not-interactive
+    error:
+      name: conductor.agent.CapabilityMissing
+      fields:
+        name: example-org-implementer
+        capability: Interactive
+
+assert:
+  - view: conductor.agent.Agents
+    contains:
+      name: example-org-implementer
+      state: Running
+      kind: example-run-to-exit

@@ -107,8 +107,9 @@ impl Case {
             ),
         );
         // `story:instance-isolation`: conductor-dev's own settings pin the instance; conductor names
-        // none, and starts with the default of the working directory, which pins none, written
-        // pinned under the state directory.
+        // none, and starts with the settings the binary carries, which pin none, written pinned
+        // under the state directory (`story:roles-in-the-binary`). A settings file of the working
+        // directory is not read: the one written here is not what conductor starts with.
         write(&case.conductor_settings(), SHIPPED);
         write(&case.dev_settings(), &pinned("alpha"));
         case.agents(&json!([]));
@@ -131,8 +132,9 @@ impl Case {
         self.dir.join("home")
     }
 
-    /// The conductor role's default settings, `.claude/conductor-settings.json` of the working
-    /// directory, as this checkout ships them: no instance pinned.
+    /// A settings file in the working directory where the conductor role's default once was,
+    /// `.claude/conductor-settings.json`; the binary carries the default now
+    /// (`story:roles-in-the-binary`), so no start reads it.
     fn conductor_settings(&self) -> PathBuf {
         self.work().join(".claude/conductor-settings.json")
     }
@@ -487,7 +489,7 @@ fn a_role_whose_settings_pin_another_instance_is_refused() {
 }
 
 /// `story:instance-isolation`, item 1: a role whose own settings file pins no instance, as the
-/// shipped `.claude/conductor-settings.json` the guides name does, starts with a copy of it pinned
+/// binary's `kinds/claude-code/conductor-settings.json` does, starts with a copy of it pinned
 /// to the role's instance, `<state>/sessions/<session name>.settings.json`: every other key kept,
 /// `env.CONDUCTOR_INSTANCE` set and each hook command that runs `conductor` prefixed
 /// `CONDUCTOR_INSTANCE=alpha `. The file itself is not changed. A file that pins the instance
@@ -495,7 +497,7 @@ fn a_role_whose_settings_pin_another_instance_is_refused() {
 #[test]
 fn a_role_whose_settings_pin_no_instance_starts_with_a_pinned_copy() {
     let shipped = fs::read_to_string(
-        Path::new(env!("CARGO_MANIFEST_DIR")).join("../../.claude/conductor-settings.json"),
+        Path::new(env!("CARGO_MANIFEST_DIR")).join("kinds/claude-code/conductor-settings.json"),
     )
     .expect("the shipped conductor settings");
     let env_only = json!({
@@ -659,35 +661,17 @@ fn report_and_a_provider_not_available_starts_unboxed_with_the_reason() {
     assert_eq!(record["session"]["provider"], "none", "{record:#}");
 }
 
-/// `story:instance-names-unique`: a session start writes its config file to the host registry,
-/// `~/.b10x/conductor/host/instances.json`, with the file's instances, even for an instance that
-/// has no `session_prefix` yet: it still starts, under its bare name, for one release.
+/// `story:spec-v1`: the host registry, `~/.b10x/conductor/host/instances.json`, is gone with the
+/// comparison of several config files (design architecture-next § 11): a session start still
+/// starts an instance with no `session_prefix`, under its bare name, and writes no registry.
 #[test]
-fn a_session_start_writes_its_config_file_to_the_host_registry() {
+fn a_session_start_writes_no_host_registry() {
     let case = Case::new("registry", REPORT);
     case.fake_file("systemd.unavailable", "no delegated cgroup controllers");
     let output = case.start("conductor");
     assert_eq!(output.status.code(), Some(0), "{}", describe(&output));
     let file = case.home().join(".b10x/conductor/host/instances.json");
-    let registry: Value = serde_json::from_str(
-        &fs::read_to_string(&file).unwrap_or_else(|error| panic!("{}: {error}", file.display())),
-    )
-    .expect("the registry is JSON");
-    let files = registry["files"].as_array().expect("the registry's files");
-    assert_eq!(files.len(), 1, "{registry:#}");
-    assert_eq!(
-        files[0]["config"],
-        case.config().display().to_string(),
-        "{registry:#}"
-    );
-    let alpha = &files[0]["instances"][0];
-    assert_eq!(alpha["name"], "alpha", "{registry:#}");
-    assert_eq!(alpha["session_prefix"], Value::Null, "{registry:#}");
-    assert_eq!(
-        alpha["state"],
-        case.state().display().to_string(),
-        "{registry:#}"
-    );
+    assert!(!file.exists(), "{} was written", file.display());
 }
 
 /// The provider is given the role's request (absolute places, limits, forge token variables) and
@@ -727,9 +711,15 @@ fn the_provider_is_given_the_role_s_request_and_first_prompt() {
     assert_eq!(pinned["env"]["CONDUCTOR_INSTANCE"], "alpha", "{pinned}");
     assert_eq!(
         pinned["hooks"]["PreToolUse"][0]["hooks"][0]["command"],
-        "CONDUCTOR_INSTANCE=alpha conductor guard record-guard-decision --from-pre-tool-use || \
-         exit 2",
+        "CONDUCTOR_INSTANCE=alpha conductor guard record-guard-decision --from-pre-tool-use --pid \
+         \"$PPID\" || exit 2",
         "{pinned}"
+    );
+    assert_eq!(
+        pinned["hooks"]["SessionStart"][0]["hooks"][0]["command"],
+        "CONDUCTOR_INSTANCE=alpha conductor session claim --from-session-start --pid \"$PPID\" || \
+         exit 2",
+        "the binary's conductor settings, pinned: {pinned}"
     );
     assert_eq!(
         logged[0]["args"],
@@ -764,8 +754,11 @@ fn the_provider_is_given_the_role_s_request_and_first_prompt() {
         json!([
             "-n",
             "conductor-dev",
-            "--agent",
-            "conductor-dev",
+            "--append-system-prompt-file",
+            case.state()
+                .join("sessions/conductor-dev.profile.md")
+                .display()
+                .to_string(),
             "--model",
             "sonnet",
             "--permission-mode",
@@ -775,6 +768,14 @@ fn the_provider_is_given_the_role_s_request_and_first_prompt() {
             "--settings",
             case.dev_settings().display().to_string(),
         ])
+    );
+    // `story:roles-in-the-binary`: conductor-dev names no profile, so it starts from the
+    // maintainer profile the binary carries, written into its state.
+    assert_eq!(
+        fs::read_to_string(case.state().join("sessions/conductor-dev.profile.md"))
+            .expect("the written profile"),
+        fs::read_to_string(Path::new(env!("CARGO_MANIFEST_DIR")).join("roles/maintainer.md"))
+            .expect("the maintainer profile")
     );
     assert!(
         logged
@@ -995,135 +996,6 @@ fn a_director_finds_a_live_session_still_named_conductor() {
         assert_eq!(stops.len(), 1, "{role}: {stops:#?}");
         assert_eq!(stops[0]["session_id"], "s-old", "{role}");
     }
-}
-
-/// `story:maintainer-host-config`, item 4: with `host.yaml` naming a maintainer, `session start
-/// --role maintainer` (and `--role conductor-dev`, with its note) starts that role, not the one
-/// the instance's `roles` still writes: under the session name `maintainer`, with no instance
-/// prefix, its model and places, in the working directory with the maintainer's first prompt,
-/// pinned to the instance it runs for; `session stop --role maintainer` stops it.
-#[test]
-fn the_maintainer_starts_from_the_host_file() {
-    for (name, role) in [
-        ("host-maintainer", "maintainer"),
-        ("host-maintainer-old-name", "conductor-dev"),
-    ] {
-        let case = Case::new(name, STRICT);
-        write(
-            &case.home().join(".b10x/conductor/host/host.yaml"),
-            &format!(
-                "version: conductor.host-config/1\n\
-                 roles:\n\
-                 \x20 - {{role: maintainer, harness: claude, model: haiku, writable: [checkout], \
-                 settings: {settings}}}\n",
-                settings = case.dev_settings().display(),
-            ),
-        );
-        let output = case.start(role);
-        assert_eq!(
-            output.status.code(),
-            Some(0),
-            "{role}: {}",
-            describe(&output)
-        );
-        assert!(
-            String::from_utf8_lossy(&output.stdout).starts_with("started maintainer: "),
-            "{role}: {}",
-            describe(&output)
-        );
-        assert_eq!(
-            stderr(&output).contains("--role conductor-dev is the old name of maintainer"),
-            role == "conductor-dev",
-            "{role}: {}",
-            describe(&output)
-        );
-        let logged = calls(&case.fake());
-        let start = logged
-            .iter()
-            .find(|call| call["call"] == "start")
-            .expect("a start");
-        let work = case.work().display().to_string();
-        assert_eq!(
-            start["request"],
-            json!({
-                "role": "maintainer", "session_name": "maintainer", "cwd": work,
-                "memory_max": null, "cpu_weight": null, "tasks_max": null,
-                "writable": [{"place": "checkout", "paths": [work]}],
-                "forge_token_env": [],
-            }),
-            "{role}"
-        );
-        assert_eq!(
-            start["args"],
-            json!([
-                "-n",
-                "maintainer",
-                "--agent",
-                "conductor-dev",
-                "--model",
-                "haiku",
-                "--permission-mode",
-                "bypassPermissions",
-                "--setting-sources",
-                "project,local",
-                "--settings",
-                case.dev_settings().display().to_string(),
-            ]),
-            "{role}"
-        );
-        assert!(
-            logged
-                .iter()
-                .any(|call| call["call"] == "prompt" && call["prompt"] == DEV_PROMPT),
-            "{role}: {logged:#?}"
-        );
-
-        case.agents(&json!([
-            {"id": "s-maintainer", "name": "maintainer", "cwd": case.work(), "pid": 4242,
-             "kind": "background", "status": "idle"}
-        ]));
-        assert_refused(&case.start(role), "session start", "SessionRunning");
-        let output = case.stop(role);
-        assert_eq!(
-            output.status.code(),
-            Some(0),
-            "{role}: {}",
-            describe(&output)
-        );
-        assert_eq!(
-            String::from_utf8_lossy(&output.stdout),
-            "stopped maintainer (s-maintainer)\n",
-            "{role}"
-        );
-    }
-}
-
-/// `story:maintainer-host-config`, item 4: a `host.yaml` that does not read refuses `session start
-/// --role maintainer` (`UnknownRole`), naming the file, and starts nothing; the director starts
-/// as before, reading no host file.
-#[test]
-fn a_host_file_that_does_not_read_refuses_the_maintainer_only() {
-    let case = Case::new("host-maintainer-invalid", STRICT);
-    let host = case.home().join(".b10x/conductor/host/host.yaml");
-    write(
-        &host,
-        "version: conductor.host-config/1\nroles:\n  - {role: director, harness: claude, model: opus}\n",
-    );
-    let output = case.start("maintainer");
-    assert_refused(&output, "session start", "UnknownRole");
-    assert!(
-        stderr(&output).contains(&host.display().to_string()),
-        "{}",
-        describe(&output)
-    );
-    assert!(
-        !calls(&case.fake())
-            .iter()
-            .any(|call| call["call"] == "start"),
-        "nothing started"
-    );
-    let output = case.start("director");
-    assert_eq!(output.status.code(), Some(0), "{}", describe(&output));
 }
 
 /// `session stop` refuses a role it does not stop and a role with no live session, stopping

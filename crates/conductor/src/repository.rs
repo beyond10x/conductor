@@ -147,6 +147,7 @@ pub fn mark_repository(state: Option<&Path>, args: MarkRepositoryArgs) -> Result
     let mut generated = record(state)?;
     let outcome = generated
         .mark_repository(MarkRepository {
+            actor: crate::actor::chosen(),
             repository: MarkedRepository(repository),
             activity,
             marked_by,
@@ -190,6 +191,7 @@ pub fn activate_repository(state: Option<&Path>, args: ActivateRepositoryArgs) -
     let mut generated = record(state)?;
     let outcome = generated
         .activate_repository(ActivateRepository {
+            actor: crate::actor::chosen(),
             repository: MarkedRepository(repository),
             marked_by,
             session: args.session,
@@ -233,6 +235,7 @@ pub fn deactivate_repository(
     let mut generated = record(state)?;
     let outcome = generated
         .deactivate_repository(DeactivateRepository {
+            actor: crate::actor::chosen(),
             repository: MarkedRepository(repository),
             marked_by,
             session: args.session,
@@ -254,7 +257,8 @@ pub fn deactivate_repository(
 }
 
 /// Marks `repository` with `activity`, by the operator, for `reason`, as the dashboard's
-/// Configuration page writes it (`story:dashboard-config-page`): `MarkRepository` when it holds
+/// Configuration page writes it (`story:dashboard-config-page`), as the operator the write is done
+/// for (`crate::actor::human`, `story:daemon-remote`): `MarkRepository` when it holds
 /// no mark, else `ActivateRepository` or `DeactivateRepository`; nothing when its mark is
 /// `activity` already.
 ///
@@ -279,6 +283,7 @@ pub fn mark_as_operator(
         None => {
             let outcome = generated
                 .mark_repository(MarkRepository {
+                    actor: crate::actor::human(),
                     repository: name,
                     activity,
                     marked_by: MarkedBy::Operator,
@@ -293,6 +298,7 @@ pub fn mark_as_operator(
         Some(_) if activity == Activity::Active => {
             let outcome = generated
                 .activate_repository(ActivateRepository {
+                    actor: crate::actor::human(),
                     repository: name,
                     marked_by: MarkedBy::Operator,
                     session,
@@ -306,6 +312,7 @@ pub fn mark_as_operator(
         Some(_) => {
             let outcome = generated
                 .deactivate_repository(DeactivateRepository {
+                    actor: crate::actor::human(),
                     repository: name,
                     marked_by: MarkedBy::Operator,
                     session,
@@ -337,7 +344,14 @@ pub fn mark_as_operator(
 /// output.
 pub fn repository_marks(state: Option<&Path>, view: ViewArgs) -> Result<ExitCode> {
     /// The view's fields, in the specification's order (`spec/domains/direction.yaml`).
-    const COLUMNS: [&str; 5] = ["repository", "state", "marked_by", "session", "reason"];
+    const COLUMNS: [&str; 6] = [
+        "repository",
+        "state",
+        "marked_by",
+        "session",
+        "reason",
+        "actor",
+    ];
 
     let generated = Generated::new(crate::state::open_reader(state)?);
     let rows = generated
@@ -352,6 +366,7 @@ pub fn repository_marks(state: Option<&Path>, view: ViewArgs) -> Result<ExitCode
                 Value::from(marked_by_name(row.marked_by)),
                 row.session.map_or(Value::Null, Value::from),
                 Value::from(row.reason),
+                Value::from(crate::actor::written(&row.actor)),
             ]
         })
         .collect();

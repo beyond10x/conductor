@@ -11,11 +11,6 @@ callables:
     input: null
     result: String
     errors: {}
-  dashboard-serve:
-    target: {kind: local, owner: conductor-cli, action: dashboard_serve}
-    input: conductor.observation.DashboardServe
-    result: String
-    errors: {}
   watch-run:
     target: {kind: local, owner: conductor-cli, action: watch_run}
     input: conductor.observation.WatchRun
@@ -64,6 +59,11 @@ callables:
   config-migrate:
     target: {kind: local, owner: conductor-cli, action: config_migrate}
     input: conductor.config.MigrateConfig
+    result: String
+    errors: {}
+  config-put:
+    target: {kind: local, owner: conductor-cli, action: config_put}
+    input: conductor.config.ChangeConfig
     result: String
     errors: {}
   config-show:
@@ -180,6 +180,11 @@ callables:
       rule-item-not-found: conductor.direction.RulesRefused
       rule-section-not-found: conductor.direction.RulesRefused
       revision-not-found: conductor.direction.RulesRefused
+  role-show:
+    target: {kind: local, owner: conductor-cli, action: role_show}
+    input: conductor.agent.ShowRole
+    result: String
+    errors: {}
   upgrade:
     target: {kind: local, owner: conductor-cli, action: upgrade}
     input: conductor.config.UpgradeBinary
@@ -216,11 +221,6 @@ callables:
     input: conductor.host.ShowGrants
     result: String
     errors: {}
-  host-slices:
-    target: {kind: local, owner: conductor-cli, action: host_slices}
-    input: conductor.host.ListSlices
-    result: List<conductor.host.SliceRow>
-    errors: {}
   gc-reclaim:
     target: {kind: local, owner: conductor-cli, action: gc_reclaim}
     input: conductor.host.ReclaimDisk
@@ -237,19 +237,86 @@ callables:
     input: conductor.session.RunDaemon
     result: String
     errors: {}
+  daemon-serve:
+    target: {kind: local, owner: conductor-cli, action: daemon_serve}
+    input: conductor.instance.ServeDaemon
+    result: String
+    errors: {}
+  daemon-start-role:
+    target: {kind: local, owner: conductor-cli, action: daemon_start_role}
+    input: conductor.instance.StartHostRole
+    result: String
+    errors: {}
+  instance-serve:
+    target: {kind: local, owner: conductor-cli, action: instance_serve}
+    input: null
+    result: String
+    errors: {}
+  instance-relay:
+    target: {kind: local, owner: conductor-cli, action: instance_relay}
+    input: null
+    result: String
+    errors: {}
+  instance-upgrade:
+    target: {kind: local, owner: conductor-cli, action: instance_upgrade}
+    input: conductor.instance.UpgradeInstances
+    result: String
+    errors: {}
+  agent-start:
+    target: {kind: local, owner: conductor-cli, action: agent_start}
+    input: conductor.agent.AgentSlotSelection
+    result: String
+    errors: {}
+  agent-deliver:
+    target: {kind: local, owner: conductor-cli, action: agent_deliver}
+    input: conductor.agent.AgentTextDelivery
+    result: String
+    errors: {}
+  agent-attach:
+    target: {kind: local, owner: conductor-cli, action: agent_attach}
+    input: conductor.agent.AgentTerminalAttach
+    result: String
+    errors: {}
+  agent-stop:
+    target: {kind: local, owner: conductor-cli, action: agent_stop}
+    input: conductor.agent.AgentSlotSelection
+    result: String
+    errors: {}
+  join:
+    target: {kind: local, owner: conductor-cli, action: join}
+    input: conductor.token.JoinDaemon
+    result: String
+    errors: {}
+  leave:
+    target: {kind: local, owner: conductor-cli, action: leave}
+    input: conductor.token.LeaveDaemon
+    result: String
+    errors: {}
+  token-reveal:
+    target: {kind: local, owner: conductor-cli, action: token_reveal}
+    input: conductor.token.RevealToken
+    result: String
+    errors: {}
+  login:
+    target: {kind: local, owner: conductor-cli, action: login}
+    input: null
+    result: String
+    errors: {}
+  secret-put:
+    target: {kind: local, owner: conductor-cli, action: secret_put}
+    input: conductor.secret.WriteSecret
+    result: String
+    errors: {}
+  tui:
+    target: {kind: local, owner: conductor-cli, action: tui}
+    input: null
+    result: String
+    errors: {}
 commands:
   - path: [goal, goals]
     callable: goals
     about: Goals
     arguments: []
-  - path: [dashboard, serve]
-    callable: dashboard-serve
-    about: Serve a live, read-only page of what every session works on
-    arguments:
-      - field: port
-        source: {kind: option, long: port}
-      - field: root
-        source: {kind: option, long: root}
   - path: [watch, run]
     callable: watch-run
     about: Watch sessions, usage limits, conductor's context, free disk and main's CI; exit after the first pass that finds a change
@@ -320,10 +387,26 @@ commands:
         source: {kind: option, long: instance}
   - path: [config, migrate]
     callable: config-migrate
-    about: Write a session_prefix into each instance of the config file that names none; --check prints them and writes nothing
+    about: Convert a conductor.config/1 file to conductor.config/2 once, noting each key dropped or moved, and write a session_prefix into each instance that names none; --check prints what it would write and writes nothing
     arguments:
       - field: check
         source: {kind: option, long: check}
+  - path: [config, put]
+    callable: config-put
+    about: Change one key of the config file at one level - global, instance or role - validated, written, committed to the config repository with the actor and the reason, and recorded in the daemon's store as a ConfigRevision; the daemon reconciles on the changed file
+    arguments:
+      - field: level
+        source: {kind: option, long: level}
+      - field: instance
+        source: {kind: option, long: instance}
+      - field: role
+        source: {kind: option, long: role}
+      - field: path
+        source: {kind: option, long: path}
+      - field: value
+        source: {kind: option, long: value}
+      - field: reason
+        source: {kind: option, long: reason}
   - path: [config, show]
     callable: config-show
     about: Print one instance's effective config, after defaults, as a config file, and the host's roles from host.yaml under `host` (not in yaml)
@@ -332,6 +415,8 @@ commands:
         source: {kind: option, long: format}
       - field: instance
         source: {kind: option, long: instance}
+      - field: effective
+        source: {kind: option, long: effective}
   - path: [config, workspace]
     callable: config-workspace
     about: Write the instance's workspace file from its config; --check names each difference
@@ -342,7 +427,7 @@ commands:
         source: {kind: option, long: check}
   - path: [store, migrate]
     callable: store-migrate
-    about: Copy the eventlog-file store under the state directory into a tree store, keep the old one beside it, and print the counts moved
+    about: Read the eventlog tree under the state directory once into the store's database, record the migration there, and print the counts read; refuse a tree read before (AlreadyMigrated) or none there (SourceMissing)
     arguments:
       - field: format
         source: {kind: option, long: format}
@@ -354,7 +439,7 @@ commands:
         source: {kind: option, long: instance}
   - path: [init]
     callable: init
-    about: Install the host's supervisor and teacher agents in ~/.claude/agents/ where missing, printing installed, kept or differs per file, then write and commit the instance's records directory skeleton; refuse to overwrite any file
+    about: Write and commit the instance's records directory skeleton; refuse to overwrite any file
     arguments:
       - field: instance
         source: {kind: option, long: instance}
@@ -416,7 +501,7 @@ commands:
         source: {kind: option, long: role}
   - path: [session, attach]
     callable: session-attach
-    about: "Attach this terminal to a live session's tmux, by --name or --role, or through a picker of every instance's sessions without either; detach with ctrl-] then d, the session runs on; --watch attaches read-only, and follows the typescript of a session started before the tmux launcher; refuse inside a session, an unknown session, and a read-write attach to a session started before the tmux launcher"
+    about: "Attach this terminal to a live session's tmux, by --name or --role, or through a picker of every instance's sessions without either; detach with ctrl-] then d, the session runs on; --watch attaches read-only, and follows the terminal log of a session started before the tmux launcher; refuse inside a session, an unknown session, and a read-write attach to a session started before the tmux launcher"
     arguments:
       - field: name
         source: {kind: option, long: name}
@@ -454,6 +539,12 @@ commands:
         source: {kind: option, long: brief}
       - field: changed_since
         source: {kind: option, long: changed-since}
+      - field: role
+        source: {kind: option, long: role}
+  - path: [role, show]
+    callable: role-show
+    about: Print the profile the binary carries for a role (maintainer, supervisor, teacher, controller, or an old name of one), byte for byte, reading no config and no store; exit 1 naming a role the binary carries none for
+    arguments:
       - field: role
         source: {kind: option, long: role}
   - path: [upgrade]
@@ -504,14 +595,6 @@ commands:
     arguments:
       - field: day
         source: {kind: option, long: day}
-  - path: [host, slices]
-    callable: host-slices
-    about: List each systemd user slice of conductor, conductor.slice or conductor_<prefix>.slice, with its unit count and the instance of the config file it belongs to; --gc stops each empty slice no instance names, and never one that still holds a unit
-    arguments:
-      - field: format
-        source: {kind: option, long: format}
-      - field: gc
-        source: {kind: option, long: gc}
   - path: [host, reclaim]
     callable: gc-reclaim
     about: Free what needs no decision until free disk is back over the floor, printing each step with the bytes it freed; exit 1 listing what is left by path and size when the floor is not reached
@@ -524,13 +607,113 @@ commands:
     arguments: []
   - path: [run]
     callable: run
-    about: Run the instance's loop with no model call, recording each tick - every cadence.watch the watch pass, its handlers and the mailbox; every cadence.cycle the snapshot, the board, records check and dispatch v1; at cadence.daily metric compute, REPORT.md and a commit of the records through the bot route. --once runs one watch tick and one cycle tick and exits; --once --commit-records commits the records alone; --install starts it as the user unit conductor_<instance>-run.service through systemd-run (under the none provider prints the command instead); --uninstall stops that unit
+    about: Run the instance's loop with no model call, recording each tick - every cadence.watch the watch pass, its handlers and the mailbox; every cadence.cycle the snapshot, the board, records check and dispatch v1; at cadence.daily metric compute, REPORT.md and a commit of the records through the bot route. --once runs one watch tick and one cycle tick and exits; --once --commit-records commits the records alone
     arguments:
       - field: once
         source: {kind: option, long: once}
+      - field: commit_records
+        source: {kind: option, long: commit-records}
+  - path: [daemon, serve]
+    callable: daemon-serve
+    about: Run conductord, the daemon of the control host, reconciling the instance runtimes from the config file - start what is absent, stop what is gone, restart what changed placement or binary - on a config change, a lost runtime and every daemon.cadence.reconcile, recording one Reconciliation per action, and serving GET 127.0.0.1:<daemon.port>/v1/instances. --install writes, enables and starts the user unit conductord.service, or the system unit when daemon.loopback is false (a box with no local operator, its config file in a git checkout, its secrets on the Secrets service); --uninstall stops and removes it
+    arguments:
       - field: install
         source: {kind: option, long: install}
       - field: uninstall
         source: {kind: option, long: uninstall}
-      - field: commit_records
-        source: {kind: option, long: commit-records}
+  - path: [daemon, start-role]
+    callable: daemon-start-role
+    about: Ask the daemon of the config file to start a host role now (POST /v1/roles/{role}/start) - supervisor or teacher, one globals.roles lists; the daemon starts it through conductor session start --role <role> at the host placement, its session in conductor_host.slice, and keeps it running; a role the file does not list is refused naming globals.roles
+    arguments:
+      - field: role
+        source: {kind: option, long: role}
+  - path: [instance, serve]
+    callable: instance-serve
+    about: Serve the instance API, the routes of the dashboard under /v1/, on the instance's <state>/api.sock until stopped; a write takes the token the daemon minted for the instance, in CONDUCTOR_API_TOKEN
+    arguments: []
+  - path: [instance, relay]
+    callable: instance-relay
+    about: Bridge one instance API exchange from standard input to the instance's api.sock (CONDUCTOR_API_SOCKET, else <state>/api.sock) and its answer to standard output; conductord runs it as a substrate pipe session in a box on a remote substrate daemon
+    arguments: []
+  - path: [instance, upgrade]
+    callable: instance-upgrade
+    about: Ask the daemon to upgrade an instance to a released binary (POST /v1/instances/{name}/upgrade) - it fetches the release, installs its binary, runs its conductor doctor, restarts the runtime on it and rolls back to the previous binary unless it answers within daemon.upgrade_timeout; --all goes through every instance of the config file one at a time and stops at the first rollback
+    arguments:
+      - field: instance
+        source: {kind: option, long: instance}
+      - field: tag
+        source: {kind: option, long: tag}
+      - field: all
+        source: {kind: option, long: all}
+  - path: [agent, start]
+    callable: agent-start
+    about: "Start the agent of a role slot through its kind (roles[].kind, claude-code by default): for claude-code, conductor session start, which stays its alias for this release; refuse a kind this binary does not implement (UnknownAgentKind), and what session start refuses"
+    arguments:
+      - field: instance
+        source: {kind: option, long: instance}
+      - field: role
+        source: {kind: option, long: role}
+  - path: [agent, deliver]
+    callable: agent-deliver
+    about: "Deliver a text to the running agent of a role slot through its kind: for claude-code, conductor session deliver to the role's session name; --text is a file, or - for standard input; refuse a kind this binary does not implement and a kind that is not interactive (CapabilityMissing)"
+    arguments:
+      - field: instance
+        source: {kind: option, long: instance}
+      - field: role
+        source: {kind: option, long: role}
+      - field: text
+        source: {kind: option, long: text}
+  - path: [agent, attach]
+    callable: agent-attach
+    about: "Attach this terminal to the agent of a role slot through its kind: for claude-code, conductor session attach --role; --watch attaches read-only; refuse a kind this binary does not implement and a kind that is not interactive (CapabilityMissing)"
+    arguments:
+      - field: instance
+        source: {kind: option, long: instance}
+      - field: role
+        source: {kind: option, long: role}
+      - field: watch
+        source: {kind: option, long: watch}
+  - path: [agent, stop]
+    callable: agent-stop
+    about: "Stop the running agent of a role slot through its kind: for claude-code, conductor session stop, which stays its alias for this release; refuse a kind this binary does not implement, and what session stop refuses"
+    arguments:
+      - field: instance
+        source: {kind: option, long: instance}
+      - field: role
+        source: {kind: option, long: role}
+  - path: [join]
+    callable: join
+    about: "Join an instance of the daemon --daemon names as one of its operators (JoinInstance, with the grants daemon.operators gives you) and contribute your Claude token, read from standard input, to the instance's pool (ContributeToken): the value goes into the daemon's secrets source, the pool records its owner, seat (--seat, your operator name by default) and state, never the value"
+    arguments:
+      - field: instance
+        source: {kind: option, long: instance}
+      - field: seat
+        source: {kind: option, long: seat}
+  - path: [leave]
+    callable: leave
+    about: "Leave an instance of the daemon --daemon names (LeaveInstance) and withdraw every token you contributed to its pool (WithdrawToken); each agent on one is resumed on another token by the instance's loop"
+    arguments:
+      - field: instance
+        source: {kind: option, long: instance}
+  - path: [token, reveal]
+    callable: token-reveal
+    about: "Print the value of a leased token of the instance's pool from the daemon's secrets source, for the claude-code kind's harness, whose settings name this command as their apiKeyHelper; refuse a token that is not leased; nothing else prints a value"
+    arguments:
+      - field: token
+        source: {kind: option, long: token}
+  - path: [login]
+    callable: login
+    about: Log in to the daemon --daemon or CONDUCTOR_DAEMON names through its Identity service, in a browser, and keep the Identity session in this client's keychain; each command against that daemon then presents a bearer minted from it
+    arguments: []
+  - path: [secret, put]
+    callable: secret-put
+    about: Put a secret's value, read from standard input, into the daemon's secrets source (daemon.secrets) under --name through the secrets crates, and record its name and source in the daemon's store; a name already on record is refused (SecretExists) unless --replace
+    arguments:
+      - field: name
+        source: {kind: option, long: name}
+      - field: replace
+        source: {kind: option, long: replace}
+  - path: [tui]
+    callable: tui
+    about: "Open the terminal UI over the daemon's global API - the instances (state, open decisions, KPI flags), the sessions of the selected one (role, state, context, current work) and its settings, read-only; Enter attaches to the selected session, w watches it, l follows its terminal log, ctrl-] then d returns; the global --daemon names the daemon (default CONDUCTOR_DAEMON, else 127.0.0.1:daemon.port)"
+    arguments: []

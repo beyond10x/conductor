@@ -1,0 +1,28 @@
+# design docs/design/architecture-next.md § 9: every PUT of the config is validated before it is
+# written; a change that leaves the config invalid is refused, naming the key, and nothing is
+# committed.
+type: ess-scenario/1
+domain: conductor.config
+scenario: config-put-config-invalid
+summary: A change that leaves the config invalid is refused as ConfigInvalid naming its path, and no change is recorded.
+
+timeline:
+  - at: 2026-11-08T11:00:00Z
+    command: conductor.config.PutConfig
+    actor: conductor.config.Operator
+    input:
+      actor: {kind: Human, operator: example-operator}
+      level: Instance
+      instance: example-org
+      path: thresholds.gate_resume
+      value: 1G
+      reason: resume gates sooner
+      changed_at: 2026-11-08T11:00:00Z
+    outcome: invalid
+    error:
+      name: conductor.config.ConfigInvalid
+
+assert:
+  - view: conductor.config.ConfigRevisions
+    excludes:
+      path: thresholds.gate_resume

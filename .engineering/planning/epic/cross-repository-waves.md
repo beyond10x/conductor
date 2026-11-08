@@ -2,12 +2,14 @@
 format: aep.planning-md/3
 id: epic:cross-repository-waves
 kind: epic
-status: draft
+status: archived
 title: conductor orders takt runs across repositories by their needs and releases
 summary: One run per repository, a consumer run started only after the run it depends on is done
 relations:
 - depends_on: epic:loom-agent-runner
-revision: 1
+revision: 2
+transitions:
+- {from: "draft", to: "archived", at: "2026-11-07T23:41:22Z", actor: "human:timo", revision: 2}
 ---
 # Epic: cross-repository-waves
 

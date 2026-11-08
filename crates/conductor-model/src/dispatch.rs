@@ -1,5 +1,5 @@
 // generated from conductor v1
-// contract digest 057692c7a57029c79cc9e78eb455da83a4c0aa80b4525dc295987296007b3391
+// contract digest a76aa63f2ad9f5b169861cd94a585925f67f9ddebf70caf04f301709ee2e64d1
 // do not edit: regenerate with `ess synthesize --layout crate`
 
 //! Dispatch — `conductor.dispatch`.
@@ -424,6 +424,8 @@ pub enum Verdict {
 pub struct ControllerData {
     /// The identity: `controller_id` — `conductor.dispatch.ControllerId`.
     pub controller_id: ControllerId,
+    /// `actor` — `conductor.operator.Actor`.
+    pub actor: crate::operator::Actor,
     /// `repository` — `conductor.observation.RepositoryName`.
     pub repository: crate::observation::RepositoryName,
     /// `harness` — `conductor.observation.Harness`.
@@ -650,6 +652,8 @@ impl AnyController {
 pub struct DispatchData {
     /// The identity: `dispatch_id` — `conductor.dispatch.DispatchId`.
     pub dispatch_id: DispatchId,
+    /// `actor` — `conductor.operator.Actor`.
+    pub actor: crate::operator::Actor,
     /// `repository` — `conductor.observation.RepositoryName`.
     pub repository: crate::observation::RepositoryName,
     /// `goal_id` — `conductor.direction.GoalId`.
@@ -997,6 +1001,8 @@ impl AnyDispatch {
 pub struct GuardDecisionData {
     /// The identity: `guard_decision_id` — `conductor.dispatch.GuardDecisionId`.
     pub guard_decision_id: GuardDecisionId,
+    /// `actor` — `conductor.operator.Actor`.
+    pub actor: crate::operator::Actor,
     /// `repository` — `conductor.observation.RepositoryName`.
     pub repository: crate::observation::RepositoryName,
     /// `session_ref` — `String`.
@@ -1139,6 +1145,8 @@ pub struct MessageData {
     pub message_id: MessageId,
     /// `sender` — `String`.
     pub sender: String,
+    /// `actor` — `conductor.operator.Actor`.
+    pub actor: crate::operator::Actor,
     /// `recipient` — `String`.
     pub recipient: String,
     /// `kind` — `conductor.dispatch.MessageKind`.
@@ -1350,6 +1358,8 @@ impl AnyMessage {
 pub struct ResourceRequestData {
     /// The identity: `resource_request_id` — `conductor.dispatch.ResourceRequestId`.
     pub resource_request_id: ResourceRequestId,
+    /// `actor` — `conductor.operator.Actor`.
+    pub actor: crate::operator::Actor,
     /// `repository` — `conductor.observation.RepositoryName`.
     pub repository: crate::observation::RepositoryName,
     /// `resource` — `conductor.dispatch.ResourceKind`.
@@ -1582,6 +1592,8 @@ impl AnyResourceRequest {
 /// Everything it can result in is [`CancelDispatchOutcome`].
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct CancelDispatch {
+    /// `actor` — `conductor.operator.Actor`.
+    pub actor: crate::operator::Actor,
     /// `dispatch_id` — `conductor.dispatch.DispatchId`.
     pub dispatch_id: DispatchId,
     /// `reason` — `String`.
@@ -1621,6 +1633,8 @@ pub enum CancelDispatchOutcome {
 /// Everything it can result in is [`GrantResourceOutcome`].
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct GrantResource {
+    /// `actor` — `conductor.operator.Actor`.
+    pub actor: crate::operator::Actor,
     /// `resource_request_id` — `conductor.dispatch.ResourceRequestId`.
     pub resource_request_id: ResourceRequestId,
     /// `disk_free_bytes` — `Integer`.
@@ -1667,6 +1681,8 @@ pub enum GrantResourceOutcome {
 /// Everything it can result in is [`HandleMessageOutcome`].
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct HandleMessage {
+    /// `actor` — `conductor.operator.Actor`.
+    pub actor: crate::operator::Actor,
     /// `message_id` — `conductor.dispatch.MessageId`.
     pub message_id: MessageId,
 }
@@ -1711,6 +1727,8 @@ pub enum HandleMessageOutcome {
 /// Everything it can result in is [`PauseControllerOutcome`].
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct PauseController {
+    /// `actor` — `conductor.operator.Actor`.
+    pub actor: crate::operator::Actor,
     /// `controller_id` — `conductor.dispatch.ControllerId`.
     pub controller_id: ControllerId,
 }
@@ -1748,6 +1766,8 @@ pub enum PauseControllerOutcome {
 /// Everything it can result in is [`ReceiveMessageOutcome`].
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ReceiveMessage {
+    /// `actor` — `conductor.operator.Actor`.
+    pub actor: crate::operator::Actor,
     /// `sender` — `String`.
     pub sender: String,
     /// `recipient` — `String`.
@@ -1801,6 +1821,8 @@ pub enum ReceiveMessageOutcome {
 /// Everything it can result in is [`RecordGuardDecisionOutcome`].
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct RecordGuardDecision {
+    /// `actor` — `conductor.operator.Actor`.
+    pub actor: crate::operator::Actor,
     /// `repository` — `conductor.observation.RepositoryName`.
     pub repository: crate::observation::RepositoryName,
     /// `session_ref` — `String`.
@@ -1838,6 +1860,8 @@ pub enum RecordGuardDecisionOutcome {
 /// Everything it can result in is [`RefuseResourceOutcome`].
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct RefuseResource {
+    /// `actor` — `conductor.operator.Actor`.
+    pub actor: crate::operator::Actor,
     /// `resource_request_id` — `conductor.dispatch.ResourceRequestId`.
     pub resource_request_id: ResourceRequestId,
     /// `reason` — `String`.
@@ -1877,6 +1901,8 @@ pub enum RefuseResourceOutcome {
 /// Everything it can result in is [`RejectMessageOutcome`].
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct RejectMessage {
+    /// `actor` — `conductor.operator.Actor`.
+    pub actor: crate::operator::Actor,
     /// `message_id` — `conductor.dispatch.MessageId`.
     pub message_id: MessageId,
     /// `reason` — `String`.
@@ -1916,6 +1942,8 @@ pub enum RejectMessageOutcome {
 /// Everything it can result in is [`ReleaseResourceOutcome`].
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ReleaseResource {
+    /// `actor` — `conductor.operator.Actor`.
+    pub actor: crate::operator::Actor,
     /// `resource_request_id` — `conductor.dispatch.ResourceRequestId`.
     pub resource_request_id: ResourceRequestId,
 }
@@ -1953,6 +1981,8 @@ pub enum ReleaseResourceOutcome {
 /// Everything it can result in is [`ReportBlockedOutcome`].
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ReportBlocked {
+    /// `actor` — `conductor.operator.Actor`.
+    pub actor: crate::operator::Actor,
     /// `dispatch_id` — `conductor.dispatch.DispatchId`.
     pub dispatch_id: DispatchId,
     /// `reason` — `String`.
@@ -1992,6 +2022,8 @@ pub enum ReportBlockedOutcome {
 /// Everything it can result in is [`ReportDoneOutcome`].
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ReportDone {
+    /// `actor` — `conductor.operator.Actor`.
+    pub actor: crate::operator::Actor,
     /// `dispatch_id` — `conductor.dispatch.DispatchId`.
     pub dispatch_id: DispatchId,
     /// `evidence` — `String`.
@@ -2031,6 +2063,8 @@ pub enum ReportDoneOutcome {
 /// Everything it can result in is [`ReportFailedOutcome`].
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ReportFailed {
+    /// `actor` — `conductor.operator.Actor`.
+    pub actor: crate::operator::Actor,
     /// `dispatch_id` — `conductor.dispatch.DispatchId`.
     pub dispatch_id: DispatchId,
     /// `reason` — `String`.
@@ -2070,6 +2104,8 @@ pub enum ReportFailedOutcome {
 /// Everything it can result in is [`ReportStartedOutcome`].
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ReportStarted {
+    /// `actor` — `conductor.operator.Actor`.
+    pub actor: crate::operator::Actor,
     /// `dispatch_id` — `conductor.dispatch.DispatchId`.
     pub dispatch_id: DispatchId,
 }
@@ -2107,6 +2143,8 @@ pub enum ReportStartedOutcome {
 /// Everything it can result in is [`ReportUnblockedOutcome`].
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ReportUnblocked {
+    /// `actor` — `conductor.operator.Actor`.
+    pub actor: crate::operator::Actor,
     /// `dispatch_id` — `conductor.dispatch.DispatchId`.
     pub dispatch_id: DispatchId,
 }
@@ -2144,6 +2182,8 @@ pub enum ReportUnblockedOutcome {
 /// Everything it can result in is [`RequestResourceOutcome`].
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct RequestResource {
+    /// `actor` — `conductor.operator.Actor`.
+    pub actor: crate::operator::Actor,
     /// `repository` — `conductor.observation.RepositoryName`.
     pub repository: crate::observation::RepositoryName,
     /// `resource` — `conductor.dispatch.ResourceKind`.
@@ -2182,6 +2222,8 @@ pub enum RequestResourceOutcome {
 /// Everything it can result in is [`ResumeControllerOutcome`].
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ResumeController {
+    /// `actor` — `conductor.operator.Actor`.
+    pub actor: crate::operator::Actor,
     /// `controller_id` — `conductor.dispatch.ControllerId`.
     pub controller_id: ControllerId,
 }
@@ -2219,6 +2261,8 @@ pub enum ResumeControllerOutcome {
 /// Everything it can result in is [`ReviseCharterOutcome`].
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ReviseCharter {
+    /// `actor` — `conductor.operator.Actor`.
+    pub actor: crate::operator::Actor,
     /// `controller_id` — `conductor.dispatch.ControllerId`.
     pub controller_id: ControllerId,
 }
@@ -2263,6 +2307,8 @@ pub enum ReviseCharterOutcome {
 /// Everything it can result in is [`RouteNeedOutcome`].
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct RouteNeed {
+    /// `actor` — `conductor.operator.Actor`.
+    pub actor: crate::operator::Actor,
     /// `message_id` — `conductor.dispatch.MessageId`.
     pub message_id: MessageId,
     /// `dispatch_id` — `conductor.dispatch.DispatchId`.
@@ -2309,6 +2355,8 @@ pub enum RouteNeedOutcome {
 /// Everything it can result in is [`SendDispatchOutcome`].
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SendDispatch {
+    /// `actor` — `conductor.operator.Actor`.
+    pub actor: crate::operator::Actor,
     /// `dispatch_id` — `conductor.dispatch.DispatchId`.
     pub dispatch_id: DispatchId,
     /// `repository` — `conductor.observation.RepositoryName`.
@@ -2381,6 +2429,8 @@ pub enum SendDispatchOutcome {
 /// Everything it can result in is [`StartControllerOutcome`].
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct StartController {
+    /// `actor` — `conductor.operator.Actor`.
+    pub actor: crate::operator::Actor,
     /// `repository` — `conductor.observation.RepositoryName`.
     pub repository: crate::observation::RepositoryName,
     /// `harness` — `conductor.observation.Harness`.
@@ -2417,6 +2467,8 @@ pub enum StartControllerOutcome {
 /// Everything it can result in is [`StopControllerOutcome`].
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct StopController {
+    /// `actor` — `conductor.operator.Actor`.
+    pub actor: crate::operator::Actor,
     /// `controller_id` — `conductor.dispatch.ControllerId`.
     pub controller_id: ControllerId,
     /// `reason` — `String`.
@@ -2454,6 +2506,8 @@ pub enum StopControllerOutcome {
 /// CharterRevised — the event `conductor.dispatch.CharterRevised`.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct CharterRevised {
+    /// `actor` — `conductor.operator.Actor`.
+    pub actor: crate::operator::Actor,
     /// `controller_id` — `conductor.dispatch.ControllerId`.
     pub controller_id: ControllerId,
 }
@@ -2461,6 +2515,8 @@ pub struct CharterRevised {
 /// ControllerPaused — the event `conductor.dispatch.ControllerPaused`.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ControllerPaused {
+    /// `actor` — `conductor.operator.Actor`.
+    pub actor: crate::operator::Actor,
     /// `controller_id` — `conductor.dispatch.ControllerId`.
     pub controller_id: ControllerId,
 }
@@ -2468,6 +2524,8 @@ pub struct ControllerPaused {
 /// ControllerResumed — the event `conductor.dispatch.ControllerResumed`.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ControllerResumed {
+    /// `actor` — `conductor.operator.Actor`.
+    pub actor: crate::operator::Actor,
     /// `controller_id` — `conductor.dispatch.ControllerId`.
     pub controller_id: ControllerId,
 }
@@ -2475,6 +2533,8 @@ pub struct ControllerResumed {
 /// ControllerStarted — the event `conductor.dispatch.ControllerStarted`.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ControllerStarted {
+    /// `actor` — `conductor.operator.Actor`.
+    pub actor: crate::operator::Actor,
     /// `controller_id` — `conductor.dispatch.ControllerId`.
     pub controller_id: ControllerId,
     /// `repository` — `conductor.observation.RepositoryName`.
@@ -2486,6 +2546,8 @@ pub struct ControllerStarted {
 /// ControllerStopped — the event `conductor.dispatch.ControllerStopped`.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ControllerStopped {
+    /// `actor` — `conductor.operator.Actor`.
+    pub actor: crate::operator::Actor,
     /// `controller_id` — `conductor.dispatch.ControllerId`.
     pub controller_id: ControllerId,
     /// `reason` — `String`.
@@ -2495,6 +2557,8 @@ pub struct ControllerStopped {
 /// DispatchBlocked — the event `conductor.dispatch.DispatchBlocked`.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct DispatchBlocked {
+    /// `actor` — `conductor.operator.Actor`.
+    pub actor: crate::operator::Actor,
     /// `dispatch_id` — `conductor.dispatch.DispatchId`.
     pub dispatch_id: DispatchId,
     /// `reason` — `String`.
@@ -2504,6 +2568,8 @@ pub struct DispatchBlocked {
 /// DispatchCancelled — the event `conductor.dispatch.DispatchCancelled`.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct DispatchCancelled {
+    /// `actor` — `conductor.operator.Actor`.
+    pub actor: crate::operator::Actor,
     /// `dispatch_id` — `conductor.dispatch.DispatchId`.
     pub dispatch_id: DispatchId,
     /// `reason` — `String`.
@@ -2513,6 +2579,8 @@ pub struct DispatchCancelled {
 /// DispatchDone — the event `conductor.dispatch.DispatchDone`.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct DispatchDone {
+    /// `actor` — `conductor.operator.Actor`.
+    pub actor: crate::operator::Actor,
     /// `dispatch_id` — `conductor.dispatch.DispatchId`.
     pub dispatch_id: DispatchId,
     /// `evidence` — `String`.
@@ -2522,6 +2590,8 @@ pub struct DispatchDone {
 /// DispatchFailed — the event `conductor.dispatch.DispatchFailed`.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct DispatchFailed {
+    /// `actor` — `conductor.operator.Actor`.
+    pub actor: crate::operator::Actor,
     /// `dispatch_id` — `conductor.dispatch.DispatchId`.
     pub dispatch_id: DispatchId,
     /// `reason` — `String`.
@@ -2531,6 +2601,8 @@ pub struct DispatchFailed {
 /// DispatchSent — the event `conductor.dispatch.DispatchSent`.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct DispatchSent {
+    /// `actor` — `conductor.operator.Actor`.
+    pub actor: crate::operator::Actor,
     /// `dispatch_id` — `conductor.dispatch.DispatchId`.
     pub dispatch_id: DispatchId,
     /// `repository` — `conductor.observation.RepositoryName`.
@@ -2542,6 +2614,8 @@ pub struct DispatchSent {
 /// DispatchStarted — the event `conductor.dispatch.DispatchStarted`.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct DispatchStarted {
+    /// `actor` — `conductor.operator.Actor`.
+    pub actor: crate::operator::Actor,
     /// `dispatch_id` — `conductor.dispatch.DispatchId`.
     pub dispatch_id: DispatchId,
 }
@@ -2549,6 +2623,8 @@ pub struct DispatchStarted {
 /// DispatchUnblocked — the event `conductor.dispatch.DispatchUnblocked`.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct DispatchUnblocked {
+    /// `actor` — `conductor.operator.Actor`.
+    pub actor: crate::operator::Actor,
     /// `dispatch_id` — `conductor.dispatch.DispatchId`.
     pub dispatch_id: DispatchId,
 }
@@ -2556,6 +2632,8 @@ pub struct DispatchUnblocked {
 /// GuardDecisionRecorded — the event `conductor.dispatch.GuardDecisionRecorded`.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct GuardDecisionRecorded {
+    /// `actor` — `conductor.operator.Actor`.
+    pub actor: crate::operator::Actor,
     /// `guard_decision_id` — `conductor.dispatch.GuardDecisionId`.
     pub guard_decision_id: GuardDecisionId,
     /// `repository` — `conductor.observation.RepositoryName`.
@@ -2569,6 +2647,8 @@ pub struct GuardDecisionRecorded {
 /// MessageHandled — the event `conductor.dispatch.MessageHandled`.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct MessageHandled {
+    /// `actor` — `conductor.operator.Actor`.
+    pub actor: crate::operator::Actor,
     /// `message_id` — `conductor.dispatch.MessageId`.
     pub message_id: MessageId,
 }
@@ -2576,6 +2656,8 @@ pub struct MessageHandled {
 /// MessageReceived — the event `conductor.dispatch.MessageReceived`.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct MessageReceived {
+    /// `actor` — `conductor.operator.Actor`.
+    pub actor: crate::operator::Actor,
     /// `message_id` — `conductor.dispatch.MessageId`.
     pub message_id: MessageId,
     /// `sender` — `String`.
@@ -2587,6 +2669,8 @@ pub struct MessageReceived {
 /// MessageRejected — the event `conductor.dispatch.MessageRejected`.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct MessageRejected {
+    /// `actor` — `conductor.operator.Actor`.
+    pub actor: crate::operator::Actor,
     /// `message_id` — `conductor.dispatch.MessageId`.
     pub message_id: MessageId,
     /// `reason` — `String`.
@@ -2596,6 +2680,8 @@ pub struct MessageRejected {
 /// NeedRouted — the event `conductor.dispatch.NeedRouted`.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct NeedRouted {
+    /// `actor` — `conductor.operator.Actor`.
+    pub actor: crate::operator::Actor,
     /// `message_id` — `conductor.dispatch.MessageId`.
     pub message_id: MessageId,
     /// `dispatch_id` — `conductor.dispatch.DispatchId`.
@@ -2605,6 +2691,8 @@ pub struct NeedRouted {
 /// ResourceGranted — the event `conductor.dispatch.ResourceGranted`.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ResourceGranted {
+    /// `actor` — `conductor.operator.Actor`.
+    pub actor: crate::operator::Actor,
     /// `resource_request_id` — `conductor.dispatch.ResourceRequestId`.
     pub resource_request_id: ResourceRequestId,
 }
@@ -2612,6 +2700,8 @@ pub struct ResourceGranted {
 /// ResourceRefused — the event `conductor.dispatch.ResourceRefused`.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ResourceRefused {
+    /// `actor` — `conductor.operator.Actor`.
+    pub actor: crate::operator::Actor,
     /// `resource_request_id` — `conductor.dispatch.ResourceRequestId`.
     pub resource_request_id: ResourceRequestId,
     /// `reason` — `String`.
@@ -2621,6 +2711,8 @@ pub struct ResourceRefused {
 /// ResourceReleased — the event `conductor.dispatch.ResourceReleased`.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ResourceReleased {
+    /// `actor` — `conductor.operator.Actor`.
+    pub actor: crate::operator::Actor,
     /// `resource_request_id` — `conductor.dispatch.ResourceRequestId`.
     pub resource_request_id: ResourceRequestId,
 }
@@ -2628,6 +2720,8 @@ pub struct ResourceReleased {
 /// ResourceRequested — the event `conductor.dispatch.ResourceRequested`.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ResourceRequested {
+    /// `actor` — `conductor.operator.Actor`.
+    pub actor: crate::operator::Actor,
     /// `resource_request_id` — `conductor.dispatch.ResourceRequestId`.
     pub resource_request_id: ResourceRequestId,
     /// `repository` — `conductor.observation.RepositoryName`.
@@ -2830,6 +2924,8 @@ pub struct Controllers {
     pub session_name: crate::config::SessionName,
     /// `charter_revision` — `Integer`.
     pub charter_revision: i64,
+    /// `actor` — `conductor.operator.Actor`.
+    pub actor: crate::operator::Actor,
 }
 
 /// Dispatches — one row of the view `conductor.dispatch.Dispatches`.
@@ -2855,6 +2951,8 @@ pub struct Dispatches {
     pub priority: i64,
     /// `waits_on` — `Optional<conductor.dispatch.DispatchId>`.
     pub waits_on: Option<DispatchId>,
+    /// `actor` — `conductor.operator.Actor`.
+    pub actor: crate::operator::Actor,
 }
 
 /// Guard decisions — one row of the view `conductor.dispatch.GuardDecisions`.
@@ -2880,6 +2978,8 @@ pub struct GuardDecisions {
     pub reason: String,
     /// `decided_at` — `Timestamp`.
     pub decided_at: crate::primitives::Timestamp,
+    /// `actor` — `conductor.operator.Actor`.
+    pub actor: crate::operator::Actor,
 }
 
 /// Messages — one row of the view `conductor.dispatch.Messages`.
@@ -2909,6 +3009,8 @@ pub struct Messages {
     pub body_path: Option<String>,
     /// `dispatch_id` — `Optional<conductor.dispatch.DispatchId>`.
     pub dispatch_id: Option<DispatchId>,
+    /// `actor` — `conductor.operator.Actor`.
+    pub actor: crate::operator::Actor,
 }
 
 /// Resource requests — one row of the view `conductor.dispatch.ResourceRequests`.
@@ -2930,6 +3032,8 @@ pub struct ResourceRequests {
     pub amount: i64,
     /// `requested_at` — `Timestamp`.
     pub requested_at: crate::primitives::Timestamp,
+    /// `actor` — `conductor.operator.Actor`.
+    pub actor: crate::operator::Actor,
 }
 
 /// What this bounded context owes its implementor, and the seams of what is generated.

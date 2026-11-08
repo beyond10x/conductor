@@ -1,57 +1,47 @@
-//! `conductor dashboard serve`: a live page of what every session works on
-//! (`story:live-dashboard`), read-only but for the operator's answers on its Decisions page
-//! (`story:decisions-batch-answer`).
+//! The instance API (`story:instance-api`, design architecture-next § 5.1): what was the
+//! per-instance dashboard server, its routes under `/v1/` on the instance runtime's Unix socket
+//! (`<state>/api.sock`, [`crate::instance`]), which conductord proxies at
+//! `/v1/instances/{name}/<route>` and whose app it serves ([`crate::daemon::api`]). The routes are
+//! read-only but for the operator's answers on the Decisions page (`story:decisions-batch-answer`),
+//! the settings and the Plan page's moves. What it shows is presentation, not a record, and nothing
+//! it reads enters the store.
 //!
-//! The command is presented by the `ess-cli/1` binding `crates/conductor/cli.yaml`, over the
-//! `local` callable `dashboard-serve` and its input `conductor.observation.DashboardServe`. It is
-//! not a placed command of the `cli:` block: what it shows is presentation, not a record, and
-//! nothing it reads enters the store.
+//! It serves no app and checks no `Host` or `Origin`: the socket is the runtime's own, mode 0600,
+//! and the daemon admits the browser (its host, its origin, its token or an Identity bearer) before
+//! it forwards. `/v1/data.json` is the data the app reads every 20 s. Any other path is 404 and any
+//! other method on a route 405.
 //!
-//! It listens on `127.0.0.1` only and answers `GET` of the app and of its data
-//! (`story:dashboard-spa`): `/` is the `index.html` of the Vue app built into
-//! `crates/conductor/dashboard/dist/` (`task ui`), each file under that directory is served at its
-//! own path with its content type, and `/data.json` is the data the app reads every 20 s. The
-//! build is embedded in the binary ([`APP`]), so serving it needs neither Node nor a file next to
-//! the binary. Any other path is 404, any other method on those 405, and a request naming another
-//! `Host` 403, so a page served from elsewhere cannot read the data through DNS rebinding. Every
-//! answer carries [`CONTENT_SECURITY_POLICY`]: the app loads its script, its style and its data
-//! from this server and nothing else.
-//!
-//! The one write ([`answers`], `story:decisions-batch-answer`): `POST /api/answers` records a batch
+//! The one write ([`answers`], `story:decisions-batch-answer`): `POST /v1/answers` records a batch
 //! of the operator's answers to open escalated requests, each as his decision recorded by
-//! `dashboard`, and answers it row by row; any other method on it is 405. `index.html` carries the
-//! token the server minted at start in `<meta name="conductor-token">`, and a batch is taken only
-//! with that token, from the page's own origin, as JSON of at most 64 KiB. Anyone who can read the
-//! page can read the token: a local process that does is recorded as the operator
-//! (`website/docs/security/overview.md`).
+//! `dashboard`, and answers it row by row; any other method on it is 405. A batch is taken only
+//! with the token the daemon minted for the instance at its start
+//! ([`crate::instance::TOKEN_VARIABLE`]), in `X-Conductor-Token`, as JSON of at most 64 KiB. The
+//! daemon names the operator it admitted in `X-Conductor-Operator`, and the answer is recorded as
+//! that operator's (`story:instance-api`); without the header, as the Unix user's.
 //!
 //! The pages' writes take the same terms through one path (`post_write`), each recording one
-//! decision by the operator: `POST /api/config` writes the Configuration page's staged changes
-//! (`story:dashboard-config-page`, [`configure`]), and `POST /api/plan` the Plan page's move,
+//! decision by the operator: `PUT /v1/settings` writes the Configuration page's staged changes
+//! (`story:dashboard-config-page`, [`configure`]), and `POST /v1/plan` the Plan page's move,
 //! start, priority or comment of a story, through the `aep` CLI of the checkout's planning store
-//! (`story:dashboard-plan-board`, [`plan`]). `/api/plan` and `/api/plan/story` answer the board
+//! (`story:dashboard-plan-board`, [`plan`]). `/v1/plan` and `/v1/plan/story` answer the board
 //! and one story.
 //!
-//! The overview's endpoints (`story:dashboard-overview`, [`overview`]): `/api/board`,
-//! `/api/repositories`, `/api/pull-requests`, `/api/workflow-runs`, `/api/releases` and
-//! `/api/reviews` (what waits for review, `story:review-limit`) answer
+//! The overview's endpoints (`story:dashboard-overview`, [`overview`]): `/v1/board`,
+//! `/v1/repositories`, `/v1/pull-requests`, `/v1/workflow-runs`, `/v1/releases` and
+//! `/v1/reviews` (what waits for review, `story:review-limit`) answer
 //! the newest complete snapshot of the store under the instance's state directory, opened only
-//! when it is there ([`serve_over`] names another); `/api/events?since=<rfc3339>` the events since
-//! then, 00:00 UTC of the day without `since`; `/api/unanswered` the count of unanswered class-O
+//! when it is there ([`serve_unix`] names another); `/v1/events?since=<rfc3339>` the events since
+//! then, 00:00 UTC of the day without `since`; `/v1/unanswered` the count of unanswered class-O
 //! and class-H items and the oldest one's age (`story:decisions-notify`).
 //!
-//! The Decisions page's data ([`decisions`], `story:decisions-page`): `/api/decisions` answers the
+//! The Decisions page's data ([`decisions`], `story:decisions-page`): `/v1/decisions` answers the
 //! open class-O and class-H items with what the operator chooses from, oldest first, and the
 //! records' decision log, newest first, computed once per write to the store or the log.
 //!
-//! The charts' series and the KPIs ([`series`]): `/api/series` lists the series and, with
-//! `?series=<name>&by=<dimension>&days=<n>`, answers one by day and group; `/api/kpis` answers
+//! The charts' series and the KPIs ([`series`]): `/v1/series` lists the series and, with
+//! `?series=<name>&by=<dimension>&days=<n>`, answers one by day and group; `/v1/kpis` answers
 //! each KPI against its target. Both read the daily rollups of the same store
 //! (`story:dashboard-history`), the day ending now in UTC.
-//!
-//! The header's instance selector ([`instances`], `story:dashboard-instance-switch`):
-//! `/api/instances` answers every instance of the host registry with its dashboard's page, the
-//! one this server listens for marked current; each instance keeps its own dashboard.
 //!
 //! Every endpoint answers warm in under 200 ms (`story:dashboard-fast`, [`cache`]): an answer that
 //! reads the store is computed once per write to the store, through one store handle the server
@@ -61,7 +51,7 @@
 //! the background, at most once per endpoint per [`cache::DEBOUNCE`]; a request before an
 //! endpoint's first answer is answered `503` with `Retry-After` after [`cache::COLD_WAIT`].
 //!
-//! Each request reads its [`Sources`] afresh, but the session list; none but `POST /api/answers`
+//! Each request reads its [`Sources`] afresh, but the session list; none but `POST /v1/answers`
 //! writes:
 //! - the session list a command prints (`claude agents --json`), read on a thread of its own every
 //!   [`cache::SESSIONS_EVERY`], each request taking the last one with when it was read
@@ -86,14 +76,14 @@
 //! measurement with its `measured_at`.
 //!
 //! A source that cannot be read is named in `errors`; the others still show. No path under the
-//! home directory is printed in full: every string `/data.json` carries writes it as `~`.
+//! home directory is printed in full: every string `/v1/data.json` carries writes it as `~`.
 
+mod agents;
 mod answers;
 mod cache;
 pub mod configure;
 pub mod decisions;
 mod health;
-pub mod instances;
 pub mod overview;
 pub mod plan;
 pub mod repo;
@@ -102,18 +92,21 @@ mod sessions;
 mod usage;
 pub(crate) mod waste;
 
-pub use answers::ANSWERS_PATH;
+pub use answers::{
+    ANSWERS_PATH, MAX_BODY, OPERATOR_HEADER, TOKEN_HEADER, mint, page_with, same as same_token,
+    same_origin,
+};
 pub use cache::{Probe, Tuning};
 pub use health::{HealthSources, failure_class};
-pub use instances::INSTANCES_PATH;
 
 use std::ffi::OsString;
 use std::fs;
 use std::hash::{Hash as _, Hasher as _};
-use std::io::{self, ErrorKind, Read as _, Write as _};
-use std::net::{Shutdown, TcpListener, TcpStream};
+use std::io::{self, ErrorKind, Read, Write as _};
+use std::net::Shutdown;
+use std::os::unix::net::{UnixListener, UnixStream};
 use std::path::{Path, PathBuf};
-use std::process::{Command, ExitCode};
+use std::process::Command;
 use std::sync::{Arc, Mutex, PoisonError};
 use std::time::{Duration, Instant};
 
@@ -125,20 +118,17 @@ use serde_json::{Value, json};
 use time::OffsetDateTime;
 use time::format_description::well_known::Rfc3339;
 
-use crate::cli::DashboardServeArgs;
 use crate::config;
 
-/// The port `dashboard serve` listens on without `--port`.
-pub const DEFAULT_PORT: u16 = 7313;
-
-/// The dashboard app as `task ui` builds it: `index.html` and its assets, embedded at build time.
+/// The dashboard app as `task ui` builds it: `index.html` and its assets, embedded at build time;
+/// conductord serves it ([`crate::daemon::api`]).
 static APP: Dir<'static> = include_dir!("$CARGO_MANIFEST_DIR/dashboard/dist");
 
-/// The policy every answer carries: the app's script, style and data come from this server only.
+/// The policy every answer carries: the app's script, style and data come from its server only.
 pub const CONTENT_SECURITY_POLICY: &str =
     "default-src 'none'; script-src 'self'; style-src 'self'; connect-src 'self'";
 
-/// Characters of a brief, a reason or a question `/data.json` carries.
+/// Characters of a brief, a reason or a question `/v1/data.json` carries.
 const EXCERPT: usize = 120;
 
 /// The longest request head read; a longer one is answered 400.
@@ -149,7 +139,7 @@ const IO_TIMEOUT: Duration = Duration::from_secs(5);
 
 /// What to do about a member a collector could not read, by the class of its error's first line
 /// ([`failure_class`]): the one table the health view's fixes come from
-/// (`story:dashboard-health`), each class with the name `/api/health` gives it.
+/// (`story:dashboard-health`), each class with the name `/v1/health` gives it.
 pub const FAILURE_FIXES: [(FailureClass, &str, &str); 5] = [
     (
         FailureClass::NeedsLogin,
@@ -393,31 +383,6 @@ fn watch_dir(home: &Path, root: &Path) -> PathBuf {
     }
 }
 
-/// `conductor dashboard serve`: listens on `127.0.0.1:<--port>` (default the instance's
-/// `dashboard_port`, [`DEFAULT_PORT`] for the first instance; 0 picks a free port), prints `listening on http://127.0.0.1:<port>` as its first line, and
-/// serves until it is stopped.
-///
-/// # Errors
-///
-/// When `HOME` is not an absolute path, the working directory cannot be read, or the port cannot
-/// be bound.
-pub fn dashboard_serve(args: &DashboardServeArgs) -> Result<ExitCode> {
-    let sources = Sources::active(args.root.clone())?;
-    // The instance's own port (`story:instance-isolation`), so two instances never serve one.
-    let port = args.port.unwrap_or_else(|| {
-        u16::try_from(crate::config::active().instance.dashboard_port).unwrap_or(DEFAULT_PORT)
-    });
-    let listener = TcpListener::bind(("127.0.0.1", port))
-        .with_context(|| format!("listen on 127.0.0.1:{port}"))?;
-    let bound = listener.local_addr()?.port();
-    let mut out = io::stdout().lock();
-    writeln!(out, "listening on http://127.0.0.1:{bound}")?;
-    out.flush()?;
-    drop(out);
-    serve(listener, sources)?;
-    Ok(ExitCode::SUCCESS)
-}
-
 /// The nearest of `start` and its ancestors that holds both `dispatches/` and `decisions/`, or
 /// `start` when none does.
 fn find_root(start: &Path) -> PathBuf {
@@ -441,14 +406,14 @@ struct Server {
     stores: cache::Stores,
     /// The answers of the endpoints that read the store ([`STORED_PATHS`]), by request target.
     answers: cache::Memo<cache::Body>,
-    /// What `/api/waiting-on` reads from the store.
+    /// What `/v1/waiting-on` reads from the store.
     facts: cache::Memo<Result<repo::Facts, String>>,
-    /// The unanswered operator items `/api/unanswered` reads from the store
+    /// The unanswered operator items `/v1/unanswered` reads from the store
     /// (`story:decisions-notify`); their age is taken at each request.
     unanswered: cache::Memo<Result<Vec<crate::status::OperatorItem>, String>>,
     /// The health view's newest snapshot with its rows.
     snapshot_health: cache::Memo<health::Newest>,
-    /// What `/data.json` reads from the store: the controllers and the open operator items
+    /// What `/v1/data.json` reads from the store: the controllers and the open operator items
     /// (`story:sessions-page-coherent`).
     roster: cache::Memo<Roster>,
     /// The last session list.
@@ -460,6 +425,10 @@ struct Server {
     writes: Mutex<()>,
     /// The debounce and the cold wait of the kept answers.
     tuning: cache::Tuning,
+    /// The agents behind `agents/{name}/*` (`story:agent-kinds`).
+    agents: Mutex<crate::agent::Runtime>,
+    /// The providers an agent's kind starts and stops it through.
+    providers: crate::confine::Host,
 }
 
 /// A computation of a kept answer: of the key given, over the store given.
@@ -495,7 +464,7 @@ const ANSWERS: Kind<cache::Body> = Kind {
     },
 };
 
-/// What `/api/waiting-on` reads from the store, without the session list and the watch's files,
+/// What `/v1/waiting-on` reads from the store, without the session list and the watch's files,
 /// which each request reads; why when the store does not open.
 const FACTS: Kind<Result<repo::Facts, String>> = Kind {
     memo: |server| &server.facts,
@@ -509,7 +478,7 @@ const FACTS: Kind<Result<repo::Facts, String>> = Kind {
 /// The unanswered operator items of a store, or why it does not open.
 type Unanswered = Result<Vec<crate::status::OperatorItem>, String>;
 
-/// The unanswered operator items of the store, which `/api/unanswered` answers with the oldest
+/// The unanswered operator items of the store, which `/v1/unanswered` answers with the oldest
 /// one's age now (`story:decisions-notify`); why when the store does not open.
 const UNANSWERED: Kind<Unanswered> = Kind {
     memo: |server| &server.unanswered,
@@ -520,10 +489,10 @@ const UNANSWERED: Kind<Unanswered> = Kind {
     },
 };
 
-/// What `/data.json` reads from a store, or why it does not open.
+/// What `/v1/data.json` reads from a store, or why it does not open.
 type Roster = Result<sessions::Roster, String>;
 
-/// The controllers and the open operator items of the store, which `/data.json` joins with the
+/// The controllers and the open operator items of the store, which `/v1/data.json` joins with the
 /// session list and the records at each request (`story:sessions-page-coherent`); why when the
 /// store does not open.
 const ROSTER: Kind<Roster> = Kind {
@@ -576,15 +545,15 @@ impl<T: Clone + cache::Weigh> Drop for Unfinished<'_, T> {
     }
 }
 
-/// The endpoints whose answer is the store's alone, `/api/events` and `/api/decisions` the
+/// The endpoints whose answer is the store's alone, `/v1/events` and `/v1/decisions` the
 /// records' too: each is computed once per write and served from memory.
 const STORED_PATHS: [&str; 12] = [
-    "/api/board",
-    "/api/repositories",
-    "/api/pull-requests",
-    "/api/workflow-runs",
-    "/api/releases",
-    "/api/reviews",
+    "/v1/board",
+    "/v1/repositories",
+    "/v1/pull-requests",
+    "/v1/workflow-runs",
+    "/v1/releases",
+    "/v1/reviews",
     overview::EVENTS_PATH,
     decisions::DECISIONS_PATH,
     series::SERIES_PATH,
@@ -594,8 +563,8 @@ const STORED_PATHS: [&str; 12] = [
 ];
 
 /// Two of [`repo::PATHS`] that read the store alone.
-const BLOCKERS_PATH: &str = "/api/blockers";
-const SPECIFICATIONS_PATH: &str = "/api/specifications";
+const BLOCKERS_PATH: &str = "/v1/blockers";
+const SPECIFICATIONS_PATH: &str = "/v1/specifications";
 
 /// The fingerprints of what the kept answers read, taken once per request or warming.
 struct Fingerprints {
@@ -608,8 +577,8 @@ struct Fingerprints {
 }
 
 impl Server {
-    fn new(sources: Sources, state: Option<PathBuf>, tuning: cache::Tuning) -> io::Result<Self> {
-        Ok(Self {
+    fn new(sources: Sources, state: Option<PathBuf>, tuning: cache::Tuning, token: String) -> Self {
+        Self {
             sources,
             state,
             waste: waste::Cache::default(),
@@ -622,10 +591,12 @@ impl Server {
             snapshot_health: cache::Memo::default(),
             roster: cache::Memo::default(),
             sessions: cache::SessionList::default(),
-            token: answers::Token::mint()?,
+            token: answers::Token::given(token),
             writes: Mutex::new(()),
             tuning,
-        })
+            agents: Mutex::new(crate::agent::Runtime::new(Box::new(agents::print))),
+            providers: crate::confine::Host,
+        }
     }
 
     /// What this process holds in memory (`story:dashboard-memory-bound`): its resident set, its
@@ -684,7 +655,7 @@ impl Server {
     fn store_path(&self) -> Option<PathBuf> {
         self.state
             .clone()
-            .filter(|state| state.join("tree").exists())
+            .filter(|state| crate::store::present(state))
     }
 
     /// The answer of `kind` for `key` at `fingerprint`: kept and fresh; kept and stale, served at
@@ -826,7 +797,7 @@ impl Server {
         }
     }
 
-    /// What `/api/waiting-on` reads from the store, at `fingerprints`, without the session list
+    /// What `/v1/waiting-on` reads from the store, at `fingerprints`, without the session list
     /// and the watch's files, which each request reads; why when the store does not open; with
     /// when it was computed when it is stale; none before it was first computed.
     fn facts(
@@ -838,7 +809,7 @@ impl Server {
         served(self.serve(FACTS, "facts", fingerprints.store, asked, wait))
     }
 
-    /// The unanswered operator items of the store, at `fingerprints`, which `/api/unanswered`
+    /// The unanswered operator items of the store, at `fingerprints`, which `/v1/unanswered`
     /// answers with the oldest one's age now (`story:decisions-notify`); why when the store does
     /// not open; with when they were computed when they are stale; none before they were first
     /// computed.
@@ -852,7 +823,7 @@ impl Server {
     }
 
     /// The controllers and open operator items of the store, at `fingerprints`, which
-    /// `/data.json` reads (`story:sessions-page-coherent`); why when the store does not open;
+    /// `/v1/data.json` reads (`story:sessions-page-coherent`); why when the store does not open;
     /// with when they were computed when they are stale; none before they were first computed.
     fn roster(
         self: &Arc<Self>,
@@ -941,44 +912,49 @@ fn send_served(served: cache::Served<cache::Body>, condition: Option<&str>) -> V
     }
 }
 
-/// Answers every connection `listener` accepts, each on a thread of its own, from `sources`. The
-/// first disk and token measurements start at once. The snapshot endpoints read the store under
-/// the state directory [`crate::state::dir`] decides without a flag: the instance's `state`.
+/// Answers every connection `listener`, the instance runtime's socket, accepts, each on a thread
+/// of its own, from `sources`; the snapshot endpoints read the store under `state`, or none when
+/// it is `None` (the seam a test points at a fixture store, `story:dashboard-overview`); a write
+/// is taken with `token`. The first disk and token measurements start at once.
 ///
-/// # Errors
-///
-/// When the listener has no local address. Otherwise it does not return: a failed connection is
-/// reported on standard error and the next one is taken.
-pub fn serve(listener: TcpListener, sources: Sources) -> Result<()> {
-    serve_over(listener, sources, crate::state::dir(None).ok())
+/// It does not return: a failed connection is reported on standard error and the next one is
+/// taken.
+pub fn serve_unix(listener: UnixListener, sources: Sources, state: Option<PathBuf>, token: String) {
+    serve_unix_tuned(listener, sources, state, cache::Tuning::default(), token);
 }
 
-/// [`serve`], the snapshot endpoints reading the store under `state`, or none when it is `None`:
-/// the seam a test points at a fixture store (`story:dashboard-overview`).
-///
-/// # Errors
-///
-/// As [`serve`].
-pub fn serve_over(listener: TcpListener, sources: Sources, state: Option<PathBuf>) -> Result<()> {
-    serve_tuned(listener, sources, state, cache::Tuning::default())
+/// [`serve_unix`] with the agents of `runtime` behind the routes `agents/{name}/attach`,
+/// `deliver` and `restart` ([`agents`], `story:agent-kinds`); [`serve_unix`] serves an empty
+/// runtime of the built-in kinds.
+pub fn serve_unix_with_agents(
+    listener: UnixListener,
+    sources: Sources,
+    state: Option<PathBuf>,
+    token: String,
+    runtime: crate::agent::Runtime,
+) {
+    let mut server = Server::new(sources, state, cache::Tuning::default(), token);
+    server.agents = Mutex::new(runtime);
+    run(listener, Arc::new(server));
 }
 
-/// [`serve_over`] with `tuning`: the seam a test shortens the waits of and watches the
+/// [`serve_unix`] with `tuning`: the seam a test shortens the waits of and watches the
 /// computations through.
-///
-/// # Errors
-///
-/// As [`serve`].
-pub fn serve_tuned(
-    listener: TcpListener,
+pub fn serve_unix_tuned(
+    listener: UnixListener,
     sources: Sources,
     state: Option<PathBuf>,
     tuning: cache::Tuning,
-) -> Result<()> {
-    let port = listener.local_addr()?.port();
-    let server = Arc::new(
-        Server::new(sources, state, tuning).context("mint the token the page is served with")?,
+    token: String,
+) {
+    run(
+        listener,
+        Arc::new(Server::new(sources, state, tuning, token)),
     );
+}
+
+/// Serves `server` on `listener`, as [`serve_unix`] says.
+fn run(listener: UnixListener, server: Arc<Server>) {
     server.waste.refresh(&server.sources);
     server.usage.refresh(&server.sources);
     // The session list is read at start and every `SESSIONS_EVERY` after, off the request path;
@@ -1009,19 +985,18 @@ pub fn serve_tuned(
         let stream = match stream {
             Ok(stream) => stream,
             Err(error) => {
-                eprintln!("conductor dashboard: accept: {error}");
+                eprintln!("conductor instance serve: accept: {error}");
                 std::thread::sleep(Duration::from_millis(100));
                 continue;
             }
         };
         let server = Arc::clone(&server);
         std::thread::spawn(move || {
-            if let Err(error) = connection(stream, port, &server) {
-                eprintln!("conductor dashboard: {error}");
+            if let Err(error) = connection(stream, &server) {
+                eprintln!("conductor instance serve: {error}");
             }
         });
     }
-    Ok(())
 }
 
 /// How much of what a client still sends after its answer is read before the connection closes:
@@ -1030,13 +1005,13 @@ const DRAIN: u64 = (MAX_HEAD + 4 * answers::MAX_BODY) as u64;
 
 /// Reads one request head, answers it (reading a body only where the answer takes one) and closes
 /// the connection.
-fn connection(mut stream: TcpStream, port: u16, server: &Arc<Server>) -> io::Result<()> {
+fn connection(mut stream: UnixStream, server: &Arc<Server>) -> io::Result<()> {
     stream.set_read_timeout(Some(IO_TIMEOUT))?;
     stream.set_write_timeout(Some(IO_TIMEOUT))?;
     let (head, early) = read_head(&mut stream)?;
     let reply = {
         let mut body = |length: usize| read_body(&mut stream, &early, length);
-        answer(head.as_deref(), port, server, &mut body)
+        answer(head.as_deref(), server, &mut body)
     };
     stream.write_all(&reply)?;
     stream.flush()?;
@@ -1048,7 +1023,7 @@ fn connection(mut stream: TcpStream, port: u16, server: &Arc<Server>) -> io::Res
 }
 
 /// The body of `length` bytes: what was read with the head, `early`, then the rest from `stream`.
-fn read_body(stream: &mut TcpStream, early: &[u8], length: usize) -> io::Result<Vec<u8>> {
+fn read_body(stream: &mut impl Read, early: &[u8], length: usize) -> io::Result<Vec<u8>> {
     let mut body = early[..early.len().min(length)].to_vec();
     if body.len() < length {
         let mut rest = vec![0_u8; length - body.len()];
@@ -1060,7 +1035,7 @@ fn read_body(stream: &mut TcpStream, early: &[u8], length: usize) -> io::Result<
 
 /// The request head up to its blank line, or `None` when the client stops or exceeds
 /// [`MAX_HEAD`] first; with the bytes read after the blank line, the start of a body.
-fn read_head(stream: &mut TcpStream) -> io::Result<(Option<String>, Vec<u8>)> {
+pub(crate) fn read_head(stream: &mut impl Read) -> io::Result<(Option<String>, Vec<u8>)> {
     let mut head = Vec::new();
     let mut chunk = [0_u8; 2048];
     loop {
@@ -1080,9 +1055,8 @@ fn read_head(stream: &mut TcpStream) -> io::Result<(Option<String>, Vec<u8>)> {
     }
 }
 
-/// What a path names: a file of the app, or the data.
+/// What a path names: one of the data routes.
 enum Resource {
-    App(&'static File<'static>),
     Data,
     /// One of [`overview::SNAPSHOT_PATHS`].
     Snapshot,
@@ -1100,16 +1074,15 @@ enum Resource {
     Series,
     /// [`series::KPIS_PATH`] (`story:dashboard-kpi-panels`).
     Kpis,
-    /// [`instances::INSTANCES_PATH`] (`story:dashboard-instance-switch`).
-    Instances,
 }
 
 /// The health view's data (`story:dashboard-health`, `dashboard/health.rs`).
-pub const HEALTH_PATH: &str = "/api/health";
+pub const HEALTH_PATH: &str = "/v1/health";
 
-/// The file of the app at the request path `path`: `index.html` for `/`, else the file at that
+/// The file of the app at the request path `path` (conductord serves it): `index.html` for `/`,
+/// else the file at that
 /// path under the build, or none. A path with an empty, `.` or `..` segment names none.
-fn app_file(path: &str) -> Option<&'static File<'static>> {
+pub fn app_file(path: &str) -> Option<&'static File<'static>> {
     let relative = path.strip_prefix('/')?;
     if relative.is_empty() {
         return APP.get_file("index.html");
@@ -1125,7 +1098,7 @@ fn app_file(path: &str) -> Option<&'static File<'static>> {
 }
 
 /// The content type of a file of the app, by its extension.
-fn content_type(file: &File<'_>) -> &'static str {
+pub fn content_type(file: &File<'_>) -> &'static str {
     match file
         .path()
         .extension()
@@ -1145,10 +1118,9 @@ fn content_type(file: &File<'_>) -> &'static str {
 }
 
 /// The whole HTTP answer to one request head; `body` reads the request's body of a given length,
-/// which only `POST /api/answers` does.
+/// which only `POST /v1/answers` does.
 fn answer(
     head: Option<&str>,
-    port: u16,
     server: &Arc<Server>,
     body: &mut dyn FnMut(usize) -> io::Result<Vec<u8>>,
 ) -> Vec<u8> {
@@ -1175,23 +1147,16 @@ fn answer(
             .find(|(name, _)| name.eq_ignore_ascii_case(wanted))
             .map(|(_, value)| *value)
     };
-    let host = header("host");
     // A client that holds an answer names its `ETag`; an answer it holds is `304`.
     let condition = header("if-none-match");
-    let own = [format!("127.0.0.1:{port}"), format!("localhost:{port}")];
-    if !host.is_some_and(|host| own.iter().any(|own| own.eq_ignore_ascii_case(host))) {
-        return response(
-            403,
-            "Forbidden",
-            PLAIN,
-            b"this server answers only its own host\n",
-            "",
-        );
-    }
     let path = target.split_once('?').map_or(*target, |(path, _)| path);
     let snapshot: Option<&'static str> = overview::SNAPSHOT_PATHS
         .into_iter()
         .find(|known| *known == path);
+    // The agents of the instance (`story:agent-kinds`, design § 5.1).
+    if let Some(rest) = path.strip_prefix(agents::PREFIX) {
+        return agents::answer(method, rest, &header, server, body);
+    }
     if path == answers::ANSWERS_PATH {
         if *method != "POST" {
             return response(
@@ -1202,14 +1167,15 @@ fn answer(
                 "Allow: POST\r\n",
             );
         }
-        return post_answers(&header, port, server, body);
+        return post_answers(&header, server, body);
     }
-    // The Configuration page (story:dashboard-config-page): its data, and its one write.
+    // The Configuration page (story:dashboard-config-page): the settings, read with GET and written
+    // with PUT (story:instance-api).
     if path == configure::CONFIG_PATH {
         return match *method {
             "GET" => {
                 let home = server.sources.home.display().to_string();
-                let answer = configure::answer(&server.sources, server.state.as_deref(), port);
+                let answer = configure::answer(&server.sources, server.state.as_deref());
                 cache::send(
                     &cache::Body::json(200, &tilde_all(answer, home.trim_end_matches('/'))),
                     condition,
@@ -1217,13 +1183,13 @@ fn answer(
                     false,
                 )
             }
-            "POST" => post_write(&header, port, server, body, configure::write),
+            "PUT" => post_write(&header, server, body, configure::write),
             _ => response(
                 405,
                 "Method Not Allowed",
                 PLAIN,
-                b"only GET or POST\n",
-                "Allow: GET, POST\r\n",
+                b"only GET or PUT\n",
+                "Allow: GET, PUT\r\n",
             ),
         };
     }
@@ -1242,7 +1208,7 @@ fn answer(
                     false,
                 )
             }
-            "POST" => post_write(&header, port, server, body, plan::write),
+            "POST" => post_write(&header, server, body, plan::write),
             _ => response(
                 405,
                 "Method Not Allowed",
@@ -1288,9 +1254,8 @@ fn answer(
         };
     }
     let resource = match (path, snapshot) {
-        ("/data.json", _) => Resource::Data,
+        ("/v1/data.json", _) => Resource::Data,
         (HEALTH_PATH, _) => Resource::Health,
-        (instances::INSTANCES_PATH, _) => Resource::Instances,
         (_, Some(_)) => Resource::Snapshot,
         (overview::EVENTS_PATH, _) => Resource::Events,
         (overview::UNANSWERED_PATH, _) => Resource::Unanswered,
@@ -1303,10 +1268,7 @@ fn answer(
                 .find(|known| *known == path)
                 .unwrap_or_default(),
         ),
-        _ => match app_file(path) {
-            Some(file) => Resource::App(file),
-            None => return response(404, "Not Found", PLAIN, b"not found\n", ""),
-        },
+        _ => return response(404, "Not Found", PLAIN, b"not found\n", ""),
     };
     if *method != "GET" {
         return response(
@@ -1325,16 +1287,6 @@ fn answer(
     let home = server.sources.home.display().to_string();
     let home = home.trim_end_matches('/');
     match resource {
-        // The page carries the token a batch of answers is taken with
-        // (story:decisions-batch-answer).
-        Resource::App(file) if file.path() == Path::new("index.html") => response(
-            200,
-            "OK",
-            content_type(file),
-            &server.token.page_with(file.contents()),
-            "",
-        ),
-        Resource::App(file) => response(200, "OK", content_type(file), file.contents(), ""),
         Resource::Data => {
             server.waste.refresh(&server.sources);
             server.usage.refresh(&server.sources);
@@ -1398,11 +1350,6 @@ fn answer(
             Some((Err(error), stale)) => send(&cache::Body::text(500, error), stale),
             None => unavailable(),
         },
-        Resource::Instances => {
-            let name = config::active().instance.name.0.clone();
-            let answer = instances::answer(&server.sources.home, port, &name);
-            send(&cache::Body::json(200, &tilde_all(answer, home)), None)
-        }
         Resource::Decisions => decisions_answer(server, condition),
         Resource::Snapshot | Resource::Events | Resource::Series | Resource::Kpis => send_served(
             server.stored(target, &server.fingerprints(), true, true),
@@ -1414,7 +1361,7 @@ fn answer(
         ),
         Resource::Repo(path) => {
             let listed = server.sessions.last();
-            let (answer, stale) = if path == "/api/waiting-on" {
+            let (answer, stale) = if path == "/v1/waiting-on" {
                 let (mut facts, stale) = match server.facts(&server.fingerprints(), true, true) {
                     Some((Ok(facts), stale)) => (facts, stale),
                     Some((Err(error), stale)) => {
@@ -1444,12 +1391,11 @@ fn answer(
     }
 }
 
-/// `POST /api/answers` (`story:decisions-batch-answer`, [`answers`]): with its headers admitted,
+/// `POST /v1/answers` (`story:decisions-batch-answer`, [`answers`]): with its headers admitted,
 /// reads the body and records the batch, one batch at a time, then drops the answers kept in
 /// memory, so the next read shows what was recorded.
 fn post_answers<'a>(
     header: &impl Fn(&str) -> Option<&'a str>,
-    port: u16,
     server: &Server,
     body: &mut dyn FnMut(usize) -> io::Result<Vec<u8>>,
 ) -> Vec<u8> {
@@ -1463,7 +1409,7 @@ fn post_answers<'a>(
             "",
         )
     };
-    let length = match answers::admitted(header, port, &server.token) {
+    let length = match answers::admitted(header, &server.token) {
         Ok(length) => length,
         Err(why) => return refused(why),
     };
@@ -1478,7 +1424,9 @@ fn post_answers<'a>(
     };
     let recorded = {
         let _one = server.writes.lock().unwrap_or_else(PoisonError::into_inner);
-        let recorded = answers::record(server.state.as_deref(), &bytes);
+        let recorded = crate::actor::as_operator(header(answers::OPERATOR_HEADER), || {
+            answers::record(server.state.as_deref(), &bytes)
+        });
         server.answers.clear();
         server.facts.clear();
         server.unanswered.clear();
@@ -1499,15 +1447,14 @@ fn post_answers<'a>(
 /// the refusal.
 type PageWrite = fn(&Sources, Option<&Path>, &[u8]) -> Result<serde_json::Value, answers::Refused>;
 
-/// The dashboard's one write path for its pages' writes: `POST /api/config`
-/// (`story:dashboard-config-page`, [`configure`]) and `POST /api/plan`
-/// (`story:dashboard-plan-board`, [`plan`]). Admitted as a batch of answers is (the server's
-/// own host and origin on 127.0.0.1, the page's token, JSON of a bounded length), then done by
+/// The instance API's one write path for its pages' writes: `PUT /v1/settings`
+/// (`story:dashboard-config-page`, [`configure`]) and `POST /v1/plan`
+/// (`story:dashboard-plan-board`, [`plan`]). Admitted as a batch of answers is (the instance's
+/// token, JSON of a bounded length), then done by
 /// `write` one write at a time, each recording its own decision; after a write the answers kept
 /// in memory are dropped, as after a batch.
 fn post_write<'a>(
     header: &impl Fn(&str) -> Option<&'a str>,
-    port: u16,
     server: &Server,
     body: &mut dyn FnMut(usize) -> io::Result<Vec<u8>>,
     write: PageWrite,
@@ -1527,7 +1474,7 @@ fn post_write<'a>(
             "",
         )
     };
-    let length = match answers::admitted(header, port, &server.token) {
+    let length = match answers::admitted(header, &server.token) {
         Ok(length) => length,
         Err(why) => return refused(why),
     };
@@ -1542,7 +1489,9 @@ fn post_write<'a>(
     };
     let written = {
         let _one = server.writes.lock().unwrap_or_else(PoisonError::into_inner);
-        let written = write(&server.sources, server.state.as_deref(), &bytes);
+        let written = crate::actor::as_operator(header(answers::OPERATOR_HEADER), || {
+            write(&server.sources, server.state.as_deref(), &bytes)
+        });
         server.answers.clear();
         server.facts.clear();
         server.unanswered.clear();
@@ -1560,7 +1509,7 @@ fn post_write<'a>(
 }
 
 /// A store that is there and does not open, answered `500` with its reason on one line.
-/// `/api/decisions` (`story:decisions-page`): the answer kept while neither the store nor the
+/// `/v1/decisions` (`story:decisions-page`): the answer kept while neither the store nor the
 /// decision log changed ([`Server::stored`]), `304` when `condition` names its `ETag`.
 fn decisions_answer(server: &Arc<Server>, condition: Option<&str>) -> Vec<u8> {
     let fingerprints = server.fingerprints();
@@ -1628,7 +1577,7 @@ fn collect(
         errors.push(error);
         sessions::Roster::default()
     });
-    let shown = sessions::shown(&listed.rows, &roster, &sources.home, &dispatches, now);
+    let shown = sessions::shown(&listed.rows, &roster, &dispatches, now);
     let mut disk = disk(&sources.disk, &mut errors);
     if let (Value::Object(disk), Value::Object(waste)) = (&mut disk, waste) {
         disk.extend(waste);

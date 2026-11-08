@@ -5,7 +5,8 @@ mod series_fixture;
 
 use std::fs;
 use std::io::{BufRead, BufReader, Read, Write};
-use std::net::{Shutdown, TcpStream};
+use std::net::Shutdown;
+use std::os::unix::net::UnixStream;
 use std::path::{Path, PathBuf};
 use std::process::{Child, Stdio};
 use std::time::Duration;
@@ -25,6 +26,7 @@ fn an_over_budget_forge_does_not_count_open_prs_as_closed() {
     let taken = snapshot::take_from(
         case.store(),
         StartSnapshot {
+            actor: conductor_cli::actor::daemon(),
             started_at: Timestamp(series_fixture::B.to_owned()),
             disk_free_bytes: 1_000_000,
             budget: None,
@@ -90,14 +92,7 @@ fn dashboard_doctor_checks_the_explicit_config_file() {
     let home = case.dir.join("home");
     let file = config(&home);
     let child = common::conductor(&home)
-        .args([
-            "--config",
-            file.to_str().unwrap(),
-            "dashboard",
-            "serve",
-            "--port",
-            "0",
-        ])
+        .args(["--config", file.to_str().unwrap(), "instance", "serve"])
         .env("PATH", home.join("empty-path"))
         .current_dir(&home)
         .stdout(Stdio::piped())
@@ -109,19 +104,20 @@ fn dashboard_doctor_checks_the_explicit_config_file() {
     BufReader::new(server.0.stdout.take().unwrap())
         .read_line(&mut line)
         .unwrap();
-    let address = line
+    let socket = line
         .trim()
-        .strip_prefix("listening on http://")
+        .split_once(": serving /v1/ on ")
+        .map(|(_, socket)| socket.to_owned())
         .expect("server bound");
     let mut latest = Value::Null;
     for _ in 0..50 {
-        let mut stream = TcpStream::connect(address).unwrap();
+        let mut stream = UnixStream::connect(&socket).unwrap();
         stream
             .set_read_timeout(Some(Duration::from_secs(5)))
             .unwrap();
         write!(
             stream,
-            "GET /api/health HTTP/1.1\r\nHost: {address}\r\nConnection: close\r\n\r\n"
+            "GET /v1/health HTTP/1.1\r\nConnection: close\r\n\r\n"
         )
         .unwrap();
         stream.shutdown(Shutdown::Write).unwrap();

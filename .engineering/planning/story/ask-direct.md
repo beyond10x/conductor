@@ -2,14 +2,16 @@
 format: aep.planning-md/3
 id: story:ask-direct
 kind: story
-status: draft
+status: archived
 title: conductor ask --to or @instance reaches one director, and the answer is labelled
 relations:
 - decomposes: epic:host-bridge
 - depends_on: story:host-instances-list
 - depends_on: story:mailbox
 - depends_on: story:operator-relay-verified
-revision: 2
+revision: 3
+transitions:
+- {from: "draft", to: "archived", at: "2026-11-07T23:41:20Z", actor: "human:timo", revision: 3}
 ---
 # Story: ask-direct
 

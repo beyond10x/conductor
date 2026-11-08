@@ -1,0 +1,73 @@
+# docs/design/architecture-next.md § 7: the runtime records a run-to-exit agent's report, the
+# `[REPORT]` line its adapter wrote from the program's exit code and events file, with the agent
+# as the actor.
+# The runtime's own commands (declaring its kinds, a stop it observed) carry `{kind: Daemon}`;
+# a start names the operator a single host implies (§ 5.3), who asked for it.
+type: ess-scenario/1
+domain: conductor.agent
+scenario: agent-record-agent-report
+summary: A run-to-exit agent's report is recorded with its exit code and events file, naming the agent as the actor.
+
+timeline:
+  - at: 2026-11-08T09:00:00Z
+    command: conductor.agent.DeclareAgentKind
+    actor: conductor.agent.InstanceRuntime
+    input:
+      actor: {kind: Daemon}
+      name: example-run-to-exit
+      capabilities: [RunToExit]
+      binary: example-runner
+    outcome: declared
+
+  - at: 2026-11-08T09:01:00Z
+    command: conductor.agent.StartAgent
+    actor: conductor.agent.InstanceRuntime
+    input:
+      actor: {kind: Human, operator: example-operator}
+      name: example-org-implementer
+      instance: example-org
+      role: Director
+      kind: example-run-to-exit
+      capabilities: [RunToExit]
+      profile: ~/example-org/roles/controller.md
+      limits: {tasks_max: 512}
+      token_owner: example-operator
+      started_at: 2026-11-08T09:01:00Z
+    outcome: started
+
+  - at: 2026-11-08T09:01:01Z
+    command: conductor.agent.MarkAgentRunning
+    actor: conductor.agent.InstanceRuntime
+    input:
+      actor: {kind: Daemon}
+      name: example-org-implementer
+      running_at: 2026-11-08T09:01:01Z
+    outcome: running
+    events:
+      - event: conductor.agent.AgentRunning
+        payload:
+          name: example-org-implementer
+
+  - at: 2026-11-08T09:30:00Z
+    command: conductor.agent.RecordAgentReport
+    actor: conductor.agent.InstanceRuntime
+    input:
+      actor: {kind: Agent, agent: {instance: example-org, role: Lead, name: example-org-implementer, kind: example-run-to-exit}}
+      name: example-org-implementer
+      line: "[REPORT example-repo story-1] done exit 0"
+      exit_code: 0
+      events_path: runs/example-org-implementer/events.jsonl
+      reported_at: 2026-11-08T09:30:00Z
+    outcome: reported
+    events:
+      - event: conductor.agent.AgentReported
+        payload:
+          name: example-org-implementer
+          exit_code: 0
+          events_path: runs/example-org-implementer/events.jsonl
+
+assert:
+  - view: conductor.agent.Agents
+    contains:
+      name: example-org-implementer
+      state: Running

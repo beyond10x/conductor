@@ -1,0 +1,40 @@
+# Design § 4: the daemon starts what the config names and nothing runs; a second start of an
+# instance that is coming up changes nothing.
+# The daemon acts on its own account: `{kind: Daemon}`.
+type: ess-scenario/1
+domain: conductor.instance
+scenario: instance-start-instance
+summary: The daemon starts an instance the config names; a second start while it comes up changes nothing.
+
+timeline:
+  - at: 2026-11-08T09:00:00Z
+    command: conductor.instance.StartInstance
+    actor: conductor.instance.Conductord
+    input:
+      actor: {kind: Daemon}
+      name: example-org
+      placement: local
+      roles: [Director]
+      box_id: 6f1c1d2e-0000-4000-8000-000000000001
+      at: 2026-11-08T09:00:00Z
+    outcome: created
+
+  - at: 2026-11-08T09:00:05Z
+    command: conductor.instance.StartInstance
+    actor: conductor.instance.Conductord
+    input:
+      actor: {kind: Daemon}
+      name: example-org
+      placement: local
+      roles: [Director]
+      box_id: 6f1c1d2e-0000-4000-8000-000000000001
+      at: 2026-11-08T09:00:05Z
+    outcome: already-started
+
+assert:
+  - view: conductor.instance.Instances
+    contains:
+      name: example-org
+      state: Starting
+      placement: local
+      box_id: 6f1c1d2e-0000-4000-8000-000000000001

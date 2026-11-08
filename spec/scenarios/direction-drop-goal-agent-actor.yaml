@@ -1,0 +1,34 @@
+# Design architecture-next.md § 3, Actors: a goal change by the operator is a person's; an agent
+# actor under the operator's grant is refused by name, and the goal is not dropped.
+type: ess-scenario/1
+domain: conductor.direction
+scenario: direction-drop-goal-agent-actor
+summary: An agent actor dropping a goal is refused as not a person, and the goal stays a draft.
+
+timeline:
+  - at: 2026-11-08T09:00:00Z
+    command: conductor.direction.ProposeGoal
+    actor: conductor.direction.Conductor
+    input:
+      actor: {kind: Agent, agent: {instance: example-org, role: Director, name: example-org-conductor, kind: claude-code}}
+      goal_id: G-agent-drop
+      title: Ship the local store
+      exit_evidence: a reopened store lists the goal
+    outcome: proposed
+
+  - at: 2026-11-08T09:00:01Z
+    command: conductor.direction.DropGoal
+    actor: conductor.direction.Operator
+    input:
+      actor: {kind: Agent, agent: {instance: example-org, role: Director, name: example-org-conductor, kind: claude-code}}
+      goal_id: G-agent-drop
+      reason: no longer needed
+    outcome: agent-actor
+    error:
+      name: conductor.operator.ActorNotHuman
+
+assert:
+  - view: conductor.direction.Goals
+    contains:
+      goal_id: G-agent-drop
+      state: Draft

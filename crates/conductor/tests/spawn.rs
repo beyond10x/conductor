@@ -327,7 +327,7 @@ impl Case {
 
     /// Whether the store was created at all.
     fn recorded(&self) -> bool {
-        self.state().join("tree").exists()
+        self.state().join("store.sqlite").exists()
     }
 }
 
@@ -563,7 +563,7 @@ fn spawn_refuses_a_repository_whose_controller_is_recorded_running() {
 #[test]
 fn spawn_refuses_what_it_cannot_start_before_recording_anything() {
     type Setup = fn(&Case);
-    let cases: [(&str, &str, Setup); 11] = [
+    let cases: [(&str, &str, Setup); 10] = [
         ("no-charter", "NoCharter", |case| {
             fs::remove_file(case.charter()).expect("remove the charter");
         }),
@@ -577,20 +577,14 @@ fn spawn_refuses_what_it_cannot_start_before_recording_anything() {
         ("no-checkout", "NoCheckout", |case| {
             fs::remove_dir_all(case.checkout().join(".git")).expect("remove .git");
         }),
-        ("no-profile", "NoProfile", |case| {
-            case.write_config(&format!(
-                "{{role: controller, harness: claude, model: sonnet, settings: {}}}",
-                case.settings().display()
-            ));
-        }),
+        // A role that names no profile or no settings starts from the binary's
+        // (`spawn_without_a_profile_or_settings_starts_from_the_binary_s`); one that names a file
+        // that is not there is refused.
         ("missing-profile", "NoProfile", |case| {
             fs::remove_file(case.profile()).expect("remove the profile");
         }),
-        ("no-settings", "NoSettings", |case| {
-            case.write_config(&format!(
-                "{{role: controller, harness: claude, model: sonnet, profile: {}}}",
-                case.profile().display()
-            ));
+        ("missing-settings", "NoSettings", |case| {
+            fs::remove_file(case.settings()).expect("remove the settings");
         }),
         // `story:instance-isolation`, item 1: settings that pin another instance. Settings that
         // pin none start with a pinned copy (`spawn_starts_unpinned_settings_with_a_pinned_copy`).
@@ -647,14 +641,57 @@ fn spawn_refuses_what_it_cannot_start_before_recording_anything() {
     assert!(problems.is_empty(), "{}", problems.join("\n"));
 }
 
+/// `story:roles-in-the-binary`: a controller role that names no profile and no settings starts
+/// from the controller profile and settings the binary carries, which the `claude-code` kind
+/// writes into the state directory, `<state>/sessions/<session name>.profile.md` and the pinned
+/// `.settings.json`; nothing is written under `~/.claude/agents/`.
+#[test]
+fn spawn_without_a_profile_or_settings_starts_from_the_binary_s() {
+    let case = Case::new("binary-role");
+    case.write_config("{role: controller, harness: claude, model: sonnet}");
+    let output = case.spawn();
+    assert!(output.status.success(), "spawn: {}", describe(&output));
+    let profile = case.state().join("sessions/ex-alpha.profile.md");
+    let settings = case.state().join("sessions/ex-alpha.settings.json");
+    let argv = case.argv();
+    for (flag, file) in [
+        ("--append-system-prompt-file", &profile),
+        ("--settings", &settings),
+    ] {
+        let at = argv
+            .iter()
+            .position(|arg| arg == flag)
+            .unwrap_or_else(|| panic!("a {flag} argument: {argv:?}"));
+        assert_eq!(argv[at + 1], file.display().to_string(), "{flag}: {argv:?}");
+    }
+    let root = Path::new(env!("CARGO_MANIFEST_DIR"));
+    assert_eq!(
+        fs::read_to_string(&profile).expect("the written profile"),
+        fs::read_to_string(root.join("roles/controller.md")).expect("the controller profile")
+    );
+    let pinned: Value =
+        serde_json::from_str(&fs::read_to_string(&settings).expect("the written settings"))
+            .expect("JSON");
+    assert_eq!(
+        pinned["hooks"]["PreToolUse"][0]["hooks"][0]["command"],
+        "CONDUCTOR_INSTANCE=example-org conductor guard record-guard-decision \
+         --from-pre-tool-use || exit 2",
+        "the binary's controller settings, pinned: {pinned}"
+    );
+    assert!(
+        !case.home().join(".claude/agents").exists(),
+        "nothing is written under ~/.claude/agents/"
+    );
+}
+
 /// `story:instance-isolation`, item 1: a controller role whose settings file pins no instance, as
-/// the shipped `.claude/controller-settings.json` the guides name does, starts with a copy of it
+/// the binary's `kinds/claude-code/controller-settings.json` does, starts with a copy of it
 /// pinned to the instance, `<state>/sessions/<session name>.settings.json`; the file itself is
 /// not changed. A file whose env pins the instance and one hook does not is pinned the same way.
 #[test]
 fn spawn_starts_unpinned_settings_with_a_pinned_copy() {
     let shipped = fs::read_to_string(
-        Path::new(env!("CARGO_MANIFEST_DIR")).join("../../.claude/controller-settings.json"),
+        Path::new(env!("CARGO_MANIFEST_DIR")).join("kinds/claude-code/controller-settings.json"),
     )
     .expect("the shipped controller settings");
     let hook_only = json!({

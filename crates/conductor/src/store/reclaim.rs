@@ -67,6 +67,7 @@ impl ReclaimRunStorage for Store {
 fn encode(run: &ReclaimRunSnapshot) -> Value {
     let data = &run.data;
     json!({
+        "actor": crate::actor::to_json(&data.actor),
         "state": state_name(run.state),
         "reclaim_run_id": data.reclaim_run_id.0,
         "instance": data.instance.0,
@@ -112,6 +113,7 @@ fn decode(body: &Value) -> Result<ReclaimRunSnapshot, String> {
     Ok(ReclaimRunSnapshot {
         state: state_named(&state).ok_or_else(|| format!("unknown ReclaimRun state {state:?}"))?,
         data: ReclaimRunData {
+            actor: crate::actor::stored(body)?,
             reclaim_run_id: ReclaimRunId(text(body, "reclaim_run_id")?),
             instance: InstanceName(text(body, "instance")?),
             result: result_named(&result)

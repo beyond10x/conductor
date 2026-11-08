@@ -2,12 +2,14 @@
 format: aep.planning-md/3
 id: epic:agency-runner
 kind: epic
-status: draft
+status: archived
 title: conductor dispatches through Agency's API
 summary: Work items and runs through Agency, events read back, Send and Report, approvals and credential grants through Agency; then the default runner
 relations:
 - depends_on: epic:cross-repository-waves
-revision: 1
+revision: 2
+transitions:
+- {from: "draft", to: "archived", at: "2026-11-07T23:41:22Z", actor: "human:timo", revision: 2}
 ---
 # Epic: agency-runner
 

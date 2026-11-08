@@ -2,13 +2,18 @@
 format: aep.planning-md/3
 id: story:federated-views
 kind: story
-status: draft
+status: implemented
 title: the global API federates sessions, decisions, unanswered, kpis, events and ask across instances
 summary: union views with an instance column; an unreachable instance is a row, not an error
 relations:
 - decomposes: epic:architecture-next
+- depends_on: story:spec-v1
 - depends_on: story:instance-api
-revision: 1
+revision: 4
+transitions:
+- {from: "draft", to: "proposed", at: "2026-11-07T23:41:24Z", actor: "human:timo", revision: 2}
+- {from: "proposed", to: "active", at: "2026-11-07T23:41:24Z", actor: "human:timo", revision: 3}
+- {from: "active", to: "implemented", at: "2026-11-08T19:46:03Z", actor: "human:timo", revision: 4, decided_on: {"recorded":{"test_result":1}}}
 ---
 ## Why
 

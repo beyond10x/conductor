@@ -4850,17 +4850,16 @@ fn an_instance_without_a_prefix_beside_one_with_keeps_today_s_rules() {
 // Adversary, wave 03 U1 (`story:instance-session-names`).
 // -------------------------------------------------------------------------------------------------
 
-/// The controller profile, `.agents/repo-controller.md`, tells a controller how its messages go:
+/// The controller profile, `crates/conductor/roles/controller.md`, tells a controller how its messages go:
 /// every report is sent as the `conductor message send` command it names
 /// (`story:controller-profile-for-run`). A controller that follows its profile must be let through
 /// by the guard: that command, its session name filled in and the message on standard input, is
 /// allowed from the controller's checkout and from a worker's tree.
 #[test]
 fn adv_w03_u1_the_report_command_the_controller_profile_names_is_allowed() {
-    let profile = fs::read_to_string(
-        Path::new(env!("CARGO_MANIFEST_DIR")).join("../../.agents/repo-controller.md"),
-    )
-    .expect("read the controller profile");
+    let profile =
+        fs::read_to_string(Path::new(env!("CARGO_MANIFEST_DIR")).join("roles/controller.md"))
+            .expect("read the controller profile");
     let marker = "is sent as `";
     let start = profile
         .find(marker)
@@ -5845,24 +5844,26 @@ fn conductor_s_bash_is_not_held_to_conductor_build_run() {
 // -------------------------------------------------------------------------------------------------
 
 /// No session answers for the operator through the dashboard: a Bash call of conductor or of a
-/// controller that names `/api/answers`, or the instance's dashboard port (7313 without a config
-/// file) with a POST or a body, is denied, however the loopback address is spelt.
+/// controller that names an answers route, or the daemon's port (7300 without a config
+/// file) or an instance's `api.sock` with a POST or a body, is denied, however the loopback
+/// address is spelt (`story:instance-api`).
 #[test]
 fn no_session_posts_to_the_dashboard() {
     let home = home("dashboard-answers");
     for cwd in [CONDUCTOR, PROBE] {
         for command in [
-            "curl -s -X POST http://127.0.0.1:7313/api/answers -d '{}'",
-            "curl http://localhost:7313/api/answers",
-            "wget -qO- 'http://[::1]:7313/api/answers'",
-            "curl -XPOST http://0x7f000001:7313/api/decisions",
-            "curl --data @answers.json http://127.0.0.1:7313/",
-            "curl -d '{\"answers\":[]}' http://localhost:7313/x",
-            "curl --request POST 'http://[::1]:7313/'",
-            "curl --json '{}' http://127.1:7313/",
-            "wget --post-data=x http://2130706433:7313/",
-            "http POST :7313/api/x answers:='[]'",
-            "u=http://127.0.0.1:7313; curl -X POST $u/api/answers",
+            "curl -s -X POST http://127.0.0.1:7300/v1/instances/example-org/answers -d '{}'",
+            "curl http://localhost:7300/v1/instances/example-org/answers",
+            "wget -qO- 'http://[::1]:7300/v1/instances/example-org/answers'",
+            "curl -XPOST http://0x7f000001:7300/v1/instances/example-org/decisions",
+            "curl --data @answers.json http://127.0.0.1:7300/",
+            "curl -d '{\"answers\":[]}' http://localhost:7300/x",
+            "curl --request POST 'http://[::1]:7300/'",
+            "curl --json '{}' http://127.1:7300/",
+            "wget --post-data=x http://2130706433:7300/",
+            "http POST :7300/v1/x answers:='[]'",
+            "u=http://127.0.0.1:7300; curl -X POST $u/v1/instances/example-org/answers",
+            "curl --unix-socket ~/.b10x/conductor/example-org/state/api.sock -X PUT -d x http://localhost/v1/settings",
         ] {
             assert_verdict(
                 &bash(&home, cwd, command),
@@ -5879,10 +5880,10 @@ fn a_session_still_reads_the_dashboard() {
     let home = home("dashboard-reads");
     for cwd in [CONDUCTOR, PROBE] {
         for command in [
-            "curl -s http://127.0.0.1:7313/api/decisions",
-            "curl -s http://localhost:7313/data.json | head",
+            "curl -s http://127.0.0.1:7300/v1/instances/example-org/decisions",
+            "curl -s http://localhost:7300/v1/instances/example-org/data.json | head",
             "curl -s -X POST -d x http://127.0.0.1:8080/",
-            "curl -s http://127.0.0.1:73130/",
+            "curl -s http://127.0.0.1:73000/",
         ] {
             assert_verdict(&bash(&home, cwd, command), Verdict::Allow, "");
         }
@@ -5900,8 +5901,8 @@ fn adv_a_dashboard_read_piped_through_tr_or_cut_is_allowed() {
     let home = home("adv-dashboard-read-filters");
     for cwd in [CONDUCTOR, PROBE] {
         for command in [
-            "curl -s http://127.0.0.1:7313/api/decisions | tr -d '\\n'",
-            "curl -s http://localhost:7313/api/unanswered | cut -d' ' -f1",
+            "curl -s http://127.0.0.1:7300/v1/instances/example-org/decisions | tr -d '\\n'",
+            "curl -s http://localhost:7300/v1/instances/example-org/unanswered | cut -d' ' -f1",
         ] {
             assert_verdict(&bash(&home, cwd, command), Verdict::Allow, "");
         }
@@ -5915,8 +5916,8 @@ fn adv_a_python_one_liner_posting_a_body_to_the_port_is_denied() {
     let home = home("adv-dashboard-python");
     for cwd in [CONDUCTOR, PROBE] {
         for command in [
-            "python3 -c \"import urllib.request as r; r.urlopen(r.Request('http://127.0.0.1:7313/api/answer' 's', data=open('a.json','rb').read(), headers={'Content-Type': 'application/json', 'Sec-Fetch-Site': 'same-origin', 'X-Conductor-Token': open('t').read()}))\"",
-            "python3 -c \"import requests; requests.post('http://localhost:7313/api/answer' 's', json={'answers': []})\"",
+            "python3 -c \"import urllib.request as r; r.urlopen(r.Request('http://127.0.0.1:7300/v1/instances/example-org/answer' 's', data=open('a.json','rb').read(), headers={'Content-Type': 'application/json', 'Sec-Fetch-Site': 'same-origin', 'X-Conductor-Token': open('t').read()}))\"",
+            "python3 -c \"import requests; requests.post('http://localhost:7300/v1/instances/example-org/answer' 's', json={'answers': []})\"",
         ] {
             assert_verdict(
                 &bash(&home, cwd, command),

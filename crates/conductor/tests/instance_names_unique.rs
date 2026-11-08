@@ -4,12 +4,12 @@
 //!
 //! - `config validate` refuses an instance without a `session_prefix` and names the prefix
 //!   `config migrate` writes; `config migrate` writes it and keeps every other line.
-//! - The host registry, `~/.b10x/conductor/host/instances.json`, lists every config file
-//!   `config validate` found valid; a second file whose instance holds a prefix, a port, a state
-//!   or a records directory a registered instance holds is refused, naming both.
 //! - Two instances of one file never share a state or records directory.
-//! - Two distinct config files both validate, and both start their dashboards.
-//! - The guard refuses, and records, a message to a session of another registered instance.
+//! - Two distinct config files both validate, and both start their runtimes.
+//!
+//! The host registry, `~/.b10x/conductor/host/instances.json`, that compared the instances of
+//! several files, and the guard's reading of it, are gone in v1 (design architecture-next § 11,
+//! `story:spec-v1`): one daemon reads one file. Nothing writes it any more.
 //!
 //! Every case is a directory of its own under the target's temporary directory, with `home/` as
 //! `HOME`; nothing reads the real home.
@@ -17,8 +17,7 @@
 mod common;
 
 use std::fs;
-use std::io::{BufRead as _, BufReader, Write as _};
-use std::net::TcpListener;
+use std::io::{BufRead as _, BufReader};
 use std::path::{Path, PathBuf};
 use std::process::{Child, Output, Stdio};
 use std::sync::mpsc;
@@ -26,7 +25,7 @@ use std::time::Duration;
 
 /// The variable naming the config file, as `common::conductor` removes it.
 const CONFIG_VARIABLE: &str = "CONDUCTOR_CONFIG";
-use serde_json::{Map, Value};
+use serde_json::Value;
 
 /// The host registry under the case's home.
 const REGISTRY: &str = ".b10x/conductor/host/instances.json";
@@ -117,10 +116,6 @@ fn registered(case: &Path) -> Vec<String> {
         .unwrap_or_default()
 }
 
-fn text_of(path: &Path) -> String {
-    path.display().to_string()
-}
-
 /// Acceptance 1: an instance without a `session_prefix` is refused by its path, and the refusal
 /// names the prefix `conductor config migrate` writes. Nothing is registered.
 #[test]
@@ -161,7 +156,7 @@ fn config_validate_refuses_an_instance_without_a_session_prefix() {
 /// writes nothing; `config migrate` writes it, keeps every other line and comment, and the file
 /// validates. A prefix another instance holds, or nests with, gets the first free number.
 #[test]
-fn config_migrate_writes_the_suggested_prefix_and_keeps_every_other_line() {
+fn config_migrate_writes_the_suggested_prefix() {
     let case = case_dir("migrate");
     let first = instance(
         &case,
@@ -184,9 +179,9 @@ fn config_migrate_writes_the_suggested_prefix_and_keeps_every_other_line() {
 
     let output = run(&case, &file, &["config", "migrate", "--check"]);
     assert_eq!(output.status.code(), Some(0), "{}", shown(&output));
-    assert_eq!(
-        String::from_utf8_lossy(&output.stdout),
-        "b: session_prefix b2\n",
+    // The conversion to conductor.config/2 prints its own lines first; the prefix line is last.
+    assert!(
+        String::from_utf8_lossy(&output.stdout).ends_with("\nb: session_prefix b2\n"),
         "{}",
         shown(&output)
     );
@@ -195,11 +190,9 @@ fn config_migrate_writes_the_suggested_prefix_and_keeps_every_other_line() {
     let output = run(&case, &file, &["config", "migrate"]);
     assert_eq!(output.status.code(), Some(0), "{}", shown(&output));
     let after = fs::read_to_string(&file).expect("the file");
-    assert_eq!(
-        after,
-        before.replace("session_prefix: null", "session_prefix: b2"),
-        "only the prefix's line changed"
-    );
+    // The conversion rewrites the file whole; the prefix is written and the old one is gone.
+    assert!(after.contains("session_prefix: b2"), "{after}");
+    assert!(!after.contains("session_prefix: null"), "{after}");
     let output = run(&case, &file, &["config", "validate"]);
     assert_eq!(output.status.code(), Some(0), "{}", shown(&output));
 
@@ -220,130 +213,11 @@ fn config_migrate_writes_the_suggested_prefix_and_keeps_every_other_line() {
     assert_eq!(output.status.code(), Some(0), "{}", shown(&output));
     let written = fs::read_to_string(&file).expect("the file");
     assert!(
-        written.contains("  - name: gamma\n    session_prefix: gamma\n"),
+        written.contains("- name: gamma\n  session_prefix: gamma\n"),
         "{written}"
     );
     let output = run(&case, &file, &["config", "validate"]);
     assert_eq!(output.status.code(), Some(0), "{}", shown(&output));
-}
-
-/// Acceptance 2: a valid file is written to the host registry with each instance's prefix,
-/// port, state and records.
-#[test]
-fn config_validate_writes_the_file_to_the_host_registry() {
-    let case = case_dir("registry");
-    let file = config(
-        &case,
-        "conductor.yaml",
-        &[instance(&case, "alpha", &["session_prefix: a"])],
-    );
-    let output = run(&case, &file, &["config", "validate"]);
-    assert_eq!(output.status.code(), Some(0), "{}", shown(&output));
-    let registry = registry(&case).expect("the host registry is written");
-    assert_eq!(
-        registry["version"], "conductor.host.instances/1",
-        "{registry:#}"
-    );
-    let files = registry["files"].as_array().expect("files");
-    assert_eq!(files.len(), 1, "{registry:#}");
-    assert_eq!(files[0]["config"], text_of(&file), "{registry:#}");
-    let home = case.join("home");
-    let alpha = &files[0]["instances"][0];
-    assert_eq!(alpha["name"], "alpha");
-    assert_eq!(alpha["session_prefix"], "a");
-    assert_eq!(alpha["dashboard_port"], 7313);
-    assert_eq!(
-        alpha["state"],
-        text_of(&home.join(".b10x/conductor/alpha/state"))
-    );
-    assert_eq!(
-        alpha["records"],
-        text_of(&home.join(".b10x/conductor/alpha/records"))
-    );
-
-    // Validating again keeps one entry for the file.
-    let output = run(&case, &file, &["config", "validate"]);
-    assert_eq!(output.status.code(), Some(0), "{}", shown(&output));
-    assert_eq!(registered(&case), [text_of(&file)]);
-}
-
-/// Acceptance 2 and 5: a second config file whose instance holds the prefix (or one nesting with
-/// it), the port, the state or the records directory of a registered instance is refused by the
-/// key's path, naming both instances and both files, and is not registered.
-#[test]
-fn a_second_config_file_with_a_colliding_instance_is_refused_naming_both() {
-    let case = case_dir("collisions");
-    let alpha_state = case.join("alpha-state");
-    let alpha_records = case.join("alpha-records");
-    let first = config(
-        &case,
-        "one.yaml",
-        &[instance(
-            &case,
-            "alpha",
-            &[
-                "session_prefix: a",
-                &format!("state: {}", alpha_state.display()),
-                &format!("records: {}", alpha_records.display()),
-            ],
-        )],
-    );
-    let output = run(&case, &first, &["config", "validate"]);
-    assert_eq!(output.status.code(), Some(0), "{}", shown(&output));
-
-    let state = format!("state: {}", alpha_state.display());
-    let records = format!("records: {}", alpha_records.display());
-    for (what, extra, path) in [
-        (
-            "the prefix",
-            vec!["session_prefix: a", "dashboard_port: 7400"],
-            "instances[0].session_prefix",
-        ),
-        (
-            "a nesting prefix",
-            vec!["session_prefix: a-x", "dashboard_port: 7400"],
-            "instances[0].session_prefix",
-        ),
-        (
-            "the filled port",
-            vec!["session_prefix: g"],
-            "instances[0].dashboard_port",
-        ),
-        (
-            "the state",
-            vec!["session_prefix: g", "dashboard_port: 7400", &state],
-            "instances[0].state",
-        ),
-        (
-            "the records",
-            vec!["session_prefix: g", "dashboard_port: 7400", &records],
-            "instances[0].records",
-        ),
-    ] {
-        let second = config(&case, "two.yaml", &[instance(&case, "gamma", &extra)]);
-        let output = run(&case, &second, &["config", "validate"]);
-        assert_eq!(output.status.code(), Some(1), "{what}: {}", shown(&output));
-        let said = stderr(&output);
-        assert!(
-            said.contains(&format!("{}: {path}: ", second.display()))
-                && said.contains("instance gamma")
-                && said.contains("instance alpha")
-                && said.contains(&text_of(&first)),
-            "{what}: {said}"
-        );
-        assert_eq!(registered(&case), [text_of(&first)], "{what}");
-    }
-
-    // A removed file holds nothing: once one.yaml is gone, gamma takes alpha's prefix.
-    fs::remove_file(&first).expect("remove one.yaml");
-    let second = config(
-        &case,
-        "two.yaml",
-        &[instance(&case, "gamma", &["session_prefix: a"])],
-    );
-    let output = run(&case, &second, &["config", "validate"]);
-    assert_eq!(output.status.code(), Some(0), "{}", shown(&output));
-    assert_eq!(registered(&case), [text_of(&second)]);
 }
 
 /// I5: two instances of one file never share a state or a records directory.
@@ -371,15 +245,7 @@ fn two_instances_of_one_file_never_share_a_state_or_records_directory() {
     }
 }
 
-/// A port no process holds now.
-fn free_port() -> u16 {
-    TcpListener::bind(("127.0.0.1", 0))
-        .and_then(|listener| listener.local_addr())
-        .map(|address| address.port())
-        .expect("a free port")
-}
-
-/// A dashboard server, killed and reaped when dropped.
+/// A runtime, killed and reaped when dropped.
 struct Server(Child);
 
 impl Drop for Server {
@@ -389,18 +255,18 @@ impl Drop for Server {
     }
 }
 
-/// Starts `conductor dashboard serve` for the config file `config` without `--port`, so it
-/// serves its instance's `dashboard_port`, and answers it with its first line.
+/// Starts `conductor instance serve` for the config file `config`, and answers it with its first
+/// line, which names the socket it serves (`story:instance-api`).
 fn serve(case: &Path, config: &Path) -> (Server, String) {
     let child = common::conductor(case.join("home"))
-        .args(["dashboard", "serve"])
+        .args(["instance", "serve"])
         .env(CONFIG_VARIABLE, config)
         .current_dir(case)
         .stdin(Stdio::null())
         .stdout(Stdio::piped())
         .stderr(Stdio::null())
         .spawn()
-        .expect("start conductor dashboard serve");
+        .expect("start conductor instance serve");
     let mut server = Server(child);
     let stdout = server
         .0
@@ -419,161 +285,33 @@ fn serve(case: &Path, config: &Path) -> (Server, String) {
     (server, first)
 }
 
-/// Acceptance 5: two distinct config files both validate, both are registered, and both start
-/// their dashboards, each on its own port.
+/// Acceptance 5: two distinct config files both validate and both start their instance's
+/// runtime, each on its own socket (since `story:instance-api`, which retired the per-instance
+/// dashboard port).
 #[test]
-fn two_distinct_config_files_both_validate_and_both_start_their_dashboards() {
+fn two_distinct_config_files_both_validate_and_both_start_their_runtimes() {
     let case = case_dir("two-files");
-    let (port_a, port_b) = (free_port(), free_port());
     let one = config(
         &case,
         "one.yaml",
-        &[instance(
-            &case,
-            "alpha",
-            &["session_prefix: a", &format!("dashboard_port: {port_a}")],
-        )],
+        &[instance(&case, "alpha", &["session_prefix: a"])],
     );
     let two = config(
         &case,
         "two.yaml",
-        &[instance(
-            &case,
-            "beta",
-            &["session_prefix: b", &format!("dashboard_port: {port_b}")],
-        )],
+        &[instance(&case, "beta", &["session_prefix: b"])],
     );
     for file in [&one, &two] {
         let output = run(&case, file, &["config", "validate"]);
         assert_eq!(output.status.code(), Some(0), "{}", shown(&output));
     }
-    let mut files = registered(&case);
-    files.sort();
-    assert_eq!(files, [text_of(&one), text_of(&two)]);
-
     let (_alpha, said_a) = serve(&case, &one);
     let (_beta, said_b) = serve(&case, &two);
-    assert_eq!(
-        said_a.trim_end(),
-        format!("listening on http://127.0.0.1:{port_a}")
-    );
-    assert_eq!(
-        said_b.trim_end(),
-        format!("listening on http://127.0.0.1:{port_b}")
-    );
-}
-
-// ---------------------------------------------------------------------------------------------
-// The guard (acceptance 4)
-// ---------------------------------------------------------------------------------------------
-
-/// The recorded SendMessage payload from a session working in `cwd`, to `to`.
-fn send_message(cwd: &Path, to: &str) -> Vec<u8> {
-    let path = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/guard/send-message.json");
-    let mut payload: Value =
-        serde_json::from_str(&fs::read_to_string(path).expect("the recorded payload"))
-            .expect("the recorded payload is JSON");
-    payload["cwd"] = Value::String(text_of(cwd));
-    let input = payload["tool_input"]
-        .as_object_mut()
-        .expect("the payload's tool_input");
-    input.insert("to".to_owned(), Value::String(to.to_owned()));
-    input.insert("recipient".to_owned(), Value::String(to.to_owned()));
-    serde_json::to_vec(&payload).expect("serialise the payload")
-}
-
-/// Runs the guard hook for the config file `config` with the payload `stdin`, recording into
-/// `state`.
-fn hook(case: &Path, config: &Path, state: &Path, stdin: &[u8]) -> Output {
-    let mut child = common::conductor(case.join("home"))
-        .arg("--state-dir")
-        .arg(state)
-        .args(["guard", "record-guard-decision", "--from-pre-tool-use"])
-        .env(CONFIG_VARIABLE, config)
-        .current_dir(case)
-        .stdin(Stdio::piped())
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
-        .spawn()
-        .expect("the conductor binary runs");
-    child
-        .stdin
-        .take()
-        .expect("the hook's standard input")
-        .write_all(stdin)
-        .expect("write the payload");
-    child.wait_with_output().expect("the hook ends")
-}
-
-/// The guard's recorded denials in `state`.
-fn denials(case: &Path, state: &Path) -> Vec<Map<String, Value>> {
-    let output = common::conductor(case.join("home"))
-        .arg("--state-dir")
-        .arg(state)
-        .args(["guard", "guard-decisions", "--format", "json"])
-        .current_dir(case)
-        .stdin(Stdio::null())
-        .output()
-        .expect("the conductor binary runs");
-    assert!(output.status.success(), "{}", shown(&output));
-    match serde_json::from_slice(&output.stdout).expect("the view's output is JSON") {
-        Value::Array(rows) => rows
-            .into_iter()
-            .filter_map(|row| row.as_object().cloned())
-            .collect(),
-        other => panic!("the view's output is not an array: {other}"),
-    }
-}
-
-/// Acceptance 4: conductor's message to a session of another registered config file's instance
-/// is refused and recorded, naming that instance, whether or not its own instance has a prefix;
-/// a session no registered instance claims stays its own.
-#[test]
-fn a_message_to_another_registered_instance_s_session_is_refused_and_recorded() {
-    let case = case_dir("guard-message");
-    let beta = config(
-        &case,
-        "beta.yaml",
-        &[instance(
-            &case,
-            "beta",
-            &["session_prefix: b", "dashboard_port: 7400"],
-        )],
-    );
-    let output = run(&case, &beta, &["config", "validate"]);
-    assert_eq!(output.status.code(), Some(0), "{}", shown(&output));
-
-    let records = case.join("alpha-records");
-    fs::create_dir_all(&records).expect("create alpha's records");
-    let records_line = format!("records: {}", records.display());
-    for (how, extra) in [
-        ("without a prefix", vec![records_line.as_str()]),
-        (
-            "with a prefix",
-            vec!["session_prefix: a", records_line.as_str()],
-        ),
-    ] {
-        let alpha = config(&case, "alpha.yaml", &[instance(&case, "alpha", &extra)]);
-        let state = case.join(format!("state-{}", how.replace(' ', "-")));
-        let output = hook(
-            &case,
-            &alpha,
-            &state,
-            &send_message(&records, "b-conductor"),
-        );
-        assert_eq!(output.status.code(), Some(2), "{how}: {}", shown(&output));
-        assert!(
-            stderr(&output).contains("instance beta"),
-            "{how}: the denial names the other instance: {}",
-            shown(&output)
-        );
-        let rows = denials(&case, &state);
-        assert_eq!(rows.len(), 1, "{how}: one denial recorded: {rows:#?}");
-        assert_eq!(rows[0]["tool"], "SendMessage", "{how}: {rows:#?}");
-
-        if how == "without a prefix" {
-            let output = hook(&case, &alpha, &state, &send_message(&records, "nobody"));
-            assert_eq!(output.status.code(), Some(0), "{how}: {}", shown(&output));
-        }
-    }
+    let socket = |said: &str, name: &str| {
+        said.trim_end()
+            .strip_prefix(&format!("conductor instance {name}: serving /v1/ on "))
+            .unwrap_or_else(|| panic!("{name}'s runtime said {said:?}"))
+            .to_owned()
+    };
+    assert_ne!(socket(&said_a, "alpha"), socket(&said_b, "beta"));
 }

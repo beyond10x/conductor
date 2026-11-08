@@ -355,6 +355,7 @@ fn the_helper_runs_the_binary_on_the_case_s_home_without_either_variable() {
     let empty = dir.join("empty");
     fs::create_dir_all(&empty).expect("create the empty home");
 
+    let keychain = refused.join(".test-keychain.ron");
     let command = common::conductor(&refused);
     let envs: BTreeMap<&OsStr, Option<&OsStr>> = command.get_envs().collect();
     assert_eq!(
@@ -363,9 +364,17 @@ fn the_helper_runs_the_binary_on_the_case_s_home_without_either_variable() {
             (OsStr::new("HOME"), Some(refused.as_os_str())),
             (OsStr::new(CONFIG_VARIABLE), None),
             (OsStr::new(INSTANCE_VARIABLE), None),
+            (OsStr::new(conductor_cli::remote::VARIABLE), None),
             (OsStr::new("CLAUDE_CODE_SESSION_ID"), None),
+            (OsStr::new("CONDUCTOR_SESSION"), None),
+            (OsStr::new("USER"), Some(OsStr::new("operator"))),
+            (
+                OsStr::new(conductor_cli::secret::TEST_KEYCHAIN_VARIABLE),
+                Some(keychain.as_os_str()),
+            ),
         ]),
-        "the command sets HOME and removes both variables and the harness's session, and nothing \
+        "the command sets HOME, USER and the fake keychain under HOME, and removes both variables, the daemon's, the harness's session and \
+         conductor's, and nothing \
          else"
     );
 

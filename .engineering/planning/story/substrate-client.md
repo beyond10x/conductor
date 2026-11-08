@@ -2,7 +2,7 @@
 format: aep.planning-md/3
 id: story:substrate-client
 kind: story
-status: draft
+status: archived
 title: Conductor reaches substrate through one client
 relations:
 - decomposes: epic:session-confinement
@@ -28,7 +28,9 @@ scope:
   path: docs/analysis/substrate-client-run.md
 - confidence: cited
   path: spec/domains/config.yaml
-revision: 7
+revision: 8
+transitions:
+- {from: "draft", to: "archived", at: "2026-11-07T23:41:21Z", actor: "human:timo", revision: 8, decided_on: {"recorded":{"review_outcome":1}}}
 ---
 ## Why
 

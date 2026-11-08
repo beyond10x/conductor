@@ -117,7 +117,7 @@ grants`), with no message. The resource commands (`conductor resource grant-reso
 :::note[Retired]
 
 `[RESTART conductor] <reason>` is in the design but not in the specification, and does not parse.
-`conductor run` keeps no context, so it is restarted with `conductor run --uninstall` and
-`conductor run --install`, with no hand-over.
+`conductor run` keeps no context, so conductord restarts an instance's runtime with no
+hand-over: on a new binary or placement, and when it stops answering.
 
 :::

@@ -1,7 +1,7 @@
 //! `story:instance-records-start`: the tasks of `Taskfile.yml` that run conductor run it in the
-//! active instance's records directory, `task trust` trusts that directory, and `task
-//! agents:link REPO=<path>` links this checkout's Claude Code adapters into that repository's
-//! `.claude/agents/` without overwriting anything (`story:agents-link-local`). `task trust` runs `conductor trust` (`story:portable-trust`), whose own
+//! active instance's records directory and `task trust` trusts that directory;
+//! `story:roles-in-the-binary` retired `task agents:link` and `task profiles`, since no adapter
+//! or profile is copied anywhere. `task trust` runs `conductor trust` (`story:portable-trust`), whose own
 //! cases are `tests/trust.rs`.
 //!
 //! The first tests read `Taskfile.yml` as YAML. The others run the tasks with `task` against a
@@ -49,9 +49,6 @@ const RECORDS: &str = "conductor config show --format json | jq -r '.instances[0
 
 /// The prefix every shell command of a conductor task starts with.
 const CD_RECORDS: &str = "cd {{shellQuote .RECORDS}} && ";
-
-/// The adapters `task agents:link` links; the conductor adapter is retired (`story:run-daemon`).
-const AGENTS: [&str; 2] = ["repo-controller", "conductor-dev"];
 
 /// The shell commands of `task`: its `cmds:` entries that are text (not `task:` calls).
 fn shell_commands(task: &serde_yaml::Value) -> Vec<String> {
@@ -133,19 +130,68 @@ fn the_conductor_session_tasks_are_retired() {
     }
 }
 
+/// `story:roles-in-the-binary`: the role profiles ship inside the binary, so `task profiles`
+/// (which copied them to `profiles/` beside the config file) and `task agents:link` (which linked
+/// the committed Claude Code adapters into a repository) are gone, `task install` installs the
+/// binary alone, and no task names `.agents/`, `.claude/agents/` or a profiles directory.
 #[test]
-fn the_dashboard_reads_the_instances_records_not_this_checkout() {
+fn no_task_copies_a_profile_or_links_an_adapter() {
+    let taskfile = taskfile();
+    for task in ["profiles", "agents:link"] {
+        assert!(
+            taskfile["tasks"][task].is_null(),
+            "Taskfile.yml still has {task}"
+        );
+    }
+    assert_eq!(
+        shell_commands(&taskfile["tasks"]["install"]),
+        ["cargo install --path crates/conductor --locked"],
+        "install installs the binary alone"
+    );
+    let text = fs::read_to_string(root().join("Taskfile.yml")).expect("read Taskfile.yml");
+    for gone in [
+        ".agents/",
+        ".claude/agents",
+        "task: profiles",
+        "task profiles",
+        "/profiles",
+    ] {
+        assert!(!text.contains(gone), "Taskfile.yml holds {gone:?}");
+    }
+}
+
+/// `story:instance-api`: the dashboard is the daemon's page; `task dashboard` starts no process of
+/// its own and prints the daemon's URL naming the active instance.
+#[test]
+fn the_dashboard_task_prints_the_daemon_s_url_for_the_instance() {
     let taskfile = taskfile();
     let commands = shell_commands(&taskfile["tasks"]["dashboard"]).join("\n");
+    for gone in [
+        "dashboard serve",
+        "systemd-run",
+        "nohup",
+        "-conductor-dashboard",
+    ] {
+        assert!(
+            !commands.contains(gone),
+            "the dashboard task runs {gone:?}: {commands}"
+        );
+    }
     assert!(
-        commands.contains("dashboard serve"),
-        "the dashboard task serves the dashboard: {commands}"
+        commands
+            .contains("http://127.0.0.1:{{shellQuote .PORT}}/?instance={{shellQuote .INSTANCE}}"),
+        "the dashboard task prints the daemon's URL: {commands}"
     );
-    // Without --root the dashboard reads the active instance's records (`dashboard serve --help`);
-    // this checkout holds no decisions/ or dispatches/ once the records live apart.
+    let port = taskfile["tasks"]["dashboard"]["vars"]["PORT"]["sh"]
+        .as_str()
+        .expect("PORT is a shell variable");
     assert!(
-        !commands.contains("--root"),
-        "the dashboard task passes no --root: {commands}"
+        port.contains(".daemon.port"),
+        "PORT reads daemon.port: {port}"
+    );
+    assert!(
+        taskfile["tasks"]["dashboard:stop"].is_null(),
+        "no dashboard process is left to stop"
     );
 }
 
@@ -170,56 +216,6 @@ fn trust_runs_the_conductor_command() {
         task["preconditions"].is_null(),
         "trust refuses through the command: {task:?}"
     );
-}
-
-/// `story:run-daemon` retired the conductor adapter: agents:link links the two left, and still
-/// takes back an old link of all three under `~/.claude/agents/`.
-#[test]
-fn agents_link_names_the_two_adapters_and_never_overwrites() {
-    let taskfile = taskfile();
-    let task = &taskfile["tasks"]["agents:link"];
-    assert!(!task.is_null(), "Taskfile.yml has no task agents:link");
-    let commands = shell_commands(task).join("\n");
-    assert_eq!(
-        commands
-            .matches("for name in repo-controller conductor-dev; do")
-            .count(),
-        2,
-        "{commands}"
-    );
-    assert!(
-        commands.contains("for name in conductor repo-controller conductor-dev; do\n  old="),
-        "{commands}"
-    );
-    for forbidden in ["ln -sf", "ln -fs", "ln -f", "mv ", "--force"] {
-        assert!(
-            !commands.contains(forbidden),
-            "agents:link may overwrite ({forbidden}): {commands}"
-        );
-    }
-    // The one removal: a symbolic link under ~/.claude/agents/ that points into this checkout,
-    // which an earlier agents:link made; nothing in REPO/.claude/agents/ is ever removed.
-    assert_eq!(
-        commands.matches("rm ").count(),
-        1,
-        "agents:link removes only an old link into this checkout: {commands}"
-    );
-    for guard in [
-        "old=\"$HOME/.claude/agents/$name.md\"",
-        "if [ -L \"$old\" ]; then",
-        "\"$root\"/*|\"$real\"/*) rm \"$old\"",
-    ] {
-        assert!(
-            commands.contains(guard),
-            "agents:link removes only an old link into this checkout ({guard}): {commands}"
-        );
-    }
-    for agent in AGENTS {
-        assert!(
-            root().join(format!(".claude/agents/{agent}.md")).is_file(),
-            "this checkout has no .claude/agents/{agent}.md"
-        );
-    }
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -369,41 +365,6 @@ impl Case {
         file
     }
 
-    /// A git repository `name` in the case's directory, made with `git init`.
-    fn git_repository(&self, name: &str) -> PathBuf {
-        let repo = self.dir.join(name);
-        fs::create_dir_all(&repo).expect("create the repository");
-        let init = Command::new("git")
-            .args(["init", "--quiet"])
-            .current_dir(&repo)
-            .env("HOME", self.dir.join("home"))
-            .output()
-            .expect("git runs");
-        assert!(init.status.success(), "{init:?}");
-        repo
-    }
-
-    /// `git status --porcelain --untracked-files=all` in `repo`.
-    fn git_status(&self, repo: &Path) -> String {
-        let status = Command::new("git")
-            .args(["status", "--porcelain", "--untracked-files=all"])
-            .current_dir(repo)
-            .env("HOME", self.dir.join("home"))
-            .env("GIT_CEILING_DIRECTORIES", &self.dir)
-            .output()
-            .expect("git runs");
-        assert!(status.status.success(), "{status:?}");
-        String::from_utf8_lossy(&status.stdout).into_owned()
-    }
-
-    /// `task agents:link REPO=<repo>`, isolated as [`Case::task`] is.
-    fn agents_link(&self, repo: &Path) -> Output {
-        self.command("agents:link", None)
-            .arg(format!("REPO={}", repo.display()))
-            .output()
-            .expect("task runs")
-    }
-
     /// `task <name>` on this checkout's `Taskfile.yml`, isolated as the module says.
     fn task(&self, name: &str, config: Option<&Path>) -> Output {
         self.command(name, config).output().expect("task runs")
@@ -518,125 +479,6 @@ fn trust_marks_the_records_directory_and_each_checkout_trusted() {
     }
 }
 
-#[test]
-fn agents_link_links_each_adapter_into_the_repository_once_and_refuses_a_different_file() {
-    let Some(case) = Case::new("agents-link") else {
-        return;
-    };
-    let repo = case.git_repository("repo");
-    let agents = repo.join(".claude/agents");
-    let home = case.dir.join("home/.claude/agents");
-    let exclude = repo.join(".git/info/exclude");
-
-    // Without REPO the task refuses and writes nothing.
-    let output = case.task("agents:link", None);
-    assert_ne!(output.status.code(), Some(0), "{}", shown(&output));
-    assert!(
-        String::from_utf8_lossy(&output.stderr).contains("REPO=<path>"),
-        "{}",
-        shown(&output)
-    );
-    assert!(!agents.exists(), "{}", shown(&output));
-
-    // An earlier agents:link left a link into this checkout under ~/.claude/agents/, of the
-    // conductor adapter `story:run-daemon` retired; the user keeps a file of their own there too.
-    fs::create_dir_all(&home).expect("create ~/.claude/agents");
-    let old = home.join("conductor.md");
-    std::os::unix::fs::symlink(root().join(".claude/agents/conductor.md"), &old)
-        .expect("an old link into this checkout");
-    let own = home.join("repo-controller.md");
-    fs::write(&own, "the user's own\n").expect("write the user's file");
-
-    // Linked into the repository and left out of its status; the old link is removed, the
-    // user's file kept, and nothing is written to ~/.claude/agents/.
-    let output = case.agents_link(&repo);
-    assert_eq!(output.status.code(), Some(0), "{}", shown(&output));
-    for agent in AGENTS {
-        let link = agents.join(format!("{agent}.md"));
-        let target = fs::read_link(&link).unwrap_or_else(|error| panic!("{agent}: {error}"));
-        assert_eq!(target, root().join(format!(".claude/agents/{agent}.md")));
-    }
-    assert_eq!(case.git_status(&repo), "", "{}", shown(&output));
-    assert!(
-        fs::symlink_metadata(&old).is_err(),
-        "the old link into this checkout is removed: {}",
-        shown(&output)
-    );
-    assert_eq!(fs::read_to_string(&own).expect("read"), "the user's own\n");
-    assert!(
-        String::from_utf8_lossy(&output.stdout).contains(&format!("note: left {}", own.display())),
-        "{}",
-        shown(&output)
-    );
-    for name in ["conductor.md", "conductor-dev.md"] {
-        assert!(
-            fs::symlink_metadata(home.join(name)).is_err(),
-            "agents:link wrote ~/.claude/agents/{name}"
-        );
-    }
-    let excluded = fs::read_to_string(&exclude).expect("read the exclude file");
-    for agent in AGENTS {
-        let line = format!(".claude/agents/{agent}.md");
-        assert_eq!(
-            excluded.lines().filter(|l| *l == line).count(),
-            1,
-            "{excluded}"
-        );
-    }
-
-    // Linked again: nothing changes.
-    let output = case.agents_link(&repo);
-    assert_eq!(output.status.code(), Some(0), "{}", shown(&output));
-    assert_eq!(
-        fs::read_to_string(&exclude).expect("read the exclude file"),
-        excluded
-    );
-    assert_eq!(case.git_status(&repo), "");
-    for agent in AGENTS {
-        let link = agents.join(format!("{agent}.md"));
-        assert_eq!(
-            fs::read_link(&link).expect("the link"),
-            root().join(format!(".claude/agents/{agent}.md"))
-        );
-    }
-
-    // A different file and a link elsewhere are refused and kept as they are.
-    let file = agents.join("repo-controller.md");
-    fs::remove_file(&file).expect("remove the link");
-    fs::write(&file, "the user's own\n").expect("write a different file");
-    let elsewhere = case.dir.join("home/elsewhere.md");
-    fs::write(&elsewhere, "another\n").expect("write another file");
-    let link = agents.join("conductor-dev.md");
-    fs::remove_file(&link).expect("remove the link");
-    std::os::unix::fs::symlink(&elsewhere, &link).expect("link elsewhere");
-
-    let output = case.agents_link(&repo);
-    assert_ne!(output.status.code(), Some(0), "{}", shown(&output));
-    let stderr = String::from_utf8_lossy(&output.stderr);
-    assert!(
-        stderr.contains(&file.display().to_string())
-            && stderr.contains(&link.display().to_string()),
-        "the refusal names each file in the way: {}",
-        shown(&output)
-    );
-    assert_eq!(
-        fs::read_to_string(&file).expect("read the file"),
-        "the user's own\n"
-    );
-    assert!(!fs::symlink_metadata(&file).expect("the file").is_symlink());
-    assert_eq!(fs::read_link(&link).expect("the link"), elsewhere);
-
-    // With one file in the way and the other adapter missing, nothing is linked.
-    let missing = link;
-    fs::remove_file(&missing).expect("remove the link elsewhere");
-    let output = case.agents_link(&repo);
-    assert_ne!(output.status.code(), Some(0), "{}", shown(&output));
-    assert!(
-        fs::symlink_metadata(&missing).is_err(),
-        "nothing is linked while one file is refused"
-    );
-}
-
 // ---------------------------------------------------------------------------------------------
 // Adversary cases (wave 01, U2, pass 1)
 // ---------------------------------------------------------------------------------------------
@@ -689,11 +531,12 @@ fn w02_profile(case: &Case, name: &str) -> PathBuf {
 }
 
 /// Without a settings file or profile on the role conductor-dev, conductor-dev starts in this
-/// checkout as the agent conductor-dev, with the setting sources of a `--bg` launch
-/// ([`SETTING_SOURCES`]), and with settings that only pin its instance
-/// (`story:instance-isolation`).
+/// checkout from the maintainer profile the binary carries, written into the state directory
+/// (`story:roles-in-the-binary`) and appended to its system prompt, with the setting sources of a
+/// `--bg` launch ([`SETTING_SOURCES`]), and with settings that only pin its instance
+/// (`story:instance-isolation`). Nothing is written under `~/.claude/agents/`.
 #[test]
-fn dev_start_runs_the_agent_conductor_dev_with_settings_pinned_to_its_instance() {
+fn dev_start_appends_the_binary_s_maintainer_profile_with_settings_pinned_to_its_instance() {
     let Some(case) = Case::new("w02-dev-start") else {
         return;
     };
@@ -705,13 +548,28 @@ fn dev_start_runs_the_agent_conductor_dev_with_settings_pinned_to_its_instance()
     assert_eq!(calls.len(), 1, "{calls:?}");
     let (cwd, args) = &calls[0];
     assert_eq!(cwd, &root(), "{args}");
+    let profile = case
+        .dir
+        .join("home/.b10x/conductor/alpha/state/sessions/conductor-dev.profile.md");
     assert!(
         args.starts_with(&format!(
-            "--bg -n conductor-dev --agent conductor-dev --model sonnet --permission-mode \
+            "--bg -n conductor-dev --append-system-prompt-file {} --model sonnet --permission-mode \
              bypassPermissions {SETTING_SOURCES} --settings {} Start of session.",
+            profile.display(),
             case.pinned_default("conductor-dev").display()
         )),
         "{args}"
+    );
+    assert!(!args.contains("--agent"), "{args}");
+    assert_eq!(
+        fs::read_to_string(&profile).expect("the written profile"),
+        fs::read_to_string(root().join("crates/conductor/roles/maintainer.md"))
+            .expect("the maintainer profile"),
+        "the profile written is the binary's maintainer profile"
+    );
+    assert!(
+        !case.dir.join("home/.claude/agents").exists(),
+        "nothing is written under ~/.claude/agents/"
     );
 }
 
@@ -771,306 +629,9 @@ fn dev_start_refuses_a_role_profile_that_is_not_a_file() {
     assert!(case.calls().is_empty(), "{:?}", case.calls());
 }
 
-/// The refusal of `agents:link` is all or nothing: when only the last adapter is in the way,
-/// the first is not linked either. The unit's own case puts the conflict on the first
-/// adapter, where `ln -s` failing on it stops the loop anyway, so it stays green with the
-/// `[ "$refused" = 0 ] || exit 1` gate deleted; this one does not.
-#[test]
-fn adv_agents_link_links_nothing_when_only_the_last_adapter_is_in_the_way() {
-    let Some(case) = Case::new("adv-agents-link-last") else {
-        return;
-    };
-    let repo = case.git_repository("repo");
-    let agents = repo.join(".claude/agents");
-    fs::create_dir_all(&agents).expect("create REPO/.claude/agents");
-    let last = agents.join("conductor-dev.md");
-    fs::write(&last, "the user's own\n").expect("write a different file");
-
-    let output = case.agents_link(&repo);
-    assert_ne!(output.status.code(), Some(0), "{}", shown(&output));
-    assert!(
-        fs::symlink_metadata(agents.join("repo-controller.md")).is_err(),
-        "repo-controller.md was linked while conductor-dev.md is refused: {}",
-        shown(&output)
-    );
-    assert_eq!(fs::read_to_string(&last).expect("read"), "the user's own\n");
-}
-
 // ---------------------------------------------------------------------------------------------
 // Adversary cases (wave 01, U2, pass 2)
 // ---------------------------------------------------------------------------------------------
-
-// ---------------------------------------------------------------------------------------------
-// The dashboard without systemd (wave 02, U6, `story:portable-dashboard-service`)
-// ---------------------------------------------------------------------------------------------
-
-/// The programs the dashboard tasks and the fake `conductor` run, besides `conductor` itself.
-/// `systemctl` is not among them.
-const DASHBOARD_TOOLS: [&str; 9] = [
-    "sh", "jq", "nohup", "ps", "cat", "mkdir", "rm", "sleep", "grep",
-];
-
-/// The pid file and log of the dashboard in the state directory `conductor config show` names
-/// for the case's instance (`~/.b10x/conductor/alpha/state` by default).
-fn dashboard_files(case: &Case) -> (PathBuf, PathBuf) {
-    let state = case.dir.join("home/.b10x/conductor/alpha/state");
-    (state.join("dashboard.pid"), state.join("dashboard.log"))
-}
-
-/// Replaces the case's `conductor` with one that logs a `dashboard ...` call to
-/// `claude/conductor-log` and then runs until it is killed, without binding a port, and passes
-/// every other call to the built `conductor`.
-fn fake_dashboard_conductor(case: &Case) {
-    let conductor = case.dir.join("bin/conductor");
-    fs::remove_file(&conductor).expect("remove the linked conductor");
-    fs::write(
-        &conductor,
-        format!(
-            "#!/bin/sh\n\
-             if [ \"$1\" = dashboard ]; then\n\
-             \x20 printf '%s\\n' \"$*\" >> '{log}'\n\
-             \x20 while :; do sleep 1; done\n\
-             fi\n\
-             exec '{real}' \"$@\"\n",
-            log = case.dir.join("claude/conductor-log").display(),
-            real = Path::new(common::conductor(case.dir.join("home")).get_program()).display(),
-        ),
-    )
-    .expect("write a fake conductor");
-    fs::set_permissions(&conductor, fs::Permissions::from_mode(0o755)).expect("make it runnable");
-}
-
-/// A `PATH` of one directory, `nosystemd/`, holding links to [`DASHBOARD_TOOLS`] and the case's
-/// `conductor`: no `systemctl`, whatever the host has.
-fn path_without_systemctl(case: &Case) -> PathBuf {
-    let dir = case.dir.join("nosystemd");
-    fs::create_dir_all(&dir).expect("create nosystemd/");
-    for tool in DASHBOARD_TOOLS {
-        let found = which(tool).unwrap_or_else(|| panic!("{tool} is not on PATH"));
-        std::os::unix::fs::symlink(found, dir.join(tool)).expect("link a tool");
-    }
-    std::os::unix::fs::symlink(case.dir.join("bin/conductor"), dir.join("conductor"))
-        .expect("link conductor");
-    assert!(!dir.join("systemctl").exists());
-    dir
-}
-
-/// The calls the fake conductor logged for `dashboard`.
-fn dashboard_calls(case: &Case) -> Vec<String> {
-    fs::read_to_string(case.dir.join("claude/conductor-log"))
-        .unwrap_or_default()
-        .lines()
-        .map(str::to_owned)
-        .collect()
-}
-
-/// Whether `pid` is a process that has not exited (a zombie has).
-fn running(pid: u32) -> bool {
-    fs::read_to_string(format!("/proc/{pid}/stat")).is_ok_and(|stat| {
-        stat.rsplit_once(") ")
-            .is_some_and(|(_, rest)| !rest.starts_with('Z'))
-    })
-}
-
-/// Kills the process `pid` when dropped, so a failed case leaves no fake dashboard running.
-struct Reap(u32);
-
-impl Drop for Reap {
-    fn drop(&mut self) {
-        let _ = Command::new("kill")
-            .args(["-9", &self.0.to_string()])
-            .stderr(Stdio::null())
-            .status();
-    }
-}
-
-/// Where `systemctl` is not on `PATH`, `task dashboard` starts `conductor dashboard serve` in the
-/// background with its pid and log in the instance's state directory, refuses a second start while
-/// that pid runs, and `task dashboard:stop` stops it and removes the pid file.
-#[test]
-fn dashboard_without_systemctl_runs_in_the_background_with_its_pid_in_the_state_directory() {
-    let Some(case) = Case::new("w02-dashboard-no-systemd") else {
-        return;
-    };
-    let config = case.config("opus", None);
-    fake_dashboard_conductor(&case);
-    let path = path_without_systemctl(&case);
-    let (pid_file, log) = dashboard_files(&case);
-
-    let output = case
-        .command("dashboard", Some(&config))
-        .env("PATH", &path)
-        .output()
-        .expect("task runs");
-    assert_eq!(output.status.code(), Some(0), "{}", shown(&output));
-    assert!(
-        String::from_utf8_lossy(&output.stdout).contains("http://127.0.0.1:7313/"),
-        "{}",
-        shown(&output)
-    );
-    let pid: u32 = fs::read_to_string(&pid_file)
-        .unwrap_or_else(|error| panic!("{}: {error}\n{}", pid_file.display(), shown(&output)))
-        .trim()
-        .parse()
-        .expect("the pid file holds a pid");
-    let _reap = Reap(pid);
-    assert!(running(pid), "the dashboard {pid} is not running");
-    assert!(
-        log.is_file(),
-        "no log beside the pid file: {}",
-        log.display()
-    );
-    let mut calls = dashboard_calls(&case);
-    for _ in 0..50 {
-        if !calls.is_empty() {
-            break;
-        }
-        std::thread::sleep(std::time::Duration::from_millis(100));
-        calls = dashboard_calls(&case);
-    }
-    assert_eq!(calls, ["dashboard serve --port 7313"], "{}", shown(&output));
-
-    // A second start while that pid runs is refused and starts nothing.
-    let output = case
-        .command("dashboard", Some(&config))
-        .env("PATH", &path)
-        .output()
-        .expect("task runs");
-    // A second dashboard that did start would write its pid over the first one's.
-    let _reap_second = fs::read_to_string(&pid_file)
-        .ok()
-        .and_then(|text| text.trim().parse::<u32>().ok())
-        .filter(|second| *second != pid)
-        .map(Reap);
-    assert_ne!(output.status.code(), Some(0), "{}", shown(&output));
-    assert!(
-        String::from_utf8_lossy(&output.stderr).contains(&pid.to_string()),
-        "the refusal names the running pid: {}",
-        shown(&output)
-    );
-    std::thread::sleep(std::time::Duration::from_millis(300));
-    assert_eq!(
-        dashboard_calls(&case).len(),
-        1,
-        "a second dashboard started"
-    );
-    assert_eq!(
-        fs::read_to_string(&pid_file).expect("the pid file").trim(),
-        pid.to_string()
-    );
-
-    let output = case
-        .command("dashboard:stop", Some(&config))
-        .env("PATH", &path)
-        .output()
-        .expect("task runs");
-    assert_eq!(output.status.code(), Some(0), "{}", shown(&output));
-    assert!(!pid_file.exists(), "the pid file is still there");
-    let mut alive = running(pid);
-    for _ in 0..50 {
-        if !alive {
-            break;
-        }
-        std::thread::sleep(std::time::Duration::from_millis(100));
-        alive = running(pid);
-    }
-    assert!(
-        !alive,
-        "the dashboard {pid} still runs after dashboard:stop"
-    );
-}
-
-/// A pid file whose process has gone does not stop a new start, and `dashboard:stop` on it only
-/// removes the file.
-#[test]
-fn dashboard_without_systemctl_replaces_a_stale_pid_file() {
-    let Some(case) = Case::new("w02-dashboard-stale-pid") else {
-        return;
-    };
-    let config = case.config("opus", None);
-    fake_dashboard_conductor(&case);
-    let path = path_without_systemctl(&case);
-    let (pid_file, _) = dashboard_files(&case);
-    fs::create_dir_all(pid_file.parent().expect("the state directory")).expect("create state/");
-    // A process that ran and exited: its pid is free.
-    let gone = Command::new("true").spawn().expect("run true");
-    let gone_pid = gone.id();
-    let mut gone = gone;
-    gone.wait().expect("true exits");
-    fs::write(&pid_file, format!("{gone_pid}\n")).expect("write a stale pid file");
-
-    let output = case
-        .command("dashboard:stop", Some(&config))
-        .env("PATH", &path)
-        .output()
-        .expect("task runs");
-    assert_eq!(output.status.code(), Some(0), "{}", shown(&output));
-    assert!(!pid_file.exists(), "the stale pid file is still there");
-
-    fs::write(&pid_file, format!("{gone_pid}\n")).expect("write a stale pid file");
-    let output = case
-        .command("dashboard", Some(&config))
-        .env("PATH", &path)
-        .output()
-        .expect("task runs");
-    assert_eq!(output.status.code(), Some(0), "{}", shown(&output));
-    let pid: u32 = fs::read_to_string(&pid_file)
-        .expect("the pid file")
-        .trim()
-        .parse()
-        .expect("a pid");
-    let _reap = Reap(pid);
-    assert_ne!(pid, gone_pid, "{}", shown(&output));
-    assert!(running(pid), "the new dashboard {pid} is not running");
-}
-
-/// Where `systemctl` is on `PATH`, the dashboard stays the user service `conductor-dashboard`: no
-/// pid file. The case's `systemctl` and `systemd-run` only log, so no real unit is touched.
-#[test]
-fn dashboard_with_systemctl_keeps_the_user_service() {
-    let Some(case) = Case::new("w02-dashboard-systemd") else {
-        return;
-    };
-    let config = case.config("opus", None);
-    let log = case.dir.join("claude/systemd-log");
-    // `is-active` answers "inactive" (3), so the task starts the unit.
-    for tool in ["systemctl", "systemd-run"] {
-        let file = case.dir.join("bin").join(tool);
-        fs::write(
-            &file,
-            format!(
-                "#!/bin/sh\nprintf '%s\\n' \"{tool} $*\" >> '{}'\n\
-                 case \"$*\" in *is-active*) exit 3 ;; esac\nexit 0\n",
-                log.display()
-            ),
-        )
-        .expect("write a fake systemd tool");
-        fs::set_permissions(&file, fs::Permissions::from_mode(0o755)).expect("make it runnable");
-    }
-
-    let output = case.task("dashboard", Some(&config));
-    assert_eq!(output.status.code(), Some(0), "{}", shown(&output));
-    let output = case.task("dashboard:stop", Some(&config));
-    assert_eq!(output.status.code(), Some(0), "{}", shown(&output));
-
-    let calls = fs::read_to_string(&log).expect("the systemd log");
-    let calls: Vec<&str> = calls.lines().collect();
-    assert_eq!(calls.len(), 3, "{calls:?}");
-    assert_eq!(
-        calls[0],
-        "systemctl --user is-active --quiet conductor-dashboard"
-    );
-    assert!(
-        calls[1].starts_with("systemd-run --user --unit conductor-dashboard --collect ")
-            && calls[1].ends_with(&format!(
-                "{} dashboard serve --port 7313",
-                case.dir.join("bin/conductor").display()
-            )),
-        "{calls:?}"
-    );
-    assert_eq!(calls[2], "systemctl --user stop conductor-dashboard");
-    assert!(!dashboard_files(&case).0.exists());
-}
 
 // ---------------------------------------------------------------------------------------------
 // The bypass-permissions disclaimer (wave 02, U6, `story:first-run-bypass-disclaimer`)
@@ -1127,7 +688,12 @@ fn the_start_tasks_name_the_session_from_config_show() {
         let args = &calls.last().expect("a start").1;
         assert!(
             args.starts_with(&format!(
-                "--bg -n {dev} --agent conductor-dev --model opus "
+                "--bg -n {dev} --append-system-prompt-file {} --model opus ",
+                case.dir
+                    .join(format!(
+                        "home/.b10x/conductor/alpha/state/sessions/{dev}.profile.md"
+                    ))
+                    .display()
             )),
             "dev:start: {args}"
         );
@@ -1185,9 +751,8 @@ fn write_host(case: &Case, roles: &str) {
 
 /// `story:maintainer-host-config`, item 4: `maintainer:start` and `maintainer:attach` read the
 /// maintainer from `host.roles` of `conductor config show`, and `dev:start` and `dev:attach`
-/// stay their names for this release. With `host.yaml` naming a maintainer it starts under the
-/// session name `maintainer`, on its model; without one, the maintainer an instance's `roles`
-/// still writes starts under the name it has there, as before.
+/// stay their names for this release. The maintainer is the one the instance's `roles` writes,
+/// under the name it has there: the host file that named another is gone (`story:spec-v1`).
 #[test]
 fn the_maintainer_tasks_read_the_host_s_roles_from_config_show() {
     let taskfile = taskfile();
@@ -1236,25 +801,34 @@ fn the_maintainer_tasks_read_the_host_s_roles_from_config_show() {
     assert_eq!(output.status.code(), Some(0), "{}", shown(&output));
     let calls = case.calls();
     assert!(
-        calls
-            .last()
-            .expect("a start")
-            .1
-            .starts_with("--bg -n a-conductor-dev --agent conductor-dev --model opus "),
+        calls.last().expect("a start").1.starts_with(&format!(
+            "--bg -n a-conductor-dev --append-system-prompt-file {} --model opus ",
+            case.dir
+                .join("home/.b10x/conductor/alpha/state/sessions/a-conductor-dev.profile.md")
+                .display()
+        )),
         "{calls:?}"
     );
+    // The host file is gone in v1 (`story:spec-v1`): one naming another maintainer is read by
+    // nothing, and the instance's conductor-dev still starts and is attached to.
     write_host(
         &case,
         "  - {role: maintainer, harness: claude, model: haiku}\n",
     );
     for task in ["maintainer:start", "dev:start"] {
+        let _ = fs::remove_file(case.dir.join("claude/log"));
         let output = case.task(task, Some(&config));
         assert_eq!(output.status.code(), Some(0), "{task}: {}", shown(&output));
         let calls = case.calls();
         let (cwd, args) = calls.last().expect("a start");
         assert_eq!(cwd, &root(), "{task}: {args}");
         assert!(
-            args.starts_with("--bg -n maintainer --agent conductor-dev --model haiku "),
+            args.starts_with(&format!(
+                "--bg -n a-conductor-dev --append-system-prompt-file {} --model opus ",
+                case.dir
+                    .join("home/.b10x/conductor/alpha/state/sessions/a-conductor-dev.profile.md")
+                    .display()
+            )),
             "{task}: {args}"
         );
     }
@@ -1267,7 +841,11 @@ fn the_maintainer_tasks_read_the_host_s_roles_from_config_show() {
         let _ = fs::remove_file(case.dir.join("claude/log"));
         let output = case.task(task, Some(&config));
         assert_eq!(output.status.code(), Some(0), "{task}: {}", shown(&output));
-        assert_eq!(case.calls(), [(root(), "attach s-m".to_owned())], "{task}");
+        assert_eq!(
+            case.calls(),
+            [(root(), "attach s-old".to_owned())],
+            "{task}"
+        );
     }
 }
 
@@ -1296,8 +874,7 @@ fn scalars(value: &serde_yaml::Value) -> Vec<String> {
 
 /// Writes a config file of two instances: `alpha`, `session_prefix: a`, whose records are the
 /// case's `records/`, and `beta`, `session_prefix: b`, whose records are `records-b/`; neither
-/// is the file's default, so each task runs the one `CONDUCTOR_INSTANCE` names. Neither writes a
-/// `dashboard_port`: alpha's is 7313 and beta's 7314.
+/// is the file's default, so each task runs the one `CONDUCTOR_INSTANCE` names.
 fn two_instance_config(case: &Case) -> PathBuf {
     fs::create_dir_all(case.dir.join("records-b")).expect("create records-b/");
     let text = format!(
@@ -1553,201 +1130,6 @@ fn a_name_more_than_one_live_session_holds_is_refused() {
     }
 }
 
-/// Replaces the case's `conductor` with one that logs a `dashboard ...` call, after the instance
-/// `CONDUCTOR_INSTANCE` names, to `claude/conductor-log` and then runs until it is killed, and
-/// passes every other call to the built `conductor`.
-fn fake_instance_dashboard_conductor(case: &Case) {
-    let conductor = case.dir.join("bin/conductor");
-    fs::remove_file(&conductor).expect("remove the linked conductor");
-    fs::write(
-        &conductor,
-        format!(
-            "#!/bin/sh\n\
-             if [ \"$1\" = dashboard ]; then\n\
-             \x20 printf '%s %s\\n' \"$CONDUCTOR_INSTANCE\" \"$*\" >> '{log}'\n\
-             \x20 while :; do sleep 1; done\n\
-             fi\n\
-             exec '{real}' \"$@\"\n",
-            log = case.dir.join("claude/conductor-log").display(),
-            real = Path::new(common::conductor(case.dir.join("home")).get_program()).display(),
-        ),
-    )
-    .expect("write a fake conductor");
-    fs::set_permissions(&conductor, fs::Permissions::from_mode(0o755)).expect("make it runnable");
-}
-
-/// The pid the pid file `file` holds.
-fn pid_in(file: &Path) -> u32 {
-    fs::read_to_string(file)
-        .unwrap_or_else(|error| panic!("{}: {error}", file.display()))
-        .trim()
-        .parse()
-        .expect("the pid file holds a pid")
-}
-
-/// Without `systemctl`, the second instance's dashboard starts beside the first one's on its own
-/// port, serving its own instance, with its pid in its own state directory; `dashboard:stop` of
-/// one leaves the other running.
-#[test]
-fn the_second_instance_s_dashboard_serves_its_own_port_beside_the_first() {
-    let Some(case) = Case::new("scoped-dashboard") else {
-        return;
-    };
-    let config = two_instance_config(&case);
-    fake_instance_dashboard_conductor(&case);
-    let path = path_without_systemctl(&case);
-    let pid_file = |instance: &str| {
-        case.dir.join(format!(
-            "home/.b10x/conductor/{instance}/state/dashboard.pid"
-        ))
-    };
-    let start = |instance: &str| {
-        let output = case
-            .command("dashboard", Some(&config))
-            .env("PATH", &path)
-            .env("CONDUCTOR_INSTANCE", instance)
-            .output()
-            .expect("task runs");
-        assert_eq!(
-            output.status.code(),
-            Some(0),
-            "{instance}: {}",
-            shown(&output)
-        );
-        output
-    };
-
-    let output = start("alpha");
-    let alpha = pid_in(&pid_file("alpha"));
-    let _reap_alpha = Reap(alpha);
-    assert!(
-        String::from_utf8_lossy(&output.stdout).contains("http://127.0.0.1:7313/"),
-        "{}",
-        shown(&output)
-    );
-    let output = start("beta");
-    let beta = pid_in(&pid_file("beta"));
-    let _reap_beta = Reap(beta);
-    assert!(
-        String::from_utf8_lossy(&output.stdout).contains("http://127.0.0.1:7314/"),
-        "{}",
-        shown(&output)
-    );
-    assert_ne!(alpha, beta);
-    assert!(running(alpha), "the first dashboard {alpha} is not running");
-    assert!(running(beta), "the second dashboard {beta} is not running");
-
-    let mut calls = dashboard_calls(&case);
-    for _ in 0..50 {
-        if calls.len() >= 2 {
-            break;
-        }
-        std::thread::sleep(std::time::Duration::from_millis(100));
-        calls = dashboard_calls(&case);
-    }
-    calls.sort();
-    assert_eq!(
-        calls,
-        [
-            "alpha dashboard serve --port 7313",
-            "beta dashboard serve --port 7314"
-        ]
-    );
-
-    let output = case
-        .command("dashboard:stop", Some(&config))
-        .env("PATH", &path)
-        .env("CONDUCTOR_INSTANCE", "beta")
-        .output()
-        .expect("task runs");
-    assert_eq!(output.status.code(), Some(0), "{}", shown(&output));
-    assert!(!pid_file("beta").exists(), "beta's pid file is still there");
-    let mut alive = running(beta);
-    for _ in 0..50 {
-        if !alive {
-            break;
-        }
-        std::thread::sleep(std::time::Duration::from_millis(100));
-        alive = running(beta);
-    }
-    assert!(
-        !alive,
-        "the second dashboard {beta} still runs after its stop"
-    );
-    assert!(running(alpha), "stopping beta's dashboard stopped alpha's");
-    assert_eq!(pid_in(&pid_file("alpha")), alpha);
-}
-
-/// Where `systemctl` is on `PATH`, each instance's dashboard is a user service of its own,
-/// `<session_prefix>-conductor-dashboard`, serving its instance on its port.
-#[test]
-fn each_instance_s_dashboard_service_is_its_own_unit() {
-    let Some(case) = Case::new("scoped-dashboard-systemd") else {
-        return;
-    };
-    let config = two_instance_config(&case);
-    let log = case.dir.join("claude/systemd-log");
-    for tool in ["systemctl", "systemd-run"] {
-        let file = case.dir.join("bin").join(tool);
-        fs::write(
-            &file,
-            format!(
-                "#!/bin/sh\nprintf '%s\\n' \"{tool} $*\" >> '{}'\n\
-                 case \"$*\" in *is-active*) exit 3 ;; esac\nexit 0\n",
-                log.display()
-            ),
-        )
-        .expect("write a fake systemd tool");
-        fs::set_permissions(&file, fs::Permissions::from_mode(0o755)).expect("make it runnable");
-    }
-
-    for task in ["dashboard", "dashboard:stop"] {
-        let output = instance_task(&case, task, &config, "beta");
-        assert_eq!(output.status.code(), Some(0), "{task}: {}", shown(&output));
-    }
-    let calls = fs::read_to_string(&log).expect("the systemd log");
-    let calls: Vec<&str> = calls.lines().collect();
-    assert_eq!(calls.len(), 3, "{calls:?}");
-    assert_eq!(
-        calls[0],
-        "systemctl --user is-active --quiet b-conductor-dashboard"
-    );
-    assert!(
-        calls[1].starts_with("systemd-run --user --unit b-conductor-dashboard --collect ")
-            && calls[1].contains(" --setenv=CONDUCTOR_INSTANCE=beta ")
-            && calls[1].ends_with(&format!(
-                "{} dashboard serve --port 7314",
-                case.dir.join("bin/conductor").display()
-            )),
-        "{calls:?}"
-    );
-    assert_eq!(calls[2], "systemctl --user stop b-conductor-dashboard");
-}
-
-/// `story:agents-link-local`: `task agents:link` serves a session started by hand in the
-/// repository it is given, never every session on the machine through `~/.claude/agents/`; the
-/// sessions the tasks start pass `--setting-sources project,local` and start from their role's
-/// profile, so the desc says so.
-#[test]
-fn agents_link_says_it_serves_a_session_started_by_hand_in_the_repository() {
-    let taskfile = taskfile();
-    let desc = taskfile["tasks"]["agents:link"]["desc"]
-        .as_str()
-        .expect("agents:link has a desc");
-    assert!(
-        !desc.contains("so a session started in another directory finds them"),
-        "{desc}"
-    );
-    assert!(desc.contains("REPO/.claude/agents/"), "{desc}");
-    assert!(desc.contains("task agents:link REPO=<path>"), "{desc}");
-    assert!(desc.contains("a session started by hand in REPO"), "{desc}");
-    assert!(
-        desc.contains("writes nothing to ~/.claude/agents/"),
-        "{desc}"
-    );
-    assert!(desc.contains("--setting-sources project,local"), "{desc}");
-}
-
 /// `story:status-board`: `task status` runs the snapshot collectors (`conductor snapshot
 /// start-snapshot`) and then `conductor snapshot publish-board`.
 #[test]
@@ -1823,85 +1205,35 @@ fn status_publishes_the_snapshot_it_took_and_nothing_when_it_failed() {
 }
 
 // ---------------------------------------------------------------------------------------------
-// The host's supervisor and teacher (`story:host-session-profiles`)
+// The host's supervisor and teacher (`story:host-roles-by-daemon`)
 
-/// The host sessions' start tasks and the profiles whose start command each runs.
-const HOST_TASKS: [(&str, &str); 2] = [
-    ("supervisor:start", "conductor-supervisor"),
-    ("teacher:start", "conductor-teacher"),
+/// The host roles' start tasks, the role each asks the daemon for, and the profile it starts from.
+const HOST_TASKS: [(&str, &str, &str); 2] = [
+    ("supervisor:start", "supervisor", "conductor-supervisor"),
+    ("teacher:start", "teacher", "conductor-teacher"),
 ];
 
-/// The start command `.agents/<name>.md` writes: its one line that starts with `claude --bg
-/// --agent <name>`, in backticks.
-fn profile_start_command(name: &str) -> String {
-    let text = fs::read_to_string(root().join(".agents").join(format!("{name}.md")))
-        .unwrap_or_else(|error| panic!(".agents/{name}.md: {error}"));
-    let head = format!("`claude --bg --agent {name} ");
-    let lines: Vec<&str> = text
-        .lines()
-        .filter(|line| line.starts_with(&head))
-        .collect();
-    assert_eq!(lines.len(), 1, "{name}.md: one start command: {lines:?}");
-    lines[0].trim_matches('`').to_owned()
-}
-
-/// `story:host-session-profiles`: `task supervisor:start` and `task teacher:start` each run, in
-/// the directory of the config file, the start command its profile writes, and refuse while a
-/// live session of that name runs.
+/// `story:host-roles-by-daemon`: `task supervisor:start` and `task teacher:start` ask the daemon
+/// for their role (`conductor daemon start-role --role <role>`), which starts it from the profile
+/// the binary carries (`story:roles-in-the-binary`); neither runs the harness itself. Replaces the
+/// case of `story:host-session-profiles`, whose tasks ran the profile's `claude --bg` start
+/// command.
 #[test]
-fn the_host_session_tasks_run_their_profile_s_start_command() {
+fn the_host_session_tasks_ask_the_daemon_for_their_role() {
     let taskfile = taskfile();
-    for (task, name) in HOST_TASKS {
+    for (task, role, profile) in HOST_TASKS {
         assert_eq!(
             shell_commands(&taskfile["tasks"][task]),
-            [format!(
-                "cd {{{{shellQuote .DIR}}}} && {}",
-                profile_start_command(name)
-            )],
-            "{task} runs the start command of .agents/{name}.md"
+            [format!("conductor daemon start-role --role {role}")],
+            "{task} asks the daemon for the {role}"
         );
-        let profiles = shell_commands(&taskfile["tasks"]["profiles"]).join("\n");
+        let file = root().join(format!("crates/conductor/roles/{role}.md"));
+        let text =
+            fs::read_to_string(&file).unwrap_or_else(|error| panic!("{}: {error}", file.display()));
         assert!(
-            profiles.contains(&format!(" .agents/{name}.md ")),
-            "task profiles installs .agents/{name}.md: {profiles}"
+            !text.contains(&format!("`claude --bg --agent {profile} ")),
+            "{}: still writes a claude --bg start command",
+            file.display()
         );
-    }
-
-    let Some(case) = Case::new("host-sessions") else {
-        return;
-    };
-    let config = case.config("opus", None);
-    for (task, name) in HOST_TASKS {
-        let _ = fs::remove_file(case.dir.join("claude/log"));
-        let _ = fs::remove_file(case.dir.join("claude/live"));
-        let output = case.task(task, Some(&config));
-        assert_eq!(output.status.code(), Some(0), "{task}: {}", shown(&output));
-        let calls = case.calls();
-        assert_eq!(calls.len(), 1, "{task}: {calls:?}");
-        let (cwd, args) = &calls[0];
-        assert_eq!(cwd, &case.dir, "{task} starts beside the config file");
-        // The teacher runs on the fable model, the supervisor on the agent's own.
-        let model = if name == "conductor-teacher" {
-            "--model fable "
-        } else {
-            ""
-        };
-        assert!(
-            args.starts_with(&format!(
-                "--bg --agent {name} -n {name} {model}--permission-mode bypassPermissions "
-            )),
-            "{task}: {args}"
-        );
-
-        let _ = fs::remove_file(case.dir.join("claude/log"));
-        fs::write(case.dir.join("claude/live"), name).expect("a live session of that name");
-        let output = case.task(task, Some(&config));
-        assert_ne!(output.status.code(), Some(0), "{task}: {}", shown(&output));
-        assert!(
-            String::from_utf8_lossy(&output.stderr).contains(&format!("{name} is already running")),
-            "{task} names the running session: {}",
-            shown(&output)
-        );
-        assert_eq!(case.calls(), [], "{task} starts nothing while {name} runs");
     }
 }

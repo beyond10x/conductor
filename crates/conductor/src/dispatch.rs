@@ -168,6 +168,7 @@ pub fn send(state: Option<&Path>, args: SendDispatchArgs) -> Result<String> {
         let mut generated = Generated::new(store);
         let outcome = generated
             .send_dispatch(SendDispatch {
+                actor: crate::actor::chosen(),
                 dispatch_id: dispatch_id.clone(),
                 repository: repository.clone(),
                 goal_id: goal_id.clone(),
@@ -265,6 +266,7 @@ pub fn report_started(state: Option<&Path>, args: ReportStartedArgs) -> Result<E
     const COMMAND: &str = "dispatch report-started";
     flags_only(args.input_json, "dispatch report-started --input-json")?;
     let input = ReportStarted {
+        actor: crate::actor::chosen(),
         dispatch_id: dispatch_id(COMMAND, args.dispatch_id)?,
     };
     let (outcome, store) = run(state, COMMAND, |generated| generated.report_started(input))?;
@@ -294,6 +296,7 @@ pub fn report_blocked(state: Option<&Path>, args: ReportBlockedArgs) -> Result<E
     const COMMAND: &str = "dispatch report-blocked";
     flags_only(args.input_json, "dispatch report-blocked --input-json")?;
     let input = ReportBlocked {
+        actor: crate::actor::chosen(),
         dispatch_id: dispatch_id(COMMAND, args.dispatch_id)?,
         reason: flag(COMMAND, "--reason", args.reason)?,
     };
@@ -326,6 +329,7 @@ pub fn report_unblocked(state: Option<&Path>, args: ReportUnblockedArgs) -> Resu
     const COMMAND: &str = "dispatch report-unblocked";
     flags_only(args.input_json, "dispatch report-unblocked --input-json")?;
     let input = ReportUnblocked {
+        actor: crate::actor::chosen(),
         dispatch_id: dispatch_id(COMMAND, args.dispatch_id)?,
     };
     let (outcome, store) = run(state, COMMAND, |generated| {
@@ -361,6 +365,7 @@ pub fn report_done(state: Option<&Path>, args: ReportDoneArgs) -> Result<ExitCod
     const COMMAND: &str = "dispatch report-done";
     flags_only(args.input_json, "dispatch report-done --input-json")?;
     let input = ReportDone {
+        actor: crate::actor::chosen(),
         dispatch_id: dispatch_id(COMMAND, args.dispatch_id)?,
         evidence: flag(COMMAND, "--evidence", args.evidence)?,
     };
@@ -397,6 +402,7 @@ pub fn report_failed(state: Option<&Path>, args: ReportFailedArgs) -> Result<Exi
     const COMMAND: &str = "dispatch report-failed";
     flags_only(args.input_json, "dispatch report-failed --input-json")?;
     let input = ReportFailed {
+        actor: crate::actor::chosen(),
         dispatch_id: dispatch_id(COMMAND, args.dispatch_id)?,
         reason: flag(COMMAND, "--reason", args.reason)?,
     };
@@ -433,6 +439,7 @@ pub fn cancel_dispatch(state: Option<&Path>, args: CancelDispatchArgs) -> Result
     const COMMAND: &str = "dispatch cancel-dispatch";
     flags_only(args.input_json, "dispatch cancel-dispatch --input-json")?;
     let input = CancelDispatch {
+        actor: crate::actor::chosen(),
         dispatch_id: dispatch_id(COMMAND, args.dispatch_id)?,
         reason: flag(COMMAND, "--reason", args.reason)?,
     };
@@ -470,7 +477,7 @@ pub fn cancel_dispatch(state: Option<&Path>, args: CancelDispatchArgs) -> Result
 /// output.
 pub fn dispatches(state: Option<&Path>, view: ViewArgs) -> Result<ExitCode> {
     /// The view's fields, in the specification's order (`spec/domains/dispatch.yaml`).
-    const COLUMNS: [&str; 8] = [
+    const COLUMNS: [&str; 9] = [
         "dispatch_id",
         "state",
         "repository",
@@ -479,6 +486,7 @@ pub fn dispatches(state: Option<&Path>, view: ViewArgs) -> Result<ExitCode> {
         "sent_at",
         "priority",
         "waits_on",
+        "actor",
     ];
 
     let generated = Generated::new(crate::state::open_reader(state)?);
@@ -497,6 +505,7 @@ pub fn dispatches(state: Option<&Path>, view: ViewArgs) -> Result<ExitCode> {
                 Value::from(row.sent_at.0),
                 Value::from(row.priority),
                 Value::from(row.waits_on.map(|waits_on| waits_on.0)),
+                Value::from(crate::actor::written(&row.actor)),
             ]
         })
         .collect();

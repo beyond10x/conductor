@@ -29,7 +29,7 @@ use eventlog_core::{
     CommandMeta, EventStore as _, Expected, NewEvent, StreamId, TenantId, new_event_id,
     request_hash,
 };
-use eventlog_tree::TreeEventStore;
+use eventlog_sqlite::SqliteEventStore;
 use serde_json::{Value, json};
 use time::OffsetDateTime;
 
@@ -47,26 +47,31 @@ fn state_dir(case: &str) -> PathBuf {
 }
 
 /// Appends one `stored` event at schema `version` with `body` to the new stream `key` of `entity`,
-/// where the store keeps it (`story:observation-retention`): an observation in the tenant of the
-/// snapshot its body names under `state/observations/`, every other record in `state/tree/`.
+/// with the raw log: what a crashed run or another build leaves in the store. It is kept where the
+/// store keeps it (`story:store-shared`): an observation in the tenant of the snapshot its body
+/// names, every other record in the tenant of the state directory, `conductor`, both in
+/// `state/store.sqlite`.
 fn append_raw(state: &Path, entity: &str, key: &str, version: u32, body: Value) {
     let observed = entity.starts_with("conductor.observation.") && entity.ends_with("Observation");
-    let (dir, tenant) = if observed {
-        (
-            state.join("observations"),
+    let tenant = if observed {
+        format!(
+            "conductor/observations/{}",
             body["snapshot_id"]
                 .as_str()
                 .expect("an observation names its snapshot")
-                .to_owned(),
         )
     } else {
-        (state.join("tree"), "conductor".to_owned())
+        "conductor".to_owned()
     };
+
+    let file = state.join(store::STORE_FILE);
     let runtime = tokio::runtime::Builder::new_current_thread()
         .build()
         .expect("a runtime for the raw log");
     runtime.block_on(async {
-        let log = TreeEventStore::open(&dir).await.expect("open the raw log");
+        let log = SqliteEventStore::open(file.to_str().expect("a UTF-8 path"), store::PREFIX)
+            .await
+            .expect("open the raw log");
         let tenant = TenantId::new(tenant).expect("tenant");
         let stream = StreamId::new(tenant, entity, key).expect("stream");
         let events = [NewEvent::new("stored", version, body).expect("event")];
@@ -95,6 +100,7 @@ fn everything() -> Collector {
         let snapshot = record.snapshot().clone();
         let alpha = RepositoryName("alpha".to_owned());
         record.repository(RecordRepository {
+            actor: conductor_cli::actor::daemon(),
             snapshot_id: snapshot.clone(),
             repository: alpha.clone(),
             visibility: Visibility::Public,
@@ -121,6 +127,7 @@ fn everything() -> Collector {
             wave_reason: None,
         })?;
         record.pull_request(RecordPullRequest {
+            actor: conductor_cli::actor::daemon(),
             snapshot_id: snapshot.clone(),
             repository: alpha.clone(),
             number: 7,
@@ -134,6 +141,7 @@ fn everything() -> Collector {
             url: None,
         })?;
         record.workflow_run(RecordWorkflowRun {
+            actor: conductor_cli::actor::daemon(),
             snapshot_id: snapshot.clone(),
             repository: alpha.clone(),
             workflow: "check".to_owned(),
@@ -141,6 +149,7 @@ fn everything() -> Collector {
             run_at: Timestamp("2026-10-02T00:00:00Z".to_owned()),
         })?;
         record.session(RecordSession {
+            actor: conductor_cli::actor::daemon(),
             snapshot_id: snapshot.clone(),
             harness: Harness::Claude,
             session_ref: "session-1".to_owned(),
@@ -158,6 +167,7 @@ fn everything() -> Collector {
             envelope_unboxed: None,
         })?;
         record.blocker(RecordBlocker {
+            actor: conductor_cli::actor::daemon(),
             snapshot_id: snapshot,
             repository: alpha,
             reference: "blocker:one".to_owned(),

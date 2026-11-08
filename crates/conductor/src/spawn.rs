@@ -31,16 +31,19 @@
 //! the instance's name and the config file's absolute path in `CONDUCTOR_INSTANCE` and
 //! `CONDUCTOR_CONFIG`, so the controller and its guard run as the instance that started it. The
 //! settings must not pin another instance (`InstanceNotPinned`, `story:instance-isolation`); ones
-//! that pin none, as the shipped `.claude/controller-settings.json` does, are passed as a copy
-//! pinned to the instance, `<state>/sessions/<session name>.settings.json`.
+//! that pin none, as the binary's `controller-settings.json` does, are passed as a copy
+//! pinned to the instance, `<state>/sessions/<session name>.settings.json`. A role that names no
+//! profile or no settings starts with the ones the binary carries for a controller, written into
+//! the state directory by the `claude-code` kind (`story:roles-in-the-binary`):
+//! `<state>/sessions/<session name>.profile.md` and `.settings.json`.
 //!
 //! In order, it refuses, recording and launching nothing: a repository that names no git
 //! checkout directly, or one group down, under the checkouts root, one whose physical path lies
 //! outside the root's physical path, or one an `exclude` entry of the instance's sources leaves out
 //! (`NoCheckout`); a checkout that is the instance's records directory, lies in it or holds it,
 //! where the guard takes a session for conductor's (`RecordsCheckout`); a role that is missing (`NoControllerRole`), runs
-//! on another harness (`NotClaude`), or names no profile or settings file (`NoProfile`,
-//! `NoSettings`); a checkout `~/.claude.json` does not mark trusted, where `claude --bg` would
+//! on another harness (`NotClaude`), or names a profile or settings file that is not a file
+//! (`NoProfile`, `NoSettings`); a checkout `~/.claude.json` does not mark trusted, where `claude --bg` would
 //! start nothing (`UntrustedCheckout`); a charter that is missing, empty, not UTF-8, or starts
 //! with `-`, which `claude` would read as a flag (`NoCharter`); and a live session that holds the
 //! session name in `claude agents --json`, as the sessions collector reads the list
@@ -75,8 +78,7 @@ use std::process::ExitCode;
 
 use anyhow::{Context as _, Result, anyhow, bail};
 use conductor_model::config::{
-    CommandWord, ConfinementProvider, Harness as RoleHarness, Instance, Limits, Network, Role,
-    RoleName, SessionName,
+    CommandWord, Harness as RoleHarness, Instance, Limits, Network, Role, SessionName,
 };
 use conductor_model::dispatch::obligations::{StartControllerBehavior, StopControllerBehavior};
 use conductor_model::dispatch::{
@@ -87,9 +89,10 @@ use conductor_model::observation::{Harness, RepositoryName};
 use conductor_model::session::{SessionRequest, StartedSession};
 use serde_json::Value;
 
+use crate::agent::claude_code;
 use crate::cli::SpawnArgs;
 use crate::collect::{self, Under};
-use crate::config::{self, Environment};
+use crate::config::{self, BuiltInRole, ConfinementProvider, Environment};
 use crate::confine::places::{self, Placement};
 use crate::confine::{self, CLAUDE, Launch, Providers, Refusal, live_session};
 
@@ -173,7 +176,7 @@ pub fn spawn_for(
     };
     let session_name = config::session_name(instance, &repository);
     // Under `strict`, a provider that is not available starts nothing and records nothing.
-    let chosen = match confine::choose(providers, &instance.confinement) {
+    let chosen = match confine::choose(providers, &crate::config::legacy(instance).confinement) {
         Ok(chosen) => chosen,
         Err(refusal) => return refuse_confined(&refuse, refusal),
     };
@@ -193,12 +196,14 @@ pub fn spawn_for(
     let state_dir = crate::state::dir(state)?;
     // Written before the controller is recorded, so a copy that cannot be written records nothing.
     let settings = pinned_settings(instance, settings, &state_dir, &session_name)?;
+    let profile = role_files(profile, &state_dir, &session_name)?;
 
     // The store is held only while a record is written, not while the session starts.
     let outcome = {
         let mut generated = crate::controller::record(state)?;
         let outcome = generated
             .start_controller(StartController {
+                actor: crate::actor::chosen(),
                 repository: RepositoryName(repository.clone()),
                 harness: Harness::Claude,
                 session_name: session_name.clone(),
@@ -233,7 +238,7 @@ pub fn spawn_for(
         }
     };
 
-    let launch = controller_launch(
+    let mut launch = controller_launch(
         config_flag,
         &state_dir,
         &ControllerRole {
@@ -246,6 +251,22 @@ pub fn spawn_for(
         &checkout,
         &environment,
     )?;
+    // story:token-pool: the controller runs on a token leased from the instance's pool (its
+    // `token_owner`'s, for Remote Control, when the role names one); none in the pool, today's.
+    let lease = match crate::token::lease_into(instance, controller, &mut launch, false) {
+        Ok(lease) => lease,
+        Err(detail) => {
+            record_stopped(
+                state,
+                controller_id,
+                format!("{COMMAND}: no token to start on: {detail}"),
+            )?;
+            return refuse(
+                SpawnRefusal::LaunchFailed,
+                format!("{detail}; the controller is recorded stopped"),
+            );
+        }
+    };
     // The none provider's launch is `claude --bg`; another provider's is its own start.
     let launcher = if chosen.name() == "none" {
         format!("{CLAUDE} --bg")
@@ -318,6 +339,9 @@ pub fn spawn_for(
             );
         }
     }
+    if lease.is_some() {
+        crate::token::release_for_stop(instance, &session_name.0).context(COMMAND)?;
+    }
     record_stopped(
         state,
         controller_id,
@@ -338,6 +362,7 @@ fn record_stopped(
     let mut generated = crate::controller::record(state)?;
     let outcome = generated
         .stop_controller(StopController {
+            actor: crate::actor::chosen(),
             controller_id,
             reason,
         })
@@ -442,7 +467,7 @@ fn controller_launch(
     Ok(Launch {
         request,
         session_prefix: instance.session_prefix.clone(),
-        instance_limits: instance.confinement.limits.clone(),
+        instance_limits: crate::config::legacy(instance).confinement.limits.clone(),
         state: state_dir.to_owned(),
         program: CLAUDE.to_owned(),
         args: [
@@ -523,6 +548,8 @@ pub fn end(
     provider
         .stop(&session, &request)
         .with_context(|| format!("stop the controller session {}", session_name.0))?;
+    // story:token-pool: the token the session ran on is Available again.
+    crate::token::release_for_stop(instance, &session_name.0)?;
     Ok(Some(format!(
         "{} ({})",
         session_name.0,
@@ -573,8 +600,9 @@ pub fn resume(
     let (controller, profile, settings, model) =
         role(instance).map_err(|(_, detail)| anyhow!("{detail}"))?;
     let settings = pinned_settings(instance, settings, &state_dir, session_name)?;
+    let profile = role_files(profile, &state_dir, session_name)?;
     let environment = Environment::from_process().context(COMMAND)?;
-    let launch = controller_launch(
+    let mut launch = controller_launch(
         config_flag,
         &state_dir,
         &ControllerRole {
@@ -587,11 +615,21 @@ pub fn resume(
         &checkout,
         &environment,
     )?;
-    let chosen = confine::choose(providers, &instance.confinement)
+    // story:token-pool: resumed on a token of the pool: an Available one, else, with the
+    // account's headroom back, the Limited one (a pool of one is today's auto-resume).
+    let lease = crate::token::lease_into(instance, controller, &mut launch, true)
+        .map_err(|detail| anyhow!("{detail}"))?;
+    let chosen = confine::choose(providers, &crate::config::legacy(instance).confinement)
         .map_err(|refusal| anyhow!("{}", refusal_detail(refusal)))?;
-    let started = chosen
-        .resume(&session, &launch, &state_dir)
-        .map_err(|refusal| anyhow!("{}", refusal_detail(refusal)))?;
+    let started = match chosen.resume(&session, &launch, &state_dir) {
+        Ok(started) => started,
+        Err(refusal) => {
+            if lease.is_some() {
+                let _ = crate::token::release_for_stop(instance, &session_name.0);
+            }
+            bail!("{}", refusal_detail(refusal));
+        }
+    };
     let id = started
         .session
         .session_id
@@ -714,13 +752,18 @@ fn outside_records(instance: &Instance, checkout: &Path) -> Result<(), String> {
     Ok(())
 }
 
+/// The controller role [`role`] answers: the role, the profile and settings files it names (`None`
+/// for one it names none of) and its model.
+type ControllerFiles<'r> = (&'r Role, Option<String>, Option<String>, String);
+
 /// The `lead` role, or one under its old name `controller` (`story:role-name-aliases`), with its
-/// profile, settings and model, each file checked to be one.
-fn role(instance: &Instance) -> Result<(&Role, String, String, String), (SpawnRefusal, String)> {
+/// profile, settings and model, each file it names checked to be one; a profile or settings file
+/// it does not name is the binary's (`story:roles-in-the-binary`, [`role_files`]).
+fn role(instance: &Instance) -> Result<ControllerFiles<'_>, (SpawnRefusal, String)> {
     let Some(role) = instance
         .roles
         .iter()
-        .find(|role| config::is_role(&role.role, RoleName::Lead))
+        .find(|role| config::is_role(&role.role, BuiltInRole::Lead))
     else {
         return Err((
             SpawnRefusal::NoControllerRole,
@@ -743,22 +786,20 @@ fn role(instance: &Instance) -> Result<(&Role, String, String, String), (SpawnRe
         ));
     }
     let file = |value: &Option<CommandWord>, refusal: SpawnRefusal, what: &str| match value {
-        Some(path) if Path::new(&path.0).is_file() => Ok(path.0.clone()),
+        Some(path) if Path::new(&path.0).is_file() => Ok(Some(path.0.clone())),
         Some(path) => Err((
             refusal,
             format!("the controller role's {what} {} is not a file", path.0),
         )),
-        None => Err((
-            refusal,
-            format!("the controller role names no {what} in conductor config show"),
-        )),
+        None => Ok(None),
     };
     let profile = file(profile, SpawnRefusal::NoProfile, "profile")?;
     let settings = file(settings, SpawnRefusal::NoSettings, "settings")?;
     // The settings select the instance the session's hooks act for (`story:instance-isolation`):
     // they must not pin another. Settings that pin none start pinned ([`pinned_settings`]).
     if config::active().from_file
-        && let Some(problem) = config::pin_refusal(Path::new(&settings), &instance.name.0)
+        && let Some(settings) = &settings
+        && let Some(problem) = config::pin_refusal(Path::new(settings), &instance.name.0)
     {
         return Err((
             SpawnRefusal::InstanceNotPinned,
@@ -771,14 +812,31 @@ fn role(instance: &Instance) -> Result<(&Role, String, String, String), (SpawnRe
 /// The settings the controller session `session_name` starts with (`story:instance-isolation`):
 /// under a config file, the role's `settings` when they pin the instance, else a copy of them
 /// pinned to it under the state directory ([`config::session_settings`]); without one, the
-/// role's `settings` as they are.
+/// role's `settings` as they are. A role that names none starts with the settings the binary
+/// carries for a controller ([`claude_code::CONTROLLER_SETTINGS`]), written under the state
+/// directory as the copy, pinned under a config file.
 fn pinned_settings(
     instance: &Instance,
-    settings: String,
+    settings: Option<String>,
     state_dir: &Path,
     session_name: &SessionName,
 ) -> Result<String> {
-    if !config::active().from_file {
+    let from_file = config::active().from_file;
+    let Some(settings) = settings else {
+        let file = if from_file {
+            config::write_pinned(
+                claude_code::settings_value(config::CONTROLLER)?,
+                &instance.name.0,
+                state_dir,
+                &session_name.0,
+            )
+        } else {
+            claude_code::write_settings(state_dir, &session_name.0, config::CONTROLLER)
+                .map(|file| file.unwrap_or_else(|| config::pinned_copy(state_dir, &session_name.0)))
+        };
+        return Ok(file.context(COMMAND)?.display().to_string());
+    };
+    if !from_file {
         return Ok(settings);
     }
     config::session_settings(
@@ -788,6 +846,24 @@ fn pinned_settings(
         &session_name.0,
     )
     .context(COMMAND)
+}
+
+/// The profile the controller session `session_name` starts with (`story:roles-in-the-binary`):
+/// the role's own, read by the harness at start; else the one the binary carries for a
+/// controller, written to `<state>/sessions/<session name>.profile.md`
+/// ([`claude_code::write_profile`]).
+fn role_files(
+    profile: Option<String>,
+    state_dir: &Path,
+    session_name: &SessionName,
+) -> Result<String> {
+    if let Some(profile) = profile {
+        return Ok(profile);
+    }
+    let file = claude_code::write_profile(state_dir, &session_name.0, config::CONTROLLER)
+        .context(COMMAND)?
+        .ok_or_else(|| anyhow!("{COMMAND}: the binary carries no controller profile"))?;
+    Ok(file.display().to_string())
 }
 
 /// Whether `~/.claude.json` under `home` marks `checkout`, a physical path, trusted:

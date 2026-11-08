@@ -13,6 +13,7 @@ timeline:
     command: conductor.decision.RaiseDecisionRequest
     actor: conductor.decision.RepositoryController
     input:
+      actor: {kind: Agent, agent: {instance: example-org, role: Lead, name: example-org-lead, kind: claude-code}}
       request_id: REQ-batch-o1
       repository: cortex
       question: Which store backs the cache?
@@ -25,6 +26,7 @@ timeline:
     command: conductor.decision.RecordOperatorDecisionForRequest
     actor: conductor.decision.Operator
     input:
+      actor: {kind: Human, operator: example-operator}
       request_id: REQ-batch-o1
       decision_id: DEC-batch-o0
       decision_class: O
@@ -45,6 +47,7 @@ timeline:
     command: conductor.decision.EscalateRequest
     actor: conductor.decision.Conductor
     input:
+      actor: {kind: Agent, agent: {instance: example-org, role: Director, name: example-org-conductor, kind: claude-code}}
       request_id: REQ-batch-o1
       escalation_class: O
       reason: an architecture choice
@@ -61,6 +64,7 @@ timeline:
     command: conductor.decision.RecordOperatorDecisionForRequest
     actor: conductor.decision.Operator
     input:
+      actor: {kind: Human, operator: example-operator}
       request_id: REQ-batch-o1
       decision_id: DEC-batch-o1
       decision_class: O
@@ -79,6 +83,7 @@ timeline:
     command: conductor.decision.AnswerEscalatedRequest
     actor: conductor.decision.Operator
     input:
+      actor: {kind: Human, operator: example-operator}
       request_id: REQ-batch-o1
       decision_id: DEC-batch-o1
     outcome: answered
@@ -87,6 +92,7 @@ timeline:
     command: conductor.decision.RecordOperatorDecisionForRequest
     actor: conductor.decision.Operator
     input:
+      actor: {kind: Human, operator: example-operator}
       request_id: REQ-batch-o1
       decision_id: DEC-batch-o2
       decision_class: O

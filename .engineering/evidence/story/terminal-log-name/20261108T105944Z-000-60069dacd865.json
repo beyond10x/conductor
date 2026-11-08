@@ -1,0 +1,12 @@
+{
+  "at": "2026-11-08T10:59:44Z",
+  "actor": "human:timo",
+  "artifact": "story:terminal-log-name",
+  "kind": "story",
+  "revision": 13,
+  "change": {
+    "change": "evidence",
+    "kind": "test_result",
+    "source": "https://github.com/beyond10x/conductor/actions/runs/42472468590"
+  }
+}

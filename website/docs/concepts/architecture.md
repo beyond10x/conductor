@@ -21,13 +21,13 @@ flowchart TB
   classDef nomodel fill:#e5e7eb,stroke:#4b5563,color:#111827
   classDef store fill:#ede9fe,stroke:#6d28d9,color:#111827
   op["operator: interactive harness session"]:::host
-  sup["supervisor: claude --bg, reads profiles/conductor-supervisor.md"]:::host
-  tea["teacher: claude --bg, reads profiles/conductor-teacher.md"]:::host
+  sup["supervisor: started by the daemon, from the binary's supervisor profile"]:::host
+  tea["teacher: started by the daemon, from the binary's teacher profile"]:::host
   op --- sup
   op -.-|names foreign sessions, answers his class| sup
   tea -.->|observes, edits the profile| sup
   subgraph slice["conductor_‹instance›.slice, one per instance"]
-    run["‹instance›-run.service: conductor run, no model"]:::nomodel
+    run["‹instance›-runtime.service: conductor instance serve, no model"]:::nomodel
     dash["‹instance›-dashboard.service: 127.0.0.1:‹dashboard_port›"]:::nomodel
     s1["‹prefix›-‹repo A›.service: tmux server, controller"]:::model
     s2["‹prefix›-‹repo B›.service: tmux server, controller"]:::model
@@ -53,7 +53,7 @@ flowchart TB
 operator (chat session) ──── supervisor (claude --bg) ◄···· teacher (claude --bg)
                                   │ restarts, delivers, reads journals; defects to conductor-dev
   ┌─ conductor_<instance>.slice, one per instance ───────────────────────────────────┐
-  │ <instance>-run.service         conductor run, no model                           │
+  │ <instance>-runtime.service     conductor instance serve, no model                │
   │ <instance>-dashboard.service   127.0.0.1:<dashboard_port>                        │
   │ <prefix>-<repo A>.service      tmux server ── controller ── tree of repository A │
   │ <prefix>-<repo B>.service      tmux server ── controller ── tree of repository B │
@@ -71,7 +71,7 @@ operator (chat session) ──── supervisor (claude --bg) ◄···· teache
 | level | one per | what runs there | started by |
 |---|---|---|---|
 | host | machine | the supervisor session, the teacher session, the maintainer session (`conductor-dev`), the operator's own chat session | `task supervisor:start`, `task teacher:start`, `task maintainer:start`; the chat session by the operator |
-| instance | organization | the loop (`conductor run`), the dashboard, the instance's controllers | `conductor run --install`, `task dashboard`, the loop |
+| instance | organization | the loop (`conductor run`), the dashboard, the instance's controllers | conductord (`conductor daemon serve`), `task dashboard`, the loop |
 | repository | repository of an instance | one controller session, in its own tree | the loop, through `conductor spawn` |
 | unit of work | a story or task | the controller's sub-agents (planner, implementer, reviewer) | the controller, inside its own harness session |
 
@@ -116,7 +116,7 @@ process of the instance is one user unit inside it:
 
 | unit | runs | model |
 |---|---|---|
-| `conductor_<instance>-run.service` | `conductor run`: the loop | no |
+| `conductor_<instance>-runtime.service` | `conductor instance serve`: the instance's runtime, started by conductord (`conductord.service`) | no |
 | `conductor_<instance>-dashboard.service` | the dashboard on `127.0.0.1:<dashboard_port>` | no |
 | `conductor_<session>.service` | one tmux server, `tmux -D -S <state>/sessions/<session>.tmux`, whose only window runs the harness of a controller or the maintainer | yes |
 
@@ -167,7 +167,8 @@ Why one server per session:
   sessions and a crashed server takes no other session down.
 - The tmux config is per session too (`<session>.tmux.conf`: `exit-empty on`, prefix `C-]`, status
   off, `-x 160 -y 50`), so a session's terminal size and keys cannot be changed from another one.
-- Everything typed and printed is kept: `<session>.terminal.log` is the terminal log a watcher reads (today the file is still `<session>.typescript`, the `script` command's default name; the story terminal-log-name renames it), and a
+- Everything typed and printed is kept: `<session>.terminal.log` is the terminal log a watcher
+  reads (when it is absent, this release reads the old name `<session>.typescript`), and a
   session started before the tmux launcher can still be followed through it (`--watch`).
 - A session's settings file (`<session>.settings.json`) is written at start from the role's
   `settings` and its `read_only_tools`, so the harness reads a file conductor owns, not a shared one.
@@ -188,17 +189,15 @@ reconciles the two every pass.
 
 | task | does |
 |---|---|
-| `task install` | builds and installs the binary; `task profiles` installs `.agents/*.md` into `profiles/` next to the config file |
+| `task install` | builds and installs the binary, which carries the role profiles (`crates/conductor/roles/*.md`) |
 | `task maintainer:start` | `conductor session start --role maintainer`: the maintainer in its own tmux server and unit |
-| `task supervisor:start` | `claude --bg --agent conductor-supervisor -n conductor-supervisor …` in the config directory |
-| `task teacher:start` | the same for the teacher |
+| `task supervisor:start` | `conductor daemon start-role --role supervisor`: asks the daemon to start the supervisor now; the daemon keeps it running while `globals.roles` lists it, its session in `conductor_host.slice` |
+| `task teacher:start` | the same for the teacher, which runs when `globals.roles` lists it |
 | `task dashboard`, `task dashboard:stop` | the dashboard unit |
 | `task sessions`, `task conductor:attach`, `task maintainer:attach` | list sessions; attach to one |
-| `task agents:link REPO=<path>` | links the role adapters into a repository's `.claude/agents/` |
 
-The supervisor and the teacher are not units: they are the harness's own background sessions, read
-their 10-line adapter from `~/.claude/agents/<name>.md` and their whole definition from
-`profiles/<name>.md`. They have no tmux server, no envelope, no terminal log, and `conductor session
+The supervisor and the teacher are not units: they are the harness's own background sessions,
+started from the profile the binary carries for their role. They have no tmux server, no envelope, no terminal log, and `conductor session
 list` does not show them.
 
 ### The operator's chat session
@@ -389,12 +388,15 @@ start, stop and upgrade instances, purge); every record of an answer, a config c
 reconciliation names the operator who caused it. The supervisor's "the operator" is whichever operator
 the request is routed to, by grant; a class H decision is answered by any operator the grant names.
 
-**Who issued a command: a person or a program.** Every command, event and record carries an actor,
-and its type says which it is: a human actor is an operator; an agent actor is an agent conductor
-started (its instance, role, name and kind). A grant belongs to a human actor only; a command that
-needs one refuses an agent actor by name. The records write `human:<name>` or
-`agent:<instance>/<role>/<name>` (operator, 2026-11-08: "we kind of need to distinguish between who is
-an agent actor and who is a human actor").
+**Who issued a command: a person or a program.** Every command, event and record carries an actor:
+a record with a kind, human, agent or daemon, and the fields of that kind. A human actor is an
+operator, named by name; an agent actor is an agent conductor started (its instance, role, name and
+kind); a daemon actor is conductord or an instance runtime acting on its own account, and carries
+nothing else. A grant belongs to a human actor only and is checked on the kind, so a command that
+needs one refuses every other kind by name, and the specification states that refusal as a
+predicate its synthesized tests exercise. The records write `human:<name>`,
+`agent:<instance>/<role>/<name>` or `daemon` (operator, 2026-11-08: "we kind of need to distinguish
+between who is an agent actor and who is a human actor").
 
 **The daemon on a remote box.** conductord itself can run on a remote machine, a cloud instance the
 team shares, with the config repository cloned there (operator, 2026-11-08: "the daemon itself, is
@@ -593,61 +595,67 @@ hand-over at the context threshold with pushed branches; the terminal log as the
 
 ### The TUI
 
-`conductor` with no arguments at a terminal (and `conductor tui`) opens a full-screen view built on
-tmux: the TUI itself is one tmux client, and entering a session switches that client to the session's
-socket, so the session keeps running untouched when the operator leaves.
+`conductor` with no arguments at a terminal (and `conductor tui`) opens a full-screen view over the
+daemon's global API, the same API the dashboard reads. It reads the daemon `--daemon <url>` names,
+else `CONDUCTOR_DAEMON`, else `127.0.0.1:<daemon.port>` of the config file, so it works from any
+machine that reaches the daemon. This first release is read-only; its settings editor comes with the
+tuner's grant.
 
 ```text
-┌ instances ─────────┬ sessions of <instance> ──────────────┬ settings ───────────────────┐
-│ > A   2 dec  K1 ok │ controller   busy  412k  wave/46     │ cadence.cycle        2h     │
-│   B   0 dec  K3 !  │ worker repo1 idle   38k  story:x     │ thresholds.disk_low  200G   │
-│   C   1 dec  K1 ok │ worker repo2 busy  120k  story:y     │ controllers.max_working 8   │
-│   host             │ ui-pass      sched 06:00 daily       │ roles[3].schedule    daily  │
-├────────────────────┴──────────────────────────────────────┴─────────────────────────────┤
-│ Enter attach  w watch  d deliver  s settings  r restart  l log  k kpis  ? keys  q quit    │
-└───────────────────────────────────────────────────────────────────────────────────────────┘
+┌ instances on <daemon> ─────────┬ sessions of A ─────────────────────────┬ settings of A (read-only) ─┐
+│ > A   running      2 dec  K ok │ > controller   busy   412k  wave/46    │ cadence.cycle        2h    │
+│   B   running      0 dec  K1 ! │   controller   idle    38k  story:x    │ thresholds.disk_low  200G  │
+│   C   unreachable  ? dec  K ?  │   conductor    busy      -  -          │ controllers.max_working 8  │
+├────────────────────────────────┴────────────────────────────────────────┴────────────────────────────┤
+│ Enter attach  w watch  l log  ctrl-] d back  Tab pane  j/k move  r refresh  q quit                   │
+└──────────────────────────────────────────────────────────────────────────────────────────────────────┘
 ```
 
 ```mermaid
 flowchart LR
   classDef host fill:#dbeafe,stroke:#1d4ed8,color:#111827
   classDef model fill:#dcfce7,stroke:#15803d,color:#111827
-  classDef store fill:#ede9fe,stroke:#6d28d9,color:#111827
   classDef cmd fill:#fce7f3,stroke:#be185d,color:#111827
-  term["terminal"]:::host --> tui["conductor tui: one tmux client"]:::cmd
-  tui -->|Enter: switch the client to the socket| sa["session socket, instance A"]:::model
-  tui -->|Enter| sb["session socket, instance B"]:::model
-  sa -.->|detach: back to the TUI| tui
-  tui -->|s: validate, then write| cfg["conductor.yaml"]:::store
-  tui -->|d, r, k: conductor commands| store[("the store: deliveries, restarts, readings")]:::store
-  store -.->|what the dashboard reads| tui
+  term["terminal"]:::host --> tui["conductor tui"]:::cmd
+  tui -->|"GET /v1/instances, decisions, kpis, sessions"| daemon["conductord"]:::host
+  tui -->|"GET /v1/instances/{name}/settings"| daemon
+  tui -->|"Enter, w, l: daemon on this host"| attach["conductor session attach"]:::cmd
+  attach --> sock["the session's tmux socket"]:::model
+  sock -.->|"ctrl-] then d: back to the TUI"| tui
 ```
 
 <details>
 <summary>plain text</summary>
 
 ```text
-terminal ── conductor tui (one tmux client)
-              ├─ Enter ──► session socket, instance A ── ctrl-] then d ──► back to the TUI
-              ├─ Enter ──► session socket, instance B
-              ├─ s     ──► validate, then write conductor.yaml
-              └─ d r k ──► conductor commands ──► the store ◄── read by the TUI and the dashboard
+terminal ── conductor tui
+              ├─ reads ──► conductord: /v1/instances, /v1/decisions, /v1/kpis, /v1/sessions,
+              │                        /v1/instances/{name}/settings
+              ├─ Enter, w ──► conductor session attach (daemon on this host) ──► tmux socket
+              │                 └─ ctrl-] then d ──► back to the TUI, the session untouched
+              └─ l ──► follow the session's terminal log, ctrl-] then d returns
 ```
 
 </details>
 
 | key | does |
 |---|---|
-| `Enter` | attach the selected session (`ctrl-]` then `d` returns to the TUI) |
+| `Enter` | attach the selected session (`ctrl-]` then `d` returns to the TUI, the session untouched) |
 | `w` | watch it read-only |
-| `d` | deliver a text to it (recorded like `conductor session deliver`) |
-| `s` | edit the selected instance's or role's settings; the TUI validates and writes the config file, and shows the effective value with the level it comes from |
-| `r` | restart the session (hand-over first, then stop, then start) |
 | `l` | follow its terminal log (`<session>.terminal.log`) |
-| `k` | the instance's KPI readings of the last 7 days |
+| `Tab`, `j`, `k` | switch between the instances and the sessions pane, and move in it |
+| `r` | read every pane again (they are also read again every 5 seconds) |
+| `q` | quit |
 
-The TUI reads what the dashboard reads (the store and `<state>/sessions/`) and writes only through
-conductor commands, so a thing done in the TUI is a record.
+The instances pane shows each instance's state, its open decision requests and its KPI flag (`K ok`,
+or `K<n> !` for `n` KPIs off their target); the sessions pane each session's role, state, context
+and current work; the settings pane the selected instance's effective settings. An instance that does
+not answer is shown `unreachable`, never an error for the whole view.
+
+Attach hands the terminal to `conductor session attach` when the daemon is on this host. Against a
+daemon on another host the TUI asks `GET /v1/instances/{name}/agents/{agent}/attach` through the
+daemon; a PTY stream over HTTP is not served yet, and the TUI shows that answer on its status line.
+The TUI writes nothing.
 
 ### Settings: global, instance, role
 
@@ -692,7 +700,7 @@ Built-in roles ship with a profile each: `supervisor`, `controller`, `planner`, 
 ```yaml
 roles:
   - role: ui-pass
-    profile: ~/.b10x/conductor/profiles/ui-pass.md
+    profile: ~/example-org/roles/ui-pass.md
     model: sonnet
     scope: repository
     repositories: [manager]
@@ -786,7 +794,7 @@ Surveyed on 2026-11-07 at each repository's newest commit, so nobody reads them 
 | Loom 0.57.2 | a run-once Job in a cluster that reports its exit code; no attach, no message in, no Substrate in the pod | no: a cluster is substrate's `pod` adapter |
 | mantle 0.3.1 | a whole session on a remote worker with attach | no: a remote substrate gives the same box as the local one |
 | takt 0.34.0 | one case to a named exit (0 to 9) with an events file; no dispatcher; cross-repository work deferred to conductor | after v1: the first run-to-exit agent kind |
-| substrate 0.16.1 | adapters `local`, `linux`, `macos`, `systemd`, `oci`, `pod`; a daemon over a socket or HTTPS; sealed secret slots; named refusals | yes: the only placement |
+| substrate 0.20.0 | adapters `local`, `linux`, `macos`, `systemd`, `oci`, `pod`; a daemon over a socket or HTTPS; sealed secret slots; writable host roots the daemon declares by name; named refusals | yes: the only placement |
 | secrets 0.6.0 | a storage port with the OS keychain and the Secrets service as backends, routed per namespace | yes: the secrets source |
 
 ### The integration branch and the order of work
@@ -799,7 +807,7 @@ one.
 
 | step | story | what lands on `v1` |
 |---|---|---|
-| 0 | spec-v1 | the whole system above modelled in `spec/`: new domains for instances, placements, agents, the store, secrets, operators and the token pool; the actor type (human or agent) on every command; the changed config and improvement domains; the components; one scenario per new command; the generated model |
+| 0 | spec-v1 | the whole system above modelled in `spec/`: new domains for instances, placements, agents, the store, secrets, operators and the token pool; the actor type (human, agent or daemon) on every command; the changed config and improvement domains; the components; one scenario per new command; the generated model |
 | 1 | daemon-reconcile | `conductor daemon serve`: reconcile, instances, reconciliations; the registry file gone |
 | 2 | instance-api | `conductor instance serve` with `/v1/` on its socket; the daemon proxies, serves the dashboard at `/` and on the TLS listener; the per-instance dashboard server gone |
 | 3 | federated-views, tui-readonly | the federated routes; `conductor tui` read-only with attach |
@@ -831,6 +839,7 @@ one.
 | the daemon on a remote box; how engineers join? | conductord runs on the shared box too, behind its TLS listener with Identity bearers; an engineer joins an instance and contributes their Claude token to its pool, which `claude-code` agents lease from (2026-11-08) |
 | the Claude app as a UI? | yes: a controller started for Remote Control on a named owner's token from the pool appears in that owner's Claude app (2026-11-08) |
 | who issued a command: a person or a program? | told apart by type on every command, event and record; a grant belongs to a human actor only (2026-11-08) |
+| how is an actor written? | a kind and its fields, not a sum type, with the daemon as the third kind: the specification tests a field in a predicate, not a variant (2026-11-08) |
 
 ### Open question for the operator
 

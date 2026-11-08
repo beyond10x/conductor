@@ -1,5 +1,5 @@
 //! Every read-only command opens the store as a reader (`story:views-open-as-reader`): while
-//! another process holds the tree's writer lock, each view still answers within five seconds,
+//! another process holds the database's write lock, each view still answers within five seconds,
 //! since a reader never takes that lock.
 //!
 //! The commands are those [`conductor_cli::cli::LEAVES`] declares as reads, less the few that
@@ -8,7 +8,7 @@
 
 mod common;
 
-use std::fs::{self, File, OpenOptions};
+use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::{Child, Stdio};
 use std::thread;
@@ -23,7 +23,6 @@ const ANSWER_WITHIN: Duration = Duration::from_secs(5);
 const NO_STATE_STORE: &[&[&str]] = &[
     &["config", "show"],
     &["config", "validate"],
-    &["dashboard", "serve"],
     &["doctor"],
     &["rules", "show"],
     &["host", "grants"],
@@ -39,15 +38,12 @@ fn extra(words: &[&str]) -> &'static [&'static str] {
     }
 }
 
-/// Holds `state/tree/.lock`, the writer lock of the store under `state`.
-fn hold_writer_lock(state: &Path) -> File {
-    let lock = OpenOptions::new()
-        .create(true)
-        .truncate(false)
-        .write(true)
-        .open(state.join("tree/.lock"))
-        .expect("open the tree's writer lock");
-    lock.lock().expect("hold the tree's writer lock");
+/// Holds the write lock of the database under `state` (`state/store.sqlite`) in an open write
+/// transaction, as a writer in the middle of its commit does.
+fn hold_writer_lock(state: &Path) -> rusqlite::Connection {
+    let lock = rusqlite::Connection::open(state.join("store.sqlite")).expect("open the database");
+    lock.execute_batch("BEGIN IMMEDIATE")
+        .expect("hold the database's write lock");
     lock
 }
 

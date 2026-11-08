@@ -1,7 +1,7 @@
 //! What the repository page reads (`story:dashboard-repo-view`): one repository's plan from the
-//! newest complete snapshot (`/api/blockers`, `/api/specifications`), what each repository waits
-//! on (`/api/waiting-on`), its sessions (`/api/sessions?repository=`) and its share of today's
-//! events (`/api/events?since=&repository=`, [`events_for_repository`]).
+//! newest complete snapshot (`/v1/blockers`, `/v1/specifications`), what each repository waits
+//! on (`/v1/waiting-on`), its sessions (`/v1/sessions?repository=`) and its share of today's
+//! events (`/v1/events?since=&repository=`, [`events_for_repository`]).
 //!
 //! Every answer is read-only: the store is one opened only when it exists, and nothing here
 //! writes. A repository's **checkout** is `<checkouts root>/<repository>`, its **managed trees**
@@ -46,7 +46,7 @@ use super::{Sources, rfc3339, tilde_all};
 use crate::snapshot::{specification_presence_name, validation_result_name};
 use crate::store::Store;
 
-/// The causes, as `/api/waiting-on` names them, in the order a row lists them.
+/// The causes, as `/v1/waiting-on` names them, in the order a row lists them.
 pub const CAUSES: [&str; 8] = [
     "operator",
     "ci",
@@ -60,16 +60,16 @@ pub const CAUSES: [&str; 8] = [
 
 /// The paths this module answers.
 pub const PATHS: [&str; 4] = [
-    "/api/waiting-on",
-    "/api/sessions",
-    "/api/blockers",
-    "/api/specifications",
+    "/v1/waiting-on",
+    "/v1/sessions",
+    "/v1/blockers",
+    "/v1/specifications",
 ];
 
-/// The answer of `/api/sessions` to the request target `target`, from the sources `sources`, the
+/// The answer of `/v1/sessions` to the request target `target`, from the sources `sources`, the
 /// last session list `listed` and the token measurement `usage` (the `usage` object of
-/// `/data.json`), at `now`; none for another path. `/api/blockers` and `/api/specifications`
-/// read the store alone and `/api/waiting-on` reads it too, so the server keeps their store's
+/// `/v1/data.json`), at `now`; none for another path. `/v1/blockers` and `/v1/specifications`
+/// read the store alone and `/v1/waiting-on` reads it too, so the server keeps their store's
 /// part ([`super::cache`]) and answers them itself. Without `?repository=` it answers no row.
 /// What could not be read is named in `errors`, beside the rows.
 pub(super) fn endpoint(
@@ -80,7 +80,7 @@ pub(super) fn endpoint(
     usage: &Value,
     now: OffsetDateTime,
 ) -> Option<Value> {
-    if path != "/api/sessions" {
+    if path != "/v1/sessions" {
         return None;
     }
     let Some(repository) = query(target, "repository") else {
@@ -121,7 +121,7 @@ fn header(held: &SnapshotSnapshot) -> Value {
     json!({"id": held.data.snapshot_id.0.0, "started_at": held.data.started_at.0})
 }
 
-/// `/api/blockers`: `{snapshot, rows}`, the open blockers the newest complete snapshot of `store`
+/// `/v1/blockers`: `{snapshot, rows}`, the open blockers the newest complete snapshot of `store`
 /// observed, each with the fields of the `blockers` view; `snapshot: null` and no rows without a
 /// store or a complete snapshot.
 #[must_use]
@@ -148,7 +148,7 @@ pub fn blockers(store: Option<&Store>) -> Value {
     json!({"snapshot": header(&held), "rows": rows})
 }
 
-/// `/api/specifications`: `{snapshot, rows}`, each repository's specification as the newest
+/// `/v1/specifications`: `{snapshot, rows}`, each repository's specification as the newest
 /// complete snapshot of `store` observed it, with the fields of the `specifications` view.
 #[must_use]
 pub fn specifications(store: Option<&Store>) -> Value {
@@ -228,7 +228,7 @@ pub struct Need {
     pub dispatch_open: bool,
 }
 
-/// Everything `/api/waiting-on` reads: what the store holds, the session list and the watch's
+/// Everything `/v1/waiting-on` reads: what the store holds, the session list and the watch's
 /// files. [`facts`] reads them; a test builds them.
 #[derive(Debug, Clone, Default)]
 pub struct Facts {
@@ -257,7 +257,7 @@ pub struct Facts {
     pub queued: Option<String>,
 }
 
-/// The facts `/api/waiting-on` reads from `store` (when there is one), the session list `agents`
+/// The facts `/v1/waiting-on` reads from `store` (when there is one), the session list `agents`
 /// and the watch's directory of `sources`.
 #[must_use]
 pub fn facts(store: Option<&Store>, sources: &Sources, agents: &[Value]) -> Facts {
@@ -385,7 +385,7 @@ fn of_repository(row: &Value, checkouts: &Path, trees: &Path, repository: &str) 
     })
 }
 
-/// `/api/waiting-on`: `{rows}`, one row per repository, by name, each `{repository, causes}`;
+/// `/v1/waiting-on`: `{rows}`, one row per repository, by name, each `{repository, causes}`;
 /// a cause is `{cause, detail}`, `another-repository` also `{on}`, the repository it waits for.
 /// A repository with no cause has an empty list.
 #[must_use]
@@ -580,14 +580,14 @@ pub fn causes(facts: &Facts, repository: &str) -> Vec<Value> {
 // A repository's sessions
 // ---------------------------------------------------------------------------------------------
 
-/// `/api/sessions?repository=<repository>`: `{rows}`, one per session of the session list
+/// `/v1/sessions?repository=<repository>`: `{rows}`, one per session of the session list
 /// `agents` whose working directory is the repository's checkout or one of its managed trees,
 /// by name: `{name, repository, state, started_at, dispatch, transcript, spend_today}`.
 ///
-/// `state` and `started_at` are those `/data.json` gives the session; `dispatch` is its newest
+/// `state` and `started_at` are those `/v1/data.json` gives the session; `dispatch` is its newest
 /// dispatch in `dispatches` (`{id, brief}`, or null); `transcript` the path of its transcript,
 /// `~/.claude/projects/<working directory encoded>/<session id>.jsonl`; `spend_today` the
-/// repository's row of the token measurement `usage` (the `usage` object of `/data.json`, counted
+/// repository's row of the token measurement `usage` (the `usage` object of `/v1/data.json`, counted
 /// from 00:00 UTC), or null when it counted none. Every path is written with `~`.
 #[must_use]
 pub fn sessions(
@@ -670,7 +670,7 @@ pub fn sessions(
 // Today's events of one repository
 // ---------------------------------------------------------------------------------------------
 
-/// The rows of `/api/events` (`story:dashboard-overview`) that are `repository`'s: those whose
+/// The rows of `/v1/events` (`story:dashboard-overview`) that are `repository`'s: those whose
 /// `repository` names it. A row of no repository (`null`) is no repository's.
 #[must_use]
 pub fn events_for_repository(rows: Vec<Value>, repository: &str) -> Vec<Value> {

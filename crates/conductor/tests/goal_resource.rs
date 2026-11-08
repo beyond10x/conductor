@@ -55,7 +55,7 @@ impl Case {
     /// working directory, where `state/` is looked for without the flag, holds nothing.
     fn kept_under_the_state_dir(&self) {
         assert!(
-            self.state.join("tree").is_dir(),
+            self.state.join("store.sqlite").is_file(),
             "no store under --state-dir {}",
             self.state.display()
         );
@@ -106,7 +106,14 @@ impl Case {
     fn rows(&self, group: &str, view: &str) -> Vec<Value> {
         self.ok(&[group, view, "--format", "jsonl"])
             .lines()
-            .map(|line| serde_json::from_str(line).expect("each jsonl line is a JSON object"))
+            .map(|line| {
+                let mut row: Value =
+                    serde_json::from_str(line).expect("each jsonl line is a JSON object");
+                // Every command ran as the operator: `common::conductor` sets `USER`.
+                let actor = row.as_object_mut().and_then(|row| row.remove("actor"));
+                assert_eq!(actor, Some(Value::from("human:operator")), "{line}");
+                row
+            })
             .collect()
     }
 

@@ -49,7 +49,7 @@ tasks:
       - cd {{shellQuote .RECORDS}} && claude attach "$({{.SESSION_ID}} --arg n {{shellQuote .NAME}})"
 
   maintainer:start:
-    desc: Start the maintainer (conductor-dev) with conductor session start --role maintainer, in the box the instance's confinement asks for, in the background in this checkout under the session name of the host's maintainer in conductor config show (host.roles; maintainer, from the host file ~/.b10x/conductor/host/host.yaml, or, while that names none, the role conductor-dev an instance still names, under its name there, such as <session_prefix>-conductor-dev), without the user's settings (--setting-sources project,local; the none provider's claude --bg adds user, where Claude Code keeps the bypass-permissions acceptance), on the harness, model, settings and profile of that role (no settings file by default; a profile is appended to the system prompt in place of --agent conductor-dev, which --setting-sources project,local finds only in this checkout's .claude/agents/); refuses while a live session of that name exists, when the profile is not a file, and, without a profile, when this checkout has no .claude/agents/conductor-dev.md. dev:start is its old name, for this release
+    desc: Start the maintainer (conductor-dev) with conductor session start --role maintainer, in the box the instance's confinement asks for, in the background in this checkout under the session name of the host's maintainer in conductor config show (host.roles; maintainer, from the host file ~/.b10x/conductor/host/host.yaml, or, while that names none, the role conductor-dev an instance still names, under its name there, such as <session_prefix>-conductor-dev), without the user's settings (--setting-sources project,local; the none provider's claude --bg adds user, where Claude Code keeps the bypass-permissions acceptance), on the harness, model, settings and profile of that role (no settings file by default; without a profile it starts from the maintainer profile the conductor binary carries, conductor role show --role maintainer, which session start writes into the state directory and appends to the system prompt); refuses while a live session of that name exists and when the profile is not a file. dev:start is its old name, for this release
     aliases: [dev:start]
     vars:
       NAME:
@@ -69,8 +69,6 @@ tasks:
         msg: the maintainer runs on {{.HARNESS}} (conductor config show); this task starts claude only
       - sh: test -z {{shellQuote .PROFILE}} || test -f {{shellQuote .PROFILE}}
         msg: the profile {{.PROFILE}} of the maintainer is not a file
-      - sh: test -n {{shellQuote .PROFILE}} || test -f {{shellQuote .ROOT_DIR}}/.claude/agents/conductor-dev.md
-        msg: this checkout has no .claude/agents/conductor-dev.md, and the maintainer starts here with --setting-sources project,local, which loads no user-level agent; name a profile for the maintainer (conductor config show, host.roles)
       - sh: test -n {{shellQuote .NAME}}
         msg: conductor config show names no session name for the maintainer
       - sh: claude agents --json | jq -e --arg n {{shellQuote .NAME}} 'all(.[]; .name != $n or .pid == null)' >/dev/null
@@ -79,30 +77,14 @@ tasks:
       - conductor session start --role maintainer
 
   supervisor:start:
-    desc: Start the host's supervisor, the background session conductor-supervisor, with the start command .agents/conductor-supervisor.md writes, in the directory of the config file (~/.b10x/conductor unless CONDUCTOR_CONFIG names another); its agent is the adapter conductor init installs in ~/.claude/agents/ and its profile the one task profiles installs; refuses while a live session named conductor-supervisor exists
-    vars:
-      DIR:
-        sh: dirname "${CONDUCTOR_CONFIG:-$HOME/.b10x/conductor/conductor.yaml}"
-    preconditions:
-      - sh: test -d {{shellQuote .DIR}}
-        msg: the directory of the config file, {{.DIR}}, is not a directory
-      - sh: claude agents --json | jq -e --arg n conductor-supervisor 'all(.[]; .name != $n or .pid == null)' >/dev/null
-        msg: a session named conductor-supervisor is already running; stop it with claude stop <id> after its hand-off, then run the task again
+    desc: Ask the daemon (conductord, of the config file CONDUCTOR_CONFIG or ~/.b10x/conductor/conductor.yaml) to start the host's supervisor now with conductor daemon start-role --role supervisor; the daemon starts it through conductor session start --role supervisor at the host placement, its session supervisor in conductor_host.slice, from the supervisor profile the conductor binary carries (conductor role show --role supervisor), and keeps it running while globals.roles lists supervisor; refused when globals.roles does not list it
     cmds:
-      - 'cd {{shellQuote .DIR}} && claude --bg --agent conductor-supervisor -n conductor-supervisor --permission-mode bypassPermissions "Start of a fresh supervisor session. Read host/supervisor-handoff.md if it is there, run your routine once, report blockers only, then wait for an event."'
+      - conductor daemon start-role --role supervisor
 
   teacher:start:
-    desc: Start the host's teacher, the background session conductor-teacher, with the start command .agents/conductor-teacher.md writes, in the directory of the config file (~/.b10x/conductor unless CONDUCTOR_CONFIG names another); its agent is the adapter conductor init installs in ~/.claude/agents/ and its profile the one task profiles installs; refuses while a live session named conductor-teacher exists
-    vars:
-      DIR:
-        sh: dirname "${CONDUCTOR_CONFIG:-$HOME/.b10x/conductor/conductor.yaml}"
-    preconditions:
-      - sh: test -d {{shellQuote .DIR}}
-        msg: the directory of the config file, {{.DIR}}, is not a directory
-      - sh: claude agents --json | jq -e --arg n conductor-teacher 'all(.[]; .name != $n or .pid == null)' >/dev/null
-        msg: a session named conductor-teacher is already running; stop it with claude stop <id> after its hand-off, then run the task again
+    desc: Ask the daemon (conductord, of the config file CONDUCTOR_CONFIG or ~/.b10x/conductor/conductor.yaml) to start the host's teacher now with conductor daemon start-role --role teacher; the daemon starts it through conductor session start --role teacher at the host placement, its session teacher in conductor_host.slice, from the teacher profile the conductor binary carries (conductor role show --role teacher), and keeps it running while globals.roles lists teacher; refused when globals.roles does not list it
     cmds:
-      - 'cd {{shellQuote .DIR}} && claude --bg --agent conductor-teacher -n conductor-teacher --model fable --permission-mode bypassPermissions "Start of a fresh teacher session. Read host/teacher-handoff.md if it is there and the supervisor''s profile, run your routine once, report blockers only, then wait for an event."'
+      - conductor daemon start-role --role teacher
 
   maintainer:attach:
     desc: Open the background maintainer (conductor-dev) session, the live session named as the host's maintainer in conductor config show (host.roles), in this terminal; refuses when no live background session or more than one holds that name. dev:attach is its old name, for this release
@@ -126,119 +108,20 @@ tasks:
     cmds:
       - conductor trust
 
-  agents:link:
-    desc: Link this checkout's .claude/agents/repo-controller.md and conductor-dev.md into REPO/.claude/agents/ (task agents:link REPO=<path>; REPO is required, the top of the git repository whose interactive sessions should see conductor's agents), for a session started by hand in REPO, since the sessions the tasks start pass --setting-sources project,local and start from their role's profile, not from these agents; and add each linked path, relative to REPO, to REPO's .git/info/exclude once, so git status does not show it; writes nothing to ~/.claude/agents/, and removes a symbolic link there named conductor.md (the retired conductor adapter), repo-controller.md or conductor-dev.md that points into this checkout (an earlier agents:link made it), leaving any other file there with a note; a link to the same file is kept, and any other file in REPO/.claude/agents/ is refused, never overwritten
-    silent: true
-    vars:
-      REPO: '{{.REPO | default ""}}'
-    cmds:
-      - |
-        root={{shellQuote .ROOT_DIR}}
-        src="$root/.claude/agents"
-        repo={{shellQuote .REPO}}
-        if [ -z "$repo" ]; then echo "agents:link: name the repository whose sessions should see the agents: task agents:link REPO=<path>" >&2; exit 1; fi
-        if [ ! -d "$repo" ]; then echo "agents:link: REPO $repo is not a directory" >&2; exit 1; fi
-        repo=$(cd "$repo" && pwd -P)
-        top=$(git -C "$repo" rev-parse --show-toplevel 2>/dev/null || true)
-        if [ -z "$top" ] || [ ! "$top" -ef "$repo" ]; then echo "agents:link: REPO $repo is not the top of a git repository" >&2; exit 1; fi
-        if [ "$repo" -ef "$root" ]; then echo "agents:link: REPO $repo is this checkout, whose .claude/agents/ holds the files already" >&2; exit 1; fi
-        exclude=$(git -C "$repo" rev-parse --git-path info/exclude) || exit 1
-        case "$exclude" in /*) ;; *) exclude="$repo/$exclude" ;; esac
-        dst="$repo/.claude/agents"
-        refused=0
-        for name in repo-controller conductor-dev; do
-          from="$src/$name.md"; to="$dst/$name.md"
-          if [ ! -f "$from" ]; then echo "agents:link: $from is not a file" >&2; refused=1; continue; fi
-          if [ -L "$to" ] && [ "$to" -ef "$from" ]; then continue; fi
-          if [ -e "$to" ] || [ -L "$to" ]; then echo "agents:link: $to is there and is not a link to $from; move it away and run task agents:link again" >&2; refused=1; fi
-        done
-        [ "$refused" = 0 ] || exit 1
-        mkdir -p "$dst" "$(dirname "$exclude")" || exit 1
-        for name in repo-controller conductor-dev; do
-          from="$src/$name.md"; to="$dst/$name.md"; path=".claude/agents/$name.md"
-          if [ -L "$to" ] && [ "$to" -ef "$from" ]; then echo "linked already: $to"; else ln -s "$from" "$to" || exit 1; echo "linked: $to -> $from"; fi
-          if [ -f "$exclude" ] && grep -qxF "$path" "$exclude"; then continue; fi
-          if [ -s "$exclude" ] && [ -n "$(tail -c 1 "$exclude")" ]; then echo >> "$exclude"; fi
-          printf '%s\n' "$path" >> "$exclude" || exit 1; echo "excluded: $path in $exclude"
-        done
-        real=$(cd "$root" && pwd -P)
-        for name in conductor repo-controller conductor-dev; do
-          old="$HOME/.claude/agents/$name.md"
-          if [ -L "$old" ]; then
-            target=$(readlink "$old")
-            case "$target" in
-              "$root"/*|"$real"/*) rm "$old" || exit 1; echo "removed: $old -> $target (agents:link no longer writes ~/.claude/agents/)" ;;
-              *) echo "note: left $old: it links to $target, not into this checkout" ;;
-            esac
-          elif [ -e "$old" ]; then
-            echo "note: left $old: it is not a link that agents:link made"
-          fi
-        done
 
   dashboard:
-    desc: Start the active instance's dashboard on 127.0.0.1 at its dashboard_port in conductor config show (7313 for the file's first instance and one more for each later one, unless the file writes it) and print its URL; the dashboard serves that instance (CONDUCTOR_INSTANCE); where systemctl is on PATH as the instance's user service, <session_prefix>-conductor-dashboard or conductor-dashboard without a prefix, unless it is active, elsewhere in the background with nohup, its pid in dashboard.pid and its output in dashboard.log of the instance's state directory (conductor config show), refusing while that pid runs
+    desc: Print the URL of the active instance's dashboard; conductord serves the app and every instance's API on 127.0.0.1 at daemon.port in conductor config show (7300 unless the file writes it), and the page names the instance in ?instance=; start the daemon first, no per-instance dashboard process runs
     silent: true
     vars:
-      STATE:
-        sh: conductor config show --format json | jq -r '.instances[0].state'
       INSTANCE:
-        sh: conductor config show --format json | jq -r '.instances[0].name'
+        sh: conductor config show --format json | jq -r '.instances[0].name // empty'
       PORT:
-        sh: conductor config show --format json | jq -r '.instances[0].dashboard_port // empty'
-      UNIT:
-        sh: conductor config show --format json | jq -r '.instances[0] | if .session_prefix then .session_prefix + "-conductor-dashboard" else "conductor-dashboard" end'
+        sh: conductor config show --format json | jq -r '.daemon.port // 7300'
     preconditions:
-      - sh: test -n {{shellQuote .PORT}}
-        msg: conductor config show names no dashboard_port for the instance
-    cmds:
-      - |
-        if command -v systemctl >/dev/null 2>&1; then
-          set -- --setenv=PATH="$PATH" --setenv=CONDUCTOR_INSTANCE={{shellQuote .INSTANCE}}
-          if [ -n "${CONDUCTOR_CONFIG:-}" ]; then set -- "$@" --setenv=CONDUCTOR_CONFIG="$CONDUCTOR_CONFIG"; fi
-          systemctl --user is-active --quiet {{shellQuote .UNIT}} || systemd-run --user --unit {{shellQuote .UNIT}} --collect "$@" "$(command -v conductor)" dashboard serve --port {{shellQuote .PORT}}
-          exit
-        fi
-        state={{shellQuote .STATE}}
-        pidfile="$state/dashboard.pid"
-        if [ -f "$pidfile" ]; then
-          pid=$(cat "$pidfile")
-          if ps -p "$pid" -o args= 2>/dev/null | grep -q 'dashboard serve'; then
-            echo "the dashboard runs already as pid $pid ($pidfile); see task dashboard:stop" >&2
-            exit 1
-          fi
-        fi
-        mkdir -p "$state"
-        pid=$(CONDUCTOR_INSTANCE={{shellQuote .INSTANCE}} sh -c 'nohup "$0" dashboard serve --port "$2" </dev/null >>"$1" 2>&1 & echo $!' "$(command -v conductor)" "$state/dashboard.log" {{shellQuote .PORT}})
-        echo "$pid" > "$pidfile"
-        echo "the dashboard runs as pid $pid; its output is in $state/dashboard.log"
-      - echo Open http://127.0.0.1:{{shellQuote .PORT}}/
-
-  dashboard:stop:
-    desc: Stop the active instance's dashboard; where systemctl is on PATH its user service, <session_prefix>-conductor-dashboard or conductor-dashboard without a prefix, elsewhere the pid in dashboard.pid of the instance's state directory (conductor config show), whose file it removes
-    vars:
-      STATE:
-        sh: conductor config show --format json | jq -r '.instances[0].state'
-      UNIT:
-        sh: conductor config show --format json | jq -r '.instances[0] | if .session_prefix then .session_prefix + "-conductor-dashboard" else "conductor-dashboard" end'
-    preconditions:
-      - sh: test -n {{shellQuote .UNIT}}
+      - sh: test -n {{shellQuote .INSTANCE}}
         msg: conductor config show names no instance
     cmds:
-      - |
-        if command -v systemctl >/dev/null 2>&1; then
-          systemctl --user stop {{shellQuote .UNIT}}
-          exit
-        fi
-        pidfile={{shellQuote .STATE}}/dashboard.pid
-        if [ ! -f "$pidfile" ]; then
-          echo "no dashboard pid file at $pidfile; nothing to stop"
-          exit 0
-        fi
-        pid=$(cat "$pidfile")
-        if ps -p "$pid" -o args= 2>/dev/null | grep -q 'dashboard serve'; then
-          sh -c 'kill "$0"' "$pid"
-        fi
-        rm -f "$pidfile"
+      - echo Open http://127.0.0.1:{{shellQuote .PORT}}/?instance={{shellQuote .INSTANCE}}
 
   broker:
     desc: Start the active instance's broker (conductor broker serve), which serves each session of the instance on its own socket under broker/ of the instance's state directory, checks every tool call against the session's grant and records it; the broker serves that instance (CONDUCTOR_INSTANCE); where systemctl is on PATH as the instance's user service, <session_prefix>-conductor-broker or conductor-broker without a prefix, unless it is active, elsewhere in the background with nohup, its pid in broker.pid and its output in broker.log of the instance's state directory (conductor config show), refusing while that pid runs
@@ -308,15 +191,9 @@ tasks:
       - id=$(conductor snapshot start-snapshot) && conductor snapshot publish-board --snapshot-id "$id"
 
   install:
-    desc: Install the conductor binary from this checkout, then the profiles (task profiles); conductor-dev runs it after a wave merges and check is green
+    desc: Install the conductor binary from this checkout, which carries the role profiles (conductor role show --role <role>); conductor-dev runs it after a wave merges and check is green
     cmds:
       - cargo install --path crates/conductor --locked
-      - task: profiles
-
-  profiles:
-    desc: Install the profiles the sessions start from (.agents/conductor-dev.md and repo-controller.md, and the host's conductor-supervisor.md and conductor-teacher.md; conductor run replaced the conductor profile) into profiles/ beside the config file (~/.b10x/conductor/profiles unless CONDUCTOR_CONFIG names another), so a role's profile matches the installed binary and a restart reads no checkout; run it from the checkout of the release installed, as after a release archive is installed
-    cmds:
-      - dir="$(dirname "${CONDUCTOR_CONFIG:-$HOME/.b10x/conductor/conductor.yaml}")/profiles" && mkdir -p "$dir" && install -m 0644 .agents/conductor-dev.md .agents/repo-controller.md .agents/conductor-supervisor.md .agents/conductor-teacher.md "$dir/" && echo "profiles installed in $dir"
 
   measure:
     desc: Run the wall-clock measurements alone, outside the gate (the append-cost ratio, the guard latency and the dashboard's warm answers); run it on a quiet host
@@ -333,7 +210,7 @@ tasks:
       - npm run build
 
   ui:dev:
-    desc: Serve the dashboard app from source with hot reload on http://127.0.0.1:5173/ (Vite dev mode); its data and answers come from the running dashboard, CONDUCTOR_DASHBOARD (default http://127.0.0.1:7313), so start that first with task dashboard
+    desc: Serve the dashboard app from source with hot reload on http://127.0.0.1:5173/ (Vite dev mode); its /v1/ requests go to the running daemon, CONDUCTOR_DAEMON (default http://127.0.0.1:7300), so start conductord first
     dir: crates/conductor/dashboard
     cmds:
       - npm run dev

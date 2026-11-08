@@ -66,6 +66,7 @@ impl ControllerStorage for Store {
 fn encode(controller: &ControllerSnapshot) -> Value {
     let data = &controller.data;
     json!({
+        "actor": crate::actor::to_json(&data.actor),
         "state": state_name(controller.state),
         "controller_id": data.controller_id.0.0,
         "repository": data.repository.0,
@@ -81,6 +82,7 @@ fn decode(body: &Value) -> Result<ControllerSnapshot, String> {
     Ok(ControllerSnapshot {
         state: state_named(&state).ok_or_else(|| format!("unknown Controller state {state:?}"))?,
         data: ControllerData {
+            actor: crate::actor::stored(body)?,
             controller_id: ControllerId(Uuid(text(body, "controller_id")?)),
             repository: RepositoryName(text(body, "repository")?),
             harness: harness_named(&harness)

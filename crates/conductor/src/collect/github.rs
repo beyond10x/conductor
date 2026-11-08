@@ -561,6 +561,7 @@ fn shipped(
         releases.push((
             at,
             RecordRelease {
+                actor: crate::actor::daemon(),
                 snapshot_id: snapshot.clone(),
                 repository: RepositoryName(name.to_owned()),
                 url: format!(
@@ -599,6 +600,7 @@ fn shipped(
         releases.push((
             at,
             RecordRelease {
+                actor: crate::actor::daemon(),
                 snapshot_id: snapshot.clone(),
                 repository: RepositoryName(name.to_owned()),
                 url: format!(
@@ -631,6 +633,7 @@ fn shipped(
             continue;
         }
         merged.push(RecordMergedPullRequest {
+            actor: crate::actor::daemon(),
             snapshot_id: snapshot.clone(),
             repository: RepositoryName(name.to_owned()),
             number: pull.number,
@@ -989,6 +992,7 @@ impl Observed<'_> {
             .collect();
         let failing_checks = failing_check_names.len();
         Ok(RecordPullRequest {
+            actor: crate::actor::daemon(),
             snapshot_id: self.snapshot.clone(),
             repository: RepositoryName(self.name.to_owned()),
             number: pull.number,
@@ -1019,6 +1023,7 @@ impl Observed<'_> {
             ),
         };
         Ok(RecordWorkflowRun {
+            actor: crate::actor::daemon(),
             snapshot_id: self.snapshot.clone(),
             repository: RepositoryName(self.name.to_owned()),
             workflow: run.workflow_name,

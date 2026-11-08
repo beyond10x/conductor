@@ -38,9 +38,10 @@ use std::sync::{Mutex, PoisonError};
 use std::thread::{self, JoinHandle};
 use std::time::{Duration, SystemTime};
 
+use crate::config::BuiltInRole;
 use anyhow::{Context as _, Result, anyhow};
 use conductor_model::behaviour::{DecisionRequestStorage, DecisionStorage};
-use conductor_model::config::{RoleName, SessionName};
+use conductor_model::config::SessionName;
 use conductor_model::decision::RequestId;
 use conductor_model::dispatch::obligations::StopControllerBehavior;
 use conductor_model::dispatch::{
@@ -80,6 +81,9 @@ pub fn pending(tick: &mut Tick<'_, '_>) {
     }
     if let Err(error) = limited(tick) {
         tick.note("resume after a usage limit", &error);
+    }
+    if let Err(error) = withdrawn(tick) {
+        tick.note("resume after a token was withdrawn", &error);
     }
     if let Err(error) = handovers(tick) {
         tick.note("hand-over", &error);
@@ -365,8 +369,50 @@ fn usage_limit(tick: &mut Tick<'_, '_>, line: &str) -> Result<bool> {
     for name in &names {
         let repo = tick.repo_of(name)?.unwrap_or_else(|| "-".to_owned());
         mark(tick, name, &repo, line, None)?;
+        on_limit(tick, name, &repo);
     }
     Ok(!names.is_empty())
+}
+
+/// `story:token-pool`: the token `name` ran on is Limited; when another token of the pool is
+/// Available the session is resumed on it now, rather than once the account has headroom.
+fn on_limit(tick: &mut Tick<'_, '_>, name: &str, repo: &str) {
+    let instance = &crate::config::active().instance;
+    match crate::token::on_limit(instance, name) {
+        Ok(true) if repo != "-" => match resume(tick, repo, name) {
+            Ok(true) => {
+                forget(tick, name);
+                let mut resumed = read_json(&tick.dir, RESUMED, json!({}));
+                resumed[name] = json!(nanos(SystemTime::now()).to_string());
+                if let Err(error) = write_json(&tick.dir, RESUMED, &resumed) {
+                    tick.note(RESUMED, &error);
+                }
+            }
+            Ok(false) => {}
+            Err(error) => tick.note(&format!("resume {name} on another token"), &error),
+        },
+        Ok(_) => {}
+        Err(error) => tick.note(&format!("mark the token of {name} limited"), &error),
+    }
+}
+
+/// `story:token-pool`: each session on a token its owner withdrew (`conductor leave`), named in
+/// `<state>/run/tokens-withdrawn.json`: ended, then resumed on another token.
+fn withdrawn(tick: &mut Tick<'_, '_>) -> Result<()> {
+    for session in crate::token::take_withdrawn(&tick.dir) {
+        let Some(repo) = tick.repo_of(&session)? else {
+            continue;
+        };
+        let name = SessionName(session.clone());
+        if let Err(error) = crate::spawn::end(tick.state, &repo, &name, tick.seams.providers) {
+            tick.note(&format!("end {session}"), &error);
+            continue;
+        }
+        if let Err(error) = resume(tick, &repo, &session) {
+            tick.note(&format!("resume {session} on another token"), &error);
+        }
+    }
+    Ok(())
 }
 
 /// `session exited (blocked): <name> <id>`, a session the list keeps blocked with no `pid`, as
@@ -624,21 +670,16 @@ fn conductor_dev(tick: &mut Tick<'_, '_>, name: &str) -> Result<Option<bool>> {
     Ok(Some(true))
 }
 
-/// The session names the instance's maintainer may carry: its role's, from the host file or the
-/// instance ([`crate::config::host_maintainer`]), and its old-name alias.
+/// The session names the instance's maintainer may carry: its role's
+/// ([`crate::config::host_maintainer`]), and its old-name alias.
 fn maintainer_names(tick: &Tick<'_, '_>) -> Vec<String> {
     let instance = tick.instance();
-    let Some(home) = std::env::var_os("HOME").map(PathBuf::from) else {
-        return Vec::new();
-    };
-    crate::config::host_maintainer(&home, instance)
-        .ok()
-        .flatten()
+    crate::config::host_maintainer(instance)
         .map(|role| {
             let name = role
                 .session_name
                 .unwrap_or_else(|| crate::config::session_name(instance, &role.role));
-            crate::config::session_names_of(RoleName::Maintainer, &name.0)
+            crate::config::session_names_of(BuiltInRole::Maintainer, &name.0)
         })
         .unwrap_or_default()
 }
@@ -693,6 +734,7 @@ fn start_maintainer(tick: &Tick<'_, '_>, cwd: &Path) -> Result<()> {
     }
     command
         .args(["session", "start", "--role", "maintainer"])
+        .env(crate::actor::DAEMON_VARIABLE, "1")
         .current_dir(cwd)
         .stdin(Stdio::null());
     let shown = "conductor session start --role maintainer";
@@ -862,6 +904,7 @@ fn record_stopped(tick: &Tick<'_, '_>, controller: &str, said: &str) -> Result<(
     let mut generated = crate::controller::record(tick.state)?;
     let outcome = generated
         .stop_controller(StopController {
+            actor: crate::actor::chosen(),
             controller_id: ControllerId(Uuid(controller.to_owned())),
             reason: format!("conductor run: a delivery was refused: {said}"),
         })

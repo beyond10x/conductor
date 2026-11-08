@@ -34,7 +34,7 @@ use eventlog_core::{
     AtomicEventStore as _, CommandMeta, EventStore as _, Expected, NewEvent, StreamAppend,
     StreamId, TenantId, new_event_id, request_hash,
 };
-use eventlog_tree::TreeEventStore;
+use eventlog_sqlite::SqliteEventStore;
 use serde_json::json;
 use time::OffsetDateTime;
 use tokio::runtime::Runtime;
@@ -45,9 +45,10 @@ const SNAPSHOT: &str = "conductor.observation.Snapshot";
 /// The stream type the other writer commits: no entity of conductor's, so no view reads it.
 const BESIDE: &str = "conductor.test.Beside";
 
-/// The records planted in `state/tree/` of a fixture, so that reading the tree once costs far
-/// more than recording one observation.
-const PLANTED: usize = 1500;
+/// The records planted in the store of a fixture, so that reading the store once costs far more
+/// than recording one observation: the database reads whole pages for each, about 48 KB after
+/// another writer's commit, whatever the store holds.
+const PLANTED: usize = 6000;
 
 /// The observations the smaller of the two snapshots records; the larger records ten times as
 /// many.
@@ -100,14 +101,20 @@ fn meta(events: &impl serde::Serialize) -> CommandMeta {
 /// Another writer of `state/tree/`, as the guard's hook or a dispatch is beside a snapshot.
 struct Beside {
     runtime: Runtime,
-    log: TreeEventStore,
+    log: SqliteEventStore,
 }
 
 impl Beside {
     fn open(state: &Path) -> Self {
         let runtime = runtime();
         let log = runtime
-            .block_on(TreeEventStore::open(state.join("tree")))
+            .block_on(SqliteEventStore::open(
+                state
+                    .join(conductor_cli::store::STORE_FILE)
+                    .to_str()
+                    .expect("a UTF-8 path"),
+                conductor_cli::store::PREFIX,
+            ))
             .expect("open the tree beside the snapshot");
         Self { runtime, log }
     }
@@ -167,6 +174,11 @@ fn io_field(name: &str) -> u64 {
 
 /// The bytes of every file under `dir`.
 fn bytes_under(dir: &Path) -> u64 {
+    if let Ok(metadata) = fs::metadata(dir)
+        && metadata.is_file()
+    {
+        return metadata.len();
+    }
     fs::read_dir(dir).map_or(0, |entries| {
         entries
             .map(|entry| {
@@ -184,6 +196,7 @@ fn bytes_under(dir: &Path) -> u64 {
 
 fn repository(snapshot: &SnapshotId, name: &str) -> RecordRepository {
     RecordRepository {
+        actor: conductor_cli::actor::daemon(),
         snapshot_id: snapshot.clone(),
         repository: RepositoryName(name.to_owned()),
         visibility: Visibility::Public,
@@ -260,7 +273,8 @@ fn ten_times_the_observations_read_less_than_the_store_once_more() {
     let many = case("many");
     let few_beside = fixture(&few);
     let many_beside = fixture(&many);
-    let store_bytes = bytes_under(&few.join("tree")) + bytes_under(&few.join("observations"));
+    let store_bytes = bytes_under(&few.join(store::STORE_FILE))
+        + bytes_under(&few.join(format!("{}-wal", store::STORE_FILE)));
 
     let (taken, few_read, few_written, few_took) =
         measured(&few, &[recording("repositories", FEW, few_beside, 1)]);
@@ -291,9 +305,15 @@ fn ten_times_the_observations_read_less_than_the_store_once_more() {
 fn left_collecting(state: &Path, snapshot: &str) {
     let runtime = runtime();
     runtime.block_on(async {
-        let log = TreeEventStore::open(state.join("tree"))
-            .await
-            .expect("open the tree");
+        let log = SqliteEventStore::open(
+            state
+                .join(conductor_cli::store::STORE_FILE)
+                .to_str()
+                .expect("a UTF-8 path"),
+            conductor_cli::store::PREFIX,
+        )
+        .await
+        .expect("open the tree");
         let tenant = TenantId::new("conductor").expect("the tenant");
         let stream = StreamId::new(tenant, SNAPSHOT, snapshot).expect("the snapshot's stream");
         let events = [NewEvent::new(
@@ -451,6 +471,7 @@ fn a_start_beside_a_snapshot_over_a_handed_store_leaves_it_collecting() {
     let outer = snapshot::take_from(
         store::open(&state).expect("open the store"),
         StartSnapshot {
+            actor: conductor_cli::actor::daemon(),
             started_at: Timestamp("2026-10-16T06:00:00Z".to_owned()),
             disk_free_bytes: 1,
             budget: None,

@@ -1,0 +1,46 @@
+type: ess-scenario/1
+domain: conductor.store
+scenario: store-migrate-store-actor-not-human
+summary: An agent that runs the operator's one-time migration is refused with ActorNotHuman, nothing is recorded, and the operator's own run afterwards migrates the instance.
+
+timeline:
+  - at: 2026-11-08T09:00:00Z
+    command: conductor.store.MigrateStore
+    actor: conductor.store.Operator
+    input:
+      actor:
+        kind: Agent
+        agent:
+          instance: example-org
+          role: Director
+          name: example-org-director
+          kind: claude-code
+      instance: example-org
+      source: ~/.b10x/conductor/example-org/state/store
+      store: sqlite:~/.b10x/conductor/conductor.db
+      events_copied: 120
+      migrated_at: 2026-11-08T09:00:00Z
+    outcome: not-human
+    error:
+      name: conductor.operator.ActorNotHuman
+
+  - at: 2026-11-08T09:10:00Z
+    command: conductor.store.MigrateStore
+    actor: conductor.store.Operator
+    input:
+      actor:
+        kind: Human
+        operator: example-operator
+      instance: example-org
+      source: ~/.b10x/conductor/example-org/state/store
+      store: sqlite:~/.b10x/conductor/conductor.db
+      events_copied: 120
+      migrated_at: 2026-11-08T09:10:00Z
+    outcome: migrated
+
+assert:
+  - view: conductor.store.Migrations
+    contains:
+      instance: example-org
+      state: Migrated
+      migrated_at: 2026-11-08T09:10:00Z

@@ -2,7 +2,7 @@
 format: aep.planning-md/3
 id: story:substrate-tool-server
 kind: story
-status: draft
+status: archived
 title: A session's commands run inside substrate through conductor's tool server
 relations:
 - decomposes: epic:session-confinement
@@ -33,7 +33,9 @@ scope:
   path: docs/analysis/substrate-tool-server-run.md
 - confidence: cited
   path: spec/domains/config.yaml
-revision: 6
+revision: 7
+transitions:
+- {from: "draft", to: "archived", at: "2026-11-07T23:41:21Z", actor: "human:timo", revision: 7, decided_on: {"recorded":{"review_outcome":3}}}
 ---
 ## Why
 

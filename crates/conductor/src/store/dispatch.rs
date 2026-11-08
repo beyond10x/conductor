@@ -94,6 +94,7 @@ impl DispatchStorage for Store {
 fn encode_dispatch(dispatch: &DispatchSnapshot) -> Value {
     let data = &dispatch.data;
     json!({
+        "actor": crate::actor::to_json(&data.actor),
         "state": dispatch_state_name(dispatch.state),
         "dispatch_id": data.dispatch_id.0,
         "repository": data.repository.0,
@@ -111,6 +112,7 @@ fn decode_dispatch(body: &Value) -> Result<DispatchSnapshot, String> {
         state: dispatch_state_named(&state)
             .ok_or_else(|| format!("unknown Dispatch state {state:?}"))?,
         data: DispatchData {
+            actor: crate::actor::stored(body)?,
             dispatch_id: DispatchId(text(body, "dispatch_id")?),
             repository: RepositoryName(text(body, "repository")?),
             goal_id: GoalId(text(body, "goal_id")?),
@@ -175,6 +177,7 @@ impl MessageStorage for Store {
 fn encode_message(message: &MessageSnapshot) -> Value {
     let data = &message.data;
     json!({
+        "actor": crate::actor::to_json(&data.actor),
         "state": message_state_name(message.state),
         "message_id": data.message_id.0.0,
         "sender": data.sender,
@@ -196,6 +199,7 @@ fn decode_message(body: &Value) -> Result<MessageSnapshot, String> {
         state: message_state_named(&state)
             .ok_or_else(|| format!("unknown Message state {state:?}"))?,
         data: MessageData {
+            actor: crate::actor::stored(body)?,
             message_id: MessageId(Uuid(text(body, "message_id")?)),
             sender: text(body, "sender")?,
             recipient: text(body, "recipient")?,

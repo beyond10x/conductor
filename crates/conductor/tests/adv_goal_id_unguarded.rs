@@ -106,6 +106,28 @@ impl DispatchStorage for Ports {
 }
 
 impl Context for Ports {
+    fn generate_conductor_config_revision_id(&mut self) -> conductor_model::config::RevisionId {
+        unreachable!("AddServing and SendDispatch assign no config revision id")
+    }
+    fn generate_conductor_instance_reconciliation_id(
+        &mut self,
+    ) -> conductor_model::instance::ReconciliationId {
+        unreachable!("AddServing and SendDispatch assign no reconciliation id")
+    }
+    fn generate_conductor_placement_box_id(&mut self) -> conductor_model::placement::BoxId {
+        unreachable!("AddServing and SendDispatch assign no box id")
+    }
+    fn generate_conductor_placement_refusal_reason(
+        &mut self,
+    ) -> conductor_model::placement::RefusalReason {
+        unreachable!("AddServing and SendDispatch assign no refusal reason")
+    }
+    fn generate_conductor_token_token_id(&mut self) -> conductor_model::token::TokenId {
+        unreachable!("AddServing and SendDispatch assign no token id")
+    }
+    fn generate_string(&mut self) -> String {
+        unreachable!("AddServing and SendDispatch generate no text")
+    }
     fn generate_conductor_direction_serving_id(&mut self) -> ServingId {
         ServingId(Uuid("00000000-0000-4000-8000-000000000001".to_owned()))
     }
@@ -193,6 +215,7 @@ fn assert_unkeepable(state: &Path, what: &str, goal: &str, reason: &str) {
         GoalSnapshot {
             state: GoalState::Draft,
             data: GoalData {
+                actor: conductor_cli::actor::operator("operator"),
                 goal_id: GoalId(goal.to_owned()),
                 title: "unkeepable".to_owned(),
                 exit_evidence: "evidence".to_owned(),
@@ -225,6 +248,7 @@ fn assert_the_handle_is_kept(mut generated: Generated<Ports>, state: &Path, what
     );
     let after = generated
         .propose_goal(ProposeGoal {
+            actor: conductor_cli::actor::operator("operator"),
             goal_id: GoalId("G-after".to_owned()),
             title: "after".to_owned(),
             exit_evidence: "evidence".to_owned(),
@@ -261,6 +285,7 @@ fn adv_add_serving_with_an_unkeepable_goal_id_answers_no_such_goal_and_keeps_the
         let mut generated = open(&state);
         let outcome = generated
             .add_serving(AddServing {
+                actor: conductor_cli::actor::operator("operator"),
                 goal_id: GoalId(goal.clone()),
                 repository: RepositoryName("conductor".to_owned()),
             })
@@ -283,6 +308,7 @@ fn adv_send_dispatch_with_an_unkeepable_goal_id_answers_no_such_goal_and_keeps_t
         let mut generated = open(&state);
         let outcome = generated
             .send_dispatch(SendDispatch {
+                actor: conductor_cli::actor::daemon(),
                 dispatch_id: DispatchId("D1".to_owned()),
                 repository: RepositoryName("conductor".to_owned()),
                 goal_id: GoalId(goal.clone()),

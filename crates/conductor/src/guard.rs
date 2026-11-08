@@ -596,9 +596,8 @@ fn config_file(home: &Path) -> PathBuf {
 }
 
 /// Records `decision` on a thread of its own, and waits for it at most [`RECORD_DEADLINE`]. A
-/// recording still waiting for the store's writer lock, or still replaying the store's files as
-/// it opens, is then abandoned with the process; an append cut off leaves event files no commit
-/// names, which the store never reads.
+/// recording still waiting for the database's write lock is then abandoned with the process; an
+/// append cut off commits nothing.
 fn record_within(state: Option<PathBuf>, decision: Decision) -> Result<()> {
     let decided_at = OffsetDateTime::now_utc()
         .format(&Rfc3339)
@@ -628,6 +627,7 @@ fn record(state: Option<&Path>, decision: Decision, decided_at: String) -> Resul
     });
     let RecordGuardDecisionOutcome::Recorded { .. } = generated
         .record_guard_decision(RecordGuardDecision {
+            actor: crate::actor::chosen(),
             repository: RepositoryName(decision.repository),
             session_ref: decision.session_ref,
             tool: decision.tool,
@@ -746,6 +746,53 @@ impl TryContext for Ports {
     ) -> Result<bool, UnmetObligation> {
         Err(conductor_model::behaviour::unmet_context(command.name()))
     }
+
+    // The v1 domains' generated values (`story:spec-v1`): no command this handler runs
+    // generates one.
+
+    fn try_generate_conductor_config_revision_id(
+        &mut self,
+    ) -> Result<conductor_model::config::RevisionId, UnmetObligation> {
+        Err(conductor_model::behaviour::unmet_context(
+            "conductor.config.RevisionId",
+        ))
+    }
+
+    fn try_generate_conductor_instance_reconciliation_id(
+        &mut self,
+    ) -> Result<conductor_model::instance::ReconciliationId, UnmetObligation> {
+        Err(conductor_model::behaviour::unmet_context(
+            "conductor.instance.ReconciliationId",
+        ))
+    }
+
+    fn try_generate_conductor_placement_box_id(
+        &mut self,
+    ) -> Result<conductor_model::placement::BoxId, UnmetObligation> {
+        Err(conductor_model::behaviour::unmet_context(
+            "conductor.placement.BoxId",
+        ))
+    }
+
+    fn try_generate_conductor_placement_refusal_reason(
+        &mut self,
+    ) -> Result<conductor_model::placement::RefusalReason, UnmetObligation> {
+        Err(conductor_model::behaviour::unmet_context(
+            "conductor.placement.RefusalReason",
+        ))
+    }
+
+    fn try_generate_conductor_token_token_id(
+        &mut self,
+    ) -> Result<conductor_model::token::TokenId, UnmetObligation> {
+        Err(conductor_model::behaviour::unmet_context(
+            "conductor.token.TokenId",
+        ))
+    }
+
+    fn try_generate_string(&mut self) -> Result<String, UnmetObligation> {
+        Err(conductor_model::behaviour::unmet_context("String"))
+    }
 }
 
 /// `text` on one line: every line break a space.
@@ -770,7 +817,7 @@ fn one_line(text: &str) -> String {
 /// output.
 pub fn guard_decisions(state: Option<&Path>, view: ViewArgs) -> Result<ExitCode> {
     /// The view's fields, in the specification's order (`spec/domains/dispatch.yaml`).
-    const COLUMNS: [&str; 8] = [
+    const COLUMNS: [&str; 9] = [
         "guard_decision_id",
         "repository",
         "session_ref",
@@ -779,6 +826,7 @@ pub fn guard_decisions(state: Option<&Path>, view: ViewArgs) -> Result<ExitCode>
         "verdict",
         "reason",
         "decided_at",
+        "actor",
     ];
 
     let generated = Generated::new(crate::state::open_reader(state)?);
@@ -797,6 +845,7 @@ pub fn guard_decisions(state: Option<&Path>, view: ViewArgs) -> Result<ExitCode>
                 Value::from(verdict_name(row.verdict)),
                 Value::from(row.reason),
                 Value::from(row.decided_at.0),
+                Value::from(crate::actor::written(&row.actor)),
             ]
         })
         .collect();

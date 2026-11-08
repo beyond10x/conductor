@@ -151,6 +151,7 @@ fn row(id: &str, state: &str, repository: &str, charter_revision: i64) -> Value 
         "harness": "Claude",
         "session_name": repository,
         "charter_revision": charter_revision,
+        "actor": "human:operator",
     })
 }
 
@@ -268,7 +269,7 @@ fn a_start_keeps_its_record_under_the_state_dir_flag_and_nothing_in_the_working_
     let case = Case::new("flag");
     started(&case.start("x"), "start x");
     assert!(
-        case.state.join("tree").is_dir(),
+        case.state.join("store.sqlite").is_file(),
         "the store is created under the --state-dir directory"
     );
     assert_eq!(

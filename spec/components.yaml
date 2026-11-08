@@ -9,7 +9,6 @@ components:
         - conductor.direction
         - conductor.decision
         - conductor.dispatch
-        - conductor.config
         - conductor.session
         - conductor.host
         - conductor.improvement
@@ -178,6 +177,11 @@ components:
         - conductor.improvement.FindingFiled
         - conductor.improvement.FindingVerified
         - conductor.improvement.FindingClosed
+        - conductor.improvement.SettingProposed
+        - conductor.improvement.ProposalApplied
+        - conductor.improvement.ProposalRefused
+        - conductor.improvement.ProposalKept
+        - conductor.improvement.ProposalReverted
     reached_by: command_line
     cli:
       binary: conductor
@@ -347,6 +351,12 @@ components:
             - conductor.improvement.VerifyFinding
           views:
             - conductor.improvement.Findings
+        # story:tuner: the tuner runs as a step of the daily tick, not as a command; its
+        # proposals are read here.
+        - name: tuner
+          summary: The settings changes the tuner proposed after each daily tick, and whether each was applied, kept, reverted or refused
+          views:
+            - conductor.improvement.SettingsProposals
 
   # story:tool-broker-read, design docs/design/roles-and-surfaces.md § 6.1: the instance's broker,
   # run by `conductor broker serve`, and the `tool` binary every session of the instance calls it
@@ -372,3 +382,104 @@ components:
       events:
         - conductor.tool.ToolCallRecorded
     reached_by: in_process
+
+  # Design docs/design/architecture-next.md § 2, § 4, § 5.2: the daemon of the control host. It
+  # reads the config, reconciles instances, opens and closes their boxes, resolves secrets, holds
+  # the operators of each instance and their token pools, and serves the global API `/v1/` on
+  # 127.0.0.1:<daemon port> and, when configured, a TLS listener with Identity bearers. Its routes
+  # are the `ess-http/1` binding `crates/conductor/http.yaml`.
+  # The token pool's lease, release and limit (`LeaseToken`, `ReleaseToken`, `MarkTokenLimited`)
+  # are the instance runtime's calls, and are accepted here: ess gives a command one handler, the
+  # component owning its domain (ESS-COMPONENT-004), so the runtime reaches them over this API.
+  - component: conductord
+    summary: >
+      The daemon of the control host. It reconciles every instance of the config file against what
+      runs at its placement, opens and closes each instance's box, resolves the secrets the config
+      names, records who operates each instance and the tokens they contribute, writes the config
+      on an accepted change, and serves the global API.
+    owns:
+      domains:
+        - conductor.instance
+        - conductor.placement
+        - conductor.store
+        - conductor.secret
+        - conductor.operator
+        - conductor.token
+        - conductor.config
+    accepts:
+      commands:
+        - conductor.instance.Reconcile
+        - conductor.instance.StartInstance
+        - conductor.instance.StopInstance
+        - conductor.instance.RestartInstance
+        - conductor.instance.UpgradeInstance
+        - conductor.instance.PurgeInstance
+        - conductor.instance.ObserveInstance
+        - conductor.placement.OpenBox
+        - conductor.placement.CloseBox
+        - conductor.store.MigrateStore
+        - conductor.secret.PutSecret
+        - conductor.secret.ResolveSecrets
+        - conductor.operator.JoinInstance
+        - conductor.operator.LeaveInstance
+        - conductor.token.ContributeToken
+        - conductor.token.WithdrawToken
+        - conductor.token.LeaseToken
+        - conductor.token.ReleaseToken
+        - conductor.token.MarkTokenLimited
+        - conductor.config.PutConfig
+    publishes:
+      events:
+        - conductor.instance.InstanceStarted
+        - conductor.instance.InstanceStopped
+        - conductor.instance.InstanceRestarted
+        - conductor.instance.InstanceUpgrading
+        - conductor.instance.InstanceRolledBack
+        - conductor.instance.InstancePurged
+        - conductor.instance.InstanceReconciled
+        - conductor.instance.InstanceAnswered
+        - conductor.instance.InstanceUnreachable
+        - conductor.placement.BoxOpened
+        - conductor.placement.BoxClosed
+        - conductor.placement.BoxRefused
+        - conductor.store.StoreMigrated
+        - conductor.secret.SecretPut
+        - conductor.secret.SecretsResolved
+        - conductor.operator.OperatorJoined
+        - conductor.operator.OperatorLeft
+        - conductor.token.TokenContributed
+        - conductor.token.TokenWithdrawn
+        - conductor.token.TokenLeased
+        - conductor.token.TokenReleased
+        - conductor.token.TokenLimited
+        - conductor.config.ConfigChanged
+    reached_by: network
+
+  # Design § 2, § 5.1, § 7: one instance's runtime, `conductor instance serve`, inside the
+  # instance's box. It starts, feeds, attaches to and stops the instance's agents and serves the
+  # instance API `/v1/` on a Unix socket in the box, which conductord proxies. Its routes are the
+  # `ess-http/1` binding `crates/conductor/http.yaml`.
+  - component: conductor-instance
+    summary: >
+      One instance's runtime. It runs the instance's loop, starts each role slot's agent of a
+      declared kind at its placement, delivers to it, attaches to it, records its reports and stops
+      it, and serves the instance API.
+    owns:
+      domains:
+        - conductor.agent
+    accepts:
+      commands:
+        - conductor.agent.DeclareAgentKind
+        - conductor.agent.StartAgent
+        - conductor.agent.DeliverToAgent
+        - conductor.agent.AttachAgent
+        - conductor.agent.RecordAgentReport
+        - conductor.agent.RestartAgent
+        - conductor.agent.StopAgent
+    publishes:
+      events:
+        - conductor.agent.AgentKindDeclared
+        - conductor.agent.AgentStarted
+        - conductor.agent.AgentReported
+        - conductor.agent.AgentStopped
+    reached_by: network

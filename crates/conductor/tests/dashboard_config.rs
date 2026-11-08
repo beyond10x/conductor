@@ -1,15 +1,16 @@
-//! `story:dashboard-config-page`: the dashboard's Configuration page. `GET /api/config` answers
-//! the effective config of the instance the server runs, and creates nothing; `POST /api/config`
+//! `story:dashboard-config-page`: the dashboard's Configuration page. `GET /v1/instances/example-org/settings` answers
+//! the effective config of the instance the server runs, and creates nothing; `POST /v1/instances/example-org/settings`
 //! checks or writes the page's staged changes, only from the page's own origin with its token,
 //! refuses a result `config validate` would refuse, and for a valid one keeps the old file as a
 //! backup, writes the new one and records one class-C decision by the operator with the diff.
 //!
-//! The cases serve [`dashboard::serve_over`] in this process on a free port of `127.0.0.1`, over
+//! The cases serve [`served::serve`] in this process on a free port of `127.0.0.1`, over
 //! a config file and a state directory under this test target's temporary directory; the store is
 //! read back with the built binary. Nothing is read from the environment.
 
 mod active;
 mod common;
+mod served;
 
 use std::ffi::OsString;
 use std::fs;
@@ -19,7 +20,7 @@ use std::path::{Path, PathBuf};
 use std::process::Stdio;
 use std::time::Duration;
 
-use conductor_cli::dashboard::{self, Sources};
+use conductor_cli::dashboard::Sources;
 use serde_json::{Value, json};
 
 /// One case's directory: `home/` with the config file and the records, `state/` with the store.
@@ -103,7 +104,7 @@ impl Case {
     /// Every decision of the case's store, as the built binary's `decisions` view lists it; none
     /// when there is no store.
     fn decisions(&self) -> Vec<Value> {
-        if !self.state().join("tree").exists() {
+        if !self.state().join("store.sqlite").exists() {
             return Vec::new();
         }
         let output = common::conductor(self.home())
@@ -157,7 +158,7 @@ impl Case {
         let listener = TcpListener::bind("127.0.0.1:0").expect("bind a free port");
         let port = listener.local_addr().expect("the bound address").port();
         let (sources, state) = (self.sources(), self.state());
-        std::thread::spawn(move || dashboard::serve_over(listener, sources, Some(state)));
+        served::serve(listener, sources, Some(state));
         port
     }
 }
@@ -212,7 +213,7 @@ fn token(port: u16) -> String {
     rest[..rest.find('"').expect("the token's closing quote")].to_owned()
 }
 
-/// A POST of `body` to `/api/config` with the server's own host and origin, as JSON, each of
+/// A POST of `body` to `/v1/instances/example-org/settings` with the server's own host and origin, as JSON, each of
 /// `headers` replacing the one of its name; `None` leaves it out.
 fn post_with(port: u16, body: &Value, headers: &[(&str, Option<String>)]) -> Answer {
     let body = serde_json::to_vec(body).expect("a JSON body");
@@ -238,7 +239,7 @@ fn post_with(port: u16, body: &Value, headers: &[(&str, Option<String>)]) -> Ans
             None => named.push(((*name).to_owned(), value.clone())),
         }
     }
-    let mut raw = b"POST /api/config HTTP/1.1\r\n".to_vec();
+    let mut raw = b"PUT /v1/instances/example-org/settings HTTP/1.1\r\n".to_vec();
     for (name, value) in named {
         if let Some(value) = value {
             raw.extend_from_slice(format!("{name}: {value}\r\n").as_bytes());
@@ -265,7 +266,7 @@ fn disk_low() -> Value {
 fn the_page_reads_every_key_with_its_default_and_creates_nothing() {
     let case = Case::new("view");
     let port = case.start();
-    let answer = get(port, "/api/config");
+    let answer = get(port, "/v1/instances/example-org/settings");
     assert_eq!(answer.status, 200, "{}", answer.body);
     let page = answer.json();
     assert_eq!(page["instance"], "example-org", "{page}");
@@ -289,7 +290,7 @@ fn the_page_reads_every_key_with_its_default_and_creates_nothing() {
     assert_eq!(disk_low["takes_effect"], "WatchTick");
     assert_eq!(field("records")["takes_effect"], "Fixed");
     assert!(
-        !case.state().join("tree").exists(),
+        !case.state().join("store.sqlite").exists(),
         "a view creates no store"
     );
 }
@@ -440,7 +441,7 @@ fn a_valid_write_keeps_a_backup_and_records_one_decision() {
             .is_some_and(|evidence| evidence.contains("+ thresholds.disk_low: 200G")),
         "{decision}"
     );
-    let page = get(port, "/api/config").json();
+    let page = get(port, "/v1/instances/example-org/settings").json();
     let field = page["fields"]
         .as_array()
         .and_then(|fields| {
@@ -476,7 +477,7 @@ fn an_activity_switch_is_written_as_the_operators_mark() {
     assert_eq!(answer.status, 200, "{}", answer.body);
     assert!(case.backups().is_empty(), "no config change, no backup");
     assert_eq!(case.decisions().len(), 1);
-    let page = get(port, "/api/config").json();
+    let page = get(port, "/v1/instances/example-org/settings").json();
     let alpha = page["repositories"]
         .as_array()
         .and_then(|rows| rows.iter().find(|row| row["repository"] == "alpha"))

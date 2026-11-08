@@ -283,6 +283,10 @@ entities:
     fields:
       - name: marked_by
         type: conductor.direction.MarkedBy
+      # `marked_by` is the role that set the mark, by name, as before; `actor` is the typed actor that
+      # set it, rewritten wherever `marked_by` is (design architecture-next.md § 3, Actors).
+      - name: actor
+        type: conductor.operator.Actor
       - name: session
         type: Optional<String>
       - name: reason
@@ -304,6 +308,8 @@ entities:
       name: goal_id
       type: conductor.direction.GoalId
     fields:
+      - name: actor
+        type: conductor.operator.Actor
       - name: title
         type: String
       - name: exit_evidence
@@ -343,6 +349,8 @@ entities:
       name: serving_id
       type: conductor.direction.ServingId
     fields:
+      - name: actor
+        type: conductor.operator.Actor
       - name: goal_id
         type: conductor.direction.GoalId
       - name: repository
@@ -445,6 +453,7 @@ commands:
       wire: mark-repository
       display: Mark a repository for the first time
     input:
+      - {name: actor, type: conductor.operator.Actor}
       - name: repository
         type: conductor.direction.MarkedRepository
       - name: activity
@@ -471,6 +480,7 @@ commands:
         into: Active
         instance: repository
         sets:
+          actor: input.actor
           marked_by: input.marked_by
           session: input.session
           reason: input.reason
@@ -478,6 +488,7 @@ commands:
           - conductor.direction.RepositoryMarked
         payload:
           conductor.direction.RepositoryMarked:
+            actor: input.actor
             repository: input.repository
             activity: input.activity
             marked_by: input.marked_by
@@ -486,6 +497,7 @@ commands:
         creates: conductor.direction.RepositoryMark
         instance: repository
         sets:
+          actor: input.actor
           marked_by: input.marked_by
           session: input.session
           reason: input.reason
@@ -493,6 +505,7 @@ commands:
           - conductor.direction.RepositoryMarked
         payload:
           conductor.direction.RepositoryMarked:
+            actor: input.actor
             repository: input.repository
             activity: input.activity
             marked_by: input.marked_by
@@ -503,6 +516,7 @@ commands:
       wire: activate-repository
       display: Mark a repository active
     input:
+      - {name: actor, type: conductor.operator.Actor}
       - name: repository
         type: conductor.direction.MarkedRepository
       - name: marked_by
@@ -516,6 +530,7 @@ commands:
         moves: conductor.direction.RepositoryMark.activate
         instance: repository
         sets:
+          actor: input.actor
           marked_by: input.marked_by
           session: input.session
           reason: input.reason
@@ -523,6 +538,7 @@ commands:
           - conductor.direction.RepositoryActivated
         payload:
           conductor.direction.RepositoryActivated:
+            actor: input.actor
             repository: input.repository
             marked_by: input.marked_by
         summary: The repository's issues and pull requests are processed from the next cycle.
@@ -545,6 +561,7 @@ commands:
       wire: deactivate-repository
       display: Mark a repository inactive
     input:
+      - {name: actor, type: conductor.operator.Actor}
       - name: repository
         type: conductor.direction.MarkedRepository
       - name: marked_by
@@ -558,6 +575,7 @@ commands:
         moves: conductor.direction.RepositoryMark.deactivate
         instance: repository
         sets:
+          actor: input.actor
           marked_by: input.marked_by
           session: input.session
           reason: input.reason
@@ -565,6 +583,7 @@ commands:
           - conductor.direction.RepositoryDeactivated
         payload:
           conductor.direction.RepositoryDeactivated:
+            actor: input.actor
             repository: input.repository
             marked_by: input.marked_by
             reason: input.reason
@@ -588,6 +607,7 @@ commands:
       wire: propose-goal
       display: Propose a goal
     input:
+      - {name: actor, type: conductor.operator.Actor}
       - name: goal_id
         type: conductor.direction.GoalId
       - name: title
@@ -609,12 +629,14 @@ commands:
         creates: conductor.direction.Goal
         instance: goal_id
         sets:
+          actor: input.actor
           title: input.title
           exit_evidence: input.exit_evidence
         emits:
           - conductor.direction.GoalProposed
         payload:
           conductor.direction.GoalProposed:
+            actor: input.actor
             goal_id: input.goal_id
             title: input.title
         summary: The goal is a draft until the operator confirms or drops it.
@@ -631,9 +653,17 @@ commands:
       wire: confirm-goal
       display: Confirm a goal
     input:
+      - {name: actor, type: conductor.operator.Actor}
       - name: goal_id
         type: conductor.direction.GoalId
     outcomes:
+      - name: agent-actor
+        when: actor.kind != Human
+        error: conductor.operator.ActorNotHuman
+        payload:
+          conductor.operator.ActorNotHuman:
+            actor: input.actor
+        summary: Only a person issues this command (design architecture-next.md § 3, Actors); an agent actor is refused by name and nothing changed.
       - name: invalid-goal-id
         when:
           any:
@@ -651,6 +681,7 @@ commands:
           - conductor.direction.GoalConfirmed
         payload:
           conductor.direction.GoalConfirmed:
+            actor: input.actor
             goal_id: input.goal_id
         summary: The operator confirmed the goal; dispatches may serve it.
       - name: no-such-goal
@@ -672,6 +703,7 @@ commands:
       wire: mark-goal-met
       display: Mark a goal met
     input:
+      - {name: actor, type: conductor.operator.Actor}
       - name: goal_id
         type: conductor.direction.GoalId
       - name: evidence
@@ -696,6 +728,7 @@ commands:
           - conductor.direction.GoalMet
         payload:
           conductor.direction.GoalMet:
+            actor: input.actor
             goal_id: input.goal_id
             evidence: input.evidence
         summary: The goal's exit evidence holds.
@@ -718,11 +751,19 @@ commands:
       wire: drop-goal
       display: Drop a goal
     input:
+      - {name: actor, type: conductor.operator.Actor}
       - name: goal_id
         type: conductor.direction.GoalId
       - name: reason
         type: String
     outcomes:
+      - name: agent-actor
+        when: actor.kind != Human
+        error: conductor.operator.ActorNotHuman
+        payload:
+          conductor.operator.ActorNotHuman:
+            actor: input.actor
+        summary: Only a person issues this command (design architecture-next.md § 3, Actors); an agent actor is refused by name and nothing changed.
       - name: invalid-goal-id
         when:
           any:
@@ -742,6 +783,7 @@ commands:
           - conductor.direction.GoalDropped
         payload:
           conductor.direction.GoalDropped:
+            actor: input.actor
             goal_id: input.goal_id
             reason: input.reason
         summary: The goal no longer directs work.
@@ -764,6 +806,7 @@ commands:
       wire: add-serving
       display: Add a serving repository to a goal
     input:
+      - {name: actor, type: conductor.operator.Actor}
       - name: goal_id
         type: conductor.direction.GoalId
       - name: repository
@@ -787,12 +830,14 @@ commands:
         creates: conductor.direction.GoalServing
         instance: serving_id
         sets:
+          actor: input.actor
           goal_id: input.goal_id
           repository: input.repository
         emits:
           - conductor.direction.ServingAdded
         payload:
           conductor.direction.ServingAdded:
+            actor: input.actor
             serving_id: {generated: true}
             goal_id: input.goal_id
             repository: input.repository
@@ -803,6 +848,7 @@ commands:
       wire: remove-serving
       display: Remove a serving repository from a goal
     input:
+      - {name: actor, type: conductor.operator.Actor}
       - name: serving_id
         type: conductor.direction.ServingId
       - name: reason
@@ -815,6 +861,7 @@ commands:
           - conductor.direction.ServingRemoved
         payload:
           conductor.direction.ServingRemoved:
+            actor: input.actor
             serving_id: input.serving_id
             reason: input.reason
         summary: The repository's work no longer serves the goal.
@@ -835,6 +882,8 @@ commands:
 events:
   - name: conductor.direction.RepositoryMarked
     fields:
+      - name: actor
+        type: conductor.operator.Actor
       - name: repository
         type: conductor.direction.MarkedRepository
       - name: activity
@@ -844,6 +893,8 @@ events:
 
   - name: conductor.direction.RepositoryActivated
     fields:
+      - name: actor
+        type: conductor.operator.Actor
       - name: repository
         type: conductor.direction.MarkedRepository
       - name: marked_by
@@ -851,6 +902,8 @@ events:
 
   - name: conductor.direction.RepositoryDeactivated
     fields:
+      - name: actor
+        type: conductor.operator.Actor
       - name: repository
         type: conductor.direction.MarkedRepository
       - name: marked_by
@@ -860,6 +913,8 @@ events:
 
   - name: conductor.direction.GoalProposed
     fields:
+      - name: actor
+        type: conductor.operator.Actor
       - name: goal_id
         type: conductor.direction.GoalId
       - name: title
@@ -867,11 +922,15 @@ events:
 
   - name: conductor.direction.GoalConfirmed
     fields:
+      - name: actor
+        type: conductor.operator.Actor
       - name: goal_id
         type: conductor.direction.GoalId
 
   - name: conductor.direction.GoalMet
     fields:
+      - name: actor
+        type: conductor.operator.Actor
       - name: goal_id
         type: conductor.direction.GoalId
       - name: evidence
@@ -879,6 +938,8 @@ events:
 
   - name: conductor.direction.GoalDropped
     fields:
+      - name: actor
+        type: conductor.operator.Actor
       - name: goal_id
         type: conductor.direction.GoalId
       - name: reason
@@ -886,6 +947,8 @@ events:
 
   - name: conductor.direction.ServingAdded
     fields:
+      - name: actor
+        type: conductor.operator.Actor
       - name: serving_id
         type: conductor.direction.ServingId
       - name: goal_id
@@ -895,6 +958,8 @@ events:
 
   - name: conductor.direction.ServingRemoved
     fields:
+      - name: actor
+        type: conductor.operator.Actor
       - name: serving_id
         type: conductor.direction.ServingId
       - name: reason
@@ -915,6 +980,8 @@ views:
         type: Optional<String>
       - name: reason
         type: String
+      - name: actor
+        type: conductor.operator.Actor
     naming:
       wire: repository-marks
       display: Repository marks
@@ -935,6 +1002,8 @@ views:
         type: Optional<String>
       - name: reason
         type: Optional<String>
+      - name: actor
+        type: conductor.operator.Actor
     naming:
       wire: goals
       display: Goals
@@ -951,6 +1020,8 @@ views:
         type: conductor.direction.GoalId
       - name: repository
         type: conductor.observation.RepositoryName
+      - name: actor
+        type: conductor.operator.Actor
     naming:
       wire: servings
       display: Serving repositories

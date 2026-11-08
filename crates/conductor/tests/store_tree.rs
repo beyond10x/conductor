@@ -86,7 +86,7 @@ fn fixture() -> PathBuf {
 
 /// Every view the fixture holds the answer of, by its file under `views/`, with the arguments
 /// before `--format json`.
-const VIEWS: [(&str, &[&str]); 25] = [
+const VIEWS: [(&str, &[&str]); 26] = [
     ("snapshot-snapshots", &["snapshot", "snapshots"]),
     ("snapshot-repositories", &["snapshot", "repositories"]),
     ("snapshot-pull-requests", &["snapshot", "pull-requests"]),
@@ -130,6 +130,7 @@ const VIEWS: [(&str, &[&str]); 25] = [
         &["resource", "resource-requests"],
     ),
     ("guard-guard-decisions", &["guard", "guard-decisions"]),
+    ("tuner-settings-proposals", &["tuner", "settings-proposals"]),
 ];
 
 /// One case: the directory the binary runs from, the state directory `--state-dir` names, and an
@@ -224,7 +225,8 @@ fn describe(output: &Output) -> String {
 
 /// The fixture's eventlog-file store with one observation of each kind no build before the views
 /// that read them could record, appended in the first snapshot: a secret sync
-/// (`story:policy-secret-drift`) and a usage reading (`story:usage-probe`). Built once per run
+/// (`story:policy-secret-drift`) and a usage reading (`story:usage-probe`); and one settings
+/// proposal (`story:tuner`), written without an actor as a build before v1 wrote it. Built once per run
 /// under this test target's temporary directory; the committed store is never written.
 fn fixture_store() -> &'static Path {
     static STORE: OnceLock<PathBuf> = OnceLock::new();
@@ -264,6 +266,23 @@ fn fixture_store() -> &'static Path {
                 }),
             ),
         ];
+        let proposal = json!({
+            "state": "Kept",
+            "proposal_id": "01a117f9-6a03-7a03-8a03-0a0000000003",
+            "instance": "example-org",
+            "key": "thresholds.build_slot",
+            "old": "2",
+            "new": "3",
+            "metric_id": "build-wait",
+            "reading": "01a117f9-6a04-7a04-8a04-0a0000000004",
+            "baseline": "12.5",
+            "window_days": 3,
+            "proposed_at": "2026-10-07T20:06:22Z",
+            "revision": "rev-1",
+            "reason": "the build wait rose above its target",
+            "finding": null,
+            "verdict": "improved",
+        });
         let runtime = tokio::runtime::Builder::new_current_thread()
             .build()
             .expect("a runtime");
@@ -271,10 +290,21 @@ fn fixture_store() -> &'static Path {
             let log = FileEventStore::open_existing(&store)
                 .await
                 .expect("open the copy of the fixture's eventlog-file store");
-            for (stream_type, observation, mut body) in observations {
-                body["state"] = json!("Recorded");
-                body["observation_id"] = json!(observation);
-                body["snapshot_id"] = json!("01a117f9-62e1-7681-b694-cec57cddaf22");
+            let observations =
+                observations
+                    .into_iter()
+                    .map(|(stream_type, observation, mut body)| {
+                        body["state"] = json!("Recorded");
+                        body["observation_id"] = json!(observation);
+                        body["snapshot_id"] = json!("01a117f9-62e1-7681-b694-cec57cddaf22");
+                        (stream_type, observation, body)
+                    });
+            let proposal = (
+                "conductor.improvement.SettingsProposal",
+                "01a117f9-6a03-7a03-8a03-0a0000000003",
+                proposal,
+            );
+            for (stream_type, observation, body) in observations.chain([proposal]) {
                 let tenant = TenantId::new("conductor").expect("the tenant");
                 let stream = StreamId::new(tenant, stream_type, observation)
                     .expect("the observation's stream");
@@ -294,7 +324,7 @@ fn fixture_store() -> &'static Path {
                 };
                 log.append(&stream, Expected::NoStream, &events, &meta)
                     .await
-                    .expect("append the observation");
+                    .expect("append the record");
             }
         });
         store
@@ -553,10 +583,13 @@ fn differing_views(case: &Case) -> Vec<String> {
         let mut args = args.to_vec();
         args.extend_from_slice(&["--format", "json"]);
         let answered = json(&case.ok(&args), file);
-        let source = json(
-            &fs::read_to_string(fixture().join("views").join(format!("{file}.json")))
-                .expect("read the fixture's answer"),
-            file,
+        let source = attributed(
+            json(
+                &fs::read_to_string(fixture().join("views").join(format!("{file}.json")))
+                    .expect("read the fixture's answer"),
+                file,
+            ),
+            &answered,
         );
         if answered != source {
             differing.push(format!(
@@ -565,6 +598,29 @@ fn differing_views(case: &Case) -> Vec<String> {
         }
     }
     differing
+}
+
+/// `source`, the answer a build before v1 gave, as v1 answers it: where the view shows an actor
+/// (`answered`'s rows, or the one object `decision show` prints, carry one), each row's is the
+/// daemon, which a record written without one reads as (`story:spec-v1`).
+fn attributed(mut source: Value, answered: &Value) -> Value {
+    let first = match answered {
+        Value::Array(rows) => rows.first(),
+        object => Some(object),
+    };
+    if !first.is_some_and(|row| row.get("actor").is_some()) {
+        return source;
+    }
+    let rows: Vec<&mut Value> = match &mut source {
+        Value::Array(rows) => rows.iter_mut().collect(),
+        object => vec![object],
+    };
+    for row in rows {
+        if let Some(row) = row.as_object_mut() {
+            row.insert("actor".to_owned(), Value::from("daemon"));
+        }
+    }
+    source
 }
 
 /// `conductor store migrate` over the fixture: every view answers row for row what the build
@@ -594,11 +650,14 @@ fn a_migrated_fixture_store_answers_every_view_as_the_source_store_did() {
                 .to_string_lossy()
                 .into_owned(),
             "observations".to_owned(),
+            store::STORE_FILE.to_owned(),
+            format!("{}.open-lock", store::STORE_FILE),
             "tree".to_owned()
         ]
         .into_iter()
         .collect(),
-        "only the kept store, the observations and the tree are left in the state directory"
+        "only the kept store, the observations, the tree and the database are left in the state \
+         directory"
     );
     assert_eq!(
         observation_streams(&case.state.join("tree")),
@@ -615,17 +674,22 @@ fn a_migrated_fixture_store_answers_every_view_as_the_source_store_did() {
     let (streams, events) = counts.values().fold((0, 0), |(streams, events), (s, e)| {
         (streams + s, events + e)
     });
-    let mut expected: Vec<String> = counts
-        .iter()
-        .map(|(stream_type, (s, e))| format!("{stream_type}: {s} streams, {e} events"))
-        .collect();
-    expected.push(format!(
-        "moved {events} events in {streams} streams from {} to {} and {}; the eventlog-file \
-         store is kept at {}",
+    let mut expected = vec![format!(
+        "brought {} to the tree at {}; the eventlog-file store is kept at {}",
         case.state.join("store").display(),
         case.state.join("tree").display(),
-        case.state.join("observations").display(),
         kept.display()
+    )];
+    expected.extend(
+        counts
+            .iter()
+            .map(|(stream_type, (s, e))| format!("{stream_type}: {s} streams, {e} events")),
+    );
+    expected.push(format!(
+        "read {events} events in {streams} streams from {} into {} as instance conductor; the \
+         tree is not read again",
+        case.state.join("tree").display(),
+        case.state.join(store::STORE_FILE).display(),
     ));
     assert_eq!(
         printed.lines().collect::<Vec<_>>(),
@@ -673,22 +737,21 @@ fn the_migration_prints_the_counts_it_moved_as_json() {
     assert_eq!(printed["events"].as_u64(), Some(events as u64));
     assert_eq!(printed["streams"].as_u64(), Some(streams as u64));
     assert_eq!(
-        printed["tree"].as_str(),
+        printed["source"].as_str(),
         Some(case.state.join("tree").to_str().expect("UTF-8"))
     );
     assert_eq!(
-        printed["observations"].as_str(),
-        Some(case.state.join("observations").to_str().expect("UTF-8"))
+        printed["store"].as_str(),
+        Some(case.state.join(store::STORE_FILE).to_str().expect("UTF-8"))
     );
+    assert_eq!(printed["instance"].as_str(), Some("conductor"));
+    let before = &printed["before"];
     assert_eq!(
-        printed["source"].as_str(),
+        before["source"].as_str(),
         Some(case.state.join("store").to_str().expect("UTF-8"))
     );
-    assert_eq!(printed["kind"].as_str(), Some("eventlog-file"));
-    assert_eq!(
-        printed["kept"].as_str(),
-        Some(kept.to_str().expect("UTF-8"))
-    );
+    assert_eq!(before["kind"].as_str(), Some("eventlog-file"));
+    assert_eq!(before["kept"].as_str(), Some(kept.to_str().expect("UTF-8")));
 }
 
 /// A goal whose id the specification admits and whose stream id, as the File provider kept it,
@@ -778,7 +841,7 @@ fn a_migration_refuses_where_the_tree_exists_and_changes_nothing() {
     case.ok(&["store", "migrate"]);
     let before = walk(&case.state);
     let again = case.run(&["store", "migrate"]);
-    assert_refused(&again, "exists", "a second migration");
+    assert_refused(&again, "AlreadyMigrated", "a second migration");
     assert_eq!(
         walk(&case.state),
         before,
@@ -789,7 +852,7 @@ fn a_migration_refuses_where_the_tree_exists_and_changes_nothing() {
     fs::create_dir_all(empty.state.join("tree")).expect("create an empty tree directory");
     let before = walk(&empty.state);
     let output = empty.run(&["store", "migrate"]);
-    assert_refused(&output, "exists", "a migration onto an empty tree/");
+    assert_refused(&output, "SourceMissing", "a migration onto an empty tree/");
     assert_eq!(walk(&empty.state), before, "it changed files");
 }
 
@@ -798,7 +861,7 @@ fn a_migration_refuses_where_the_tree_exists_and_changes_nothing() {
 fn a_migration_without_an_eventlog_file_store_refuses_and_creates_nothing() {
     let case = Case::new("nothing");
     let output = case.run(&["store", "migrate"]);
-    assert_refused(&output, "no eventlog-file store", "a migration of nothing");
+    assert_refused(&output, "SourceMissing", "a migration of nothing");
     assert!(!case.state.exists(), "it created {}", case.state.display());
 
     let output = case.run(&["store", "migrate", "--format", "yaml"]);
@@ -842,7 +905,11 @@ fn a_migration_waits_for_the_eventlog_file_stores_writer_lock() {
         "it wrote tree, tree.next or store.migrating while the lock was held"
     );
     assert!(output.status.success(), "{}", describe(&output));
-    assert!(case.state.join("tree/store.json").is_file());
+    assert!(case.state.join(store::STORE_FILE).is_file());
+    assert!(
+        case.state.join("tree").is_dir(),
+        "the tree read is kept in place"
+    );
 }
 
 /// A migration that stopped before its first rename leaves `tree.next/` and `store.migrating/`;
@@ -861,9 +928,12 @@ fn a_migration_finishes_what_an_interrupted_one_left() {
         &case.ok(&["goal", "goals", "--format", "json"]),
         "the goals",
     );
-    let source = json(
-        &fs::read_to_string(fixture().join("views/goal-goals.json")).expect("read"),
-        "the fixture's goals",
+    let source = attributed(
+        json(
+            &fs::read_to_string(fixture().join("views/goal-goals.json")).expect("read"),
+            "the fixture's goals",
+        ),
+        &goals,
     );
     assert_eq!(goals, source);
 }
@@ -965,8 +1035,8 @@ fn a_tree_that_holds_observations_is_split_and_answers_every_view_as_before() {
         printed.lines().last(),
         Some(
             format!(
-                "moved {} events in {} streams from {} to {} and {}; the tree before the split \
-                 is kept at {}",
+                "read {} events in {} streams from {} into {} as instance conductor; the tree is \
+                 not read again",
                 file_store_counts(fixture_store())
                     .values()
                     .map(|(_, events)| events)
@@ -976,9 +1046,7 @@ fn a_tree_that_holds_observations_is_split_and_answers_every_view_as_before() {
                     .map(|(streams, _)| streams)
                     .sum::<usize>(),
                 case.state.join("tree").display(),
-                case.state.join("tree").display(),
-                case.state.join("observations").display(),
-                kept.display()
+                case.state.join(store::STORE_FILE).display(),
             )
             .as_str()
         ),
@@ -1010,18 +1078,29 @@ fn a_tree_that_holds_observations_is_split_and_answers_every_view_as_before() {
 
     let before = walk(&case.state);
     let again = case.run(&["store", "migrate"]);
-    assert_refused(&again, "exists", "a second migration after a split");
+    assert_refused(
+        &again,
+        "AlreadyMigrated",
+        "a second migration after a split",
+    );
     assert_eq!(walk(&case.state), before, "it changed files");
 }
 
-/// A split that stopped between its two renames leaves `tree.next/` and no `tree/`: every command
-/// and view refuses, naming `conductor store migrate`, and writes nothing; the next
-/// `store migrate` renames `tree.next/` `tree/`, and every view answers as the fixture says.
+/// A split that stopped between its two renames, before any database, leaves `tree.next/` and no
+/// `tree/`: every command and view refuses, naming `conductor store migrate`, and writes nothing;
+/// the next `store migrate` renames `tree.next/` `tree/`, reads it into the database, and every
+/// view answers as the fixture says.
 #[test]
 fn a_split_stopped_between_its_renames_is_refused_and_then_finished() {
     let case = with_observations_in_the_tree("split-stopped");
     case.ok(&["store", "migrate"]);
     let kept = split_kept(&case);
+    for database in [
+        store::STORE_FILE.to_owned(),
+        format!("{}.open-lock", store::STORE_FILE),
+    ] {
+        fs::remove_file(case.state.join(database)).expect("leave the split before the database");
+    }
     fs::rename(case.state.join("tree"), case.state.join("tree.next"))
         .expect("leave the split between its renames");
 
@@ -1051,16 +1130,20 @@ fn a_split_stopped_between_its_renames_is_refused_and_then_finished() {
 
     let printed = case.ok(&["store", "migrate"]);
     assert_eq!(
-        printed,
-        format!(
-            "finished the split a run left between its renames: renamed {} to {}; the tree \
-             before the split is kept at {}\n",
-            case.state.join("tree.next").display(),
-            case.state.join("tree").display(),
-            kept.display()
-        )
+        printed.lines().next(),
+        Some(
+            format!(
+                "brought {} to the tree at {}; the tree before the split is kept at {}",
+                case.state.join("tree.next").display(),
+                case.state.join("tree").display(),
+                kept.display()
+            )
+            .as_str()
+        ),
+        "{printed}"
     );
-    assert!(case.state.join("tree/store.json").is_file());
+    assert!(case.state.join(store::STORE_FILE).is_file());
+    assert!(case.state.join("tree").is_dir());
     assert!(!case.state.join("tree.next").exists());
     let differing = differing_views(&case);
     assert!(differing.is_empty(), "{}", differing.join("\n"));
@@ -1257,10 +1340,10 @@ fn every_command_refuses_an_unmigrated_store_and_writes_nothing() {
     );
 }
 
-/// A state directory with neither store: a command starts a tree store at `state/tree/`, and a
-/// view reads it.
+/// A state directory with neither store: a command starts the database at `state/store.sqlite`
+/// (`story:store-shared`) and no tree, and a view reads it.
 #[test]
-fn a_state_directory_with_neither_store_starts_a_tree_store() {
+fn a_state_directory_with_neither_store_starts_the_database() {
     let case = Case::new("neither");
     case.ok(&[
         "goal",
@@ -1272,7 +1355,8 @@ fn a_state_directory_with_neither_store_starts_a_tree_store() {
         "--exit-evidence",
         "a view lists it",
     ]);
-    assert!(case.state.join("tree/store.json").is_file());
+    assert!(case.state.join(store::STORE_FILE).is_file());
+    assert!(!case.state.join("tree").exists());
     assert!(!case.state.join("store").exists());
     let goals = json(
         &case.ok(&["goal", "goals", "--format", "json"]),
@@ -1294,6 +1378,7 @@ fn put_goals(store: &mut Store, ids: impl Iterator<Item = usize>) {
             GoalSnapshot {
                 state: GoalState::Draft,
                 data: GoalData {
+                    actor: conductor_cli::actor::operator("operator"),
                     goal_id: GoalId(format!("G{n:05}")),
                     title: format!("Goal {n}"),
                     exit_evidence: "measured".to_owned(),

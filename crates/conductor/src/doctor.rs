@@ -50,7 +50,7 @@ use std::time::Duration;
 use anyhow::{Context as _, Result, bail};
 use conductor_model::config::{
     Config, DoctorReport, ForgeLogin, ForgeLoginState, Instance, Machine, Prerequisite,
-    PrerequisiteState, ProviderAvailability, Source,
+    PrerequisiteState, Source,
 };
 
 use crate::collect;
@@ -58,9 +58,23 @@ use crate::config;
 
 /// Every program conductor starts: its collectors, its gate and its tasks. A forge's CLI of
 /// [`FORGES`] is among them only for an instance with a source on that forge ([`forges`]).
-pub const PROGRAMS: [&str; 9] = [
-    "git", "gh", "glab", "claude", "jq", "task", "aep", "worktree", "ess",
+pub const PROGRAMS: [&str; 10] = [
+    "git",
+    "gh",
+    "glab",
+    "claude",
+    "jq",
+    "task",
+    "aep",
+    "worktree",
+    "ess",
+    SUBSTRATE_DAEMON,
 ];
+
+/// The substrate daemon a substrate placement opens its box through (`story:placement-substrate-local`):
+/// needed only when an instance of the config file runs in a substrate box ([`crate::placement::boxed`]),
+/// `not needed` otherwise, and checked against its pin in `b10x.toml` (decision P6).
+pub const SUBSTRATE_DAEMON: &str = "substrate-daemon";
 
 /// The forges' CLIs: `gh` for GitHub, `glab` for GitLab.
 pub const FORGES: [&str; 2] = ["gh", "glab"];
@@ -364,6 +378,7 @@ fn upstream(program: &str) -> Option<&'static str> {
         "glab" => "https://gitlab.com/gitlab-org/cli#installation",
         "git" => "https://git-scm.com/downloads",
         "claude" => "https://docs.anthropic.com/en/docs/claude-code/setup",
+        SUBSTRATE_DAEMON => "https://github.com/beyond10x/substrate/releases",
         _ => return None,
     })
 }
@@ -609,7 +624,9 @@ fn examine(
                 .iter()
                 .find(|(name, _)| name == program)
                 .map(|(_, spec)| spec.clone());
-            if FORGES.contains(program) && !needed.contains(program) {
+            if (FORGES.contains(program) || *program == SUBSTRATE_DAEMON)
+                && !needed.contains(program)
+            {
                 return Prerequisite {
                     program: (*program).to_owned(),
                     state: PrerequisiteState::NotNeeded,
@@ -885,6 +902,14 @@ fn read_config(
                         .iter()
                         .any(|instance| forges(instance).contains(forge))
                 })
+                .chain(
+                    loaded
+                        .config
+                        .instances
+                        .iter()
+                        .any(crate::placement::boxed)
+                        .then_some(SUBSTRATE_DAEMON),
+                )
                 .collect(),
             forge_hosts(&loaded.config),
             loaded
@@ -925,7 +950,7 @@ fn read_config(
 ///
 /// What [`doctor_with`] answers.
 pub fn doctor() -> Result<ExitCode> {
-    doctor_with(None, &crate::confine::Host::default())
+    doctor_with(None)
 }
 
 /// What `conductor doctor` found, before it is printed ([`check`]).
@@ -946,9 +971,6 @@ pub struct Doctor {
     pub watchers: Vec<Watcher>,
     /// The `b10x.toml` read, if any.
     pub pin_file: Option<PathBuf>,
-    /// One row per confinement provider (`story:session-envelope-seam`), which does not change
-    /// the verdict.
-    pub providers: Vec<ProviderAvailability>,
     /// The pins of that file, which win over the build's.
     project: Vec<(String, String)>,
     /// The package manager found for the machine's system ([`manager`]).
@@ -1014,7 +1036,6 @@ impl Doctor {
         {
             out.extend(lines(row, its(row.program.as_str())).into_iter().skip(1));
         }
-        out.extend(self.providers.iter().map(provider_line));
         out
     }
 
@@ -1068,7 +1089,6 @@ impl Doctor {
             machine: self.machine.clone(),
             prerequisites: self.rows.clone(),
             logins: self.logins.clone(),
-            providers: self.providers.clone(),
             verdict: verdict_of(&self.failures()),
         }
     }
@@ -1180,50 +1200,39 @@ pub fn check_in(
         workspaces,
         watchers,
         pin_file,
-        providers: crate::confine::availability(&crate::confine::Host::default()),
         project,
         manager,
     })
 }
 
-/// One confinement provider's row (`story:session-envelope-seam`): `provider <name>: available`,
-/// or `provider <name>: not available: <reason>`.
-#[must_use]
-pub fn provider_line(row: &ProviderAvailability) -> String {
-    if row.available {
-        format!("provider {}: available", row.provider)
-    } else {
-        format!(
-            "provider {}: not available: {}",
-            row.provider,
-            row.reason.as_deref().unwrap_or("no reason given")
-        )
-    }
-}
-
-/// `conductor doctor`: every line of [`Doctor::lines`] for what [`check`] finds, its provider rows
-/// those of `providers` ([`provider_line`]), and last the verdict, `ready` or `not ready: ` with
-/// what failed ([`verdict_of`]). Exits 1 when the config does not load, a program is missing,
-/// older than its pin, or pinned with a pin or version that does not read, or a forge CLI is not
-/// logged in to a host of the config file's sources; 0 otherwise. A provider that is not
-/// available changes no verdict. Writes nothing.
+/// `conductor doctor`: every line of [`Doctor::lines`] for what [`check`] finds, and last the
+/// verdict, `ready` or `not ready: ` with what failed ([`verdict_of`]). Exits 1 when the config
+/// does not load, a program is missing, older than its pin, or pinned with a pin or version that
+/// does not read, or a forge CLI is not logged in to a host of the config file's sources; 0
+/// otherwise. Writes nothing. The confinement providers' rows are gone with `confinement.*`
+/// (design architecture-next § 11, `conductor.config.DoctorReport`).
 ///
 /// # Errors
 ///
 /// What [`check`] answers.
-pub fn doctor_with(
-    flag: Option<&Path>,
-    providers: &dyn crate::confine::Providers,
-) -> Result<ExitCode> {
-    let mut doctor = check(flag)?;
-    doctor.providers = crate::confine::availability(providers);
+pub fn doctor_with(flag: Option<&Path>) -> Result<ExitCode> {
+    let doctor = check(flag)?;
     for line in doctor.lines() {
         println!("{line}");
     }
-    for line in run_units(flag) {
+    if let Some(line) = secrets_line(flag) {
         println!("{line}");
     }
-    let verdict = verdict_of(&doctor.failures());
+    if let Some(line) = store_line(flag) {
+        println!("{line}");
+    }
+    println!("{}", daemon_unit());
+    let mut failures = doctor.failures();
+    for (line, failure) in kind_lines(flag) {
+        println!("{line}");
+        failures.extend(failure);
+    }
+    let verdict = verdict_of(&failures);
     println!("{verdict}");
     Ok(if verdict == READY {
         ExitCode::SUCCESS
@@ -1232,32 +1241,71 @@ pub fn doctor_with(
     })
 }
 
-/// One line per instance of the config file `flag` names (`story:run-daemon`): `run unit:
-/// <unit> running`, or `… not running (<why>)`, the state of `conductor_<instance>-run.service`
-/// as `systemctl --user is-active` answers it, as the usage watcher's is read. None without a
-/// config file. It changes no verdict: an instance may run its loop another way.
-fn run_units(flag: Option<&Path>) -> Vec<String> {
-    let Ok(loaded) = config::Environment::from_process()
-        .and_then(|environment| config::load(flag, &environment))
-    else {
+/// One line per agent kind a role of the config file's instances names (`story:agent-kinds`), in
+/// the order first named: `agent kind <kind>: <binary> <its --version line>`, `… <binary>
+/// missing`, or `agent kind <kind>: not implemented by this binary`, which adds its failure to
+/// the verdict. A config that does not load names none: its problems are
+/// reported already.
+fn kind_lines(flag: Option<&Path>) -> Vec<(String, Option<String>)> {
+    let Ok(environment) = config::Environment::from_process() else {
         return Vec::new();
     };
-    if !loaded.read {
+    let Ok(loaded) = config::load(flag, &environment) else {
         return Vec::new();
-    }
-    let systemctl = env::var_os("PATH").and_then(|search| find_in("systemctl", &search));
-    loaded
+    };
+    let mut kinds: Vec<String> = Vec::new();
+    for role in loaded
         .config
         .instances
         .iter()
-        .map(|instance| {
-            let unit = watcher(systemctl.as_deref(), crate::run::unit::unit_name(instance));
-            match &unit.not_running {
-                None => format!("run unit: {} running", unit.unit),
-                Some(why) => format!("run unit: {} not running ({why})", unit.unit),
+        .flat_map(|instance| instance.roles.iter())
+    {
+        if !kinds.contains(&role.kind.0) {
+            kinds.push(role.kind.0.clone());
+        }
+    }
+    kinds
+        .into_iter()
+        .map(|name| match crate::agent::built_in_kind(&name) {
+            None => (
+                format!("agent kind {name}: not implemented by this binary"),
+                Some(format!("agent kind {name} (not implemented)")),
+            ),
+            Some(kind) => {
+                let binary = kind.binary();
+                match find(&binary).map(|path| version_line(&path)) {
+                    Some(Ok(version)) => (format!("agent kind {name}: {binary} {version}"), None),
+                    Some(Err(why)) => (format!("agent kind {name}: {binary} ({why})"), None),
+                    None => (format!("agent kind {name}: {binary} missing"), None),
+                }
             }
         })
         .collect()
+}
+
+/// The daemon's secrets source (`story:secrets-source`): its kind, namespace and whether it
+/// answers, from the config file; none when the config does not load. It changes no verdict.
+fn secrets_line(flag: Option<&Path>) -> Option<String> {
+    let loaded = config::Environment::from_process()
+        .and_then(|environment| config::load(flag, &environment))
+        .ok()?;
+    Some(crate::secret::doctor_line(&loaded.config.daemon.secrets))
+}
+
+/// The state of conductord's user unit (`story:daemon-reconcile`): `daemon unit:
+/// conductord.service running`, or `… not running (<why>)`, as `systemctl --user is-active`
+/// answers it, as the usage watcher's is read. It changes no verdict: the daemon may run another
+/// way.
+fn daemon_unit() -> String {
+    let systemctl = env::var_os("PATH").and_then(|search| find_in("systemctl", &search));
+    let unit = watcher(
+        systemctl.as_deref(),
+        crate::daemon::install::UNIT.to_owned(),
+    );
+    match &unit.not_running {
+        None => format!("daemon unit: {} running", unit.unit),
+        Some(why) => format!("daemon unit: {} not running ({why})", unit.unit),
+    }
 }
 
 /// The verdict of a run every program of which passed (`story:doctor-verdict`).
@@ -1317,6 +1365,31 @@ pub fn verdict_of(failures: &[String]) -> String {
     }
 }
 
+/// The line of the deployment's store (`story:store-shared`): `store: <backend> <where>
+/// (answers)`, or `… (does not answer: <why>)`, for the `daemon.store` of the config `flag` names
+/// (its default without a file). None when the config does not load. It changes no verdict, and
+/// creates no SQLite file that is not there.
+fn store_line(flag: Option<&Path>) -> Option<String> {
+    let loaded = config::Environment::from_process()
+        .and_then(|environment| config::load(flag, &environment))
+        .ok()?;
+    let url = &loaded.config.daemon.store.0;
+    Some(match crate::store::Location::parse(url) {
+        Ok(location) => {
+            let answer = match crate::store::answers(&location) {
+                Ok(()) => "(answers)".to_owned(),
+                Err(why) => format!("(does not answer: {why})"),
+            };
+            format!(
+                "store: {} {} {answer}",
+                location.backend_name(),
+                location.shown()
+            )
+        }
+        Err(error) => format!("store: {url} (does not answer: {error:#})"),
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1343,10 +1416,10 @@ mod tests {
     }
 
     #[test]
-    fn each_build_pin_is_a_pin_of_aep_ess_or_worktree() {
+    fn each_build_pin_is_a_pin_of_aep_ess_worktree_or_substrate_daemon() {
         for (program, spec) in build_pins() {
             assert!(
-                ["aep", "ess", "worktree"].contains(&program.as_str()),
+                ["aep", "ess", "worktree", SUBSTRATE_DAEMON].contains(&program.as_str()),
                 "{program}"
             );
             assert!(Pin::parse(&spec).is_some(), "{program} = {spec:?}");

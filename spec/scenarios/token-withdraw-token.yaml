@@ -1,0 +1,65 @@
+type: ess-scenario/1
+domain: conductor.token
+scenario: token-withdraw-token
+summary: The owner leaves while an agent runs on their token; the token is Withdrawn with no agent, the event names the agent to resume on another token, and a second withdrawal is refused as a wrong state.
+
+arrange:
+  - instance: token
+    entity: conductor.token.PoolToken
+
+timeline:
+  - at: 2026-11-08T09:00:00Z
+    command: conductor.token.ContributeToken
+    actor: conductor.token.Operator
+    input:
+      actor: {kind: Human, operator: alice}
+      instance: example-org
+      owner: alice
+      seat: alice@example-org.example
+      secret: example-org-claude-alice
+      contributed_at: 2026-11-08T09:00:00Z
+    outcome: contributed
+    capture: {instance: token, event: conductor.token.TokenContributed, field: token_id}
+
+  - at: 2026-11-08T09:05:00Z
+    command: conductor.token.LeaseToken
+    actor: conductor.token.InstanceRuntime
+    input:
+      actor: {kind: Agent, agent: {instance: example-org, role: Lead, name: example-org-controller, kind: claude-code}}
+      instance: example-org
+      token_id: {$instance: token}
+      agent: example-org-controller
+      leased_at: 2026-11-08T09:05:00Z
+    outcome: leased
+
+  - at: 2026-11-08T18:00:00Z
+    command: conductor.token.WithdrawToken
+    actor: conductor.token.Operator
+    input:
+      actor: {kind: Human, operator: alice}
+      token_id: {$instance: token}
+      withdrawn_at: 2026-11-08T18:00:00Z
+    outcome: withdrawn
+    events:
+      - event: conductor.token.TokenWithdrawn
+        payload:
+          token_id: {$instance: token}
+          owner: alice
+
+  - at: 2026-11-08T18:01:00Z
+    command: conductor.token.WithdrawToken
+    actor: conductor.token.Operator
+    input:
+      actor: {kind: Human, operator: alice}
+      token_id: {$instance: token}
+      withdrawn_at: 2026-11-08T18:01:00Z
+    outcome: wrong-state
+    error:
+      name: conductor.token.TokenStateConflict
+
+assert:
+  - view: conductor.token.Tokens
+    contains:
+      token_id: {$instance: token}
+      state: Withdrawn
+      owner: alice

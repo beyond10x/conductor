@@ -1,18 +1,21 @@
-//! `story:live-dashboard`: `conductor dashboard serve`, a live, read-only page of what every
+//! `story:live-dashboard`: the dashboard, a live, read-only page of what every
 //! session works on; `story:dashboard-service`: exited sessions and the watch's lines;
 //! `story:disk-waste`: the disk waste across the tracked repositories; `story:dashboard-spa`: the
 //! page is the Vue app embedded from `dashboard/dist/`, and every fact it shows is asserted here
 //! on `/data.json` (how the app writes each one is the app's own Vitest suite, `dashboard/tests/`).
 //!
-//! The data cases serve [`dashboard::serve`] in this process on a free port of `127.0.0.1`,
+//! The data cases serve the instance API behind the daemon's loopback listener ([`served::serve`])
+//! in this process on a free port of `127.0.0.1`,
 //! through its one seam, [`Sources`]: the session list and the two `worktree` dry-runs are the
 //! output of `cat` on a fixture, and the home directory, the conductor repository, the CI watch's
 //! directory and `/var/tmp` are fixtures under this test target's temporary directory. Nothing is
-//! read from the environment. The last case starts the built binary with `--port 0` and reads the
-//! port from its first line.
+//! read from the environment. Two cases start the built binary's `instance serve` and read its
+//! socket from its first line (`story:instance-api`).
 
 mod active;
 mod common;
+mod scratch;
+mod served;
 
 use std::collections::BTreeMap;
 use std::ffi::OsString;
@@ -20,12 +23,13 @@ use std::fs;
 use std::io::{BufRead as _, BufReader, Read as _, Write as _};
 use std::net::{TcpListener, TcpStream};
 use std::os::unix::fs::{MetadataExt as _, PermissionsExt as _};
+use std::os::unix::net::UnixStream;
 use std::path::{Path, PathBuf};
 use std::process::{Child, Stdio};
 use std::sync::mpsc;
 use std::time::{Duration, Instant};
 
-use conductor_cli::dashboard::{self, Sources};
+use conductor_cli::dashboard::Sources;
 use conductor_cli::disk;
 use serde_json::{Value, json};
 use time::format_description::well_known::Rfc3339;
@@ -245,7 +249,7 @@ fn start(sources: Sources) -> u16 {
     let listener = TcpListener::bind("127.0.0.1:0").expect("bind a free port");
     let port = listener.local_addr().expect("the bound address").port();
     let state = sources.home.with_file_name("state");
-    std::thread::spawn(move || dashboard::serve_over(listener, sources, Some(state)));
+    served::serve(listener, sources, Some(state));
     port
 }
 
@@ -283,7 +287,7 @@ fn request(port: u16, method: &str, path: &str, host: Option<&str>) -> Answer {
 }
 
 fn data(port: u16) -> Value {
-    let answer = request(port, "GET", "/data.json", None);
+    let answer = request(port, "GET", "/v1/instances/example-org/data.json", None);
     assert_eq!(answer.status, 200, "GET /data.json: {}", answer.body);
     assert!(
         answer
@@ -293,7 +297,7 @@ fn data(port: u16) -> Value {
         "GET /data.json is not JSON: {}",
         answer.head
     );
-    serde_json::from_str(&answer.body).expect("/data.json is JSON")
+    serde_json::from_str(&answer.body).expect("/v1/instances/example-org/data.json is JSON")
 }
 
 fn ids(rows: &Value) -> Vec<&str> {
@@ -312,10 +316,10 @@ fn data_json_holds_one_row_per_session_of_the_instance_with_its_dispatch() {
     let case = Case::new("data");
     let home = case.home.display().to_string();
     let port = start(case.sources());
-    let answer = request(port, "GET", "/data.json", None);
+    let answer = request(port, "GET", "/v1/instances/example-org/data.json", None);
     assert!(
         !answer.body.contains(&home),
-        "/data.json prints the home directory in full: {}",
+        "/v1/instances/example-org/data.json prints the home directory in full: {}",
         answer.body
     );
     let data = data(port);
@@ -502,7 +506,12 @@ fn every_answer_carries_the_content_security_policy() {
         ("GET", "/", own.as_str(), 200),
         ("GET", script.as_str(), own.as_str(), 200),
         ("GET", style.as_str(), own.as_str(), 200),
-        ("GET", "/data.json", own.as_str(), 200),
+        (
+            "GET",
+            "/v1/instances/example-org/data.json",
+            own.as_str(),
+            200,
+        ),
         ("GET", "/nope", own.as_str(), 404),
         ("POST", "/", own.as_str(), 405),
         ("GET", "/", "attacker.example", 403),
@@ -535,8 +544,14 @@ fn only_get_of_the_app_and_its_data_is_answered() {
         405,
         "POST {script}"
     );
-    assert_eq!(request(port, "POST", "/data.json", None).status, 405);
-    assert_eq!(request(port, "DELETE", "/data.json", None).status, 405);
+    assert_eq!(
+        request(port, "POST", "/v1/instances/example-org/data.json", None).status,
+        405
+    );
+    assert_eq!(
+        request(port, "DELETE", "/v1/instances/example-org/data.json", None).status,
+        405
+    );
     assert_eq!(request(port, "GET", "/nope", None).status, 404);
     assert_eq!(request(port, "POST", "/nope", None).status, 404);
     assert_eq!(request(port, "GET", "/../data.json", None).status, 404);
@@ -559,7 +574,13 @@ fn only_get_of_the_app_and_its_data_is_answered() {
         );
     }
     assert_eq!(
-        request(port, "GET", "/data.json", Some("attacker.example")).status,
+        request(
+            port,
+            "GET",
+            "/v1/instances/example-org/data.json",
+            Some("attacker.example")
+        )
+        .status,
         403,
         "a request for another host is refused, so DNS rebinding cannot read the data"
     );
@@ -647,6 +668,7 @@ fn the_app_fixture_has_the_keys_data_json_serves() {
     ]);
     let store = conductor_cli::store::open(&case.store_dir()).expect("open the store");
     let begin = conductor_model::observation::StartSnapshot {
+        actor: conductor_cli::actor::daemon(),
         started_at: conductor_model::primitives::Timestamp(rfc3339(
             OffsetDateTime::now_utc() - Duration::from_secs(600),
         )),
@@ -1016,6 +1038,7 @@ fn the_worktree_dry_runs_name_a_checkout_under_the_checkouts_root_not_the_record
     }
     fs::create_dir_all(records.join("dispatches")).expect("create dispatches/");
     fs::create_dir_all(records.join("decisions")).expect("create decisions/");
+    let worktree_state = short_state("worktree-repo");
     let config = dir.join("conductor.yaml");
     write(
         &config,
@@ -1029,7 +1052,7 @@ fn the_worktree_dry_runs_name_a_checkout_under_the_checkouts_root_not_the_record
              \x20   state: {state:?}\n\
              \x20   cache: {cache:?}\n",
             trees = home.join("trees"),
-            state = home.join("state"),
+            state = worktree_state.path(),
             cache = home.join("cache"),
         ),
     );
@@ -1088,7 +1111,7 @@ fn the_worktree_dry_runs_name_a_checkout_under_the_checkouts_root_not_the_record
         ),
     );
     let child = common::conductor(&home)
-        .args(["dashboard", "serve", "--port", "0"])
+        .args(["instance", "serve"])
         .env(conductor_cli::config::CONFIG_VARIABLE, &config)
         .env("PATH", format!("{}:/usr/bin:/bin", bin.display()))
         .current_dir(&records)
@@ -1096,7 +1119,7 @@ fn the_worktree_dry_runs_name_a_checkout_under_the_checkouts_root_not_the_record
         .stdout(Stdio::piped())
         .stderr(Stdio::null())
         .spawn()
-        .expect("start conductor dashboard serve");
+        .expect("start conductor instance serve");
     let mut server = Server(child);
     let stdout = server
         .0
@@ -1114,12 +1137,8 @@ fn the_worktree_dry_runs_name_a_checkout_under_the_checkouts_root_not_the_record
     let first = line
         .recv_timeout(Duration::from_secs(30))
         .expect("the server prints a first line within 30 s");
-    let port: u16 = first
-        .trim_end()
-        .strip_prefix("listening on http://127.0.0.1:")
-        .and_then(|port| port.parse().ok())
-        .unwrap_or_else(|| panic!("the first line is {first:?}"));
-    assert_eq!(request(port, "GET", "/data.json", None).status, 200);
+    let socket = socket_of(&first);
+    assert_eq!(over_socket(&socket, "GET", "/v1/data.json"), 200);
 
     let deadline = Instant::now() + Duration::from_secs(60);
     let calls = loop {
@@ -1566,19 +1585,59 @@ impl Drop for Server {
     }
 }
 
+/// The state directory `name` of a case whose binary serves the instance API: short, so its
+/// `api.sock` fits a socket address; removed when the case ends.
+fn short_state(name: &str) -> scratch::Scratch {
+    scratch::Scratch::new(Path::new("s").join(name))
+}
+
+/// The socket `conductor instance serve` names on its first line.
+fn socket_of(first: &str) -> PathBuf {
+    first
+        .trim_end()
+        .split_once(": serving /v1/ on ")
+        .map(|(_, socket)| PathBuf::from(socket))
+        .unwrap_or_else(|| panic!("the first line is {first:?}"))
+}
+
+/// The status of `method target` sent to the instance API on `socket`.
+fn over_socket(socket: &Path, method: &str, target: &str) -> u16 {
+    let mut stream = UnixStream::connect(socket).expect("connect to the instance's socket");
+    stream
+        .set_read_timeout(Some(Duration::from_secs(30)))
+        .expect("set a read timeout");
+    write!(
+        stream,
+        "{method} {target} HTTP/1.1\r\nConnection: close\r\n\r\n"
+    )
+    .expect("send");
+    let mut answer = String::new();
+    stream.read_to_string(&mut answer).expect("read");
+    answer
+        .split(' ')
+        .nth(1)
+        .and_then(|code| code.parse().ok())
+        .unwrap_or_else(|| panic!("no status line: {answer}"))
+}
+
+/// `story:instance-api`: the per-instance dashboard server is gone; the built binary serves the
+/// instance API on `<state>/api.sock` and says where first.
 #[test]
-fn the_binary_listens_on_a_free_port_of_127_0_0_1_and_says_so_first() {
+fn the_binary_serves_the_instance_api_on_its_socket_and_says_so_first() {
     let case = Case::new("binary");
+    let scratch = short_state("binary");
+    let cwd = scratch.path();
     // The server measures the disk waste under its home from the start; the fixture home keeps
-    // that measurement off the real one.
+    // that measurement off the real one. Without a config file the built-in instance's state is
+    // `state/` of the working directory.
     let child = common::conductor(&case.home)
-        .args(["dashboard", "serve", "--port", "0", "--root"])
-        .arg(case.home.join("example-org/conductor"))
+        .args(["instance", "serve"])
+        .current_dir(cwd)
         .stdin(Stdio::null())
         .stdout(Stdio::piped())
         .stderr(Stdio::null())
         .spawn()
-        .expect("start conductor dashboard serve");
+        .expect("start conductor instance serve");
     let mut server = Server(child);
     let stdout = server
         .0
@@ -1594,18 +1653,19 @@ fn the_binary_listens_on_a_free_port_of_127_0_0_1_and_says_so_first() {
     let first = line
         .recv_timeout(Duration::from_secs(30))
         .expect("the server prints a first line");
-    let port: u16 = first
-        .trim_end()
-        .strip_prefix("listening on http://127.0.0.1:")
-        .and_then(|port| port.parse().ok())
-        .unwrap_or_else(|| panic!("the first line is {first:?}"));
-    assert_ne!(port, 0);
-    assert_eq!(request(port, "POST", "/", None).status, 405);
-    assert_eq!(request(port, "GET", "/nope", None).status, 404);
+    let socket = socket_of(&first);
+    assert_eq!(socket, cwd.join("state/api.sock"));
+    assert_eq!(over_socket(&socket, "POST", "/v1/board"), 405);
+    assert_eq!(over_socket(&socket, "GET", "/nope"), 404);
+    assert_eq!(
+        over_socket(&socket, "GET", "/"),
+        404,
+        "the instance serves no app"
+    );
     drop(server);
 }
 
-/// `story:dashboard-health`: `GET /api/health`, the health view's data: doctor's rows from a
+/// `story:dashboard-health`: `GET /v1/instances/example-org/health`, the health view's data: doctor's rows from a
 /// cache, the newest snapshot with its collector runs and member failures, each failure with its
 /// class and fix, and the free disk against the instance's floors with every disk-waste row.
 ///
@@ -1637,22 +1697,26 @@ mod health_view {
         health
     }
 
-    /// `GET /api/health`, as JSON.
+    /// `GET /v1/instances/example-org/health`, as JSON.
     fn health(port: u16) -> Value {
-        let answer = request(port, "GET", "/api/health", None);
-        assert_eq!(answer.status, 200, "GET /api/health: {}", answer.body);
+        let answer = request(port, "GET", "/v1/instances/example-org/health", None);
+        assert_eq!(
+            answer.status, 200,
+            "GET /v1/instances/example-org/health: {}",
+            answer.body
+        );
         assert!(
             answer
                 .head
                 .to_ascii_lowercase()
                 .contains("content-type: application/json"),
-            "GET /api/health is not JSON: {}",
+            "GET /v1/instances/example-org/health is not JSON: {}",
             answer.head
         );
-        serde_json::from_str(&answer.body).expect("/api/health is JSON")
+        serde_json::from_str(&answer.body).expect("/v1/instances/example-org/health is JSON")
     }
 
-    /// `/api/health` once `until` holds, polled for at most 60 s.
+    /// `/v1/instances/example-org/health` once `until` holds, polled for at most 60 s.
     fn health_until(port: u16, until: impl Fn(&Value) -> bool) -> Value {
         let deadline = Instant::now() + Duration::from_secs(60);
         loop {
@@ -1705,6 +1769,7 @@ mod health_view {
         Collector::new("blockers", move |recorder| {
             let snapshot_id = recorder.snapshot().clone();
             recorder.member_failure(RecordMemberFailure {
+                actor: conductor_cli::actor::daemon(),
                 snapshot_id,
                 member: RepositoryName("beta".to_owned()),
                 collector: "blockers".to_owned(),
@@ -1873,7 +1938,7 @@ mod health_view {
         assert_eq!(failures[0]["error_line"], line);
     }
 
-    /// The class and fix `/api/health` answers for a member failure whose first line is `line`.
+    /// The class and fix `/v1/instances/example-org/health` answers for a member failure whose first line is `line`.
     fn classified(name: &str, line: &'static str) -> (String, String) {
         let case = Case::new(name);
         case.failure(line);
@@ -2115,19 +2180,28 @@ mod health_view {
             .expect("read the app's health fixture"),
         )
         .expect("the fixture is JSON");
-        same_keys("/api/health", &fixture, &health);
+        same_keys("/v1/instances/example-org/health", &fixture, &health);
     }
 
     #[test]
     fn only_get_of_the_health_data_is_answered_with_the_home_written_as_a_tilde() {
         let case = Case::new("health-get");
         let port = start(case.sources());
-        assert_eq!(request(port, "POST", "/api/health", None).status, 405);
         assert_eq!(
-            request(port, "GET", "/api/health", Some("attacker.example")).status,
+            request(port, "POST", "/v1/instances/example-org/health", None).status,
+            405
+        );
+        assert_eq!(
+            request(
+                port,
+                "GET",
+                "/v1/instances/example-org/health",
+                Some("attacker.example")
+            )
+            .status,
             403
         );
-        let body = request(port, "GET", "/api/health", None).body;
+        let body = request(port, "GET", "/v1/instances/example-org/health", None).body;
         assert!(
             !body.contains(&case.home.display().to_string()),
             "the home directory in full: {body}"

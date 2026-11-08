@@ -26,9 +26,9 @@
 //! kept: the store refuses the write decided on a stale read, and that claim exits 1.
 //!
 //! With `--from-session-start` the command is the SessionStart hook of the conductor role's
-//! settings (`.claude/conductor-settings.json`): it reads the payload Claude Code sends a
-//! SessionStart hook on standard input and takes the session's id from its `session_id`, as the
-//! guard reads a PreToolUse payload (`crate::guard`). The payload names no process, so the
+//! settings (the `claude-code` kind's `conductor-settings.json`): it reads the payload Claude Code
+//! sends a SessionStart hook on standard input and takes the session's id from its `session_id`,
+//! as the guard reads a PreToolUse payload (`crate::guard`). The payload names no process, so the
 //! settings pass it as `--pid "$PPID"`: Claude Code runs a hook command under `sh -c` from the
 //! session's own process, so the shell's parent is that process, the one `claude agents --json`
 //! lists as the session's `pid`, which lives exactly as long as the session does. This binary's
@@ -65,9 +65,7 @@ use anyhow::{Context as _, Result, anyhow, bail};
 use conductor_model::behaviour::{
     DeliveryStorage, ExternalCommand, Generated, LeaseStorage, TryContext, unmet_context,
 };
-use conductor_model::config::{
-    ConfinementProvider, Harness, Instance, InstanceName, Role, RoleName, SessionName,
-};
+use conductor_model::config::{Harness, Instance, InstanceName, Role, SessionName};
 use conductor_model::direction::ServingId;
 use conductor_model::dispatch::{DispatchLogEvent, GuardDecisionId, MessageId, ResourceRequestId};
 use conductor_model::host::{GrantId, ReclaimRunId};
@@ -92,13 +90,23 @@ use serde_json::{Value, json};
 use time::OffsetDateTime;
 use time::format_description::well_known::Rfc3339;
 
+use crate::agent::claude_code;
 use crate::cli::{ClaimLeaseArgs, DeliverArgs, SessionRoleArgs, ViewArgs};
-use crate::config::{self, Environment};
+use crate::config::{self, BuiltInRole, ConfinementProvider, Environment};
 use crate::confine::places::{self, Placement};
-use crate::confine::{self, Launch, Providers, Refusal, systemd};
+use crate::confine::{self, Launch, Providers, Refusal};
+use crate::daemon::host_roles;
 use crate::not_implemented;
 use crate::records;
 use crate::store::Store;
+use crate::systemd;
+
+/// The actor of the session `name` of the active instance: an agent in the role whose session
+/// name it is, else a controller (`crate::actor::agent`).
+#[must_use]
+pub fn actor_of(name: &str) -> conductor_model::operator::Actor {
+    crate::actor::agent(&config::active().instance, name)
+}
 
 /// `conductor session claim`: the command `conductor.session.ClaimLease`, for the instance this
 /// process runs. `--instance` may name it, and no other; `--taken-at` defaults to now.
@@ -149,6 +157,7 @@ pub fn claim(state: Option<&Path>, args: ClaimLeaseArgs) -> Result<ExitCode> {
     });
     let outcome = generated
         .claim_lease(ClaimLease {
+            actor: crate::actor::chosen(),
             instance,
             session_id: SessionId(session_id),
             pid,
@@ -213,7 +222,7 @@ pub fn claim(state: Option<&Path>, args: ClaimLeaseArgs) -> Result<ExitCode> {
 /// output.
 pub fn leases(state: Option<&Path>, view: ViewArgs) -> Result<ExitCode> {
     /// The view's fields, in the specification's order (`spec/domains/session.yaml`).
-    const COLUMNS: [&str; 7] = [
+    const COLUMNS: [&str; 8] = [
         "instance",
         "state",
         "session_id",
@@ -221,6 +230,7 @@ pub fn leases(state: Option<&Path>, view: ViewArgs) -> Result<ExitCode> {
         "taken_at",
         "taken_over_session_id",
         "taken_over_pid",
+        "actor",
     ];
 
     let generated = Generated::new(crate::state::open_reader(state)?);
@@ -238,6 +248,7 @@ pub fn leases(state: Option<&Path>, view: ViewArgs) -> Result<ExitCode> {
                 Value::from(row.taken_at.0),
                 Value::from(row.taken_over_session_id.map(|id| id.0)),
                 Value::from(row.taken_over_pid),
+                Value::from(crate::actor::written(&row.actor)),
             ]
         })
         .collect();
@@ -281,11 +292,33 @@ pub fn deliver(state: Option<&Path>, args: &DeliverArgs) -> Result<ExitCode> {
         );
     }
     let text = crate::message::read_text(WHAT, &input.text)?;
-    let first_line = crate::message::first_line(&text).to_owned();
+    let file = (input.text != "-").then(|| Path::new(&input.text));
+    deliver_text(state, &input.name, &text, file)
+}
+
+/// [`deliver`] of `text`, already read, to the session `name`: the text was read from `file`,
+/// whose path the delivery records, or, when none is given, it is kept as
+/// `<state>/mailbox/delivered/<ulid>.md`, as `--text -` is. The `claude-code` kind's `deliver`
+/// (`story:agent-kinds`).
+///
+/// # Errors
+///
+/// What [`deliver`] answers, but for the flags.
+pub fn deliver_text(
+    state: Option<&Path>,
+    name: &str,
+    text: &str,
+    file: Option<&Path>,
+) -> Result<ExitCode> {
+    const WHAT: &str = "session deliver";
+    if !crate::message::plain_name(name) {
+        bail!("{WHAT}: --name {name:?} names no session: one name, without `/`, not `.` or `..`");
+    }
+    let first_line = crate::message::first_line(text).to_owned();
     let typed = text.trim_end_matches(['\n', '\r']);
     let dir = crate::state::dir(state)?;
     let sessions = dir.join("sessions");
-    let name = SessionName(input.name);
+    let name = SessionName(name.to_owned());
     let socket = sessions.join(format!("{}.tmux", name.0));
     let unreached = if fs::symlink_metadata(&socket).is_err() {
         Some(format!(
@@ -316,23 +349,24 @@ pub fn deliver(state: Option<&Path>, args: &DeliverArgs) -> Result<ExitCode> {
     let body_path = if unreached.is_some() {
         None
     } else {
-        let body_path = if input.text == "-" {
+        let body_path = if let Some(file) = file {
+            body_path_of(file, &dir)
+        } else {
             let body_path = format!(
                 "{}/{DELIVERED}/{}.md",
                 crate::message::MAILBOX,
                 crate::message::ulid()?
             );
-            crate::message::keep(&dir.join(&body_path), &text)
+            crate::message::keep(&dir.join(&body_path), text)
                 .with_context(|| format!("{WHAT}: keep the text"))?;
             body_path
-        } else {
-            body_path_of(Path::new(&input.text), &dir)
         };
         generated.ports.store = Some(crate::state::open(Some(&dir))?);
         Some(body_path)
     };
     let outcome = generated
         .deliver_message(DeliverMessage {
+            actor: crate::actor::chosen(),
             session_name: name.clone(),
             first_line: first_line.clone(),
             body_path: body_path.clone(),
@@ -392,13 +426,14 @@ fn body_path_of(file: &Path, state: &Path) -> String {
 /// output.
 pub fn deliveries(state: Option<&Path>, view: ViewArgs) -> Result<ExitCode> {
     /// The view's fields, in the specification's order (`spec/domains/session.yaml`).
-    const COLUMNS: [&str; 6] = [
+    const COLUMNS: [&str; 7] = [
         "delivery_id",
         "state",
         "session_name",
         "first_line",
         "body_path",
         "delivered_at",
+        "actor",
     ];
 
     let generated = Generated::new(crate::state::open_reader(state)?);
@@ -417,6 +452,7 @@ pub fn deliveries(state: Option<&Path>, view: ViewArgs) -> Result<ExitCode> {
                 Value::from(row.first_line),
                 Value::from(row.body_path),
                 Value::from(row.delivered_at.0),
+                Value::from(crate::actor::written(&row.actor)),
             ]
         })
         .collect();
@@ -537,6 +573,53 @@ impl TryContext for Delivering {
             (command, _) => Err(unmet_context(command.name())),
         }
     }
+
+    // The v1 domains' generated values (`story:spec-v1`): no command this handler runs
+    // generates one.
+
+    fn try_generate_conductor_config_revision_id(
+        &mut self,
+    ) -> Result<conductor_model::config::RevisionId, UnmetObligation> {
+        Err(conductor_model::behaviour::unmet_context(
+            "conductor.config.RevisionId",
+        ))
+    }
+
+    fn try_generate_conductor_instance_reconciliation_id(
+        &mut self,
+    ) -> Result<conductor_model::instance::ReconciliationId, UnmetObligation> {
+        Err(conductor_model::behaviour::unmet_context(
+            "conductor.instance.ReconciliationId",
+        ))
+    }
+
+    fn try_generate_conductor_placement_box_id(
+        &mut self,
+    ) -> Result<conductor_model::placement::BoxId, UnmetObligation> {
+        Err(conductor_model::behaviour::unmet_context(
+            "conductor.placement.BoxId",
+        ))
+    }
+
+    fn try_generate_conductor_placement_refusal_reason(
+        &mut self,
+    ) -> Result<conductor_model::placement::RefusalReason, UnmetObligation> {
+        Err(conductor_model::behaviour::unmet_context(
+            "conductor.placement.RefusalReason",
+        ))
+    }
+
+    fn try_generate_conductor_token_token_id(
+        &mut self,
+    ) -> Result<conductor_model::token::TokenId, UnmetObligation> {
+        Err(conductor_model::behaviour::unmet_context(
+            "conductor.token.TokenId",
+        ))
+    }
+
+    fn try_generate_string(&mut self) -> Result<String, UnmetObligation> {
+        Err(conductor_model::behaviour::unmet_context("String"))
+    }
 }
 
 /// The ports `ClaimLease` runs over: the store. Whether a pid names a live process is read from
@@ -573,6 +656,7 @@ impl ClaimLeaseBehavior for Ports {
             LeaseStorage::get(&self.store, &input.instance)
         else {
             self.keep(LeaseData {
+                actor: crate::actor::chosen(),
                 instance: input.instance.clone(),
                 session_id: input.session_id.clone(),
                 pid: input.pid,
@@ -582,6 +666,7 @@ impl ClaimLeaseBehavior for Ports {
             });
             return Ok(ClaimLeaseOutcome::Taken {
                 lease_taken: LeaseTaken {
+                    actor: crate::actor::chosen(),
                     instance: input.instance,
                     session_id: input.session_id,
                     pid: input.pid,
@@ -596,6 +681,7 @@ impl ClaimLeaseBehavior for Ports {
             });
             return Ok(ClaimLeaseOutcome::Renewed {
                 lease_taken: LeaseTaken {
+                    actor: crate::actor::chosen(),
                     instance: input.instance,
                     session_id: input.session_id,
                     pid: input.pid,
@@ -612,6 +698,7 @@ impl ClaimLeaseBehavior for Ports {
             });
         }
         self.keep(LeaseData {
+            actor: crate::actor::chosen(),
             instance: input.instance.clone(),
             session_id: input.session_id.clone(),
             pid: input.pid,
@@ -621,6 +708,7 @@ impl ClaimLeaseBehavior for Ports {
         });
         Ok(ClaimLeaseOutcome::TakenOver {
             lease_taken_over: LeaseTakenOver {
+                actor: crate::actor::chosen(),
                 instance: input.instance,
                 session_id: input.session_id,
                 pid: input.pid,
@@ -761,19 +849,13 @@ instance's state directory (conductor config show prints state), then begin.";
 
 /// The roles `session start` and `session stop` act on, each by its name or its old name
 /// (`story:role-name-aliases`).
-const SESSION_ROLES: [RoleName; 2] = [RoleName::Director, RoleName::Maintainer];
-
-/// The settings file conductor starts with when its role names none, under the working
-/// directory: the product checkout a director session is started from.
-const CONDUCTOR_SETTINGS: &str = ".claude/conductor-settings.json";
+const SESSION_ROLES: [BuiltInRole; 2] = [BuiltInRole::Director, BuiltInRole::Maintainer];
 
 /// The role `role` of the active instance, when it is one `session start` starts: `director` or
 /// `maintainer`, or their old names `conductor` and `conductor-dev`, on `claude`
-/// (`story:role-name-aliases`). The director is the instance's, under either name; the
-/// maintainer is the host's, from the host file under `home`, else, for this release, the one
-/// the instance still names under either name (`story:maintainer-host-config`,
-/// [`config::host_maintainer`]).
-fn session_role(instance: &Instance, home: &Path, role: &str) -> Result<Role, String> {
+/// (`story:role-name-aliases`). The director is the instance's, under either name; so is the
+/// maintainer, the host's role, until `globals.roles` is read ([`config::host_maintainer`]).
+fn session_role(instance: &Instance, role: &str) -> Result<Role, String> {
     let Some(wanted) = config::role_name(role).filter(|wanted| SESSION_ROLES.contains(wanted))
     else {
         return Err(format!(
@@ -782,27 +864,9 @@ fn session_role(instance: &Instance, home: &Path, role: &str) -> Result<Role, St
              with conductor spawn"
         ));
     };
-    let found = if wanted == RoleName::Maintainer {
-        config::host_maintainer(home, instance)
-            .map_err(|error| match error.downcast::<config::Invalid>() {
-                Ok(invalid) => {
-                    let problems: Vec<String> =
-                        invalid.problems.iter().map(ToString::to_string).collect();
-                    format!(
-                        "the host file {} does not read: {}",
-                        invalid.file.display(),
-                        problems.join("; ")
-                    )
-                }
-                Err(error) => format!("{error:#}"),
-            })?
-            .ok_or_else(|| {
-                format!(
-                    "the host names no role {role}: write it in {} (conductor config show, \
-                     host.roles)",
-                    config::host_file(home).display()
-                )
-            })?
+    let found = if wanted == BuiltInRole::Maintainer {
+        config::host_maintainer(instance)
+            .ok_or_else(|| format!("the instance names no role {role} in conductor config show"))?
     } else {
         instance
             .roles
@@ -818,6 +882,28 @@ fn session_role(instance: &Instance, home: &Path, role: &str) -> Result<Role, St
         ));
     }
     Ok(found)
+}
+
+/// The role `role` `session start` and `session stop` act on: a host role, `supervisor` or
+/// `teacher`, from `globals.roles` of the config file (`story:host-roles-by-daemon`), with what
+/// its session starts with ([`host_roles::Found`]); one that names neither a profile nor an agent
+/// starts from the profile the binary carries ([`harness_args`]); else the instance's role
+/// [`session_role`] answers.
+fn resolve_role(
+    instance: &Instance,
+    role: &str,
+) -> Result<(Role, Option<host_roles::Found>), String> {
+    if !host_roles::is_host_role(role) {
+        return session_role(instance, role).map(|found| (found, None));
+    }
+    let found = host_roles::found(role)?;
+    if found.role.harness != Harness::Claude {
+        return Err(format!(
+            "the role {role} does not run on claude (globals.roles); session start starts claude \
+             only"
+        ));
+    }
+    Ok((found.role.clone(), Some(found)))
 }
 
 /// The session name of `role`: the role's, else the one derived for it.
@@ -858,7 +944,7 @@ fn note_old_name(command: &str, role: &str) -> Result<()> {
 /// Where the session of `role` starts: conductor in the instance's records directory,
 /// conductor-dev in the working directory.
 fn start_directory(instance: &Instance, role: &Role, cwd: &Path) -> PathBuf {
-    if config::is_role(&role.role, RoleName::Director) {
+    if config::is_role(&role.role, BuiltInRole::Director) {
         PathBuf::from(&instance.records)
     } else {
         cwd.to_owned()
@@ -899,16 +985,22 @@ fn request(instance: &Instance, role: &Role, cwd: &Path, home: &Path) -> Session
 }
 
 /// The arguments the harness of `role` starts with before its first prompt: its name, its profile
-/// (`--append-system-prompt-file`) or else its agent (`--agent`, by default the role's old name,
-/// `conductor` or `conductor-dev`, the adapters' file names for this release),
-/// its model, bypass permissions, no user settings (the `none` provider adds them for `claude --bg`,
-/// [`crate::confine::background_args`]), and its settings file; conductor's defaults to
-/// [`CONDUCTOR_SETTINGS`] under `cwd`.
-fn harness_args(role: &Role, name: &SessionName, settings: Option<String>) -> Vec<String> {
+/// (`--append-system-prompt-file`: the role's own, else the one the binary carries, written into
+/// the state directory, [`profile_for`]) or else its agent (`--agent`, by default the role's old
+/// name: `conductor` for the director, which the binary carries no profile for), its model,
+/// bypass permissions, no user settings (the `none` provider adds them for `claude --bg`,
+/// [`crate::confine::background_args`]), and its settings file; the director's defaults to the one
+/// the binary carries ([`claude_code::settings`]).
+fn harness_args(
+    role: &Role,
+    name: &SessionName,
+    profile: Option<String>,
+    settings: Option<String>,
+) -> Vec<String> {
     let mut args = vec!["-n".to_owned(), name.0.clone()];
-    match (&role.profile, &role.agent) {
+    match (profile, &role.agent) {
         (Some(profile), _) => {
-            args.extend(["--append-system-prompt-file".to_owned(), profile.0.clone()]);
+            args.extend(["--append-system-prompt-file".to_owned(), profile]);
         }
         (None, Some(agent)) => args.extend(["--agent".to_owned(), agent.0.clone()]),
         (None, None) => args.extend([
@@ -936,49 +1028,38 @@ fn harness_args(role: &Role, name: &SessionName, settings: Option<String>) -> Ve
     args
 }
 
+/// The profile the session `name` of `role` appends to its system prompt
+/// (`story:roles-in-the-binary`): the role's own `profile`, which the harness reads at start;
+/// else, for a role that names no agent either, the one the binary carries, written to
+/// `<state>/sessions/<name>.profile.md` ([`claude_code::write_profile`]); else none.
+///
+/// # Errors
+///
+/// The binary's profile cannot be written.
+fn profile_for(role: &Role, state: &Path, name: &SessionName) -> Result<Option<String>> {
+    match (&role.profile, &role.agent) {
+        (Some(profile), _) => Ok(Some(profile.0.clone())),
+        (None, Some(_)) => Ok(None),
+        (None, None) => Ok(claude_code::write_profile(state, &name.0, &role.role)?
+            .map(|file| file.display().to_string())),
+    }
+}
+
 /// The settings a session of `role`, which names no settings file of its own, starts with under
-/// a config file (`story:instance-isolation`): the role's default ([`role_settings`]: for
-/// `conductor` [`CONDUCTOR_SETTINGS`] under `cwd`, an empty one for `conductor-dev`) pinned to
-/// `instance` ([`config::pinned`]), written to `<state>/sessions/<session name>.settings.json`,
+/// a config file (`story:instance-isolation`): the role's default ([`claude_code::settings`]: for
+/// the director the binary's `conductor-settings.json`, an empty one for every other role) pinned
+/// to `instance` ([`config::pinned`]), written to `<state>/sessions/<session name>.settings.json`,
 /// whose path it answers. The harness does not pass the environment it is started with on to the
 /// session it forks, so only the settings select the instance the session's hooks act for.
 ///
 /// # Errors
 ///
-/// The default is there and is no JSON, or the file cannot be written.
-fn write_pinned(
-    role: &Role,
-    cwd: &Path,
-    instance: &str,
-    state: &Path,
-    name: &SessionName,
-) -> Result<String> {
-    let base = match role_settings(role, cwd) {
-        Some(default) => match fs::read_to_string(&default) {
-            Ok(text) => serde_json::from_str(&text)
-                .with_context(|| format!("the settings {default} are no JSON"))?,
-            Err(error) if error.kind() == io::ErrorKind::NotFound => serde_json::json!({}),
-            Err(error) => {
-                return Err(error).with_context(|| format!("read the settings {default}"));
-            }
-        },
-        None => serde_json::json!({}),
-    };
+/// The file cannot be written.
+fn write_pinned(role: &Role, instance: &str, state: &Path, name: &SessionName) -> Result<String> {
+    let base = claude_code::settings_value(&role.role)?;
     Ok(config::write_pinned(base, instance, state, &name.0)?
         .display()
         .to_string())
-}
-
-/// The settings file a session of `role` starts with: its `settings`, else for `director`
-/// [`CONDUCTOR_SETTINGS`] under `cwd`, else none.
-fn role_settings(role: &Role, cwd: &Path) -> Option<String> {
-    role.settings
-        .as_ref()
-        .map(|settings| settings.0.clone())
-        .or_else(|| {
-            config::is_role(&role.role, RoleName::Director)
-                .then(|| cwd.join(CONDUCTOR_SETTINGS).display().to_string())
-        })
 }
 
 /// Answers a refusal of `session start`: one line naming its `SessionStartRefusal`, and exit 1.
@@ -1054,7 +1135,7 @@ pub fn start(
     let instance = &active.instance;
     let environment = Environment::from_process().context("session start")?;
     let home = environment.home().context("session start")?;
-    let found = match session_role(instance, home, &role) {
+    let (found, host) = match resolve_role(instance, &role) {
         Ok(found) => found,
         Err(detail) => return refuse(SessionStartRefusal::UnknownRole, detail),
     };
@@ -1077,11 +1158,12 @@ pub fn start(
             format!("the live session {id} holds the session name {}", held.0),
         );
     }
-    let chosen = match confine::choose(providers, &instance.confinement) {
+    let chosen = match confine::choose(providers, &crate::config::legacy(instance).confinement) {
         Ok(chosen) => chosen,
         Err(refusal) => return refuse_start(&refuse, refusal),
     };
-    let cwd = &environment.cwd;
+    // A host role's session starts beside the config file (`story:host-roles-by-daemon`).
+    let cwd = host.as_ref().map_or(&environment.cwd, |host| &host.dir);
     let mut env = Vec::new();
     if active.from_file {
         let (file, _) = config::locate(config_flag, &environment).context("session start")?;
@@ -1093,20 +1175,23 @@ pub fn start(
             config::CONFIG_VARIABLE.to_owned(),
             cwd.join(&file).display().to_string(),
         ));
-        register(config_flag, &environment, &cwd.join(&file));
     }
     let state_dir = crate::state::dir(state)?;
     let settings = match (&found.settings, active.from_file) {
         (None, true) => Some(
-            write_pinned(found, cwd, &instance.name.0, &state_dir, &name)
-                .context("session start")?,
+            write_pinned(found, &instance.name.0, &state_dir, &name).context("session start")?,
         ),
         (Some(own), true) => Some(
             config::session_settings(Path::new(&own.0), &instance.name.0, &state_dir, &name.0)
                 .context("session start")?,
         ),
-        _ => role_settings(found, cwd),
+        (Some(own), false) => Some(own.0.clone()),
+        (None, false) => claude_code::write_settings(&state_dir, &name.0, &found.role)
+            .context("session start")?
+            .map(|file| file.display().to_string()),
     };
+    // The role's profile, else the binary's, written into the state (`story:roles-in-the-binary`).
+    let profile = profile_for(found, &state_dir, &name).context("session start")?;
     let request = request(instance, found, cwd, home);
     // The session's socket to the instance's broker (`story:tool-broker-read`): registered with
     // its role's grant before it starts, and named in its environment.
@@ -1123,16 +1208,33 @@ pub fn start(
         conductor_broker::SOCKET_VARIABLE.to_owned(),
         socket.display().to_string(),
     ));
-    let launch = Launch {
+    let mut launch = Launch {
         request,
         program: confine::CLAUDE.to_owned(),
-        args: harness_args(found, &name, settings),
+        args: harness_args(found, &name, profile, settings),
         env,
         session_prefix: instance.session_prefix.clone(),
-        instance_limits: instance.confinement.limits.clone(),
+        // A host role's slice, `conductor_host.slice`, takes `globals.limits`.
+        instance_limits: host.as_ref().map_or_else(
+            || crate::config::legacy(instance).confinement.limits.clone(),
+            |host| host.limits.clone(),
+        ),
         state: state_dir.clone(),
     };
-    let prompt = if config::is_role(&found.role, RoleName::Director) {
+    // story:token-pool: the agent runs on a token leased from the instance's pool, which its
+    // settings name; with no token in the pool the launch is today's.
+    let lease = match crate::token::lease_into(instance, found, &mut launch, false) {
+        Ok(lease) => lease,
+        Err(detail) => {
+            if let Err(error) = crate::broker::unregister_session(&state_dir, &name) {
+                eprintln!("conductor: session start: {error:#}");
+            }
+            return refuse(SessionStartRefusal::LaunchFailed, detail);
+        }
+    };
+    let prompt = if host.is_some() {
+        host_roles::prompt(&found.role)
+    } else if config::is_role(&found.role, BuiltInRole::Director) {
         DIRECTOR_PROMPT
     } else {
         DEV_PROMPT
@@ -1157,6 +1259,12 @@ pub fn start(
             if let Some(reason) = &started.measurement.unboxed {
                 line.push_str(&format!(", unboxed: {reason}"));
             }
+            if let Some(lease) = &lease {
+                line.push_str(&format!(
+                    ", token {} of {}",
+                    lease.token_id.0.0, lease.owner.0
+                ));
+            }
             // A refusal stays one line; the note on an old name goes with the start.
             note_old_name("session start", &role)?;
             writeln!(io::stdout().lock(), "{line}").context("write the started session")?;
@@ -1167,22 +1275,13 @@ pub fn start(
             if let Err(error) = crate::broker::unregister_session(&state_dir, &name) {
                 eprintln!("conductor: session start: {error:#}");
             }
+            if lease.is_some()
+                && let Err(error) = crate::token::release_for_stop(instance, &name.0)
+            {
+                eprintln!("conductor: session start: {error:#}");
+            }
             refuse_start(&refuse, refusal)
         }
-    }
-}
-
-/// Writes the config file `file` that a session starts from to the host registry
-/// (`story:instance-names-unique`, [`crate::registry::register`]). A start never fails on it: a
-/// file that does not load again, or a registry that cannot be written, is said on standard
-/// error and the start goes on.
-fn register(config_flag: Option<&Path>, environment: &Environment, file: &Path) {
-    let written = environment.home().and_then(|home| {
-        let loaded = config::load(config_flag, environment)?;
-        crate::registry::register(home, &config::physical(file), &loaded.config)
-    });
-    if let Err(error) = written {
-        eprintln!("conductor: session start: the host registry is not written: {error:#}");
     }
 }
 
@@ -1232,11 +1331,12 @@ pub fn stop(
     let instance = &config::active().instance;
     let environment = Environment::from_process().context("session stop")?;
     let home = environment.home().context("session stop")?;
-    let found = match session_role(instance, home, &role) {
+    let (found, host) = match resolve_role(instance, &role) {
         Ok(found) => found,
         Err(detail) => return refuse(SessionStopRefusal::UnknownRole, detail),
     };
     let found = &found;
+    let cwd = host.as_ref().map_or(&environment.cwd, |host| &host.dir);
     let name = role_session_name(instance, found);
     let Some((id, name)) = live_role_session(found, &name).context("session stop")? else {
         return refuse(
@@ -1254,7 +1354,7 @@ pub fn stop(
         "systemd" => providers.provider(ConfinementProvider::Systemd),
         _ => providers.provider(ConfinementProvider::None),
     };
-    let request = request(instance, found, &environment.cwd, home);
+    let request = request(instance, found, cwd, home);
     let session = StartedSession {
         role: role.clone(),
         session_name: name.clone(),
@@ -1267,6 +1367,8 @@ pub fn stop(
         .with_context(|| format!("session stop: stop {} ({id})", name.0))?;
     confine::remove_measurement(&state_dir, &name).context("session stop")?;
     crate::broker::unregister_session(&state_dir, &name).context("session stop")?;
+    // story:token-pool: the token the session ran on is Available again.
+    crate::token::release_for_stop(instance, &name.0).context("session stop")?;
     note_old_name("session stop", &role)?;
     writeln!(io::stdout().lock(), "stopped {} ({id})", name.0)
         .context("write the stopped session")?;
@@ -1340,6 +1442,7 @@ impl Deliverer for ShellDeliverer {
         }
         command
             .args(["session", "deliver", "--name", name, "--text", "-"])
+            .env(crate::actor::DAEMON_VARIABLE, "1")
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
             .stderr(Stdio::piped());

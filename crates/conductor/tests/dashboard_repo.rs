@@ -90,7 +90,7 @@ fn facts() -> Facts {
     }
 }
 
-/// The cause names `/api/waiting-on` answers for `repository` over `facts`.
+/// The cause names `/v1/waiting-on` answers for `repository` over `facts`.
 fn causes_of(facts: &Facts, repository: &str) -> Vec<String> {
     let answer = repo::waiting_on(facts);
     let row = answer["rows"]
@@ -435,18 +435,18 @@ fn a_repository_s_events_are_its_dispatch_report_decision_release_and_merge_rows
 #[test]
 fn a_repository_name_is_read_from_the_query() {
     assert_eq!(
-        repo::query("/api/sessions?repository=alpha", "repository").as_deref(),
+        repo::query("/v1/sessions?repository=alpha", "repository").as_deref(),
         Some("alpha")
     );
     assert_eq!(
         repo::query(
-            "/api/events?since=2026-10-13T00%3A00%3A00Z&repository=beta-gamma",
+            "/v1/events?since=2026-10-13T00%3A00%3A00Z&repository=beta-gamma",
             "since"
         )
         .as_deref(),
         Some("2026-10-13T00:00:00Z")
     );
-    assert_eq!(repo::query("/api/sessions", "repository"), None);
+    assert_eq!(repo::query("/v1/sessions", "repository"), None);
 }
 
 /// A fake collector recording `alpha`'s blocker and specification.
@@ -454,6 +454,7 @@ fn plan() -> Collector {
     Collector::new("fixture", |record: &mut Recorder<'_>| {
         let snapshot = record.snapshot().clone();
         record.blocker(RecordBlocker {
+            actor: conductor_cli::actor::daemon(),
             snapshot_id: snapshot.clone(),
             repository: RepositoryName("alpha".to_owned()),
             reference: "story:partner-sandbox".to_owned(),
@@ -461,6 +462,7 @@ fn plan() -> Collector {
             title: "partner API keys".to_owned(),
         })?;
         record.specification(RecordSpecification {
+            actor: conductor_cli::actor::daemon(),
             snapshot_id: snapshot,
             repository: RepositoryName("alpha".to_owned()),
             presence: SpecificationPresence::Present,
@@ -486,6 +488,7 @@ fn fails() -> Collector {
 fn take(state: &Path, started_at: &str, collector: Collector) -> SnapshotState {
     let store = store::open(state).expect("open the store");
     let start = StartSnapshot {
+        actor: conductor_cli::actor::daemon(),
         started_at: Timestamp(started_at.to_owned()),
         disk_free_bytes: 1_000_000,
         budget: None,
@@ -567,7 +570,7 @@ fn row_keys(answer: &Value) -> BTreeSet<String> {
 
 #[test]
 fn the_page_s_fixtures_have_the_keys_the_endpoints_answer() {
-    // /api/waiting-on: rows and causes.
+    // /v1/waiting-on: rows and causes.
     let mut served = facts();
     served.needs = vec![Need {
         sender: "alpha".to_owned(),
@@ -604,7 +607,7 @@ fn the_page_s_fixtures_have_the_keys_the_endpoints_answer() {
         }
     }
 
-    // /api/sessions?repository=: the keys of a served row.
+    // /v1/sessions?repository=: the keys of a served row.
     let dir = case_dir("fixture-keys");
     let home = dir.join("home");
     let sources = sources(&home);
@@ -625,7 +628,7 @@ fn the_page_s_fixtures_have_the_keys_the_endpoints_answer() {
     );
     assert_eq!(row_keys(&page_fixture("sessions")), row_keys(&answer));
 
-    // /api/blockers and /api/specifications: the keys of a served row.
+    // /v1/blockers and /v1/specifications: the keys of a served row.
     let state = dir.join("state");
     take(&state, "2026-10-13T08:00:00Z", plan());
     let held = store::open_existing(&state).expect("the store opens");
@@ -646,7 +649,7 @@ fn the_page_s_fixtures_have_the_keys_the_endpoints_answer() {
     let _ = fs::remove_dir_all(&dir);
 }
 
-/// The causes `/api/waiting-on` answers for `repository` over the facts [`repo::facts`] reads,
+/// The causes `/v1/waiting-on` answers for `repository` over the facts [`repo::facts`] reads,
 /// without a store, from the sources under `home` and the session list `agents`.
 fn causes_read(home: &Path, agents: &[Value], repository: &str) -> Vec<Value> {
     let read = repo::facts(None, &sources(home), agents);

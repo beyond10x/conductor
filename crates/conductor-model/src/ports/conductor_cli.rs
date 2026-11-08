@@ -1,5 +1,5 @@
 // generated from conductor v1
-// contract digest 057692c7a57029c79cc9e78eb455da83a4c0aa80b4525dc295987296007b3391
+// contract digest a76aa63f2ad9f5b169861cd94a585925f67f9ddebf70caf04f301709ee2e64d1
 // do not edit: regenerate with `ess synthesize --layout crate`
 
 //! conductor-cli — the `conductor-cli` component of `conductor` v1.
@@ -129,6 +129,16 @@ pub enum PublishedEvent {
     MetricReadingSuperseded(crate::improvement::MetricReadingSuperseded),
     /// `conductor.improvement.MetricTargetSet`.
     MetricTargetSet(crate::improvement::MetricTargetSet),
+    /// `conductor.improvement.ProposalApplied`.
+    ProposalApplied(crate::improvement::ProposalApplied),
+    /// `conductor.improvement.ProposalKept`.
+    ProposalKept(crate::improvement::ProposalKept),
+    /// `conductor.improvement.ProposalRefused`.
+    ProposalRefused(crate::improvement::ProposalRefused),
+    /// `conductor.improvement.ProposalReverted`.
+    ProposalReverted(crate::improvement::ProposalReverted),
+    /// `conductor.improvement.SettingProposed`.
+    SettingProposed(crate::improvement::SettingProposed),
     /// `conductor.observation.BlockerRecorded`.
     BlockerRecorded(crate::observation::BlockerRecorded),
     /// `conductor.observation.BoardPublished`.
@@ -201,7 +211,7 @@ impl<B> ConductorCli<B> {
 
 impl<B> ConductorCli<B>
 where
-    B: crate::decision::obligations::AmendEscalatedRequestBehavior + crate::decision::obligations::AnswerEscalatedRequestBehavior + crate::decision::obligations::AnswerRequestBehavior + crate::decision::obligations::EscalateRequestBehavior + crate::decision::obligations::RaiseDecisionRequestBehavior + crate::decision::obligations::RecordConductorDecisionBehavior + crate::decision::obligations::RecordOperatorDecisionBehavior + crate::decision::obligations::RecordOperatorDecisionForRequestBehavior + crate::decision::obligations::ReverseConductorDecisionBehavior + crate::decision::obligations::ReverseOperatorDecisionBehavior + crate::decision::obligations::WithdrawRequestBehavior + crate::direction::obligations::ActivateRepositoryBehavior + crate::direction::obligations::AddServingBehavior + crate::direction::obligations::ConfirmGoalBehavior + crate::direction::obligations::DeactivateRepositoryBehavior + crate::direction::obligations::DropGoalBehavior + crate::direction::obligations::MarkGoalMetBehavior + crate::direction::obligations::MarkRepositoryBehavior + crate::direction::obligations::ProposeGoalBehavior + crate::direction::obligations::RemoveServingBehavior + crate::dispatch::obligations::CancelDispatchBehavior + crate::dispatch::obligations::GrantResourceBehavior + crate::dispatch::obligations::HandleMessageBehavior + crate::dispatch::obligations::PauseControllerBehavior + crate::dispatch::obligations::ReceiveMessageBehavior + crate::dispatch::obligations::RecordGuardDecisionBehavior + crate::dispatch::obligations::RefuseResourceBehavior + crate::dispatch::obligations::RejectMessageBehavior + crate::dispatch::obligations::ReleaseResourceBehavior + crate::dispatch::obligations::ReportBlockedBehavior + crate::dispatch::obligations::ReportDoneBehavior + crate::dispatch::obligations::ReportFailedBehavior + crate::dispatch::obligations::ReportStartedBehavior + crate::dispatch::obligations::ReportUnblockedBehavior + crate::dispatch::obligations::RequestResourceBehavior + crate::dispatch::obligations::ResumeControllerBehavior + crate::dispatch::obligations::ReviseCharterBehavior + crate::dispatch::obligations::RouteNeedBehavior + crate::dispatch::obligations::SendDispatchBehavior + crate::dispatch::obligations::StartControllerBehavior + crate::dispatch::obligations::StopControllerBehavior + crate::host::obligations::ReclaimBehavior + crate::host::obligations::RecordPeakBehavior + crate::host::obligations::ReleaseGrantBehavior + crate::host::obligations::RequestDiskBehavior + crate::host::obligations::ReserveDiskBehavior + crate::host::obligations::StartRunBehavior + crate::host::obligations::TakeHostGrantBehavior + crate::host::obligations::WithdrawDiskRequestBehavior + crate::improvement::obligations::DefineMetricBehavior + crate::improvement::obligations::FileFindingBehavior + crate::improvement::obligations::JudgeMetricReadingBehavior + crate::improvement::obligations::RaiseFindingBehavior + crate::improvement::obligations::RecordMetricReadingBehavior + crate::improvement::obligations::SetMetricTargetBehavior + crate::improvement::obligations::SupersedeMetricReadingBehavior + crate::improvement::obligations::VerifyFindingBehavior + crate::observation::obligations::CompleteSnapshotBehavior + crate::observation::obligations::FailSnapshotBehavior + crate::observation::obligations::PublishBoardBehavior + crate::observation::obligations::RecordBlockerBehavior + crate::observation::obligations::RecordCollectorRunBehavior + crate::observation::obligations::RecordMemberFailureBehavior + crate::observation::obligations::RecordMergedPullRequestBehavior + crate::observation::obligations::RecordPullRequestBehavior + crate::observation::obligations::RecordReleaseBehavior + crate::observation::obligations::RecordRepositoryBehavior + crate::observation::obligations::RecordSecretSyncBehavior + crate::observation::obligations::RecordSessionBehavior + crate::observation::obligations::RecordSpecificationBehavior + crate::observation::obligations::RecordUsageBehavior + crate::observation::obligations::RecordWorkflowRunBehavior + crate::observation::obligations::StartSnapshotBehavior + crate::session::obligations::ClaimLeaseBehavior + crate::session::obligations::DeliverMessageBehavior + crate::session::obligations::RecordRunTickBehavior + crate::decision::obligations::DecisionsQuery + crate::decision::obligations::HandsTodoQuery + crate::decision::obligations::RequestsQuery + crate::direction::obligations::GoalServingsQuery + crate::direction::obligations::GoalsQuery + crate::direction::obligations::RepositoryMarksQuery + crate::dispatch::obligations::ControllersQuery + crate::dispatch::obligations::DispatchesQuery + crate::dispatch::obligations::GuardDecisionsQuery + crate::dispatch::obligations::MessagesQuery + crate::dispatch::obligations::ResourceRequestsQuery + crate::host::obligations::GrantsQuery + crate::host::obligations::ReclaimRunsQuery + crate::improvement::obligations::FindingsQuery + crate::improvement::obligations::KpiReadingsQuery + crate::improvement::obligations::KpisQuery + crate::improvement::obligations::MetricReadingsQuery + crate::improvement::obligations::MetricsQuery + crate::observation::obligations::BlockersQuery + crate::observation::obligations::BoardsQuery + crate::observation::obligations::CollectorRunsQuery + crate::observation::obligations::MemberFailuresQuery + crate::observation::obligations::MergedPullRequestsQuery + crate::observation::obligations::PullRequestsQuery + crate::observation::obligations::ReleasesQuery + crate::observation::obligations::RepositoriesQuery + crate::observation::obligations::SecretSyncsQuery + crate::observation::obligations::SessionsQuery + crate::observation::obligations::SnapshotsQuery + crate::observation::obligations::SpecificationsQuery + crate::observation::obligations::UsageReadingsQuery + crate::observation::obligations::WorkflowRunsQuery + crate::session::obligations::DeliveriesQuery + crate::session::obligations::LeasesQuery + crate::session::obligations::RunTicksQuery,
+    B: crate::decision::obligations::AmendEscalatedRequestBehavior + crate::decision::obligations::AnswerEscalatedRequestBehavior + crate::decision::obligations::AnswerRequestBehavior + crate::decision::obligations::EscalateRequestBehavior + crate::decision::obligations::RaiseDecisionRequestBehavior + crate::decision::obligations::RecordConductorDecisionBehavior + crate::decision::obligations::RecordOperatorDecisionBehavior + crate::decision::obligations::RecordOperatorDecisionForRequestBehavior + crate::decision::obligations::ReverseConductorDecisionBehavior + crate::decision::obligations::ReverseOperatorDecisionBehavior + crate::decision::obligations::WithdrawRequestBehavior + crate::direction::obligations::ActivateRepositoryBehavior + crate::direction::obligations::AddServingBehavior + crate::direction::obligations::ConfirmGoalBehavior + crate::direction::obligations::DeactivateRepositoryBehavior + crate::direction::obligations::DropGoalBehavior + crate::direction::obligations::MarkGoalMetBehavior + crate::direction::obligations::MarkRepositoryBehavior + crate::direction::obligations::ProposeGoalBehavior + crate::direction::obligations::RemoveServingBehavior + crate::dispatch::obligations::CancelDispatchBehavior + crate::dispatch::obligations::GrantResourceBehavior + crate::dispatch::obligations::HandleMessageBehavior + crate::dispatch::obligations::PauseControllerBehavior + crate::dispatch::obligations::ReceiveMessageBehavior + crate::dispatch::obligations::RecordGuardDecisionBehavior + crate::dispatch::obligations::RefuseResourceBehavior + crate::dispatch::obligations::RejectMessageBehavior + crate::dispatch::obligations::ReleaseResourceBehavior + crate::dispatch::obligations::ReportBlockedBehavior + crate::dispatch::obligations::ReportDoneBehavior + crate::dispatch::obligations::ReportFailedBehavior + crate::dispatch::obligations::ReportStartedBehavior + crate::dispatch::obligations::ReportUnblockedBehavior + crate::dispatch::obligations::RequestResourceBehavior + crate::dispatch::obligations::ResumeControllerBehavior + crate::dispatch::obligations::ReviseCharterBehavior + crate::dispatch::obligations::RouteNeedBehavior + crate::dispatch::obligations::SendDispatchBehavior + crate::dispatch::obligations::StartControllerBehavior + crate::dispatch::obligations::StopControllerBehavior + crate::host::obligations::ReclaimBehavior + crate::host::obligations::RecordPeakBehavior + crate::host::obligations::ReleaseGrantBehavior + crate::host::obligations::RequestDiskBehavior + crate::host::obligations::ReserveDiskBehavior + crate::host::obligations::StartRunBehavior + crate::host::obligations::TakeHostGrantBehavior + crate::host::obligations::WithdrawDiskRequestBehavior + crate::improvement::obligations::DefineMetricBehavior + crate::improvement::obligations::FileFindingBehavior + crate::improvement::obligations::JudgeMetricReadingBehavior + crate::improvement::obligations::RaiseFindingBehavior + crate::improvement::obligations::RecordMetricReadingBehavior + crate::improvement::obligations::SetMetricTargetBehavior + crate::improvement::obligations::SupersedeMetricReadingBehavior + crate::improvement::obligations::VerifyFindingBehavior + crate::observation::obligations::CompleteSnapshotBehavior + crate::observation::obligations::FailSnapshotBehavior + crate::observation::obligations::PublishBoardBehavior + crate::observation::obligations::RecordBlockerBehavior + crate::observation::obligations::RecordCollectorRunBehavior + crate::observation::obligations::RecordMemberFailureBehavior + crate::observation::obligations::RecordMergedPullRequestBehavior + crate::observation::obligations::RecordPullRequestBehavior + crate::observation::obligations::RecordReleaseBehavior + crate::observation::obligations::RecordRepositoryBehavior + crate::observation::obligations::RecordSecretSyncBehavior + crate::observation::obligations::RecordSessionBehavior + crate::observation::obligations::RecordSpecificationBehavior + crate::observation::obligations::RecordUsageBehavior + crate::observation::obligations::RecordWorkflowRunBehavior + crate::observation::obligations::StartSnapshotBehavior + crate::session::obligations::ClaimLeaseBehavior + crate::session::obligations::DeliverMessageBehavior + crate::session::obligations::RecordRunTickBehavior + crate::decision::obligations::DecisionsQuery + crate::decision::obligations::HandsTodoQuery + crate::decision::obligations::RequestsQuery + crate::direction::obligations::GoalServingsQuery + crate::direction::obligations::GoalsQuery + crate::direction::obligations::RepositoryMarksQuery + crate::dispatch::obligations::ControllersQuery + crate::dispatch::obligations::DispatchesQuery + crate::dispatch::obligations::GuardDecisionsQuery + crate::dispatch::obligations::MessagesQuery + crate::dispatch::obligations::ResourceRequestsQuery + crate::host::obligations::GrantsQuery + crate::host::obligations::ReclaimRunsQuery + crate::improvement::obligations::FindingsQuery + crate::improvement::obligations::KpiReadingsQuery + crate::improvement::obligations::KpisQuery + crate::improvement::obligations::MetricReadingsQuery + crate::improvement::obligations::MetricsQuery + crate::improvement::obligations::SettingsProposalsQuery + crate::observation::obligations::BlockersQuery + crate::observation::obligations::BoardsQuery + crate::observation::obligations::CollectorRunsQuery + crate::observation::obligations::MemberFailuresQuery + crate::observation::obligations::MergedPullRequestsQuery + crate::observation::obligations::PullRequestsQuery + crate::observation::obligations::ReleasesQuery + crate::observation::obligations::RepositoriesQuery + crate::observation::obligations::SecretSyncsQuery + crate::observation::obligations::SessionsQuery + crate::observation::obligations::SnapshotsQuery + crate::observation::obligations::SpecificationsQuery + crate::observation::obligations::UsageReadingsQuery + crate::observation::obligations::WorkflowRunsQuery + crate::session::obligations::DeliveriesQuery + crate::session::obligations::LeasesQuery + crate::session::obligations::RunTicksQuery,
 {
     /// Accepts `conductor.decision.AmendEscalatedRequest`: runs the behaviour obligation, then publishes the declared events
     /// the outcome carries.
@@ -228,6 +238,7 @@ where
     pub fn answer_escalated_request(&mut self, input: crate::decision::AnswerEscalatedRequest) -> Result<crate::decision::AnswerEscalatedRequestOutcome, crate::obligation::UnmetObligation> {
         let outcome = self.behaviors.answer_escalated_request(input)?;
         match &outcome {
+            crate::decision::AnswerEscalatedRequestOutcome::AgentActor { .. } => {}
             crate::decision::AnswerEscalatedRequestOutcome::NoSuchDecision { .. } => {}
             crate::decision::AnswerEscalatedRequestOutcome::Reversed { .. } => {}
             crate::decision::AnswerEscalatedRequestOutcome::Answered { request_answered, .. } => {
@@ -248,6 +259,7 @@ where
         let outcome = self.behaviors.answer_request(input)?;
         match &outcome {
             crate::decision::AnswerRequestOutcome::NoSuchDecision { .. } => {}
+            crate::decision::AnswerRequestOutcome::AgentActor { .. } => {}
             crate::decision::AnswerRequestOutcome::Reversed { .. } => {}
             crate::decision::AnswerRequestOutcome::Answered { request_answered, .. } => {
                 self.outbox.push(PublishedEvent::RequestAnswered(request_answered.clone()));
@@ -319,6 +331,7 @@ where
     pub fn record_operator_decision(&mut self, input: crate::decision::RecordOperatorDecision) -> Result<crate::decision::RecordOperatorDecisionOutcome, crate::obligation::UnmetObligation> {
         let outcome = self.behaviors.record_operator_decision(input)?;
         match &outcome {
+            crate::decision::RecordOperatorDecisionOutcome::AgentActor { .. } => {}
             crate::decision::RecordOperatorDecisionOutcome::Recorded { decision_recorded, .. } => {
                 self.outbox.push(PublishedEvent::DecisionRecorded(decision_recorded.clone()));
             }
@@ -335,6 +348,7 @@ where
     pub fn record_operator_decision_for_request(&mut self, input: crate::decision::RecordOperatorDecisionForRequest) -> Result<crate::decision::RecordOperatorDecisionForRequestOutcome, crate::obligation::UnmetObligation> {
         let outcome = self.behaviors.record_operator_decision_for_request(input)?;
         match &outcome {
+            crate::decision::RecordOperatorDecisionForRequestOutcome::AgentActor { .. } => {}
             crate::decision::RecordOperatorDecisionForRequestOutcome::NoSuchRequest { .. } => {}
             crate::decision::RecordOperatorDecisionForRequestOutcome::NotEscalated { .. } => {}
             crate::decision::RecordOperatorDecisionForRequestOutcome::Recorded { decision_recorded, .. } => {
@@ -371,6 +385,7 @@ where
     pub fn reverse_operator_decision(&mut self, input: crate::decision::ReverseOperatorDecision) -> Result<crate::decision::ReverseOperatorDecisionOutcome, crate::obligation::UnmetObligation> {
         let outcome = self.behaviors.reverse_operator_decision(input)?;
         match &outcome {
+            crate::decision::ReverseOperatorDecisionOutcome::AgentActor { .. } => {}
             crate::decision::ReverseOperatorDecisionOutcome::Reversed { decision_reversed_event, .. } => {
                 self.outbox.push(PublishedEvent::DecisionReversedEvent(decision_reversed_event.clone()));
             }
@@ -439,6 +454,7 @@ where
     pub fn confirm_goal(&mut self, input: crate::direction::ConfirmGoal) -> Result<crate::direction::ConfirmGoalOutcome, crate::obligation::UnmetObligation> {
         let outcome = self.behaviors.confirm_goal(input)?;
         match &outcome {
+            crate::direction::ConfirmGoalOutcome::AgentActor { .. } => {}
             crate::direction::ConfirmGoalOutcome::InvalidGoalId { .. } => {}
             crate::direction::ConfirmGoalOutcome::Confirmed { goal_confirmed, .. } => {
                 self.outbox.push(PublishedEvent::GoalConfirmed(goal_confirmed.clone()));
@@ -474,6 +490,7 @@ where
     pub fn drop_goal(&mut self, input: crate::direction::DropGoal) -> Result<crate::direction::DropGoalOutcome, crate::obligation::UnmetObligation> {
         let outcome = self.behaviors.drop_goal(input)?;
         match &outcome {
+            crate::direction::DropGoalOutcome::AgentActor { .. } => {}
             crate::direction::DropGoalOutcome::InvalidGoalId { .. } => {}
             crate::direction::DropGoalOutcome::Dropped { goal_dropped, .. } => {
                 self.outbox.push(PublishedEvent::GoalDropped(goal_dropped.clone()));
@@ -1156,6 +1173,7 @@ where
     pub fn set_metric_target(&mut self, input: crate::improvement::SetMetricTarget) -> Result<crate::improvement::SetMetricTargetOutcome, crate::obligation::UnmetObligation> {
         let outcome = self.behaviors.set_metric_target(input)?;
         match &outcome {
+            crate::improvement::SetMetricTargetOutcome::ActorNotHuman { .. } => {}
             crate::improvement::SetMetricTargetOutcome::Targeted { metric_target_set, .. } => {
                 self.outbox.push(PublishedEvent::MetricTargetSet(metric_target_set.clone()));
             }
@@ -1624,6 +1642,11 @@ where
     /// Serves `conductor.improvement.Metrics` at `read_your_writes` consistency, from the owed projection.
     pub fn metrics(&self) -> Result<Vec<crate::improvement::Metrics>, crate::obligation::UnmetObligation> {
         self.behaviors.metrics()
+    }
+
+    /// Serves `conductor.improvement.SettingsProposals` at `read_your_writes` consistency, from the owed projection.
+    pub fn settings_proposals(&self) -> Result<Vec<crate::improvement::SettingsProposals>, crate::obligation::UnmetObligation> {
+        self.behaviors.settings_proposals()
     }
 
     /// Serves `conductor.observation.Blockers` at `read_your_writes` consistency, from the owed projection.

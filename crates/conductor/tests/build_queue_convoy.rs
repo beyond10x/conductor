@@ -35,7 +35,7 @@ use eventlog_core::{
     AtomicEventStore as _, CommandMeta, Expected, NewEvent, StreamAppend, StreamId, TenantId,
     new_event_id, request_hash,
 };
-use eventlog_tree::TreeEventStore;
+use eventlog_sqlite::SqliteEventStore;
 use nix::sys::signal::{Signal, killpg};
 use nix::unistd::Pid;
 use serde_json::json;
@@ -358,7 +358,10 @@ fn plant_closed(host: &Path, n: usize) {
         .build()
         .expect("a runtime");
     let log = runtime
-        .block_on(TreeEventStore::open(host.join("tree")))
+        .block_on(SqliteEventStore::open(
+            host.join(store::STORE_FILE).to_str().expect("a UTF-8 path"),
+            store::PREFIX,
+        ))
         .expect("open the host store");
     let tenant = TenantId::new("conductor").expect("the tenant");
     let old = (OffsetDateTime::now_utc() - time::Duration::days(2))
@@ -492,9 +495,9 @@ fn a_pass_reads_only_the_open_grants_beside_5000_closed_ones() {
 /// time, as on a disk saturated by builds): a head 2G short of what a running build holds, and
 /// nineteen behind it. Once the build ends and releases its grant, the head is admitted within
 /// one pause: it ran within twice `Sources::poll` of the release, plus what one run alone takes
-/// on this host now.
+/// on this host now, plus half of what a convoy costs as the margin of one timed sample.
 ///
-/// That last term is the calibration (`story:convoy-test-leaks-no-process`). Twice `poll` alone
+/// The run alone is the calibration (`story:convoy-test-leaks-no-process`). Twice `poll` alone
 /// held on an idle host (the head ran about 140ms after the release) and failed on a host loaded
 /// with builds (about 880ms), which slows every spawn and replay of the case alike. So the case
 /// first times one run of the same kind, alone on the same slow store, and allows it on top: the
@@ -538,11 +541,18 @@ fn twenty_waiters_on_a_slow_store_admit_the_head_within_one_pause_of_a_release()
          the head ran {admitted:?} after the release; {replays} store replays by the 20 runs; \
          one run alone took {alone:?}"
     );
-    let bound = 2 * poll + alone;
+    // The margin: `alone` is one sample, taken before the twenty arrive, and `admitted` is read
+    // through `wait_until`'s 10ms poll, so on a loaded runner the head can miss `2 * poll +
+    // alone` by a few milliseconds with no convoy at all (it ran 615ms against 609ms there, with
+    // 40 replays, two a run). A convoy costs at least the nineteen replays of the runs behind,
+    // 950ms; half of that as the margin leaves the other half between the bound and a convoy.
+    let convoy = 19 * Duration::from_millis(50);
+    let bound = 2 * poll + alone + convoy / 2;
     assert!(
         admitted <= bound,
         "the head ran {admitted:?} after the release; the bound is {bound:?}: one pause is \
-         {poll:?}, twice that, plus {alone:?}, one run alone on this host now"
+         {poll:?}, twice that, plus {alone:?}, one run alone on this host now, plus half of \
+         {convoy:?}, what a convoy of the nineteen behind costs"
     );
 }
 

@@ -65,8 +65,8 @@ types:
   # prefixed `CONDUCTOR_INSTANCE=<name>`), written as `<state>/sessions/<session name>.settings.json`.
   # Pinning adds no other key: a file without `hooks` is written without `hooks`, never with
   # `"hooks": null`, which Claude Code stops on (story:pinned-settings-keep-missing-hooks, #85).
-  # A role that names no settings file starts with its default (`.claude/conductor-settings.json`
-  # of the working directory for `conductor`, an empty one for `conductor-dev`) written pinned the
+  # A role that names no settings file starts with its default (the binary's
+  # `conductor-settings.json` for `conductor`, an empty one for `conductor-dev`, story:roles-in-the-binary) written pinned the
   # same way.
   - name: conductor.session.SessionStartRefusal
     kind: enum
@@ -118,7 +118,7 @@ types:
   # the operator's terminal, and the operator detaches with `ctrl-]` then `d`, the session
   # running on. `watch` (story:session-attach-watch) attaches read-only, so nothing typed reaches
   # the harness and the window keeps its size; on a session started before the tmux launcher,
-  # which has no socket, it follows the session's typescript instead, replaying its last 64 KiB,
+  # which has no socket, it follows the session's terminal log instead, replaying its last 64 KiB,
   # until its unit ends or `ctrl-]` then `d`.
   - name: conductor.session.AttachSession
     kind: struct
@@ -132,7 +132,7 @@ types:
   # `InsideSession` (story:session-attach-refuses-sessions), the client runs inside a session,
   # where the provider's `CONDUCTOR_SESSION` is set, whatever the harness, checked first;
   # `UnknownSession`, the role or the instance is unknown, or no live session holds the name (no
-  # tmux server answers on its socket, and no unit of the name runs that keeps a typescript);
+  # tmux server answers on its socket, and no unit of the name runs that keeps a terminal log);
   # `NotAttachable`, the session runs but was started before the tmux launcher, so only `watch`
   # reads it until it restarts; `Ambiguous`, `name` and `role` name different sessions, or two
   # instances hold a session of the name.
@@ -164,7 +164,7 @@ types:
 
   # How `conductor session attach` reaches a session: `Attach`, its tmux server answers, so it
   # attaches read-write or with `--watch`; `Watch`, its unit runs under the launcher before
-  # tmux, so only `--watch` follows its typescript.
+  # tmux, so only `--watch` follows its terminal log.
   - name: conductor.session.AttachMode
     kind: enum
     variants:
@@ -176,7 +176,7 @@ types:
   # last component is the repository; `busy`, the harness's own state of the session where the
   # harness reports one (Claude Code: the `status` of `claude agents --json`, `busy` or not, by
   # session name), else absent; `idle_seconds`, since its screen last changed (tmux's window
-  # activity, or the typescript's modification time), which decides busy (under 10) or idle only
+  # activity, or the terminal log's modification time), which decides busy (under 10) or idle only
   # where `busy` is absent.
   - name: conductor.session.AttachableSession
     kind: struct
@@ -228,18 +228,13 @@ types:
   # must remember between ticks in files under `<state>/run/`, never in memory alone. `once`
   # runs one watch tick, then one cycle tick, and exits 0, for a test and a host without
   # systemd; `once` with `commit_records` commits the records alone, for today's UTC day, and
-  # runs no tick. `install` starts it as the user unit `conductor_<instance>-run.service` through
-  # `systemd-run --user`, as the systemd provider starts a session (the `none` provider: it
-  # prints the command to run instead), and `uninstall` stops that unit; `conductor doctor`
-  # reports the unit's state. At most one of the three is given. The design writes `conductor
-  # run install` and `conductor run uninstall`; the `ess-cli/1` binding refuses a root command
-  # that is also a group ("a root command cannot also be a group"), so they are flags of `run`.
+  # runs no tick. The per-instance user unit and its `install` and `uninstall` are gone (design
+  # architecture-next § 11): conductord starts every instance's runtime
+  # (`conductor.instance.ServeDaemon`, story:daemon-reconcile).
   - name: conductor.session.RunDaemon
     kind: struct
     fields:
       - {name: once, type: Optional<Boolean>}
-      - {name: install, type: Optional<Boolean>}
-      - {name: uninstall, type: Optional<Boolean>}
       - {name: commit_records, type: Optional<Boolean>}
 
   # One writable place of a session resolved for its start (story:sandbox-spec): the place as the
@@ -326,6 +321,8 @@ entities:
       name: instance
       type: conductor.config.InstanceName
     fields:
+      - name: actor
+        type: conductor.operator.Actor
       - name: session_id
         type: conductor.session.SessionId
       - name: pid
@@ -356,6 +353,8 @@ entities:
       name: delivery_id
       type: conductor.session.DeliveryId
     fields:
+      - name: actor
+        type: conductor.operator.Actor
       - name: session_name
         type: conductor.config.SessionName
       - name: first_line
@@ -380,6 +379,8 @@ entities:
       name: tick_id
       type: conductor.session.TickId
     fields:
+      - name: actor
+        type: conductor.operator.Actor
       - name: kind
         type: conductor.session.TickKind
       - name: started_at
@@ -445,6 +446,7 @@ commands:
       wire: claim
       display: Claim the conductor lease
     input:
+      - {name: actor, type: conductor.operator.Actor}
       - name: instance
         type: conductor.config.InstanceName
       - name: session_id
@@ -462,6 +464,7 @@ commands:
         creates: conductor.session.Lease
         instance: instance
         sets:
+          actor: input.actor
           session_id: input.session_id
           pid: input.pid
           taken_at: input.taken_at
@@ -471,6 +474,7 @@ commands:
           - conductor.session.LeaseTaken
         payload:
           conductor.session.LeaseTaken:
+            actor: input.actor
             instance: input.instance
             session_id: input.session_id
             pid: input.pid
@@ -486,12 +490,14 @@ commands:
         updates: conductor.session.Lease
         instance: instance
         sets:
+          actor: input.actor
           session_id: input.session_id
           taken_at: input.taken_at
         emits:
           - conductor.session.LeaseTaken
         payload:
           conductor.session.LeaseTaken:
+            actor: input.actor
             instance: input.instance
             session_id: input.session_id
             pid: input.pid
@@ -504,6 +510,7 @@ commands:
         updates: conductor.session.Lease
         instance: instance
         sets:
+          actor: input.actor
           session_id: input.session_id
           pid: input.pid
           taken_at: input.taken_at
@@ -513,6 +520,7 @@ commands:
           - conductor.session.LeaseTakenOver
         payload:
           conductor.session.LeaseTakenOver:
+            actor: input.actor
             instance: input.instance
             session_id: input.session_id
             pid: input.pid
@@ -529,6 +537,7 @@ commands:
       wire: deliver-message
       display: Deliver a message to a session
     input:
+      - {name: actor, type: conductor.operator.Actor}
       - name: session_name
         type: conductor.config.SessionName
       - name: first_line
@@ -549,6 +558,7 @@ commands:
         creates: conductor.session.Delivery
         instance: delivery_id
         sets:
+          actor: input.actor
           session_name: input.session_name
           first_line: input.first_line
           body_path: input.body_path
@@ -557,6 +567,7 @@ commands:
           - conductor.session.MessageDelivered
         payload:
           conductor.session.MessageDelivered:
+            actor: input.actor
             delivery_id: {generated: true}
             session_name: input.session_name
             first_line: input.first_line
@@ -571,6 +582,7 @@ commands:
       wire: record-run-tick
       display: Record a tick of the run daemon
     input:
+      - {name: actor, type: conductor.operator.Actor}
       - name: kind
         type: conductor.session.TickKind
       - name: started_at
@@ -592,6 +604,7 @@ commands:
         creates: conductor.session.RunTick
         instance: tick_id
         sets:
+          actor: input.actor
           kind: input.kind
           started_at: input.started_at
           lines_handled: input.lines_handled
@@ -600,6 +613,7 @@ commands:
           - conductor.session.RunTickRecorded
         payload:
           conductor.session.RunTickRecorded:
+            actor: input.actor
             tick_id: {generated: true}
             kind: input.kind
             started_at: input.started_at
@@ -609,6 +623,8 @@ commands:
 events:
   - name: conductor.session.LeaseTaken
     fields:
+      - name: actor
+        type: conductor.operator.Actor
       - name: instance
         type: conductor.config.InstanceName
       - name: session_id
@@ -618,6 +634,8 @@ events:
 
   - name: conductor.session.LeaseTakenOver
     fields:
+      - name: actor
+        type: conductor.operator.Actor
       - name: instance
         type: conductor.config.InstanceName
       - name: session_id
@@ -631,6 +649,8 @@ events:
 
   - name: conductor.session.MessageDelivered
     fields:
+      - name: actor
+        type: conductor.operator.Actor
       - name: delivery_id
         type: conductor.session.DeliveryId
       - name: session_name
@@ -644,6 +664,8 @@ events:
 
   - name: conductor.session.RunTickRecorded
     fields:
+      - name: actor
+        type: conductor.operator.Actor
       - name: tick_id
         type: conductor.session.TickId
       - name: kind
@@ -672,6 +694,8 @@ views:
         type: Optional<conductor.session.SessionId>
       - name: taken_over_pid
         type: Optional<Integer>
+      - name: actor
+        type: conductor.operator.Actor
     naming:
       wire: leases
       display: Conductor leases
@@ -692,6 +716,8 @@ views:
         type: Optional<String>
       - name: delivered_at
         type: Timestamp
+      - name: actor
+        type: conductor.operator.Actor
     naming:
       wire: deliveries
       display: Deliveries to sessions
@@ -712,6 +738,8 @@ views:
         type: Integer
       - name: actions
         type: List<conductor.dispatch.DispatchLogEvent>
+      - name: actor
+        type: conductor.operator.Actor
     naming:
       wire: run-ticks
       display: Ticks of the run daemon

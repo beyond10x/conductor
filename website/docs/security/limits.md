@@ -63,7 +63,7 @@ connection. A URL can carry data out.
 - **A session started or resumed by hand** without `--settings <role settings file>` is not
   guarded.
 - **Two conductors are stopped only with the role's settings.** A conductor session started or
-  resumed with the shipped `.claude/conductor-settings.json` claims the instance's conductor
+  resumed with the binary's `conductor-settings.json` claims the instance's conductor
   lease from its SessionStart hook (`conductor session claim`). While another live session holds
   the lease, the claim is refused and names that session's id and pid; once the holder's process
   is gone, the next claim takes the lease over and records whom from. The refusal does not end

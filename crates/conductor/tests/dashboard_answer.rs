@@ -1,16 +1,17 @@
 //! `story:decisions-batch-answer`: the Decisions page answers open escalated requests in a batch.
-//! `POST /api/answers` records each answer as the operator's decision (`recorded_by`
+//! `POST /v1/instances/example-org/answers` records each answer as the operator's decision (`recorded_by`
 //! `dashboard`, his words or "chosen on the Decisions page") and moves its request to Answered,
 //! answering the batch row by row; it takes only answers to open escalated requests, and only with
 //! the token the page was served with, from the page's own origin, as JSON of a bounded length.
 //!
-//! The cases serve [`dashboard::serve_over`] in this process on a free port of `127.0.0.1` over a
+//! The cases serve [`served::serve`] in this process on a free port of `127.0.0.1` over a
 //! store under this test target's temporary directory, as `dashboard_fast.rs` does; the requests
 //! are raised and escalated, and the store read back, with the built binary over that store.
 //! Nothing is read from the environment: the home, the records and the store are the case's.
 
 mod active;
 mod common;
+mod served;
 
 use std::ffi::OsString;
 use std::fs;
@@ -20,7 +21,7 @@ use std::path::{Path, PathBuf};
 use std::process::Stdio;
 use std::time::Duration;
 
-use conductor_cli::dashboard::{self, Sources};
+use conductor_cli::dashboard::Sources;
 use serde_json::{Value, json};
 
 /// The yes-no request of every case.
@@ -233,7 +234,7 @@ impl Case {
         let listener = TcpListener::bind("127.0.0.1:0").expect("bind a free port");
         let port = listener.local_addr().expect("the bound address").port();
         let (sources, state) = (self.sources(), self.state());
-        std::thread::spawn(move || dashboard::serve_over(listener, sources, Some(state)));
+        served::serve(listener, sources, Some(state));
         port
     }
 }
@@ -301,7 +302,7 @@ fn token(port: u16) -> String {
     rest[..rest.find('"').expect("the token's closing quote")].to_owned()
 }
 
-/// A POST of `body` to `/api/answers`: the server's own host and origin, JSON, the token given,
+/// A POST of `body` to `/v1/instances/example-org/answers`: the server's own host and origin, JSON, the token given,
 /// and every `(name, value)` of `headers`, each replacing the one of its name; a value `None`
 /// leaves the header out.
 fn post_with(port: u16, body: &[u8], headers: &[(&str, Option<String>)]) -> Answer {
@@ -327,7 +328,7 @@ fn post_with(port: u16, body: &[u8], headers: &[(&str, Option<String>)]) -> Answ
             None => named.push(((*name).to_owned(), value.clone())),
         }
     }
-    let mut raw = b"POST /api/answers HTTP/1.1\r\n".to_vec();
+    let mut raw = b"POST /v1/instances/example-org/answers HTTP/1.1\r\n".to_vec();
     for (name, value) in named {
         if let Some(value) = value {
             raw.extend_from_slice(format!("{name}: {value}\r\n").as_bytes());
@@ -392,12 +393,12 @@ fn one_answer() -> Value {
 /// Acceptance 1: one POST answers each request by its kind; each answer is recorded as the
 /// operator's decision with the chosen letters, his words or "chosen on the Decisions page", and
 /// `recorded_by` `dashboard`; its request is Answered with that decision; the answer names each
-/// row recorded with its decision's id; `/api/decisions` lists none of them open right after.
+/// row recorded with its decision's id; `/v1/instances/example-org/decisions` lists none of them open right after.
 #[test]
 fn a_batch_records_each_answer_as_the_operators_decision() {
     let case = Case::new("recorded");
     let port = case.start();
-    let before = get(port, "/api/decisions");
+    let before = get(port, "/v1/instances/example-org/decisions");
     assert_eq!(before.json()["open"].as_array().map(Vec::len), Some(4));
 
     let answer = post(
@@ -456,7 +457,7 @@ fn a_batch_records_each_answer_as_the_operators_decision() {
         assert_eq!(decision["repository"], "alpha", "{decision}");
     }
 
-    let after = get(port, "/api/decisions");
+    let after = get(port, "/v1/instances/example-org/decisions");
     assert_eq!(after.status, 200);
     assert_eq!(
         after.json()["open"].as_array().map(Vec::len),
@@ -500,7 +501,7 @@ fn an_amended_escalated_request_shows_its_new_fields_on_the_decisions_page() {
     // The page's data is computed after the write: a server already running answers a write made
     // outside it from memory first (`story:dashboard-fast`).
     let port = case.start();
-    let after = get(port, "/api/decisions").json()["open"]
+    let after = get(port, "/v1/instances/example-org/decisions").json()["open"]
         .as_array()
         .and_then(|open| open.iter().find(|row| row["request_id"] == HANDS))
         .cloned()
@@ -817,18 +818,18 @@ fn a_body_that_is_no_batch_is_refused() {
     }
 }
 
-/// `/api/answers` takes POST alone; every other path still takes GET alone.
+/// `/v1/instances/example-org/answers` takes POST alone; every other path still takes GET alone.
 #[test]
 fn the_answers_path_takes_post_alone() {
     let case = Case::new("methods");
     let port = case.start();
-    let answer = get(port, "/api/answers");
+    let answer = get(port, "/v1/instances/example-org/answers");
     assert_eq!(answer.status, 405, "{}", answer.body);
     assert!(answer.head.contains("Allow: POST"), "{}", answer.head);
     let token = token(port);
     let body = serde_json::to_vec(&json!({"answers": one_answer()})).expect("a JSON body");
     let mut raw = format!(
-        "POST /api/decisions HTTP/1.1\r\nHost: 127.0.0.1:{port}\r\nOrigin: http://127.0.0.1:{port}\r\nContent-Type: application/json\r\nX-Conductor-Token: {token}\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
+        "POST /v1/instances/example-org/decisions HTTP/1.1\r\nHost: 127.0.0.1:{port}\r\nOrigin: http://127.0.0.1:{port}\r\nContent-Type: application/json\r\nX-Conductor-Token: {token}\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
         body.len()
     )
     .into_bytes();
@@ -904,31 +905,28 @@ fn adv_concurrent_page_and_cli_answers_leave_one_decision_in_force() {
 }
 
 /// Risk 1: the second of the two writes (the request's move to Answered) fails for a reason other
-/// than another writer (here its stream cannot be written, as on a full disk). The doc of
+/// than another writer (here the database refuses its stream, as on a full disk). The doc of
 /// `answer_as_operator` promises "no decision answers no request": the decision just recorded
 /// is not to stay in force while its request is still Escalated.
-#[cfg(unix)]
 #[test]
 fn adv_a_failed_move_of_the_request_leaves_no_decision_in_force() {
-    use std::os::unix::fs::PermissionsExt as _;
     let case = Case::new("adv-failed-move");
     let port = case.start();
     let token = token(port);
-    let stream = fs::read_dir(case.state().join("tree/tenants"))
-        .expect("the store's tenants")
-        .filter_map(Result::ok)
-        .map(|tenant| {
-            tenant
-                .path()
-                .join("streams/conductor.decision.DecisionRequest")
-                .join(YES_NO)
-        })
-        .find(|stream| stream.is_dir())
-        .expect("the yes-no request's stream directory");
-    fs::set_permissions(&stream, fs::Permissions::from_mode(0o555)).expect("make it read-only");
+    let database =
+        rusqlite::Connection::open(case.state().join("store.sqlite")).expect("open the database");
+    database
+        .execute_batch(&format!(
+            "CREATE TRIGGER refuse_the_request BEFORE INSERT ON conductor_events \
+             WHEN NEW.stream_type = 'conductor.decision.DecisionRequest' \
+             AND NEW.stream_id = '{YES_NO}' BEGIN SELECT RAISE(ABORT, 'disk full'); END"
+        ))
+        .expect("refuse the request's stream");
     let body = serde_json::to_vec(&json!({"answers": one_answer()})).expect("a JSON body");
     let answer = post_with(port, &body, &[("X-Conductor-Token", Some(token))]);
-    fs::set_permissions(&stream, fs::Permissions::from_mode(0o755)).expect("make it writable");
+    database
+        .execute_batch("DROP TRIGGER refuse_the_request")
+        .expect("write the request's stream again");
     let row = result(&answer, YES_NO);
     assert_ne!(row["outcome"], "recorded", "the move failed: {row}");
     assert_eq!(case.request(YES_NO)["state"], "Escalated");

@@ -2,21 +2,26 @@
 format: aep.planning-md/3
 id: story:instance-api
 kind: story
-status: draft
-title: the instance runtime serves /v1/ on its socket and the daemon proxies and serves one dashboard
-summary: today's dashboard routes become the instance API; one dashboard app served by the daemon; the per-instance dashboard unit retired
+status: implemented
+title: the instance runtime serves /v1/ on its socket; the daemon proxies it and serves the one dashboard, locally and for a remote deployment
+summary: today's dashboard routes become the instance API; one dashboard app served by the daemon at / and on a TLS listener; the per-instance dashboard server retired
 relations:
 - decomposes: epic:architecture-next
+- depends_on: story:spec-v1
 - depends_on: story:daemon-reconcile
-revision: 1
+revision: 5
+transitions:
+- {from: "draft", to: "proposed", at: "2026-11-07T23:41:24Z", actor: "human:timo", revision: 3}
+- {from: "proposed", to: "active", at: "2026-11-07T23:41:24Z", actor: "human:timo", revision: 4}
+- {from: "active", to: "implemented", at: "2026-11-08T19:46:03Z", actor: "human:timo", revision: 5, decided_on: {"recorded":{"test_result":1}}}
 ---
 ## Why
 
-Operator, 2026-11-07: "not every instance should come with its own dashboard ... Each instance comes with an HTTP API ... but not with its own UI deployment." Design §4.1 and §4.3.
+Operator, 2026-11-07: "not every instance should come with its own dashboard ... Each instance comes with an HTTP API ... but not with its own UI deployment"; 2026-11-08: served by the daemon where the operator controls conductord and, at the same time, deployed remotely in a cluster for colleagues. Design §5.
 
 ## Acceptance
 
-- `conductor instance serve` serves every route of `crates/conductor/src/dashboard.rs` under `/v1/` on `<runtime>/api.sock`, with `config` renamed `settings` and the three writing routes keeping their token rule.
-- `GET /v1/instances/{name}/<route>` on the daemon answers with the instance's response; the browser holds the daemon's token only.
-- The daemon serves the dashboard app at `/`; its data calls go to the daemon; the instance picker reads `instances`.
-- `conductor_<instance>-dashboard.service` is no longer installed; `dashboard_port` in a `conductor.config/1` file is ignored with one warning line.
+- `conductor instance serve` serves every route of `crates/conductor/src/dashboard.rs` under `/v1/` on `<runtime>/api.sock`, with `config` renamed `settings` and the writing routes keeping their token rule; the per-instance dashboard server and its unit are deleted.
+- `GET /v1/instances/{name}/<route>` on the daemon answers with the instance's response; a browser holds the daemon's token only.
+- The daemon serves the dashboard app at `/` on `127.0.0.1:<daemon_port>` and, when `daemon.listen` names a TLS listener, on it with Identity bearers; the same `dist/` deployed elsewhere works against the listener's URL with a read-only bearer; both run at once in a test.
+- Every write on the global API carries an operator (`conductor.operator`); a bearer without the grant for a write is refused by name, and the record of an accepted write names the operator.

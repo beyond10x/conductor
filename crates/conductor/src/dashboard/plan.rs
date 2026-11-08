@@ -1,6 +1,6 @@
-//! The Plan page (`story:dashboard-plan-board`): `GET /api/plan` answers the board of one
-//! repository's planning store (`conductor.direction.PlanBoard`), `GET /api/plan/story` one story
-//! as the drawer shows it (`conductor.direction.PlanStory`), and `POST /api/plan` does what the
+//! The Plan page (`story:dashboard-plan-board`): `GET /v1/plan` answers the board of one
+//! repository's planning store (`conductor.direction.PlanBoard`), `GET /v1/plan/story` one story
+//! as the drawer shows it (`conductor.direction.PlanStory`), and `POST /v1/plan` does what the
 //! operator chose to one story (`conductor.direction.WritePlan`).
 //!
 //! The planning store is the `aep` CLI's: every read and every write here is one `aep plan
@@ -31,10 +31,10 @@ use super::answers::{RECORDED_BY, Refused};
 use crate::decide;
 
 /// The board's data, and the write.
-pub const PLAN_PATH: &str = "/api/plan";
+pub const PLAN_PATH: &str = "/v1/plan";
 
 /// One story as the drawer shows it.
-pub const STORY_PATH: &str = "/api/plan/story";
+pub const STORY_PATH: &str = "/v1/plan/story";
 
 /// The tag that makes a story important: it goes first, in the lane `next`.
 pub const IMPORTANT: &str = "p1";
@@ -224,7 +224,7 @@ fn has_evidence(history: &Value) -> bool {
         .any(|entry| entry["change"]["change"] == "evidence")
 }
 
-/// The answer of `GET /api/plan` for the repository `asked`, else the first.
+/// The answer of `GET /v1/plan` for the repository `asked`, else the first.
 #[must_use]
 pub fn board(sources: &Sources, asked: Option<&str>) -> Value {
     let found = repositories(&sources.checkouts);
@@ -429,7 +429,7 @@ fn moves(checkout: &Path, status: &str) -> Vec<String> {
         .unwrap_or_default()
 }
 
-/// The answer of `GET /api/plan/story` for `id` in the repository `repository`; `Err` with the
+/// The answer of `GET /v1/plan/story` for `id` in the repository `repository`; `Err` with the
 /// status and why when there is no such repository or story.
 ///
 /// # Errors

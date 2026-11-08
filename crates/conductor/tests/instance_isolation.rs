@@ -261,6 +261,7 @@ fn legacy_grant(id: &str, state: HostGrantState) -> HostGrantSnapshot {
     HostGrantSnapshot {
         state,
         data: HostGrantData {
+            actor: conductor_cli::actor::daemon(),
             grant_id: GrantId(id.to_owned()),
             instance: InstanceName("alpha".to_owned()),
             repository: Some(RepositoryName("example-repo".to_owned())),
@@ -440,7 +441,7 @@ fn config_validate_names_a_role_whose_settings_pin_another_instance() {
     })
     .to_string();
     let shipped = fs::read_to_string(
-        PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../.claude/conductor-settings.json"),
+        PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("kinds/claude-code/conductor-settings.json"),
     )
     .unwrap();
     for (what, text) in [
@@ -523,20 +524,20 @@ fn without_conductor_instance_the_working_directory_selects_the_instance() {
         let output = run_in(&cwd);
         assert!(output.status.success(), "in beta's {sub}: {output:?}");
         assert!(
-            case.state("beta").join("tree").exists(),
+            case.state("beta").join("store.sqlite").exists(),
             "in beta's {sub}, beta's store is written"
         );
         assert!(
-            !case.state("alpha").join("tree").exists(),
+            !case.state("alpha").join("store.sqlite").exists(),
             "in beta's {sub}, alpha's store is not written"
         );
-        fs::remove_dir_all(case.state("beta").join("tree")).unwrap();
+        fs::remove_file(case.state("beta").join("store.sqlite")).unwrap();
         let _ = fs::remove_dir_all(case.dir.join("beta/records/decisions"));
     }
     let output = run_in(&case.dir.join("work"));
     assert!(output.status.success(), "elsewhere: {output:?}");
     assert!(
-        case.state("alpha").join("tree").exists(),
+        case.state("alpha").join("store.sqlite").exists(),
         "elsewhere, the default instance acts"
     );
 
@@ -655,38 +656,34 @@ fn the_guard_denies_when_the_config_does_not_load() {
     );
 }
 
-/// Item 6: `dashboard serve` without `--port` listens on the instance's `dashboard_port`.
+/// Item 6, since `story:instance-api`: `instance serve` serves the instance the process runs on
+/// that instance's own socket ([`conductor_cli::instance::socket`] of its state directory); the
+/// per-instance dashboard port is gone.
 #[test]
-fn dashboard_serve_listens_on_the_instance_s_port() {
-    let case = Case::new("dashboard-port");
-    let port = std::net::TcpListener::bind(("127.0.0.1", 0))
-        .unwrap()
-        .local_addr()
-        .unwrap()
-        .port();
-    let text = fs::read_to_string(case.config()).unwrap();
-    let at = text.rfind("    thresholds:").unwrap();
-    let mut text = text;
-    text.insert_str(at, &format!("    dashboard_port: {port}\n"));
-    fs::write(case.config(), text).unwrap();
+fn instance_serve_serves_the_instance_s_own_socket() {
+    let case = Case::new("serve");
     let mut child = case
         .conductor("beta")
-        .args(["dashboard", "serve"])
+        .args(["instance", "serve"])
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
         .spawn()
-        .expect("the dashboard starts");
+        .expect("the runtime starts");
     let mut line = String::new();
     let read = std::io::BufRead::read_line(
         &mut std::io::BufReader::new(child.stdout.take().unwrap()),
         &mut line,
     );
     let _ = child.kill();
-    let output = child.wait_with_output().expect("the dashboard ends");
+    let output = child.wait_with_output().expect("the runtime ends");
     read.expect("read its first line");
+    let socket = conductor_cli::instance::socket(&case.state("beta"));
     assert_eq!(
         line.trim(),
-        format!("listening on http://127.0.0.1:{port}"),
-        "beta's port: {output:?}"
+        format!(
+            "conductor instance beta: serving /v1/ on {}",
+            socket.display()
+        ),
+        "beta's socket: {output:?}"
     );
 }

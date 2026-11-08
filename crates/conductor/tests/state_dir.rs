@@ -41,6 +41,7 @@ fn propose(state: &Path, goal: &str, title: &str) {
     let mut generated = Generated::new(store::open(state).expect("open the store"));
     generated
         .propose_goal(ProposeGoal {
+            actor: conductor_cli::actor::operator("operator"),
             goal_id: GoalId(goal.to_owned()),
             title: title.to_owned(),
             exit_evidence: format!("{goal} is listed"),
@@ -61,6 +62,7 @@ fn draft(goal: &str, title: &str) -> Value {
         "exit_evidence": format!("{goal} is listed"),
         "evidence": null,
         "reason": null,
+        "actor": "human:operator",
     })
 }
 
@@ -148,8 +150,8 @@ fn goals_answer_from_the_state_dir_flag_and_leave_the_working_directory_alone() 
     );
     assert_eq!(
         entries(&elsewhere),
-        ["tree"],
-        "the store is <elsewhere>/tree"
+        ["store.sqlite", "store.sqlite.open-lock"],
+        "the store is <elsewhere>/store.sqlite"
     );
 }
 
@@ -287,18 +289,18 @@ fn goals_render_in_every_format_the_view_offers() {
 
     assert_eq!(
         goals("text"),
-        "goal_id  state  title                    exit_evidence  evidence  reason\n\
-         G1       Draft  First                    G1 is listed   null      null\n\
-         G10      Draft  Second | piped line two  G10 is listed  null      null\n"
+        "goal_id  state  title                    exit_evidence  evidence  reason  actor\n\
+         G1       Draft  First                    G1 is listed   null      null    human:operator\n\
+         G10      Draft  Second | piped line two  G10 is listed  null      null    human:operator\n"
     );
     assert_eq!(goals("text"), goals_default(&work, &elsewhere));
 
     assert_eq!(
         goals("markdown"),
-        "| goal_id | state | title | exit_evidence | evidence | reason |\n\
-         |---|---|---|---|---|---|\n\
-         | G1 | Draft | First | G1 is listed | null | null |\n\
-         | G10 | Draft | Second \\| piped<br>line two | G10 is listed | null | null |\n"
+        "| goal_id | state | title | exit_evidence | evidence | reason | actor |\n\
+         |---|---|---|---|---|---|---|\n\
+         | G1 | Draft | First | G1 is listed | null | null | human:operator |\n\
+         | G10 | Draft | Second \\| piped<br>line two | G10 is listed | null | null | human:operator |\n"
     );
 }
 
@@ -383,7 +385,7 @@ fn a_view_on_a_missing_store_is_exit_1_and_creates_nothing() {
     );
     refused(
         &with,
-        &missing.join("tree"),
+        &missing.join("store.sqlite"),
         "`conductor --state-dir <missing> goal goals`",
     );
     assert!(
@@ -396,7 +398,7 @@ fn a_view_on_a_missing_store_is_exit_1_and_creates_nothing() {
         .canonicalize()
         .expect("the working directory resolves")
         .join("state")
-        .join("tree");
+        .join("store.sqlite");
     refused(&without, &looked_for, "`conductor goal goals`");
     assert_eq!(
         entries(&work),

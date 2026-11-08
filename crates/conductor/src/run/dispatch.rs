@@ -16,9 +16,10 @@
 //! **Daily.** `metric compute --day <the previous UTC day>`, then `status`, and the brief
 //! `<records>/REPORT.md`: the day, each reading that misses its target, each reading that could not
 //! be computed, and what `status` says asks for attention; deviations only, no reading that meets
-//! its target. Then the records directory, the brief with it, is committed and pushed through the
-//! bot route for that day ([`super::commit_records`]), its `records-committed` or
-//! `records-commit-refused` line carrying the tick's id.
+//! its target; and its `Tuning` section, the lines of the tuner run after `status`
+//! ([`crate::tune::daily`], `story:tuner`). Then the records directory, the brief with it, is
+//! committed and pushed through the bot route for that day ([`super::commit_records`]), its
+//! `records-committed` or `records-commit-refused` line carrying the tick's id.
 
 use std::path::Path;
 use std::process::Command;
@@ -78,7 +79,7 @@ fn run_step(tick: &Tick<'_, '_>, words: &[&str]) -> Result<std::process::Output>
     if let Some(state) = tick.state {
         command.arg("--state-dir").arg(state);
     }
-    command.args(words);
+    command.args(words).env(crate::actor::DAEMON_VARIABLE, "1");
     crate::collect::run(&mut command, STEP_BOUND)
         .with_context(|| format!("run conductor {}", words.join(" ")))
 }
@@ -229,6 +230,7 @@ pub fn daily_tick(
             one_line(&format!("{error:#}"))
         )],
     };
+    let tuning = crate::tune::daily(tick.config, tick.state, day);
     let section = |lines: &[String]| {
         if lines.is_empty() {
             "None.".to_owned()
@@ -243,9 +245,11 @@ pub fn daily_tick(
         "# Report {day}\n\n\
          Written by `conductor run` at {written} for the UTC day {day}; deviations only.\n\n\
          ## Metrics\n\n{}\n\n\
-         ## Attention\n\n{}\n",
+         ## Attention\n\n{}\n\n\
+         ## Tuning\n\n{}\n",
         section(&metrics),
-        section(&attention)
+        section(&attention),
+        section(&tuning)
     );
     let records = Path::new(&tick.instance().records);
     write_file(&records.join("REPORT.md"), &brief)?;

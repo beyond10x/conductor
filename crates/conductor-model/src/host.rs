@@ -1,5 +1,5 @@
 // generated from conductor v1
-// contract digest 057692c7a57029c79cc9e78eb455da83a4c0aa80b4525dc295987296007b3391
+// contract digest a76aa63f2ad9f5b169861cd94a585925f67f9ddebf70caf04f301709ee2e64d1
 // do not edit: regenerate with `ess synthesize --layout crate`
 
 //! Host — `conductor.host`.
@@ -7,7 +7,7 @@
 //! The machine several conductor instances share (story:multi-instance-host), and the protocol its disk runs under (epic:disk-protocol, story:disk-protocol-spec). Each instance keeps its own records, state, cache and sessions; what they share is one disk, one CPU and memory budget, and one machine-wide namespace of harness session names. The host ledger holds every grant an instance's conductor or a `conductor build run` takes: a controller slot, a build slot, or a disk reservation for a run's expected peak, so two instances or two runs cannot each grant the same free space. A reclaim run frees what needs no decision (`conductor host reclaim`) and records each step with the bytes it freed, or what is left when it cannot reach the floor.
 //! The host directory (story:instance-isolation) is `host/` beside the config file, one for every instance the file names (`~/.b10x/conductor/host/` beside the default file), never under an instance's `state`. It holds the host ledger's store, its lock `host.lock`, the run locks `host-runs/<grant>.lock`, the reclaim lock `host.reclaim.lock` and record `host.reclaim`, and the open falls of free disk, one file per instance, `falls/<prefix>.json` (the instance's session prefix, its name without one), which names the item and its instance: only that instance reads, withdraws or removes its file, and the dashboard lists every instance's. A `host.fall` of 0.16.x is read once as the fall of the instance it names and moved to that instance's file (story:host-fall-per-instance). A `--state-dir` does not move it. The ledger an instance kept in its `state` before is moved there once, at its first host command: every grant of its store, its run locks, the reclaim record and the fall's marker; `host.migrated` in the state then records that it was moved, and nothing is moved again.
 //! Beside its store the ledger keeps two files every write of a grant rewrites whole, a new file renamed over the old (story:build-queue-convoy): `ledger.open`, the grants still open (`Requested`, `Granted`, `Running`) with each one's snapshot and stream length and the number of grants the store holds, so a pass of the ledger reads the open grants and never the closed ones, and reads a grant from the store only where the file is behind it; and `ledger.gen`, a counter each write bumps after `ledger.open`, whose age is the time since a pass last swept the ledger. A request waiting in the queue reads `ledger.gen` without `host.lock`, and takes the lock only when the counter moved, its own answer may have (free disk, or its wait's bound), a session it is bound to stopped, or no pass has swept the ledger for `thresholds.watchdog_every`.
-//! The host registry (story:instance-names-unique) is one per host, whatever config file a command reads: `instances.json` in the host's own directory, `~/.b10x/conductor/host/`, beside the host file `host.yaml` that holds the per-host roles, the maintainer and the bridge (`HostConfig`) (story:maintainer-host-config). It lists every config file that has run on the host (`InstanceRegistry`): `conductor config validate` writes the file's entry when the file is valid, and `conductor session start` writes it whenever a config file starts a session, each under the lock `instances.lock` beside it. No two instances on the host share a session prefix, a dashboard port, a state directory or a records directory, whether they are in one config file or in several: `config validate` refuses an instance that holds one another registered file's instance holds (`InstanceCollision`), naming both instances and both files, and writes nothing then. A registered file that is no longer there is dropped from the registry when it is next written, so a removed config file holds nothing.
+//! In v1 (docs/design/architecture-next.md § 3 row `conductor.host`, § 11) this domain is the host ledger for the boxes on this host: grants, disk reservations, build runs and reclaim. The host registry (`instances.json`), the dashboard instance selector, the collision check against the registry, the host file `host.yaml` with its host roles, and `conductor host slices` (the systemd provider's slices) are gone: the instances are derived from the config by conductord (`conductor.instance`), the dashboard is the daemon's one app, the host roles are `globals.roles` of the config (`conductor.config.Globals`), and a box's limits are substrate's (`conductor.placement`). Every command names its actor (`conductor.operator.Actor`), and every event and record carries it.
 //!
 //! Everything this bounded context declares that the synthesis plan marks generated.
 
@@ -53,35 +53,6 @@ pub struct BuildRunWithdrawn {
     pub session_id: crate::session::SessionId,
 }
 
-/// CollisionKey — `conductor.host.CollisionKey`: one of a closed set of names.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum CollisionKey {
-    /// `SessionPrefix`.
-    SessionPrefix,
-    /// `DashboardPort`.
-    DashboardPort,
-    /// `State`.
-    State,
-    /// `Records`.
-    Records,
-}
-
-/// DashboardInstance — `conductor.host.DashboardInstance`.
-///
-/// Every value satisfies `dashboard_port >= 1` — declared here, enforced by whatever behaviour constructs one.
-/// Every value satisfies `dashboard_port <= 65535` — declared here, enforced by whatever behaviour constructs one.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct DashboardInstance {
-    /// `name` — `conductor.config.InstanceName`.
-    pub name: crate::config::InstanceName,
-    /// `dashboard_port` — `Integer`.
-    pub dashboard_port: i64,
-    /// `url` — `String`.
-    pub url: String,
-    /// `current` — `Boolean`.
-    pub current: bool,
-}
-
 /// GrantId — `conductor.host.GrantId`: a distinct wrapper around `String`.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct GrantId(pub String);
@@ -95,18 +66,6 @@ pub enum GrantKind {
     BuildSlot,
     /// `Disk`.
     Disk,
-}
-
-/// HostConfig — `conductor.host.HostConfig`.
-///
-/// Every value satisfies `version == "conductor.host-config/1"` — declared here, enforced by whatever behaviour constructs one.
-/// Every value satisfies `distinct role in roles by role.role` — declared here, enforced by whatever behaviour constructs one.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct HostConfig {
-    /// `version` — `String`.
-    pub version: String,
-    /// `roles` — `List<conductor.config.Role>`.
-    pub roles: Vec<crate::config::Role>,
 }
 
 /// The states of `conductor.host.HostGrant`, as runtime values.
@@ -129,53 +88,6 @@ pub enum HostGrantState {
     Withdrawn,
 }
 
-/// HostRoleName — `conductor.host.HostRoleName`: one of a closed set of names.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum HostRoleName {
-    /// `Maintainer`.
-    Maintainer,
-    /// `Bridge`.
-    Bridge,
-}
-
-/// HostRoles — `conductor.host.HostRoles`.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct HostRoles {
-    /// `file` — `String`.
-    pub file: String,
-    /// `roles` — `List<conductor.config.Role>`.
-    pub roles: Vec<crate::config::Role>,
-}
-
-/// InstanceCollision — `conductor.host.InstanceCollision`.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct InstanceCollision {
-    /// `key` — `conductor.host.CollisionKey`.
-    pub key: CollisionKey,
-    /// `value` — `String`.
-    pub value: String,
-    /// `instance` — `conductor.config.InstanceName`.
-    pub instance: crate::config::InstanceName,
-    /// `config` — `String`.
-    pub config: String,
-    /// `other_instance` — `conductor.config.InstanceName`.
-    pub other_instance: crate::config::InstanceName,
-    /// `other_config` — `String`.
-    pub other_config: String,
-}
-
-/// InstanceRegistry — `conductor.host.InstanceRegistry`.
-///
-/// Every value satisfies `version == "conductor.host.instances/1"` — declared here, enforced by whatever behaviour constructs one.
-/// Every value satisfies `distinct file in files by file.config` — declared here, enforced by whatever behaviour constructs one.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct InstanceRegistry {
-    /// `version` — `String`.
-    pub version: String,
-    /// `files` — `List<conductor.host.RegisteredFile>`.
-    pub files: Vec<RegisteredFile>,
-}
-
 /// LeftOver — `conductor.host.LeftOver`.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct LeftOver {
@@ -183,15 +95,6 @@ pub struct LeftOver {
     pub path: String,
     /// `bytes` — `Integer`.
     pub bytes: i64,
-}
-
-/// ListSlices — `conductor.host.ListSlices`.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct ListSlices {
-    /// `format` — `Optional<String>`.
-    pub format: Option<String>,
-    /// `gc` — `Optional<Boolean>`.
-    pub gc: Option<bool>,
 }
 
 /// ReclaimDisk — `conductor.host.ReclaimDisk`.
@@ -263,36 +166,6 @@ pub struct ReclaimStep {
     pub bytes: i64,
 }
 
-/// RegisteredFile — `conductor.host.RegisteredFile`.
-///
-/// Every value satisfies `distinct instance in instances by instance.name` — declared here, enforced by whatever behaviour constructs one.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct RegisteredFile {
-    /// `config` — `String`.
-    pub config: String,
-    /// `registered_at` — `Timestamp`.
-    pub registered_at: crate::primitives::Timestamp,
-    /// `instances` — `List<conductor.host.RegisteredInstance>`.
-    pub instances: Vec<RegisteredInstance>,
-}
-
-/// RegisteredInstance — `conductor.host.RegisteredInstance`.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct RegisteredInstance {
-    /// `name` — `conductor.config.InstanceName`.
-    pub name: crate::config::InstanceName,
-    /// `session_prefix` — `Optional<conductor.config.SessionPrefix>`.
-    pub session_prefix: Option<crate::config::SessionPrefix>,
-    /// `dashboard_port` — `Integer`.
-    pub dashboard_port: i64,
-    /// `state` — `String`.
-    pub state: String,
-    /// `records` — `String`.
-    pub records: String,
-    /// `checkouts` — `conductor.config.Checkouts`.
-    pub checkouts: crate::config::Checkouts,
-}
-
 /// ReleaseReason — `conductor.host.ReleaseReason`: one of a closed set of names.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ReleaseReason {
@@ -311,19 +184,6 @@ pub enum ReleaseReason {
 pub struct ShowGrants {
     /// `format` — `Optional<String>`.
     pub format: Option<String>,
-}
-
-/// SliceRow — `conductor.host.SliceRow`.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct SliceRow {
-    /// `slice` — `String`.
-    pub slice: String,
-    /// `instance` — `Optional<String>`.
-    pub instance: Option<String>,
-    /// `units` — `Integer`.
-    pub units: i64,
-    /// `stopped` — `Boolean`.
-    pub stopped: bool,
 }
 
 /// What HostGrant — `conductor.host.HostGrant` — holds, apart from where it is in its lifecycle.
@@ -358,6 +218,8 @@ pub struct HostGrantData {
     pub reclaimed_bytes: Option<i64>,
     /// `shortfall_bytes` — `Optional<Integer>`.
     pub shortfall_bytes: Option<i64>,
+    /// `actor` — `conductor.operator.Actor`.
+    pub actor: crate::operator::Actor,
     /// `requested_at` — `Timestamp`.
     pub requested_at: crate::primitives::Timestamp,
     /// `started_at` — `Optional<Timestamp>`.
@@ -674,6 +536,8 @@ pub struct ReclaimRunData {
     pub shortfall_bytes: Option<i64>,
     /// `left` — `List<conductor.host.LeftOver>`.
     pub left: Vec<LeftOver>,
+    /// `actor` — `conductor.operator.Actor`.
+    pub actor: crate::operator::Actor,
     /// `ran_at` — `Timestamp`.
     pub ran_at: crate::primitives::Timestamp,
 }
@@ -815,6 +679,8 @@ impl AnyReclaimRun {
 /// Everything it can result in is [`ReclaimOutcome`].
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Reclaim {
+    /// `actor` — `conductor.operator.Actor`.
+    pub actor: crate::operator::Actor,
     /// `instance` — `conductor.config.InstanceName`.
     pub instance: crate::config::InstanceName,
     /// `steps` — `List<conductor.host.ReclaimStep>`.
@@ -864,6 +730,8 @@ pub enum ReclaimOutcome {
 /// Everything it can result in is [`RecordPeakOutcome`].
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct RecordPeak {
+    /// `actor` — `conductor.operator.Actor`.
+    pub actor: crate::operator::Actor,
     /// `grant_id` — `conductor.host.GrantId`.
     pub grant_id: GrantId,
     /// `peak_bytes` — `Integer`.
@@ -912,6 +780,8 @@ pub enum RecordPeakOutcome {
 /// Everything it can result in is [`ReleaseGrantOutcome`].
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ReleaseGrant {
+    /// `actor` — `conductor.operator.Actor`.
+    pub actor: crate::operator::Actor,
     /// `grant_id` — `conductor.host.GrantId`.
     pub grant_id: GrantId,
     /// `reason` — `Optional<conductor.host.ReleaseReason>`.
@@ -961,6 +831,8 @@ pub enum ReleaseGrantOutcome {
 /// Everything it can result in is [`RequestDiskOutcome`].
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct RequestDisk {
+    /// `actor` — `conductor.operator.Actor`.
+    pub actor: crate::operator::Actor,
     /// `instance` — `conductor.config.InstanceName`.
     pub instance: crate::config::InstanceName,
     /// `repository` — `Optional<conductor.observation.RepositoryName>`.
@@ -1007,6 +879,8 @@ pub enum RequestDiskOutcome {
 /// Everything it can result in is [`ReserveDiskOutcome`].
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ReserveDisk {
+    /// `actor` — `conductor.operator.Actor`.
+    pub actor: crate::operator::Actor,
     /// `grant_id` — `conductor.host.GrantId`.
     pub grant_id: GrantId,
     /// `shortfall_bytes` — `Integer`.
@@ -1071,6 +945,8 @@ pub enum ReserveDiskOutcome {
 /// Everything it can result in is [`StartRunOutcome`].
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct StartRun {
+    /// `actor` — `conductor.operator.Actor`.
+    pub actor: crate::operator::Actor,
     /// `grant_id` — `conductor.host.GrantId`.
     pub grant_id: GrantId,
     /// `process_group` — `Integer`.
@@ -1119,6 +995,8 @@ pub enum StartRunOutcome {
 /// Everything it can result in is [`TakeHostGrantOutcome`].
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct TakeHostGrant {
+    /// `actor` — `conductor.operator.Actor`.
+    pub actor: crate::operator::Actor,
     /// `instance` — `conductor.config.InstanceName`.
     pub instance: crate::config::InstanceName,
     /// `repository` — `conductor.observation.RepositoryName`.
@@ -1161,6 +1039,8 @@ pub enum TakeHostGrantOutcome {
 /// Everything it can result in is [`WithdrawDiskRequestOutcome`].
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct WithdrawDiskRequest {
+    /// `actor` — `conductor.operator.Actor`.
+    pub actor: crate::operator::Actor,
     /// `grant_id` — `conductor.host.GrantId`.
     pub grant_id: GrantId,
     /// `withdrawn_at` — `Timestamp`.
@@ -1202,6 +1082,8 @@ pub enum WithdrawDiskRequestOutcome {
 /// DiskReclaimed — the event `conductor.host.DiskReclaimed`.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct DiskReclaimed {
+    /// `actor` — `conductor.operator.Actor`.
+    pub actor: crate::operator::Actor,
     /// `reclaim_run_id` — `conductor.host.ReclaimRunId`.
     pub reclaim_run_id: ReclaimRunId,
     /// `reclaimed_bytes` — `Integer`.
@@ -1211,6 +1093,8 @@ pub struct DiskReclaimed {
 /// DiskRequestWithdrawn — the event `conductor.host.DiskRequestWithdrawn`.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct DiskRequestWithdrawn {
+    /// `actor` — `conductor.operator.Actor`.
+    pub actor: crate::operator::Actor,
     /// `grant_id` — `conductor.host.GrantId`.
     pub grant_id: GrantId,
 }
@@ -1218,10 +1102,12 @@ pub struct DiskRequestWithdrawn {
 /// DiskRequested — the event `conductor.host.DiskRequested`.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct DiskRequested {
+    /// `actor` — `conductor.operator.Actor`.
+    pub actor: crate::operator::Actor,
     /// `grant_id` — `conductor.host.GrantId`.
     pub grant_id: GrantId,
-    /// `instance` — `conductor.config.InstanceName`.
-    pub instance: crate::config::InstanceName,
+    /// `instance_name` — `conductor.config.InstanceName`.
+    pub instance_name: crate::config::InstanceName,
     /// `bytes` — `Integer`.
     pub bytes: i64,
 }
@@ -1229,6 +1115,8 @@ pub struct DiskRequested {
 /// DiskReservationRefused — the event `conductor.host.DiskReservationRefused`.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct DiskReservationRefused {
+    /// `actor` — `conductor.operator.Actor`.
+    pub actor: crate::operator::Actor,
     /// `grant_id` — `conductor.host.GrantId`.
     pub grant_id: GrantId,
     /// `bytes` — `Optional<Integer>`.
@@ -1240,6 +1128,8 @@ pub struct DiskReservationRefused {
 /// DiskReserved — the event `conductor.host.DiskReserved`.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct DiskReserved {
+    /// `actor` — `conductor.operator.Actor`.
+    pub actor: crate::operator::Actor,
     /// `grant_id` — `conductor.host.GrantId`.
     pub grant_id: GrantId,
     /// `bytes` — `Optional<Integer>`.
@@ -1251,6 +1141,8 @@ pub struct DiskReserved {
 /// HostGrantReleased — the event `conductor.host.HostGrantReleased`.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct HostGrantReleased {
+    /// `actor` — `conductor.operator.Actor`.
+    pub actor: crate::operator::Actor,
     /// `grant_id` — `conductor.host.GrantId`.
     pub grant_id: GrantId,
     /// `reason` — `Optional<conductor.host.ReleaseReason>`.
@@ -1260,6 +1152,8 @@ pub struct HostGrantReleased {
 /// HostGrantTaken — the event `conductor.host.HostGrantTaken`.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct HostGrantTaken {
+    /// `actor` — `conductor.operator.Actor`.
+    pub actor: crate::operator::Actor,
     /// `grant_id` — `conductor.host.GrantId`.
     pub grant_id: GrantId,
     /// `instance` — `conductor.config.InstanceName`.
@@ -1271,6 +1165,8 @@ pub struct HostGrantTaken {
 /// PeakRecorded — the event `conductor.host.PeakRecorded`.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct PeakRecorded {
+    /// `actor` — `conductor.operator.Actor`.
+    pub actor: crate::operator::Actor,
     /// `grant_id` — `conductor.host.GrantId`.
     pub grant_id: GrantId,
     /// `peak_bytes` — `Integer`.
@@ -1280,6 +1176,8 @@ pub struct PeakRecorded {
 /// ReclaimFloorNotReached — the event `conductor.host.ReclaimFloorNotReached`.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ReclaimFloorNotReached {
+    /// `actor` — `conductor.operator.Actor`.
+    pub actor: crate::operator::Actor,
     /// `reclaim_run_id` — `conductor.host.ReclaimRunId`.
     pub reclaim_run_id: ReclaimRunId,
     /// `reclaimed_bytes` — `Integer`.
@@ -1291,6 +1189,8 @@ pub struct ReclaimFloorNotReached {
 /// RunStarted — the event `conductor.host.RunStarted`.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct RunStarted {
+    /// `actor` — `conductor.operator.Actor`.
+    pub actor: crate::operator::Actor,
     /// `grant_id` — `conductor.host.GrantId`.
     pub grant_id: GrantId,
     /// `process_group` — `Integer`.
@@ -1377,6 +1277,8 @@ pub struct Grants {
     pub reclaimed_bytes: Option<i64>,
     /// `shortfall_bytes` — `Optional<Integer>`.
     pub shortfall_bytes: Option<i64>,
+    /// `actor` — `conductor.operator.Actor`.
+    pub actor: crate::operator::Actor,
     /// `requested_at` — `Timestamp`.
     pub requested_at: crate::primitives::Timestamp,
     /// `started_at` — `Optional<Timestamp>`.
@@ -1418,6 +1320,8 @@ pub struct ReclaimRuns {
     pub shortfall_bytes: Option<i64>,
     /// `left` — `List<conductor.host.LeftOver>`.
     pub left: Vec<LeftOver>,
+    /// `actor` — `conductor.operator.Actor`.
+    pub actor: crate::operator::Actor,
     /// `ran_at` — `Timestamp`.
     pub ran_at: crate::primitives::Timestamp,
 }

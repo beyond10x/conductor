@@ -106,7 +106,7 @@ pub const ATTEMPTS: usize = 64;
 
 /// The fields of the `Requests` view, in the specification's order
 /// (`spec/domains/decision.yaml`).
-const REQUEST_COLUMNS: [&str; 17] = [
+const REQUEST_COLUMNS: [&str; 18] = [
     "escalation_class",
     "escalation_reason",
     "request_id",
@@ -124,6 +124,7 @@ const REQUEST_COLUMNS: [&str; 17] = [
     "recommended_letters",
     "default_letters",
     "deadline",
+    "actor",
 ];
 
 /// The columns `decision hands-todo` prints as a table (`text`, `markdown`): the fields of the
@@ -131,7 +132,7 @@ const REQUEST_COLUMNS: [&str; 17] = [
 /// (`story:operator-items-age`). `age` is computed when the table is rendered and is no field of
 /// the specification's view, so `json` and `jsonl` print the view's fields alone
 /// ([`HANDS_TODO_FIELDS`]).
-const HANDS_TODO_COLUMNS: [&str; 14] = [
+const HANDS_TODO_COLUMNS: [&str; 15] = [
     "escalation_class",
     "escalation_reason",
     "request_id",
@@ -145,12 +146,13 @@ const HANDS_TODO_COLUMNS: [&str; 14] = [
     "blocker",
     "dry_run",
     "no_dry_run",
+    "actor",
     "age",
 ];
 
 /// The fields of the `HandsTodo` view, in the specification's order: the `Requests` view's, then
 /// each item's dry run or why it has none (`story:hand-item-dry-run`).
-const HANDS_TODO_FIELDS: [&str; 13] = [
+const HANDS_TODO_FIELDS: [&str; 14] = [
     "escalation_class",
     "escalation_reason",
     "request_id",
@@ -164,10 +166,11 @@ const HANDS_TODO_FIELDS: [&str; 13] = [
     "blocker",
     "dry_run",
     "no_dry_run",
+    "actor",
 ];
 
 /// The fields of the `Decisions` view, in the specification's order.
-const DECISION_COLUMNS: [&str; 15] = [
+const DECISION_COLUMNS: [&str; 16] = [
     "decision_id",
     "state",
     "decision_class",
@@ -183,6 +186,7 @@ const DECISION_COLUMNS: [&str; 15] = [
     "repository",
     "decider_name",
     "prompt_sha256",
+    "actor",
 ];
 
 /// `conductor decision raise-decision-request`: the command
@@ -202,6 +206,7 @@ pub fn raise_decision_request(
         "decision raise-decision-request --input-json",
     )?;
     let input = RaiseDecisionRequest {
+        actor: crate::actor::chosen(),
         request_id: RequestId(flag(COMMAND, "--request-id", args.request_id)?),
         repository: RepositoryName(flag(COMMAND, "--repository", args.repository)?),
         question: flag(COMMAND, "--question", args.question)?,
@@ -358,6 +363,7 @@ fn conductor_decided(
     adapter: Option<&Adapter>,
 ) -> Result<Allocated> {
     let input = |decision_id| RecordConductorDecision {
+        actor: crate::actor::chosen(),
         decision_id,
         decision_class: fields.decision_class,
         question: fields.question.clone(),
@@ -468,6 +474,7 @@ pub fn record_operator_decision(
         |generated, decision_id| {
             let outcome = generated
                 .record_operator_decision(RecordOperatorDecision {
+                    actor: crate::actor::chosen(),
                     decision_id,
                     decision_class: fields.decision_class,
                     question: fields.question.clone(),
@@ -484,6 +491,10 @@ pub fn record_operator_decision(
             Ok(match outcome {
                 RecordOperatorDecisionOutcome::Recorded { .. } => Answer::Recorded,
                 RecordOperatorDecisionOutcome::AlreadyRecorded { .. } => Answer::Held,
+                RecordOperatorDecisionOutcome::AgentActor { error } => Answer::Refused(Refusal {
+                    error: "ActorNotHuman",
+                    detail: crate::actor::not_human(&error.actor),
+                }),
             })
         },
     )
@@ -500,6 +511,7 @@ pub fn answer_request(state: Option<&Path>, args: AnswerRequestArgs) -> Result<E
     const COMMAND: &str = "decision answer-request";
     flags_only(args.input_json, "decision answer-request --input-json")?;
     let input = AnswerRequest {
+        actor: crate::actor::chosen(),
         request_id: RequestId(flag(COMMAND, "--request-id", args.request_id)?),
         decision_id: DecisionId(flag(COMMAND, "--decision-id", args.decision_id)?),
     };
@@ -516,6 +528,11 @@ pub fn answer_request(state: Option<&Path>, args: AnswerRequestArgs) -> Result<E
             &request_answered.request_id,
             DecisionLogEvent::Answered,
             |line| line.decision_id = Some(request_answered.decision_id.clone()),
+        ),
+        AnswerRequestOutcome::AgentActor { error } => refused(
+            COMMAND,
+            "ActorNotHuman",
+            &crate::actor::not_human(&error.actor),
         ),
         AnswerRequestOutcome::NoSuchDecision { error } => refused(
             COMMAND,
@@ -558,6 +575,7 @@ pub fn answer_escalated_request(
         "decision answer-escalated-request --input-json",
     )?;
     let input = AnswerEscalatedRequest {
+        actor: crate::actor::chosen(),
         request_id: RequestId(flag(COMMAND, "--request-id", args.request_id)?),
         decision_id: DecisionId(flag(COMMAND, "--decision-id", args.decision_id)?),
     };
@@ -574,6 +592,11 @@ pub fn answer_escalated_request(
             &request_answered.request_id,
             DecisionLogEvent::Answered,
             |line| line.decision_id = Some(request_answered.decision_id.clone()),
+        ),
+        AnswerEscalatedRequestOutcome::AgentActor { error } => refused(
+            COMMAND,
+            "ActorNotHuman",
+            &crate::actor::not_human(&error.actor),
         ),
         AnswerEscalatedRequestOutcome::NoSuchDecision { error } => refused(
             COMMAND,
@@ -677,6 +700,7 @@ pub fn record_as_operator(state: Option<&Path>, decision: &OperatorDecision) -> 
     let allocated = allocate(COMMAND, state, None, &fields, |generated, decision_id| {
         let outcome = generated
             .record_operator_decision(RecordOperatorDecision {
+                actor: crate::actor::human(),
                 decision_id,
                 decision_class: fields.decision_class,
                 question: fields.question.clone(),
@@ -693,6 +717,10 @@ pub fn record_as_operator(state: Option<&Path>, decision: &OperatorDecision) -> 
         Ok(match outcome {
             RecordOperatorDecisionOutcome::Recorded { .. } => Answer::Recorded,
             RecordOperatorDecisionOutcome::AlreadyRecorded { .. } => Answer::Held,
+            RecordOperatorDecisionOutcome::AgentActor { error } => Answer::Refused(Refusal {
+                error: "ActorNotHuman",
+                detail: crate::actor::not_human(&error.actor),
+            }),
         })
     })?;
     match allocated {
@@ -883,6 +911,7 @@ pub fn answer_as_operator(
         |generated, decision_id| {
             let outcome = generated
                 .record_operator_decision_for_request(RecordOperatorDecisionForRequest {
+                    actor: crate::actor::human(),
                     request_id: request.clone(),
                     decision_id,
                     decision_class: fields.decision_class,
@@ -900,6 +929,12 @@ pub fn answer_as_operator(
             Ok(match outcome {
                 RecordOperatorDecisionForRequestOutcome::Recorded { .. } => Answer::Recorded,
                 RecordOperatorDecisionForRequestOutcome::AlreadyRecorded { .. } => Answer::Held,
+                RecordOperatorDecisionForRequestOutcome::AgentActor { error } => {
+                    Answer::Refused(Refusal {
+                        error: "ActorNotHuman",
+                        detail: crate::actor::not_human(&error.actor),
+                    })
+                }
                 RecordOperatorDecisionForRequestOutcome::NoSuchRequest { error } => {
                     Answer::Refused(Refusal {
                         error: "RequestNotFound",
@@ -943,6 +978,7 @@ pub fn answer_as_operator(
         )?;
         let outcome = generated
             .answer_escalated_request(AnswerEscalatedRequest {
+                actor: crate::actor::human(),
                 request_id: request.clone(),
                 decision_id: decision_id.clone(),
             })
@@ -1012,6 +1048,7 @@ fn withdraw_decision(
     let mut fresh = record(command, state)?;
     let reversed = fresh
         .reverse_operator_decision(ReverseOperatorDecision {
+            actor: crate::actor::human(),
             decision_id: decision_id.clone(),
             reason: reason.to_owned(),
         })
@@ -1166,6 +1203,7 @@ fn escalate(
             .transpose()?,
     };
     let input = EscalateRequest {
+        actor: crate::actor::chosen(),
         request_id,
         escalation_class,
         reason: reason.clone(),
@@ -1275,6 +1313,7 @@ pub fn amend_escalated_request(
         .transpose()
         .map_err(invalid)?;
     let mut input = AmendEscalatedRequest {
+        actor: crate::actor::chosen(),
         request_id: request_id.clone(),
         reason: reason.clone(),
         kind,
@@ -1556,6 +1595,7 @@ pub fn withdraw_request(state: Option<&Path>, args: WithdrawRequestArgs) -> Resu
     const COMMAND: &str = "decision withdraw-request";
     flags_only(args.input_json, "decision withdraw-request --input-json")?;
     let input = WithdrawRequest {
+        actor: crate::actor::chosen(),
         request_id: RequestId(flag(COMMAND, "--request-id", args.request_id)?),
         reason: flag(COMMAND, "--reason", args.reason)?,
     };
@@ -1604,6 +1644,7 @@ pub fn reverse_conductor_decision(
         "decision reverse-conductor-decision --input-json",
     )?;
     let input = ReverseConductorDecision {
+        actor: crate::actor::chosen(),
         decision_id: DecisionId(flag(COMMAND, "--decision-id", args.decision_id)?),
         reason: flag(COMMAND, "--reason", args.reason)?,
     };
@@ -1665,6 +1706,7 @@ pub fn reverse_operator_decision(
         "decision reverse-operator-decision --input-json",
     )?;
     let input = ReverseOperatorDecision {
+        actor: crate::actor::chosen(),
         decision_id: DecisionId(flag(COMMAND, "--decision-id", args.decision_id)?),
         reason: flag(COMMAND, "--reason", args.reason)?,
     };
@@ -1685,6 +1727,11 @@ pub fn reverse_operator_decision(
                 line.decided_by = Some(Decider::Operator);
                 line.reason = Some(decision_reversed_event.reason.clone());
             },
+        ),
+        ReverseOperatorDecisionOutcome::AgentActor { error } => refused(
+            COMMAND,
+            "ActorNotHuman",
+            &crate::actor::not_human(&error.actor),
         ),
         ReverseOperatorDecisionOutcome::NoSuchDecision { error } => refused(
             COMMAND,
@@ -1735,6 +1782,7 @@ pub fn requests(state: Option<&Path>, view: ViewArgs) -> Result<ExitCode> {
                 Value::from(row.recommended_letters),
                 Value::from(row.default_letters),
                 Value::from(row.deadline.map(|deadline| deadline.0)),
+                Value::from(crate::actor::written(&row.actor)),
             ]
         })
         .collect();
@@ -1781,6 +1829,7 @@ pub fn hands_todo(state: Option<&Path>, view: ViewArgs) -> Result<ExitCode> {
                 Value::from(row.blocker),
                 Value::from(row.dry_run),
                 Value::from(row.no_dry_run),
+                Value::from(crate::actor::written(&row.actor)),
             ];
             if aged {
                 values.push(Value::from(age));
@@ -1840,6 +1889,7 @@ pub fn decisions(state: Option<&Path>, view: ViewArgs) -> Result<ExitCode> {
                 Value::from(row.repository.map(|repository| repository.0)),
                 Value::from(row.decider_name),
                 Value::from(row.prompt_sha256.map(|hash| hash.0)),
+                Value::from(crate::actor::written(&row.actor)),
             ]
         })
         .collect();
@@ -1851,7 +1901,7 @@ pub fn decisions(state: Option<&Path>, view: ViewArgs) -> Result<ExitCode> {
 }
 
 /// The fields `decision show` renders, in its order: a row of the `Decisions` view.
-const SHOWN: [&str; 15] = [
+const SHOWN: [&str; 16] = [
     "decision_id",
     "state",
     "decision_class",
@@ -1867,6 +1917,7 @@ const SHOWN: [&str; 15] = [
     "repository",
     "decider_name",
     "prompt_sha256",
+    "actor",
 ];
 
 /// `conductor decision show`: the binding's `decision-show` callable over
@@ -1922,6 +1973,7 @@ pub fn show(state: Option<&Path>, args: ShowDecisionArgs) -> Result<ExitCode> {
         Value::from(row.repository.map(|repository| repository.0)),
         Value::from(row.decider_name),
         Value::from(row.prompt_sha256.map(|hash| hash.0)),
+        Value::from(crate::actor::written(&row.actor)),
     ];
     let rendered = if json {
         ViewArgs {
@@ -2086,6 +2138,9 @@ impl RecordOperatorDecisionForRequestBehavior for Ports {
             });
         }
         let data = DecisionData {
+            // The operator the answer was given by (`as_operator`), not the process's actor:
+            // through the daemon it is the bearer's operator (`story:daemon-remote`).
+            actor: input.actor.clone(),
             decision_id: input.decision_id.clone(),
             decision_class: input.decision_class,
             decided_by: Decider::Operator,
@@ -2104,6 +2159,7 @@ impl RecordOperatorDecisionForRequestBehavior for Ports {
         DecisionStorage::put(self, AnyDecision::InForce(Decision::new(data)).snapshot());
         Ok(RecordOperatorDecisionForRequestOutcome::Recorded {
             decision_recorded: DecisionRecorded {
+                actor: input.actor,
                 decision_id: input.decision_id,
                 decision_class: input.decision_class,
                 decided_by: Decider::Operator,

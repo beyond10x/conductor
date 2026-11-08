@@ -63,6 +63,8 @@
 //! snapshot it says so and prints every other part. No wait is recorded in the store yet
 //! (`story:watch-waits`), so the waits part reads `None.` until that story's `Waits` view lands.
 
+pub mod federated;
+
 use std::cmp::Ordering;
 use std::collections::{BTreeMap, BTreeSet};
 use std::fs;
@@ -179,6 +181,7 @@ pub fn publish_board(state: Option<&Path>, args: PublishBoardArgs) -> Result<Exi
 
     write_board(&path, &board)?;
     let input = PublishBoard {
+        actor: crate::actor::chosen(),
         snapshot_id: now.snapshot_id.clone(),
         previous_snapshot_id: before.as_ref().map(|held| held.snapshot_id.clone()),
         deviation_rows,
@@ -214,12 +217,13 @@ pub fn publish_board(state: Option<&Path>, args: PublishBoardArgs) -> Result<Exi
 /// There is no store, a read of it fails for a reason other than a record this build cannot read,
 /// or the rows cannot be written to standard output.
 pub fn boards(state: Option<&Path>, view: ViewArgs) -> Result<ExitCode> {
-    const COLUMNS: [&str; 5] = [
+    const COLUMNS: [&str; 6] = [
         "board_id",
         "snapshot_id",
         "previous_snapshot_id",
         "deviation_rows",
         "path",
+        "actor",
     ];
     let generated = Generated::new(crate::state::open_reader(state)?);
     let rows = generated
@@ -234,6 +238,7 @@ pub fn boards(state: Option<&Path>, view: ViewArgs) -> Result<ExitCode> {
                 Value::from(row.previous_snapshot_id.map(|id| id.0.0)),
                 Value::from(row.deviation_rows),
                 Value::from(row.path),
+                Value::from(crate::actor::written(&row.actor)),
             ]
         })
         .collect();
@@ -252,6 +257,36 @@ pub fn boards(state: Option<&Path>, view: ViewArgs) -> Result<ExitCode> {
 ///
 /// `--format` is neither text nor json; there is no store; a read of it fails for a reason other
 /// than a record this build cannot read; or standard output cannot be written.
+/// `conductor status` as the global flags give it: with no `--state-dir`, the federated view
+/// when conductord answers ([`federated`], `story:federated-views`); else [`status`], after the
+/// instance the file selects, whose problem `unloaded` carries when it selects none.
+///
+/// # Errors
+///
+/// What [`status`] answers, or `unloaded`.
+pub fn status_or_federated(
+    config_flag: Option<&Path>,
+    state: Option<&Path>,
+    args: &StatusArgs,
+    unloaded: Option<anyhow::Error>,
+) -> Result<ExitCode> {
+    let json = match args.format.as_deref() {
+        None | Some("text") => false,
+        Some("json") => true,
+        Some(other) => bail!("status: --format {other:?} is not one of text, json"),
+    };
+    if state.is_none()
+        && let Some(view) = federated::view(config_flag, json)
+    {
+        print!("{view}");
+        return Ok(ExitCode::SUCCESS);
+    }
+    if let Some(error) = unloaded {
+        return Err(error);
+    }
+    status(state, args)
+}
+
 pub fn status(state: Option<&Path>, args: &StatusArgs) -> Result<ExitCode> {
     const WHAT: &str = "status";
     let json = match args.format.as_deref() {
@@ -289,7 +324,7 @@ pub struct OperatorItem {
 }
 
 /// The unanswered operator items of `store` (decision requests in state `Escalated`), the one
-/// raised first first, then by id. `conductor status`, the dashboard's `/api/unanswered` and the
+/// raised first first, then by id. `conductor status`, the dashboard's `/v1/unanswered` and the
 /// watch's `escalated`/`unanswered` lines read them here (`story:decisions-notify`).
 #[must_use]
 pub fn unanswered(store: &Store) -> Vec<OperatorItem> {
@@ -917,7 +952,7 @@ fn failing_checks(pulls: &[&PullRequestObservationData]) -> Vec<String> {
 }
 
 /// The figures of each repository of the snapshot `held` in `store` that is not archived, in name
-/// order, as `conductor.observation.RepositoryFigures`: the rows the dashboard's `/api/board`
+/// order, as `conductor.observation.RepositoryFigures`: the rows the dashboard's `/v1/board`
 /// answers (`story:dashboard-overview`), worked out by the one [`figures`] the board's deviations
 /// and delta are, so the two never disagree.
 pub(crate) fn repository_figures(store: &Store, held: &SnapshotSnapshot) -> Vec<RepositoryFigures> {
@@ -1138,7 +1173,7 @@ pub(crate) fn waiting_for_review(
 }
 
 /// The pull requests of the snapshot `held` in `store` that wait for review, oldest first
-/// ([`waiting_for_review`]): the dashboard's `/api/reviews` and the watch's count read these, so
+/// ([`waiting_for_review`]): the dashboard's `/v1/reviews` and the watch's count read these, so
 /// they never disagree with the board.
 pub(crate) fn waiting_in(
     store: &Store,
@@ -1660,5 +1695,52 @@ impl TryContext for Ports {
         _outcome: &'static str,
     ) -> Result<bool, UnmetObligation> {
         Err(conductor_model::behaviour::unmet_context(command.name()))
+    }
+
+    // The v1 domains' generated values (`story:spec-v1`): no command this handler runs
+    // generates one.
+
+    fn try_generate_conductor_config_revision_id(
+        &mut self,
+    ) -> Result<conductor_model::config::RevisionId, UnmetObligation> {
+        Err(conductor_model::behaviour::unmet_context(
+            "conductor.config.RevisionId",
+        ))
+    }
+
+    fn try_generate_conductor_instance_reconciliation_id(
+        &mut self,
+    ) -> Result<conductor_model::instance::ReconciliationId, UnmetObligation> {
+        Err(conductor_model::behaviour::unmet_context(
+            "conductor.instance.ReconciliationId",
+        ))
+    }
+
+    fn try_generate_conductor_placement_box_id(
+        &mut self,
+    ) -> Result<conductor_model::placement::BoxId, UnmetObligation> {
+        Err(conductor_model::behaviour::unmet_context(
+            "conductor.placement.BoxId",
+        ))
+    }
+
+    fn try_generate_conductor_placement_refusal_reason(
+        &mut self,
+    ) -> Result<conductor_model::placement::RefusalReason, UnmetObligation> {
+        Err(conductor_model::behaviour::unmet_context(
+            "conductor.placement.RefusalReason",
+        ))
+    }
+
+    fn try_generate_conductor_token_token_id(
+        &mut self,
+    ) -> Result<conductor_model::token::TokenId, UnmetObligation> {
+        Err(conductor_model::behaviour::unmet_context(
+            "conductor.token.TokenId",
+        ))
+    }
+
+    fn try_generate_string(&mut self) -> Result<String, UnmetObligation> {
+        Err(conductor_model::behaviour::unmet_context("String"))
     }
 }

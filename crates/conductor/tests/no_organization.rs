@@ -4,18 +4,28 @@
 //! The words `beyond10x` and `b10x` are looked for, case-insensitively, in every file under
 //! `crates/conductor/src`, `crates/conductor/tests`, `crates/conductor-model/src`, `spec`, and the
 //! broker's and `tool`'s crates, `crates/conductor-broker` and `crates/tool`
-//! (`story:tool-broker-read`), the profiles and their adapters, `.agents` and `.claude/agents`
-//! (`story:host-session-profiles`), and in `Taskfile.yml` and `crates/conductor/Cargo.toml`. These
+//! (`story:tool-broker-read`), the role profiles and the `claude-code` kind's settings the binary
+//! carries, `crates/conductor/roles` and `crates/conductor/kinds` (`story:host-session-profiles`,
+//! `story:roles-in-the-binary`), and in `Taskfile.yml` and `crates/conductor/Cargo.toml`. These
 //! uses are allowed, each by its exact text:
 //! - `.b10x/conductor`, `~/.b10x` and `".b10x"`, the directory of the config file and the default
 //!   instance directories, and `.cache/b10x/conductor`, the default cache of an instance;
 //! - `b10x-gates`, the name of the Gates scanner the guard and `task check` call, and
 //!   `B10X_GATES_POLICY`, the variable that names its policy;
 //! - `github.com/beyond10x/eventlog`, where the store's crates are published;
+//! - `github.com/beyond10x/secrets`, where the secrets source's crates are published
+//!   (`story:secrets-source`);
 //! - `github.com/beyond10x/agentplugins`, the setup page `conductor doctor` points `aep`, `ess` and
 //!   `worktree` at (`story:install-hints`);
+//! - `github.com/beyond10x/substrate` and `b10x-substrate-sdk`, where the substrate SDK a placement
+//!   opens its box through is published, and its package name (`story:placement-substrate-local`);
 //! - `b10x.toml`, the file the ecosystem installer writes its CLI pins to, which
-//!   `conductor doctor` reads (`story:install-prerequisites`).
+//!   `conductor doctor` reads (`story:install-prerequisites`);
+//! - `x-b10x-audience`, the header the Identity service reads the audience of a bearer from,
+//!   which the daemon sends when it resolves a bearer of its TLS listener (`story:instance-api`);
+//! - `x-b10x-contract`, the prefix of the two contract headers every substrate daemon answers
+//!   with and its SDK checks, which the fake local daemon of `tests/placement.rs` sends
+//!   (`story:placement-substrate-local`).
 //!
 //! `tests/fixtures/store/`, the eventlog-file store an earlier build wrote and the views that build
 //! answered over it, is read like every other file: its repositories belong to `example-org`
@@ -23,7 +33,7 @@
 //!
 //! The public text names no instance either (`story:public-text-check`). Every tracked file under
 //! `docs/`, `website/docs/` (the generated `reference/` and `status.md` left out), `README.md`,
-//! `AGENTS.md`, `.agents/` and `.claude/agents/` is read, and the check fails, naming file, line
+//! `AGENTS.md`, `.agents/` and `crates/conductor/roles/` is read, and the check fails, naming file, line
 //! and rule, on:
 //! - an id of an instance's record: `DEC-`, `DSP-`, `N-` or `H-` and an eight-digit date, as a word
 //!   of its own; a documented example is allowed inside a fenced code block of `website/docs/`;
@@ -37,7 +47,7 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
-const ALLOWED: [&str; 10] = [
+const ALLOWED: [&str; 15] = [
     ".b10x/conductor",
     ".b10x/./conductor",
     "~/.b10x",
@@ -46,8 +56,13 @@ const ALLOWED: [&str; 10] = [
     "b10x-gates",
     "b10x_gates_policy",
     "github.com/beyond10x/eventlog",
+    "github.com/beyond10x/secrets",
     "github.com/beyond10x/agentplugins",
+    "github.com/beyond10x/substrate",
+    "b10x-substrate-sdk",
     "b10x.toml",
+    "x-b10x-audience",
+    "x-b10x-contract",
 ];
 
 /// The files read for the check: everything under `dir`, but this file.
@@ -101,18 +116,21 @@ fn no_file_of_the_product_names_an_organization() {
         "spec",
         "crates/conductor-broker",
         "crates/tool",
-        // The profiles and their adapters, the host's supervisor and teacher among them
-        // (`story:host-session-profiles`); `conductor init` installs the adapters on any host.
-        ".agents",
-        ".claude/agents",
+        // The role profiles the binary carries, the host's supervisor and teacher among them
+        // (`story:host-session-profiles`), and the `claude-code` kind's settings
+        // (`story:roles-in-the-binary`); every host starts its roles from them.
+        "crates/conductor/roles",
+        "crates/conductor/kinds",
     ] {
         files(&root.join(dir), &mut paths);
     }
     for profile in [
-        ".agents/conductor-supervisor.md",
-        ".agents/conductor-teacher.md",
-        ".claude/agents/conductor-supervisor.md",
-        ".claude/agents/conductor-teacher.md",
+        "crates/conductor/roles/supervisor.md",
+        "crates/conductor/roles/teacher.md",
+        "crates/conductor/roles/maintainer.md",
+        "crates/conductor/roles/controller.md",
+        "crates/conductor/kinds/claude-code/conductor-settings.json",
+        "crates/conductor/kinds/claude-code/controller-settings.json",
     ] {
         assert!(
             paths.contains(&root.join(profile)),
@@ -164,7 +182,7 @@ const PUBLIC: [&str; 7] = [
     "SETUP.md",
     "AGENTS.md",
     ".agents",
-    ".claude/agents",
+    "crates/conductor/roles",
 ];
 
 /// The pages `conductor-docs generate` writes, left out of the public text.

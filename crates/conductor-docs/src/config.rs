@@ -3,10 +3,12 @@
 //! The keys, their types, the rules and the type descriptions come from the specification,
 //! `spec/domains/config.yaml`: its types are walked from `conductor.config.Config`, its invariants
 //! become rules, and the comment above each type is its description. The defaults come from the
-//! library the `conductor` binary runs: [`SAMPLE`], a file that sets every key, is read with one key
-//! left out at a time through `conductor_cli::config::parse`, and the value
-//! `conductor_cli::config::document` shows for it (what `conductor config show` prints) is its
-//! default. A key whose absence the library refuses is required.
+//! library the `conductor` binary runs: [`SAMPLE`], a `conductor.config/2` file that sets every
+//! key, is read with one key left out at a time through `conductor_cli::config::parse`, and the
+//! value `conductor_cli::config::document` shows for it (what `conductor config show` prints; for
+//! the `daemon` and `globals` sections, `daemon_document` and `globals_document`) is its default.
+//! An instance key is left out of `globals` as well, so its default is the built-in one, not the
+//! global level's. A key whose absence the library refuses is required.
 
 use std::{collections::BTreeMap, fs, path::Path};
 
@@ -25,6 +27,11 @@ const DOMAINS: &str = "spec/domains";
 const ROOT: &str = "conductor.config.Config";
 /// The type of one instance.
 const INSTANCE: &str = "conductor.config.Instance";
+/// The sections of the file that hold keys of their own, each with its type and its title.
+const SECTIONS: [(&str, &str, &str); 2] = [
+    ("daemon", "conductor.config.Daemon", "Daemon"),
+    ("globals", "conductor.config.Globals", "Globals"),
+];
 /// The name of the instance of [`SAMPLE`], written `<name>` where a default holds it.
 const NAME: &str = "sample";
 /// The home directory [`SAMPLE`] is read against, written `~` where a default holds it.
@@ -32,23 +39,110 @@ const HOME: &str = "/sample-home";
 
 /// The keys `<list>[].<field>` the library derives rather than reads (`story:instance-session-names`):
 /// a file may write only the derived value, so [`SAMPLE`] does not set them, their default is
-/// written `derived`, and they are left out of the default of their list.
+/// written `derived`, and they are left out of the default of their list. An instance's roles and
+/// the global roles alike.
 const DERIVED: [(&str, &str); 1] = [("roles", "session_name")];
 
 /// The sections whose every key the library derives (`conductor`, the conductor that serves the
-/// instance): [`SAMPLE`] does not set them, and their keys' default is written `derived`.
-const DERIVED_SECTIONS: [&str; 1] = ["conductor"];
+/// instance; `remote`, the remote substrate daemon read from the instance's `placement`,
+/// `story:placement-substrate-remote`): [`SAMPLE`] does not set them, and their keys' default is
+/// written `derived`.
+const DERIVED_SECTIONS: [&str; 2] = ["conductor", "remote"];
 
 /// A config file that sets every key of the specification but [`DERIVED`] to a value that differs
 /// from its default, so that leaving one out shows the default the library fills. Generation fails
 /// when a key of the specification is missing here.
 const SAMPLE: &str = "\
-version: conductor.config/1
+version: conductor.config/2
+daemon:
+  port: 7400
+  loopback: false
+  tls:
+    listen: 0.0.0.0:7443
+    cert: /etc/conductor/tls.crt
+    key: /etc/conductor/tls.key
+    identity: https://identity.example.com
+  cadence:
+    reconcile: 30s
+  store: postgres://conductor@db.example.com/conductor
+  secrets:
+    source: remote
+    namespace: example
+    url: https://secrets.example.com
+  dashboard: /conductor
+  operators:
+    - name: example-operator
+      role: owner
+      grants: [answer-decisions, start-instances]
+  upgrade_timeout: 5m
+  timeout: 10s
+  substrate_slots: 4
+globals:
+  roles:
+    - role: supervisor
+      kind: claude-code
+      harness: codex
+      model: sonnet
+      agent: conductor-supervisor
+      settings: ~/example-org/supervisor-settings.json
+      profile: ~/example-org/conductor-supervisor.md
+      read_only_tools: [mcp__example__read]
+      forge_token_env: [EXAMPLE_FORGE_TOKEN]
+      grant:
+        tools: [show, search]
+        repositories: [alpha]
+        paths: [src]
+        max_output_bytes: 32768
+        ttl: 8h
+      limits:
+        memory_max: 8G
+        cpu_weight: 50
+        tasks_max: 512
+      writable: [checkout, ~/example-org/shared]
+      network: open
+    - role: lead
+      harness: claude
+      model: opus
+      token_owner: example-operator
+  cadence:
+    cycle: 3h
+    daily: '07:00'
+    watch: 120s
+    ci: 1200s
+  thresholds:
+    context_handover: 250k
+    disk_path: /srv
+    disk_low: 95G
+    disk_clear: 125G
+    disk_admit: 30G
+    build_slot: 75G
+    build_size: 14G
+    gate_stop: 14G
+    gate_resume: 19G
+    watchdog_every: 7s
+    silent_session: 50m
+    cpu_reserve: 4
+    build_slots: 3
+    repo_cache: off
+    repo_cache_size: 6G
+    lean_debuginfo: false
+    short_lane_slots: 3
+    short_lane_max: 6m
+    stalled_session: 2h
+    build_queued: 25m
+    tree_stale: 4d
+  limits:
+    memory_max: 64G
+    cpu_weight: 300
+    tasks_max: 8192
+  tuning:
+    keys:
+      - {path: thresholds.context_handover, min: 100000, max: 400000}
 default: sample
 instances:
   - name: sample
+    placement: example-box
     session_prefix: example
-    dashboard_port: 7400
     sources:
       - github: example-org
       - local: ~/alpha
@@ -64,6 +158,7 @@ instances:
     cache: ~/example-org/cache
     roles:
       - role: controller
+        kind: claude-code
         harness: codex
         model: sonnet
         agent: repo-controller
@@ -83,13 +178,11 @@ instances:
           tasks_max: 512
         writable: [checkout, ~/example-org/shared]
         network: open
-    confinement:
-      mode: strict
-      provider: none
-      limits:
-        memory_max: 32G
-        cpu_weight: 200
-        tasks_max: 4096
+        token_owner: example-owner
+    limits:
+      memory_max: 32G
+      cpu_weight: 200
+      tasks_max: 4096
     controllers:
       max_working: 2
       max_subagents: 2
@@ -146,6 +239,7 @@ instances:
         command: example-sync publish ci/policy.json
         dry_run: example-sync publish ci/policy.json --dry-run
     gates_policy: ~/example-org/gates/policy.json
+    model_token: secret:example-org-model
     forge:
       route: direct
 ";
@@ -379,9 +473,13 @@ fn invariant(value: &Value) -> Result<String> {
         Value::Mapping(map) if map.len() == 1 => {
             let (key, body) = map.iter().next().context("an empty invariant")?;
             match key.as_str() {
+                // Without `by`, the items themselves are distinct.
                 Some("distinct") => format!(
                     "`{}` distinct across `{}`",
-                    body["by"].as_str().context("distinct without by")?,
+                    body["by"]
+                        .as_str()
+                        .or_else(|| body["as"].as_str())
+                        .context("distinct without by or as")?,
                     body["in"].as_str().context("distinct without in")?
                 ),
                 Some("exists") => format!(
@@ -389,6 +487,17 @@ fn invariant(value: &Value) -> Result<String> {
                     body["as"].as_str().context("exists without as")?,
                     body["in"].as_str().context("exists without in")?,
                     body["that"].as_str().context("exists without that")?
+                ),
+                // The condition as the specification writes it, on one line.
+                Some("forall") => format!(
+                    "every `{}` in `{}` has `{}`",
+                    body["as"].as_str().context("forall without as")?,
+                    body["in"].as_str().context("forall without in")?,
+                    match &body["that"] {
+                        Value::String(text) => text.clone(),
+                        Value::Null => bail!("forall without that"),
+                        that => serde_json::to_string(that)?,
+                    }
                 ),
                 Some("any") => body
                     .as_sequence()
@@ -466,31 +575,47 @@ fn lookup<'v>(value: &'v Value, path: &[Step]) -> Option<&'v Value> {
     }
 }
 
-/// Reads [`SAMPLE`] with the instance key at `path` left out (or the file key, when `top`).
+/// Reads [`SAMPLE`] with the instance key at `path` left out (or the file key, when `top`: a key
+/// of the file, or of one of its [`SECTIONS`]). An instance key is left out of `globals` too, so
+/// its default is the built-in one and not the value the sample sets at the global level.
 fn probe(sample: &Value, path: &[Step], top: bool) -> Result<Found> {
     let mut file = sample.clone();
     let removed = if top {
         remove(&mut file, path)
     } else {
-        remove(&mut file["instances"][0], path)
+        let removed = remove(&mut file["instances"][0], path);
+        remove(&mut file["globals"], path);
+        removed
     };
     ensure!(removed > 0, "the sample file sets no {}", written(path));
     let text = serde_yaml::to_string(&file)?;
     let Ok(config) = conductor_cli::config::parse(&text, Path::new(HOME)) else {
         return Ok(Found::Required);
     };
-    if top {
-        return Ok(Found::Absent);
-    }
-    let instance = config
-        .instances
-        .first()
-        .context("the sample file read back without its instance")?;
-    let document = conductor_cli::config::document(instance);
-    let mut found = lookup(&document["instances"][0], path)
-        .filter(|value| !value.is_null())
-        .cloned();
-    if let ([Step::Key(key)], Some(Value::Sequence(items))) = (path, found.as_mut()) {
+    let mut found = if top {
+        let mut sections = serde_yaml::Mapping::new();
+        sections.insert(
+            Value::from("daemon"),
+            conductor_cli::config::daemon_document(&config.daemon),
+        );
+        sections.insert(
+            Value::from("globals"),
+            conductor_cli::config::globals_document(&config.globals),
+        );
+        lookup(&Value::Mapping(sections), path)
+            .filter(|value| !value.is_null())
+            .cloned()
+    } else {
+        let instance = config
+            .instances
+            .first()
+            .context("the sample file read back without its instance")?;
+        let document = conductor_cli::config::document(instance);
+        lookup(&document["instances"][0], path)
+            .filter(|value| !value.is_null())
+            .cloned()
+    };
+    if let (Some(Step::Key(key)), Some(Value::Sequence(items))) = (path.last(), found.as_mut()) {
         for (list, field) in DERIVED {
             if key == list {
                 for item in items.iter_mut() {
@@ -504,12 +629,12 @@ fn probe(sample: &Value, path: &[Step], top: bool) -> Result<Found> {
     Ok(found.map_or(Found::Absent, Found::Value))
 }
 
-/// Whether `prefix` and `key` are a [`DERIVED`] key.
+/// Whether `prefix` and `key` are a [`DERIVED`] key, in an instance or in a section.
 fn derived(prefix: &[Step], key: &str) -> bool {
-    DERIVED
-        .iter()
-        .any(|(list, field)| matches!(prefix, [Step::Each(each)] if each == list) && key == *field)
-        || matches!(prefix, [Step::Key(section)] if DERIVED_SECTIONS.contains(&section.as_str()))
+    DERIVED.iter().any(|(list, field)| {
+        matches!(prefix.last(), Some(Step::Each(each)) if each == list) && key == *field
+    }) || matches!(prefix, [Step::Key(section)] if DERIVED_SECTIONS.contains(&section.as_str()))
+        || (prefix.is_empty() && DERIVED_SECTIONS.contains(&key))
 }
 
 fn written(path: &[Step]) -> String {
@@ -608,12 +733,14 @@ fn rule_cell(spec: &Spec, owner: &Type, field: &str, expr: &str) -> Result<Strin
     Ok(rules.join("; "))
 }
 
-/// The rows of the fields of struct `name`, keys prefixed with `prefix` (written) and `path`.
+/// The rows of the fields of struct `name`, keys prefixed with `prefix` (written) and `path`;
+/// under the file's root when `top`, else under the instance.
 fn rows(
     spec: &Spec,
     sample: &Value,
     name: &str,
     prefix: &[Step],
+    top: bool,
     out: &mut Vec<Row>,
 ) -> Result<()> {
     let owner = spec
@@ -637,7 +764,7 @@ fn rows(
             let default = if derived(prefix, key) {
                 "derived".to_owned()
             } else {
-                default_cell(&probe(sample, &path, false)?, expr)
+                default_cell(&probe(sample, &path, top)?, expr)
             };
             out.push(Row {
                 key: written(&path),
@@ -653,7 +780,7 @@ fn rows(
             Step::Key(key.to_owned())
         });
         match kind {
-            Some("struct") => rows(spec, sample, base, &inner, out)?,
+            Some("struct") => rows(spec, sample, base, &inner, top, out)?,
             Some("union") if list => union_rows(spec, sample, base, &inner, out)?,
             _ => {}
         }
@@ -799,16 +926,43 @@ pub fn page(root: &Path) -> Result<String> {
         let key = field["name"].as_str().context("a field has no name")?;
         let expr = field["type"].as_str().context("a field has no type")?;
         let path = [Step::Key(key.to_owned())];
-        let found = probe(&sample, &path, true)?;
+        // A section's keys are its own table's; it is written in the top table as one.
+        let found = if SECTIONS.iter().any(|(section, _, _)| *section == key) {
+            Found::Absent
+        } else {
+            probe(&sample, &path, true)?
+        };
         top.push(Row {
             key: key.to_owned(),
             shown: spec.shown(expr),
-            default: default_cell(&found, expr),
+            default: match found {
+                Found::Absent if SECTIONS.iter().any(|(section, _, _)| *section == key) => {
+                    "each key its own".to_owned()
+                }
+                found => default_cell(&found, expr),
+            },
             rule: rule_cell(&spec, root_type, key, expr)?,
         });
     }
+    let mut sections = String::new();
+    for (section, name, title) in SECTIONS {
+        let mut found = Vec::new();
+        rows(
+            &spec,
+            &sample,
+            name,
+            &[Step::Key(section.to_owned())],
+            true,
+            &mut found,
+        )?;
+        sections.push_str(&format!(
+            "## {title}\n\n{}\n\n{}\n",
+            prose(&spec.types[name].comment),
+            table(&found)
+        ));
+    }
     let mut instance = Vec::new();
-    rows(&spec, &sample, INSTANCE, &[], &mut instance)?;
+    rows(&spec, &sample, INSTANCE, &[], false, &mut instance)?;
 
     let mut out = front_matter(
         "Config reference",
@@ -821,12 +975,13 @@ pub fn page(root: &Path) -> Result<String> {
          is what `conductor config show` prints for a file that leaves the key out, read through \
          the same library the binary runs. A key marked required is one whose absence `conductor \
          config validate` refuses. The hand-written [config guide]({SOURCE}/docs/config.md) says \
-         which part of conductor reads each key.\n\n> {}\n\n## Top level\n\n{}\n\n{}\n## Instance\n\n{}\n\n\
+         which part of conductor reads each key.\n\n> {}\n\n## Top level\n\n{}\n\n{}\n{}## Instance\n\n{}\n\n\
          A key path written `a[].b` is the key `b` of each element of the list `a`. A default that \
          holds `<name>` holds the instance's name.\n\n{}\n## Types\n",
         prose(&spec.summary.split_whitespace().collect::<Vec<_>>().join(" ")),
         prose(&spec.types[ROOT].comment),
         table(&top),
+        sections,
         prose(&spec.types[INSTANCE].comment),
         table(&instance),
     ));
@@ -836,11 +991,13 @@ pub fn page(root: &Path) -> Result<String> {
         .order
         .iter()
         .filter(|name| reachable.contains(name) && *name != ROOT && *name != INSTANCE)
+        .filter(|name| !SECTIONS.iter().any(|(_, section, _)| section == name))
         .collect();
     shown.extend(
         reachable
             .iter()
-            .filter(|name| !spec.order.contains(name) && *name != ROOT && *name != INSTANCE),
+            .filter(|name| !spec.order.contains(name) && *name != ROOT && *name != INSTANCE)
+            .filter(|name| !SECTIONS.iter().any(|(_, section, _)| section == name)),
     );
     for name in shown {
         let t = &spec.types[name.as_str()];

@@ -18,9 +18,10 @@
 //! `--bg` arguments ([`background_args`]) read user settings beside the project's and the local
 //! ones when they ask for `bypassPermissions`: Claude Code takes the bypass-permissions acceptance
 //! a background session needs only from user or managed settings
-//! (`story:bg-launch-reads-user-settings`). The `systemd` provider ([`systemd::Systemd`],
-//! `story:session-limits-systemd`) runs each session in the foreground of a `systemd-run --user`
-//! unit inside its instance's slice, with its role's limits and the launch's setting sources.
+//! (`story:bg-launch-reads-user-settings`). The `systemd` provider is no longer served
+//! ([`Unserved`], [`SESSIONS_UNSERVED`]): conductor confines no session itself, every placement
+//! is a substrate box (`crate::placement`), and a session started by a runtime in one runs in
+//! that box. A session an earlier conductor started in its own unit is still stopped.
 //!
 //! [`choose`] reads `confinement`: under `strict`, a provider that is not available starts
 //! nothing (`ProviderUnavailable`); under `report`, the session starts unboxed through `none`
@@ -32,7 +33,6 @@
 //! collector reads into the session's `envelope_*` fields ([`read_measurement`]).
 
 pub mod places;
-pub mod systemd;
 
 use std::collections::BTreeMap;
 use std::fs::{self, File};
@@ -44,10 +44,7 @@ use std::thread;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use anyhow::{Context as _, Result, anyhow, bail};
-use conductor_model::config::{
-    Confinement, ConfinementMode, ConfinementProvider, Limits, ProviderAvailability, SessionName,
-    SessionPrefix,
-};
+use conductor_model::config::{Limits, SessionName, SessionPrefix};
 use conductor_model::observation::EnvelopeProvider;
 use conductor_model::primitives::Timestamp;
 use conductor_model::session::{
@@ -58,6 +55,20 @@ use time::OffsetDateTime;
 use time::format_description::well_known::Rfc3339;
 
 use crate::collect;
+pub use crate::config::{Confinement, ConfinementMode, ConfinementProvider};
+
+/// Whether one provider can start a session here, and why not when it cannot. The specification
+/// modelled it for `conductor doctor`'s provider rows, which v1 removed with `confinement.*`
+/// (design architecture-next § 11); [`choose`] still asks it.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ProviderAvailability {
+    /// The provider's name, `systemd` or `none`.
+    pub provider: String,
+    /// Whether it can start a session.
+    pub available: bool,
+    /// Why it cannot, when it cannot.
+    pub reason: Option<String>,
+}
 
 /// The harness program the `none` provider runs, found on `PATH`.
 pub const CLAUDE: &str = "claude";
@@ -199,32 +210,17 @@ pub trait Providers {
 
     /// The provider whose session runs unboxed, `none`: what `report` falls back to.
     fn unboxed(&self) -> Box<dyn Provider>;
-
-    /// Every provider, in the order `conductor doctor` prints them.
-    fn all(&self) -> Vec<Box<dyn Provider>>;
 }
 
-/// This host's providers: `systemd`, reading the cgroups under `cgroup_root`, and `none`.
-#[derive(Debug, Clone)]
-pub struct Host {
-    /// The cgroup root the `systemd` provider reads: [`systemd::CGROUP_ROOT`] by default.
-    pub cgroup_root: PathBuf,
-}
-
-impl Default for Host {
-    fn default() -> Self {
-        Self {
-            cgroup_root: PathBuf::from(systemd::CGROUP_ROOT),
-        }
-    }
-}
+/// This host's providers: `none`, and `systemd`, which conductor no longer serves
+/// ([`Unserved`]): a session's box is its instance's substrate box (`crate::placement`).
+#[derive(Debug, Clone, Default)]
+pub struct Host;
 
 impl Providers for Host {
     fn provider(&self, name: ConfinementProvider) -> Box<dyn Provider> {
         match name {
-            ConfinementProvider::Systemd => {
-                Box::new(systemd::Systemd::new(self.cgroup_root.clone()))
-            }
+            ConfinementProvider::Systemd => Box::new(Unserved),
             ConfinementProvider::None => Box::new(Unboxed::default()),
         }
     }
@@ -232,20 +228,67 @@ impl Providers for Host {
     fn unboxed(&self) -> Box<dyn Provider> {
         Box::new(Unboxed::default())
     }
-
-    fn all(&self) -> Vec<Box<dyn Provider>> {
-        vec![self.provider(ConfinementProvider::Systemd), self.unboxed()]
-    }
 }
 
-/// The availability of every provider of `providers`, in order: `conductor doctor`'s rows.
-#[must_use]
-pub fn availability(providers: &dyn Providers) -> Vec<ProviderAvailability> {
-    providers
-        .all()
-        .iter_mut()
-        .map(|provider| provider.available())
-        .collect()
+/// Why the `systemd` provider is not available: conductor's own `systemd-run` sessions are gone
+/// (every placement is a substrate box), and substrate 0.20.0 serves no agent session to start
+/// in its place: a runtime in a box reaches no substrate daemon (no socket into a box), and the
+/// in-process confinement API has no PTY.
+pub const SESSIONS_UNSERVED: &str = "conductor's systemd sessions are gone and substrate 0.20.0 \
+                                     starts no agent session in a box (no daemon socket inside a \
+                                     box, no PTY in the in-process confinement API)";
+
+/// The `systemd` provider, which conductor no longer serves: never available
+/// ([`SESSIONS_UNSERVED`]), and every call refused.
+#[derive(Debug, Clone, Copy, Default)]
+pub struct Unserved;
+
+impl Provider for Unserved {
+    fn name(&self) -> String {
+        "systemd".to_owned()
+    }
+
+    fn available(&mut self) -> ProviderAvailability {
+        ProviderAvailability {
+            provider: self.name(),
+            available: false,
+            reason: Some(SESSIONS_UNSERVED.to_owned()),
+        }
+    }
+
+    fn start(&mut self, _launch: &Launch) -> Result<StartedSession> {
+        bail!("{SESSIONS_UNSERVED}")
+    }
+
+    fn prompt(&mut self, _session: &mut StartedSession, _prompt: &str) -> Result<Said> {
+        bail!("{SESSIONS_UNSERVED}")
+    }
+
+    /// A session an earlier conductor started in its own unit is still stopped: its unit, when
+    /// systemd has it loaded.
+    fn stop(&mut self, session: &StartedSession, _request: &SessionRequest) -> Result<()> {
+        let unit = session
+            .unit
+            .clone()
+            .unwrap_or_else(|| crate::systemd::unit_name(&session.session_name));
+        let (load, _) = crate::systemd::unit_state(&unit)?;
+        if load == "not-found" || load.is_empty() {
+            return Ok(());
+        }
+        crate::systemd::stop_unit(&unit)
+    }
+
+    fn resume(&mut self, _session: &StartedSession, _launch: &Launch) -> Result<StartedSession> {
+        bail!("{SESSIONS_UNSERVED}")
+    }
+
+    fn measure(
+        &mut self,
+        _session: &StartedSession,
+        _request: &SessionRequest,
+    ) -> Result<EnvelopeMeasurement> {
+        bail!("{SESSIONS_UNSERVED}")
+    }
 }
 
 /// The reason the `none` provider's record gives: it sets up no box.

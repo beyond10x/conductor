@@ -488,6 +488,7 @@ fn observe(
         (None, None)
     };
     Ok(RecordSpecification {
+        actor: crate::actor::daemon(),
         snapshot_id: snapshot.clone(),
         repository: RepositoryName(repository.to_owned()),
         presence: SpecificationPresence::Present,
@@ -511,6 +512,7 @@ fn unread(
     snapshot: &SnapshotId,
 ) -> RecordSpecification {
     RecordSpecification {
+        actor: crate::actor::daemon(),
         snapshot_id: snapshot.clone(),
         repository: RepositoryName(repository.to_owned()),
         presence,

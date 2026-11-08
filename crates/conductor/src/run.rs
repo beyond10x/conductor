@@ -27,10 +27,9 @@
 //! `--once` runs one watch tick and one cycle tick and exits, 1 when either could not be
 //! recorded, else 0. `--once --commit-records` runs [`commit_records`] alone for today's UTC day,
 //! with no tick and without the daemon's lock (git's own lock keeps two commits apart): it prints
-//! what it did and exits 0, or 1 when the commit was refused. `--install` and `--uninstall` start
-//! and stop the user unit
-//! `conductor_<instance>-run.service` ([`unit`]). The design's `conductor run install` is a flag:
-//! the binding refuses a root command that is also a group.
+//! what it did and exits 0, or 1 when the commit was refused. The per-instance user unit and
+//! `--install` are gone (design architecture-next § 11): conductord starts every instance's runtime
+//! (`conductor daemon serve`, [`crate::daemon`]).
 //!
 //! The daemon acts through [`Seams`]: the confinement providers sessions start and stop through,
 //! the [`Deliverer`] that puts a text in front of a session (`conductor session deliver`,
@@ -42,7 +41,6 @@ pub mod dispatch;
 pub mod handlers;
 pub mod mailbox;
 pub mod records;
-pub mod unit;
 
 pub use records::{Committed, Route, commit_records};
 
@@ -236,8 +234,7 @@ pub struct Summary {
 ///
 /// # Errors
 ///
-/// More than one of `--once`, `--install` and `--uninstall` is given, `--commit-records` is given
-/// without `--once`, another daemon holds the lock, the state directory cannot be written, or a
+/// `--commit-records` is given without `--once`, another daemon holds the lock, the state directory cannot be written, or a
 /// tick cannot be recorded.
 pub fn run(
     config_flag: Option<&Path>,
@@ -245,38 +242,11 @@ pub fn run(
     args: &RunArgs,
     providers: &dyn Providers,
 ) -> Result<ExitCode> {
-    let given = [
-        ("--once", args.once),
-        ("--install", args.install),
-        ("--uninstall", args.uninstall),
-    ];
-    let modes: Vec<&str> = given
-        .iter()
-        .filter(|(_, set)| *set == Some(true))
-        .map(|(flag, _)| *flag)
-        .collect();
-    if modes.len() > 1 {
-        bail!(
-            "run: {} are given; give at most one of --once, --install and --uninstall",
-            modes.join(" and ")
-        );
-    }
     if args.commit_records == Some(true) {
         if args.once != Some(true) {
             bail!("run: --commit-records runs with --once; give both");
         }
         return commit_alone(config_flag, state);
-    }
-    if args.install == Some(true) {
-        return unit::install(config_flag, state);
-    }
-    if args.uninstall == Some(true) {
-        if let Some(started) = cycle_in_progress(&run_dir(state)?) {
-            eprintln!(
-                "conductor run: a cycle started {started} is in progress; the loop runs it again at its next start"
-            );
-        }
-        return unit::uninstall();
     }
     let deliverer = ShellDeliverer::current(config_flag, state)?;
     let seams = Seams {
@@ -623,6 +593,7 @@ impl<'s, 'a> Tick<'s, 'a> {
             self.state,
             &self.id,
             RecordRunTick {
+                actor: crate::actor::chosen(),
                 kind: self.kind,
                 started_at: self.started_at,
                 lines_handled: self.lines_handled,
@@ -812,6 +783,7 @@ impl<'s, 'a> Tick<'s, 'a> {
         let id = crate::dispatch::send(
             self.state,
             crate::cli::SendDispatchArgs {
+                actor: None,
                 dispatch_id: None,
                 repository: Some(repo.to_owned()),
                 goal_id: Some(goal),
@@ -873,6 +845,7 @@ impl<'s, 'a> Tick<'s, 'a> {
             crate::controller::stop_controller(
                 self.state,
                 StopControllerArgs {
+                    actor: None,
                     controller_id: Some(held.data.controller_id.0.0),
                     reason: Some(format!("conductor run: {reason}")),
                     input_json: None,
@@ -978,6 +951,7 @@ pub fn record_run_tick(state: Option<&Path>, args: &RecordRunTickArgs) -> Result
         state,
         &id,
         RecordRunTick {
+            actor: crate::actor::chosen(),
             kind,
             started_at,
             lines_handled,
@@ -998,13 +972,14 @@ pub fn record_run_tick(state: Option<&Path>, args: &RecordRunTickArgs) -> Result
 /// There is no store, it does not open, the generated query refuses a row, or the rows cannot be
 /// written.
 pub fn run_ticks(state: Option<&Path>, view: ViewArgs) -> Result<ExitCode> {
-    const COLUMNS: [&str; 6] = [
+    const COLUMNS: [&str; 7] = [
         "tick_id",
         "state",
         "kind",
         "started_at",
         "lines_handled",
         "actions",
+        "actor",
     ];
     let generated = Generated::new(crate::state::open_reader(state)?);
     let rows = generated
@@ -1025,6 +1000,7 @@ pub fn run_ticks(state: Option<&Path>, view: ViewArgs) -> Result<ExitCode> {
                         .map(|event| crate::records::dispatch_event(*event))
                         .collect::<Vec<_>>(),
                 ),
+                Value::from(crate::actor::written(&row.actor)),
             ]
         })
         .collect();
@@ -1133,6 +1109,53 @@ impl TryContext for TickPorts {
         &mut self,
     ) -> Result<conductor_model::tool::ToolCallId, UnmetObligation> {
         Err(unmet_context("conductor.tool.ToolCallId"))
+    }
+
+    // The v1 domains' generated values (`story:spec-v1`): no command this handler runs
+    // generates one.
+
+    fn try_generate_conductor_config_revision_id(
+        &mut self,
+    ) -> Result<conductor_model::config::RevisionId, UnmetObligation> {
+        Err(conductor_model::behaviour::unmet_context(
+            "conductor.config.RevisionId",
+        ))
+    }
+
+    fn try_generate_conductor_instance_reconciliation_id(
+        &mut self,
+    ) -> Result<conductor_model::instance::ReconciliationId, UnmetObligation> {
+        Err(conductor_model::behaviour::unmet_context(
+            "conductor.instance.ReconciliationId",
+        ))
+    }
+
+    fn try_generate_conductor_placement_box_id(
+        &mut self,
+    ) -> Result<conductor_model::placement::BoxId, UnmetObligation> {
+        Err(conductor_model::behaviour::unmet_context(
+            "conductor.placement.BoxId",
+        ))
+    }
+
+    fn try_generate_conductor_placement_refusal_reason(
+        &mut self,
+    ) -> Result<conductor_model::placement::RefusalReason, UnmetObligation> {
+        Err(conductor_model::behaviour::unmet_context(
+            "conductor.placement.RefusalReason",
+        ))
+    }
+
+    fn try_generate_conductor_token_token_id(
+        &mut self,
+    ) -> Result<conductor_model::token::TokenId, UnmetObligation> {
+        Err(conductor_model::behaviour::unmet_context(
+            "conductor.token.TokenId",
+        ))
+    }
+
+    fn try_generate_string(&mut self) -> Result<String, UnmetObligation> {
+        Err(conductor_model::behaviour::unmet_context("String"))
     }
 }
 

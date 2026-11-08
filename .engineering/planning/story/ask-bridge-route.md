@@ -2,13 +2,15 @@
 format: aep.planning-md/3
 id: story:ask-bridge-route
 kind: story
-status: draft
+status: archived
 title: conductor ask reaches the bridge, which names its route or asks one question
 relations:
 - decomposes: epic:host-bridge
 - depends_on: story:bridge-session
 - depends_on: story:ask-direct
-revision: 2
+revision: 3
+transitions:
+- {from: "draft", to: "archived", at: "2026-11-07T23:41:20Z", actor: "human:timo", revision: 3}
 ---
 # Story: ask-bridge-route
 

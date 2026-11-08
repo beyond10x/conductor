@@ -17,7 +17,7 @@ use conductor_model::direction::{GoalId, ProposeGoal};
 use eventlog_core::{
     CommandMeta, EventStore, Expected, NewEvent, StreamId, TenantId, new_event_id, request_hash,
 };
-use eventlog_tree::TreeEventStore;
+use eventlog_sqlite::SqliteEventStore;
 use serde::de::{Deserialize, Deserializer, IgnoredAny, MapAccess, Visitor};
 use serde_json::{Value, json};
 use time::OffsetDateTime;
@@ -43,6 +43,7 @@ fn propose(state: &Path, goal: &str, title: &str) {
     let mut generated = Generated::new(store::open(state).expect("open the store"));
     generated
         .propose_goal(ProposeGoal {
+            actor: conductor_cli::actor::operator("operator"),
             goal_id: GoalId(goal.to_owned()),
             title: title.to_owned(),
             exit_evidence: format!("{goal} is listed"),
@@ -238,6 +239,7 @@ fn adv_the_state_dir_given_before_and_after_the_subcommand_takes_the_later_value
             "exit_evidence": "G2 is listed",
             "evidence": null,
             "reason": null,
+            "actor": "human:operator",
         }]),
         "{infeasible}: {}",
         describe(&across)
@@ -255,7 +257,13 @@ fn store_unknown_state(state: &Path, goal: &str) {
         .build()
         .expect("a runtime");
     let log = runtime
-        .block_on(TreeEventStore::open(state.join("tree")))
+        .block_on(SqliteEventStore::open(
+            state
+                .join(conductor_cli::store::STORE_FILE)
+                .to_str()
+                .expect("a UTF-8 path"),
+            conductor_cli::store::PREFIX,
+        ))
         .expect("open the log");
     let tenant = TenantId::new("conductor").expect("the tenant");
     let stream =

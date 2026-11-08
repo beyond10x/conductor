@@ -88,12 +88,6 @@ types:
     kind: newtype
     of: String
 
-  - name: conductor.observation.DashboardServe
-    kind: struct
-    fields:
-      - {name: port, type: Optional<Integer>}
-      - {name: root, type: Optional<String>}
-
   # The `memory` part of the dashboard's health view (story:dashboard-memory-bound): what the
   # serving process holds. `rss_bytes` is its resident set (`VmRSS` of `/proc/self/status`) and
   # `swap_bytes` what of it the system swapped out (`VmSwap`), each absent where the system does
@@ -335,6 +329,8 @@ entities:
       name: snapshot_id
       type: conductor.observation.SnapshotId
     fields:
+      - name: actor
+        type: conductor.operator.Actor
       - name: started_at
         type: Timestamp
       - name: disk_free_bytes
@@ -391,6 +387,8 @@ entities:
       name: observation_id
       type: conductor.observation.ObservationId
     fields:
+      - name: actor
+        type: conductor.operator.Actor
       - name: snapshot_id
         type: conductor.observation.SnapshotId
       - name: repository
@@ -470,6 +468,8 @@ entities:
       name: observation_id
       type: conductor.observation.ObservationId
     fields:
+      - name: actor
+        type: conductor.operator.Actor
       - name: snapshot_id
         type: conductor.observation.SnapshotId
       - name: repository
@@ -515,6 +515,8 @@ entities:
       name: observation_id
       type: conductor.observation.ObservationId
     fields:
+      - name: actor
+        type: conductor.operator.Actor
       - name: snapshot_id
         type: conductor.observation.SnapshotId
       - name: repository
@@ -537,6 +539,8 @@ entities:
       name: observation_id
       type: conductor.observation.ObservationId
     fields:
+      - name: actor
+        type: conductor.operator.Actor
       - name: snapshot_id
         type: conductor.observation.SnapshotId
       - name: repository
@@ -561,6 +565,8 @@ entities:
       name: observation_id
       type: conductor.observation.ObservationId
     fields:
+      - name: actor
+        type: conductor.operator.Actor
       - name: snapshot_id
         type: conductor.observation.SnapshotId
       - name: repository
@@ -581,6 +587,8 @@ entities:
       name: observation_id
       type: conductor.observation.ObservationId
     fields:
+      - name: actor
+        type: conductor.operator.Actor
       - name: snapshot_id
         type: conductor.observation.SnapshotId
       - name: harness
@@ -644,6 +652,8 @@ entities:
       name: observation_id
       type: conductor.observation.ObservationId
     fields:
+      - name: actor
+        type: conductor.operator.Actor
       - name: snapshot_id
         type: conductor.observation.SnapshotId
       - name: repository
@@ -676,6 +686,8 @@ entities:
       name: observation_id
       type: conductor.observation.ObservationId
     fields:
+      - name: actor
+        type: conductor.operator.Actor
       - name: snapshot_id
         type: conductor.observation.SnapshotId
       - name: repository
@@ -730,6 +742,8 @@ entities:
       name: observation_id
       type: conductor.observation.ObservationId
     fields:
+      - name: actor
+        type: conductor.operator.Actor
       - name: snapshot_id
         type: conductor.observation.SnapshotId
       - name: read_at
@@ -770,6 +784,8 @@ entities:
       name: observation_id
       type: conductor.observation.ObservationId
     fields:
+      - name: actor
+        type: conductor.operator.Actor
       - name: snapshot_id
         type: conductor.observation.SnapshotId
       - name: member
@@ -800,6 +816,8 @@ entities:
       name: observation_id
       type: conductor.observation.ObservationId
     fields:
+      - name: actor
+        type: conductor.operator.Actor
       - name: snapshot_id
         type: conductor.observation.SnapshotId
       - name: collector
@@ -840,6 +858,8 @@ entities:
       name: observation_id
       type: conductor.observation.ObservationId
     fields:
+      - name: actor
+        type: conductor.operator.Actor
       - name: snapshot_id
         type: conductor.observation.SnapshotId
       - name: sync
@@ -873,6 +893,8 @@ entities:
       name: board_id
       type: conductor.observation.BoardId
     fields:
+      - name: actor
+        type: conductor.operator.Actor
       - name: snapshot_id
         type: conductor.observation.SnapshotId
       - name: previous_snapshot_id
@@ -918,6 +940,8 @@ entities:
       name: daily_series_id
       type: conductor.observation.DailySeriesId
     fields:
+      - name: actor
+        type: conductor.operator.Actor
       - name: series
         type: String
       - name: day
@@ -1014,6 +1038,7 @@ commands:
       wire: start-snapshot
       display: Start a snapshot
     input:
+      - {name: actor, type: conductor.operator.Actor}
       - name: started_at
         type: Timestamp
       - name: disk_free_bytes
@@ -1036,12 +1061,14 @@ commands:
         creates: conductor.observation.Snapshot
         instance: snapshot_id
         sets:
+          actor: input.actor
           started_at: input.started_at
           disk_free_bytes: input.disk_free_bytes
         emits:
           - conductor.observation.SnapshotStarted
         payload:
           conductor.observation.SnapshotStarted:
+            actor: input.actor
             snapshot_id: {generated: true}
             started_at: input.started_at
         summary: A snapshot is collecting.
@@ -1051,6 +1078,7 @@ commands:
       wire: record-repository
       display: Record a repository
     input:
+      - {name: actor, type: conductor.operator.Actor}
       - name: snapshot_id
         type: conductor.observation.SnapshotId
       - name: repository
@@ -1142,6 +1170,7 @@ commands:
         creates: conductor.observation.RepositoryObservation
         instance: observation_id
         sets:
+          actor: input.actor
           snapshot_id: input.snapshot_id
           repository: input.repository
           visibility: input.visibility
@@ -1170,6 +1199,7 @@ commands:
           - conductor.observation.RepositoryRecorded
         payload:
           conductor.observation.RepositoryRecorded:
+            actor: input.actor
             observation_id: {generated: true}
             snapshot_id: input.snapshot_id
             repository: input.repository
@@ -1180,6 +1210,7 @@ commands:
       wire: record-pull-request
       display: Record a pull request
     input:
+      - {name: actor, type: conductor.operator.Actor}
       - name: snapshot_id
         type: conductor.observation.SnapshotId
       - name: repository
@@ -1241,6 +1272,7 @@ commands:
         creates: conductor.observation.PullRequestObservation
         instance: observation_id
         sets:
+          actor: input.actor
           snapshot_id: input.snapshot_id
           repository: input.repository
           number: input.number
@@ -1256,6 +1288,7 @@ commands:
           - conductor.observation.PullRequestRecorded
         payload:
           conductor.observation.PullRequestRecorded:
+            actor: input.actor
             observation_id: {generated: true}
             snapshot_id: input.snapshot_id
             repository: input.repository
@@ -1267,6 +1300,7 @@ commands:
       wire: record-release
       display: Record a release
     input:
+      - {name: actor, type: conductor.operator.Actor}
       - name: snapshot_id
         type: conductor.observation.SnapshotId
       - name: repository
@@ -1299,6 +1333,7 @@ commands:
         creates: conductor.observation.ReleaseObservation
         instance: observation_id
         sets:
+          actor: input.actor
           snapshot_id: input.snapshot_id
           repository: input.repository
           tag: input.tag
@@ -1308,6 +1343,7 @@ commands:
           - conductor.observation.ReleaseRecorded
         payload:
           conductor.observation.ReleaseRecorded:
+            actor: input.actor
             observation_id: {generated: true}
             snapshot_id: input.snapshot_id
             repository: input.repository
@@ -1319,6 +1355,7 @@ commands:
       wire: record-merged-pull-request
       display: Record a merged pull request
     input:
+      - {name: actor, type: conductor.operator.Actor}
       - name: snapshot_id
         type: conductor.observation.SnapshotId
       - name: repository
@@ -1360,6 +1397,7 @@ commands:
         creates: conductor.observation.MergedPullRequestObservation
         instance: observation_id
         sets:
+          actor: input.actor
           snapshot_id: input.snapshot_id
           repository: input.repository
           number: input.number
@@ -1370,6 +1408,7 @@ commands:
           - conductor.observation.MergedPullRequestRecorded
         payload:
           conductor.observation.MergedPullRequestRecorded:
+            actor: input.actor
             observation_id: {generated: true}
             snapshot_id: input.snapshot_id
             repository: input.repository
@@ -1381,6 +1420,7 @@ commands:
       wire: record-workflow-run
       display: Record a workflow run
     input:
+      - {name: actor, type: conductor.operator.Actor}
       - name: snapshot_id
         type: conductor.observation.SnapshotId
       - name: repository
@@ -1410,6 +1450,7 @@ commands:
         creates: conductor.observation.WorkflowRunObservation
         instance: observation_id
         sets:
+          actor: input.actor
           snapshot_id: input.snapshot_id
           repository: input.repository
           workflow: input.workflow
@@ -1419,6 +1460,7 @@ commands:
           - conductor.observation.WorkflowRunRecorded
         payload:
           conductor.observation.WorkflowRunRecorded:
+            actor: input.actor
             observation_id: {generated: true}
             snapshot_id: input.snapshot_id
             repository: input.repository
@@ -1430,6 +1472,7 @@ commands:
       wire: record-session
       display: Record a session
     input:
+      - {name: actor, type: conductor.operator.Actor}
       - name: snapshot_id
         type: conductor.observation.SnapshotId
       - name: harness
@@ -1486,6 +1529,7 @@ commands:
         creates: conductor.observation.SessionObservation
         instance: observation_id
         sets:
+          actor: input.actor
           snapshot_id: input.snapshot_id
           harness: input.harness
           session_ref: input.session_ref
@@ -1505,6 +1549,7 @@ commands:
           - conductor.observation.SessionRecorded
         payload:
           conductor.observation.SessionRecorded:
+            actor: input.actor
             observation_id: {generated: true}
             snapshot_id: input.snapshot_id
             harness: input.harness
@@ -1516,6 +1561,7 @@ commands:
       wire: record-blocker
       display: Record a blocker
     input:
+      - {name: actor, type: conductor.operator.Actor}
       - name: snapshot_id
         type: conductor.observation.SnapshotId
       - name: repository
@@ -1545,6 +1591,7 @@ commands:
         creates: conductor.observation.BlockerObservation
         instance: observation_id
         sets:
+          actor: input.actor
           snapshot_id: input.snapshot_id
           repository: input.repository
           reference: input.reference
@@ -1554,6 +1601,7 @@ commands:
           - conductor.observation.BlockerRecorded
         payload:
           conductor.observation.BlockerRecorded:
+            actor: input.actor
             observation_id: {generated: true}
             snapshot_id: input.snapshot_id
             repository: input.repository
@@ -1565,6 +1613,7 @@ commands:
       wire: record-specification
       display: Record a specification status
     input:
+      - {name: actor, type: conductor.operator.Actor}
       - name: snapshot_id
         type: conductor.observation.SnapshotId
       - name: repository
@@ -1620,6 +1669,7 @@ commands:
         creates: conductor.observation.SpecificationObservation
         instance: observation_id
         sets:
+          actor: input.actor
           snapshot_id: input.snapshot_id
           repository: input.repository
           presence: input.presence
@@ -1635,6 +1685,7 @@ commands:
           - conductor.observation.SpecificationRecorded
         payload:
           conductor.observation.SpecificationRecorded:
+            actor: input.actor
             observation_id: {generated: true}
             snapshot_id: input.snapshot_id
             repository: input.repository
@@ -1647,6 +1698,7 @@ commands:
       wire: record-usage
       display: Record one window of an account's usage
     input:
+      - {name: actor, type: conductor.operator.Actor}
       - name: snapshot_id
         type: conductor.observation.SnapshotId
       - name: read_at
@@ -1695,6 +1747,7 @@ commands:
         creates: conductor.observation.UsageObservation
         instance: observation_id
         sets:
+          actor: input.actor
           snapshot_id: input.snapshot_id
           read_at: input.read_at
           account: input.account
@@ -1707,6 +1760,7 @@ commands:
           - conductor.observation.UsageRecorded
         payload:
           conductor.observation.UsageRecorded:
+            actor: input.actor
             observation_id: {generated: true}
             snapshot_id: input.snapshot_id
             account: input.account
@@ -1719,6 +1773,7 @@ commands:
       wire: record-member-failure
       display: Record a member a collector could not read
     input:
+      - {name: actor, type: conductor.operator.Actor}
       - name: snapshot_id
         type: conductor.observation.SnapshotId
       - name: member
@@ -1748,6 +1803,7 @@ commands:
         creates: conductor.observation.MemberFailureObservation
         instance: observation_id
         sets:
+          actor: input.actor
           snapshot_id: input.snapshot_id
           member: input.member
           collector: input.collector
@@ -1756,6 +1812,7 @@ commands:
           - conductor.observation.MemberFailureRecorded
         payload:
           conductor.observation.MemberFailureRecorded:
+            actor: input.actor
             observation_id: {generated: true}
             snapshot_id: input.snapshot_id
             member: input.member
@@ -1767,6 +1824,7 @@ commands:
       wire: record-collector-run
       display: Record a collector's run
     input:
+      - {name: actor, type: conductor.operator.Actor}
       - name: snapshot_id
         type: conductor.observation.SnapshotId
       - name: collector
@@ -1812,6 +1870,7 @@ commands:
         creates: conductor.observation.CollectorRunObservation
         instance: observation_id
         sets:
+          actor: input.actor
           snapshot_id: input.snapshot_id
           collector: input.collector
           started_at: input.started_at
@@ -1823,6 +1882,7 @@ commands:
           - conductor.observation.CollectorRunRecorded
         payload:
           conductor.observation.CollectorRunRecorded:
+            actor: input.actor
             observation_id: {generated: true}
             snapshot_id: input.snapshot_id
             collector: input.collector
@@ -1835,6 +1895,7 @@ commands:
       wire: record-secret-sync
       display: Record a secret sync
     input:
+      - {name: actor, type: conductor.operator.Actor}
       - name: snapshot_id
         type: conductor.observation.SnapshotId
       - name: sync
@@ -1875,6 +1936,7 @@ commands:
         creates: conductor.observation.SecretSyncObservation
         instance: observation_id
         sets:
+          actor: input.actor
           snapshot_id: input.snapshot_id
           sync: input.sync
           repository: input.repository
@@ -1887,6 +1949,7 @@ commands:
           - conductor.observation.SecretSyncRecorded
         payload:
           conductor.observation.SecretSyncRecorded:
+            actor: input.actor
             observation_id: {generated: true}
             snapshot_id: input.snapshot_id
             sync: input.sync
@@ -1898,6 +1961,7 @@ commands:
       wire: publish-board
       display: Publish the board
     input:
+      - {name: actor, type: conductor.operator.Actor}
       - name: snapshot_id
         type: conductor.observation.SnapshotId
       - name: previous_snapshot_id
@@ -1932,6 +1996,7 @@ commands:
         creates: conductor.observation.Board
         instance: board_id
         sets:
+          actor: input.actor
           snapshot_id: input.snapshot_id
           previous_snapshot_id: input.previous_snapshot_id
           deviation_rows: input.deviation_rows
@@ -1940,6 +2005,7 @@ commands:
           - conductor.observation.BoardPublished
         payload:
           conductor.observation.BoardPublished:
+            actor: input.actor
             board_id: {generated: true}
             snapshot_id: input.snapshot_id
             deviation_rows: input.deviation_rows
@@ -1952,6 +2018,7 @@ commands:
       wire: record-daily-series
       display: Record a daily rollup
     input:
+      - {name: actor, type: conductor.operator.Actor}
       - name: daily_series_id
         type: conductor.observation.DailySeriesId
       - name: series
@@ -1973,6 +2040,7 @@ commands:
         creates: conductor.observation.DailySeries
         instance: daily_series_id
         sets:
+          actor: input.actor
           series: input.series
           day: input.day
           by: input.by
@@ -1984,6 +2052,7 @@ commands:
           - conductor.observation.DailySeriesRecorded
         payload:
           conductor.observation.DailySeriesRecorded:
+            actor: input.actor
             daily_series_id: input.daily_series_id
             snapshot_id: input.snapshot_id
         summary: The day's rollup of the series for the group is kept.
@@ -2003,6 +2072,7 @@ commands:
       wire: revise-daily-series
       display: Revise a daily rollup
     input:
+      - {name: actor, type: conductor.operator.Actor}
       - name: daily_series_id
         type: conductor.observation.DailySeriesId
       - name: value
@@ -2024,6 +2094,7 @@ commands:
           - conductor.observation.DailySeriesRevised
         payload:
           conductor.observation.DailySeriesRevised:
+            actor: input.actor
             daily_series_id: input.daily_series_id
             snapshot_id: input.snapshot_id
         summary: The rollup counts the items it kept and the new ones.
@@ -2039,6 +2110,7 @@ commands:
       wire: complete-snapshot
       display: Complete a snapshot
     input:
+      - {name: actor, type: conductor.operator.Actor}
       - name: snapshot_id
         type: conductor.observation.SnapshotId
     outcomes:
@@ -2049,6 +2121,7 @@ commands:
           - conductor.observation.SnapshotCompleted
         payload:
           conductor.observation.SnapshotCompleted:
+            actor: input.actor
             snapshot_id: input.snapshot_id
         summary: Every source answered; the snapshot is the newest complete one.
       - name: no-such-snapshot
@@ -2070,6 +2143,7 @@ commands:
       wire: fail-snapshot
       display: Fail a snapshot
     input:
+      - {name: actor, type: conductor.operator.Actor}
       - name: snapshot_id
         type: conductor.observation.SnapshotId
       - name: reason
@@ -2084,6 +2158,7 @@ commands:
           - conductor.observation.SnapshotFailed
         payload:
           conductor.observation.SnapshotFailed:
+            actor: input.actor
             snapshot_id: input.snapshot_id
             reason: input.reason
         summary: A source did not answer; the snapshot is kept but never read as the current state.
@@ -2104,6 +2179,8 @@ commands:
 events:
   - name: conductor.observation.DailySeriesRecorded
     fields:
+      - name: actor
+        type: conductor.operator.Actor
       - name: daily_series_id
         type: conductor.observation.DailySeriesId
       - name: snapshot_id
@@ -2111,6 +2188,8 @@ events:
 
   - name: conductor.observation.DailySeriesRevised
     fields:
+      - name: actor
+        type: conductor.operator.Actor
       - name: daily_series_id
         type: conductor.observation.DailySeriesId
       - name: snapshot_id
@@ -2118,6 +2197,8 @@ events:
 
   - name: conductor.observation.SnapshotStarted
     fields:
+      - name: actor
+        type: conductor.operator.Actor
       - name: snapshot_id
         type: conductor.observation.SnapshotId
       - name: started_at
@@ -2125,6 +2206,8 @@ events:
 
   - name: conductor.observation.RepositoryRecorded
     fields:
+      - name: actor
+        type: conductor.operator.Actor
       - name: observation_id
         type: conductor.observation.ObservationId
       - name: snapshot_id
@@ -2134,6 +2217,8 @@ events:
 
   - name: conductor.observation.PullRequestRecorded
     fields:
+      - name: actor
+        type: conductor.operator.Actor
       - name: observation_id
         type: conductor.observation.ObservationId
       - name: snapshot_id
@@ -2145,6 +2230,8 @@ events:
 
   - name: conductor.observation.ReleaseRecorded
     fields:
+      - name: actor
+        type: conductor.operator.Actor
       - name: observation_id
         type: conductor.observation.ObservationId
       - name: snapshot_id
@@ -2156,6 +2243,8 @@ events:
 
   - name: conductor.observation.MergedPullRequestRecorded
     fields:
+      - name: actor
+        type: conductor.operator.Actor
       - name: observation_id
         type: conductor.observation.ObservationId
       - name: snapshot_id
@@ -2167,6 +2256,8 @@ events:
 
   - name: conductor.observation.WorkflowRunRecorded
     fields:
+      - name: actor
+        type: conductor.operator.Actor
       - name: observation_id
         type: conductor.observation.ObservationId
       - name: snapshot_id
@@ -2178,6 +2269,8 @@ events:
 
   - name: conductor.observation.SessionRecorded
     fields:
+      - name: actor
+        type: conductor.operator.Actor
       - name: observation_id
         type: conductor.observation.ObservationId
       - name: snapshot_id
@@ -2189,6 +2282,8 @@ events:
 
   - name: conductor.observation.BlockerRecorded
     fields:
+      - name: actor
+        type: conductor.operator.Actor
       - name: observation_id
         type: conductor.observation.ObservationId
       - name: snapshot_id
@@ -2200,6 +2295,8 @@ events:
 
   - name: conductor.observation.SpecificationRecorded
     fields:
+      - name: actor
+        type: conductor.operator.Actor
       - name: observation_id
         type: conductor.observation.ObservationId
       - name: snapshot_id
@@ -2213,6 +2310,8 @@ events:
 
   - name: conductor.observation.UsageRecorded
     fields:
+      - name: actor
+        type: conductor.operator.Actor
       - name: observation_id
         type: conductor.observation.ObservationId
       - name: snapshot_id
@@ -2226,6 +2325,8 @@ events:
 
   - name: conductor.observation.MemberFailureRecorded
     fields:
+      - name: actor
+        type: conductor.operator.Actor
       - name: observation_id
         type: conductor.observation.ObservationId
       - name: snapshot_id
@@ -2237,6 +2338,8 @@ events:
 
   - name: conductor.observation.CollectorRunRecorded
     fields:
+      - name: actor
+        type: conductor.operator.Actor
       - name: observation_id
         type: conductor.observation.ObservationId
       - name: snapshot_id
@@ -2250,6 +2353,8 @@ events:
 
   - name: conductor.observation.SecretSyncRecorded
     fields:
+      - name: actor
+        type: conductor.operator.Actor
       - name: observation_id
         type: conductor.observation.ObservationId
       - name: snapshot_id
@@ -2261,6 +2366,8 @@ events:
 
   - name: conductor.observation.BoardPublished
     fields:
+      - name: actor
+        type: conductor.operator.Actor
       - name: board_id
         type: conductor.observation.BoardId
       - name: snapshot_id
@@ -2270,11 +2377,15 @@ events:
 
   - name: conductor.observation.SnapshotCompleted
     fields:
+      - name: actor
+        type: conductor.operator.Actor
       - name: snapshot_id
         type: conductor.observation.SnapshotId
 
   - name: conductor.observation.SnapshotFailed
     fields:
+      - name: actor
+        type: conductor.operator.Actor
       - name: snapshot_id
         type: conductor.observation.SnapshotId
       - name: reason
@@ -2295,6 +2406,8 @@ views:
         type: Integer
       - name: failure_reason
         type: Optional<String>
+      - name: actor
+        type: conductor.operator.Actor
     naming:
       wire: snapshots
       display: Snapshots
@@ -2353,6 +2466,8 @@ views:
         type: Optional<Integer>
       - name: wave_reason
         type: Optional<String>
+      - name: actor
+        type: conductor.operator.Actor
     naming:
       wire: repositories
       display: Repositories
@@ -2385,6 +2500,8 @@ views:
         type: Timestamp
       - name: url
         type: Optional<String>
+      - name: actor
+        type: conductor.operator.Actor
     naming:
       wire: pull-requests
       display: Pull requests
@@ -2405,6 +2522,8 @@ views:
         type: Timestamp
       - name: url
         type: String
+      - name: actor
+        type: conductor.operator.Actor
     naming:
       wire: releases
       display: Releases
@@ -2427,6 +2546,8 @@ views:
         type: Timestamp
       - name: url
         type: String
+      - name: actor
+        type: conductor.operator.Actor
     naming:
       wire: merged-pull-requests
       display: Merged pull requests
@@ -2447,6 +2568,8 @@ views:
         type: conductor.observation.RunConclusion
       - name: run_at
         type: Timestamp
+      - name: actor
+        type: conductor.operator.Actor
     naming:
       wire: workflow-runs
       display: Workflow runs
@@ -2467,6 +2590,8 @@ views:
         type: String
       - name: title
         type: String
+      - name: actor
+        type: conductor.operator.Actor
     naming:
       wire: blockers
       display: Blockers
@@ -2499,6 +2624,8 @@ views:
         type: Optional<Integer>
       - name: conformance_status
         type: Optional<String>
+      - name: actor
+        type: conductor.operator.Actor
     naming:
       wire: specifications
       display: Specifications
@@ -2527,6 +2654,8 @@ views:
         type: Integer
       - name: resets_at
         type: Optional<Timestamp>
+      - name: actor
+        type: conductor.operator.Actor
     naming:
       wire: usage-readings
       display: Usage readings
@@ -2547,6 +2676,8 @@ views:
         type: String
       - name: error_line
         type: String
+      - name: actor
+        type: conductor.operator.Actor
     naming:
       wire: member-failures
       display: Members a collector could not read
@@ -2573,6 +2704,8 @@ views:
         type: Optional<Integer>
       - name: written_bytes
         type: Optional<Integer>
+      - name: actor
+        type: conductor.operator.Actor
     naming:
       wire: collector-runs
       display: Collector runs
@@ -2601,6 +2734,8 @@ views:
         type: Optional<Timestamp>
       - name: error_line
         type: Optional<String>
+      - name: actor
+        type: conductor.operator.Actor
     naming:
       wire: secret-syncs
       display: Secret syncs
@@ -2619,6 +2754,8 @@ views:
         type: Integer
       - name: path
         type: String
+      - name: actor
+        type: conductor.operator.Actor
     naming:
       wire: boards
       display: Boards
@@ -2659,6 +2796,8 @@ views:
         type: Optional<String>
       - name: envelope_unboxed
         type: Optional<String>
+      - name: actor
+        type: conductor.operator.Actor
     naming:
       wire: sessions
       display: Sessions

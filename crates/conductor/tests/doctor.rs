@@ -34,8 +34,9 @@ fn child() {
 
 /// Each program conductor starts, with the version line its fake prints. `aep`, `worktree` and
 /// `ess` print a version newer than any pin a build carries (`story:doctor-minimum-versions`), so
-/// a case without a pin file passes whatever the repository's `b10x.toml` pins.
-const PROGRAMS: [(&str, &str); 8] = [
+/// a case without a pin file passes whatever the repository's `b10x.toml` pins; so does
+/// `substrate-daemon`, which every placement of a config file now needs.
+const PROGRAMS: [(&str, &str); 9] = [
     ("git", "git version 2.51.0"),
     ("gh", "gh version 2.100.0 (2026-09-04)"),
     ("claude", "2.1.295 (Claude Code)"),
@@ -44,6 +45,7 @@ const PROGRAMS: [(&str, &str); 8] = [
     ("aep", "aep 99.1.0"),
     ("worktree", "worktree-cli 99.1.0"),
     ("ess", "ess 99.1.0"),
+    ("substrate-daemon", "substrate-daemon 99.1.0"),
 ];
 
 /// The pins of the repository's own `b10x.toml`, which the build carries as its minimum versions.
@@ -1028,17 +1030,16 @@ fn doctor_names_a_checkouts_root_in_an_activated_worktree_workspace_ready() {
     assert_eq!(last(&output), "ready", "{}", shown(&output));
 }
 
-/// `story:session-envelope-seam`: doctor prints one row per confinement provider after the
-/// program rows and before the verdict, which stays last; a provider that is not available names
-/// why and changes no verdict. Two fake providers, one available and one not.
+/// `story:spec-v1`: the confinement providers' rows went with `confinement.*` (design
+/// architecture-next § 11, `conductor.config.DoctorReport`): doctor prints no provider row, even
+/// with a provider that is not available, and its verdict stays last.
 #[test]
-fn doctor_prints_one_row_per_provider_before_the_verdict() {
+fn doctor_prints_no_provider_row() {
     let case = Case::new("providers");
     case.programs_but(&[]);
     let fake = case.dir.join("fake");
     fs::create_dir_all(&fake).expect("create the fake's directory");
-    fs::write(fake.join("providers"), "alpha\nbeta\n").expect("name the providers");
-    fs::write(fake.join("beta.unavailable"), "no cgroup delegation\n").expect("beta is not");
+    fs::write(fake.join("systemd.unavailable"), "no cgroup delegation\n").expect("systemd is not");
     let output = fake_provider::without_harness(
         fake_provider::command_in_clear_env(&case.home(), &fake, &["doctor"])
             .current_dir(case.work())
@@ -1048,28 +1049,17 @@ fn doctor_prints_one_row_per_provider_before_the_verdict() {
     );
     assert_eq!(output.status.code(), Some(0), "{}", shown(&output));
     let lines = stdout(&output);
-    let at = |line: &str| {
-        lines
-            .iter()
-            .position(|shown| shown == line)
-            .unwrap_or_else(|| panic!("no line {line:?}: {}", shown(&output)))
-    };
-    let alpha = at("provider alpha: available");
-    let beta = at("provider beta: not available: no cgroup delegation");
-    assert_eq!(
-        (alpha + 1, beta + 2),
-        (beta, lines.len()),
+    assert!(
+        !lines.iter().any(|line| line.starts_with("provider ")),
         "{}",
         shown(&output)
     );
     for (program, _) in PROGRAMS {
-        let row = lines
-            .iter()
-            .position(|line| line.starts_with(&format!("{program}: ")))
-            .unwrap_or_else(|| panic!("no row for {program}: {}", shown(&output)));
         assert!(
-            row < alpha,
-            "{program} after the providers: {}",
+            lines
+                .iter()
+                .any(|line| line.starts_with(&format!("{program}: "))),
+            "no row for {program}: {}",
             shown(&output)
         );
     }

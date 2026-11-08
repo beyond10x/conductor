@@ -34,7 +34,7 @@ use eventlog_core::{
     CommandMeta, EventStore as _, Expected, NewEvent, StreamId, TenantId, new_event_id,
     request_hash,
 };
-use eventlog_tree::TreeEventStore;
+use eventlog_sqlite::SqliteEventStore;
 use serde_json::{Value, json};
 use time::OffsetDateTime;
 
@@ -152,6 +152,7 @@ fn snapshot_id(text: &str) -> SnapshotId {
 
 fn repository(snapshot: &SnapshotId, name: &str) -> RecordRepository {
     RecordRepository {
+        actor: conductor_cli::actor::daemon(),
         snapshot_id: snapshot.clone(),
         repository: RepositoryName(name.to_owned()),
         visibility: Visibility::Public,
@@ -195,6 +196,7 @@ fn everything() -> Collector {
         let alpha = RepositoryName("alpha".to_owned());
         record.repository(repository(&snapshot, "alpha"))?;
         record.pull_request(RecordPullRequest {
+            actor: conductor_cli::actor::daemon(),
             snapshot_id: snapshot.clone(),
             repository: alpha.clone(),
             number: 7,
@@ -208,6 +210,7 @@ fn everything() -> Collector {
             url: None,
         })?;
         record.workflow_run(RecordWorkflowRun {
+            actor: conductor_cli::actor::daemon(),
             snapshot_id: snapshot.clone(),
             repository: alpha.clone(),
             workflow: "check".to_owned(),
@@ -215,6 +218,7 @@ fn everything() -> Collector {
             run_at: Timestamp("2026-10-02T00:00:00Z".to_owned()),
         })?;
         record.session(RecordSession {
+            actor: conductor_cli::actor::daemon(),
             snapshot_id: snapshot.clone(),
             harness: Harness::Claude,
             session_ref: "session-1".to_owned(),
@@ -232,6 +236,7 @@ fn everything() -> Collector {
             envelope_unboxed: None,
         })?;
         record.blocker(RecordBlocker {
+            actor: conductor_cli::actor::daemon(),
             snapshot_id: snapshot,
             repository: alpha,
             reference: "blocker:one".to_owned(),
@@ -244,27 +249,30 @@ fn everything() -> Collector {
 
 /// Appends one `stored` event at schema `version` with `body` to the new stream `key` of `entity`,
 /// with the raw log: what a crashed run or another build leaves in the store. It is kept where the
-/// store keeps it (`story:observation-retention`): an observation in the tenant of the snapshot
-/// its body names under `state/observations/`, every other record in `state/tree/`.
+/// store keeps it (`story:store-shared`): an observation in the tenant of the snapshot its body
+/// names, every other record in the tenant of the state directory, `conductor`, both in
+/// `state/store.sqlite`.
 fn append_raw(root: &Path, entity: &str, key: &str, version: u32, body: Value) {
     let observed = entity.starts_with("conductor.observation.") && entity.ends_with("Observation");
-    let (dir, tenant) = if observed {
-        (
-            state(root).join("observations"),
+    let tenant = if observed {
+        format!(
+            "conductor/observations/{}",
             body["snapshot_id"]
                 .as_str()
                 .expect("an observation names its snapshot")
-                .to_owned(),
         )
     } else {
-        (state(root).join("tree"), "conductor".to_owned())
+        "conductor".to_owned()
     };
-    fs::create_dir_all(&dir).expect("create the store's directory");
+    fs::create_dir_all(state(root)).expect("create the state directory");
+    let file = state(root).join(store::STORE_FILE);
     let runtime = tokio::runtime::Builder::new_current_thread()
         .build()
         .expect("a runtime for the raw log");
     runtime.block_on(async {
-        let log = TreeEventStore::open(&dir).await.expect("open the raw log");
+        let log = SqliteEventStore::open(file.to_str().expect("a UTF-8 path"), store::PREFIX)
+            .await
+            .expect("open the raw log");
         let tenant = TenantId::new(tenant).expect("tenant");
         let stream = StreamId::new(tenant, entity, key).expect("stream");
         let events = [NewEvent::new("stored", version, body).expect("event")];
@@ -389,6 +397,7 @@ fn adv_every_recorder_method_records_only_into_the_snapshot_it_is_given() {
         let alpha = RepositoryName("alpha".to_owned());
         record.repository(repository(&stale, "alpha"))?;
         record.pull_request(RecordPullRequest {
+            actor: conductor_cli::actor::daemon(),
             snapshot_id: stale.clone(),
             repository: alpha.clone(),
             number: 7,
@@ -402,6 +411,7 @@ fn adv_every_recorder_method_records_only_into_the_snapshot_it_is_given() {
             url: None,
         })?;
         record.workflow_run(RecordWorkflowRun {
+            actor: conductor_cli::actor::daemon(),
             snapshot_id: stale.clone(),
             repository: alpha.clone(),
             workflow: "check".to_owned(),
@@ -409,6 +419,7 @@ fn adv_every_recorder_method_records_only_into_the_snapshot_it_is_given() {
             run_at: Timestamp("2026-10-02T00:00:00Z".to_owned()),
         })?;
         record.session(RecordSession {
+            actor: conductor_cli::actor::daemon(),
             snapshot_id: stale.clone(),
             harness: Harness::Claude,
             session_ref: "session-1".to_owned(),
@@ -426,6 +437,7 @@ fn adv_every_recorder_method_records_only_into_the_snapshot_it_is_given() {
             envelope_unboxed: None,
         })?;
         record.blocker(RecordBlocker {
+            actor: conductor_cli::actor::daemon(),
             snapshot_id: stale.clone(),
             repository: alpha.clone(),
             reference: "blocker:one".to_owned(),
@@ -433,6 +445,7 @@ fn adv_every_recorder_method_records_only_into_the_snapshot_it_is_given() {
             title: "One".to_owned(),
         })?;
         record.specification(RecordSpecification {
+            actor: conductor_cli::actor::daemon(),
             snapshot_id: stale.clone(),
             repository: alpha,
             presence: SpecificationPresence::Present,
@@ -762,6 +775,8 @@ fn adv_each_record_command_reads_back_through_its_view() {
     ];
     for ((name, mut want), (command, observation)) in expected.into_iter().zip(printed) {
         want["observation_id"] = Value::from(observation);
+        // Each `record-*` ran as the operator (`common::conductor` sets `USER`).
+        want["actor"] = Value::from("human:operator");
         let rows = view(&root, name);
         assert_eq!(rows, vec![want], "`{command}` read back through `{name}`");
     }
@@ -1080,7 +1095,7 @@ fn adv_a_df_that_cannot_answer_does_not_stop_start_snapshot() {
         }
         let output = conductor_with(&root, Some(&bin), &["snapshot", "start-snapshot"]);
         let stderr = String::from_utf8_lossy(&output.stderr);
-        let snapshots = if state(&root).join("tree").exists() {
+        let snapshots = if state(&root).join(store::STORE_FILE).exists() {
             view(&root, "snapshots")
         } else {
             Vec::new()

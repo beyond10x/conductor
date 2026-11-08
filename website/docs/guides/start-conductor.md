@@ -1,9 +1,9 @@
 ---
 title: Start conductor and its controllers
 sidebar_position: 3
-description: Install the binary, name the profiles, trust the checkouts, accept the bypass-permissions disclaimer once and start the instance's loop, conductor run, as a user unit.
-lede: conductor run --install starts the instance's loop as a user unit; the loop starts each controller on the harness, model, profile and settings its config names, with the guard wired in.
-source: Taskfile.yml; docs/design/conductor.md sections 2, 7, 11 and 12; docs/design/conductor-run.md; crates/conductor/src/run.rs; README.md, Run sessions; .claude/controller-settings.json; .agents/repo-controller.md
+description: Install the binary, name the profiles, trust the checkouts, accept the bypass-permissions disclaimer once and start conductord, which starts each instance's runtime, as a user unit.
+lede: conductor daemon serve --install starts conductord as a user unit, and conductord each instance's runtime; the loop starts each controller on the harness, model, profile and settings its config names, with the guard wired in.
+source: Taskfile.yml; crates/conductor/src/daemon; docs/design/conductor.md sections 2, 7, 11 and 12; docs/design/conductor-run.md; crates/conductor/src/run.rs; README.md, Run sessions; crates/conductor/kinds/claude-code/controller-settings.json; crates/conductor/roles/controller.md
 ---
 
 Run these from a checkout of the conductor repository, after you have
@@ -34,9 +34,10 @@ and exits 1 when one is missing.
 Sessions the `systemd` provider starts pass `--setting-sources project,local`, so Claude Code loads
 neither your user-level settings nor the agents in `~/.claude/agents/`; the `none` provider's
 `claude --bg` sessions read user settings too, where the bypass-permissions acceptance is kept
-(step 4). Each role that starts a session therefore names its
-profile, the file the session starts with through `--append-system-prompt-file`, and its settings
-file, which wires the guard. With this checkout at `~/example-org/conductor`:
+(step 4). Each role that starts a session therefore starts from
+the profile and settings the binary carries for it, which the session start writes into its state
+directory: the profile through `--append-system-prompt-file`, the settings, which wire the guard,
+through `--settings`. A role's own `profile` or `settings` takes their place:
 
 ```yaml
     roles:
@@ -46,35 +47,21 @@ file, which wires the guard. With this checkout at `~/example-org/conductor`:
       - role: conductor-dev
         harness: claude
         model: opus
-        profile: ~/.b10x/conductor/profiles/conductor-dev.md
       - role: controller
         harness: claude
         model: opus
-        profile: ~/.b10x/conductor/profiles/repo-controller.md
-        settings: ~/example-org/conductor/.claude/controller-settings.json
 ```
 
 The `conductor` role starts no session: `conductor run` is the loop, and the role's `model` answers
 the class-C decision requests the loop decides.
 
-`task install` writes the two profiles (`.agents/conductor-dev.md`, `.agents/repo-controller.md`)
-of the checkout it installs from into `~/.b10x/conductor/profiles/` (beside the config file
-`CONDUCTOR_CONFIG` names, when it names one), so each profile matches the installed binary and a
-restart reads no checkout.
+The profiles are compiled into the binary (`crates/conductor/roles/`), so a role always starts
+from the text of the binary that starts it; `conductor role show --role <role>` prints it. Nothing
+is installed beside the config file and nothing is written under `~/.claude/agents/`.
 
-Without a `profile`, `task maintainer:start` starts conductor-dev with `--agent conductor-dev`,
-which it finds only in this checkout's `.claude/agents/`; it refuses when that file is not there.
-`conductor config validate` refuses a controller role that names an `agent` and no `profile`.
-
-`task agents:link REPO=<path>` serves none of these sessions either. It is for an interactive
-session you start yourself in one repository: it links this checkout's two adapters
-(`repo-controller.md`, `conductor-dev.md`) into `<path>/.claude/agents/` and adds each linked path
-to that repository's `.git/info/exclude`, so `git status` does not show it. `REPO` is required and
-must be the top of a git repository. The task writes nothing to `~/.claude/agents/`, where every
-Claude Code session on the machine would see a controller agent; it removes a link there named
-`conductor.md` (the retired conductor adapter), `repo-controller.md` or `conductor-dev.md` that
-points into this checkout, as an earlier version of the task made, and leaves any other file there
-with a note.
+Without a `profile`, `task maintainer:start` starts conductor-dev from the binary's maintainer
+profile. `conductor config validate` refuses a controller role that names an `agent` and no
+`profile`.
 
 ## 3. Trust the checkouts
 
@@ -96,22 +83,29 @@ a checkout and accept it, or set `"skipDangerousModePermissionPrompt": true` in 
 or managed settings, not from the role's settings file, so the `none` provider's sessions read user
 settings ([setting sources](/docs/security/confinement#setting-sources)).
 
-## 5. Start the loop
+## 5. Start the daemon and the loop
 
 ```console
-conductor run --install   # start the loop as the user unit conductor_<instance>-run.service
-conductor run --once      # or run one watch tick and one cycle tick in this terminal, then exit
-task sessions             # list the instance's sessions
+conductor daemon serve --install   # install and start conductord as the user unit conductord.service
+curl -s http://127.0.0.1:7300/v1/instances   # every instance: placement, state, binary version, last seen
+conductor run --once               # or run one watch tick and one cycle tick in this terminal, then exit
+task sessions                      # list the instance's sessions
 ```
+
+conductord reads the config file and makes the running instances follow it: it starts the runtime
+of each instance that is absent (`conductor instance serve` as
+`conductor_<instance>-runtime.service`), stops the runtime of an instance gone from the config, and
+restarts one whose placement or binary changed. It does so at its start, when the config file
+changes, when a runtime stops, and every `daemon.cadence.reconcile` (60 s), and records each action
+as a `Reconciliation` in its store; a pass with nothing to do records nothing.
+`conductor daemon serve --uninstall` stops it and removes the unit.
 
 `conductor run` is one process per instance and makes no model call but the bounded one that
 answers a class-C decision request. Every `cadence.watch` it runs the watch pass, a handler for each
 line (a hand-over, a usage limit, a pull request's checks, a stalled or gone controller, low disk)
 and the mailbox; every `cadence.cycle` the snapshot, the board, `records check` and dispatch; once a
 day at `cadence.daily` `metric compute` and the brief `REPORT.md` in the records. It keeps nothing
-in memory that is not in the store, so a restart loses nothing. `--install` starts it through
-`systemd-run`; under the `none` provider it prints the command to run instead.
-`conductor run --uninstall` stops the unit.
+in memory that is not in the store, so a restart loses nothing.
 
 :::note[Watch or type into a running session]
 
@@ -138,7 +132,7 @@ cd <checkouts root>/<repo> && claude --bg -n <session name> --append-system-prom
 ```
 
 The session name is `<session_prefix>-<repo>`, or `<repo>` without a prefix. The settings are the
-controller role's, such as this checkout's `.claude/controller-settings.json`, which wires the
+controller role's, such as this checkout's `crates/conductor/kinds/claude-code/controller-settings.json`, which wires the
 guard. `conductor spawn` records each controller running, and refuses a second running
 controller for the same repository.
 
@@ -166,9 +160,9 @@ one of them, and nothing in code prevents it.
 
 ## 7. Restart and development
 
-`conductor run --uninstall`, then `conductor run --install`, restarts the loop, for example after
-`task install` put a release that changed it in place. The loop keeps no context, so nothing is
-handed over; it restarts controllers itself.
+After `task install` put a new binary in place, conductord restarts each instance's runtime on it
+at its next pass. The loop keeps no context, so nothing is handed over; it restarts controllers
+itself. `conductor daemon serve --uninstall`, then `--install`, restarts conductord itself.
 
 `task maintainer:start` and `task maintainer:attach` start and open the conductor-dev session,
 which develops conductor in this checkout. It starts without the guard unless its role names a

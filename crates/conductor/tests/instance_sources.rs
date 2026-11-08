@@ -234,6 +234,11 @@ impl Case {
                 let fields = row.as_object_mut().expect("a row is an object");
                 fields.remove("observation_id");
                 fields.remove("snapshot_id");
+                assert_eq!(
+                    fields.remove("actor"),
+                    Some(Value::from("daemon")),
+                    "the collectors record as the daemon"
+                );
                 row
             })
             .collect()
@@ -778,6 +783,7 @@ fn the_specifications_collector_lists_each_owner() {
         from_file: true,
         others: Vec::new(),
         default: None,
+        daemon_port: conductor_cli::config::DAEMON_PORT,
     };
     let mut sources =
         specifications::Sources::of(&active, &case.state()).expect("the instance's sources");
@@ -816,6 +822,7 @@ fn the_blocker_sources_follow_the_instance_only_when_a_file_names_it() {
             from_file: true,
             others: Vec::new(),
             default: None,
+            daemon_port: conductor_cli::config::DAEMON_PORT,
         },
         &state,
     )
@@ -831,6 +838,7 @@ fn the_blocker_sources_follow_the_instance_only_when_a_file_names_it() {
             from_file: false,
             others: Vec::new(),
             default: None,
+            daemon_port: conductor_cli::config::DAEMON_PORT,
         },
         &state,
     )
@@ -891,6 +899,7 @@ fn a_repository_two_owners_list_fails_each_collector_naming_both() {
         from_file: true,
         others: Vec::new(),
         default: None,
+        daemon_port: conductor_cli::config::DAEMON_PORT,
     };
     let mut sources =
         specifications::Sources::of(&active, &case.state()).expect("the instance's sources");
@@ -1075,6 +1084,7 @@ fn the_specifications_collector_gives_each_repository_of_a_local_source_a_row() 
         from_file: true,
         others: Vec::new(),
         default: None,
+        daemon_port: conductor_cli::config::DAEMON_PORT,
     };
     let mut sources =
         specifications::Sources::of(&active, &case.state()).expect("the instance's sources");

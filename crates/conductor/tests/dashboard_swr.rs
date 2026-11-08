@@ -4,12 +4,13 @@
 //! endpoint's first answer is `503` with `Retry-After`; and the server's store handle reads without
 //! waiting on the store's writer lock.
 //!
-//! The cases serve [`dashboard::serve_tuned`] in this process on a free port of `127.0.0.1` over a
+//! The cases serve [`served::serve_tuned`] in this process on a free port of `127.0.0.1` over a
 //! fixture store under this test target's temporary directory, as `dashboard_fast.rs` does, with a
 //! [`Probe`] that delays every computation by a set time and counts the computations started per
 //! endpoint.
 
 mod active;
+mod served;
 
 use std::ffi::OsString;
 use std::fs::{self, File};
@@ -41,7 +42,10 @@ const SETTLE: Duration = Duration::from_millis(2_500);
 /// The bound on anything a case waits for.
 const PATIENCE: Duration = Duration::from_secs(60);
 
-const BOARD: &str = "/api/board";
+const BOARD: &str = "/v1/instances/example-org/board";
+
+/// The board's route as the instance computes it, which the probe counts.
+const PROBED: &str = "/v1/board";
 
 // ---------------------------------------------------------------------------------------------
 // The case
@@ -110,7 +114,7 @@ impl Case {
         let listener = TcpListener::bind("127.0.0.1:0").expect("bind a free port");
         let port = listener.local_addr().expect("the bound address").port();
         let (sources, state) = (self.sources(), self.state());
-        std::thread::spawn(move || dashboard::serve_tuned(listener, sources, Some(state), tuning));
+        served::serve_tuned(listener, sources, Some(state), tuning);
         port
     }
 
@@ -137,6 +141,7 @@ impl Case {
 fn complete(state: &Path, started_at: &str, repositories: usize) {
     let store = store::open(state).expect("open the store");
     let start = StartSnapshot {
+        actor: conductor_cli::actor::daemon(),
         started_at: Timestamp(started_at.to_owned()),
         disk_free_bytes: 1_000_000,
         budget: None,
@@ -151,6 +156,7 @@ fn fixture(repositories: usize) -> Collector {
         let snapshot = record.snapshot().clone();
         for index in 0..repositories {
             record.repository(RecordRepository {
+                actor: conductor_cli::actor::daemon(),
                 snapshot_id: snapshot.clone(),
                 repository: RepositoryName(format!("repo-{index:02}")),
                 visibility: Visibility::Public,
@@ -287,7 +293,7 @@ fn a_stale_answer_is_served_at_once_while_the_recompute_runs() {
     let first = get(port, BOARD, None);
     assert_eq!(first.status, 200, "{}", first.body);
     assert_eq!(first.age(), None, "a fresh answer carries no age");
-    assert_eq!(probe.starts(BOARD), 1);
+    assert_eq!(probe.starts(PROBED), 1);
 
     probe.set_delay(SLOW);
     case.write();
@@ -305,10 +311,10 @@ fn a_stale_answer_is_served_at_once_while_the_recompute_runs() {
     // The recompute is started on its own thread after the write is seen; on a loaded runner it
     // may begin a moment after the stale answer was served, so wait a bounded time for it.
     let deadline = std::time::Instant::now() + SLOW;
-    while probe.starts(BOARD) < 2 && std::time::Instant::now() < deadline {
+    while probe.starts(PROBED) < 2 && std::time::Instant::now() < deadline {
         std::thread::sleep(Duration::from_millis(10));
     }
-    assert_eq!(probe.starts(BOARD), 2, "one recompute started");
+    assert_eq!(probe.starts(PROBED), 2, "one recompute started");
 
     let fresh = until(port, BOARD, fresh_with_third);
     assert_ne!(fresh.etag(), first.etag());
@@ -322,7 +328,7 @@ fn only_one_recompute_runs_at_a_time() {
     let probe = Arc::new(Probe::default());
     let port = case.served(tuning(&probe));
     assert_eq!(get(port, BOARD, None).status, 200);
-    let before = probe.starts(BOARD);
+    let before = probe.starts(PROBED);
 
     probe.set_delay(SLOW);
     case.write();
@@ -336,13 +342,13 @@ fn only_one_recompute_runs_at_a_time() {
         assert!(answer.took < SLOW, "a request waited {:?}", answer.took);
     }
     assert_eq!(
-        probe.starts(BOARD),
+        probe.starts(PROBED),
         before + 1,
         "eight requests, one recompute"
     );
     until(port, BOARD, fresh_with_third);
     assert_eq!(
-        probe.peak(BOARD),
+        probe.peak(PROBED),
         1,
         "two recomputes of one endpoint ran at once"
     );
@@ -360,7 +366,7 @@ fn the_debounce_holds_a_recompute_back() {
         ..tuning(&probe)
     });
     assert_eq!(get(port, BOARD, None).status, 200);
-    let started = probe.started(BOARD);
+    let started = probe.started(PROBED);
     assert_eq!(started.len(), 1);
 
     case.write();
@@ -377,7 +383,7 @@ fn the_debounce_holds_a_recompute_back() {
             "within the debounce the answer is stale"
         );
         assert_eq!(
-            probe.starts(BOARD),
+            probe.starts(PROBED),
             1,
             "a recompute started within the debounce"
         );
@@ -385,7 +391,7 @@ fn the_debounce_holds_a_recompute_back() {
     }
 
     until(port, BOARD, fresh_with_third);
-    let started = probe.started(BOARD);
+    let started = probe.started(PROBED);
     assert_eq!(started.len(), 2, "{started:?}");
     // The cache counts the debounce from its claim (`Memo::claim`); the probe stamps a start when
     // the computation's thread runs, which on a loaded host lags the claim by a varying amount.
@@ -416,8 +422,7 @@ fn a_request_before_the_first_answer_is_503() {
 }
 
 /// A writer appends to the store while the dashboard runs, has served its answers and computes
-/// them again after each write: the trees' writer locks are free whenever the dashboard has
-/// answered, and each snapshot's appends end within the bound, however often the dashboard reads.
+/// them again after each write: each snapshot's appends end within the bound, however often the dashboard reads.
 #[test]
 fn a_writer_appends_while_the_dashboard_serves() {
     const APPEND: Duration = Duration::from_secs(60);
@@ -425,18 +430,14 @@ fn a_writer_appends_while_the_dashboard_serves() {
     let probe = Arc::new(Probe::default());
     let port = case.served(tuning(&probe));
     for round in 0..3_usize {
-        for path in [BOARD, "/api/repositories", "/api/unanswered", "/api/health"] {
+        for path in [
+            BOARD,
+            "/v1/instances/example-org/repositories",
+            "/v1/instances/example-org/unanswered",
+            "/v1/instances/example-org/health",
+        ] {
             let answer = get(port, path, None);
             assert_eq!(answer.status, 200, "{path}: {}", answer.body);
-        }
-        for tree in ["tree", "observations"] {
-            let lock = File::options()
-                .write(true)
-                .open(case.state().join(tree).join(".lock"))
-                .expect("open the writer lock");
-            lock.try_lock().unwrap_or_else(|error| {
-                panic!("round {round}: the dashboard holds {tree}/.lock: {error}")
-            });
         }
         let (done, appended) = mpsc::channel();
         let state = case.state();
@@ -464,7 +465,7 @@ fn a_writer_appends_while_the_dashboard_serves() {
 }
 
 /// The dashboard's store handle reads a store another writer committed to since, without waiting
-/// on the trees' writer locks, which a writer holds for as long as it commits.
+/// on the lock a handle that opens the database takes.
 #[test]
 fn a_reader_does_not_wait_on_the_writer_lock() {
     let case = Case::new("lock");
@@ -476,7 +477,7 @@ fn a_reader_does_not_wait_on_the_writer_lock() {
     std::thread::spawn(move || {
         let reader = store::open_reader(&reading).expect("open the reader");
         let rows = |reader: &store::Store| {
-            dashboard::overview::snapshot_endpoint("/api/repositories", Some(reader))
+            dashboard::overview::snapshot_endpoint("/v1/repositories", Some(reader))
                 .expect("an endpoint")
                 .to_string()
         };
@@ -491,19 +492,13 @@ fn a_reader_does_not_wait_on_the_writer_lock() {
     );
 
     case.complete("2026-10-13T08:00:00Z", 3);
-    let held: Vec<File> = ["tree", "observations"]
-        .iter()
-        .map(|tree| {
-            let lock = File::options()
-                .create(true)
-                .truncate(false)
-                .write(true)
-                .open(state.join(tree).join(".lock"))
-                .expect("open the writer lock");
-            lock.lock().expect("hold the writer lock");
-            lock
-        })
-        .collect();
+    let held = File::options()
+        .create(true)
+        .truncate(false)
+        .write(true)
+        .open(state.join("store.sqlite.open-lock"))
+        .expect("open the lock");
+    held.lock().expect("hold the lock");
     go_tx.send(()).expect("go");
     let second = read_rx.recv_timeout(Duration::from_secs(20));
     drop(held);

@@ -68,6 +68,7 @@ fn encode(board: &BoardSnapshot) -> Value {
     let BoardState::Published = board.state;
     let data = &board.data;
     json!({
+        "actor": crate::actor::to_json(&data.actor),
         "state": PUBLISHED,
         "board_id": data.board_id.0.0,
         "snapshot_id": data.snapshot_id.0.0,
@@ -94,6 +95,7 @@ fn decode(body: &Value) -> Result<BoardSnapshot, String> {
     Ok(BoardSnapshot {
         state: BoardState::Published,
         data: BoardData {
+            actor: crate::actor::stored(body)?,
             board_id: BoardId(Uuid(text(body, "board_id")?)),
             snapshot_id: SnapshotId(Uuid(text(body, "snapshot_id")?)),
             previous_snapshot_id,

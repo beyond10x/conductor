@@ -15,7 +15,7 @@
 
 mod common;
 
-use std::fs::{self, File};
+use std::fs;
 use std::io::Write as _;
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Output, Stdio};
@@ -390,12 +390,9 @@ fn a_held_writer_lock_delays_a_denial_by_at_most_two_seconds_and_an_allowance_no
     let first = hook(&case, &state, &payload("bash", &case, &[]));
     assert_eq!(first.status.code(), Some(2), "stderr: {}", stderr(&first));
 
-    let lock = File::options()
-        .read(true)
-        .write(true)
-        .open(state.join("tree/.lock"))
-        .expect("open the store's writer lock");
-    lock.lock().expect("hold the writer lock");
+    let lock = rusqlite::Connection::open(state.join("store.sqlite")).expect("open the database");
+    lock.execute_batch("BEGIN IMMEDIATE")
+        .expect("hold the database's write lock");
 
     let started = Instant::now();
     let held = hook(&case, &state, &payload("send-message", &case, &[]));
@@ -403,7 +400,7 @@ fn a_held_writer_lock_delays_a_denial_by_at_most_two_seconds_and_an_allowance_no
     let started = Instant::now();
     let allowed = hook(&case, &state, &payload("write", &case, &[]));
     let answered = started.elapsed();
-    lock.unlock().expect("release the writer lock");
+    drop(lock);
 
     assert_eq!(
         allowed.status.code(),
@@ -1306,7 +1303,7 @@ fn conductor_s_session_writes_the_config_as_before() {
 
 fn settings(name: &str) -> Value {
     let path = Path::new(env!("CARGO_MANIFEST_DIR"))
-        .join("../../.claude")
+        .join("kinds/claude-code")
         .join(name);
     serde_json::from_str(&fs::read_to_string(&path).expect("read the settings file"))
         .expect("the settings file is JSON")
@@ -1998,7 +1995,7 @@ fn the_guard_reads_the_lease_from_its_copy_and_a_dead_holder_lets_the_write_thro
     let output = hook_with(&case, &state, Some(&config), &write);
     assert_answer(&output, 0, "", "a dead holder in the copy");
     assert!(
-        !state.join("tree").exists(),
+        !state.join("store.sqlite").exists(),
         "reading the lease opened a store"
     );
 }

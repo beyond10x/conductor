@@ -1,17 +1,18 @@
-//! `story:dashboard-plan-board`: the dashboard's Plan page. `GET /api/plan` answers the board
-//! of a checkout's planning store, `GET /api/plan/story` one story as the drawer shows it, and
-//! `POST /api/plan` does what the operator chose, through the dashboard's one write path (the
+//! `story:dashboard-plan-board`: the dashboard's Plan page. `GET /v1/instances/example-org/plan` answers the board
+//! of a checkout's planning store, `GET /v1/instances/example-org/plan/story` one story as the drawer shows it, and
+//! `POST /v1/instances/example-org/plan` does what the operator chose, through the dashboard's one write path (the
 //! Configuration page's): only from the page's own origin with its token. A move the store's
 //! lifecycle refuses is answered with the store's reason and changes nothing; a legal one is
 //! made by `aep plan artifact move` and recorded as one class-C decision by the operator.
 //!
-//! The cases serve [`dashboard::serve_over`] in this process on a free port of `127.0.0.1`, over
+//! The cases serve [`served::serve`] in this process on a free port of `127.0.0.1`, over
 //! a checkouts root under this test target's temporary directory holding one checkout, `alpha`,
 //! whose planning store declares the story lifecycle; the store is made and read back with the
 //! `aep` CLI, and the decisions with the built binary. Nothing is read from the environment.
 
 mod active;
 mod common;
+mod served;
 
 use std::ffi::OsString;
 use std::fs;
@@ -21,7 +22,7 @@ use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 use std::time::Duration;
 
-use conductor_cli::dashboard::{self, Sources};
+use conductor_cli::dashboard::Sources;
 use serde_json::{Value, json};
 
 /// The story lifecycle the fixture's project declares, as the protocol's.
@@ -143,7 +144,7 @@ impl Case {
 
     /// Every decision of the case's store; none when there is no store.
     fn decisions(&self) -> Vec<Value> {
-        if !self.state().join("tree").exists() {
+        if !self.state().join("store.sqlite").exists() {
             return Vec::new();
         }
         let output = common::conductor(self.home())
@@ -196,7 +197,7 @@ impl Case {
         let listener = TcpListener::bind("127.0.0.1:0").expect("bind a free port");
         let port = listener.local_addr().expect("the bound address").port();
         let (sources, state) = (self.sources(), self.state());
-        std::thread::spawn(move || dashboard::serve_over(listener, sources, Some(state)));
+        served::serve(listener, sources, Some(state));
         port
     }
 }
@@ -251,7 +252,7 @@ fn token(port: u16) -> String {
     rest[..rest.find('"').expect("the token's closing quote")].to_owned()
 }
 
-/// A POST of `body` to `/api/plan` with the server's own host and origin, as JSON, each of
+/// A POST of `body` to `/v1/instances/example-org/plan` with the server's own host and origin, as JSON, each of
 /// `headers` replacing the one of its name; `None` leaves it out.
 fn post_with(port: u16, body: &Value, headers: &[(&str, Option<String>)]) -> Answer {
     let body = serde_json::to_vec(body).expect("a JSON body");
@@ -277,7 +278,7 @@ fn post_with(port: u16, body: &Value, headers: &[(&str, Option<String>)]) -> Ans
             None => named.push(((*name).to_owned(), value.clone())),
         }
     }
-    let mut raw = b"POST /api/plan HTTP/1.1\r\n".to_vec();
+    let mut raw = b"POST /v1/instances/example-org/plan HTTP/1.1\r\n".to_vec();
     for (name, value) in named {
         if let Some(value) = value {
             raw.extend_from_slice(format!("{name}: {value}\r\n").as_bytes());
@@ -299,7 +300,7 @@ fn approve() -> Value {
 
 /// The card of `story:a-b` on the board.
 fn card(port: u16) -> Value {
-    let board = get(port, "/api/plan");
+    let board = get(port, "/v1/instances/example-org/plan");
     assert_eq!(board.status, 200, "{}", board.body);
     let board = board.json();
     board["cards"]
@@ -313,7 +314,7 @@ fn card(port: u16) -> Value {
 fn the_board_reads_the_store_in_columns_and_creates_nothing() {
     let case = Case::new("board");
     let port = case.start();
-    let answer = get(port, "/api/plan");
+    let answer = get(port, "/v1/instances/example-org/plan");
     assert_eq!(answer.status, 200, "{}", answer.body);
     let board = answer.json();
     assert_eq!(board["repositories"], json!(["alpha"]), "{board}");
@@ -324,10 +325,14 @@ fn the_board_reads_the_store_in_columns_and_creates_nothing() {
     assert_eq!(card["title"], "A board", "{card}");
     assert_eq!(card["lane"], "unplanned", "no scope recorded: {card}");
     assert!(
-        !case.state().join("tree").exists(),
+        !case.state().join("store.sqlite").exists(),
         "a view creates no store"
     );
-    let unknown = get(port, "/api/plan?repository=..%2Fescape").json();
+    let unknown = get(
+        port,
+        "/v1/instances/example-org/plan?repository=..%2Fescape",
+    )
+    .json();
     assert_eq!(unknown["cards"], json!([]), "{unknown}");
 }
 
@@ -343,7 +348,10 @@ fn the_drawer_reads_why_acceptance_scope_and_history() {
         "cargo test --test board_case: 1 passed",
     ]);
     let port = case.start();
-    let answer = get(port, "/api/plan/story?repository=alpha&id=story%3Aa-b");
+    let answer = get(
+        port,
+        "/v1/instances/example-org/plan/story?repository=alpha&id=story%3Aa-b",
+    );
     assert_eq!(answer.status, 200, "{}", answer.body);
     let story = answer.json();
     assert_eq!(story["why"], "The operator asked for it.", "{story}");
@@ -374,7 +382,10 @@ fn the_drawer_reads_why_acceptance_scope_and_history() {
         .collect();
     moves.sort_unstable();
     assert_eq!(moves, ["active", "draft", "rejected"], "{story}");
-    let missing = get(port, "/api/plan/story?repository=alpha&id=story%3Anone");
+    let missing = get(
+        port,
+        "/v1/instances/example-org/plan/story?repository=alpha&id=story%3Anone",
+    );
     assert_eq!(missing.status, 404, "{}", missing.body);
 }
 
@@ -502,7 +513,11 @@ fn start_and_comment_are_each_one_recorded_write() {
                 "text": "narrow the scope"}),
     );
     assert_eq!(comment.status, 200, "{}", comment.body);
-    let story = get(port, "/api/plan/story?repository=alpha&id=story%3Aa-b").json();
+    let story = get(
+        port,
+        "/v1/instances/example-org/plan/story?repository=alpha&id=story%3Aa-b",
+    )
+    .json();
     assert!(
         story["comments"]
             .as_str()

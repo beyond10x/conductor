@@ -1,18 +1,19 @@
 import { defineConfig, type Plugin } from 'vitest/config';
 import vue from '@vitejs/plugin-vue';
 
-// The build the conductor binary embeds (crates/conductor/src/dashboard.rs): index.html and its
-// assets under dist/, served from the root of 127.0.0.1:<port> under the policy
+// The build the conductor binary embeds and conductord serves (crates/conductor/src/daemon/api.rs,
+// story:instance-api): index.html and its
+// assets under dist/, served from the root of 127.0.0.1:<daemon port> under the policy
 // `default-src 'none'; script-src 'self'; style-src 'self'; connect-src 'self'`, so the build
 // writes no inline script or style and loads nothing from another origin.
 //
 // `task ui:dev` runs the Vite dev server instead (hot reload of every view): it proxies the data
-// and the answers to the running dashboard, CONDUCTOR_DASHBOARD (default the instance's
-// http://127.0.0.1:7313), sending that dashboard's own Origin, and copies the dashboard's per-process
+// and the answers to the running daemon, CONDUCTOR_DAEMON (default its
+// http://127.0.0.1:7300), sending the daemon's own Origin, and copies the daemon's per-process
 // answer token into the dev page, so the Decisions page answers as it does when embedded.
-const target = process.env.CONDUCTOR_DASHBOARD ?? 'http://127.0.0.1:7313';
+const target = process.env.CONDUCTOR_DAEMON ?? 'http://127.0.0.1:7300';
 
-/** Puts the running dashboard's `<meta name="conductor-token">` into the dev server's page. */
+/** Puts the running daemon's `<meta name="conductor-token">` into the dev server's page. */
 function dashboardToken(): Plugin {
   return {
     name: 'conductor-dashboard-token',
@@ -37,8 +38,7 @@ export default defineConfig({
     port: 5173,
     strictPort: true,
     proxy: {
-      '/api': { target, changeOrigin: true, headers: { origin: target } },
-      '/data.json': { target, changeOrigin: true },
+      '/v1': { target, changeOrigin: true, headers: { origin: target } },
     },
   },
   build: {

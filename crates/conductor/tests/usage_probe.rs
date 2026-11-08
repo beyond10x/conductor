@@ -173,6 +173,7 @@ impl Case {
         });
         let store = store::open(&self.state()).expect("open the case's store");
         let start = StartSnapshot {
+            actor: conductor_cli::actor::daemon(),
             started_at: Timestamp(at.to_owned()),
             disk_free_bytes: 1_000_000,
             budget: None,
@@ -310,6 +311,11 @@ fn the_snapshot_records_each_window_of_each_account_by_its_id_and_never_its_addr
         let fields = row.as_object_mut().expect("a row is an object");
         fields.remove("observation_id");
         fields.remove("snapshot_id");
+        assert_eq!(
+            fields.remove("actor"),
+            Some(Value::from("daemon")),
+            "the collectors record as the daemon"
+        );
         let read_at = fields
             .remove("read_at")
             .and_then(|at| at.as_str().map(instant))
@@ -616,10 +622,10 @@ fn doctor_reports_the_usage_watcher_running_or_not() {
 
     systemctl("active", 0);
     assert_eq!(doctor(&config), ["usage watcher: rotator.service running"]);
-    // Doctor also asks after the instance's run unit (`story:run-daemon`), after the watcher.
+    // Doctor also asks after conductord's unit (`story:daemon-reconcile`), after the watcher.
     assert_eq!(
         fs::read_to_string(&calls).expect("systemctl was asked"),
-        "--user is-active rotator.service\n--user is-active conductor_acme-run.service\n"
+        "--user is-active rotator.service\n--user is-active conductord.service\n"
     );
 
     systemctl("inactive", 3);

@@ -1,0 +1,56 @@
+# docs/design/architecture-next.md § 6: a placement that cannot give what the profile asks for is
+# refused by substrate with its name (`exec.sandbox-unavailable`), and a host policy may refuse
+# the adapter; each refusal is on record with substrate's reason, the instance does not start and
+# nothing falls back: no box is opened. The actor is `{kind: Daemon}`.
+type: ess-scenario/1
+domain: conductor.placement
+scenario: placement-open-box-refused
+summary: Substrate refuses a box, and then the host policy refuses the adapter; each refusal is on record and no box is opened.
+
+arrange:
+  - instance: refused
+    entity: conductor.placement.BoxRefusal
+  - instance: policy-refused
+    entity: conductor.placement.BoxRefusal
+
+timeline:
+  - at: 2026-11-08T09:00:00Z
+    command: conductor.placement.OpenBox
+    actor: conductor.placement.Conductord
+    input:
+      actor: {kind: Daemon}
+      placement: example-org-local
+      instance: example-org
+      at: 2026-11-08T09:00:00Z
+    outcome: refused
+    capture: {instance: refused, event: conductor.placement.BoxRefused, field: box_id}
+
+  - at: 2026-11-08T09:01:00Z
+    command: conductor.placement.OpenBox
+    actor: conductor.placement.Conductord
+    input:
+      actor: {kind: Daemon}
+      placement: example-org-remote
+      instance: example-org
+      at: 2026-11-08T09:01:00Z
+    outcome: adapter-refused
+    capture: {instance: policy-refused, event: conductor.placement.BoxRefused, field: box_id}
+
+assert:
+  - view: conductor.placement.BoxRefusals
+    contains:
+      box_id: {$instance: refused}
+      state: Refused
+      placement: example-org-local
+      instance: example-org
+      refused_at: 2026-11-08T09:00:00Z
+  - view: conductor.placement.BoxRefusals
+    contains:
+      box_id: {$instance: policy-refused}
+      state: Refused
+      placement: example-org-remote
+      instance: example-org
+      refused_at: 2026-11-08T09:01:00Z
+  - view: conductor.placement.Boxes
+    excludes:
+      instance: example-org

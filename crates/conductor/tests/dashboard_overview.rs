@@ -1,4 +1,4 @@
-//! `story:dashboard-overview`: what the overview reads, served by [`dashboard::serve_over`] in
+//! `story:dashboard-overview`: what the overview reads, served by [`served::serve`] in
 //! this process on a free port of `127.0.0.1` over a fixture store and fixture records: the
 //! newest complete snapshot's board, repositories, pull requests, workflow runs and releases; the
 //! day's events; and the session's last report in `/data.json`. The last case holds the keys of the
@@ -13,6 +13,7 @@
 
 mod active;
 mod common;
+mod served;
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::ffi::OsString;
@@ -25,7 +26,7 @@ use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use conductor_cli::collect::Collector;
-use conductor_cli::dashboard::{self, Sources, overview};
+use conductor_cli::dashboard::{Sources, overview};
 use conductor_cli::snapshot::{self, Recorder};
 use conductor_cli::store;
 use conductor_model::observation::{
@@ -53,13 +54,16 @@ const BEFORE: &str = "2026-10-12T23:59:59Z";
 
 /// The six endpoints the overview reads.
 const ENDPOINTS: [&str; 6] = [
-    "/api/board",
-    "/api/repositories",
-    "/api/pull-requests",
-    "/api/workflow-runs",
-    "/api/releases",
-    "/api/events",
+    "/v1/instances/example-org/board",
+    "/v1/instances/example-org/repositories",
+    "/v1/instances/example-org/pull-requests",
+    "/v1/instances/example-org/workflow-runs",
+    "/v1/instances/example-org/releases",
+    "/v1/instances/example-org/events",
 ];
+
+/// The unanswered operator items (`overview::UNANSWERED_PATH`) through the daemon.
+const UNANSWERED: &str = "/v1/instances/example-org/unanswered";
 
 // ---------------------------------------------------------------------------------------------
 // The case
@@ -138,7 +142,7 @@ impl Case {
         let listener = TcpListener::bind("127.0.0.1:0").expect("bind a free port");
         let port = listener.local_addr().expect("the bound address").port();
         let (sources, state) = (self.sources(), self.state());
-        std::thread::spawn(move || dashboard::serve_over(listener, sources, Some(state)));
+        served::serve(listener, sources, Some(state));
         port
     }
 
@@ -146,6 +150,7 @@ impl Case {
     fn take(&self, started_at: &str, collector: Collector) -> (String, SnapshotState) {
         let store = store::open(&self.state()).expect("open the store");
         let start = StartSnapshot {
+            actor: conductor_cli::actor::daemon(),
             started_at: Timestamp(started_at.to_owned()),
             disk_free_bytes: 1_000_000,
             budget: None,
@@ -177,6 +182,7 @@ fn fixture() -> Collector {
             ("gamma", true, false),
         ] {
             record.repository(RecordRepository {
+                actor: conductor_cli::actor::daemon(),
                 snapshot_id: snapshot.clone(),
                 repository: name(repository),
                 visibility: Visibility::Public,
@@ -204,6 +210,7 @@ fn fixture() -> Collector {
             })?;
         }
         record.pull_request(RecordPullRequest {
+            actor: conductor_cli::actor::daemon(),
             snapshot_id: snapshot.clone(),
             repository: name("alpha"),
             number: 7,
@@ -221,6 +228,7 @@ fn fixture() -> Collector {
             ("Docs", RunConclusion::Success),
         ] {
             record.workflow_run(RecordWorkflowRun {
+                actor: conductor_cli::actor::daemon(),
                 snapshot_id: snapshot.clone(),
                 repository: name("alpha"),
                 workflow: workflow.to_owned(),
@@ -229,6 +237,7 @@ fn fixture() -> Collector {
             })?;
         }
         record.blocker(RecordBlocker {
+            actor: conductor_cli::actor::daemon(),
             snapshot_id: snapshot.clone(),
             repository: name("alpha"),
             reference: "blocker:token".to_owned(),
@@ -237,6 +246,7 @@ fn fixture() -> Collector {
         })?;
         for (tag, at) in [("v1.1.0", AFTER), ("v1.0.9", BEFORE)] {
             record.release(RecordRelease {
+                actor: conductor_cli::actor::daemon(),
                 snapshot_id: snapshot.clone(),
                 repository: name("alpha"),
                 tag: tag.to_owned(),
@@ -246,6 +256,7 @@ fn fixture() -> Collector {
         }
         for (number, at) in [(5, AFTER), (4, BEFORE)] {
             record.merged_pull_request(RecordMergedPullRequest {
+                actor: conductor_cli::actor::daemon(),
                 snapshot_id: snapshot.clone(),
                 repository: name("alpha"),
                 number,
@@ -319,9 +330,12 @@ fn fresh(port: u16, path: &str) -> Value {
     serde_json::from_str(&body).unwrap_or_else(|error| panic!("GET {path}: {error}: {body}"))
 }
 
-/// `/api/events` since [`SINCE`].
+/// `/v1/instances/example-org/events` since [`SINCE`].
 fn events(port: u16) -> Vec<Value> {
-    let answer = get(port, "/api/events?since=2026-10-13T00%3A00%3A00Z");
+    let answer = get(
+        port,
+        "/v1/instances/example-org/events?since=2026-10-13T00%3A00%3A00Z",
+    );
     answer["rows"].as_array().expect("rows").clone()
 }
 
@@ -370,7 +384,7 @@ fn each_snapshot_endpoint_answers_the_fixture_snapshot_s_rows() {
     let port = case.start();
     let header = json!({"id": id, "started_at": EARLIER});
 
-    let board = get(port, "/api/board");
+    let board = get(port, "/v1/instances/example-org/board");
     assert_eq!(board["snapshot"], header, "{board:#}");
     assert_eq!(
         rows(&board),
@@ -385,7 +399,7 @@ fn each_snapshot_endpoint_answers_the_fixture_snapshot_s_rows() {
         "one row per repository that is not archived: {board:#}"
     );
 
-    let repositories = get(port, "/api/repositories");
+    let repositories = get(port, "/v1/instances/example-org/repositories");
     assert_eq!(repositories["snapshot"], header);
     assert_eq!(
         column(&repositories, "repository"),
@@ -395,7 +409,7 @@ fn each_snapshot_endpoint_answers_the_fixture_snapshot_s_rows() {
     assert_eq!(repositories[2]["archived"], json!(true));
     assert_eq!(repositories[0]["latest_release"], json!("v1.1.0"));
 
-    let pulls = get(port, "/api/pull-requests");
+    let pulls = get(port, "/v1/instances/example-org/pull-requests");
     assert_eq!(pulls["snapshot"], header);
     assert_eq!(
         lean(&pulls, &id),
@@ -407,7 +421,7 @@ fn each_snapshot_endpoint_answers_the_fixture_snapshot_s_rows() {
         })]
     );
 
-    let runs = get(port, "/api/workflow-runs");
+    let runs = get(port, "/v1/instances/example-org/workflow-runs");
     assert_eq!(runs["snapshot"], header);
     assert_eq!(
         lean(&runs, &id),
@@ -419,7 +433,7 @@ fn each_snapshot_endpoint_answers_the_fixture_snapshot_s_rows() {
         ]
     );
 
-    let releases = get(port, "/api/releases");
+    let releases = get(port, "/v1/instances/example-org/releases");
     assert_eq!(releases["snapshot"], header);
     assert_eq!(
         lean(&releases, &id),
@@ -438,6 +452,7 @@ fn asks_while_collecting(port: u16, seen: Arc<Mutex<Vec<(String, Value)>>>) -> C
     Collector::new("asks", move |record: &mut Recorder<'_>| {
         let snapshot = record.snapshot().clone();
         record.repository(RecordRepository {
+            actor: conductor_cli::actor::daemon(),
             snapshot_id: snapshot,
             repository: RepositoryName("delta".to_owned()),
             visibility: Visibility::Public,
@@ -504,7 +519,7 @@ fn a_newer_snapshot_collecting_or_failed_is_not_read() {
 }
 
 /// Without a store, and over a store with no snapshot, every snapshot endpoint answers no
-/// snapshot and no rows, and `/api/events` no rows.
+/// snapshot and no rows, and `/v1/instances/example-org/events` no rows.
 #[test]
 fn an_empty_store_answers_no_snapshot_and_no_rows() {
     let case = Case::new("empty");
@@ -521,7 +536,10 @@ fn an_empty_store_answers_no_snapshot_and_no_rows() {
             );
         }
         assert_eq!(
-            get(port, "/api/events?since=2026-10-13T00:00:00Z"),
+            get(
+                port,
+                "/v1/instances/example-org/events?since=2026-10-13T00:00:00Z"
+            ),
             json!({"rows": []})
         );
     }
@@ -544,7 +562,11 @@ fn a_post_to_each_endpoint_is_405() {
 fn a_since_that_does_not_read_is_400() {
     let case = Case::new("since");
     let port = case.start();
-    let (status, body) = request(port, "GET", "/api/events?since=yesterday");
+    let (status, body) = request(
+        port,
+        "GET",
+        "/v1/instances/example-org/events?since=yesterday",
+    );
     assert_eq!(status, 400, "{body}");
     assert!(body.contains("since=yesterday"), "{body}");
 }
@@ -590,7 +612,7 @@ fn deviations_of(board: &str) -> BTreeMap<String, Vec<String>> {
         .collect()
 }
 
-/// For one fixture snapshot, `/api/board`'s deviations per repository are those of the
+/// For one fixture snapshot, `/v1/instances/example-org/board`'s deviations per repository are those of the
 /// `STATUS.md` that `publish-board` writes.
 #[test]
 fn the_board_endpoint_s_deviations_are_those_status_md_holds() {
@@ -621,7 +643,7 @@ fn the_board_endpoint_s_deviations_are_those_status_md_holds() {
     assert!(!written.is_empty(), "the fixture has deviations");
 
     let port = case.start();
-    let served: BTreeMap<String, Vec<String>> = rows(&get(port, "/api/board"))
+    let served: BTreeMap<String, Vec<String>> = rows(&get(port, "/v1/instances/example-org/board"))
         .iter()
         .filter(|row| !row["deviations"].as_array().expect("a list").is_empty())
         .map(|row| {
@@ -697,7 +719,7 @@ fn the_last_event_is_the_session_s_newest_report_not_its_dispatch_s_state() {
     );
 
     let port = case.start();
-    let data = get(port, "/data.json");
+    let data = get(port, "/v1/instances/example-org/data.json");
     let alpha = data["sessions"]
         .as_array()
         .expect("sessions")
@@ -739,7 +761,7 @@ fn event_records(case: &Case) {
     );
 }
 
-/// The rows of `/api/events?since=SINCE` of `kind`, over the fixture records and snapshot.
+/// The rows of `/v1/instances/example-org/events?since=SINCE` of `kind`, over the fixture records and snapshot.
 fn events_of(name: &str, kind: &str) -> Vec<Value> {
     let case = Case::new(name);
     event_records(&case);
@@ -848,6 +870,7 @@ fn reviews_fixture() -> Collector {
         let snapshot = record.snapshot().clone();
         for repository in ["alpha", "beta"] {
             record.repository(RecordRepository {
+                actor: conductor_cli::actor::daemon(),
                 snapshot_id: snapshot.clone(),
                 repository: RepositoryName(repository.to_owned()),
                 visibility: Visibility::Public,
@@ -882,6 +905,7 @@ fn reviews_fixture() -> Collector {
             ("beta", 8, false, 0, "2026-10-08T09:00:00Z"),
         ] {
             record.pull_request(RecordPullRequest {
+                actor: conductor_cli::actor::daemon(),
                 snapshot_id: snapshot.clone(),
                 repository: RepositoryName(repository.to_owned()),
                 number,
@@ -901,20 +925,20 @@ fn reviews_fixture() -> Collector {
     })
 }
 
-/// `/api/reviews` answers the pull requests that wait for review, oldest first, with their
+/// `/v1/instances/example-org/reviews` answers the pull requests that wait for review, oldest first, with their
 /// links; no snapshot and no rows without a store; 405 to a POST.
 #[test]
 fn the_reviews_endpoint_answers_what_waits_for_review_oldest_first() {
     let case = Case::new("reviews");
     let port = case.start();
     assert_eq!(
-        get(port, "/api/reviews"),
+        get(port, "/v1/instances/example-org/reviews"),
         json!({"snapshot": null, "rows": []})
     );
 
     let (id, state) = case.take(EARLIER, reviews_fixture());
     assert_eq!(state, SnapshotState::Complete);
-    let reviews = fresh(port, "/api/reviews");
+    let reviews = fresh(port, "/v1/instances/example-org/reviews");
     assert_eq!(
         reviews["snapshot"],
         json!({"id": id, "started_at": EARLIER})
@@ -935,7 +959,7 @@ fn the_reviews_endpoint_answers_what_waits_for_review_oldest_first() {
         ],
         "{reviews:#}"
     );
-    let (status, body) = request(port, "POST", "/api/reviews");
+    let (status, body) = request(port, "POST", "/v1/instances/example-org/reviews");
     assert_eq!(status, 405, "{body}");
 
     // The app's fixture has the keys the endpoint answers.
@@ -1023,24 +1047,21 @@ const O_CHOICES: [&str; 10] = [
     "2026-10-14T12:00:00Z",
 ];
 
-/// `/api/unanswered` answers the count of the requests escalated as class O or H and not
+/// `/v1/instances/example-org/unanswered` answers the count of the requests escalated as class O or H and not
 /// answered, and the oldest of them with its age in seconds; `{count: 0, oldest: null}` without a
 /// store or such a request; 405 to a POST. The overview's fixture has the keys it answers.
 #[test]
 fn the_unanswered_endpoint_counts_the_operator_items_and_ages_the_oldest() {
     let case = Case::new("unanswered");
     let port = case.start();
-    assert_eq!(
-        get(port, overview::UNANSWERED_PATH),
-        json!({"count": 0, "oldest": null})
-    );
+    assert_eq!(get(port, UNANSWERED), json!({"count": 0, "oldest": null}));
 
     case.request("REQ-OPEN", EARLIER, None);
     case.request("REQ-NEW", LATER, Some("O"));
     case.request("REQ-OLD", EARLIER, Some("H"));
     let raised = OffsetDateTime::parse(EARLIER, &Rfc3339).expect("a fixed instant");
     let before = (OffsetDateTime::now_utc() - raised).whole_seconds();
-    let answer = fresh(port, overview::UNANSWERED_PATH);
+    let answer = fresh(port, UNANSWERED);
     let after = (OffsetDateTime::now_utc() - raised).whole_seconds();
 
     assert_eq!(answer["count"], 2, "{answer:#}");
@@ -1053,7 +1074,7 @@ fn the_unanswered_endpoint_counts_the_operator_items_and_ages_the_oldest() {
         (before..=after).contains(&age),
         "{age} not in {before}..={after}"
     );
-    let (status, body) = request(port, "POST", overview::UNANSWERED_PATH);
+    let (status, body) = request(port, "POST", UNANSWERED);
     assert_eq!(status, 405, "{body}");
 
     let fixture = app_fixture("overview-unanswered.json");
@@ -1105,7 +1126,7 @@ fn decision_log(case: &Case, lines: &[Value]) {
     case.write("home/example-org/conductor/decisions/2026-10.jsonl", &text);
 }
 
-/// `/api/decisions` answers every open class-O and class-H request, oldest first, with its
+/// `/v1/instances/example-org/decisions` answers every open class-O and class-H request, oldest first, with its
 /// question, kind, lettered options with their cost, the recommended and default letters and the
 /// deadline; a request escalated before those were recorded reads as `one-of` with no options,
 /// keeping its options text and reason. Below them, `history`: every line of the records'
@@ -1115,7 +1136,7 @@ fn decision_log(case: &Case, lines: &[Value]) {
 fn the_decisions_endpoint_lists_the_open_operator_items_and_the_history() {
     let case = Case::new("decisions-page");
     let port = case.start();
-    let empty = get(port, "/api/decisions");
+    let empty = get(port, "/v1/instances/example-org/decisions");
     assert_eq!(empty["open"], json!([]), "{empty:#}");
     assert_eq!(empty["history"], json!([]), "{empty:#}");
 
@@ -1146,7 +1167,7 @@ fn the_decisions_endpoint_lists_the_open_operator_items_and_the_history() {
         ],
     );
 
-    let answer = fresh(port, "/api/decisions");
+    let answer = fresh(port, "/v1/instances/example-org/decisions");
     let open = answer["open"].as_array().expect("open rows");
     let ids: Vec<&Value> = open.iter().map(|row| &row["request_id"]).collect();
     assert_eq!(ids, [&json!("REQ-OLD"), &json!("REQ-NEW")], "{answer:#}");
@@ -1198,7 +1219,7 @@ fn the_decisions_endpoint_lists_the_open_operator_items_and_the_history() {
     assert_eq!(history[2]["decided_by"], "Conductor");
     assert_eq!(history[2]["repo"], "alpha");
 
-    let (status, body) = request(port, "POST", "/api/decisions");
+    let (status, body) = request(port, "POST", "/v1/instances/example-org/decisions");
     assert_eq!(status, 405, "{body}");
 
     let fixture = app_fixture("decisions.json");
@@ -1231,7 +1252,7 @@ fn the_decisions_endpoint_lists_the_open_operator_items_and_the_history() {
     );
 }
 
-/// `/api/decisions` is computed once per write to the store or the decision log and served from
+/// `/v1/instances/example-org/decisions` is computed once per write to the store or the decision log and served from
 /// memory with an `ETag`: a repeat request carrying it is answered `304` with no body; a write to
 /// the store, or a line added to the log, gives a new answer and a new `ETag`.
 #[test]
@@ -1240,12 +1261,12 @@ fn the_decisions_endpoint_answers_304_until_the_store_or_the_log_changes() {
     case.request("REQ-1", EARLIER, Some("O"));
     let port = case.start();
 
-    let (status, head, body) = exchange(port, "/api/decisions", "");
+    let (status, head, body) = exchange(port, "/v1/instances/example-org/decisions", "");
     assert_eq!(status, 200, "{body}");
     let first = header(&head, "ETag")
         .unwrap_or_else(|| panic!("no ETag: {head}"))
         .to_owned();
-    let (status, again, _) = exchange(port, "/api/decisions", "");
+    let (status, again, _) = exchange(port, "/v1/instances/example-org/decisions", "");
     assert_eq!(status, 200);
     assert_eq!(
         header(&again, "ETag"),
@@ -1255,7 +1276,7 @@ fn the_decisions_endpoint_answers_304_until_the_store_or_the_log_changes() {
 
     let (status, head, body) = exchange(
         port,
-        "/api/decisions",
+        "/v1/instances/example-org/decisions",
         &format!("If-None-Match: {first}\r\n"),
     );
     assert_eq!(status, 304, "{head}");
@@ -1265,7 +1286,7 @@ fn the_decisions_endpoint_answers_304_until_the_store_or_the_log_changes() {
     case.request("REQ-2", LATER, Some("H"));
     let (status, head, body) = revalidated(
         port,
-        "/api/decisions",
+        "/v1/instances/example-org/decisions",
         &format!("If-None-Match: {first}\r\n"),
     );
     assert_eq!(status, 200, "a store write changes the answer: {head}");
@@ -1287,7 +1308,7 @@ fn the_decisions_endpoint_answers_304_until_the_store_or_the_log_changes() {
     );
     let (status, head, _) = revalidated(
         port,
-        "/api/decisions",
+        "/v1/instances/example-org/decisions",
         &format!("If-None-Match: {second}\r\n"),
     );
     assert_eq!(status, 200, "a log line changes the answer: {head}");
@@ -1334,13 +1355,25 @@ fn the_overview_fixtures_have_the_keys_the_endpoints_answer() {
     case.complete(EARLIER);
     let port = case.start();
     for (path, file) in [
-        ("/api/board", "overview-board.json"),
-        ("/api/repositories", "overview-repositories.json"),
-        ("/api/pull-requests", "overview-pull-requests.json"),
-        ("/api/workflow-runs", "overview-workflow-runs.json"),
-        ("/api/releases", "overview-releases.json"),
+        ("/v1/instances/example-org/board", "overview-board.json"),
         (
-            "/api/events?since=2026-10-13T00:00:00Z",
+            "/v1/instances/example-org/repositories",
+            "overview-repositories.json",
+        ),
+        (
+            "/v1/instances/example-org/pull-requests",
+            "overview-pull-requests.json",
+        ),
+        (
+            "/v1/instances/example-org/workflow-runs",
+            "overview-workflow-runs.json",
+        ),
+        (
+            "/v1/instances/example-org/releases",
+            "overview-releases.json",
+        ),
+        (
+            "/v1/instances/example-org/events?since=2026-10-13T00:00:00Z",
             "overview-events.json",
         ),
     ] {

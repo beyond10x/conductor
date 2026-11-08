@@ -18,6 +18,7 @@
 
 mod active;
 mod common;
+mod served;
 
 use std::collections::BTreeMap;
 use std::ffi::OsString;
@@ -30,7 +31,7 @@ use std::process::{Child, Command, Output, Stdio};
 use std::time::{Duration, Instant};
 
 use conductor_cli::cli::{Access, LEAVES};
-use conductor_cli::dashboard::{self, Sources};
+use conductor_cli::dashboard::Sources;
 use conductor_cli::disk;
 use serde_json::{Value, json};
 
@@ -353,7 +354,7 @@ fn shown(output: &Output) -> String {
 fn panel(sources: Sources) -> Value {
     let listener = TcpListener::bind("127.0.0.1:0").expect("bind a free port");
     let port = listener.local_addr().expect("the bound address").port();
-    std::thread::spawn(move || dashboard::serve(listener, sources));
+    served::serve(listener, sources, conductor_cli::state::dir(None).ok());
     let deadline = Instant::now() + Duration::from_secs(60);
     loop {
         let mut stream = TcpStream::connect(("127.0.0.1", port)).expect("connect");
@@ -362,13 +363,14 @@ fn panel(sources: Sources) -> Value {
             .expect("set a read timeout");
         write!(
             stream,
-            "GET /data.json HTTP/1.1\r\nHost: 127.0.0.1:{port}\r\nConnection: close\r\n\r\n"
+            "GET /v1/instances/example-org/data.json HTTP/1.1\r\nHost: 127.0.0.1:{port}\r\nConnection: close\r\n\r\n"
         )
         .expect("send the request");
         let mut raw = String::new();
         stream.read_to_string(&mut raw).expect("read the answer");
         let (_, body) = raw.split_once("\r\n\r\n").expect("a head and a body");
-        let data: Value = serde_json::from_str(body).expect("/data.json is JSON");
+        let data: Value =
+            serde_json::from_str(body).expect("/v1/instances/example-org/data.json is JSON");
         if !data["disk"]["measured_at"].is_null() {
             return data;
         }

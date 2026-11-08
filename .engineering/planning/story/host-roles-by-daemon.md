@@ -2,14 +2,19 @@
 format: aep.planning-md/3
 id: story:host-roles-by-daemon
 kind: story
-status: draft
+status: implemented
 title: the daemon starts the supervisor and teacher as configured roles and the maintainer retires into an instance
 summary: globals.roles; conductor_host.slice; no claude --bg and no ~/.claude/agents adapters
 relations:
 - decomposes: epic:architecture-next
+- depends_on: story:spec-v1
 - depends_on: story:daemon-reconcile
 - depends_on: story:config-globals
-revision: 1
+revision: 4
+transitions:
+- {from: "draft", to: "proposed", at: "2026-11-07T23:41:28Z", actor: "human:timo", revision: 2}
+- {from: "proposed", to: "active", at: "2026-11-07T23:41:28Z", actor: "human:timo", revision: 3}
+- {from: "active", to: "implemented", at: "2026-11-08T19:46:03Z", actor: "human:timo", revision: 4, decided_on: {"recorded":{"test_result":1}}}
 ---
 ## Why
 

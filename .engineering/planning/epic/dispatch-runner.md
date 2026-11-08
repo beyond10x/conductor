@@ -2,10 +2,12 @@
 format: aep.planning-md/3
 id: epic:dispatch-runner
 kind: epic
-status: draft
+status: archived
 title: A dispatch names its runner; claude-code-session is the first and today
 summary: Spec and model a runner on dispatches and controllers with one value, claude-code-session, and no change in behaviour
-revision: 1
+revision: 2
+transitions:
+- {from: "draft", to: "archived", at: "2026-11-07T23:41:22Z", actor: "human:timo", revision: 2}
 ---
 # Epic: dispatch-runner
 

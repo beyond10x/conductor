@@ -1,0 +1,58 @@
+type: ess-scenario/1
+domain: conductor.token
+scenario: token-mark-token-limited
+summary: The agent on a leased token stops at a usage limit; the token is released as Limited until the time given, holds no agent, and the event names the agent to resume elsewhere.
+
+arrange:
+  - instance: token
+    entity: conductor.token.PoolToken
+
+timeline:
+  - at: 2026-11-08T09:00:00Z
+    command: conductor.token.ContributeToken
+    actor: conductor.token.Operator
+    input:
+      actor: {kind: Human, operator: alice}
+      instance: example-org
+      owner: alice
+      seat: alice@example-org.example
+      secret: example-org-claude-alice
+      contributed_at: 2026-11-08T09:00:00Z
+    outcome: contributed
+    capture: {instance: token, event: conductor.token.TokenContributed, field: token_id}
+
+  - at: 2026-11-08T09:05:00Z
+    command: conductor.token.LeaseToken
+    actor: conductor.token.InstanceRuntime
+    input:
+      actor: {kind: Agent, agent: {instance: example-org, role: Lead, name: example-org-controller, kind: claude-code}}
+      instance: example-org
+      token_id: {$instance: token}
+      agent: example-org-controller
+      leased_at: 2026-11-08T09:05:00Z
+    outcome: leased
+
+  - at: 2026-11-08T12:00:00Z
+    command: conductor.token.MarkTokenLimited
+    actor: conductor.token.InstanceRuntime
+    input:
+      actor: {kind: Agent, agent: {instance: example-org, role: Lead, name: example-org-controller, kind: claude-code}}
+      token_id: {$instance: token}
+      limited_until: 2026-11-08T17:00:00Z
+      limited_at: 2026-11-08T12:00:00Z
+    outcome: limited
+    events:
+      - event: conductor.token.TokenLimited
+        payload:
+          token_id: {$instance: token}
+          owner: alice
+          agent: example-org-controller
+          limited_until: 2026-11-08T17:00:00Z
+
+assert:
+  - view: conductor.token.Tokens
+    contains:
+      token_id: {$instance: token}
+      state: Limited
+      token_state: Limited
+      limited_until: 2026-11-08T17:00:00Z

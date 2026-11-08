@@ -2,7 +2,7 @@
 format: aep.planning-md/3
 id: design:conductor-on-agency
 kind: design
-status: draft
+status: archived
 title: conductor on Agency's API
 summary: conductor keeps cross-repository coordination; the sessions it drives become Agency-run Loom agents whose delivery is takt; eight Agency gaps, an eight-step migration, D1-D8 taken
 relations:
@@ -10,7 +10,9 @@ relations:
 - designs: epic:loom-agent-runner
 - designs: epic:cross-repository-waves
 - designs: epic:agency-runner
-revision: 1
+revision: 2
+transitions:
+- {from: "draft", to: "archived", at: "2026-11-07T23:42:03Z", actor: "human:timo", revision: 2, decided_on: {"recorded":{"diff":1}}}
 ---
 ## Document
 

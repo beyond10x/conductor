@@ -69,8 +69,8 @@ Each entry of `roles` names a role (`conductor`, `conductor-dev`, `controller`),
 
 | key | what |
 |---|---|
-| `profile` | the profile file the session starts with, through `--append-system-prompt-file` |
-| `settings` | the settings file the session starts with, through `--settings`; the shipped ones wire the guard. Under a config file the session's settings pin the role's instance: `"env": {"CONDUCTOR_INSTANCE": "<name>"}`, and every hook command that runs `conductor` starts `CONDUCTOR_INSTANCE=<name> conductor …`. The harness does not pass the environment of `conductor session start` or `spawn` on to the session it forks, so only the settings select the instance its hooks act for. A settings file that pins no instance, as the shipped ones do, starts pinned: `session start` and `spawn` write its content with `env.CONDUCTOR_INSTANCE` set and each such hook command prefixed to `<state>/sessions/<session name>.settings.json` and start the session with that copy, and `config validate` reports it as a note. `config validate` names a role whose settings file pins another instance, and `session start` and `spawn` refuse it (`InstanceNotPinned`). A `conductor` or `conductor-dev` role without `settings` starts with its default (`.claude/conductor-settings.json` of the working directory for `conductor`) written pinned to the instance as `<state>/sessions/<session name>.settings.json` |
+| `profile` | a profile file the session starts with, through `--append-system-prompt-file`, in place of the one the binary carries for the role |
+| `settings` | the settings file the session starts with, through `--settings`, in place of the binary's; the binary's wire the guard. Under a config file the session's settings pin the role's instance: `"env": {"CONDUCTOR_INSTANCE": "<name>"}`, and every hook command that runs `conductor` starts `CONDUCTOR_INSTANCE=<name> conductor …`. The harness does not pass the environment of `conductor session start` or `spawn` on to the session it forks, so only the settings select the instance its hooks act for. A settings file that pins no instance, as the shipped ones do, starts pinned: `session start` and `spawn` write its content with `env.CONDUCTOR_INSTANCE` set and each such hook command prefixed to `<state>/sessions/<session name>.settings.json` and start the session with that copy, and `config validate` reports it as a note. `config validate` names a role whose settings file pins another instance, and `session start` and `spawn` refuse it (`InstanceNotPinned`). A `conductor` or `conductor-dev` role without `settings` starts with its default (`crates/conductor/kinds/claude-code/conductor-settings.json` of the working directory for `conductor`) written pinned to the instance as `<state>/sessions/<session name>.settings.json` |
 | `agent` | a harness agent, used only by a role without a `profile`; a controller role that names an `agent` must name a `profile` too, or `config validate` refuses it ([roles](./roles.md#profiles-and-rules)) |
 | `read_only_tools` | tool names, as the harness names them (such as `mcp__server__tool`), that the guard allows this role's sessions beyond its built-in read-only list; empty by default |
 
@@ -90,10 +90,8 @@ Session names are one namespace for the whole machine, so each instance's sessio
 - every instance names one; `conductor config migrate` writes one into an instance written
   before it was required, which until then keeps the bare names `conductor`, `conductor-dev` and
   `<repo>`, for one release;
-- no two instances on the host share a prefix, a dashboard port, a state or a records directory,
-  in one file or across files: `config validate` keeps every valid file in the host registry,
-  `~/.b10x/conductor/host/instances.json`, and refuses an instance that holds what another
-  registered file's instance holds, naming both;
+- no two instances of the file share a prefix, a state or a records directory; one daemon reads
+  one file, so no host registry compares files;
 - no prefix starts with another prefix followed by `-`, and no prefix followed by `-` begins a
   bare name another instance keeps, such as `conductor-dev`;
 - a prefix is letters, digits and `-`, starting and ending with a letter or digit.

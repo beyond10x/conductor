@@ -76,28 +76,25 @@ loaded, hooks included ([limits](/docs/security/limits)).
 
 ### The settings file
 
-`--settings` names the role's settings file. The shipped files,
-`.claude/conductor-settings.json` and `.claude/controller-settings.json`, wire the guard on every
-tool and set `disableAllHooks` to false. `conductor session start --role conductor` uses the
-`conductor` role's `settings`, or `.claude/conductor-settings.json` of the directory it runs in
-when the role names none. A
-controller's settings come from the `controller` role's `settings`: point it at
-`.claude/controller-settings.json` or a file that wires the same hook.
+`--settings` names the session's settings file. The binary carries two,
+`crates/conductor/kinds/claude-code/conductor-settings.json` and `controller-settings.json`, which
+wire the guard on every tool and set `disableAllHooks` to false; a session of the `conductor` role
+or a controller whose role names no `settings` starts with the binary's, written to
+`<state>/sessions/<session name>.settings.json`. A role's own `settings` takes their place: point
+it at a file that wires the same hook.
 
 No session writes a settings file: not by a file tool, and not by a Bash command that names it
 and holds a write form ([the guard](/docs/security/the-guard#file-tools-edit-write-notebookedit)).
 
 ### Profile or agent
 
-A role's `profile` is a file appended to the system prompt with `--append-system-prompt-file`.
-Without one, a session starts with `--agent <name>`. Where user settings are not loaded (the
-`systemd` provider), that agent is found only in the start directory's `.claude/agents/`, never in
-`~/.claude/agents/`, so
-`task agents:link`, which links into one named repository's `.claude/agents/`, serves none of
-these sessions. `task maintainer:start` refuses when this checkout has no
-`.claude/agents/conductor-dev.md` and the role names no profile. `conductor config validate` refuses a
-`controller` role that names an `agent` and no `profile`: a controller starts only from its
-profile.
+A session's profile is appended to the system prompt with `--append-system-prompt-file`: the
+role's `profile`, or the one the binary carries for the role, written to
+`<state>/sessions/<session name>.profile.md`. A role that names an `agent` and no `profile` starts
+with `--agent <name>`; where user settings are not loaded (the `systemd` provider), that agent is
+found only in the start directory's `.claude/agents/`, never in `~/.claude/agents/`.
+`conductor config validate` refuses a `controller` role that names an `agent` and no `profile`: a
+controller starts only from a profile.
 
 ### Bypass permissions, and the guard
 

@@ -220,6 +220,7 @@ operator_words: null
 repository: null
 decider_name: null
 prompt_sha256: null
+actor: human:operator
 ";
     assert_eq!(
         case.ok(&["decision", "show", "--decision-id", "DEC-20261007-01"]),
@@ -274,9 +275,10 @@ prompt_sha256: null
         "repository",
         "decider_name",
         "prompt_sha256",
+        "actor",
     ];
     sorted.sort_unstable();
-    assert_eq!(keys, sorted, "the object holds exactly the fifteen fields");
+    assert_eq!(keys, sorted, "the object holds exactly the sixteen fields");
     let row = case
         .rows("decision", "decisions")
         .into_iter()
@@ -313,7 +315,8 @@ prompt_sha256: null
             "operator_words",
             "repository",
             "decider_name",
-            "prompt_sha256"
+            "prompt_sha256",
+            "actor"
         ],
         "the object's keys are in the text's order: {printed}"
     );
@@ -542,6 +545,7 @@ fn snapshot_specifications_and_record_specification_use_the_state_dir() {
             "scenarios": 272,
             "synthesis_refusals": 0,
             "conformance_status": "validated",
+            "actor": "human:operator",
         })]
     );
 
@@ -611,7 +615,7 @@ fn a_collector_reads_the_state_directory_through_its_recorder() {
         Some(case.state.as_path())
     );
     assert!(
-        case.state.join("tree").is_dir(),
+        case.state.join("store.sqlite").is_file(),
         "the store is kept under the state directory"
     );
 

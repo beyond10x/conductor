@@ -5,9 +5,7 @@
 //! Each case keeps its state directory under this test target's own temporary directory in
 //! `target/`.
 
-use std::fs::{self, OpenOptions};
-use std::io::Write as _;
-use std::os::unix::fs::PermissionsExt as _;
+use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Barrier};
 use std::thread;
@@ -25,7 +23,7 @@ use eventlog_core::{
     CommandMeta, EventStore as _, Expected, NewEvent, StreamId, TenantId, new_event_id,
     request_hash,
 };
-use eventlog_tree::TreeEventStore;
+use eventlog_sqlite::SqliteEventStore;
 use serde_json::json;
 use time::OffsetDateTime;
 
@@ -39,18 +37,10 @@ fn state_dir(case: &str) -> PathBuf {
         .join(case)
         .join("state");
     if dir.exists() {
-        let store = dir.join("tree");
-        if store.exists() {
-            set_mode(&store, 0o755);
-        }
         fs::remove_dir_all(&dir).expect("clear the case's state directory");
     }
     fs::create_dir_all(&dir).expect("create the case's state directory");
     dir
-}
-
-fn set_mode(path: &Path, mode: u32) {
-    fs::set_permissions(path, fs::Permissions::from_mode(mode)).expect("set the directory's mode");
 }
 
 fn id(text: &str) -> GoalId {
@@ -69,6 +59,7 @@ fn propose_with(
 ) -> ProposeGoalOutcome {
     generated
         .propose_goal(ProposeGoal {
+            actor: conductor_cli::actor::operator("operator"),
             goal_id: id(goal),
             title: title.to_owned(),
             exit_evidence: exit_evidence.to_owned(),
@@ -218,12 +209,16 @@ fn adv_a_reopened_store_answers_each_goals_latest_state() {
     }
     for goal in ["G1", "G3"] {
         let outcome = generated
-            .confirm_goal(ConfirmGoal { goal_id: id(goal) })
+            .confirm_goal(ConfirmGoal {
+                actor: conductor_cli::actor::operator("operator"),
+                goal_id: id(goal),
+            })
             .expect("ConfirmGoal decides an outcome");
         assert!(matches!(outcome, ConfirmGoalOutcome::Confirmed { .. }));
     }
     let met = generated
         .mark_goal_met(MarkGoalMet {
+            actor: conductor_cli::actor::operator("operator"),
             goal_id: id("G1"),
             evidence: "it holds".to_owned(),
         })
@@ -231,6 +226,7 @@ fn adv_a_reopened_store_answers_each_goals_latest_state() {
     assert!(matches!(met, MarkGoalMetOutcome::Met { .. }));
     let dropped = generated
         .drop_goal(DropGoal {
+            actor: conductor_cli::actor::operator("operator"),
             goal_id: id("G2"),
             reason: "not needed".to_owned(),
         })
@@ -251,7 +247,10 @@ fn adv_a_reopened_store_answers_each_goals_latest_state() {
     );
     // An earlier snapshot is never answered again: G1 is Met, so confirming it is refused.
     let again = reopened
-        .confirm_goal(ConfirmGoal { goal_id: id("G1") })
+        .confirm_goal(ConfirmGoal {
+            actor: conductor_cli::actor::operator("operator"),
+            goal_id: id("G1"),
+        })
         .expect("ConfirmGoal decides an outcome");
     assert!(
         matches!(again, ConfirmGoalOutcome::WrongState { .. }),
@@ -270,7 +269,10 @@ fn adv_goals_keep_the_order_they_were_proposed_in() {
         propose(&mut generated, goal, goal);
     }
     generated
-        .confirm_goal(ConfirmGoal { goal_id: id("G1") })
+        .confirm_goal(ConfirmGoal {
+            actor: conductor_cli::actor::operator("operator"),
+            goal_id: id("G1"),
+        })
         .expect("ConfirmGoal decides an outcome");
     let expected = vec![
         row("G3", GoalState::Draft, "G3"),
@@ -428,7 +430,10 @@ fn adv_every_goal_id_the_specification_admits_is_kept() {
             "{what}: ProposeGoal refuses it: {outcome:?}"
         );
         let confirmed = generated
-            .confirm_goal(ConfirmGoal { goal_id: id(goal) })
+            .confirm_goal(ConfirmGoal {
+                actor: conductor_cli::actor::operator("operator"),
+                goal_id: id(goal),
+            })
             .expect("ConfirmGoal decides an outcome");
         assert!(
             matches!(&confirmed, ConfirmGoalOutcome::InvalidGoalId { error } if error.goal_id == id(goal)),
@@ -436,6 +441,7 @@ fn adv_every_goal_id_the_specification_admits_is_kept() {
         );
         let met = generated
             .mark_goal_met(MarkGoalMet {
+                actor: conductor_cli::actor::operator("operator"),
                 goal_id: id(goal),
                 evidence: "evidence".to_owned(),
             })
@@ -446,6 +452,7 @@ fn adv_every_goal_id_the_specification_admits_is_kept() {
         );
         let dropped = generated
             .drop_goal(DropGoal {
+                actor: conductor_cli::actor::operator("operator"),
                 goal_id: id(goal),
                 reason: "reason".to_owned(),
             })
@@ -519,7 +526,10 @@ fn adv_a_long_lived_handle_sees_and_respects_another_handles_writes() {
 
     let held = GoalStorage::get(&early.ports, &id("G1")).expect("early reads G1");
     let confirmed = other
-        .confirm_goal(ConfirmGoal { goal_id: id("G1") })
+        .confirm_goal(ConfirmGoal {
+            actor: conductor_cli::actor::operator("operator"),
+            goal_id: id("G1"),
+        })
         .expect("ConfirmGoal decides an outcome");
     assert!(matches!(confirmed, ConfirmGoalOutcome::Confirmed { .. }));
     other.ports.check().expect("the confirmation is kept");
@@ -640,12 +650,12 @@ fn adv_racing_handles_lose_no_proposal() {
 #[test]
 fn adv_a_failed_write_is_reported_and_stops_every_later_write() {
     let state = state_dir("failed-write");
-    let root = state.join("tree");
+
     let mut generated = open(&state);
 
-    set_mode(&root, 0o555);
+    store::refuse_writes(true);
     let first = propose(&mut generated, "G1", "Refused by the disk");
-    set_mode(&root, 0o755);
+    store::refuse_writes(false);
     assert!(matches!(first, ProposeGoalOutcome::Proposed { .. }));
     let failure = generated
         .ports
@@ -678,105 +688,6 @@ fn adv_a_failed_write_is_reported_and_stops_every_later_write() {
     );
 }
 
-/// The event files of goal `goal`'s stream in the tree under `state`.
-fn goal_event_files(state: &Path, goal: &str) -> Vec<PathBuf> {
-    let stream = state
-        .join("tree/tenants/conductor/streams/conductor.direction.Goal")
-        .join(goal);
-    let mut files: Vec<PathBuf> = fs::read_dir(&stream)
-        .expect("read the goal's stream directory")
-        .map(|entry| entry.expect("a directory entry").path())
-        .filter(|path| path.extension().is_some_and(|ext| ext == "json"))
-        .collect();
-    files.sort();
-    files
-}
-
-/// Every regular file under `dir`, at any depth.
-fn files_under(dir: &Path) -> Vec<PathBuf> {
-    let mut files = Vec::new();
-    for entry in fs::read_dir(dir).expect("read a directory") {
-        let path = entry.expect("a directory entry").path();
-        if path.is_dir() {
-            files.extend(files_under(&path));
-        } else {
-            files.push(path);
-        }
-    }
-    files
-}
-
-/// Half an event file left beside the committed history, as a write cut off mid-file leaves it,
-/// is never read as a record: the store either refuses to open or answers exactly the committed
-/// goal.
-#[test]
-fn adv_a_torn_tail_is_not_read_as_a_record() {
-    let state = state_dir("torn-tail");
-    let mut generated = open(&state);
-    propose(&mut generated, "G9", "Torn tail goal");
-    generated.ports.check().expect("the proposal is kept");
-    drop(generated);
-
-    let events = goal_event_files(&state, "G9");
-    assert_eq!(events.len(), 1, "one event file: {events:?}");
-    let committed = fs::read(&events[0]).expect("read the event file");
-    let torn = events[0].with_file_name(format!("{}.json", "0".repeat(64)));
-    OpenOptions::new()
-        .create_new(true)
-        .write(true)
-        .open(&torn)
-        .and_then(|mut file| file.write_all(&committed[..committed.len() / 2]))
-        .expect("tear a copy of the event file beside it");
-
-    if let Ok(store) = store::open(&state) {
-        let reopened = Generated::new(store);
-        assert_eq!(
-            rows(&reopened),
-            vec![row("G9", GoalState::Draft, "Torn tail goal")]
-        );
-        reopened.ports.check().expect("the committed goal reads");
-    }
-}
-
-/// A committed record changed on disk is refused, not answered with the changed text.
-#[test]
-fn adv_a_changed_committed_record_is_refused() {
-    let state = state_dir("changed-record");
-    let mut generated = open(&state);
-    propose(&mut generated, "G9", "Original title");
-    generated.ports.check().expect("the proposal is kept");
-    drop(generated);
-
-    let holding: Vec<PathBuf> = files_under(&state.join("tree/tenants"))
-        .into_iter()
-        .filter(|file| fs::read_to_string(file).is_ok_and(|text| text.contains("Original title")))
-        .collect();
-    assert_eq!(
-        holding,
-        goal_event_files(&state, "G9"),
-        "the title is in G9's one event file"
-    );
-    let text = fs::read_to_string(&holding[0]).expect("read the event file");
-    assert_eq!(text.matches("Original title").count(), 1);
-    fs::write(
-        &holding[0],
-        text.replace("Original title", "Changed title!"),
-    )
-    .expect("change the event file");
-
-    match store::open(&state) {
-        Err(_) => {}
-        Ok(store) => {
-            let reopened = Generated::new(store);
-            panic!(
-                "the store opened a changed history and answers {:?}, check {:?}",
-                rows(&reopened),
-                reopened.ports.check()
-            );
-        }
-    }
-}
-
 /// More records than one page of the log's feed (1000): the view still answers every goal.
 #[test]
 fn adv_the_view_reads_past_one_page_of_the_log() {
@@ -797,6 +708,15 @@ fn adv_the_view_reads_past_one_page_of_the_log() {
     );
 }
 
+/// The SQLite file of the store under `state`, as the raw log opens it.
+fn raw_file(state: &Path) -> String {
+    state
+        .join(store::STORE_FILE)
+        .to_str()
+        .expect("a UTF-8 path")
+        .to_owned()
+}
+
 /// Goal `goal`'s stream in the raw log.
 fn goal_stream(goal: &str) -> StreamId {
     let tenant = TenantId::new("conductor").expect("tenant");
@@ -807,7 +727,7 @@ fn goal_stream(goal: &str) -> StreamId {
 /// log, as another build would write it.
 fn append_raw(state: &Path, goal: &str, name: &str, version: u32) {
     callers_runtime().block_on(async {
-        let log = TreeEventStore::open(state.join("tree"))
+        let log = SqliteEventStore::open(&raw_file(state), store::PREFIX)
             .await
             .expect("open the raw log");
         let events = [NewEvent::new(
@@ -844,7 +764,7 @@ fn append_raw(state: &Path, goal: &str, name: &str, version: u32) {
 /// Redacts the first event of goal `goal`'s stream with the raw log.
 fn redact_raw(state: &Path, goal: &str) {
     callers_runtime().block_on(async {
-        let log = TreeEventStore::open(state.join("tree"))
+        let log = SqliteEventStore::open(&raw_file(state), store::PREFIX)
             .await
             .expect("open the raw log");
         log.redact(&goal_stream(goal), 1, "erased on request")
@@ -944,10 +864,6 @@ fn adv_probe_cost_by_history_size() {
     let started = Instant::now();
     let listed = rows(&reopened).len();
     println!("Goals view of {listed}: {:?}", started.elapsed());
-    let files = files_under(&state.join("tree/tenants"));
-    let size: u64 = files
-        .iter()
-        .map(|file| fs::metadata(file).expect("a history file").len())
-        .sum();
-    println!("tree history: {} files, {size} bytes", files.len());
+    let size = fs::metadata(state.join(store::STORE_FILE)).map_or(0, |metadata| metadata.len());
+    println!("database: {size} bytes");
 }

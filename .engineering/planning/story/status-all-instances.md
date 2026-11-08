@@ -2,13 +2,15 @@
 format: aep.planning-md/3
 id: story:status-all-instances
 kind: story
-status: draft
+status: archived
 title: conductor status shows every instance on the host
 relations:
 - decomposes: epic:host-bridge
 - depends_on: story:host-instances-list
 - depends_on: story:views-open-as-reader
-revision: 2
+revision: 3
+transitions:
+- {from: "draft", to: "archived", at: "2026-11-07T23:41:20Z", actor: "human:timo", revision: 3}
 ---
 # Story: status-all-instances
 

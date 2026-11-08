@@ -2,12 +2,14 @@
 format: aep.planning-md/3
 id: story:host-dashboard-home
 kind: story
-status: draft
+status: archived
 title: The host dashboard shows every instance and answers every instance's decisions
 relations:
 - decomposes: epic:host-bridge
 - depends_on: story:status-all-instances
-revision: 2
+revision: 3
+transitions:
+- {from: "draft", to: "archived", at: "2026-11-07T23:41:21Z", actor: "human:timo", revision: 3}
 ---
 # Story: host-dashboard-home
 

@@ -26,11 +26,13 @@ The objectives of the collection this repository moves, by id from `atlas/ROADMA
   ([`docs/design/conductor-run.md`](docs/design/conductor-run.md)); the conductor profile is retired.
 - **The conductor-dev session** (`task maintainer:start`). It develops conductor: code, specification,
   plan, design, profiles; it installs the binary and restarts the loop. Profile:
-  [`.agents/conductor-dev.md`](.agents/conductor-dev.md). Role: design § 12.
+  [`crates/conductor/roles/maintainer.md`](crates/conductor/roles/maintainer.md), which the binary
+  carries (`conductor role show --role maintainer`). Role: design § 12.
 - **Any agent changing this repository.**
 
 Repository controllers do not read this file. They follow
-[`.agents/repo-controller.md`](.agents/repo-controller.md) and the charter conductor sends them.
+the controller profile the binary carries,
+[`crates/conductor/roles/controller.md`](crates/conductor/roles/controller.md), and the charter conductor sends them.
 
 Every session reads its profile first, then the instance's `rules.md` in the instance's records
 directory (`records` in `conductor config show`), and follows that file's section for its role.
@@ -50,9 +52,8 @@ A value a profile writes as `section.key`, such as `thresholds.build_slot`, is t
 | `crates/conductor-docs/` | the documentation generator: reference pages, status page, site provenance |
 | `website/` | the documentation site (Docusaurus on the shared Docs System); `website/docs/reference/**`, `website/docs/status.md` and `website/data/status.json` are generated |
 | `docs/waves/` | one page per wave: selection, units, outcome |
-| `.agents/` | the generic profiles: `conductor-dev.md`, `repo-controller.md`, and the host's `conductor-supervisor.md` and `conductor-teacher.md` |
-| `.claude/agents/` | Claude Code adapters, one per profile; each keeps the agent frontmatter and points at its `.agents/` file |
-| `.claude/conductor-settings.json`, `.claude/controller-settings.json` | the settings conductor and each controller start with; both wire the guard as a PreToolUse hook |
+| `crates/conductor/roles/` | the role profiles, compiled into the binary (`include_str!`): `maintainer.md`, `controller.md`, and the host's `supervisor.md` and `teacher.md`; `conductor role show --role <role>` prints one |
+| `crates/conductor/kinds/claude-code/` | the `claude-code` kind's packaging, compiled in: `conductor-settings.json` and `controller-settings.json`, the settings the director and each controller start with when their role names none; both wire the guard as a PreToolUse hook. At start the kind writes the settings and the role's profile into the agent's state (`<state>/sessions/<session name>.settings.json`, `.profile.md`) |
 | `conductor.example.yaml` | an example config file |
 | `Taskfile.yml` | every command below |
 
@@ -61,7 +62,7 @@ A value a profile writes as `section.key`, such as `thresholds.build_slot`, is t
 | who | writes |
 |---|---|
 | conductor | its records, in the instance's records directory: `decisions/`, `dispatches/`, `charters/`, `docs/handoff/`, `goals.jsonl`, `STATUS.md`, `NORTHSTAR.md`, `REPORT.md`; `.engineering/workspace.yaml`, through `conductor config workspace` |
-| conductor-dev | in this repository: `crates/`, `spec/`, `.engineering/`, `docs/` (`docs/analysis/` included), `website/` (the hand-written pages), `.agents/`, `.claude/`, `Taskfile.yml`, `Cargo.*`, `AGENTS.md`, `README.md`; and the instance's `rules.md` |
+| conductor-dev | in this repository: `crates/`, `spec/`, `.engineering/`, `docs/` (`docs/analysis/` included), `website/` (the hand-written pages), `Taskfile.yml`, `Cargo.*`, `AGENTS.md`, `README.md`; and the instance's `rules.md` |
 | the `conductor` CLI | the store under the state directory; and, from the commands that record an event (dispatch, report, message, resource answer, charter revision, decision, request), one line each in the records' `dispatches/` or `decisions/` log |
 
 Each session commits only the files it writes, with a pathspec.
@@ -71,13 +72,12 @@ Each session commits only the files it writes, with a pathspec.
 | command | does |
 |---|---|
 | `task check` | the gate: a Gates scan of every tracked file when `B10X_GATES_POLICY` names a policy (`b10x-gates scan-text`), `ess specify validate --path spec`, the conformance run, `crates/conductor-model` compared byte for byte with a fresh generation, `cargo fmt --check`, `cargo clippy --all-targets -- -D warnings`, `cargo test`, `task docs-check`, and for the dashboard app (`crates/conductor/dashboard`, Node as `.nvmrc` pins) `npm ci`, Vitest and a check that the committed `dist/` equals a fresh `task ui` build |
-| `conductor doctor`, `conductor init`, `conductor trust` | the programs conductor starts and their pins (`b10x.toml`); a new instance's records skeleton, and the host's supervisor and teacher adapters in `~/.claude/agents/` (installed when missing, never overwritten); trust for the checkouts and the records in `~/.claude.json` (`task trust` calls it) |
+| `conductor doctor`, `conductor init`, `conductor trust` | the programs conductor starts and their pins (`b10x.toml`); a new instance's records skeleton; trust for the checkouts and the records in `~/.claude.json` (`task trust` calls it) |
 | `task measure` | the wall-clock measurements, ignored by the gate (append cost against store size, guard latency, the dashboard's warm answers); run alone on a quiet host |
 | `task regen` | regenerates `crates/conductor-model` from `spec/` |
 | `task docs-generate`, `task docs-check` | `conductor-docs generate` writes `website/docs/reference/**`, `website/docs/status.md` and `website/data/status.json`; `--check` fails on any difference. Never edit those files by hand |
 | `npm --prefix website ci && npm --prefix website run build` | builds the documentation site; `.github/workflows/pages.yml` runs it on every push |
-| `task install` | `cargo install --path crates/conductor --locked`, then `task profiles` |
-| `task profiles` | the four `.agents/` profiles into `~/.b10x/conductor/profiles/`, which the instance's roles start from; after a release archive is installed, run it from that release's checkout |
+| `task install` | `cargo install --path crates/conductor --locked`; the binary carries the role profiles and the `claude-code` settings, so nothing else is copied |
 
 A pull request merges when its `task check` job (`.github/workflows/check.yml`) and its Gates job
 (`common / Security and privacy`, which scans with the organization's policy; the `task check` job
@@ -101,8 +101,8 @@ runs without one) are green on its head commit. Run `task check` locally only wh
 4. **No organization in the product.** The code, the tests, the specification and the tasks name no
    organization: an organization is a config file and its `rules.md`.
    `crates/conductor/tests/no_organization.rs` scans `crates/conductor/src`,
-   `crates/conductor/tests`, `crates/conductor-model/src`, `spec/`, `.agents/`, `.claude/agents/`,
-   `Taskfile.yml` and `crates/conductor/Cargo.toml`, and allows only the default paths `~/.b10x/conductor` and
+   `crates/conductor/tests`, `crates/conductor-model/src`, `spec/`, `crates/conductor/roles/`,
+   `crates/conductor/kinds/`, `Taskfile.yml` and `crates/conductor/Cargo.toml`, and allows only the default paths `~/.b10x/conductor` and
    `~/.cache/b10x/conductor`, the Gates scanner's names and the store crates' source. Use
    `example-org` in code, tests and fixtures. No absolute path into a user's home directory:
    write `~/`.
@@ -125,10 +125,11 @@ runs without one) are green on its head commit. Run `task check` locally only wh
 8. **Every problem names where it is.** A config problem names its YAML path; a refused command
    names the specification's error on one line of standard error and exits 1. A handler that is not
    written yet exits 2.
-9. **Profiles stay generic.** `.agents/` and `.claude/` name no organization, repository list,
-   person or grant. What is true for one organization goes in its `rules.md`; a value that differs
-   per instance is a config key, written `section.key` in the profile. A change to a profile, an
-   adapter, a settings file or a guard rule is reported with its diff.
+9. **Profiles stay generic.** `crates/conductor/roles/` and `crates/conductor/kinds/` name no
+   organization, repository list, person or grant. The repository has no `.claude/` directory
+   (`tests/roles.rs`): what a harness reads is product data the binary carries. What is true for one organization goes in its `rules.md`; a value that differs
+   per instance is a config key, written `section.key` in the profile. A change to a profile, a
+   settings file or a guard rule is reported with its diff.
 10. **Decision classes and message formats are the design's** (§ 5, § 6). A message whose first
     line does not parse is answered with the format, not acted on. An unclear class is C: the
     option that can be undone, recorded with why (design § 5).
@@ -215,22 +216,21 @@ a day, without asking: several waves may go into one release.
 The instance's loop is `conductor run`, no session; a conductor session (in its records
 directory) is started only by hand, and conductor-dev develops conductor in this repository; they
 are named `<session_prefix>-conductor` and `<session_prefix>-conductor-dev`. The prefix is required and
-unique on the host (`conductor config validate` checks it against the host registry,
-`~/.b10x/conductor/host/instances.json`); an instance written before that keeps `conductor` and
+unique within the config file (`conductor config validate` checks it; v1 has no host registry,
+design `docs/design/architecture-next.md` § 11); an instance written before that keeps `conductor` and
 `conductor-dev` until `conductor config migrate` writes its prefix. Both run in permission mode `bypassPermissions`, so messages
 between sessions are not held for approval. Every task below acts on the active instance only:
-its sessions by their full names, its dashboard by its port and unit.
+its sessions by their full names, its dashboard page by its name in `?instance=`.
 
 | task | does |
 |---|---|
-| `conductor run --install`, `--uninstall` | start or stop the active instance's loop as the user unit `conductor_<instance>-run.service`; `--uninstall`, then `--install` restarts it, with no hand-over (`docs/design/conductor-run.md`) |
-| `task maintainer:start` | start conductor-dev with `conductor session start --role maintainer`, in this checkout, under the maintainer's session name and on its model in `conductor config show` (`host.roles`), with `--permission-mode bypassPermissions --setting-sources project,local`; refuse unless its harness is `claude`, and while a session of that name runs. A `profile` is appended with `--append-system-prompt-file <profile>`; without one it starts with `--agent conductor-dev`, which is found only in this checkout's `.claude/agents/` |
-| `task supervisor:start`, `task teacher:start` | start the host's `conductor-supervisor` or `conductor-teacher` with the start command its `.agents/` profile writes, in the directory of the config file; refuse while a session of that name runs |
-| `task agents:link REPO=<path>` | links `.claude/agents/{repo-controller,conductor-dev}.md` into `<path>/.claude/agents/`, hidden through that repository's `.git/info/exclude`, for a session you start by hand there; never writes `~/.claude/agents/`, and removes its own old links there. It serves none of the sessions above |
+| `conductor daemon serve --install`, `--uninstall` | install and start, or stop and remove, conductord as the user unit `conductord.service`; it starts each instance's runtime from the config and restarts one on a new binary or placement, with no hand-over (design architecture-next § 4) |
+| `task maintainer:start` | start conductor-dev with `conductor session start --role maintainer`, in this checkout, under the maintainer's session name and on its model in `conductor config show` (`host.roles`), with `--permission-mode bypassPermissions --setting-sources project,local`; refuse unless its harness is `claude`, and while a session of that name runs. It appends the role's `profile` with `--append-system-prompt-file`; without one, the maintainer profile the binary carries, which `session start` writes to `<state>/sessions/<session name>.profile.md` |
+| `task supervisor:start`, `task teacher:start` | ask the daemon to start the host role now (`conductor daemon start-role --role <role>`); the daemon starts each host role `globals.roles` lists through `conductor session start --role <role>` beside the config file, its session in `conductor_host.slice`, and keeps it running |
 | `task conductor:attach`, `task maintainer:attach` | open the active instance's session of that role, by its full name, in this terminal; refuse when no live background session or more than one holds that name |
 | `task sessions` | list the active instance's two sessions by their full names; exit 1 naming each name more than one live background session holds |
 | `task trust` | mark every checkout under `checkouts.root` and the instance's `records` directory as trusted Claude Code workspaces, so conductor and each controller can start there |
-| `task dashboard`, `task dashboard:stop` | the active instance's page on 127.0.0.1, read-only except the Decisions page's answers (a per-process token, same origin) at its `dashboard_port` (7313 plus the instance's position in the file, unless the file writes one); where systemctl is on PATH the user service `<session_prefix>-conductor-dashboard` (`conductor-dashboard` without a prefix), elsewhere a background process whose pid is in `dashboard.pid` of the instance's `state` directory |
+| `task dashboard` | prints the active instance's page, `http://127.0.0.1:<daemon.port>/?instance=<name>`: conductord serves the app and proxies `/v1/instances/<name>/<route>` to the instance's runtime (`conductor instance serve`, on `api.sock` of its state directory); read-only except the answers and settings writes, which carry the daemon's token (same origin) and an operator holding the grant; with `daemon.tls` set, the same app is served on the TLS listener to Identity bearers. No per-instance dashboard process or unit runs |
 
 ## CLI quick reference
 
@@ -243,7 +243,7 @@ conductor snapshot <view> --format json         # repositories, pull-requests, w
 conductor repository activity                   # each repository Active or Inactive
 conductor guard guard-decisions                 # the guard's recorded denials
 conductor store migrate                         # copy an older store into the tree layout; the old one is kept beside it
-conductor run --install                         # the instance's loop as a user unit; --once runs one watch and one cycle tick
+conductor daemon serve --install                # conductord as a user unit; conductor run --once runs one watch and one cycle tick
 conductor message send --to conductor --from <session name> --text -   # a controller's message, on standard input, into conductor's mailbox
 ```
 

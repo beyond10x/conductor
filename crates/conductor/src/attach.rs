@@ -3,7 +3,7 @@
 //! provider started runs its harness, whichever it is, in a tmux server of its own on
 //! `<state>/sessions/<name>.tmux` ([`systemd::TMUX_CONF`]); attach runs `tmux attach` on it in
 //! the operator's terminal, read-only under `--watch`. A session started before the tmux
-//! launcher has only its typescript: `--watch` follows that ([`follow`]) until its unit ends or
+//! launcher has only its terminal log: `--watch` follows that ([`follow`]) until its unit ends or
 //! the operator presses `ctrl-]` then `d`; a read-write attach to it is refused.
 //!
 //! Both commands read every instance of the config file, from any directory, or the one
@@ -32,14 +32,33 @@ use serde_json::json;
 
 use crate::cli::{AttachArgs, ListSessionsArgs};
 use crate::config::{self, Environment};
-use crate::confine::systemd::{self, SYSTEMCTL, TMUX};
+use crate::systemd::{self, SYSTEMCTL, TMUX};
 
 /// The variable the provider sets in every process of a session, its session's name
 /// ([`systemd::TMUX_CONF`]); attach refuses to run where it is set.
 pub const MARKER: &str = "CONDUCTOR_SESSION";
 
-/// How much of a typescript [`follow`] replays before it follows: its last 64 KiB.
+/// How much of a terminal log [`follow`] replays before it follows: its last 64 KiB.
 pub const REPLAY: u64 = 64 * 1024;
+
+/// The suffix of a session's terminal log, `<session>.terminal.log`.
+const LOG: &str = ".terminal.log";
+
+/// The suffix the terminal log had before `story:terminal-log-name`, read for one release when
+/// the new name is absent.
+const OLD_LOG: &str = ".typescript";
+
+/// The terminal log of the session `name` in `sessions`: `<name>.terminal.log`, or the old
+/// `<name>.typescript` when only that exists.
+fn log_path(sessions: &Path, name: &str) -> PathBuf {
+    let log = sessions.join(format!("{name}{LOG}"));
+    let old = sessions.join(format!("{name}{OLD_LOG}"));
+    if !log.exists() && old.exists() {
+        old
+    } else {
+        log
+    }
+}
 
 /// A session whose screen changed within this many seconds is shown busy.
 const BUSY_SECONDS: i64 = 10;
@@ -47,7 +66,7 @@ const BUSY_SECONDS: i64 = 10;
 /// The detach key's first byte, `ctrl-]`; `d` follows it.
 const DETACH_PREFIX: u8 = 0x1d;
 
-/// One instance's sessions directory, where its sessions' sockets and typescripts are.
+/// One instance's sessions directory, where its sessions' sockets and terminal logs are.
 struct Place {
     instance: Instance,
     sessions: PathBuf,
@@ -109,7 +128,7 @@ fn places(
     Ok(places)
 }
 
-/// The names of the sessions `sessions` holds a socket or a typescript for.
+/// The names of the sessions `sessions` holds a socket or a terminal log for.
 fn names(sessions: &Path) -> Result<BTreeSet<String>> {
     let mut names = BTreeSet::new();
     let entries = match fs::read_dir(sessions) {
@@ -121,7 +140,8 @@ fn names(sessions: &Path) -> Result<BTreeSet<String>> {
         let file = entry?.file_name().to_string_lossy().into_owned();
         if let Some(name) = file
             .strip_suffix(".tmux")
-            .or_else(|| file.strip_suffix(".typescript"))
+            .or_else(|| file.strip_suffix(LOG))
+            .or_else(|| file.strip_suffix(OLD_LOG))
         {
             names.insert(name.to_owned());
         }
@@ -149,7 +169,7 @@ fn unit_active(name: &SessionName) -> bool {
 }
 
 /// The live session `name` of `place`, and how attach reaches it: its tmux server answers
-/// (`Attach`), or its unit runs and keeps a typescript, from before the tmux launcher (`Watch`).
+/// (`Attach`), or its unit runs and keeps a terminal log, from before the tmux launcher (`Watch`).
 fn find(place: &Place, name: &str) -> Option<AttachableSession> {
     let session = SessionName(name.to_owned());
     let row = |mode, directory, idle_seconds| AttachableSession {
@@ -186,9 +206,9 @@ fn find(place: &Place, name: &str) -> Option<AttachableSession> {
             .map(str::to_owned);
         return Some(row(AttachMode::Attach, directory, idle));
     }
-    let typescript = place.sessions.join(format!("{name}.typescript"));
-    if typescript.exists() && unit_active(&session) {
-        let idle = fs::metadata(&typescript)
+    let log = log_path(&place.sessions, name);
+    if log.exists() && unit_active(&session) {
+        let idle = fs::metadata(&log)
             .and_then(|meta| meta.modified())
             .ok()
             .and_then(|at| at.duration_since(UNIX_EPOCH).ok())
@@ -303,12 +323,12 @@ pub fn list(
 
 /// `conductor session attach`: refuses inside a session, finds the session by `--name` or
 /// `--role` in every instance (or `--instance`'s), and attaches the terminal to its tmux, or
-/// follows its typescript under `--watch` when it was started before the tmux launcher.
+/// follows its terminal log under `--watch` when it was started before the tmux launcher.
 ///
 /// # Errors
 ///
 /// The config file does not load, `--instance` names no instance, tmux does not start, the
-/// typescript does not read, or a refusal.
+/// terminal log does not read, or a refusal.
 pub fn attach(
     config_flag: Option<&Path>,
     state: Option<&Path>,
@@ -407,23 +427,38 @@ pub fn attach(
             SessionAttachRefusal::NotAttachable,
             "it runs under the launcher before tmux; restart the session to attach to it \
              (`conductor session stop` then `start`, or the controller's restart); `--watch` \
-             follows its typescript now"
+             follows its terminal log now"
                 .to_owned(),
         ),
         _ => open(&place.sessions, &row, watch),
     }
 }
 
+/// `l` of the terminal UI (`story:tui-readonly`): follows the terminal log of the session `name`
+/// of the instance `instance` of the config file, whether it runs under tmux or the launcher
+/// before it, until it ends or the operator presses `ctrl-]` then `d`.
+///
+/// # Errors
+///
+/// The config file does not load, names no such instance, or the log does not open.
+pub fn follow_log(config_flag: Option<&Path>, instance: &str, name: &str) -> Result<ExitCode> {
+    let places = places(config_flag, None, Some(instance))?;
+    let path = log_path(&places[0].sessions, name);
+    let mut file = File::open(&path).with_context(|| format!("open {}", path.display()))?;
+    let session = SessionName(name.to_owned());
+    watch_log(&mut file, || unit_active(&session))
+}
+
 /// Attaches to `row`, whose files are in `sessions`: its tmux, read-only under `watch`, or the
-/// follow of its typescript when it runs under the launcher before tmux.
+/// follow of its terminal log when it runs under the launcher before tmux.
 fn open(sessions: &Path, row: &AttachableSession, watch: bool) -> Result<ExitCode> {
     match row.mode {
         AttachMode::Attach => tmux_attach(sessions, &row.name, watch),
         AttachMode::Watch => {
-            let path = sessions.join(format!("{}.typescript", row.name));
+            let path = log_path(sessions, &row.name);
             let mut file = File::open(&path).with_context(|| format!("open {}", path.display()))?;
             let session = SessionName(row.name.clone());
-            watch_typescript(&mut file, || unit_active(&session))
+            watch_log(&mut file, || unit_active(&session))
         }
     }
 }
@@ -701,10 +736,10 @@ impl Drop for Raw {
     }
 }
 
-/// `--watch` on a session before the tmux launcher: [`follow`]s its typescript to standard
+/// `--watch` on a session before the tmux launcher: [`follow`]s its terminal log to standard
 /// output. On a terminal it is in raw mode and `ctrl-]` then `d` detaches; nothing typed goes
 /// anywhere. `SIGINT`, `SIGTERM` and `SIGHUP` end it the same way, the terminal restored.
-fn watch_typescript(file: &mut File, alive: impl FnMut() -> bool) -> Result<ExitCode> {
+fn watch_log(file: &mut File, alive: impl FnMut() -> bool) -> Result<ExitCode> {
     let stop = Arc::new(AtomicBool::new(false));
     for signal in [
         signal_hook::consts::SIGINT,
@@ -716,7 +751,7 @@ fn watch_typescript(file: &mut File, alive: impl FnMut() -> bool) -> Result<Exit
     let terminal = io::stdin().is_terminal();
     let raw = if terminal { Some(Raw::enter()?) } else { None };
     if terminal {
-        eprint!("conductor: following the typescript; detach with ctrl-] then d\r\n");
+        eprint!("conductor: following the terminal log; detach with ctrl-] then d\r\n");
     }
     let mut keys = Detach::default();
     let detach = |wait: Duration| {
@@ -781,13 +816,13 @@ pub fn follow(
     mut alive: impl FnMut() -> bool,
     mut detach: impl FnMut(Duration) -> bool,
 ) -> Result<bool> {
-    let length = file.metadata().context("read the typescript")?.len();
+    let length = file.metadata().context("read the terminal log")?.len();
     file.seek(SeekFrom::Start(length.saturating_sub(REPLAY)))
-        .context("seek in the typescript")?;
+        .context("seek in the terminal log")?;
     let mut buffer = vec![0_u8; 64 * 1024];
     let mut checked = Instant::now();
     loop {
-        let read = file.read(&mut buffer).context("read the typescript")?;
+        let read = file.read(&mut buffer).context("read the terminal log")?;
         if read > 0 {
             out.write_all(&buffer[..read])?;
             out.flush()?;
@@ -799,7 +834,7 @@ pub fn follow(
         if checked.elapsed() >= Duration::from_secs(1) {
             checked = Instant::now();
             if !alive() {
-                io::copy(file, out).context("read the typescript")?;
+                io::copy(file, out).context("read the terminal log")?;
                 out.flush()?;
                 return Ok(false);
             }

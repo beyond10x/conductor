@@ -2,14 +2,84 @@
   "provenance": {
     "system": "conductor",
     "specification_version": "v1",
-    "source_digest": "3cc49b9e99b47dd4ca05111dc94412dea6854fba865a5e5d08c97ce253758534",
-    "contract_digest": "057692c7a57029c79cc9e78eb455da83a4c0aa80b4525dc295987296007b3391"
+    "source_digest": "5586712f5f754de7c827166383c39322c23d55f405877a76efa06f9a5c65dc55",
+    "contract_digest": "a76aa63f2ad9f5b169861cd94a585925f67f9ddebf70caf04f301709ee2e64d1"
   },
   "scope": {
     "profile": "component-skeletons",
     "layout": "crate"
   },
   "capabilities": [
+    {
+      "kind": "domain_type",
+      "source": "conductor.agent.Agent.State",
+      "disposition": {
+        "disposition": "generated"
+      }
+    },
+    {
+      "kind": "domain_type",
+      "source": "conductor.agent.AgentKind.State",
+      "disposition": {
+        "disposition": "generated"
+      }
+    },
+    {
+      "kind": "domain_type",
+      "source": "conductor.agent.AgentKindName",
+      "disposition": {
+        "disposition": "generated"
+      }
+    },
+    {
+      "kind": "domain_type",
+      "source": "conductor.agent.AgentName",
+      "disposition": {
+        "disposition": "generated"
+      }
+    },
+    {
+      "kind": "domain_type",
+      "source": "conductor.agent.AgentSlotSelection",
+      "disposition": {
+        "disposition": "generated"
+      }
+    },
+    {
+      "kind": "domain_type",
+      "source": "conductor.agent.AgentTerminalAttach",
+      "disposition": {
+        "disposition": "generated"
+      }
+    },
+    {
+      "kind": "domain_type",
+      "source": "conductor.agent.AgentTextDelivery",
+      "disposition": {
+        "disposition": "generated"
+      }
+    },
+    {
+      "kind": "domain_type",
+      "source": "conductor.agent.Capability",
+      "disposition": {
+        "disposition": "generated"
+      }
+    },
+    {
+      "kind": "domain_type",
+      "source": "conductor.agent.ExitClass",
+      "disposition": {
+        "disposition": "generated"
+      }
+    },
+    {
+      "kind": "domain_type",
+      "source": "conductor.agent.ShowRole",
+      "disposition": {
+        "disposition": "generated"
+      }
+    },
     {
       "kind": "domain_type",
       "source": "conductor.config.ActivityChange",
@@ -41,6 +111,13 @@
     {
       "kind": "domain_type",
       "source": "conductor.config.CatalogNames",
+      "disposition": {
+        "disposition": "generated"
+      }
+    },
+    {
+      "kind": "domain_type",
+      "source": "conductor.config.ChangeConfig",
       "disposition": {
         "disposition": "generated"
       }
@@ -117,6 +194,13 @@
     },
     {
       "kind": "domain_type",
+      "source": "conductor.config.ConfigRevision.State",
+      "disposition": {
+        "disposition": "generated"
+      }
+    },
+    {
+      "kind": "domain_type",
       "source": "conductor.config.ConfigWriteRefusal",
       "disposition": {
         "disposition": "generated"
@@ -138,27 +222,6 @@
     },
     {
       "kind": "domain_type",
-      "source": "conductor.config.Confinement",
-      "disposition": {
-        "disposition": "generated"
-      }
-    },
-    {
-      "kind": "domain_type",
-      "source": "conductor.config.ConfinementMode",
-      "disposition": {
-        "disposition": "generated"
-      }
-    },
-    {
-      "kind": "domain_type",
-      "source": "conductor.config.ConfinementProvider",
-      "disposition": {
-        "disposition": "generated"
-      }
-    },
-    {
-      "kind": "domain_type",
       "source": "conductor.config.Controllers",
       "disposition": {
         "disposition": "generated"
@@ -166,7 +229,35 @@
     },
     {
       "kind": "domain_type",
+      "source": "conductor.config.Daemon",
+      "disposition": {
+        "disposition": "generated"
+      }
+    },
+    {
+      "kind": "domain_type",
+      "source": "conductor.config.DaemonCadence",
+      "disposition": {
+        "disposition": "generated"
+      }
+    },
+    {
+      "kind": "domain_type",
+      "source": "conductor.config.DaemonOperator",
+      "disposition": {
+        "disposition": "generated"
+      }
+    },
+    {
+      "kind": "domain_type",
       "source": "conductor.config.DoctorReport",
+      "disposition": {
+        "disposition": "generated"
+      }
+    },
+    {
+      "kind": "domain_type",
+      "source": "conductor.config.EffectiveSetting.State",
       "disposition": {
         "disposition": "generated"
       }
@@ -229,6 +320,13 @@
     },
     {
       "kind": "domain_type",
+      "source": "conductor.config.Globals",
+      "disposition": {
+        "disposition": "generated"
+      }
+    },
+    {
+      "kind": "domain_type",
       "source": "conductor.config.Harness",
       "disposition": {
         "disposition": "generated"
@@ -271,6 +369,13 @@
     },
     {
       "kind": "domain_type",
+      "source": "conductor.config.Level",
+      "disposition": {
+        "disposition": "generated"
+      }
+    },
+    {
+      "kind": "domain_type",
       "source": "conductor.config.Limits",
       "disposition": {
         "disposition": "generated"
@@ -306,6 +411,27 @@
     },
     {
       "kind": "domain_type",
+      "source": "conductor.config.OperatorGrant",
+      "disposition": {
+        "disposition": "generated"
+      }
+    },
+    {
+      "kind": "domain_type",
+      "source": "conductor.config.OperatorRole",
+      "disposition": {
+        "disposition": "generated"
+      }
+    },
+    {
+      "kind": "domain_type",
+      "source": "conductor.config.PlacementName",
+      "disposition": {
+        "disposition": "generated"
+      }
+    },
+    {
+      "kind": "domain_type",
       "source": "conductor.config.Prerequisite",
       "disposition": {
         "disposition": "generated"
@@ -314,13 +440,6 @@
     {
       "kind": "domain_type",
       "source": "conductor.config.PrerequisiteState",
-      "disposition": {
-        "disposition": "generated"
-      }
-    },
-    {
-      "kind": "domain_type",
-      "source": "conductor.config.ProviderAvailability",
       "disposition": {
         "disposition": "generated"
       }
@@ -362,6 +481,13 @@
     },
     {
       "kind": "domain_type",
+      "source": "conductor.config.RevisionId",
+      "disposition": {
+        "disposition": "generated"
+      }
+    },
+    {
+      "kind": "domain_type",
       "source": "conductor.config.Role",
       "disposition": {
         "disposition": "generated"
@@ -390,6 +516,13 @@
     },
     {
       "kind": "domain_type",
+      "source": "conductor.config.SecretsSource",
+      "disposition": {
+        "disposition": "generated"
+      }
+    },
+    {
+      "kind": "domain_type",
       "source": "conductor.config.SessionName",
       "disposition": {
         "disposition": "generated"
@@ -398,6 +531,13 @@
     {
       "kind": "domain_type",
       "source": "conductor.config.SessionPrefix",
+      "disposition": {
+        "disposition": "generated"
+      }
+    },
+    {
+      "kind": "domain_type",
+      "source": "conductor.config.SettingKey",
       "disposition": {
         "disposition": "generated"
       }
@@ -447,6 +587,13 @@
     {
       "kind": "domain_type",
       "source": "conductor.config.TimeOfDay",
+      "disposition": {
+        "disposition": "generated"
+      }
+    },
+    {
+      "kind": "domain_type",
+      "source": "conductor.config.TlsListener",
       "disposition": {
         "disposition": "generated"
       }
@@ -1041,20 +1188,6 @@
     },
     {
       "kind": "domain_type",
-      "source": "conductor.host.CollisionKey",
-      "disposition": {
-        "disposition": "generated"
-      }
-    },
-    {
-      "kind": "domain_type",
-      "source": "conductor.host.DashboardInstance",
-      "disposition": {
-        "disposition": "generated"
-      }
-    },
-    {
-      "kind": "domain_type",
       "source": "conductor.host.GrantId",
       "disposition": {
         "disposition": "generated"
@@ -1069,13 +1202,6 @@
     },
     {
       "kind": "domain_type",
-      "source": "conductor.host.HostConfig",
-      "disposition": {
-        "disposition": "generated"
-      }
-    },
-    {
-      "kind": "domain_type",
       "source": "conductor.host.HostGrant.State",
       "disposition": {
         "disposition": "generated"
@@ -1083,42 +1209,7 @@
     },
     {
       "kind": "domain_type",
-      "source": "conductor.host.HostRoleName",
-      "disposition": {
-        "disposition": "generated"
-      }
-    },
-    {
-      "kind": "domain_type",
-      "source": "conductor.host.HostRoles",
-      "disposition": {
-        "disposition": "generated"
-      }
-    },
-    {
-      "kind": "domain_type",
-      "source": "conductor.host.InstanceCollision",
-      "disposition": {
-        "disposition": "generated"
-      }
-    },
-    {
-      "kind": "domain_type",
-      "source": "conductor.host.InstanceRegistry",
-      "disposition": {
-        "disposition": "generated"
-      }
-    },
-    {
-      "kind": "domain_type",
       "source": "conductor.host.LeftOver",
-      "disposition": {
-        "disposition": "generated"
-      }
-    },
-    {
-      "kind": "domain_type",
-      "source": "conductor.host.ListSlices",
       "disposition": {
         "disposition": "generated"
       }
@@ -1174,20 +1265,6 @@
     },
     {
       "kind": "domain_type",
-      "source": "conductor.host.RegisteredFile",
-      "disposition": {
-        "disposition": "generated"
-      }
-    },
-    {
-      "kind": "domain_type",
-      "source": "conductor.host.RegisteredInstance",
-      "disposition": {
-        "disposition": "generated"
-      }
-    },
-    {
-      "kind": "domain_type",
       "source": "conductor.host.ReleaseReason",
       "disposition": {
         "disposition": "generated"
@@ -1196,13 +1273,6 @@
     {
       "kind": "domain_type",
       "source": "conductor.host.ShowGrants",
-      "disposition": {
-        "disposition": "generated"
-      }
-    },
-    {
-      "kind": "domain_type",
-      "source": "conductor.host.SliceRow",
       "disposition": {
         "disposition": "generated"
       }
@@ -1258,7 +1328,98 @@
     },
     {
       "kind": "domain_type",
+      "source": "conductor.improvement.ProposalId",
+      "disposition": {
+        "disposition": "generated"
+      }
+    },
+    {
+      "kind": "domain_type",
+      "source": "conductor.improvement.SettingsProposal.State",
+      "disposition": {
+        "disposition": "generated"
+      }
+    },
+    {
+      "kind": "domain_type",
       "source": "conductor.improvement.TargetDirection",
+      "disposition": {
+        "disposition": "generated"
+      }
+    },
+    {
+      "kind": "domain_type",
+      "source": "conductor.improvement.TunableKey",
+      "disposition": {
+        "disposition": "generated"
+      }
+    },
+    {
+      "kind": "domain_type",
+      "source": "conductor.improvement.TuningGrant",
+      "disposition": {
+        "disposition": "generated"
+      }
+    },
+    {
+      "kind": "domain_type",
+      "source": "conductor.instance.Instance.State",
+      "disposition": {
+        "disposition": "generated"
+      }
+    },
+    {
+      "kind": "domain_type",
+      "source": "conductor.instance.ReconcileAction",
+      "disposition": {
+        "disposition": "generated"
+      }
+    },
+    {
+      "kind": "domain_type",
+      "source": "conductor.instance.ReconcileReason",
+      "disposition": {
+        "disposition": "generated"
+      }
+    },
+    {
+      "kind": "domain_type",
+      "source": "conductor.instance.ReconcileResult",
+      "disposition": {
+        "disposition": "generated"
+      }
+    },
+    {
+      "kind": "domain_type",
+      "source": "conductor.instance.Reconciliation.State",
+      "disposition": {
+        "disposition": "generated"
+      }
+    },
+    {
+      "kind": "domain_type",
+      "source": "conductor.instance.ReconciliationId",
+      "disposition": {
+        "disposition": "generated"
+      }
+    },
+    {
+      "kind": "domain_type",
+      "source": "conductor.instance.ServeDaemon",
+      "disposition": {
+        "disposition": "generated"
+      }
+    },
+    {
+      "kind": "domain_type",
+      "source": "conductor.instance.StartHostRole",
+      "disposition": {
+        "disposition": "generated"
+      }
+    },
+    {
+      "kind": "domain_type",
+      "source": "conductor.instance.UpgradeInstances",
       "disposition": {
         "disposition": "generated"
       }
@@ -1329,13 +1490,6 @@
     {
       "kind": "domain_type",
       "source": "conductor.observation.DashboardMemory",
-      "disposition": {
-        "disposition": "generated"
-      }
-    },
-    {
-      "kind": "domain_type",
-      "source": "conductor.observation.DashboardServe",
       "disposition": {
         "disposition": "generated"
       }
@@ -1615,6 +1769,195 @@
     },
     {
       "kind": "domain_type",
+      "source": "conductor.operator.Actor",
+      "disposition": {
+        "disposition": "generated"
+      }
+    },
+    {
+      "kind": "domain_type",
+      "source": "conductor.operator.ActorKind",
+      "disposition": {
+        "disposition": "generated"
+      }
+    },
+    {
+      "kind": "domain_type",
+      "source": "conductor.operator.AgentActor",
+      "disposition": {
+        "disposition": "generated"
+      }
+    },
+    {
+      "kind": "domain_type",
+      "source": "conductor.operator.Grant",
+      "disposition": {
+        "disposition": "generated"
+      }
+    },
+    {
+      "kind": "domain_type",
+      "source": "conductor.operator.Operator.State",
+      "disposition": {
+        "disposition": "generated"
+      }
+    },
+    {
+      "kind": "domain_type",
+      "source": "conductor.operator.OperatorKey",
+      "disposition": {
+        "disposition": "generated"
+      }
+    },
+    {
+      "kind": "domain_type",
+      "source": "conductor.operator.OperatorName",
+      "disposition": {
+        "disposition": "generated"
+      }
+    },
+    {
+      "kind": "domain_type",
+      "source": "conductor.placement.Adapter",
+      "disposition": {
+        "disposition": "generated"
+      }
+    },
+    {
+      "kind": "domain_type",
+      "source": "conductor.placement.Box.State",
+      "disposition": {
+        "disposition": "generated"
+      }
+    },
+    {
+      "kind": "domain_type",
+      "source": "conductor.placement.BoxId",
+      "disposition": {
+        "disposition": "generated"
+      }
+    },
+    {
+      "kind": "domain_type",
+      "source": "conductor.placement.BoxLimits",
+      "disposition": {
+        "disposition": "generated"
+      }
+    },
+    {
+      "kind": "domain_type",
+      "source": "conductor.placement.BoxProfile",
+      "disposition": {
+        "disposition": "generated"
+      }
+    },
+    {
+      "kind": "domain_type",
+      "source": "conductor.placement.BoxRefusal.State",
+      "disposition": {
+        "disposition": "generated"
+      }
+    },
+    {
+      "kind": "domain_type",
+      "source": "conductor.placement.Daemon",
+      "disposition": {
+        "disposition": "generated"
+      }
+    },
+    {
+      "kind": "domain_type",
+      "source": "conductor.placement.Egress",
+      "disposition": {
+        "disposition": "generated"
+      }
+    },
+    {
+      "kind": "domain_type",
+      "source": "conductor.placement.LocalDaemon",
+      "disposition": {
+        "disposition": "generated"
+      }
+    },
+    {
+      "kind": "domain_type",
+      "source": "conductor.placement.Placement.State",
+      "disposition": {
+        "disposition": "generated"
+      }
+    },
+    {
+      "kind": "domain_type",
+      "source": "conductor.placement.PlacementName",
+      "disposition": {
+        "disposition": "generated"
+      }
+    },
+    {
+      "kind": "domain_type",
+      "source": "conductor.placement.RefusalReason",
+      "disposition": {
+        "disposition": "generated"
+      }
+    },
+    {
+      "kind": "domain_type",
+      "source": "conductor.placement.RemoteDaemon",
+      "disposition": {
+        "disposition": "generated"
+      }
+    },
+    {
+      "kind": "domain_type",
+      "source": "conductor.secret.Namespace",
+      "disposition": {
+        "disposition": "generated"
+      }
+    },
+    {
+      "kind": "domain_type",
+      "source": "conductor.secret.Secret.State",
+      "disposition": {
+        "disposition": "generated"
+      }
+    },
+    {
+      "kind": "domain_type",
+      "source": "conductor.secret.SecretName",
+      "disposition": {
+        "disposition": "generated"
+      }
+    },
+    {
+      "kind": "domain_type",
+      "source": "conductor.secret.Slot",
+      "disposition": {
+        "disposition": "generated"
+      }
+    },
+    {
+      "kind": "domain_type",
+      "source": "conductor.secret.SlotName",
+      "disposition": {
+        "disposition": "generated"
+      }
+    },
+    {
+      "kind": "domain_type",
+      "source": "conductor.secret.Source",
+      "disposition": {
+        "disposition": "generated"
+      }
+    },
+    {
+      "kind": "domain_type",
+      "source": "conductor.secret.WriteSecret",
+      "disposition": {
+        "disposition": "generated"
+      }
+    },
+    {
+      "kind": "domain_type",
       "source": "conductor.session.AttachMode",
       "disposition": {
         "disposition": "generated"
@@ -1790,6 +2133,90 @@
     },
     {
       "kind": "domain_type",
+      "source": "conductor.store.Backend",
+      "disposition": {
+        "disposition": "generated"
+      }
+    },
+    {
+      "kind": "domain_type",
+      "source": "conductor.store.Migration.State",
+      "disposition": {
+        "disposition": "generated"
+      }
+    },
+    {
+      "kind": "domain_type",
+      "source": "conductor.store.Store.State",
+      "disposition": {
+        "disposition": "generated"
+      }
+    },
+    {
+      "kind": "domain_type",
+      "source": "conductor.store.StoreUrl",
+      "disposition": {
+        "disposition": "generated"
+      }
+    },
+    {
+      "kind": "domain_type",
+      "source": "conductor.token.JoinDaemon",
+      "disposition": {
+        "disposition": "generated"
+      }
+    },
+    {
+      "kind": "domain_type",
+      "source": "conductor.token.LeaveDaemon",
+      "disposition": {
+        "disposition": "generated"
+      }
+    },
+    {
+      "kind": "domain_type",
+      "source": "conductor.token.PoolToken.State",
+      "disposition": {
+        "disposition": "generated"
+      }
+    },
+    {
+      "kind": "domain_type",
+      "source": "conductor.token.RevealToken",
+      "disposition": {
+        "disposition": "generated"
+      }
+    },
+    {
+      "kind": "domain_type",
+      "source": "conductor.token.Seat",
+      "disposition": {
+        "disposition": "generated"
+      }
+    },
+    {
+      "kind": "domain_type",
+      "source": "conductor.token.TokenId",
+      "disposition": {
+        "disposition": "generated"
+      }
+    },
+    {
+      "kind": "domain_type",
+      "source": "conductor.token.TokenPool.State",
+      "disposition": {
+        "disposition": "generated"
+      }
+    },
+    {
+      "kind": "domain_type",
+      "source": "conductor.token.TokenState",
+      "disposition": {
+        "disposition": "generated"
+      }
+    },
+    {
+      "kind": "domain_type",
       "source": "conductor.tool.Broker.State",
       "disposition": {
         "disposition": "generated"
@@ -1951,6 +2378,34 @@
     },
     {
       "kind": "entity_lifecycle",
+      "source": "conductor.agent.Agent",
+      "disposition": {
+        "disposition": "generated"
+      }
+    },
+    {
+      "kind": "entity_lifecycle",
+      "source": "conductor.agent.AgentKind",
+      "disposition": {
+        "disposition": "generated"
+      }
+    },
+    {
+      "kind": "entity_lifecycle",
+      "source": "conductor.config.ConfigRevision",
+      "disposition": {
+        "disposition": "generated"
+      }
+    },
+    {
+      "kind": "entity_lifecycle",
+      "source": "conductor.config.EffectiveSetting",
+      "disposition": {
+        "disposition": "generated"
+      }
+    },
+    {
+      "kind": "entity_lifecycle",
       "source": "conductor.decision.Decision",
       "disposition": {
         "disposition": "generated"
@@ -2050,6 +2505,27 @@
     {
       "kind": "entity_lifecycle",
       "source": "conductor.improvement.MetricReading",
+      "disposition": {
+        "disposition": "generated"
+      }
+    },
+    {
+      "kind": "entity_lifecycle",
+      "source": "conductor.improvement.SettingsProposal",
+      "disposition": {
+        "disposition": "generated"
+      }
+    },
+    {
+      "kind": "entity_lifecycle",
+      "source": "conductor.instance.Instance",
+      "disposition": {
+        "disposition": "generated"
+      }
+    },
+    {
+      "kind": "entity_lifecycle",
+      "source": "conductor.instance.Reconciliation",
       "disposition": {
         "disposition": "generated"
       }
@@ -2161,6 +2637,41 @@
     },
     {
       "kind": "entity_lifecycle",
+      "source": "conductor.operator.Operator",
+      "disposition": {
+        "disposition": "generated"
+      }
+    },
+    {
+      "kind": "entity_lifecycle",
+      "source": "conductor.placement.Box",
+      "disposition": {
+        "disposition": "generated"
+      }
+    },
+    {
+      "kind": "entity_lifecycle",
+      "source": "conductor.placement.BoxRefusal",
+      "disposition": {
+        "disposition": "generated"
+      }
+    },
+    {
+      "kind": "entity_lifecycle",
+      "source": "conductor.placement.Placement",
+      "disposition": {
+        "disposition": "generated"
+      }
+    },
+    {
+      "kind": "entity_lifecycle",
+      "source": "conductor.secret.Secret",
+      "disposition": {
+        "disposition": "generated"
+      }
+    },
+    {
+      "kind": "entity_lifecycle",
       "source": "conductor.session.Delivery",
       "disposition": {
         "disposition": "generated"
@@ -2176,6 +2687,34 @@
     {
       "kind": "entity_lifecycle",
       "source": "conductor.session.RunTick",
+      "disposition": {
+        "disposition": "generated"
+      }
+    },
+    {
+      "kind": "entity_lifecycle",
+      "source": "conductor.store.Migration",
+      "disposition": {
+        "disposition": "generated"
+      }
+    },
+    {
+      "kind": "entity_lifecycle",
+      "source": "conductor.store.Store",
+      "disposition": {
+        "disposition": "generated"
+      }
+    },
+    {
+      "kind": "entity_lifecycle",
+      "source": "conductor.token.PoolToken",
+      "disposition": {
+        "disposition": "generated"
+      }
+    },
+    {
+      "kind": "entity_lifecycle",
+      "source": "conductor.token.TokenPool",
       "disposition": {
         "disposition": "generated"
       }
@@ -2211,6 +2750,147 @@
     {
       "kind": "entity_lifecycle",
       "source": "conductor.tool.ToolSession",
+      "disposition": {
+        "disposition": "generated"
+      }
+    },
+    {
+      "kind": "command_contract",
+      "source": "conductor.agent.AttachAgent",
+      "disposition": {
+        "disposition": "generated"
+      }
+    },
+    {
+      "kind": "command_behavior",
+      "source": "conductor.agent.AttachAgent",
+      "disposition": {
+        "disposition": "obligation",
+        "reason": {
+          "class": "undetermined",
+          "construct": "the guard `exists c in capabilities: (c == Interactive)`, in `not-interactive`"
+        },
+        "contract": "given `conductor.agent.AttachAgent` input, decide and enact exactly one outcome. Declared outcomes (declaration order, not selection precedence): `not-interactive` when the existing subject's stored fields satisfy `not (exists c in capabilities: (c == Interactive))`, error `conductor.agent.CapabilityMissing`; `not-running` when the existing subject's stored fields satisfy `state == Stopped`, error `conductor.agent.AgentNotRunning`; `unreachable` externally decided (the agent's PTY does not answer), error `conductor.agent.AgentNotReachable`; `attached` otherwise, preserves `conductor.agent.Agent`; `no-such-agent` for an identity no record carries, error `conductor.agent.AgentNotFound`"
+      }
+    },
+    {
+      "kind": "command_contract",
+      "source": "conductor.agent.DeclareAgentKind",
+      "disposition": {
+        "disposition": "generated"
+      }
+    },
+    {
+      "kind": "command_behavior",
+      "source": "conductor.agent.DeclareAgentKind",
+      "disposition": {
+        "disposition": "generated"
+      }
+    },
+    {
+      "kind": "command_contract",
+      "source": "conductor.agent.DeliverToAgent",
+      "disposition": {
+        "disposition": "generated"
+      }
+    },
+    {
+      "kind": "command_behavior",
+      "source": "conductor.agent.DeliverToAgent",
+      "disposition": {
+        "disposition": "obligation",
+        "reason": {
+          "class": "undetermined",
+          "construct": "the guard `exists c in capabilities: (c == Interactive)`, in `not-interactive`"
+        },
+        "contract": "given `conductor.agent.DeliverToAgent` input, decide and enact exactly one outcome. Declared outcomes (declaration order, not selection precedence): `not-interactive` when the existing subject's stored fields satisfy `not (exists c in capabilities: (c == Interactive))`, error `conductor.agent.CapabilityMissing`; `not-running` when the existing subject's stored fields satisfy `state == Stopped`, error `conductor.agent.AgentNotRunning`; `unreachable` externally decided (the agent's PTY does not answer), error `conductor.agent.AgentNotReachable`; `delivered` otherwise, preserves `conductor.agent.Agent`; `no-such-agent` for an identity no record carries, error `conductor.agent.AgentNotFound`"
+      }
+    },
+    {
+      "kind": "command_contract",
+      "source": "conductor.agent.MarkAgentRunning",
+      "disposition": {
+        "disposition": "generated"
+      }
+    },
+    {
+      "kind": "command_behavior",
+      "source": "conductor.agent.MarkAgentRunning",
+      "disposition": {
+        "disposition": "generated"
+      }
+    },
+    {
+      "kind": "command_contract",
+      "source": "conductor.agent.RecordAgentReport",
+      "disposition": {
+        "disposition": "generated"
+      }
+    },
+    {
+      "kind": "command_behavior",
+      "source": "conductor.agent.RecordAgentReport",
+      "disposition": {
+        "disposition": "generated"
+      }
+    },
+    {
+      "kind": "command_contract",
+      "source": "conductor.agent.RestartAgent",
+      "disposition": {
+        "disposition": "generated"
+      }
+    },
+    {
+      "kind": "command_behavior",
+      "source": "conductor.agent.RestartAgent",
+      "disposition": {
+        "disposition": "generated"
+      }
+    },
+    {
+      "kind": "command_contract",
+      "source": "conductor.agent.StartAgent",
+      "disposition": {
+        "disposition": "generated"
+      }
+    },
+    {
+      "kind": "command_behavior",
+      "source": "conductor.agent.StartAgent",
+      "disposition": {
+        "disposition": "obligation",
+        "reason": {
+          "class": "undetermined",
+          "construct": "`external:` beside `when_related:` in one command"
+        },
+        "contract": "given `conductor.agent.StartAgent` input, decide and enact exactly one outcome. Selection precedence: on commands with `when_related:`, check `existing_instance` then `exists: false` before input-guarded refusals; choose the first declared input refusal whose guard holds; then check addressed-row existence (`unknown_instance`, and `existing_instance` on commands without `when_related:`); then the held state (`when_subject_state` and `when_subject`), with `wrong_state` only if the selected branch moves from a state the row does not hold; then accepting and external branches in declaration order. An accepting branch that moves nothing answers in every state. Related-presence predicates do not precede input-guarded refusals. Declared outcomes (declaration order, not selection precedence): `unknown-kind` when no `conductor.agent.AgentKind` carries the identity `input.kind` names, error `conductor.agent.UnknownAgentKind`; `launch-failed` externally decided (the kind's start in the box failed, or its first prompt could not be delivered), error `conductor.agent.AgentLaunchFailed`; `started` otherwise, creates `conductor.agent.Agent`, emits `conductor.agent.AgentStarted`; `exists` for an identity a record already carries, error `conductor.agent.AgentExists`"
+      }
+    },
+    {
+      "kind": "command_contract",
+      "source": "conductor.agent.StopAgent",
+      "disposition": {
+        "disposition": "generated"
+      }
+    },
+    {
+      "kind": "command_behavior",
+      "source": "conductor.agent.StopAgent",
+      "disposition": {
+        "disposition": "generated"
+      }
+    },
+    {
+      "kind": "command_contract",
+      "source": "conductor.config.PutConfig",
+      "disposition": {
+        "disposition": "generated"
+      }
+    },
+    {
+      "kind": "command_behavior",
+      "source": "conductor.config.PutConfig",
       "disposition": {
         "disposition": "generated"
       }
@@ -2329,7 +3009,7 @@
           "class": "undetermined",
           "construct": "a guard over the rows a selector selects (`when_related: {entity, where, exists | count | forall}`), in `no-such-request`"
         },
-        "contract": "given `conductor.decision.RecordOperatorDecisionForRequest` input, decide and enact exactly one outcome. Declared outcomes (declaration order, not selection precedence): `no-such-request` when, of the `conductor.decision.DecisionRequest` rows satisfying `request_id == input.request_id`, no row is selected, error `conductor.decision.RequestNotFound`; `not-escalated` when, of the `conductor.decision.DecisionRequest` rows satisfying `(request_id == input.request_id and state != Escalated)`, at least one row is selected, error `conductor.decision.RequestStateConflict`; `recorded` otherwise, creates `conductor.decision.Decision`, emits `conductor.decision.DecisionRecorded`; `already-recorded` for an identity a record already carries, error `conductor.decision.DecisionExists`"
+        "contract": "given `conductor.decision.RecordOperatorDecisionForRequest` input, decide and enact exactly one outcome. Declared outcomes (declaration order, not selection precedence): `agent-actor` when `actor.kind != Human`, error `conductor.operator.ActorNotHuman`; `no-such-request` when, of the `conductor.decision.DecisionRequest` rows satisfying `request_id == input.request_id`, no row is selected, error `conductor.decision.RequestNotFound`; `not-escalated` when, of the `conductor.decision.DecisionRequest` rows satisfying `(request_id == input.request_id and state != Escalated)`, at least one row is selected, error `conductor.decision.RequestStateConflict`; `recorded` otherwise, creates `conductor.decision.Decision`, emits `conductor.decision.DecisionRecorded`; `already-recorded` for an identity a record already carries, error `conductor.decision.DecisionExists`"
       }
     },
     {
@@ -2913,6 +3593,20 @@
     },
     {
       "kind": "command_contract",
+      "source": "conductor.improvement.ApplyProposal",
+      "disposition": {
+        "disposition": "generated"
+      }
+    },
+    {
+      "kind": "command_behavior",
+      "source": "conductor.improvement.ApplyProposal",
+      "disposition": {
+        "disposition": "generated"
+      }
+    },
+    {
+      "kind": "command_contract",
       "source": "conductor.improvement.DefineMetric",
       "disposition": {
         "disposition": "generated"
@@ -2955,6 +3649,20 @@
     },
     {
       "kind": "command_contract",
+      "source": "conductor.improvement.ProposeSetting",
+      "disposition": {
+        "disposition": "generated"
+      }
+    },
+    {
+      "kind": "command_behavior",
+      "source": "conductor.improvement.ProposeSetting",
+      "disposition": {
+        "disposition": "generated"
+      }
+    },
+    {
+      "kind": "command_contract",
       "source": "conductor.improvement.RaiseFinding",
       "disposition": {
         "disposition": "generated"
@@ -2977,6 +3685,20 @@
     {
       "kind": "command_behavior",
       "source": "conductor.improvement.RecordMetricReading",
+      "disposition": {
+        "disposition": "generated"
+      }
+    },
+    {
+      "kind": "command_contract",
+      "source": "conductor.improvement.RefuseProposal",
+      "disposition": {
+        "disposition": "generated"
+      }
+    },
+    {
+      "kind": "command_behavior",
+      "source": "conductor.improvement.RefuseProposal",
       "disposition": {
         "disposition": "generated"
       }
@@ -2997,7 +3719,21 @@
           "class": "undetermined",
           "construct": "a subject predicate choosing between a move and an update"
         },
-        "contract": "given `conductor.improvement.SetMetricTarget` input, decide and enact exactly one outcome. Declared outcomes (declaration order, not selection precedence): `targeted` when the existing subject is in Untargeted, takes `target` of `conductor.improvement.Metric`, emits `conductor.improvement.MetricTargetSet`; `retargeted` when the existing subject is in Targeted, updates `conductor.improvement.Metric`, emits `conductor.improvement.MetricTargetSet`; `no-such-metric` for an identity no record carries, error `conductor.improvement.MetricNotFound`"
+        "contract": "given `conductor.improvement.SetMetricTarget` input, decide and enact exactly one outcome. Declared outcomes (declaration order, not selection precedence): `actor-not-human` when `actor.kind != Human`, error `conductor.operator.ActorNotHuman`; `targeted` when the existing subject is in Untargeted, takes `target` of `conductor.improvement.Metric`, emits `conductor.improvement.MetricTargetSet`; `retargeted` when the existing subject is in Targeted, updates `conductor.improvement.Metric`, emits `conductor.improvement.MetricTargetSet`; `no-such-metric` for an identity no record carries, error `conductor.improvement.MetricNotFound`"
+      }
+    },
+    {
+      "kind": "command_contract",
+      "source": "conductor.improvement.SettleProposal",
+      "disposition": {
+        "disposition": "generated"
+      }
+    },
+    {
+      "kind": "command_behavior",
+      "source": "conductor.improvement.SettleProposal",
+      "disposition": {
+        "disposition": "generated"
       }
     },
     {
@@ -3024,6 +3760,109 @@
     {
       "kind": "command_behavior",
       "source": "conductor.improvement.VerifyFinding",
+      "disposition": {
+        "disposition": "generated"
+      }
+    },
+    {
+      "kind": "command_contract",
+      "source": "conductor.instance.ObserveInstance",
+      "disposition": {
+        "disposition": "generated"
+      }
+    },
+    {
+      "kind": "command_behavior",
+      "source": "conductor.instance.ObserveInstance",
+      "disposition": {
+        "disposition": "generated"
+      }
+    },
+    {
+      "kind": "command_contract",
+      "source": "conductor.instance.PurgeInstance",
+      "disposition": {
+        "disposition": "generated"
+      }
+    },
+    {
+      "kind": "command_behavior",
+      "source": "conductor.instance.PurgeInstance",
+      "disposition": {
+        "disposition": "generated"
+      }
+    },
+    {
+      "kind": "command_contract",
+      "source": "conductor.instance.Reconcile",
+      "disposition": {
+        "disposition": "generated"
+      }
+    },
+    {
+      "kind": "command_behavior",
+      "source": "conductor.instance.Reconcile",
+      "disposition": {
+        "disposition": "generated"
+      }
+    },
+    {
+      "kind": "command_contract",
+      "source": "conductor.instance.RestartInstance",
+      "disposition": {
+        "disposition": "generated"
+      }
+    },
+    {
+      "kind": "command_behavior",
+      "source": "conductor.instance.RestartInstance",
+      "disposition": {
+        "disposition": "generated"
+      }
+    },
+    {
+      "kind": "command_contract",
+      "source": "conductor.instance.StartInstance",
+      "disposition": {
+        "disposition": "generated"
+      }
+    },
+    {
+      "kind": "command_behavior",
+      "source": "conductor.instance.StartInstance",
+      "disposition": {
+        "disposition": "obligation",
+        "reason": {
+          "class": "undetermined",
+          "construct": "`when_subject_state:` beside `external:` in one command"
+        },
+        "contract": "given `conductor.instance.StartInstance` input, decide and enact exactly one outcome. Declared outcomes (declaration order, not selection precedence): `created` for an identity no record carries, creates `conductor.instance.Instance`, emits `conductor.instance.InstanceStarted`; `started` when the existing subject is in Stopped, takes `start` of `conductor.instance.Instance`, emits `conductor.instance.InstanceStarted`; `already-started` when the existing subject is in Running or Starting or Upgrading, preserves `conductor.instance.Instance`; `not-in-config` externally decided (the config names no instance of this name), error `conductor.instance.UnknownInstance`; `placement-refused` externally decided (substrate refused the box the placement asks for), error `conductor.instance.PlacementRefused`; `not-startable` otherwise, error `conductor.instance.InstanceStateConflict`"
+      }
+    },
+    {
+      "kind": "command_contract",
+      "source": "conductor.instance.StopInstance",
+      "disposition": {
+        "disposition": "generated"
+      }
+    },
+    {
+      "kind": "command_behavior",
+      "source": "conductor.instance.StopInstance",
+      "disposition": {
+        "disposition": "generated"
+      }
+    },
+    {
+      "kind": "command_contract",
+      "source": "conductor.instance.UpgradeInstance",
+      "disposition": {
+        "disposition": "generated"
+      }
+    },
+    {
+      "kind": "command_behavior",
+      "source": "conductor.instance.UpgradeInstance",
       "disposition": {
         "disposition": "generated"
       }
@@ -3278,6 +4117,100 @@
       "source": "conductor.observation.StartSnapshot",
       "disposition": {
         "disposition": "generated"
+      }
+    },
+    {
+      "kind": "command_contract",
+      "source": "conductor.operator.JoinInstance",
+      "disposition": {
+        "disposition": "generated"
+      }
+    },
+    {
+      "kind": "command_behavior",
+      "source": "conductor.operator.JoinInstance",
+      "disposition": {
+        "disposition": "generated"
+      }
+    },
+    {
+      "kind": "command_contract",
+      "source": "conductor.operator.LeaveInstance",
+      "disposition": {
+        "disposition": "generated"
+      }
+    },
+    {
+      "kind": "command_behavior",
+      "source": "conductor.operator.LeaveInstance",
+      "disposition": {
+        "disposition": "generated"
+      }
+    },
+    {
+      "kind": "command_contract",
+      "source": "conductor.placement.CloseBox",
+      "disposition": {
+        "disposition": "generated"
+      }
+    },
+    {
+      "kind": "command_behavior",
+      "source": "conductor.placement.CloseBox",
+      "disposition": {
+        "disposition": "generated"
+      }
+    },
+    {
+      "kind": "command_contract",
+      "source": "conductor.placement.OpenBox",
+      "disposition": {
+        "disposition": "generated"
+      }
+    },
+    {
+      "kind": "command_behavior",
+      "source": "conductor.placement.OpenBox",
+      "disposition": {
+        "disposition": "generated"
+      }
+    },
+    {
+      "kind": "command_contract",
+      "source": "conductor.secret.PutSecret",
+      "disposition": {
+        "disposition": "generated"
+      }
+    },
+    {
+      "kind": "command_behavior",
+      "source": "conductor.secret.PutSecret",
+      "disposition": {
+        "disposition": "obligation",
+        "reason": {
+          "class": "undetermined",
+          "construct": "`creates:` leaving the required field `instances` of `conductor.secret.Secret` undetermined, in `stored`"
+        },
+        "contract": "given `conductor.secret.PutSecret` input, decide and enact exactly one outcome. Declared outcomes (declaration order, not selection precedence): `not-human` when `actor.kind != Human`, error `conductor.operator.ActorNotHuman`; `unreachable` externally decided (the OS keychain does not answer), error `conductor.secret.SourceUnreachable`; `stored` for an identity no record carries, creates `conductor.secret.Secret`, emits `conductor.secret.SecretPut`; `exists` externally decided (the secrets source already holds a value under the name and replace is false), error `conductor.secret.SecretExists`; `replaced` otherwise, updates `conductor.secret.Secret`, emits `conductor.secret.SecretPut`"
+      }
+    },
+    {
+      "kind": "command_contract",
+      "source": "conductor.secret.ResolveSecrets",
+      "disposition": {
+        "disposition": "generated"
+      }
+    },
+    {
+      "kind": "command_behavior",
+      "source": "conductor.secret.ResolveSecrets",
+      "disposition": {
+        "disposition": "obligation",
+        "reason": {
+          "class": "undetermined",
+          "construct": "the fields of error `conductor.secret.SourceUnreachable`, which the specification gives no source, in `unreachable`"
+        },
+        "contract": "given `conductor.secret.ResolveSecrets` input, decide and enact exactly one outcome. Declared outcomes (declaration order, not selection precedence): `unreachable` externally decided (the daemon's secrets source (the OS keychain or the Secrets service) does not answer), error `conductor.secret.SourceUnreachable`; `missing` externally decided (the secrets source holds no value under one or more of the names the slots carry), error `conductor.secret.SecretMissing`; `resolved` otherwise, emits `conductor.secret.SecretsResolved`"
       }
     },
     {
@@ -3329,6 +4262,95 @@
     },
     {
       "kind": "command_contract",
+      "source": "conductor.store.MigrateStore",
+      "disposition": {
+        "disposition": "generated"
+      }
+    },
+    {
+      "kind": "command_behavior",
+      "source": "conductor.store.MigrateStore",
+      "disposition": {
+        "disposition": "obligation",
+        "reason": {
+          "class": "undetermined",
+          "construct": "a guard over the rows a selector selects (`when_related: {entity, where, exists | count | forall}`), in `already-migrated`"
+        },
+        "contract": "given `conductor.store.MigrateStore` input, decide and enact exactly one outcome. Declared outcomes (declaration order, not selection precedence): `not-human` when `actor.kind != Human`, error `conductor.operator.ActorNotHuman`; `negative-count` when `events_copied < 0`, error `conductor.store.InvalidEventCount`; `already-migrated` when, of the `conductor.store.Migration` rows satisfying `instance == input.instance`, at least one row is selected, error `conductor.store.AlreadyMigrated`; `source-missing` externally decided (no eventlog tree is at the source path), error `conductor.store.SourceMissing`; `migrated` otherwise, creates `conductor.store.Migration`, emits `conductor.store.StoreMigrated`"
+      }
+    },
+    {
+      "kind": "command_contract",
+      "source": "conductor.token.ContributeToken",
+      "disposition": {
+        "disposition": "generated"
+      }
+    },
+    {
+      "kind": "command_behavior",
+      "source": "conductor.token.ContributeToken",
+      "disposition": {
+        "disposition": "generated"
+      }
+    },
+    {
+      "kind": "command_contract",
+      "source": "conductor.token.LeaseToken",
+      "disposition": {
+        "disposition": "generated"
+      }
+    },
+    {
+      "kind": "command_behavior",
+      "source": "conductor.token.LeaseToken",
+      "disposition": {
+        "disposition": "generated"
+      }
+    },
+    {
+      "kind": "command_contract",
+      "source": "conductor.token.MarkTokenLimited",
+      "disposition": {
+        "disposition": "generated"
+      }
+    },
+    {
+      "kind": "command_behavior",
+      "source": "conductor.token.MarkTokenLimited",
+      "disposition": {
+        "disposition": "generated"
+      }
+    },
+    {
+      "kind": "command_contract",
+      "source": "conductor.token.ReleaseToken",
+      "disposition": {
+        "disposition": "generated"
+      }
+    },
+    {
+      "kind": "command_behavior",
+      "source": "conductor.token.ReleaseToken",
+      "disposition": {
+        "disposition": "generated"
+      }
+    },
+    {
+      "kind": "command_contract",
+      "source": "conductor.token.WithdrawToken",
+      "disposition": {
+        "disposition": "generated"
+      }
+    },
+    {
+      "kind": "command_behavior",
+      "source": "conductor.token.WithdrawToken",
+      "disposition": {
+        "disposition": "generated"
+      }
+    },
+    {
+      "kind": "command_contract",
       "source": "conductor.tool.RecordToolCall",
       "disposition": {
         "disposition": "generated"
@@ -3337,6 +4359,48 @@
     {
       "kind": "command_behavior",
       "source": "conductor.tool.RecordToolCall",
+      "disposition": {
+        "disposition": "generated"
+      }
+    },
+    {
+      "kind": "event_type",
+      "source": "conductor.agent.AgentKindDeclared",
+      "disposition": {
+        "disposition": "generated"
+      }
+    },
+    {
+      "kind": "event_type",
+      "source": "conductor.agent.AgentReported",
+      "disposition": {
+        "disposition": "generated"
+      }
+    },
+    {
+      "kind": "event_type",
+      "source": "conductor.agent.AgentRunning",
+      "disposition": {
+        "disposition": "generated"
+      }
+    },
+    {
+      "kind": "event_type",
+      "source": "conductor.agent.AgentStarted",
+      "disposition": {
+        "disposition": "generated"
+      }
+    },
+    {
+      "kind": "event_type",
+      "source": "conductor.agent.AgentStopped",
+      "disposition": {
+        "disposition": "generated"
+      }
+    },
+    {
+      "kind": "event_type",
+      "source": "conductor.config.ConfigChanged",
       "disposition": {
         "disposition": "generated"
       }
@@ -3735,6 +4799,104 @@
     },
     {
       "kind": "event_type",
+      "source": "conductor.improvement.ProposalApplied",
+      "disposition": {
+        "disposition": "generated"
+      }
+    },
+    {
+      "kind": "event_type",
+      "source": "conductor.improvement.ProposalKept",
+      "disposition": {
+        "disposition": "generated"
+      }
+    },
+    {
+      "kind": "event_type",
+      "source": "conductor.improvement.ProposalRefused",
+      "disposition": {
+        "disposition": "generated"
+      }
+    },
+    {
+      "kind": "event_type",
+      "source": "conductor.improvement.ProposalReverted",
+      "disposition": {
+        "disposition": "generated"
+      }
+    },
+    {
+      "kind": "event_type",
+      "source": "conductor.improvement.SettingProposed",
+      "disposition": {
+        "disposition": "generated"
+      }
+    },
+    {
+      "kind": "event_type",
+      "source": "conductor.instance.InstanceAnswered",
+      "disposition": {
+        "disposition": "generated"
+      }
+    },
+    {
+      "kind": "event_type",
+      "source": "conductor.instance.InstancePurged",
+      "disposition": {
+        "disposition": "generated"
+      }
+    },
+    {
+      "kind": "event_type",
+      "source": "conductor.instance.InstanceReconciled",
+      "disposition": {
+        "disposition": "generated"
+      }
+    },
+    {
+      "kind": "event_type",
+      "source": "conductor.instance.InstanceRestarted",
+      "disposition": {
+        "disposition": "generated"
+      }
+    },
+    {
+      "kind": "event_type",
+      "source": "conductor.instance.InstanceRolledBack",
+      "disposition": {
+        "disposition": "generated"
+      }
+    },
+    {
+      "kind": "event_type",
+      "source": "conductor.instance.InstanceStarted",
+      "disposition": {
+        "disposition": "generated"
+      }
+    },
+    {
+      "kind": "event_type",
+      "source": "conductor.instance.InstanceStopped",
+      "disposition": {
+        "disposition": "generated"
+      }
+    },
+    {
+      "kind": "event_type",
+      "source": "conductor.instance.InstanceUnreachable",
+      "disposition": {
+        "disposition": "generated"
+      }
+    },
+    {
+      "kind": "event_type",
+      "source": "conductor.instance.InstanceUpgrading",
+      "disposition": {
+        "disposition": "generated"
+      }
+    },
+    {
+      "kind": "event_type",
       "source": "conductor.observation.BlockerRecorded",
       "disposition": {
         "disposition": "generated"
@@ -3861,6 +5023,55 @@
     },
     {
       "kind": "event_type",
+      "source": "conductor.operator.OperatorJoined",
+      "disposition": {
+        "disposition": "generated"
+      }
+    },
+    {
+      "kind": "event_type",
+      "source": "conductor.operator.OperatorLeft",
+      "disposition": {
+        "disposition": "generated"
+      }
+    },
+    {
+      "kind": "event_type",
+      "source": "conductor.placement.BoxClosed",
+      "disposition": {
+        "disposition": "generated"
+      }
+    },
+    {
+      "kind": "event_type",
+      "source": "conductor.placement.BoxOpened",
+      "disposition": {
+        "disposition": "generated"
+      }
+    },
+    {
+      "kind": "event_type",
+      "source": "conductor.placement.BoxRefused",
+      "disposition": {
+        "disposition": "generated"
+      }
+    },
+    {
+      "kind": "event_type",
+      "source": "conductor.secret.SecretPut",
+      "disposition": {
+        "disposition": "generated"
+      }
+    },
+    {
+      "kind": "event_type",
+      "source": "conductor.secret.SecretsResolved",
+      "disposition": {
+        "disposition": "generated"
+      }
+    },
+    {
+      "kind": "event_type",
       "source": "conductor.session.LeaseTaken",
       "disposition": {
         "disposition": "generated"
@@ -3889,7 +5100,112 @@
     },
     {
       "kind": "event_type",
+      "source": "conductor.store.StoreMigrated",
+      "disposition": {
+        "disposition": "generated"
+      }
+    },
+    {
+      "kind": "event_type",
+      "source": "conductor.token.TokenContributed",
+      "disposition": {
+        "disposition": "generated"
+      }
+    },
+    {
+      "kind": "event_type",
+      "source": "conductor.token.TokenLeased",
+      "disposition": {
+        "disposition": "generated"
+      }
+    },
+    {
+      "kind": "event_type",
+      "source": "conductor.token.TokenLimited",
+      "disposition": {
+        "disposition": "generated"
+      }
+    },
+    {
+      "kind": "event_type",
+      "source": "conductor.token.TokenReleased",
+      "disposition": {
+        "disposition": "generated"
+      }
+    },
+    {
+      "kind": "event_type",
+      "source": "conductor.token.TokenWithdrawn",
+      "disposition": {
+        "disposition": "generated"
+      }
+    },
+    {
+      "kind": "event_type",
       "source": "conductor.tool.ToolCallRecorded",
+      "disposition": {
+        "disposition": "generated"
+      }
+    },
+    {
+      "kind": "error_type",
+      "source": "conductor.agent.AgentExists",
+      "disposition": {
+        "disposition": "generated"
+      }
+    },
+    {
+      "kind": "error_type",
+      "source": "conductor.agent.AgentLaunchFailed",
+      "disposition": {
+        "disposition": "generated"
+      }
+    },
+    {
+      "kind": "error_type",
+      "source": "conductor.agent.AgentNotFound",
+      "disposition": {
+        "disposition": "generated"
+      }
+    },
+    {
+      "kind": "error_type",
+      "source": "conductor.agent.AgentNotReachable",
+      "disposition": {
+        "disposition": "generated"
+      }
+    },
+    {
+      "kind": "error_type",
+      "source": "conductor.agent.AgentNotRunning",
+      "disposition": {
+        "disposition": "generated"
+      }
+    },
+    {
+      "kind": "error_type",
+      "source": "conductor.agent.CapabilityMissing",
+      "disposition": {
+        "disposition": "generated"
+      }
+    },
+    {
+      "kind": "error_type",
+      "source": "conductor.agent.UnknownAgentKind",
+      "disposition": {
+        "disposition": "generated"
+      }
+    },
+    {
+      "kind": "error_type",
+      "source": "conductor.config.ConfigInvalid",
+      "disposition": {
+        "disposition": "generated"
+      }
+    },
+    {
+      "kind": "error_type",
+      "source": "conductor.config.LevelScopeMismatch",
       "disposition": {
         "disposition": "generated"
       }
@@ -4288,6 +5604,55 @@
     },
     {
       "kind": "error_type",
+      "source": "conductor.improvement.ProposalExists",
+      "disposition": {
+        "disposition": "generated"
+      }
+    },
+    {
+      "kind": "error_type",
+      "source": "conductor.improvement.ProposalNotFound",
+      "disposition": {
+        "disposition": "generated"
+      }
+    },
+    {
+      "kind": "error_type",
+      "source": "conductor.improvement.ProposalStateConflict",
+      "disposition": {
+        "disposition": "generated"
+      }
+    },
+    {
+      "kind": "error_type",
+      "source": "conductor.instance.InstanceStateConflict",
+      "disposition": {
+        "disposition": "generated"
+      }
+    },
+    {
+      "kind": "error_type",
+      "source": "conductor.instance.PlacementRefused",
+      "disposition": {
+        "disposition": "generated"
+      }
+    },
+    {
+      "kind": "error_type",
+      "source": "conductor.instance.SupervisorNotRunning",
+      "disposition": {
+        "disposition": "generated"
+      }
+    },
+    {
+      "kind": "error_type",
+      "source": "conductor.instance.UnknownInstance",
+      "disposition": {
+        "disposition": "generated"
+      }
+    },
+    {
+      "kind": "error_type",
       "source": "conductor.observation.DailySeriesExists",
       "disposition": {
         "disposition": "generated"
@@ -4337,6 +5702,76 @@
     },
     {
       "kind": "error_type",
+      "source": "conductor.operator.ActorNotHuman",
+      "disposition": {
+        "disposition": "generated"
+      }
+    },
+    {
+      "kind": "error_type",
+      "source": "conductor.operator.AlreadyJoined",
+      "disposition": {
+        "disposition": "generated"
+      }
+    },
+    {
+      "kind": "error_type",
+      "source": "conductor.operator.GrantMissing",
+      "disposition": {
+        "disposition": "generated"
+      }
+    },
+    {
+      "kind": "error_type",
+      "source": "conductor.operator.NotJoined",
+      "disposition": {
+        "disposition": "generated"
+      }
+    },
+    {
+      "kind": "error_type",
+      "source": "conductor.placement.BoxNotFound",
+      "disposition": {
+        "disposition": "generated"
+      }
+    },
+    {
+      "kind": "error_type",
+      "source": "conductor.placement.BoxStateConflict",
+      "disposition": {
+        "disposition": "generated"
+      }
+    },
+    {
+      "kind": "error_type",
+      "source": "conductor.secret.SecretExists",
+      "disposition": {
+        "disposition": "generated"
+      }
+    },
+    {
+      "kind": "error_type",
+      "source": "conductor.secret.SecretMissing",
+      "disposition": {
+        "disposition": "generated"
+      }
+    },
+    {
+      "kind": "error_type",
+      "source": "conductor.secret.SourceUnreachable",
+      "disposition": {
+        "disposition": "generated"
+      }
+    },
+    {
+      "kind": "error_type",
+      "source": "conductor.secret.SourceUnusable",
+      "disposition": {
+        "disposition": "generated"
+      }
+    },
+    {
+      "kind": "error_type",
       "source": "conductor.session.InvalidLineCount",
       "disposition": {
         "disposition": "generated"
@@ -4352,6 +5787,48 @@
     {
       "kind": "error_type",
       "source": "conductor.session.SessionNotReachable",
+      "disposition": {
+        "disposition": "generated"
+      }
+    },
+    {
+      "kind": "error_type",
+      "source": "conductor.store.AlreadyMigrated",
+      "disposition": {
+        "disposition": "generated"
+      }
+    },
+    {
+      "kind": "error_type",
+      "source": "conductor.store.InvalidEventCount",
+      "disposition": {
+        "disposition": "generated"
+      }
+    },
+    {
+      "kind": "error_type",
+      "source": "conductor.store.SourceMissing",
+      "disposition": {
+        "disposition": "generated"
+      }
+    },
+    {
+      "kind": "error_type",
+      "source": "conductor.token.NoTokenAvailable",
+      "disposition": {
+        "disposition": "generated"
+      }
+    },
+    {
+      "kind": "error_type",
+      "source": "conductor.token.NotTokenOwner",
+      "disposition": {
+        "disposition": "generated"
+      }
+    },
+    {
+      "kind": "error_type",
+      "source": "conductor.token.TokenStateConflict",
       "disposition": {
         "disposition": "generated"
       }
@@ -4414,6 +5891,67 @@
     },
     {
       "kind": "view_type",
+      "source": "conductor.agent.AgentKinds",
+      "disposition": {
+        "disposition": "generated"
+      }
+    },
+    {
+      "kind": "view_query",
+      "source": "conductor.agent.AgentKinds",
+      "disposition": {
+        "disposition": "generated"
+      }
+    },
+    {
+      "kind": "view_type",
+      "source": "conductor.agent.Agents",
+      "disposition": {
+        "disposition": "generated"
+      }
+    },
+    {
+      "kind": "view_query",
+      "source": "conductor.agent.Agents",
+      "disposition": {
+        "disposition": "generated"
+      }
+    },
+    {
+      "kind": "view_type",
+      "source": "conductor.config.ConfigRevisions",
+      "disposition": {
+        "disposition": "generated"
+      }
+    },
+    {
+      "kind": "view_query",
+      "source": "conductor.config.ConfigRevisions",
+      "disposition": {
+        "disposition": "generated"
+      }
+    },
+    {
+      "kind": "view_type",
+      "source": "conductor.config.EffectiveSettings",
+      "disposition": {
+        "disposition": "generated"
+      }
+    },
+    {
+      "kind": "view_query",
+      "source": "conductor.config.EffectiveSettings",
+      "disposition": {
+        "disposition": "obligation",
+        "reason": {
+          "class": "undetermined",
+          "construct": "a view parameter (`params:`), which a generated query does not apply"
+        },
+        "contract": "a query answering `conductor.config.EffectiveSettings` with rows projected from `conductor.config.EffectiveSetting` at `eventual` consistency, containing instances where `instance == param.instance`"
+      }
+    },
+    {
+      "kind": "view_type",
       "source": "conductor.decision.Decisions",
       "disposition": {
         "disposition": "generated"
@@ -4666,6 +6204,48 @@
     },
     {
       "kind": "view_type",
+      "source": "conductor.improvement.SettingsProposals",
+      "disposition": {
+        "disposition": "generated"
+      }
+    },
+    {
+      "kind": "view_query",
+      "source": "conductor.improvement.SettingsProposals",
+      "disposition": {
+        "disposition": "generated"
+      }
+    },
+    {
+      "kind": "view_type",
+      "source": "conductor.instance.Instances",
+      "disposition": {
+        "disposition": "generated"
+      }
+    },
+    {
+      "kind": "view_query",
+      "source": "conductor.instance.Instances",
+      "disposition": {
+        "disposition": "generated"
+      }
+    },
+    {
+      "kind": "view_type",
+      "source": "conductor.instance.Reconciliations",
+      "disposition": {
+        "disposition": "generated"
+      }
+    },
+    {
+      "kind": "view_query",
+      "source": "conductor.instance.Reconciliations",
+      "disposition": {
+        "disposition": "generated"
+      }
+    },
+    {
+      "kind": "view_type",
       "source": "conductor.observation.Blockers",
       "disposition": {
         "disposition": "generated"
@@ -4862,6 +6442,76 @@
     },
     {
       "kind": "view_type",
+      "source": "conductor.operator.Operators",
+      "disposition": {
+        "disposition": "generated"
+      }
+    },
+    {
+      "kind": "view_query",
+      "source": "conductor.operator.Operators",
+      "disposition": {
+        "disposition": "generated"
+      }
+    },
+    {
+      "kind": "view_type",
+      "source": "conductor.placement.BoxRefusals",
+      "disposition": {
+        "disposition": "generated"
+      }
+    },
+    {
+      "kind": "view_query",
+      "source": "conductor.placement.BoxRefusals",
+      "disposition": {
+        "disposition": "generated"
+      }
+    },
+    {
+      "kind": "view_type",
+      "source": "conductor.placement.Boxes",
+      "disposition": {
+        "disposition": "generated"
+      }
+    },
+    {
+      "kind": "view_query",
+      "source": "conductor.placement.Boxes",
+      "disposition": {
+        "disposition": "generated"
+      }
+    },
+    {
+      "kind": "view_type",
+      "source": "conductor.placement.Placements",
+      "disposition": {
+        "disposition": "generated"
+      }
+    },
+    {
+      "kind": "view_query",
+      "source": "conductor.placement.Placements",
+      "disposition": {
+        "disposition": "generated"
+      }
+    },
+    {
+      "kind": "view_type",
+      "source": "conductor.secret.Secrets",
+      "disposition": {
+        "disposition": "generated"
+      }
+    },
+    {
+      "kind": "view_query",
+      "source": "conductor.secret.Secrets",
+      "disposition": {
+        "disposition": "generated"
+      }
+    },
+    {
+      "kind": "view_type",
       "source": "conductor.session.Deliveries",
       "disposition": {
         "disposition": "generated"
@@ -4904,6 +6554,48 @@
     },
     {
       "kind": "view_type",
+      "source": "conductor.store.Migrations",
+      "disposition": {
+        "disposition": "generated"
+      }
+    },
+    {
+      "kind": "view_query",
+      "source": "conductor.store.Migrations",
+      "disposition": {
+        "disposition": "generated"
+      }
+    },
+    {
+      "kind": "view_type",
+      "source": "conductor.store.StoreStatus",
+      "disposition": {
+        "disposition": "generated"
+      }
+    },
+    {
+      "kind": "view_query",
+      "source": "conductor.store.StoreStatus",
+      "disposition": {
+        "disposition": "generated"
+      }
+    },
+    {
+      "kind": "view_type",
+      "source": "conductor.token.Tokens",
+      "disposition": {
+        "disposition": "generated"
+      }
+    },
+    {
+      "kind": "view_query",
+      "source": "conductor.token.Tokens",
+      "disposition": {
+        "disposition": "generated"
+      }
+    },
+    {
+      "kind": "view_type",
       "source": "conductor.tool.ToolCalls",
       "disposition": {
         "disposition": "generated"
@@ -4912,6 +6604,41 @@
     {
       "kind": "view_query",
       "source": "conductor.tool.ToolCalls",
+      "disposition": {
+        "disposition": "generated"
+      }
+    },
+    {
+      "kind": "actor_grants",
+      "source": "conductor.agent.Controller",
+      "disposition": {
+        "disposition": "generated"
+      }
+    },
+    {
+      "kind": "actor_grants",
+      "source": "conductor.agent.InstanceRuntime",
+      "disposition": {
+        "disposition": "generated"
+      }
+    },
+    {
+      "kind": "actor_grants",
+      "source": "conductor.agent.Operator",
+      "disposition": {
+        "disposition": "generated"
+      }
+    },
+    {
+      "kind": "actor_grants",
+      "source": "conductor.config.Operator",
+      "disposition": {
+        "disposition": "generated"
+      }
+    },
+    {
+      "kind": "actor_grants",
+      "source": "conductor.config.Tuner",
       "disposition": {
         "disposition": "generated"
       }
@@ -4920,130 +6647,189 @@
       "kind": "actor_grants",
       "source": "conductor.decision.Conductor",
       "disposition": {
-        "disposition": "refused",
-        "reason": "needs_caller_identity",
-        "stage": "planning",
-        "detail": "may invoke `conductor.decision.AmendEscalatedRequest`, `conductor.decision.AnswerRequest`, `conductor.decision.EscalateRequest`, `conductor.decision.RecordConductorDecision`, `conductor.decision.ReverseConductorDecision`; generated as data, not enforced: the grant is available as the declared actors and the qualified commands each may invoke, and enforcement stays with the caller, because a grant is checked against a caller identity, which types do not carry"
+        "disposition": "generated"
       }
     },
     {
       "kind": "actor_grants",
       "source": "conductor.decision.Operator",
       "disposition": {
-        "disposition": "refused",
-        "reason": "needs_caller_identity",
-        "stage": "planning",
-        "detail": "may invoke `conductor.decision.AnswerEscalatedRequest`, `conductor.decision.RecordOperatorDecision`, `conductor.decision.RecordOperatorDecisionForRequest`, `conductor.decision.ReverseOperatorDecision`; generated as data, not enforced: the grant is available as the declared actors and the qualified commands each may invoke, and enforcement stays with the caller, because a grant is checked against a caller identity, which types do not carry"
+        "disposition": "generated"
       }
     },
     {
       "kind": "actor_grants",
       "source": "conductor.decision.RepositoryController",
       "disposition": {
-        "disposition": "refused",
-        "reason": "needs_caller_identity",
-        "stage": "planning",
-        "detail": "may invoke `conductor.decision.RaiseDecisionRequest`, `conductor.decision.WithdrawRequest`; generated as data, not enforced: the grant is available as the declared actors and the qualified commands each may invoke, and enforcement stays with the caller, because a grant is checked against a caller identity, which types do not carry"
+        "disposition": "generated"
       }
     },
     {
       "kind": "actor_grants",
       "source": "conductor.direction.Conductor",
       "disposition": {
-        "disposition": "refused",
-        "reason": "needs_caller_identity",
-        "stage": "planning",
-        "detail": "may invoke `conductor.direction.ActivateRepository`, `conductor.direction.AddServing`, `conductor.direction.DeactivateRepository`, `conductor.direction.MarkGoalMet`, `conductor.direction.MarkRepository`, `conductor.direction.ProposeGoal`, `conductor.direction.RemoveServing`; generated as data, not enforced: the grant is available as the declared actors and the qualified commands each may invoke, and enforcement stays with the caller, because a grant is checked against a caller identity, which types do not carry"
+        "disposition": "generated"
       }
     },
     {
       "kind": "actor_grants",
       "source": "conductor.direction.Operator",
       "disposition": {
-        "disposition": "refused",
-        "reason": "needs_caller_identity",
-        "stage": "planning",
-        "detail": "may invoke `conductor.direction.ActivateRepository`, `conductor.direction.ConfirmGoal`, `conductor.direction.DeactivateRepository`, `conductor.direction.DropGoal`, `conductor.direction.MarkRepository`; generated as data, not enforced: the grant is available as the declared actors and the qualified commands each may invoke, and enforcement stays with the caller, because a grant is checked against a caller identity, which types do not carry"
+        "disposition": "generated"
       }
     },
     {
       "kind": "actor_grants",
       "source": "conductor.dispatch.Conductor",
       "disposition": {
-        "disposition": "refused",
-        "reason": "needs_caller_identity",
-        "stage": "planning",
-        "detail": "may invoke `conductor.dispatch.CancelDispatch`, `conductor.dispatch.GrantResource`, `conductor.dispatch.HandleMessage`, `conductor.dispatch.PauseController`, `conductor.dispatch.ReceiveMessage`, `conductor.dispatch.RefuseResource`, `conductor.dispatch.RejectMessage`, `conductor.dispatch.ReportBlocked`, `conductor.dispatch.ReportDone`, `conductor.dispatch.ReportFailed`, `conductor.dispatch.ReportStarted`, `conductor.dispatch.ReportUnblocked`, `conductor.dispatch.ResumeController`, `conductor.dispatch.ReviseCharter`, `conductor.dispatch.RouteNeed`, `conductor.dispatch.SendDispatch`, `conductor.dispatch.StartController`, `conductor.dispatch.StopController`; generated as data, not enforced: the grant is available as the declared actors and the qualified commands each may invoke, and enforcement stays with the caller, because a grant is checked against a caller identity, which types do not carry"
+        "disposition": "generated"
       }
     },
     {
       "kind": "actor_grants",
       "source": "conductor.dispatch.RepositoryController",
       "disposition": {
-        "disposition": "refused",
-        "reason": "needs_caller_identity",
-        "stage": "planning",
-        "detail": "may invoke `conductor.dispatch.ReceiveMessage`, `conductor.dispatch.RecordGuardDecision`, `conductor.dispatch.ReleaseResource`, `conductor.dispatch.ReportBlocked`, `conductor.dispatch.ReportDone`, `conductor.dispatch.ReportFailed`, `conductor.dispatch.ReportStarted`, `conductor.dispatch.ReportUnblocked`, `conductor.dispatch.RequestResource`; generated as data, not enforced: the grant is available as the declared actors and the qualified commands each may invoke, and enforcement stays with the caller, because a grant is checked against a caller identity, which types do not carry"
+        "disposition": "generated"
+      }
+    },
+    {
+      "kind": "actor_grants",
+      "source": "conductor.host.BuildCaller",
+      "disposition": {
+        "disposition": "generated"
+      }
+    },
+    {
+      "kind": "actor_grants",
+      "source": "conductor.host.InstanceRuntime",
+      "disposition": {
+        "disposition": "generated"
+      }
+    },
+    {
+      "kind": "actor_grants",
+      "source": "conductor.host.Operator",
+      "disposition": {
+        "disposition": "generated"
       }
     },
     {
       "kind": "actor_grants",
       "source": "conductor.improvement.Collector",
       "disposition": {
-        "disposition": "refused",
-        "reason": "needs_caller_identity",
-        "stage": "planning",
-        "detail": "may invoke `conductor.improvement.JudgeMetricReading`, `conductor.improvement.RaiseFinding`, `conductor.improvement.RecordMetricReading`, `conductor.improvement.SupersedeMetricReading`; generated as data, not enforced: the grant is available as the declared actors and the qualified commands each may invoke, and enforcement stays with the caller, because a grant is checked against a caller identity, which types do not carry"
+        "disposition": "generated"
       }
     },
     {
       "kind": "actor_grants",
       "source": "conductor.improvement.ConductorDev",
       "disposition": {
-        "disposition": "refused",
-        "reason": "needs_caller_identity",
-        "stage": "planning",
-        "detail": "may invoke `conductor.improvement.DefineMetric`, `conductor.improvement.FileFinding`, `conductor.improvement.RaiseFinding`, `conductor.improvement.VerifyFinding`; generated as data, not enforced: the grant is available as the declared actors and the qualified commands each may invoke, and enforcement stays with the caller, because a grant is checked against a caller identity, which types do not carry"
+        "disposition": "generated"
       }
     },
     {
       "kind": "actor_grants",
       "source": "conductor.improvement.Operator",
       "disposition": {
-        "disposition": "refused",
-        "reason": "needs_caller_identity",
-        "stage": "planning",
-        "detail": "may invoke `conductor.improvement.SetMetricTarget`; generated as data, not enforced: the grant is available as the declared actors and the qualified commands each may invoke, and enforcement stays with the caller, because a grant is checked against a caller identity, which types do not carry"
+        "disposition": "generated"
+      }
+    },
+    {
+      "kind": "actor_grants",
+      "source": "conductor.improvement.Tuner",
+      "disposition": {
+        "disposition": "generated"
+      }
+    },
+    {
+      "kind": "actor_grants",
+      "source": "conductor.instance.Conductord",
+      "disposition": {
+        "disposition": "generated"
+      }
+    },
+    {
+      "kind": "actor_grants",
+      "source": "conductor.instance.Operator",
+      "disposition": {
+        "disposition": "generated"
       }
     },
     {
       "kind": "actor_grants",
       "source": "conductor.observation.Collector",
       "disposition": {
-        "disposition": "refused",
-        "reason": "needs_caller_identity",
-        "stage": "planning",
-        "detail": "may invoke `conductor.observation.CompleteSnapshot`, `conductor.observation.FailSnapshot`, `conductor.observation.PublishBoard`, `conductor.observation.RecordBlocker`, `conductor.observation.RecordCollectorRun`, `conductor.observation.RecordDailySeries`, `conductor.observation.RecordMemberFailure`, `conductor.observation.RecordMergedPullRequest`, `conductor.observation.RecordPullRequest`, `conductor.observation.RecordRelease`, `conductor.observation.RecordRepository`, `conductor.observation.RecordSession`, `conductor.observation.RecordSpecification`, `conductor.observation.RecordWorkflowRun`, `conductor.observation.ReviseDailySeries`, `conductor.observation.StartSnapshot`; generated as data, not enforced: the grant is available as the declared actors and the qualified commands each may invoke, and enforcement stays with the caller, because a grant is checked against a caller identity, which types do not carry"
+        "disposition": "generated"
+      }
+    },
+    {
+      "kind": "actor_grants",
+      "source": "conductor.operator.Conductord",
+      "disposition": {
+        "disposition": "generated"
+      }
+    },
+    {
+      "kind": "actor_grants",
+      "source": "conductor.operator.Engineer",
+      "disposition": {
+        "disposition": "generated"
+      }
+    },
+    {
+      "kind": "actor_grants",
+      "source": "conductor.placement.Conductord",
+      "disposition": {
+        "disposition": "generated"
+      }
+    },
+    {
+      "kind": "actor_grants",
+      "source": "conductor.secret.Conductord",
+      "disposition": {
+        "disposition": "generated"
+      }
+    },
+    {
+      "kind": "actor_grants",
+      "source": "conductor.secret.Operator",
+      "disposition": {
+        "disposition": "generated"
       }
     },
     {
       "kind": "actor_grants",
       "source": "conductor.session.Conductor",
       "disposition": {
-        "disposition": "refused",
-        "reason": "needs_caller_identity",
-        "stage": "planning",
-        "detail": "may invoke `conductor.session.ClaimLease`, `conductor.session.DeliverMessage`, `conductor.session.RecordRunTick`; generated as data, not enforced: the grant is available as the declared actors and the qualified commands each may invoke, and enforcement stays with the caller, because a grant is checked against a caller identity, which types do not carry"
+        "disposition": "generated"
+      }
+    },
+    {
+      "kind": "actor_grants",
+      "source": "conductor.store.Operator",
+      "disposition": {
+        "disposition": "generated"
+      }
+    },
+    {
+      "kind": "actor_grants",
+      "source": "conductor.token.InstanceRuntime",
+      "disposition": {
+        "disposition": "generated"
+      }
+    },
+    {
+      "kind": "actor_grants",
+      "source": "conductor.token.Operator",
+      "disposition": {
+        "disposition": "generated"
       }
     },
     {
       "kind": "actor_grants",
       "source": "conductor.tool.InstanceBroker",
       "disposition": {
-        "disposition": "refused",
-        "reason": "needs_caller_identity",
-        "stage": "planning",
-        "detail": "may invoke `conductor.dispatch.ReceiveMessage`, `conductor.dispatch.ReportBlocked`, `conductor.dispatch.ReportDone`, `conductor.dispatch.ReportFailed`, `conductor.dispatch.ReportStarted`, `conductor.dispatch.ReportUnblocked`, `conductor.tool.RecordToolCall`; generated as data, not enforced: the grant is available as the declared actors and the qualified commands each may invoke, and enforcement stays with the caller, because a grant is checked against a caller identity, which types do not carry"
+        "disposition": "generated"
       }
     },
     {
@@ -5056,6 +6842,34 @@
     {
       "kind": "component_port",
       "source": "conductor-cli",
+      "disposition": {
+        "disposition": "generated"
+      }
+    },
+    {
+      "kind": "component_port",
+      "source": "conductor-instance",
+      "disposition": {
+        "disposition": "generated"
+      }
+    },
+    {
+      "kind": "component_transport",
+      "source": "conductor-instance",
+      "disposition": {
+        "disposition": "generated"
+      }
+    },
+    {
+      "kind": "component_port",
+      "source": "conductord",
+      "disposition": {
+        "disposition": "generated"
+      }
+    },
+    {
+      "kind": "component_transport",
+      "source": "conductord",
       "disposition": {
         "disposition": "generated"
       }

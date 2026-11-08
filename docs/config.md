@@ -1,8 +1,15 @@
 # Config reference
 
 The config file names conductor's instances. Its specification is `spec/domains/config.yaml`
-(`conductor.config/1`); its defaults and checks are in `crates/conductor/src/config.rs`. A full
-example is [`../conductor.example.yaml`](../conductor.example.yaml).
+(`conductor.config/2`, design `docs/design/architecture-next.md` § 9); its defaults and checks
+are in `crates/conductor/src/config.rs`. A full example is
+[`../conductor.example.yaml`](../conductor.example.yaml).
+
+Two versions are read. `conductor.config/2` adds the `daemon` and `globals` sections, each
+instance's `placement` and `limits`, and each role's `kind`, and removes `dashboard_port` and
+`confinement` (Removed in `conductor.config/2`, below). A `conductor.config/1` file is still read
+for one release, with those two keys and without the new ones, so a running instance keeps
+working until the file is moved to `/2`. Each version refuses the other's keys by their YAML path.
 
 ## Where it is read from
 
@@ -22,20 +29,27 @@ instance after defaults, with every path absolute. It writes an absent optional 
 `session_name`, `conductor.served_by` of an instance with its own conductor, a limit not set) as
 `null`.
 
-No two instances on a host share a session prefix, a dashboard port, a state directory or a
-records directory, whether they are in one config file or in several. The host registry,
-`~/.b10x/conductor/host/instances.json` (one per host, whatever config file a command reads,
-beside the host file `host.yaml`), lists every config file that has run on the host:
-`conductor config validate` writes a valid file's entry, and `conductor session start` the entry
-of the file it starts from. `conductor config validate` refuses, by the instance's YAML path, an
-instance without a `session_prefix` and one that holds a prefix (or one nesting with it: one
-followed by `-` begins the other), a port, a state or a records directory another registered
-file's instance holds, naming both instances and both files. A registered file that is gone is
-dropped the next time the registry is written.
+No two instances of the file share a session prefix (or one nesting with it: one followed by `-`
+begins the other), a state directory or a records directory, and in a `conductor.config/1` file a
+dashboard port. `conductor config validate` refuses, by the instance's YAML path, an instance
+without a `session_prefix`. The host registry (`instances.json`) that compared the instances of
+every config file on the host is gone in v1: one daemon reads one file.
 
-`conductor config migrate` writes a `session_prefix` into each instance that has none: its name in
-letters, digits and `-`, with 2, 3, … appended when another instance of the file or of the
-registry holds it. It rewrites an instance's `session_prefix` line, or adds one after its
+`conductor config migrate` reads a `conductor.config/1` file once and writes it as
+`conductor.config/2`, one note per change on standard output: `version`; each instance's
+`dashboard_port`, `confinement.mode`, `confinement.provider` and `store` dropped;
+`confinement.limits` moved to the instance's `limits`; the instance's `placement` written as the
+name the `/1` file's provider reads as (`systemd`, `none`); and the roles of the old host file
+(`~/.b10x/conductor/host/host.yaml`) moved to `globals.roles`, each without its `session_name`.
+It writes no `daemon` section: the daemon starts only on a `daemon.store` the file writes. The
+converted file is written whole, so its comments are not kept; the old one is kept beside it as
+`<file>.config-1.bak`. A converted file that would not validate is refused, naming each problem,
+and nothing is written; `--check` prints the notes and writes nothing. The daemon refuses a
+`conductor.config/1` file on one line naming `conductor config migrate`.
+
+`conductor config migrate` also writes a `session_prefix` into each instance that has none: its name in
+letters, digits and `-`, with 2, 3, … appended when another instance of the file holds it. It
+rewrites an instance's `session_prefix` line, or adds one after its
 `- name:` line, keeps every other line and comment, and writes nothing when the edited file would
 not read back as the old one with those prefixes; `--check` prints them and writes nothing. A
 prefix renames the instance's sessions, its slice and its dashboard's unit, so stop them first
@@ -52,7 +66,8 @@ directory relative to `<records>/.engineering/`. Two sources that give one name 
 are refused by both YAML paths. `--check` writes nothing and exits 1 naming each member that
 differs from the file. `conductor init` writes the same file into the skeleton it creates.
 
-The profiles in `.agents/` refer to config values as `section.key`, such as
+The role profiles the binary carries (`crates/conductor/roles/`, `conductor role show --role
+<role>`) refer to config values as `section.key`, such as
 `thresholds.disk_low`: that is the field of `conductor config show --format json` for the
 instance the session runs.
 
@@ -73,21 +88,125 @@ instance the session runs.
 
 | key | type | default | meaning |
 |---|---|---|---|
-| `version` | string | required | must be `conductor.config/1` |
+| `version` | string | required | `conductor.config/2`, or `conductor.config/1` for one release |
+| `daemon` | daemon | each key its own (below) | conductord's own section; `conductor.config/2` only |
+| `globals` | globals | each key its own (below) | the defaults every instance starts from; `conductor.config/2` only |
 | `default` | instance name | none | the instance a command runs when none is named; must name an instance of the file |
-| `instances` | list of instance | required | instance names must be distinct; no two share a `session_prefix`, a `state` or a `records` directory, at most one has none, no prefix starts with another followed by `-`, and no prefix followed by `-` begins a name an instance without a prefix keeps (`conductor-dev`); no two share a `dashboard_port`, counting the port filled for an instance that writes none |
+| `instances` | list of instance | required | instance names must be distinct; no two share a `session_prefix`, a `state` or a `records` directory, at most one has none, no prefix starts with another followed by `-`, and no prefix followed by `-` begins a name an instance without a prefix keeps (`conductor-dev`); in a `conductor.config/1` file no two share a `dashboard_port`, counting the port filled for an instance that writes none |
+
+## Daemon
+
+The `daemon` section (`conductor.config.Daemon`) configures conductord, the one process per
+deployment that reconciles the instances, serves the global API and the dashboard, and holds the
+store and the secrets. Nothing reads it yet but `config validate` and `config show`, which writes
+it for a `conductor.config/2` file.
+
+| key | type | default | meaning |
+|---|---|---|---|
+| `daemon.port` | port | `7300` | the loopback port of the global API on 127.0.0.1: a whole number from 1 to 65535 |
+| `daemon.loopback` | `true` or `false` | `true` | whether the daemon serves the loopback listener on `daemon.port`. A box with no local operator writes `false`: its API is the TLS listener alone, so `false` without `daemon.tls` is refused by this key's path, and `conductor daemon serve --install` writes the system unit `/etc/systemd/system/conductord.service` (running as the installing user, with its home) rather than the user unit, refused while the config file lies in no git checkout or while `daemon.secrets.source` is `keychain`. A workstation reaches it with `conductor login --daemon <url>`, then `--daemon <url>` (or `CONDUCTOR_DAEMON`) on `config put` and `instance upgrade` |
+| `daemon.tls.listen` | `<host>:<port>` | none (no TLS listener) | the TLS listener, for a dashboard deployed elsewhere and for every client of a daemon on a remote box. It serves the same app and `/v1/` as the loopback listener, both at once; every request but the app's files and a CORS preflight carries `Authorization: Bearer`, which the Identity service resolves, and any origin may read with one |
+| `daemon.tls.cert` | path | required with `listen` | the PEM file of the listener's certificate chain |
+| `daemon.tls.key` | path | required with `listen` | the PEM file of the listener's private key |
+| `daemon.tls.identity` | URL | required with `listen` | the Identity service that resolves a bearer (`GET <identity>/v1/access-authority`, audience `conductor`): `https://`, or `http://` on `127.0.0.1`, `localhost` or a `*.svc.cluster.local` name. A principal that is not a person is refused `ActorNotHuman` on a write; an operator is named by the principal's email, else its subject |
+| `daemon.cadence.reconcile` | duration | `60s` | how often the daemon reconciles when nothing else starts a pass |
+| `daemon.store` | store URL | `sqlite:~/.b10x/conductor/conductor.sqlite` | the one store of the deployment, `sqlite:<path>` or `postgres://…` (its password a `secret:<name>`), which the daemon hands to every instance runtime in `$CONDUCTOR_STORE`. A command of the instance on its own `state` opens that URL, else the `daemon.store` the file writes, else `<state>/store.sqlite`; on any other state directory, `<state>/store.sqlite`. `conductor doctor` names the backend and whether it answers |
+| `daemon.secrets.source` | `keychain` \| `remote` | `keychain` | where the `secret:<name>` values resolve: the OS keychain, or the Secrets service |
+| `daemon.secrets.namespace` | string | none | the secrets namespace the names live in |
+| `daemon.secrets.url` | string | none | the Secrets service's address; `remote` only |
+| `daemon.dashboard` | string | `/` | the path the daemon serves the dashboard at: on loopback the page carries the daemon's token, the one token a browser holds; the instances' routes are `/v1/instances/<name>/<route>`, proxied to each runtime's socket (`conductor instance serve`, `api.sock` in its state directory, with a token the daemon minted at its start). A write on the global API needs an operator holding its grant (`AnswerDecisions` for answers and the Plan page, `UpgradeInstances` for an upgrade, `ChangeSettings` for settings and `PUT /v1/config`), else it is refused `GrantMissing` naming the operator and the grant; with no `daemon.operators`, the operator the Unix user names holds every grant on loopback |
+| `daemon.operators` | list of operator | `[]` | the deployment's operators, each named once |
+| `daemon.operators[].name` | string | required | the operator's name: the Identity principal, or the Unix user on a single host |
+| `daemon.operators[].role` | string | required | the operator's role in the config, such as `owner` |
+| `daemon.operators[].grants` | list | `[]` | what the operator may do, each once: `answer-decisions`, `change-settings`, `start-instances`, `stop-instances`, `upgrade-instances`, `purge`, `join` |
+| `daemon.upgrade_timeout` | duration | `120s` | how long an upgraded instance runtime (`conductor instance upgrade`, `POST /v1/instances/{name}/upgrade`) has to answer before the daemon rolls it back to its previous binary |
+| `daemon.timeout` | duration | `5s` | how long an instance has to answer one federated read of the global API (`GET /v1/sessions`, `decisions`, `unanswered`, `kpis`, `events`) before it is a row with `state: unreachable` |
+
+## Globals
+
+The `globals` section (`conductor.config.Globals`) holds the defaults every instance starts from.
+`roles`, `cadence`, `thresholds` and `limits` take the keys an instance's keys of the same name
+take (Instance, below); `tuning` is the tuning grant. The host's roles, the supervisor and the
+teacher, which the daemon starts, are written here only; a global role's session is named after
+the role, with no instance prefix, and the file may write only that name.
+
+| key | type | default | meaning |
+|---|---|---|---|
+| `globals.roles` | list of role | `[]` | the built-in and custom roles every instance starts from, each named once |
+| `globals.cadence`, `globals.thresholds`, `globals.limits` | as for an instance | the built-in defaults | the global value of each key |
+| `globals.tuning.keys` | list | `[]` | the keys a tuning may change, each a `path` with the `min` and `max` it may set, `min` at or under `max` |
+
+Overrides: a key an instance writes overrides the global value, key by key, and a role's own key
+overrides both (role over instance over global); a key none of them writes is conductor's
+built-in default. An instance's `cadence`, `thresholds` and `limits` start from the global ones,
+key by key. An instance role takes each key it leaves out from the global role of the same name
+(so it may write only `role` and the keys it changes); an instance that writes no `roles` takes
+the built-in roles, each with every key its global role writes. A global role that no instance
+names, such as `supervisor`, stays the daemon's. Every command reads the effective value.
+
+`conductor config show --effective [--instance <i>]` prints every key of the instance with its
+effective value and the level it came from, `default`, `global`, `instance` or `role`: as text,
+one `<path>: <value> (<level>)` line each, a role's key under `roles.<role>.`; with `--format
+json` or `yaml`, the rows of `conductor.config.EffectiveSettings` (`setting_key`
+`<instance>/<role or ->/<path>`, `instance`, `role`, `path`, `value`, `level`).
+
+## Changing a key
+
+`conductor config put --level global|instance|role [--instance <i>] [--role <r>] --path <key>
+[--value <v>] --reason <why>` changes one key of a `conductor.config/2` file at one level
+(`conductor.config.PutConfig`, the function `PUT /v1/config` calls): `--path` is the key under
+`globals`, the instance or the instance's role, its words joined by `.`; `--value` is read as YAML,
+and without it the key is removed at that level, so the level below applies again. A global
+change names no instance and no role, an instance change an instance, a role change both;
+otherwise it is refused (`LevelScopeMismatch`). A role change needs the role in the instance's
+`roles`. The changed file is validated as `config validate` would; a problem refuses the change
+(`ConfigInvalid`), naming its YAML path, and nothing is written. A change by an agent (a
+session) is refused (`ActorNotHuman`) unless `globals.tuning.keys` names the path and the value
+is a number inside its range. An accepted change is written (the whole file, as YAML reads it, so
+its comments are not kept), committed alone to the git checkout the file is in, with the actor in
+the subject and the reason in the body (a file in no checkout is written and not committed), and
+recorded as a `ConfigRevision` (its `ConfigChanged`) in the daemon's store, the URL
+`daemon.store` names, under the tenant `daemon`. The daemon reconciles on its next look at the
+changed file. A commit that fails puts the old text back and records nothing. `PUT /v1/config` on
+the daemon takes the same change as JSON (`level`, `instance`, `role`, `path`, `value`, `reason`)
+from an operator holding `ChangeSettings`, as that operator; it answers the revision, or a refusal
+`422` (`403` for `ActorNotHuman`) with its one line.
+
+## Secrets
+
+The file holds no secret. A value that looks like a token is refused wherever it is; a key whose
+name ends in `token`, `password`, `secret` or `bearer` takes only `secret:<name>` (letters,
+digits, `.`, `_` and `-`), the name the daemon's secrets source keeps the value under; and a
+`daemon.store` URL's password is `secret:<name>`. Anything else is refused by its YAML path,
+without echoing the value.
+
+## Removed in `conductor.config/2`
+
+| key | why | in a `conductor.config/1` file |
+|---|---|---|
+| `instances[].dashboard_port` | the daemon serves the one dashboard, at `daemon.dashboard` | read and not used: no per-instance dashboard runs (`conductor dashboard serve` is gone) |
+| `instances[].confinement` (`mode`, `provider`, `limits`) | an instance's box is its `placement` (a Substrate box); its limits are the instance's `limits` | read as before (Confinement, below); the instance's `placement` is named after the provider and its `limits` are `confinement.limits` |
+| `instances[].store` | the store is the deployment's one database, at `daemon.store` | ignored; `conductor config migrate` drops it with one note per instance |
+| `host.yaml`, the host file | the host's roles are `globals.roles` | read once, by `conductor config migrate`, into `globals.roles`; otherwise not read: the maintainer is the instance's own maintainer role |
+| `instances.json`, the host registry | one daemon reads one file | not read or written |
+
+A `conductor.config/2` file that writes `dashboard_port`, `confinement` or `store` is refused by its YAML
+path, naming why. In a `/2` file an instance's sessions start through the `systemd` provider in
+`report` mode, inside the instance's `limits`, until placements are read; its dashboard is the
+daemon's page with `?instance=<name>`. `conductor doctor` prints no confinement provider rows.
 
 ## Instance
 
 "Read by" names what uses a field today: the binary's commands, the tasks in `Taskfile.yml`, or a
-session profile in `.agents/` (conductor's or the controller's). A field read by nothing is
+role profile the binary carries (`crates/conductor/roles/`). A field read by nothing is
 accepted, defaulted and shown by `config show`.
 
 | key | type | default | read by | meaning |
 |---|---|---|---|---|
 | `name` | string | required | all | the instance's name: letters, digits, `.`, `_` and `-`, starting with a letter or digit |
-| `session_prefix` | string | required by `config validate` (`config migrate` writes one) | start tasks, `task dashboard`, `task dashboard:stop`, guard, sessions collector, `controller start-controller`, conductor profile | the prefix of every session the instance starts: conductor is `<prefix>-conductor`, conductor-dev `<prefix>-conductor-dev`, a controller `<prefix>-<repository>`; and of the dashboard's user service, `<prefix>-conductor-dashboard`. Letters, digits and `-`, starting and ending with a letter or digit. `config validate` refuses an instance without one; for one release such an instance still runs, its sessions under the bare names `conductor`, `conductor-dev` and `<repository>`, its slice `conductor.slice` and its service `conductor-dashboard`. No two instances on the host share one (the host registry, above). A controller messages only its instance's conductor and conductor only its instance's sessions; an instance that names no `conductor` role is served by the `default` instance's conductor, which its controllers message and which messages its sessions. A session belongs to the instance whose name for the controller of the repository it works in it carries, else to the instance whose prefix it carries; the sessions collector, the watch and the dashboard keep another instance's session out |
-| `dashboard_port` | port | 7313 plus the instance's position in the file (7313 for the first) | `task dashboard` | the port on 127.0.0.1 the instance's dashboard serves: a whole number from 1 to 65535. No two instances share one, counting the port filled for an instance that writes none, so each instance's dashboard binds its own |
+| `session_prefix` | string | required by `config validate` (`config migrate` writes one) | start tasks, `task dashboard`, `task dashboard:stop`, guard, sessions collector, `controller start-controller`, conductor profile | the prefix of every session the instance starts: conductor is `<prefix>-conductor`, conductor-dev `<prefix>-conductor-dev`, a controller `<prefix>-<repository>`; and of the dashboard's user service, `<prefix>-conductor-dashboard`. Letters, digits and `-`, starting and ending with a letter or digit. `config validate` refuses an instance without one; for one release such an instance still runs, its sessions under the bare names `conductor`, `conductor-dev` and `<repository>`, its slice `conductor.slice` and its service `conductor-dashboard`. No two instances of the file share one. A controller messages only its instance's conductor and conductor only its instance's sessions; an instance that names no `conductor` role is served by the `default` instance's conductor, which its controllers message and which messages its sessions. A session belongs to the instance whose name for the controller of the repository it works in it carries, else to the instance whose prefix it carries; the sessions collector, the watch and the dashboard keep another instance's session out |
+| `placement` | `{daemon, adapter}`, or a string | required in `conductor.config/2`; in a `/1` file the confinement provider's name | `daemon: local` (`adapter: linux`): conductord opens one substrate box per instance through `substrate-daemon`'s socket and runs `conductor instance serve` in it; `adapter: systemd`: conductor's own `systemd-run` units, as before | where the instance's box is opened. `daemon` is `local` (the default) or an `https://` URL; `adapter` is `systemd`, `linux`, `oci` or `pod`. A remote daemon also writes `bearer: secret:<name>` (the Identity access credential the daemon's secrets source keeps), `trust_roots` (the PEM file its certificate is verified against, and no other roots) and optionally `server_identity` (the DNS name its certificate carries; the URL's host by default); a local daemon writes none of the three. The box writes the instance's `sessions` directory under its state directory through a writable host root the daemon declares by name: `substrate-daemon --writable-root sessions-<instance>=<state>/sessions`, each character of the instance name outside letters, digits, `_` and `-` written `_`; the directory exists and the daemon's user owns it; conductord creates it mode 0700 on its own host and refuses the box `exec.writable-roots-host-unserved` before anything starts when the daemon does not publish the root. The runtime in the box writes its output to `<state>/sessions/runtime.log`, since substrate ends a session whose output reaches its bound. A remote daemon that does not answer shows its instance `Unreachable`. Its runtime's instance API is reached through one `conductor instance relay` pipe session in the box per request; an agent's attach over the API answers 501 there as it does for a local instance. The box profile names the control host's paths for the conductor binary, the profiles and the harness, so the remote host carries conductor, the harness and tmux at those paths; running `conductor doctor` there is the operator's job. A string is `{daemon: local, adapter: <string>}`; one that names no adapter keeps the `systemd-run` units. `oci` and `pod` are refused on a local daemon |
+| `dashboard_port` | port | 7313 plus the instance's position in the file (7313 for the first) | nothing | `conductor.config/1` only, removed in `/2`: read and checked (a whole number from 1 to 65535, no two instances sharing one) but not used, since the daemon serves the one dashboard |
 | `sources` | list of source | required | collectors, watch, guard | where the repositories come from (below); at least one |
 | `checkouts.root` | path | required | collectors, watch, guard, dashboard, `resource usage`, `task trust`, `config workspace` | the directory holding the checkouts |
 | `checkouts.trees` | path | required | watch, guard, dashboard, `resource usage` | the directory holding their managed worktrees |
@@ -95,12 +214,13 @@ accepted, defaulted and shown by `config show`.
 | `state` | path | `~/.b10x/conductor/<name>/state` | every store command, guard, watch, dashboard, `task dashboard` | the state directory; `--state-dir` overrides it. Where systemctl is not on PATH, `task dashboard` keeps the dashboard's pid in `dashboard.pid` and its output in `dashboard.log` here |
 | `cache` | path | `~/.cache/b10x/conductor/<name>` | blockers and specifications collectors, dashboard | exports of `origin/main` and other rebuildable data |
 | `roles` | list of role | `conductor`, `conductor-dev`, `controller`, each `claude` / `opus`, no agent, no settings, no profile | start tasks, watch, conductor profile | one entry per session role; a list given replaces the whole default |
-| `roles[].role` | string | required | | the role name; the tasks, the watch and the profiles know `conductor`, `conductor-dev` and `controller`; the maintainer, `conductor-dev`, is the host's role and moves to the host file (The host file), where a role here is read from for this release only |
+| `roles[].role` | string | required | | the role name; the tasks, the watch and the profiles know `conductor`, `conductor-dev` and `controller`; the maintainer, `conductor-dev`, is read from here (Host roles, below) |
+| `roles[].kind` | `claude-code` | `claude-code` | | the kind of agent that fills the role's slot; `claude-code`, today's sessions, is the only kind in v1 |
 | `roles[].harness` | `claude` \| `codex` | required | | the harness the role runs on; the start tasks start `claude` only |
 | `roles[].model` | string | required | | the model name passed to the harness |
-| `roles[].agent` | string | none | `task conductor:start` | the harness agent the role starts with when it names no `profile`, found only in the start directory's `.claude/agents/` (`--setting-sources project,local` loads no user-level agent); for the `conductor` role the start task defaults to `conductor`, for `conductor-dev` to `conductor-dev`. The `controller` role starts from its `profile`, never with `--agent`: `conductor config validate` refuses a controller role that names an `agent` and no `profile` |
-| `roles[].settings` | path | none | conductor profile, `task conductor:start`, `task dev:start` | the settings file the role starts with, such as the repository's `.claude/controller-settings.json`, which wires the guard. Sessions start without the user's settings, so this file carries everything else they need (below). Under a config file a file that pins no instance (no `env.CONDUCTOR_INSTANCE`) starts as a copy pinned to the instance, `<state>/sessions/<session name>.settings.json`, and `conductor config validate` notes it; one that pins another instance is refused (`InstanceNotPinned`) |
-| `roles[].profile` | path | none; required for a `controller` role that names an `agent` | conductor profile, `task conductor:start`, `task dev:start` | the profile file the role's session starts with through `--append-system-prompt-file`, such as this repository's `.agents/repo-controller.md`; when it is set the session starts with no `--agent`, so no adapter is needed. A `controller` role the file writes with an `agent` and without a profile is refused by this path |
+| `roles[].agent` | string | none | `task conductor:start` | the harness agent the role starts with when it names no `profile`, in place of the profile the binary carries, found only in the start directory's `.claude/agents/` (`--setting-sources project,local` loads no user-level agent); the `conductor` role, which the binary carries no profile for, defaults to `conductor`. The `controller` role starts from its `profile`, never with `--agent`: `conductor config validate` refuses a controller role that names an `agent` and no `profile` |
+| `roles[].settings` | path | none | conductor profile, `task conductor:start`, `task dev:start` | the settings file the role starts with, in place of the one the binary carries (`crates/conductor/kinds/claude-code/conductor-settings.json` for `conductor`, `controller-settings.json` for a controller, each wiring the guard; none for the other roles), written to `<state>/sessions/<session name>.settings.json` at start. Sessions start without the user's settings, so this file carries everything else they need (below). Under a config file a file that pins no instance (no `env.CONDUCTOR_INSTANCE`) starts as a copy pinned to the instance, `<state>/sessions/<session name>.settings.json`, and `conductor config validate` notes it; one that pins another instance is refused (`InstanceNotPinned`) |
+| `roles[].profile` | path | none; required for a `controller` role that names an `agent` | conductor profile, `task conductor:start`, `task dev:start` | a profile file that takes the place of the one the binary carries for the role (`crates/conductor/roles/<role>.md`, for `conductor-dev`, `controller`, `supervisor` and `teacher`), read by the harness at start through `--append-system-prompt-file`. Without it the session starts from the binary's text, which the `claude-code` kind writes to `<state>/sessions/<session name>.profile.md`; no adapter is needed either way. A `controller` role the file writes with an `agent` and without a profile is refused by this path |
 | `roles[].session_name` | string | derived | `task conductor:start`, `task conductor:restart`, `task dev:start`, `task conductor:attach`, `task dev:attach`, `task sessions` | the name the role's session starts under: `<session_prefix>-<role>`, or `<role>` without a prefix; none for `controller`, whose sessions are named per repository. Derived, never chosen: a file may write only that value. The session tasks act on the active instance's sessions by this full name and refuse a name more than one live background session holds |
 | `roles[].read_only_tools` | list of tool names | empty | guard | the tools, beyond the guard's built-in read-only allowlist (`Read`, `Glob`, `Grep`, `WebFetch`, the session's own task and schedule tools and the like; `READ_ONLY` in `crates/conductor/src/guard.rs`), that the guard allows this role's sessions, such as a read-only MCP tool `mcp__<server>__<tool>`. Read for the `conductor` and `controller` roles. Every other tool without a rule of its own is denied; `Edit`, `Write`, `NotebookEdit`, `SendMessage`, `Bash` and `Monitor` keep their rules whatever the list says |
 | `roles[].limits.memory_max` | GiB ≥ 1G | none | `session start`, `spawn` (the request); the systemd provider, as the session's unit's `-p MemoryMax=` | the most memory one session of the role may use (its cgroup's `MemoryMax`); at or under `confinement.limits.memory_max`, where that is set |
@@ -110,6 +230,7 @@ accepted, defaulted and shown by `config show`.
 | `roles[].network` | `open` | `open` | `session start`, `spawn` (the request) | the session's network: the host's, the only one there is |
 | `roles[].forge_token_env` | list of variable names | empty | `session start`, `spawn` (the request) | the environment variables that carry the forge tokens a session of the role may use, such as `GH_TOKEN` or `GITLAB_TOKEN`: names only, capital letters, digits and `_`, not starting with a digit; the values are never part of the config |
 | `roles[].grant` | mapping: `tools`, `repositories`, `paths`, `max_output_bytes`, `ttl` | `tools: [show, search, diff]`, no repository or path rule (the whole working directory), `max_output_bytes: 65536`, no `ttl` (the session's life) | `session start`, `spawn` (the session's registration with the broker); `conductor broker serve` (each call's check) | what each session of the role may call through `tool`: its verbs (`show`, `search`, `diff`), the paths under its working directory they read (relative, no `..`), the most bytes one answer carries (1 or more) and the grant's time to live from the session's start (`30m`, `8h`); `repositories` is kept and not checked yet, since a session reads its one working directory; a key left out keeps its default. A call outside it is refused `NotGranted: <rule>` and recorded |
+| `roles[].token_owner` | an operator's name | none | `spawn`, `controller resume-controller` (`story:token-pool`) | a controller's key only: the operator whose Claude token from the instance's pool the controller leases, and it starts with `--remote-control`, so it appears in that owner's Claude app; with no Available token of that owner the start is refused (`NoTokenAvailable`), no other owner's token is taken. Absent, the agent leases the pool's token with the most headroom (the Available one leased the fewest times). With no token in the pool every start is today's |
 | `confinement.mode` | `strict` \| `report` | `report` | `conductor session start`, `conductor spawn` | what happens when a session's box cannot be set up: `strict` starts no session, and stops one whose measured box is short of the request; `report` starts it unboxed and records why |
 | `confinement.provider` | `systemd` \| `none` | `systemd` | `conductor session start`, `conductor spawn`, `conductor controller resume-controller`, `conductor doctor` | what sets up the box: `systemd`, a `systemd-run --user` unit `conductor_<session name>.service` per session in the instance's slice `conductor_<session_prefix>.slice` (`conductor.slice` without a prefix; a `-` of the prefix written `\x2d`, since systemd reads a `-` in a slice name as nesting, so every instance's slice is a sibling of every other's and no instance's limits cap another's), available where the user manager delegates the `cpu`, `memory` and `pids` controllers (its `cgroup.controllers`); it sets the limits and sets up no write fence yet, so its box is partial: `report` records it, `strict` stops it; `none`, a host with no provider, where `strict` starts no session and `report` starts every one unboxed |
 | `confinement.limits.memory_max` | GiB ≥ 1G | none | the systemd provider (`session start`, `spawn`), as the slice's `MemoryMax` (`infinity` when unset) | the most memory the instance's sessions use together (the slice's `MemoryMax`) |
@@ -163,10 +284,12 @@ accepted, defaulted and shown by `config show`.
 | `secret_syncs` | list of secret sync | `[]` | secrets collector, board, conductor profile | the files the organization's own tool publishes into GitHub Actions secrets, whose drift the snapshot reads (below) |
 | `gates_policy` | path | none | `conductor repository refresh-hooks --apply` | the Gates policy file each checkout's hooks are installed with (`b10x-gates install --policy`); without it `--apply` installs none |
 | `forge.route` | `gates` \| `direct` | `gates` | guard, `conductor run` (records commit), broker `commit`, `conductor status` | how the instance writes to its forge (below) |
+| `limits.memory_max`, `limits.cpu_weight`, `limits.tasks_max` | as `confinement.limits` | none | as `confinement.limits` | `conductor.config/2` only: the instance's box as a whole, every role's limits at or under it; a `/1` file writes it as `confinement.limits` |
 
-An instance may leave out every key but `name`, `sources` and `checkouts`. Inside `controllers`,
-`cadence`, `thresholds`, `retention`, `authority`, `confinement` and each `limits`, each absent
-key takes its own default.
+An instance may leave out every key but `name`, `sources` and `checkouts`, and in a
+`conductor.config/2` file `placement`. Inside `controllers`, `cadence`, `thresholds`,
+`retention`, `authority`, `confinement`, `limits` and each role's `limits`, each absent key takes
+its own default.
 
 ## Forge route
 
@@ -214,6 +337,9 @@ once per change of that hour. `usage.watcher` names the systemd user unit that r
 accounts; `conductor doctor` prints `usage watcher: <unit> running`, or `not running (<state>)`.
 
 ## Confinement
+
+`confinement` is a key of a `conductor.config/1` file only (Removed in `conductor.config/2`,
+above); a `/2` file writes the instance's box as `limits`.
 
 Each session conductor starts is meant to run in a box set up and measured from outside: a
 cgroup with the role's limits inside the instance's slice, and writes allowed only to the role's
@@ -311,80 +437,52 @@ passes `--setting-sources user,project,local`: Claude Code starts a background s
 `bypassPermissions` only when the disclaimer acceptance is in user or managed settings, and the
 `--settings` file and local settings do not count (`story:bg-launch-reads-user-settings`). The
 `--settings` file wins over user settings on every key it sets.
-When a role names a `profile`, its session starts with `--append-system-prompt-file <profile>` and
-no `--agent`. With `project,local` Claude Code loads no user-level agent, so `--agent
+A role's session starts with `--append-system-prompt-file` and no `--agent`: its own `profile`, or
+the one the binary carries, written into the state directory (`story:roles-in-the-binary`). With `project,local` Claude Code loads no user-level agent, so `--agent
 <agent>` finds an agent only in the start directory's `.claude/agents/`, never in
 `~/.claude/agents/`; a controller, which starts in another repository's checkout, therefore always
-starts from its `profile`.
+starts from a profile.
 
 The start tasks read the `conductor` and `conductor-dev` roles' `harness`, `model`, `settings`
 and `profile`. `task conductor:start` starts conductor in the instance's `records` directory with
-the `conductor` role's `settings` (default this checkout's `.claude/conductor-settings.json`) and
+the `conductor` role's `settings` (default the binary's `conductor-settings.json`) and
 its `profile`, or without one its `agent` (default `conductor`). It refuses a `profile` that is
 not a file and, without a profile, an agent that is not a file in `<records>/.claude/agents/`.
 `task maintainer:start` (old name `task dev:start`, for this release) starts the maintainer,
-conductor-dev, in this checkout from the host's maintainer role (`host.roles` of `conductor config
-show`, the host file below) with its `settings` (default none) and its `profile`, or without one
-`--agent conductor-dev`, which this checkout's `.claude/agents/conductor-dev.md` holds; it refuses
-a `profile` that is not a file. `task maintainer:attach` (old name `task dev:attach`) opens it.
+conductor-dev, in this checkout from the instance's maintainer role (Host roles, below) with its
+`settings` (default none) and its `profile`, or without one the maintainer profile the binary
+carries; it refuses a `profile` that is not a file. `task maintainer:attach` (old name `task dev:attach`) opens it.
 
 Conductor starts each controller with the `controller` role's `model`, `settings` and `profile`,
 never with `--agent`: `conductor config validate` refuses a `controller` role that names an
-`agent` and no `profile`. The repository ships the profile `.agents/repo-controller.md`, its adapter
-`.claude/agents/repo-controller.md` and the settings file `.claude/controller-settings.json`,
-which wires the guard. A controller starts in another repository's checkout, where its `profile`
-is read from its path. `settings` and `profile` must be absolute or
+`agent` and no `profile`. The binary carries the controller's profile, `crates/conductor/roles/controller.md`, and its
+settings, `crates/conductor/kinds/claude-code/controller-settings.json`, which wire the guard; a
+role that names neither starts from them, written into the state directory. A controller starts
+in another repository's checkout, where a `profile` it names is read from its path. `settings` and `profile` must be absolute or
 `~/` paths. A start command passes `model`, `agent`, `settings` and `profile` to the harness as
 single shell words, so each holds only letters, digits and `.`, `_`, `:`, `/`, `-`
 (`conductor.config.CommandWord`). The guard denies every session a file-tool write to any role's
 `settings` file, and a Bash write form that names it; it does not check where other Bash commands
 write (README, Security model).
 
-## The host file
+## Host roles
 
-The maintainer (conductor-dev) and the bridge are roles of the host, not of an instance: one per
-host, outliving every instance. They are configured once, in the host file
-`~/.b10x/conductor/host/host.yaml`, beside the host registry `instances.json`; every command reads
-it, whatever config file it reads. Its specification is `conductor.host.HostConfig` in
-`spec/domains/host.yaml`.
+The maintainer (conductor-dev), the supervisor and the teacher are roles of the host, not of an
+instance: one per host, outliving every instance. In v1 they are `globals.roles` of a
+`conductor.config/2` file (Globals, above); the host file `host.yaml` that held them before is
+gone and is not read.
 
-```yaml
-version: conductor.host-config/1
-roles:
-  - role: maintainer
-    harness: claude
-    model: opus
-    profile: ~/.b10x/conductor/profiles/conductor-dev.md
-```
-
-| key | type | default | meaning |
-|---|---|---|---|
-| `version` | string | required | must be `conductor.host-config/1` |
-| `roles` | list of role | none | the host's roles, each at most once |
-| `roles[].role` | string | required | `maintainer` or `bridge`; any other role, an old name such as `conductor-dev` among them, is refused |
-| `roles[].harness`, `.model`, `.agent`, `.settings`, `.profile`, `.read_only_tools`, `.limits`, `.writable`, `.network`, `.forge_token_env` | | as for an instance's role | read and checked as an instance's role is (Instance, `roles[]`); `writable` defaults to `checkout`, `trees`, `build-cache`, `scratch` and `harness-state` |
-| `roles[].session_name` | string | derived | the role's own name, `maintainer` or `bridge`, with no instance prefix, since the session belongs to no instance; the file may write only that value |
-
-`conductor config validate` reads the host file and names each of its problems by its path in
-that file, `<host.yaml>: roles[1].role: …`, exiting 1. `conductor config show` prints the host's
-roles, after defaults, under `host.roles` of its JSON and text, and `host.file`, the file's path;
-its YAML, a config file of the instance, holds no `host`. A host file that does not read is named
-on standard error there and its roles are left out, and `conductor session start --role
-maintainer` refuses it (`UnknownRole`), naming the file; the director's start does not read it.
-
-A config file holds no maintainer. A `maintainer` role still under `instances[].roles`, or one
-under its old name `conductor-dev` (the built-in roles of an instance that writes none hold it too),
-is, for this release, read from there as the host's maintainer while the host file names none, with
-the session name it has there (such as `<session_prefix>-conductor-dev`), so a running maintainer
-keeps its session; `config validate` notes each one the file writes by its `role` path, saying it
-moves to `host.yaml`. A `maintainer` in the host file wins. `conductor session start --role
-maintainer` (or `--role conductor-dev`, with a note) starts that role in the working directory,
-pinned to the instance the command runs for.
-
+Until `globals.roles` is applied to the sessions, the maintainer is the instance's own: its
+`maintainer` role under `instances[].roles`, or one under its old name `conductor-dev` (the
+built-in roles of an instance that writes none hold it), with the session name it has there (such
+as `<session_prefix>-conductor-dev`). `conductor session start --role maintainer` (or `--role
+conductor-dev`, with a note) starts that role in the working directory, pinned to the instance the
+command runs for, and refuses (`UnknownRole`) an instance that names none.
 ## Sessions without the user's config
 
-With `--setting-sources project,local` (the `systemd` provider) a session reads no user settings, and the shipped
-`.claude/conductor-settings.json` and `.claude/controller-settings.json` carry only the guard
+With `--setting-sources project,local` (the `systemd` provider) a session reads no user settings, and the settings the
+binary carries, `crates/conductor/kinds/claude-code/conductor-settings.json` and
+`controller-settings.json`, carry only the guard
 wiring, and conductor's also the SessionStart hook that claims the instance's conductor lease
 (`conductor session claim`). An instance that needs more gives each role its own `settings` file,
 outside this repository, that carries both hooks of the shipped file and everything its sessions
@@ -431,8 +529,8 @@ used to take from the user's settings:
 ```
 
 The matcher is `*`, as in the shipped files: every tool call reaches the guard, which allows a tool
-without a rule of its own only from its read-only allowlist and the role's `read_only_tools`. Give the role a `profile` as well, and its sessions
-need nothing in `~/.claude/agents/`.
+without a rule of its own only from its read-only allowlist and the role's `read_only_tools`. Its sessions need nothing in `~/.claude/agents/`:
+the profile is the binary's, or the role's `profile`.
 
 ## Built-in instance
 

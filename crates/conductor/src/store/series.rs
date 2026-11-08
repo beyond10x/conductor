@@ -1,8 +1,7 @@
 //! `DailySeriesStorage` on [`super::Store`] (`story:dashboard-history`): each
-//! `conductor.observation.DailySeries` is one stream, keyed by its id, in the store's one tenant of
-//! `state/series/`, a tree of its own: a rollup is not an observation, so retention never drops
-//! it, and the tree every other command opens does not grow with it. It is opened at its first
-//! use, by the rollup a completed snapshot runs and by the dashboard's `/api/series`.
+//! `conductor.observation.DailySeries` is one stream, keyed by its id, in the instance's tenant: a
+//! rollup is not an observation, so retention never drops it. The rollup a completed snapshot runs
+//! writes it and the dashboard's `/v1/series` reads it.
 
 use conductor_model::behaviour::DailySeriesStorage;
 use conductor_model::observation::{
@@ -52,7 +51,7 @@ impl DailySeriesStorage for Store {
 
 impl Store {
     /// Every rollup the store holds, in the order they were first stored. The specification
-    /// declares no view of them, so the generated port lists none: `/api/series` and the rollup
+    /// declares no view of them, so the generated port lists none: `/v1/series` and the rollup
     /// read them here. A rollup whose record does not decode is left out and kept for
     /// [`Store::check`].
     #[must_use]
@@ -78,6 +77,7 @@ fn encode(rollup: &DailySeriesSnapshot) -> Value {
     let DailySeriesState::Recorded = rollup.state;
     let data = &rollup.data;
     json!({
+        "actor": crate::actor::to_json(&data.actor),
         "state": RECORDED,
         "daily_series_id": data.daily_series_id.0,
         "series": data.series,
@@ -109,6 +109,7 @@ fn decode(body: &Value) -> Result<DailySeriesSnapshot, String> {
     Ok(DailySeriesSnapshot {
         state: DailySeriesState::Recorded,
         data: DailySeriesData {
+            actor: crate::actor::stored(body)?,
             daily_series_id: DailySeriesId(text(body, "daily_series_id")?),
             series: text(body, "series")?,
             day: text(body, "day")?,

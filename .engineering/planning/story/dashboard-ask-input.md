@@ -2,13 +2,15 @@
 format: aep.planning-md/3
 id: story:dashboard-ask-input
 kind: story
-status: draft
+status: archived
 title: The host dashboard's one input reaches the bridge or one director
 relations:
 - decomposes: epic:host-bridge
 - depends_on: story:ask-bridge-route
 - depends_on: story:host-dashboard-home
-revision: 2
+revision: 3
+transitions:
+- {from: "draft", to: "archived", at: "2026-11-07T23:41:20Z", actor: "human:timo", revision: 3}
 ---
 # Story: dashboard-ask-input
 

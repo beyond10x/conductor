@@ -64,6 +64,10 @@ pub fn isolate() {
         .expect("write the scratch config");
         fs::rename(&written, &file).expect("put the scratch config in place");
         config::set_active(Some(&file)).expect("the scratch config loads");
+        // The actor every command of this process records, as `common::conductor` fixes it for
+        // a child: the operator `operator`, whoever runs the tests (`story:spec-v1`).
+        conductor_cli::actor::choose(Some(r#"{"kind": "Human", "operator": "operator"}"#), false)
+            .expect("an actor");
     });
     assert_eq!(
         PathBuf::from(&config::active().instance.state),
