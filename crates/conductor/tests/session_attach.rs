@@ -383,6 +383,49 @@ fn watch_shows_the_session_and_types_nothing() {
     case.kill_outer();
 }
 
+/// `story:handover-restart-by-controller-id`: two `type_text` calls at once into one session's
+/// tmux server each load and paste a buffer of their own name, so neither consumes the other's
+/// ("no buffer"), and none is left behind.
+#[test]
+fn two_concurrent_type_text_calls_never_consume_each_others_buffer() {
+    let mut case = Case::new("concurrent-type");
+    case.start_session(
+        "ex-gamma",
+        r#"echo ready; while read x; do echo "got $x"; done; sleep 60"#,
+    );
+    let sessions = case.sessions();
+    for round in 0..4 {
+        let typed: Vec<_> = ["one", "two"]
+            .into_iter()
+            .map(|word| {
+                let sessions = sessions.clone();
+                std::thread::spawn(move || {
+                    systemd::type_text(
+                        &sessions,
+                        &SessionName("ex-gamma".to_owned()),
+                        &format!("{word}{round}"),
+                    )
+                })
+            })
+            .collect();
+        for call in typed {
+            call.join()
+                .expect("the call ends")
+                .expect("neither call loses its buffer to the other");
+        }
+    }
+    wait_for("both words in the pane", || {
+        let screen = case.session_screen("ex-gamma");
+        screen.contains("one3") && screen.contains("two3")
+    });
+    let left = Case::tmux(&sessions, "ex-gamma.tmux", &["list-buffers"]);
+    assert!(
+        String::from_utf8_lossy(&left.stdout).trim().is_empty(),
+        "no buffer is left: {}",
+        String::from_utf8_lossy(&left.stdout)
+    );
+}
+
 /// Inside a session (`CONDUCTOR_SESSION` set, whatever the harness) attach exits 1 naming
 /// `inside-session`, before it looks at any session.
 #[test]
