@@ -597,6 +597,7 @@ impl Cli {
             },
             Group::Instance(command) => match command {
                 InstanceCommand::Serve => crate::instance::instance_serve(self.config.as_deref()),
+                InstanceCommand::Relay => crate::instance::instance_relay(self.config.as_deref()),
                 InstanceCommand::Upgrade(args) => match &remote {
                     Some(daemon) => crate::remote::instance_upgrade(daemon, &args),
                     None => crate::daemon::upgrade::instance_upgrade(self.config.as_deref(), &args),
@@ -1041,6 +1042,7 @@ pub const LEAVES: &[(&[&str], Access)] = &[
     (&["daemon", "serve"], Access::Writes),
     (&["daemon", "start-role"], Access::Writes),
     (&["instance", "serve"], Access::Writes),
+    (&["instance", "relay"], Access::Writes),
     // Asks the daemon to upgrade an instance's runtime (story:instance-upgrade).
     (&["instance", "upgrade"], Access::Writes),
     (&["join"], Access::Writes),
@@ -1168,6 +1170,9 @@ pub struct DaemonServeArgs {
 #[allow(missing_docs)]
 #[derive(Debug, Subcommand)]
 pub enum InstanceCommand {
+    /// Bridge one instance API exchange from standard input to the instance's api.sock (CONDUCTOR_API_SOCKET, else <state>/api.sock) and its answer to standard output; conductord runs it as a substrate pipe session in a box on a remote substrate daemon
+    #[command(name = "relay")]
+    Relay,
     /// Serve the instance API, the routes of the dashboard under /v1/, on the instance's <state>/api.sock until stopped; a write takes the token the daemon minted for the instance, in CONDUCTOR_API_TOKEN
     #[command(name = "serve")]
     Serve,

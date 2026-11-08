@@ -908,6 +908,7 @@ impl Instance {
                 Route {
                     socket,
                     token: INSTANCE_TOKEN.to_owned(),
+                    remote: None,
                 },
             )]
             .into_iter()

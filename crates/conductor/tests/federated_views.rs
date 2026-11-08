@@ -115,6 +115,7 @@ impl Case {
                 Route {
                     socket: self.socket(name),
                     token: INSTANCE_TOKEN.to_owned(),
+                    remote: None,
                 },
             )
         };
@@ -657,6 +658,7 @@ fn the_agent_routes_deliver_and_restart_through_the_daemon_and_attach_is_refused
             Route {
                 socket: case.socket("example-org"),
                 token: INSTANCE_TOKEN.to_owned(),
+                remote: None,
             },
         )]
         .into_iter()

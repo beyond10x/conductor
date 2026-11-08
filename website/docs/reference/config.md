@@ -125,6 +125,11 @@ A key path written `a[].b` is the key `b` of each element of the list `a`. A def
 |---|---|---|---|
 | `name` | [InstanceName](#instancename) | required |  |
 | `placement` | [PlacementName](#placementname) | required |  |
+| `remote` | [RemoteDaemon](#remotedaemon) | derived |  |
+| `remote.url` | string | derived |  |
+| `remote.bearer` | [SecretName](#secretname) | derived |  |
+| `remote.trust_roots` | string | derived |  |
+| `remote.server_identity` | string | derived |  |
 | `session_prefix` | [SessionPrefix](#sessionprefix) | none | letters, digits, `-` only |
 | `sources` | list of [Source](#source) | required |  |
 | `sources[].github` | string | one of `github`, `local`, `gitlab` |  |
@@ -525,6 +530,18 @@ Keys: `keys`. Specified as `conductor.improvement.TuningGrant`.
 One key the tuner may change, and the range it may change it within (design architecture-next § 9, § 13 row 7): `path` is the key's YAML path as `config show --effective` names it (`thresholds.silent_session`, `cadence.watch`), `min` and `max` the bounds, both inclusive.
 
 Keys: `path`, `min`, `max`. Specified as `conductor.improvement.TunableKey`.
+
+### RemoteDaemon
+
+A substrate daemon on a remote host or cluster, `substrate-daemon --tcp-listen --tcp-bearer-file`, reached over HTTPS/WSS at `url` with an Identity bearer (§ 6, `placement.daemon: <url>`). The bearer is a secret the config names and never holds (§ 9). `trust_roots` is the PEM file of the roots the daemon's certificate is verified against and `server_identity` the DNS name it must carry: substrate 0.16.1's SDK has no ambient roots and takes both explicitly; `server_identity` written absent is the URL's host.
+
+Keys: `url`, `bearer`, `trust_roots`, `server_identity`. Specified as `conductor.placement.RemoteDaemon`.
+
+### SecretName
+
+What the config names after `secret:` (`forge_token: secret:gitlab-bot` names `gitlab-bot`).
+
+Written as string. Specified as `conductor.secret.SecretName`.
 
 ### Activity
 
