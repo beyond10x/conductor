@@ -76,9 +76,14 @@ impl Case {
                  if [ \"$3\" = load-buffer ]; then set -- \"$1\" \"$2\" \"$3\" \"$4\" \"$5\" \"$(cat \"$6\")\"; fi\n\
                  {{ printf '%s\\037' \"$(pwd)\"; for a in \"$@\"; do printf '%s\\037' \"$a\"; \
                  done; printf '\\036'; }} >> '{calls}'\n\
+                 if [ \"$3\" = capture-pane ]; then n=$(cat '{count}' 2>/dev/null || echo 0); \
+                 n=$((n+1)); echo $n > '{count}'; f='{pane}'.$n; [ -f \"$f\" ] || f='{pane}'.last; \
+                 cat \"$f\" 2>/dev/null; fi\n\
                  [ {status} -eq 0 ] || echo 'no server running on {SESSION}.tmux' >&2\n\
                  exit {status}\n",
                 calls = dir.join("tmux.calls").display(),
+                count = dir.join("pane.count").display(),
+                pane = dir.join("pane").display(),
             ),
         )
         .expect("write the fake tmux");
@@ -237,7 +242,13 @@ fn typed(case: &Case, text: &str) -> Vec<Vec<String>> {
         call(&["paste-buffer", "-d", "-p", "-b", "conductor", "-t", &pane]),
         call(&["set-buffer", "-b", "conductor", "--", "\r"]),
         call(&["paste-buffer", "-d", "-b", "conductor", "-t", &pane]),
+        call(&["capture-pane", "-p", "-e", "-t", &pane]),
     ]
+}
+
+/// The calls of one more carriage return and a read of the pane.
+fn returned(case: &Case) -> Vec<Vec<String>> {
+    typed(case, "")[2..].to_vec()
 }
 
 /// Checks the one delivery and the one `delivered` line a case recorded.
@@ -385,6 +396,57 @@ fn a_tmux_that_does_not_answer_is_tried_once_and_refused() {
         "one call, no retry: {:?}",
         case.calls()
     );
+    assert!(case.dispatch_lines().is_empty(), "no dispatch line");
+}
+
+/// `story:delivery-submitted-or-reported`: a pane that still shows the text after the first
+/// return takes the second; the journal line says `submitted`.
+#[test]
+fn a_pane_that_takes_the_second_return_is_submitted() {
+    let case = Case::new("second-return", 0);
+    case.socket();
+    fs::write(
+        case.dir.join("pane.1"),
+        "\u{276f} [REPORT cortex -] watch: CI red\n",
+    )
+    .expect("pane");
+    let text = "[REPORT cortex -] watch: CI red\n";
+    let (output, _) = case.deliver_file(text);
+    assert!(output.status.success(), "{}", describe(&output));
+    let mut want = typed(&case, text.trim_end());
+    want.extend(returned(&case));
+    assert_eq!(case.calls(), want, "one more return, then submitted");
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        stderr.contains(&format!("session {SESSION}: submitted")) && stderr.contains("delivery "),
+        "the journal line: {stderr}"
+    );
+    assert_eq!(case.deliveries().len(), 1, "recorded");
+}
+
+/// A pane that holds the text after the last return: an error to the caller (refused as not
+/// reached, nothing recorded) and one journal line naming the returns.
+#[test]
+fn a_pane_that_never_takes_the_text_is_reported_unsubmitted() {
+    let case = Case::new("never", 0);
+    case.socket();
+    fs::write(
+        case.dir.join("pane.last"),
+        "\u{276f} [REPORT cortex -] watch: CI red\n",
+    )
+    .expect("pane");
+    let (output, _) = case.deliver_file("[REPORT cortex -] watch: CI red\n");
+    assert_eq!(output.status.code(), Some(1), "{}", describe(&output));
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        stderr.contains("SessionNotReachable") && stderr.contains("unsubmitted after 3 returns"),
+        "the refusal: {stderr}"
+    );
+    assert!(
+        stderr.contains(&format!("session {SESSION}: unsubmitted after 3 returns")),
+        "the journal line: {stderr}"
+    );
+    assert_eq!(case.calls().len(), 2 + 4 * 3, "four returns, each read");
     assert!(case.dispatch_lines().is_empty(), "no dispatch line");
 }
 
