@@ -33,18 +33,15 @@ summary: >
   when the counter moved, its own answer may have (free disk, or its wait's bound), a session it
   is bound to stopped, or no pass has swept the ledger for `thresholds.watchdog_every`.
 
-  The host registry (story:instance-names-unique) is one per host, whatever config file a command
-  reads: `instances.json` in the host's own directory, `~/.b10x/conductor/host/`, beside the host
-  file `host.yaml` that holds the per-host roles, the maintainer and the bridge (`HostConfig`)
-  (story:maintainer-host-config). It lists every config file that has run on the
-  host (`InstanceRegistry`): `conductor config validate` writes the file's entry when the file is
-  valid, and `conductor session start` writes it whenever a config file starts a session, each
-  under the lock `instances.lock` beside it. No two instances on the host share a session prefix,
-  a dashboard port, a state directory or a records directory, whether they are in one config file
-  or in several: `config validate` refuses an instance that holds one another registered file's
-  instance holds (`InstanceCollision`), naming both instances and both files, and writes nothing
-  then. A registered file that is no longer there is dropped from the registry when it is next
-  written, so a removed config file holds nothing.
+  In v1 (docs/design/architecture-next.md § 3 row `conductor.host`, § 11) this domain is the host
+  ledger for the boxes on this host: grants, disk reservations, build runs and reclaim. The host
+  registry (`instances.json`), the dashboard instance selector, the collision check against the
+  registry, the host file `host.yaml` with its host roles, and `conductor host slices` (the
+  systemd provider's slices) are gone: the instances are derived from the config by conductord
+  (`conductor.instance`), the dashboard is the daemon's one app, the host roles are
+  `globals.roles` of the config (`conductor.config.Globals`), and a box's limits are substrate's
+  (`conductor.placement`). Every command names its actor (`conductor.operator.Actor`), and every
+  event and record carries it.
 
 naming:
   wire: host
@@ -110,32 +107,6 @@ types:
       - {name: kind, type: conductor.host.ReclaimKind}
       - {name: bytes, type: Integer}
 
-  # One row of `conductor host slices` (story:slice-remove): a systemd user slice of the
-  # `conductor` family (`conductor.slice`, `conductor_<prefix>.slice`) the user manager has
-  # loaded, read when asked for and never stored. `units` counts the units loaded in it, running
-  # or not. `instance` names the config file's instance whose `session_prefix` makes that slice's
-  # name, and is absent for a slice no instance of the file names: the leftover of an instance
-  # that is gone or renamed. `stopped` is true when `--gc` stopped the slice in this call.
-  - name: conductor.host.SliceRow
-    kind: struct
-    fields:
-      - {name: slice, type: String}
-      - {name: instance, type: Optional<String>}
-      - {name: units, type: Integer}
-      - {name: stopped, type: Boolean}
-
-  # The input of `conductor host slices`: it lists each slice of the `conductor` family with its
-  # unit count and the instance it belongs to. With `gc` it stops, with `systemctl --user stop`,
-  # each slice that holds no unit and that no instance of the config file names, and never one
-  # that still holds a unit or belongs to an instance. `format` is text or json (a list of
-  # `SliceRow`), read by the handler, which refuses another value. It reads the user manager
-  # only, opens no store and writes no record.
-  - name: conductor.host.ListSlices
-    kind: struct
-    fields:
-      - {name: format, type: Optional<String>}
-      - {name: gc, type: Optional<Boolean>}
-
   # What a reclaim run left on the disk that only a person may remove: its path and its size.
   - name: conductor.host.LeftOver
     kind: struct
@@ -177,125 +148,6 @@ types:
     fields:
       - {name: grant_id, type: conductor.host.GrantId}
       - {name: session_id, type: conductor.session.SessionId}
-
-  # One instance of a registered config file (story:instance-names-unique): what no other
-  # instance on the host may hold, its session prefix (absent for an instance that writes none,
-  # which `config validate` refuses), its dashboard port, and its state and records directories,
-  # each absolute; and its checkouts root and managed trees, which say whose a session working
-  # there is.
-  - name: conductor.host.RegisteredInstance
-    kind: struct
-    fields:
-      - {name: name, type: conductor.config.InstanceName}
-      - {name: session_prefix, type: Optional<conductor.config.SessionPrefix>}
-      - {name: dashboard_port, type: Integer}
-      - {name: state, type: String}
-      - {name: records, type: String}
-      - {name: checkouts, type: conductor.config.Checkouts}
-
-  # One config file of the host registry: its absolute path, when an entry was last written for
-  # it, and its instances as it wrote them then.
-  - name: conductor.host.RegisteredFile
-    kind: struct
-    fields:
-      - {name: config, type: String}
-      - {name: registered_at, type: Timestamp}
-      - {name: instances, type: List<conductor.host.RegisteredInstance>}
-    invariants:
-      - distinct: {in: instances, as: instance, by: instance.name}
-
-  # The host registry, `<host>/instances.json` (story:instance-names-unique): every config file
-  # that has run on the host, each once.
-  - name: conductor.host.InstanceRegistry
-    kind: struct
-    fields:
-      - {name: version, type: String}
-      - {name: files, type: List<conductor.host.RegisteredFile>}
-    invariants:
-      - version == "conductor.host.instances/1"
-      - distinct: {in: files, as: file, by: file.config}
-
-  # One row of the dashboard's instance selector (story:dashboard-instance-switch), what
-  # `/api/instances` answers for each instance of the host registry: its name, the port its
-  # dashboard serves, that dashboard's page `http://127.0.0.1:<dashboard_port>/`, and whether it
-  # is the instance whose dashboard answers (`current`, the one whose port the server listens on).
-  # Each instance keeps its own dashboard; choosing another opens that one's page. Read from the
-  # registry at each request, never stored.
-  - name: conductor.host.DashboardInstance
-    kind: struct
-    fields:
-      - {name: name, type: conductor.config.InstanceName}
-      - {name: dashboard_port, type: Integer}
-      - {name: url, type: String}
-      - {name: current, type: Boolean}
-    invariants:
-      - dashboard_port >= 1
-      - dashboard_port <= 65535
-
-  # What two instances on the host would share (story:instance-names-unique): the session prefix
-  # (equal, or one followed by `-` begins the other, so one session name would carry both), the
-  # dashboard port, the state directory or the records directory.
-  - name: conductor.host.CollisionKey
-    kind: enum
-    variants: [SessionPrefix, DashboardPort, State, Records]
-
-  # `config validate` refused an instance of the file because another registered file's instance
-  # holds the same `key` (story:instance-names-unique): the value, both instances and both files.
-  # It is reported as a problem of the instance's YAML path, `instances[<i>].<key>`, on one line.
-  - name: conductor.host.InstanceCollision
-    kind: struct
-    fields:
-      - {name: key, type: conductor.host.CollisionKey}
-      - {name: value, type: String}
-      - {name: instance, type: conductor.config.InstanceName}
-      - {name: config, type: String}
-      - {name: other_instance, type: conductor.config.InstanceName}
-      - {name: other_config, type: String}
-
-  # A role of the host, not of an instance (story:maintainer-host-config): `maintainer`, the
-  # session that develops conductor, and `bridge`, the session between the host's instances
-  # (epic:host-bridge). Each is one per host and outlives every instance.
-  - name: conductor.host.HostRoleName
-    kind: enum
-    variants: [Maintainer, Bridge]
-
-  # The host file, `host.yaml` in the host's own directory (`~/.b10x/conductor/host/`, beside the
-  # registry `instances.json`), version `conductor.host-config/1` (story:maintainer-host-config).
-  # Every config file's commands read it, whatever file they read: it holds the host's roles,
-  # each a `conductor.config.Role` whose `role` is a `HostRoleName` written in lower case,
-  # `maintainer` or `bridge`, each at most once; any other role, an old role name such as
-  # `conductor-dev` among them, is refused by its YAML path in the file, as is a key it does not
-  # declare. A role's keys, defaults and checks are a config file's role's, but `session_name`:
-  # derived, never chosen, the role's own name with no instance prefix (`maintainer`,
-  # `bridge`), since the session belongs to no instance; the file may write only that value.
-  # Absent, the file names no host role. `conductor config validate` reads it and names each
-  # problem as `<host.yaml>: <path>: <what>`, exiting 1; a config file holds no maintainer: a
-  # `maintainer` role under `instances[].roles`, or one under its old name `conductor-dev`, is a
-  # note of `config validate` naming its YAML path and that it moves to `host.yaml`. For one
-  # release such a role is read from there, with the session name it has there, while
-  # `host.yaml` names no `maintainer`: the role of the instance the command runs, written or
-  # built in; a `maintainer` in `host.yaml` wins.
-  - name: conductor.host.HostConfig
-    kind: struct
-    fields:
-      - {name: version, type: String}
-      - {name: roles, type: List<conductor.config.Role>}
-    invariants:
-      - version == "conductor.host-config/1"
-      - distinct: {in: roles, as: role, by: role.role}
-
-  # The host's effective roles, as `conductor config show` prints them under `host` in its JSON
-  # and text (story:maintainer-host-config): `file`, the path of `host.yaml`, whether or not it is
-  # there; `roles`, its roles after defaults, each with its derived `session_name`, and, while it
-  # names no `maintainer`, the instance's (`HostConfig`). `session start --role maintainer` (or
-  # `conductor-dev`) starts that role, and `task maintainer:start` and `task maintainer:attach`
-  # read its session name from `host.roles`. The YAML of `config show` is a config file of the
-  # instance, which `config validate` takes back, and so holds no `host`.
-  - name: conductor.host.HostRoles
-    kind: struct
-    fields:
-      - {name: file, type: String}
-      - {name: roles, type: List<conductor.config.Role>}
 
   # The input of `conductor host grants`.
   - name: conductor.host.ShowGrants
@@ -382,6 +234,10 @@ entities:
       # What the disk still lacked when the reservation was refused.
       - name: shortfall_bytes
         type: Optional<Integer>
+      # Who took or requested the grant (design architecture-next § 3, Actors): the agent whose
+      # `build run` asked, the instance runtime for a controller slot, or an operator by hand.
+      - name: actor
+        type: conductor.operator.Actor
       - name: requested_at
         type: Timestamp
       - name: started_at
@@ -453,6 +309,9 @@ entities:
         type: Optional<Integer>
       - name: left
         type: List<conductor.host.LeftOver>
+      # Who recorded the run: the instance runtime, a `build run` caller or an operator.
+      - name: actor
+        type: conductor.operator.Actor
       - name: ran_at
         type: Timestamp
     invariants:
@@ -461,6 +320,47 @@ entities:
       initial: Recorded
       states: [Recorded]
       terminal: [Recorded]
+
+actors:
+  # The instance runtime (`conductor instance serve`, design architecture-next § 2): its loop takes
+  # a controller slot before it starts a controller and hands it back, and its watch and cycle run
+  # reclaim.
+  - name: conductor.host.InstanceRuntime
+    may:
+      - conductor.host.TakeHostGrant
+      - conductor.host.ReleaseGrant
+      - conductor.host.Reclaim
+    naming:
+      display: Instance runtime
+
+  # A `conductor build run` caller: an agent of the instance (a controller or a worker) whose
+  # command needs disk. Its run requests the disk, answers the request under the ledger's lock,
+  # starts, records its peak, is released or withdrawn, and runs reclaim for a reservation that
+  # did not fit.
+  - name: conductor.host.BuildCaller
+    may:
+      - conductor.host.RequestDisk
+      - conductor.host.ReserveDisk
+      - conductor.host.StartRun
+      - conductor.host.RecordPeak
+      - conductor.host.ReleaseGrant
+      - conductor.host.WithdrawDiskRequest
+      - conductor.host.Reclaim
+    naming:
+      display: Build run caller
+
+  # An operator running `conductor build run` or `conductor host reclaim` by hand.
+  - name: conductor.host.Operator
+    may:
+      - conductor.host.RequestDisk
+      - conductor.host.ReserveDisk
+      - conductor.host.StartRun
+      - conductor.host.RecordPeak
+      - conductor.host.ReleaseGrant
+      - conductor.host.WithdrawDiskRequest
+      - conductor.host.Reclaim
+    naming:
+      display: Operator
 
 errors:
   - name: conductor.host.HostGrantNotFound
@@ -496,6 +396,8 @@ errors:
 events:
   - name: conductor.host.HostGrantTaken
     fields:
+      - name: actor
+        type: conductor.operator.Actor
       - name: grant_id
         type: conductor.host.GrantId
       - name: instance
@@ -503,17 +405,26 @@ events:
       - name: kind
         type: conductor.host.GrantKind
 
+  # The instance is `instance_name` here, not `instance`: ess 0.90.0's caller-swapped rerun
+  # (`rename` in ess-conformance `synthesize/caller.rs`) suffixes every JSON string under a key
+  # named `instance` in the steps it appends, an expected event payload's own field included,
+  # while the command input's literal keeps its value, so the synthesized payload check fails.
+  # UNMAPPED: no ess issue is filed for it yet; once ess fixes it the field is `instance` again.
   - name: conductor.host.DiskRequested
     fields:
+      - name: actor
+        type: conductor.operator.Actor
       - name: grant_id
         type: conductor.host.GrantId
-      - name: instance
+      - name: instance_name
         type: conductor.config.InstanceName
       - name: bytes
         type: Integer
 
   - name: conductor.host.DiskReserved
     fields:
+      - name: actor
+        type: conductor.operator.Actor
       - name: grant_id
         type: conductor.host.GrantId
       - name: bytes
@@ -523,6 +434,8 @@ events:
 
   - name: conductor.host.DiskReservationRefused
     fields:
+      - name: actor
+        type: conductor.operator.Actor
       - name: grant_id
         type: conductor.host.GrantId
       - name: bytes
@@ -532,6 +445,8 @@ events:
 
   - name: conductor.host.RunStarted
     fields:
+      - name: actor
+        type: conductor.operator.Actor
       - name: grant_id
         type: conductor.host.GrantId
       - name: process_group
@@ -539,6 +454,8 @@ events:
 
   - name: conductor.host.PeakRecorded
     fields:
+      - name: actor
+        type: conductor.operator.Actor
       - name: grant_id
         type: conductor.host.GrantId
       - name: peak_bytes
@@ -546,6 +463,8 @@ events:
 
   - name: conductor.host.HostGrantReleased
     fields:
+      - name: actor
+        type: conductor.operator.Actor
       - name: grant_id
         type: conductor.host.GrantId
       - name: reason
@@ -553,11 +472,15 @@ events:
 
   - name: conductor.host.DiskRequestWithdrawn
     fields:
+      - name: actor
+        type: conductor.operator.Actor
       - name: grant_id
         type: conductor.host.GrantId
 
   - name: conductor.host.DiskReclaimed
     fields:
+      - name: actor
+        type: conductor.operator.Actor
       - name: reclaim_run_id
         type: conductor.host.ReclaimRunId
       - name: reclaimed_bytes
@@ -565,6 +488,8 @@ events:
 
   - name: conductor.host.ReclaimFloorNotReached
     fields:
+      - name: actor
+        type: conductor.operator.Actor
       - name: reclaim_run_id
         type: conductor.host.ReclaimRunId
       - name: reclaimed_bytes
@@ -582,6 +507,8 @@ commands:
       wire: take-host-grant
       display: Take a host grant
     input:
+      - name: actor
+        type: conductor.operator.Actor
       - name: instance
         type: conductor.config.InstanceName
       - name: repository
@@ -613,10 +540,12 @@ commands:
           bytes: input.bytes
           session_name: input.session_name
           requested_at: input.requested_at
+          actor: input.actor
         emits:
           - conductor.host.HostGrantTaken
         payload:
           conductor.host.HostGrantTaken:
+            actor: input.actor
             grant_id: {generated: true}
             instance: input.instance
             kind: input.kind
@@ -644,6 +573,8 @@ commands:
       wire: request-disk
       display: Request disk for a command
     input:
+      - name: actor
+        type: conductor.operator.Actor
       - name: instance
         type: conductor.config.InstanceName
       - name: repository
@@ -683,13 +614,15 @@ commands:
           bytes: input.bytes
           command: input.command
           requested_at: input.requested_at
+          actor: input.actor
           lane: input.lane
         emits:
           - conductor.host.DiskRequested
         payload:
           conductor.host.DiskRequested:
+            actor: input.actor
             grant_id: {generated: true}
-            instance: input.instance
+            instance_name: input.instance
             bytes: input.bytes
         summary: The request counts against the host while the ledger answers it.
 
@@ -705,6 +638,8 @@ commands:
       wire: reserve-disk
       display: Answer a disk request
     input:
+      - name: actor
+        type: conductor.operator.Actor
       - name: grant_id
         type: conductor.host.GrantId
       - name: shortfall_bytes
@@ -738,6 +673,7 @@ commands:
           - conductor.host.DiskReservationRefused
         payload:
           conductor.host.DiskReservationRefused:
+            actor: input.actor
             grant_id: input.grant_id
             bytes: {subject: bytes}
             shortfall_bytes: input.shortfall_bytes
@@ -755,6 +691,7 @@ commands:
           - conductor.host.DiskReserved
         payload:
           conductor.host.DiskReserved:
+            actor: input.actor
             grant_id: input.grant_id
             bytes: {subject: bytes}
             reclaimed_bytes: input.reclaimed_bytes
@@ -769,6 +706,7 @@ commands:
           - conductor.host.DiskReserved
         payload:
           conductor.host.DiskReserved:
+            actor: input.actor
             grant_id: input.grant_id
             bytes: {subject: bytes}
             reclaimed_bytes: 0
@@ -795,6 +733,8 @@ commands:
       wire: start-run
       display: Start the reserved run
     input:
+      - name: actor
+        type: conductor.operator.Actor
       - name: grant_id
         type: conductor.host.GrantId
       - name: process_group
@@ -821,6 +761,7 @@ commands:
           - conductor.host.RunStarted
         payload:
           conductor.host.RunStarted:
+            actor: input.actor
             grant_id: input.grant_id
             process_group: input.process_group
         summary: The reservation holds while the process group lives.
@@ -846,6 +787,8 @@ commands:
       wire: record-peak
       display: Record a run's peak
     input:
+      - name: actor
+        type: conductor.operator.Actor
       - name: grant_id
         type: conductor.host.GrantId
       - name: peak_bytes
@@ -873,6 +816,7 @@ commands:
           - conductor.host.PeakRecorded
         payload:
           conductor.host.PeakRecorded:
+            actor: input.actor
             grant_id: input.grant_id
             peak_bytes: input.peak_bytes
         summary: The grant carries the peak; the Grants view shows it beside the bytes reserved.
@@ -896,6 +840,8 @@ commands:
       wire: release-grant
       display: Release a host grant
     input:
+      - name: actor
+        type: conductor.operator.Actor
       - name: grant_id
         type: conductor.host.GrantId
       - name: reason
@@ -926,6 +872,7 @@ commands:
           - conductor.host.HostGrantReleased
         payload:
           conductor.host.HostGrantReleased:
+            actor: input.actor
             grant_id: input.grant_id
             reason: input.reason
         summary: The slot or the space is free for any instance and any run again.
@@ -954,6 +901,8 @@ commands:
       wire: withdraw-disk-request
       display: Withdraw a waiting disk request
     input:
+      - name: actor
+        type: conductor.operator.Actor
       - name: grant_id
         type: conductor.host.GrantId
       - name: withdrawn_at
@@ -971,6 +920,7 @@ commands:
           - conductor.host.DiskRequestWithdrawn
         payload:
           conductor.host.DiskRequestWithdrawn:
+            actor: input.actor
             grant_id: input.grant_id
         summary: The request leaves the queue; the requests behind it move up.
       - name: no-such-grant
@@ -999,6 +949,8 @@ commands:
       wire: record-reclaim
       display: Record a reclaim run
     input:
+      - name: actor
+        type: conductor.operator.Actor
       - name: instance
         type: conductor.config.InstanceName
       - name: steps
@@ -1036,10 +988,12 @@ commands:
           shortfall_bytes: input.shortfall_bytes
           left: input.left
           ran_at: input.ran_at
+          actor: input.actor
         emits:
           - conductor.host.ReclaimFloorNotReached
         payload:
           conductor.host.ReclaimFloorNotReached:
+            actor: input.actor
             reclaim_run_id: {generated: true}
             reclaimed_bytes: input.reclaimed_bytes
             shortfall_bytes: input.shortfall_bytes
@@ -1057,10 +1011,12 @@ commands:
           reclaimed_bytes: input.reclaimed_bytes
           left: input.left
           ran_at: input.ran_at
+          actor: input.actor
         emits:
           - conductor.host.DiskReclaimed
         payload:
           conductor.host.DiskReclaimed:
+            actor: input.actor
             reclaim_run_id: {generated: true}
             reclaimed_bytes: input.reclaimed_bytes
         summary: Free disk is back over the floor; each step is printed with the bytes it freed.
@@ -1100,6 +1056,8 @@ views:
         type: Optional<Integer>
       - name: shortfall_bytes
         type: Optional<Integer>
+      - name: actor
+        type: conductor.operator.Actor
       - name: requested_at
         type: Timestamp
       - name: started_at
@@ -1140,6 +1098,8 @@ views:
         type: Optional<Integer>
       - name: left
         type: List<conductor.host.LeftOver>
+      - name: actor
+        type: conductor.operator.Actor
       - name: ran_at
         type: Timestamp
     naming:

@@ -1,0 +1,58 @@
+# docs/design/architecture-next.md § 4: conductord closes an open box, as when an instance is
+# gone from the config; a box already closed is not closed again. The actor is `{kind: Daemon}`.
+type: ess-scenario/1
+domain: conductor.placement
+scenario: placement-close-box
+summary: An opened box is closed and on record as Closed with its time; a second close is refused because the box is no longer open.
+
+arrange:
+  - instance: box
+    entity: conductor.placement.Box
+
+timeline:
+  - at: 2026-11-08T09:00:00Z
+    command: conductor.placement.OpenBox
+    actor: conductor.placement.Conductord
+    input:
+      actor: {kind: Daemon}
+      placement: example-org-local
+      instance: example-org
+      at: 2026-11-08T09:00:00Z
+    outcome: opened
+    capture: {instance: box, event: conductor.placement.BoxOpened, field: box_id}
+
+  - at: 2026-11-08T18:00:00Z
+    command: conductor.placement.CloseBox
+    actor: conductor.placement.Conductord
+    input:
+      actor: {kind: Daemon}
+      box_id: {$instance: box}
+      at: 2026-11-08T18:00:00Z
+    outcome: closed
+    events:
+      - event: conductor.placement.BoxClosed
+        payload:
+          box_id: {$instance: box}
+          actor: {kind: Daemon}
+          closed_at: 2026-11-08T18:00:00Z
+
+  - at: 2026-11-08T18:01:00Z
+    command: conductor.placement.CloseBox
+    actor: conductor.placement.Conductord
+    input:
+      actor: {kind: Daemon}
+      box_id: {$instance: box}
+      at: 2026-11-08T18:01:00Z
+    outcome: wrong-state
+    error:
+      name: conductor.placement.BoxStateConflict
+
+assert:
+  - view: conductor.placement.Boxes
+    contains:
+      box_id: {$instance: box}
+      state: Closed
+      placement: example-org-local
+      instance: example-org
+      opened_at: 2026-11-08T09:00:00Z
+      closed_at: 2026-11-08T18:00:00Z

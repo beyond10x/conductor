@@ -128,6 +128,7 @@ pub fn define_metric(state: Option<&Path>, args: DefineMetricArgs) -> Result<Exi
     const COMMAND: &str = "metric define-metric";
     flags_only(args.input_json, "metric define-metric --input-json")?;
     let input = DefineMetric {
+        actor: crate::actor::chosen(),
         metric_id: MetricId(flag(COMMAND, "--metric-id", args.metric_id)?),
         name: flag(COMMAND, "--name", args.name)?,
         unit: flag(COMMAND, "--unit", args.unit)?,
@@ -160,12 +161,13 @@ pub fn define_metric(state: Option<&Path>, args: DefineMetricArgs) -> Result<Exi
 /// # Errors
 ///
 /// A flag is missing, `--input-json` is given, the store does not open or keep the target, or
-/// the specification refuses it: `MetricNotFound`.
+/// the specification refuses it: `MetricNotFound`, `ActorNotHuman`.
 pub fn set_metric_target(state: Option<&Path>, args: SetMetricTargetArgs) -> Result<ExitCode> {
     const COMMAND: &str = "metric set-metric-target";
     flags_only(args.input_json, "metric set-metric-target --input-json")?;
     let direction = flag(COMMAND, "--direction", args.direction)?;
     let input = SetMetricTarget {
+        actor: crate::actor::chosen(),
         metric_id: MetricId(flag(COMMAND, "--metric-id", args.metric_id)?),
         target: Decimal(flag(COMMAND, "--target", args.target)?),
         direction: direction_named(&direction).ok_or_else(|| {
@@ -188,6 +190,11 @@ pub fn set_metric_target(state: Option<&Path>, args: SetMetricTargetArgs) -> Res
         SetMetricTargetOutcome::NoSuchMetric { error } => {
             refused(COMMAND, "MetricNotFound", &no_metric(&error.metric_id))
         }
+        SetMetricTargetOutcome::ActorNotHuman { error } => refused(
+            COMMAND,
+            "ActorNotHuman",
+            &crate::actor::not_human(&error.actor),
+        ),
     }
 }
 
@@ -209,6 +216,7 @@ pub fn record_metric_reading(
     let sources: Vec<String> = serde_json::from_str(&sources)
         .map_err(|_| anyhow!("{COMMAND}: --sources is not a JSON array of strings"))?;
     let input = RecordMetricReading {
+        actor: crate::actor::chosen(),
         reading_id: MetricReadingId(flag(COMMAND, "--reading-id", args.reading_id)?),
         metric_id: MetricId(flag(COMMAND, "--metric-id", args.metric_id)?),
         day: flag(COMMAND, "--day", args.day)?,
@@ -254,6 +262,7 @@ pub fn supersede_metric_reading(
         "metric supersede-metric-reading --input-json",
     )?;
     let input = SupersedeMetricReading {
+        actor: crate::actor::chosen(),
         reading_id: MetricReadingId(flag(COMMAND, "--reading-id", args.reading_id)?),
         by: MetricReadingId(flag(COMMAND, "--by", args.by)?),
     };
@@ -295,6 +304,7 @@ pub fn judge_metric_reading(
     const COMMAND: &str = "metric judge-metric-reading";
     flags_only(args.input_json, "metric judge-metric-reading --input-json")?;
     let input = JudgeMetricReading {
+        actor: crate::actor::chosen(),
         reading_id: MetricReadingId(flag(COMMAND, "--reading-id", args.reading_id)?),
         target: Decimal(flag(COMMAND, "--target", args.target)?),
         met: flag(COMMAND, "--met", args.met)?,
@@ -355,6 +365,7 @@ fn judge_newest(
         };
         let outcome = generated
             .judge_metric_reading(JudgeMetricReading {
+                actor: crate::actor::chosen(),
                 reading_id: reading.data.reading_id,
                 target: target.clone(),
                 met,
@@ -377,7 +388,7 @@ fn judge_newest(
 ///
 /// There is no store, it does not open, or the rows cannot be written.
 pub fn metrics(state: Option<&Path>, view: ViewArgs) -> Result<ExitCode> {
-    const COLUMNS: [&str; 12] = [
+    const COLUMNS: [&str; 13] = [
         "metric_id",
         "state",
         "name",
@@ -390,6 +401,7 @@ pub fn metrics(state: Option<&Path>, view: ViewArgs) -> Result<ExitCode> {
         "direction",
         "target_owner",
         "target_set_at",
+        "actor",
     ];
     let generated = Generated::new(crate::state::open_reader(state)?);
     let mut rows = generated
@@ -412,6 +424,7 @@ pub fn metrics(state: Option<&Path>, view: ViewArgs) -> Result<ExitCode> {
                 Value::from(row.direction.map(direction_name)),
                 Value::from(row.target_owner),
                 Value::from(row.target_set_at.map(|at| at.0)),
+                Value::from(crate::actor::written(&row.actor)),
             ]
         })
         .collect();
@@ -510,7 +523,7 @@ pub fn kpi_readings(state: Option<&Path>, view: ViewArgs) -> Result<ExitCode> {
 ///
 /// There is no store, it does not open, or the rows cannot be written.
 pub fn metric_readings(state: Option<&Path>, view: ViewArgs) -> Result<ExitCode> {
-    const COLUMNS: [&str; 10] = [
+    const COLUMNS: [&str; 11] = [
         "reading_id",
         "state",
         "metric_id",
@@ -521,6 +534,7 @@ pub fn metric_readings(state: Option<&Path>, view: ViewArgs) -> Result<ExitCode>
         "target",
         "met",
         "recorded_at",
+        "actor",
     ];
     let generated = Generated::new(crate::state::open_reader(state)?);
     let mut rows = generated
@@ -547,6 +561,7 @@ pub fn metric_readings(state: Option<&Path>, view: ViewArgs) -> Result<ExitCode>
                 decimal(row.target.as_ref()),
                 Value::from(row.met),
                 Value::from(row.recorded_at.0),
+                Value::from(crate::actor::written(&row.actor)),
             ]
         })
         .collect();
@@ -798,6 +813,7 @@ pub fn compute(state: Option<&Path>, args: &MetricComputeArgs) -> Result<ExitCod
     for metric in &METRICS {
         let outcome = generated
             .define_metric(DefineMetric {
+                actor: crate::actor::chosen(),
                 metric_id: MetricId(metric.id.to_owned()),
                 name: metric.name.to_owned(),
                 unit: metric.unit.to_owned(),
@@ -842,6 +858,7 @@ pub fn compute(state: Option<&Path>, args: &MetricComputeArgs) -> Result<ExitCod
         let text = rendered(value);
         let outcome = generated
             .record_metric_reading(RecordMetricReading {
+                actor: crate::actor::chosen(),
                 reading_id: MetricReadingId(id.clone()),
                 metric_id,
                 day: day.text.clone(),
@@ -893,6 +910,7 @@ pub fn compute(state: Option<&Path>, args: &MetricComputeArgs) -> Result<ExitCod
         for reading in older {
             let outcome = generated
                 .supersede_metric_reading(SupersedeMetricReading {
+                    actor: crate::actor::chosen(),
                     reading_id: reading.data.reading_id.clone(),
                     by: newest.data.reading_id.clone(),
                 })
@@ -1502,14 +1520,20 @@ impl MetricReadingStorage for Ports {
 }
 
 impl SetMetricTargetBehavior for Ports {
-    /// The contract: `targeted` when the held metric is `Untargeted`, taking `target` to
-    /// `Targeted`; `retargeted` when it is `Targeted`, updating it; `no-such-metric` for an id no
-    /// metric carries. Both accepting outcomes set `target`, `direction`, `target_owner` and
+    /// The contract: `actor-not-human` when the actor is not a person, changing nothing;
+    /// `targeted` when the held metric is `Untargeted`, taking `target` to `Targeted`;
+    /// `retargeted` when it is `Targeted`, updating it; `no-such-metric` for an id no metric
+    /// carries. Both accepting outcomes set `target`, `direction`, `target_owner` and
     /// `target_set_at` from the input and emit `MetricTargetSet`.
     fn set_metric_target(
         &mut self,
         input: SetMetricTarget,
     ) -> Result<SetMetricTargetOutcome, UnmetObligation> {
+        if input.actor.kind != conductor_model::operator::ActorKind::Human {
+            return Ok(SetMetricTargetOutcome::ActorNotHuman {
+                error: conductor_model::operator::ActorNotHuman { actor: input.actor },
+            });
+        }
         let Some(held) = MetricStorage::get(&self.store, &input.metric_id) else {
             return Ok(SetMetricTargetOutcome::NoSuchMetric {
                 error: MetricNotFound {
@@ -1529,6 +1553,7 @@ impl SetMetricTargetBehavior for Ports {
         next.data.target_set_at = Some(input.target_set_at);
         MetricStorage::put(&mut self.store, next);
         let metric_target_set = MetricTargetSet {
+            actor: crate::actor::chosen(),
             metric_id: input.metric_id,
             target: input.target,
             direction: input.direction,

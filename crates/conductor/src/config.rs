@@ -102,34 +102,53 @@ use std::fs;
 use std::io::ErrorKind;
 use std::path::{Path, PathBuf};
 use std::process::{Command, ExitCode, Stdio};
-use std::sync::OnceLock;
+use std::sync::{OnceLock, RwLock};
 
 use anyhow::{Context as _, Result, anyhow, bail};
+use conductor_model::agent::AgentKindName;
 use conductor_model::config::{
     Authority, Cadence, Catalog, CatalogNames, Checkouts, CommandWord, ConductorSession, Config,
-    Confinement, ConfinementMode, ConfinementProvider, Controllers, Forge, ForgeRoute, ForgeSecret,
-    Gibibytes, GitHubSource, GitLabSource, Harness, Instance, InstanceName, Limits, LocalSource,
-    Network, RepoCache, Report, RepositoryRule, Retention, Role, RoleName, SecretSource,
-    SecretSync, SessionName, SessionPrefix, Source, SuggestedPrefix, Thresholds, TimeOfDay, Tokens,
-    Usage, WorkspaceMember, Writable,
+    Controllers, Daemon, DaemonCadence, DaemonOperator, Forge, ForgeRoute, ForgeSecret, Gibibytes,
+    GitHubSource, GitLabSource, Globals, Harness, Instance, InstanceName, Limits, LocalSource,
+    Network, OperatorGrant, OperatorRole, PlacementName, RepoCache, Report, RepositoryRule,
+    Retention, Role, SecretSource, SecretSync, SecretsSource, SessionName, SessionPrefix, Source,
+    SuggestedPrefix, Thresholds, TimeOfDay, TlsListener, Tokens, Usage, WorkspaceMember, Writable,
 };
 use conductor_model::decision::Decider;
 use conductor_model::direction::Activity;
-use conductor_model::host::{HostConfig, HostRoleName, HostRoles};
-use conductor_model::primitives::Duration;
+use conductor_model::improvement::{TunableKey, TuningGrant};
+use conductor_model::operator::OperatorName;
+use conductor_model::primitives::{Decimal, Duration};
+use conductor_model::store::StoreUrl;
 use conductor_model::tool::{RoleGrant, Verb};
 use serde_json::{Map, Value};
 use serde_yaml::Value as Yaml;
 
 use crate::cli::{MigrateConfigArgs, ShowConfigArgs, ValidateConfigArgs, WriteWorkspaceArgs};
-use crate::registry;
 
 /// The placeholder GitHub owner of the built-in instance, which applies without a config file,
 /// and the directory under the home directory that holds its checkouts.
 pub const ORGANIZATION: &str = "example-org";
 
-/// The version every config file carries: `conductor.config.Config`'s first invariant.
+/// The version a config file of v0 carries. It is read for one release, with the keys v1 removed
+/// ([`Legacy`]), so a running instance keeps working until `conductor config migrate` writes
+/// [`VERSION_2`] (`story:spec-v1`).
 pub const VERSION: &str = "conductor.config/1";
+
+/// The version of a config file of v1 (`conductor.config.Config`'s first invariant, design
+/// architecture-next § 9): it adds `daemon` and `globals`, each instance's `placement` and
+/// `limits`, and removes `dashboard_port` and `confinement`.
+pub const VERSION_2: &str = "conductor.config/2";
+
+/// The kind of agent every role runs as in v1 (`conductor.agent.AgentKindName`): the only kind
+/// the binary implements, today's session behaviour.
+pub const AGENT_KIND: &str = "claude-code";
+
+/// The loopback port of the daemon's global API when `daemon.port` is absent (`Daemon`).
+pub const DAEMON_PORT: i64 = 7300;
+
+/// Seconds between two reconcile passes of the daemon when `daemon.cadence.reconcile` is absent.
+pub const RECONCILE_EVERY: u64 = 60;
 
 /// The variable of the `conductor-config` setting: the config file, when no `--config` names one.
 pub const CONFIG_VARIABLE: &str = "CONDUCTOR_CONFIG";
@@ -143,6 +162,19 @@ pub const DEFAULT_FILE: &str = ".b10x/conductor/conductor.yaml";
 
 /// The host of a `gitlab` source that writes none (`story:gitlab-source-host`).
 pub const GITLAB_HOST: &str = "gitlab.com";
+
+/// The three roles conductor itself starts and checks by name. In v1 a role's name is any text
+/// (`conductor.config.RoleName`, a wrapper around `String`, `story:spec-v1`); these are the names
+/// the v0 code still selects sessions, places and headings by.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum BuiltInRole {
+    /// The instance's own session ([`DIRECTOR`]).
+    Director,
+    /// The session that develops conductor itself ([`MAINTAINER`]).
+    Maintainer,
+    /// A repository's session ([`LEAD`]).
+    Lead,
+}
 
 /// The session roles and the model each runs on today: `claude … --model opus` in `Taskfile.yml`
 /// (`conductor`, `conductor-dev`) and in `.agents/conductor.md` (a controller). For this release
@@ -166,18 +198,18 @@ pub const CONTROLLER: &str = "controller";
 
 /// Each role's name as the file writes it, with the role it names: its own name, or its old
 /// name, read for one release (`conductor.config.RoleName`, `story:role-name-aliases`).
-const ROLE_NAMES: [(&str, RoleName); 6] = [
-    (DIRECTOR, RoleName::Director),
-    (MAINTAINER, RoleName::Maintainer),
-    (LEAD, RoleName::Lead),
-    ("conductor", RoleName::Director),
-    ("conductor-dev", RoleName::Maintainer),
-    (CONTROLLER, RoleName::Lead),
+const ROLE_NAMES: [(&str, BuiltInRole); 6] = [
+    (DIRECTOR, BuiltInRole::Director),
+    (MAINTAINER, BuiltInRole::Maintainer),
+    (LEAD, BuiltInRole::Lead),
+    ("conductor", BuiltInRole::Director),
+    ("conductor-dev", BuiltInRole::Maintainer),
+    (CONTROLLER, BuiltInRole::Lead),
 ];
 
 /// The role `name` names, by its name or its old name; `None` for a name of neither.
 #[must_use]
-pub fn role_name(name: &str) -> Option<RoleName> {
+pub fn role_name(name: &str) -> Option<BuiltInRole> {
     ROLE_NAMES
         .iter()
         .find(|(written, _)| *written == name)
@@ -186,27 +218,27 @@ pub fn role_name(name: &str) -> Option<RoleName> {
 
 /// The name of `role` (`conductor.config.RoleName`).
 #[must_use]
-pub const fn role_word(role: RoleName) -> &'static str {
+pub const fn role_word(role: BuiltInRole) -> &'static str {
     match role {
-        RoleName::Director => DIRECTOR,
-        RoleName::Maintainer => MAINTAINER,
-        RoleName::Lead => LEAD,
+        BuiltInRole::Director => DIRECTOR,
+        BuiltInRole::Maintainer => MAINTAINER,
+        BuiltInRole::Lead => LEAD,
     }
 }
 
 /// The old name of `role`, read for one release.
 #[must_use]
-pub const fn old_role_word(role: RoleName) -> &'static str {
+pub const fn old_role_word(role: BuiltInRole) -> &'static str {
     match role {
-        RoleName::Director => "conductor",
-        RoleName::Maintainer => "conductor-dev",
-        RoleName::Lead => CONTROLLER,
+        BuiltInRole::Director => "conductor",
+        BuiltInRole::Maintainer => "conductor-dev",
+        BuiltInRole::Lead => CONTROLLER,
     }
 }
 
 /// Whether `name` names `role`, by its name or its old name.
 #[must_use]
-pub fn is_role(name: &str, role: RoleName) -> bool {
+pub fn is_role(name: &str, role: BuiltInRole) -> bool {
     role_name(name) == Some(role)
 }
 
@@ -224,7 +256,7 @@ pub fn old_name_note(name: &str) -> Option<String> {
 /// same name ending in the other, so a session still named `<session_prefix>-conductor` is the
 /// director's under either (`story:role-name-aliases`).
 #[must_use]
-pub fn session_names_of(role: RoleName, name: &str) -> Vec<String> {
+pub fn session_names_of(role: BuiltInRole, name: &str) -> Vec<String> {
     let mut names = vec![name.to_owned()];
     let (new, old) = (role_word(role), old_role_word(role));
     for (from, to) in [(old, new), (new, old)] {
@@ -359,9 +391,10 @@ pub const BUILD_QUEUED_MINUTES: u64 = 30;
 pub const TREE_STALE_HOURS: u64 = 48;
 
 /// The keys of each mapping the file holds, in the order `config show` writes them.
-const CONFIG_KEYS: [&str; 3] = ["version", "default", "instances"];
-const INSTANCE_KEYS: [&str; 24] = [
+const CONFIG_KEYS: [&str; 5] = ["version", "daemon", "globals", "default", "instances"];
+const INSTANCE_KEYS: [&str; 26] = [
     "name",
+    "placement",
     "session_prefix",
     "dashboard_port",
     "sources",
@@ -370,6 +403,7 @@ const INSTANCE_KEYS: [&str; 24] = [
     "state",
     "cache",
     "roles",
+    "limits",
     "confinement",
     "controllers",
     "repositories",
@@ -391,8 +425,9 @@ const CONDUCTOR_KEYS: [&str; 2] = ["served_by", "session_name"];
 const SOURCE_KINDS: [&str; 3] = ["github", "local", "gitlab"];
 const SOURCE_KEYS: [&str; 5] = ["github", "local", "gitlab", "exclude", "host"];
 const CHECKOUT_KEYS: [&str; 2] = ["root", "trees"];
-const ROLE_KEYS: [&str; 13] = [
+const ROLE_KEYS: [&str; 14] = [
     "role",
+    "kind",
     "harness",
     "model",
     "agent",
@@ -419,6 +454,52 @@ fn grant_verbs() -> Vec<(&'static str, Verb)> {
 /// The most bytes one answer of the broker carries when a grant writes no `max_output_bytes`.
 pub const DEFAULT_MAX_OUTPUT_BYTES: i64 = 65_536;
 const CONFINEMENT_KEYS: [&str; 3] = ["mode", "provider", "limits"];
+/// The keys `conductor.config/2` adds to the file and to an instance: a `conductor.config/1`
+/// file that writes one is told to write the new version.
+const SECOND_KEYS: [&str; 4] = ["daemon", "globals", "placement", "limits"];
+/// The keys `conductor.config/2` removed from an instance, each with why (design
+/// architecture-next § 9, § 11).
+const REMOVED_KEYS: [(&str, &str); 2] = [
+    (
+        "dashboard_port",
+        "the daemon serves the one dashboard, at daemon.dashboard",
+    ),
+    (
+        "confinement",
+        "an instance's box is its placement, and its limits are the instance's limits",
+    ),
+];
+const DAEMON_KEYS: [&str; 7] = [
+    "port",
+    "tls",
+    "cadence",
+    "store",
+    "secrets",
+    "dashboard",
+    "operators",
+];
+const TLS_KEYS: [&str; 1] = ["listen"];
+const DAEMON_CADENCE_KEYS: [&str; 1] = ["reconcile"];
+const SECRETS_KEYS: [&str; 3] = ["source", "namespace", "url"];
+const OPERATOR_KEYS: [&str; 3] = ["name", "role", "grants"];
+const GLOBALS_KEYS: [&str; 5] = ["roles", "cadence", "thresholds", "limits", "tuning"];
+const TUNING_KEYS: [&str; 1] = ["keys"];
+const TUNABLE_KEYS: [&str; 3] = ["path", "min", "max"];
+/// How the file writes each `conductor.secret.Source`.
+const SECRET_SOURCES: [(&str, conductor_model::secret::Source); 2] = [
+    ("keychain", conductor_model::secret::Source::Keychain),
+    ("remote", conductor_model::secret::Source::Remote),
+];
+/// How the file writes each `conductor.config.OperatorGrant`: in kebab case.
+const OPERATOR_GRANTS: [(&str, OperatorGrant); 7] = [
+    ("answer-decisions", OperatorGrant::AnswerDecisions),
+    ("change-settings", OperatorGrant::ChangeSettings),
+    ("start-instances", OperatorGrant::StartInstances),
+    ("stop-instances", OperatorGrant::StopInstances),
+    ("upgrade-instances", OperatorGrant::UpgradeInstances),
+    ("purge", OperatorGrant::Purge),
+    ("join", OperatorGrant::Join),
+];
 const LIMIT_KEYS: [&str; 3] = ["memory_max", "cpu_weight", "tasks_max"];
 const CONTROLLER_KEYS: [&str; 3] = ["max_working", "max_subagents", "max_open_reviews"];
 const REPOSITORY_KEYS: [&str; 3] = ["match", "activity", "no_releases"];
@@ -483,13 +564,95 @@ const UNIT_TYPES: [&str; 11] = [
 const CATALOG_NAMES: [(&str, CatalogNames); 2] =
     [("plain", CatalogNames::Plain), ("hex", CatalogNames::Hex)];
 
-/// How the file writes each `conductor.config.ConfinementMode`.
+/// Whether a session that cannot be boxed as asked starts anyway (`report`) or not (`strict`):
+/// the `mode` of a `conductor.config/1` file's `confinement` ([`Legacy`]). `conductor.config/2`
+/// removed the key for substrate placements (design architecture-next § 6, § 11); the session
+/// providers still read it until those land.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ConfinementMode {
+    /// A session that cannot be boxed is refused.
+    Strict,
+    /// A session that cannot be boxed starts, with what applied reported.
+    Report,
+}
+
+/// The provider a session starts through: systemd's transient units, or none
+/// (`confinement.provider` of a `conductor.config/1` file, [`Legacy`]).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ConfinementProvider {
+    /// `systemd-run --user --scope`.
+    Systemd,
+    /// No box: today's start form.
+    None,
+}
+
+/// An instance's `confinement` as a `conductor.config/1` file writes it ([`Legacy`]): the mode,
+/// the provider and the instance's box as a whole, which `conductor.config/2` writes as the
+/// instance's `limits`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Confinement {
+    /// `strict` or `report`.
+    pub mode: ConfinementMode,
+    /// `systemd` or `none`.
+    pub provider: ConfinementProvider,
+    /// The instance's limits.
+    pub limits: Limits,
+}
+
+/// What a `conductor.config/1` file writes that `conductor.config/2` removed (design
+/// architecture-next § 9, § 11; `story:spec-v1`): the instance's `dashboard_port` and its
+/// `confinement`. The generated instance no longer holds them, so the reader holds them here, by
+/// the instance's name, for every instance of a file it read ([`legacy`]).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Legacy {
+    /// The port the instance's dashboard serves when `--port` is not given: the written one, else
+    /// 7313 plus the instance's index in the file ([`dashboard_port`]).
+    pub dashboard_port: i64,
+    /// The instance's confinement: the written one, else [`default_confinement`] with the
+    /// instance's `limits`.
+    pub confinement: Confinement,
+    /// Whether the file is a `conductor.config/1` file (or there is none), so `config show`
+    /// writes both keys; a `conductor.config/2` file removed them.
+    pub shown: bool,
+}
+
+/// The [`Legacy`] keys of each instance of the files this process read, by instance name.
+static LEGACY: RwLock<BTreeMap<String, Legacy>> = RwLock::new(BTreeMap::new());
+
+/// The [`Legacy`] keys of `instance`: those its file wrote, else the defaults (the first
+/// instance's port, a `report` box through `systemd` with the instance's `limits`).
+#[must_use]
+pub fn legacy(instance: &Instance) -> Legacy {
+    LEGACY
+        .read()
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
+        .get(&instance.name.0)
+        .cloned()
+        .unwrap_or_else(|| Legacy {
+            dashboard_port: dashboard_port(0),
+            confinement: Confinement {
+                limits: instance.limits.clone(),
+                ..default_confinement()
+            },
+            shown: true,
+        })
+}
+
+/// Holds the [`Legacy`] keys of the instance `name`.
+fn hold(name: &str, legacy: Legacy) {
+    LEGACY
+        .write()
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
+        .insert(name.to_owned(), legacy);
+}
+
+/// How the file writes each [`ConfinementMode`].
 const MODES: [(&str, ConfinementMode); 2] = [
     ("strict", ConfinementMode::Strict),
     ("report", ConfinementMode::Report),
 ];
 
-/// How the file writes each `conductor.config.ConfinementProvider`.
+/// How the file writes each [`ConfinementProvider`].
 const PROVIDERS: [(&str, ConfinementProvider); 2] = [
     ("systemd", ConfinementProvider::Systemd),
     ("none", ConfinementProvider::None),
@@ -674,6 +837,8 @@ pub fn load(flag: Option<&Path>, environment: &Environment) -> Result<Loaded> {
         Err(error) if error.kind() == ErrorKind::NotFound && !named => Ok(Loaded {
             config: Config {
                 version: VERSION.to_owned(),
+                daemon: default_daemon(home),
+                globals: default_globals(),
                 default: None,
                 instances: vec![built_in(home, &environment.cwd)],
             },
@@ -829,7 +994,7 @@ pub fn director(instance: &Instance) -> Option<&Role> {
     instance
         .roles
         .iter()
-        .find(|role| is_role(&role.role, RoleName::Director))
+        .find(|role| is_role(&role.role, BuiltInRole::Director))
 }
 
 static ACTIVE: OnceLock<Active> = OnceLock::new();
@@ -1161,11 +1326,7 @@ fn pin_problems(config: &Config) -> (Vec<Problem>, Vec<Problem>) {
 ///
 /// Only a role the file writes is noted: the built-in roles of an instance that writes none keep
 /// the old names for this release without a note, the file naming no role.
-///
-/// A maintainer role, under either name, is noted as well: it is the host's role and moves to the
-/// host file `host` (`story:maintainer-host-config`); it is read from the instance while that
-/// file names no maintainer (`host_names_one` false), for this release.
-fn old_role_names(file: &Path, host: &Path, host_names_one: bool) -> Vec<Problem> {
+fn old_role_names(file: &Path) -> Vec<Problem> {
     let Some(written) = fs::read_to_string(file)
         .ok()
         .and_then(|text| serde_yaml::from_str::<Value>(&text).ok())
@@ -1182,27 +1343,10 @@ fn old_role_names(file: &Path, host: &Path, host_names_one: bool) -> Vec<Problem
             let Some(name) = role["role"].as_str() else {
                 continue;
             };
-            let old =
-                old_name_note(name).map(|note| format!("{note}, read as it for this release"));
-            let moves = is_role(name, RoleName::Maintainer).then(|| {
-                if host_names_one {
-                    format!(
-                        "the maintainer is the host's role and moves to {}, which names one: \
-                         this one is not read; remove it",
-                        host.display()
-                    )
-                } else {
-                    format!(
-                        "the maintainer is the host's role and moves to {}; while that file \
-                         names none, this one is read from here, for this release",
-                        host.display()
-                    )
-                }
-            });
-            let message = match (old, moves) {
-                (Some(old), Some(moves)) => format!("{old}; {moves}"),
-                (Some(one), None) | (None, Some(one)) => one,
-                (None, None) => continue,
+            let Some(message) =
+                old_name_note(name).map(|note| format!("{note}, read as it for this release"))
+            else {
+                continue;
             };
             notes.push(Problem {
                 path: format!("instances[{index}].roles[{at}].role"),
@@ -1241,129 +1385,18 @@ pub fn host_dir() -> Result<PathBuf> {
     Ok(host_of(&environment.cwd.join(file)))
 }
 
-/// The host file's name in the host's own directory, beside the registry
-/// (`conductor.host.HostConfig`, `story:maintainer-host-config`).
-pub const HOST_FILE: &str = "host.yaml";
-
-/// The version the host file carries: `conductor.host.HostConfig`'s invariant.
-pub const HOST_VERSION: &str = "conductor.host-config/1";
-
-/// The keys of the host file.
-const HOST_KEYS: [&str; 2] = ["version", "roles"];
-
-/// The name of the bridge's role (`conductor.host.HostRoleName`).
-pub const BRIDGE: &str = "bridge";
-
-/// How the host file writes each `conductor.host.HostRoleName`.
-const HOST_ROLES: [(&str, HostRoleName); 2] = [
-    (MAINTAINER, HostRoleName::Maintainer),
-    (BRIDGE, HostRoleName::Bridge),
-];
-
-/// The host file under the home directory `home`: `host.yaml` in the host's own directory
-/// ([`registry::dir`]), whatever config file a command reads.
+/// The maintainer of the host: the maintainer role `instance` names, under its name or its old
+/// name `conductor-dev`, or its built-in one. The host file that named it apart from every
+/// instance (`story:maintainer-host-config`) is gone in v1: the host's roles are `globals.roles`
+/// of a `conductor.config/2` file (design architecture-next § 9), which `story:config-globals`
+/// reads; until then the instance's own is the maintainer, as before that file.
 #[must_use]
-pub fn host_file(home: &Path) -> PathBuf {
-    registry::dir(home).join(HOST_FILE)
-}
-
-/// Reads the host file under `home` ([`host_file`]): `None` when it is not there.
-///
-/// # Errors
-///
-/// The file cannot be read, or it does not convert, answered as [`Invalid`] with every problem,
-/// each named by its path in that file.
-pub fn read_host(home: &Path) -> Result<Option<HostConfig>> {
-    let file = host_file(home);
-    let text = match fs::read_to_string(&file) {
-        Ok(text) => text,
-        Err(error) if error.kind() == ErrorKind::NotFound => return Ok(None),
-        Err(error) => {
-            return Err(error).with_context(|| format!("read the host file {}", file.display()));
-        }
-    };
-    parse_host(&text, home).map(Some).map_err(|problems| {
-        Invalid {
-            file: file.clone(),
-            problems,
-        }
-        .into()
-    })
-}
-
-/// Converts the host file's text into `conductor.host.HostConfig` (`story:maintainer-host-config`):
-/// its `version`; its `roles`, each read as a config file's role is, `maintainer` or `bridge`,
-/// each at most once, its `session_name` the role's own name. Absent, `roles` is empty.
-///
-/// # Errors
-///
-/// Every problem the file has, each named by its path in that file.
-pub fn parse_host(text: &str, home: &Path) -> Result<HostConfig, Vec<Problem>> {
-    let value = yaml_value(text)?;
-    let mut reader = Reader {
-        home,
-        problems: Vec::new(),
-    };
-    reader.secrets(&value, "");
-    let host = reader.host_config(&value);
-    match (host, reader.problems.is_empty()) {
-        (Some(host), true) => Ok(host),
-        _ => Err(reader.problems),
-    }
-}
-
-/// The host's effective roles for `instance`, the instance a command runs
-/// (`conductor.host.HostRoles`): the roles of the host file under `home`, and, while it names no
-/// `maintainer`, the instance's maintainer role (written under either name, or built in), first,
-/// with the session name it has there, read from there for this release.
-///
-/// # Errors
-///
-/// What [`read_host`] answers.
-pub fn host_roles(home: &Path, instance: &Instance) -> Result<HostRoles> {
-    let written = read_host(home)?;
-    let mut roles = written.map(|host| host.roles).unwrap_or_default();
-    if !roles.iter().any(|role| role.role == MAINTAINER)
-        && let Some(left) = instance_maintainer(instance)
-    {
-        roles.insert(0, left.clone());
-    }
-    Ok(HostRoles {
-        file: text_of(&host_file(home)),
-        roles,
-    })
-}
-
-/// The maintainer role `instance` still names, under its name or its old name `conductor-dev`.
-fn instance_maintainer(instance: &Instance) -> Option<&Role> {
+pub fn host_maintainer(instance: &Instance) -> Option<Role> {
     instance
         .roles
         .iter()
-        .find(|role| is_role(&role.role, RoleName::Maintainer))
-}
-
-/// The maintainer of the host ([`host_roles`]): the host file's, else the one `instance` names.
-///
-/// # Errors
-///
-/// What [`read_host`] answers.
-pub fn host_maintainer(home: &Path, instance: &Instance) -> Result<Option<Role>> {
-    Ok(host_roles(home, instance)?
-        .roles
-        .into_iter()
-        .find(|role| is_role(&role.role, RoleName::Maintainer)))
-}
-
-/// `host` as `config show` prints it under `host` (`conductor.host.HostRoles`).
-#[must_use]
-pub fn host_document(host: &HostRoles) -> Yaml {
-    shown::mapping([
-        ("file", shown::text(&host.file)),
-        (
-            "roles",
-            Yaml::Sequence(host.roles.iter().map(shown::role).collect()),
-        ),
-    ])
+        .find(|role| is_role(&role.role, BuiltInRole::Maintainer))
+        .cloned()
 }
 
 /// The instance this process runs. [`crate::cli::Cli::run`] fixes it with [`set_active`]; a
@@ -1400,10 +1433,10 @@ pub fn active() -> &'static Active {
 pub fn built_in(home: &Path, cwd: &Path) -> Instance {
     Instance {
         name: InstanceName(ORGANIZATION.to_owned()),
+        // A box through systemd, the default confinement's provider ([`legacy`]).
+        placement: PlacementName("systemd".to_owned()),
         // Without a prefix the sessions keep today's names (story:instance-session-names).
         session_prefix: None,
-        // The first instance's port, the dashboard's own default (story:instance-scoped-tasks).
-        dashboard_port: dashboard_port(0),
         sources: vec![Source::GitHub(GitHubSource {
             owner: ORGANIZATION.to_owned(),
         })],
@@ -1415,7 +1448,7 @@ pub fn built_in(home: &Path, cwd: &Path) -> Instance {
         state: text_of(&cwd.join(STATE)),
         cache: text_of(&home.join(CACHE)),
         roles: default_roles(None),
-        confinement: default_confinement(),
+        limits: no_limits(),
         controllers: default_controllers(),
         // Repository rules are written only by a user: without one, a repository's activity is
         // its mark or the newest snapshot's, as today.
@@ -1441,7 +1474,7 @@ pub fn built_in(home: &Path, cwd: &Path) -> Instance {
         // this release (story:instance-session-names, story:role-name-aliases).
         conductor: ConductorSession {
             served_by: None,
-            session_name: Some(SessionName(old_role_word(RoleName::Director).to_owned())),
+            session_name: Some(SessionName(old_role_word(BuiltInRole::Director).to_owned())),
         },
     }
 }
@@ -1511,6 +1544,7 @@ fn default_roles(prefix: Option<&SessionPrefix>) -> Vec<Role> {
         .iter()
         .map(|role| Role {
             role: (*role).to_owned(),
+            kind: AgentKindName(AGENT_KIND.to_owned()),
             harness: Harness::Claude,
             model: CommandWord(MODEL.to_owned()),
             agent: None,
@@ -1554,7 +1588,7 @@ pub fn verb_word(verb: Verb) -> &'static str {
 pub fn default_writable(role: &str) -> Vec<Writable> {
     PLACES
         .iter()
-        .filter(|place| **place != RECORDS_PLACE || is_role(role, RoleName::Director))
+        .filter(|place| **place != RECORDS_PLACE || is_role(role, BuiltInRole::Director))
         .map(|place| Writable((*place).to_owned()))
         .collect()
 }
@@ -1570,7 +1604,8 @@ fn no_limits() -> Limits {
 
 /// The confinement of an instance whose file writes none: a session that cannot be boxed starts
 /// unboxed and is reported, boxes come from systemd, and the instance sets no limit.
-fn default_confinement() -> Confinement {
+#[must_use]
+pub fn default_confinement() -> Confinement {
     Confinement {
         mode: ConfinementMode::Report,
         provider: ConfinementProvider::Systemd,
@@ -1601,7 +1636,7 @@ fn named(prefix: Option<&SessionPrefix>, word: &str) -> SessionName {
 /// writes it, an old name included (`story:role-name-aliases`), and none for the lead role
 /// (`controller`), whose sessions are named per repository.
 fn role_session_name(prefix: Option<&SessionPrefix>, role: &str) -> Option<SessionName> {
-    (!is_role(role, RoleName::Lead)).then(|| named(prefix, role))
+    (!is_role(role, BuiltInRole::Lead)).then(|| named(prefix, role))
 }
 
 /// The fixed session names each instance of the file without a `session_prefix` keeps, by its
@@ -1623,10 +1658,10 @@ fn bare_names(items: &[Value]) -> Vec<(usize, String)> {
         let fixed = roles
             .into_iter()
             .chain(
-                [RoleName::Director, RoleName::Maintainer]
+                [BuiltInRole::Director, BuiltInRole::Maintainer]
                     .map(|role| old_role_word(role).to_owned()),
             )
-            .filter(|role| !is_role(role, RoleName::Lead));
+            .filter(|role| !is_role(role, BuiltInRole::Lead));
         for name in fixed {
             if !names.contains(&(index, name.clone())) {
                 names.push((index, name));
@@ -1741,8 +1776,48 @@ fn text_of(path: &Path) -> String {
     path.to_string_lossy().into_owned()
 }
 
+/// The daemon section of a file that writes none (`conductor.config.Daemon`): the loopback port
+/// [`DAEMON_PORT`], no TLS listener, a reconcile pass every [`RECONCILE_EVERY`] seconds, a SQLite
+/// store under the host's directory `~/.b10x/conductor`, the OS keychain as the secrets source,
+/// the dashboard at `/`, and no operator.
+#[must_use]
+pub fn default_daemon(home: &Path) -> Daemon {
+    Daemon {
+        port: DAEMON_PORT,
+        tls: None,
+        cadence: DaemonCadence {
+            reconcile: Duration(format!("PT{RECONCILE_EVERY}S")),
+        },
+        store: StoreUrl(format!(
+            "sqlite:{}",
+            text_of(&home.join(".b10x/conductor/conductor.sqlite"))
+        )),
+        secrets: SecretsSource {
+            source: conductor_model::secret::Source::Keychain,
+            namespace: None,
+            url: None,
+        },
+        dashboard: "/".to_owned(),
+        operators: Vec::new(),
+    }
+}
+
+/// The globals of a file that writes none (`conductor.config.Globals`): no role, the built-in
+/// cadence, thresholds, no limit and an empty tuning grant.
+#[must_use]
+pub fn default_globals() -> Globals {
+    Globals {
+        roles: Vec::new(),
+        cadence: default_cadence(),
+        thresholds: default_thresholds(),
+        limits: no_limits(),
+        tuning: TuningGrant { keys: Vec::new() },
+    }
+}
+
 /// Converts a config file's text into the generated types, `~` expanded against `home` and
-/// every absent key filled.
+/// every absent key filled. A `conductor.config/1` file's removed keys are held beside the
+/// instances ([`legacy`]).
 ///
 /// # Errors
 ///
@@ -1752,11 +1827,18 @@ pub fn parse(text: &str, home: &Path) -> Result<Config, Vec<Problem>> {
     let mut reader = Reader {
         home,
         problems: Vec::new(),
+        second: false,
+        legacy: Vec::new(),
     };
     reader.secrets(&value, "");
     let config = reader.config(&value);
     match (config, reader.problems.is_empty()) {
-        (Some(config), true) => Ok(config),
+        (Some(config), true) => {
+            for (instance, legacy) in config.instances.iter().zip(reader.legacy) {
+                hold(&instance.name.0, legacy);
+            }
+            Ok(config)
+        }
         _ => Err(reader.problems),
     }
 }
@@ -1849,6 +1931,10 @@ fn echo(value: &Value) -> String {
 struct Reader<'h> {
     home: &'h Path,
     problems: Vec<Problem>,
+    /// Whether the file is a `conductor.config/2` file ([`VERSION_2`]).
+    second: bool,
+    /// Each instance's [`Legacy`] keys, in the file's order.
+    legacy: Vec<Legacy>,
 }
 
 impl Reader<'_> {
@@ -2109,12 +2195,27 @@ impl Reader<'_> {
         let map = self.mapping(value, "", &CONFIG_KEYS)?;
         let version = self.required(map, "", "version").and_then(|value| {
             let version = self.text(value, "version")?;
-            if version != VERSION {
-                self.problem("version", format!("{} is not {VERSION}", echo(value)));
+            if version != VERSION && version != VERSION_2 {
+                self.problem(
+                    "version",
+                    format!("{} is not {VERSION_2} (or {VERSION})", echo(value)),
+                );
                 return None;
             }
             Some(version)
         });
+        self.second = version.as_deref() == Some(VERSION_2);
+        if !self.second {
+            self.first_only(map, "");
+        }
+        let daemon = match Self::get(map, "daemon") {
+            Some(value) if self.second => self.daemon(value, "daemon"),
+            _ => Some(default_daemon(self.home)),
+        };
+        let globals = match Self::get(map, "globals") {
+            Some(value) if self.second => self.globals(value, "globals"),
+            _ => Some(default_globals()),
+        };
         let instances = self.required(map, "", "instances").and_then(|value| {
             let instances = self.list(value, "instances", Self::instance);
             if let Value::Array(items) = value {
@@ -2123,7 +2224,9 @@ impl Reader<'_> {
                 }
                 self.distinct_names(items);
                 self.distinct_prefixes(items);
-                self.distinct_ports(items);
+                if !self.second {
+                    self.distinct_ports(items);
+                }
             }
             instances
         });
@@ -2139,99 +2242,324 @@ impl Reader<'_> {
         if let Some(Value::Array(items)) = map.get("instances") {
             self.conductors(&mut instances, default.as_ref(), items);
             // A port the file leaves out is its instance's by index; one it writes was read.
-            for (instance, port) in instances.iter_mut().zip(ports(items)) {
+            for (legacy, port) in self.legacy.iter_mut().zip(ports(items)) {
                 if let Some(port) = port {
-                    instance.dashboard_port = port;
+                    legacy.dashboard_port = port;
                 }
             }
         }
         Some(Config {
             version: version?,
+            daemon: daemon?,
+            globals: globals?,
             default,
             instances,
         })
     }
 
-    /// The host file (`conductor.host.HostConfig`, `story:maintainer-host-config`): its version
-    /// held, and each role a host role ([`HOST_ROLES`]) named once, read as a config file's role
-    /// ([`Reader::role`]) with its session name its own name.
-    fn host_config(&mut self, value: &Value) -> Option<HostConfig> {
-        let empty = Value::Object(Map::new());
-        let value = if value.is_null() { &empty } else { value };
-        let map = self.mapping(value, "", &HOST_KEYS)?;
-        let version = self.required(map, "", "version").and_then(|value| {
-            let version = self.text(value, "version")?;
-            if version != HOST_VERSION {
-                self.problem("version", format!("{} is not {HOST_VERSION}", echo(value)));
-                return None;
+    /// Each key of `map` that `conductor.config/2` adds ([`SECOND_KEYS`]) is a problem in a
+    /// `conductor.config/1` file, by its path under `path`.
+    fn first_only(&mut self, map: &Map<String, Value>, path: &str) {
+        for key in SECOND_KEYS {
+            if map.contains_key(key) {
+                self.problem(
+                    &join(path, key),
+                    format!("is a key of {VERSION_2}: write version: {VERSION_2}, or leave it out"),
+                );
             }
-            Some(version)
-        });
-        let roles = match Self::get(map, "roles") {
+        }
+    }
+
+    /// Each key of the instance `map` that `conductor.config/2` removed ([`REMOVED_KEYS`]) is a
+    /// problem in a `conductor.config/2` file, by its path under `path`.
+    fn removed(&mut self, map: &Map<String, Value>, path: &str) {
+        for (key, why) in REMOVED_KEYS {
+            if map.contains_key(key) {
+                self.problem(
+                    &join(path, key),
+                    format!(
+                        "is removed in {VERSION_2} ({why}); leave it out (conductor config \
+                         migrate drops it from a {VERSION} file)"
+                    ),
+                );
+            }
+        }
+    }
+
+    /// The `daemon` section (`conductor.config.Daemon`): each key the file leaves out takes its
+    /// value from [`default_daemon`].
+    fn daemon(&mut self, value: &Value, path: &str) -> Option<Daemon> {
+        let map = self.mapping(value, path, &DAEMON_KEYS)?;
+        let defaults = default_daemon(self.home);
+        let port = match Self::get(map, "port") {
+            Some(value) => self.port(value, &join(path, "port")),
+            None => Some(defaults.port),
+        };
+        let tls = match Self::get(map, "tls") {
             Some(value) => {
-                if let Value::Array(items) = value {
-                    self.host_role_names(items);
+                let at = join(path, "tls");
+                self.mapping(value, &at, &TLS_KEYS).and_then(|tls| {
+                    self.required(tls, &at, "listen")
+                        .and_then(|value| self.text(value, &join(&at, "listen")))
+                        .map(|listen| Some(TlsListener { listen }))
+                })
+            }
+            None => Some(None),
+        };
+        let cadence = match Self::get(map, "cadence") {
+            Some(value) => {
+                let at = join(path, "cadence");
+                self.mapping(value, &at, &DAEMON_CADENCE_KEYS)
+                    .and_then(|cadence| match Self::get(cadence, "reconcile") {
+                        Some(value) => self
+                            .duration(value, &join(&at, "reconcile"))
+                            .map(|reconcile| DaemonCadence { reconcile }),
+                        None => Some(defaults.cadence.clone()),
+                    })
+            }
+            None => Some(defaults.cadence.clone()),
+        };
+        let store = match Self::get(map, "store") {
+            Some(value) => {
+                let at = join(path, "store");
+                self.text(value, &at).and_then(|url| {
+                    if url.starts_with("sqlite:") || url.starts_with("postgres://") {
+                        Some(StoreUrl(url))
+                    } else {
+                        self.problem(
+                            &at,
+                            "is not a store URL: write sqlite:<path> or postgres://…, its \
+                             password a secret:<name>",
+                        );
+                        None
+                    }
+                })
+            }
+            None => Some(defaults.store.clone()),
+        };
+        let secrets = match Self::get(map, "secrets") {
+            Some(value) => self.secrets_source(value, &join(path, "secrets")),
+            None => Some(defaults.secrets.clone()),
+        };
+        let dashboard = match Self::get(map, "dashboard") {
+            Some(value) => self.text(value, &join(path, "dashboard")),
+            None => Some(defaults.dashboard.clone()),
+        };
+        let operators = match Self::get(map, "operators") {
+            Some(value) => {
+                let at = join(path, "operators");
+                let operators = self.list(value, &at, Self::operator);
+                if let Some(operators) = &operators {
+                    for (index, operator) in operators.iter().enumerate() {
+                        if operators[..index]
+                            .iter()
+                            .any(|earlier| earlier.name == operator.name)
+                        {
+                            self.problem(
+                                &format!("{at}[{index}].name"),
+                                format!(
+                                    "{:?} is an operator already: name each once",
+                                    operator.name.0
+                                ),
+                            );
+                        }
+                    }
                 }
-                self.list(value, "roles", Self::role)
+                operators
             }
             None => Some(Vec::new()),
         };
-        let mut roles = roles?;
-        for (index, role) in roles.iter_mut().enumerate() {
-            let derived = SessionName(role.role.clone());
-            if let Some(written) = role.session_name.take()
-                && written != derived
-            {
-                self.problem(
-                    &format!("roles[{index}].session_name"),
-                    format!(
-                        "{} is not {:?}: a host role's session is named after the role, with no \
-                         instance prefix, since it belongs to no instance; leave it out",
-                        echo(&Value::from(written.0)),
-                        derived.0
-                    ),
-                );
-            }
-            role.session_name = Some(derived);
-        }
-        Some(HostConfig {
-            version: version?,
-            roles,
+        Some(Daemon {
+            port: port?,
+            tls: tls?,
+            cadence: cadence?,
+            store: store?,
+            secrets: secrets?,
+            dashboard: dashboard?,
+            operators: operators?,
         })
     }
 
-    /// Each role of the host file `items` is a host role, `maintainer` or `bridge`, named once;
-    /// any other is a problem by its `role` path.
-    fn host_role_names(&mut self, items: &[Value]) {
-        let mut seen: Vec<(&str, usize)> = Vec::new();
-        for (index, item) in items.iter().enumerate() {
-            let Some(name) = item.get("role").and_then(Value::as_str) else {
-                continue;
-            };
-            let path = format!("roles[{index}].role");
-            if !HOST_ROLES.iter().any(|(word, _)| *word == name) {
-                let words: Vec<&str> = HOST_ROLES.iter().map(|(word, _)| *word).collect();
-                let old = old_name_note(name)
-                    .map(|note| format!(" ({note}; write the new name)"))
-                    .unwrap_or_default();
-                self.problem(
-                    &path,
-                    format!(
-                        "{} is not a role of the host: write {}{old}; an instance's roles stay \
-                         in its config file",
-                        echo(&Value::from(name)),
-                        words.join(" or ")
-                    ),
-                );
-            } else if let Some((_, first)) = seen.iter().find(|(seen, _)| *seen == name) {
-                self.problem(
-                    &path,
-                    format!("names the role {name} a second time, after roles[{first}]"),
-                );
-            } else {
-                seen.push((name, index));
-            }
+    /// `daemon.secrets` (`conductor.config.SecretsSource`): its `source`, `keychain` when absent;
+    /// its `namespace`; its `url`, for `remote` only.
+    fn secrets_source(&mut self, value: &Value, path: &str) -> Option<SecretsSource> {
+        let map = self.mapping(value, path, &SECRETS_KEYS)?;
+        let source = match Self::get(map, "source") {
+            Some(value) => self.word(value, &join(path, "source"), &SECRET_SOURCES),
+            None => Some(conductor_model::secret::Source::Keychain),
+        };
+        let namespace = match Self::get(map, "namespace") {
+            Some(value) => self.text(value, &join(path, "namespace")).map(Some),
+            None => Some(None),
+        };
+        let url = match Self::get(map, "url") {
+            Some(value) => self.text(value, &join(path, "url")).map(Some),
+            None => Some(None),
+        };
+        if let (Some(conductor_model::secret::Source::Keychain), Some(Some(_))) = (&source, &url) {
+            self.problem(
+                &join(path, "url"),
+                "names the Secrets service, which only the remote source has: leave it out",
+            );
+            return None;
         }
+        Some(SecretsSource {
+            source: source?,
+            namespace: namespace?,
+            url: url?,
+        })
+    }
+
+    /// One of `daemon.operators` (`conductor.config.DaemonOperator`): its `name`, its `role` and
+    /// its `grants`, each named once.
+    fn operator(&mut self, value: &Value, path: &str) -> Option<DaemonOperator> {
+        let map = self.mapping(value, path, &OPERATOR_KEYS)?;
+        let name = self
+            .required(map, path, "name")
+            .and_then(|value| self.text(value, &join(path, "name")));
+        let role = self
+            .required(map, path, "role")
+            .and_then(|value| self.text(value, &join(path, "role")));
+        let grants = match Self::get(map, "grants") {
+            Some(value) => {
+                let at = join(path, "grants");
+                self.list(value, &at, |reader, value, path| {
+                    reader.word(value, path, &OPERATOR_GRANTS)
+                })
+                .and_then(|grants| {
+                    let twice = grants
+                        .iter()
+                        .enumerate()
+                        .find(|(index, grant)| grants[..*index].contains(grant));
+                    match twice {
+                        Some((index, _)) => {
+                            self.problem(
+                                &format!("{at}[{index}]"),
+                                "is granted already: name each grant once",
+                            );
+                            None
+                        }
+                        None => Some(grants),
+                    }
+                })
+            }
+            None => Some(Vec::new()),
+        };
+        Some(DaemonOperator {
+            name: OperatorName(name?),
+            role: OperatorRole(role?),
+            grants: grants?,
+        })
+    }
+
+    /// The `globals` section (`conductor.config.Globals`): each key the file leaves out takes its
+    /// value from [`default_globals`]. A role is read as an instance's role is, its session name
+    /// its own name, since it belongs to no instance.
+    fn globals(&mut self, value: &Value, path: &str) -> Option<Globals> {
+        let map = self.mapping(value, path, &GLOBALS_KEYS)?;
+        let defaults = default_globals();
+        let roles = match Self::get(map, "roles") {
+            Some(value) => {
+                let at = join(path, "roles");
+                let mut roles = self.list(value, &at, Self::role);
+                if let Some(roles) = &mut roles {
+                    for index in 0..roles.len() {
+                        let role = &roles[index].role;
+                        if roles[..index].iter().any(|earlier| &earlier.role == role) {
+                            self.problem(
+                                &format!("{at}[{index}].role"),
+                                format!("{role:?} is a role already: name each once"),
+                            );
+                        }
+                        // A global role belongs to no instance: its session is named after it,
+                        // with no instance prefix.
+                        let derived = SessionName(role.clone());
+                        if let Some(written) = roles[index].session_name.take()
+                            && written != derived
+                        {
+                            self.problem(
+                                &format!("{at}[{index}].session_name"),
+                                format!(
+                                    "{} is not {:?}: a global role's session is named after the \
+                                     role, since it belongs to no instance; leave it out",
+                                    echo(&Value::from(written.0)),
+                                    derived.0
+                                ),
+                            );
+                        }
+                        roles[index].session_name = Some(derived);
+                    }
+                }
+                roles
+            }
+            None => Some(defaults.roles),
+        };
+        let cadence = match Self::get(map, "cadence") {
+            Some(value) => self.cadence(value, &join(path, "cadence")),
+            None => Some(defaults.cadence),
+        };
+        let thresholds = match Self::get(map, "thresholds") {
+            Some(value) => self.thresholds(value, &join(path, "thresholds")),
+            None => Some(defaults.thresholds),
+        };
+        let limits = match Self::get(map, "limits") {
+            Some(value) => self.limits(value, &join(path, "limits")),
+            None => Some(defaults.limits),
+        };
+        let tuning = match Self::get(map, "tuning") {
+            Some(value) => self.tuning(value, &join(path, "tuning")),
+            None => Some(defaults.tuning),
+        };
+        Some(Globals {
+            roles: roles?,
+            cadence: cadence?,
+            thresholds: thresholds?,
+            limits: limits?,
+            tuning: tuning?,
+        })
+    }
+
+    /// `globals.tuning` (`conductor.improvement.TuningGrant`): its `keys`, each a `path` with the
+    /// `min` and `max` a tuning may set it to, `min` at or under `max`.
+    fn tuning(&mut self, value: &Value, path: &str) -> Option<TuningGrant> {
+        let map = self.mapping(value, path, &TUNING_KEYS)?;
+        let keys = match Self::get(map, "keys") {
+            Some(value) => self.list(value, &join(path, "keys"), |reader, value, path| {
+                let map = reader.mapping(value, path, &TUNABLE_KEYS)?;
+                let key = reader
+                    .required(map, path, "path")
+                    .and_then(|value| reader.text(value, &join(path, "path")));
+                let mut bound = |name: &str| {
+                    reader.required(map, path, name).and_then(|value| {
+                        let number = value.as_f64();
+                        if number.is_none() {
+                            reader.problem(
+                                &join(path, name),
+                                format!("{} is not a number", echo(value)),
+                            );
+                        }
+                        number.map(|number| (number, value.to_string()))
+                    })
+                };
+                let (min, max) = (bound("min"), bound("max"));
+                if let (Some((low, _)), Some((high, _))) = (&min, &max)
+                    && low > high
+                {
+                    reader.problem(
+                        &join(path, "min"),
+                        "lies above max: write min at or under max",
+                    );
+                    return None;
+                }
+                Some(TunableKey {
+                    path: key?,
+                    min: Decimal(min?.1),
+                    max: Decimal(max?.1),
+                })
+            }),
+            None => Some(Vec::new()),
+        };
+        Some(TuningGrant { keys: keys? })
     }
 
     /// Each instance's `conductor`, derived ([`conductor_session`]); one the file writes that is
@@ -2584,11 +2912,18 @@ impl Reader<'_> {
                 .map(Some),
             None => Some(None),
         };
+        // A `conductor.config/1` file writes none of the keys `/2` adds; a `/2` file none of the
+        // keys it removed.
+        if self.second {
+            self.removed(map, path);
+        } else {
+            self.first_only(map, path);
+        }
         // Absent, the port is filled by the instance's index once every instance is read
         // (`Reader::config`); until then, the first instance's.
         let dashboard_port = match Self::get(map, "dashboard_port") {
-            Some(value) => self.port(value, &join(path, "dashboard_port")),
-            None => Some(dashboard_port(0)),
+            Some(value) if !self.second => self.port(value, &join(path, "dashboard_port")),
+            _ => Some(dashboard_port(0)),
         };
         let home = self.home;
         let place =
@@ -2620,14 +2955,49 @@ impl Reader<'_> {
                 }),
             None => Some(default_roles(session_prefix.clone().flatten().as_ref())),
         };
+        // The instance's box: a `conductor.config/1` file writes it under `confinement`, a `/2`
+        // file as `limits`, and the rest of the confinement takes its defaults.
         let confinement = match Self::get(map, "confinement") {
-            Some(value) => self.confinement(value, &join(path, "confinement")),
-            None => Some(default_confinement()),
+            Some(value) if !self.second => self.confinement(value, &join(path, "confinement")),
+            _ => Some(default_confinement()),
+        };
+        let limits = match Self::get(map, "limits") {
+            Some(value) if self.second => self.limits(value, &join(path, "limits")),
+            _ => confinement
+                .as_ref()
+                .map(|confinement| confinement.limits.clone()),
+        };
+        // An instance names its placement in a `conductor.config/2` file. A `/1` file writes
+        // none: its placement is named after its confinement's provider.
+        let placement = if self.second {
+            self.required(map, path, "placement")
+                .and_then(|value| self.text(value, &join(path, "placement")))
+        } else {
+            confinement
+                .as_ref()
+                .and_then(|confinement| {
+                    PROVIDERS
+                        .iter()
+                        .find(|(_, provider)| *provider == confinement.provider)
+                })
+                .map(|(word, _)| (*word).to_owned())
         };
         // Every session of the instance runs inside the instance's box, so a role asks for no
         // more than it (`story:session-envelope-model`).
-        if let (Some(roles), Some(confinement)) = (&roles, &confinement) {
-            self.within(roles, &confinement.limits, &join(path, "roles"));
+        if let (Some(roles), Some(limits)) = (&roles, &limits) {
+            self.within(roles, limits, &join(path, "roles"));
+        }
+        if let (Some(dashboard_port), Some(confinement), Some(limits)) =
+            (dashboard_port, &confinement, &limits)
+        {
+            self.legacy.push(Legacy {
+                dashboard_port,
+                confinement: Confinement {
+                    limits: limits.clone(),
+                    ..confinement.clone()
+                },
+                shown: !self.second,
+            });
         }
         let controllers = match Self::get(map, "controllers") {
             Some(value) => self.controllers(value, &join(path, "controllers")),
@@ -2690,15 +3060,15 @@ impl Reader<'_> {
         Some(Instance {
             conductor,
             name: InstanceName(name?),
+            placement: PlacementName(placement?),
             session_prefix: session_prefix?,
-            dashboard_port: dashboard_port?,
             sources: sources?,
             checkouts: checkouts?,
             records: records?,
             state: state?,
             cache: cache?,
             roles: roles?,
-            confinement: confinement?,
+            limits: limits?,
             controllers: controllers?,
             repositories: repositories?,
             cadence: cadence?,
@@ -3012,6 +3382,11 @@ impl Reader<'_> {
         let role = self
             .required(map, path, "role")
             .and_then(|value| self.text(value, &join(path, "role")));
+        // The kind of agent that fills the role's slot: `claude-code`, the only kind in v1.
+        let kind = match Self::get(map, "kind") {
+            Some(value) => self.word(value, &join(path, "kind"), &[(AGENT_KIND, ())]),
+            None => Some(()),
+        };
         let harness = self.required(map, path, "harness").and_then(|value| {
             self.word(
                 value,
@@ -3056,7 +3431,7 @@ impl Reader<'_> {
         // (`story:agent-needs-user-setting-source`).
         if role
             .as_deref()
-            .is_some_and(|role| is_role(role, RoleName::Lead))
+            .is_some_and(|role| is_role(role, BuiltInRole::Lead))
             && Self::get(map, "agent").is_some()
             && Self::get(map, "profile").is_none()
         {
@@ -3115,8 +3490,10 @@ impl Reader<'_> {
             Some(value) => self.grant(value, &join(path, "grant")),
             None => Some(default_grant()),
         };
+        kind?;
         Some(Role {
             role: role?,
+            kind: AgentKindName(AGENT_KIND.to_owned()),
             harness: harness?,
             model: model?,
             agent: agent?,
@@ -3828,6 +4205,7 @@ mod shown {
     pub(super) fn role(role: &Role) -> Yaml {
         mapping([
             ("role", text(&role.role)),
+            ("kind", text(&role.kind.0)),
             (
                 "harness",
                 text(match role.harness {
@@ -3914,6 +4292,7 @@ mod shown {
 #[must_use]
 pub fn document(instance: &Instance) -> Yaml {
     use shown::{limits, mapping, optional, text};
+    let legacy = legacy(instance);
     /// A source's mapping with its `exclude`, written only when it holds an entry.
     fn excluding(mut source: Yaml, exclude: &[String]) -> Yaml {
         if let Yaml::Mapping(map) = &mut source
@@ -3981,18 +4360,16 @@ pub fn document(instance: &Instance) -> Yaml {
             ])
         })
         .collect();
-    let cadence = &instance.cadence;
-    let thresholds = &instance.thresholds;
-    let size = |size: &Gibibytes| text(&format!("{}G", size.0));
-    let shown = mapping([
+    let mut shown = mapping([
         ("name", text(&instance.name.0)),
         (
             "session_prefix",
             optional(instance.session_prefix.as_ref().map(|prefix| &prefix.0)),
         ),
+        ("placement", text(&instance.placement.0)),
         (
             "dashboard_port",
-            Yaml::Number(serde_yaml::Number::from(instance.dashboard_port)),
+            Yaml::Number(serde_yaml::Number::from(legacy.dashboard_port)),
         ),
         ("sources", Yaml::Sequence(sources)),
         (
@@ -4006,24 +4383,25 @@ pub fn document(instance: &Instance) -> Yaml {
         ("state", text(&instance.state)),
         ("cache", text(&instance.cache)),
         ("roles", Yaml::Sequence(roles)),
+        ("limits", limits(&instance.limits)),
         (
             "confinement",
             mapping([
                 (
                     "mode",
-                    text(match instance.confinement.mode {
+                    text(match legacy.confinement.mode {
                         ConfinementMode::Strict => "strict",
                         ConfinementMode::Report => "report",
                     }),
                 ),
                 (
                     "provider",
-                    text(match instance.confinement.provider {
+                    text(match legacy.confinement.provider {
                         ConfinementProvider::Systemd => "systemd",
                         ConfinementProvider::None => "none",
                     }),
                 ),
-                ("limits", limits(&instance.confinement.limits)),
+                ("limits", limits(&legacy.confinement.limits)),
             ]),
         ),
         (
@@ -4046,62 +4424,8 @@ pub fn document(instance: &Instance) -> Yaml {
             ]),
         ),
         ("repositories", Yaml::Sequence(repositories)),
-        (
-            "cadence",
-            mapping([
-                ("cycle", text(&written(&cadence.cycle))),
-                ("daily", text(&cadence.daily.0)),
-                ("watch", text(&written(&cadence.watch))),
-                ("ci", text(&written(&cadence.ci))),
-            ]),
-        ),
-        (
-            "thresholds",
-            mapping([
-                (
-                    "context_handover",
-                    text(&written_tokens(&thresholds.context_handover)),
-                ),
-                ("disk_path", text(&thresholds.disk_path)),
-                ("disk_low", size(&thresholds.disk_low)),
-                ("disk_clear", size(&thresholds.disk_clear)),
-                ("disk_admit", size(&thresholds.disk_admit)),
-                ("build_slot", size(&thresholds.build_slot)),
-                ("build_size", size(&thresholds.build_size)),
-                ("gate_stop", size(&thresholds.gate_stop)),
-                ("gate_resume", size(&thresholds.gate_resume)),
-                ("watchdog_every", text(&written(&thresholds.watchdog_every))),
-                ("silent_session", text(&written(&thresholds.silent_session))),
-                (
-                    "cpu_reserve",
-                    Yaml::Number(serde_yaml::Number::from(thresholds.cpu_reserve)),
-                ),
-                (
-                    "build_slots",
-                    Yaml::Number(serde_yaml::Number::from(thresholds.build_slots)),
-                ),
-                (
-                    "repo_cache",
-                    text(match thresholds.repo_cache {
-                        RepoCache::On => "on",
-                        RepoCache::Off => "off",
-                    }),
-                ),
-                ("repo_cache_size", size(&thresholds.repo_cache_size)),
-                ("lean_debuginfo", Yaml::Bool(thresholds.lean_debuginfo)),
-                (
-                    "short_lane_slots",
-                    Yaml::Number(serde_yaml::Number::from(thresholds.short_lane_slots)),
-                ),
-                ("short_lane_max", text(&written(&thresholds.short_lane_max))),
-                (
-                    "stalled_session",
-                    text(&written(&thresholds.stalled_session)),
-                ),
-                ("build_queued", text(&written(&thresholds.build_queued))),
-                ("tree_stale", text(&written(&thresholds.tree_stale))),
-            ]),
-        ),
+        ("cadence", shown_cadence(&instance.cadence)),
+        ("thresholds", shown_thresholds(&instance.thresholds)),
         (
             "retention",
             mapping([(
@@ -4200,10 +4524,192 @@ pub fn document(instance: &Instance) -> Yaml {
             ]),
         ),
     ]);
+    // A `conductor.config/2` file removed the instance's `dashboard_port` and `confinement`; a
+    // `conductor.config/1` file has no `placement` and no `limits` of its own, so the shown file
+    // reads back under its version.
+    if let Yaml::Mapping(map) = &mut shown {
+        if legacy.shown {
+            for key in ["placement", "limits"] {
+                map.remove(key);
+            }
+        } else {
+            for (key, _) in REMOVED_KEYS {
+                map.remove(key);
+            }
+        }
+    }
     mapping([
-        ("version", text(VERSION)),
+        (
+            "version",
+            text(if legacy.shown { VERSION } else { VERSION_2 }),
+        ),
         ("default", text(&instance.name.0)),
         ("instances", Yaml::Sequence(vec![shown])),
+    ])
+}
+
+/// `cadence` as `config show` writes it (`conductor.config.Cadence`).
+fn shown_cadence(cadence: &Cadence) -> Yaml {
+    use shown::{mapping, text};
+    mapping([
+        ("cycle", text(&written(&cadence.cycle))),
+        ("daily", text(&cadence.daily.0)),
+        ("watch", text(&written(&cadence.watch))),
+        ("ci", text(&written(&cadence.ci))),
+    ])
+}
+
+/// `thresholds` as `config show` writes it (`conductor.config.Thresholds`).
+fn shown_thresholds(thresholds: &Thresholds) -> Yaml {
+    use shown::{mapping, text};
+    let size = |size: &Gibibytes| text(&format!("{}G", size.0));
+    mapping([
+        (
+            "context_handover",
+            text(&written_tokens(&thresholds.context_handover)),
+        ),
+        ("disk_path", text(&thresholds.disk_path)),
+        ("disk_low", size(&thresholds.disk_low)),
+        ("disk_clear", size(&thresholds.disk_clear)),
+        ("disk_admit", size(&thresholds.disk_admit)),
+        ("build_slot", size(&thresholds.build_slot)),
+        ("build_size", size(&thresholds.build_size)),
+        ("gate_stop", size(&thresholds.gate_stop)),
+        ("gate_resume", size(&thresholds.gate_resume)),
+        ("watchdog_every", text(&written(&thresholds.watchdog_every))),
+        ("silent_session", text(&written(&thresholds.silent_session))),
+        (
+            "cpu_reserve",
+            Yaml::Number(serde_yaml::Number::from(thresholds.cpu_reserve)),
+        ),
+        (
+            "build_slots",
+            Yaml::Number(serde_yaml::Number::from(thresholds.build_slots)),
+        ),
+        (
+            "repo_cache",
+            text(match thresholds.repo_cache {
+                RepoCache::On => "on",
+                RepoCache::Off => "off",
+            }),
+        ),
+        ("repo_cache_size", size(&thresholds.repo_cache_size)),
+        ("lean_debuginfo", Yaml::Bool(thresholds.lean_debuginfo)),
+        (
+            "short_lane_slots",
+            Yaml::Number(serde_yaml::Number::from(thresholds.short_lane_slots)),
+        ),
+        ("short_lane_max", text(&written(&thresholds.short_lane_max))),
+        (
+            "stalled_session",
+            text(&written(&thresholds.stalled_session)),
+        ),
+        ("build_queued", text(&written(&thresholds.build_queued))),
+        ("tree_stale", text(&written(&thresholds.tree_stale))),
+    ])
+}
+
+/// The `daemon` section as `config show` writes it for a `conductor.config/2` file
+/// (`conductor.config.Daemon`).
+#[must_use]
+pub fn daemon_document(daemon: &Daemon) -> Yaml {
+    use shown::{mapping, number, optional, text};
+    let source = |source: conductor_model::secret::Source| {
+        SECRET_SOURCES
+            .iter()
+            .find(|(_, held)| *held == source)
+            .map_or("keychain", |(word, _)| *word)
+    };
+    let grant = |grant: &OperatorGrant| {
+        OPERATOR_GRANTS
+            .iter()
+            .find(|(_, held)| held == grant)
+            .map_or("", |(word, _)| *word)
+    };
+    mapping([
+        ("port", number(daemon.port)),
+        (
+            "tls",
+            daemon
+                .tls
+                .as_ref()
+                .map_or(Yaml::Null, |tls| mapping([("listen", text(&tls.listen))])),
+        ),
+        (
+            "cadence",
+            mapping([("reconcile", text(&written(&daemon.cadence.reconcile)))]),
+        ),
+        ("store", text(&daemon.store.0)),
+        (
+            "secrets",
+            mapping([
+                ("source", text(source(daemon.secrets.source))),
+                ("namespace", optional(daemon.secrets.namespace.as_ref())),
+                ("url", optional(daemon.secrets.url.as_ref())),
+            ]),
+        ),
+        ("dashboard", text(&daemon.dashboard)),
+        (
+            "operators",
+            Yaml::Sequence(
+                daemon
+                    .operators
+                    .iter()
+                    .map(|operator| {
+                        mapping([
+                            ("name", text(&operator.name.0)),
+                            ("role", text(&operator.role.0)),
+                            (
+                                "grants",
+                                Yaml::Sequence(
+                                    operator.grants.iter().map(|one| text(grant(one))).collect(),
+                                ),
+                            ),
+                        ])
+                    })
+                    .collect(),
+            ),
+        ),
+    ])
+}
+
+/// The `globals` section as `config show` writes it for a `conductor.config/2` file
+/// (`conductor.config.Globals`).
+#[must_use]
+pub fn globals_document(globals: &Globals) -> Yaml {
+    use shown::{limits, mapping, text};
+    mapping([
+        (
+            "roles",
+            Yaml::Sequence(globals.roles.iter().map(shown::role).collect()),
+        ),
+        ("cadence", shown_cadence(&globals.cadence)),
+        ("thresholds", shown_thresholds(&globals.thresholds)),
+        ("limits", limits(&globals.limits)),
+        (
+            "tuning",
+            mapping([(
+                "keys",
+                Yaml::Sequence(
+                    globals
+                        .tuning
+                        .keys
+                        .iter()
+                        .map(|key| {
+                            let bound = |decimal: &Decimal| {
+                                serde_yaml::from_str::<Yaml>(&decimal.0)
+                                    .unwrap_or_else(|_| text(&decimal.0))
+                            };
+                            mapping([
+                                ("path", text(&key.path)),
+                                ("min", bound(&key.min)),
+                                ("max", bound(&key.max)),
+                            ])
+                        })
+                        .collect(),
+                ),
+            )]),
+        ),
     ])
 }
 
@@ -4290,33 +4796,15 @@ pub fn validate(config: Option<&Path>, args: &ValidateConfigArgs) -> Result<Exit
     // No role's settings pin another instance (`story:instance-isolation`); one that pins none is
     // a note, since its sessions start with it pinned.
     let (mut problems, mut notes) = pin_problems(&loaded.config);
-    let home = environment.home().context(WHAT)?;
-    // The host file, whatever config file is read (`story:maintainer-host-config`): each of its
-    // problems named by its path in that file.
-    let host = host_file(home);
-    let (host_invalid, host_names_one) = match read_host(home) {
-        Ok(written) => (
-            false,
-            written.is_some_and(|written| written.roles.iter().any(|role| role.role == MAINTAINER)),
-        ),
-        Err(error) => match error.downcast::<Invalid>() {
-            Ok(invalid) => {
-                report(WHAT, &invalid);
-                (true, false)
-            }
-            Err(error) => return Err(error.context(WHAT)),
-        },
-    };
     // An old role name reads as the new one for one release, and is noted
-    // (`story:role-name-aliases`); so is a maintainer an instance still names.
+    // (`story:role-name-aliases`).
     let file = physical(&environment.cwd.join(&loaded.path));
     if loaded.read {
-        notes.extend(old_role_names(&file, &host, host_names_one));
+        notes.extend(old_role_names(&file));
     }
     if loaded.read {
-        // No instance without a prefix, and none holding what another file's holds
-        // (`story:instance-names-unique`).
-        problems.extend(unique_problems(home, &file, &loaded.config).context(WHAT)?);
+        // No instance without a prefix (`story:instance-names-unique`).
+        problems.extend(unique_problems(&loaded.config));
         for note in &notes {
             eprintln!(
                 "conductor: {WHAT}: {}: note: {}: {}",
@@ -4335,13 +4823,6 @@ pub fn validate(config: Option<&Path>, args: &ValidateConfigArgs) -> Result<Exit
             },
         );
         return Ok(ExitCode::FAILURE);
-    }
-    if host_invalid {
-        return Ok(ExitCode::FAILURE);
-    }
-    if loaded.read {
-        registry::register(home, &file, &loaded.config)
-            .with_context(|| format!("{WHAT}: write the host registry"))?;
     }
     let names: Vec<&str> = loaded
         .config
@@ -4366,13 +4847,13 @@ pub fn validate(config: Option<&Path>, args: &ValidateConfigArgs) -> Result<Exit
     Ok(ExitCode::SUCCESS)
 }
 
-/// What `config validate` refuses of the file `file` beyond its conversion
+/// What `config validate` refuses of `config` beyond its conversion
 /// (`story:instance-names-unique`): each instance without a `session_prefix`, naming the one
-/// [`migrate`] writes, and each prefix, port, state or records directory another registered
-/// config file's instance holds, naming both instances and both files.
-pub(crate) fn unique_problems(home: &Path, file: &Path, config: &Config) -> Result<Vec<Problem>> {
+/// [`migrate`] writes. The host registry that compared instances across config files is gone in
+/// v1 (design architecture-next § 11): one daemon reads one file.
+pub(crate) fn unique_problems(config: &Config) -> Vec<Problem> {
     let mut problems = Vec::new();
-    for suggested in suggested_prefixes(home, file, config)? {
+    for suggested in suggested_prefixes(config) {
         let index = config
             .instances
             .iter()
@@ -4388,42 +4869,28 @@ pub(crate) fn unique_problems(home: &Path, file: &Path, config: &Config) -> Resu
             ),
         });
     }
-    let registry = registry::path(home);
-    for (index, collision) in registry::collisions(home, file, config)? {
-        problems.push(Problem {
-            path: format!("instances[{index}].{}", registry::key_name(collision.key)),
-            message: registry::message(&collision, &registry),
-        });
-    }
-    Ok(problems)
+    problems
 }
 
-/// The prefix [`migrate`] writes for each instance of `config`, the file `file`, that has none
+/// Whether the prefixes `a` and `b` are one, or one followed by `-` begins the other, so that one
+/// session name would carry both.
+#[must_use]
+pub fn nests(a: &str, b: &str) -> bool {
+    a == b || carries(a, b) || carries(b, a)
+}
+
+/// The prefix [`migrate`] writes for each instance of `config` that has none
 /// (`conductor.config.SuggestedPrefix`): its name in letters, digits and `-` (any other
 /// character written `-`, runs of `-` as one, none at either end; `i<index>` when nothing is
-/// left), with the first of 2, 3, … appended while another instance of the file, an instance of
-/// another registered file ([`registry::others`]) or an earlier suggestion holds it or nests
-/// with it ([`registry::nests`]).
-///
-/// # Errors
-///
-/// The host registry cannot be read.
-pub fn suggested_prefixes(
-    home: &Path,
-    file: &Path,
-    config: &Config,
-) -> Result<Vec<SuggestedPrefix>> {
+/// left), with the first of 2, 3, … appended while another instance of the file or an earlier
+/// suggestion holds it or nests with it ([`nests`]).
+#[must_use]
+pub fn suggested_prefixes(config: &Config) -> Vec<SuggestedPrefix> {
     let mut taken: Vec<String> = config
         .instances
         .iter()
         .filter_map(|instance| instance.session_prefix.as_ref())
         .map(|prefix| prefix.0.clone())
-        .chain(
-            registry::others(home, file)?
-                .into_iter()
-                .filter_map(|(_, instance)| instance.session_prefix)
-                .map(|prefix| prefix.0),
-        )
         .collect();
     let mut suggested = Vec::new();
     for (index, instance) in config.instances.iter().enumerate() {
@@ -4433,7 +4900,7 @@ pub fn suggested_prefixes(
         let base = name_prefix(&instance.name.0, index);
         let prefix = std::iter::once(base.clone())
             .chain((2..).map(|number| format!("{base}{number}")))
-            .find(|candidate| !taken.iter().any(|other| registry::nests(candidate, other)))
+            .find(|candidate| !taken.iter().any(|other| nests(candidate, other)))
             .unwrap_or(base);
         taken.push(prefix.clone());
         suggested.push(SuggestedPrefix {
@@ -4441,7 +4908,7 @@ pub fn suggested_prefixes(
             session_prefix: SessionPrefix(prefix),
         });
     }
-    Ok(suggested)
+    suggested
 }
 
 /// The session prefix the instance `name`, at `index` in its file, is given before any other
@@ -4497,9 +4964,7 @@ pub fn migrate(config: Option<&Path>, args: &MigrateConfigArgs) -> Result<ExitCo
             loaded.path.display()
         );
     }
-    let home = environment.home().context(WHAT)?;
-    let file = physical(&environment.cwd.join(&loaded.path));
-    let suggested = suggested_prefixes(home, &file, &loaded.config).context(WHAT)?;
+    let suggested = suggested_prefixes(&loaded.config);
     if suggested.is_empty() {
         return Ok(ExitCode::SUCCESS);
     }
@@ -4612,6 +5077,10 @@ pub fn with_prefixes(text: &str, suggested: &[SuggestedPrefix]) -> Option<String
 /// cannot be read; the home directory is not known; or no one instance is selected.
 pub fn show(config: Option<&Path>, args: &ShowConfigArgs) -> Result<ExitCode> {
     const WHAT: &str = "config show";
+    // Each key with its level (`conductor.config.EffectiveSettings`) is `story:config-globals`.
+    if args.effective == Some(true) {
+        return crate::not_implemented("config show --effective");
+    }
     let format = args.format.as_deref().unwrap_or("text");
     if !matches!(format, "text" | "json" | "yaml") {
         bail!("{WHAT}: --format {format:?} is not one of text, json, yaml");
@@ -4631,27 +5100,36 @@ pub fn show(config: Option<&Path>, args: &ShowConfigArgs) -> Result<ExitCode> {
     };
     let instance = select(&loaded, args.instance.as_deref(), &environment).context(WHAT)?;
     let mut document = document(instance);
-    // The host's roles (`story:maintainer-host-config`), in the JSON and the text; the YAML is a
-    // config file, which holds none. A host file that does not read is named on standard error
-    // and its roles are left out: `session start --role maintainer` refuses it.
-    if format != "yaml" {
-        let home = environment.home().context(WHAT)?;
-        let host = match host_roles(home, instance) {
-            Ok(host) => host,
-            Err(error) => {
-                match error.downcast::<Invalid>() {
-                    Ok(invalid) => report(WHAT, &invalid),
-                    Err(error) => return Err(error.context(WHAT)),
-                }
-                HostRoles {
-                    file: text_of(&host_file(home)),
-                    roles: instance_maintainer(instance).into_iter().cloned().collect(),
-                }
+    // A `conductor.config/2` file's own sections, before `default`.
+    if loaded.config.version == VERSION_2
+        && let Yaml::Mapping(map) = &mut document
+    {
+        let mut ordered = serde_yaml::Mapping::new();
+        for (key, value) in std::mem::take(map) {
+            if key.as_str() == Some("default") {
+                ordered.insert(Yaml::from("daemon"), daemon_document(&loaded.config.daemon));
+                ordered.insert(
+                    Yaml::from("globals"),
+                    globals_document(&loaded.config.globals),
+                );
             }
-        };
-        if let Yaml::Mapping(map) = &mut document {
-            map.insert(Yaml::from("host"), host_document(&host));
+            ordered.insert(key, value);
         }
+        *map = ordered;
+    }
+    // The maintainer the start and attach tasks read under `host.roles`, in the JSON and the
+    // text; the YAML is a config file, which holds none. With the host file gone (`story:spec-v1`)
+    // it is the instance's own maintainer, if its roles name one.
+    if format != "yaml"
+        && let Yaml::Mapping(map) = &mut document
+    {
+        map.insert(
+            Yaml::from("host"),
+            shown::mapping([(
+                "roles",
+                Yaml::Sequence(host_maintainer(instance).iter().map(shown::role).collect()),
+            )]),
+        );
     }
     let rendered = match format {
         "json" => serde_json::to_string_pretty(&document).context(WHAT)? + "\n",

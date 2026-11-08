@@ -1,0 +1,59 @@
+# Design § 4 "record ─► one Reconciliation per action": the daemon starts an instance on a config
+# change and records it; the cadence pass that finds nothing to do records `Nothing`.
+# The daemon acts on its own account: `{kind: Daemon}`.
+type: ess-scenario/1
+domain: conductor.instance
+scenario: instance-reconcile
+summary: A start on a config change and a cadence pass with nothing to do are each one reconciliation on record.
+
+timeline:
+  - at: 2026-11-08T09:00:00Z
+    command: conductor.instance.StartInstance
+    actor: conductor.instance.Conductord
+    input:
+      actor: {kind: Daemon}
+      name: example-org
+      placement: local
+      roles: [Director]
+      box_id: 6f1c1d2e-0000-4000-8000-000000000001
+      at: 2026-11-08T09:00:00Z
+    outcome: created
+
+  - at: 2026-11-08T09:00:01Z
+    command: conductor.instance.Reconcile
+    actor: conductor.instance.Conductord
+    input:
+      actor: {kind: Daemon}
+      instance: example-org
+      action: Start
+      reason: ConfigChange
+      result: Succeeded
+      at: 2026-11-08T09:00:01Z
+    outcome: recorded
+
+  - at: 2026-11-08T09:01:00Z
+    command: conductor.instance.Reconcile
+    actor: conductor.instance.Conductord
+    input:
+      actor: {kind: Daemon}
+      instance: example-org
+      action: Nothing
+      reason: Cadence
+      result: Succeeded
+      at: 2026-11-08T09:01:00Z
+    outcome: recorded
+
+assert:
+  - view: conductor.instance.Reconciliations
+    contains:
+      instance: example-org
+      action: Start
+      reason: ConfigChange
+      result: Succeeded
+      state: Recorded
+  - view: conductor.instance.Reconciliations
+    contains:
+      instance: example-org
+      action: Nothing
+      reason: Cadence
+      result: Succeeded

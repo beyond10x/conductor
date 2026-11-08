@@ -1,0 +1,40 @@
+# Design architecture-next.md § 3, Actors, and § 5 of the conductor design: the operator reverses
+# any decision; an agent actor under the operator's grant is refused by name and the decision
+# stays in force.
+type: ess-scenario/1
+domain: conductor.decision
+scenario: decision-reverse-operator-decision-agent-actor
+summary: An agent actor reversing a decision as the operator is refused as not a person, and the decision stays in force.
+
+timeline:
+  - at: 2026-11-08T09:00:00Z
+    command: conductor.decision.RecordConductorDecision
+    actor: conductor.decision.Conductor
+    input:
+      actor: {kind: Agent, agent: {instance: example-org, role: Director, name: example-org-conductor, kind: claude-code}}
+      decision_id: DEC-agent-rev1
+      decision_class: C
+      question: Which store backs the pilot?
+      options: "A: the file store; B: a database"
+      choice: A
+      reason: the file store is enough
+      evidence: none
+      decided_at: 2026-11-08T09:00:00Z
+    outcome: recorded
+
+  - at: 2026-11-08T09:00:01Z
+    command: conductor.decision.ReverseOperatorDecision
+    actor: conductor.decision.Operator
+    input:
+      actor: {kind: Agent, agent: {instance: example-org, role: Director, name: example-org-conductor, kind: claude-code}}
+      decision_id: DEC-agent-rev1
+      reason: changed course
+    outcome: agent-actor
+    error:
+      name: conductor.operator.ActorNotHuman
+
+assert:
+  - view: conductor.decision.Decisions
+    contains:
+      decision_id: DEC-agent-rev1
+      state: InForce

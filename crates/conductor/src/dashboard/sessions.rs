@@ -22,8 +22,8 @@
 use std::collections::HashSet;
 use std::path::Path;
 
+use crate::config::BuiltInRole;
 use conductor_model::behaviour::{ControllerStorage, SnapshotStorage};
-use conductor_model::config::RoleName;
 use conductor_model::dispatch::ControllerState;
 use serde_json::{Value, json};
 use time::format_description::well_known::Rfc3339;
@@ -122,25 +122,23 @@ pub(super) struct Shown<'a> {
     pub controllers: usize,
 }
 
-/// The names the instance's conductor and maintainer sessions may carry, under `home`'s host
-/// file: each role's session name and, for this release, its old-name alias.
-fn own_names(home: &Path) -> (Vec<String>, Vec<String>) {
+/// The names the instance's conductor and maintainer sessions may carry: each role's session name
+/// and, for this release, its old-name alias.
+fn own_names() -> (Vec<String>, Vec<String>) {
     let active = config::active();
     let instance = &active.instance;
     let conductor = instance
         .conductor
         .session_name
         .as_ref()
-        .map(|name| config::session_names_of(RoleName::Director, &name.0))
+        .map(|name| config::session_names_of(BuiltInRole::Director, &name.0))
         .unwrap_or_default();
-    let maintainer = config::host_maintainer(home, instance)
-        .ok()
-        .flatten()
+    let maintainer = config::host_maintainer(instance)
         .map(|role| {
             let name = role
                 .session_name
                 .unwrap_or_else(|| config::session_name(instance, &role.role));
-            config::session_names_of(RoleName::Maintainer, &name.0)
+            config::session_names_of(BuiltInRole::Maintainer, &name.0)
         })
         .unwrap_or_default();
     (conductor, maintainer)
@@ -165,11 +163,10 @@ fn pick<'a>(listed: &'a [Value], names: &[String]) -> Option<&'a Value> {
 pub(super) fn shown<'a>(
     listed: &'a [Value],
     roster: &Roster,
-    home: &Path,
     dispatches: &[Value],
     now: OffsetDateTime,
 ) -> Shown<'a> {
-    let (conductor, maintainer) = own_names(home);
+    let (conductor, maintainer) = own_names();
     let mut shown = Shown {
         rows: Vec::new(),
         listed: Vec::new(),

@@ -11,6 +11,7 @@ timeline:
     command: conductor.decision.RaiseDecisionRequest
     actor: conductor.decision.RepositoryController
     input:
+      actor: {kind: Agent, agent: {instance: example-org, role: Lead, name: example-org-lead, kind: claude-code}}
       request_id: REQ-open-1
       repository: cortex
       question: Which store backs the cache?
@@ -23,6 +24,7 @@ timeline:
     command: conductor.decision.RecordConductorDecision
     actor: conductor.decision.Conductor
     input:
+      actor: {kind: Agent, agent: {instance: example-org, role: Director, name: example-org-conductor, kind: claude-code}}
       decision_id: DEC-open-1
       decision_class: C
       question: Which store backs the cache?
@@ -37,6 +39,7 @@ timeline:
     command: conductor.decision.AnswerEscalatedRequest
     actor: conductor.decision.Operator
     input:
+      actor: {kind: Human, operator: example-operator}
       request_id: REQ-open-1
       decision_id: DEC-open-1
     outcome: wrong-state

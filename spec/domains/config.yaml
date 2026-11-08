@@ -1,15 +1,22 @@
 domain: conductor.config
 
 summary: >
-  The one file that names conductor's instances, `conductor.config/1`, read from `--config`, else
-  the `conductor-config` setting, else ~/.b10x/conductor/conductor.yaml (story:config-file). An
-  instance is one organization conductor runs: where its repositories come from, where their
-  checkouts are, where conductor keeps its records, state and cache, which harness and model each
-  role runs on, its cadence, thresholds, reports, and who decides each decision class. These types
-  hold the effective config, after defaults; the file may leave out every key of an instance but
-  its name, its sources and its checkouts. No field takes a secret. What the instances of one file
-  share lives in the host directory, `host/` beside the file (`conductor.host`), not under any
-  instance's `state`.
+  The one file conductord reconciles from, `conductor.config/2`, read from `--config`, else
+  the `conductor-config` setting, else ~/.b10x/conductor/conductor.yaml (story:config-file;
+  docs/design/architecture-next.md § 9). It holds the `daemon` section (its port, TLS listener,
+  reconcile cadence, the one store URL, the secrets source, the dashboard's served path and its
+  operators), `globals` (the defaults every instance starts from) and `instances[]`. An
+  instance is one organization conductor runs: its placement, where its repositories come from,
+  where their checkouts are, where conductor keeps its records, state and cache, which kind and
+  model each role runs on, its cadence, thresholds, reports, and who decides each decision class;
+  every key an instance or a role writes overrides the global one. Precedence is role over
+  instance over global (`Level`), and `EffectiveSettings` shows every key with its effective value
+  and the level it came from. These types hold the effective config, after defaults; the file may
+  leave out every key of an instance but its name, its sources and its checkouts. No field takes a
+  secret: the file names one as `secret:<name>` (`conductor.secret.SecretName`). The config is
+  desired state and is not kept in the store (§ 8); every change through `PutConfig` is validated,
+  written, committed with its actor and reason, recorded as `ConfigChanged` and reconciled. A
+  `conductor.config/1` file is read once by `conductor config migrate`.
 
 naming:
   wire: config
@@ -138,7 +145,18 @@ types:
     kind: newtype
     of: String
 
-  # The name of a session role (story:role-name-aliases, docs/design/roles-and-surfaces.md § 2).
+  # The name of a role (docs/design/architecture-next.md § 2, § 10): a built-in role or a custom
+  # one the config names, so a newtype over text rather than an enum. The built-in roles of v1 are
+  # `supervisor` and `teacher` (the host's, one each, started by the daemon from `globals.roles`),
+  # `controller` (one per instance) and the workers `planner`, `implementer`, `reviewer` and
+  # `releaser`; a custom role is any other name the config writes, run on a schedule. The
+  # maintainer is retired. The file writes a role in lower case.
+  # UNMAPPED: whether a custom role's name has an alphabet, and whether it may shadow a built-in
+  # name, is not settled. Open question.
+  #
+  # Before v1 this was the enum `Director`, `Maintainer`, `Lead`; those spellings, and the notes
+  # below on the old names, describe the shipping line (v0) and still read as role names.
+  # (story:role-name-aliases, docs/design/roles-and-surfaces.md § 2):
   # The file writes it in lower case: `director`, the instance's own session, which runs the
   # instance from its records directory; `maintainer`, the session that develops conductor
   # itself; `lead`, a repository's session, one per repository. Each had an old name, which a file
@@ -159,8 +177,8 @@ types:
   # --section` reads a heading under either name of a role (`conductor.direction.Rules`). The old
   # names are removed after this release (story:role-alias-removal).
   - name: conductor.config.RoleName
-    kind: enum
-    variants: [Director, Maintainer, Lead]
+    kind: newtype
+    of: String
 
   # The harness and model one session role runs on, such as `director` or `lead`
   # (`conductor.config.RoleName`, or its old name, as the file writes it); the
@@ -178,10 +196,9 @@ types:
   # the watch's context lines select them by; they move to the new names with the tasks
   # (story:role-names-in-files), so that no running instance's sessions are renamed. Without a
   # profile or an agent, `director` and `maintainer` start with the agents `conductor` and
-  # `conductor-dev`, the adapters' file names for this release. The maintainer is a role of the
-  # host, not of an instance: it is configured once, in `host.yaml` (`conductor.host.HostConfig`)
-  # (story:maintainer-host-config); one an instance's `roles` still writes is read, with a note,
-  # while `host.yaml` names none, for this release. `read_only_tools` (story:guard-all-tools) names the tools, beyond the guard's
+  # `conductor-dev`, the adapters' file names for this release. In v1 the maintainer is retired and
+  # the host's file `host.yaml` is gone: the host roles are `globals.roles` (`Globals`, design
+  # architecture-next § 9, § 11). `read_only_tools` (story:guard-all-tools) names the tools, beyond the guard's
   # built-in read-only allowlist, that the guard allows the role's sessions without a rule of its
   # own, such as a read-only MCP tool; every other tool outside the guard's ruled set is denied.
   # A tool with a rule of its own (Edit, Write, NotebookEdit, SendMessage, Bash, Monitor) is
@@ -194,7 +211,8 @@ types:
   # is refused by its `profile` path. One with neither is valid, as the built-in role is.
   # `limits`, `writable` and `network` are the envelope each session of the role asks for
   # (story:session-envelope-model): the limits of one session, the places it may write, and its
-  # network; the instance's `confinement` says what happens when the box cannot be set up. A
+  # network; a box that cannot be set up is a refusal with substrate's reason and nothing falls
+  # back (`conductor.placement`, design architecture-next § 6). A
   # role's limit lies at or under the instance's limit of the same key, where the instance sets
   # one, since every session of the instance runs inside the instance's box. Absent, a role sets
   # no limit, writes its default places, and has the network open. The request leaves out three
@@ -222,10 +240,19 @@ types:
   # that pins another instance, or cannot be read as JSON, is a problem `config validate` names by
   # its `settings` path, and `session start` and `spawn` refuse it (`InstanceNotPinned`). A role
   # that names none starts with its default written pinned (`conductor.session.SessionStartRefusal`).
+  #
+  # `kind` (design architecture-next § 7, § 9: "roles with kind, model and profile") is the agent
+  # kind that fills the role's slot; absent, `claude-code`, the only kind in v1. The same role
+  # written under `globals.roles` is the default of every instance; one an instance writes under
+  # its `roles` overrides it key by key (precedence role over instance over global, `Level`).
+  # UNMAPPED: § 7 makes the kind the program that fills a role, which is what `harness` named
+  # (`claude`, `codex`); whether `harness` is retired in favour of `kind` or stays as the
+  # `claude-code` kind's own setting is not settled. Both are kept. Open question.
   - name: conductor.config.Role
     kind: struct
     fields:
       - {name: role, type: String}
+      - {name: kind, type: conductor.agent.AgentKindName}
       - {name: harness, type: conductor.config.Harness}
       - {name: model, type: conductor.config.CommandWord}
       - {name: agent, type: Optional<conductor.config.CommandWord>}
@@ -280,36 +307,11 @@ types:
     kind: enum
     variants: [Open]
 
-  # What happens when a session's box cannot be set up. The file writes it in lower case:
-  # `strict`, the session does not start; `report`, it starts unboxed, and the reason is recorded.
-  - name: conductor.config.ConfinementMode
-    kind: enum
-    variants: [Strict, Report]
-
-  # What sets up a session's box. The file writes it in lower case: `systemd`, a `systemd-run
-  # --user` unit per session under the instance's slice; `none`, a host with no provider, which
-  # `strict` refuses to start any session on and `report` starts every session on unboxed.
-  - name: conductor.config.ConfinementProvider
-    kind: enum
-    variants: [Systemd, None]
-
   # Whether `conductor build run` gives a cargo-based command its repository's compile cache
   # (story:build-run-repo-cache). The file writes it in lower case: `on` or `off`.
   - name: conductor.config.RepoCache
     kind: enum
     variants: [On, Off]
-
-  # How the instance's sessions are boxed (story:session-envelope-model): the `mode`, the
-  # `provider`, and the `limits` of the instance as a whole, the slice every session of the
-  # instance runs in. They take over the `instances[].limits` an earlier plan named
-  # (story:instance-cgroup-limits). Absent, the mode is `report`, the provider `systemd`, and no
-  # limit is set.
-  - name: conductor.config.Confinement
-    kind: struct
-    fields:
-      - {name: mode, type: conductor.config.ConfinementMode}
-      - {name: provider, type: conductor.config.ConfinementProvider}
-      - {name: limits, type: conductor.config.Limits}
 
   # The conductor a session of the instance messages (story:instance-session-names): its own,
   # `session_name` being its director role's, `<session_prefix>-<role>` or `<role>` with the role
@@ -524,35 +526,195 @@ types:
     fields:
       - {name: route, type: conductor.config.ForgeRoute}
 
-  # One instance. A path is written absolute or under `~`, which is the home directory; the
+  # The id of one accepted config change (`ConfigRevision`).
+  - name: conductor.config.RevisionId
+    kind: newtype
+    of: Uuid
+
+  # The key of one effective setting: `<instance>/<role>/<path>`, `-` for the role of an
+  # instance-wide key.
+  - name: conductor.config.SettingKey
+    kind: newtype
+    of: String
+
+  # The level a key of the effective config came from (design architecture-next § 9). Precedence
+  # is role over instance over global: a key a role writes wins over the same key its instance
+  # writes, which wins over `globals`; a key none of them writes is conductor's built-in default,
+  # shown as `Global`.
+  # UNMAPPED: whether a built-in default is a level of its own (a fourth variant, `Default`) or
+  # reads as `Global` is not settled; `Global` here. Open question.
+  - name: conductor.config.Level
+    kind: enum
+    variants: [Global, Instance, Role]
+
+  # Stand-in for `conductor.placement.PlacementName`, which the placement unit declares (design
+  # architecture-next § 6). Declared here only so that this branch validates on its own; the
+  # coordinator replaces every use with `conductor.placement.PlacementName` and removes this type.
+  - name: conductor.config.PlacementName
+    kind: newtype
+    of: String
+
+  # Stand-in for `conductor.operator.Grant`, which the operator unit declares: what an operator may
+  # do (design architecture-next § 3 row `conductor.operator`: answer decisions, change settings,
+  # start, stop and upgrade instances, purge, join). Declared here only so that this branch
+  # validates on its own; the coordinator replaces every use with `conductor.operator.Grant` and
+  # removes this type. The file writes a grant in kebab case: `answer-decisions`.
+  - name: conductor.config.OperatorGrant
+    kind: enum
+    variants: [AnswerDecisions, ChangeSettings, StartInstances, StopInstances, UpgradeInstances, Purge, Join]
+
+  # An operator's role in the config (design architecture-next § 5.3: "the daemon records them as
+  # an operator of that instance with the grants the config gives their role"), such as `owner` or
+  # `reader`; the config names its own roles.
+  # UNMAPPED: § 5.3 says the config gives grants to a role, and the brief asks for grants on each
+  # operator entry; whether grants are written once per role (a `roles:` map of the daemon, each
+  # operator naming a role) or on each operator is not settled. Both `role` and `grants` are on the
+  # operator here. Open question.
+  - name: conductor.config.OperatorRole
+    kind: newtype
+    of: String
+
+  # One operator of the deployment, `daemon.operators[]` (design architecture-next § 5.3,
+  # "Several operators"): the Identity principal's name (on a single host with no Identity, the
+  # Unix user), their role and the grants they hold. A grant belongs to a human only; an agent
+  # actor holds none (§ 3, Actors).
+  # UNMAPPED: whether a grant is held for every instance or for named instances (the instances an
+  # operator has joined, § 5.3) is not settled here; the operator unit decides how a grant binds to
+  # an instance. Open question.
+  - name: conductor.config.DaemonOperator
+    kind: struct
+    fields:
+      - {name: name, type: conductor.operator.OperatorName}
+      - {name: role, type: conductor.config.OperatorRole}
+      - {name: grants, type: List<conductor.config.OperatorGrant>}
+    invariants:
+      - distinct: {in: grants, as: grant}
+
+  # The daemon's TLS listener (design architecture-next § 4, § 5.2): the address and port it
+  # listens on, written `<host>:<port>`, for a dashboard deployed elsewhere and for every client
+  # of a daemon on a remote box; every request presents an Identity bearer.
+  # UNMAPPED: where the listener's certificate and key come from (files, a `secret:<name>`, the
+  # Identity service) and which Identity service issues and checks the bearers are not settled.
+  # Open question.
+  - name: conductor.config.TlsListener
+    kind: struct
+    fields:
+      - {name: listen, type: String}
+
+  # Where the daemon resolves the `secret:<name>` values the file names (design architecture-next
+  # § 9, decision 6): `keychain`, the OS keychain on the control host (`secrets-keychain`), or
+  # `remote`, the Secrets service where conductord runs in a deployment (`secrets-remote`).
+  # `namespace` is the secrets namespace the names live in; `url` is the Secrets service's address,
+  # for `remote` only.
+  # UNMAPPED: `secrets-federation` routes each namespace to one backend, "so one config serves
+  # both"; whether the daemon names one source or a list of namespaces each with its backend is
+  # not settled. One source here. Open question.
+  - name: conductor.config.SecretsSource
+    kind: struct
+    fields:
+      - {name: source, type: conductor.secret.Source}
+      - {name: namespace, type: Optional<String>}
+      - {name: url, type: Optional<String>}
+
+  # The daemon's cadence (design architecture-next § 4): how often it reconciles when nothing else
+  # triggers a pass, a duration as `cadence` writes one. Absent, 60 s.
+  - name: conductor.config.DaemonCadence
+    kind: struct
+    fields:
+      - {name: reconcile, type: Duration}
+
+  # The `daemon` section (design architecture-next § 4, § 5.2, § 8, § 9): `port`, the loopback
+  # port of the global API on 127.0.0.1, 1 to 65535, absent 7300; `tls`, the TLS listener, absent
+  # when none is configured; `cadence.reconcile`; `store`, the one URL of the deployment's shared
+  # database, which the daemon hands to every instance runtime it starts; `secrets`, the secrets
+  # source; `dashboard`, the path the daemon serves the dashboard app at, absent `/`; `operators`,
+  # the deployment's operators, at least the one the Unix user names on a single host.
+  # UNMAPPED: § 4 says "the loopback listener is off on a box that has no local operator"; which key
+  # turns it off (an absent `port`, or a key of its own) is not settled. Open question.
+  # UNMAPPED: "the dashboard's served path" may be the URL path the app is served under (`/`, as
+  # § 5.3 says) or the directory of the built app the daemon serves; read here as the URL path.
+  # Open question.
+  - name: conductor.config.Daemon
+    kind: struct
+    fields:
+      - {name: port, type: Integer}
+      - {name: tls, type: Optional<conductor.config.TlsListener>}
+      - {name: cadence, type: conductor.config.DaemonCadence}
+      - {name: store, type: conductor.store.StoreUrl}
+      - {name: secrets, type: conductor.config.SecretsSource}
+      - {name: dashboard, type: String}
+      - {name: operators, type: List<conductor.config.DaemonOperator>}
+    invariants:
+      - port >= 1
+      - port <= 65535
+      - distinct: {in: operators, as: operator, by: operator.name}
+
+  # The `globals` section (design architecture-next § 9, § 10): the defaults every instance starts
+  # from, each overridden by an instance key of the same name and by a role's own key. `roles` are
+  # the built-in and custom roles with their kind, model and profile; the host roles `supervisor`
+  # and `teacher`, which the daemon starts, are written here only (a `conductor.config/1` file's
+  # `host.roles` becomes `globals.roles` at `config migrate`). `tuning` is the tuning grant, empty
+  # by default (`conductor.improvement.TuningGrant`, § 13 row 7).
+  - name: conductor.config.Globals
+    kind: struct
+    fields:
+      - {name: roles, type: List<conductor.config.Role>}
+      - {name: cadence, type: conductor.config.Cadence}
+      - {name: thresholds, type: conductor.config.Thresholds}
+      - {name: limits, type: conductor.config.Limits}
+      - {name: tuning, type: conductor.improvement.TuningGrant}
+    invariants:
+      - distinct: {in: roles, as: role, by: role.role}
+
+  # One instance, `instances[]` of the file (design architecture-next § 9: name, `placement`,
+  # sources, checkouts, records, roles, overrides of any global key). A path is written absolute or
+  # under `~`, which is the home directory; the
   # effective path is absolute. `operator` is how sessions name the person who decides class O.
-  # `session_prefix` is the prefix of every session the instance starts, and of its slice and its
-  # dashboard's unit (story:instance-names-unique). It is required: `config validate` refuses an
+  # `placement` names the placement the instance's box is opened at (`conductor.placement`, § 6).
+  # `session_prefix` is the prefix of every session the instance starts
+  # (story:instance-names-unique). It is required: `config validate` refuses an
   # instance that writes none, naming the prefix `conductor config migrate` would write
   # (`SuggestedPrefix`). For one release a file without it still loads, so that a running instance
   # keeps working until the operator migrates it: its sessions keep the bare names `conductor`,
-  # `conductor-dev` and `<repository>`, its slice `conductor.slice` and its dashboard's unit
-  # `conductor-dashboard`. `dashboard_port` is the
-  # port on 127.0.0.1 the instance's dashboard serves (story:instance-scoped-tasks), 1 to 65535.
+  # `conductor-dev` and `<repository>`.
   # `conductor` is derived: the conductor that serves the instance.
+  #
+  # The overrides: `roles`, `limits`, `controllers`, `cadence`, `thresholds`, `retention` and
+  # `usage` are the keys `globals` holds for every instance (`Globals`); each one an instance
+  # writes overrides the global value, key by key, and a role's own key overrides both
+  # (precedence role over instance over global, `Level`). These keys are kept as they were before
+  # v1; what is new is that an absent one takes the global value before conductor's built-in
+  # default. `limits` are the instance's box as a whole, the cpu, memory and task limits every
+  # role of the instance runs inside (they move here from `confinement.limits`).
+  # UNMAPPED: § 9 says an instance may override "any global key"; whether the instance's own keys
+  # that `globals` does not hold (`sources`, `checkouts`, `records`, `authority`, `forge`, …) may
+  # also be written under `globals` as defaults is not settled. Open question.
+  # Removed in v1 (§ 9, § 11): `dashboard_port` (the daemon serves the one dashboard), every
+  # `confinement.*` key (substrate placements, § 6) and the per-instance `store:` key (the store
+  # is the daemon's, `daemon.store`, § 8); `conductor config migrate` drops them from a
+  # `conductor.config/1` file with a note.
   # Absent from the file, `records`, `state` and `cache` are ~/.b10x/conductor/<name>/records,
-  # ~/.b10x/conductor/<name>/state and ~/.cache/b10x/conductor/<name>, `dashboard_port` is 7313
-  # plus the instance's index in the file (7313 for the first), `repositories` and `reports` are
-  # empty, `operator`, `catalog` and `session_prefix` are absent, and every other absent key is
-  # conductor's built-in default.
+  # ~/.b10x/conductor/<name>/state and ~/.cache/b10x/conductor/<name>, `repositories` and `reports`
+  # are empty, `operator`, `catalog` and `session_prefix` are absent, every override is the global
+  # value, and every other absent key is conductor's built-in default.
+  # UNMAPPED: whether `placement` may be absent (and then names a default placement, such as a
+  # local substrate daemon with the `systemd` adapter) is not settled; it is required here.
+  # Open question.
+  # UNMAPPED: § 6 makes the placement "overridable per role"; where a role names its own placement
+  # (a key of `Role`, or of the role's slot in `conductor.agent`) is not settled. Open question.
   - name: conductor.config.Instance
     kind: struct
     fields:
       - {name: name, type: conductor.config.InstanceName}
+      - {name: placement, type: conductor.config.PlacementName}
       - {name: session_prefix, type: Optional<conductor.config.SessionPrefix>}
-      - {name: dashboard_port, type: Integer}
       - {name: sources, type: List<conductor.config.Source>}
       - {name: checkouts, type: conductor.config.Checkouts}
       - {name: records, type: String}
       - {name: state, type: String}
       - {name: cache, type: String}
       - {name: roles, type: List<conductor.config.Role>}
-      - {name: confinement, type: conductor.config.Confinement}
+      - {name: limits, type: conductor.config.Limits}
       - {name: controllers, type: conductor.config.Controllers}
       - {name: repositories, type: List<conductor.config.RepositoryRule>}
       - {name: cadence, type: conductor.config.Cadence}
@@ -572,29 +734,28 @@ types:
       # The route of the instance's forge writes (story:forge-route); absent, `gates`.
       - {name: forge, type: conductor.config.Forge}
       - {name: conductor, type: conductor.config.ConductorSession}
-    invariants:
-      - dashboard_port >= 1
-      - dashboard_port <= 65535
 
-  # The file. A key it does not declare is an error, and so is a value that looks like a token.
+  # The file, `conductor.config/2` (design architecture-next § 9). A key it does not declare is an
+  # error, and so is a value that looks like a token. `daemon` is conductord's own section,
+  # `globals` the defaults every instance starts from, `instances` the instances it reconciles.
   # `default` is the instance a command runs when neither `--instance` nor the
   # `conductor-instance` setting names one (story:grouped-instance); it names an instance of the
   # file. No two instances share a `session_prefix`, and at most one has none
-  # (story:instance-session-names); no two share a `dashboard_port`, so that each instance's
-  # dashboard binds its own (story:instance-scoped-tasks); no two share a `state` or a `records`
-  # directory (story:instance-names-unique). The same holds across every config file of the host:
-  # `config validate` checks each instance against the host registry (`conductor.host`).
+  # (story:instance-session-names); no two share a `state` or a `records`
+  # directory (story:instance-names-unique). The host registry that checked this across config
+  # files is gone (§ 11): one daemon reads one file.
   - name: conductor.config.Config
     kind: struct
     fields:
       - {name: version, type: String}
+      - {name: daemon, type: conductor.config.Daemon}
+      - {name: globals, type: conductor.config.Globals}
       - {name: default, type: Optional<conductor.config.InstanceName>}
       - {name: instances, type: List<conductor.config.Instance>}
     invariants:
-      - version == "conductor.config/1"
+      - version == "conductor.config/2"
       - distinct: {in: instances, as: instance, by: instance.name}
       - distinct: {in: instances, as: instance, by: instance.session_prefix}
-      - distinct: {in: instances, as: instance, by: instance.dashboard_port}
       - distinct: {in: instances, as: instance, by: instance.state}
       - distinct: {in: instances, as: instance, by: instance.records}
       - any:
@@ -602,9 +763,8 @@ types:
           - exists: {in: instances, as: instance, that: instance.name == default}
 
   # The input of `conductor config validate`: the instance to resolve, else the
-  # `conductor-instance` setting, else none. A valid file is written to the host registry
-  # (`conductor.host.InstanceRegistry`), which is all it writes. It also reads the host file
-  # `host.yaml` (`conductor.host.HostConfig`): each problem of it is named by its path in that file.
+  # `conductor-instance` setting, else none. It writes nothing; the host registry it wrote before
+  # v1 is gone (design architecture-next § 11).
   - name: conductor.config.ValidateConfig
     kind: struct
     fields:
@@ -615,8 +775,16 @@ types:
   # `SuggestedPrefix` names. It edits only those lines of the file, keeping every other line and
   # comment, and refuses, writing nothing, when the edited file would read back as anything but
   # the old one with those prefixes. `check` writes nothing and prints the prefixes it would
-  # write. A prefix renames the instance's sessions, slice and dashboard unit: stop them before
-  # migrating and start them again after.
+  # write. A prefix renames the instance's sessions: stop them before migrating and start them
+  # again after.
+  #
+  # From `conductor.config/1` to `/2` (design architecture-next § 9), once: it writes `version:
+  # conductor.config/2`, drops `dashboard_port`, every `confinement.*` key and the per-instance
+  # `store:` key with one note each naming its YAML path, and moves the host's roles (`host.roles`,
+  # read before v1 from `host.yaml`) to `globals.roles`. A `/2` file it leaves unchanged.
+  # UNMAPPED: what `config migrate` writes for the keys `/2` requires and `/1` has no value for
+  # (`daemon.store`, `daemon.secrets`, each instance's `placement`) is not settled: a default, a
+  # prompt, or a refusal naming each. Open question.
   - name: conductor.config.MigrateConfig
     kind: struct
     fields:
@@ -625,7 +793,7 @@ types:
   # The prefix `config migrate` writes, and `config validate` names, for an instance without one:
   # its name in letters, digits and `-` (any other character written `-`, runs of `-` as one,
   # none at either end; `i<index>` when nothing is left), with the first of 2, 3, … appended when
-  # another instance of the file or of the host registry holds that prefix, or one of them
+  # another instance of the file holds that prefix, or one of them
   # followed by `-` begins the other.
   - name: conductor.config.SuggestedPrefix
     kind: struct
@@ -635,13 +803,16 @@ types:
 
   # The input of `conductor config show`. `format` is one of text, json, yaml, read by the
   # handler; `instance` is the instance shown, else the `conductor-instance` setting, else the
-  # file's `default`, else its only instance. The JSON and the text add `host`, the host's roles
-  # (`conductor.host.HostRoles`); the YAML, a config file, holds none.
+  # file's `default`, else its only instance. `effective` (design architecture-next § 9, `config
+  # show --effective --instance <i>`) prints every key of the instance with its effective value
+  # and the level it came from, the rows of `EffectiveSettings`; without it, the instance as the
+  # file writes it after defaults.
   - name: conductor.config.ShowConfig
     kind: struct
     fields:
       - {name: format, type: Optional<String>}
       - {name: instance, type: Optional<String>}
+      - {name: effective, type: Optional<Boolean>}
 
   # The input of `conductor config workspace` (story:workspace-from-config), which writes the
   # instance's `<records>/.engineering/workspace.yaml` (`aep.workspace/1`) from its config,
@@ -748,21 +919,11 @@ types:
       - {name: state, type: conductor.config.ForgeLoginState}
       - {name: account, type: Optional<String>}
 
-  # Whether one confinement provider can set up a box on this host (story:sandbox-spec), as
-  # `conductor doctor` reports it after the program rows: the provider, as `confinement.provider`
-  # writes it, `available`, and when it is not, the reason. `none` is always available: it sets
-  # up no box.
-  - name: conductor.config.ProviderAvailability
-    kind: struct
-    fields:
-      - {name: provider, type: String}
-      - {name: available, type: Boolean}
-      - {name: reason, type: Optional<String>}
-
   # What `conductor doctor` reports (story:doctor-verdict, story:doctor-identity): the machine, one
-  # row per program conductor starts, one login per host of the config file's sources, one row per
-  # confinement provider (story:sandbox-spec), which does not change the verdict, and the
-  # verdict, its last line: `ready`, or `not ready: ` and each failure, comma-separated, in this
+  # row per program conductor starts, one login per host of the config file's sources, and the
+  # verdict (the confinement providers' rows are gone with `confinement.*`, design
+  # architecture-next § 11; substrate's pin is a program row), its last line: `ready`, or
+  # `not ready: ` and each failure, comma-separated, in this
   # order: `config (unreadable)`; then each program, as `<program> (missing)`,
   # `<program> (too old)`, `<program> (pin unread)` or `<program> (version unread)`; then each
   # login, as `<program> (not logged in to <host>)`.
@@ -772,7 +933,6 @@ types:
       - {name: machine, type: conductor.config.Machine}
       - {name: prerequisites, type: List<conductor.config.Prerequisite>}
       - {name: logins, type: List<conductor.config.ForgeLogin>}
-      - {name: providers, type: List<conductor.config.ProviderAvailability>}
       - {name: verdict, type: String}
 
   # The input of `conductor setup` (story:setup-command), which checks one repository's
@@ -923,15 +1083,14 @@ types:
       - {name: default, type: Optional<String>}
       - {name: takes_effect, type: conductor.config.ConfigEffect}
 
-  # One instance of the host registry as the Configuration page lists it: its name, its
-  # dashboard's port, its session prefix, the forge of its first source (`github`, `gitlab` or
-  # `local`, empty when the registry does not say) and whether it is the instance whose page
-  # answers.
+  # One instance of the config file as the Configuration page lists it: its name, its session
+  # prefix, the forge of its first source (`github`, `gitlab` or `local`) and whether it is the
+  # instance whose page answers. Before v1 the rows came from the host registry and carried each
+  # instance's dashboard port; both are gone (design architecture-next § 11).
   - name: conductor.config.ConfigInstance
     kind: struct
     fields:
       - {name: name, type: conductor.config.InstanceName}
-      - {name: dashboard_port, type: Integer}
       - {name: session_prefix, type: Optional<conductor.config.SessionPrefix>}
       - {name: forge, type: String}
       - {name: current, type: Boolean}
@@ -939,9 +1098,9 @@ types:
   # The view the Configuration page reads, `GET /api/config` (story:dashboard-config-page): the
   # config file of the instance whose dashboard answers, the instance's name and its index in
   # the file, every key of its effective config (`config show`, the host's roles left out) as a
-  # `ConfigField`, the host registry's instances, its repositories with their activity
+  # `ConfigField`, the config file's instances, its repositories with their activity
   # (`conductor.direction.RepositoryActivityRow`, read from the store) and the problems reading
-  # any of them. A view: it reads the file, the registry and an existing store, and writes and
+  # any of them. A view: it reads the file and an existing store, and writes and
   # creates nothing.
   - name: conductor.config.ConfigPage
     kind: struct
@@ -982,6 +1141,11 @@ types:
       - {name: path, type: String}
       - {name: message, type: String}
 
+  # UNMAPPED: v1 renames the per-instance dashboard's `config` GET/POST to the instance API's
+  # `settings` GET/PUT and routes every config change through `PutConfig` (design
+  # architecture-next § 5.1, § 9). Whether `ConfigPage`, `WriteConfig` and their answers are
+  # retired with the per-instance dashboard, or kept as the dashboard app's page over `PutConfig`
+  # and `EffectiveSettings`, is not settled; they are kept unchanged. Open question.
   # The Configuration page's write, `POST /api/config` (story:dashboard-config-page), taken as
   # the Decisions page's answers are: from the page's own origin on 127.0.0.1, with the token it
   # was served with, as JSON of a bounded length. The staged `changes` are applied to the file's
@@ -1045,3 +1209,284 @@ errors:
         type: conductor.config.InstanceName
       - name: state
         type: String
+
+  # The config with the change does not validate, as `conductor config validate` would name it.
+  - name: conductor.config.ConfigInvalid
+    summary: >
+      The config with this change does not validate; nothing was written, committed or
+      reconciled, and the problem is named by its YAML path.
+    fields:
+      - name: path
+        type: String
+
+  # The level and the instance or role a change names do not fit together.
+  - name: conductor.config.LevelScopeMismatch
+    summary: >
+      A `Global` change names no instance and no role, an `Instance` change names an instance and
+      no role, and a `Role` change names both; this one does not, and nothing was written.
+    fields:
+      - name: level
+        type: conductor.config.Level
+
+entities:
+  # One accepted config change (design architecture-next § 4, § 8, § 9): the daemon's own record in
+  # the shared store of who changed which key at which level, why, and the commit of the config
+  # repository that holds it. `value` absent removes the key at that level, so the level below
+  # applies again. `commit` is the config repository's commit, minted when the change is
+  # committed. The record outlives the key it names.
+  - name: conductor.config.ConfigRevision
+    identity:
+      name: revision_id
+      type: conductor.config.RevisionId
+    fields:
+      - name: actor
+        type: conductor.operator.Actor
+      - name: level
+        type: conductor.config.Level
+      - name: instance
+        type: Optional<conductor.config.InstanceName>
+      - name: role
+        type: Optional<conductor.config.RoleName>
+      - name: path
+        type: String
+      - name: value
+        type: Optional<String>
+      - name: reason
+        type: String
+      - name: commit
+        type: String
+      - name: changed_at
+        type: Timestamp
+    lifecycle:
+      initial: Committed
+      states: [Committed]
+      terminal: [Committed]
+
+  # One key of an instance's effective config (design architecture-next § 9, § 5.1 `settings`):
+  # the instance, the role it holds for (absent for an instance-wide key), its YAML path, its
+  # effective value as `config show` writes it, and the level it came from. The daemon derives the
+  # rows from the config file at every read; no command of the specification creates one, and a
+  # `PutConfig` changes them by changing the file. At `ess/33` this entity is `provided: true`;
+  # the specification stays on `ess/22` (see the report).
+  - name: conductor.config.EffectiveSetting
+    identity:
+      name: setting_key
+      type: conductor.config.SettingKey
+    fields:
+      - name: instance
+        type: conductor.config.InstanceName
+      - name: role
+        type: Optional<conductor.config.RoleName>
+      - name: path
+        type: String
+      - name: value
+        type: String
+      - name: level
+        type: conductor.config.Level
+    lifecycle:
+      initial: Effective
+      states: [Effective]
+      terminal: [Effective]
+
+actors:
+  # An operator, a person: changes the config at any level (design architecture-next § 9, § 5.3).
+  # UNMAPPED: § 3 gives "change settings" as an operator's grant; whether `PutConfig` refuses a
+  # human actor without it (and with which error) is the operator unit's grant model and not
+  # settled here. Open question.
+  - name: conductor.config.Operator
+    may:
+      - conductor.config.PutConfig
+    naming:
+      display: Operator
+
+  # The tuner, an agent: proposes settings and applies one only inside the tuning grant (design
+  # architecture-next § 9, § 13 row 7; `conductor.improvement.TuningGrant`).
+  - name: conductor.config.Tuner
+    may:
+      - conductor.config.PutConfig
+    naming:
+      display: Tuner
+
+commands:
+  # `PUT /v1/config` (design architecture-next § 5.2, § 9), and the instance API's `settings` PUT
+  # (§ 5.1): one key changed at one level, validated, written to the config file, committed to the
+  # config repository with the actor and the reason, recorded as `ConfigChanged` and reconciled
+  # (the daemon's next pass, `conductor.instance.Reconcile`). A human actor may change any key; an
+  # agent actor only a key the tuning grant names, to a value inside its range
+  # (`conductor.improvement.TuningGrant`).
+  # UNMAPPED: § 5.2 writes `config` GET/PUT, which may carry the whole file; this command carries
+  # one key. Whether a PUT of the whole file is one revision or one per changed key is not
+  # settled. Open question.
+  # UNMAPPED: what happens when the commit to the config repository fails (the file written and
+  # not committed, or nothing written) is not settled. Open question.
+  - name: conductor.config.PutConfig
+    naming:
+      wire: put-config
+      display: Change the config
+    input:
+      - name: actor
+        type: conductor.operator.Actor
+      - name: level
+        type: conductor.config.Level
+      - name: instance
+        type: Optional<conductor.config.InstanceName>
+      - name: role
+        type: Optional<conductor.config.RoleName>
+      - name: path
+        type: String
+        example: "thresholds.silent_session"
+      - name: value
+        type: Optional<String>
+      - name: reason
+        type: String
+        example: "silence alarms fire on long gates"
+      - name: changed_at
+        type: Timestamp
+        example: "2026-11-08T09:00:00Z"
+    outcomes:
+      - name: level-scope-mismatch
+        when:
+          any:
+            - all: [level == Global, defined(instance)]
+            - all: [level == Global, defined(role)]
+            - all: [level == Instance, not defined(instance)]
+            - all: [level == Instance, defined(role)]
+            - all: [level == Role, not defined(instance)]
+            - all: [level == Role, not defined(role)]
+        error: conductor.config.LevelScopeMismatch
+        payload:
+          conductor.config.LevelScopeMismatch:
+            level: input.level
+        summary: The level and the instance or role named do not fit; nothing was written.
+      - name: actor-not-human
+        when: actor.kind != Human
+        external: the change lies outside the tuning grant
+        error: conductor.operator.ActorNotHuman
+        payload:
+          conductor.operator.ActorNotHuman:
+            actor: input.actor
+        summary: >
+          An agent's change of a key the tuning grant does not name, or to a value outside its
+          range, is refused; nothing was written.
+      - name: invalid
+        external: the config with the change does not validate
+        error: conductor.config.ConfigInvalid
+        payload:
+          conductor.config.ConfigInvalid:
+            path: input.path
+        summary: The changed config does not validate; nothing was written.
+      - name: changed
+        creates: conductor.config.ConfigRevision
+        instance: revision_id
+        sets:
+          actor: input.actor
+          level: input.level
+          instance: input.instance
+          role: input.role
+          path: input.path
+          value: input.value
+          reason: input.reason
+          commit: {generated: true}
+          changed_at: input.changed_at
+        emits:
+          - conductor.config.ConfigChanged
+        payload:
+          conductor.config.ConfigChanged:
+            revision_id: {generated: true}
+            actor: input.actor
+            level: input.level
+            instance_name: input.instance
+            role: input.role
+            path: input.path
+            value: input.value
+            reason: input.reason
+        summary: >
+          The key is written at its level and committed with the actor and the reason; the daemon
+          reconciles the instances the change touches.
+
+events:
+  # The instance is `instance_name` here, not `instance`: ess 0.90.0's caller-swapped rerun
+  # (`rename` in ess-conformance `synthesize/caller.rs`) suffixes every JSON string under a key
+  # named `instance` in the steps it appends, an expected event payload's own field included,
+  # while the command input's literal keeps its value, so the synthesized payload check fails.
+  # UNMAPPED: no ess issue is filed for it yet; once ess fixes it the field is `instance` again.
+  - name: conductor.config.ConfigChanged
+    fields:
+      - name: revision_id
+        type: conductor.config.RevisionId
+      - name: actor
+        type: conductor.operator.Actor
+      - name: level
+        type: conductor.config.Level
+      - name: instance_name
+        type: Optional<conductor.config.InstanceName>
+      - name: role
+        type: Optional<conductor.config.RoleName>
+      - name: path
+        type: String
+      - name: value
+        type: Optional<String>
+      - name: reason
+        type: String
+
+views:
+  # Every accepted config change, with who made it and why (design architecture-next § 5.2, the
+  # daemon's records).
+  - name: conductor.config.ConfigRevisions
+    source: conductor.config.ConfigRevision
+    consistency: read_your_writes
+    fields:
+      - name: revision_id
+        type: conductor.config.RevisionId
+      - name: state
+        type: conductor.config.ConfigRevision.State
+      - name: actor
+        type: conductor.operator.Actor
+      - name: level
+        type: conductor.config.Level
+      - name: instance
+        type: Optional<conductor.config.InstanceName>
+      - name: role
+        type: Optional<conductor.config.RoleName>
+      - name: path
+        type: String
+      - name: value
+        type: Optional<String>
+      - name: reason
+        type: String
+      - name: commit
+        type: String
+      - name: changed_at
+        type: Timestamp
+    naming:
+      wire: config-revisions
+      display: Config changes
+
+  # Every key of one instance's effective config with its value and the level it came from, for
+  # the instance and for each of its roles (design architecture-next § 9, `config show --effective
+  # --instance <i>`; § 5.1 `settings` GET).
+  - name: conductor.config.EffectiveSettings
+    source: conductor.config.EffectiveSetting
+    consistency: eventual
+    params:
+      - name: instance
+        type: conductor.config.InstanceName
+    filter: instance == param.instance
+    fields:
+      - name: setting_key
+        type: conductor.config.SettingKey
+      - name: state
+        type: conductor.config.EffectiveSetting.State
+      - name: instance
+        type: conductor.config.InstanceName
+      - name: role
+        type: Optional<conductor.config.RoleName>
+      - name: path
+        type: String
+      - name: value
+        type: String
+      - name: level
+        type: conductor.config.Level
+    naming:
+      wire: effective-settings
+      display: Effective settings

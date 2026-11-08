@@ -1244,6 +1244,7 @@ pub fn handle_request(state: Option<&Path>, text: &str, decider: &dyn Decider) -
     super::raise_decision_request(
         state,
         RaiseDecisionRequestArgs {
+            actor: None,
             request_id: Some(request.request_id.clone()),
             repository: Some(request.repository.clone()),
             question: Some(request.question.clone()),
@@ -1313,6 +1314,7 @@ pub fn handle_request(state: Option<&Path>, text: &str, decider: &dyn Decider) -
     super::answer_request(
         state,
         AnswerRequestArgs {
+            actor: None,
             request_id: Some(request.request_id.clone()),
             decision_id: Some(decision_id.0.clone()),
             input_json: None,
@@ -1405,6 +1407,7 @@ fn escalate(
     super::escalate_request(
         state,
         EscalateRequestArgs {
+            actor: None,
             request_id: Some(request.request_id.clone()),
             escalation_class: Some(super::class_name(class).to_owned()),
             reason: Some(reason),

@@ -153,6 +153,7 @@ fn from_fixture(name: &str) -> Collector {
         for item in items(&fixture, "repositories") {
             let repository = text(item, "repository");
             record.repository(RecordRepository {
+                actor: conductor_cli::actor::daemon(),
                 snapshot_id: snapshot.clone(),
                 repository: RepositoryName(repository.clone()),
                 visibility: Visibility::Public,
@@ -181,6 +182,7 @@ fn from_fixture(name: &str) -> Collector {
         }
         for item in items(&fixture, "pull_requests") {
             record.pull_request(RecordPullRequest {
+                actor: conductor_cli::actor::daemon(),
                 snapshot_id: snapshot.clone(),
                 repository: RepositoryName(text(item, "repository")),
                 number: number(item, "number"),
@@ -205,6 +207,7 @@ fn from_fixture(name: &str) -> Collector {
         }
         for item in items(&fixture, "workflow_runs") {
             record.workflow_run(RecordWorkflowRun {
+                actor: conductor_cli::actor::daemon(),
                 snapshot_id: snapshot.clone(),
                 repository: RepositoryName(text(item, "repository")),
                 workflow: text(item, "workflow"),
@@ -214,6 +217,7 @@ fn from_fixture(name: &str) -> Collector {
         }
         for item in items(&fixture, "specifications") {
             record.specification(RecordSpecification {
+                actor: conductor_cli::actor::daemon(),
                 snapshot_id: snapshot.clone(),
                 repository: RepositoryName(text(item, "repository")),
                 presence: presence(&text(item, "presence")),
@@ -229,6 +233,7 @@ fn from_fixture(name: &str) -> Collector {
         }
         for item in items(&fixture, "blockers") {
             record.blocker(RecordBlocker {
+                actor: conductor_cli::actor::daemon(),
                 snapshot_id: snapshot.clone(),
                 repository: RepositoryName(text(item, "repository")),
                 reference: text(item, "reference"),
@@ -238,6 +243,7 @@ fn from_fixture(name: &str) -> Collector {
         }
         for item in items(&fixture, "sessions") {
             record.session(RecordSession {
+                actor: conductor_cli::actor::daemon(),
                 snapshot_id: snapshot.clone(),
                 harness: Harness::Claude,
                 session_ref: text(item, "session_ref"),
@@ -270,6 +276,7 @@ fn fails() -> Collector {
 fn take(root: &Path, started_at: &str, collectors: &[Collector]) -> Taken {
     let store = store::open(&root.join("state")).expect("open the store");
     let start = StartSnapshot {
+        actor: conductor_cli::actor::daemon(),
         started_at: Timestamp(started_at.to_owned()),
         disk_free_bytes: 1_000_000,
         budget: None,

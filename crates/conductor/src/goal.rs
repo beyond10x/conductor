@@ -53,6 +53,7 @@ pub fn propose_goal(state: Option<&Path>, args: ProposeGoalArgs) -> Result<ExitC
     const COMMAND: &str = "goal propose-goal";
     flags_only(args.input_json, "goal propose-goal --input-json")?;
     let input = ProposeGoal {
+        actor: crate::actor::chosen(),
         goal_id: GoalId(flag(COMMAND, "--goal-id", args.goal_id)?),
         title: flag(COMMAND, "--title", args.title)?,
         exit_evidence: flag(COMMAND, "--exit-evidence", args.exit_evidence)?,
@@ -89,6 +90,7 @@ pub fn confirm_goal(state: Option<&Path>, args: ConfirmGoalArgs) -> Result<ExitC
     const COMMAND: &str = "goal confirm-goal";
     flags_only(args.input_json, "goal confirm-goal --input-json")?;
     let input = ConfirmGoal {
+        actor: crate::actor::chosen(),
         goal_id: GoalId(flag(COMMAND, "--goal-id", args.goal_id)?),
     };
     let mut generated = Generated::new(crate::state::open(state)?);
@@ -98,6 +100,11 @@ pub fn confirm_goal(state: Option<&Path>, args: ConfirmGoalArgs) -> Result<ExitC
     kept(COMMAND, &generated.ports)?;
     match outcome {
         ConfirmGoalOutcome::Confirmed { .. } => Ok(ExitCode::SUCCESS),
+        ConfirmGoalOutcome::AgentActor { error } => refused(
+            COMMAND,
+            "ActorNotHuman",
+            &crate::actor::not_human(&error.actor),
+        ),
         ConfirmGoalOutcome::InvalidGoalId { error } => {
             refused(COMMAND, "InvalidGoalId", &invalid_goal_id(&error.goal_id))
         }
@@ -126,6 +133,7 @@ pub fn mark_goal_met(state: Option<&Path>, args: MarkGoalMetArgs) -> Result<Exit
     const COMMAND: &str = "goal mark-goal-met";
     flags_only(args.input_json, "goal mark-goal-met --input-json")?;
     let input = MarkGoalMet {
+        actor: crate::actor::chosen(),
         goal_id: GoalId(flag(COMMAND, "--goal-id", args.goal_id)?),
         evidence: flag(COMMAND, "--evidence", args.evidence)?,
     };
@@ -164,6 +172,7 @@ pub fn drop_goal(state: Option<&Path>, args: DropGoalArgs) -> Result<ExitCode> {
     const COMMAND: &str = "goal drop-goal";
     flags_only(args.input_json, "goal drop-goal --input-json")?;
     let input = DropGoal {
+        actor: crate::actor::chosen(),
         goal_id: GoalId(flag(COMMAND, "--goal-id", args.goal_id)?),
         reason: flag(COMMAND, "--reason", args.reason)?,
     };
@@ -174,6 +183,11 @@ pub fn drop_goal(state: Option<&Path>, args: DropGoalArgs) -> Result<ExitCode> {
     kept(COMMAND, &generated.ports)?;
     match outcome {
         DropGoalOutcome::Dropped { .. } => Ok(ExitCode::SUCCESS),
+        DropGoalOutcome::AgentActor { error } => refused(
+            COMMAND,
+            "ActorNotHuman",
+            &crate::actor::not_human(&error.actor),
+        ),
         DropGoalOutcome::InvalidGoalId { error } => {
             refused(COMMAND, "InvalidGoalId", &invalid_goal_id(&error.goal_id))
         }
@@ -204,6 +218,7 @@ pub fn add_serving(state: Option<&Path>, args: AddServingArgs) -> Result<ExitCod
     const COMMAND: &str = "goal add-serving";
     flags_only(args.input_json, "goal add-serving --input-json")?;
     let input = AddServing {
+        actor: crate::actor::chosen(),
         goal_id: GoalId(flag(COMMAND, "--goal-id", args.goal_id)?),
         repository: RepositoryName(flag(COMMAND, "--repository", args.repository)?),
     };
@@ -246,6 +261,7 @@ pub fn remove_serving(state: Option<&Path>, args: RemoveServingArgs) -> Result<E
     const COMMAND: &str = "goal remove-serving";
     flags_only(args.input_json, "goal remove-serving --input-json")?;
     let input = RemoveServing {
+        actor: crate::actor::chosen(),
         serving_id: ServingId(Uuid(flag(COMMAND, "--serving-id", args.serving_id)?)),
         reason: flag(COMMAND, "--reason", args.reason)?,
     };
@@ -289,13 +305,14 @@ pub fn goals(state: Option<&std::path::Path>, view: ViewArgs) -> Result<ExitCode
     use serde_json::Value;
 
     /// The view's fields, in the specification's order (`spec/domains/direction.yaml`).
-    const COLUMNS: [&str; 6] = [
+    const COLUMNS: [&str; 7] = [
         "goal_id",
         "state",
         "title",
         "exit_evidence",
         "evidence",
         "reason",
+        "actor",
     ];
 
     /// The state's name as the specification spells it. Exhaustive, so a state the specification
@@ -323,6 +340,7 @@ pub fn goals(state: Option<&std::path::Path>, view: ViewArgs) -> Result<ExitCode
                 Value::from(row.exit_evidence),
                 Value::from(row.evidence),
                 Value::from(row.reason),
+                Value::from(crate::actor::written(&row.actor)),
             ]
         })
         .collect();
@@ -340,7 +358,7 @@ pub fn goals(state: Option<&std::path::Path>, view: ViewArgs) -> Result<ExitCode
 /// output.
 pub fn goal_servings(state: Option<&Path>, view: ViewArgs) -> Result<ExitCode> {
     /// The view's fields, in the specification's order (`spec/domains/direction.yaml`).
-    const COLUMNS: [&str; 4] = ["serving_id", "state", "goal_id", "repository"];
+    const COLUMNS: [&str; 5] = ["serving_id", "state", "goal_id", "repository", "actor"];
 
     /// The state's name as the specification spells it. Exhaustive, so a state the specification
     /// adds fails to compile here rather than rendering under a guessed name.
@@ -363,6 +381,7 @@ pub fn goal_servings(state: Option<&Path>, view: ViewArgs) -> Result<ExitCode> {
                 Value::from(state_name(row.state)),
                 Value::from(row.goal_id.0),
                 Value::from(row.repository.0),
+                Value::from(crate::actor::written(&row.actor)),
             ]
         })
         .collect();
@@ -397,6 +416,7 @@ fn admitted(goal: &GoalId) -> Result<bool> {
 
     let outcome = Generated::new(NoGoals)
         .confirm_goal(ConfirmGoal {
+            actor: crate::actor::human(),
             goal_id: goal.clone(),
         })
         .map_err(|unmet| anyhow!("goal add-serving: check the goal id: {unmet}"))?;
@@ -525,6 +545,53 @@ impl TryContext for Ports {
         _outcome: &'static str,
     ) -> Result<bool, UnmetObligation> {
         Err(conductor_model::behaviour::unmet_context(command.name()))
+    }
+
+    // The v1 domains' generated values (`story:spec-v1`): no command this handler runs
+    // generates one.
+
+    fn try_generate_conductor_config_revision_id(
+        &mut self,
+    ) -> Result<conductor_model::config::RevisionId, UnmetObligation> {
+        Err(conductor_model::behaviour::unmet_context(
+            "conductor.config.RevisionId",
+        ))
+    }
+
+    fn try_generate_conductor_instance_reconciliation_id(
+        &mut self,
+    ) -> Result<conductor_model::instance::ReconciliationId, UnmetObligation> {
+        Err(conductor_model::behaviour::unmet_context(
+            "conductor.instance.ReconciliationId",
+        ))
+    }
+
+    fn try_generate_conductor_placement_box_id(
+        &mut self,
+    ) -> Result<conductor_model::placement::BoxId, UnmetObligation> {
+        Err(conductor_model::behaviour::unmet_context(
+            "conductor.placement.BoxId",
+        ))
+    }
+
+    fn try_generate_conductor_placement_refusal_reason(
+        &mut self,
+    ) -> Result<conductor_model::placement::RefusalReason, UnmetObligation> {
+        Err(conductor_model::behaviour::unmet_context(
+            "conductor.placement.RefusalReason",
+        ))
+    }
+
+    fn try_generate_conductor_token_token_id(
+        &mut self,
+    ) -> Result<conductor_model::token::TokenId, UnmetObligation> {
+        Err(conductor_model::behaviour::unmet_context(
+            "conductor.token.TokenId",
+        ))
+    }
+
+    fn try_generate_string(&mut self) -> Result<String, UnmetObligation> {
+        Err(conductor_model::behaviour::unmet_context("String"))
     }
 }
 

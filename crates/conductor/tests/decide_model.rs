@@ -418,7 +418,7 @@ fn claude_print_takes_the_conductor_roles_model_else_the_controllers() {
     let conductor = instance
         .roles
         .iter()
-        .find(|role| config::is_role(&role.role, conductor_model::config::RoleName::Director))
+        .find(|role| config::is_role(&role.role, conductor_cli::config::BuiltInRole::Director))
         .expect("the scratch instance has a conductor role")
         .model
         .0
@@ -431,11 +431,11 @@ fn claude_print_takes_the_conductor_roles_model_else_the_controllers() {
     );
     instance
         .roles
-        .retain(|role| !config::is_role(&role.role, conductor_model::config::RoleName::Director));
+        .retain(|role| !config::is_role(&role.role, conductor_cli::config::BuiltInRole::Director));
     let controller = instance
         .roles
         .iter()
-        .find(|role| config::is_role(&role.role, conductor_model::config::RoleName::Lead))
+        .find(|role| config::is_role(&role.role, conductor_cli::config::BuiltInRole::Lead))
         .expect("the scratch instance has a controller role")
         .model
         .0

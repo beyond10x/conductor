@@ -160,6 +160,7 @@ impl Case {
     fn complete(&self, started_at: &str, repositories: usize, per: usize) {
         let store = store::open(&self.state()).expect("open the store");
         let start = StartSnapshot {
+            actor: conductor_cli::actor::daemon(),
             started_at: Timestamp(started_at.to_owned()),
             disk_free_bytes: 1_000_000,
             budget: None,
@@ -179,6 +180,7 @@ fn fixture(repositories: usize, per: usize) -> Collector {
         for index in 0..repositories {
             let repository = RepositoryName(format!("repo-{index:02}"));
             record.repository(RecordRepository {
+                actor: conductor_cli::actor::daemon(),
                 snapshot_id: snapshot.clone(),
                 repository: repository.clone(),
                 visibility: Visibility::Public,
@@ -207,6 +209,7 @@ fn fixture(repositories: usize, per: usize) -> Collector {
             for number in 0..per {
                 let number = i64::try_from(number + 1).expect("a small number");
                 record.pull_request(RecordPullRequest {
+                    actor: conductor_cli::actor::daemon(),
                     snapshot_id: snapshot.clone(),
                     repository: repository.clone(),
                     number,
@@ -222,6 +225,7 @@ fn fixture(repositories: usize, per: usize) -> Collector {
                     )),
                 })?;
                 record.workflow_run(RecordWorkflowRun {
+                    actor: conductor_cli::actor::daemon(),
                     snapshot_id: snapshot.clone(),
                     repository: repository.clone(),
                     workflow: format!("workflow-{number}"),
@@ -229,6 +233,7 @@ fn fixture(repositories: usize, per: usize) -> Collector {
                     run_at: at(index),
                 })?;
                 record.release(RecordRelease {
+                    actor: conductor_cli::actor::daemon(),
                     snapshot_id: snapshot.clone(),
                     repository: repository.clone(),
                     tag: format!("v1.0.{number}"),
@@ -238,6 +243,7 @@ fn fixture(repositories: usize, per: usize) -> Collector {
                     ),
                 })?;
                 record.merged_pull_request(RecordMergedPullRequest {
+                    actor: conductor_cli::actor::daemon(),
                     snapshot_id: snapshot.clone(),
                     repository: repository.clone(),
                     number: 1000 + number,
@@ -250,6 +256,7 @@ fn fixture(repositories: usize, per: usize) -> Collector {
                 })?;
             }
             record.blocker(RecordBlocker {
+                actor: conductor_cli::actor::daemon(),
                 snapshot_id: snapshot.clone(),
                 repository: repository.clone(),
                 reference: format!("blocker:{index}"),
@@ -257,6 +264,7 @@ fn fixture(repositories: usize, per: usize) -> Collector {
                 title: "Which token".to_owned(),
             })?;
             record.specification(RecordSpecification {
+                actor: conductor_cli::actor::daemon(),
                 snapshot_id: snapshot.clone(),
                 repository,
                 presence: SpecificationPresence::Present,

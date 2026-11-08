@@ -93,6 +93,7 @@ impl DecisionStorage for Store {
 fn encode_decision(decision: &DecisionSnapshot) -> Value {
     let data = &decision.data;
     json!({
+        "actor": crate::actor::to_json(&data.actor),
         "state": decision_state_name(decision.state),
         "decision_id": data.decision_id.0,
         "decision_class": class_name(data.decision_class),
@@ -115,6 +116,7 @@ fn decode_decision(body: &Value) -> Result<DecisionSnapshot, String> {
     Ok(DecisionSnapshot {
         state: named(body, "state", decision_state_named)?,
         data: DecisionData {
+            actor: crate::actor::stored(body)?,
             decision_id: DecisionId(text(body, "decision_id")?),
             decision_class: named(body, "decision_class", class_named)?,
             decided_by: named(body, "decided_by", decider_named)?,
@@ -163,6 +165,7 @@ impl DecisionRequestStorage for Store {
 fn encode_request(request: &DecisionRequestSnapshot) -> Value {
     let data = &request.data;
     json!({
+        "actor": crate::actor::to_json(&data.actor),
         "state": request_state_name(request.state),
         "request_id": data.request_id.0,
         "repository": data.repository.0,
@@ -191,6 +194,7 @@ fn decode_request(body: &Value) -> Result<DecisionRequestSnapshot, String> {
     Ok(DecisionRequestSnapshot {
         state: named(body, "state", request_state_named)?,
         data: DecisionRequestData {
+            actor: crate::actor::stored(body)?,
             request_id: RequestId(text(body, "request_id")?),
             repository: RepositoryName(text(body, "repository")?),
             question: text(body, "question")?,

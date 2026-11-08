@@ -216,11 +216,6 @@ callables:
     input: conductor.host.ShowGrants
     result: String
     errors: {}
-  host-slices:
-    target: {kind: local, owner: conductor-cli, action: host_slices}
-    input: conductor.host.ListSlices
-    result: List<conductor.host.SliceRow>
-    errors: {}
   gc-reclaim:
     target: {kind: local, owner: conductor-cli, action: gc_reclaim}
     input: conductor.host.ReclaimDisk
@@ -235,6 +230,61 @@ callables:
   run:
     target: {kind: local, owner: conductor-cli, action: run}
     input: conductor.session.RunDaemon
+    result: String
+    errors: {}
+  daemon-serve:
+    target: {kind: local, owner: conductor-cli, action: daemon_serve}
+    input: null
+    result: String
+    errors: {}
+  instance-serve:
+    target: {kind: local, owner: conductor-cli, action: instance_serve}
+    input: null
+    result: String
+    errors: {}
+  agent-start:
+    target: {kind: local, owner: conductor-cli, action: agent_start}
+    input: null
+    result: String
+    errors: {}
+  agent-deliver:
+    target: {kind: local, owner: conductor-cli, action: agent_deliver}
+    input: null
+    result: String
+    errors: {}
+  agent-attach:
+    target: {kind: local, owner: conductor-cli, action: agent_attach}
+    input: null
+    result: String
+    errors: {}
+  agent-stop:
+    target: {kind: local, owner: conductor-cli, action: agent_stop}
+    input: null
+    result: String
+    errors: {}
+  join:
+    target: {kind: local, owner: conductor-cli, action: join}
+    input: null
+    result: String
+    errors: {}
+  leave:
+    target: {kind: local, owner: conductor-cli, action: leave}
+    input: null
+    result: String
+    errors: {}
+  login:
+    target: {kind: local, owner: conductor-cli, action: login}
+    input: null
+    result: String
+    errors: {}
+  secret-put:
+    target: {kind: local, owner: conductor-cli, action: secret_put}
+    input: null
+    result: String
+    errors: {}
+  tui:
+    target: {kind: local, owner: conductor-cli, action: tui}
+    input: null
     result: String
     errors: {}
 commands:
@@ -332,6 +382,8 @@ commands:
         source: {kind: option, long: format}
       - field: instance
         source: {kind: option, long: instance}
+      - field: effective
+        source: {kind: option, long: effective}
   - path: [config, workspace]
     callable: config-workspace
     about: Write the instance's workspace file from its config; --check names each difference
@@ -504,14 +556,6 @@ commands:
     arguments:
       - field: day
         source: {kind: option, long: day}
-  - path: [host, slices]
-    callable: host-slices
-    about: List each systemd user slice of conductor, conductor.slice or conductor_<prefix>.slice, with its unit count and the instance of the config file it belongs to; --gc stops each empty slice no instance names, and never one that still holds a unit
-    arguments:
-      - field: format
-        source: {kind: option, long: format}
-      - field: gc
-        source: {kind: option, long: gc}
   - path: [host, reclaim]
     callable: gc-reclaim
     about: Free what needs no decision until free disk is back over the floor, printing each step with the bytes it freed; exit 1 listing what is left by path and size when the floor is not reached
@@ -534,3 +578,47 @@ commands:
         source: {kind: option, long: uninstall}
       - field: commit_records
         source: {kind: option, long: commit-records}
+  - path: [daemon, serve]
+    callable: daemon-serve
+    about: Run conductord, the daemon of the control host, reconciling every instance of the config file and serving the global API; not written yet, exits 2
+    arguments: []
+  - path: [instance, serve]
+    callable: instance-serve
+    about: Run one instance's runtime in its box, its loop, its agents and the instance API; not written yet, exits 2
+    arguments: []
+  - path: [agent, start]
+    callable: agent-start
+    about: Start the agent of a role slot through the instance API; not written yet, exits 2
+    arguments: []
+  - path: [agent, deliver]
+    callable: agent-deliver
+    about: Deliver a text to a running agent through the instance API; not written yet, exits 2
+    arguments: []
+  - path: [agent, attach]
+    callable: agent-attach
+    about: Attach this terminal to an interactive agent through the instance API; not written yet, exits 2
+    arguments: []
+  - path: [agent, stop]
+    callable: agent-stop
+    about: Stop a running agent through the instance API; not written yet, exits 2
+    arguments: []
+  - path: [join]
+    callable: join
+    about: Join an instance of a daemon as one of its operators and contribute a token to its pool; not written yet, exits 2
+    arguments: []
+  - path: [leave]
+    callable: leave
+    about: Leave an instance of a daemon and withdraw the token contributed to its pool; not written yet, exits 2
+    arguments: []
+  - path: [login]
+    callable: login
+    about: Obtain an Identity bearer for a daemon's API and keep it in this client's keychain; not written yet, exits 2
+    arguments: []
+  - path: [secret, put]
+    callable: secret-put
+    about: Put a secret's value into the daemon's secrets source under the name the config writes; not written yet, exits 2
+    arguments: []
+  - path: [tui]
+    callable: tui
+    about: Open the terminal UI over the daemon's global API; not written yet, exits 2
+    arguments: []

@@ -73,6 +73,7 @@ fn open(state: &Path) -> Generated<Store> {
 fn propose(generated: &mut Generated<Store>, goal: &str, title: &str) -> ProposeGoalOutcome {
     generated
         .propose_goal(ProposeGoal {
+            actor: conductor_cli::actor::operator("operator"),
             goal_id: id(goal),
             title: title.to_owned(),
             exit_evidence: format!("evidence for {goal}"),
@@ -223,6 +224,7 @@ fn adv_w05_the_guard_decisions_command_lists_the_decisions_beside_an_unreadable_
             GuardDecisionSnapshot {
                 state: GuardDecisionState::Recorded,
                 data: GuardDecisionData {
+                    actor: conductor_cli::actor::daemon(),
                     guard_decision_id: GuardDecisionId(Uuid(readable.to_owned())),
                     repository: RepositoryName("delta".to_owned()),
                     session_ref: "s1".to_owned(),
@@ -434,6 +436,7 @@ fn adv_w05_two_handles_inside_a_runtime_keep_exists_and_moved() {
             GoalSnapshot {
                 state: GoalState::Draft,
                 data: GoalData {
+                    actor: conductor_cli::actor::operator("operator"),
                     goal_id: id("G1"),
                     title: "From the second handle".to_owned(),
                     exit_evidence: "e".to_owned(),
@@ -451,7 +454,10 @@ fn adv_w05_two_handles_inside_a_runtime_keep_exists_and_moved() {
         let mut third = open(&state);
         let held = GoalStorage::get(&third.ports, &id("G1")).expect("third reads G1");
         let confirmed = first
-            .confirm_goal(ConfirmGoal { goal_id: id("G1") })
+            .confirm_goal(ConfirmGoal {
+                actor: conductor_cli::actor::operator("operator"),
+                goal_id: id("G1"),
+            })
             .expect("ConfirmGoal decides an outcome");
         assert!(matches!(confirmed, ConfirmGoalOutcome::Confirmed { .. }));
         first.ports.check().expect("the confirmation is kept");
@@ -513,6 +519,7 @@ fn adv_w05_every_other_view_lists_its_readable_row_and_names_each_unreadable_rec
             GoalServingSnapshot {
                 state: GoalServingState::Serving,
                 data: GoalServingData {
+                    actor: conductor_cli::actor::operator("operator"),
                     serving_id: ServingId(Uuid(readable.to_owned())),
                     goal_id: id("G1"),
                     repository: RepositoryName("delta".to_owned()),
@@ -524,6 +531,7 @@ fn adv_w05_every_other_view_lists_its_readable_row_and_names_each_unreadable_rec
             ResourceRequestSnapshot {
                 state: ResourceRequestState::Requested,
                 data: ResourceRequestData {
+                    actor: conductor_cli::actor::daemon(),
                     resource_request_id: ResourceRequestId(Uuid(readable.to_owned())),
                     repository: RepositoryName("delta".to_owned()),
                     resource: ResourceKind::BuildSlot,
@@ -537,6 +545,7 @@ fn adv_w05_every_other_view_lists_its_readable_row_and_names_each_unreadable_rec
             ControllerSnapshot {
                 state: ControllerState::Running,
                 data: ControllerData {
+                    actor: conductor_cli::actor::daemon(),
                     controller_id: ControllerId(Uuid(readable.to_owned())),
                     repository: RepositoryName("delta".to_owned()),
                     harness: Harness::Claude,
@@ -698,6 +707,7 @@ fn adv_w05_a_get_on_an_id_no_stream_can_carry_answers_absent_on_every_port() {
             GoalSnapshot {
                 state: GoalState::Draft,
                 data: GoalData {
+                    actor: conductor_cli::actor::operator("operator"),
                     goal_id: id("G1"),
                     title: "After".to_owned(),
                     exit_evidence: "e".to_owned(),

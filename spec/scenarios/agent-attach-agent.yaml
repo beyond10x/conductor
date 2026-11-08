@@ -1,0 +1,50 @@
+# docs/design/architecture-next.md § 5.1: the `agents/{name}/attach` route; an operator attaches
+# to an interactive agent's PTY, read-only with `watch`, and the agent is unchanged.
+# The runtime's own commands (declaring its kinds, a stop it observed) carry `{kind: Daemon}`;
+# a start names the operator a single host implies (§ 5.3), who asked for it.
+type: ess-scenario/1
+domain: conductor.agent
+scenario: agent-attach-agent
+summary: An operator attaches read-only to a running claude-code agent; the agent stays running as it was.
+
+timeline:
+  - at: 2026-11-08T09:00:00Z
+    command: conductor.agent.DeclareAgentKind
+    actor: conductor.agent.InstanceRuntime
+    input:
+      actor: {kind: Daemon}
+      name: claude-code
+      capabilities: [Interactive]
+      binary: claude
+    outcome: declared
+
+  - at: 2026-11-08T09:01:00Z
+    command: conductor.agent.StartAgent
+    actor: conductor.agent.InstanceRuntime
+    input:
+      actor: {kind: Human, operator: example-operator}
+      name: example-org-director
+      instance: example-org
+      role: Director
+      kind: claude-code
+      capabilities: [Interactive]
+      profile: ~/.b10x/conductor/profiles/repo-controller.md
+      limits: {tasks_max: 512}
+      token_owner: example-operator
+      started_at: 2026-11-08T09:01:00Z
+    outcome: started
+
+  - at: 2026-11-08T09:05:00Z
+    command: conductor.agent.AttachAgent
+    actor: conductor.agent.Operator
+    input:
+      actor: {kind: Human, operator: example-operator}
+      name: example-org-director
+      watch: true
+    outcome: attached
+
+assert:
+  - view: conductor.agent.Agents
+    contains:
+      name: example-org-director
+      state: Running

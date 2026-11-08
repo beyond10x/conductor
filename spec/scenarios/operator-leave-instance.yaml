@@ -1,0 +1,52 @@
+type: ess-scenario/1
+domain: conductor.operator
+scenario: operator-leave-instance
+summary: An operator leaves the instance and the record stays, Left, with who and when; leaving again is refused, and so is leaving an instance never joined.
+
+timeline:
+  - at: 2026-11-08T09:00:00Z
+    command: conductor.operator.JoinInstance
+    actor: conductor.operator.Engineer
+    input:
+      actor: {kind: Human, operator: operator-one}
+      key: {operator: operator-one, instance: example-org}
+      grants: [AnswerDecisions]
+      joined_at: 2026-11-08T09:00:00Z
+    outcome: joined
+
+  - at: 2026-11-08T17:00:00Z
+    command: conductor.operator.LeaveInstance
+    actor: conductor.operator.Engineer
+    input:
+      actor: {kind: Human, operator: operator-one}
+      key: {operator: operator-one, instance: example-org}
+      left_at: 2026-11-08T17:00:00Z
+    outcome: left
+
+  - at: 2026-11-08T17:05:00Z
+    command: conductor.operator.LeaveInstance
+    actor: conductor.operator.Engineer
+    input:
+      actor: {kind: Human, operator: operator-one}
+      key: {operator: operator-one, instance: example-org}
+      left_at: 2026-11-08T17:05:00Z
+    outcome: not-joined
+    error: {name: conductor.operator.NotJoined}
+
+  - at: 2026-11-08T17:10:00Z
+    command: conductor.operator.LeaveInstance
+    actor: conductor.operator.Engineer
+    input:
+      actor: {kind: Human, operator: operator-two}
+      key: {operator: operator-two, instance: example-org}
+      left_at: 2026-11-08T17:10:00Z
+    outcome: unknown-operator
+    error: {name: conductor.operator.NotJoined}
+
+assert:
+  - view: conductor.operator.Operators
+    contains:
+      key: {operator: operator-one, instance: example-org}
+      state: Left
+      left_at: 2026-11-08T17:00:00Z
+      left_by: {kind: Human, operator: operator-one}

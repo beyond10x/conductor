@@ -8,6 +8,7 @@ timeline:
     command: conductor.session.ClaimLease
     actor: conductor.session.Conductor
     input:
+      actor: {kind: Agent, agent: {instance: example-org, role: Director, name: example-org-conductor, kind: claude-code}}
       instance: example-org
       session_id: session-one
       pid: 4100
@@ -18,6 +19,7 @@ timeline:
     command: conductor.session.ClaimLease
     actor: conductor.session.Conductor
     input:
+      actor: {kind: Agent, agent: {instance: example-org, role: Director, name: example-org-conductor, kind: claude-code}}
       instance: example-org
       session_id: session-one-cleared
       pid: 4100
@@ -28,6 +30,7 @@ timeline:
     command: conductor.session.ClaimLease
     actor: conductor.session.Conductor
     input:
+      actor: {kind: Agent, agent: {instance: example-org, role: Director, name: example-org-conductor, kind: claude-code}}
       instance: example-org
       session_id: session-two
       pid: 4200

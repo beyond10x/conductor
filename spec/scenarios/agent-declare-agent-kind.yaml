@@ -1,0 +1,42 @@
+# docs/design/architecture-next.md § 7: the instance runtime records each kind its binary
+# implements when it comes up; a second declaration of the same kind records what the binary says
+# now.
+# The runtime declares on its own account, so the actor is `{kind: Daemon}`.
+type: ess-scenario/1
+domain: conductor.agent
+scenario: agent-declare-agent-kind
+summary: The runtime declares claude-code as interactive, and a second declaration after a restart of the runtime keeps one kind with what the binary says now.
+
+timeline:
+  - at: 2026-11-08T09:00:00Z
+    command: conductor.agent.DeclareAgentKind
+    actor: conductor.agent.InstanceRuntime
+    input:
+      actor: {kind: Daemon}
+      name: claude-code
+      capabilities: [Interactive]
+      binary: claude
+    outcome: declared
+    events:
+      - event: conductor.agent.AgentKindDeclared
+        payload:
+          name: claude-code
+          binary: claude
+
+  - at: 2026-11-08T10:00:00Z
+    command: conductor.agent.DeclareAgentKind
+    actor: conductor.agent.InstanceRuntime
+    input:
+      actor: {kind: Daemon}
+      name: claude-code
+      capabilities: [Interactive]
+      binary: ~/.local/bin/claude
+    outcome: redeclared
+
+assert:
+  - view: conductor.agent.AgentKinds
+    contains:
+      name: claude-code
+      state: Available
+      capabilities: [Interactive]
+      binary: ~/.local/bin/claude

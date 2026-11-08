@@ -95,6 +95,7 @@ fn everything() -> Collector {
         let snapshot = record.snapshot().clone();
         let alpha = RepositoryName("alpha".to_owned());
         record.repository(RecordRepository {
+            actor: conductor_cli::actor::daemon(),
             snapshot_id: snapshot.clone(),
             repository: alpha.clone(),
             visibility: Visibility::Public,
@@ -121,6 +122,7 @@ fn everything() -> Collector {
             wave_reason: None,
         })?;
         record.pull_request(RecordPullRequest {
+            actor: conductor_cli::actor::daemon(),
             snapshot_id: snapshot.clone(),
             repository: alpha.clone(),
             number: 7,
@@ -134,6 +136,7 @@ fn everything() -> Collector {
             url: None,
         })?;
         record.workflow_run(RecordWorkflowRun {
+            actor: conductor_cli::actor::daemon(),
             snapshot_id: snapshot.clone(),
             repository: alpha.clone(),
             workflow: "check".to_owned(),
@@ -141,6 +144,7 @@ fn everything() -> Collector {
             run_at: Timestamp("2026-10-02T00:00:00Z".to_owned()),
         })?;
         record.session(RecordSession {
+            actor: conductor_cli::actor::daemon(),
             snapshot_id: snapshot.clone(),
             harness: Harness::Claude,
             session_ref: "session-1".to_owned(),
@@ -158,6 +162,7 @@ fn everything() -> Collector {
             envelope_unboxed: None,
         })?;
         record.blocker(RecordBlocker {
+            actor: conductor_cli::actor::daemon(),
             snapshot_id: snapshot,
             repository: alpha,
             reference: "blocker:one".to_owned(),

@@ -647,6 +647,7 @@ fn the_app_fixture_has_the_keys_data_json_serves() {
     ]);
     let store = conductor_cli::store::open(&case.store_dir()).expect("open the store");
     let begin = conductor_model::observation::StartSnapshot {
+        actor: conductor_cli::actor::daemon(),
         started_at: conductor_model::primitives::Timestamp(rfc3339(
             OffsetDateTime::now_utc() - Duration::from_secs(600),
         )),
@@ -1705,6 +1706,7 @@ mod health_view {
         Collector::new("blockers", move |recorder| {
             let snapshot_id = recorder.snapshot().clone();
             recorder.member_failure(RecordMemberFailure {
+                actor: conductor_cli::actor::daemon(),
                 snapshot_id,
                 member: RepositoryName("beta".to_owned()),
                 collector: "blockers".to_owned(),

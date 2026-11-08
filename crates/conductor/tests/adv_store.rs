@@ -69,6 +69,7 @@ fn propose_with(
 ) -> ProposeGoalOutcome {
     generated
         .propose_goal(ProposeGoal {
+            actor: conductor_cli::actor::operator("operator"),
             goal_id: id(goal),
             title: title.to_owned(),
             exit_evidence: exit_evidence.to_owned(),
@@ -218,12 +219,16 @@ fn adv_a_reopened_store_answers_each_goals_latest_state() {
     }
     for goal in ["G1", "G3"] {
         let outcome = generated
-            .confirm_goal(ConfirmGoal { goal_id: id(goal) })
+            .confirm_goal(ConfirmGoal {
+                actor: conductor_cli::actor::operator("operator"),
+                goal_id: id(goal),
+            })
             .expect("ConfirmGoal decides an outcome");
         assert!(matches!(outcome, ConfirmGoalOutcome::Confirmed { .. }));
     }
     let met = generated
         .mark_goal_met(MarkGoalMet {
+            actor: conductor_cli::actor::operator("operator"),
             goal_id: id("G1"),
             evidence: "it holds".to_owned(),
         })
@@ -231,6 +236,7 @@ fn adv_a_reopened_store_answers_each_goals_latest_state() {
     assert!(matches!(met, MarkGoalMetOutcome::Met { .. }));
     let dropped = generated
         .drop_goal(DropGoal {
+            actor: conductor_cli::actor::operator("operator"),
             goal_id: id("G2"),
             reason: "not needed".to_owned(),
         })
@@ -251,7 +257,10 @@ fn adv_a_reopened_store_answers_each_goals_latest_state() {
     );
     // An earlier snapshot is never answered again: G1 is Met, so confirming it is refused.
     let again = reopened
-        .confirm_goal(ConfirmGoal { goal_id: id("G1") })
+        .confirm_goal(ConfirmGoal {
+            actor: conductor_cli::actor::operator("operator"),
+            goal_id: id("G1"),
+        })
         .expect("ConfirmGoal decides an outcome");
     assert!(
         matches!(again, ConfirmGoalOutcome::WrongState { .. }),
@@ -270,7 +279,10 @@ fn adv_goals_keep_the_order_they_were_proposed_in() {
         propose(&mut generated, goal, goal);
     }
     generated
-        .confirm_goal(ConfirmGoal { goal_id: id("G1") })
+        .confirm_goal(ConfirmGoal {
+            actor: conductor_cli::actor::operator("operator"),
+            goal_id: id("G1"),
+        })
         .expect("ConfirmGoal decides an outcome");
     let expected = vec![
         row("G3", GoalState::Draft, "G3"),
@@ -428,7 +440,10 @@ fn adv_every_goal_id_the_specification_admits_is_kept() {
             "{what}: ProposeGoal refuses it: {outcome:?}"
         );
         let confirmed = generated
-            .confirm_goal(ConfirmGoal { goal_id: id(goal) })
+            .confirm_goal(ConfirmGoal {
+                actor: conductor_cli::actor::operator("operator"),
+                goal_id: id(goal),
+            })
             .expect("ConfirmGoal decides an outcome");
         assert!(
             matches!(&confirmed, ConfirmGoalOutcome::InvalidGoalId { error } if error.goal_id == id(goal)),
@@ -436,6 +451,7 @@ fn adv_every_goal_id_the_specification_admits_is_kept() {
         );
         let met = generated
             .mark_goal_met(MarkGoalMet {
+                actor: conductor_cli::actor::operator("operator"),
                 goal_id: id(goal),
                 evidence: "evidence".to_owned(),
             })
@@ -446,6 +462,7 @@ fn adv_every_goal_id_the_specification_admits_is_kept() {
         );
         let dropped = generated
             .drop_goal(DropGoal {
+                actor: conductor_cli::actor::operator("operator"),
                 goal_id: id(goal),
                 reason: "reason".to_owned(),
             })
@@ -519,7 +536,10 @@ fn adv_a_long_lived_handle_sees_and_respects_another_handles_writes() {
 
     let held = GoalStorage::get(&early.ports, &id("G1")).expect("early reads G1");
     let confirmed = other
-        .confirm_goal(ConfirmGoal { goal_id: id("G1") })
+        .confirm_goal(ConfirmGoal {
+            actor: conductor_cli::actor::operator("operator"),
+            goal_id: id("G1"),
+        })
         .expect("ConfirmGoal decides an outcome");
     assert!(matches!(confirmed, ConfirmGoalOutcome::Confirmed { .. }));
     other.ports.check().expect("the confirmation is kept");

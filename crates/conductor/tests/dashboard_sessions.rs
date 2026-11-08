@@ -535,6 +535,7 @@ fn a_usage_line_shows_while_its_limit_is_in_force_and_context_lines_are_the_inst
 fn snapshot(case: &Case, started_at: OffsetDateTime) {
     let store = conductor_cli::store::open(&case.state()).expect("open the store");
     let start = conductor_model::observation::StartSnapshot {
+        actor: conductor_cli::actor::daemon(),
         started_at: conductor_model::primitives::Timestamp(rfc3339(started_at)),
         disk_free_bytes: 1_000_000,
         budget: None,

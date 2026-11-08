@@ -287,6 +287,7 @@ fn take_reviews(state: &Path, waiting: &[(String, i64)]) {
             })?;
             for number in 1..=*count {
                 recorder.pull_request(RecordPullRequest {
+                    actor: conductor_cli::actor::daemon(),
                     snapshot_id: snapshot.clone(),
                     repository: RepositoryName(repository.clone()),
                     number,
@@ -305,6 +306,7 @@ fn take_reviews(state: &Path, waiting: &[(String, i64)]) {
     });
     let store = store::open(state).expect("open the case's store");
     let start = StartSnapshot {
+        actor: conductor_cli::actor::daemon(),
         started_at: Timestamp("2026-10-17T08:00:00Z".to_owned()),
         disk_free_bytes: PLENTY.try_into().unwrap_or(i64::MAX),
         budget: None,
@@ -316,6 +318,7 @@ fn take_reviews(state: &Path, waiting: &[(String, i64)]) {
 /// A repository observed active: three real commits in seven days, not archived.
 fn observation(name: &str) -> RecordRepository {
     RecordRepository {
+        actor: conductor_cli::actor::daemon(),
         snapshot_id: SnapshotId(Uuid("00000000-0000-0000-0000-000000000000".to_owned())),
         repository: RepositoryName(name.to_owned()),
         visibility: Visibility::Private,

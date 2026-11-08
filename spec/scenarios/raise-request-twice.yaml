@@ -8,6 +8,7 @@ timeline:
     command: conductor.decision.RaiseDecisionRequest
     actor: conductor.decision.RepositoryController
     input:
+      actor: {kind: Agent, agent: {instance: example-org, role: Lead, name: example-org-lead, kind: claude-code}}
       request_id: REQ-twice
       repository: cortex
       question: Which store backs the pilot?
@@ -20,6 +21,7 @@ timeline:
     command: conductor.decision.RecordConductorDecision
     actor: conductor.decision.Conductor
     input:
+      actor: {kind: Agent, agent: {instance: example-org, role: Director, name: example-org-conductor, kind: claude-code}}
       decision_id: DEC-twice-02
       decision_class: C
       question: Which store backs the pilot?
@@ -34,6 +36,7 @@ timeline:
     command: conductor.decision.AnswerRequest
     actor: conductor.decision.Conductor
     input:
+      actor: {kind: Agent, agent: {instance: example-org, role: Director, name: example-org-conductor, kind: claude-code}}
       request_id: REQ-twice
       decision_id: DEC-twice-02
     outcome: answered
@@ -42,6 +45,7 @@ timeline:
     command: conductor.decision.RaiseDecisionRequest
     actor: conductor.decision.RepositoryController
     input:
+      actor: {kind: Agent, agent: {instance: example-org, role: Lead, name: example-org-lead, kind: claude-code}}
       request_id: REQ-twice
       repository: delta
       question: Asked again

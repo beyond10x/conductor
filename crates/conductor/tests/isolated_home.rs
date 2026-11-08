@@ -364,8 +364,11 @@ fn the_helper_runs_the_binary_on_the_case_s_home_without_either_variable() {
             (OsStr::new(CONFIG_VARIABLE), None),
             (OsStr::new(INSTANCE_VARIABLE), None),
             (OsStr::new("CLAUDE_CODE_SESSION_ID"), None),
+            (OsStr::new("CONDUCTOR_SESSION"), None),
+            (OsStr::new("USER"), Some(OsStr::new("operator"))),
         ]),
-        "the command sets HOME and removes both variables and the harness's session, and nothing \
+        "the command sets HOME and USER and removes both variables, the harness's session and \
+         conductor's, and nothing \
          else"
     );
 

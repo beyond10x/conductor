@@ -34,6 +34,7 @@ fn g9() -> GoalId {
 
 fn propose_g9(title: &str, exit_evidence: &str) -> ProposeGoal {
     ProposeGoal {
+        actor: conductor_cli::actor::operator("operator"),
         goal_id: g9(),
         title: title.to_owned(),
         exit_evidence: exit_evidence.to_owned(),
@@ -42,6 +43,7 @@ fn propose_g9(title: &str, exit_evidence: &str) -> ProposeGoal {
 
 fn g9_draft() -> Goals {
     Goals {
+        actor: conductor_cli::actor::operator("operator"),
         goal_id: g9(),
         state: GoalState::Draft,
         title: "Local store".to_owned(),
@@ -64,6 +66,7 @@ fn a_reopened_store_lists_a_proposed_goal_as_draft_and_refuses_it_again() {
         proposed,
         ProposeGoalOutcome::Proposed {
             goal_proposed: GoalProposed {
+                actor: conductor_cli::actor::operator("operator"),
                 goal_id: g9(),
                 title: "Local store".to_owned(),
             },
@@ -121,6 +124,7 @@ fn the_store_refuses_a_creation_another_handle_made_first() {
 
     // The late handle decided on "absent"; the store holds G9 by now and refuses the write.
     let data = GoalData {
+        actor: conductor_cli::actor::operator("operator"),
         goal_id: g9(),
         title: "Late title".to_owned(),
         exit_evidence: "late evidence".to_owned(),
