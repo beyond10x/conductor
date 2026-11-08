@@ -1438,6 +1438,7 @@ fn a_failed_snapshot_is_not_compared_with() {
     let later = Collector::new("github", |record| {
         let snapshot_id = record.snapshot().clone();
         record.workflow_run(RecordWorkflowRun {
+            actor: conductor_cli::actor::daemon(),
             snapshot_id,
             repository: RepositoryName("alpha".to_owned()),
             workflow: "Gate".to_owned(),

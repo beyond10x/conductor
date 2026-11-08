@@ -69,6 +69,7 @@ impl LeaseStorage for Store {
 fn encode(lease: &LeaseSnapshot) -> Value {
     let data = &lease.data;
     json!({
+        "actor": crate::actor::to_json(&data.actor),
         "state": state_name(lease.state),
         "instance": data.instance.0,
         "session_id": data.session_id.0,
@@ -84,6 +85,7 @@ fn decode(body: &Value) -> Result<LeaseSnapshot, String> {
     Ok(LeaseSnapshot {
         state: state_named(&state).ok_or_else(|| format!("unknown Lease state {state:?}"))?,
         data: LeaseData {
+            actor: crate::actor::stored(body)?,
             instance: InstanceName(text(body, "instance")?),
             session_id: SessionId(text(body, "session_id")?),
             pid: body
@@ -177,6 +179,7 @@ impl DeliveryStorage for Store {
 fn encode_delivery(delivery: &DeliverySnapshot) -> Value {
     let data = &delivery.data;
     json!({
+        "actor": crate::actor::to_json(&data.actor),
         "state": delivery_state_name(delivery.state),
         "delivery_id": data.delivery_id.0.0,
         "session_name": data.session_name.0,
@@ -192,6 +195,7 @@ fn decode_delivery(body: &Value) -> Result<DeliverySnapshot, String> {
         state: delivery_state_named(&state)
             .ok_or_else(|| format!("unknown Delivery state {state:?}"))?,
         data: DeliveryData {
+            actor: crate::actor::stored(body)?,
             delivery_id: DeliveryId(Uuid(text(body, "delivery_id")?)),
             session_name: SessionName(text(body, "session_name")?),
             first_line: text(body, "first_line")?,

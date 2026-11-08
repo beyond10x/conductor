@@ -13,6 +13,7 @@ timeline:
     command: conductor.dispatch.ReceiveMessage
     actor: conductor.dispatch.RepositoryController
     input:
+      actor: {kind: Agent, agent: {instance: example-org, role: Lead, name: example-org-lead, kind: claude-code}}
       sender: cortex
       recipient: conductor
       kind: Report
@@ -27,6 +28,7 @@ timeline:
     command: conductor.dispatch.ReceiveMessage
     actor: conductor.dispatch.RepositoryController
     input:
+      actor: {kind: Agent, agent: {instance: example-org, role: Lead, name: example-org-lead, kind: claude-code}}
       sender: cortex
       recipient: conductor
       kind: Report
@@ -44,6 +46,7 @@ timeline:
     command: conductor.dispatch.ReceiveMessage
     actor: conductor.dispatch.RepositoryController
     input:
+      actor: {kind: Agent, agent: {instance: example-org, role: Lead, name: example-org-lead, kind: claude-code}}
       sender: cortex
       recipient: conductor
       kind: Unknown
@@ -59,6 +62,7 @@ timeline:
     command: conductor.session.DeliverMessage
     actor: conductor.session.Conductor
     input:
+      actor: {kind: Daemon}
       session_name: cortex
       first_line: "[HANDOVER cortex] context 210k"
       body_path: mailbox/cortex/01K7Q0000000000000000000B0.md

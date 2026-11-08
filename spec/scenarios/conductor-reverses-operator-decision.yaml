@@ -11,6 +11,7 @@ timeline:
     command: conductor.decision.RecordOperatorDecision
     actor: conductor.decision.Operator
     input:
+      actor: {kind: Human, operator: example-operator}
       decision_id: DEC-op-1
       decision_class: O
       question: Split the gateway into its own repository
@@ -27,6 +28,7 @@ timeline:
     command: conductor.decision.ReverseConductorDecision
     actor: conductor.decision.Conductor
     input:
+      actor: {kind: Agent, agent: {instance: example-org, role: Director, name: example-org-conductor, kind: claude-code}}
       decision_id: DEC-op-1
       reason: the split costs more than planned
     outcome: operator-decided

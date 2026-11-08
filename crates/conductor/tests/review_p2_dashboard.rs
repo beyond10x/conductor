@@ -25,6 +25,7 @@ fn an_over_budget_forge_does_not_count_open_prs_as_closed() {
     let taken = snapshot::take_from(
         case.store(),
         StartSnapshot {
+            actor: conductor_cli::actor::daemon(),
             started_at: Timestamp(series_fixture::B.to_owned()),
             disk_free_bytes: 1_000_000,
             budget: None,

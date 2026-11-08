@@ -149,6 +149,53 @@ impl TryContext for Ports {
     ) -> Result<bool, UnmetObligation> {
         Err(conductor_model::behaviour::unmet_context(command.name()))
     }
+
+    // The v1 domains' generated values (`story:spec-v1`): no command this handler runs
+    // generates one.
+
+    fn try_generate_conductor_config_revision_id(
+        &mut self,
+    ) -> Result<conductor_model::config::RevisionId, UnmetObligation> {
+        Err(conductor_model::behaviour::unmet_context(
+            "conductor.config.RevisionId",
+        ))
+    }
+
+    fn try_generate_conductor_instance_reconciliation_id(
+        &mut self,
+    ) -> Result<conductor_model::instance::ReconciliationId, UnmetObligation> {
+        Err(conductor_model::behaviour::unmet_context(
+            "conductor.instance.ReconciliationId",
+        ))
+    }
+
+    fn try_generate_conductor_placement_box_id(
+        &mut self,
+    ) -> Result<conductor_model::placement::BoxId, UnmetObligation> {
+        Err(conductor_model::behaviour::unmet_context(
+            "conductor.placement.BoxId",
+        ))
+    }
+
+    fn try_generate_conductor_placement_refusal_reason(
+        &mut self,
+    ) -> Result<conductor_model::placement::RefusalReason, UnmetObligation> {
+        Err(conductor_model::behaviour::unmet_context(
+            "conductor.placement.RefusalReason",
+        ))
+    }
+
+    fn try_generate_conductor_token_token_id(
+        &mut self,
+    ) -> Result<conductor_model::token::TokenId, UnmetObligation> {
+        Err(conductor_model::behaviour::unmet_context(
+            "conductor.token.TokenId",
+        ))
+    }
+
+    fn try_generate_string(&mut self) -> Result<String, UnmetObligation> {
+        Err(conductor_model::behaviour::unmet_context("String"))
+    }
 }
 
 /// The recorded payload `name`, every `~/` value under `home`.
@@ -165,6 +212,7 @@ fn payload(name: &str, home: &Path) -> Vec<u8> {
 /// The `n`th verdict seeded, shaped like the hook's.
 fn verdict(n: usize) -> RecordGuardDecision {
     RecordGuardDecision {
+        actor: conductor_cli::actor::daemon(),
         repository: RepositoryName(".guard-probe-w04".to_owned()),
         session_ref: "00000000-0000-4000-8000-0000000000a1".to_owned(),
         tool: if n.is_multiple_of(2) {

@@ -614,6 +614,7 @@ impl<'s, 'a> Tick<'s, 'a> {
             self.state,
             &self.id,
             RecordRunTick {
+                actor: crate::actor::chosen(),
                 kind: self.kind,
                 started_at: self.started_at,
                 lines_handled: self.lines_handled,
@@ -803,6 +804,7 @@ impl<'s, 'a> Tick<'s, 'a> {
         let id = crate::dispatch::send(
             self.state,
             crate::cli::SendDispatchArgs {
+                actor: None,
                 dispatch_id: None,
                 repository: Some(repo.to_owned()),
                 goal_id: Some(goal),
@@ -864,6 +866,7 @@ impl<'s, 'a> Tick<'s, 'a> {
             crate::controller::stop_controller(
                 self.state,
                 StopControllerArgs {
+                    actor: None,
                     controller_id: Some(held.data.controller_id.0.0),
                     reason: Some(format!("conductor run: {reason}")),
                     input_json: None,
@@ -969,6 +972,7 @@ pub fn record_run_tick(state: Option<&Path>, args: &RecordRunTickArgs) -> Result
         state,
         &id,
         RecordRunTick {
+            actor: crate::actor::chosen(),
             kind,
             started_at,
             lines_handled,
@@ -989,13 +993,14 @@ pub fn record_run_tick(state: Option<&Path>, args: &RecordRunTickArgs) -> Result
 /// There is no store, it does not open, the generated query refuses a row, or the rows cannot be
 /// written.
 pub fn run_ticks(state: Option<&Path>, view: ViewArgs) -> Result<ExitCode> {
-    const COLUMNS: [&str; 6] = [
+    const COLUMNS: [&str; 7] = [
         "tick_id",
         "state",
         "kind",
         "started_at",
         "lines_handled",
         "actions",
+        "actor",
     ];
     let generated = Generated::new(crate::state::open_reader(state)?);
     let rows = generated
@@ -1016,6 +1021,7 @@ pub fn run_ticks(state: Option<&Path>, view: ViewArgs) -> Result<ExitCode> {
                         .map(|event| crate::records::dispatch_event(*event))
                         .collect::<Vec<_>>(),
                 ),
+                Value::from(crate::actor::written(&row.actor)),
             ]
         })
         .collect();
@@ -1124,6 +1130,53 @@ impl TryContext for TickPorts {
         &mut self,
     ) -> Result<conductor_model::tool::ToolCallId, UnmetObligation> {
         Err(unmet_context("conductor.tool.ToolCallId"))
+    }
+
+    // The v1 domains' generated values (`story:spec-v1`): no command this handler runs
+    // generates one.
+
+    fn try_generate_conductor_config_revision_id(
+        &mut self,
+    ) -> Result<conductor_model::config::RevisionId, UnmetObligation> {
+        Err(conductor_model::behaviour::unmet_context(
+            "conductor.config.RevisionId",
+        ))
+    }
+
+    fn try_generate_conductor_instance_reconciliation_id(
+        &mut self,
+    ) -> Result<conductor_model::instance::ReconciliationId, UnmetObligation> {
+        Err(conductor_model::behaviour::unmet_context(
+            "conductor.instance.ReconciliationId",
+        ))
+    }
+
+    fn try_generate_conductor_placement_box_id(
+        &mut self,
+    ) -> Result<conductor_model::placement::BoxId, UnmetObligation> {
+        Err(conductor_model::behaviour::unmet_context(
+            "conductor.placement.BoxId",
+        ))
+    }
+
+    fn try_generate_conductor_placement_refusal_reason(
+        &mut self,
+    ) -> Result<conductor_model::placement::RefusalReason, UnmetObligation> {
+        Err(conductor_model::behaviour::unmet_context(
+            "conductor.placement.RefusalReason",
+        ))
+    }
+
+    fn try_generate_conductor_token_token_id(
+        &mut self,
+    ) -> Result<conductor_model::token::TokenId, UnmetObligation> {
+        Err(conductor_model::behaviour::unmet_context(
+            "conductor.token.TokenId",
+        ))
+    }
+
+    fn try_generate_string(&mut self) -> Result<String, UnmetObligation> {
+        Err(conductor_model::behaviour::unmet_context("String"))
     }
 }
 

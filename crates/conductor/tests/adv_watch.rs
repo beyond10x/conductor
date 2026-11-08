@@ -264,6 +264,7 @@ fn program(bin: &Path, name: &str, script: &str) {
 fn active_snapshot(state: &Path, repository: &'static str) {
     let collector = Collector::new("repositories", move |recorder| {
         recorder.repository(RecordRepository {
+            actor: conductor_cli::actor::daemon(),
             snapshot_id: SnapshotId(Uuid("00000000-0000-0000-0000-000000000000".to_owned())),
             repository: RepositoryName(repository.to_owned()),
             visibility: Visibility::Private,

@@ -1,0 +1,127 @@
+type: ess-http/1
+specification: {system: conductor, version: v1, source_digest: "sha256:1bf286dbd4a2b0e7a7a8448be1f91fb1c6e3328968f4356b5e113bc4f4b9a370"}
+routes:
+  - command: conductor.config.PutConfig
+    method: post
+    path: /v1/config/put-config
+  - command: conductor.instance.ObserveInstance
+    method: post
+    path: /v1/instance/observe
+  - command: conductor.instance.PurgeInstance
+    method: post
+    path: /v1/instance/purge
+  - command: conductor.instance.Reconcile
+    method: post
+    path: /v1/instance/reconcile
+  - command: conductor.instance.RestartInstance
+    method: post
+    path: /v1/instance/restart
+  - command: conductor.instance.StartInstance
+    method: post
+    path: /v1/instance/start
+  - command: conductor.instance.StopInstance
+    method: post
+    path: /v1/instance/stop
+  - command: conductor.instance.UpgradeInstance
+    method: post
+    path: /v1/instance/upgrade
+  - command: conductor.operator.JoinInstance
+    method: post
+    path: /v1/operator/join-instance
+  - command: conductor.operator.LeaveInstance
+    method: post
+    path: /v1/operator/leave-instance
+  - command: conductor.placement.CloseBox
+    method: post
+    path: /v1/placement/close-box
+  - command: conductor.placement.OpenBox
+    method: post
+    path: /v1/placement/open-box
+  - command: conductor.secret.PutSecret
+    method: post
+    path: /v1/secret/put-secret
+  - command: conductor.secret.ResolveSecrets
+    method: post
+    path: /v1/secret/resolve-secrets
+  - command: conductor.store.MigrateStore
+    method: post
+    path: /v1/store/migrate-store
+  - command: conductor.token.ContributeToken
+    method: post
+    path: /v1/token/contribute-token
+  - command: conductor.token.LeaseToken
+    method: post
+    path: /v1/token/lease-token
+  - command: conductor.token.MarkTokenLimited
+    method: post
+    path: /v1/token/mark-token-limited
+  - command: conductor.token.ReleaseToken
+    method: post
+    path: /v1/token/release-token
+  - command: conductor.token.WithdrawToken
+    method: post
+    path: /v1/token/withdraw-token
+  - view: conductor.config.ConfigRevisions
+    method: get
+    path: /v1/config/config-revisions
+  - view: conductor.config.EffectiveSettings
+    method: get
+    path: /v1/config/effective-settings/{instance}
+    parameters: {instance: param.instance}
+  - view: conductor.instance.Instances
+    method: get
+    path: /v1/instance/instances
+  - view: conductor.instance.Reconciliations
+    method: get
+    path: /v1/instance/reconciliations
+  - view: conductor.operator.Operators
+    method: get
+    path: /v1/operator/operators
+  - view: conductor.placement.BoxRefusals
+    method: get
+    path: /v1/placement/box-refusals
+  - view: conductor.placement.Boxes
+    method: get
+    path: /v1/placement/boxes
+  - view: conductor.placement.Placements
+    method: get
+    path: /v1/placement/placements
+  - view: conductor.secret.Secrets
+    method: get
+    path: /v1/secret/secrets
+  - view: conductor.store.Migrations
+    method: get
+    path: /v1/store/migrations
+  - view: conductor.store.StoreStatus
+    method: get
+    path: /v1/store/store-status
+  - view: conductor.token.Tokens
+    method: get
+    path: /v1/token/tokens
+  - command: conductor.agent.AttachAgent
+    method: post
+    path: /v1/agent/attach
+  - command: conductor.agent.DeclareAgentKind
+    method: post
+    path: /v1/agent/declare-kind
+  - command: conductor.agent.DeliverToAgent
+    method: post
+    path: /v1/agent/deliver
+  - command: conductor.agent.RecordAgentReport
+    method: post
+    path: /v1/agent/record-report
+  - command: conductor.agent.RestartAgent
+    method: post
+    path: /v1/agent/restart
+  - command: conductor.agent.StartAgent
+    method: post
+    path: /v1/agent/start
+  - command: conductor.agent.StopAgent
+    method: post
+    path: /v1/agent/stop
+  - view: conductor.agent.AgentKinds
+    method: get
+    path: /v1/agent/agent-kinds
+  - view: conductor.agent.Agents
+    method: get
+    path: /v1/agent/agents

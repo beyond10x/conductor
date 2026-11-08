@@ -1,0 +1,40 @@
+type: ess-scenario/1
+domain: conductor.token
+scenario: token-withdraw-token-agent-refused
+summary: An agent actor that tries to withdraw a contributed token is refused with ActorNotHuman, and the token stays Available.
+
+arrange:
+  - instance: token
+    entity: conductor.token.PoolToken
+
+timeline:
+  - at: 2026-11-08T09:00:00Z
+    command: conductor.token.ContributeToken
+    actor: conductor.token.Operator
+    input:
+      actor: {kind: Human, operator: alice}
+      instance: example-org
+      owner: alice
+      seat: alice@example-org.example
+      secret: example-org-claude-alice
+      contributed_at: 2026-11-08T09:00:00Z
+    outcome: contributed
+    capture: {instance: token, event: conductor.token.TokenContributed, field: token_id}
+
+  - at: 2026-11-08T09:10:00Z
+    command: conductor.token.WithdrawToken
+    actor: conductor.token.Operator
+    input:
+      actor: {kind: Agent, agent: {instance: example-org, role: Lead, name: example-org-controller, kind: claude-code}}
+      token_id: {$instance: token}
+      withdrawn_at: 2026-11-08T09:10:00Z
+    outcome: actor-not-human
+    error:
+      name: conductor.operator.ActorNotHuman
+
+assert:
+  - view: conductor.token.Tokens
+    contains:
+      token_id: {$instance: token}
+      state: Available
+      owner: alice

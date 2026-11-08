@@ -354,6 +354,8 @@ entities:
       name: controller_id
       type: conductor.dispatch.ControllerId
     fields:
+      - name: actor
+        type: conductor.operator.Actor
       - name: repository
         type: conductor.observation.RepositoryName
       - name: harness
@@ -386,6 +388,8 @@ entities:
       name: dispatch_id
       type: conductor.dispatch.DispatchId
     fields:
+      - name: actor
+        type: conductor.operator.Actor
       - name: repository
         type: conductor.observation.RepositoryName
       - name: goal_id
@@ -446,6 +450,10 @@ entities:
     fields:
       - name: sender
         type: String
+      # `sender` is the sending role or repository by name, as before; `actor` is the typed actor that
+      # issued the command that recorded the message (design architecture-next.md § 3, Actors).
+      - name: actor
+        type: conductor.operator.Actor
       - name: recipient
         type: String
       - name: kind
@@ -484,6 +492,8 @@ entities:
       name: resource_request_id
       type: conductor.dispatch.ResourceRequestId
     fields:
+      - name: actor
+        type: conductor.operator.Actor
       - name: repository
         type: conductor.observation.RepositoryName
       - name: resource
@@ -517,6 +527,8 @@ entities:
       name: guard_decision_id
       type: conductor.dispatch.GuardDecisionId
     fields:
+      - name: actor
+        type: conductor.operator.Actor
       - name: repository
         type: conductor.observation.RepositoryName
       - name: session_ref
@@ -709,6 +721,7 @@ commands:
       wire: start-controller
       display: Start a controller
     input:
+      - {name: actor, type: conductor.operator.Actor}
       - name: repository
         type: conductor.observation.RepositoryName
       - name: harness
@@ -733,6 +746,7 @@ commands:
         creates: conductor.dispatch.Controller
         instance: controller_id
         sets:
+          actor: input.actor
           repository: input.repository
           harness: input.harness
           session_name: input.session_name
@@ -741,6 +755,7 @@ commands:
           - conductor.dispatch.ControllerStarted
         payload:
           conductor.dispatch.ControllerStarted:
+            actor: input.actor
             controller_id: {generated: true}
             repository: input.repository
             harness: input.harness
@@ -751,6 +766,7 @@ commands:
       wire: pause-controller
       display: Pause a controller
     input:
+      - {name: actor, type: conductor.operator.Actor}
       - name: controller_id
         type: conductor.dispatch.ControllerId
     outcomes:
@@ -761,6 +777,7 @@ commands:
           - conductor.dispatch.ControllerPaused
         payload:
           conductor.dispatch.ControllerPaused:
+            actor: input.actor
             controller_id: input.controller_id
         summary: The controller holds its work and still counts as the repository's one controller.
       - name: no-such-controller
@@ -782,6 +799,7 @@ commands:
       wire: resume-controller
       display: Resume a controller
     input:
+      - {name: actor, type: conductor.operator.Actor}
       - name: controller_id
         type: conductor.dispatch.ControllerId
     outcomes:
@@ -792,6 +810,7 @@ commands:
           - conductor.dispatch.ControllerResumed
         payload:
           conductor.dispatch.ControllerResumed:
+            actor: input.actor
             controller_id: input.controller_id
         summary: The controller runs again.
       - name: no-such-controller
@@ -813,6 +832,7 @@ commands:
       wire: stop-controller
       display: Stop a controller
     input:
+      - {name: actor, type: conductor.operator.Actor}
       - name: controller_id
         type: conductor.dispatch.ControllerId
       - name: reason
@@ -825,6 +845,7 @@ commands:
           - conductor.dispatch.ControllerStopped
         payload:
           conductor.dispatch.ControllerStopped:
+            actor: input.actor
             controller_id: input.controller_id
             reason: input.reason
         summary: The controller session has ended; the repository may get a new one.
@@ -849,6 +870,7 @@ commands:
       wire: revise-charter
       display: Revise a charter
     input:
+      - {name: actor, type: conductor.operator.Actor}
       - name: controller_id
         type: conductor.dispatch.ControllerId
     outcomes:
@@ -862,6 +884,7 @@ commands:
           - conductor.dispatch.CharterRevised
         payload:
           conductor.dispatch.CharterRevised:
+            actor: input.actor
             controller_id: input.controller_id
         summary: The controller received the next revision of its charter.
       - name: paused-revised
@@ -874,6 +897,7 @@ commands:
           - conductor.dispatch.CharterRevised
         payload:
           conductor.dispatch.CharterRevised:
+            actor: input.actor
             controller_id: input.controller_id
         summary: A paused controller reads the new revision when it resumes.
       - name: no-such-controller
@@ -896,6 +920,7 @@ commands:
       wire: send-dispatch
       display: Send a dispatch
     input:
+      - {name: actor, type: conductor.operator.Actor}
       - name: dispatch_id
         type: conductor.dispatch.DispatchId
       - name: repository
@@ -948,6 +973,7 @@ commands:
         creates: conductor.dispatch.Dispatch
         instance: dispatch_id
         sets:
+          actor: input.actor
           repository: input.repository
           goal_id: input.goal_id
           brief: input.brief
@@ -958,6 +984,7 @@ commands:
           - conductor.dispatch.DispatchSent
         payload:
           conductor.dispatch.DispatchSent:
+            actor: input.actor
             dispatch_id: input.dispatch_id
             repository: input.repository
             goal_id: input.goal_id
@@ -976,6 +1003,7 @@ commands:
       wire: report-started
       display: Report a dispatch started
     input:
+      - {name: actor, type: conductor.operator.Actor}
       - name: dispatch_id
         type: conductor.dispatch.DispatchId
     outcomes:
@@ -986,6 +1014,7 @@ commands:
           - conductor.dispatch.DispatchStarted
         payload:
           conductor.dispatch.DispatchStarted:
+            actor: input.actor
             dispatch_id: input.dispatch_id
         summary: The controller is working the dispatch.
       - name: no-such-dispatch
@@ -1008,6 +1037,7 @@ commands:
       wire: report-blocked
       display: Report a dispatch blocked
     input:
+      - {name: actor, type: conductor.operator.Actor}
       - name: dispatch_id
         type: conductor.dispatch.DispatchId
       - name: reason
@@ -1020,6 +1050,7 @@ commands:
           - conductor.dispatch.DispatchBlocked
         payload:
           conductor.dispatch.DispatchBlocked:
+            actor: input.actor
             dispatch_id: input.dispatch_id
             reason: input.reason
         summary: The controller stopped working and waits; waiting is not work (design P13).
@@ -1043,6 +1074,7 @@ commands:
       wire: report-unblocked
       display: Report a dispatch unblocked
     input:
+      - {name: actor, type: conductor.operator.Actor}
       - name: dispatch_id
         type: conductor.dispatch.DispatchId
     outcomes:
@@ -1053,6 +1085,7 @@ commands:
           - conductor.dispatch.DispatchUnblocked
         payload:
           conductor.dispatch.DispatchUnblocked:
+            actor: input.actor
             dispatch_id: input.dispatch_id
         summary: The controller works the dispatch again.
       - name: no-such-dispatch
@@ -1075,6 +1108,7 @@ commands:
       wire: report-done
       display: Report a dispatch done
     input:
+      - {name: actor, type: conductor.operator.Actor}
       - name: dispatch_id
         type: conductor.dispatch.DispatchId
       - name: evidence
@@ -1087,6 +1121,7 @@ commands:
           - conductor.dispatch.DispatchDone
         payload:
           conductor.dispatch.DispatchDone:
+            actor: input.actor
             dispatch_id: input.dispatch_id
             evidence: input.evidence
         summary: The dispatch's acceptance holds on origin/main, with the evidence lines.
@@ -1110,6 +1145,7 @@ commands:
       wire: report-failed
       display: Report a dispatch failed
     input:
+      - {name: actor, type: conductor.operator.Actor}
       - name: dispatch_id
         type: conductor.dispatch.DispatchId
       - name: reason
@@ -1122,6 +1158,7 @@ commands:
           - conductor.dispatch.DispatchFailed
         payload:
           conductor.dispatch.DispatchFailed:
+            actor: input.actor
             dispatch_id: input.dispatch_id
             reason: input.reason
         summary: The dispatch cannot reach its acceptance.
@@ -1145,6 +1182,7 @@ commands:
       wire: cancel-dispatch
       display: Cancel a dispatch
     input:
+      - {name: actor, type: conductor.operator.Actor}
       - name: dispatch_id
         type: conductor.dispatch.DispatchId
       - name: reason
@@ -1157,6 +1195,7 @@ commands:
           - conductor.dispatch.DispatchCancelled
         payload:
           conductor.dispatch.DispatchCancelled:
+            actor: input.actor
             dispatch_id: input.dispatch_id
             reason: input.reason
         summary: Conductor withdrew the brief.
@@ -1184,6 +1223,7 @@ commands:
       wire: receive-message
       display: Receive a message
     input:
+      - {name: actor, type: conductor.operator.Actor}
       - name: sender
         type: String
       - name: recipient
@@ -1222,6 +1262,7 @@ commands:
         into: Rejected
         instance: message_id
         sets:
+          actor: input.actor
           sender: input.sender
           recipient: input.recipient
           kind: input.kind
@@ -1233,6 +1274,7 @@ commands:
           - conductor.dispatch.MessageReceived
         payload:
           conductor.dispatch.MessageReceived:
+            actor: input.actor
             message_id: {generated: true}
             sender: input.sender
             kind: input.kind
@@ -1243,6 +1285,7 @@ commands:
         creates: conductor.dispatch.Message
         instance: message_id
         sets:
+          actor: input.actor
           sender: input.sender
           recipient: input.recipient
           kind: input.kind
@@ -1254,6 +1297,7 @@ commands:
           - conductor.dispatch.MessageReceived
         payload:
           conductor.dispatch.MessageReceived:
+            actor: input.actor
             message_id: {generated: true}
             sender: input.sender
             kind: input.kind
@@ -1264,6 +1308,7 @@ commands:
       wire: handle-message
       display: Handle a message
     input:
+      - {name: actor, type: conductor.operator.Actor}
       - name: message_id
         type: conductor.dispatch.MessageId
     outcomes:
@@ -1285,6 +1330,7 @@ commands:
           - conductor.dispatch.MessageHandled
         payload:
           conductor.dispatch.MessageHandled:
+            actor: input.actor
             message_id: input.message_id
         summary: The message was acted on.
       - name: no-such-message
@@ -1306,6 +1352,7 @@ commands:
       wire: reject-message
       display: Reject a message
     input:
+      - {name: actor, type: conductor.operator.Actor}
       - name: message_id
         type: conductor.dispatch.MessageId
       - name: reason
@@ -1318,6 +1365,7 @@ commands:
           - conductor.dispatch.MessageRejected
         payload:
           conductor.dispatch.MessageRejected:
+            actor: input.actor
             message_id: input.message_id
             reason: input.reason
         summary: >
@@ -1345,6 +1393,7 @@ commands:
       wire: route-need
       display: Route a need to a dispatch
     input:
+      - {name: actor, type: conductor.operator.Actor}
       - name: message_id
         type: conductor.dispatch.MessageId
       - name: dispatch_id
@@ -1370,6 +1419,7 @@ commands:
           - conductor.dispatch.NeedRouted
         payload:
           conductor.dispatch.NeedRouted:
+            actor: input.actor
             message_id: input.message_id
             dispatch_id: input.dispatch_id
         summary: The need is handled, and the message records the dispatch it opened.
@@ -1392,6 +1442,7 @@ commands:
       wire: record-guard-decision
       display: Record a guard decision
     input:
+      - {name: actor, type: conductor.operator.Actor}
       - name: repository
         type: conductor.observation.RepositoryName
       - name: session_ref
@@ -1411,6 +1462,7 @@ commands:
         creates: conductor.dispatch.GuardDecision
         instance: guard_decision_id
         sets:
+          actor: input.actor
           repository: input.repository
           session_ref: input.session_ref
           tool: input.tool
@@ -1422,6 +1474,7 @@ commands:
           - conductor.dispatch.GuardDecisionRecorded
         payload:
           conductor.dispatch.GuardDecisionRecorded:
+            actor: input.actor
             guard_decision_id: {generated: true}
             repository: input.repository
             tool: input.tool
@@ -1433,6 +1486,7 @@ commands:
       wire: request-resource
       display: Request a resource
     input:
+      - {name: actor, type: conductor.operator.Actor}
       - name: repository
         type: conductor.observation.RepositoryName
       - name: resource
@@ -1453,6 +1507,7 @@ commands:
         creates: conductor.dispatch.ResourceRequest
         instance: resource_request_id
         sets:
+          actor: input.actor
           repository: input.repository
           resource: input.resource
           amount: input.amount
@@ -1461,6 +1516,7 @@ commands:
           - conductor.dispatch.ResourceRequested
         payload:
           conductor.dispatch.ResourceRequested:
+            actor: input.actor
             resource_request_id: {generated: true}
             repository: input.repository
             resource: input.resource
@@ -1471,6 +1527,7 @@ commands:
       wire: release-resource
       display: Release a granted resource
     input:
+      - {name: actor, type: conductor.operator.Actor}
       - name: resource_request_id
         type: conductor.dispatch.ResourceRequestId
     outcomes:
@@ -1481,6 +1538,7 @@ commands:
           - conductor.dispatch.ResourceReleased
         payload:
           conductor.dispatch.ResourceReleased:
+            actor: input.actor
             resource_request_id: input.resource_request_id
         summary: The build slot, disk or usage is back in the ledger for the next request.
       - name: no-such-request
@@ -1503,6 +1561,7 @@ commands:
       wire: grant-resource
       display: Grant a resource
     input:
+      - {name: actor, type: conductor.operator.Actor}
       - name: resource_request_id
         type: conductor.dispatch.ResourceRequestId
       # Free bytes on `/` when conductor answers (`below-disk-floor`: no build slot under 30G free).
@@ -1530,6 +1589,7 @@ commands:
           - conductor.dispatch.ResourceGranted
         payload:
           conductor.dispatch.ResourceGranted:
+            actor: input.actor
             resource_request_id: input.resource_request_id
         summary: The controller may spend it.
       - name: no-such-request
@@ -1553,6 +1613,7 @@ commands:
       wire: refuse-resource
       display: Refuse a resource
     input:
+      - {name: actor, type: conductor.operator.Actor}
       - name: resource_request_id
         type: conductor.dispatch.ResourceRequestId
       - name: reason
@@ -1565,6 +1626,7 @@ commands:
           - conductor.dispatch.ResourceRefused
         payload:
           conductor.dispatch.ResourceRefused:
+            actor: input.actor
             resource_request_id: input.resource_request_id
             reason: input.reason
         summary: The controller does not spend it, and reports blocked if it needs it.
@@ -1585,11 +1647,15 @@ commands:
 events:
   - name: conductor.dispatch.ResourceReleased
     fields:
+      - name: actor
+        type: conductor.operator.Actor
       - name: resource_request_id
         type: conductor.dispatch.ResourceRequestId
 
   - name: conductor.dispatch.GuardDecisionRecorded
     fields:
+      - name: actor
+        type: conductor.operator.Actor
       - name: guard_decision_id
         type: conductor.dispatch.GuardDecisionId
       - name: repository
@@ -1601,6 +1667,8 @@ events:
 
   - name: conductor.dispatch.ControllerStarted
     fields:
+      - name: actor
+        type: conductor.operator.Actor
       - name: controller_id
         type: conductor.dispatch.ControllerId
       - name: repository
@@ -1610,16 +1678,22 @@ events:
 
   - name: conductor.dispatch.ControllerPaused
     fields:
+      - name: actor
+        type: conductor.operator.Actor
       - name: controller_id
         type: conductor.dispatch.ControllerId
 
   - name: conductor.dispatch.ControllerResumed
     fields:
+      - name: actor
+        type: conductor.operator.Actor
       - name: controller_id
         type: conductor.dispatch.ControllerId
 
   - name: conductor.dispatch.ControllerStopped
     fields:
+      - name: actor
+        type: conductor.operator.Actor
       - name: controller_id
         type: conductor.dispatch.ControllerId
       - name: reason
@@ -1627,11 +1701,15 @@ events:
 
   - name: conductor.dispatch.CharterRevised
     fields:
+      - name: actor
+        type: conductor.operator.Actor
       - name: controller_id
         type: conductor.dispatch.ControllerId
 
   - name: conductor.dispatch.DispatchSent
     fields:
+      - name: actor
+        type: conductor.operator.Actor
       - name: dispatch_id
         type: conductor.dispatch.DispatchId
       - name: repository
@@ -1641,11 +1719,15 @@ events:
 
   - name: conductor.dispatch.DispatchStarted
     fields:
+      - name: actor
+        type: conductor.operator.Actor
       - name: dispatch_id
         type: conductor.dispatch.DispatchId
 
   - name: conductor.dispatch.DispatchBlocked
     fields:
+      - name: actor
+        type: conductor.operator.Actor
       - name: dispatch_id
         type: conductor.dispatch.DispatchId
       - name: reason
@@ -1653,11 +1735,15 @@ events:
 
   - name: conductor.dispatch.DispatchUnblocked
     fields:
+      - name: actor
+        type: conductor.operator.Actor
       - name: dispatch_id
         type: conductor.dispatch.DispatchId
 
   - name: conductor.dispatch.DispatchDone
     fields:
+      - name: actor
+        type: conductor.operator.Actor
       - name: dispatch_id
         type: conductor.dispatch.DispatchId
       - name: evidence
@@ -1665,6 +1751,8 @@ events:
 
   - name: conductor.dispatch.DispatchFailed
     fields:
+      - name: actor
+        type: conductor.operator.Actor
       - name: dispatch_id
         type: conductor.dispatch.DispatchId
       - name: reason
@@ -1672,6 +1760,8 @@ events:
 
   - name: conductor.dispatch.DispatchCancelled
     fields:
+      - name: actor
+        type: conductor.operator.Actor
       - name: dispatch_id
         type: conductor.dispatch.DispatchId
       - name: reason
@@ -1679,6 +1769,8 @@ events:
 
   - name: conductor.dispatch.MessageReceived
     fields:
+      - name: actor
+        type: conductor.operator.Actor
       - name: message_id
         type: conductor.dispatch.MessageId
       - name: sender
@@ -1688,11 +1780,15 @@ events:
 
   - name: conductor.dispatch.MessageHandled
     fields:
+      - name: actor
+        type: conductor.operator.Actor
       - name: message_id
         type: conductor.dispatch.MessageId
 
   - name: conductor.dispatch.MessageRejected
     fields:
+      - name: actor
+        type: conductor.operator.Actor
       - name: message_id
         type: conductor.dispatch.MessageId
       - name: reason
@@ -1700,6 +1796,8 @@ events:
 
   - name: conductor.dispatch.NeedRouted
     fields:
+      - name: actor
+        type: conductor.operator.Actor
       - name: message_id
         type: conductor.dispatch.MessageId
       - name: dispatch_id
@@ -1707,6 +1805,8 @@ events:
 
   - name: conductor.dispatch.ResourceRequested
     fields:
+      - name: actor
+        type: conductor.operator.Actor
       - name: resource_request_id
         type: conductor.dispatch.ResourceRequestId
       - name: repository
@@ -1716,11 +1816,15 @@ events:
 
   - name: conductor.dispatch.ResourceGranted
     fields:
+      - name: actor
+        type: conductor.operator.Actor
       - name: resource_request_id
         type: conductor.dispatch.ResourceRequestId
 
   - name: conductor.dispatch.ResourceRefused
     fields:
+      - name: actor
+        type: conductor.operator.Actor
       - name: resource_request_id
         type: conductor.dispatch.ResourceRequestId
       - name: reason
@@ -1747,6 +1851,8 @@ views:
         type: String
       - name: decided_at
         type: Timestamp
+      - name: actor
+        type: conductor.operator.Actor
     naming:
       wire: guard-decisions
       display: Guard decisions
@@ -1767,6 +1873,8 @@ views:
         type: conductor.config.SessionName
       - name: charter_revision
         type: Integer
+      - name: actor
+        type: conductor.operator.Actor
     # `controller all-controllers` serves the view as it is, every row; `controller controllers`,
     # the binding's (`ListControllers`), lists the live ones on one line each by default.
     naming:
@@ -1793,6 +1901,8 @@ views:
         type: Integer
       - name: waits_on
         type: Optional<conductor.dispatch.DispatchId>
+      - name: actor
+        type: conductor.operator.Actor
     naming:
       wire: dispatches
       display: Dispatches
@@ -1821,6 +1931,8 @@ views:
         type: Optional<String>
       - name: dispatch_id
         type: Optional<conductor.dispatch.DispatchId>
+      - name: actor
+        type: conductor.operator.Actor
     naming:
       wire: messages
       display: Messages
@@ -1841,6 +1953,8 @@ views:
         type: Integer
       - name: requested_at
         type: Timestamp
+      - name: actor
+        type: conductor.operator.Actor
     naming:
       wire: resource-requests
       display: Resource requests

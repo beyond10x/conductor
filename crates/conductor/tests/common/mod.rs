@@ -14,13 +14,17 @@ use conductor_cli::config::{CONFIG_VARIABLE, INSTANCE_VARIABLE};
 /// again after `env_clear`. A case that needs only the binary's path, to put it on a `PATH`,
 /// reads it as the command's program. The harness session the tests run in is not named either
 /// (`CLAUDE_CODE_SESSION_ID`), so no `build run` binds its request to it and reads the real
-/// session list (`story:build-run-session-bound`); a case that wants one sets it.
+/// session list (`story:build-run-session-bound`); a case that wants one sets it. Every command
+/// records as one actor (`conductor.operator.Actor`): with no conductor session named and `USER`
+/// set to `operator`, a written row reads `human:operator`, whoever runs the tests.
 pub fn conductor(home: impl AsRef<Path>) -> Command {
     let mut command = Command::new(env!("CARGO_BIN_EXE_conductor"));
     command
         .env("HOME", home.as_ref())
         .env_remove(CONFIG_VARIABLE)
         .env_remove(INSTANCE_VARIABLE)
-        .env_remove("CLAUDE_CODE_SESSION_ID");
+        .env_remove("CLAUDE_CODE_SESSION_ID")
+        .env_remove(conductor_cli::actor::SESSION_VARIABLE)
+        .env("USER", "operator");
     command
 }

@@ -104,6 +104,7 @@ impl Case {
     /// One snapshot started at `started_at` through `collector`; its id.
     pub fn take(&self, started_at: &str, collector: Collector) -> SnapshotId {
         let start = StartSnapshot {
+            actor: conductor_cli::actor::daemon(),
             started_at: Timestamp(started_at.to_owned()),
             disk_free_bytes: 1_000_000,
             budget: None,
@@ -142,6 +143,7 @@ impl Case {
                 DispatchSnapshot {
                     state,
                     data: DispatchData {
+                        actor: conductor_cli::actor::daemon(),
                         dispatch_id: DispatchId(id.to_owned()),
                         repository: repo(repository),
                         goal_id: GoalId("G-1".to_owned()),
@@ -170,6 +172,7 @@ impl Case {
                 DecisionSnapshot {
                     state: DecisionState::InForce,
                     data: DecisionData {
+                        actor: conductor_cli::actor::daemon(),
                         decision_id: DecisionId(id.to_owned()),
                         decision_class: DecisionClass::O,
                         decided_by,
@@ -213,6 +216,7 @@ impl Case {
                 DecisionRequestSnapshot {
                     state,
                     data: DecisionRequestData {
+                        actor: conductor_cli::actor::daemon(),
                         request_id: RequestId(id.to_owned()),
                         repository: repo("alpha"),
                         question: "which".to_owned(),
@@ -246,6 +250,7 @@ impl Case {
                 GuardDecisionSnapshot {
                     state: GuardDecisionState::Recorded,
                     data: GuardDecisionData {
+                        actor: conductor_cli::actor::daemon(),
                         guard_decision_id: GuardDecisionId(Uuid(format!(
                             "00000000-0000-4000-8000-00000000000{n}"
                         ))),
@@ -299,6 +304,7 @@ impl Case {
                 HostGrantSnapshot {
                     state,
                     data: HostGrantData {
+                        actor: conductor_cli::actor::daemon(),
                         grant_id: GrantId(id.to_owned()),
                         instance: InstanceName("example-org".to_owned()),
                         repository: repository.map(repo),
@@ -347,6 +353,7 @@ pub fn collector(
         let at = |text: &str| Timestamp(text.to_owned());
         for repository in ["alpha", "beta"] {
             record.repository(RecordRepository {
+                actor: conductor_cli::actor::daemon(),
                 snapshot_id: snapshot.clone(),
                 repository: name(repository),
                 visibility: Visibility::Public,
@@ -375,6 +382,7 @@ pub fn collector(
         }
         for (repository, number, opened_at) in &open {
             record.pull_request(RecordPullRequest {
+                actor: conductor_cli::actor::daemon(),
                 snapshot_id: snapshot.clone(),
                 repository: name(repository),
                 number: *number,
@@ -390,6 +398,7 @@ pub fn collector(
         }
         for (repository, number, title, merged_at) in &merged {
             record.merged_pull_request(RecordMergedPullRequest {
+                actor: conductor_cli::actor::daemon(),
                 snapshot_id: snapshot.clone(),
                 repository: name(repository),
                 number: *number,
@@ -400,6 +409,7 @@ pub fn collector(
         }
         for (repository, workflow, conclusion, run_at) in &runs {
             record.workflow_run(RecordWorkflowRun {
+                actor: conductor_cli::actor::daemon(),
                 snapshot_id: snapshot.clone(),
                 repository: name(repository),
                 workflow: (*workflow).to_owned(),
@@ -409,6 +419,7 @@ pub fn collector(
         }
         for (repository, tag, published_at) in &releases {
             record.release(RecordRelease {
+                actor: conductor_cli::actor::daemon(),
                 snapshot_id: snapshot.clone(),
                 repository: name(repository),
                 tag: (*tag).to_owned(),

@@ -1,0 +1,263 @@
+domain: conductor.store
+
+summary: >
+  One shared database per deployment (design docs/design/architecture-next.md § 8, decision 13),
+  opened through Eventlog's port: `sqlite` for a deployment that is one host, `postgres` for
+  everything else. `daemon.store` names the one URL; the daemon hands it to every instance runtime
+  it starts; every event names its instance; every UI and every operator reads the same records.
+  No copy per instance, no sync, no restore. Today's eventlog tree is read once by the migration
+  (`conductor store migrate`) and not opened again.
+
+  No command opens the store: § 2 and § 8 say the daemon opens it at start and hands its URL to
+  every runtime, and neither lists that opening among the records the store keeps (decisions,
+  dispatches, readings, findings, charters, hand-offs, snapshots, config changes,
+  reconciliations). The `Store` row is the deployment's, not a command's.
+
+naming:
+  wire: store
+  display: Store
+
+types:
+  - name: conductor.store.Backend
+    kind: enum
+    variants: [Sqlite, Postgres]
+
+  # The one URL of the deployment's store: `sqlite:<path>` or `postgres://…`, its password a
+  # `secret:<name>`.
+  - name: conductor.store.StoreUrl
+    kind: newtype
+    of: String
+
+entities:
+  # The one store of the deployment (§ 8): the database `daemon.store` names, which the daemon
+  # and every instance runtime open and every UI reads through the daemon's API. Each event
+  # names its instance, so the store keeps, per instance, the id of the last event that instance
+  # wrote, beside the last event id of the whole store.
+  # UNMAPPED: § 3 and § 8 say "last event id" and never give the id's type; Eventlog's port
+  # decides it. Written `Integer` here as the unit brief proposes. Open question for the owner.
+  # UNMAPPED: § 3 puts `reachable` in `StoreStatus`, and nothing says whether it is a stored fact
+  # (and which step records it) or a probe the daemon answers at the read; no command here sets
+  # it, so the field is written once with the row. Open question for the owner.
+  # UNMAPPED: whether an unreachable store is a lifecycle state of its own (§ 8 names none); the
+  # lifecycle has one state, `Opened`, until the owner settles it.
+  - name: conductor.store.Store
+    identity:
+      name: url
+      type: conductor.store.StoreUrl
+    fields:
+      - name: backend
+        type: conductor.store.Backend
+      - name: opened_at
+        type: Timestamp
+      - name: reachable
+        type: Boolean
+      - name: last_event_id
+        type: Integer
+      - name: instance_last_event_ids
+        type: Map<conductor.config.InstanceName, Integer>
+    invariants:
+      - last_event_id >= 0
+    lifecycle:
+      initial: Opened
+      states: [Opened]
+      terminal: [Opened]
+
+  # One instance's eventlog tree, read once into the store by `conductor store migrate` (§ 8):
+  # the tree it was read from, how many events were copied, when, and who ran it. Keyed by the
+  # instance, since today each instance has its own tree and each tree is read once.
+  - name: conductor.store.Migration
+    identity:
+      name: instance
+      type: conductor.config.InstanceName
+    fields:
+      - name: source
+        type: String
+      # The deployment's store the tree was copied into (`daemon.store`).
+      - name: store
+        type: conductor.store.StoreUrl
+      - name: events_copied
+        type: Integer
+      - name: migrated_at
+        type: Timestamp
+      - name: actor
+        type: conductor.operator.Actor
+    # The record names the store it was copied into and does not belong to it.
+    relations:
+      - name: store
+        kind: references
+        target: conductor.store.Store
+        cardinality: one
+        via: store
+    invariants:
+      - events_copied >= 0
+    lifecycle:
+      initial: Migrated
+      states: [Migrated]
+      terminal: [Migrated]
+
+actors:
+  # The operator runs the migration, once, by hand (§ 8): an agent never does.
+  - name: conductor.store.Operator
+    may:
+      - conductor.store.MigrateStore
+    naming:
+      display: Operator
+
+errors:
+
+  - name: conductor.store.SourceMissing
+    summary: No eventlog tree is at the source path, so nothing was copied.
+    fields:
+      - name: instance
+        type: conductor.config.InstanceName
+      - name: source
+        type: String
+
+  - name: conductor.store.AlreadyMigrated
+    summary: >
+      The instance's tree was read into the store before; it is read once and not opened again,
+      so nothing was copied.
+    fields:
+      - name: instance
+        type: conductor.config.InstanceName
+
+  - name: conductor.store.InvalidEventCount
+    summary: A count of events copied is never negative, so no migration was recorded.
+    fields:
+      - name: events_copied
+        type: Integer
+
+commands:
+  # `conductor store migrate` (§ 8): the operator's one-time step that reads one instance's
+  # eventlog tree into the deployment's store. The handler copies, then records the migration
+  # with the count it copied.
+  - name: conductor.store.MigrateStore
+    naming:
+      wire: migrate-store
+      display: Migrate an eventlog tree into the store
+    input:
+      - name: actor
+        type: conductor.operator.Actor
+      - name: instance
+        type: conductor.config.InstanceName
+      - name: source
+        type: String
+      - name: store
+        type: conductor.store.StoreUrl
+      - name: events_copied
+        type: Integer
+        example: 120
+      - name: migrated_at
+        type: Timestamp
+    outcomes:
+      - name: not-human
+        when: actor.kind != Human
+        error: conductor.operator.ActorNotHuman
+        payload:
+          conductor.operator.ActorNotHuman:
+            actor: input.actor
+        summary: An agent ran the operator's one-time step; it is refused and nothing was copied.
+      - name: negative-count
+        when: events_copied < 0
+        error: conductor.store.InvalidEventCount
+        payload:
+          conductor.store.InvalidEventCount:
+            events_copied: input.events_copied
+        summary: A count of events is never negative; nothing was recorded.
+      - name: already-migrated
+        when_related:
+          entity: conductor.store.Migration
+          where: instance == input.instance
+          exists: true
+        error: conductor.store.AlreadyMigrated
+        payload:
+          conductor.store.AlreadyMigrated:
+            instance: input.instance
+        summary: The instance's tree is in the store already; it is not read again.
+      - name: source-missing
+        external: no eventlog tree is at the source path
+        error: conductor.store.SourceMissing
+        payload:
+          conductor.store.SourceMissing:
+            instance: input.instance
+            source: input.source
+        summary: There is no tree to read; nothing was copied.
+      - name: migrated
+        creates: conductor.store.Migration
+        instance: instance
+        sets:
+          source: input.source
+          store: input.store
+          events_copied: input.events_copied
+          migrated_at: input.migrated_at
+          actor: input.actor
+        emits:
+          - conductor.store.StoreMigrated
+        payload:
+          conductor.store.StoreMigrated:
+            actor: input.actor
+            instance: input.instance
+            source: input.source
+            store: input.store
+            events_copied: input.events_copied
+            migrated_at: input.migrated_at
+        summary: The instance's tree is in the store, the count copied is on record, and the tree is not opened again.
+
+events:
+  - name: conductor.store.StoreMigrated
+    fields:
+      - name: actor
+        type: conductor.operator.Actor
+      - name: instance
+        type: conductor.config.InstanceName
+      - name: source
+        type: String
+      - name: store
+        type: conductor.store.StoreUrl
+      - name: events_copied
+        type: Integer
+      - name: migrated_at
+        type: Timestamp
+
+views:
+  - name: conductor.store.StoreStatus
+    source: conductor.store.Store
+    consistency: read_your_writes
+    fields:
+      - name: url
+        type: conductor.store.StoreUrl
+      - name: state
+        type: conductor.store.Store.State
+      - name: backend
+        type: conductor.store.Backend
+      - name: reachable
+        type: Boolean
+      - name: last_event_id
+        type: Integer
+      - name: instance_last_event_ids
+        type: Map<conductor.config.InstanceName, Integer>
+    naming:
+      wire: store-status
+      display: Store status
+
+  - name: conductor.store.Migrations
+    source: conductor.store.Migration
+    consistency: read_your_writes
+    fields:
+      - name: instance
+        type: conductor.config.InstanceName
+      - name: state
+        type: conductor.store.Migration.State
+      - name: source
+        type: String
+      - name: store
+        type: conductor.store.StoreUrl
+      - name: events_copied
+        type: Integer
+      - name: migrated_at
+        type: Timestamp
+      - name: actor
+        type: conductor.operator.Actor
+    naming:
+      wire: migrations
+      display: Store migrations

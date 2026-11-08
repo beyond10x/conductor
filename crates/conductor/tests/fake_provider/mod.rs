@@ -12,7 +12,6 @@
 //! | file | effect |
 //! |---|---|
 //! | `<name>.unavailable` | the provider `<name>` is not available; the file's text is the reason |
-//! | `providers` | the providers `all` answers, one name per line (default: `systemd`, `none`) |
 //! | `start.fails`, `prompt.fails`, `stop.fails` | that call fails with the file's text |
 //! | `measure.json` | fields that replace those of the full box `measure` answers otherwise |
 //!
@@ -32,9 +31,9 @@ use std::process::{Command, ExitCode, Output, Stdio};
 use anyhow::{Result, bail};
 use clap::Parser as _;
 use conductor_cli::cli::Cli;
+use conductor_cli::confine::{ConfinementProvider, ProviderAvailability};
 use conductor_cli::confine::{Launch, Provider, Providers, Said};
 use conductor_cli::{NOT_IMPLEMENTED_EXIT, NotImplemented};
-use conductor_model::config::{ConfinementProvider, ProviderAvailability};
 use conductor_model::observation::EnvelopeProvider;
 use conductor_model::primitives::Timestamp;
 use conductor_model::session::{EnvelopeMeasurement, SessionRequest, StartedSession};
@@ -63,16 +62,6 @@ impl Providers for Fakes {
 
     fn unboxed(&self) -> Box<dyn Provider> {
         Box::new(Fake::new(&self.dir, "none"))
-    }
-
-    fn all(&self) -> Vec<Box<dyn Provider>> {
-        let names = fs::read_to_string(self.dir.join("providers"))
-            .unwrap_or_else(|_| "systemd\nnone\n".to_owned());
-        names
-            .lines()
-            .filter(|name| !name.trim().is_empty())
-            .map(|name| Box::new(Fake::new(&self.dir, name.trim())) as Box<dyn Provider>)
-            .collect()
     }
 }
 

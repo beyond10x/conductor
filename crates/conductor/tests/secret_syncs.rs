@@ -207,6 +207,7 @@ fn sync(name: &str, path: &str, secrets: Vec<ForgeSecret>) -> SecretSync {
 fn take(dir: &Path, started_at: &str, collectors: &[Collector]) -> Taken {
     let store = store::open(&dir.join("state")).expect("open the store");
     let start = StartSnapshot {
+        actor: conductor_cli::actor::daemon(),
         started_at: Timestamp(started_at.to_owned()),
         disk_free_bytes: 1_000_000,
         budget: None,
@@ -399,6 +400,7 @@ fn from_fixture(name: &str) -> Collector {
         let word = |row: &Value, key: &str| row[key].as_str().map(str::to_owned);
         for row in &rows {
             record.secret_sync(RecordSecretSync {
+                actor: conductor_cli::actor::daemon(),
                 snapshot_id: snapshot.clone(),
                 sync: word(row, "sync").expect("a sync"),
                 repository: RepositoryName(word(row, "repository").expect("a repository")),

@@ -145,6 +145,7 @@ impl Case {
                 RepositoryMarkSnapshot {
                     state: RepositoryMarkState::Inactive,
                     data: RepositoryMarkData {
+                        actor: conductor_cli::actor::daemon(),
                         repository: MarkedRepository(format!("repo-{round}-{index:04}")),
                         marked_by: MarkedBy::Operator,
                         session: None,
@@ -161,6 +162,7 @@ impl Case {
 fn complete(state: &Path) {
     let store = store::open(state).expect("open the store");
     let start = StartSnapshot {
+        actor: conductor_cli::actor::daemon(),
         started_at: Timestamp("2026-10-13T06:00:00Z".to_owned()),
         disk_free_bytes: 1_000_000,
         budget: None,
@@ -169,6 +171,7 @@ fn complete(state: &Path) {
         let snapshot = record.snapshot().clone();
         for index in 0..2 {
             record.repository(RecordRepository {
+                actor: conductor_cli::actor::daemon(),
                 snapshot_id: snapshot.clone(),
                 repository: RepositoryName(format!("repo-{index:02}")),
                 visibility: Visibility::Public,

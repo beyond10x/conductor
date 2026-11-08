@@ -305,6 +305,7 @@ pub fn receive_message(state: Option<&Path>, args: ReceiveMessageArgs) -> Result
     }
     let repo = named_repository(&first_line).unwrap_or_else(|| sender.clone());
     let input = ReceiveMessage {
+        actor: crate::actor::chosen(),
         sender,
         recipient,
         kind,
@@ -389,6 +390,7 @@ pub fn handle_message(state: Option<&Path>, args: HandleMessageArgs) -> Result<E
     const COMMAND: &str = "message handle-message";
     flags_only(args.input_json, "message handle-message --input-json")?;
     let input = HandleMessage {
+        actor: crate::actor::chosen(),
         message_id: message_id(COMMAND, args.message_id)?,
     };
     match run(state, COMMAND, |generated| generated.handle_message(input))? {
@@ -418,6 +420,7 @@ pub fn reject_message(state: Option<&Path>, args: RejectMessageArgs) -> Result<E
     const COMMAND: &str = "message reject-message";
     flags_only(args.input_json, "message reject-message --input-json")?;
     let input = RejectMessage {
+        actor: crate::actor::chosen(),
         message_id: message_id(COMMAND, args.message_id)?,
         reason: flag(COMMAND, "--reason", args.reason)?,
     };
@@ -441,6 +444,7 @@ pub fn route_need(state: Option<&Path>, args: RouteNeedArgs) -> Result<ExitCode>
     const COMMAND: &str = "message route-need";
     flags_only(args.input_json, "message route-need --input-json")?;
     let input = RouteNeed {
+        actor: crate::actor::chosen(),
         message_id: message_id(COMMAND, args.message_id)?,
         dispatch_id: DispatchId(flag(COMMAND, "--dispatch-id", args.dispatch_id)?),
     };
@@ -471,7 +475,7 @@ pub fn route_need(state: Option<&Path>, args: RouteNeedArgs) -> Result<ExitCode>
 /// output.
 pub fn messages(state: Option<&Path>, view: ViewArgs) -> Result<ExitCode> {
     /// The view's fields, in the specification's order (`spec/domains/dispatch.yaml`).
-    const COLUMNS: [&str; 10] = [
+    const COLUMNS: [&str; 11] = [
         "message_id",
         "state",
         "sender",
@@ -482,6 +486,7 @@ pub fn messages(state: Option<&Path>, view: ViewArgs) -> Result<ExitCode> {
         "received_at",
         "body_path",
         "dispatch_id",
+        "actor",
     ];
 
     /// The state's name as the specification spells it. Exhaustive, so a state the specification
@@ -512,6 +517,7 @@ pub fn messages(state: Option<&Path>, view: ViewArgs) -> Result<ExitCode> {
                 Value::from(row.received_at.0),
                 Value::from(row.body_path),
                 Value::from(row.dispatch_id.map(|dispatch| dispatch.0)),
+                Value::from(crate::actor::written(&row.actor)),
             ]
         })
         .collect();
@@ -571,6 +577,7 @@ pub fn send(state: Option<&Path>, args: &SendArgs) -> Result<ExitCode> {
     keep(&file, &text).with_context(|| format!("{COMMAND}: leave the message"))?;
     let repo = named_repository(&first).unwrap_or_else(|| input.from.clone());
     let receive = ReceiveMessage {
+        actor: crate::actor::chosen(),
         sender: input.from,
         recipient: input.to,
         kind,
@@ -809,6 +816,53 @@ impl TryContext for Ports {
         _outcome: &'static str,
     ) -> Result<bool, UnmetObligation> {
         Err(conductor_model::behaviour::unmet_context(command.name()))
+    }
+
+    // The v1 domains' generated values (`story:spec-v1`): no command this handler runs
+    // generates one.
+
+    fn try_generate_conductor_config_revision_id(
+        &mut self,
+    ) -> Result<conductor_model::config::RevisionId, UnmetObligation> {
+        Err(conductor_model::behaviour::unmet_context(
+            "conductor.config.RevisionId",
+        ))
+    }
+
+    fn try_generate_conductor_instance_reconciliation_id(
+        &mut self,
+    ) -> Result<conductor_model::instance::ReconciliationId, UnmetObligation> {
+        Err(conductor_model::behaviour::unmet_context(
+            "conductor.instance.ReconciliationId",
+        ))
+    }
+
+    fn try_generate_conductor_placement_box_id(
+        &mut self,
+    ) -> Result<conductor_model::placement::BoxId, UnmetObligation> {
+        Err(conductor_model::behaviour::unmet_context(
+            "conductor.placement.BoxId",
+        ))
+    }
+
+    fn try_generate_conductor_placement_refusal_reason(
+        &mut self,
+    ) -> Result<conductor_model::placement::RefusalReason, UnmetObligation> {
+        Err(conductor_model::behaviour::unmet_context(
+            "conductor.placement.RefusalReason",
+        ))
+    }
+
+    fn try_generate_conductor_token_token_id(
+        &mut self,
+    ) -> Result<conductor_model::token::TokenId, UnmetObligation> {
+        Err(conductor_model::behaviour::unmet_context(
+            "conductor.token.TokenId",
+        ))
+    }
+
+    fn try_generate_string(&mut self) -> Result<String, UnmetObligation> {
+        Err(conductor_model::behaviour::unmet_context("String"))
     }
 }
 

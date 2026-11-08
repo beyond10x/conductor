@@ -621,6 +621,7 @@ impl Ledger {
         let generated = &mut self.generated;
         let outcome = generated
             .start_run(StartRun {
+                actor: crate::actor::chosen(),
                 grant_id: grant.clone(),
                 process_group: group,
                 started_at: at.clone(),
@@ -895,6 +896,7 @@ impl Ledger {
     ) -> Result<GrantId> {
         const COMMAND: &str = "host request-disk";
         let input = RequestDisk {
+            actor: crate::actor::chosen(),
             instance: InstanceName(instance.to_owned()),
             repository: repository.map(|name| RepositoryName(name.to_owned())),
             session_name: session_name.map(|name| SessionName(name.to_owned())),
@@ -1069,6 +1071,7 @@ impl Ledger {
     ) -> Result<Answer> {
         const COMMAND: &str = "host reserve-disk";
         let input = ReserveDisk {
+            actor: crate::actor::chosen(),
             grant_id: grant.clone(),
             shortfall_bytes: i64::try_from(shortfall).unwrap_or(i64::MAX),
             reclaimed_bytes: i64::try_from(reclaimed).unwrap_or(i64::MAX),
@@ -1257,6 +1260,7 @@ fn record_peak_in(ledger: &mut Ledger, grant: &GrantId, peak: u64, pauses: u32) 
     let generated = &mut ledger.generated;
     let outcome = generated
         .record_peak(RecordPeak {
+            actor: crate::actor::chosen(),
             grant_id: grant.clone(),
             peak_bytes: i64::try_from(peak).unwrap_or(i64::MAX),
             pauses: Some(i64::from(pauses)),
@@ -1390,6 +1394,7 @@ fn release_in(
     let count = |n: u64| i64::try_from(n).unwrap_or(i64::MAX);
     let outcome = generated
         .release_grant(ReleaseGrant {
+            actor: crate::actor::chosen(),
             grant_id: grant.clone(),
             reason,
             released_at: at.clone(),
@@ -1456,6 +1461,7 @@ impl Ledger {
         let outcome = self
             .generated
             .withdraw_disk_request(WithdrawDiskRequest {
+                actor: crate::actor::chosen(),
                 grant_id: grant.clone(),
                 withdrawn_at: at.clone(),
                 reason,
@@ -1663,6 +1669,7 @@ pub fn escalate(host: &Path, state: &Path, shortfall: &Shortfall<'_>) -> Result<
     crate::decide::raise_decision_request(
         Some(state),
         RaiseDecisionRequestArgs {
+            actor: None,
             request_id: Some(request_id.clone()),
             // One item stands for every refusal of the fall, whatever repository each builds.
             repository: Some(shortfall.instance.to_owned()),
@@ -1686,6 +1693,7 @@ pub fn escalate(host: &Path, state: &Path, shortfall: &Shortfall<'_>) -> Result<
     crate::decide::escalate_request_measured(
         Some(state),
         EscalateRequestArgs {
+            actor: None,
             request_id: Some(request_id.clone()),
             escalation_class: Some("H".to_owned()),
             reason: Some(format!(
@@ -1900,6 +1908,7 @@ impl Ledger {
             crate::decide::withdraw_request(
                 Some(state),
                 WithdrawRequestArgs {
+                    actor: None,
                     request_id: Some(item.clone()),
                     reason: Some(format!(
                         "free disk is back at {}G, at or over disk_clear {}G: the fall is over",
@@ -1933,6 +1942,7 @@ pub fn take_host_grant(state: Option<&Path>, args: TakeHostGrantArgs) -> Result<
     flags_only(args.input_json, "host take-host-grant --input-json")?;
     let kind = flag(COMMAND, "--kind", args.kind)?;
     let input = TakeHostGrant {
+        actor: crate::actor::chosen(),
         instance: InstanceName(flag(COMMAND, "--instance", args.instance)?),
         repository: RepositoryName(flag(COMMAND, "--repository", args.repository)?),
         kind: kind_named(&kind)
@@ -2004,6 +2014,7 @@ pub fn reserve_disk(state: Option<&Path>, args: ReserveDiskArgs) -> Result<ExitC
     const COMMAND: &str = "host reserve-disk";
     flags_only(args.input_json, "host reserve-disk --input-json")?;
     let input = ReserveDisk {
+        actor: crate::actor::chosen(),
         grant_id: GrantId(flag(COMMAND, "--grant-id", args.grant_id)?),
         shortfall_bytes: flag(COMMAND, "--shortfall-bytes", args.shortfall_bytes)?,
         reclaimed_bytes: flag(COMMAND, "--reclaimed-bytes", args.reclaimed_bytes)?,
@@ -2045,6 +2056,7 @@ pub fn record_peak(state: Option<&Path>, args: RecordPeakArgs) -> Result<ExitCod
     const COMMAND: &str = "host record-peak";
     flags_only(args.input_json, "host record-peak --input-json")?;
     let input = RecordPeak {
+        actor: crate::actor::chosen(),
         grant_id: GrantId(flag(COMMAND, "--grant-id", args.grant_id)?),
         peak_bytes: flag(COMMAND, "--peak-bytes", args.peak_bytes)?,
         pauses: args.pauses,
@@ -2136,7 +2148,7 @@ pub fn withdraw_disk_request(
 /// There is no store, it does not open, a grant does not read, or the rows cannot be written.
 pub fn grants(state: Option<&Path>, view: ViewArgs) -> Result<ExitCode> {
     /// The view's fields, in the specification's order (`spec/domains/host.yaml`).
-    const COLUMNS: [&str; 22] = [
+    const COLUMNS: [&str; 23] = [
         "grant_id",
         "state",
         "instance",
@@ -2151,6 +2163,7 @@ pub fn grants(state: Option<&Path>, view: ViewArgs) -> Result<ExitCode> {
         "session_id",
         "reclaimed_bytes",
         "shortfall_bytes",
+        "actor",
         "requested_at",
         "started_at",
         "released_at",
@@ -2197,6 +2210,7 @@ pub fn grants(state: Option<&Path>, view: ViewArgs) -> Result<ExitCode> {
                 Value::from(row.session_id.map(|id| id.0)),
                 Value::from(row.reclaimed_bytes),
                 Value::from(row.shortfall_bytes),
+                Value::from(crate::actor::written(&row.actor)),
                 Value::from(row.requested_at.0),
                 Value::from(row.started_at.map(|at| at.0)),
                 Value::from(row.released_at.map(|at| at.0)),
@@ -2436,6 +2450,53 @@ impl TryContext for Ports {
         _outcome: &'static str,
     ) -> Result<bool, UnmetObligation> {
         Err(conductor_model::behaviour::unmet_context(command.name()))
+    }
+
+    // The v1 domains' generated values (`story:spec-v1`): no command this handler runs
+    // generates one.
+
+    fn try_generate_conductor_config_revision_id(
+        &mut self,
+    ) -> Result<conductor_model::config::RevisionId, UnmetObligation> {
+        Err(conductor_model::behaviour::unmet_context(
+            "conductor.config.RevisionId",
+        ))
+    }
+
+    fn try_generate_conductor_instance_reconciliation_id(
+        &mut self,
+    ) -> Result<conductor_model::instance::ReconciliationId, UnmetObligation> {
+        Err(conductor_model::behaviour::unmet_context(
+            "conductor.instance.ReconciliationId",
+        ))
+    }
+
+    fn try_generate_conductor_placement_box_id(
+        &mut self,
+    ) -> Result<conductor_model::placement::BoxId, UnmetObligation> {
+        Err(conductor_model::behaviour::unmet_context(
+            "conductor.placement.BoxId",
+        ))
+    }
+
+    fn try_generate_conductor_placement_refusal_reason(
+        &mut self,
+    ) -> Result<conductor_model::placement::RefusalReason, UnmetObligation> {
+        Err(conductor_model::behaviour::unmet_context(
+            "conductor.placement.RefusalReason",
+        ))
+    }
+
+    fn try_generate_conductor_token_token_id(
+        &mut self,
+    ) -> Result<conductor_model::token::TokenId, UnmetObligation> {
+        Err(conductor_model::behaviour::unmet_context(
+            "conductor.token.TokenId",
+        ))
+    }
+
+    fn try_generate_string(&mut self) -> Result<String, UnmetObligation> {
+        Err(conductor_model::behaviour::unmet_context("String"))
     }
 }
 

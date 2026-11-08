@@ -91,6 +91,7 @@ const OUTCOMES: [CallOutcome; conductor_broker::OUTCOMES.len()] = conductor_brok
 fn encode(call: &ToolCallSnapshot) -> Value {
     let data = &call.data;
     json!({
+        "actor": crate::actor::to_json(&data.actor),
         "state": match call.state {
             ToolCallState::Recorded => "Recorded",
         },
@@ -122,6 +123,7 @@ fn decode(body: &Value) -> Result<ToolCallSnapshot, String> {
     Ok(ToolCallSnapshot {
         state: ToolCallState::Recorded,
         data: ToolCallData {
+            actor: crate::actor::stored(body)?,
             tool_call_id: ToolCallId(Uuid(text(body, "tool_call_id")?)),
             instance: InstanceName(text(body, "instance")?),
             session: SessionName(text(body, "session")?),

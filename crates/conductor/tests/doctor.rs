@@ -1028,17 +1028,16 @@ fn doctor_names_a_checkouts_root_in_an_activated_worktree_workspace_ready() {
     assert_eq!(last(&output), "ready", "{}", shown(&output));
 }
 
-/// `story:session-envelope-seam`: doctor prints one row per confinement provider after the
-/// program rows and before the verdict, which stays last; a provider that is not available names
-/// why and changes no verdict. Two fake providers, one available and one not.
+/// `story:spec-v1`: the confinement providers' rows went with `confinement.*` (design
+/// architecture-next § 11, `conductor.config.DoctorReport`): doctor prints no provider row, even
+/// with a provider that is not available, and its verdict stays last.
 #[test]
-fn doctor_prints_one_row_per_provider_before_the_verdict() {
+fn doctor_prints_no_provider_row() {
     let case = Case::new("providers");
     case.programs_but(&[]);
     let fake = case.dir.join("fake");
     fs::create_dir_all(&fake).expect("create the fake's directory");
-    fs::write(fake.join("providers"), "alpha\nbeta\n").expect("name the providers");
-    fs::write(fake.join("beta.unavailable"), "no cgroup delegation\n").expect("beta is not");
+    fs::write(fake.join("systemd.unavailable"), "no cgroup delegation\n").expect("systemd is not");
     let output = fake_provider::without_harness(
         fake_provider::command_in_clear_env(&case.home(), &fake, &["doctor"])
             .current_dir(case.work())
@@ -1048,28 +1047,17 @@ fn doctor_prints_one_row_per_provider_before_the_verdict() {
     );
     assert_eq!(output.status.code(), Some(0), "{}", shown(&output));
     let lines = stdout(&output);
-    let at = |line: &str| {
-        lines
-            .iter()
-            .position(|shown| shown == line)
-            .unwrap_or_else(|| panic!("no line {line:?}: {}", shown(&output)))
-    };
-    let alpha = at("provider alpha: available");
-    let beta = at("provider beta: not available: no cgroup delegation");
-    assert_eq!(
-        (alpha + 1, beta + 2),
-        (beta, lines.len()),
+    assert!(
+        !lines.iter().any(|line| line.starts_with("provider ")),
         "{}",
         shown(&output)
     );
     for (program, _) in PROGRAMS {
-        let row = lines
-            .iter()
-            .position(|line| line.starts_with(&format!("{program}: ")))
-            .unwrap_or_else(|| panic!("no row for {program}: {}", shown(&output)));
         assert!(
-            row < alpha,
-            "{program} after the providers: {}",
+            lines
+                .iter()
+                .any(|line| line.starts_with(&format!("{program}: "))),
+            "no row for {program}: {}",
             shown(&output)
         );
     }

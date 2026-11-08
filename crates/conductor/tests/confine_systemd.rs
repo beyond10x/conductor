@@ -42,9 +42,10 @@ use std::time::{Duration, Instant};
 use clap::Parser as _;
 use conductor_cli::cli::Cli;
 use conductor_cli::config;
+use conductor_cli::confine::ConfinementProvider;
 use conductor_cli::confine::{Host, Launch, Providers as _, systemd};
 use conductor_cli::session::DIRECTOR_PROMPT;
-use conductor_model::config::{ConfinementProvider, Gibibytes, Limits, Network, SessionName};
+use conductor_model::config::{Gibibytes, Limits, Network, SessionName};
 use conductor_model::session::{SessionRequest, StartedSession};
 use serde_json::{Value, json};
 

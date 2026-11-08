@@ -173,6 +173,7 @@ impl Case {
         });
         let store = store::open(&self.state()).expect("open the case's store");
         let start = StartSnapshot {
+            actor: conductor_cli::actor::daemon(),
             started_at: Timestamp(at.to_owned()),
             disk_free_bytes: 1_000_000,
             budget: None,
@@ -310,6 +311,11 @@ fn the_snapshot_records_each_window_of_each_account_by_its_id_and_never_its_addr
         let fields = row.as_object_mut().expect("a row is an object");
         fields.remove("observation_id");
         fields.remove("snapshot_id");
+        assert_eq!(
+            fields.remove("actor"),
+            Some(Value::from("daemon")),
+            "the collectors record as the daemon"
+        );
         let read_at = fields
             .remove("read_at")
             .and_then(|at| at.as_str().map(instant))

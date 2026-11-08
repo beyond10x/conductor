@@ -1,0 +1,2831 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "conductor-instance",
+    "summary": "One instance's runtime. It runs the instance's loop, starts each role slot's agent of a declared kind at its placement, delivers to it, attaches to it, records its reports and stops it, and serves the instance API.\n",
+    "description": "The HTTP surface of `conductor-instance`, one of the components of `conductor` v1.\n\nEvery path here is one semantic command, so the method is always POST and the path is the command's wire name under its domain's: a command is not a resource, and this document does not invent one. A status code is the outcome the specification declares — 202 for a branch that was taken, 422 for a refusal the input decides, 502 for a refusal decided outside the request — and the `outcome` property of every response body names the branch. This component publishes `AgentKindDeclared`, `AgentReported`, `AgentStarted` and `AgentStopped` to consumers through the event transport; an event a branch emits that is not among them stays inside the component. The `published` property of every response body lists every event its branch emitted, in the order it emits them, published or not.\n\nThe specification declares who may invoke what (`x-ess-may-invoke` on each operation), so every command is sent as a declared actor. How a request proves which actor it is belongs to the realization, which authenticates it and hands the surface the caller; nothing in the request itself names one. The grant is checked before the command runs, and a request authenticated as no actor, or as one without the grant, is answered 403 with one standard refusal, the same for every command: `{\"refused\": \"not granted\", \"actor\": <name or null>}`. A 403 a declared branch answers carries `outcome` and the declared `error` instead, so a client tells the two apart by the members present. A command no declared actor may invoke is refused to every caller. A view an actor's grant names is read-checked the same way (`x-ess-may-read` on its operation): a request authenticated as no actor, or as one the grant does not name, is answered 403 with the same standard refusal before the view is read. A view no grant names is open, and any caller may read what it publishes.\n\nThis component declares `reached_by: network`, so its callers are not deployed with it and this contract is the surface they reach it through. That declaration is also why the views its domains declare have paths here: a GET under `views` per projection, answering every row it holds. There is no page size, no cursor, no ordering and no filter parameter, because the specification states none — a view's filter is part of the projection, not of the request. A view that declares `params:` is the exception: each is a query parameter, described on its operation, and a view that declares `paging:` takes its page and size there.",
+    "version": "v1",
+    "x-ess-provenance": {
+      "system": "conductor",
+      "specification_version": "v1",
+      "contract_digest": "slice-sha256/2:0efea7af654690129d00a8992798c8fe57558ff2df69ff82f8d73a70b7ab97b2"
+    },
+    "x-ess-reached-by": "network"
+  },
+  "tags": [
+    {
+      "name": "agent",
+      "description": "An agent kind fills any role at any placement (design docs/design/architecture-next.md § 7, decision 3). A kind is the program that fills a role slot and the way conductor starts, feeds, reads and stops it; `claude-code` is the only kind in v1, with today's session behaviour kept exactly. A kind's capabilities are `Interactive` (a PTY to attach to, a mailbox the runtime delivers into, a hand-over at a context threshold, a terminal log) or `RunToExit` (one unit of work in; an exit code and an events file out). An agent is a role slot filled, `(role, kind, placement, profile, limits)`, started by the instance runtime and named by its instance and its name; the instance API's `agents/{name}/attach`, `deliver` and `restart` routes (§ 5.1) are the kind's trait over HTTP. `conductor.session` stays the `claude-code` kind's behaviour: its scenarios and tests are the pin, and nothing here replaces them.\n"
+    }
+  ],
+  "paths": {
+    "/agent/commands/attach": {
+      "post": {
+        "operationId": "conductor.agent.AttachAgent",
+        "summary": "Attach to an agent",
+        "tags": [
+          "agent"
+        ],
+        "x-ess-may-invoke": [
+          "conductor.agent.Controller",
+          "conductor.agent.Operator"
+        ],
+        "requestBody": {
+          "description": "The input `conductor.agent.AttachAgent` declares.",
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/conductor.agent.AttachAgent.Input"
+              }
+            }
+          }
+        },
+        "responses": {
+          "202": {
+            "description": "Outcome `attached`: the branch the specification declares for this input. Events this branch emits are published to consumers and listed under `published`.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/conductor.agent.AttachAgent.attached.Response"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "No declared outcome: the standard refusal for an actor no grant admits: the request was authenticated as no actor, or as one `x-ess-may-invoke` does not list. It is checked before the command runs, so nothing was read, written or published, and the same request from a granted actor is decided by the command. Its body carries `refused` and `actor`, never the `outcome` and `error` a declared branch carries.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "actor": {
+                      "description": "The qualified name of the actor the request was authenticated as, or null where it was authenticated as none.",
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "refused": {
+                      "description": "The standard refusal for an actor no grant admits.",
+                      "enum": [
+                        "not granted"
+                      ],
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "refused",
+                    "actor"
+                  ],
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Outcome `no-such-agent`: the branch the specification declares for this input. Events this branch emits are published to consumers and listed under `published`.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/conductor.agent.AttachAgent.no-such-agent.Response"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Outcomes `not-interactive` and `not-running`: the input was acceptable and the subject is in a state this command does not act from. Resending the same request changes nothing until something else moves it.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "discriminator": {
+                    "mapping": {
+                      "not-interactive": "#/components/schemas/conductor.agent.AttachAgent.not-interactive.Response",
+                      "not-running": "#/components/schemas/conductor.agent.AttachAgent.not-running.Response"
+                    },
+                    "propertyName": "outcome"
+                  },
+                  "oneOf": [
+                    {
+                      "$ref": "#/components/schemas/conductor.agent.AttachAgent.not-interactive.Response"
+                    },
+                    {
+                      "$ref": "#/components/schemas/conductor.agent.AttachAgent.not-running.Response"
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "501": {
+            "description": "No declared outcome: the realization is unfinished. Either a port this command runs reported an unmet obligation, and nothing was written: `committed` is `false`. Or the command's effect was committed and delivering what this command published to a binding failed: `committed` is `true`, the effect and its events stand, and each binding whose delivery failed keeps its event and is attempted again on a later delivery, while no other binding receives it twice. Do not retry: after a failed delivery a retry performs the command a second time.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "committed": {
+                      "description": "`true` when the command's effect and events were committed and delivering what it published failed; `false` when an unmet obligation stopped the command before anything was written.",
+                      "type": "boolean"
+                    },
+                    "refused": {
+                      "description": "What was left unfinished, in words.",
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "refused",
+                    "committed"
+                  ],
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "502": {
+            "description": "Outcome `unreachable`: something outside the request refused. The input was acceptable, so the caller has nothing to correct and a retry is meaningful.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/conductor.agent.AttachAgent.unreachable.Response"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/agent/commands/declare-kind": {
+      "post": {
+        "operationId": "conductor.agent.DeclareAgentKind",
+        "summary": "Declare an agent kind",
+        "tags": [
+          "agent"
+        ],
+        "x-ess-may-invoke": [
+          "conductor.agent.InstanceRuntime"
+        ],
+        "requestBody": {
+          "description": "The input `conductor.agent.DeclareAgentKind` declares.",
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/conductor.agent.DeclareAgentKind.Input"
+              }
+            }
+          }
+        },
+        "responses": {
+          "202": {
+            "description": "Outcomes `declared` and `redeclared`: the branch the specification declares for this input. Events this branch emits are published to consumers and listed under `published`.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "discriminator": {
+                    "mapping": {
+                      "declared": "#/components/schemas/conductor.agent.DeclareAgentKind.declared.Response",
+                      "redeclared": "#/components/schemas/conductor.agent.DeclareAgentKind.redeclared.Response"
+                    },
+                    "propertyName": "outcome"
+                  },
+                  "oneOf": [
+                    {
+                      "$ref": "#/components/schemas/conductor.agent.DeclareAgentKind.declared.Response"
+                    },
+                    {
+                      "$ref": "#/components/schemas/conductor.agent.DeclareAgentKind.redeclared.Response"
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "No declared outcome: the standard refusal for an actor no grant admits: the request was authenticated as no actor, or as one `x-ess-may-invoke` does not list. It is checked before the command runs, so nothing was read, written or published, and the same request from a granted actor is decided by the command. Its body carries `refused` and `actor`, never the `outcome` and `error` a declared branch carries.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "actor": {
+                      "description": "The qualified name of the actor the request was authenticated as, or null where it was authenticated as none.",
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "refused": {
+                      "description": "The standard refusal for an actor no grant admits.",
+                      "enum": [
+                        "not granted"
+                      ],
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "refused",
+                    "actor"
+                  ],
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "501": {
+            "description": "No declared outcome: the realization is unfinished. Either a port this command runs reported an unmet obligation, and nothing was written: `committed` is `false`. Or the command's effect was committed and delivering what this command published to a binding failed: `committed` is `true`, the effect and its events stand, and each binding whose delivery failed keeps its event and is attempted again on a later delivery, while no other binding receives it twice. Do not retry: after a failed delivery a retry performs the command a second time.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "committed": {
+                      "description": "`true` when the command's effect and events were committed and delivering what it published failed; `false` when an unmet obligation stopped the command before anything was written.",
+                      "type": "boolean"
+                    },
+                    "refused": {
+                      "description": "What was left unfinished, in words.",
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "refused",
+                    "committed"
+                  ],
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/agent/commands/deliver": {
+      "post": {
+        "operationId": "conductor.agent.DeliverToAgent",
+        "summary": "Deliver a text to an agent",
+        "tags": [
+          "agent"
+        ],
+        "x-ess-may-invoke": [
+          "conductor.agent.Controller",
+          "conductor.agent.InstanceRuntime",
+          "conductor.agent.Operator"
+        ],
+        "requestBody": {
+          "description": "The input `conductor.agent.DeliverToAgent` declares.",
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/conductor.agent.DeliverToAgent.Input"
+              }
+            }
+          }
+        },
+        "responses": {
+          "202": {
+            "description": "Outcome `delivered`: the branch the specification declares for this input. Events this branch emits are published to consumers and listed under `published`.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/conductor.agent.DeliverToAgent.delivered.Response"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "No declared outcome: the standard refusal for an actor no grant admits: the request was authenticated as no actor, or as one `x-ess-may-invoke` does not list. It is checked before the command runs, so nothing was read, written or published, and the same request from a granted actor is decided by the command. Its body carries `refused` and `actor`, never the `outcome` and `error` a declared branch carries.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "actor": {
+                      "description": "The qualified name of the actor the request was authenticated as, or null where it was authenticated as none.",
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "refused": {
+                      "description": "The standard refusal for an actor no grant admits.",
+                      "enum": [
+                        "not granted"
+                      ],
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "refused",
+                    "actor"
+                  ],
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Outcome `no-such-agent`: the branch the specification declares for this input. Events this branch emits are published to consumers and listed under `published`.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/conductor.agent.DeliverToAgent.no-such-agent.Response"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Outcomes `not-interactive` and `not-running`: the input was acceptable and the subject is in a state this command does not act from. Resending the same request changes nothing until something else moves it.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "discriminator": {
+                    "mapping": {
+                      "not-interactive": "#/components/schemas/conductor.agent.DeliverToAgent.not-interactive.Response",
+                      "not-running": "#/components/schemas/conductor.agent.DeliverToAgent.not-running.Response"
+                    },
+                    "propertyName": "outcome"
+                  },
+                  "oneOf": [
+                    {
+                      "$ref": "#/components/schemas/conductor.agent.DeliverToAgent.not-interactive.Response"
+                    },
+                    {
+                      "$ref": "#/components/schemas/conductor.agent.DeliverToAgent.not-running.Response"
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "501": {
+            "description": "No declared outcome: the realization is unfinished. Either a port this command runs reported an unmet obligation, and nothing was written: `committed` is `false`. Or the command's effect was committed and delivering what this command published to a binding failed: `committed` is `true`, the effect and its events stand, and each binding whose delivery failed keeps its event and is attempted again on a later delivery, while no other binding receives it twice. Do not retry: after a failed delivery a retry performs the command a second time.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "committed": {
+                      "description": "`true` when the command's effect and events were committed and delivering what it published failed; `false` when an unmet obligation stopped the command before anything was written.",
+                      "type": "boolean"
+                    },
+                    "refused": {
+                      "description": "What was left unfinished, in words.",
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "refused",
+                    "committed"
+                  ],
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "502": {
+            "description": "Outcome `unreachable`: something outside the request refused. The input was acceptable, so the caller has nothing to correct and a retry is meaningful.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/conductor.agent.DeliverToAgent.unreachable.Response"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/agent/commands/record-report": {
+      "post": {
+        "operationId": "conductor.agent.RecordAgentReport",
+        "summary": "Record an agent's report",
+        "tags": [
+          "agent"
+        ],
+        "x-ess-may-invoke": [
+          "conductor.agent.InstanceRuntime"
+        ],
+        "requestBody": {
+          "description": "The input `conductor.agent.RecordAgentReport` declares.",
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/conductor.agent.RecordAgentReport.Input"
+              }
+            }
+          }
+        },
+        "responses": {
+          "202": {
+            "description": "Outcome `reported`: the branch the specification declares for this input. Events this branch emits are published to consumers and listed under `published`.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/conductor.agent.RecordAgentReport.reported.Response"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "No declared outcome: the standard refusal for an actor no grant admits: the request was authenticated as no actor, or as one `x-ess-may-invoke` does not list. It is checked before the command runs, so nothing was read, written or published, and the same request from a granted actor is decided by the command. Its body carries `refused` and `actor`, never the `outcome` and `error` a declared branch carries.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "actor": {
+                      "description": "The qualified name of the actor the request was authenticated as, or null where it was authenticated as none.",
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "refused": {
+                      "description": "The standard refusal for an actor no grant admits.",
+                      "enum": [
+                        "not granted"
+                      ],
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "refused",
+                    "actor"
+                  ],
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Outcome `no-such-agent`: the branch the specification declares for this input. Events this branch emits are published to consumers and listed under `published`.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/conductor.agent.RecordAgentReport.no-such-agent.Response"
+                }
+              }
+            }
+          },
+          "501": {
+            "description": "No declared outcome: the realization is unfinished. Either a port this command runs reported an unmet obligation, and nothing was written: `committed` is `false`. Or the command's effect was committed and delivering what this command published to a binding failed: `committed` is `true`, the effect and its events stand, and each binding whose delivery failed keeps its event and is attempted again on a later delivery, while no other binding receives it twice. Do not retry: after a failed delivery a retry performs the command a second time.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "committed": {
+                      "description": "`true` when the command's effect and events were committed and delivering what it published failed; `false` when an unmet obligation stopped the command before anything was written.",
+                      "type": "boolean"
+                    },
+                    "refused": {
+                      "description": "What was left unfinished, in words.",
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "refused",
+                    "committed"
+                  ],
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/agent/commands/restart": {
+      "post": {
+        "operationId": "conductor.agent.RestartAgent",
+        "summary": "Restart an agent",
+        "tags": [
+          "agent"
+        ],
+        "x-ess-may-invoke": [
+          "conductor.agent.InstanceRuntime",
+          "conductor.agent.Operator"
+        ],
+        "requestBody": {
+          "description": "The input `conductor.agent.RestartAgent` declares.",
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/conductor.agent.RestartAgent.Input"
+              }
+            }
+          }
+        },
+        "responses": {
+          "202": {
+            "description": "Outcome `restarted`: the branch the specification declares for this input. Events this branch emits are published to consumers and listed under `published`.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/conductor.agent.RestartAgent.restarted.Response"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "No declared outcome: the standard refusal for an actor no grant admits: the request was authenticated as no actor, or as one `x-ess-may-invoke` does not list. It is checked before the command runs, so nothing was read, written or published, and the same request from a granted actor is decided by the command. Its body carries `refused` and `actor`, never the `outcome` and `error` a declared branch carries.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "actor": {
+                      "description": "The qualified name of the actor the request was authenticated as, or null where it was authenticated as none.",
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "refused": {
+                      "description": "The standard refusal for an actor no grant admits.",
+                      "enum": [
+                        "not granted"
+                      ],
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "refused",
+                    "actor"
+                  ],
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Outcome `no-such-agent`: the branch the specification declares for this input. Events this branch emits are published to consumers and listed under `published`.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/conductor.agent.RestartAgent.no-such-agent.Response"
+                }
+              }
+            }
+          },
+          "501": {
+            "description": "No declared outcome: the realization is unfinished. Either a port this command runs reported an unmet obligation, and nothing was written: `committed` is `false`. Or the command's effect was committed and delivering what this command published to a binding failed: `committed` is `true`, the effect and its events stand, and each binding whose delivery failed keeps its event and is attempted again on a later delivery, while no other binding receives it twice. Do not retry: after a failed delivery a retry performs the command a second time.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "committed": {
+                      "description": "`true` when the command's effect and events were committed and delivering what it published failed; `false` when an unmet obligation stopped the command before anything was written.",
+                      "type": "boolean"
+                    },
+                    "refused": {
+                      "description": "What was left unfinished, in words.",
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "refused",
+                    "committed"
+                  ],
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "502": {
+            "description": "Outcome `launch-failed`: something outside the request refused. The input was acceptable, so the caller has nothing to correct and a retry is meaningful.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/conductor.agent.RestartAgent.launch-failed.Response"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/agent/commands/start": {
+      "post": {
+        "operationId": "conductor.agent.StartAgent",
+        "summary": "Start an agent",
+        "tags": [
+          "agent"
+        ],
+        "x-ess-may-invoke": [
+          "conductor.agent.InstanceRuntime"
+        ],
+        "requestBody": {
+          "description": "The input `conductor.agent.StartAgent` declares.",
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/conductor.agent.StartAgent.Input"
+              }
+            }
+          }
+        },
+        "responses": {
+          "202": {
+            "description": "Outcome `started`: the branch the specification declares for this input. Events this branch emits are published to consumers and listed under `published`.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/conductor.agent.StartAgent.started.Response"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "No declared outcome: the standard refusal for an actor no grant admits: the request was authenticated as no actor, or as one `x-ess-may-invoke` does not list. It is checked before the command runs, so nothing was read, written or published, and the same request from a granted actor is decided by the command. Its body carries `refused` and `actor`, never the `outcome` and `error` a declared branch carries.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "actor": {
+                      "description": "The qualified name of the actor the request was authenticated as, or null where it was authenticated as none.",
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "refused": {
+                      "description": "The standard refusal for an actor no grant admits.",
+                      "enum": [
+                        "not granted"
+                      ],
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "refused",
+                    "actor"
+                  ],
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Outcomes `unknown-kind` and `exists`: the input was acceptable and the subject is in a state this command does not act from. Resending the same request changes nothing until something else moves it.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "discriminator": {
+                    "mapping": {
+                      "exists": "#/components/schemas/conductor.agent.StartAgent.exists.Response",
+                      "unknown-kind": "#/components/schemas/conductor.agent.StartAgent.unknown-kind.Response"
+                    },
+                    "propertyName": "outcome"
+                  },
+                  "oneOf": [
+                    {
+                      "$ref": "#/components/schemas/conductor.agent.StartAgent.unknown-kind.Response"
+                    },
+                    {
+                      "$ref": "#/components/schemas/conductor.agent.StartAgent.exists.Response"
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "501": {
+            "description": "No declared outcome: the realization is unfinished. Either a port this command runs reported an unmet obligation, and nothing was written: `committed` is `false`. Or the command's effect was committed and delivering what this command published to a binding failed: `committed` is `true`, the effect and its events stand, and each binding whose delivery failed keeps its event and is attempted again on a later delivery, while no other binding receives it twice. Do not retry: after a failed delivery a retry performs the command a second time.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "committed": {
+                      "description": "`true` when the command's effect and events were committed and delivering what it published failed; `false` when an unmet obligation stopped the command before anything was written.",
+                      "type": "boolean"
+                    },
+                    "refused": {
+                      "description": "What was left unfinished, in words.",
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "refused",
+                    "committed"
+                  ],
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "502": {
+            "description": "Outcome `launch-failed`: something outside the request refused. The input was acceptable, so the caller has nothing to correct and a retry is meaningful.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/conductor.agent.StartAgent.launch-failed.Response"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/agent/commands/stop": {
+      "post": {
+        "operationId": "conductor.agent.StopAgent",
+        "summary": "Stop an agent",
+        "tags": [
+          "agent"
+        ],
+        "x-ess-may-invoke": [
+          "conductor.agent.InstanceRuntime",
+          "conductor.agent.Operator"
+        ],
+        "requestBody": {
+          "description": "The input `conductor.agent.StopAgent` declares.",
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/conductor.agent.StopAgent.Input"
+              }
+            }
+          }
+        },
+        "responses": {
+          "202": {
+            "description": "Outcome `stopped`: the branch the specification declares for this input. Events this branch emits are published to consumers and listed under `published`.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/conductor.agent.StopAgent.stopped.Response"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "No declared outcome: the standard refusal for an actor no grant admits: the request was authenticated as no actor, or as one `x-ess-may-invoke` does not list. It is checked before the command runs, so nothing was read, written or published, and the same request from a granted actor is decided by the command. Its body carries `refused` and `actor`, never the `outcome` and `error` a declared branch carries.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "actor": {
+                      "description": "The qualified name of the actor the request was authenticated as, or null where it was authenticated as none.",
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "refused": {
+                      "description": "The standard refusal for an actor no grant admits.",
+                      "enum": [
+                        "not granted"
+                      ],
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "refused",
+                    "actor"
+                  ],
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Outcome `no-such-agent`: the branch the specification declares for this input. Events this branch emits are published to consumers and listed under `published`.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/conductor.agent.StopAgent.no-such-agent.Response"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Outcome `not-running`: the input was acceptable and the subject is in a state this command does not act from. Resending the same request changes nothing until something else moves it.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/conductor.agent.StopAgent.not-running.Response"
+                }
+              }
+            }
+          },
+          "501": {
+            "description": "No declared outcome: the realization is unfinished. Either a port this command runs reported an unmet obligation, and nothing was written: `committed` is `false`. Or the command's effect was committed and delivering what this command published to a binding failed: `committed` is `true`, the effect and its events stand, and each binding whose delivery failed keeps its event and is attempted again on a later delivery, while no other binding receives it twice. Do not retry: after a failed delivery a retry performs the command a second time.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "committed": {
+                      "description": "`true` when the command's effect and events were committed and delivering what it published failed; `false` when an unmet obligation stopped the command before anything was written.",
+                      "type": "boolean"
+                    },
+                    "refused": {
+                      "description": "What was left unfinished, in words.",
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "refused",
+                    "committed"
+                  ],
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/agent/views/agent-kinds": {
+      "get": {
+        "operationId": "conductor.agent.AgentKinds",
+        "summary": "Agent kinds",
+        "tags": [
+          "agent"
+        ],
+        "x-ess-may-read": [
+          "conductor.agent.Controller",
+          "conductor.agent.InstanceRuntime",
+          "conductor.agent.Operator"
+        ],
+        "x-ess-consistency": "read_your_writes",
+        "responses": {
+          "200": {
+            "description": "Every row of `conductor.agent.AgentKinds`, a projection of `conductor.agent.AgentKind`. Contains every instance. Read-your-writes: a caller that has just issued a command sees its effect here.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/conductor.agent.AgentKinds.Response"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "No declared outcome: the standard refusal for an actor no grant admits: the request was authenticated as no actor, or as one `x-ess-may-read` does not list. It is checked before the view is read, so no row was read, and the same request from a granted actor answers the rows. Its body is the one a command answers an ungranted actor.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "actor": {
+                      "description": "The qualified name of the actor the request was authenticated as, or null where it was authenticated as none.",
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "refused": {
+                      "description": "The standard refusal for an actor no grant admits.",
+                      "enum": [
+                        "not granted"
+                      ],
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "refused",
+                    "actor"
+                  ],
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/agent/views/agents": {
+      "get": {
+        "operationId": "conductor.agent.Agents",
+        "summary": "Agents",
+        "tags": [
+          "agent"
+        ],
+        "x-ess-may-read": [
+          "conductor.agent.Controller",
+          "conductor.agent.InstanceRuntime",
+          "conductor.agent.Operator"
+        ],
+        "x-ess-consistency": "read_your_writes",
+        "responses": {
+          "200": {
+            "description": "Every row of `conductor.agent.Agents`, a projection of `conductor.agent.Agent`. Contains every instance. Read-your-writes: a caller that has just issued a command sees its effect here.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/conductor.agent.Agents.Response"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "No declared outcome: the standard refusal for an actor no grant admits: the request was authenticated as no actor, or as one `x-ess-may-read` does not list. It is checked before the view is read, so no row was read, and the same request from a granted actor answers the rows. Its body is the one a command answers an ungranted actor.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "actor": {
+                      "description": "The qualified name of the actor the request was authenticated as, or null where it was authenticated as none.",
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "refused": {
+                      "description": "The standard refusal for an actor no grant admits.",
+                      "enum": [
+                        "not granted"
+                      ],
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "refused",
+                    "actor"
+                  ],
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  "components": {
+    "schemas": {
+      "conductor.agent.Agent.State": {
+        "title": "State",
+        "x-ess-name": "conductor.agent.Agent.State",
+        "x-ess-kind": "enum",
+        "type": "string",
+        "enum": [
+          "Running",
+          "Stopped"
+        ]
+      },
+      "conductor.agent.AgentExists.Error": {
+        "title": "AgentExists payload",
+        "description": "An agent of that name is on record already; a stopped one is started again with `RestartAgent`. Nothing was started.\n",
+        "x-ess-name": "conductor.agent.AgentExists",
+        "x-ess-kind": "error-payload",
+        "type": "object",
+        "properties": {
+          "name": {
+            "$ref": "#/components/schemas/conductor.agent.AgentName"
+          }
+        },
+        "required": [
+          "name"
+        ],
+        "additionalProperties": false
+      },
+      "conductor.agent.AgentKind.State": {
+        "title": "State",
+        "x-ess-name": "conductor.agent.AgentKind.State",
+        "x-ess-kind": "enum",
+        "type": "string",
+        "enum": [
+          "Available"
+        ]
+      },
+      "conductor.agent.AgentKindDeclared.Event": {
+        "title": "AgentKindDeclared payload",
+        "x-ess-name": "conductor.agent.AgentKindDeclared",
+        "x-ess-kind": "event-payload",
+        "type": "object",
+        "properties": {
+          "actor": {
+            "$ref": "#/components/schemas/conductor.operator.Actor"
+          },
+          "name": {
+            "$ref": "#/components/schemas/conductor.agent.AgentKindName"
+          },
+          "capabilities": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/conductor.agent.Capability"
+            }
+          },
+          "binary": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "actor",
+          "name",
+          "capabilities",
+          "binary"
+        ],
+        "additionalProperties": false
+      },
+      "conductor.agent.AgentKindName": {
+        "title": "AgentKindName",
+        "x-ess-name": "conductor.agent.AgentKindName",
+        "x-ess-kind": "newtype",
+        "type": "string"
+      },
+      "conductor.agent.AgentKinds.Response": {
+        "additionalProperties": false,
+        "description": "The rows of `conductor.agent.AgentKinds`.",
+        "properties": {
+          "rows": {
+            "description": "Every row the projection holds, in the order it holds them.",
+            "items": {
+              "$ref": "#/components/schemas/conductor.agent.AgentKinds.Row"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "rows"
+        ],
+        "type": "object"
+      },
+      "conductor.agent.AgentKinds.Row": {
+        "title": "Agent kinds row",
+        "x-ess-name": "conductor.agent.AgentKinds",
+        "x-ess-kind": "view-row",
+        "type": "object",
+        "properties": {
+          "name": {
+            "$ref": "#/components/schemas/conductor.agent.AgentKindName"
+          },
+          "state": {
+            "$ref": "#/components/schemas/conductor.agent.AgentKind.State"
+          },
+          "capabilities": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/conductor.agent.Capability"
+            }
+          },
+          "binary": {
+            "type": "string"
+          },
+          "actor": {
+            "$ref": "#/components/schemas/conductor.operator.Actor"
+          }
+        },
+        "required": [
+          "name",
+          "state",
+          "capabilities",
+          "binary",
+          "actor"
+        ],
+        "additionalProperties": false
+      },
+      "conductor.agent.AgentLaunchFailed.Error": {
+        "title": "AgentLaunchFailed payload",
+        "description": "The kind's start failed (the program did not come up in the box, or its first prompt could not be delivered), so no agent is on record.\n",
+        "x-ess-name": "conductor.agent.AgentLaunchFailed",
+        "x-ess-kind": "error-payload",
+        "type": "object",
+        "properties": {
+          "name": {
+            "$ref": "#/components/schemas/conductor.agent.AgentName"
+          }
+        },
+        "required": [
+          "name"
+        ],
+        "additionalProperties": false
+      },
+      "conductor.agent.AgentName": {
+        "title": "AgentName",
+        "x-ess-name": "conductor.agent.AgentName",
+        "x-ess-kind": "newtype",
+        "type": "string"
+      },
+      "conductor.agent.AgentNotFound.Error": {
+        "title": "AgentNotFound payload",
+        "description": "No agent of that name is on record; nothing was done.",
+        "x-ess-name": "conductor.agent.AgentNotFound",
+        "x-ess-kind": "error-payload",
+        "type": "object",
+        "properties": {
+          "name": {
+            "$ref": "#/components/schemas/conductor.agent.AgentName"
+          }
+        },
+        "required": [
+          "name"
+        ],
+        "additionalProperties": false
+      },
+      "conductor.agent.AgentNotReachable.Error": {
+        "title": "AgentNotReachable payload",
+        "description": "The agent is on record as running, but its PTY does not answer (no tmux server on its launcher socket for the `claude-code` kind), so nothing was typed or opened; the caller is told which agent, and does not retry in a loop.\n",
+        "x-ess-name": "conductor.agent.AgentNotReachable",
+        "x-ess-kind": "error-payload",
+        "type": "object",
+        "properties": {
+          "name": {
+            "$ref": "#/components/schemas/conductor.agent.AgentName"
+          }
+        },
+        "required": [
+          "name"
+        ],
+        "additionalProperties": false
+      },
+      "conductor.agent.AgentNotRunning.Error": {
+        "title": "AgentNotRunning payload",
+        "description": "The agent is stopped, so nothing reached it and nothing changed.",
+        "x-ess-name": "conductor.agent.AgentNotRunning",
+        "x-ess-kind": "error-payload",
+        "type": "object",
+        "properties": {
+          "name": {
+            "$ref": "#/components/schemas/conductor.agent.AgentName"
+          }
+        },
+        "required": [
+          "name"
+        ],
+        "additionalProperties": false
+      },
+      "conductor.agent.AgentReported.Event": {
+        "title": "AgentReported payload",
+        "x-ess-name": "conductor.agent.AgentReported",
+        "x-ess-kind": "event-payload",
+        "type": "object",
+        "properties": {
+          "actor": {
+            "$ref": "#/components/schemas/conductor.operator.Actor"
+          },
+          "name": {
+            "$ref": "#/components/schemas/conductor.agent.AgentName"
+          },
+          "line": {
+            "type": "string"
+          },
+          "exit_code": {
+            "type": "integer"
+          },
+          "events_path": {
+            "type": "string"
+          },
+          "reported_at": {
+            "type": "string",
+            "format": "date-time"
+          }
+        },
+        "required": [
+          "actor",
+          "name",
+          "line",
+          "reported_at"
+        ],
+        "additionalProperties": false
+      },
+      "conductor.agent.AgentStarted.Event": {
+        "title": "AgentStarted payload",
+        "x-ess-name": "conductor.agent.AgentStarted",
+        "x-ess-kind": "event-payload",
+        "type": "object",
+        "properties": {
+          "actor": {
+            "$ref": "#/components/schemas/conductor.operator.Actor"
+          },
+          "name": {
+            "$ref": "#/components/schemas/conductor.agent.AgentName"
+          },
+          "instance": {
+            "$ref": "#/components/schemas/conductor.config.InstanceName"
+          },
+          "role": {
+            "$ref": "#/components/schemas/conductor.config.RoleName"
+          },
+          "kind": {
+            "$ref": "#/components/schemas/conductor.agent.AgentKindName"
+          },
+          "box": {
+            "$ref": "#/components/schemas/conductor.placement.BoxId"
+          },
+          "token_owner": {
+            "$ref": "#/components/schemas/conductor.operator.OperatorName"
+          },
+          "started_at": {
+            "type": "string",
+            "format": "date-time"
+          }
+        },
+        "required": [
+          "actor",
+          "name",
+          "instance",
+          "role",
+          "kind",
+          "started_at"
+        ],
+        "additionalProperties": false
+      },
+      "conductor.agent.AgentStopped.Event": {
+        "title": "AgentStopped payload",
+        "x-ess-name": "conductor.agent.AgentStopped",
+        "x-ess-kind": "event-payload",
+        "type": "object",
+        "properties": {
+          "actor": {
+            "$ref": "#/components/schemas/conductor.operator.Actor"
+          },
+          "name": {
+            "$ref": "#/components/schemas/conductor.agent.AgentName"
+          },
+          "exit_class": {
+            "$ref": "#/components/schemas/conductor.agent.ExitClass"
+          },
+          "exit_code": {
+            "type": "integer"
+          },
+          "stopped_at": {
+            "type": "string",
+            "format": "date-time"
+          }
+        },
+        "required": [
+          "actor",
+          "name",
+          "exit_class",
+          "stopped_at"
+        ],
+        "additionalProperties": false
+      },
+      "conductor.agent.Agents.Response": {
+        "additionalProperties": false,
+        "description": "The rows of `conductor.agent.Agents`.",
+        "properties": {
+          "rows": {
+            "description": "Every row the projection holds, in the order it holds them.",
+            "items": {
+              "$ref": "#/components/schemas/conductor.agent.Agents.Row"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "rows"
+        ],
+        "type": "object"
+      },
+      "conductor.agent.Agents.Row": {
+        "title": "Agents row",
+        "x-ess-name": "conductor.agent.Agents",
+        "x-ess-kind": "view-row",
+        "type": "object",
+        "properties": {
+          "name": {
+            "$ref": "#/components/schemas/conductor.agent.AgentName"
+          },
+          "state": {
+            "$ref": "#/components/schemas/conductor.agent.Agent.State"
+          },
+          "instance": {
+            "$ref": "#/components/schemas/conductor.config.InstanceName"
+          },
+          "role": {
+            "$ref": "#/components/schemas/conductor.config.RoleName"
+          },
+          "kind": {
+            "$ref": "#/components/schemas/conductor.agent.AgentKindName"
+          },
+          "capabilities": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/conductor.agent.Capability"
+            }
+          },
+          "box": {
+            "$ref": "#/components/schemas/conductor.placement.BoxId"
+          },
+          "profile": {
+            "type": "string"
+          },
+          "limits": {
+            "$ref": "#/components/schemas/conductor.config.Limits"
+          },
+          "token_owner": {
+            "$ref": "#/components/schemas/conductor.operator.OperatorName"
+          },
+          "started_by": {
+            "$ref": "#/components/schemas/conductor.operator.Actor"
+          },
+          "started_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "generation": {
+            "type": "integer"
+          },
+          "stopped_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "exit_class": {
+            "$ref": "#/components/schemas/conductor.agent.ExitClass"
+          },
+          "exit_code": {
+            "type": "integer"
+          }
+        },
+        "required": [
+          "name",
+          "state",
+          "instance",
+          "role",
+          "kind",
+          "capabilities",
+          "limits",
+          "started_by",
+          "started_at",
+          "generation"
+        ],
+        "additionalProperties": false
+      },
+      "conductor.agent.AttachAgent.Input": {
+        "title": "Attach to an agent input",
+        "x-ess-name": "conductor.agent.AttachAgent",
+        "x-ess-kind": "command-input",
+        "type": "object",
+        "properties": {
+          "actor": {
+            "$ref": "#/components/schemas/conductor.operator.Actor"
+          },
+          "name": {
+            "$ref": "#/components/schemas/conductor.agent.AgentName"
+          },
+          "watch": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "actor",
+          "name"
+        ],
+        "additionalProperties": false
+      },
+      "conductor.agent.AttachAgent.attached.Response": {
+        "additionalProperties": false,
+        "description": "The caller holds the agent's PTY stream, read-only with `watch`. Taken when no other outcome's condition matched. The existing `conductor.agent.Agent` is preserved without an error or event. The instance is the one `name` names.",
+        "properties": {
+          "outcome": {
+            "const": "attached",
+            "description": "Which declared outcome the command took."
+          },
+          "published": {
+            "description": "Every event this branch published, in publication order: its qualified name and its payload.",
+            "maxItems": 0,
+            "type": "array"
+          }
+        },
+        "required": [
+          "outcome",
+          "published"
+        ],
+        "type": "object"
+      },
+      "conductor.agent.AttachAgent.no-such-agent.Response": {
+        "additionalProperties": false,
+        "description": "No agent of that name; nothing was opened. Taken when the request names an identity no record carries.",
+        "properties": {
+          "error": {
+            "const": "conductor.agent.AgentNotFound",
+            "description": "No agent of that name is on record; nothing was done.",
+            "type": "string"
+          },
+          "outcome": {
+            "const": "no-such-agent",
+            "description": "Which declared outcome the command took."
+          },
+          "payload": {
+            "$ref": "#/components/schemas/conductor.agent.AgentNotFound.Error"
+          },
+          "published": {
+            "description": "Every event this branch published, in publication order: its qualified name and its payload.",
+            "maxItems": 0,
+            "type": "array"
+          }
+        },
+        "required": [
+          "outcome",
+          "published",
+          "error",
+          "payload"
+        ],
+        "type": "object"
+      },
+      "conductor.agent.AttachAgent.not-interactive.Response": {
+        "additionalProperties": false,
+        "description": "The agent's kind has no PTY to attach to; nothing was opened. Taken when the existing subject's stored fields satisfy `not (exists c in capabilities: (c == Interactive))`.",
+        "properties": {
+          "error": {
+            "const": "conductor.agent.CapabilityMissing",
+            "description": "The agent's kind lacks the capability the command needs, named here (`Interactive` for attach and deliver), so nothing was done.\n",
+            "type": "string"
+          },
+          "outcome": {
+            "const": "not-interactive",
+            "description": "Which declared outcome the command took."
+          },
+          "payload": {
+            "$ref": "#/components/schemas/conductor.agent.CapabilityMissing.Error"
+          },
+          "published": {
+            "description": "Every event this branch published, in publication order: its qualified name and its payload.",
+            "maxItems": 0,
+            "type": "array"
+          }
+        },
+        "required": [
+          "outcome",
+          "published",
+          "error",
+          "payload"
+        ],
+        "type": "object"
+      },
+      "conductor.agent.AttachAgent.not-running.Response": {
+        "additionalProperties": false,
+        "description": "The agent is stopped; nothing was opened. Taken when the existing subject's stored fields satisfy `state == Stopped`.",
+        "properties": {
+          "error": {
+            "const": "conductor.agent.AgentNotRunning",
+            "description": "The agent is stopped, so nothing reached it and nothing changed.",
+            "type": "string"
+          },
+          "outcome": {
+            "const": "not-running",
+            "description": "Which declared outcome the command took."
+          },
+          "payload": {
+            "$ref": "#/components/schemas/conductor.agent.AgentNotRunning.Error"
+          },
+          "published": {
+            "description": "Every event this branch published, in publication order: its qualified name and its payload.",
+            "maxItems": 0,
+            "type": "array"
+          }
+        },
+        "required": [
+          "outcome",
+          "published",
+          "error",
+          "payload"
+        ],
+        "type": "object"
+      },
+      "conductor.agent.AttachAgent.unreachable.Response": {
+        "additionalProperties": false,
+        "description": "Nothing was opened; the caller names the agent. Decided outside the request: the agent's PTY does not answer.",
+        "properties": {
+          "error": {
+            "const": "conductor.agent.AgentNotReachable",
+            "description": "The agent is on record as running, but its PTY does not answer (no tmux server on its launcher socket for the `claude-code` kind), so nothing was typed or opened; the caller is told which agent, and does not retry in a loop.\n",
+            "type": "string"
+          },
+          "outcome": {
+            "const": "unreachable",
+            "description": "Which declared outcome the command took."
+          },
+          "payload": {
+            "$ref": "#/components/schemas/conductor.agent.AgentNotReachable.Error"
+          },
+          "published": {
+            "description": "Every event this branch published, in publication order: its qualified name and its payload.",
+            "maxItems": 0,
+            "type": "array"
+          }
+        },
+        "required": [
+          "outcome",
+          "published",
+          "error",
+          "payload"
+        ],
+        "type": "object"
+      },
+      "conductor.agent.Capability": {
+        "title": "Capability",
+        "x-ess-name": "conductor.agent.Capability",
+        "x-ess-kind": "enum",
+        "type": "string",
+        "enum": [
+          "Interactive",
+          "RunToExit"
+        ]
+      },
+      "conductor.agent.CapabilityMissing.Error": {
+        "title": "CapabilityMissing payload",
+        "description": "The agent's kind lacks the capability the command needs, named here (`Interactive` for attach and deliver), so nothing was done.\n",
+        "x-ess-name": "conductor.agent.CapabilityMissing",
+        "x-ess-kind": "error-payload",
+        "type": "object",
+        "properties": {
+          "name": {
+            "$ref": "#/components/schemas/conductor.agent.AgentName"
+          },
+          "capability": {
+            "$ref": "#/components/schemas/conductor.agent.Capability"
+          }
+        },
+        "required": [
+          "name",
+          "capability"
+        ],
+        "additionalProperties": false
+      },
+      "conductor.agent.DeclareAgentKind.Input": {
+        "title": "Declare an agent kind input",
+        "x-ess-name": "conductor.agent.DeclareAgentKind",
+        "x-ess-kind": "command-input",
+        "type": "object",
+        "properties": {
+          "actor": {
+            "$ref": "#/components/schemas/conductor.operator.Actor"
+          },
+          "name": {
+            "$ref": "#/components/schemas/conductor.agent.AgentKindName"
+          },
+          "capabilities": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/conductor.agent.Capability"
+            }
+          },
+          "binary": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "actor",
+          "name",
+          "capabilities",
+          "binary"
+        ],
+        "additionalProperties": false
+      },
+      "conductor.agent.DeclareAgentKind.declared.Response": {
+        "additionalProperties": false,
+        "description": "The kind is on record with its capabilities and its program. Taken when the request names an identity no record carries. A `conductor.agent.AgentKind` now exists, in `Available`. Its identity is published as `name` on `conductor.agent.AgentKindDeclared`. Emits `AgentKindDeclared`, published to consumers and listed under `published`.",
+        "properties": {
+          "outcome": {
+            "const": "declared",
+            "description": "Which declared outcome the command took."
+          },
+          "published": {
+            "description": "Every event this branch published, in publication order: its qualified name and its payload.",
+            "items": false,
+            "maxItems": 1,
+            "minItems": 1,
+            "prefixItems": [
+              {
+                "additionalProperties": false,
+                "properties": {
+                  "event": {
+                    "const": "conductor.agent.AgentKindDeclared",
+                    "type": "string"
+                  },
+                  "payload": {
+                    "$ref": "#/components/schemas/conductor.agent.AgentKindDeclared.Event"
+                  }
+                },
+                "required": [
+                  "event",
+                  "payload"
+                ],
+                "type": "object"
+              }
+            ],
+            "type": "array"
+          }
+        },
+        "required": [
+          "outcome",
+          "published"
+        ],
+        "type": "object"
+      },
+      "conductor.agent.DeclareAgentKind.redeclared.Response": {
+        "additionalProperties": false,
+        "description": "The kind was on record; it now holds what the binary says. Taken when no other outcome's condition matched. A `conductor.agent.AgentKind` has changed, and its state is unchanged. The instance is the one `name` names. Emits `AgentKindDeclared`, published to consumers and listed under `published`.",
+        "properties": {
+          "outcome": {
+            "const": "redeclared",
+            "description": "Which declared outcome the command took."
+          },
+          "published": {
+            "description": "Every event this branch published, in publication order: its qualified name and its payload.",
+            "items": false,
+            "maxItems": 1,
+            "minItems": 1,
+            "prefixItems": [
+              {
+                "additionalProperties": false,
+                "properties": {
+                  "event": {
+                    "const": "conductor.agent.AgentKindDeclared",
+                    "type": "string"
+                  },
+                  "payload": {
+                    "$ref": "#/components/schemas/conductor.agent.AgentKindDeclared.Event"
+                  }
+                },
+                "required": [
+                  "event",
+                  "payload"
+                ],
+                "type": "object"
+              }
+            ],
+            "type": "array"
+          }
+        },
+        "required": [
+          "outcome",
+          "published"
+        ],
+        "type": "object"
+      },
+      "conductor.agent.DeliverToAgent.Input": {
+        "title": "Deliver a text to an agent input",
+        "x-ess-name": "conductor.agent.DeliverToAgent",
+        "x-ess-kind": "command-input",
+        "type": "object",
+        "properties": {
+          "actor": {
+            "$ref": "#/components/schemas/conductor.operator.Actor"
+          },
+          "name": {
+            "$ref": "#/components/schemas/conductor.agent.AgentName"
+          },
+          "first_line": {
+            "type": "string"
+          },
+          "body_path": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "actor",
+          "name",
+          "first_line"
+        ],
+        "additionalProperties": false
+      },
+      "conductor.agent.DeliverToAgent.delivered.Response": {
+        "additionalProperties": false,
+        "description": "The text is in front of the agent. Taken when no other outcome's condition matched. The existing `conductor.agent.Agent` is preserved without an error or event. The instance is the one `name` names.",
+        "properties": {
+          "outcome": {
+            "const": "delivered",
+            "description": "Which declared outcome the command took."
+          },
+          "published": {
+            "description": "Every event this branch published, in publication order: its qualified name and its payload.",
+            "maxItems": 0,
+            "type": "array"
+          }
+        },
+        "required": [
+          "outcome",
+          "published"
+        ],
+        "type": "object"
+      },
+      "conductor.agent.DeliverToAgent.no-such-agent.Response": {
+        "additionalProperties": false,
+        "description": "No agent of that name; nothing was delivered. Taken when the request names an identity no record carries.",
+        "properties": {
+          "error": {
+            "const": "conductor.agent.AgentNotFound",
+            "description": "No agent of that name is on record; nothing was done.",
+            "type": "string"
+          },
+          "outcome": {
+            "const": "no-such-agent",
+            "description": "Which declared outcome the command took."
+          },
+          "payload": {
+            "$ref": "#/components/schemas/conductor.agent.AgentNotFound.Error"
+          },
+          "published": {
+            "description": "Every event this branch published, in publication order: its qualified name and its payload.",
+            "maxItems": 0,
+            "type": "array"
+          }
+        },
+        "required": [
+          "outcome",
+          "published",
+          "error",
+          "payload"
+        ],
+        "type": "object"
+      },
+      "conductor.agent.DeliverToAgent.not-interactive.Response": {
+        "additionalProperties": false,
+        "description": "The agent's kind is not interactive; nothing was delivered. Taken when the existing subject's stored fields satisfy `not (exists c in capabilities: (c == Interactive))`.",
+        "properties": {
+          "error": {
+            "const": "conductor.agent.CapabilityMissing",
+            "description": "The agent's kind lacks the capability the command needs, named here (`Interactive` for attach and deliver), so nothing was done.\n",
+            "type": "string"
+          },
+          "outcome": {
+            "const": "not-interactive",
+            "description": "Which declared outcome the command took."
+          },
+          "payload": {
+            "$ref": "#/components/schemas/conductor.agent.CapabilityMissing.Error"
+          },
+          "published": {
+            "description": "Every event this branch published, in publication order: its qualified name and its payload.",
+            "maxItems": 0,
+            "type": "array"
+          }
+        },
+        "required": [
+          "outcome",
+          "published",
+          "error",
+          "payload"
+        ],
+        "type": "object"
+      },
+      "conductor.agent.DeliverToAgent.not-running.Response": {
+        "additionalProperties": false,
+        "description": "The agent is stopped; nothing was delivered. Taken when the existing subject's stored fields satisfy `state == Stopped`.",
+        "properties": {
+          "error": {
+            "const": "conductor.agent.AgentNotRunning",
+            "description": "The agent is stopped, so nothing reached it and nothing changed.",
+            "type": "string"
+          },
+          "outcome": {
+            "const": "not-running",
+            "description": "Which declared outcome the command took."
+          },
+          "payload": {
+            "$ref": "#/components/schemas/conductor.agent.AgentNotRunning.Error"
+          },
+          "published": {
+            "description": "Every event this branch published, in publication order: its qualified name and its payload.",
+            "maxItems": 0,
+            "type": "array"
+          }
+        },
+        "required": [
+          "outcome",
+          "published",
+          "error",
+          "payload"
+        ],
+        "type": "object"
+      },
+      "conductor.agent.DeliverToAgent.unreachable.Response": {
+        "additionalProperties": false,
+        "description": "Nothing was typed; the caller names the agent and does not retry in a loop. Decided outside the request: the agent's PTY does not answer.",
+        "properties": {
+          "error": {
+            "const": "conductor.agent.AgentNotReachable",
+            "description": "The agent is on record as running, but its PTY does not answer (no tmux server on its launcher socket for the `claude-code` kind), so nothing was typed or opened; the caller is told which agent, and does not retry in a loop.\n",
+            "type": "string"
+          },
+          "outcome": {
+            "const": "unreachable",
+            "description": "Which declared outcome the command took."
+          },
+          "payload": {
+            "$ref": "#/components/schemas/conductor.agent.AgentNotReachable.Error"
+          },
+          "published": {
+            "description": "Every event this branch published, in publication order: its qualified name and its payload.",
+            "maxItems": 0,
+            "type": "array"
+          }
+        },
+        "required": [
+          "outcome",
+          "published",
+          "error",
+          "payload"
+        ],
+        "type": "object"
+      },
+      "conductor.agent.ExitClass": {
+        "title": "ExitClass",
+        "x-ess-name": "conductor.agent.ExitClass",
+        "x-ess-kind": "enum",
+        "type": "string",
+        "enum": [
+          "Requested",
+          "UsageLimit",
+          "Exited"
+        ]
+      },
+      "conductor.agent.RecordAgentReport.Input": {
+        "title": "Record an agent's report input",
+        "x-ess-name": "conductor.agent.RecordAgentReport",
+        "x-ess-kind": "command-input",
+        "type": "object",
+        "properties": {
+          "actor": {
+            "$ref": "#/components/schemas/conductor.operator.Actor"
+          },
+          "name": {
+            "$ref": "#/components/schemas/conductor.agent.AgentName"
+          },
+          "line": {
+            "type": "string"
+          },
+          "exit_code": {
+            "type": "integer"
+          },
+          "events_path": {
+            "type": "string"
+          },
+          "reported_at": {
+            "type": "string",
+            "format": "date-time"
+          }
+        },
+        "required": [
+          "actor",
+          "name",
+          "line",
+          "reported_at"
+        ],
+        "additionalProperties": false
+      },
+      "conductor.agent.RecordAgentReport.no-such-agent.Response": {
+        "additionalProperties": false,
+        "description": "No agent of that name; nothing was recorded. Taken when the request names an identity no record carries.",
+        "properties": {
+          "error": {
+            "const": "conductor.agent.AgentNotFound",
+            "description": "No agent of that name is on record; nothing was done.",
+            "type": "string"
+          },
+          "outcome": {
+            "const": "no-such-agent",
+            "description": "Which declared outcome the command took."
+          },
+          "payload": {
+            "$ref": "#/components/schemas/conductor.agent.AgentNotFound.Error"
+          },
+          "published": {
+            "description": "Every event this branch published, in publication order: its qualified name and its payload.",
+            "maxItems": 0,
+            "type": "array"
+          }
+        },
+        "required": [
+          "outcome",
+          "published",
+          "error",
+          "payload"
+        ],
+        "type": "object"
+      },
+      "conductor.agent.RecordAgentReport.reported.Response": {
+        "additionalProperties": false,
+        "description": "The report is on record against the agent. Taken when no other outcome's condition matched. A `conductor.agent.Agent` has changed, and its state is unchanged. The instance is the one `name` names. Emits `AgentReported`, published to consumers and listed under `published`.",
+        "properties": {
+          "outcome": {
+            "const": "reported",
+            "description": "Which declared outcome the command took."
+          },
+          "published": {
+            "description": "Every event this branch published, in publication order: its qualified name and its payload.",
+            "items": false,
+            "maxItems": 1,
+            "minItems": 1,
+            "prefixItems": [
+              {
+                "additionalProperties": false,
+                "properties": {
+                  "event": {
+                    "const": "conductor.agent.AgentReported",
+                    "type": "string"
+                  },
+                  "payload": {
+                    "$ref": "#/components/schemas/conductor.agent.AgentReported.Event"
+                  }
+                },
+                "required": [
+                  "event",
+                  "payload"
+                ],
+                "type": "object"
+              }
+            ],
+            "type": "array"
+          }
+        },
+        "required": [
+          "outcome",
+          "published"
+        ],
+        "type": "object"
+      },
+      "conductor.agent.RestartAgent.Input": {
+        "title": "Restart an agent input",
+        "x-ess-name": "conductor.agent.RestartAgent",
+        "x-ess-kind": "command-input",
+        "type": "object",
+        "properties": {
+          "actor": {
+            "$ref": "#/components/schemas/conductor.operator.Actor"
+          },
+          "name": {
+            "$ref": "#/components/schemas/conductor.agent.AgentName"
+          },
+          "token_owner": {
+            "$ref": "#/components/schemas/conductor.operator.OperatorName"
+          },
+          "started_at": {
+            "type": "string",
+            "format": "date-time"
+          }
+        },
+        "required": [
+          "actor",
+          "name",
+          "started_at"
+        ],
+        "additionalProperties": false
+      },
+      "conductor.agent.RestartAgent.launch-failed.Response": {
+        "additionalProperties": false,
+        "description": "The program did not come up again; the record is unchanged. Decided outside the request: the kind's start in the box failed, or its first prompt could not be delivered.",
+        "properties": {
+          "error": {
+            "const": "conductor.agent.AgentLaunchFailed",
+            "description": "The kind's start failed (the program did not come up in the box, or its first prompt could not be delivered), so no agent is on record.\n",
+            "type": "string"
+          },
+          "outcome": {
+            "const": "launch-failed",
+            "description": "Which declared outcome the command took."
+          },
+          "payload": {
+            "$ref": "#/components/schemas/conductor.agent.AgentLaunchFailed.Error"
+          },
+          "published": {
+            "description": "Every event this branch published, in publication order: its qualified name and its payload.",
+            "maxItems": 0,
+            "type": "array"
+          }
+        },
+        "required": [
+          "outcome",
+          "published",
+          "error",
+          "payload"
+        ],
+        "type": "object"
+      },
+      "conductor.agent.RestartAgent.no-such-agent.Response": {
+        "additionalProperties": false,
+        "description": "No agent of that name; nothing was started. Taken when the request names an identity no record carries.",
+        "properties": {
+          "error": {
+            "const": "conductor.agent.AgentNotFound",
+            "description": "No agent of that name is on record; nothing was done.",
+            "type": "string"
+          },
+          "outcome": {
+            "const": "no-such-agent",
+            "description": "Which declared outcome the command took."
+          },
+          "payload": {
+            "$ref": "#/components/schemas/conductor.agent.AgentNotFound.Error"
+          },
+          "published": {
+            "description": "Every event this branch published, in publication order: its qualified name and its payload.",
+            "maxItems": 0,
+            "type": "array"
+          }
+        },
+        "required": [
+          "outcome",
+          "published",
+          "error",
+          "payload"
+        ],
+        "type": "object"
+      },
+      "conductor.agent.RestartAgent.restarted.Response": {
+        "additionalProperties": false,
+        "description": "The agent runs again as its next generation. Taken when no other outcome's condition matched. A `conductor.agent.Agent` has moved to `Running`, along `restart`. The instance is the one `name` names. Emits `AgentStarted`, published to consumers and listed under `published`.",
+        "properties": {
+          "outcome": {
+            "const": "restarted",
+            "description": "Which declared outcome the command took."
+          },
+          "published": {
+            "description": "Every event this branch published, in publication order: its qualified name and its payload.",
+            "items": false,
+            "maxItems": 1,
+            "minItems": 1,
+            "prefixItems": [
+              {
+                "additionalProperties": false,
+                "properties": {
+                  "event": {
+                    "const": "conductor.agent.AgentStarted",
+                    "type": "string"
+                  },
+                  "payload": {
+                    "$ref": "#/components/schemas/conductor.agent.AgentStarted.Event"
+                  }
+                },
+                "required": [
+                  "event",
+                  "payload"
+                ],
+                "type": "object"
+              }
+            ],
+            "type": "array"
+          }
+        },
+        "required": [
+          "outcome",
+          "published"
+        ],
+        "type": "object"
+      },
+      "conductor.agent.StartAgent.Input": {
+        "title": "Start an agent input",
+        "x-ess-name": "conductor.agent.StartAgent",
+        "x-ess-kind": "command-input",
+        "type": "object",
+        "properties": {
+          "actor": {
+            "$ref": "#/components/schemas/conductor.operator.Actor"
+          },
+          "name": {
+            "$ref": "#/components/schemas/conductor.agent.AgentName"
+          },
+          "instance": {
+            "$ref": "#/components/schemas/conductor.config.InstanceName"
+          },
+          "role": {
+            "$ref": "#/components/schemas/conductor.config.RoleName"
+          },
+          "kind": {
+            "$ref": "#/components/schemas/conductor.agent.AgentKindName"
+          },
+          "capabilities": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/conductor.agent.Capability"
+            }
+          },
+          "box": {
+            "$ref": "#/components/schemas/conductor.placement.BoxId"
+          },
+          "profile": {
+            "type": "string"
+          },
+          "limits": {
+            "$ref": "#/components/schemas/conductor.config.Limits"
+          },
+          "token_owner": {
+            "$ref": "#/components/schemas/conductor.operator.OperatorName"
+          },
+          "started_at": {
+            "type": "string",
+            "format": "date-time"
+          }
+        },
+        "required": [
+          "actor",
+          "name",
+          "instance",
+          "role",
+          "kind",
+          "capabilities",
+          "limits",
+          "started_at"
+        ],
+        "additionalProperties": false
+      },
+      "conductor.agent.StartAgent.exists.Response": {
+        "additionalProperties": false,
+        "description": "An agent of that name is on record; nothing was started, the record unchanged. Taken when a record already carries the identity the request would create, and no input-guarded refusal applies.",
+        "properties": {
+          "error": {
+            "const": "conductor.agent.AgentExists",
+            "description": "An agent of that name is on record already; a stopped one is started again with `RestartAgent`. Nothing was started.\n",
+            "type": "string"
+          },
+          "outcome": {
+            "const": "exists",
+            "description": "Which declared outcome the command took."
+          },
+          "payload": {
+            "$ref": "#/components/schemas/conductor.agent.AgentExists.Error"
+          },
+          "published": {
+            "description": "Every event this branch published, in publication order: its qualified name and its payload.",
+            "maxItems": 0,
+            "type": "array"
+          }
+        },
+        "required": [
+          "outcome",
+          "published",
+          "error",
+          "payload"
+        ],
+        "type": "object"
+      },
+      "conductor.agent.StartAgent.launch-failed.Response": {
+        "additionalProperties": false,
+        "description": "The program did not come up; no agent is on record. Decided outside the request: the kind's start in the box failed, or its first prompt could not be delivered.",
+        "properties": {
+          "error": {
+            "const": "conductor.agent.AgentLaunchFailed",
+            "description": "The kind's start failed (the program did not come up in the box, or its first prompt could not be delivered), so no agent is on record.\n",
+            "type": "string"
+          },
+          "outcome": {
+            "const": "launch-failed",
+            "description": "Which declared outcome the command took."
+          },
+          "payload": {
+            "$ref": "#/components/schemas/conductor.agent.AgentLaunchFailed.Error"
+          },
+          "published": {
+            "description": "Every event this branch published, in publication order: its qualified name and its payload.",
+            "maxItems": 0,
+            "type": "array"
+          }
+        },
+        "required": [
+          "outcome",
+          "published",
+          "error",
+          "payload"
+        ],
+        "type": "object"
+      },
+      "conductor.agent.StartAgent.started.Response": {
+        "additionalProperties": false,
+        "description": "The agent runs in its role, generation 1, naming who started it and whose token it runs on.\n Taken when no other outcome's condition matched. A `conductor.agent.Agent` now exists, in `Running`. Its identity is published as `name` on `conductor.agent.AgentStarted`. Emits `AgentStarted`, published to consumers and listed under `published`.",
+        "properties": {
+          "outcome": {
+            "const": "started",
+            "description": "Which declared outcome the command took."
+          },
+          "published": {
+            "description": "Every event this branch published, in publication order: its qualified name and its payload.",
+            "items": false,
+            "maxItems": 1,
+            "minItems": 1,
+            "prefixItems": [
+              {
+                "additionalProperties": false,
+                "properties": {
+                  "event": {
+                    "const": "conductor.agent.AgentStarted",
+                    "type": "string"
+                  },
+                  "payload": {
+                    "$ref": "#/components/schemas/conductor.agent.AgentStarted.Event"
+                  }
+                },
+                "required": [
+                  "event",
+                  "payload"
+                ],
+                "type": "object"
+              }
+            ],
+            "type": "array"
+          }
+        },
+        "required": [
+          "outcome",
+          "published"
+        ],
+        "type": "object"
+      },
+      "conductor.agent.StartAgent.unknown-kind.Response": {
+        "additionalProperties": false,
+        "description": "The binary implements no such kind; nothing was started. Taken when no `conductor.agent.AgentKind` carries the identity `input.kind` names.",
+        "properties": {
+          "error": {
+            "const": "conductor.agent.UnknownAgentKind",
+            "description": "The binary implements no kind of that name, so nothing was started.",
+            "type": "string"
+          },
+          "outcome": {
+            "const": "unknown-kind",
+            "description": "Which declared outcome the command took."
+          },
+          "payload": {
+            "$ref": "#/components/schemas/conductor.agent.UnknownAgentKind.Error"
+          },
+          "published": {
+            "description": "Every event this branch published, in publication order: its qualified name and its payload.",
+            "maxItems": 0,
+            "type": "array"
+          }
+        },
+        "required": [
+          "outcome",
+          "published",
+          "error",
+          "payload"
+        ],
+        "type": "object"
+      },
+      "conductor.agent.StopAgent.Input": {
+        "title": "Stop an agent input",
+        "x-ess-name": "conductor.agent.StopAgent",
+        "x-ess-kind": "command-input",
+        "type": "object",
+        "properties": {
+          "actor": {
+            "$ref": "#/components/schemas/conductor.operator.Actor"
+          },
+          "name": {
+            "$ref": "#/components/schemas/conductor.agent.AgentName"
+          },
+          "exit_class": {
+            "$ref": "#/components/schemas/conductor.agent.ExitClass"
+          },
+          "exit_code": {
+            "type": "integer"
+          },
+          "stopped_at": {
+            "type": "string",
+            "format": "date-time"
+          }
+        },
+        "required": [
+          "actor",
+          "name",
+          "exit_class",
+          "stopped_at"
+        ],
+        "additionalProperties": false
+      },
+      "conductor.agent.StopAgent.no-such-agent.Response": {
+        "additionalProperties": false,
+        "description": "No agent of that name; nothing was stopped. Taken when the request names an identity no record carries.",
+        "properties": {
+          "error": {
+            "const": "conductor.agent.AgentNotFound",
+            "description": "No agent of that name is on record; nothing was done.",
+            "type": "string"
+          },
+          "outcome": {
+            "const": "no-such-agent",
+            "description": "Which declared outcome the command took."
+          },
+          "payload": {
+            "$ref": "#/components/schemas/conductor.agent.AgentNotFound.Error"
+          },
+          "published": {
+            "description": "Every event this branch published, in publication order: its qualified name and its payload.",
+            "maxItems": 0,
+            "type": "array"
+          }
+        },
+        "required": [
+          "outcome",
+          "published",
+          "error",
+          "payload"
+        ],
+        "type": "object"
+      },
+      "conductor.agent.StopAgent.not-running.Response": {
+        "additionalProperties": false,
+        "description": "The agent is stopped already; nothing changed. Taken when the subject is in a state none of this command's declared moves start from. Which states those are is the lifecycle's answer, not this command's.",
+        "properties": {
+          "error": {
+            "const": "conductor.agent.AgentNotRunning",
+            "description": "The agent is stopped, so nothing reached it and nothing changed.",
+            "type": "string"
+          },
+          "outcome": {
+            "const": "not-running",
+            "description": "Which declared outcome the command took."
+          },
+          "payload": {
+            "$ref": "#/components/schemas/conductor.agent.AgentNotRunning.Error"
+          },
+          "published": {
+            "description": "Every event this branch published, in publication order: its qualified name and its payload.",
+            "maxItems": 0,
+            "type": "array"
+          }
+        },
+        "required": [
+          "outcome",
+          "published",
+          "error",
+          "payload"
+        ],
+        "type": "object"
+      },
+      "conductor.agent.StopAgent.stopped.Response": {
+        "additionalProperties": false,
+        "description": "The agent is stopped, with why and, for an exit, its code. Taken when no other outcome's condition matched. A `conductor.agent.Agent` has moved to `Stopped`, along `stop`. The instance is the one `name` names. Emits `AgentStopped`, published to consumers and listed under `published`.",
+        "properties": {
+          "outcome": {
+            "const": "stopped",
+            "description": "Which declared outcome the command took."
+          },
+          "published": {
+            "description": "Every event this branch published, in publication order: its qualified name and its payload.",
+            "items": false,
+            "maxItems": 1,
+            "minItems": 1,
+            "prefixItems": [
+              {
+                "additionalProperties": false,
+                "properties": {
+                  "event": {
+                    "const": "conductor.agent.AgentStopped",
+                    "type": "string"
+                  },
+                  "payload": {
+                    "$ref": "#/components/schemas/conductor.agent.AgentStopped.Event"
+                  }
+                },
+                "required": [
+                  "event",
+                  "payload"
+                ],
+                "type": "object"
+              }
+            ],
+            "type": "array"
+          }
+        },
+        "required": [
+          "outcome",
+          "published"
+        ],
+        "type": "object"
+      },
+      "conductor.agent.UnknownAgentKind.Error": {
+        "title": "UnknownAgentKind payload",
+        "description": "The binary implements no kind of that name, so nothing was started.",
+        "x-ess-name": "conductor.agent.UnknownAgentKind",
+        "x-ess-kind": "error-payload",
+        "type": "object",
+        "properties": {
+          "kind": {
+            "$ref": "#/components/schemas/conductor.agent.AgentKindName"
+          }
+        },
+        "required": [
+          "kind"
+        ],
+        "additionalProperties": false
+      },
+      "conductor.config.Gibibytes": {
+        "title": "Gibibytes",
+        "x-ess-name": "conductor.config.Gibibytes",
+        "x-ess-kind": "newtype",
+        "type": "integer"
+      },
+      "conductor.config.InstanceName": {
+        "title": "InstanceName",
+        "x-ess-name": "conductor.config.InstanceName",
+        "x-ess-kind": "newtype",
+        "type": "string"
+      },
+      "conductor.config.Limits": {
+        "title": "Limits",
+        "x-ess-name": "conductor.config.Limits",
+        "x-ess-kind": "struct",
+        "type": "object",
+        "properties": {
+          "memory_max": {
+            "$ref": "#/components/schemas/conductor.config.Gibibytes"
+          },
+          "cpu_weight": {
+            "type": "integer"
+          },
+          "tasks_max": {
+            "type": "integer"
+          }
+        },
+        "additionalProperties": false,
+        "x-ess-invariants": [
+          "(not (defined(cpu_weight)) or cpu_weight >= 1)",
+          "(not (defined(cpu_weight)) or cpu_weight <= 10000)",
+          "(not (defined(tasks_max)) or tasks_max >= 1)"
+        ]
+      },
+      "conductor.config.RoleName": {
+        "title": "RoleName",
+        "x-ess-name": "conductor.config.RoleName",
+        "x-ess-kind": "newtype",
+        "type": "string"
+      },
+      "conductor.operator.Actor": {
+        "title": "Actor",
+        "x-ess-name": "conductor.operator.Actor",
+        "x-ess-kind": "struct",
+        "type": "object",
+        "properties": {
+          "kind": {
+            "$ref": "#/components/schemas/conductor.operator.ActorKind"
+          },
+          "operator": {
+            "$ref": "#/components/schemas/conductor.operator.OperatorName"
+          },
+          "agent": {
+            "$ref": "#/components/schemas/conductor.operator.AgentActor"
+          }
+        },
+        "required": [
+          "kind"
+        ],
+        "additionalProperties": false
+      },
+      "conductor.operator.ActorKind": {
+        "title": "ActorKind",
+        "x-ess-name": "conductor.operator.ActorKind",
+        "x-ess-kind": "enum",
+        "type": "string",
+        "enum": [
+          "Human",
+          "Agent",
+          "Daemon"
+        ]
+      },
+      "conductor.operator.AgentActor": {
+        "title": "AgentActor",
+        "x-ess-name": "conductor.operator.AgentActor",
+        "x-ess-kind": "struct",
+        "type": "object",
+        "properties": {
+          "instance": {
+            "$ref": "#/components/schemas/conductor.config.InstanceName"
+          },
+          "role": {
+            "$ref": "#/components/schemas/conductor.config.RoleName"
+          },
+          "name": {
+            "$ref": "#/components/schemas/conductor.agent.AgentName"
+          },
+          "kind": {
+            "$ref": "#/components/schemas/conductor.agent.AgentKindName"
+          }
+        },
+        "required": [
+          "instance",
+          "role",
+          "name",
+          "kind"
+        ],
+        "additionalProperties": false
+      },
+      "conductor.operator.OperatorName": {
+        "title": "OperatorName",
+        "x-ess-name": "conductor.operator.OperatorName",
+        "x-ess-kind": "newtype",
+        "type": "string"
+      },
+      "conductor.placement.BoxId": {
+        "title": "BoxId",
+        "x-ess-name": "conductor.placement.BoxId",
+        "x-ess-kind": "newtype",
+        "type": "string",
+        "format": "uuid",
+        "pattern": "^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$"
+      }
+    }
+  },
+  "x-ess-entities": {
+    "conductor.agent.Agent": {
+      "title": "Agent",
+      "x-ess-name": "conductor.agent.Agent",
+      "x-ess-kind": "entity",
+      "type": "object",
+      "properties": {
+        "name": {
+          "$ref": "#/x-ess-entities/conductor.agent.AgentName"
+        },
+        "instance": {
+          "$ref": "#/x-ess-entities/conductor.config.InstanceName",
+          "x-ess-relation": {
+            "name": "instance",
+            "kind": "references",
+            "source": "conductor.agent.Agent",
+            "target": "conductor.instance.Instance",
+            "cardinality": "one",
+            "via": "instance",
+            "$ref": "#/x-ess-entities/conductor.instance.Instance"
+          }
+        },
+        "role": {
+          "$ref": "#/x-ess-entities/conductor.config.RoleName"
+        },
+        "kind": {
+          "$ref": "#/x-ess-entities/conductor.agent.AgentKindName",
+          "x-ess-relation": {
+            "name": "agent_kind",
+            "kind": "references",
+            "source": "conductor.agent.Agent",
+            "target": "conductor.agent.AgentKind",
+            "cardinality": "one",
+            "via": "kind",
+            "$ref": "#/x-ess-entities/conductor.agent.AgentKind"
+          }
+        },
+        "capabilities": {
+          "type": "array",
+          "items": {
+            "$ref": "#/x-ess-entities/conductor.agent.Capability"
+          }
+        },
+        "box": {
+          "$ref": "#/x-ess-entities/conductor.placement.BoxId",
+          "x-ess-relation": {
+            "name": "box",
+            "kind": "references",
+            "source": "conductor.agent.Agent",
+            "target": "conductor.placement.Box",
+            "cardinality": "one",
+            "via": "box",
+            "$ref": "#/x-ess-entities/conductor.placement.Box"
+          }
+        },
+        "profile": {
+          "type": "string"
+        },
+        "limits": {
+          "$ref": "#/x-ess-entities/conductor.config.Limits"
+        },
+        "token_owner": {
+          "$ref": "#/x-ess-entities/conductor.operator.OperatorName"
+        },
+        "started_by": {
+          "$ref": "#/x-ess-entities/conductor.operator.Actor"
+        },
+        "started_at": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "generation": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "stopped_at": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "exit_class": {
+          "$ref": "#/x-ess-entities/conductor.agent.ExitClass"
+        },
+        "exit_code": {
+          "type": "integer"
+        },
+        "state": {
+          "$ref": "#/x-ess-entities/conductor.agent.Agent.State"
+        }
+      },
+      "required": [
+        "name",
+        "instance",
+        "role",
+        "kind",
+        "capabilities",
+        "limits",
+        "started_by",
+        "started_at",
+        "generation",
+        "state"
+      ],
+      "additionalProperties": false,
+      "x-ess-invariants": [
+        "generation >= 1"
+      ]
+    },
+    "conductor.agent.Agent.State": {
+      "title": "State",
+      "x-ess-name": "conductor.agent.Agent.State",
+      "x-ess-kind": "enum",
+      "type": "string",
+      "enum": [
+        "Running",
+        "Stopped"
+      ]
+    },
+    "conductor.agent.AgentKind": {
+      "title": "AgentKind",
+      "x-ess-name": "conductor.agent.AgentKind",
+      "x-ess-kind": "entity",
+      "type": "object",
+      "properties": {
+        "name": {
+          "$ref": "#/x-ess-entities/conductor.agent.AgentKindName"
+        },
+        "capabilities": {
+          "type": "array",
+          "items": {
+            "$ref": "#/x-ess-entities/conductor.agent.Capability"
+          }
+        },
+        "binary": {
+          "type": "string"
+        },
+        "actor": {
+          "$ref": "#/x-ess-entities/conductor.operator.Actor"
+        },
+        "state": {
+          "$ref": "#/x-ess-entities/conductor.agent.AgentKind.State"
+        }
+      },
+      "required": [
+        "name",
+        "capabilities",
+        "binary",
+        "actor",
+        "state"
+      ],
+      "additionalProperties": false
+    },
+    "conductor.agent.AgentKind.State": {
+      "title": "State",
+      "x-ess-name": "conductor.agent.AgentKind.State",
+      "x-ess-kind": "enum",
+      "type": "string",
+      "enum": [
+        "Available"
+      ]
+    },
+    "conductor.agent.AgentKindName": {
+      "title": "AgentKindName",
+      "x-ess-name": "conductor.agent.AgentKindName",
+      "x-ess-kind": "newtype",
+      "type": "string"
+    },
+    "conductor.agent.AgentName": {
+      "title": "AgentName",
+      "x-ess-name": "conductor.agent.AgentName",
+      "x-ess-kind": "newtype",
+      "type": "string"
+    },
+    "conductor.agent.Capability": {
+      "title": "Capability",
+      "x-ess-name": "conductor.agent.Capability",
+      "x-ess-kind": "enum",
+      "type": "string",
+      "enum": [
+        "Interactive",
+        "RunToExit"
+      ]
+    },
+    "conductor.agent.ExitClass": {
+      "title": "ExitClass",
+      "x-ess-name": "conductor.agent.ExitClass",
+      "x-ess-kind": "enum",
+      "type": "string",
+      "enum": [
+        "Requested",
+        "UsageLimit",
+        "Exited"
+      ]
+    },
+    "conductor.config.Gibibytes": {
+      "title": "Gibibytes",
+      "x-ess-name": "conductor.config.Gibibytes",
+      "x-ess-kind": "newtype",
+      "type": "integer"
+    },
+    "conductor.config.InstanceName": {
+      "title": "InstanceName",
+      "x-ess-name": "conductor.config.InstanceName",
+      "x-ess-kind": "newtype",
+      "type": "string"
+    },
+    "conductor.config.Limits": {
+      "title": "Limits",
+      "x-ess-name": "conductor.config.Limits",
+      "x-ess-kind": "struct",
+      "type": "object",
+      "properties": {
+        "memory_max": {
+          "$ref": "#/x-ess-entities/conductor.config.Gibibytes"
+        },
+        "cpu_weight": {
+          "type": "integer"
+        },
+        "tasks_max": {
+          "type": "integer"
+        }
+      },
+      "additionalProperties": false,
+      "x-ess-invariants": [
+        "(not (defined(cpu_weight)) or cpu_weight >= 1)",
+        "(not (defined(cpu_weight)) or cpu_weight <= 10000)",
+        "(not (defined(tasks_max)) or tasks_max >= 1)"
+      ]
+    },
+    "conductor.config.RoleName": {
+      "title": "RoleName",
+      "x-ess-name": "conductor.config.RoleName",
+      "x-ess-kind": "newtype",
+      "type": "string"
+    },
+    "conductor.operator.Actor": {
+      "title": "Actor",
+      "x-ess-name": "conductor.operator.Actor",
+      "x-ess-kind": "struct",
+      "type": "object",
+      "properties": {
+        "kind": {
+          "$ref": "#/x-ess-entities/conductor.operator.ActorKind"
+        },
+        "operator": {
+          "$ref": "#/x-ess-entities/conductor.operator.OperatorName"
+        },
+        "agent": {
+          "$ref": "#/x-ess-entities/conductor.operator.AgentActor"
+        }
+      },
+      "required": [
+        "kind"
+      ],
+      "additionalProperties": false
+    },
+    "conductor.operator.ActorKind": {
+      "title": "ActorKind",
+      "x-ess-name": "conductor.operator.ActorKind",
+      "x-ess-kind": "enum",
+      "type": "string",
+      "enum": [
+        "Human",
+        "Agent",
+        "Daemon"
+      ]
+    },
+    "conductor.operator.AgentActor": {
+      "title": "AgentActor",
+      "x-ess-name": "conductor.operator.AgentActor",
+      "x-ess-kind": "struct",
+      "type": "object",
+      "properties": {
+        "instance": {
+          "$ref": "#/x-ess-entities/conductor.config.InstanceName"
+        },
+        "role": {
+          "$ref": "#/x-ess-entities/conductor.config.RoleName"
+        },
+        "name": {
+          "$ref": "#/x-ess-entities/conductor.agent.AgentName"
+        },
+        "kind": {
+          "$ref": "#/x-ess-entities/conductor.agent.AgentKindName"
+        }
+      },
+      "required": [
+        "instance",
+        "role",
+        "name",
+        "kind"
+      ],
+      "additionalProperties": false
+    },
+    "conductor.operator.OperatorName": {
+      "title": "OperatorName",
+      "x-ess-name": "conductor.operator.OperatorName",
+      "x-ess-kind": "newtype",
+      "type": "string"
+    },
+    "conductor.placement.BoxId": {
+      "title": "BoxId",
+      "x-ess-name": "conductor.placement.BoxId",
+      "x-ess-kind": "newtype",
+      "type": "string",
+      "format": "uuid",
+      "pattern": "^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$"
+    }
+  }
+}

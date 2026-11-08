@@ -1,0 +1,28 @@
+# design docs/design/architecture-next.md § 3 (Actors), § 9, § 13 row 7: the tuning grant is empty
+# by default, so the tuner's change of any key lies outside it, and PutConfig refuses the agent
+# by name. Nothing is committed.
+type: ess-scenario/1
+domain: conductor.config
+scenario: config-put-config-actor-not-human
+summary: The tuner's change of a key outside the tuning grant is refused as ActorNotHuman, naming the agent, and no change is recorded.
+
+timeline:
+  - at: 2026-11-08T10:00:00Z
+    command: conductor.config.PutConfig
+    actor: conductor.config.Tuner
+    input:
+      actor: {kind: Agent, agent: {instance: example-org, role: tuner, name: example-org-tuner, kind: claude-code}}
+      level: Instance
+      instance: example-org
+      path: thresholds.silent_session
+      value: 2h
+      reason: fewer silence alarms
+      changed_at: 2026-11-08T10:00:00Z
+    outcome: actor-not-human
+    error:
+      name: conductor.operator.ActorNotHuman
+
+assert:
+  - view: conductor.config.ConfigRevisions
+    excludes:
+      path: thresholds.silent_session

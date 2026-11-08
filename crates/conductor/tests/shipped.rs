@@ -122,6 +122,7 @@ fn github(sources: github::Sources, shipments: github::Shipments) -> Collector {
 fn take_at(root: &Path, started_at: &str, collectors: &[Collector]) -> Taken {
     let store = store::open(&root.join("state")).expect("open the store");
     let start = StartSnapshot {
+        actor: conductor_cli::actor::daemon(),
         started_at: Timestamp(started_at.to_owned()),
         disk_free_bytes: 1,
         budget: None,
@@ -819,6 +820,7 @@ fn records(
     Collector::new("records", move |record: &mut Recorder<'_>| {
         let snapshot = record.snapshot().clone();
         record.release(RecordRelease {
+            actor: conductor_cli::actor::daemon(),
             snapshot_id: snapshot.clone(),
             repository: RepositoryName(repository.to_owned()),
             tag: tag.to_owned(),
@@ -826,6 +828,7 @@ fn records(
             url: format!("https://github.com/example-org/{repository}/releases/tag/{tag}"),
         })?;
         record.merged_pull_request(RecordMergedPullRequest {
+            actor: conductor_cli::actor::daemon(),
             snapshot_id: snapshot,
             repository: RepositoryName(repository.to_owned()),
             number,
@@ -948,12 +951,15 @@ fn shipped_refuses_what_it_cannot_answer() {
 // ---------------------------------------------------------------------------------------------
 
 /// The rows of `conductor snapshot <view> --format json`, each without its assigned
-/// `observation_id`.
+/// `observation_id` and without its actor, the daemon: the collectors here record as the run
+/// daemon's ticks do.
 fn view_rows(root: &Path, view: &str) -> Vec<Value> {
     let output = conductor(root, &["snapshot", view, "--format", "json"]);
     json_rows(&output)
         .into_iter()
         .map(|mut row| {
+            let actor = row.as_object_mut().and_then(|row| row.remove("actor"));
+            assert_eq!(actor, Some(Value::from("daemon")), "{row}");
             let id = row
                 .as_object_mut()
                 .and_then(|row| row.remove("observation_id"));

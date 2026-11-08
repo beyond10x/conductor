@@ -269,6 +269,7 @@ fn observe(
             }
         };
         pulls.push(RecordPullRequest {
+            actor: crate::actor::daemon(),
             snapshot_id: snapshot.clone(),
             repository: repository(),
             number: request.iid,
@@ -299,6 +300,7 @@ fn observe(
             continue;
         }
         merged.push(RecordMergedPullRequest {
+            actor: crate::actor::daemon(),
             snapshot_id: snapshot.clone(),
             repository: repository(),
             number: request.iid,
@@ -335,6 +337,7 @@ fn observe(
             releases.push((
                 at,
                 RecordRelease {
+                    actor: crate::actor::daemon(),
                     snapshot_id: snapshot.clone(),
                     repository: repository(),
                     url: format!(
@@ -395,6 +398,7 @@ fn observe(
             releases.push((
                 at,
                 RecordRelease {
+                    actor: crate::actor::daemon(),
                     snapshot_id: snapshot.clone(),
                     repository: repository(),
                     url: format!(
@@ -423,6 +427,7 @@ fn observe(
     let run = match pipelines.into_iter().next() {
         None => None,
         Some(pipeline) => Some(RecordWorkflowRun {
+            actor: crate::actor::daemon(),
             snapshot_id: snapshot.clone(),
             repository: repository(),
             workflow: PIPELINE.to_owned(),

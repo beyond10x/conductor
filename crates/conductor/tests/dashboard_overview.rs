@@ -146,6 +146,7 @@ impl Case {
     fn take(&self, started_at: &str, collector: Collector) -> (String, SnapshotState) {
         let store = store::open(&self.state()).expect("open the store");
         let start = StartSnapshot {
+            actor: conductor_cli::actor::daemon(),
             started_at: Timestamp(started_at.to_owned()),
             disk_free_bytes: 1_000_000,
             budget: None,
@@ -177,6 +178,7 @@ fn fixture() -> Collector {
             ("gamma", true, false),
         ] {
             record.repository(RecordRepository {
+                actor: conductor_cli::actor::daemon(),
                 snapshot_id: snapshot.clone(),
                 repository: name(repository),
                 visibility: Visibility::Public,
@@ -204,6 +206,7 @@ fn fixture() -> Collector {
             })?;
         }
         record.pull_request(RecordPullRequest {
+            actor: conductor_cli::actor::daemon(),
             snapshot_id: snapshot.clone(),
             repository: name("alpha"),
             number: 7,
@@ -221,6 +224,7 @@ fn fixture() -> Collector {
             ("Docs", RunConclusion::Success),
         ] {
             record.workflow_run(RecordWorkflowRun {
+                actor: conductor_cli::actor::daemon(),
                 snapshot_id: snapshot.clone(),
                 repository: name("alpha"),
                 workflow: workflow.to_owned(),
@@ -229,6 +233,7 @@ fn fixture() -> Collector {
             })?;
         }
         record.blocker(RecordBlocker {
+            actor: conductor_cli::actor::daemon(),
             snapshot_id: snapshot.clone(),
             repository: name("alpha"),
             reference: "blocker:token".to_owned(),
@@ -237,6 +242,7 @@ fn fixture() -> Collector {
         })?;
         for (tag, at) in [("v1.1.0", AFTER), ("v1.0.9", BEFORE)] {
             record.release(RecordRelease {
+                actor: conductor_cli::actor::daemon(),
                 snapshot_id: snapshot.clone(),
                 repository: name("alpha"),
                 tag: tag.to_owned(),
@@ -246,6 +252,7 @@ fn fixture() -> Collector {
         }
         for (number, at) in [(5, AFTER), (4, BEFORE)] {
             record.merged_pull_request(RecordMergedPullRequest {
+                actor: conductor_cli::actor::daemon(),
                 snapshot_id: snapshot.clone(),
                 repository: name("alpha"),
                 number,
@@ -438,6 +445,7 @@ fn asks_while_collecting(port: u16, seen: Arc<Mutex<Vec<(String, Value)>>>) -> C
     Collector::new("asks", move |record: &mut Recorder<'_>| {
         let snapshot = record.snapshot().clone();
         record.repository(RecordRepository {
+            actor: conductor_cli::actor::daemon(),
             snapshot_id: snapshot,
             repository: RepositoryName("delta".to_owned()),
             visibility: Visibility::Public,
@@ -848,6 +856,7 @@ fn reviews_fixture() -> Collector {
         let snapshot = record.snapshot().clone();
         for repository in ["alpha", "beta"] {
             record.repository(RecordRepository {
+                actor: conductor_cli::actor::daemon(),
                 snapshot_id: snapshot.clone(),
                 repository: RepositoryName(repository.to_owned()),
                 visibility: Visibility::Public,
@@ -882,6 +891,7 @@ fn reviews_fixture() -> Collector {
             ("beta", 8, false, 0, "2026-10-08T09:00:00Z"),
         ] {
             record.pull_request(RecordPullRequest {
+                actor: conductor_cli::actor::daemon(),
                 snapshot_id: snapshot.clone(),
                 repository: RepositoryName(repository.to_owned()),
                 number,

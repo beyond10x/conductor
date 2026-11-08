@@ -251,6 +251,11 @@ impl Case {
                 let row = row.as_object_mut().expect("a row is an object");
                 row.remove("observation_id");
                 row.remove("snapshot_id");
+                assert_eq!(
+                    row.remove("actor"),
+                    Some(Value::from("daemon")),
+                    "the collectors record as the daemon"
+                );
                 Value::Object(row.clone())
             })
             .collect();

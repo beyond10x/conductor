@@ -50,12 +50,13 @@ use std::thread;
 use std::time::{Duration, Instant};
 
 use anyhow::{Context as _, Result, anyhow, bail};
-use conductor_model::config::{Limits, ProviderAvailability, SessionName};
+use conductor_model::config::{Limits, SessionName};
 use conductor_model::observation::EnvelopeProvider;
 use conductor_model::session::{EnvelopeMeasurement, SessionRequest, StartedSession};
 
 use super::{BOUND, Launch, Provider, Said, exited, live_session, now};
 use crate::collect;
+use crate::confine::ProviderAvailability;
 
 /// The cgroup root of this host.
 pub const CGROUP_ROOT: &str = "/sys/fs/cgroup";

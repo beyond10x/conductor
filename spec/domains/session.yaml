@@ -326,6 +326,8 @@ entities:
       name: instance
       type: conductor.config.InstanceName
     fields:
+      - name: actor
+        type: conductor.operator.Actor
       - name: session_id
         type: conductor.session.SessionId
       - name: pid
@@ -356,6 +358,8 @@ entities:
       name: delivery_id
       type: conductor.session.DeliveryId
     fields:
+      - name: actor
+        type: conductor.operator.Actor
       - name: session_name
         type: conductor.config.SessionName
       - name: first_line
@@ -380,6 +384,8 @@ entities:
       name: tick_id
       type: conductor.session.TickId
     fields:
+      - name: actor
+        type: conductor.operator.Actor
       - name: kind
         type: conductor.session.TickKind
       - name: started_at
@@ -445,6 +451,7 @@ commands:
       wire: claim
       display: Claim the conductor lease
     input:
+      - {name: actor, type: conductor.operator.Actor}
       - name: instance
         type: conductor.config.InstanceName
       - name: session_id
@@ -462,6 +469,7 @@ commands:
         creates: conductor.session.Lease
         instance: instance
         sets:
+          actor: input.actor
           session_id: input.session_id
           pid: input.pid
           taken_at: input.taken_at
@@ -471,6 +479,7 @@ commands:
           - conductor.session.LeaseTaken
         payload:
           conductor.session.LeaseTaken:
+            actor: input.actor
             instance: input.instance
             session_id: input.session_id
             pid: input.pid
@@ -486,12 +495,14 @@ commands:
         updates: conductor.session.Lease
         instance: instance
         sets:
+          actor: input.actor
           session_id: input.session_id
           taken_at: input.taken_at
         emits:
           - conductor.session.LeaseTaken
         payload:
           conductor.session.LeaseTaken:
+            actor: input.actor
             instance: input.instance
             session_id: input.session_id
             pid: input.pid
@@ -504,6 +515,7 @@ commands:
         updates: conductor.session.Lease
         instance: instance
         sets:
+          actor: input.actor
           session_id: input.session_id
           pid: input.pid
           taken_at: input.taken_at
@@ -513,6 +525,7 @@ commands:
           - conductor.session.LeaseTakenOver
         payload:
           conductor.session.LeaseTakenOver:
+            actor: input.actor
             instance: input.instance
             session_id: input.session_id
             pid: input.pid
@@ -529,6 +542,7 @@ commands:
       wire: deliver-message
       display: Deliver a message to a session
     input:
+      - {name: actor, type: conductor.operator.Actor}
       - name: session_name
         type: conductor.config.SessionName
       - name: first_line
@@ -549,6 +563,7 @@ commands:
         creates: conductor.session.Delivery
         instance: delivery_id
         sets:
+          actor: input.actor
           session_name: input.session_name
           first_line: input.first_line
           body_path: input.body_path
@@ -557,6 +572,7 @@ commands:
           - conductor.session.MessageDelivered
         payload:
           conductor.session.MessageDelivered:
+            actor: input.actor
             delivery_id: {generated: true}
             session_name: input.session_name
             first_line: input.first_line
@@ -571,6 +587,7 @@ commands:
       wire: record-run-tick
       display: Record a tick of the run daemon
     input:
+      - {name: actor, type: conductor.operator.Actor}
       - name: kind
         type: conductor.session.TickKind
       - name: started_at
@@ -592,6 +609,7 @@ commands:
         creates: conductor.session.RunTick
         instance: tick_id
         sets:
+          actor: input.actor
           kind: input.kind
           started_at: input.started_at
           lines_handled: input.lines_handled
@@ -600,6 +618,7 @@ commands:
           - conductor.session.RunTickRecorded
         payload:
           conductor.session.RunTickRecorded:
+            actor: input.actor
             tick_id: {generated: true}
             kind: input.kind
             started_at: input.started_at
@@ -609,6 +628,8 @@ commands:
 events:
   - name: conductor.session.LeaseTaken
     fields:
+      - name: actor
+        type: conductor.operator.Actor
       - name: instance
         type: conductor.config.InstanceName
       - name: session_id
@@ -618,6 +639,8 @@ events:
 
   - name: conductor.session.LeaseTakenOver
     fields:
+      - name: actor
+        type: conductor.operator.Actor
       - name: instance
         type: conductor.config.InstanceName
       - name: session_id
@@ -631,6 +654,8 @@ events:
 
   - name: conductor.session.MessageDelivered
     fields:
+      - name: actor
+        type: conductor.operator.Actor
       - name: delivery_id
         type: conductor.session.DeliveryId
       - name: session_name
@@ -644,6 +669,8 @@ events:
 
   - name: conductor.session.RunTickRecorded
     fields:
+      - name: actor
+        type: conductor.operator.Actor
       - name: tick_id
         type: conductor.session.TickId
       - name: kind
@@ -672,6 +699,8 @@ views:
         type: Optional<conductor.session.SessionId>
       - name: taken_over_pid
         type: Optional<Integer>
+      - name: actor
+        type: conductor.operator.Actor
     naming:
       wire: leases
       display: Conductor leases
@@ -692,6 +721,8 @@ views:
         type: Optional<String>
       - name: delivered_at
         type: Timestamp
+      - name: actor
+        type: conductor.operator.Actor
     naming:
       wire: deliveries
       display: Deliveries to sessions
@@ -712,6 +743,8 @@ views:
         type: Integer
       - name: actions
         type: List<conductor.dispatch.DispatchLogEvent>
+      - name: actor
+        type: conductor.operator.Actor
     naming:
       wire: run-ticks
       display: Ticks of the run daemon

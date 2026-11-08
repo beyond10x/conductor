@@ -1,0 +1,19 @@
+type: ess-scenario/1
+domain: conductor.token
+scenario: token-contribute-token-agent-refused
+summary: An agent actor that tries to contribute a token is refused with ActorNotHuman, and the pool holds no token.
+
+timeline:
+  - at: 2026-11-08T09:00:00Z
+    command: conductor.token.ContributeToken
+    actor: conductor.token.Operator
+    input:
+      actor: {kind: Agent, agent: {instance: example-org, role: Lead, name: example-org-controller, kind: claude-code}}
+      instance: example-org
+      owner: alice
+      seat: alice@example-org.example
+      secret: example-org-claude-alice
+      contributed_at: 2026-11-08T09:00:00Z
+    outcome: actor-not-human
+    error:
+      name: conductor.operator.ActorNotHuman

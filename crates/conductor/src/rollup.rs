@@ -559,6 +559,7 @@ pub fn update(store: &mut Store, snapshot: &SnapshotId, records: &Path) -> Resul
         if held.is_some() {
             match generated
                 .revise_daily_series(ReviseDailySeries {
+                    actor: crate::actor::chosen(),
                     daily_series_id,
                     value,
                     items,
@@ -577,6 +578,7 @@ pub fn update(store: &mut Store, snapshot: &SnapshotId, records: &Path) -> Resul
         } else {
             match generated
                 .record_daily_series(RecordDailySeries {
+                    actor: crate::actor::chosen(),
                     daily_series_id,
                     series,
                     day,

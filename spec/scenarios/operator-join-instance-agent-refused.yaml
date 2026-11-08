@@ -1,0 +1,21 @@
+type: ess-scenario/1
+domain: conductor.operator
+scenario: operator-join-instance-agent-refused
+summary: A join issued by an agent actor is refused by name, ActorNotHuman, and records no operator.
+
+timeline:
+  - at: 2026-11-08T09:00:00Z
+    command: conductor.operator.JoinInstance
+    actor: conductor.operator.Engineer
+    input:
+      actor: {kind: Agent, agent: {instance: example-org, role: controller, name: example-org-controller, kind: claude-code}}
+      key: {operator: operator-one, instance: example-org}
+      grants: [AnswerDecisions]
+      joined_at: 2026-11-08T09:00:00Z
+    outcome: actor-not-human
+    error: {name: conductor.operator.ActorNotHuman}
+
+assert:
+  - view: conductor.operator.Operators
+    excludes:
+      key: {operator: operator-one, instance: example-org}

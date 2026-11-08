@@ -1,0 +1,53 @@
+type: ess-scenario/1
+domain: conductor.token
+scenario: token-lease-token-none-available
+summary: With the pool's only token leased, a second lease is refused with NoTokenAvailable and the token keeps its agent.
+
+arrange:
+  - instance: token
+    entity: conductor.token.PoolToken
+
+timeline:
+  - at: 2026-11-08T09:00:00Z
+    command: conductor.token.ContributeToken
+    actor: conductor.token.Operator
+    input:
+      actor: {kind: Human, operator: alice}
+      instance: example-org
+      owner: alice
+      seat: alice@example-org.example
+      secret: example-org-claude-alice
+      contributed_at: 2026-11-08T09:00:00Z
+    outcome: contributed
+    capture: {instance: token, event: conductor.token.TokenContributed, field: token_id}
+
+  - at: 2026-11-08T09:05:00Z
+    command: conductor.token.LeaseToken
+    actor: conductor.token.InstanceRuntime
+    input:
+      actor: {kind: Agent, agent: {instance: example-org, role: Lead, name: example-org-controller, kind: claude-code}}
+      instance: example-org
+      token_id: {$instance: token}
+      agent: example-org-controller
+      leased_at: 2026-11-08T09:05:00Z
+    outcome: leased
+
+  - at: 2026-11-08T09:06:00Z
+    command: conductor.token.LeaseToken
+    actor: conductor.token.InstanceRuntime
+    input:
+      actor: {kind: Agent, agent: {instance: example-org, role: Lead, name: example-org-controller, kind: claude-code}}
+      instance: example-org
+      token_id: {$instance: token}
+      agent: example-org-implementer
+      leased_at: 2026-11-08T09:06:00Z
+    outcome: none-available
+    error:
+      name: conductor.token.NoTokenAvailable
+
+assert:
+  - view: conductor.token.Tokens
+    contains:
+      token_id: {$instance: token}
+      state: Leased
+      agent: example-org-controller

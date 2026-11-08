@@ -78,6 +78,7 @@ fn encode(rollup: &DailySeriesSnapshot) -> Value {
     let DailySeriesState::Recorded = rollup.state;
     let data = &rollup.data;
     json!({
+        "actor": crate::actor::to_json(&data.actor),
         "state": RECORDED,
         "daily_series_id": data.daily_series_id.0,
         "series": data.series,
@@ -109,6 +110,7 @@ fn decode(body: &Value) -> Result<DailySeriesSnapshot, String> {
     Ok(DailySeriesSnapshot {
         state: DailySeriesState::Recorded,
         data: DailySeriesData {
+            actor: crate::actor::stored(body)?,
             daily_series_id: DailySeriesId(text(body, "daily_series_id")?),
             series: text(body, "series")?,
             day: text(body, "day")?,

@@ -50,7 +50,7 @@
 //! (`story:dashboard-history`), the day ending now in UTC.
 //!
 //! The header's instance selector ([`instances`], `story:dashboard-instance-switch`):
-//! `/api/instances` answers every instance of the host registry with its dashboard's page, the
+//! `/api/instances` answers every instance of the config file with its dashboard's page, the
 //! one this server listens for marked current; each instance keeps its own dashboard.
 //!
 //! Every endpoint answers warm in under 200 ms (`story:dashboard-fast`, [`cache`]): an answer that
@@ -405,7 +405,8 @@ pub fn dashboard_serve(args: &DashboardServeArgs) -> Result<ExitCode> {
     let sources = Sources::active(args.root.clone())?;
     // The instance's own port (`story:instance-isolation`), so two instances never serve one.
     let port = args.port.unwrap_or_else(|| {
-        u16::try_from(crate::config::active().instance.dashboard_port).unwrap_or(DEFAULT_PORT)
+        u16::try_from(crate::config::legacy(&crate::config::active().instance).dashboard_port)
+            .unwrap_or(DEFAULT_PORT)
     });
     let listener = TcpListener::bind(("127.0.0.1", port))
         .with_context(|| format!("listen on 127.0.0.1:{port}"))?;
@@ -1400,7 +1401,7 @@ fn answer(
         },
         Resource::Instances => {
             let name = config::active().instance.name.0.clone();
-            let answer = instances::answer(&server.sources.home, port, &name);
+            let answer = instances::answer(port, &name);
             send(&cache::Body::json(200, &tilde_all(answer, home)), None)
         }
         Resource::Decisions => decisions_answer(server, condition),
@@ -1628,7 +1629,7 @@ fn collect(
         errors.push(error);
         sessions::Roster::default()
     });
-    let shown = sessions::shown(&listed.rows, &roster, &sources.home, &dispatches, now);
+    let shown = sessions::shown(&listed.rows, &roster, &dispatches, now);
     let mut disk = disk(&sources.disk, &mut errors);
     if let (Value::Object(disk), Value::Object(waste)) = (&mut disk, waste) {
         disk.extend(waste);
