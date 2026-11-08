@@ -411,12 +411,15 @@ The conductor store of each instance holds the operator's selection; do not copy
 - Talk to a controller with `printf '%s\n' "<text>" | CONDUCTOR_INSTANCE=<i> conductor session
   deliver --name <session> --text -` (returns a message id). Write a message to several targets as
   a script file: zsh does not word-split `$p`.
-- Restart a controller fresh (idle, `blocked handover` report, dispatch `Blocked`; the loop does
-  not act because the session is live): `systemctl --user stop conductor_<session name>.service`
-  (the unit is named by the session, not the instance), `conductor controller stop-controller
-  --controller-id <id from controller controllers> --reason …`, `conductor spawn --repository
-  <repo>`, then deliver the hand-off path and dispatch id. A controller that hands over after each
-  wave is restarted so at once. A stale controller record that makes `spawn` refuse
+- Since 0.23.0 the loop restarts controllers over the context threshold, dispatches loop-started
+  ones, unblocks on `started` and restarts a gone maintainer. Before any restart by hand, read
+  `journalctl --user -u conductor_<instance>-run.service --since '-20min'` for the session's name.
+  A `blocked handover` report younger than 15 min with no `session gone` line means the loop is
+  still working on it. Act only after the 15 min have passed and the journal shows no restart, and
+  quote the journal line in the report. Then restart it fresh: `systemctl --user stop
+  conductor_<session name>.service` (named by the session, not the instance), `conductor
+  controller stop-controller --controller-id <id> --reason …`, `conductor spawn --repository
+  <repo>`, deliver the hand-off path and dispatch id. A stale record that makes `spawn` refuse
   `AlreadyRunning` is cleared with `stop-controller`.
 - A controller whose every active story is blocked outside its repository holds a `max_working`
   slot while other Active repositories wait ("<repo> waits: max_working N reached" in the cycle
@@ -451,8 +454,5 @@ The conductor store of each instance holds the operator's selection; do not copy
   cycle later.
 - `glab ci run --variables-env` refuses a value holding `=` or `,`; start such a pipeline with
   `glab api -X POST projects/<id>/pipeline --input <json file>` (`{ref, variables:[{key,value}]}`).
-- Since 0.23.0 the loop restarts controllers over the context threshold, dispatches loop-started
-  ones, unblocks on `started` and restarts a gone maintainer; act by hand only when its journal
-  shows it did not.
 - An account rotation that waits for 0 % headroom rotates only after sessions show `Usage limit
   reached`; set its threshold above 0.
