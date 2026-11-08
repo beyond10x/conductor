@@ -39,39 +39,36 @@ fn shipped(dir: &str) -> Vec<(PathBuf, String)> {
     files
 }
 
-/// The host's profiles, beside the instance roles' (`story:host-session-profiles`).
-const HOST_PROFILES: [&str; 2] = ["conductor-supervisor.md", "conductor-teacher.md"];
+/// The host's profiles, beside the instance roles' (`story:host-session-profiles`), and the host
+/// role each one is (`story:host-roles-by-daemon`).
+const HOST_PROFILES: [(&str, &str); 2] = [
+    ("conductor-supervisor.md", "supervisor"),
+    ("conductor-teacher.md", "teacher"),
+];
 
-/// The start command a host profile writes: the one line of it that starts with
-/// `claude --bg --agent <name>`, its backticks taken off.
-fn start_command(name: &str) -> String {
-    let path = agents().join(format!("{name}.md"));
-    let text = fs::read_to_string(&path).expect("read the profile");
-    let head = format!("`claude --bg --agent {name} ");
-    let lines: Vec<&str> = text
-        .lines()
-        .filter(|line| line.starts_with(&head))
-        .collect();
-    assert_eq!(
-        lines.len(),
-        1,
-        "{name}.md writes its start command on one line of its own: {lines:?}"
-    );
-    lines[0].trim_matches('`').to_owned()
-}
-
-/// `story:host-session-profiles`: the supervisor's and the teacher's profiles ship in `.agents/`,
-/// each stating its start command, `claude --bg --agent <name> -n <name>`, and each adapter keeps
-/// its agent frontmatter and points at the installed profile.
+/// `story:host-roles-by-daemon`: the supervisor's and the teacher's profiles ship in `.agents/`,
+/// each stating that the daemon starts it from `globals.roles` through `conductor session start
+/// --role <role>` and that its task asks the daemon, with no `claude --bg` start command; each
+/// adapter, which `conductor init` no longer installs, keeps its agent frontmatter and points at
+/// the installed profile. Replaces the case of `story:host-session-profiles`, whose profiles wrote
+/// a `claude --bg --agent <name>` start command.
 #[test]
-fn the_host_profiles_state_their_start_command_and_their_adapters_point_at_them() {
+fn the_host_profiles_state_the_daemon_starts_them_and_their_adapters_point_at_them() {
     let root = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../..");
-    for file in HOST_PROFILES {
+    for (file, role) in HOST_PROFILES {
         let name = file.trim_end_matches(".md");
-        let command = start_command(name);
+        let text = fs::read_to_string(agents().join(file)).expect("read the profile");
+        for stated in [
+            format!("`conductor session start --role {role}`"),
+            "`globals.roles`".to_owned(),
+            format!("`conductor daemon start-role --role {role}`"),
+            "`conductor_host.slice`".to_owned(),
+        ] {
+            assert!(text.contains(&stated), "{file} states {stated}");
+        }
         assert!(
-            command.starts_with(&format!("claude --bg --agent {name} -n {name} ")),
-            "{file}: the start command names its agent and session: {command}"
+            !text.contains(&format!("`claude --bg --agent {name} ")),
+            "{file} still writes a claude --bg start command"
         );
         let adapter = fs::read_to_string(root.join(".claude/agents").join(file))
             .unwrap_or_else(|error| panic!(".claude/agents/{file}: {error}"));
@@ -87,7 +84,6 @@ fn the_host_profiles_state_their_start_command_and_their_adapters_point_at_them(
     }
 }
 
-/// `story:run-daemon`, acceptance 6, and `story:controller-profile-for-run`, acceptance 4:
 /// `conductor run` is the loop, so the conductor profile and its Claude Code adapter are retired,
 /// and no profile or adapter shipped asks a session to arm a timer, run the watch under `Monitor`,
 /// message another role with `SendMessage`, or restart conductor.
@@ -117,7 +113,7 @@ fn no_profile_arms_a_timer_watches_messages_by_send_message_or_restarts_conducto
         // `SendMessage` (`story:host-session-profiles`). The instance roles never do.
         let host = HOST_PROFILES
             .iter()
-            .any(|name| path.file_name().is_some_and(|file| file == *name));
+            .any(|(name, _)| path.file_name().is_some_and(|file| file == *name));
         for gone in [
             "CronCreate",
             "Monitor",

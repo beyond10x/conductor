@@ -24,18 +24,21 @@ eventlog-postgres = { git = "https://github.com/beyond10x/eventlog", tag = "0.9.
 eventlog-sqlite = { git = "https://github.com/beyond10x/eventlog", tag = "0.9.2" }
 eventlog-tree = { git = "https://github.com/beyond10x/eventlog", tag = "0.9.2" }
 include_dir = "0.7"
+ring = "0.17"
 rustls = { version = "0.23", default-features = false, features = ["ring", "std", "tls12"] }
 keyring-core = { version = "1", features = ["sample"] }
+ratatui = { version = "0.30", default-features = false, features = ["crossterm"] }
 nix = { version = "0.30", default-features = false, features = ["fs", "poll", "signal", "term"] }
 secrets-core = { git = "https://github.com/beyond10x/secrets", tag = "v0.6.0" }
 secrets-federation = { git = "https://github.com/beyond10x/secrets", tag = "v0.6.0" }
 secrets-keychain = { git = "https://github.com/beyond10x/secrets", tag = "v0.6.0", features = ["native-keychain"] }
 serde = { version = "1", features = ["derive"] }
+substrate-sdk = { package = "b10x-substrate-sdk", git = "https://github.com/beyond10x/substrate", tag = "0.16.1" }
 signal-hook = { version = "0.4", default-features = false }
 serde_json = "1"
 serde_yaml = "0.9"
 time = { version = "0.3", features = ["formatting", "parsing"] }
-tokio = { version = "1", default-features = false, features = ["rt"] }
+tokio = { version = "1", default-features = false, features = ["rt", "net", "time"] }
 
 [dev-dependencies]
 rcgen = { version = "0.13", default-features = false, features = ["crypto", "pem", "ring"] }

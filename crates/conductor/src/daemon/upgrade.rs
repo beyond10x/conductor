@@ -747,7 +747,7 @@ fn wait_upgraded(port: u16, name: &str, timeout: u64) -> Result<Value> {
 }
 
 /// One HTTP/1.1 request to `127.0.0.1:port`; answers the status code and the JSON body.
-fn request(
+pub(super) fn request(
     token: Option<&str>,
     port: u16,
     method: &str,

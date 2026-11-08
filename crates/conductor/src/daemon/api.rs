@@ -16,10 +16,14 @@
 //! - `GET /v1/sessions`, `decisions`, `unanswered`, `kpis` and `events` (SSE): the union of every
 //!   instance's answer, each row carrying `instance`, an instance that does not answer within
 //!   `daemon.timeout` a row `state: unreachable` ([`federate`], `story:federated-views`);
-//!   `POST /v1/ask`: refused with `conductor.instance.SupervisorNotRunning` until a supervisor
-//!   runs; `GET /v1/secrets`: the secrets' names, sources and instances, never a value
+//!   `POST /v1/ask`: delivered to the supervisor's session, refused with
+//!   `conductor.instance.SupervisorNotRunning` while none runs; `POST /v1/roles/{role}/start`:
+//!   a host role `globals.roles` lists asked for now ([`super::host_roles`]); `GET /v1/secrets`: the secrets' names, sources and instances, never a value
 //!   ([`crate::secret::view`]);
 //! - an instance's `agents/{name}/deliver` and `restart` are proxied as writes, `attach` bare.
+//! - `GET /v1/instances/{name}/tokens`, `POST .../join` and `POST .../leave`: the instance's token
+//!   pool, the daemon's own routes ([`crate::token`], `story:token-pool`); a join or a leave is a
+//!   write of the `Join` grant.
 //!
 //! A local client that is no browser (`conductor instance upgrade`) writes with the token the
 //! daemon keeps in [`TOKEN_FILE`] of its directory, mode 0600, naming the listener's origin.
@@ -28,7 +32,11 @@
 //! from elsewhere cannot read through DNS rebinding; reads are open, and a write comes from this
 //! listener's own page ([`crate::dashboard::same_origin`]) with the daemon's token. On the TLS
 //! listener every request but the app's files and a CORS preflight carries `Authorization:
-//! Bearer`, resolved by the Identity service `daemon.tls.identity` ([`Identity`]); any origin may
+//! Bearer`, resolved by the Identity service `daemon.tls.identity` ([`Identity`]); a request without
+//! one is answered `401` naming that service (`identity`), where `conductor login` obtains one
+//! (`story:daemon-remote`). A browser logs in at `GET /login` instead ([`super::browser`]) and
+//! presents the session cookie it is given where it has no bearer; a write with the cookie names
+//! this listener's own origin. Any origin may
 //! read with a bearer (`Access-Control-Allow-Origin: *`, no credentials), so the same app deployed
 //! elsewhere reads the listener's URL.
 //!
@@ -59,10 +67,15 @@ use serde::Deserialize;
 use serde_json::{Value, json};
 
 use super::federate;
+use super::host_roles::Supervisor;
 use crate::dashboard;
 
 /// The route of the instances list.
 pub const INSTANCES: &str = "/v1/instances";
+
+/// The prefix of the host roles' routes: `POST /v1/roles/{role}/start`
+/// (`story:host-roles-by-daemon`).
+pub const ROLES: &str = "/v1/roles/";
 
 /// The routes under `/v1/instances/{name}/` that are the daemon's own and never proxied.
 const OWN: [&str; 4] = ["start", "stop", "restart", "upgrade"];
@@ -113,6 +126,8 @@ pub struct Api {
     /// The operator the Unix user names: who a loopback write is done for.
     local: String,
     identity: Option<Identity>,
+    /// The browsers logged in on the TLS listener (`story:daemon-remote`).
+    browsers: super::browser::Sessions,
     config: Option<ConfigTarget>,
     /// How long an instance has to answer one federated read.
     timeout: Duration,
@@ -120,7 +135,16 @@ pub struct Api {
     answered: Mutex<BTreeMap<String, String>>,
     /// The secrets source a name only the config writes is listed with.
     secrets: Source,
+    /// The host roles `globals.roles` lists, and the supervisor's session while it runs
+    /// (`story:host-roles-by-daemon`).
+    hosts: Mutex<(Vec<String>, Option<Supervisor>)>,
+    /// What `POST /v1/ask` delivers a question to the supervisor with.
+    deliver: Deliver,
 }
+
+/// How `POST /v1/ask` delivers a question to the supervisor's session: by default the
+/// `claude-code` kind's deliver ([`super::host_roles::deliver`]).
+pub type Deliver = Arc<dyn Fn(&Supervisor, &str) -> Result<()> + Send + Sync>;
 
 impl Api {
     /// The API with the daemon's `token`, the loopback operator `local` and, for the TLS
@@ -132,11 +156,39 @@ impl Api {
             token,
             local,
             identity,
+            browsers: super::browser::Sessions::default(),
             config: None,
             timeout: Duration::from_secs(crate::config::FEDERATED_TIMEOUT),
             answered: Mutex::new(BTreeMap::new()),
             secrets: Source::Keychain,
+            hosts: Mutex::new((Vec::new(), None)),
+            deliver: Arc::new(super::host_roles::deliver),
         }
+    }
+
+    /// The API with `deliver` taking `POST /v1/ask`'s question to the supervisor, in place of the
+    /// `claude-code` kind's deliver.
+    #[must_use]
+    pub fn with_deliver(mut self, deliver: Deliver) -> Self {
+        self.deliver = deliver;
+        self
+    }
+
+    /// Publishes the host roles `globals.roles` lists and the supervisor's session while it runs
+    /// (`story:host-roles-by-daemon`).
+    pub fn publish_host(&self, listed: Vec<String>, supervisor: Option<Supervisor>) {
+        *self.hosts.lock().unwrap_or_else(PoisonError::into_inner) = (listed, supervisor);
+    }
+
+    fn listed_host_roles(&self) -> Vec<String> {
+        self.hosts
+            .lock()
+            .map(|hosts| hosts.0.clone())
+            .unwrap_or_default()
+    }
+
+    fn supervisor(&self) -> Option<Supervisor> {
+        self.hosts.lock().ok().and_then(|hosts| hosts.1.clone())
     }
 
     /// The API with `PUT /v1/config` changing the config `file` (`~` read as `home`) and
@@ -249,6 +301,8 @@ pub fn grant_for(route: &str) -> OperatorGrant {
     match route {
         "answers" | "plan" => OperatorGrant::AnswerDecisions,
         "upgrade" => OperatorGrant::UpgradeInstances,
+        // story:token-pool: joining an instance, and leaving it, is the `Join` grant.
+        "join" | "leave" => OperatorGrant::Join,
         _ => OperatorGrant::ChangeSettings,
     }
 }
@@ -447,8 +501,13 @@ fn connection<S: Read + Write>(stream: &mut S, listener: Listener, api: &Api) ->
 enum Who {
     /// The loopback listener's page or a local client.
     Local,
-    /// A bearer the Identity service resolved: its operator name and whether it is a person.
-    Bearer { name: String, human: bool },
+    /// A bearer the Identity service resolved, or a browser's session cookie bound to one
+    /// (`cookie`, `story:daemon-remote`): its operator name and whether it is a person.
+    Bearer {
+        name: String,
+        human: bool,
+        cookie: bool,
+    },
 }
 
 fn answer<S: Read + Write>(
@@ -460,6 +519,12 @@ fn answer<S: Read + Write>(
     let path = request.path().to_owned();
     if matches!(listener, Listener::Tls) && request.method == "OPTIONS" {
         return preflight();
+    }
+    if matches!(listener, Listener::Tls)
+        && request.method == "GET"
+        && (path == super::browser::LOGIN || path == super::browser::CALLBACK)
+    {
+        return browser_login(request, &path, api);
     }
     if let Listener::Loopback(port) = listener
         && !own_host(request.header("host"), port)
@@ -496,8 +561,16 @@ fn answer<S: Read + Write>(
         Listener::Loopback(_) => Who::Local,
         Listener::Tls => match bearer(request, api) {
             Ok(who) => who,
+            // The refusal names the Identity service, where `conductor login` obtains a bearer
+            // (`story:daemon-remote`).
             Err(why) => {
-                return reply(401, "Unauthorized", &json!({"error": why}), listener);
+                let identity = api.identity.as_ref().map(Identity::origin);
+                return reply(
+                    401,
+                    "Unauthorized",
+                    &json!({"error": why, "identity": identity}),
+                    listener,
+                );
             }
         },
     };
@@ -546,6 +619,10 @@ fn answer<S: Read + Write>(
             listener,
         );
     };
+    // story:token-pool: the instance's token pool is the daemon's own.
+    if TOKEN_ROUTES.contains(&route) {
+        return pool(request, stream, listener, &who, api, name, route);
+    }
     if route == "upgrade" {
         if request.method != "POST" {
             return reply(
@@ -617,6 +694,65 @@ fn answer<S: Read + Write>(
     }
 }
 
+/// The routes of an instance's token pool (`story:token-pool`): `GET tokens`, `POST join` and
+/// `POST leave`.
+const TOKEN_ROUTES: [&str; 3] = ["tokens", "join", "leave"];
+
+/// `/v1/instances/{name}/<route>` of the token pool ([`crate::token`]): `GET tokens` reads it;
+/// `POST join` and `POST leave` are writes of the operator admitted with the `Join` grant.
+fn pool<S: Read>(
+    request: &Request,
+    stream: &mut S,
+    listener: Listener,
+    who: &Who,
+    api: &Api,
+    name: &str,
+    route: &str,
+) -> Vec<u8> {
+    let method = if route == "tokens" { "GET" } else { "POST" };
+    if request.method != method {
+        return reply(
+            405,
+            "Method Not Allowed",
+            &json!({"error": format!("/v1/instances/{name}/{route} answers {method} only")}),
+            listener,
+        );
+    }
+    let Some(target) = &api.config else {
+        return reply(
+            503,
+            "Service Unavailable",
+            &json!({"error": "this daemon was given no config file"}),
+            listener,
+        );
+    };
+    let operators = api.operators();
+    let daemon = crate::token::Daemon {
+        file: &target.file,
+        store: &target.store,
+        operators: &operators,
+    };
+    if route == "tokens" {
+        let (code, reason, answer) = crate::token::tokens_route(&daemon, name);
+        return reply(code, reason, &answer, listener);
+    }
+    let operator = match admit_write(request, listener, who, route, api) {
+        Ok(operator) => operator,
+        Err(refusal) => return refusal,
+    };
+    let body = match read_body(request, stream) {
+        Ok(body) => body,
+        Err(refusal) => return refusal(listener),
+    };
+    let implied = matches!(who, Who::Local) && operators.is_empty();
+    let (code, reason, answer) = if route == "join" {
+        crate::token::join_route(&daemon, name, &operator, implied, &body)
+    } else {
+        crate::token::leave_route(&daemon, name, &operator)
+    };
+    reply(code, reason, &answer, listener)
+}
+
 /// Whether `host` names the loopback listener on `port`, or is absent (a client that is no
 /// browser).
 fn own_host(host: Option<&str>, port: u16) -> bool {
@@ -658,7 +794,8 @@ fn app(path: &str, listener: Listener, api: &Api) -> Vec<u8> {
     )
 }
 
-/// The bearer of `request`, resolved by the Identity service.
+/// The bearer of `request`, resolved by the Identity service; without one, the browser session
+/// its cookie names (`story:daemon-remote`).
 fn bearer(request: &Request, api: &Api) -> Result<Who, String> {
     let Some(given) = request
         .header("authorization")
@@ -666,14 +803,36 @@ fn bearer(request: &Request, api: &Api) -> Result<Who, String> {
         .map(str::trim)
         .filter(|token| !token.is_empty())
     else {
-        return Err("this listener takes an Identity bearer: Authorization: Bearer".to_owned());
+        if let Some((name, human)) = api.browsers.who(request.header("cookie")) {
+            return Ok(Who::Bearer {
+                name,
+                human,
+                cookie: true,
+            });
+        }
+        return Err(format!(
+            "this listener takes an Identity bearer (Authorization: Bearer) or a browser's \
+             session cookie from {}",
+            super::browser::LOGIN
+        ));
     };
-    let Some(identity) = &api.identity else {
-        return Err("this daemon names no Identity service (daemon.tls.identity)".to_owned());
-    };
-    let authority = identity
-        .resolve(given)
+    let (name, human) = resolved(api, given)
         .map_err(|error| format!("the Identity service refused the bearer: {error:#}"))?;
+    Ok(Who::Bearer {
+        name,
+        human,
+        cookie: false,
+    })
+}
+
+/// The operator name and whether it is a person, of the access token `given`, as the Identity
+/// service resolves it: named as `daemon.operators` names it (its email or subject).
+fn resolved(api: &Api, given: &str) -> Result<(String, bool)> {
+    let identity = api
+        .identity
+        .as_ref()
+        .ok_or_else(|| anyhow!("this daemon names no Identity service (daemon.tls.identity)"))?;
+    let authority = identity.resolve(given)?;
     let operators = api.operators();
     let name = operators
         .iter()
@@ -683,10 +842,63 @@ fn bearer(request: &Request, api: &Api) -> Result<Who, String> {
         })
         .or(authority.email)
         .unwrap_or(authority.subject);
-    Ok(Who::Bearer {
-        name,
-        human: authority.principal_kind == "human",
-    })
+    Ok((name, authority.principal_kind == "human"))
+}
+
+/// `GET /login` and `GET /login/callback` on the TLS listener ([`super::browser`]).
+fn browser_login(request: &Request, path: &str, api: &Api) -> Vec<u8> {
+    let listener = Listener::Tls;
+    let Some(identity) = &api.identity else {
+        return reply(
+            503,
+            "Service Unavailable",
+            &json!({"error": "this daemon names no Identity service (daemon.tls.identity)"}),
+            listener,
+        );
+    };
+    let sessions = &api.browsers;
+    if path == super::browser::LOGIN {
+        return match super::browser::begin(identity, sessions, request.header("host")) {
+            Ok(address) => response(
+                302,
+                "Found",
+                "text/plain; charset=utf-8",
+                b"",
+                &format!("Location: {address}\r\n"),
+                listener,
+            ),
+            Err(error) => reply(
+                502,
+                "Bad Gateway",
+                &super::browser::refusal(&error),
+                listener,
+            ),
+        };
+    }
+    match super::browser::finish(
+        identity,
+        sessions,
+        request.query().unwrap_or(""),
+        |access| resolved(api, access),
+    ) {
+        Ok(value) => response(
+            302,
+            "Found",
+            "text/plain; charset=utf-8",
+            b"",
+            &format!(
+                "Location: /\r\nSet-Cookie: {}\r\n",
+                super::browser::set_cookie(&value)
+            ),
+            listener,
+        ),
+        Err(error) => reply(
+            400,
+            "Bad Request",
+            &super::browser::refusal(&error),
+            listener,
+        ),
+    }
 }
 
 /// Admits a write of `who` on the instance route `route`: the loopback listener's own page with
@@ -715,9 +927,27 @@ fn admit_write(
             ));
         }
     }
+    // A browser's cookie travels with every request to this host, so a write with it must name
+    // the listener's own origin (`story:daemon-remote`); a bearer is presented on purpose.
+    if let Who::Bearer { cookie: true, .. } = who {
+        let own = super::browser::own_origin(request.header("host"));
+        if own.is_none() || request.header("origin") != own.as_deref() {
+            return Err(reply(
+                403,
+                "Forbidden",
+                &json!({
+                    "error": "a write with the session cookie is taken only from this listener's \
+                              own origin",
+                }),
+                listener,
+            ));
+        }
+    }
     let name = match who {
         Who::Local => api.local.clone(),
-        Who::Bearer { name, human: false } => {
+        Who::Bearer {
+            name, human: false, ..
+        } => {
             return Err(reply(
                 403,
                 "Forbidden",
@@ -729,7 +959,9 @@ fn admit_write(
                 listener,
             ));
         }
-        Who::Bearer { name, human: true } => name.clone(),
+        Who::Bearer {
+            name, human: true, ..
+        } => name.clone(),
     };
     let grant = grant_for(route);
     let operators = api.operators();
@@ -909,6 +1141,23 @@ fn federated<S: Read + Write>(
         let (code, reason, answer) = ask(api, &body);
         return Some(reply(code, reason, &answer, listener));
     }
+    if let Some(role) = path
+        .strip_prefix(ROLES)
+        .and_then(|rest| rest.strip_suffix("/start"))
+        .filter(|role| !role.is_empty() && !role.contains('/'))
+    {
+        if request.method != "POST" {
+            return Some(only("POST"));
+        }
+        if let Err(refusal) = admit_write(request, listener, who, "start", api) {
+            return Some(refusal);
+        }
+        if let Err(refusal) = read_body(request, stream) {
+            return Some(refusal(listener));
+        }
+        let (code, reason, answer) = start_role(api, role);
+        return Some(reply(code, reason, &answer, listener));
+    }
     let route = path
         .strip_prefix("/v1/")
         .filter(|route| federate::ROUTES.contains(route))?;
@@ -981,9 +1230,11 @@ struct Question {
 }
 
 /// `POST /v1/ask` with `body` (decision F4): the question is for the supervisor, or with `to` for
-/// that instance's controller through it; no supervisor runs until the daemon starts the host
-/// roles, so a question is refused with `conductor.instance.SupervisorNotRunning` (`503`), and one
-/// for an instance the daemon does not list with `conductor.instance.UnknownInstance` (`404`).
+/// that instance's controller through it. While the supervisor's session runs
+/// (`story:host-roles-by-daemon`) the question is delivered to it ([`Deliver`]), `202`, a
+/// delivery that fails `502` naming `conductor.agent.AgentNotReachable`; while none runs it is
+/// refused with `conductor.instance.SupervisorNotRunning` (`503`), and one for an instance the
+/// daemon does not list with `conductor.instance.UnknownInstance` (`404`).
 fn ask(api: &Api, body: &[u8]) -> (u16, &'static str, Value) {
     use conductor_model::config::InstanceName;
     use conductor_model::instance::{SupervisorNotRunning, UnknownInstance};
@@ -1018,18 +1269,69 @@ fn ask(api: &Api, body: &[u8]) -> (u16, &'static str, Value) {
             json!({"error": "conductor.instance.UnknownInstance", "name": refusal.name.0}),
         );
     }
-    let refusal = SupervisorNotRunning {
-        instance: question.to.map(InstanceName),
+    let Some(supervisor) = api.supervisor() else {
+        let refusal = SupervisorNotRunning {
+            instance: question.to.map(InstanceName),
+        };
+        return (
+            503,
+            "Service Unavailable",
+            json!({
+                "error": "conductor.instance.SupervisorNotRunning",
+                "instance": refusal.instance.map(|name| name.0),
+                "detail": "no supervisor runs to take the question: the daemon starts it when \
+                           globals.roles lists supervisor; nothing was delivered",
+            }),
+        );
     };
+    // A question for an instance's controller goes through the supervisor, its first line
+    // naming the instance.
+    let text = match &question.to {
+        Some(instance) => format!(
+            "Question for the controller of {instance}:\n{}",
+            question.text
+        ),
+        None => question.text.clone(),
+    };
+    match (api.deliver)(&supervisor, &text) {
+        Ok(()) => (
+            202,
+            "Accepted",
+            json!({"delivered_to": supervisor.name, "instance": question.to}),
+        ),
+        Err(error) => (
+            502,
+            "Bad Gateway",
+            json!({
+                "error": "conductor.agent.AgentNotReachable",
+                "name": supervisor.name,
+                "detail": format!("{error:#}"),
+            }),
+        ),
+    }
+}
+
+/// `POST /v1/roles/{role}/start` (`story:host-roles-by-daemon`): asks the daemon's loop for the
+/// host role `role` now ([`super::host_roles::ask`]), `202`; a role that is no host role, or one
+/// `globals.roles` does not list, `404` naming `globals.roles`.
+fn start_role(api: &Api, role: &str) -> (u16, &'static str, Value) {
+    if !super::host_roles::is_host_role(role) || !api.listed_host_roles().iter().any(|r| r == role)
+    {
+        return (
+            404,
+            "Not Found",
+            json!({"error": format!(
+                "globals.roles lists no host role {role:?}: the host roles are {}, and the daemon \
+                 starts one the file lists",
+                super::host_roles::HOST_ROLES.join(" and ")
+            )}),
+        );
+    }
+    super::host_roles::ask(role);
     (
-        503,
-        "Service Unavailable",
-        json!({
-            "error": "conductor.instance.SupervisorNotRunning",
-            "instance": refusal.instance.map(|name| name.0),
-            "detail": "no supervisor runs to take the question; the daemon starts the host roles \
-                       in a later release, and nothing was delivered",
-        }),
+        202,
+        "Accepted",
+        json!({"role": role, "placement": super::host_roles::PLACEMENT}),
     )
 }
 
@@ -1298,6 +1600,17 @@ impl Identity {
         })
     }
 
+    /// The service's origin, `https://host:port` (`http://` on this host or cluster).
+    #[must_use]
+    pub fn origin(&self) -> String {
+        format!(
+            "{}://{}:{}",
+            if self.https { "https" } else { "http" },
+            self.host,
+            self.port
+        )
+    }
+
     /// The authority of `bearer`, as the service resolves it for the daemon's audience.
     fn resolve(&self, bearer: &str) -> Result<Authority> {
         if bearer.contains(['\r', '\n']) {
@@ -1340,7 +1653,7 @@ impl Identity {
     }
 }
 
-fn exchange<S: Read + Write>(stream: &mut S, request: &str) -> Result<Vec<u8>> {
+pub(crate) fn exchange<S: Read + Write>(stream: &mut S, request: &str) -> Result<Vec<u8>> {
     stream.write_all(request.as_bytes())?;
     stream.flush()?;
     let mut bytes = Vec::new();
@@ -1386,7 +1699,7 @@ pub(crate) fn split(bytes: &[u8]) -> Result<(u16, Vec<u8>)> {
 
 /// The roots an `https://` Identity service is checked against: the system's bundle, the file
 /// `SSL_CERT_FILE` names, else the first of the usual places.
-fn client_config() -> Result<Arc<rustls::ClientConfig>> {
+pub(crate) fn client_config() -> Result<Arc<rustls::ClientConfig>> {
     let file = std::env::var_os("SSL_CERT_FILE")
         .map(PathBuf::from)
         .into_iter()

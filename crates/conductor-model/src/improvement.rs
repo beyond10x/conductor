@@ -1,5 +1,5 @@
 // generated from conductor v1
-// contract digest 575fcfe0b84fcb4b2dc3a52041bbf14840203191eb2cb53374eec07ea92207ab
+// contract digest 0608eb83c8c48e1f8808cd29d3621f78091b34cac43c2b2e9143a335707a4202
 // do not edit: regenerate with `ess synthesize --layout crate`
 
 //! Improvement — `conductor.improvement`.
@@ -66,6 +66,28 @@ pub enum MetricReadingState {
 /// MetricReadingId — `conductor.improvement.MetricReadingId`: a distinct wrapper around `String`.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct MetricReadingId(pub String);
+
+/// ProposalId — `conductor.improvement.ProposalId`: a distinct wrapper around `String`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ProposalId(pub String);
+
+/// The states of `conductor.improvement.SettingsProposal`, as runtime values.
+///
+/// Synthesised from the lifecycle, so the two cannot disagree. Which *moves* are legal is not
+/// carried here — it is carried by `SettingsProposal<S>`, where an undeclared move does not compile.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SettingsProposalState {
+    /// `Applied`.
+    Applied,
+    /// `Kept`.
+    Kept,
+    /// `Proposed`.
+    Proposed,
+    /// `Refused`.
+    Refused,
+    /// `Reverted`.
+    Reverted,
+}
 
 /// TargetDirection — `conductor.improvement.TargetDirection`: one of a closed set of names.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -678,6 +700,337 @@ impl AnyMetricReading {
     }
 }
 
+/// What SettingsProposal — `conductor.improvement.SettingsProposal` — holds, apart from where it is in its lifecycle.
+///
+/// The identity and every declared field. The state is deliberately not one: inside the domain it
+/// is carried by the type parameter of [`SettingsProposal<S>`], and at a boundary by [`SettingsProposalSnapshot::state`].
+///
+/// Every value satisfies `window_days >= 1` — checked by [`SettingsProposalData::broken_invariant`].
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SettingsProposalData {
+    /// The identity: `proposal_id` — `conductor.improvement.ProposalId`.
+    pub proposal_id: ProposalId,
+    /// `instance` — `String`.
+    pub instance: String,
+    /// `key` — `String`.
+    pub key: String,
+    /// `old` — `String`.
+    pub old: String,
+    /// `new` — `String`.
+    pub new: String,
+    /// `metric_id` — `conductor.improvement.MetricId`.
+    ///
+    /// Carries `metric`: `conductor.improvement.SettingsProposal` references one `conductor.improvement.Metric`.
+    pub metric_id: MetricId,
+    /// `reading` — `conductor.improvement.MetricReadingId`.
+    ///
+    /// Carries `reading`: `conductor.improvement.SettingsProposal` references one `conductor.improvement.MetricReading`.
+    pub reading: MetricReadingId,
+    /// `baseline` — `Decimal`.
+    pub baseline: crate::primitives::Decimal,
+    /// `window_days` — `Integer`.
+    pub window_days: i64,
+    /// `proposed_at` — `Timestamp`.
+    pub proposed_at: crate::primitives::Timestamp,
+    /// `actor` — `conductor.operator.Actor`.
+    pub actor: crate::operator::Actor,
+    /// `revision` — `Optional<String>`.
+    pub revision: Option<String>,
+    /// `reason` — `Optional<String>`.
+    pub reason: Option<String>,
+    /// `finding` — `Optional<conductor.improvement.FindingId>`.
+    ///
+    /// Carries `finding`: `conductor.improvement.SettingsProposal` references one `conductor.improvement.FrictionFinding`.
+    pub finding: Option<FindingId>,
+    /// `verdict` — `Optional<String>`.
+    pub verdict: Option<String>,
+}
+
+impl SettingsProposalData {
+    /// The first declared invariant of `conductor.improvement.SettingsProposal` this value breaks, as the specification declares it,
+    /// or `None` when it breaks none.
+    ///
+    /// An invariant is broken only when it is false of this value. One that reads something
+    /// absent — an empty `Optional`, a list position past the end, or `state`, which this
+    /// type does not hold — decides nothing, as the conformance interpreter reads it.
+    pub fn broken_invariant(&self) -> Option<&'static str> {
+        use crate::primitives::invariant as iv;
+        if iv::broken(iv::compare(Some(iv::Fact::integer(self.window_days)), iv::Op::Ge, iv::Fact::number("1"), false, true)) {
+            return Some("window_days >= 1");
+        }
+        None
+    }
+}
+
+/// The states of `conductor.improvement.SettingsProposal`, at the type level.
+///
+/// One marker type per declared state, sealed: a state the lifecycle does not declare cannot
+/// implement [`Marker`](settings_proposal_state::Marker), so [`SettingsProposal<S>`](SettingsProposal) can only ever rest in a real state.
+pub mod settings_proposal_state {
+    /// Closes [`Marker`] over the declared states.
+    mod sealed {
+        /// Implemented only by the marker types beside this module.
+        pub trait Sealed {}
+        impl Sealed for super::Applied {}
+        impl Sealed for super::Kept {}
+        impl Sealed for super::Proposed {}
+        impl Sealed for super::Refused {}
+        impl Sealed for super::Reverted {}
+    }
+
+    /// A declared state of `SettingsProposal`, as a type.
+    pub trait Marker: sealed::Sealed {
+        /// The same state, as the runtime value.
+        const STATE: super::SettingsProposalState;
+    }
+
+    /// `Applied`.
+    pub struct Applied;
+
+    impl Marker for Applied {
+        const STATE: super::SettingsProposalState = super::SettingsProposalState::Applied;
+    }
+
+    /// `Kept`. Terminal: an instance may rest here forever.
+    pub struct Kept;
+
+    impl Marker for Kept {
+        const STATE: super::SettingsProposalState = super::SettingsProposalState::Kept;
+    }
+
+    /// `Proposed`. Where a new instance starts.
+    pub struct Proposed;
+
+    impl Marker for Proposed {
+        const STATE: super::SettingsProposalState = super::SettingsProposalState::Proposed;
+    }
+
+    /// `Refused`. Terminal: an instance may rest here forever.
+    pub struct Refused;
+
+    impl Marker for Refused {
+        const STATE: super::SettingsProposalState = super::SettingsProposalState::Refused;
+    }
+
+    /// `Reverted`. Terminal: an instance may rest here forever.
+    pub struct Reverted;
+
+    impl Marker for Reverted {
+        const STATE: super::SettingsProposalState = super::SettingsProposalState::Reverted;
+    }
+}
+
+/// SettingsProposal — `conductor.improvement.SettingsProposal` — with its lifecycle state carried by the type.
+///
+/// The one constructor rests in `Proposed`, and the only way to change `S` is a method generated from
+/// a declared transition. A move the specification does not declare is therefore not an error
+/// case: it does not compile. Where the state is data — wire, storage — use [`SettingsProposalSnapshot`]
+/// and [`SettingsProposalSnapshot::refine`].
+pub struct SettingsProposal<S: settings_proposal_state::Marker> {
+    data: SettingsProposalData,
+    state: core::marker::PhantomData<S>,
+}
+
+impl<S: settings_proposal_state::Marker> SettingsProposal<S> {
+    /// The state this instance rests in, as the runtime value.
+    pub fn state(&self) -> SettingsProposalState {
+        S::STATE
+    }
+
+    /// What it holds.
+    pub fn data(&self) -> &SettingsProposalData {
+        &self.data
+    }
+
+    /// Hands the data back, giving up the typed state.
+    pub fn into_data(self) -> SettingsProposalData {
+        self.data
+    }
+}
+
+impl SettingsProposal<settings_proposal_state::Proposed> {
+    /// A new instance, resting in `Proposed` — the only state the lifecycle starts one in.
+    pub fn new(data: SettingsProposalData) -> Self {
+        Self {
+            data,
+            state: core::marker::PhantomData,
+        }
+    }
+}
+
+impl SettingsProposal<settings_proposal_state::Applied> {
+    /// `keep` — `Applied` → `Kept`. Taken by the `kept` outcome of `conductor.improvement.SettleProposal`.
+    pub fn keep(self) -> SettingsProposal<settings_proposal_state::Kept> {
+        SettingsProposal {
+            data: self.data,
+            state: core::marker::PhantomData,
+        }
+    }
+
+    /// `revert` — `Applied` → `Reverted`. Taken by the `reverted` outcome of `conductor.improvement.SettleProposal`.
+    pub fn revert(self) -> SettingsProposal<settings_proposal_state::Reverted> {
+        SettingsProposal {
+            data: self.data,
+            state: core::marker::PhantomData,
+        }
+    }
+}
+
+impl SettingsProposal<settings_proposal_state::Proposed> {
+    /// `apply` — `Proposed` → `Applied`. Taken by the `applied` outcome of `conductor.improvement.ApplyProposal`.
+    pub fn apply(self) -> SettingsProposal<settings_proposal_state::Applied> {
+        SettingsProposal {
+            data: self.data,
+            state: core::marker::PhantomData,
+        }
+    }
+
+    /// `refuse` — `Proposed` → `Refused`. Taken by the `refused` outcome of `conductor.improvement.RefuseProposal`.
+    pub fn refuse(self) -> SettingsProposal<settings_proposal_state::Refused> {
+        SettingsProposal {
+            data: self.data,
+            state: core::marker::PhantomData,
+        }
+    }
+}
+
+/// `conductor.improvement.SettingsProposal` as it crosses a boundary: the state as a value beside the data.
+///
+/// Wire and storage know states only at runtime; [`SettingsProposalSnapshot::refine`] is the one door back
+/// into the typed lifecycle.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SettingsProposalSnapshot {
+    /// Where the instance is in its lifecycle.
+    pub state: SettingsProposalState,
+    /// What it holds.
+    pub data: SettingsProposalData,
+}
+
+/// An `SettingsProposal` in whichever declared state it was found.
+pub enum AnySettingsProposal {
+    /// Resting in `Applied`.
+    Applied(SettingsProposal<settings_proposal_state::Applied>),
+    /// Resting in `Kept`.
+    Kept(SettingsProposal<settings_proposal_state::Kept>),
+    /// Resting in `Proposed`.
+    Proposed(SettingsProposal<settings_proposal_state::Proposed>),
+    /// Resting in `Refused`.
+    Refused(SettingsProposal<settings_proposal_state::Refused>),
+    /// Resting in `Reverted`.
+    Reverted(SettingsProposal<settings_proposal_state::Reverted>),
+}
+
+impl SettingsProposalSnapshot {
+    /// Refines the runtime state into the typed one.
+    ///
+    /// Total: every declared state has an arm, and an undeclared state cannot reach here because
+    /// `SettingsProposalState` cannot spell one.
+    pub fn refine(self) -> AnySettingsProposal {
+        match self.state {
+            SettingsProposalState::Applied => AnySettingsProposal::Applied(SettingsProposal {
+                data: self.data,
+                state: core::marker::PhantomData,
+            }),
+            SettingsProposalState::Kept => AnySettingsProposal::Kept(SettingsProposal {
+                data: self.data,
+                state: core::marker::PhantomData,
+            }),
+            SettingsProposalState::Proposed => AnySettingsProposal::Proposed(SettingsProposal {
+                data: self.data,
+                state: core::marker::PhantomData,
+            }),
+            SettingsProposalState::Refused => AnySettingsProposal::Refused(SettingsProposal {
+                data: self.data,
+                state: core::marker::PhantomData,
+            }),
+            SettingsProposalState::Reverted => AnySettingsProposal::Reverted(SettingsProposal {
+                data: self.data,
+                state: core::marker::PhantomData,
+            }),
+        }
+    }
+}
+
+impl AnySettingsProposal {
+    /// The state, as the runtime value.
+    pub fn state(&self) -> SettingsProposalState {
+        match self {
+            Self::Applied(_) => SettingsProposalState::Applied,
+            Self::Kept(_) => SettingsProposalState::Kept,
+            Self::Proposed(_) => SettingsProposalState::Proposed,
+            Self::Refused(_) => SettingsProposalState::Refused,
+            Self::Reverted(_) => SettingsProposalState::Reverted,
+        }
+    }
+
+    /// Back to the boundary shape.
+    pub fn snapshot(self) -> SettingsProposalSnapshot {
+        match self {
+            Self::Applied(instance) => SettingsProposalSnapshot {
+                state: SettingsProposalState::Applied,
+                data: instance.into_data(),
+            },
+            Self::Kept(instance) => SettingsProposalSnapshot {
+                state: SettingsProposalState::Kept,
+                data: instance.into_data(),
+            },
+            Self::Proposed(instance) => SettingsProposalSnapshot {
+                state: SettingsProposalState::Proposed,
+                data: instance.into_data(),
+            },
+            Self::Refused(instance) => SettingsProposalSnapshot {
+                state: SettingsProposalState::Refused,
+                data: instance.into_data(),
+            },
+            Self::Reverted(instance) => SettingsProposalSnapshot {
+                state: SettingsProposalState::Reverted,
+                data: instance.into_data(),
+            },
+        }
+    }
+}
+
+/// Apply a settings proposal — the input of `conductor.improvement.ApplyProposal`.
+///
+/// Everything it can result in is [`ApplyProposalOutcome`].
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ApplyProposal {
+    /// `actor` — `conductor.operator.Actor`.
+    pub actor: crate::operator::Actor,
+    /// `proposal_id` — `conductor.improvement.ProposalId`.
+    pub proposal_id: ProposalId,
+    /// `revision` — `String`.
+    pub revision: String,
+}
+
+/// Everything `conductor.improvement.ApplyProposal` can result in — one variant per declared outcome.
+///
+/// An infrastructure failure is deliberately not in here: a refusal is a fact about the domain,
+/// a transport fault is a fact about the run, and conflating the two is what the declared
+/// outcomes exist to prevent.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum ApplyProposalOutcome {
+    /// `applied` — otherwise.
+    ///
+    /// The change is in the config; its window is open.
+    Applied {
+        /// The `conductor.improvement.ProposalApplied` this outcome publishes.
+        proposal_applied: ProposalApplied,
+    },
+    /// `no-such-proposal` — for an identity no record carries.
+    NoSuchProposal {
+        /// Why it was refused: `conductor.improvement.ProposalNotFound`.
+        error: ProposalNotFound,
+    },
+    /// `wrong-state` — from a state no declared move starts in.
+    ///
+    /// Only a proposed change is applied.
+    WrongState {
+        /// Why it was refused: `conductor.improvement.ProposalStateConflict`.
+        error: ProposalStateConflict,
+    },
+}
+
 /// Define a metric — the input of `conductor.improvement.DefineMetric`.
 ///
 /// Everything it can result in is [`DefineMetricOutcome`].
@@ -808,6 +1161,65 @@ pub enum JudgeMetricReadingOutcome {
     },
 }
 
+/// Propose a settings change — the input of `conductor.improvement.ProposeSetting`.
+///
+/// Everything it can result in is [`ProposeSettingOutcome`].
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ProposeSetting {
+    /// `actor` — `conductor.operator.Actor`.
+    pub actor: crate::operator::Actor,
+    /// `proposal_id` — `conductor.improvement.ProposalId`.
+    pub proposal_id: ProposalId,
+    /// `instance` — `String`.
+    pub instance: String,
+    /// `key` — `String`.
+    pub key: String,
+    /// `old` — `String`.
+    pub old: String,
+    /// `new` — `String`.
+    pub new: String,
+    /// `metric_id` — `conductor.improvement.MetricId`.
+    pub metric_id: MetricId,
+    /// `reading` — `conductor.improvement.MetricReadingId`.
+    pub reading: MetricReadingId,
+    /// `baseline` — `Decimal`.
+    pub baseline: crate::primitives::Decimal,
+    /// `window_days` — `Integer`.
+    pub window_days: i64,
+    /// `proposed_at` — `Timestamp`.
+    pub proposed_at: crate::primitives::Timestamp,
+}
+
+/// Everything `conductor.improvement.ProposeSetting` can result in — one variant per declared outcome.
+///
+/// An infrastructure failure is deliberately not in here: a refusal is a fact about the domain,
+/// a transport fault is a fact about the run, and conflating the two is what the declared
+/// outcomes exist to prevent.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum ProposeSettingOutcome {
+    /// `already-proposed` — for an identity a record already carries.
+    ///
+    /// A proposal already has this id; the held proposal is unchanged.
+    AlreadyProposed {
+        /// Why it was refused: `conductor.improvement.ProposalExists`.
+        error: ProposalExists,
+    },
+    /// `no-such-metric` — when no `conductor.improvement.Metric` carries the identity `input.metric_id` names.
+    ///
+    /// No metric has this id, and nothing was proposed.
+    NoSuchMetric {
+        /// Why it was refused: `conductor.improvement.MetricNotFound`.
+        error: MetricNotFound,
+    },
+    /// `proposed` — otherwise.
+    ///
+    /// The proposal is recorded; the tuner applies it inside the grant or refuses it.
+    Proposed {
+        /// The `conductor.improvement.SettingProposed` this outcome publishes.
+        setting_proposed: SettingProposed,
+    },
+}
+
 /// Raise a friction finding — the input of `conductor.improvement.RaiseFinding`.
 ///
 /// Everything it can result in is [`RaiseFindingOutcome`].
@@ -914,6 +1326,49 @@ pub enum RecordMetricReadingOutcome {
     },
 }
 
+/// Refuse a settings proposal — the input of `conductor.improvement.RefuseProposal`.
+///
+/// Everything it can result in is [`RefuseProposalOutcome`].
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RefuseProposal {
+    /// `actor` — `conductor.operator.Actor`.
+    pub actor: crate::operator::Actor,
+    /// `proposal_id` — `conductor.improvement.ProposalId`.
+    pub proposal_id: ProposalId,
+    /// `reason` — `String`.
+    pub reason: String,
+    /// `finding` — `Optional<conductor.improvement.FindingId>`.
+    pub finding: Option<FindingId>,
+}
+
+/// Everything `conductor.improvement.RefuseProposal` can result in — one variant per declared outcome.
+///
+/// An infrastructure failure is deliberately not in here: a refusal is a fact about the domain,
+/// a transport fault is a fact about the run, and conflating the two is what the declared
+/// outcomes exist to prevent.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum RefuseProposalOutcome {
+    /// `refused` — otherwise.
+    ///
+    /// Nothing was applied; the brief shows the proposal and why.
+    Refused {
+        /// The `conductor.improvement.ProposalRefused` this outcome publishes.
+        proposal_refused: ProposalRefused,
+    },
+    /// `no-such-proposal` — for an identity no record carries.
+    NoSuchProposal {
+        /// Why it was refused: `conductor.improvement.ProposalNotFound`.
+        error: ProposalNotFound,
+    },
+    /// `wrong-state` — from a state no declared move starts in.
+    ///
+    /// Only a proposed change is refused.
+    WrongState {
+        /// Why it was refused: `conductor.improvement.ProposalStateConflict`.
+        error: ProposalStateConflict,
+    },
+}
+
 /// Set a metric's target — the input of `conductor.improvement.SetMetricTarget`.
 ///
 /// Everything it can result in is [`SetMetricTargetOutcome`].
@@ -965,6 +1420,58 @@ pub enum SetMetricTargetOutcome {
     NoSuchMetric {
         /// Why it was refused: `conductor.improvement.MetricNotFound`.
         error: MetricNotFound,
+    },
+}
+
+/// Keep or revert an applied settings change — the input of `conductor.improvement.SettleProposal`.
+///
+/// Everything it can result in is [`SettleProposalOutcome`].
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SettleProposal {
+    /// `actor` — `conductor.operator.Actor`.
+    pub actor: crate::operator::Actor,
+    /// `proposal_id` — `conductor.improvement.ProposalId`.
+    pub proposal_id: ProposalId,
+    /// `improved` — `Boolean`.
+    pub improved: bool,
+    /// `verdict` — `String`.
+    pub verdict: String,
+    /// `revision` — `Optional<String>`.
+    pub revision: Option<String>,
+}
+
+/// Everything `conductor.improvement.SettleProposal` can result in — one variant per declared outcome.
+///
+/// An infrastructure failure is deliberately not in here: a refusal is a fact about the domain,
+/// a transport fault is a fact about the run, and conflating the two is what the declared
+/// outcomes exist to prevent.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum SettleProposalOutcome {
+    /// `kept` — when `improved == true`.
+    ///
+    /// The reading improved; the change stays.
+    Kept {
+        /// The `conductor.improvement.ProposalKept` this outcome publishes.
+        proposal_kept: ProposalKept,
+    },
+    /// `reverted` — otherwise.
+    ///
+    /// The reading did not improve; the old value is back.
+    Reverted {
+        /// The `conductor.improvement.ProposalReverted` this outcome publishes.
+        proposal_reverted: ProposalReverted,
+    },
+    /// `no-such-proposal` — for an identity no record carries.
+    NoSuchProposal {
+        /// Why it was refused: `conductor.improvement.ProposalNotFound`.
+        error: ProposalNotFound,
+    },
+    /// `wrong-state` — from a state no declared move starts in.
+    ///
+    /// Only an applied change is kept or reverted.
+    WrongState {
+        /// Why it was refused: `conductor.improvement.ProposalStateConflict`.
+        error: ProposalStateConflict,
     },
 }
 
@@ -1176,6 +1683,69 @@ pub struct MetricTargetSet {
     pub target_owner: String,
 }
 
+/// ProposalApplied — the event `conductor.improvement.ProposalApplied`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ProposalApplied {
+    /// `actor` — `conductor.operator.Actor`.
+    pub actor: crate::operator::Actor,
+    /// `proposal_id` — `conductor.improvement.ProposalId`.
+    pub proposal_id: ProposalId,
+    /// `revision` — `String`.
+    pub revision: String,
+}
+
+/// ProposalKept — the event `conductor.improvement.ProposalKept`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ProposalKept {
+    /// `actor` — `conductor.operator.Actor`.
+    pub actor: crate::operator::Actor,
+    /// `proposal_id` — `conductor.improvement.ProposalId`.
+    pub proposal_id: ProposalId,
+    /// `verdict` — `String`.
+    pub verdict: String,
+}
+
+/// ProposalRefused — the event `conductor.improvement.ProposalRefused`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ProposalRefused {
+    /// `actor` — `conductor.operator.Actor`.
+    pub actor: crate::operator::Actor,
+    /// `proposal_id` — `conductor.improvement.ProposalId`.
+    pub proposal_id: ProposalId,
+    /// `reason` — `String`.
+    pub reason: String,
+}
+
+/// ProposalReverted — the event `conductor.improvement.ProposalReverted`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ProposalReverted {
+    /// `actor` — `conductor.operator.Actor`.
+    pub actor: crate::operator::Actor,
+    /// `proposal_id` — `conductor.improvement.ProposalId`.
+    pub proposal_id: ProposalId,
+    /// `verdict` — `String`.
+    pub verdict: String,
+}
+
+/// SettingProposed — the event `conductor.improvement.SettingProposed`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SettingProposed {
+    /// `actor` — `conductor.operator.Actor`.
+    pub actor: crate::operator::Actor,
+    /// `proposal_id` — `conductor.improvement.ProposalId`.
+    pub proposal_id: ProposalId,
+    /// `instance` — `String`.
+    pub instance: String,
+    /// `key` — `String`.
+    pub key: String,
+    /// `old` — `String`.
+    pub old: String,
+    /// `new` — `String`.
+    pub new: String,
+    /// `metric_id` — `conductor.improvement.MetricId`.
+    pub metric_id: MetricId,
+}
+
 /// The declared error `conductor.improvement.FindingExists`.
 ///
 /// A finding already has this id, so nothing was raised; the held finding is unchanged.
@@ -1246,6 +1816,33 @@ pub struct MetricReadingNotFound {
 pub struct MetricReadingStateConflict {
     /// `reading_id` — `conductor.improvement.MetricReadingId`.
     pub reading_id: MetricReadingId,
+}
+
+/// The declared error `conductor.improvement.ProposalExists`.
+///
+/// A proposal already has this id, so nothing was proposed; the held proposal is unchanged.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ProposalExists {
+    /// `proposal_id` — `conductor.improvement.ProposalId`.
+    pub proposal_id: ProposalId,
+}
+
+/// The declared error `conductor.improvement.ProposalNotFound`.
+///
+/// No settings proposal has this id.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ProposalNotFound {
+    /// `proposal_id` — `conductor.improvement.ProposalId`.
+    pub proposal_id: ProposalId,
+}
+
+/// The declared error `conductor.improvement.ProposalStateConflict`.
+///
+/// The proposal is not in a state this command acts from, so nothing moved.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ProposalStateConflict {
+    /// `proposal_id` — `conductor.improvement.ProposalId`.
+    pub proposal_id: ProposalId,
 }
 
 /// Friction findings — one row of the view `conductor.improvement.Findings`.
@@ -1393,12 +1990,62 @@ pub struct Metrics {
     pub actor: crate::operator::Actor,
 }
 
+/// Settings proposals — one row of the view `conductor.improvement.SettingsProposals`.
+///
+/// Projects `conductor.improvement.SettingsProposal` at `read_your_writes` consistency.
+/// The specification fully determines every row, so its query is generated over the storage port —
+/// see the plan.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SettingsProposals {
+    /// `proposal_id` — `conductor.improvement.ProposalId`.
+    pub proposal_id: ProposalId,
+    /// `state` — `conductor.improvement.SettingsProposal.State`.
+    pub state: SettingsProposalState,
+    /// `instance` — `String`.
+    pub instance: String,
+    /// `key` — `String`.
+    pub key: String,
+    /// `old` — `String`.
+    pub old: String,
+    /// `new` — `String`.
+    pub new: String,
+    /// `metric_id` — `conductor.improvement.MetricId`.
+    pub metric_id: MetricId,
+    /// `reading` — `conductor.improvement.MetricReadingId`.
+    pub reading: MetricReadingId,
+    /// `baseline` — `Decimal`.
+    pub baseline: crate::primitives::Decimal,
+    /// `window_days` — `Integer`.
+    pub window_days: i64,
+    /// `proposed_at` — `Timestamp`.
+    pub proposed_at: crate::primitives::Timestamp,
+    /// `revision` — `Optional<String>`.
+    pub revision: Option<String>,
+    /// `reason` — `Optional<String>`.
+    pub reason: Option<String>,
+    /// `finding` — `Optional<conductor.improvement.FindingId>`.
+    pub finding: Option<FindingId>,
+    /// `verdict` — `Optional<String>`.
+    pub verdict: Option<String>,
+}
+
 /// What this bounded context owes its implementor, and the seams of what is generated.
 ///
 /// One trait per obligation in the synthesis plan, each carrying the plan's own contract, and one
 /// per generated behaviour, which [`Generated`](crate::behaviour::Generated) implements.
 /// [`Unimplemented`](obligations::Unimplemented) satisfies every owed trait by refusing in the type system.
 pub mod obligations {
+    /// The behaviour `conductor.improvement.ApplyProposal` — generated.
+    ///
+    /// The specification fully determines it: [`crate::behaviour::Generated`] implements it
+    /// over the storage and context ports. Implement it yourself to replace that behaviour.
+    pub trait ApplyProposalBehavior {
+        /// Decides and enacts exactly one declared outcome of `conductor.improvement.ApplyProposal`.
+        ///
+        /// `Err` is the typed refusal of a request the model declares no outcome for.
+        fn apply_proposal(&mut self, input: super::ApplyProposal) -> Result<super::ApplyProposalOutcome, crate::obligation::UnmetObligation>;
+    }
+
     /// The behaviour `conductor.improvement.DefineMetric` — generated.
     ///
     /// The specification fully determines it: [`crate::behaviour::Generated`] implements it
@@ -1432,6 +2079,17 @@ pub mod obligations {
         fn judge_metric_reading(&mut self, input: super::JudgeMetricReading) -> Result<super::JudgeMetricReadingOutcome, crate::obligation::UnmetObligation>;
     }
 
+    /// The behaviour `conductor.improvement.ProposeSetting` — generated.
+    ///
+    /// The specification fully determines it: [`crate::behaviour::Generated`] implements it
+    /// over the storage and context ports. Implement it yourself to replace that behaviour.
+    pub trait ProposeSettingBehavior {
+        /// Decides and enacts exactly one declared outcome of `conductor.improvement.ProposeSetting`.
+        ///
+        /// `Err` is the typed refusal of a request the model declares no outcome for.
+        fn propose_setting(&mut self, input: super::ProposeSetting) -> Result<super::ProposeSettingOutcome, crate::obligation::UnmetObligation>;
+    }
+
     /// The behaviour `conductor.improvement.RaiseFinding` — generated.
     ///
     /// The specification fully determines it: [`crate::behaviour::Generated`] implements it
@@ -1454,6 +2112,17 @@ pub mod obligations {
         fn record_metric_reading(&mut self, input: super::RecordMetricReading) -> Result<super::RecordMetricReadingOutcome, crate::obligation::UnmetObligation>;
     }
 
+    /// The behaviour `conductor.improvement.RefuseProposal` — generated.
+    ///
+    /// The specification fully determines it: [`crate::behaviour::Generated`] implements it
+    /// over the storage and context ports. Implement it yourself to replace that behaviour.
+    pub trait RefuseProposalBehavior {
+        /// Decides and enacts exactly one declared outcome of `conductor.improvement.RefuseProposal`.
+        ///
+        /// `Err` is the typed refusal of a request the model declares no outcome for.
+        fn refuse_proposal(&mut self, input: super::RefuseProposal) -> Result<super::RefuseProposalOutcome, crate::obligation::UnmetObligation>;
+    }
+
     /// The behaviour `conductor.improvement.SetMetricTarget` — an implementation obligation.
     ///
     /// Why it is not generated: kept an obligation by a subject predicate choosing between a move and an update.
@@ -1465,6 +2134,17 @@ pub mod obligations {
         /// `Err` is the typed refusal of an obligation nothing has satisfied; a satisfying
         /// implementation never returns it.
         fn set_metric_target(&mut self, input: super::SetMetricTarget) -> Result<super::SetMetricTargetOutcome, crate::obligation::UnmetObligation>;
+    }
+
+    /// The behaviour `conductor.improvement.SettleProposal` — generated.
+    ///
+    /// The specification fully determines it: [`crate::behaviour::Generated`] implements it
+    /// over the storage and context ports. Implement it yourself to replace that behaviour.
+    pub trait SettleProposalBehavior {
+        /// Decides and enacts exactly one declared outcome of `conductor.improvement.SettleProposal`.
+        ///
+        /// `Err` is the typed refusal of a request the model declares no outcome for.
+        fn settle_proposal(&mut self, input: super::SettleProposal) -> Result<super::SettleProposalOutcome, crate::obligation::UnmetObligation>;
     }
 
     /// The behaviour `conductor.improvement.SupersedeMetricReading` — generated.
@@ -1542,6 +2222,17 @@ pub mod obligations {
         ///
         /// `Err` is the typed refusal of a row whose declared type cannot hold its value.
         fn metrics(&self) -> Result<Vec<super::Metrics>, crate::obligation::UnmetObligation>;
+    }
+
+    /// The query `conductor.improvement.SettingsProposals` — generated.
+    ///
+    /// The specification fully determines it: [`crate::behaviour::Generated`] implements it
+    /// over the storage port. Implement it yourself to replace that query.
+    pub trait SettingsProposalsQuery {
+        /// Serves `conductor.improvement.SettingsProposals` rows at the view's declared consistency.
+        ///
+        /// `Err` is the typed refusal of a row whose declared type cannot hold its value.
+        fn settings_proposals(&self) -> Result<Vec<super::SettingsProposals>, crate::obligation::UnmetObligation>;
     }
 
     /// Every obligation of this bounded context, refused in the type system.

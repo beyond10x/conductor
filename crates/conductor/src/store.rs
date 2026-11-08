@@ -90,6 +90,8 @@ mod improvement;
 mod marks;
 pub mod migrate;
 pub mod observations;
+mod placement;
+pub mod proposal;
 mod reclaim;
 mod reconciliation;
 mod secret;
@@ -99,7 +101,9 @@ pub mod series;
 mod serving;
 mod session;
 mod snapshot;
+mod token;
 mod tool;
+pub use token::{grant_name, token_state_name, usage_name};
 
 /// The variable the daemon hands every instance runtime it starts the store's URL in
 /// (`daemon.store`).

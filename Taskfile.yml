@@ -79,30 +79,14 @@ tasks:
       - conductor session start --role maintainer
 
   supervisor:start:
-    desc: Start the host's supervisor, the background session conductor-supervisor, with the start command .agents/conductor-supervisor.md writes, in the directory of the config file (~/.b10x/conductor unless CONDUCTOR_CONFIG names another); its agent is the adapter conductor init installs in ~/.claude/agents/ and its profile the one task profiles installs; refuses while a live session named conductor-supervisor exists
-    vars:
-      DIR:
-        sh: dirname "${CONDUCTOR_CONFIG:-$HOME/.b10x/conductor/conductor.yaml}"
-    preconditions:
-      - sh: test -d {{shellQuote .DIR}}
-        msg: the directory of the config file, {{.DIR}}, is not a directory
-      - sh: claude agents --json | jq -e --arg n conductor-supervisor 'all(.[]; .name != $n or .pid == null)' >/dev/null
-        msg: a session named conductor-supervisor is already running; stop it with claude stop <id> after its hand-off, then run the task again
+    desc: Ask the daemon (conductord, of the config file CONDUCTOR_CONFIG or ~/.b10x/conductor/conductor.yaml) to start the host's supervisor now with conductor daemon start-role --role supervisor; the daemon starts it through conductor session start --role supervisor at the host placement, its session supervisor in conductor_host.slice, from the profile profiles/conductor-supervisor.md beside the config file that task profiles installs, and keeps it running while globals.roles lists supervisor; refused when globals.roles does not list it
     cmds:
-      - 'cd {{shellQuote .DIR}} && claude --bg --agent conductor-supervisor -n conductor-supervisor --permission-mode bypassPermissions "Start of a fresh supervisor session. Read host/supervisor-handoff.md if it is there, run your routine once, report blockers only, then wait for an event."'
+      - conductor daemon start-role --role supervisor
 
   teacher:start:
-    desc: Start the host's teacher, the background session conductor-teacher, with the start command .agents/conductor-teacher.md writes, in the directory of the config file (~/.b10x/conductor unless CONDUCTOR_CONFIG names another); its agent is the adapter conductor init installs in ~/.claude/agents/ and its profile the one task profiles installs; refuses while a live session named conductor-teacher exists
-    vars:
-      DIR:
-        sh: dirname "${CONDUCTOR_CONFIG:-$HOME/.b10x/conductor/conductor.yaml}"
-    preconditions:
-      - sh: test -d {{shellQuote .DIR}}
-        msg: the directory of the config file, {{.DIR}}, is not a directory
-      - sh: claude agents --json | jq -e --arg n conductor-teacher 'all(.[]; .name != $n or .pid == null)' >/dev/null
-        msg: a session named conductor-teacher is already running; stop it with claude stop <id> after its hand-off, then run the task again
+    desc: Ask the daemon (conductord, of the config file CONDUCTOR_CONFIG or ~/.b10x/conductor/conductor.yaml) to start the host's teacher now with conductor daemon start-role --role teacher; the daemon starts it through conductor session start --role teacher at the host placement, its session teacher in conductor_host.slice, from the profile profiles/conductor-teacher.md beside the config file that task profiles installs, and keeps it running while globals.roles lists teacher; refused when globals.roles does not list it
     cmds:
-      - 'cd {{shellQuote .DIR}} && claude --bg --agent conductor-teacher -n conductor-teacher --model fable --permission-mode bypassPermissions "Start of a fresh teacher session. Read host/teacher-handoff.md if it is there and the supervisor''s profile, run your routine once, report blockers only, then wait for an event."'
+      - conductor daemon start-role --role teacher
 
   maintainer:attach:
     desc: Open the background maintainer (conductor-dev) session, the live session named as the host's maintainer in conductor config show (host.roles), in this terminal; refuses when no live background session or more than one holds that name. dev:attach is its old name, for this release
@@ -187,7 +171,7 @@ tasks:
       - sh: test -n {{shellQuote .INSTANCE}}
         msg: conductor config show names no instance
     cmds:
-      - echo Open http://127.0.0.1:{{.PORT}}/?instance={{.INSTANCE}}
+      - echo Open http://127.0.0.1:{{shellQuote .PORT}}/?instance={{shellQuote .INSTANCE}}
 
   broker:
     desc: Start the active instance's broker (conductor broker serve), which serves each session of the instance on its own socket under broker/ of the instance's state directory, checks every tool call against the session's grant and records it; the broker serves that instance (CONDUCTOR_INSTANCE); where systemctl is on PATH as the instance's user service, <session_prefix>-conductor-broker or conductor-broker without a prefix, unless it is active, elsewhere in the background with nohup, its pid in broker.pid and its output in broker.log of the instance's state directory (conductor config show), refusing while that pid runs

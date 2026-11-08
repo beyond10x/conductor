@@ -8,6 +8,7 @@ use std::process::Command;
 
 use anyhow::{Context as _, Result, bail};
 
+use super::host_roles::HostStart;
 use crate::confine::systemd::{self, Service};
 
 /// What the daemon asks of the service manager.
@@ -56,6 +57,40 @@ pub trait Units {
     ///
     /// The manager refuses or cannot be reached.
     fn disable(&mut self, unit: &str) -> Result<()>;
+
+    /// Starts the host role `start` names at its placement (`story:host-roles-by-daemon`): the
+    /// seam a placement adapter takes over. [`Systemd`] runs its `session start` command, which
+    /// puts the session in `conductor_host.slice`; a manager that starts no host role refuses.
+    ///
+    /// # Errors
+    ///
+    /// The manager refuses, or the command fails.
+    fn start_host_role(&mut self, start: &HostStart) -> Result<()> {
+        bail!(
+            "this service manager starts no host role {} at {}",
+            start.role,
+            start.placement
+        )
+    }
+
+    /// [`Units::enable`] on the system manager: the daemon of a box with no local operator
+    /// (`story:daemon-remote`).
+    ///
+    /// # Errors
+    ///
+    /// The manager refuses or cannot be reached; a manager with no system scope refuses.
+    fn enable_system(&mut self, unit: &str) -> Result<()> {
+        bail!("this service manager installs no system unit {unit}")
+    }
+
+    /// [`Units::disable`] on the system manager (`story:daemon-remote`).
+    ///
+    /// # Errors
+    ///
+    /// The manager refuses or cannot be reached; a manager with no system scope refuses.
+    fn disable_system(&mut self, unit: &str) -> Result<()> {
+        bail!("this service manager removes no system unit {unit}")
+    }
 }
 
 /// The user's systemd manager.
@@ -64,14 +99,19 @@ pub struct Systemd;
 
 impl Systemd {
     fn systemctl(args: &[&str]) -> Result<()> {
+        Self::systemctl_in("--user", args)
+    }
+
+    /// `systemctl <scope> <args>`: `--user` or `--system`.
+    fn systemctl_in(scope: &str, args: &[&str]) -> Result<()> {
         let output = Command::new("systemctl")
-            .arg("--user")
+            .arg(scope)
             .args(args)
             .output()
-            .with_context(|| format!("run systemctl --user {}", args.join(" ")))?;
+            .with_context(|| format!("run systemctl {scope} {}", args.join(" ")))?;
         if !output.status.success() {
             bail!(
-                "systemctl --user {} exited {}: {}",
+                "systemctl {scope} {} exited {}: {}",
                 args.join(" "),
                 output.status,
                 String::from_utf8_lossy(&output.stderr).trim()
@@ -104,6 +144,32 @@ impl Units for Systemd {
         Ok(active == "active")
     }
 
+    fn start_host_role(&mut self, start: &HostStart) -> Result<()> {
+        let Some((program, args)) = start.command.split_first() else {
+            bail!("the host role {} has no command", start.role);
+        };
+        let mut command = Command::new(program);
+        command.args(args).current_dir(&start.cwd);
+        for set in &start.env {
+            if let Some((name, value)) = set.split_once('=') {
+                command.env(name, value);
+            }
+        }
+        let output = command
+            .stdin(std::process::Stdio::null())
+            .output()
+            .with_context(|| format!("run {}", start.command.join(" ")))?;
+        if !output.status.success() {
+            bail!(
+                "{} exited {}: {}",
+                start.command.join(" "),
+                output.status,
+                String::from_utf8_lossy(&output.stderr).trim()
+            );
+        }
+        Ok(())
+    }
+
     fn enable(&mut self, unit: &str) -> Result<()> {
         Self::systemctl(&["daemon-reload"])?;
         Self::systemctl(&["enable", "--now", unit])
@@ -112,5 +178,15 @@ impl Units for Systemd {
     fn disable(&mut self, unit: &str) -> Result<()> {
         Self::systemctl(&["disable", "--now", unit])?;
         Self::systemctl(&["daemon-reload"])
+    }
+
+    fn enable_system(&mut self, unit: &str) -> Result<()> {
+        Self::systemctl_in("--system", &["daemon-reload"])?;
+        Self::systemctl_in("--system", &["enable", "--now", unit])
+    }
+
+    fn disable_system(&mut self, unit: &str) -> Result<()> {
+        Self::systemctl_in("--system", &["disable", "--now", unit])?;
+        Self::systemctl_in("--system", &["daemon-reload"])
     }
 }

@@ -448,7 +448,7 @@ const CONDUCTOR_KEYS: [&str; 2] = ["served_by", "session_name"];
 const SOURCE_KINDS: [&str; 3] = ["github", "local", "gitlab"];
 const SOURCE_KEYS: [&str; 5] = ["github", "local", "gitlab", "exclude", "host"];
 const CHECKOUT_KEYS: [&str; 2] = ["root", "trees"];
-const ROLE_KEYS: [&str; 14] = [
+const ROLE_KEYS: [&str; 15] = [
     "role",
     "kind",
     "harness",
@@ -463,6 +463,7 @@ const ROLE_KEYS: [&str; 14] = [
     "network",
     "forge_token_env",
     "grant",
+    "token_owner",
 ];
 /// The keys of a role's `grant` (`conductor.tool.RoleGrant`, `story:tool-broker-read`).
 const GRANT_KEYS: [&str; 5] = ["tools", "repositories", "paths", "max_output_bytes", "ttl"];
@@ -496,8 +497,9 @@ const REMOVED_KEYS: [(&str, &str); 3] = [
         "the store is the deployment's one database, at daemon.store",
     ),
 ];
-const DAEMON_KEYS: [&str; 9] = [
+const DAEMON_KEYS: [&str; 10] = [
     "port",
+    "loopback",
     "tls",
     "cadence",
     "store",
@@ -1625,6 +1627,7 @@ fn default_roles(prefix: Option<&SessionPrefix>) -> Vec<Role> {
             network: Network::Open,
             forge_token_env: Vec::new(),
             grant: default_grant(),
+            token_owner: None,
         })
         .collect()
 }
@@ -1853,6 +1856,7 @@ fn text_of(path: &Path) -> String {
 pub fn default_daemon(home: &Path) -> Daemon {
     Daemon {
         port: DAEMON_PORT,
+        loopback: true,
         tls: None,
         cadence: DaemonCadence {
             reconcile: Duration(format!("PT{RECONCILE_EVERY}S")),
@@ -2193,6 +2197,20 @@ impl Reader<'_> {
         converted.into_iter().collect()
     }
 
+    /// An instance's `placement` (`story:placement-substrate-local`, decisions P3 and P5): a map
+    /// `{daemon, adapter}` or a bare adapter, as its canonical name ([`crate::placement::read`]).
+    fn placement(&mut self, value: &Value, path: &str) -> Option<String> {
+        match crate::placement::read(value, path) {
+            Ok(name) => Some(name),
+            Err(problems) => {
+                for (at, message) in problems {
+                    self.problem(&at, message);
+                }
+                None
+            }
+        }
+    }
+
     fn text(&mut self, value: &Value, path: &str) -> Option<String> {
         match value {
             Value::String(text) if !text.trim().is_empty() => Some(text.clone()),
@@ -2463,6 +2481,18 @@ impl Reader<'_> {
             Some(value) => self.port(value, &join(path, "port")),
             None => Some(defaults.port),
         };
+        // story:daemon-remote: the loopback listener; off only beside a TLS listener.
+        let loopback = match Self::get(map, "loopback") {
+            Some(value) => self.flag(value, &join(path, "loopback")),
+            None => Some(defaults.loopback),
+        };
+        if loopback == Some(false) && Self::get(map, "tls").is_none() {
+            self.problem(
+                &join(path, "loopback"),
+                "is false and daemon.tls names no TLS listener: the daemon would serve no API; \
+                 write daemon.tls, or leave the loopback listener on",
+            );
+        }
         let tls = match Self::get(map, "tls") {
             Some(value) => {
                 let at = join(path, "tls");
@@ -2567,6 +2597,7 @@ impl Reader<'_> {
         };
         Some(Daemon {
             port: port?,
+            loopback: loopback?,
             tls: tls?,
             cadence: cadence?,
             store: store?,
@@ -3174,6 +3205,7 @@ impl Reader<'_> {
                     "network" => role.network = global.network,
                     "forge_token_env" => role.forge_token_env = global.forge_token_env.clone(),
                     "grant" => role.grant = global.grant.clone(),
+                    "token_owner" => role.token_owner = global.token_owner.clone(),
                     _ => {}
                 }
             }
@@ -3284,7 +3316,7 @@ impl Reader<'_> {
         // none: its placement is named after its confinement's provider.
         let placement = if self.second {
             self.required(map, path, "placement")
-                .and_then(|value| self.text(value, &join(path, "placement")))
+                .and_then(|value| self.placement(value, &join(path, "placement")))
         } else {
             confinement
                 .as_ref()
@@ -3810,6 +3842,37 @@ impl Reader<'_> {
             Some(value) => self.grant(value, &join(path, "grant")),
             None => Some(default_grant()),
         };
+        // The operator whose pooled token the role's agent leases, for Remote Control
+        // (`story:token-pool`, design architecture-next § 17): a controller's key only.
+        let token_owner = match Self::get(map, "token_owner") {
+            Some(value) => {
+                let at = join(path, "token_owner");
+                let owner = self.text(value, &at);
+                if owner
+                    .as_deref()
+                    .is_some_and(|owner| owner.trim().is_empty())
+                {
+                    self.problem(
+                        &at,
+                        "is empty: name the operator whose token the role leases",
+                    );
+                    None
+                } else if role
+                    .as_deref()
+                    .is_some_and(|role| !is_role(role, BuiltInRole::Lead))
+                {
+                    self.problem(
+                        &at,
+                        "is a controller's key only: the controller starts for Remote Control on \
+                         that operator's token from the pool; remove it from this role",
+                    );
+                    None
+                } else {
+                    owner.map(|owner| Some(OperatorName(owner)))
+                }
+            }
+            None => Some(None),
+        };
         Some(Role {
             role: role?,
             kind: kind?,
@@ -3825,6 +3888,7 @@ impl Reader<'_> {
             network: network?,
             forge_token_env: forge_token_env?,
             grant: grant?,
+            token_owner: token_owner?,
         })
     }
 
@@ -4602,6 +4666,10 @@ mod shown {
                     ),
                 ]),
             ),
+            (
+                "token_owner",
+                optional(role.token_owner.as_ref().map(|owner| &owner.0)),
+            ),
         ])
     }
 }
@@ -4947,6 +5015,7 @@ pub fn daemon_document(daemon: &Daemon) -> Yaml {
     };
     mapping([
         ("port", number(daemon.port)),
+        ("loopback", Yaml::Bool(daemon.loopback)),
         (
             "tls",
             daemon.tls.as_ref().map_or(Yaml::Null, |tls| {

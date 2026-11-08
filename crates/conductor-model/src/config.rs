@@ -1,5 +1,5 @@
 // generated from conductor v1
-// contract digest 575fcfe0b84fcb4b2dc3a52041bbf14840203191eb2cb53374eec07ea92207ab
+// contract digest 0608eb83c8c48e1f8808cd29d3621f78091b34cac43c2b2e9143a335707a4202
 // do not edit: regenerate with `ess synthesize --layout crate`
 
 //! Config — `conductor.config`.
@@ -295,6 +295,8 @@ pub struct Controllers {
 pub struct Daemon {
     /// `port` — `Integer`.
     pub port: i64,
+    /// `loopback` — `Boolean`.
+    pub loopback: bool,
     /// `tls` — `Optional<conductor.config.TlsListener>`.
     pub tls: Option<TlsListener>,
     /// `cadence` — `conductor.config.DaemonCadence`.
@@ -748,6 +750,8 @@ pub struct Role {
     pub forge_token_env: Vec<String>,
     /// `grant` — `conductor.tool.RoleGrant`.
     pub grant: crate::tool::RoleGrant,
+    /// `token_owner` — `Optional<conductor.operator.OperatorName>`.
+    pub token_owner: Option<crate::operator::OperatorName>,
 }
 
 /// RoleName — `conductor.config.RoleName`: a distinct wrapper around `String`.

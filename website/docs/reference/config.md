@@ -28,12 +28,13 @@ The file, `conductor.config/2` (design architecture-next § 9). A key it does no
 
 ## Daemon
 
-The `daemon` section (design architecture-next § 4, § 5.2, § 8, § 9): `port`, the loopback port of the global API on 127.0.0.1, 1 to 65535, absent 7300; `tls`, the TLS listener, absent when none is configured; `cadence.reconcile`; `store`, the one URL of the deployment's shared database, which the daemon hands to every instance runtime it starts; `secrets`, the secrets source; `dashboard`, the path the daemon serves the dashboard app at, absent `/`; `operators`, the deployment's operators, at least the one the Unix user names on a single host; `upgrade_timeout`, how long an upgraded instance runtime has to answer before the daemon rolls it back to its previous binary, a duration, absent 120 s; `timeout`, how long an instance has to answer one federated read of the global API before it is a row with `state: unreachable`, a duration, absent 5 s.
+The `daemon` section (design architecture-next § 4, § 5.2, § 8, § 9): `port`, the loopback port of the global API on 127.0.0.1, 1 to 65535, absent 7300; `tls`, the TLS listener, absent when none is configured; `cadence.reconcile`; `store`, the one URL of the deployment's shared database, which the daemon hands to every instance runtime it starts; `secrets`, the secrets source; `dashboard`, the path the daemon serves the dashboard app at, absent `/`; `operators`, the deployment's operators, at least the one the Unix user names on a single host; `upgrade_timeout`, how long an upgraded instance runtime has to answer before the daemon rolls it back to its previous binary, a duration, absent 120 s; `timeout`, how long an instance has to answer one federated read of the global API before it is a row with `state: unreachable`, a duration, absent 5 s. `loopback`, whether the daemon serves the loopback listener on `port`, absent true: a box with no local operator writes false, its API then the TLS listener alone, so false with no `tls` is refused at validate by the key's YAML path, and `daemon serve --install` writes a system unit for it rather than the user unit.
 
 | Key | Type | Default | Rule |
 |---|---|---|---|
 | `daemon.port` | integer | `7300` | `port >= 1`; `port <= 65535` |
-| `daemon.tls` | [TlsListener](#tlslistener) | none |  |
+| `daemon.loopback` | boolean | `true` |  |
+| `daemon.tls` | [TlsListener](#tlslistener) | required |  |
 | `daemon.tls.listen` | string | required |  |
 | `daemon.tls.cert` | string | none |  |
 | `daemon.tls.key` | string | none |  |
@@ -78,6 +79,7 @@ The `globals` section (design architecture-next § 9, § 10): the defaults every
 | `globals.roles[].grant.paths` | list of string | `[]` |  |
 | `globals.roles[].grant.max_output_bytes` | integer | `65536` | `max_output_bytes >= 1` |
 | `globals.roles[].grant.ttl` | duration | none |  |
+| `globals.roles[].token_owner` | [OperatorName](#operatorname) | none |  |
 | `globals.cadence.cycle` | duration | `2h` |  |
 | `globals.cadence.daily` | [TimeOfDay](#timeofday) | `08:07` |  |
 | `globals.cadence.watch` | duration | `180s` |  |
@@ -135,7 +137,7 @@ A key path written `a[].b` is the key `b` of each element of the list `a`. A def
 | `records` | string | `~/.b10x/conductor/<name>/records` |  |
 | `state` | string | `~/.b10x/conductor/<name>/state` |  |
 | `cache` | string | `~/.cache/b10x/conductor/<name>` |  |
-| `roles` | list of [Role](#role) | `[{role: conductor, kind: claude-code, harness: claude, model: opus, agent: null, settings: null, profile: null, grant: {tools: [show, search, diff], repositories: [], paths: [], max_output_bytes: 65536, ttl: null}, read_only_tools: [], limits: {memory_max: null, cpu_weight: null, tasks_max: null}, writable: [checkout, trees, build-cache, scratch, harness-state, records], network: open, forge_token_env: []}, {role: conductor-dev, kind: claude-code, harness: claude, model: opus, agent: null, settings: null, profile: null, grant: {tools: [show, search, diff], repositories: [], paths: [], max_output_bytes: 65536, ttl: null}, read_only_tools: [], limits: {memory_max: null, cpu_weight: null, tasks_max: null}, writable: [checkout, trees, build-cache, scratch, harness-state], network: open, forge_token_env: []}, {role: controller, kind: claude-code, harness: claude, model: opus, agent: null, settings: null, profile: null, grant: {tools: [show, search, diff], repositories: [], paths: [], max_output_bytes: 65536, ttl: null}, read_only_tools: [], limits: {memory_max: null, cpu_weight: null, tasks_max: null}, writable: [checkout, trees, build-cache, scratch, harness-state], network: open, forge_token_env: []}]` |  |
+| `roles` | list of [Role](#role) | `[{role: conductor, kind: claude-code, harness: claude, model: opus, agent: null, settings: null, profile: null, token_owner: null, read_only_tools: [], limits: {memory_max: null, cpu_weight: null, tasks_max: null}, writable: [checkout, trees, build-cache, scratch, harness-state, records], network: open, forge_token_env: [], grant: {tools: [show, search, diff], repositories: [], paths: [], max_output_bytes: 65536, ttl: null}}, {role: conductor-dev, kind: claude-code, harness: claude, model: opus, agent: null, settings: null, profile: null, token_owner: null, read_only_tools: [], limits: {memory_max: null, cpu_weight: null, tasks_max: null}, writable: [checkout, trees, build-cache, scratch, harness-state], network: open, forge_token_env: [], grant: {tools: [show, search, diff], repositories: [], paths: [], max_output_bytes: 65536, ttl: null}}, {role: controller, kind: claude-code, harness: claude, model: opus, agent: null, settings: null, profile: null, token_owner: null, read_only_tools: [], limits: {memory_max: null, cpu_weight: null, tasks_max: null}, writable: [checkout, trees, build-cache, scratch, harness-state], network: open, forge_token_env: [], grant: {tools: [show, search, diff], repositories: [], paths: [], max_output_bytes: 65536, ttl: null}}]` |  |
 | `roles[].role` | string | required |  |
 | `roles[].kind` | [AgentKindName](#agentkindname) | `claude-code` |  |
 | `roles[].harness` | `claude` \| `codex` | required |  |
@@ -156,9 +158,10 @@ A key path written `a[].b` is the key `b` of each element of the list `a`. A def
 | `roles[].grant.paths` | list of string | `[]` |  |
 | `roles[].grant.max_output_bytes` | integer | `65536` | `max_output_bytes >= 1` |
 | `roles[].grant.ttl` | duration | none |  |
-| `limits.memory_max` | [Gibibytes](#gibibytes) | `64G` |  |
-| `limits.cpu_weight` | integer | `300` | `not defined(cpu_weight)` or `cpu_weight >= 1`; `not defined(cpu_weight)` or `cpu_weight <= 10000` |
-| `limits.tasks_max` | integer | `8192` | `not defined(tasks_max)` or `tasks_max >= 1` |
+| `roles[].token_owner` | [OperatorName](#operatorname) | none |  |
+| `limits.memory_max` | [Gibibytes](#gibibytes) | none |  |
+| `limits.cpu_weight` | integer | none | `not defined(cpu_weight)` or `cpu_weight >= 1`; `not defined(cpu_weight)` or `cpu_weight <= 10000` |
+| `limits.tasks_max` | integer | none | `not defined(tasks_max)` or `tasks_max >= 1` |
 | `controllers.max_working` | integer | `5` | `max_working >= 1` |
 | `controllers.max_subagents` | integer | `4` | `max_subagents >= 1` |
 | `controllers.max_open_reviews` | integer | `3` | `max_open_reviews >= 0` |
@@ -166,31 +169,31 @@ A key path written `a[].b` is the key `b` of each element of the list `a`. A def
 | `repositories[].match` | string | required |  |
 | `repositories[].activity` | `active` \| `inactive` | none |  |
 | `repositories[].no_releases` | string | none |  |
-| `cadence.cycle` | duration | `3h` |  |
-| `cadence.daily` | [TimeOfDay](#timeofday) | `07:00` |  |
-| `cadence.watch` | duration | `120s` |  |
-| `cadence.ci` | duration | `1200s` |  |
-| `thresholds.context_handover` | [Tokens](#tokens) | `250k` |  |
-| `thresholds.disk_path` | string | `/srv` |  |
-| `thresholds.disk_low` | [Gibibytes](#gibibytes) | `95G` |  |
-| `thresholds.disk_clear` | [Gibibytes](#gibibytes) | `125G` |  |
-| `thresholds.disk_admit` | [Gibibytes](#gibibytes) | `30G` |  |
-| `thresholds.build_slot` | [Gibibytes](#gibibytes) | `75G` |  |
-| `thresholds.build_size` | [Gibibytes](#gibibytes) | `14G` |  |
-| `thresholds.gate_stop` | [Gibibytes](#gibibytes) | `14G` | `gate_resume > gate_stop` |
-| `thresholds.gate_resume` | [Gibibytes](#gibibytes) | `19G` | `gate_resume > gate_stop` |
-| `thresholds.watchdog_every` | duration | `7s` |  |
-| `thresholds.silent_session` | duration | `50m` |  |
-| `thresholds.cpu_reserve` | integer | `4` | `cpu_reserve >= 0` |
+| `cadence.cycle` | duration | `2h` |  |
+| `cadence.daily` | [TimeOfDay](#timeofday) | `08:07` |  |
+| `cadence.watch` | duration | `180s` |  |
+| `cadence.ci` | duration | `900s` |  |
+| `thresholds.context_handover` | [Tokens](#tokens) | `300k` |  |
+| `thresholds.disk_path` | string | `/` |  |
+| `thresholds.disk_low` | [Gibibytes](#gibibytes) | `100G` |  |
+| `thresholds.disk_clear` | [Gibibytes](#gibibytes) | `110G` |  |
+| `thresholds.disk_admit` | [Gibibytes](#gibibytes) | `20G` |  |
+| `thresholds.build_slot` | [Gibibytes](#gibibytes) | `60G` |  |
+| `thresholds.build_size` | [Gibibytes](#gibibytes) | `10G` |  |
+| `thresholds.gate_stop` | [Gibibytes](#gibibytes) | `15G` | `gate_resume > gate_stop` |
+| `thresholds.gate_resume` | [Gibibytes](#gibibytes) | `17G` | `gate_resume > gate_stop` |
+| `thresholds.watchdog_every` | duration | `10s` |  |
+| `thresholds.silent_session` | duration | `30m` |  |
+| `thresholds.cpu_reserve` | integer | `2` | `cpu_reserve >= 0` |
 | `thresholds.build_slots` | integer | `3` | `build_slots >= 0` |
-| `thresholds.repo_cache` | `on` \| `off` | `off` |  |
-| `thresholds.repo_cache_size` | [Gibibytes](#gibibytes) | `6G` |  |
-| `thresholds.lean_debuginfo` | boolean | `false` |  |
-| `thresholds.short_lane_slots` | integer | `3` | `short_lane_slots >= 0` |
-| `thresholds.short_lane_max` | duration | `6m` |  |
-| `thresholds.stalled_session` | duration | `2h` |  |
-| `thresholds.build_queued` | duration | `25m` |  |
-| `thresholds.tree_stale` | duration | `4d` |  |
+| `thresholds.repo_cache` | `on` \| `off` | `on` |  |
+| `thresholds.repo_cache_size` | [Gibibytes](#gibibytes) | `2G` |  |
+| `thresholds.lean_debuginfo` | boolean | `true` |  |
+| `thresholds.short_lane_slots` | integer | `1` | `short_lane_slots >= 0` |
+| `thresholds.short_lane_max` | duration | `3m` |  |
+| `thresholds.stalled_session` | duration | `45m` |  |
+| `thresholds.build_queued` | duration | `30m` |  |
+| `thresholds.tree_stale` | duration | `48h` |  |
 | `retention.snapshots` | integer | `12` | `snapshots >= 1` |
 | `reports` | list of [Report](#report) | `[]` |  |
 | `reports[].channel` | string | required |  |
@@ -319,7 +322,9 @@ The harness and model one session role runs on, such as `director` or `lead` (`c
 
 `kind` (design architecture-next § 7, § 9: "roles with kind, model and profile") is the agent kind that fills the role's slot; absent, `claude-code`, the only kind in v1. The same role written under `globals.roles` is the default of every instance; one an instance writes under its `roles` overrides it key by key (precedence role over instance over global, `Level`).
 
-Keys: `role`, `kind`, `harness`, `model`, `agent`, `settings`, `profile`, `session_name`, `read_only_tools`, `limits`, `writable`, `network`, `forge_token_env`, `grant`. Specified as `conductor.config.Role`.
+`token_owner` names the operator whose Claude token from the instance's pool the role's agent leases, so a controller started for Remote Control appears in that owner's Claude app. A controller's key only: on any other role it is a problem. Absent, the pool's lease rule applies (the token with the most headroom). A named owner with no Available token refuses the start (`NoTokenAvailable`); no other owner's token is taken.
+
+Keys: `role`, `kind`, `harness`, `model`, `agent`, `settings`, `profile`, `session_name`, `read_only_tools`, `limits`, `writable`, `network`, `forge_token_env`, `grant`, `token_owner`. Specified as `conductor.config.Role`.
 
 ### Limits
 

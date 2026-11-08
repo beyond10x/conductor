@@ -350,6 +350,21 @@ impl Secrets {
         }
     }
 
+    /// The value the source holds under `name`, if any (`story:token-pool`): only `conductor
+    /// token reveal` asks for one, for the harness that runs on the token; no value leaves this
+    /// function but inside a [`SecretValue`], which formats nowhere.
+    ///
+    /// # Errors
+    ///
+    /// `SourceUnreachable` naming the source.
+    pub fn reveal(&self, name: &SecretName) -> Result<Option<SecretValue>, SourceUnreachable> {
+        match self.read(name) {
+            Read::Found(revealed) => Ok(Some(revealed.value)),
+            Read::Missing => Ok(None),
+            Read::Unreachable => Err(self.unreachable()),
+        }
+    }
+
     /// Whether the source answers: it lists the namespace.
     ///
     /// # Errors
@@ -551,6 +566,41 @@ impl Secrets {
             self.namespace
         )
     }
+
+    /// Keeps `value` under `name`, replacing what was there, with nothing on record
+    /// (`story:daemon-remote`: a client's login is no secret of the daemon's).
+    ///
+    /// # Errors
+    ///
+    /// `SourceUnreachable` naming the source; a name the crates refuse is one too.
+    pub fn keep(&self, name: &SecretName, value: SecretValue) -> Result<(), SourceUnreachable> {
+        let address = self.address(name).ok_or_else(|| self.unreachable())?;
+        block(self.storage.write(&Target::unbound(address), value))
+            .map_err(|_| self.unreachable())?;
+        if let Some(sample) = &self.sample {
+            sample.save().map_err(|_| self.unreachable())?;
+        }
+        Ok(())
+    }
+}
+
+/// The namespace of a client's logins in its own keychain (`story:daemon-remote`).
+pub const LOGIN_NAMESPACE: &str = "conductor-login";
+
+/// This client's own keychain, the namespace [`LOGIN_NAMESPACE`]: where `conductor login` keeps
+/// what it obtained (`story:daemon-remote`). The OS keychain, or the test's file (module
+/// documentation).
+///
+/// # Errors
+///
+/// [`Unusable`]: never for the keychain in practice; a keychain that does not open answers
+/// `SourceUnreachable` on use.
+pub fn client() -> Result<Secrets, Unusable> {
+    open(&SecretsSource {
+        source: Source::Keychain,
+        namespace: Some(LOGIN_NAMESPACE.to_owned()),
+        url: None,
+    })
 }
 
 /// The doctor's line for `config`: [`Secrets::line`], or why the source cannot be used.
@@ -701,7 +751,7 @@ pub fn view(records: &Store, text: &str, source: Source) -> Vec<SecretRow> {
 
 /// The value on standard input: one line read with echo off from a terminal, else everything up
 /// to its end, one trailing line end dropped.
-fn value_from_stdin(name: &str) -> Result<SecretValue> {
+pub(crate) fn value_from_stdin(name: &str) -> Result<SecretValue> {
     let stdin = std::io::stdin();
     let mut bytes = Vec::new();
     if stdin.is_terminal() {
