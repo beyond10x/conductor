@@ -8,7 +8,7 @@
     "x-ess-provenance": {
       "system": "conductor",
       "specification_version": "v1",
-      "contract_digest": "slice-sha256/2:6b95d7da4eb24cf5a28a70fe3ea2097af54e00dada1cbf29d951d0a277a5e3f7"
+      "contract_digest": "slice-sha256/2:242e323713cfe04ffe7ebb51cee19fd0cbbd77a96759f7a60fe86e064cf3483e"
     },
     "x-ess-reached-by": "network"
   },
@@ -4005,7 +4005,8 @@
           "ConfigChange",
           "LostRuntime",
           "Cadence",
-          "OperatorCommand"
+          "OperatorCommand",
+          "RunBound"
         ]
       },
       "conductor.instance.ReconcileResult": {
@@ -8427,7 +8428,8 @@
         "ConfigChange",
         "LostRuntime",
         "Cadence",
-        "OperatorCommand"
+        "OperatorCommand",
+        "RunBound"
       ]
     },
     "conductor.instance.ReconcileResult": {

@@ -13,10 +13,10 @@ use std::thread;
 use std::time::{Instant, SystemTime};
 
 use anyhow::{Result, bail};
-use conductor_cli::confine::systemd::Service;
 use conductor_cli::daemon::reconcile::{Binary, Daemon};
 use conductor_cli::daemon::units::Units;
 use conductor_cli::daemon::upgrade::{self, Refusal, Releases, Upgraded};
+use conductor_cli::systemd::Service;
 use conductor_model::instance::ReconcileReason;
 
 #[derive(Debug, Default, Clone)]

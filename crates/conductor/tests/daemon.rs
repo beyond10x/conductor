@@ -18,10 +18,10 @@ use std::thread;
 use std::time::{Duration, Instant};
 
 use anyhow::{Result, bail};
-use conductor_cli::confine::systemd::Service;
 use conductor_cli::daemon::reconcile::{BINARIES_FILE, Binary, Daemon, RUNTIMES_FILE, unit_name};
 use conductor_cli::daemon::units::Units;
 use conductor_cli::daemon::{api, install};
+use conductor_cli::systemd::Service;
 use conductor_model::behaviour::ReconciliationStorage;
 use conductor_model::instance::{ReconcileAction, ReconcileReason, ReconcileResult};
 use serde_json::Value;

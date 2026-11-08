@@ -39,12 +39,12 @@ use std::process::{Output, Stdio};
 use std::sync::{Arc, Mutex};
 
 use anyhow::Result;
-use conductor_cli::confine::systemd::Service;
 use conductor_cli::daemon::reconcile::{Binary, Daemon};
 use conductor_cli::daemon::units::Units;
 use conductor_cli::placement::{
     self, Adapter, BoxRequest, Opened, Refused, Resolved, Substrate, Where,
 };
+use conductor_cli::systemd::Service;
 use conductor_model::behaviour::{BoxRefusalStorage, BoxStorage, ReconciliationStorage};
 use conductor_model::config::PlacementName;
 use conductor_model::instance::{ReconcileAction, ReconcileResult};
@@ -69,6 +69,13 @@ struct Log {
     remotes: Vec<String>,
     /// The relay sessions it was asked to run.
     exchanges: Vec<placement::Exchange>,
+    /// Each lease renewal, `(workspace, session)`.
+    renewed: Vec<(String, String)>,
+    /// Each runtime restarted in its box, `(workspace, request)`.
+    restarted: Vec<(String, BoxRequest)>,
+    /// For each box asked for, the mode of each writable root's directory at that moment;
+    /// `None` for one that was not there.
+    roots_at_open: Vec<Vec<Option<u32>>>,
 }
 
 /// A substrate daemon that opens every box it is asked for, unless told to refuse.
@@ -94,6 +101,17 @@ impl Substrate for Fake {
                 detail: "the probe proved no sandbox".to_owned(),
             });
         }
+        let roots = request
+            .writable_roots
+            .iter()
+            .map(|root| {
+                fs::metadata(&root.path)
+                    .ok()
+                    .filter(fs::Metadata::is_dir)
+                    .map(|meta| meta.permissions().mode() & 0o777)
+            })
+            .collect();
+        log.roots_at_open.push(roots);
         log.opened.push(request.clone());
         let n = log.opened.len();
         let session = format!("ses_{n}");
@@ -129,6 +147,23 @@ impl Substrate for Fake {
             .closed
             .push(workspace.to_owned());
         Ok(())
+    }
+
+    fn renew(&mut self, workspace: &str, session: &str, _ttl: std::time::Duration) -> Result<()> {
+        self.log
+            .lock()
+            .expect("the log")
+            .renewed
+            .push((workspace.to_owned(), session.to_owned()));
+        Ok(())
+    }
+
+    fn restart(&mut self, workspace: &str, request: &BoxRequest) -> Result<String, Refused> {
+        let mut log = self.log.lock().expect("the log");
+        log.restarted.push((workspace.to_owned(), request.clone()));
+        let session = format!("ses_r{}", log.restarted.len());
+        log.running.insert(session.clone());
+        Ok(session)
     }
 
     /// A pipe session in the box: runs its program here, this build's `conductor` in place of
@@ -576,7 +611,7 @@ fn conductord_starts_a_linux_instance_in_its_box_and_closes_it_when_gone() {
         .expect("a pass");
     assert!(done.is_empty(), "{done:?}");
 
-    // alpha is gone from the config; beta, on conductor's own units, is not boxed.
+    // alpha is gone from the config; beta, a systemd box, opens a box of its own.
     case.config(&[("beta", "systemd")]);
     let done = daemon
         .pass(
@@ -682,7 +717,7 @@ fn doctor_checks_substrate_daemon_against_its_pin_for_a_substrate_placement() {
         describe(&output)
     );
 
-    let file = case.config(&[("alpha", "systemd")]);
+    let file = case.config(&[("alpha", "box-a")]);
     let output = case.doctor(&file);
     assert!(
         lines(&output).contains(&"substrate-daemon: not needed".to_owned()),
@@ -696,7 +731,7 @@ fn the_build_carries_the_substrate_pin_of_the_repository() {
     assert!(
         conductor_cli::doctor::build_pins()
             .iter()
-            .any(|(program, spec)| program == "substrate-daemon" && spec == "0.16.1"),
+            .any(|(program, spec)| program == "substrate-daemon" && spec == "0.20.0"),
         "{:?}",
         conductor_cli::doctor::build_pins()
     );
@@ -833,6 +868,38 @@ fn a_written_remote_is_held_to_the_placement_s_daemon() {
             );
         }
     }
+}
+
+#[test]
+fn a_shown_remote_placement_loads_back_as_the_same_remote_daemon() {
+    let case = Case::new("remote-roundtrip");
+    let file = case.config(&[("alpha", &case.remote_placement(REMOTE))]);
+    let show = |file: &Path, format: &str| {
+        let output = case.conductor(&[
+            "--config",
+            &file.display().to_string(),
+            "config",
+            "show",
+            "--format",
+            format,
+        ]);
+        assert_eq!(output.status.code(), Some(0), "{}", describe(&output));
+        output.stdout
+    };
+    let json = |bytes: &[u8]| -> Value { serde_json::from_slice(bytes).expect("show prints JSON") };
+    let first = json(&show(&file, "json"));
+    assert!(first["instances"][0]["remote"].is_object(), "{first}");
+    let printed = case.dir.join("shown.yaml");
+    fs::write(&printed, show(&file, "yaml")).expect("write the shown document");
+    let validated = case.conductor(&[
+        "--config",
+        &printed.display().to_string(),
+        "config",
+        "validate",
+    ]);
+    assert_eq!(validated.status.code(), Some(0), "{}", describe(&validated));
+    assert_eq!(json(&show(&printed, "json")), first);
+    assert_eq!(show(&printed, "yaml"), show(&file, "yaml"));
 }
 
 #[test]
@@ -1296,4 +1363,728 @@ fn conductord_reaches_a_remote_runtime_through_a_relay_session_in_its_box() {
         "no credential in the relay's environment: {:?}",
         exchange.env
     );
+}
+
+// ---------------------------------------------------------------------------------------------
+// substrate 0.20.0: an adapter is the facts it requires; the model-token slot pool; the run bound
+// ---------------------------------------------------------------------------------------------
+
+use substrate_sdk::{ConfinementFamily as Family, ConfinementProperty as Property};
+
+/// `linux`'s expected set of substrate's design 30 § 4.3, with the aperture conductor declares.
+const LINUX_FAMILIES: [Family; 8] = [
+    Family::ProcessRun,
+    Family::ProcessWatch,
+    Family::OutputRead,
+    Family::Wait,
+    Family::Workspace,
+    Family::FilesystemView,
+    Family::NetworkEgress,
+    Family::Audit,
+];
+
+#[test]
+fn an_adapter_is_the_confinement_facts_it_requires_never_its_name() {
+    let linux = placement::requires(Adapter::Linux);
+    assert_eq!(linux.families, LINUX_FAMILIES);
+    assert_eq!(
+        linux.facts,
+        [Property::IpcSocketAllowlist, Property::IpcSignalsContained]
+    );
+    // systemd is linux inside a delegated scope: linux's set plus limits and whole-tree kill.
+    let systemd = placement::requires(Adapter::Systemd);
+    for family in &linux.families {
+        assert!(systemd.families.contains(family), "{systemd:?}");
+    }
+    assert!(systemd.families.contains(&Family::Limits), "{systemd:?}");
+    assert!(
+        systemd.facts.contains(&Property::WholeTreeKill),
+        "{systemd:?}"
+    );
+
+    // The first unmet requirement is refused by substrate's own name, families first.
+    let served: Vec<Family> = LINUX_FAMILIES.to_vec();
+    let proved = [Property::IpcSocketAllowlist, Property::IpcSignalsContained];
+    assert_eq!(placement::unmet(&linux, &served, &proved), None);
+    let refused = placement::unmet(&systemd, &served, &proved).expect("limits is not served");
+    assert_eq!(refused.name, "confinement.family-unserved");
+    assert!(refused.detail.contains("limits"), "{refused:?}");
+    let mut served_limits = served.clone();
+    served_limits.push(Family::Limits);
+    let refused =
+        placement::unmet(&systemd, &served_limits, &proved).expect("whole-tree-kill is not proved");
+    assert_eq!(refused.name, "confinement.fact-unserved");
+    assert!(refused.detail.contains("whole-tree-kill"), "{refused:?}");
+}
+
+#[test]
+fn a_box_request_carries_its_requirement_and_its_named_writable_roots() {
+    let case = Case::new("box-requires");
+    let mut instance = linux_instance(&case);
+    instance.placement = PlacementName("systemd".to_owned());
+    let request = placement::request(
+        &instance,
+        &case.file(),
+        Path::new("/opt/conductor/bin/conductor"),
+        Vec::new(),
+    );
+    assert_eq!(request.requires, placement::requires(Adapter::Systemd));
+    assert_eq!(
+        request.writable_roots,
+        [placement::HostRoot {
+            name: format!("sessions-{}", instance.name.0),
+            path: Path::new(&instance.state)
+                .join("sessions")
+                .display()
+                .to_string(),
+        }]
+    );
+}
+
+#[test]
+fn a_writable_root_name_is_in_substrates_root_name_set() {
+    for (instance, name) in [
+        ("alpha", "sessions-alpha"),
+        ("example-org_2", "sessions-example-org_2"),
+        ("a.b c/d", "sessions-a_b_c_d"),
+    ] {
+        assert_eq!(placement::writable_root_name(instance), name);
+    }
+}
+
+/// A local substrate daemon on a Unix socket: it answers `GET /v1/machine` with `facts` beside
+/// the vector's other facts, keeps the request line of every request, and answers every other
+/// one 503; [`FakeLocal::opening`] also creates every workspace asked for and keeps the body of
+/// every session start. It publishes `roots` as the writable host roots it serves
+/// (`exec.writable-roots.host`), and the fact not at all when `roots` is empty.
+struct FakeLocal {
+    lines: Arc<Mutex<Vec<String>>>,
+    starts: Arc<Mutex<Vec<Value>>>,
+}
+
+impl FakeLocal {
+    fn start(socket: &Path, families: &[Family], properties: &[Property], roots: &[&str]) -> Self {
+        Self::serve(socket, families, properties, roots, false)
+    }
+
+    fn opening(
+        socket: &Path,
+        families: &[Family],
+        properties: &[Property],
+        roots: &[&str],
+    ) -> Self {
+        Self::serve(socket, families, properties, roots, true)
+    }
+
+    fn serve(
+        socket: &Path,
+        families: &[Family],
+        properties: &[Property],
+        roots: &[&str],
+        opens: bool,
+    ) -> Self {
+        use std::io::{Read as _, Write as _};
+        let mut facts = serde_json::json!({
+            "events.pull": true,
+            "exec.argv-only": true,
+            "exec.cgroup-kill": true,
+            "exec.no-egress": true,
+            "exec.output-limit-bytes": 65536,
+            "leases.explicit": true,
+            "operation.ledger-global-max-bytes": 4_294_967_296_u64,
+            "operation.ledger-global-max-rows": 1_000_000,
+            "operation.ledger-subject-max-bytes": 536_870_912,
+            "operation.ledger-subject-max-rows": 100_000,
+            "workspace.guarded-io": true,
+        });
+        for family in families {
+            facts[family.fact()] = Value::Bool(true);
+        }
+        for property in properties {
+            facts[property.fact()] = Value::Bool(true);
+        }
+        if !roots.is_empty() {
+            facts["exec.writable-roots.host"] = serde_json::json!(roots);
+        }
+        let body = serde_json::to_vec(&serde_json::json!({
+            "api_version": "v1",
+            "request_id": "req_machine",
+            "result": {
+                "config_generation": 1,
+                "driver": "host",
+                "driver_version": "fixture-1",
+                "facts": facts,
+                "probed_at": "2026-11-08T12:00:00Z",
+                "snapshot": format!("sha256:{}", "7".repeat(64)),
+            }
+        }))
+        .expect("the machine");
+        let _ = fs::remove_file(socket);
+        let listener = std::os::unix::net::UnixListener::bind(socket).expect("bind the socket");
+        let lines = Arc::new(Mutex::new(Vec::new()));
+        let starts = Arc::new(Mutex::new(Vec::new()));
+        let kept = lines.clone();
+        let started = starts.clone();
+        std::thread::spawn(move || {
+            for stream in listener.incoming() {
+                let Ok(mut stream) = stream else { return };
+                let mut head = Vec::new();
+                let mut byte = [0_u8; 1];
+                while !head.ends_with(b"\r\n\r\n") {
+                    match stream.read(&mut byte) {
+                        Ok(1) => head.push(byte[0]),
+                        _ => break,
+                    }
+                }
+                let head = String::from_utf8_lossy(&head).into_owned();
+                let line = head.lines().next().unwrap_or_default().to_owned();
+                kept.lock().expect("the lines").push(line.clone());
+                let length = head
+                    .lines()
+                    .find_map(|header| {
+                        let (name, value) = header.split_once(':')?;
+                        name.eq_ignore_ascii_case("content-length")
+                            .then(|| value.trim().parse::<usize>().ok())?
+                    })
+                    .unwrap_or(0);
+                let mut sent = vec![0_u8; length];
+                let _ = stream.read_exact(&mut sent);
+                let sent: Value = serde_json::from_slice(&sent).unwrap_or(Value::Null);
+                let (status, answer) = if line.starts_with("GET /v1/machine ") {
+                    ("200 OK", body.clone())
+                } else if opens && line.starts_with("POST /v1/workspaces ") {
+                    let workspace = serde_json::json!({
+                        "api_version": "v1",
+                        "request_id": "req_workspace",
+                        "operation": sent["op"],
+                        "result": {
+                            "id": "ws_fake",
+                            "kind": "workspace",
+                            "labels": {},
+                            "observed_at": "2026-11-08T12:00:00Z",
+                            "state": "ready",
+                            "origin": "created",
+                            "root_name": "ws_fake"
+                        }
+                    });
+                    (
+                        "201 Created",
+                        serde_json::to_vec(&workspace).expect("the workspace"),
+                    )
+                } else {
+                    if opens && line.starts_with("POST /v1/sessions ") {
+                        started.lock().expect("the starts").push(sent);
+                    }
+                    ("503 Service Unavailable", Vec::new())
+                };
+                let _ = stream.write_all(
+                    format!(
+                        "HTTP/1.1 {status}\r\nx-b10x-contract: {}\r\n\
+                         x-b10x-contract-bundle-sha256: {}\r\ncontent-type: application/json\r\n\
+                         content-length: {}\r\nconnection: close\r\n\r\n",
+                        substrate_sdk::CONTRACT,
+                        substrate_sdk::CONTRACT_SHA256,
+                        answer.len()
+                    )
+                    .as_bytes(),
+                );
+                let _ = stream.write_all(&answer);
+            }
+        });
+        Self { lines, starts }
+    }
+}
+
+#[test]
+fn the_sdk_starts_the_runtime_with_each_writable_root_by_name_in_order() {
+    let case = Case::new("roots");
+    let socket = case.dir.join("s.sock");
+    let root = placement::writable_root_name(&linux_instance(&case).name.0);
+    let fake = FakeLocal::opening(
+        &socket,
+        &LINUX_FAMILIES,
+        &[Property::IpcSocketAllowlist, Property::IpcSignalsContained],
+        &[root.as_str(), "second"],
+    );
+    let mut sdk = placement::Sdk::default();
+    sdk.socket = socket.clone();
+    let mut request = placement::request(
+        &linux_instance(&case),
+        &case.file(),
+        Path::new("/opt/conductor/bin/conductor"),
+        Vec::new(),
+    );
+    request.writable_roots.push(placement::HostRoot {
+        name: "second".to_owned(),
+        path: "/srv/second".to_owned(),
+    });
+    let expected: Vec<Value> = request
+        .writable_roots
+        .iter()
+        .map(|root| serde_json::json!({"host": root.name, "mount": root.path}))
+        .collect();
+    assert_eq!(expected.len(), 2);
+    let refused = sdk
+        .open(&request)
+        .expect_err("the fake answers the session start 503");
+    let starts = fake.starts.lock().expect("the starts").clone();
+    let lines = fake.lines.lock().expect("the lines").clone();
+    assert_eq!(
+        starts.len(),
+        1,
+        "one session start: {starts:?} {refused:?} {lines:?}"
+    );
+    assert_eq!(
+        starts[0].pointer("/input/exec/writable_roots"),
+        Some(&Value::Array(expected)),
+        "the start names each root, in order, at its own path: {}",
+        starts[0]
+    );
+}
+
+#[test]
+fn the_sdk_refuses_a_box_whose_facts_the_local_daemon_does_not_publish_before_anything_starts() {
+    let case = Case::new("facts");
+    let socket = case.dir.join("s.sock");
+    let root = placement::writable_root_name(&linux_instance(&case).name.0);
+    let fake = FakeLocal::start(
+        &socket,
+        &LINUX_FAMILIES,
+        &[Property::IpcSocketAllowlist, Property::IpcSignalsContained],
+        &[root.as_str()],
+    );
+    let mut sdk = placement::Sdk::default();
+    sdk.socket = socket.clone();
+    let mut instance = linux_instance(&case);
+    instance.placement = PlacementName("systemd".to_owned());
+    let binary = Path::new("/opt/conductor/bin/conductor");
+    let refused = sdk
+        .open(&placement::request(
+            &instance,
+            &case.file(),
+            binary,
+            Vec::new(),
+        ))
+        .expect_err("a daemon without limits opens no systemd box");
+    assert_eq!(refused.name, "confinement.family-unserved", "{refused:?}");
+    let lines = fake.lines.lock().expect("the lines").clone();
+    assert!(
+        lines
+            .iter()
+            .all(|line| line.starts_with("GET /v1/machine ")),
+        "nothing but the machine was asked: {lines:?}"
+    );
+
+    // linux's facts are all there: the box is asked for.
+    let refused = sdk
+        .open(&placement::request(
+            &linux_instance(&case),
+            &case.file(),
+            binary,
+            Vec::new(),
+        ))
+        .expect_err("the fake answers the workspace 503");
+    assert_ne!(refused.name, "confinement.family-unserved", "{refused:?}");
+    let lines = fake.lines.lock().expect("the lines").clone();
+    assert!(
+        lines
+            .iter()
+            .any(|line| line.starts_with("POST /v1/workspaces ")),
+        "the workspace was asked for: {lines:?}"
+    );
+}
+
+#[test]
+fn the_sdk_refuses_a_box_whose_writable_root_the_local_daemon_does_not_serve_before_anything_starts()
+ {
+    let case = Case::new("unroot");
+    let socket = case.dir.join("s.sock");
+    let request = placement::request(
+        &linux_instance(&case),
+        &case.file(),
+        Path::new("/opt/conductor/bin/conductor"),
+        Vec::new(),
+    );
+    let root = request.writable_roots[0].name.clone();
+    for roots in [&[][..], &["sessions-other"][..]] {
+        let fake = FakeLocal::opening(
+            &socket,
+            &LINUX_FAMILIES,
+            &[Property::IpcSocketAllowlist, Property::IpcSignalsContained],
+            roots,
+        );
+        let mut sdk = placement::Sdk::default();
+        sdk.socket = socket.clone();
+        let refused = sdk
+            .open(&request)
+            .expect_err("a daemon that does not serve the root opens no box");
+        assert_eq!(
+            refused.name, "exec.writable-roots-host-unserved",
+            "substrate's name: {refused:?}"
+        );
+        assert!(refused.detail.contains(&root), "{refused:?}");
+        let lines = fake.lines.lock().expect("the lines").clone();
+        assert!(
+            lines
+                .iter()
+                .all(|line| line.starts_with("GET /v1/machine ")),
+            "nothing but the machine was asked ({roots:?}): {lines:?}"
+        );
+    }
+}
+
+#[test]
+fn the_box_s_runtime_logs_to_a_file_in_its_writable_root_not_to_its_session() {
+    let case = Case::new("runtime-log");
+    let instance = linux_instance(&case);
+    let request = placement::request(
+        &instance,
+        &case.file(),
+        Path::new("/opt/conductor/bin/conductor"),
+        Vec::new(),
+    );
+    let log = request
+        .env
+        .iter()
+        .find(|(name, _)| name == conductor_cli::instance::LOG_VARIABLE)
+        .map(|(_, value)| PathBuf::from(value))
+        .expect("the runtime is told where to log");
+    assert_eq!(
+        log,
+        Path::new(&instance.state).join("sessions/runtime.log"),
+        "{request:?}"
+    );
+    assert!(
+        log.starts_with(&request.writable_roots[0].path),
+        "the log is in the writable root: {request:?}"
+    );
+}
+
+#[test]
+fn conductord_creates_the_sessions_root_mode_0700_before_it_asks_for_the_box() {
+    let case = Case::new("sessions-root");
+    case.config(&[("alpha", "linux")]);
+    let fake = Fake::default();
+    let mut daemon = case.daemon(fake.clone());
+    let done = daemon
+        .pass(
+            conductor_model::instance::ReconcileReason::ConfigChange,
+            std::time::Instant::now(),
+        )
+        .expect("a pass");
+    assert_eq!(done[0].result, ReconcileResult::Succeeded, "{done:?}");
+    let log = fake.log.lock().expect("the log");
+    assert_eq!(
+        log.roots_at_open,
+        [vec![Some(0o700)]],
+        "each writable root is a 0700 directory when the box is asked for: {:?}",
+        log.opened
+    );
+}
+
+#[test]
+fn conductord_starts_again_a_box_runtime_substrate_ended_at_its_output_bound() {
+    let case = Case::new("output-bound");
+    case.config(&[("alpha", "linux")]);
+    let fake = Fake::default();
+    let mut daemon = case.daemon(fake.clone());
+    let now = std::time::Instant::now();
+    daemon
+        .pass(
+            conductor_model::instance::ReconcileReason::ConfigChange,
+            now,
+        )
+        .expect("a pass");
+    assert_eq!(daemon.due(now).expect("due"), None);
+
+    // Substrate ends the session with `session.output-limit` (state Cancelled): it no longer
+    // runs.
+    fake.log.lock().expect("the log").running.remove("ses_1");
+    assert_eq!(
+        daemon.due(now).expect("due"),
+        Some(conductor_model::instance::ReconcileReason::LostRuntime)
+    );
+    let done = daemon
+        .pass(conductor_model::instance::ReconcileReason::LostRuntime, now)
+        .expect("a pass");
+    assert_eq!(done.len(), 1, "{done:?}");
+    assert_eq!(done[0].action, ReconcileAction::Start);
+    assert_eq!(
+        done[0].reason,
+        conductor_model::instance::ReconcileReason::LostRuntime
+    );
+    assert_eq!(done[0].result, ReconcileResult::Succeeded, "{done:?}");
+    {
+        let log = fake.log.lock().expect("the log");
+        assert_eq!(log.opened.len(), 2, "a new box: {:?}", log.opened);
+        assert_eq!(log.closed, ["ws_1".to_owned()], "the old box is closed");
+    }
+    assert_eq!(daemon.started()["alpha"].unit, "substrate:ses_2");
+    let boxes = BoxStorage::list(daemon.store());
+    assert_eq!(
+        boxes
+            .iter()
+            .filter(|row| row.state == BoxState::Opened)
+            .count(),
+        1,
+        "one box open on record: {boxes:?}"
+    );
+    assert_eq!(daemon.due(now).expect("due"), None);
+}
+
+#[test]
+fn conductord_opens_a_systemd_instance_in_a_substrate_box_never_on_its_own_units() {
+    let case = Case::new("daemon-systemd");
+    case.config(&[("alpha", "{daemon: local, adapter: systemd}")]);
+    let fake = Fake::default();
+    let mut daemon = case.daemon(fake.clone());
+    let done = daemon
+        .pass(
+            conductor_model::instance::ReconcileReason::ConfigChange,
+            std::time::Instant::now(),
+        )
+        .expect("a pass");
+    assert_eq!(done[0].result, ReconcileResult::Succeeded, "{done:?}");
+    assert!(
+        daemon
+            .units
+            .calls
+            .iter()
+            .all(|call| !call.starts_with("start")),
+        "the service manager started nothing: {:?}",
+        daemon.units.calls
+    );
+    let log = fake.log.lock().expect("the log");
+    assert_eq!(log.opened.len(), 1);
+    assert_eq!(
+        log.opened[0].requires,
+        placement::requires(Adapter::Systemd)
+    );
+}
+
+impl Case {
+    /// [`Case::config`] with a slot pool of `slots` and each instance's model token
+    /// `secret:<instance>-model`.
+    fn config_with_tokens(&self, slots: usize, instances: &[(&str, &str)]) -> PathBuf {
+        let file = self.config(instances);
+        let mut text = fs::read_to_string(&file).expect("the config");
+        text = text.replace(
+            "daemon: {port: 7300,",
+            &format!("daemon: {{port: 7300, substrate_slots: {slots},"),
+        );
+        for (name, _) in instances {
+            let cache = format!("    cache: {:?}\n", self.dir.join(name).join("cache"));
+            text = text.replace(
+                &cache,
+                &format!("{cache}    model_token: \"secret:{name}-model\"\n"),
+            );
+        }
+        fs::write(&file, text).expect("write the config");
+        file
+    }
+}
+
+/// The value of the model token of `name` as the fake secrets source answers it.
+fn token_of(name: &str) -> String {
+    format!("model-token-of-{name}")
+}
+
+fn token_source() -> placement::TokenSource {
+    Arc::new(|_source, name: &conductor_model::secret::SecretName| {
+        let instance = name.0.strip_suffix("-model")?;
+        secrets_core::storage::SecretValue::new(token_of(instance).into_bytes()).ok()
+    })
+}
+
+#[test]
+fn a_box_seals_its_model_token_through_a_free_slot_of_the_pool_and_frees_it_when_it_closes() {
+    use std::os::unix::fs::PermissionsExt as _;
+    let case = Case::new("slot-pool");
+    let file = case.config_with_tokens(2, &[("alpha", "linux"), ("beta", "linux")]);
+    let validated = case.conductor(&[
+        "--config",
+        &file.display().to_string(),
+        "config",
+        "validate",
+    ]);
+    assert_eq!(validated.status.code(), Some(0), "{}", describe(&validated));
+    let fake = Fake::default();
+    let mut daemon = case.daemon(fake.clone());
+    daemon.tokens = token_source();
+    let now = std::time::Instant::now();
+    let done = daemon
+        .pass(
+            conductor_model::instance::ReconcileReason::ConfigChange,
+            now,
+        )
+        .expect("a pass");
+    assert!(
+        done.iter()
+            .all(|done| done.result == ReconcileResult::Succeeded),
+        "{done:?}"
+    );
+    let slots = case.dir.join("daemon").join(placement::SLOTS_DIR);
+    let slot_of = |log: &Log, instance: &str| {
+        log.opened
+            .iter()
+            .find(|request| request.instance.0 == instance)
+            .map(|request| request.secret_slots.clone())
+            .expect("its box was opened")
+    };
+    let (alpha_slot, beta_slot) = {
+        let log = fake.log.lock().expect("the log");
+        let alpha = slot_of(&log, "alpha");
+        let beta = slot_of(&log, "beta");
+        assert_eq!(alpha.len(), 1, "{alpha:?}");
+        assert_eq!(beta.len(), 1, "{beta:?}");
+        assert_ne!(alpha, beta, "each box has its own slot");
+        for request in &log.opened {
+            let shown = format!("{request:?}");
+            assert!(
+                !shown.contains(&token_of("alpha")) && !shown.contains(&token_of("beta")),
+                "no token in the request: {shown}"
+            );
+        }
+        (alpha[0].clone(), beta[0].clone())
+    };
+    for (slot, name) in [(&alpha_slot, "alpha"), (&beta_slot, "beta")] {
+        assert!(slot.starts_with("model_token_"), "{slot}");
+        let path = slots.join(slot);
+        assert_eq!(
+            fs::read_to_string(&path).expect("the slot's file"),
+            token_of(name)
+        );
+        assert_eq!(
+            fs::metadata(&path)
+                .expect("its metadata")
+                .permissions()
+                .mode()
+                & 0o777,
+            0o600
+        );
+    }
+
+    // A third instance finds no free slot: its box is refused by name and nothing starts.
+    case.config_with_tokens(
+        2,
+        &[("alpha", "linux"), ("beta", "linux"), ("gamma", "linux")],
+    );
+    let done = daemon
+        .pass(
+            conductor_model::instance::ReconcileReason::ConfigChange,
+            now,
+        )
+        .expect("a pass");
+    let gamma = done
+        .iter()
+        .find(|done| done.instance == "gamma")
+        .expect("gamma reconciled");
+    assert_eq!(gamma.result, ReconcileResult::Refused, "{done:?}");
+    assert!(
+        gamma
+            .detail
+            .as_deref()
+            .is_some_and(|detail| detail.contains(placement::SLOTS_EXHAUSTED)),
+        "{gamma:?}"
+    );
+    assert!(
+        BoxRefusalStorage::list(daemon.store())
+            .iter()
+            .any(|refusal| refusal.data.reason.0 == placement::SLOTS_EXHAUSTED)
+    );
+
+    // alpha leaves: its box closes at the end of the pass and frees its slot; gamma, refused
+    // while it was held, takes it at the next pass.
+    case.config_with_tokens(2, &[("beta", "linux"), ("gamma", "linux")]);
+    daemon
+        .pass(
+            conductor_model::instance::ReconcileReason::ConfigChange,
+            now,
+        )
+        .expect("a pass");
+    daemon
+        .pass(conductor_model::instance::ReconcileReason::Cadence, now)
+        .expect("a pass");
+    let gamma_slot = slot_of(&fake.log.lock().expect("the log"), "gamma");
+    assert_eq!(
+        gamma_slot,
+        std::slice::from_ref(&alpha_slot),
+        "the freed slot is reused"
+    );
+    assert_eq!(
+        fs::read_to_string(slots.join(&alpha_slot)).expect("the slot's file"),
+        token_of("gamma")
+    );
+    case.config_with_tokens(2, &[("beta", "linux")]);
+    daemon
+        .pass(
+            conductor_model::instance::ReconcileReason::ConfigChange,
+            now,
+        )
+        .expect("a pass");
+    let freed = fs::read_to_string(slots.join(&alpha_slot)).expect("the slot's file");
+    assert!(
+        !freed.contains("model-token-of"),
+        "a freed slot holds no token: {freed:?}"
+    );
+    assert!(
+        !freed.is_empty(),
+        "substrate refuses an empty slot file at its start"
+    );
+}
+
+#[test]
+fn conductord_renews_a_box_and_restarts_its_runtime_in_the_same_box_before_the_run_bound() {
+    let case = Case::new("run-bound");
+    case.config(&[("alpha", "linux")]);
+    let fake = Fake::default();
+    let mut daemon = case.daemon(fake.clone());
+    daemon
+        .pass(
+            conductor_model::instance::ReconcileReason::ConfigChange,
+            std::time::Instant::now(),
+        )
+        .expect("a pass");
+    let start = std::time::SystemTime::now();
+    let hour = std::time::Duration::from_secs(3600);
+
+    let done = daemon.keep_boxes(start + 2 * hour).expect("keep the boxes");
+    assert!(done.is_empty(), "{done:?}");
+    {
+        let log = fake.log.lock().expect("the log");
+        assert_eq!(log.renewed, [("ws_1".to_owned(), "ses_1".to_owned())]);
+        assert!(log.restarted.is_empty());
+    }
+
+    let done = daemon
+        .keep_boxes(start + 23 * hour + hour / 2)
+        .expect("keep the boxes");
+    assert_eq!(done.len(), 1, "{done:?}");
+    assert_eq!(done[0].action, ReconcileAction::Restart);
+    assert_eq!(
+        done[0].reason,
+        conductor_model::instance::ReconcileReason::RunBound
+    );
+    assert_eq!(done[0].result, ReconcileResult::Succeeded, "{done:?}");
+    {
+        let log = fake.log.lock().expect("the log");
+        assert_eq!(log.restarted.len(), 1);
+        assert_eq!(log.restarted[0].0, "ws_1", "the same box");
+        assert_eq!(log.restarted[0].1.argv[3..], ["instance", "serve"]);
+        assert!(log.stopped.contains(&"ses_1".to_owned()));
+        assert!(log.closed.is_empty(), "the box stays open");
+    }
+    assert_eq!(daemon.started()["alpha"].unit, "substrate:ses_r1");
+    assert!(
+        ReconciliationStorage::list(daemon.store())
+            .iter()
+            .any(|row| row.data.reason == conductor_model::instance::ReconcileReason::RunBound)
+    );
+    let done = daemon
+        .pass(
+            conductor_model::instance::ReconcileReason::Cadence,
+            std::time::Instant::now(),
+        )
+        .expect("a pass");
+    assert!(done.is_empty(), "the restarted runtime runs: {done:?}");
 }

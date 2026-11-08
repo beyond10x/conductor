@@ -93,11 +93,12 @@ use time::format_description::well_known::Rfc3339;
 use crate::cli::{ClaimLeaseArgs, DeliverArgs, SessionRoleArgs, ViewArgs};
 use crate::config::{self, BuiltInRole, ConfinementProvider, Environment};
 use crate::confine::places::{self, Placement};
-use crate::confine::{self, Launch, Providers, Refusal, systemd};
+use crate::confine::{self, Launch, Providers, Refusal};
 use crate::daemon::host_roles;
 use crate::not_implemented;
 use crate::records;
 use crate::store::Store;
+use crate::systemd;
 
 /// The actor of the session `name` of the active instance: an agent in the role whose session
 /// name it is, else a controller (`crate::actor::agent`).

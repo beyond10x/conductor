@@ -595,7 +595,7 @@ impl Server {
             writes: Mutex::new(()),
             tuning,
             agents: Mutex::new(crate::agent::Runtime::new(Box::new(agents::print))),
-            providers: crate::confine::Host::default(),
+            providers: crate::confine::Host,
         }
     }
 

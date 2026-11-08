@@ -608,7 +608,7 @@ fn serve_instance_with_agent(case: &Case) -> (Arc<Mutex<Vec<String>>>, Arc<Mutex
     let (delivered, starts) = (Arc::clone(&kind.delivered), Arc::clone(&kind.starts));
     let mut runtime = Runtime::new(Box::new(|_: &AgentName, _: &str| Ok(())));
     runtime.register(Box::new(kind));
-    let providers = conductor_cli::confine::Host::default();
+    let providers = conductor_cli::confine::Host;
     let context = Context {
         config: None,
         state: None,

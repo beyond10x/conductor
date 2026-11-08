@@ -5,18 +5,36 @@
 //! A `conductor.config/2` instance writes `placement` as a map `{daemon, adapter}`, or as a bare
 //! string read as `{daemon: local, adapter: <string>}` (decision P3) ([`read`]). `daemon` is
 //! `local` (the default) or an `https://` URL; `adapter` is `systemd`, `linux`, `oci` or `pod`.
-//! A local daemon refuses `oci` and `pod` at validate (decision P5): substrate 0.16.1's daemon
-//! serves the host driver (`linux`) and a cluster driver only, and takes no adapter in a request.
-//! The instance's `placement` name is the canonical text: the adapter for a local daemon,
-//! `<adapter>@<url>` for a remote one ([`resolve`]). A bare string that names no adapter keeps
-//! the path it had before substrate placements (conductor's own `systemd-run` units) and
-//! resolves to nothing.
+//! A local daemon refuses `oci` and `pod` at validate (decision P5): a local daemon's session
+//! route serves neither (substrate's ADR 0048 D6). The instance's `placement` name is the
+//! canonical text: the adapter for a local daemon, `<adapter>@<url>` for a remote one
+//! ([`resolve`]). A bare string that names no adapter resolves to nothing and keeps the
+//! service-manager unit it had before substrate placements.
 //!
-//! Only `adapter: linux` on a local daemon goes through substrate today ([`boxed`]): one
-//! substrate workspace per instance, the box, and the runtime (`conductor instance serve`) a
-//! substrate PTY session in it, opened through the SDK against `substrate-daemon`'s socket
-//! ([`Sdk`]). `adapter: systemd` stays on conductor's `systemd-run` path until substrate takes
-//! the adapter on the wire (acceptance line 4 is deferred: `confine/systemd.rs` is kept).
+//! Every adapter goes through substrate ([`boxed`]): one substrate workspace per instance, the
+//! box, and the runtime (`conductor instance serve`) a substrate PTY session in it, opened
+//! through the SDK against `substrate-daemon`'s socket ([`Sdk`]). Substrate puts no adapter name
+//! on the wire (its ADR 0048): an adapter is the confinement facts the box requires
+//! ([`requires`]), checked against the facts the daemon published (`/v1/machine`) before anything
+//! starts ([`unmet`]), and refused with substrate's names, `confinement.family-unserved` and
+//! `confinement.fact-unserved`. `systemd` is `linux` inside a delegated systemd scope: the
+//! operator runs `substrate-daemon` in that scope, and the daemon then proves `limits` and
+//! `whole-tree-kill`. The SDK of 0.20.0 sends no `sandbox.requires` (its builders write `None`),
+//! so the daemon cannot hold the start to the check itself; the start names the capability
+//! snapshot the facts were read from, so a daemon restarted on other facts refuses it
+//! `exec.capability-stale`.
+//!
+//! The model token reaches a local box through the daemon's slot pool ([`SlotPool`],
+//! `daemon.substrate_slots`): a slot is daemon configuration (substrate's design 11), so the
+//! daemon writes the instance's `model_token` into a free slot's file before the box opens and
+//! names that slot; the file is read when the runtime's run acquires it, and freed when the box
+//! closes. A box keeps its lease past one 24-hour lease by renewing it, and its runtime past
+//! substrate's hard deadline of one run by a restart in the same box ([`RUN_BOUND`]).
+//!
+//! The runtime writes the sessions directory under the state directory through a writable host
+//! root ([`HostRoot`]): a start names a root, never its path, so the operator declares it on the
+//! local daemon, `substrate-daemon --writable-root sessions-<instance>=<state>/sessions`
+//! ([`writable_root_name`]).
 //!
 //! A remote daemon (`story:placement-substrate-remote`) is `placement: {daemon: https://…,
 //! adapter, bearer: secret:<name>, trust_roots, server_identity}` ([`read`]): the box opens
@@ -63,7 +81,7 @@ pub const MODEL_HOST: &str = "api.anthropic.com";
 /// The variable naming the local substrate daemon's socket; [`default_socket`] without it.
 pub const SOCKET_VARIABLE: &str = "CONDUCTOR_SUBSTRATE_SOCKET";
 
-/// The egress aperture a box's sessions are started with. Substrate 0.16.1 declares apertures on
+/// The egress aperture a box's sessions are started with. Substrate 0.20.0 declares apertures on
 /// the daemon (`--egress-aperture`), not per request: the operator declares this one with the
 /// forge and model hosts of [`BoxRequest::egress`].
 pub const EGRESS_APERTURE: &str = "conductor";
@@ -150,13 +168,101 @@ pub fn resolve(name: &str) -> Option<Resolved> {
     }
 }
 
-/// Whether `instance` runs in a substrate box: any resolved placement but `systemd` on a local
-/// daemon, which stays on conductor's own units.
+/// Whether `instance` runs in a substrate box: any placement that names an adapter.
 #[must_use]
 pub fn boxed(instance: &Instance) -> bool {
-    resolve(&instance.placement.0).is_some_and(|resolved| {
-        !(resolved.daemon == Where::Local && resolved.adapter == Adapter::Systemd)
-    })
+    resolve(&instance.placement.0).is_some()
+}
+
+/// What a box requires of the daemon's confinement, in substrate's wire words: the families it
+/// must serve and the properties it must prove (substrate's design 30 § 4.3).
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub struct Requirement {
+    /// The families, in substrate's order.
+    pub families: Vec<substrate_sdk::ConfinementFamily>,
+    /// The properties, in substrate's order.
+    pub facts: Vec<substrate_sdk::ConfinementProperty>,
+}
+
+/// The facts `adapter` stands for. `linux`: `linux`'s expected set of substrate's design 30
+/// § 4.3 with the egress aperture conductor declares, so every family but `network-ingress` and
+/// `limits`, and the two IPC properties. `systemd`: `linux` inside a delegated systemd scope,
+/// which adds `limits` and `whole-tree-kill` (substrate-host's `confinement/systemd.rs`: around
+/// `linux` the scope is its delegated cgroup root). `oci` and `pod`: the six facts a namespace
+/// driver admits an exec on (substrate's ADR 0048), as far as the wire names them.
+#[must_use]
+pub fn requires(adapter: Adapter) -> Requirement {
+    use substrate_sdk::{ConfinementFamily as F, ConfinementProperty as P};
+    let linux = [
+        F::ProcessRun,
+        F::ProcessWatch,
+        F::OutputRead,
+        F::Wait,
+        F::Workspace,
+        F::FilesystemView,
+        F::NetworkEgress,
+        F::Audit,
+    ];
+    match adapter {
+        Adapter::Linux => Requirement {
+            families: linux.to_vec(),
+            facts: vec![P::IpcSocketAllowlist, P::IpcSignalsContained],
+        },
+        Adapter::Systemd => Requirement {
+            families: F::ALL
+                .into_iter()
+                .filter(|family| linux.contains(family) || *family == F::Limits)
+                .collect(),
+            facts: vec![
+                P::WholeTreeKill,
+                P::IpcSocketAllowlist,
+                P::IpcSignalsContained,
+            ],
+        },
+        Adapter::Oci | Adapter::Pod => Requirement {
+            families: vec![F::ProcessRun, F::OutputRead, F::Wait, F::Limits],
+            facts: vec![P::WholeTreeKill],
+        },
+    }
+}
+
+/// Substrate's name for a family the daemon does not serve.
+pub const FAMILY_UNSERVED: &str = "confinement.family-unserved";
+
+/// Substrate's name for a property the daemon does not prove.
+pub const FACT_UNSERVED: &str = "confinement.fact-unserved";
+
+/// The refusal `requires` earns against what a daemon serves and proves, as substrate's daemon
+/// words it: the first unserved family in substrate's order, then the first unproved property;
+/// `None` when every requirement holds.
+#[must_use]
+pub fn unmet(
+    requires: &Requirement,
+    served: &[substrate_sdk::ConfinementFamily],
+    proved: &[substrate_sdk::ConfinementProperty],
+) -> Option<Refused> {
+    if let Some(family) = substrate_sdk::ConfinementFamily::ALL
+        .into_iter()
+        .find(|family| requires.families.contains(family) && !served.contains(family))
+    {
+        return Some(Refused {
+            name: FAMILY_UNSERVED.to_owned(),
+            detail: format!(
+                "Confinement family {} is not served by this driver.",
+                family.name()
+            ),
+        });
+    }
+    substrate_sdk::ConfinementProperty::ALL
+        .into_iter()
+        .find(|property| requires.facts.contains(property) && !proved.contains(property))
+        .map(|property| Refused {
+            name: FACT_UNSERVED.to_owned(),
+            detail: format!(
+                "Confinement fact {} is not proved by this driver.",
+                property.name()
+            ),
+        })
 }
 
 /// A placement as the config writes it: its canonical name and, for a remote daemon, the daemon.
@@ -205,8 +311,8 @@ pub fn read(value: &Value, path: &str, home: &Path) -> Result<Read, Vec<(String,
         (
             at,
             format!(
-                "`{word}` is refused on a local daemon: a local substrate daemon serves `linux`, \
-                 and `systemd` runs on conductor's own units"
+                "`{word}` is refused on a local daemon: a local substrate daemon serves `linux` \
+                 and `systemd`"
             ),
         )
     };
@@ -419,19 +525,113 @@ pub struct BoxRequest {
     pub limits: Limits,
     /// The only hosts the box may reach: the forges of its sources and [`MODEL_HOST`].
     pub egress: Vec<String>,
-    /// The sealed slots the box receives: the model token (`story:secrets-source`).
+    /// The sealed slots the box receives: the model token (`story:secrets-source`). [`request`]
+    /// names [`crate::secret::MODEL_TOKEN_SLOT`]; for a local daemon the reconciler replaces it
+    /// with the pool slot it wrote the token into ([`SlotPool`]), or with none.
     pub secret_slots: Vec<String>,
+    /// The confinement facts the box requires ([`requires`]).
+    pub requires: Requirement,
+    /// The host directories the box must write outside its workspace: the sessions directory
+    /// under the state directory, where the terminal log and the envelope are written. [`Sdk`]
+    /// names each in the runtime's start, mounted at its own path, in this order.
+    pub writable_roots: Vec<HostRoot>,
+}
+
+/// A writable host root (substrate's ADR 0038 kind 1): a start names it, never its path, so
+/// the daemon must declare it, `substrate-daemon --writable-root <name>=<path>`.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct HostRoot {
+    /// The name the daemon declares ([`writable_root_name`]).
+    pub name: String,
+    /// The host directory, mounted at the same path in the box.
+    pub path: String,
+}
+
+/// The name of `instance`'s sessions root: `sessions-<instance>`, each byte outside letters,
+/// digits, `_` and `-` written `_`, so it is in substrate's root-name set.
+#[must_use]
+pub fn writable_root_name(instance: &str) -> String {
+    let name: String = instance
+        .chars()
+        .map(|c| {
+            if c.is_ascii_alphanumeric() || c == '_' || c == '-' {
+                c
+            } else {
+                '_'
+            }
+        })
+        .collect();
+    format!("sessions-{name}")
+}
+
+/// The sessions directory of the instance whose state directory is `state`, the box's writable
+/// host root: `<state>/sessions`.
+#[must_use]
+pub fn sessions_dir(state: &Path) -> PathBuf {
+    state.join("sessions")
+}
+
+/// The runtime's log file in the sessions directory ([`crate::instance::LOG_VARIABLE`]):
+/// substrate ends a PTY session whose output reaches its bound (`session.output-limit`), so the
+/// runtime in a box writes what it says here and its session stays quiet.
+pub const RUNTIME_LOG: &str = "runtime.log";
+
+/// Creates the sessions directory of `state` ([`sessions_dir`]) mode 0700, or makes an existing
+/// one 0700, so the box's writable host root is there before the box is asked for.
+///
+/// # Errors
+///
+/// The directory cannot be created or restricted.
+pub fn prepare_sessions(state: &Path) -> Result<()> {
+    use std::os::unix::fs::{DirBuilderExt as _, PermissionsExt as _};
+    let dir = sessions_dir(state);
+    std::fs::DirBuilder::new()
+        .recursive(true)
+        .mode(0o700)
+        .create(&dir)
+        .map_err(|error| anyhow!("create {}: {error}", dir.display()))?;
+    std::fs::set_permissions(&dir, std::fs::Permissions::from_mode(0o700))
+        .map_err(|error| anyhow!("restrict {}: {error}", dir.display()))
+}
+
+/// Substrate's name for a start naming a writable host root the daemon does not serve
+/// (`substrate_wire::EXEC_WRITABLE_ROOTS_HOST_UNSERVED`, which the SDK does not re-export).
+pub const ROOT_UNSERVED: &str = "exec.writable-roots-host-unserved";
+
+/// The refusal `roots` earn against the writable host roots a daemon serves, `served` its
+/// `exec.writable-roots.host` fact (`None` when it publishes none): the first root it does not
+/// list, refused before anything starts as substrate's daemon would at admission.
+#[must_use]
+pub fn roots_unserved(roots: &[HostRoot], served: Option<&[String]>) -> Option<Refused> {
+    let served = served.unwrap_or_default();
+    roots
+        .iter()
+        .find(|root| !served.contains(&root.name))
+        .map(|root| Refused {
+            name: ROOT_UNSERVED.to_owned(),
+            detail: format!(
+                "the daemon serves no writable host root {}: declare it with \
+                 substrate-daemon --writable-root {}={}",
+                root.name, root.name, root.path
+            ),
+        })
 }
 
 /// The box `instance` asks for, its runtime the binary at `binary` reading `config_file`, with
-/// `env` set beside nothing inherited.
+/// `env` set beside nothing inherited, and the runtime's log file ([`RUNTIME_LOG`]) in its
+/// writable root.
 #[must_use]
 pub fn request(
     instance: &Instance,
     config_file: &Path,
     binary: &Path,
-    env: Vec<(String, String)>,
+    mut env: Vec<(String, String)>,
 ) -> BoxRequest {
+    let sessions = sessions_dir(Path::new(&instance.state));
+    env.push((
+        crate::instance::LOG_VARIABLE.to_owned(),
+        sessions.join(RUNTIME_LOG).display().to_string(),
+    ));
     let mut read_only_roots: Vec<String> = Vec::new();
     let mut add = |path: Option<PathBuf>| {
         if let Some(path) = path {
@@ -477,6 +677,167 @@ pub fn request(
         limits: instance.limits.clone(),
         egress,
         secret_slots: vec![crate::secret::MODEL_TOKEN_SLOT.to_owned()],
+        requires: resolve(&instance.placement.0)
+            .map(|resolved| requires(resolved.adapter))
+            .unwrap_or_default(),
+        writable_roots: vec![HostRoot {
+            name: writable_root_name(&instance.name.0),
+            path: sessions.display().to_string(),
+        }],
+    }
+}
+
+// ---------------------------------------------------------------------------------------------
+// The model-token slot pool
+// ---------------------------------------------------------------------------------------------
+
+/// The most slots `daemon.substrate_slots` may name.
+pub const MAX_SLOTS: i64 = 64;
+
+/// The directory of the pool's slot files, under the daemon's own directory.
+pub const SLOTS_DIR: &str = "slots";
+
+/// The name of the refusal when every slot of the pool holds another box's token.
+pub const SLOTS_EXHAUSTED: &str = "placement.secret-slots-exhausted";
+
+/// The name of the refusal when the instance's model token cannot be had from the secrets source.
+pub const MODEL_TOKEN_UNAVAILABLE: &str = "placement.model-token-unavailable";
+
+/// What a free slot's file holds: no secret, and not empty, since substrate's daemon refuses to
+/// start on an empty slot file.
+const FREE_SLOT: &[u8] = b"free\n";
+
+/// Where the daemon's secret values come from: the secrets source and a name, the value or
+/// `None`. A seam, so a test answers without a keychain.
+pub type TokenSource = std::sync::Arc<
+    dyn Fn(&conductor_model::config::SecretsSource, &SecretName) -> Option<SecretValue>
+        + Send
+        + Sync,
+>;
+
+/// The daemon's secrets source ([`crate::secret::open`]).
+#[must_use]
+pub fn token_source() -> TokenSource {
+    std::sync::Arc::new(|source, name| crate::secret::open(source).ok()?.reveal(name).ok()?)
+}
+
+/// The local substrate daemon's model-token slots: `model_token_<i>` for each `i` below `size`,
+/// each one file `<dir>/model_token_<i>` the operator declares with `--secret-slot
+/// model_token_<i>=<file>`. A slot is held by the box whose token its file holds.
+#[derive(Debug, Clone)]
+pub struct SlotPool {
+    /// The directory of the slot files.
+    pub dir: PathBuf,
+    /// How many slots.
+    pub size: usize,
+}
+
+impl SlotPool {
+    /// The name of slot `index`.
+    #[must_use]
+    pub fn slot(index: usize) -> String {
+        format!("{}_{index}", crate::secret::MODEL_TOKEN_SLOT)
+    }
+
+    /// Creates the directory (mode 0700) and every slot file that is missing, each holding no
+    /// secret (mode 0600), so the substrate daemon that declares them can start.
+    ///
+    /// # Errors
+    ///
+    /// A directory or file cannot be written.
+    pub fn prepare(&self) -> Result<()> {
+        use std::os::unix::fs::{DirBuilderExt as _, PermissionsExt as _};
+        if self.size == 0 {
+            return Ok(());
+        }
+        std::fs::DirBuilder::new()
+            .recursive(true)
+            .mode(0o700)
+            .create(&self.dir)
+            .map_err(|error| anyhow!("create {}: {error}", self.dir.display()))?;
+        std::fs::set_permissions(&self.dir, std::fs::Permissions::from_mode(0o700))
+            .map_err(|error| anyhow!("restrict {}: {error}", self.dir.display()))?;
+        for index in 0..self.size {
+            let file = self.dir.join(Self::slot(index));
+            if !file.exists() {
+                self.write(&file, FREE_SLOT)?;
+            }
+        }
+        Ok(())
+    }
+
+    fn write(&self, file: &Path, bytes: &[u8]) -> Result<()> {
+        use std::io::Write as _;
+        use std::os::unix::fs::{OpenOptionsExt as _, PermissionsExt as _};
+        let mut out = std::fs::OpenOptions::new()
+            .write(true)
+            .create(true)
+            .truncate(true)
+            .mode(0o600)
+            .open(file)
+            .map_err(|error| anyhow!("open the slot file {}: {error}", file.display()))?;
+        out.set_permissions(std::fs::Permissions::from_mode(0o600))
+            .map_err(|error| anyhow!("restrict the slot file {}: {error}", file.display()))?;
+        out.write_all(bytes)
+            .map_err(|error| anyhow!("write the slot file {}: {error}", file.display()))
+    }
+
+    /// Writes `value` into the first slot not in `held` and answers its name.
+    ///
+    /// # Errors
+    ///
+    /// [`SLOTS_EXHAUSTED`] when every slot is held, or the file cannot be written.
+    pub fn acquire(
+        &self,
+        held: &std::collections::BTreeSet<String>,
+        value: &SecretValue,
+    ) -> Result<String, Refused> {
+        let slot = (0..self.size)
+            .map(Self::slot)
+            .find(|slot| !held.contains(slot))
+            .ok_or_else(|| Refused {
+                name: SLOTS_EXHAUSTED.to_owned(),
+                detail: format!(
+                    "all {} slots of daemon.substrate_slots hold another box's model token",
+                    self.size
+                ),
+            })?;
+        self.prepare()
+            .and_then(|()| self.write(&self.dir.join(&slot), value.expose()))
+            .map_err(|error| Refused {
+                name: SLOTS_EXHAUSTED.to_owned(),
+                detail: format!("{error:#}"),
+            })?;
+        Ok(slot)
+    }
+
+    /// Frees `slot`: its file holds no secret again.
+    ///
+    /// # Errors
+    ///
+    /// The file cannot be written.
+    pub fn free(&self, slot: &str) -> Result<()> {
+        self.write(&self.dir.join(slot), FREE_SLOT)
+    }
+}
+
+/// A box opener that refuses every box with `0`, before substrate is asked: what [`open_box`]
+/// records when conductor cannot make the request at all (no free slot, no model token).
+#[derive(Debug, Clone)]
+pub struct Refusing(pub Refused);
+
+impl Substrate for Refusing {
+    fn open(&mut self, _request: &BoxRequest) -> Result<Opened, Refused> {
+        Err(self.0.clone())
+    }
+    fn running(&mut self, _session: &str) -> Result<bool> {
+        Ok(false)
+    }
+    fn stop(&mut self, _session: &str) -> Result<()> {
+        Ok(())
+    }
+    fn close(&mut self, _workspace: &str) -> Result<()> {
+        Ok(())
     }
 }
 
@@ -531,6 +892,33 @@ pub trait Substrate {
     ///
     /// The daemon refused or cannot be asked.
     fn close(&mut self, workspace: &str) -> Result<()>;
+
+    /// Renews the leases of the workspace `workspace` and of its runtime's session `session` by
+    /// `ttl` (substrate 0.20.0's `renew_lease`).
+    ///
+    /// # Errors
+    ///
+    /// The daemon refused or cannot be asked.
+    fn renew(&mut self, workspace: &str, session: &str, ttl: Duration) -> Result<()> {
+        let _ = (session, ttl);
+        Err(anyhow!(
+            "{RENEW_UNSERVED}: no lease renewal for the box {workspace}"
+        ))
+    }
+
+    /// Starts the runtime `request` asks for anew in the open workspace `workspace` and answers
+    /// its session: the runtime's run nears substrate's hard deadline ([`RUN_BOUND`]).
+    ///
+    /// # Errors
+    ///
+    /// Substrate's refusal, by name.
+    fn restart(&mut self, workspace: &str, request: &BoxRequest) -> Result<String, Refused> {
+        let _ = request;
+        Err(Refused {
+            name: RENEW_UNSERVED.to_owned(),
+            detail: format!("no runtime restart in the box {workspace}"),
+        })
+    }
 
     /// Runs `exchange` as a pipe session in its box, writes `input` to its standard input,
     /// closes it, and answers everything it wrote to its standard output by the time it exited
@@ -701,7 +1089,7 @@ pub fn bearer_from(source: &conductor_model::config::SecretsSource, at: &RemoteA
 pub const BEARER_UNAVAILABLE: &str = "placement.bearer-unavailable";
 
 /// The name of the refusal of an instance API exchange by a box opener that runs no pipe session
-/// ([`Substrate::exchange`]'s default): substrate 0.16.1 offers no stream into a box but a
+/// ([`Substrate::exchange`]'s default): substrate 0.20.0 offers no stream into a box but a
 /// session's own input and output, so an exchange with a runtime in a remote box is a relay
 /// session ([`Exchange`]).
 pub const REMOTE_API_UNSERVED: &str = "placement.remote-api-unserved";
@@ -769,6 +1157,12 @@ impl<T: Substrate + ?Sized> Substrate for &mut T {
     fn close(&mut self, workspace: &str) -> Result<()> {
         (**self).close(workspace)
     }
+    fn renew(&mut self, workspace: &str, session: &str, ttl: Duration) -> Result<()> {
+        (**self).renew(workspace, session, ttl)
+    }
+    fn restart(&mut self, workspace: &str, request: &BoxRequest) -> Result<String, Refused> {
+        (**self).restart(workspace, request)
+    }
     fn exchange(&mut self, exchange: &Exchange, input: &[u8]) -> Result<Vec<u8>, Refused> {
         (**self).exchange(exchange, input)
     }
@@ -786,15 +1180,27 @@ impl Sdk {
     }
 }
 
-/// How long a box's lease and its runtime's run last before substrate ends them: substrate
-/// 0.16.1 bounds one exec at 24 hours (`MAX_EXEC_DURATION`).
-const RUN_BOUND: Duration = substrate_sdk::MAX_EXEC_DURATION;
+/// How long one lease and one run of the runtime last before substrate ends them: substrate
+/// 0.20.0 bounds one lease and one run's hard deadline (`limits.timeout_ms`) at 24 hours
+/// (`MAX_EXEC_DURATION`). A lease is renewed every [`RENEW_EVERY`]; a run is restarted in the
+/// same box [`RESTART_BEFORE`] its deadline.
+pub const RUN_BOUND: Duration = substrate_sdk::MAX_EXEC_DURATION;
+
+/// How often the daemon renews a box's leases.
+pub const RENEW_EVERY: Duration = Duration::from_secs(3600);
+
+/// How long before [`RUN_BOUND`] the daemon restarts a box's runtime.
+pub const RESTART_BEFORE: Duration = Duration::from_secs(3600);
+
+/// The name of the refusal of a renewal or restart by a box opener that serves neither.
+pub const RENEW_UNSERVED: &str = "placement.renewal-unserved";
 
 /// The memory a box gets when the instance sets none: 8 GiB.
 const DEFAULT_MEMORY: u64 = 8 << 30;
 
-/// Each output stream's bound.
-const OUTPUT_BYTES: u64 = 64 << 20;
+/// Each output stream's bound: the most the SDK admits (`MAX_IO_BYTES`, 1 MiB); a larger one is
+/// refused before anything is sent.
+const OUTPUT_BYTES: u64 = substrate_sdk::MAX_IO_BYTES;
 
 fn refused(error: substrate_sdk::SdkError) -> Refused {
     match error {
@@ -886,10 +1292,100 @@ impl Sdk {
     }
 }
 
+impl Sdk {
+    /// Starts the runtime `request` asks for as a PTY session in `workspace` and answers its id.
+    async fn runtime(
+        workspace: &substrate_sdk::Workspace,
+        request: &BoxRequest,
+    ) -> Result<String, substrate_sdk::SdkError> {
+        let memory = request
+            .limits
+            .memory_max
+            .as_ref()
+            .map_or(DEFAULT_MEMORY, |size| {
+                u64::try_from(size.0).unwrap_or(0).saturating_mul(1 << 30)
+            })
+            .min(substrate_sdk::MAX_EXEC_MEMORY_BYTES);
+        let processes = request
+            .limits
+            .tasks_max
+            .map_or(substrate_sdk::MAX_EXEC_PROCESSES, |tasks| {
+                u32::try_from(tasks).unwrap_or(substrate_sdk::MAX_EXEC_PROCESSES)
+            })
+            .min(substrate_sdk::MAX_EXEC_PROCESSES);
+        let policy = substrate_sdk::ExecutionPolicy::builder()
+            .timeout(RUN_BOUND)
+            .cpu_time(RUN_BOUND)
+            .memory_bytes(memory)
+            .processes(processes)
+            .output_bytes(OUTPUT_BYTES)
+            .build()?;
+        let (program, args) = request
+            .argv
+            .split_first()
+            .ok_or(substrate_sdk::SdkError::Builder { field: "program" })?;
+        let mut session = workspace
+            .pty_session(
+                program.clone(),
+                substrate_sdk::PtyWindow {
+                    columns: 200,
+                    rows: 50,
+                },
+            )
+            .args(args.iter().cloned())
+            .policy(policy)
+            .lease(RUN_BOUND)
+            .input_limit_bytes(substrate_sdk::MAX_SESSION_INPUT_BYTES)
+            .frame_limit_bytes(substrate_sdk::MAX_SESSION_FRAME_BYTES)
+            .queued_frames(substrate_sdk::MAX_SESSION_QUEUED_FRAMES)
+            .aperture(EGRESS_APERTURE);
+        for (name, value) in &request.env {
+            session = session.env(name.clone(), value.clone());
+        }
+        for root in &request.read_only_roots {
+            session = session.read_only_root(substrate_sdk::ReadOnlyRoot {
+                host_path: root.clone(),
+                mount: root.clone(),
+            });
+        }
+        for root in &request.writable_roots {
+            session = session.writable_root(substrate_sdk::WritableRoot::Host(
+                substrate_sdk::WritableHostRoot {
+                    host: root.name.clone(),
+                    mount: root.path.clone(),
+                },
+            ));
+        }
+        for slot in &request.secret_slots {
+            session = session.secret_slot(substrate_sdk::SecretSlotRequest {
+                slot: slot.clone(),
+                fd: SLOT_FD,
+            });
+        }
+        let started = session.start().await?;
+        Ok(started.id().to_owned())
+    }
+}
+
 impl Substrate for Sdk {
     fn open(&mut self, request: &BoxRequest) -> Result<Opened, Refused> {
         let request = request.clone();
         self.block_on(async move |client| {
+            // The facts the start's capability snapshot carries: the same client's machine.
+            let machine = client.machine();
+            if let Some(refused) = unmet(
+                &request.requires,
+                &machine.served_families(),
+                &machine.proved_properties(),
+            ) {
+                return Ok(Err(refused));
+            }
+            if let Some(refused) = roots_unserved(
+                &request.writable_roots,
+                machine.facts.exec_writable_roots_host.as_deref(),
+            ) {
+                return Ok(Err(refused));
+            }
             let workspace = client
                 .workspace()
                 .label("conductor.instance", request.instance.0.clone())
@@ -897,66 +1393,54 @@ impl Substrate for Sdk {
                 .lease(RUN_BOUND)
                 .create()
                 .await?;
-            let memory = request
-                .limits
-                .memory_max
-                .as_ref()
-                .map_or(DEFAULT_MEMORY, |size| {
-                    u64::try_from(size.0).unwrap_or(0) << 30
-                });
-            let processes = request
-                .limits
-                .tasks_max
-                .map_or(substrate_sdk::MAX_EXEC_PROCESSES, |tasks| {
-                    u32::try_from(tasks).unwrap_or(substrate_sdk::MAX_EXEC_PROCESSES)
-                });
-            let policy = substrate_sdk::ExecutionPolicy::builder()
-                .timeout(RUN_BOUND)
-                .cpu_time(RUN_BOUND)
-                .memory_bytes(memory)
-                .processes(processes)
-                .output_bytes(OUTPUT_BYTES)
-                .build()?;
-            let (program, args) = request
-                .argv
-                .split_first()
-                .ok_or(substrate_sdk::SdkError::Builder { field: "program" })?;
-            let mut session = workspace
-                .pty_session(
-                    program.clone(),
-                    substrate_sdk::PtyWindow {
-                        columns: 200,
-                        rows: 50,
-                    },
-                )
-                .args(args.iter().cloned())
-                .policy(policy)
-                .lease(RUN_BOUND)
-                .input_limit_bytes(substrate_sdk::MAX_SESSION_INPUT_BYTES)
-                .frame_limit_bytes(substrate_sdk::MAX_SESSION_FRAME_BYTES)
-                .queued_frames(substrate_sdk::MAX_SESSION_QUEUED_FRAMES)
-                .aperture(EGRESS_APERTURE);
-            for (name, value) in &request.env {
-                session = session.env(name.clone(), value.clone());
-            }
-            for root in &request.read_only_roots {
-                session = session.read_only_root(substrate_sdk::ReadOnlyRoot {
-                    host_path: root.clone(),
-                    mount: root.clone(),
-                });
-            }
-            for slot in &request.secret_slots {
-                session = session.secret_slot(substrate_sdk::SecretSlotRequest {
-                    slot: slot.clone(),
-                    fd: SLOT_FD,
-                });
-            }
-            let started = session.start().await?;
-            Ok(Opened {
+            let session = Self::runtime(&workspace, &request).await?;
+            Ok(Ok(Opened {
                 workspace: workspace.id().to_owned(),
-                session: started.id().to_owned(),
-            })
+                session,
+            }))
         })
+        .and_then(|opened| opened)
+    }
+
+    fn renew(&mut self, workspace: &str, session: &str, ttl: Duration) -> Result<()> {
+        let (workspace, session) = (workspace.to_owned(), session.to_owned());
+        self.block_on(async move |client| {
+            client
+                .get_workspace(&workspace)
+                .await?
+                .renew_lease(ttl)
+                .await?;
+            client
+                .get_pipe_session(&session)
+                .await?
+                .renew_lease(ttl)
+                .await?;
+            Ok(())
+        })
+        .map_err(|why| anyhow!("{}: {}", why.name, why.detail))
+    }
+
+    fn restart(&mut self, workspace: &str, request: &BoxRequest) -> Result<String, Refused> {
+        let (id, request) = (workspace.to_owned(), request.clone());
+        self.block_on(async move |client| {
+            let machine = client.machine();
+            if let Some(refused) = unmet(
+                &request.requires,
+                &machine.served_families(),
+                &machine.proved_properties(),
+            ) {
+                return Ok(Err(refused));
+            }
+            if let Some(refused) = roots_unserved(
+                &request.writable_roots,
+                machine.facts.exec_writable_roots_host.as_deref(),
+            ) {
+                return Ok(Err(refused));
+            }
+            let workspace = client.get_workspace(&id).await?;
+            Ok(Ok(Self::runtime(&workspace, &request).await?))
+        })
+        .and_then(|session| session)
     }
 
     fn running(&mut self, session: &str) -> Result<bool> {
@@ -1082,6 +1566,15 @@ pub struct OpenedBox {
     /// The remote daemon it was opened on; `None` for the local one.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub remote: Option<RemoteAt>,
+    /// The pool slot its model token is in ([`SlotPool`]); `None` when it holds none.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub slot: Option<String>,
+    /// When its runtime's current run started, in seconds since the epoch; 0 when not known.
+    #[serde(default)]
+    pub started_at: u64,
+    /// When its leases were last renewed, in seconds since the epoch; 0 when not known.
+    #[serde(default)]
+    pub renewed_at: u64,
 }
 
 /// A box substrate refused (`PlacementRefused` in design § 6), on record as `BoxRefused`.
@@ -1265,6 +1758,9 @@ pub fn open_box(
             workspace: opened.workspace,
             session: opened.session,
             remote: None,
+            slot: None,
+            started_at: 0,
+            renewed_at: 0,
         }),
         _ => Err(refuse(refusal.unwrap_or_default(), detail)),
     }

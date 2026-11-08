@@ -1,5 +1,5 @@
 // generated from conductor v1
-// contract digest 0be0922aec9b8f10c3509792e1441579a2719359e1cf48bcc0d06cbee2a292de
+// contract digest 92a4370ed302f5aecf042d1cd6448ff2d89bf65c94265e16af94376031e7bd63
 // do not edit: regenerate with `ess synthesize --layout crate`
 
 //! Instance — `conductor.instance`.
@@ -56,6 +56,8 @@ pub enum ReconcileReason {
     Cadence,
     /// `OperatorCommand`.
     OperatorCommand,
+    /// `RunBound`.
+    RunBound,
 }
 
 /// ReconcileResult — `conductor.instance.ReconcileResult`: one of a closed set of names.
