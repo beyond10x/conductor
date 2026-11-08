@@ -824,6 +824,26 @@ fn a_controller_over_the_threshold_gives_one_context_line_once_and_one_under_it_
     );
 }
 
+/// `story:context-watch-by-envelope`: a session named like a repository but working in the
+/// checkouts root itself is no controller, and gives no `context:` line; the controller of that
+/// repository is reported by its own session id.
+#[test]
+fn a_session_named_like_a_repository_outside_its_directory_gives_no_context_line() {
+    let case = Case::new("controllers-foreign");
+    let foreign = session(
+        "f6f6f6f6-0000-4000-8000-000000000006",
+        "alpha",
+        2106,
+        "/fixture-home/example-org",
+    );
+    case.sessions(&[foreign, alpha()]);
+    let mut watch = case.watch(Some("controllers"));
+    assert_eq!(
+        pass(&mut watch),
+        ["context: alpha 451k tokens (session a1a1a1a1)"]
+    );
+}
+
 #[test]
 fn the_context_threshold_is_the_instances() {
     let case = Case::new("controllers-threshold");

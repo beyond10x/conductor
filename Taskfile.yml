@@ -102,7 +102,7 @@ tasks:
       - sh: claude agents --json | jq -e --arg n conductor-teacher 'all(.[]; .name != $n or .pid == null)' >/dev/null
         msg: a session named conductor-teacher is already running; stop it with claude stop <id> after its hand-off, then run the task again
     cmds:
-      - 'cd {{shellQuote .DIR}} && claude --bg --agent conductor-teacher -n conductor-teacher --permission-mode bypassPermissions "Start of a fresh teacher session. Read host/teacher-handoff.md if it is there and the supervisor''s profile, run your routine once, report blockers only, then wait for an event."'
+      - 'cd {{shellQuote .DIR}} && claude --bg --agent conductor-teacher -n conductor-teacher --model fable --permission-mode bypassPermissions "Start of a fresh teacher session. Read host/teacher-handoff.md if it is there and the supervisor''s profile, run your routine once, report blockers only, then wait for an event."'
 
   maintainer:attach:
     desc: Open the background maintainer (conductor-dev) session, the live session named as the host's maintainer in conductor config show (host.roles), in this terminal; refuses when no live background session or more than one holds that name. dev:attach is its old name, for this release
@@ -356,7 +356,7 @@ tasks:
       - test -z "$(git status --porcelain --untracked-files=all -- crates/conductor/dashboard/dist)" || { git status --short --untracked-files=all -- crates/conductor/dashboard/dist; echo "crates/conductor/dashboard/dist differs from a fresh build; run task ui and commit dist/" >&2; exit 1; }
       - cargo fmt --check
       - cargo clippy --all-targets -- -D warnings
-      - cargo test --no-fail-fast
+      - LC_ALL=C cargo test --no-fail-fast
       - task: docs-check
 
   docs-generate:

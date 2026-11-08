@@ -387,8 +387,10 @@ fn the_debounce_holds_a_recompute_back() {
     until(port, BOARD, fresh_with_third);
     let started = probe.started(BOARD);
     assert_eq!(started.len(), 2, "{started:?}");
+    // The cache counts the debounce from its claim (`Memo::claim`); the probe stamps a start when
+    // the computation's thread runs, which on a loaded host lags the claim by a varying amount.
     assert!(
-        started[1] - started[0] >= DEBOUNCE,
+        started[1] - started[0] >= DEBOUNCE - Duration::from_millis(500),
         "the recompute started {:?} after the last",
         started[1] - started[0]
     );

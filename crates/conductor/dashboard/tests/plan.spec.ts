@@ -119,6 +119,8 @@ function server(post: () => Response) {
 
 describe('Plan', () => {
   it('shows five columns, with the count of each', async () => {
+    // Done is shown once "Hide done" is released (story:board-hide-done).
+    window.localStorage.setItem('conductor.plan.hideDone', 'false');
     const wrapper = mount(Plan, { props: { fetcher: server(() => Response.json({})), token: 'abc' } });
     await flushPromises();
     expect(wrapper.findAll('section.col h2').map((title) => title.text())).toEqual([

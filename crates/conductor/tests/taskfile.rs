@@ -1880,9 +1880,15 @@ fn the_host_session_tasks_run_their_profile_s_start_command() {
         assert_eq!(calls.len(), 1, "{task}: {calls:?}");
         let (cwd, args) = &calls[0];
         assert_eq!(cwd, &case.dir, "{task} starts beside the config file");
+        // The teacher runs on the fable model, the supervisor on the agent's own.
+        let model = if name == "conductor-teacher" {
+            "--model fable "
+        } else {
+            ""
+        };
         assert!(
             args.starts_with(&format!(
-                "--bg --agent {name} -n {name} --permission-mode bypassPermissions "
+                "--bg --agent {name} -n {name} {model}--permission-mode bypassPermissions "
             )),
             "{task}: {args}"
         );

@@ -4,7 +4,7 @@ id: story:host-scripts-into-conductor
 kind: story
 status: active
 title: The host supervisor's status pass, watch and controller restart are conductor commands
-revision: 4
+revision: 5
 transitions:
 - {from: "draft", to: "proposed", at: "2026-11-07T16:52:25Z", actor: "human:timo", revision: 3}
 - {from: "proposed", to: "active", at: "2026-11-07T16:52:26Z", actor: "human:timo", revision: 4}
@@ -21,3 +21,5 @@ The operator, 2026-11-07: "how can we prevent it creating control scripts basica
 - `conductor controller restart --repository <r> --handoff <path>` waits up to 3 min for the session to stop being busy, stops its unit, records the controller stopped, spawns it, delivers the open dispatch id and the hand-off path, and moves a blocked dispatch to started; it prints the dispatch's state.
 - `conductor session context <name>` prints the session's context tokens, read from its transcript by session id.
 - Each command has a test over fixtures; the host supervisor's scripts are deleted once it runs these.
+
+- The feed script that gives idle controllers their next dispatch or a nudge is on the deletion list too; it goes when story:loop-feeds-idle-controllers ships.

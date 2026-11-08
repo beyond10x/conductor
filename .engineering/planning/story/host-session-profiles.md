@@ -5,7 +5,7 @@ kind: story
 status: active
 title: Conductor ships the host supervisor and teacher profiles, and init installs them
 summary: the supervisor and teacher agent files live on one host only
-revision: 6
+revision: 7
 transitions:
 - {from: "draft", to: "proposed", at: "2026-11-07T12:43:07Z", actor: "human:timo", revision: 2}
 - {from: "proposed", to: "active", at: "2026-11-07T12:43:07Z", actor: "human:timo", revision: 3}
@@ -54,3 +54,5 @@ and host-specific lines are still taken out (AGENTS.md rules 4 and 9).
 
 - The supervisor's and the teacher's hand-offs live in `<state>/supervisor/handoff/` and `<state>/teacher/handoff/`, as conductor-dev's live in `<state>/conductor-dev/handoff/`; each profile names its directory and reads its newest file at start. Source: the host supervisor, 2026-11-07, relaying the operator: "all company/repo/project related rules must remain outside of the conductor repo itself".
 - `.agents/conductor-supervisor.md` and `.agents/conductor-teacher.md` are synced from the host's current agent files in the pull request after 0.23.0, holding no organization, instance or repository name; a test greps them for the instance's names from a fixture config.
+
+- `task profiles` and `conductor init` also install `.claude/agents/conductor-supervisor.md` and `conductor-teacher.md` into `~/.claude/agents/`: a file that is absent or is one of conductor's adapters is written; any other file is left and named, as `agents:link` does. Found 2026-11-07: after a merge, the installed teacher adapter kept an old `model:` until it was copied by hand.
