@@ -1,0 +1,13 @@
+{
+  "at": "2026-11-09T10:24:47Z",
+  "actor": "human:timo",
+  "artifact": "story:snapshot-absent-member",
+  "kind": "story",
+  "revision": 5,
+  "change": {
+    "change": "evidence",
+    "kind": "test_result",
+    "source": "cargo nextest run -p conductor-cli --test collect_stores: 23 passed, 0 failed",
+    "reference": "crates/conductor/tests/collect_stores.rs::a_member_whose_checkout_is_absent_is_skipped_and_the_snapshot_completes @ dad6b16b9"
+  }
+}
