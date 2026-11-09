@@ -16,12 +16,12 @@
         "decision": "R-01"
       },
       "axe_serious_critical_nodes@1280x800": {
-        "value": 330,
+        "value": 44,
         "tolerance": 0,
         "decision": "R-01"
       },
       "axe_rule_cases@1280x800": {
-        "value": 60,
+        "value": 2,
         "tolerance": 0,
         "decision": "R-01"
       },
@@ -55,22 +55,22 @@
         "tolerance": 0
       },
       "always_visible_violations@390x844": {
-        "value": 144,
+        "value": 72,
         "tolerance": 0,
         "decision": "R-01"
       },
       "axe_serious_critical_nodes@390x844": {
-        "value": 324,
+        "value": 44,
         "tolerance": 0,
         "decision": "R-01"
       },
       "axe_rule_cases@390x844": {
-        "value": 58,
+        "value": 2,
         "tolerance": 0,
         "decision": "R-01"
       },
       "always_visible_defects@390x844": {
-        "value": 2,
+        "value": 1,
         "tolerance": 0,
         "decision": "R-01"
       },
@@ -173,8 +173,9 @@
         "tolerance": 0
       },
       "keyboard.tabs@390x844": {
-        "value": 92,
-        "tolerance": 0.05
+        "value": 93,
+        "tolerance": 0.05,
+        "decision": "UXF-002"
       },
       "keyboard.miss@390x844": {
         "value": 0,
@@ -263,8 +264,9 @@
         "tolerance": 0
       },
       "keyboard.tabs@390x844": {
-        "value": 5,
-        "tolerance": 0.05
+        "value": 6,
+        "tolerance": 0.05,
+        "decision": "UXF-002"
       },
       "keyboard.miss@390x844": {
         "value": 0,
@@ -354,8 +356,9 @@
         "decision": "R-01"
       },
       "keyboard.tabs@390x844": {
-        "value": 64,
-        "tolerance": 0.05
+        "value": 66,
+        "tolerance": 0.05,
+        "decision": "UXF-002"
       },
       "keyboard.miss@390x844": {
         "value": 0,

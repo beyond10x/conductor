@@ -47,6 +47,9 @@ const config: Config = {
           editUrl: 'https://github.com/beyond10x/conductor/tree/main/website/',
         },
         blog: false,
+        theme: {
+          customCss: './src/css/ux.css',
+        },
       } satisfies Preset.Options,
     ],
   ],

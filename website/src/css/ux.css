@@ -1,0 +1,15 @@
+.theme-doc-markdown :is(p, li, td, dd, blockquote) a:not(.hash-link):not([class*='button']) {
+  text-decoration-line: underline;
+  text-decoration-thickness: 1px;
+  text-underline-offset: 0.18em;
+}
+
+html .theme-code-block pre[class*='language-'] {
+  font-size: 0.875rem;
+}
+
+@media (max-width: 996px) {
+  .navbar__items--right [class*='colorModeToggle'] {
+    display: block !important;
+  }
+}
