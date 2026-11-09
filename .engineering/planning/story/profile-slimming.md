@@ -2,7 +2,7 @@
 format: aep.planning-md/3
 id: story:profile-slimming
 kind: story
-status: draft
+status: archived
 title: Each profile keeps only its own level's job, and the director profile is under 250 lines, measured
 relations:
 - decomposes: epic:role-names
@@ -30,7 +30,9 @@ scope:
   path: crates/conductor/tests/profiles.rs
 - confidence: cited
   path: docs/design/conductor.md
-revision: 3
+revision: 5
+transitions:
+- {from: "draft", to: "archived", at: "2026-11-09T10:28:16Z", actor: "human:timo", revision: 5}
 ---
 # Story: profile-slimming
 
@@ -88,3 +90,7 @@ restate it.
 - Shortening an instance's `rules.md`: that file is the organization's, not this repository's.
 - The controller's hand-over around running builds (story `controller-stop-waits-for-build`).
 - Tool-result size and Bash round trips (epic `agent-tools`).
+
+## Archived 2026-11-09 (draft sweep)
+
+Targets .agents/director.md and lead.md, deleted (commits cf0ffeeb1, fde22c979); profiles are now crates/conductor/roles/*.md under a line cap in tests/profiles.rs.

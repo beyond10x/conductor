@@ -2,10 +2,12 @@
 format: aep.planning-md/3
 id: story:host-status
 kind: story
-status: draft
+status: archived
 title: One command prints what runs across every instance of the host
 summary: 'A row per instance: run unit, snapshot age, Active repositories, open dispatches, live sessions'
-revision: 1
+revision: 3
+transitions:
+- {from: "draft", to: "archived", at: "2026-11-09T10:28:15Z", actor: "human:timo", revision: 3}
 ---
 ## Why
 
@@ -40,3 +42,7 @@ On a host with three instances (one with its run unit active and a 35-minute-old
 with no run unit and a 22-day-old snapshot, one with no complete snapshot and two live sessions
 conductor did not start), the command prints three rows that say exactly that, and `--instance`
 prints one.
+
+## Archived 2026-11-09 (draft sweep)
+
+Host registry and per-instance run units removed (docs/design/architecture-next.md section 11); the daemon's instances list answers it (docs/design/architecture-next.md section 5).

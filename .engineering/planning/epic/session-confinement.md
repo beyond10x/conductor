@@ -2,12 +2,14 @@
 format: aep.planning-md/3
 id: epic:session-confinement
 kind: epic
-status: draft
+status: archived
 title: Harness sessions run in a box conductor controls
 relations:
 - implements: architecture-decision-record:external-confinement
 - decomposes: initiative:adoption
-revision: 7
+revision: 9
+transitions:
+- {from: "draft", to: "archived", at: "2026-11-09T10:28:15Z", actor: "human:timo", revision: 9, decided_on: {"recorded":{"review_outcome":8}}}
 ---
 ## Outcome
 
@@ -69,3 +71,7 @@ archived on a no-go recorded by the spike.
   scope or unit, and bubblewrap 0.12.0 is installed (docs/analysis/2026-10-09-substrate-benefits.md § 1, § 2).
 - metaharness runs Claude Code unconfined and refuses substrate for it; nothing yet runs Claude
   Code's tools inside substrate, but the parts exist (docs/analysis/2026-10-09-substrate-benefits.md § 5).
+
+## Archived 2026-11-09 (draft sweep)
+
+Superseded by the substrate placement and the secret slots (docs/design/architecture-next.md section 11, table of artifacts superseded in the planning store).
