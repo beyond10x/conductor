@@ -852,6 +852,30 @@ fn rollup_and_release_kpis_leave_out_a_repository_marked_inactive() {
     }
 }
 
+/// Of two complete snapshots with the same start, compute reads the forge from the one stored
+/// later, as `repository activity` picks its newest snapshot: the second also holds alpha#8,
+/// merged 10-14 15:00 and never released, so K5.unreleased of the instance and of alpha is 2
+/// (alpha#4, alpha#8), not the first snapshot's 1.
+#[test]
+fn the_forge_is_read_from_the_snapshot_stored_later_of_equal_starts() {
+    let case = Case::empty("kpi-equal-starts");
+    case.snapshot("2026-10-15T00:30:00Z", &RELEASES, &MERGED);
+    let mut merged = MERGED.to_vec();
+    merged.push(("alpha", 8, "2026-10-14T15:00:00Z"));
+    case.snapshot("2026-10-15T00:30:00Z", &RELEASES, &merged);
+    case.compute();
+    close(
+        case.value("K5.unreleased", "instance"),
+        2.0,
+        "K5.unreleased",
+    );
+    close(
+        case.value("K5.unreleased", "alpha"),
+        2.0,
+        "K5.unreleased of alpha",
+    );
+}
+
 /// The rework fixture ([`Case::rework`]), computed for [`DAY`].
 fn reworked(name: &str) -> Case {
     let case = Case::rework(name);

@@ -51,10 +51,13 @@ target for the end of the next two weeks.
 | K12 defects shipped | fix releases per feature release; issues labelled bug | forge | **0.45** patch per feature release | ≤ 0.2 |
 
 **Scope of the repository-scoped KPIs.** K4, K5, K6 and K12 are read for the instance and for each
-repository (`metric compute`). They count only the repositories `repository activity` answers as
-Active when the day is computed (a mark, else the newest complete snapshot's observation), and the
-`instance` scope sums those scopes only: a KPI over repositories nobody works on cannot be lowered
-by the loop. An Inactive repository has no reading. K1 and K2 are instance-only and count every
+repository (`metric compute`). They count only the repositories Active on the reading's day, and
+the `instance` scope sums those scopes only: a KPI over repositories nobody works on cannot be
+lowered by the loop. A repository's activity on a day is its mark, which holds on every day, else
+its observation in the newest complete snapshot that started before the day's end (the first
+complete snapshot after, when none before observed it), Active with a real commit in 7 days and
+not archived; a past day computed later keeps the repositories Active then. An Inactive
+repository has no reading. K1 and K2 are instance-only and count every
 decision and merged pull request. An Active repository that ships without releases is left out of
 K5 by `repositories[].no_releases`, as before (`story:kpi-scope-active-repositories`).
 

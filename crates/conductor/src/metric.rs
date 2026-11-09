@@ -75,11 +75,15 @@
 //!   issues or their labels.
 //!
 //! **Scope rule** (`story:kpi-scope-active-repositories`). K4, K5, K6 and K12 are
-//! repository-scoped: they count only the repositories `repository activity` answers Active when
-//! compute runs ([`crate::repository::activity`]: a mark, else the newest complete snapshot's
-//! observation, the snapshot K5 and K6 read the forge from). An Inactive or unobserved repository
-//! has no reading, and the `instance` scope sums the Active scopes only. K1 and K2 are
-//! instance-only and count every decision and merged pull request.
+//! repository-scoped: they count only the repositories Active on the reading's day
+//! ([`crate::repository::activity_on`] the day's end): a mark, which holds on every day, else the
+//! repository's observation in the newest complete snapshot that started before the day's end,
+//! or, when no snapshot before it observed the repository, in the first complete snapshot after.
+//! A past day computed later keeps the repositories Active then. An Inactive or unobserved
+//! repository has no reading, and the `instance` scope sums the Active scopes only. K1 and K2 are
+//! instance-only and count every decision and merged pull request. The forge facts of K1, K5 and
+//! K6 are read from the newest complete snapshot as `repository activity` picks it
+//! ([`crate::repository::newest_complete`]: of equal starts, the one stored later).
 //!
 //! A median of an even count is the mean of the two middle values; a p90 is the nearest rank,
 //! the ⌈0.9 n⌉-th smallest. Values are rounded to three decimals.
@@ -91,7 +95,7 @@ use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
 use anyhow::{Context as _, Result, anyhow, bail};
-use conductor_model::behaviour::{Generated, MetricReadingStorage, MetricStorage};
+use conductor_model::behaviour::{Generated, MetricReadingStorage, MetricStorage, SnapshotStorage};
 use conductor_model::direction::Activity;
 use conductor_model::improvement::obligations::{
     DefineMetricBehavior, JudgeMetricReadingBehavior, KpiReadingsQuery, KpisQuery,
@@ -106,10 +110,7 @@ use conductor_model::improvement::{
     TargetDirection,
 };
 use conductor_model::obligation::UnmetObligation;
-use conductor_model::observation::SnapshotState;
-use conductor_model::observation::obligations::{
-    MergedPullRequestsQuery, ReleasesQuery, SnapshotsQuery,
-};
+use conductor_model::observation::obligations::{MergedPullRequestsQuery, ReleasesQuery};
 use conductor_model::primitives::{Decimal, Timestamp};
 use serde_json::{Map, Value};
 use time::format_description::well_known::Rfc3339;
@@ -808,7 +809,7 @@ pub fn compute(state: Option<&Path>, args: &MetricComputeArgs) -> Result<ExitCod
     let mut generated = Generated::new(Ports::open(state)?);
     let forge = Forge::read(state).with_context(|| COMMAND.to_owned())?;
 
-    let active: BTreeSet<String> = crate::repository::activity(&generated.ports.store)
+    let active: BTreeSet<String> = crate::repository::activity_on(&generated.ports.store, day.end)
         .into_iter()
         .filter(|row| row.activity == Activity::Active)
         .map(|row| row.repository.0)
@@ -1432,20 +1433,17 @@ struct Forge {
 
 impl Forge {
     /// The newest complete snapshot's forge observations, or none when the store holds no
-    /// complete snapshot.
+    /// complete snapshot. The newest is the one `repository activity` reads
+    /// ([`crate::repository::newest_complete`]): of equal starts, the one stored later.
     fn read(state: Option<&Path>) -> Result<Option<Self>> {
         let generated = Generated::new(crate::state::open_reader(state)?);
-        let mut newest: Option<(OffsetDateTime, _)> = None;
-        for row in generated.snapshots().map_err(|unmet| anyhow!("{unmet}"))? {
-            if row.state != SnapshotState::Complete {
-                continue;
-            }
-            let started = instant("a snapshot's start", &row.started_at.0)?;
-            if newest.as_ref().is_none_or(|(at, _)| started > *at) {
-                newest = Some((started, row.snapshot_id));
-            }
-        }
-        let Some((_, snapshot)) = newest else {
+        let Some(snapshot) =
+            crate::repository::newest_complete(SnapshotStorage::list(&generated.ports))
+        else {
+            generated
+                .ports
+                .check()
+                .map_err(|failure| anyhow!("read the snapshots: {failure}"))?;
             return Ok(None);
         };
         let mut releases: BTreeMap<String, Vec<OffsetDateTime>> = BTreeMap::new();
