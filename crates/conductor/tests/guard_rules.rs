@@ -6795,3 +6795,178 @@ fn a_tree_belongs_to_the_checkout_its_git_file_names_wherever_it_lies() {
     let decision = layout.decide("edit", &other, "file_path", &grouped, &unlisted());
     assert_eq!(decision.verdict, Verdict::Deny, "{decision:#?}");
 }
+
+// ---- adversary cases, story:guard-admits-own-pipelines (wave 49, U5) ----------------------------
+
+/// The layout the adversary cases share: `widget` under forge.route direct, its origin
+/// example-group/widget, and a clone of example-group/other at `~/clones/other`.
+fn adversary_layout(case: &str) -> (Home, Places, PathBuf) {
+    let home = home(case);
+    let (places, widget, _) = forge_layout(
+        &home,
+        Some("direct"),
+        "git@gitlab.example.com:example-group/widget.git",
+        "https://gitlab.example.com/example-group/records.git",
+    );
+    git_remotes(
+        &home.join("clones/other"),
+        &[("origin", "git@gitlab.example.com:example-group/other.git")],
+    );
+    (home, places, widget)
+}
+
+/// The guard admits each write these cases rely on, run alone in the checkout: they are how a
+/// controller reaches the states the cases below build.
+#[test]
+fn adversary_the_writes_the_cases_rely_on_are_admitted_alone() {
+    let (home, places, widget) = adversary_layout("adv-reach");
+    for command in [
+        "git remote add upstream git@gitlab.example.com:example-group/other.git",
+        "git remote set-url origin git@gitlab.example.com:example-group/other.git",
+        "git config include.path remotes.inc",
+        "git config url.git@gitlab.example.com:example-group/other.git.insteadOf git@gitlab.example.com:example-group/widget.git",
+        "git init --bare sub",
+        "ln -s ~/clones/other l",
+    ] {
+        assert_verdict(&bash_by(&home, &places, &widget, command), Verdict::Allow, "");
+    }
+}
+
+/// A git write earlier on the same line changes the remotes `glab` reads; the guard read them
+/// before the line ran.
+#[test]
+fn adversary_a_remote_the_line_changes_before_a_bare_pipeline_write_is_followed() {
+    let (home, places, widget) = adversary_layout("adv-remote-same-line");
+    for command in [
+        "git remote add upstream git@gitlab.example.com:example-group/other.git && glab ci retry 123",
+        "git remote set-url origin git@gitlab.example.com:example-group/other.git && glab ci run",
+        "git config remote.origin.url git@gitlab.example.com:example-group/other.git; glab api -X POST projects/:id/pipeline",
+    ] {
+        let decision = bash_by(&home, &places, &widget, command);
+        assert_verdict(&decision, Verdict::Deny, "forge.route direct");
+    }
+}
+
+/// `cd other` lands where `CDPATH` says, not under the directory the guard joins it to.
+#[test]
+fn adversary_a_cd_through_cdpath_is_followed() {
+    let (home, places, widget) = adversary_layout("adv-cdpath");
+    let decision = bash_by(
+        &home,
+        &places,
+        &widget,
+        "export CDPATH=$HOME/clones; cd other && glab ci retry 123",
+    );
+    assert_verdict(&decision, Verdict::Deny, "forge.route direct");
+}
+
+/// A link the line makes before it changes into it leads to another clone.
+#[test]
+fn adversary_a_cd_through_a_link_the_line_makes_is_followed() {
+    let (home, places, widget) = adversary_layout("adv-link");
+    let decision = bash_by(
+        &home,
+        &places,
+        &widget,
+        "ln -s ~/clones/other l && cd l && glab ci retry 123",
+    );
+    assert_verdict(&decision, Verdict::Deny, "forge.route direct");
+}
+
+/// The second pass of a loop runs the forge call after the `cd` the first pass made.
+#[test]
+fn adversary_a_cd_later_in_a_loop_body_is_followed() {
+    let (home, places, widget) = adversary_layout("adv-loop");
+    let decision = bash_by(
+        &home,
+        &places,
+        &widget,
+        "for i in 1 2; do glab ci retry 123; cd ~/clones/other; done",
+    );
+    assert_verdict(&decision, Verdict::Deny, "forge.route direct");
+}
+
+/// A function written before the `cd` runs its forge call after it.
+#[test]
+fn adversary_a_function_called_after_a_cd_is_followed() {
+    let (home, places, widget) = adversary_layout("adv-function");
+    let decision = bash_by(
+        &home,
+        &places,
+        &widget,
+        "f() { glab ci retry 123; }; cd ~/clones/other && f",
+    );
+    assert_verdict(&decision, Verdict::Deny, "forge.route direct");
+}
+
+/// A bare repository inside the checkout is the repository git, and so glab, reads in it.
+#[test]
+fn adversary_a_bare_repository_inside_the_checkout_is_read() {
+    let (home, places, widget) = adversary_layout("adv-bare");
+    let sub = widget.join("sub");
+    for dir in ["objects", "refs/heads"] {
+        fs::create_dir_all(sub.join(dir)).expect("create the bare repository");
+    }
+    fs::write(sub.join("HEAD"), "ref: refs/heads/main\n").expect("write HEAD");
+    fs::write(
+        sub.join("config"),
+        "[core]\n\tbare = true\n[remote \"origin\"]\n\turl = git@gitlab.example.com:example-group/other.git\n",
+    )
+    .expect("write the bare config");
+    for (cwd, command) in [
+        (&widget, "cd sub && glab ci retry 123"),
+        (&sub, "glab api -X POST projects/:fullpath/pipeline"),
+    ] {
+        let decision = bash_by(&home, &places, cwd, command);
+        assert_verdict(&decision, Verdict::Deny, "forge.route direct");
+    }
+}
+
+/// `include.path` and `url.<base>.insteadOf` change the remotes `git remote -v`, and so glab,
+/// reads.
+#[test]
+fn adversary_an_included_or_rewritten_remote_is_read() {
+    let (home, places, widget) = adversary_layout("adv-config");
+    let own = "git@gitlab.example.com:example-group/widget.git";
+    let other = "git@gitlab.example.com:example-group/other.git";
+    let base = format!("[core]\n\tbare = false\n[remote \"origin\"]\n\turl = {own}\n");
+    fs::write(
+        widget.join(".git/remotes.inc"),
+        format!("[remote \"upstream\"]\n\turl = {other}\n"),
+    )
+    .expect("write the included file");
+    for config in [
+        format!("{base}[include]\n\tpath = remotes.inc\n"),
+        format!("{base}[url \"{other}\"]\n\tinsteadOf = {own}\n"),
+    ] {
+        fs::write(widget.join(".git/config"), &config).expect("write the git config");
+        let decision = bash_by(&home, &places, &widget, "glab ci retry 123");
+        assert_verdict(&decision, Verdict::Deny, "forge.route direct");
+    }
+}
+
+/// A forge variable the line sets without an assignment word points glab at another host.
+#[test]
+fn adversary_a_forge_variable_set_without_an_assignment_word_is_followed() {
+    let (home, places, widget) = adversary_layout("adv-printf-v");
+    for command in [
+        "printf -v GITLAB_HOST %s gitlab.other.example; export GITLAB_HOST; glab ci retry 1 -R example-group/widget",
+        "read GITLAB_HOST < host.txt; export GITLAB_HOST; glab mr merge 3 -R example-group/widget",
+    ] {
+        let decision = bash_by(&home, &places, &widget, command);
+        assert_verdict(&decision, Verdict::Deny, "forge.route direct");
+    }
+}
+
+/// A git variable that moves nothing (`GIT_PAGER`, `GIT_TERMINAL_PROMPT`) does not stop the own
+/// checkout's bare pipeline write.
+#[test]
+fn adversary_a_git_variable_that_moves_nothing_keeps_the_own_retry() {
+    let (home, places, widget) = adversary_layout("adv-git-pager");
+    for command in [
+        "GIT_PAGER=cat glab ci retry 123",
+        "export GIT_TERMINAL_PROMPT=0; glab ci run",
+    ] {
+        assert_verdict(&bash_by(&home, &places, &widget, command), Verdict::Allow, "");
+    }
+}
