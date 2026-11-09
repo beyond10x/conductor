@@ -1351,6 +1351,29 @@ fn show_without_a_file_answers_the_built_in_instance_by_name_only() {
     );
 }
 
+/// An onboarding run read the built-in defaults `config show` printed without a file as a
+/// `conductor.config/1` file to migrate. Standard error says there is no file; standard output,
+/// which a caller may parse, stays the document alone.
+#[test]
+fn show_without_a_file_says_on_standard_error_that_the_defaults_apply() {
+    let case = Case::new("show-no-file");
+    for format in ["text", "json", "yaml"] {
+        let output = case.run(&["config", "show", "--format", format]);
+        assert_eq!(output.status.code(), Some(0), "{}", describe(&output));
+        let said = stderr(&output);
+        assert!(
+            said.contains("no config file at")
+                && said.contains(".b10x/conductor/conductor.yaml")
+                && said.contains("built-in defaults"),
+            "{format}: config show without a file names the file it looked for and that the \
+             built-in defaults are shown: {}",
+            describe(&output)
+        );
+    }
+    let json_output = case.run(&["config", "show", "--format", "json"]);
+    assert_eq!(instance(&json(&json_output))["name"], ORGANIZATION);
+}
+
 #[test]
 fn validate_without_a_file_says_the_defaults_apply() {
     let case = Case::new("validate-no-file");

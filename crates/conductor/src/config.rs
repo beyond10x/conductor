@@ -5812,6 +5812,11 @@ pub fn show(config: Option<&Path>, args: &ShowConfigArgs) -> Result<ExitCode> {
         }
     };
     print!("{rendered}");
+    // Without a file the document is the built-in defaults, which read like a file of the first
+    // version; standard error says so and standard output stays the document alone.
+    if !loaded.read {
+        eprintln!("{WHAT}: {}", loaded.origin());
+    }
     Ok(ExitCode::SUCCESS)
 }
 
