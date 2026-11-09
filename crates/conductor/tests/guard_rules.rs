@@ -6988,3 +6988,185 @@ fn adversary_a_git_variable_that_moves_nothing_keeps_the_own_retry() {
         );
     }
 }
+
+// ---- adversary cases, pass 2, story:guard-admits-own-pipelines (wave 49, U5) --------------------
+
+/// Each of `commands` run from `cwd` whose decision is not `verdict` with a reason naming
+/// `because`, with what the guard decided: every one, not only the first.
+fn adversary2_misses(
+    home: &Path,
+    places: &Places,
+    cwd: &Path,
+    commands: &[String],
+    verdict: Verdict,
+    because: &str,
+) -> Vec<String> {
+    commands
+        .iter()
+        .filter_map(|command| {
+            let decision = bash_by(home, places, cwd, command);
+            (decision.verdict != verdict || !decision.reason.contains(because))
+                .then(|| format!("{command} => {:?}: {}", decision.verdict, decision.reason))
+        })
+        .collect()
+}
+
+/// The guard admits each step these cases rely on, run alone: how a controller reaches the states
+/// the cases below build.
+#[test]
+fn adversary2_the_steps_the_cases_rely_on_are_admitted_alone() {
+    let (home, places, widget) = adversary_layout("adv2-reach");
+    let commands = [
+        "cd ~/clones/other",
+        "pushd ~/clones/other",
+        "cd vendor/other",
+        "git config remote.origin.glab-resolved example-group/other",
+        "printf '[remote \"upstream\"] url = git@gitlab.example.com:example-group/other.git\\n' >> .git/config",
+    ]
+    .map(str::to_owned);
+    let misses = adversary2_misses(&home, &places, &widget, &commands, Verdict::Allow, "");
+    assert!(misses.is_empty(), "{misses:#?}");
+}
+
+/// `popd +1`, `popd -n` and `pushd -n` change the directory stack and not the directory (bash and
+/// zsh), so glab runs in the clone the line moved to; the guard pops or pushes its own directory.
+#[test]
+fn adversary2_a_stack_change_that_does_not_move_the_shell_is_followed() {
+    let (home, places, widget) = adversary_layout("adv2-stack");
+    let commands = [
+        "pushd ~/clones/other && popd +1 && glab ci retry 123".to_owned(),
+        "pushd ~/clones/other && popd -n && glab ci run".to_owned(),
+        format!(
+            "cd ~/clones/other && pushd -n {} && glab ci retry 123",
+            widget.display()
+        ),
+    ];
+    let misses = adversary2_misses(
+        &home,
+        &places,
+        &widget,
+        &commands,
+        Verdict::Deny,
+        "forge.route direct",
+    );
+    assert!(misses.is_empty(), "{misses:#?}");
+}
+
+/// `cd ~-` is the previous directory and `cd ~1` a stack entry; the guard joins the word to the
+/// directory as a name and so stays in the checkout.
+#[test]
+fn adversary2_a_cd_to_the_previous_directory_or_a_stack_entry_is_followed() {
+    let (home, places, widget) = adversary_layout("adv2-tilde");
+    let own = widget.display();
+    let commands = [
+        format!("cd ~/clones/other; cd {own}; cd ~-; glab ci retry 123"),
+        format!("pushd ~/clones/other; pushd {own}; cd ~1; glab ci run"),
+    ];
+    let misses = adversary2_misses(
+        &home,
+        &places,
+        &widget,
+        &commands,
+        Verdict::Deny,
+        "forge.route direct",
+    );
+    assert!(misses.is_empty(), "{misses:#?}");
+}
+
+/// A `cd` that fails (no such directory) leaves the shell where it was, in a clone of another
+/// project inside the checkout; the guard reads the nearest checkout above the missing directory,
+/// the session's own.
+#[test]
+fn adversary2_a_cd_that_fails_leaves_glab_where_it_was() {
+    let (home, places, widget) = adversary_layout("adv2-cd-fails");
+    let nested = widget.join("vendor/other");
+    git_remotes(
+        &nested,
+        &[("origin", "git@gitlab.example.com:example-group/other.git")],
+    );
+    let commands = [
+        "glab ci retry 123".to_owned(),
+        format!("cd {}/missing; glab ci retry 123", widget.display()),
+    ];
+    let misses = adversary2_misses(
+        &home,
+        &places,
+        &nested,
+        &commands,
+        Verdict::Deny,
+        "forge.route direct",
+    );
+    assert!(misses.is_empty(), "{misses:#?}");
+}
+
+/// zsh's `cd old new` substitutes `new` for `old` in the current directory and lands in the other
+/// clone; the guard reads only the first operand.
+#[test]
+fn adversary2_a_two_operand_cd_is_followed() {
+    let (home, places, widget) = adversary_layout("adv2-zsh-cd");
+    let commands = [format!(
+        "cd {} {} && glab ci retry 123",
+        widget.display(),
+        home.join("clones/other").display()
+    )];
+    let misses = adversary2_misses(
+        &home,
+        &places,
+        &widget,
+        &commands,
+        Verdict::Deny,
+        "forge.route direct",
+    );
+    assert!(misses.is_empty(), "{misses:#?}");
+}
+
+/// A key on its section header's line (`[remote "upstream"] url = …`) is a remote for git and
+/// glab, and `remote.<name>.glab-resolved` names the project glab uses; glab 1.115 retries
+/// example-group/other in each state.
+#[test]
+fn adversary2_a_remote_the_config_parser_skips_is_read() {
+    let (home, places, widget) = adversary_layout("adv2-config");
+    let own = "git@gitlab.example.com:example-group/widget.git";
+    let other = "git@gitlab.example.com:example-group/other.git";
+    let base = format!("[core]\n\tbare = false\n[remote \"origin\"]\n\turl = {own}\n");
+    let commands = [
+        "glab ci retry 123",
+        "glab api -X POST projects/:fullpath/pipeline",
+    ]
+    .map(str::to_owned);
+    let mut misses = Vec::new();
+    for config in [
+        format!("{base}[remote \"upstream\"] url = {other}\n"),
+        format!("{base}\tglab-resolved = example-group/other\n"),
+    ] {
+        fs::write(widget.join(".git/config"), &config).expect("write the git config");
+        misses.extend(
+            adversary2_misses(
+                &home,
+                &places,
+                &widget,
+                &commands,
+                Verdict::Deny,
+                "forge.route direct",
+            )
+            .into_iter()
+            .map(|miss| format!("{config:?}: {miss}")),
+        );
+    }
+    assert!(misses.is_empty(), "{misses:#?}");
+}
+
+/// An own bare pipeline write whose output is piped, or that is repeated, moves nothing; the
+/// doc row admits "another glab call" on the line.
+#[test]
+fn adversary2_an_own_bare_retry_piped_or_repeated_is_admitted() {
+    let (home, places, widget) = adversary_layout("adv2-over-deny");
+    let commands = [
+        "glab ci retry 123 | tail -5",
+        "glab ci run 2>&1 | head -20",
+        "glab ci retry 101 && glab ci retry 102",
+    ]
+    .map(str::to_owned);
+    let misses = adversary2_misses(&home, &places, &widget, &commands, Verdict::Allow, "");
+    assert!(misses.is_empty(), "{misses:#?}");
+}
