@@ -2,13 +2,14 @@
 format: aep.planning-md/3
 id: story:host-session-profiles
 kind: story
-status: active
+status: archived
 title: Conductor ships the host supervisor and teacher profiles, and init installs them
 summary: the supervisor and teacher agent files live on one host only
-revision: 7
+revision: 9
 transitions:
 - {from: "draft", to: "proposed", at: "2026-11-07T12:43:07Z", actor: "human:timo", revision: 2}
 - {from: "proposed", to: "active", at: "2026-11-07T12:43:07Z", actor: "human:timo", revision: 3}
+- {from: "active", to: "archived", at: "2026-11-09T10:21:27Z", actor: "human:timo", revision: 9}
 ---
 ## Why
 
@@ -56,3 +57,7 @@ and host-specific lines are still taken out (AGENTS.md rules 4 and 9).
 - `.agents/conductor-supervisor.md` and `.agents/conductor-teacher.md` are synced from the host's current agent files in the pull request after 0.23.0, holding no organization, instance or repository name; a test greps them for the instance's names from a fixture config.
 
 - `task profiles` and `conductor init` also install `.claude/agents/conductor-supervisor.md` and `conductor-teacher.md` into `~/.claude/agents/`: a file that is absent or is one of conductor's adapters is written; any other file is left and named, as `agents:link` does. Found 2026-11-07: after a merge, the installed teacher adapter kept an old `model:` until it was copied by hand.
+
+## Archived
+
+Superseded by story:roles-in-the-binary: profiles ship in the binary, init installs no adapter under ~/.claude/agents/ (crates/conductor/src/init.rs:11).

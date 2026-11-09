@@ -2,10 +2,12 @@
 format: aep.planning-md/3
 id: story:host-bootstrap
 kind: story
-status: draft
+status: archived
 title: A fresh or rebooted host gets the loop, the dashboards and the host sessions' files back from the repository
 summary: loop and dashboard units are transient; host files are in no git
-revision: 1
+revision: 3
+transitions:
+- {from: "draft", to: "archived", at: "2026-11-09T10:21:27Z", actor: "human:timo", revision: 3}
 ---
 ## Why
 
@@ -41,3 +43,7 @@ are in git. A fresh host, or the same host after a reboot, keeps none of these:
 ## Notes
 
 - Requested by the host supervisor, 2026-11-07.
+
+## Archived
+
+Superseded by story:roles-in-the-binary: profiles ship in the binary, init installs no adapter under ~/.claude/agents/ (crates/conductor/src/init.rs:11).

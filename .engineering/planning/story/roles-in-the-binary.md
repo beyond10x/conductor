@@ -2,16 +2,17 @@
 format: aep.planning-md/3
 id: story:roles-in-the-binary
 kind: story
-status: active
+status: implemented
 title: a role's profile ships inside the conductor binary and its agent kind writes the harness adapter at start
 summary: role profiles move from .agents/ and .claude/agents/ into the binary; the claude-code kind writes its adapter at agent start; task profiles and the host copies go
 relations:
 - decomposes: epic:architecture-next
 - depends_on: story:agent-kinds
-revision: 3
+revision: 4
 transitions:
 - {from: "draft", to: "proposed", at: "2026-11-08T21:45:10Z", actor: "human:timo", revision: 2}
 - {from: "proposed", to: "active", at: "2026-11-08T21:45:10Z", actor: "human:timo", revision: 3}
+- {from: "active", to: "implemented", at: "2026-11-09T10:21:35Z", actor: "human:timo", revision: 4, decided_on: {"recorded":{"test_result":1}}}
 ---
 A role's profile is product data that ships inside the `conductor` binary, kind-neutral, and an
 agent kind turns it into what its harness reads when it starts an agent. Nothing is copied to the
