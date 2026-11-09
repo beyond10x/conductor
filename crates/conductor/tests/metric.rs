@@ -27,7 +27,10 @@
 //!   10:00, released by v0.9), alpha#2 (06:00, v1.0 after 6 h), alpha#3 (11:00, v1.0 after 1 h),
 //!   alpha#4 (13:00, not released), beta#5 (10:00, v2.0 after 10 h), beta#6 (10-13 20:00, v2.0
 //!   after 24 h). An older complete snapshot holds one more merged pull request on the day,
-//!   which no metric counts: the newest complete snapshot is read.
+//!   which no metric counts: the newest complete snapshot is read. Each snapshot observes every
+//!   repository it names with a real commit in 7 days, so `repository activity` answers it
+//!   Active: the repository-scoped KPIs count Active repositories only
+//!   (`story:kpi-scope-active-repositories`).
 //!
 //! K6 and K12 read the daily rollups the completed snapshots write, and have their own fixture
 //! ([`Case::rework`]): two complete snapshots of the day, both observing alpha and beta.
@@ -353,17 +356,65 @@ impl Case {
         self.take(started_at, forge);
     }
 
-    /// Takes one complete snapshot started at `started_at` holding `releases` and `merged`.
+    /// Takes one complete snapshot started at `started_at` holding `releases` and `merged`, in
+    /// which every repository they name is observed Active.
     fn snapshot(
         &self,
         started_at: &str,
         releases: &[(&'static str, &'static str, &'static str)],
         merged: &[(&'static str, i64, &'static str)],
     ) {
+        self.snapshot_with_inactive(started_at, releases, merged, &[]);
+    }
+
+    /// As [`Case::snapshot`], the repositories in `inactive` observed with no real commit in 7
+    /// days, so `repository activity` answers them Inactive.
+    fn snapshot_with_inactive(
+        &self,
+        started_at: &str,
+        releases: &[(&'static str, &'static str, &'static str)],
+        merged: &[(&'static str, i64, &'static str)],
+        inactive: &[&'static str],
+    ) {
         let releases = releases.to_vec();
         let merged = merged.to_vec();
+        let inactive = inactive.to_vec();
         let forge = Collector::new("forge", move |record: &mut Recorder<'_>| {
             let snapshot = record.snapshot().clone();
+            let named: std::collections::BTreeSet<&str> = releases
+                .iter()
+                .map(|(repository, ..)| *repository)
+                .chain(merged.iter().map(|(repository, ..)| *repository))
+                .collect();
+            for repository in named {
+                record.repository(RecordRepository {
+                    actor: conductor_cli::actor::daemon(),
+                    snapshot_id: snapshot.clone(),
+                    repository: RepositoryName(repository.to_owned()),
+                    visibility: Visibility::Public,
+                    archived: false,
+                    local_checkout: true,
+                    main_head: CommitSha(format!("head-of-{repository}")),
+                    main_committed_at: Timestamp("2026-10-12T00:00:00Z".to_owned()),
+                    main_commits_7d: 1,
+                    real_commits_7d: i64::from(!inactive.contains(&repository)),
+                    behind_main: 0,
+                    dirty_files: 0,
+                    worktrees: 0,
+                    open_issues: 0,
+                    oldest_open_issue_at: None,
+                    latest_release: None,
+                    latest_release_at: None,
+                    unreleased_commits: None,
+                    planning_store_version: None,
+                    in_catalog: None,
+                    gates_hooks_version: None,
+                    gates_version: None,
+                    wave_width: None,
+                    wave_ready: None,
+                    wave_reason: None,
+                })?;
+            }
             for (repository, tag, at) in &releases {
                 record.release(RecordRelease {
                     actor: conductor_cli::actor::daemon(),
@@ -672,6 +723,133 @@ fn k5_counts_a_semver_tag_as_a_release_and_skips_a_repository_marked_as_shipping
         skipped[0].contains("skipped") && skipped[0].contains("published on merge"),
         "{printed}"
     );
+}
+
+/// `repository mark-repository` of `repository` as `activity`, by the operator.
+fn mark(case: &Case, repository: &str, activity: &str) {
+    case.ok(&[
+        "repository",
+        "mark-repository",
+        "--repository",
+        repository,
+        "--activity",
+        activity,
+        "--marked-by",
+        "Operator",
+        "--reason",
+        "the case's activity",
+    ]);
+}
+
+/// `story:kpi-scope-active-repositories`: the fixture whose newest snapshot (started 10-15
+/// 01:00) also observes `idle` with no real commit in 7 days, so Inactive unless marked. idle#1
+/// merged 10-14 11:00 and was never released; idle#2 merged 08:00 and was released by v1.0.0 at
+/// 10:00 (2 h); idle's dispatch D-90 was sent 01:00 and done 05:00 (4 h). Computed once, `idle`
+/// marked Active first when `marked`.
+fn with_idle(name: &str, marked: bool) -> Case {
+    let case = Case::fixture(name);
+    let dispatches = case.records().join("dispatches/2026-10.jsonl");
+    let mut text = fs::read_to_string(&dispatches).expect("read the dispatch log");
+    text.push_str(concat!(
+        r#"{"at":"2026-10-14T01:00:00Z","event":"sent","repo":"idle","id":"D-90","to":"idle","brief":"b"}"#,
+        "\n",
+        r#"{"at":"2026-10-14T05:00:00Z","event":"done","repo":"idle","id":"D-90","evidence":"idle#2"}"#,
+        "\n",
+    ));
+    fs::write(&dispatches, text).expect("write the dispatch log");
+    let mut releases = RELEASES.to_vec();
+    releases.push(("idle", "v1.0.0", "2026-10-14T10:00:00Z"));
+    let mut merged = MERGED.to_vec();
+    merged.extend([
+        ("idle", 1, "2026-10-14T11:00:00Z"),
+        ("idle", 2, "2026-10-14T08:00:00Z"),
+    ]);
+    case.snapshot_with_inactive("2026-10-15T01:00:00Z", &releases, &merged, &["idle"]);
+    if marked {
+        mark(&case, "idle", "Active");
+    }
+    case.compute();
+    case
+}
+
+/// An Inactive repository is in no scope of a repository-scoped KPI, and the instance sums the
+/// Active scopes only. alpha (Active) and idle (Inactive) each hold an unreleased merge;
+/// K5.unreleased reads alpha#4 only: 1, alpha's 1. K5.median stays the fixture's 8 h (1, 6, 10,
+/// 24) and K4.median its 2.75 h (1, 2.5, 3, 14); idle has no reading of K4 or K5.
+#[test]
+fn repository_scoped_kpis_leave_out_an_inactive_repository() {
+    let case = with_idle("kpi-inactive-scope", false);
+    close(
+        case.value("K5.unreleased", "alpha"),
+        1.0,
+        "K5.unreleased of alpha",
+    );
+    close(
+        case.value("K5.unreleased", "instance"),
+        1.0,
+        "K5.unreleased",
+    );
+    close(case.value("K5.median", "instance"), 8.0, "K5.median");
+    close(case.value("K4.median", "instance"), 2.75, "K4.median");
+    for metric in [
+        "K4.median",
+        "K4.p90",
+        "K5.median",
+        "K5.p90",
+        "K5.unreleased",
+    ] {
+        assert!(
+            case.reading(metric, "idle").is_none(),
+            "{metric} has a reading for the Inactive idle: {:#?}",
+            case.all()
+        );
+    }
+}
+
+/// The same repository marked Active has its own scope and the instance sums it: K5.unreleased
+/// of idle 1 and of the instance 2 (alpha#4, idle#1); K4.median of idle 4 h and of the instance
+/// 3 h (1, 2.5, 3, 4, 14); K5.median 6 h (1, 2, 6, 10, 24).
+#[test]
+fn repository_scoped_kpis_count_a_repository_marked_active() {
+    let case = with_idle("kpi-active-marked-scope", true);
+    close(
+        case.value("K5.unreleased", "idle"),
+        1.0,
+        "K5.unreleased of idle",
+    );
+    close(
+        case.value("K5.unreleased", "instance"),
+        2.0,
+        "K5.unreleased",
+    );
+    close(case.value("K4.median", "idle"), 4.0, "K4.median of idle");
+    close(case.value("K4.median", "instance"), 3.0, "K4.median");
+    close(case.value("K5.median", "instance"), 6.0, "K5.median");
+}
+
+/// The rollup and release KPIs follow the same rule: the rework fixture with beta marked
+/// Inactive reads alpha's scope only, and the instance equals it. K6.ci_failed 2 / 3 = 0.667,
+/// K6.closed_unmerged 1 / 4 = 25 %, K6.quick_patches 1 / 2 = 50 %, K12.fix_releases 1 / 1 = 1;
+/// beta has no reading of any of them.
+#[test]
+fn rollup_and_release_kpis_leave_out_a_repository_marked_inactive() {
+    let case = Case::rework("kpi-inactive-rework");
+    mark(&case, "beta", "Inactive");
+    case.compute();
+    for (metric, expected) in [
+        ("K6.ci_failed", 0.667),
+        ("K6.closed_unmerged", 25.0),
+        ("K6.quick_patches", 50.0),
+        ("K12.fix_releases", 1.0),
+    ] {
+        close(case.value(metric, "instance"), expected, metric);
+        close(case.value(metric, "alpha"), expected, metric);
+        assert!(
+            case.reading(metric, "beta").is_none(),
+            "{metric} has a reading for the Inactive beta: {:#?}",
+            case.all()
+        );
+    }
 }
 
 /// The rework fixture ([`Case::rework`]), computed for [`DAY`].
