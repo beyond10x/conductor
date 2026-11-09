@@ -207,7 +207,7 @@ A key path written `a[].b` is the key `b` of each element of the list `a`. A def
 | `reports[].when` | list of string | required |  |
 | `authority.class_c` | `conductor` \| `operator` | `conductor` |  |
 | `authority.class_o` | `conductor` \| `operator` | `operator` |  |
-| `usage.probe` | string | none |  |
+| `usage.probe` | string | required |  |
 | `usage.watcher` | string | none |  |
 | `usage.rotate` | string | none |  |
 | `operator` | string | none |  |
@@ -426,7 +426,7 @@ Keys: `owner`, `repository`, `name`. Specified as `conductor.config.ForgeSecret`
 
 ### Usage
 
-How the instance reads its harness accounts' usage. `probe` is a command, run with `sh -c` on each snapshot, that prints the accounts as one JSON object: `accounts`, a list, each with `id` (the account; conductor keeps nothing else of it, never an e-mail address or a name), `active` (whether it is the account in use), `health` (`exhausted` for one with nothing left) and `usage.windows`, a list of `{name, used_percent, resets_at}`; every other key is ignored. `watcher` is the systemd user unit that rotates the accounts, which `conductor doctor` reports running or not. `rotate` is a command, run with `sh -c`, that makes an account with headroom the active one: the watch runs it once when a session's tmux pane shows `Usage limit reached` while the probe shows an account with headroom, then resumes the pane. Conductor names no tool: all three are the operator's. Absent, none is set: no probe runs, doctor reports no watcher and the watch rotates nothing.
+How the instance reads its harness accounts' usage. `probe` is a command, run with `sh -c` on each snapshot, that prints the accounts as one JSON object: `accounts`, a list, each with `id` (the account; conductor keeps nothing else of it, never an e-mail address or a name), `active` (whether it is the account in use), `health` (`exhausted` for one with nothing left) and `usage.windows`, a list of `{name, used_percent, resets_at}`; every other key is ignored. `watcher` is the systemd user unit that rotates the accounts, which `conductor doctor` reports running or not. With `probe` set, the watch resumes a session whose tmux pane stands on the `Usage limit reached · …` banner once the probe shows the active account with headroom. `rotate` is a command, run with `sh -c`, that makes an account with headroom the active one: with it set, the watch resumes such a pane once any account has headroom, and runs `rotate` once first. `rotate` is valid only beside `probe`. Conductor names no tool: all three are the operator's. Absent, none is set: no probe runs, doctor reports no watcher and the watch resumes no pane.
 
 Keys: `probe`, `watcher`, `rotate`. Specified as `conductor.config.Usage`.
 

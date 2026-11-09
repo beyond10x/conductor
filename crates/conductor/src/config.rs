@@ -64,7 +64,8 @@
 //!   ([`PLACES`]) or a path, and its `network` is `open`;
 //! - `forge.route` (`story:forge-route`) is `gates` or `direct`;
 //! - `usage.probe` (`story:usage-probe`) and `usage.rotate` (`story:auto-resume`) are commands,
-//!   not empty, and `usage.watcher` a systemd unit name ([`unit_name`]);
+//!   not empty, `usage.rotate` only beside a `usage.probe`, and `usage.watcher` a systemd unit
+//!   name ([`unit_name`]);
 //! - the file holds no secret: a value that looks like a token (a word starting `ghp_`,
 //!   `github_pat_`, `glpat-` or `xox<letter>-`) is refused by its path, and never printed.
 //!
@@ -4515,8 +4516,8 @@ impl Reader<'_> {
     }
 
     /// `conductor.config.Usage` (`story:usage-probe`): `probe`, a command, `watcher`, a systemd
-    /// unit name ([`unit_name`]), and `rotate`, a command (`story:auto-resume`); each absent when
-    /// not written.
+    /// unit name ([`unit_name`]), and `rotate`, a command written only beside a `probe`
+    /// (`story:auto-resume`); each absent when not written.
     fn usage(&mut self, value: &Value, path: &str) -> Option<Usage> {
         let map = self.mapping(value, path, &USAGE_KEYS)?;
         let probe = match Self::get(map, "probe") {
@@ -4545,6 +4546,15 @@ impl Reader<'_> {
             None => Some(None),
         };
         let rotate = match Self::get(map, "rotate") {
+            // The watch rotates only once the probe shows headroom: without one, no rotation runs.
+            Some(_) if Self::get(map, "probe").is_none() => {
+                self.problem(
+                    &join(path, "rotate"),
+                    "needs usage.probe: the watch rotates only once the probe shows an account \
+                     with headroom",
+                );
+                None
+            }
             Some(value) => self.text(value, &join(path, "rotate")).map(Some),
             None => Some(None),
         };

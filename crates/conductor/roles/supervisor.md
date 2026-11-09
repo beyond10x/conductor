@@ -169,9 +169,9 @@ one background Bash that exits on it.
    lines naming an account with headroom; free disk at or above `thresholds.disk_low`;
    `context: <session> <n>k tokens` lines in each run journal against
    `thresholds.context_handover`; a `Usage limit reached` banner in any session's `claude logs`
-   tail (empty under tmux: `tmux -S <state>/sessions/<session>.tmux capture-pane -p | tail`; the
-   watch resumes it under `usage.rotate`; without it, or on `usage limit not lifted`, `send-keys
-   Escape`, `send-keys -l "<message>"`, `send-keys Enter` on that socket; or read its newest `[REPORT …] blocked
+   tail (empty under tmux: `tmux -S <state>/sessions/<session>.tmux capture-pane -p | tail`; with
+   `usage.probe` set the watch resumes it, rotating first under `usage.rotate`, so type nothing; on
+   `usage limit not lifted` or without a probe, `send-keys Escape`, `-l "<message>"`, `Enter`; or read its newest `[REPORT …] blocked
    handover` file in `<state>/mailbox/conductor/`: a controller that hit the limit stays listed
    `idle` with its dispatch open, and no loop line shows it); yesterday's readings (`conductor
    metric metric-readings`, rows with `day` = yesterday UTC), and `conductor session run-ticks`

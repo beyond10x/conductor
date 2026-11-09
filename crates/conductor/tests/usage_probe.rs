@@ -596,10 +596,29 @@ fn the_config_names_the_probe_and_the_watcher_and_refuses_a_watcher_that_is_no_u
         "instances[0].usage.probe",
     );
     refused(
-        "    usage:\n      rotate: \"\"\n",
+        "    usage:\n      probe: usage-probe --json\n      rotate: \"\"\n",
         "instances[0].usage.rotate",
     );
     refused("    usage:\n      every: 5m\n", "instances[0].usage.every");
+}
+
+/// `story:auto-resume`: `usage.rotate` without `usage.probe` does nothing, since the watch
+/// rotates only once the probe shows headroom, so the config refuses it by its path and names the
+/// probe it lacks.
+#[test]
+fn a_rotation_without_a_probe_is_refused() {
+    let case = Case::new("config-rotate-alone");
+    let output = case.conductor(
+        Some(&case.config("    usage:\n      rotate: usage-rotate --best\n")),
+        &["config", "validate"],
+    );
+    assert_eq!(output.status.code(), Some(1), "{}", describe(&output));
+    let said = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        said.contains("instances[0].usage.rotate") && said.contains("usage.probe"),
+        "{}",
+        describe(&output)
+    );
 }
 
 /// `conductor doctor` reports the configured watcher running when `systemctl --user is-active`

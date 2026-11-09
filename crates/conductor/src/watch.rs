@@ -57,14 +57,16 @@
 //!   limit text per [`LIMIT_AGAIN`] from its last report, with a desktop notification to the
 //!   operator through [`Sources::notify`], titled `<instance>: usage limit`, because conductor is
 //!   stopped by the same limit.
-//! - **banner** for a pane that shows [`BANNER`], `Usage limit reached` (`story:auto-resume`):
-//!   once the probe shows an account with headroom (any account when `usage.rotate` is set, else
+//! - **banner** for a pane that stands on the harness's banner, `Usage limit reached · …` among
+//!   its last lines and no `esc to interrupt` ([`stopped`]; the words quoted elsewhere are no
+//!   banner) (`story:auto-resume`): once the probe shows an account with headroom (any account when `usage.rotate` is set, else
 //!   the active one), the watch runs the rotation once for every such pane of the pass, then
 //!   resumes each, Escape and then [`RESUME_MESSAGE`], pasted as `conductor session deliver`
 //!   types; `usage limit resumed` names those it resumed. A pane resumed that still shows the
 //!   banner at the next pass is `usage limit not lifted`, once, and is resumed no more; a pane off
 //!   the banner is forgotten (`banner.resumed`, `banner.reported`), so its next banner is a new
-//!   stop. Without headroom nothing is done, and the next pass asks again.
+//!   stop; one whose server does not answer for a pass is kept as it was. Without headroom
+//!   nothing is done, and the next pass asks again.
 //! - **context** at or above the instance's `context_handover` tokens, once per session
 //!   (`story:controller-context`). `<repo>` is the directory the session works in under the
 //!   managed trees or the checkouts root, and a session in neither is not reported (a role's
@@ -260,6 +262,17 @@ const BANNER_REPORTED: &str = "banner.reported";
 
 /// The text a harness shows in its pane once a usage limit stopped it (`story:auto-resume`).
 pub const BANNER: &str = "Usage limit reached";
+
+/// What follows [`BANNER`] on the harness's banner line: a middle dot, or the bullet operator
+/// some versions draw, between spaces.
+const BANNER_SEPARATORS: [&str; 2] = [" · ", " ∙ "];
+
+/// How many of a pane's last non-empty lines the banner is looked for in: the banner, the prompt
+/// box under it and the status lines.
+const BANNER_LINES: usize = 8;
+
+/// What a harness shows while it works, so a pane showing it is not stopped.
+const WORKING: &str = "esc to interrupt";
 
 /// What the watch types into a pane it resumed, after Escape.
 pub const RESUME_MESSAGE: &str =
@@ -490,15 +503,16 @@ impl Panes {
         Ok(String::from_utf8_lossy(&output.stdout).into_owned())
     }
 
-    /// Whether the pane of the session `name` shows [`BANNER`]; a server that does not answer
-    /// shows nothing.
-    fn on_the_banner(&self, name: &str, bound: Duration) -> bool {
+    /// Whether the pane of the session `name` stands on the banner ([`stopped`]); none when its
+    /// server does not answer, which says nothing either way.
+    fn on_the_banner(&self, name: &str, bound: Duration) -> Option<bool> {
         self.call(
             name,
             &["capture-pane", "-p", "-t", &format!("={name}:")],
             bound,
         )
-        .is_ok_and(|screen| screen.contains(BANNER))
+        .ok()
+        .map(|screen| stopped(&screen))
     }
 
     /// Pastes `text` into the pane of the session `name`, bracketed when `bracketed`. A paste,
@@ -563,6 +577,29 @@ impl Panes {
         }
         Ok(true)
     }
+}
+
+/// Whether `screen`, a pane's visible text, stands on the banner as the harness draws it: one of
+/// its last [`BANNER_LINES`] non-empty lines, its leading blanks and box border taken off, is
+/// starts with [`BANNER`] and one of [`BANNER_SEPARATORS`] (`Usage limit reached · limit resets
+/// 6am`), and none of them says the harness is working ([`WORKING`]). The words quoted anywhere
+/// else, in a tool's output or a prompt, are no banner (`story:auto-resume`).
+fn stopped(screen: &str) -> bool {
+    let last: Vec<&str> = screen
+        .lines()
+        .map(|line| line.trim_start_matches(|c: char| c.is_whitespace() || c == '│'))
+        .map(str::trim_end)
+        .filter(|line| !line.is_empty())
+        .collect();
+    let last = &last[last.len().saturating_sub(BANNER_LINES)..];
+    !last.iter().any(|line| line.contains(WORKING))
+        && last.iter().any(|line| {
+            line.strip_prefix(BANNER).is_some_and(|rest| {
+                BANNER_SEPARATORS
+                    .iter()
+                    .any(|separator| rest.starts_with(separator))
+            })
+        })
 }
 
 /// Whether `readings` show an account with headroom, among all of them when `any`, else the
@@ -1423,28 +1460,36 @@ impl Watch {
             return Ok(());
         };
         let bound = self.sources.bound;
-        let on: Vec<String> = match panes.names() {
-            Ok(names) => names
-                .into_iter()
-                .filter(|name| panes.on_the_banner(name, bound))
-                .collect(),
+        let names = match panes.names() {
+            Ok(names) => names,
             Err(error) => {
                 self.failed("panes", &error, notes);
                 return Ok(());
             }
         };
         self.answered("panes");
+        // A pane whose server did not answer this pass is neither on nor off the banner: what is
+        // kept of it stays, so one unread pass does not make its stop a new one.
+        let mut on = Vec::new();
+        let mut unread = Vec::new();
+        for name in names {
+            match panes.on_the_banner(&name, bound) {
+                Some(true) => on.push(name),
+                Some(false) => {}
+                None => unread.push(name),
+            }
+        }
         let kept = |file: &str| -> Result<BTreeSet<String>> {
             Ok(read_optional(&self.state(file))?
                 .unwrap_or_default()
                 .lines()
-                .filter(|name| on.iter().any(|on| on == name))
+                .filter(|name| on.iter().chain(&unread).any(|kept| kept == name))
                 .map(str::to_owned)
                 .collect())
         };
         let mut resumed = kept(BANNER_RESUMED)?;
         let mut reported = kept(BANNER_REPORTED)?;
-        for name in &resumed {
+        for name in resumed.iter().filter(|name| on.contains(*name)) {
             if reported.insert(name.clone()) {
                 lines.push(format!(
                     "usage limit not lifted: {name} still shows {BANNER} after a rotation and a \

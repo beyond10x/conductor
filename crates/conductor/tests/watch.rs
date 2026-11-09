@@ -3988,7 +3988,9 @@ impl Case {
     }
 
     /// What was typed into the pane `name`, in order, each `set-buffer` text as the fake `tmux`
-    /// wrote it (Escape as `<Esc>`, Enter as `<Enter>`); each followed by a paste into that pane.
+    /// wrote it (Escape as `<Esc>`, Enter as `<Enter>`); each followed by a paste into that pane,
+    /// and written `[bracketed] <text>` when that paste was bracketed (`-p`): a bracketed Escape
+    /// or Enter is text in the prompt, not a key.
     fn typed(&self, name: &str) -> Vec<String> {
         let calls = fs::read_to_string(self.dir.join("tmux.calls")).unwrap_or_default();
         let socket = format!("{name}.tmux ");
@@ -4003,13 +4005,17 @@ impl Case {
                 .split_once(" -- ")
                 .map(|(_, text)| text)
                 .unwrap_or_else(|| panic!("a set-buffer with a text: {calls:?}"));
-            assert!(
-                pair.get(1)
-                    .is_some_and(|paste| paste.starts_with("paste-buffer ")
-                        && paste.ends_with(&format!("-t ={name}:"))),
-                "each text is pasted into the pane: {calls:?}"
-            );
-            typed.push(text.to_owned());
+            let paste = pair
+                .get(1)
+                .filter(|paste| {
+                    paste.starts_with("paste-buffer ") && paste.ends_with(&format!("-t ={name}:"))
+                })
+                .unwrap_or_else(|| panic!("each text is pasted into the pane: {calls:?}"));
+            if paste.split_whitespace().any(|word| word == "-p") {
+                typed.push(format!("[bracketed] {text}"));
+            } else {
+                typed.push(text.to_owned());
+            }
         }
         typed
     }
@@ -4033,10 +4039,14 @@ fn a_pane_on_the_usage_limit_banner_is_rotated_once_and_resumed() {
     assert_eq!(case.rotations(), 1, "the rotation runs once");
     let resumed = [
         "<Esc>".to_owned(),
-        RESUME_MESSAGE.to_owned(),
+        format!("[bracketed] {RESUME_MESSAGE}"),
         "<Enter>".to_owned(),
     ];
-    assert_eq!(case.typed("ex-alpha"), resumed, "Escape, then the message");
+    assert_eq!(
+        case.typed("ex-alpha"),
+        resumed,
+        "Escape as a key, then the message as a paste, then Enter as a key"
+    );
     assert_eq!(case.typed("ex-beta"), Vec::<String>::new());
     assert_eq!(case.typed("ex-gone"), Vec::<String>::new());
 
@@ -4150,6 +4160,32 @@ fn adversary_a_working_pane_that_quotes_the_banner_text_is_not_resumed() {
         0,
         "no rotation for a pane that is not stopped"
     );
+}
+
+/// `story:auto-resume`, the class of the adversary's quoted banner: an idle pane whose last lines
+/// quote the words without the banner's shape, in a tool's output, in the prompt, or alone, is
+/// not on the banner; the banner line further up than the pane's last lines is not either.
+#[test]
+fn an_idle_pane_quoting_the_banner_is_not_resumed() {
+    let case = Case::new("banner-quoted-idle");
+    case.sessions(&[]);
+    case.accounts(ONE_WITH_HEADROOM);
+    case.pane(
+        "ex-quote",
+        Some(
+            "● Read the watch\n  ⎿  Usage limit reached · limit resets 6am\nUsage limit reached\n\
+             \n> Usage limit reached · limit resets 6am\n",
+        ),
+    );
+    let scrolled: String = std::iter::once(ON_THE_BANNER.to_owned())
+        .chain((0..9).map(|line| format!("output line {line}\n")))
+        .collect();
+    case.pane("ex-scrolled", Some(&scrolled));
+    let mut watch = case.watch(None).with_panes(case.panes(true));
+    assert_eq!(pass(&mut watch), NOTHING);
+    assert_eq!(case.typed("ex-quote"), Vec::<String>::new());
+    assert_eq!(case.typed("ex-scrolled"), Vec::<String>::new());
+    assert_eq!(case.rotations(), 0);
 }
 
 /// Adversary (`story:auto-resume`): a pane resumed once, whose server does not answer for one

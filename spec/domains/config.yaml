@@ -510,11 +510,13 @@ types:
   # address or a name), `active` (whether it is the account in use), `health` (`exhausted` for one
   # with nothing left) and `usage.windows`, a list of `{name, used_percent, resets_at}`; every
   # other key is ignored. `watcher` is the systemd user unit that rotates the accounts, which
-  # `conductor doctor` reports running or not. `rotate` is a command, run with `sh -c`, that makes
-  # an account with headroom the active one: the watch runs it once when a session's tmux pane
-  # shows `Usage limit reached` while the probe shows an account with headroom, then resumes the
-  # pane (story:auto-resume). Conductor names no tool: all three are the operator's. Absent, none
-  # is set: no probe runs, doctor reports no watcher and the watch rotates nothing.
+  # `conductor doctor` reports running or not. With `probe` set, the watch resumes a session whose
+  # tmux pane stands on the `Usage limit reached · …` banner once the probe shows the active
+  # account with headroom (story:auto-resume). `rotate` is a command, run with `sh -c`, that makes
+  # an account with headroom the active one: with it set, the watch resumes such a pane once any
+  # account has headroom, and runs `rotate` once first. `rotate` is valid only beside `probe`.
+  # Conductor names no tool: all three are the operator's. Absent, none is set: no probe runs,
+  # doctor reports no watcher and the watch resumes no pane.
   - name: conductor.config.Usage
     kind: struct
     fields:
