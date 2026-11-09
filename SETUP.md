@@ -44,27 +44,26 @@ to fill in, and each step says where they come from. `<target>` is the build of 
      `tar -xzf conductor-<version>-<target>.tar.gz -C ~/.local/bin --strip-components=1 conductor-<version>-<target>/conductor`.
      When the release has no archive for this machine's target:
      `cargo install --git https://github.com/beyond10x/conductor --tag v<version> --locked conductor-cli`.
-     Once a conductor is installed, `conductor upgrade` does all of this for the newest release:
-     it downloads the archive and the checksums, checks the sum, and replaces the binary, keeping
-     the old one as conductor.previous beside it; `conductor upgrade --check` only says whether a
-     newer release exists.
+     Once a conductor is installed, `conductor upgrade` does all of this for the newest release
+     and keeps the old binary as conductor.previous beside it.
    - Hands: none when `~/.local/bin` is on `PATH`; otherwise the person adds it.
 
-4. **Install `aep`, `ess` and `worktree` at conductor's pins.** `conductor doctor` names each pin,
-   on a line such as `aep: 0.69.1 is older than the build's pin 0.71`, and under the row of each
-   one missing or too old prints where to get it, such as
-   `  install: follow https://github.com/beyond10x/agentplugins/releases/latest/download/SETUP.md (needs aep 0.71)`;
+4. **Install `aep`, `ess`, `worktree` and `substrate-daemon` at conductor's pins.**
+   `conductor doctor` names each pin, on a line such as `aep: 0.69.1 is older than the build's pin 0.79`,
+   and under the row of each one missing or too old prints where to get it, such as
+   `  install: follow https://github.com/beyond10x/agentplugins/releases/latest/download/SETUP.md (needs aep 0.79)`;
    for `task`, `jq`, `gh` and `claude` it prints this machine's command the same way, such as
-   `  install: brew install go-task`. A pin `x.y` takes the
-   newest `x.y.z` release of that program, `<v>` below, listed at
-   https://github.com/beyond10x/aep/releases, https://github.com/beyond10x/ess/releases and
-   https://github.com/beyond10x/worktree/releases; their tags carry no `v`. `<name>` below is the
-   program's name.
-   - Check: `conductor doctor`; each of the three meets the build's pin, or its pin under a
+   `  install: brew install go-task`. A pin `x.y` takes the newest `x.y.z` release of that
+   program, `<v>` below. `<name>` is the program's name and `<repo>` its repository: `aep`, `ess`
+   and `worktree` for the first three, `substrate` for `substrate-daemon`, whose releases carry
+   `x86_64-unknown-linux-gnu` only. The releases are listed at
+   https://github.com/beyond10x/<repo>/releases; their tags carry no `v`. Doctor needs
+   `substrate-daemon` once the config of step 6 names `placement: systemd`.
+   - Check: `conductor doctor`; each of the four meets the build's pin, or its pin under a
      b10x.toml.
    - Fix: for each program that does not,
-     `curl -fsSLO https://github.com/beyond10x/<name>/releases/download/<v>/<name>-<v>-<target>.tar.gz`,
-     `curl -fsSLO https://github.com/beyond10x/<name>/releases/download/<v>/SHA256SUMS`,
+     `curl -fsSLO https://github.com/beyond10x/<repo>/releases/download/<v>/<name>-<v>-<target>.tar.gz`,
+     `curl -fsSLO https://github.com/beyond10x/<repo>/releases/download/<v>/SHA256SUMS`,
      `sha256sum --check --ignore-missing SHA256SUMS`, then
      `tar -xzf <name>-<v>-<target>.tar.gz -C ~/.local/bin --strip-components=1 <name>-<v>-<target>/<name>`.
    - Hands: none.
@@ -79,28 +78,32 @@ to fill in, and each step says where they come from. `<target>` is the build of 
 
 6. **Write the instance config for the repository.** The config file is
    `~/.b10x/conductor/conductor.yaml` unless `CONDUCTOR_CONFIG` names another. An instance names
-   the repository when its checkouts root is the directory that holds the repository. Add one
-   under `instances:`, with the source step 1 found; a file that is not there yet starts with
-   `version: conductor.config/1`:
+   the repository when its checkouts root is the directory that holds the repository. A file that
+   is not there yet is this one, with the forge step 1 found:
 
    ```yaml
-   version: conductor.config/1
+   version: conductor.config/2
+   daemon:
+     store: sqlite:~/.b10x/conductor/conductor.sqlite
    instances:
      - name: <repository's directory name>
+       placement: systemd
+       session_prefix: <repository's directory name>
        sources:
-         - github: <owner>                 # GitHub
-         # - gitlab: <group>               # GitLab
-         #   host: <host>
-         # - local: <directory holding the repository>   # no forge
+         - github: <owner>
        checkouts:
          root: <directory holding the repository>
          trees: ~/.local/state/worktree/trees/<repository's directory name>
    ```
 
+   For GitLab the source is `gitlab: <group>` with `host: <host>` under it; with no forge it is
+   `local: <directory holding the repository>`. A file that is there already gets the instance
+   under its `instances:`, with a `session_prefix` no other instance has.
    - Check: `conductor config show`; one instance's checkouts root is the directory that holds
      the repository.
-   - Fix: write the instance above into the config file, then `conductor config validate`, which
-     names each problem by its YAML path.
+   - Fix: write the file or the instance above, then `conductor config validate`, which names
+     each problem by its YAML path. A file whose version is conductor.config/1 is rewritten
+     first with `conductor config migrate`.
    - Hands: none.
 
 7. **Write the records directory.** `<records>` is the instance's records directory, the
@@ -115,28 +118,51 @@ to fill in, and each step says where they come from. `<target>` is the build of 
    - Fix: `conductor trust --instance <name>`
    - Hands: none.
 
-9. **Check the repository as a whole, and apply what is safe.** `conductor setup` prints doctor's
-   rows, then the repository's: its planning store, the instance naming it, its records and its
-   trust, and ends with one verdict. `--apply` writes the instance config when there is no config
-   file, and runs `conductor init` and `conductor trust` when they are missing. It never logs in,
-   installs a program or migrates the store: it prints each of those as a `to run:` or
-   `to install:` line, which goes back to step 2, 4 or 5.
-   - Check: `conductor setup`; its last line is ready.
-   - Fix: `conductor setup --apply`
-   - Hands: what each `to run:` and `to install:` line it prints needs: a login, an install that
-     needs root, approving the store migration.
+9. **Start the substrate daemon.** With `placement: systemd`, conductord runs the instance's
+   runtime in a box it asks the local `substrate-daemon` for. Conductord does not start
+   `substrate-daemon`, and doctor checks only its version. It runs inside a delegated cgroup
+   subtree carrying cpu, memory and pids, passed as `--cgroup-root`
+   (https://github.com/beyond10x/substrate#serving-exec), and serves the socket conductord opens,
+   `$XDG_RUNTIME_DIR/substrate/daemon.sock`. `<state>` is the instance's `state` value in
+   `conductor config show`; create `<state>/sessions` and ~/.local/state/substrate/workspaces mode
+   700 before the daemon starts, since it refuses a writable root that does not exist. `<uid>` is the user's numeric id.
+   - Check: `curl --silent --unix-socket $XDG_RUNTIME_DIR/substrate/daemon.sock http://localhost/v1/machine`;
+     it answers, and its exec.writable-roots.host fact lists sessions-<name>.
+   - Fix: `substrate-daemon --socket $XDG_RUNTIME_DIR/substrate/daemon.sock --state ~/.local/state/substrate/state.db --workspaces ~/.local/state/substrate/workspaces --deployment personal --allow-uid <uid> --cgroup-root <delegated cgroup root> --writable-root sessions-<name>=<state>/sessions --egress-aperture conductor=api.anthropic.com:443/tcp --ca-bundle /etc/ssl/certs/ca-certificates.crt`,
+     run inside that subtree and kept running.
+   - Hands: the delegated cgroup subtree, when the user's systemd does not delegate one.
 
-10. **Run doctor until it is ready.** Its last line is `ready`, or `not ready:` and what failed.
+10. **Start conductord.** It starts the instance's runtime in that box, and the runtime runs the
+    instance's loop.
+    - Check: `conductor doctor`; it prints daemon unit: conductord.service running.
+    - Fix: `conductor daemon serve --install`, then
+      `curl --silent http://127.0.0.1:7300/v1/instances`, which lists the instance. A box
+      substrate refused shows as PlacementRefused with substrate's reason.
+    - Hands: none.
+
+11. **Check the repository as a whole, and apply what is safe.** `conductor setup` prints doctor's
+    rows, then the repository's: its planning store, the instance naming it, its records and its
+    trust, and ends with one verdict. `--apply` writes the step 6 file when there is no config
+    file, and runs `conductor init` and `conductor trust` when they are missing. It never logs in,
+    installs a program or migrates the store: it prints each of those as a `to run:` or
+    `to install:` line, which goes back to step 2, 4 or 5.
+    - Check: `conductor setup`; its last line is ready.
+    - Fix: `conductor setup --apply`
+    - Hands: what each `to run:` and `to install:` line it prints needs: a login, an install that
+      needs root, approving the store migration.
+
+12. **Run doctor until it is ready.** Its last line is `ready`, or `not ready:` and what failed.
     - Check: `conductor doctor`
     - Fix: go back to the step for each program the not-ready line names: gh or glab to step 2,
-      aep, ess or worktree too old to step 4. Install any other missing program (git, claude,
-      jq, task) with the system's package manager, then check again.
+      aep, ess, worktree or substrate-daemon too old to step 4. Install any other missing program
+      (git, claude, jq, task) with the system's package manager, then check again.
     - Hands: what the step it goes back to needs.
     - Next: once doctor is ready, [one task in an existing repository](https://beyond10x.github.io/conductor/docs/guides/first-task-existing-repo)
       takes the person from here to a first merged pull request.
 
 ## When it is done
 
-Tell the person what was installed, the account each forge CLI is logged in as, and the
-instance's name. [Start conductor](https://beyond10x.github.io/conductor/docs/guides/start-conductor)
-starts the daemon, which starts the instance's runtime, with `conductor daemon serve --install`.
+Tell the person what was installed, the account each forge CLI is logged in as, the instance's
+name, and whether `/v1/instances` shows its runtime running.
+[Run conductor](https://beyond10x.github.io/conductor/docs/guides/start-conductor) says how to
+operate it from there.

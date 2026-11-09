@@ -1,23 +1,27 @@
 ---
 title: Configure an instance
 sidebar_position: 1
-description: Write a config file for one organization, validate it, read a refusal, and see the effective values the sessions read.
-lede: A config file is checked before any command runs, so write it, validate it and read its effective values before you start a session.
-source: docs/config.md; conductor.example.yaml; crates/conductor/src/config.rs, crates/conductor/tests/config.rs; conductor config validate --help, conductor config show --help
+description: Write a conductor.config/2 file, validate it, read its effective values and the level each came from, change one key with config put, and migrate a conductor.config/1 file.
+lede: Every command reads the config file before it runs, and the daemon reads only conductor.config/2, so write the file, validate it and read its effective values before you start the daemon.
+source: docs/config.md; crates/conductor/src/config.rs, config/convert.rs, config/effective.rs, config/put.rs; crates/conductor/src/daemon/reconcile.rs; crates/conductor/tests/config.rs, config_globals.rs; conductor config --help
 ---
 
 ## 1. Write the file
 
-Write the file `$CONDUCTOR_CONFIG` names, here `~/example-org/conductor.yaml`; `--config` names one
-for a single command, and without either the default path applies
-([instances and config](../concepts/instances-and-config.md#which-file-which-instance)). This instance reads a GitHub owner's repositories, checked out under `~/example-org`, with a
-checkout of the conductor repository at `~/example-org/conductor` for the profiles and settings:
+The file is `--config <FILE>`, else `$CONDUCTOR_CONFIG`, else `~/.b10x/conductor/conductor.yaml`.
+This one, `~/example-org/conductor.yaml`, holds one instance that reads a GitHub owner's
+repositories, checked out under `~/example-org`:
 
 ```yaml
-version: conductor.config/1
+version: conductor.config/2
+daemon:
+  store: sqlite:~/.b10x/conductor/conductor.sqlite
+globals:
+  cadence: {cycle: 2h}
 default: personal
 instances:
   - name: personal
+    placement: linux
     session_prefix: personal
     sources:
       - github: example-org
@@ -25,39 +29,23 @@ instances:
       root: ~/example-org
       trees: ~/.local/state/worktree/trees/example-org
     records: ~/example-org/records
-    roles:
-      - role: conductor
-        harness: claude
-        model: opus
-      - role: conductor-dev
-        harness: claude
-        model: opus
-      - role: controller
-        harness: claude
-        model: opus
 ```
 
-| key | why |
+| key | what it sets |
 |---|---|
-| `sources` | where the repositories come from: `github: <owner>`, `local: <path>` or `gitlab: <group>` |
-| `checkouts.root`, `checkouts.trees` | where their checkouts and managed worktrees are; the guard and the collectors read them |
-| `records` | the directory conductor runs in and keeps its records in; the guard gives conductor its rules only there. Default `~/.b10x/conductor/<name>/records` |
-| `roles` | the harness and model of each session; a role starts from the profile and settings the binary carries for it; a `profile` the role names is the file its session starts with through `--append-system-prompt-file` in their place, and its `settings` the settings file that wires the guard. A list given replaces the whole default |
+| `daemon.store` | the deployment's one database, `sqlite:<path>` or `postgres://…`. The daemon starts only on a `daemon.store` the file writes |
+| `globals` | the defaults every instance starts from. An instance key overrides the global one, and a role's key overrides both |
+| `placement` | where the instance's runtime runs: `linux` or `systemd` opens a box through the local `substrate-daemon`, and a word that names no adapter runs it as a user unit with no box ([the host](../concepts/the-host.md)) |
+| `session_prefix` | the prefix of every session name the instance starts, such as `personal-conductor`. Required |
+| `sources` | where the repositories come from: `github: <owner>`, `local: <path>` or `gitlab: <group>` ([GitLab](./gitlab.md)) |
+| `checkouts.root`, `checkouts.trees` | where their checkouts and managed worktrees are |
+| `records` | the directory conductor keeps its records in. Default `~/.b10x/conductor/<name>/records` |
 
-Why a controller role that names an `agent` must name a `profile` too: a session the `systemd`
-provider starts passes `--setting-sources project,local`, which loads no user-level agent from
-`~/.claude/agents/`, and a
-repository's own checkout does not carry conductor's adapter. So a controller always starts from
-a profile, never from `--agent`, and `conductor config validate` refuses a controller role with
-an `agent` and no `profile`. With `agent: repo-controller` added to the controller above:
-
-```console
-$ conductor config validate
-conductor: config validate: ~/example-org/conductor.yaml: instances[0].roles[2].profile: is absent beside an agent: a controller starts from its profile, the file its session starts with through --append-system-prompt-file, never from an agent, because --setting-sources project,local loads no user-level agent
-```
-
-The repository's `conductor.example.yaml` has two complete instances, one with a catalog and one
-with a `local` source. Every key is in the [config reference](/docs/reference/config).
+With no `roles`, the instance takes the built-in roles on `claude` and `opus`. A `roles` list
+replaces them. The old role names `conductor`, `conductor-dev` and `controller` are read as
+`director`, `maintainer` and `lead` for this release, with a note. Who reads each key is in
+[config](../concepts/config.md), every type and default in the
+[config reference](../reference/config.md).
 
 ## 2. Validate it
 
@@ -66,13 +54,14 @@ $ conductor config validate
 ~/example-org/conductor.yaml: valid, 1 instance(s): personal
 ```
 
-A problem is named by its YAML path, and the command exits 1. This `broken.yaml` writes a
-duration without its unit and a size in the wrong unit:
+Each problem is printed with its YAML path, and the command exits 1:
 
 ```yaml
-version: conductor.config/1
+version: conductor.config/2
 instances:
   - name: demo
+    placement: linux
+    session_prefix: demo
     sources:
       - local: ~/work
     checkouts:
@@ -96,49 +85,82 @@ Every other command resolves the instance first and stops on the same problems.
 
 ## 3. Read the effective values
 
-`config show` prints the instance after defaults, with every path absolute. The sessions read a
-value written `section.key` from its JSON form:
+`config show` prints the instance after defaults, every path absolute (written `~` here):
 
 ```console
 $ conductor config show --format json | jq -c '.instances[0] | {records, state, cache}'
 {"records":"~/example-org/records","state":"~/.b10x/conductor/personal/state","cache":"~/.cache/b10x/conductor/personal"}
-$ conductor config show --format json | jq -c ".instances[0].roles[2]"
-{"role":"controller","harness":"claude","model":"opus","agent":null,"settings":null,"profile":null,"session_name":null,"read_only_tools":[]}
 ```
 
-(The CLI prints the home directory in full; it is written `~` here.) `session_name` is derived,
-never chosen: `<session_prefix>-<role>` for conductor and conductor-dev, or the role's own name
-without a prefix, and `null` for the controller role, whose sessions are named per repository. The
-session tasks (`task sessions`, `task conductor:attach`, `task maintainer:attach`) act on the active
-instance's sessions by these full names, and refuse a name that more than one live background
-session holds. `read_only_tools` is the list of extra tools the guard allows this role's sessions
-beyond its built-in read-only list; empty here. `--format yaml` prints the same instance as a config
-file.
-
-The instance's dashboard port and session prefix:
+`--format yaml` prints it as a config file. `--effective` prints every key once with the level it
+came from: `default`, `global`, `instance` or `role`. A role's key is written under
+`roles.<role>.`:
 
 ```console
-$ conductor config show --format json | jq -c '.instances[0] | {session_prefix, dashboard_port}'
-{"session_prefix":"personal","dashboard_port":7313}
+$ conductor config show --effective | grep -E '^(placement|cadence\.(cycle|ci)):'
+placement: linux (instance)
+cadence.cycle: 2h (global)
+cadence.ci: 900s (default)
 ```
 
-`dashboard_port` is 7313 plus the instance's position in the file, so the first instance gets 7313
-and the second 7314, unless the file writes a port. `task dashboard` serves the active instance's
-dashboard on that port, as the user service `<session_prefix>-conductor-dashboard`.
+With `--format json` it prints the same as rows, keyed `<instance>/<role or ->/<path>`.
 
-`session_prefix` is required. No two instances of the file share a prefix, a state or a records
-directory; one daemon reads one file, so no host registry compares files. A file written before the prefix was
-required gets one from `conductor config migrate`, which prints what it wrote
-(`--check` prints it only); stop the instance's sessions and dashboard first, since the prefix
-renames them.
+## 4. Change one key
 
-## 4. Write the instance's rules
+`config put` changes one key at one level, validates the whole file, writes it, commits it to
+the git checkout the file is in, and records the change in the store `daemon.store` names:
 
-`rules.md` in the instance's `records` directory holds the organization's own rules, one section
-per role, each rule with its source. Every session reads it after its profile. The repository ships
-none; [`conductor init`](./initialise-the-records.md) writes an empty one with a section per role.
-What belongs there is what holds for this organization only, such as where the operator's standing
-grant for class-C decisions is written ([decision classes](../concepts/decisions-and-messages.md)).
+```console
+$ conductor config put --level instance --instance personal --path thresholds.silent_session --value 45m --reason "controllers run long gates"
+```
 
-Next: [initialise the records](./initialise-the-records.md), then
-[start conductor](./start-conductor.md).
+| flag | rule |
+|---|---|
+| `--level` | `global`, `instance` or `role`. A global change names no instance, an instance change `--instance`, a role change `--instance` and `--role`, else `LevelScopeMismatch` |
+| `--path` | the key under that level, its words joined by `.` |
+| `--value` | read as YAML. Without it the key is removed at that level, so the level below applies again |
+| `--reason` | written into the commit body and the revision. Required |
+
+It prints the revision id, the key, the level and the commit. The file is written whole, so its
+comments are lost, and a change that would not validate writes nothing. An agent's change is
+refused `ActorNotHuman` unless `globals.tuning.keys` allows the key and value. With
+`--daemon <url>` the change goes to that daemon's `PUT /v1/config`
+([remote daemon](./remote-daemon.md)).
+
+## 5. Migrate a conductor.config/1 file
+
+The daemon refuses a `/1` file:
+
+```text
+the config file ~/example-org/conductor.yaml is conductor.config/1, which the daemon does not read: run conductor config migrate to write conductor.config/2
+```
+
+The other commands still read a `/1` file for this release. `conductor config migrate` converts it
+once and prints one note per change. `--check` prints the notes and writes nothing.
+
+```console
+$ conductor config migrate
+version: conductor.config/2 (was conductor.config/1)
+instances[0].dashboard_port: dropped (the daemon serves the one dashboard, at daemon.dashboard)
+instances[0].confinement.limits: moved to instances[0].limits (the instance's box as a whole)
+instances[0].placement: systemd
+host.roles: moved to globals.roles (from ~/.b10x/conductor/host/host.yaml, which is no longer read)
+daemon.store: not written; the daemon starts only on a daemon.store the file writes
+personal: session_prefix personal
+```
+
+| `/1` key | after `migrate` |
+|---|---|
+| `version` | `conductor.config/2` |
+| `dashboard_port`, `store`, `confinement.mode`, `confinement.provider` | dropped |
+| `confinement.limits` | the instance's `limits` |
+| `placement` | written after `name`: `systemd`, or `none` for a `none` provider |
+| `~/.b10x/conductor/host/host.yaml` roles | `globals.roles`, each without its `session_name` |
+| `session_prefix` | written into each instance without one: its name in letters, digits and `-`, with `2`, `3`, … appended when another instance holds it |
+
+The old file is kept as `<file>.config-1.bak`, and comments are lost. A converted file that would
+not validate is not written. Then write `daemon.store` by hand: no command writes it. A new prefix
+renames the instance's sessions and slice, so stop them first with
+`conductor session stop --role <role>`.
+
+Next: [initialise the records](./initialise-the-records.md).

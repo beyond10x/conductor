@@ -1,25 +1,27 @@
 ---
 title: Run conductor on GitLab
-sidebar_position: 7
-description: Point an instance at a group on a self-hosted GitLab, log glab in to its host, check the programs, write the workspace file, and read what conductor collects and what the guard holds.
-lede: A gitlab source names a group and the host it is on; conductor reads that forge through glab, so a team with no repository on GitHub needs no gh.
-source: crates/conductor/src/config.rs, crates/conductor/tests/config.rs; crates/conductor/src/doctor.rs, crates/conductor/tests/doctor.rs; crates/conductor/src/collect/; crates/conductor/src/watch.rs; crates/conductor/src/guard/rules.rs, crates/conductor/tests/guard_rules.rs; spec/domains/config.yaml
+sidebar_position: 2
+description: Point an instance at a group on a self-hosted GitLab, log glab in to its host, check the programs, write the workspace file, and read what conductor collects from GitLab.
+lede: A gitlab source names a group and the host it is on. Conductor reads that forge through glab, so a team with no repository on GitHub needs no gh.
+source: crates/conductor/src/config.rs, crates/conductor/tests/config.rs; crates/conductor/src/doctor.rs; crates/conductor/src/collect/gitlab.rs, collect/mod.rs; crates/conductor/src/watch.rs; crates/conductor/src/guard/rules.rs; spec/domains/config.yaml
 ---
 
 This guide sets up an instance whose repositories are the projects of one group on a self-hosted
 GitLab, here `example-group` on `gitlab.example.com`. Read
-[configure an instance](./configure-an-instance.md) first; everything it says about checkouts,
+[configure an instance](./configure-an-instance.md) first: what it says about the file, checkouts,
 records and roles holds here too.
 
 ## 1. Name the group and its host
 
-A `gitlab` source names a group and the host it is on:
-
 ```yaml
-version: conductor.config/1
+version: conductor.config/2
+daemon:
+  store: sqlite:~/.b10x/conductor/conductor.sqlite
 default: platform
 instances:
   - name: platform
+    placement: linux
+    session_prefix: platform
     sources:
       - gitlab: example-group
         host: gitlab.example.com
@@ -29,13 +31,13 @@ instances:
     records: ~/example-group/records
 ```
 
-| key | why |
+| key | what it sets |
 |---|---|
 | `gitlab` | the group whose projects, and its subgroups' projects, are the instance's repositories |
-| `host` | the GitLab host name, without a scheme or a path; a port may follow as `:<port>`. Absent, it is `gitlab.com` |
+| `host` | the GitLab host name, without a scheme or a path. A port may follow as `:<port>`. Absent, it is `gitlab.com` |
 
-`host` belongs to a `gitlab` source only; `conductor config validate` refuses it beside `github` or
-`local`, and refuses a host written with a scheme or a path:
+`conductor config validate` refuses `host` beside a `github` or `local` source, and a host written
+with a scheme or a path:
 
 ```console
 $ conductor config validate
@@ -45,48 +47,38 @@ $ conductor config show --format json | jq -c '.instances[0].sources'
 ```
 
 A `gitlab` source may also carry `exclude`, as a `local` source does. Every key is in the
-[config reference](/docs/reference/config).
+[config reference](../reference/config.md).
 
 ## 2. Log glab in to the host
 
 Conductor reads GitLab through `glab`, GitLab's own CLI, on the host the source names. Log it in
-once, as the user conductor's sessions run as:
+once, as the user conductor runs as:
 
 ```console
 $ glab auth login --hostname gitlab.example.com
 $ glab auth status --hostname gitlab.example.com
 ```
 
-`glab` keeps its token in its own config; conductor never reads or writes it.
+`glab` keeps its token in its own config. Conductor does not read or write it.
 
 ## 3. Check the programs
 
-`conductor doctor` asks for a forge's CLI only when the instance has a source on that forge: `glab`
-for a `gitlab` source, `gh` for a `github` source. For this instance `gh` is not needed, and
-`glab` is:
+`conductor doctor` asks for a forge's CLI only when an instance of the file has a source on that
+forge: `glab` for a `gitlab` source, `gh` for a `github` source. For this instance the forge lines
+read:
 
 ```console
 $ conductor doctor
-git: present, git version 2.55.0
 gh: not needed
 glab: present, glab 1.73.0
-claude: present, 2.1.296 (Claude Code)
-jq: present, jq-1.8.2
-task: present, 3.53.1+ff3372fc
-aep: present, aep 0.71.2
-worktree: present, b10x-worktree-cli 0.18.1
-ess: present, ess 0.59.0
-pins: none
-aep: 0.71.2 meets the build's pin 0.71
-worktree: 0.18.1 meets the build's pin 0.18.1
-ess: 0.59.0 meets the build's pin 0.59
-ready
+glab: logged in to gitlab.example.com as example-user
 ```
 
-Without `glab` on `PATH` the `glab` line reads `glab: missing`, the last line
-`not ready: glab (missing)`, and the command exits 1. A snapshot of this instance is refused up
-front for the same reason, naming `glab`, rather than failing in a collector
-([troubleshoot](./troubleshoot.md)).
+Without `glab` on `PATH` the line reads `glab: missing`, the last line `not ready: glab (missing)`,
+and the command exits 1. A snapshot of this instance is refused at its start for the same reason,
+with a message that names `glab`. The other lines of doctor's output are in
+[getting started](../getting-started.md), and each `not ready` reason in
+[troubleshoot](./troubleshoot.md).
 
 ## 4. Write the workspace file
 
@@ -95,45 +87,35 @@ $ conductor config workspace
 ```
 
 For a `gitlab` source, the workspace file has one member per git checkout under `checkouts.root`
-whose `origin` remote is on the source's host and under its group, but those its `exclude` names.
-It reads the checkouts only, not the forge: a checkout of the same group path on another host, or
-of another group on this host, is not a member. `conductor config workspace --check` writes
-nothing and names each member that differs from the file.
+whose `origin` remote is on the source's host and under its group, except those its `exclude`
+lists. It reads the checkouts only, not the forge. A checkout of the same group path on another
+host, or of another group on this host, is not a member. The records directory is a member too
+([initialise the records](./initialise-the-records.md#3-keep-the-workspace-file-in-step)).
 
 ## What conductor reads from GitLab
 
 Each snapshot reads the group with `glab api --hostname <host>` and records:
 
-- **repositories**: one row per project of the group and its subgroups, archived projects marked
-  archived, with whether a checkout of it is under `checkouts.root`;
-- **issues**: the number of open issues of each project;
-- **releases**: each project's newest release, its tag and date, and the commits on the default
-  branch after it; and each release published within the collector's window;
-- **merge requests**: each open merge request, failing when its head pipeline failed, and each
-  merge request merged within the collector's window;
-- **pipelines**: the newest pipeline of each project's default branch, its status read as the
-  same conclusions a GitHub workflow run has;
-- **specifications**: for each project, whether its checkout holds a specification.
+| record | what |
+|---|---|
+| repositories | one row per project of the group and its subgroups, archived projects marked archived, with whether a checkout of it is under `checkouts.root`. A project with no commit yet is left out |
+| issues | the number of open issues of each project |
+| releases | each project's newest release, its tag and date, and the commits on the default branch after it. Each release published within the collector's window. A `v<major>.<minor>.<patch>` tag counts as a release |
+| merge requests | each open merge request, failing when its head pipeline failed, and each merge request merged within the collector's window |
+| pipelines | the newest pipeline of each project's default branch, its status read as the conclusions a GitHub workflow run has |
+| specifications | for each project, whether its checkout holds a specification |
 
 The board, the dashboard and `conductor repository shipped` read these rows as they read a GitHub
-instance's ([the loop](../concepts/the-loop.md)).
+instance's. For the active repositories of the newest complete snapshot, `conductor watch run`
+prints `CI red on main: <repo> / pipeline (run <id>)` when a project's default-branch pipeline
+turns from success to failed, and `CI green again on main: <repo> / pipeline` when it turns back.
 
-The watch reports default-branch pipelines: for the active repositories of the newest complete
-snapshot, `conductor watch run` prints the red line when a project's default-branch pipeline turns
-from success to failed, and the green line when it turns back.
+## glab under the guard
 
-## The guard holds glab writes like gh writes
+The guard reads a `glab` call as it reads a `gh` call. A read is allowed, and any other call is a
+forge write, denied in every guarded session. A write to a forge credential (`glab variable`,
+`auth`, `ssh-key`, `gpg-key`, `deploy-key`, `token`, `config` or `securefile`) is class H, for the
+operator to run. Which `glab` calls read, and the writes `forge.route: direct` lets a controller
+make, are in [the guard](../security/the-guard.md).
 
-The guard reads a `glab` call as it reads a `gh` call: a read is allowed, and anything else is a
-forge write, denied in every guarded session as the same `gh` write would be. A `glab` read is
-`mr view|list|diff`, `issue view|list`, `release view|list|download`, `repo view|list`,
-`ci view|list|status|trace|get`, `api` with GET and no request fields, `auth status`, any call
-with `--help`, and `--version`. So `glab mr merge` is denied where `gh pr merge` is, and
-`glab mr view` allowed where `gh pr view` is. Writes go through the repository's own route.
-
-A write in `glab variable`, `auth`, `ssh-key`, `gpg-key`, `deploy-key`, `token`, `config` or `securefile` is a forge
-credential, class H, like a `gh secret` or `gh auth` write: it needs the operator's hands
-([the guard](../security/the-guard.md)).
-
-Next: [initialise the records](./initialise-the-records.md), then
-[start conductor](./start-conductor.md).
+Next: [initialise the records](./initialise-the-records.md).

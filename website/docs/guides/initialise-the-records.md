@@ -1,15 +1,15 @@
 ---
 title: Initialise the records
-sidebar_position: 2
+sidebar_position: 3
 description: Write the instance's records directory with conductor init, fill in rules.md, keep the workspace file in step with the config, and take the first snapshot.
-lede: Conductor starts in the instance's records directory and reads its hand-over, rules and goals from there, so the directory exists and is a git repository before the first session.
-source: crates/conductor/src/init.rs, crates/conductor/tests/init.rs; crates/conductor/src/config.rs, config workspace; crates/conductor/src/collect/blockers.rs; conductor init --help, conductor config workspace --help
+lede: Conductor reads its hand-over, rules and goals from the instance's records directory, so the directory exists and is a git repository before the first cycle.
+source: crates/conductor/src/init.rs, crates/conductor/tests/init.rs; crates/conductor/src/config.rs, config workspace; crates/conductor/src/collect/blockers.rs; crates/conductor/src/snapshot.rs; conductor init --help, conductor config workspace --help, conductor rules show --help
 ---
 
 This guide continues the instance of [configure an instance](./configure-an-instance.md): a
-`github: example-org` source checked out under `~/example-org`, with `records:
-~/example-org/records` and `$CONDUCTOR_CONFIG` pointing at its config file. The CLI prints
-absolute paths; the output here writes the home directory as `~`.
+`github: example-org` source checked out under `~/example-org`, with
+`records: ~/example-org/records` and `$CONDUCTOR_CONFIG` pointing at its config file. The CLI
+prints absolute paths. The output here writes the home directory as `~`.
 
 ## 1. Write the skeleton
 
@@ -32,42 +32,47 @@ files below and commits them, and only them. `--instance` selects another instan
 | path | holds |
 |---|---|
 | `README.md` | what the directory is and who writes each file |
-| `NORTHSTAR.md` | what the organization works towards; a placeholder until the operator writes the goals |
-| `rules.md` | the organization's rules, with an empty section per role: `Conductor`, `Repository controller`, `conductor-dev` |
-| `docs/handoff/<date>.md` | the first hand-over: its first task is to fill in `rules.md` and `NORTHSTAR.md` with the operator, run `conductor doctor` and one cycle |
+| `NORTHSTAR.md` | what the organization works towards: a placeholder until the operator writes the goals |
+| `rules.md` | the organization's rules, with an empty section per role: `Director`, `Lead`, `Maintainer` |
+| `docs/handoff/<date>.md` | the first hand-over. Its first task: fill in `rules.md` and `NORTHSTAR.md` with the operator, run `conductor doctor` and one cycle |
 | `.engineering/workspace.yaml` | the workspace file, as `conductor config workspace` writes it (step 3) |
-| `decisions/`, `dispatches/`, `charters/` | empty directories for the session's decision log, briefs and charters |
+| `decisions/`, `dispatches/`, `charters/` | empty directories for the decision log, the briefs and the charters |
 
-It overwrites nothing. When any of those files is there, it writes nothing, makes no repository and
-exits 1:
+It overwrites nothing. When any of those files is there, it writes nothing, makes no repository
+and exits 1:
 
 ```console
 $ conductor init
-conductor: init: ~/example-org/records/README.md, ~/example-org/records/NORTHSTAR.md, ~/example-org/records/rules.md, ~/example-org/records/docs/handoff/2026-10-12.md, ~/example-org/records/.engineering/workspace.yaml are there; init overwrites nothing and wrote nothing
+conductor: init: ~/example-org/records/README.md, ~/example-org/records/NORTHSTAR.md, ~/example-org/records/rules.md, ~/example-org/records/docs/handoff/2026-10-12.md, ~/example-org/records/.engineering/workspace.yaml are there; init overwrites nothing and wrote nothing there
 ```
 
 It also refuses without a config file: the records directory is the one an instance of a file
-names. The texts it writes name no organization.
+sets. The texts it writes name no organization.
 
 ## 2. Write the rules
 
 Fill in `rules.md` with the organization's own rules, one section per role, each rule with its
-source: a decision, a message or a document. Every session reads it at start, after its profile, and
-follows its role's section; conductor passes the other sections on in the charters and briefs it
-writes. Write where the operator's standing grant for class-C decisions is
-([decision classes](../concepts/decisions-and-messages.md#authority)), and how the operator decides,
-so conductor can pick the option the operator would. Commit it in the records directory.
+source: a decision, a message or a document. Every session reads it at start, after its profile,
+and follows its role's section. The director passes the other sections on in the charters and
+briefs it writes.
 
-The repository ships no rules: what is generic is in the profiles, what holds for one organization
-is here.
+Write where the operator's standing grant for class-C decisions is, and how the
+operator decides, so conductor can pick the option the operator would
+([decisions and messages](../concepts/decisions-and-messages.md)). Commit it in the records
+directory.
+
+The repository ships no rules. What is generic is in the profiles the binary carries, and what
+holds for one organization is here. `conductor rules show --section <heading>` prints the items
+under a heading, and `--item 3,5` items by number.
 
 ## 3. Keep the workspace file in step
 
-The blockers collector reads the instance's repositories from `.engineering/workspace.yaml` in the
-records, and the specifications collector reads a `github` source's repositories through it. `conductor config workspace` rewrites it from the
-config, with no network read: each checkout directly under `checkouts.root` (or a `local` source's
-path) that has an `origin` remote, and the records directory itself, with or without one. With checkouts `api`, `web`
-and `conductor` under `~/example-org`:
+The blockers collector reads the instance's repositories from `.engineering/workspace.yaml` in
+the records, and the specifications collector reads a `github` source's repositories through it.
+`conductor config workspace` rewrites it from the config, with no network read. Its members are
+each checkout directly under `checkouts.root` (or a `local` source's path) that has an `origin`
+remote, and the records directory itself, with or without one. With checkouts `api`, `web` and
+`conductor` under `~/example-org`:
 
 ```console
 $ conductor config workspace
@@ -78,8 +83,8 @@ member: web ../../web
 wrote: ~/example-org/records/.engineering/workspace.yaml
 ```
 
-`--check` writes nothing. It exits 0 with one line when the file matches, and 1 naming each member
-that differs:
+`--check` writes nothing. It exits 0 when the file matches, and 1 with one line per member that
+differs:
 
 ```console
 $ conductor config workspace --check
@@ -100,14 +105,19 @@ conductor snapshot snapshots
 ```
 
 The collectors read each member with an `origin` at `origin/main`, after a `git fetch origin` in
-its checkout. The records need no `origin`: without one they are read at their `HEAD`, with no
+its checkout. The records need no `origin`. Without one they are read at their `HEAD`, with no
 fetch, so the first snapshot reads what `conductor init` committed, and later ones what was
-committed since; nothing uncommitted is read. Should you give the records an `origin`, push `main`
-to it, since from then on they are read at `origin/main`, and keep the repository private: the
-records hold the organization's decisions, rules and briefs.
+committed since. Nothing uncommitted is read.
 
-`start-snapshot` prints the snapshot's id and exits 0 when every collector answered. When it fails,
-[troubleshoot](./troubleshoot.md#a-failed-snapshot) reads the reason.
+If you give the records an `origin`, push `main` to
+it, since from then on they are read at `origin/main`. Keep that repository private: the records
+hold the organization's decisions, rules and briefs.
 
-Next: [start conductor](./start-conductor.md). Its first session reads the hand-over `conductor init`
-committed and works through its first task.
+`start-snapshot` prints the snapshot's id and exits 0 when every collector answered. The snapshot
+is written to the store `daemon.store` names. When it fails,
+[troubleshoot](./troubleshoot.md#a-failed-snapshot) explains the reason.
+
+The daemon's runtime runs the loop, so the next cycle follows on its own at `cadence.cycle`.
+
+Next: [add a repository rule](./add-a-repository-rule.md), or
+[open the dashboard](./dashboard.md).

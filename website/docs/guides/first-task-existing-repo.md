@@ -1,22 +1,21 @@
 ---
 title: One task in an existing repository
 sidebar_position: 0
-description: Set conductor up in a checkout you already have, give it one goal, let it dispatch one controller, review the pull request it opens, and know what to do when it stops.
+description: Set conductor up in a checkout you already have, give it one goal and a charter, let the loop start one controller, review the pull request it opens, and know what to do when it stops.
 lede: The shortest way to see conductor work is one task in a repository you already have, from conductor setup --apply in its checkout to a pull request you merge yourself.
-source: crates/conductor/src/setup.rs, crates/conductor/src/doctor.rs, crates/conductor/src/spawn.rs, crates/conductor/src/run.rs; crates/conductor/roles/controller.md; SETUP.md
+source: crates/conductor/src/setup.rs, doctor.rs, spawn.rs, run.rs, run/dispatch.rs; crates/conductor/roles/controller.md; SETUP.md
 ---
 
 This guide takes one task in a repository you already work in, here `alpha` of `example-org`
-checked out at `~/src/alpha`, from nothing to a merged pull request. It needs the `conductor` CLI
-([getting started](../getting-started.md) installs it), Claude Code (`claude`), and a checkout of
-the conductor repository for the tasks that start sessions
-([start conductor](./start-conductor.md)). The repository needs no planning store.
+checked out at `~/src/alpha`, to a merged pull request. It needs the `conductor` CLI and the
+programs `conductor doctor` checks ([getting started](../getting-started.md)). The repository needs
+no planning store.
 
-Output lines differ on your machine: host, versions, paths and ids are examples.
+Output lines differ on your machine: versions, paths and ids are examples.
 
 ## 1. Set the checkout up
 
-In the checkout, check it first, then apply what is safe:
+In the checkout, check first, then apply what is safe:
 
 ```console
 cd ~/src/alpha
@@ -24,94 +23,78 @@ conductor setup
 conductor setup --apply
 ```
 
-`conductor setup` prints the rows of `conductor doctor` (the machine, each program conductor
-starts, each forge login, the worktree workspace), then four rows of the repository, and one
-verdict as its last line. Before `--apply`, on a machine whose programs are ready, it ends:
+`conductor setup` prints the rows of `conductor doctor`, then four rows of the repository, then
+one verdict. Before `--apply`, on a host with no config file, it ends:
 
 ```text
 store: none
-instance: alpha names ~/src/alpha
-records: missing (~/.b10x/conductor/alpha/records); run conductor init --instance alpha
-trust: not trusted (~/src/alpha); run conductor trust --instance alpha
-not ready: records (missing), trust (not trusted)
+instance: none names ~/src/alpha, which --apply names with the source {github: example-org}; run conductor setup --apply
+records: missing (no instance names the repository)
+trust: not trusted (~/src/alpha)
+not ready: instance (none), records (missing), trust (not trusted)
 ```
 
 `store: none` is no failure: conductor reads a planning store only where there is one.
-`--apply` writes a config file with one instance naming the repository when there is no config
-file (with one, it prints the instance to add and changes nothing), then runs `conductor init`
-and `conductor trust`. It never logs in, installs a program, migrates a store or activates a
-worktree workspace: each of those is a line for you to run, such as
+
+With no config file, `--apply` writes a `conductor.config/2` file with one instance, `alpha`. It
+names `daemon.store`, `placement: systemd`, `session_prefix: alpha`, the source from the
+repository's `origin`, and `~/src` as the checkouts root. Then it runs `conductor init` and
+`conductor trust`. With a config file whose instances do not name the repository, it prints the
+instance to add as `to write:` lines and changes nothing.
+
+It never logs in, installs a program, migrates a store or activates a worktree workspace. Each of
+those is a line for you to run:
 
 ```text
 to run: gh auth login --hostname github.com
 to run: worktree activate --profile <profile> --workspace <root>
 ```
 
-The second line appears when the checkouts root is not inside an activated worktree workspace;
-`<profile>` is your committed worktree profile template. `worktree activate` writes your own
-configuration, so conductor only prints it. Run each `to run:` and `to install:` line, then
-`conductor setup` again until its last line is `ready`.
+The second line appears when the checkouts root is not inside an activated worktree workspace:
+doctor's row then reads `worktree workspace: ~/src not activated`. `<profile>` is your committed
+worktree profile template. Run each `to run:` and `to install:` line, then `conductor setup` again
+until its last line is `ready`.
 
-## 2. Check the programs
+## 2. Start the instance
 
-```console
-$ conductor doctor
-host: workstation
-system: Linux 6.18.0
-architecture: x86_64
-conductor 0.20.1
-git: present, git version 2.55.0
-gh: present, gh version 2.80.0
-glab: not needed
-claude: present, 2.1.296 (Claude Code)
-jq: present, jq-1.8.2
-task: present, 3.53.1
-aep: present, aep 0.71.2
-worktree: present, b10x-worktree-cli 0.18.1
-ess: present, ess 0.59.0
-gh: logged in to github.com as example-user
-worktree workspace: ~/src activated
-pins: none
-aep: 0.71.2 meets the build's pin 0.71
-worktree: 0.18.1 meets the build's pin 0.18.1
-ess: 0.59.0 meets the build's pin 0.59
-ready
-```
+An instance whose checkouts root holds the checkout, such as the `home` instance of
+[getting started](../getting-started.md), already runs: go on.
 
-While the workspace is not activated, doctor prints `worktree workspace: ~/src not activated`
-with the command under it, `  activate: worktree activate --profile <profile> --workspace <root>`,
-and ends `not ready: worktree workspace (not activated: ~/src)`. Doctor writes nothing.
+For the instance `--apply` wrote, do steps 5 and 6 of
+[getting started](../getting-started.md#5-start-the-substrate-daemon): start `substrate-daemon`
+with this instance's writable root, `--writable-root sessions-alpha=<state>/sessions`, then
+`conductor daemon serve --install`. `substrate-daemon` reads its writable roots at start, so a
+running one is restarted with the new root. A running conductord starts the new runtime at its
+next pass after the config file changed.
 
-## 3. Name the controller's profile and settings
+## 3. Add the lead role
 
-A controller starts from the controller profile and settings the binary carries, written into
-the state directory at start, unless the `controller` role names its own `profile` or `settings`
-(`conductor spawn` refuses one that is not a file). Add the roles to the instance in the config
-file, then validate it:
+`conductor spawn` refuses an instance with no `lead` role (`NoControllerRole`). Add the roles to
+the instance in the config file:
 
 ```yaml
     roles:
-      - role: conductor
+      - role: director
         harness: claude
         model: opus
-      - role: controller
+      - role: lead
         harness: claude
         model: opus
 ```
 
 ```console
 conductor config validate
-conductor config show
 ```
 
-The shipped settings files pin no instance, so `conductor config validate` prints a note for each:
-`conductor session start` and `conductor spawn` start the role with a copy pinned to the instance.
-`conductor config validate` names each problem by its YAML path and exits 1;
-`conductor config show` prints the instance with its defaults, the `records` directory among them.
+A lead starts from the profile and settings the binary carries, which wire the guard
+([sessions](/docs/security/sessions#profile-or-agent)). Claude Code refuses a background session
+in `bypassPermissions` until your OS user has accepted its disclaimer once:
+run `claude --dangerously-skip-permissions` in a checkout and accept it
+([bypass permissions](/docs/security/sessions#bypass-permissions)).
 
 ## 4. Give it one goal
 
-A dispatch serves a goal. Record one, with what shows it is met, and confirm it:
+A dispatch serves a goal. Record one with what shows it is met, and confirm it:
 
 ```console
 conductor goal propose-goal --goal-id first-task --title "Fix the flaky date test" --exit-evidence "the test passes 20 runs in a row on main"
@@ -124,70 +107,63 @@ goal_id     state      title                    exit_evidence
 first-task  Confirmed  Fix the flaky date test  the test passes 20 runs in a row on main
 ```
 
-For a stricter gate, decide now who merges. A charter merges with `merge: controller` by default:
-the controller merges its pull request once its full gate is green. With the line `merge: human`
-in the charter, the controller opens the pull request and never merges it; you review and merge.
-For a first task, use `merge: human`.
+## 5. Write the charter and the dispatch
 
-## 5. One dispatch
-
-Write the charter `<records>/charters/alpha.md` (the goal `first-task`, scope, boundaries, the
-line `merge: human`, the current dispatch), record the dispatch with
-`conductor dispatch send-dispatch`, and start the daemon, which starts the instance's runtime:
+Write `<records>/charters/alpha.md`, where `<records>` is the `records` value of
+`conductor config show`: the goal `first-task`, the scope, the boundaries, and the line
+`merge: human`. With it the controller opens the pull request and never merges it. Then record the
+dispatch:
 
 ```console
-conductor daemon serve --install
+conductor dispatch send-dispatch --repository alpha --goal-id first-task --brief "Fix the flaky date test" --sent-at 2026-11-09T09:00:00Z
+conductor dispatch dispatches
 ```
 
-Each cycle, the loop starts a controller for each Active repository (`conductor repository
-activity`) that has a charter and no running controller, with `conductor spawn --repository
-alpha` here. Read both back:
+The loop starts a controller for each Active repository that has a charter and no running
+controller. It gives the controller its charter and the repository's open dispatch. It does so at
+each cycle tick: at the runtime's start, then every `cadence.cycle` (2 h).
 
 ```console
-$ conductor dispatch dispatches
-dispatch_id      state  repository  goal_id     brief                    sent_at               priority  waits_on
-DSP-20261013-01  Sent   alpha       first-task  Fix the flaky date test  2026-10-13T09:00:00Z  1
-$ conductor controller controllers
+conductor repository activity
+conductor controller controllers
 ```
 
-`conductor spawn` refuses, and starts nothing, when the checkout is not under the checkouts root,
-is not trusted, has no charter, or a controller of that repository runs already; the refusal
-names which.
+A repository with no real commit in 7 days is Inactive, and the loop passes it by. Mark it Active:
+`conductor repository activate-repository --repository alpha --marked-by Operator --reason "first task"`.
 
 ## 6. What the controller does
 
 The controller works in `~/src/alpha` and reports only to conductor, with
 `conductor message send`:
 
-- It reports `started`. With no planning store, the report says so,
-  `started; no planning store: /aep:init would add one`, and it goes on: the dispatch's brief
-  is the plan, written into the pull request's description. It creates no store itself.
+- It reports `started`. With no planning store the report says so,
+  `started; no planning store: /aep:init would add one`, and it goes on: the dispatch's brief is
+  the plan, written into the pull request's description. It creates no store itself.
 - It works in managed worktrees under the instance's trees root. When `worktree create` refuses
-  with `workspace-not-activated`, it reports `worktree workspace not activated: <root>` to
-  conductor and, until that is answered, works in a plain `git worktree add` tree it removes when
-  done. Running the `to run:` line of step 1 answers it.
-- It changes the repository's ESS specification first when it has one, implements, and runs the
+  with `workspace-not-activated`, it reports `worktree workspace not activated: <root>` and, until
+  that is answered, works in a plain `git worktree add` tree it removes when done. Running the
+  `to run:` line of step 1 answers it.
+- It changes the repository's ESS specification first when there is one, implements, and runs the
   repository's full gate once on the integrated head.
 - It pushes one branch and opens one pull request.
 
 ## 7. Review the pull request
 
-With `merge: human`, the controller reports `review <url>` and stops there: it never merges and
-never enables auto-merge. Open the link, review it as you would a colleague's, ask for changes in
-the pull request or through conductor, and merge it yourself. The dispatch stays open until a
-snapshot shows the pull request merged; conductor's next cycle takes one, then closes the
-dispatch and reports the goal's state.
+With `merge: human` the controller reports `review <url>` and stops there: it never merges and
+never enables auto-merge. Review it as you would a colleague's, ask for changes in the pull request
+or through conductor, and merge it yourself. The dispatch stays open until a snapshot shows the
+pull request merged.
 
 ## When it stops
 
 | what you see | what to do |
 |---|---|
 | `conductor setup` or `conductor doctor` ends `not ready:` | run the `to run:` or `to install:` line it names, then check again |
-| the controller reports `blocked` | conductor answers what it can; a question only you can answer reaches you with the exact command |
-| no report for a long time | the loop delivers a stalled or silent controller one check-in and restarts it from its charter at the second; `conductor session list` shows its state |
-| `conductor spawn` refused | the refusal names its cause; [troubleshoot](./troubleshoot.md) lists the fixes |
-| the controller asks to merge under `merge: human` | merge it yourself: the controller never merges there |
+| the instance is `PlacementRefused` | [a runtime is refused](./troubleshoot.md#a-runtime-is-refused) |
+| the controller reports `blocked` | conductor answers what it can. A question only you can answer reaches you with the exact command |
+| no report for a long time | the loop delivers a stalled or silent controller one check-in and restarts it from its charter at the second. `conductor session list` shows its state |
+| `conductor spawn` refused | the refusal names its cause ([refusals](/docs/security/sessions#refusals)) |
 
-To stop a controller, `conductor controller stop-controller` ends the session `conductor spawn`
-started, through the instance's confinement provider, and records it stopped;
-`pause-controller` and `resume-controller` stop it and resume it from its transcript.
+`conductor controller stop-controller --controller-id <id>` ends the controller's session and
+records it stopped. `pause-controller` and `resume-controller` stop it and resume it from its
+transcript ([run conductor](./start-conductor.md#controllers)).

@@ -1,26 +1,21 @@
 ---
 title: Security model
 sidebar_position: 1
-description: What conductor protects, from whom, the five guarantees the code gives, the two it does not, and which rules are enforced in code and which are asked of the model.
+description: What conductor protects, from whom, the five guarantees the code gives, and the two it does not.
 lede: Sessions run unattended with no permission prompts. One hook, the guard, decides every tool call; it catches a session's mistakes, and it is not a sandbox.
-source: crates/conductor/src/guard.rs, crates/conductor/src/guard/rules.rs; crates/conductor/kinds/claude-code/conductor-settings.json, crates/conductor/kinds/claude-code/controller-settings.json; Taskfile.yml; crates/conductor/src/decide.rs, crates/conductor/src/config.rs, crates/conductor/src/dashboard/answers.rs; docs/design/conductor.md sections 5 and 7
+source: crates/conductor/src/guard.rs, crates/conductor/src/guard/rules.rs, crates/conductor/src/confine/mod.rs, crates/conductor/src/actor.rs, crates/conductor/src/decide.rs, crates/conductor/src/daemon/api.rs, crates/conductor/src/config.rs; crates/conductor/kinds/claude-code/
 ---
 
-Conductor starts Claude Code sessions with `--permission-mode bypassPermissions`. No tool call
-waits for a person. That is what lets conductor and its controllers work unattended, and it is
-why this section exists: **the guard is the only check on what a session does.** Read this page
+Conductor starts Claude Code sessions with `--permission-mode bypassPermissions`, so no tool call
+waits for a person. **The guard is the only check on what a session's tools do.** Read this page
 before you start sessions on repositories you care about.
 
 ## At a glance
 
-Every session conductor starts loads a settings file that wires one PreToolUse hook on every
-tool: `conductor guard record-guard-decision --from-pre-tool-use || exit 2`. The harness sends
-the hook a description of the call, the payload. The guard finds the place the session runs in
-from the payload's working directory: a repository's checkout or managed worktrees (the
-controller rules), conductor's records (conductor's rules), or neither. It applies the rule for
-that place and that tool, and answers with an exit code: 0 allows the call, 2 blocks it with one
-line of reason that the session reads. A denial is recorded in conductor's store; an allowed call
-is not.
+A guarded session starts with a settings file that wires one PreToolUse hook on every tool,
+`conductor guard record-guard-decision --from-pre-tool-use || exit 2`. The guard finds the place
+the session runs in from the call's working directory, applies that place's rule, and answers
+with an exit code. A denial is recorded in conductor's store. An allowed call is not.
 
 ```mermaid
 flowchart LR
@@ -36,10 +31,10 @@ flowchart LR
   V -->|"deny"| D["exit 2: reason to the session, denial recorded"]
 ```
 
-Around the guard sit a few other checks in code: how a session is started
-([confinement](/docs/security/confinement)), which decisions the store accepts from conductor,
-and what the config file may hold. Everything else is written in the role profiles and asked of
-the model.
+Around the guard, code also decides how a session starts ([sessions](/docs/security/sessions)),
+who may write through the daemon and as whom ([operators and credentials](/docs/security/operators-and-credentials)),
+which decisions the store accepts, and what the config file may hold. Everything else is written
+in the role profiles and asked of the model ([limits](/docs/security/limits#enforced-in-code-and-asked-of-the-model)).
 
 ## Threat model
 
@@ -50,131 +45,68 @@ the model.
 | checkouts | a controller writes, deletes or commits in another repository's checkout, or a worker in the wrong worktree |
 | the forge | a session merges, closes, comments, releases or changes settings on GitHub or GitLab without the decision behind it |
 | credentials | a session sets, reads out or replaces a secret, a token, an SSH or GPG key, or a login |
-| records | a session rewrites conductor's decisions, dispatches or charters, its config, or the files that wire the guard, and so changes what it is allowed to do |
+| records | a session rewrites conductor's decisions, dispatches or charters, its config, or the files that wire the guard |
+| the operator's authority | a session answers for the operator, or a write through the daemon is recorded as someone who did not make it |
 
 ### Who acts
 
-- **A model making mistakes.** The main case the guard is built for. A controller that loses
-  track of its working directory, edits the wrong file, runs `gh pr merge` on its own, or
-  messages another repository's controller is stopped with a reason it can act on.
-- **Hostile text in issues and pull requests.** A controller reads issues, pull requests and
-  comments written by other people. That text can tell the model to run a command (prompt
-  injection). The guard narrows what such a command can do through the file tools, `gh` and
-  messages, but it does not confine where a shell command writes. It is no defence against a
-  hostile prompt. Limit what the session's user and forge token can reach
+- **A model making mistakes.** The main case. A controller that loses track of its working
+  directory, edits the wrong file, merges on its own, or messages another repository's controller
+  is stopped with a reason it can act on.
+- **Hostile text in issues and pull requests.** A controller reads text other people wrote, which
+  can tell the model to run a command. The guard narrows the file tools, `gh`, `glab` and
+  messages. It does not confine where a shell command writes, so it is no defence against a
+  hostile prompt. Limit what the session's user and forge token reach
   ([hardening](/docs/security/hardening)).
-- **A compromised repository hook.** Sessions load project settings
-  (`--setting-sources project,local`, and `user` too under the `none` provider), and `task trust` marks every checkout as a trusted
-  workspace. A repository's own `.claude/` settings and hooks therefore run in its controller's
-  session, with the rights of the session's user. A hook is not a tool call, so the guard never
-  sees what it does.
+- **A compromised repository hook.** Every session loads the user, project and local settings, and
+  `conductor trust` marks every checkout as a trusted workspace. A repository's own `.claude/`
+  settings and hooks therefore run in its controller's session, with the user's rights. A hook is
+  not a tool call, so the guard does not see it.
 
 ### Out of scope
 
-- The operator, and anyone else who can log in as the user the sessions run as.
-- The host, the operating system and the user account themselves. There is no operating-system
-  sandbox and no resource limit yet.
-- The harness (Claude Code), the model provider and the forge.
+- The operator, and anyone who can log in as the user the sessions run as.
+- The host, the operating system and the user account. Agent sessions run unboxed. An instance's
+  runtime runs in a substrate box only when its `placement` names an adapter
+  ([sessions](/docs/security/sessions#boxes-slices-and-limits)).
+- The harness (Claude Code), the model provider, the forge and the Identity service.
 - Data leaving through the network: `WebFetch` is allowed, and so is any network call a shell
   command makes.
 
 ## The five guarantees
 
-1. **Every tool call of a guarded session reaches the guard, and an unknown tool is denied.**
-   The hook is wired on the matcher `*`. Six tools have rules, 24 read-only harness tools are
-   allowed, a role may name a few more, and every other tool, an MCP server's tools included, is
-   denied. A missing binary, an unreadable payload or a crash denies the call.
+1. **Every tool call of a guarded session reaches the guard, and an unknown tool is denied.** The
+   hook is wired on the matcher `*`. Six tools have rules, 24 read-only harness tools are
+   allowed, a role may name more, and every other tool, MCP tools included, is denied. A missing
+   binary, an unreadable payload or a crash denies the call.
 2. **File tools stay in their place.** A controller's Edit, Write and NotebookEdit land only in
-   its repository's checkout, its managed worktrees or its scratch; conductor's only in its records
-   or its scratch. Paths are resolved, links included, before the comparison.
+   its repository's checkout, its managed worktrees or its scratch. Conductor's land only in its
+   records or its scratch. Paths are resolved, links included, before the comparison.
 3. **No session writes what configures it.** No file tool writes a `.claude/` settings file, a
-   role's settings or profile file, or (for a controller) conductor's config or records. A Bash
+   role's settings or profile file, or, for a controller, conductor's config or records. A Bash
    command that names one of them and holds a write form is denied too.
-4. **Forge writes and messages are narrowed.** No guarded session runs a `gh` call that writes;
-   a credential write (`gh secret`, `gh auth`, `gh ssh-key`, `gh gpg-key`) is class H and handed
-   to the operator. A controller messages only its own conductor and its own sub-agents.
-5. **Conductor cannot take the operator's decisions as its own.** The store refuses a class O or
-   class H decision recorded as conductor's. An operator decision has its own command, which
-   conductor's session may still run to record an answer the operator gave it; the record names
-   the session that wrote it (`recorded_by`) and the operator's words. The Decisions page records
-   his answers itself, as `recorded_by` `dashboard`
-   ([below](#the-decisions-page-writes)).
+4. **Forge writes and messages are narrowed.** `gh` and `glab` only read, but for the bot route
+   and, under `forge.route: direct`, the session's own pull or merge requests. A credential write
+   is class H under every route and handed to the operator. A controller messages only its own
+   conductor and its own sub-agents.
+5. **Conductor cannot take the operator's decisions as its own.** `decision
+   record-conductor-decision` refuses a class O or H decision (`ReservedForOperator`). The
+   operator's commands refuse an agent actor (`ActorNotHuman`), and a write through the daemon
+   needs a person holding its grant. A `claude --bg` session's commands record as the Unix user
+   today ([actors](/docs/security/operators-and-credentials#actors)).
 
 **The guard does not confine where a shell command writes, and does not check `git push`.** A
 controller's Bash can write, overwrite or delete any file its user can, through a command the
-heuristic does not recognise, and can push to any branch its credentials reach. Branch
-protection and a scoped token are the controls for that ([limits](/docs/security/limits)).
+heuristic does not recognise, and push to any branch its credentials reach. Branch protection and
+a scoped token are the controls for that ([limits](/docs/security/limits)).
 
-## The Decisions page writes
+## The pages of this section
 
-The dashboard (`conductor dashboard serve`) reads, with one exception: on its Decisions page the
-operator answers open escalated requests and sends them as a batch, `POST /api/answers`. Each
-answer is recorded as his decision (`decided_by` Operator, `recorded_by` `dashboard`, his words or
-"chosen on the Decisions page") and its request moves to Answered, through the same path
-`conductor decision answer-escalated-as-operator` takes when conductor relays an answer. The
-server takes a batch only:
-
-- on `127.0.0.1`, naming the server's own `Host`, from its own `Origin` (or none, with
-  `Sec-Fetch-Site: same-origin`);
-- with the token the page was served with: 32 random bytes minted when the server starts, put in
-  the page's `<meta name="conductor-token">`, sent back in `X-Conductor-Token` and compared in
-  constant time. It is never logged, echoed or set as a cookie;
-- as `application/json`, with a `Content-Length` of at most 64 KiB and no chunked body, and at
-  most 50 answers;
-- for open escalated requests, each choice fitting its request's kind and lettered options. A
-  request answered or withdrawn meanwhile is refused and records nothing.
-
-The Configuration page's write, `POST /api/config`, is taken on the same terms (host, origin,
-token, JSON of at most 64 KiB). It applies the staged keys to the instance in the config file,
-converts the result as `conductor config validate` does and refuses it, writing nothing, with
-each problem by its YAML path; a valid result keeps the old file beside it as
-`conductor.yaml.<time>.bak`, replaces it, writes each repository switch as the operator's mark,
-and records one class-C decision by the operator (`recorded_by` `dashboard`) with the diff as its
-evidence. The file is written from its YAML values: its comments are kept only in the backup.
-
-The Plan page's write, `POST /api/plan`, takes the same path on the same terms. It runs one
-`aep plan artifact` verb in the named checkout's planning store (`move`, `set --tag` or `--untag`,
-or `body --section Comments`), only for a checkout under the instance's checkouts root that holds
-`.engineering/planning` and only for an id of the form `story:<name>`. A move the store's
-lifecycle refuses is answered with the store's own reason and changes and records nothing; a
-verb that succeeds records one class-C decision by the operator (`recorded_by` `dashboard`) with
-the verb and the store's answer as its evidence.
-
-The guard denies a Bash call of conductor or a controller that names `/api/answers` or posts to
-the dashboard's port ([the guard](/docs/security/the-guard#bash-and-monitor)).
-
-**Residual risk.** The boundary keeps a page from another site and a careless session out; it does
-not keep out a local process. Anything running as the operator's user, or able to reach
-`127.0.0.1` and read the page, can read the token from `/` and post answers, and **whoever holds
-the token is recorded as the operator**. The guard's check is a substring test, a speed bump and
-not a boundary: a script a session writes and then runs, a port or path held in a variable, or a
-percent-encoded path gets past it. A session that writes and runs such a script is outside what
-the guard confines (it does not confine where a shell command writes). Treat the dashboard's port
-like the operator's terminal: do not forward it, and do not run the dashboard where another user
-can reach `127.0.0.1`. The decision log names `recorded_by` `dashboard` on every answer sent this
-way, so an answer the operator did not give can be found and reversed
-(`conductor decision reverse-operator-decision`).
-
-## Enforced in code, and asked of the model
-
-| enforced in code | asked of the model (profiles only) |
+| page | covers |
 |---|---|
-| the guard decides every tool call of a session started with its settings file | starting each controller with the settings file and its provider's `--setting-sources` (`conductor controller start-controller` records a controller; it does not start a session yet) |
-| unknown tools and MCP tools are denied unless a role's `read_only_tools` names them | keeping a role's `read_only_tools` to tools that only read |
-| file tools confined to the session's place; settings, profiles, config and records protected | Bash writes outside the session's own repository |
-| `cd`, `pushd`, `git -C` into another repository or the records denied (a heuristic) | `git push` only through the repository's own route |
-| `gh` writes denied; credential writes class H | commits and pushes through the bot route |
-| a controller runs only `conductor`'s read commands | one controller session per repository (the store keeps one running controller record per repository; it does not stop a second session) |
-| a controller messages only its conductor and its own sub-agents | message format and length |
-| the store refuses class O and H decisions recorded by conductor | asking for a build slot when disk is low |
-| the dashboard takes answers only with its page's token, from its own origin, as JSON; a Bash call that posts to it is denied (a heuristic) | relaying only the operator's own words with `answer-escalated-as-operator` |
-| the config file refuses a value that looks like a token, and never prints it | handing a session over before its context runs out |
-| `conductor run` holds a lock under `<state>/run/`, so a second loop of the instance refuses | not starting a conductor session by hand |
-
-The pages of this section:
-
-- [The guard](/docs/security/the-guard): how it decides, tool by tool and role by role.
-- [Confinement](/docs/security/confinement): how a session is started and what bounds it.
-- [Audit trail](/docs/security/audit-trail): what is recorded and how to read it.
-- [Known limits](/docs/security/limits): what is not covered, and what to do about it.
-- [Hardening](/docs/security/hardening): a checklist for a deployment.
+| [The guard](/docs/security/the-guard) | how it decides, tool by tool and role by role |
+| [Sessions](/docs/security/sessions) | how a session starts, its settings and profile, and what runs in a box |
+| [Operators and credentials](/docs/security/operators-and-credentials) | actors, grants, login, dashboard writes, the token pool, secrets |
+| [Audit trail](/docs/security/audit-trail) | what is recorded and how to read it |
+| [Known limits](/docs/security/limits) | what is not covered, and what to do about it |
+| [Hardening](/docs/security/hardening) | a checklist for a deployment |

@@ -1,123 +1,98 @@
 ---
 title: The loop
 sidebar_position: 2
-description: Sense, compare, decide, dispatch, record, report; the five collectors of a snapshot; the watch between cycles; which repositories are Active.
-lede: Conductor runs one cycle at a time over a snapshot it keeps in its store, so a restarted session resumes from its records, not from its context.
-source: docs/design/conductor.md sections 4, 8 and 10; crates/conductor/src/snapshot.rs, crates/conductor/src/collect/, crates/conductor/src/watch.rs, crates/conductor/src/repository.rs; conductor --help
+description: conductor run and its three ticks; what a snapshot is and its eight collectors; the watch pass and its lines; which repositories are Active; where the loop keeps its state.
+lede: The loop is one process per instance, conductor run, with no model of its own. It keeps everything in the store and its state files, so a restart loses nothing.
+source: docs/design/conductor-run.md section 3; docs/design/conductor.md sections 4, 8 and 10; crates/conductor/src/run.rs, run/dispatch.rs, run/handlers.rs, run/mailbox.rs, snapshot.rs, collect/, watch.rs, repository.rs; conductor run --help, conductor watch run --help
 ---
 
-## One cycle
+## Three ticks
 
-```text
-sense     conductor snapshot start-snapshot     one snapshot: repositories, pull requests, main CI,
-                                                releases, planning blockers, specifications, sessions
-compare   goals and servings                    which goal each repository's work serves; idle goals;
-                                                work serving no goal; red signals
-decide    decision requests                     answer controller requests; pick next work per
-                                                repository; escalate class O and H
-dispatch  conductor dispatch send-dispatch      start, steer or stop a controller; one charter each
-record    the store, and the session's logs     one record per decision, dispatch and message
-report    operator brief                        once a day and on escalation, deviations only
-```
+`conductor run` holds `<state>/run/lock`: a second one refuses.
 
-A cycle runs every `cadence.cycle`, and a daily cycle at `cadence.daily` (UTC) carries the operator
-brief. The session schedules both. A cycle also runs when a controller reports. Steering includes
-cancelling a dispatch (`conductor dispatch cancel-dispatch`) when its brief no longer serves its
-goal.
-
-Snapshots are records, so a restarted conductor resumes from the newest complete snapshot. A
-snapshot a collector did not answer is failed with the collector's name; it is kept and never read
-as the current state.
-
-## The collectors
-
-`conductor snapshot start-snapshot` runs five collectors in order and completes the snapshot only
-when all five answered.
-
-| collector | reads | records |
+| tick | when | does |
 |---|---|---|
-| repositories | `git` in each checkout, `gh` for each `github` source, `glab api --hostname <host>` for each `gitlab` source's group and subgroups | one row per repository: visibility, archived, open issues, `main` head, real commits in 7 days, behind `main`, dirty files, worktrees, latest release, unreleased commits, planning-store version, and `in_catalog` when the instance names a catalog |
-| github | per repository, `gh pr list`, `gh run list` and releases for a `github` source; merge requests, default-branch pipelines and releases through `glab api --hostname <host>` for a `gitlab` source | open pull requests (a GitLab merge request is one, failing when its head pipeline failed), the newest `main` run per workflow (a GitLab pipeline is one, its status mapped to the same conclusions), releases, merged pull requests |
-| blockers | the members of the records' workspace file (`aep plan workspace members`), then per member `git fetch origin`, an export of `origin/main`, and `aep plan workspace list` over the exports | open blockers across the planning stores: each open artifact whose kind ends in `blocker` |
-| specifications | the same exports, `ess specify validate`, `ess verify conform synthesize` | per repository: specification present, opted out or missing; valid or refused; scenario count |
-| sessions | `claude agents --json`, and the Codex session files under `~/.codex/sessions` written in the last hour | live Claude Code and Codex sessions, their working directory, the repository each is bound to |
+| watch | every `cadence.watch` (180 s) | the watch pass, `main`'s CI every `cadence.ci` (900 s); one handler per watch line; the mailbox |
+| cycle | every `cadence.cycle` (2 h), first at start | `snapshot start-snapshot`, `snapshot publish-board`, `records check`, dispatch v1 |
+| daily | at `cadence.daily` (08:07 UTC) | `metric compute` for the previous day, `<records>/REPORT.md`, a records commit |
 
-The blockers collector reads only the repositories the workspace file
-`<records>/.engineering/workspace.yaml` lists, which `conductor config workspace` writes from the
-config ([instances and config](./instances-and-config.md#the-workspace-file)); without that file it
-records no blockers. Every member must have an `origin` remote with a `main` branch, the records
-directory included: a fetch that fails fails the snapshot. A member whose checkout is absent is
-skipped with one line on standard error. The specifications collector reads a `github` or
-`gitlab` source's repositories in the same exports, and a `local` source's repositories at their
-`HEAD`.
+Dispatch v1 runs `conductor spawn`, in name order, for each Active repository with a charter and no
+running or paused controller, while fewer than `controllers.max_working` run. A repository whose charter has
+`merge: human` waits while `controllers.max_open_reviews` of its pull requests wait for review.
 
-A `gitlab` source names its `host` (default `gitlab.com`), and the collectors read it through
-`glab api --hostname <host>`: the group's projects and those of its subgroups as repositories
-(archived ones marked archived), their specifications, open and merged merge requests as pull
-requests, the newest default-branch pipeline as a workflow run, and releases. `gh` is needed only
-with a `github` source, `glab` only with a `gitlab` source.
+Each tick is recorded (`session run-ticks`). A handler that fails prints `conductor run: <what>:
+<why>` and the tick goes on. A tick that cannot be recorded fails the run. `--once` runs one watch
+tick and one cycle tick and exits.
 
-The views (`snapshot repositories`, `pull-requests`, `workflow-runs`, `blockers`, `specifications`,
-`sessions`, `releases`, `merged-pull-requests`, `snapshots`) list every kept snapshot's rows; filter
-on the newest `snapshot_id`. Each takes `--format text|json|jsonl|markdown`.
+The loop's one model call: `claude -p`, with no tools, answers a class C `[DECISION-REQUEST]`
+([decisions and messages](./decisions-and-messages.md#handled-in-code)).
 
-When a snapshot completes, the store keeps the observations of the newest `retention.snapshots`
-complete snapshots and drops the others'. The snapshot records themselves stay.
+The runtime conductord starts runs the loop; `conductor run` runs it by hand when no runtime
+holds the lock ([the host](./the-host.md#the-loop)).
+
+## A snapshot
+
+`conductor snapshot start-snapshot` runs the collectors in order and completes when all
+answered. The first that does not fails it with `<collector>: <error>`. A failed snapshot is
+kept, never read as current
+([troubleshoot](../guides/troubleshoot.md#a-failed-snapshot)).
+
+| collector | records |
+|---|---|
+| repositories | one row per repository, the fields of `snapshot record-repository` ([CLI](../reference/cli.md#conductor-snapshot-record-repository)) |
+| github | open and merged pull requests, the newest `main` run per workflow, releases |
+| gitlab | the same through `glab api --hostname <host>` ([GitLab](../guides/gitlab.md#what-conductor-reads-from-gitlab)) |
+| blockers | open artifacts whose kind ends in `blocker`, read at each workspace member's `origin/main` |
+| specifications | per repository: present, opted out or missing; valid or refused; scenario count |
+| sessions | live Claude Code and Codex sessions and the repository each works in |
+| secrets | per secret sync, when its source and its secrets last changed |
+| usage | each window of the accounts `usage.probe` prints |
+
+The workspace members are those of `<records>/.engineering/workspace.yaml`
+([config](./config.md#workspace-and-sources)). A member a collector cannot read is a member failure
+(`snapshot member-failures`), and the snapshot goes on. Under `--budget <seconds>` a collector
+past it is stopped, `OverBudget` in `snapshot collector-runs`, and the next one runs.
+
+The views (`snapshot repositories`, `pull-requests`, …) list every kept snapshot's rows: filter on
+the newest `snapshot_id`.
 
 ## Active repositories
 
-Conductor processes issues and pull requests only for repositories that are **Active**.
-`conductor repository activity` decides each one:
+Conductor processes issues and pull requests only for Active repositories. `conductor repository
+activity` decides each one when read, and stores nothing:
 
-- A mark (`conductor repository mark-repository`, `activate-repository`, `deactivate-repository`),
-  set by the operator or conductor with a reason, wins and is never overwritten by a snapshot.
-- Without a mark, a repository is Active when the newest complete snapshot counts at least one real
-  commit on any `origin` branch in 7 days and it is not archived.
+- A mark (`mark-repository`, `activate-repository`, `deactivate-repository`), set with a reason,
+  wins. No snapshot overwrites it.
+- Without a mark, a repository is Active when the newest complete snapshot counts a real commit in
+  7 days and it is not archived.
 
-A commit is not real when it is a merge, an organization-wide sweep (the same normalised subject in
-at least 3 repositories in the window), a maintenance subject, or touches only documentation, CI,
-planning or lock files. [Add a repository rule](../guides/add-a-repository-rule.md) shows a mark
-at work.
-
-`conductor repository shipped --since <RFC 3339>` lists the releases and merged pull requests since
-an instant, from the newest complete snapshot.
+A commit is not real when it is a merge, its normalised subject is in 3 or more repositories in
+the window, its subject is maintenance, or it touches only docs, CI, planning, markdown or lock
+files ([add a repository rule](../guides/add-a-repository-rule.md)). `conductor repository shipped
+--since <RFC 3339>` lists what was released or merged since an instant.
 
 ## The watch
 
-Between cycles, `conductor watch run` runs cheap probes and prints one line per change. Conductor
-runs it with `--follow` under its harness's monitor, and each line wakes it. Session starts print
-nothing.
+The watch runs cheap probes, one pass per watch tick. `conductor watch run` runs passes by hand
+until one finds a change, or with `--follow` prints each change and goes on.
 
-| probe | source | line |
-|---|---|---|
-| sessions | `claude agents --json`, sessions in the instance's checkouts, trees or records | `session exited (blocked): …`, `session gone: …`, and `conductors: …` for two or more live sessions named as the conductor role |
-| usage limit | the tail of each such session's transcript | `usage limit: …`, and a desktop notification through `notify-send` |
-| context | the newest usage line of each live session's transcript | `context: <repo> <n>k tokens` above `thresholds.context_handover` |
-| silent controllers | the modification times of each live controller's transcript and its sub-agents' | `session silent: <name> <id> <m>m` when a controller `working` or `waiting` and all its sub-agents have written nothing for longer than `thresholds.silent_session`, once per silence |
-| stalled sessions | the dispatch log's `sent` and report lines of each live controller a dispatch was sent to, and the newest commit in its checkout and its managed trees | `session stalled: <name> <id> <m>m` when such a controller, `working` or `waiting`, has had neither a report conductor received nor a commit for longer than `thresholds.stalled_session`, however its transcript moves; once per stall |
-| queued builds | the open grants of the host ledger | `build queued: <grant> <repository\|session> <m>m` for a grant of the instance `Requested` longer than `thresholds.build_queued`, once per grant |
-| `main` CI | for each Active repository of the newest complete snapshot, `gh run list` for a `github` source, the default-branch pipeline through `glab api --hostname <host>` for a `gitlab` source | `CI red on main: …`, `CI green again on main: …` |
-| pull-request checks | for each open pull request (a merge request on GitLab) of each Active repository of the newest complete snapshot, its check rollup through `gh pr list` for a `github` source, its head pipeline through `glab api --hostname <host>` for a `gitlab` source | `PR checks done: <repo>#<n> <green\|red> (head <sha>)` once all its checks have concluded for that head, again only for a new head |
-| free disk | `statvfs` on `/` | `disk low: <n>G free on /` under `thresholds.disk_low`, `disk admit: <n>G free on / (builds wait)` under `thresholds.disk_admit`, `disk gate stop: <n>G free on / (gates stop)` under `thresholds.gate_stop`; each once per fall, again only after free space was back above its floor (`disk_clear`, `disk_admit`, `gate_resume`) |
-
-A pass runs every `cadence.watch` (`--every`), and CI, `main`'s and the open pull requests'
-checks, is read every `cadence.ci` (`--ci-every`).
-A session exit that a dispatch log line explains is not reported. Without `--follow`, the watch
-exits after the first pass that finds a change.
-
-## The store
-
-Conductor's records live under the state directory: `--state-dir`, else the instance's `state`,
-else `state/` under the working directory. Each record is one stream of an
-[Eventlog](https://beyond10x.github.io/ecosystem/eventlog/)
-([GitHub](https://github.com/beyond10x/eventlog)) tree store: one immutable file per event.
-
-| directory | holds |
+| probe | lines |
 |---|---|
-| `tree/` | snapshots, goals, servings, marks, decisions, requests, controllers, dispatches, messages, resource requests, guard verdicts |
-| `observations/` | the observations of each snapshot, one tenant per snapshot |
-| `watch/` | the watch's state files |
+| sessions of the instance | `session exited (blocked)`, `session gone`, `conductors:` for two live conductors |
+| transcripts | `usage limit`, `context` at `thresholds.context_handover`, `session silent` after `thresholds.silent_session` |
+| dispatch log and commits | `session stalled` after `thresholds.stalled_session` |
+| host ledger | `build queued` after `thresholds.build_queued` |
+| CI of Active repositories | `CI red on main`, `CI green again on main`, `PR checks done` |
+| newest complete snapshot | `review full`, `review open`, `gates hooks stale`, `workspace stale` |
+| free disk on `/` | `disk low`, `disk admit`, `disk gate stop` ([disk](./disk.md)) |
+| store | `usage:` forecast, `escalated`, `unanswered`, `answered` |
 
-A view opens only an existing store and creates nothing; a command creates the store where none
-is. `conductor store migrate` moves an older store into this layout and keeps the old one beside
-it.
+A session start is no change, and an exit a dispatch log line explains is not reported. Each
+line's handler delivers to a controller, restarts it or starts `gc`, and logs a line such as
+`relayed` in the dispatch log.
+
+## Where the state is
+
+The loop's records are in the store, one database per deployment
+([records and store](./records-and-store.md#the-store)). The watch keeps its state files under
+`<state>/watch/`, the loop its own under `<state>/run/`.

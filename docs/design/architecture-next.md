@@ -1,9 +1,10 @@
 # Design: conductor v1 — a daemon, confined instances, abstract agents, one store
 
 Status: proposed 2026-11-07; revised 2026-11-08 on the operator's decisions (§13). Store record:
-`design:architecture-next`, epic `epic:architecture-next`. The public page is
-`website/docs/concepts/architecture.md`. The work lands on the integration branch `v1` (§14); the
-shipping line, v0, is untouched until the cutover.
+`design:architecture-next`, epic `epic:architecture-next`. The public page of the host as it
+shipped is `website/docs/concepts/the-host.md`; the design's own public page was retired into this
+document. The work lands on the integration branch `v1` (§14); the shipping line, v0, is untouched
+until the cutover.
 
 The rule this design is built under (operator, 2026-11-08): "don't shy away from removing baggage,
 the more we remove the better" and "we work spec-first ESS": the whole system as it is written here
@@ -40,6 +41,20 @@ and remote; agents abstracted with today's Claude Code behaviour kept; one share
 the dashboard served by the daemon and deployable remotely at the same time; secrets through the
 `secrets` crates; everything built now, on one integration branch, v0 to v1.
 
+What the v0 host cost, measured on 2026-11-07:
+
+| friction | measured |
+|---|---|
+| three start mechanisms (unit, `claude --bg`, hand) | two sessions of one name (`<name>-2`) and a stale resumed id in one day; the rename needs `claude stop` and `claude --bg --resume` |
+| the maintainer is a special role in config (`conductor-dev`) and in the host section | its hand-over left 52 local-only commits on 7 branches; no loop rule covered it until wave 45 |
+| the supervisor is outside the config | its rules lived in a file under `~/.claude/agents/` until they became a shipped profile; four host scripts were written beside it |
+| settings are per instance only | the same thresholds are copied into three instances; a host-wide change is three edits |
+| one controller per repository | an instance with 6 active repositories runs 6 model sessions and 6 trees whether or not they have work |
+| no custom role | a recurring job (a UI pass every day) has no place but a controller's charter |
+| a dashboard per instance | three dashboard units on three ports, one Vue build each, no view across instances but the registry list |
+| the store is files in the instance's state directory | an instance can only run where its files are; a remote or boxed instance has no way to keep its records at home |
+| instances are installed by hand | `conductor init` and `conductor run --install` per instance; nothing compares the config with what runs |
+
 ## 2. The shape
 
 ```text
@@ -73,10 +88,22 @@ Five concepts, each with one job:
 | **agent kind** | role slot | what program fills a role and how conductor starts, feeds, reads and stops it; `claude-code` in v1, with today's behaviour | the one hard-wired `claude --bg` launcher |
 | **UIs** | any number | the dashboard (one web app over the global API, served by the daemon and deployable elsewhere), the TUI (`conductor tui`), the CLI (`conductor <cmd>` as an API client), the operator's chat session (through the supervisor) | the per-instance dashboards; `conductor ask` becomes `/v1/ask`, routed by the supervisor |
 
-The roles are unchanged from the public page: supervisor (host, one), teacher (host, one, above the
-supervisor and outside the system), controller (one per instance), workers (built-in roles planner,
-implementer, reviewer, releaser), custom roles on a schedule. The maintainer is retired: conductor's
-repository is a repository of one instance.
+The roles: supervisor (host, one), teacher (host, one, above the supervisor and outside the
+system), controller (one per instance), workers (built-in roles planner, implementer, reviewer,
+releaser), custom roles on a schedule. The maintainer is retired: conductor's repository is a
+repository of one instance.
+
+| level | one per | role | what it does |
+|---|---|---|---|
+| host | machine | teacher | outside the system, above the supervisor: reviews what the supervisor decided and what the instances delivered, the way an adversarial reviewer reads a finished change; changes the supervisor's profile and files findings; never runs the supervisor's routine itself |
+| host | machine | supervisor | keeps every instance's loop, controller and workers running; carries findings across instances; decides within its grant; reports to the operator |
+| instance | organization | controller | the instance's judgement: picks work across the instance's repositories, starts and steers workers, answers requests, merges what passes, escalates |
+| instance | organization | loop | `conductor instance serve`: snapshots, timers, agent starts, hand-overs, KPIs, the instance API; no model |
+| repository or unit | work | worker | one job in one tree: plan, implement, review, release; built-in roles |
+| any | schedule | custom role | a role the config adds: a profile, a scope and a schedule; conductor starts it like any other (§10) |
+
+The star stays: a worker talks to its controller, a controller to the supervisor, the supervisor to
+the operator. A controller of one instance never messages another instance's sessions.
 
 ## 3. Specification first: the v1 domains
 
@@ -202,6 +229,39 @@ page, after which the controller moves the story in its repository's planning st
 the owner, `AGENTS.md` rule 11); progress is the federated `kpis`, `series`, `sessions` and
 `decisions` views.
 
+**The TUI.** `conductor` with no arguments at a terminal, and `conductor tui`, opens a
+full-screen view over the global API, the one the dashboard reads. It reads the daemon `--daemon
+<url>` names, else `CONDUCTOR_DAEMON`, else `127.0.0.1:<daemon.port>` of the config file, so it
+works from any machine that reaches the daemon. It reads `GET /v1/instances`, `decisions`, `kpis`,
+`sessions` and `instances/{name}/settings`, and writes nothing.
+
+```text
+┌ instances on <daemon> ─────────┬ sessions of A ─────────────────────────┬ settings of A (read-only) ─┐
+│ > A   running      2 dec  K ok │ > controller   busy   412k  wave/46    │ cadence.cycle        2h    │
+│   B   running      0 dec  K1 ! │   controller   idle    38k  story:x    │ thresholds.disk_low  200G  │
+│   C   unreachable  ? dec  K ?  │   conductor    busy      -  -          │ controllers.max_working 8  │
+├────────────────────────────────┴────────────────────────────────────────┴────────────────────────────┤
+│ Enter attach  w watch  l log  ctrl-] d back  Tab pane  j/k move  r refresh  q quit                   │
+└──────────────────────────────────────────────────────────────────────────────────────────────────────┘
+```
+
+| key | does |
+|---|---|
+| `Enter` | attach the selected session; `ctrl-]` then `d` returns to the TUI, the session untouched |
+| `w` | watch it read-only |
+| `l` | follow its terminal log (`<session>.terminal.log`) |
+| `Tab`, `j`, `k` | switch between the instances and the sessions pane, and move in it |
+| `r` | read every pane again; they are also read again every 5 seconds |
+| `q` | quit |
+
+The instances pane shows each instance's state, its open decision requests and its KPI flag (`K
+ok`, or `K<n> !` for `n` KPIs off their target); the sessions pane each session's role, state,
+context and current work; the settings pane the selected instance's effective settings. An
+instance that does not answer is shown `unreachable`, never an error for the whole view. Attach
+hands the terminal to `conductor session attach` when the daemon is on this host. Against a
+daemon on another host the TUI asks `GET /v1/instances/{name}/agents/{agent}/attach` through the
+daemon; a PTY stream over HTTP is not served yet, and the TUI shows that answer on its status line.
+
 **Several operators.** The instance cluster has operators, not one operator (operator, 2026-11-08:
 "multiple operators possible of the instance cluster"). An operator is an Identity principal with
 grants (`conductor.operator`, §3); every write on the global API carries the operator's bearer and
@@ -239,6 +299,9 @@ Substrate, `adr/0109:84-85`).
 |---|---|---|---|
 | `local` (default) | this host, `substrate-daemon --socket`, kept running by conductord | `systemd` (a unit in a slice with cpu, memory and task limits: today's box), `linux` (bubblewrap plus a delegated cgroup: read-only roots, writable workspace, default-deny egress with named capabilities, `~/beyond10x/substrate/README.md:225-226`, `ROADMAP.md:27`), `oci` (a container; Docker and Firecracker drivers when substrate ships them, `ROADMAP.md:30-31`) | substrate's Unix socket |
 | `<url>` | a remote host or cluster running `substrate-daemon --tcp-listen --tcp-bearer-file` | the same, plus `pod` (one pod per box in a cluster) | HTTPS/WSS with an Identity bearer (`ROADMAP.md:28`) |
+
+Of the adapters, `linux` is the default. `systemd` is today's box, a unit in a slice with cpu
+weight, memory and tasks and no write fence, kept for an instance that writes it on purpose.
 
 What the daemon passes to substrate for one instance (the `ConfinementProfile` admitted through
 `substrate_host::confinement::open(AdapterRequest)`, `crates/substrate-host/src/confinement/mod.rs:142`,
@@ -299,6 +362,26 @@ The trait in `crates/conductor` (`agent::Kind`): `start(slot) -> Handle`, `deliv
 trait over HTTP. The `[REPORT]`, `[NEED]` and `[DECISION-REQUEST]` lines of design §6 stay the report
 vocabulary; a run-to-exit kind's runtime adapter writes them from the exit code and the events file.
 
+**Every agent is started by conductor.** One start form for every role: `conductor agent start
+--instance <i> --role <role>`, answered by the instance's runtime at its placement, and the host
+roles by the daemon, in their own box. `claude --bg`, `task supervisor:start` and the adapters
+under `~/.claude/agents/` go away; the harness view (`claude agents`) stays a diagnostic. For the
+`claude-code` kind a start is:
+
+```text
+loop, TUI or schedule ──► conductor agent start --instance i --role r
+                            1  write <session>.settings.json and <session>.tmux.conf
+                            2  substrate: open a session in the instance's box
+                            3  tmux -D -S <state>/sessions/<session>.tmux
+                            4  one window: the harness with the role's profile
+                            5  measure the box, write <session>.envelope.json
+                      ◄──── session name and socket
+harness ──► reports, requests, hand-over at the threshold
+```
+
+Rules carried over unchanged: one session per name, a successor only after its predecessor
+stopped; hand-over at the context threshold with pushed branches; the terminal log as the record.
+
 ## 8. State: config and store
 
 The operator's question, "is config also state?", has the answer: config is *desired* state and is
@@ -340,7 +423,17 @@ one.
   `placement`, sources, checkouts, records, roles, overrides of any global key). Precedence: role over
   instance over global. `conductor config show --effective --instance <i>` prints every key with its
   level. A `conductor.config/1` file is read by `conductor config migrate` once: `dashboard_port` and
-  `confinement.*` are dropped with a note, `host.roles` becomes `globals.roles`.
+  `confinement.*` are dropped with a note, `host.roles` becomes `globals.roles`. What each level
+  holds:
+
+  | level | file section | holds |
+  |---|---|---|
+  | daemon | `daemon` | port and TLS listener, `cadence.reconcile`, `store`, the secrets source, the dashboard's served path, the operators and their grants |
+  | global | `globals` | the defaults every instance starts from: the kind and model per role, cadence, thresholds, limits, retention, the announcement hook |
+  | instance | `instances[].*` | overrides of any global key; `placement`, sources, checkouts, records, session prefix, the instance's roles |
+  | role | `roles[].*`, under `globals` or an instance | kind, profile, model, settings, tools, writable set, network, limits, schedule, placement |
+
+  An instance's `thresholds` of today keep working: a key set on an instance is an override.
 - Secrets never enter the file: the file names them (`forge_token: secret:gitlab-bot`), the daemon
   resolves names at box open and passes them as substrate slots. The source is the `secrets`
   workspace's storage port (`~/beyond10x/secrets`, 0.6.0, read 2026-11-08): `secrets-keychain` (the
@@ -354,8 +447,8 @@ one.
   agent's box is the model token.
 - Every accepted `PUT /v1/config` is validated, written, committed to the config repository with the
   caller and reason, recorded in the daemon's store as `ConfigChanged`, and reconciled. The tuner's
-  settings proposals (`self-improvement.md`, the public page §"Self-improvement over settings") use
-  this route inside their grant, which is empty until the operator writes keys into it (§13).
+  settings proposals (`self-improvement.md`, §10 "The tuner") use this route inside their grant,
+  which is empty until the operator writes keys into it (§13).
 
 ## 10. Roles under the daemon
 
@@ -368,6 +461,57 @@ one.
 
 The star stays: workers to their controller, controllers to the supervisor, the supervisor to the
 operator. The daemon talks to runtimes, never to agents.
+
+**No separate maintainer.** conductor's own repository is a repository in one instance's
+`sources`; its controller plans and delivers conductor changes like any other repository's. What
+was special about `conductor-dev` becomes two things:
+
+- the built-in worker role `releaser` (version, changelog, tag, forge Release, announcement), which
+  any repository can use;
+- the daemon route `POST /v1/instances/{name}/upgrade`, under the supervisor's grant: install the
+  released binary at the instance's placement, restart the runtime, run `conductor doctor` inside,
+  and roll back when the runtime does not answer. The supervisor runs it one instance at a time
+  after a release; the operator sees it in the daily brief.
+
+The findings a session files about conductor (`conductor finding file-finding`) go to that
+repository's planning store, as before.
+
+**Built-in and custom roles.** Built-in roles ship with a profile each: `supervisor`,
+`controller`, `planner`, `implementer`, `reviewer`, `releaser`. A custom role is one entry in
+`roles[]`:
+
+```yaml
+roles:
+  - role: ui-pass
+    profile: ~/example-org/roles/ui-pass.md
+    model: sonnet
+    scope: repository
+    repositories: [example-app]
+    schedule: daily 06:00
+    handover: 150k
+```
+
+The loop starts it on its schedule (`daily HH:MM`, `every 6h`, `on: release`, `on: red-ci`), one
+session at a time, in a tree of its scope, and ends it when its report arrives. A custom role
+reports to the controller and can file findings and dispatch requests; it cannot merge. Its
+profile lives in the instance's `profiles/`, outside the conductor repository, so a
+company-specific role never enters the product.
+
+**The tuner.** The daily tick computes the KPIs per instance (`conductor metric compute`). A
+built-in host role, `tuner`, runs after it:
+
+1. it reads the readings against the targets and the open findings;
+2. it proposes one settings change at a time as a record (`settings-proposal`: key, old value, new
+   value, the reading it should move, the window to measure);
+3. it applies the change when the key is inside the grant in `globals.tuning`, a list of keys with
+   a bounded range, for example `cadence.watch: 60s..600s`, `controllers.max_working: 2..8`,
+   `thresholds.context_handover: 120k..250k`;
+4. it measures after the window, keeps the change when the reading improved, reverts it
+   otherwise, and records both.
+
+A key outside the grant, and anything that touches a profile, becomes a finding and a story for
+the conductor repository's controller. The operator widens or narrows the grant in config, and
+sees a proposal inside it only in the brief.
 
 ## 11. What v1 removes, and what this supersedes
 
@@ -409,7 +553,7 @@ dependency of v1.
 | Loom 0.57.2 (`~/beyond10x/loom`, 2026-11-05) | a `Command` is a run-once Job whose exit code the operator writes to `status.run.exitCode` (`crates/loom-operator/src/reconcile.rs:914-1000`); no attach or PTY, no message into a running `Command`, no Substrate in the pod (`ConfinementMode` is `[none]`, `ess/domains/agent.yaml:44-48`), no remote executor | not a confinement; a cluster is substrate's `pod` adapter. A `loom.agent/1` turn may become an agent kind later (§7) |
 | mantle 0.3.1 (`~/beyond10x/mantle`) | a whole session on an EC2 or KubeVirt worker from a `Session` manifest; `start`, `attach`, `status`, `stop`; the daemon socket forwarded over SSH | a remote substrate daemon gives the same box as the local one; one placement model instead of two |
 | takt 0.34.0 (`~/beyond10x/takt`, 2026-11-06) | one run is one case on one unit (`--story`, `--work aep:<id>`); exits 0 to 9 (`crates/takt-cli/src/main.rs:1522-1574`); `events.jsonl`; `ApprovalRequired` exits 4 and `takt approve` resumes; no dispatcher in code; its design defers orchestration across repositories to conductor (`.engineering/planning/design/continuous-orchestration.md:236-239`); its harness child runs under no OS sandbox (`website/docs/known-limitations.md:32`) | the first run-to-exit agent kind after v1 (§7): a program the box confines together with its harness child |
-| substrate 0.16.1 (`~/beyond10x/substrate`) | adapters `local`, `linux`, `macos`, `systemd`, `oci`, `pod`; a daemon with Unix socket and HTTPS serving; a Rust SDK and CLI; sealed secret slots; `exec.sandbox-unavailable` as a named refusal; Docker and Firecracker on the roadmap; a wire contract marked "development, not stable" | **in v1**: the only placement (§6); the unstable contract is pinned by version in `b10x.toml` and checked by `conductor doctor` |
+| substrate 0.16.1 (`~/beyond10x/substrate`) | adapters `local`, `linux`, `macos`, `systemd`, `oci`, `pod`; a daemon with Unix socket and HTTPS serving; a Rust SDK and CLI; sealed secret slots; `exec.sandbox-unavailable` as a named refusal; Docker and Firecracker on the roadmap; a wire contract marked "development, not stable"; read again at 0.20.0: writable host roots the daemon declares by name | **in v1**: the only placement (§6); the unstable contract is pinned by version in `b10x.toml` and checked by `conductor doctor` |
 | secrets 0.6.0 (`~/beyond10x/secrets`) | `secrets-core` (storage port), `secrets-keychain` (the OS keychain as a backend), `secrets-remote` (the service as a backend), `secrets-federation` (one backend per namespace), `secrets-client` | **in v1**: the secrets source (§9) |
 
 ## 13. Decisions
@@ -449,11 +593,11 @@ records directory, `example-org` sources) and on a scratch remote substrate when
 | 2 | instance-api | `conductor instance serve` with `/v1/` on its socket; the daemon proxies and serves the dashboard app at `/` and on the TLS listener; the per-instance dashboard server gone |
 | 3 | federated-views, tui-readonly | the federated routes; `conductor tui` read-only with attach |
 | 3a | daemon-remote | the daemon as a system unit on a remote box; the TLS listener with Identity bearers as its only API; `conductor login`, `--daemon <url>`; the dashboard, the TUI and the CLI against it from a workstation |
-| 4 | config-globals | `conductor.config/2`: levels, precedence, `config show --effective`, `PutConfig`, `config migrate` |
+| 4 | config-globals | `conductor.config/2`: levels, precedence, `config show --effective`, `PutConfig`, `config migrate`, operators and grants |
 | 5 | store-shared | the one shared database through Eventlog's `sqlite` and `postgres` adapters; `daemon.store` handed to every runtime; `store migrate` from the tree |
 | 6 | agent-kinds | the `agent::Kind` trait with `claude-code`; today's session scenarios and tests pass unchanged; the `agents/*` routes |
 | 7 | placement-substrate-local, secrets-source | a local substrate box per instance and per agent; the profile of §6; slots from the keychain |
-| 7a | token-pool | `conductor join` and `leave`; the instance's token pool in the secrets source; the `claude-code` kind leases per agent start, resumes on another token after a limit stop; owners on every agent record; `tokens` on the API |
+| 7a | token-pool | `conductor join` and `leave`; the instance's token pool in the secrets source; the `claude-code` kind leases per agent start, resumes on another token after a limit stop; owners on every agent record; `tokens` on the API; the controller for Remote Control on a named owner's token |
 | 8 | placement-substrate-remote | a remote daemon over HTTPS with a bearer; the instance API over substrate's transport; attach as a stream |
 | 9 | host-roles-by-daemon, instance-upgrade | the supervisor and teacher started by the daemon; the maintainer retired; `instances/{name}/upgrade` with rollback |
 | 10 | tuner | the grant, empty, and the TUI's settings editor inside it |

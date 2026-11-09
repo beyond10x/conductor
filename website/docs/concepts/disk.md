@@ -1,97 +1,107 @@
 ---
 title: Disk
 sidebar_position: 6
-description: How the conductor binary runs disk as a protocol in five steps (reserve, reclaim, watch, escalate, enforce) so that no build waits on a message and no session has to remember to free space.
+description: How the conductor binary runs disk as a protocol in five steps (reserve, reclaim, watch, escalate, enforce), so that no build waits on a message and no session has to remember to free space.
 lede: Every build, test or gate reserves its disk from one host ledger, and the binary frees, pauses, refuses and reports on its own.
-source: docs/design/conductor.md sections 7 and 9; spec/domains/host.yaml; crates/conductor/src/guard/rules.rs; crates/conductor/roles/controller.md, crates/conductor/roles/maintainer.md; crates/conductor/tests/guard_rules.rs, crates/conductor/tests/profiles.rs
+source: docs/design/conductor.md sections 7 and 9; spec/domains/host.yaml; crates/conductor/src/build.rs, host.rs, gc/reclaim.rs, watch.rs, guard/rules.rs; crates/conductor/roles/controller.md, maintainer.md; crates/conductor/tests/guard_rules.rs, profiles.rs
 ---
 
 Several sessions build on one machine, and a build that runs out of disk stops everyone's work.
-Conductor does not grant build slots in conversation. The `conductor` binary runs the disk as a
-protocol in five steps, and a session's part is one command:
+Conductor grants no build slot in conversation. A session's part is one command:
 
 ```console
-$ conductor build run --reserve 8G -- task check
+$ conductor build run -- task check
 ```
 
 ## 1. Reserve
 
-`conductor build run --reserve <size> [--repository <repo>] -- <command>` asks the host ledger for
-`<size>`, the command's expected peak, written in GiB with `G`. The ledger is shared by every
-instance on the host, so two instances or two runs never grant the same free space: it lives in the
-host directory, `host/` beside the config file, never in an instance's `state`, and a `--state-dir`
-does not move it. The binary
-grants at once when free disk, minus the live reservations, minus the floor, covers the size;
-nobody is asked.
+`conductor build run [--reserve auto|<size>] [--repository <repo>] -- <command>` asks the host
+ledger for the command's expected peak. A size is whole GiB, `8G`. `auto`, also what no
+`--reserve` means, is the largest peak the ledger recorded for the same repository and command in
+the last 14 days plus 50 %, at least 1G, and 4G when none is recorded.
 
-| command | default reservation |
-|---|---|
-| `cargo build`, `test`, `check`, `clippy`, `nextest`, `install`, `run` | `8G` |
-| `task check`, `gate`, `install`, `regen`, `docs-generate` | `8G` |
-| `npm ci`, `npm run build`, `npm run test`, `task ui` | `2G` |
+The ledger lives in the host directory, `host/` beside the config file, and is shared by every
+instance of that file. A `--state-dir` does not move it. Its lock is `host.lock`. The binary grants
+at once when free disk, less the live reservations, less the floor (`thresholds.disk_admit` plus
+reclaim's margin), covers the size.
 
-`conductor host grants` lists the ledger: each live reservation, its command, its size and the
-peak it measured.
+Requests are answered in arrival order. A request waits behind an earlier one even when it alone
+would fit, unless every request ahead lacks more than the live reservations hold. Then one that
+fits is granted past them. At most `thresholds.build_slots` (3) runs hold a grant at once, every
+instance's together. A request waits for a slot and is never refused for it. A request records the
+harness session it runs in, and is withdrawn, exit 2, when that session stops while it waits.
+
+`conductor host grants` lists the ledger: each reservation, its command, its size and the peak it
+measured.
 
 ## 2. Reclaim
 
-When the size does not fit, the binary reclaims before it answers. `conductor host reclaim` frees
-only what needs no decision, in order, until the reservation fits:
+When the size does not fit, `conductor host reclaim` frees what needs no decision, in order,
+reading free disk after each step:
 
-- the build output of an idle managed tree (no live session works in it, no gate runs in it);
-- build output left in worktree archives;
-- caches past their age;
-- snapshots past retention.
+1. finished managed trees, through `worktree finish` and `worktree gc --apply`, then the cargo
+   `target/` of stale ones, whose trees are kept;
+2. the build output of each idle managed tree: no live session, no process and no write to its
+   `target/` in it;
+3. build output in worktree archives;
+4. stale scratch and caches;
+5. observations of snapshots past `retention.snapshots`.
 
-Each step is recorded with the path it removed and the bytes it freed. A tree a live session works
-in, or a running gate's target, is never touched. Nor are the instance's records, state,
-checkouts or trees, however a symbolic link leads into them: a scratch root that is itself a link is skipped,
-and a stale scratch entry that is a link is removed as a link, never followed. The watch also runs a reclaim once each time free
-disk falls under `thresholds.disk_admit`, so space is freed before anyone asks.
+A tree that is dirty or unmerged and untouched for `thresholds.tree_stale` (48 h) is stale: its
+`target/` goes and it is listed `stale, kept`. Each step is recorded with the path it removed and
+the bytes it freed. One reclaim walks the disk at a time, `host.reclaim.lock`. A tree a live
+session works in, a running gate's target, and the instance's records, state, checkouts and trees
+are not touched, however a symbolic link leads into them. A scratch entry that is a link is removed
+as a link. The watch also reclaims once each time free disk falls under `thresholds.disk_admit`.
 
 ## 3. Watch the run
 
-Once granted, the command runs in its own process group under a disk watchdog. Under
-`thresholds.gate_stop` the group is paused and a reclaim runs; over `thresholds.gate_resume` it
-resumes. The peak of the directories the command writes (the tree's `target/`, or the working
-directory) is recorded with the reservation, and the reservation is released when the command
-exits or is killed. `conductor build run` exits with the command's own status.
+The command runs in its own process group. Every `thresholds.watchdog_every` (10 s) a watchdog
+reads free disk: under `thresholds.gate_stop` it stops the group and reclaims, at
+`thresholds.gate_resume` it resumes it. The peak of the run's `target/`, else its working
+directory, is recorded, and the reservation is released when the command exits or is killed.
+`build run` exits with the command's status.
 
-Stopping `conductor build run` with SIGTERM, SIGINT or SIGHUP stops the build with it. The signal
-is forwarded to the command's whole process group; a group with a process left 10 seconds later is
-killed. The peak is recorded, the reservation is released, and `conductor build run` exits with
-128 plus the signal. A request still waiting in the queue is withdrawn instead (state `Withdrawn`
-in `conductor host grants`), and its command never starts.
+SIGTERM, SIGINT or SIGHUP to `build run` is forwarded to the command's whole process group. A
+group with a process left 10 seconds later is killed. The run exits with 128 plus the signal. A
+request still waiting is withdrawn (`Withdrawn` in `conductor host grants`), and its command never
+starts.
+
+### What `build run` sets
+
+| for | sets | key |
+|---|---|---|
+| every command | `nice -n 19` and the idle I/O class; `CARGO_BUILD_JOBS` and `MAKEFLAGS=-j`: the cores less the reserve, over the build slots, at least 1; a higher `CARGO_BUILD_JOBS` in the environment is lowered to it | `thresholds.cpu_reserve` (2) |
+| a cargo-based command | `CARGO_TARGET_DIR`: the repository's one target, `<cache>/target/<key>`, held under its lock for the whole command; a value the environment sets is kept and takes no lock | |
+| a cargo-based command | `RUSTC_WRAPPER=sccache`, the repository's `SCCACHE_DIR` and `SCCACHE_SERVER_PORT` (4300–5299), one server per repository that ends itself when idle; without `sccache` on `PATH`, nothing, and one line says so | `thresholds.repo_cache`, `repo_cache_size` (2G) |
+| a cargo-based command | `CARGO_PROFILE_DEV_DEBUG` and `CARGO_PROFILE_TEST_DEBUG` set to `line-tables-only`, unless the environment or the manifest sets `debug` | `thresholds.lean_debuginfo` |
+| a short command | a short-lane slot beside the regular ones, at most 4 jobs: at least 3 runs in 14 days with a p90 at most `short_lane_max`; a run over twice that is marked `lane_overrun` and leaves the lane for 24 hours | `thresholds.short_lane_slots` (1), `short_lane_max` (3m) |
 
 ## 4. Escalate
 
-When reclaim cannot reach the size, `conductor build run` refuses: it prints the shortfall and what
-is left by path and size, exits 2, and never starts the command. The binary records one operator
-item, listed by `conductor decision hands-todo`, naming the shortfall, what is left and the one
-command only a person can run; a second refusal in the same fall records none. The watch prints
-`disk floor not reached: <n>G short` once per fall.
+When reclaim cannot reach the size, `conductor build run` prints the shortfall and what is left by
+path and size, exits 2, and does not start the command. It records one operator item, a class-H
+request that `conductor decision hands-todo` lists, with the one command only a person can run.
+Each instance records one item per fall of free disk, `falls/<prefix>.json` in the host directory.
+The fall ends when free disk is back at `thresholds.disk_clear`, which withdraws the item. A
+shortfall that only scratch and caches leave records no item. The watch prints `disk floor not
+reached: <n>G short` once per fall.
 
 A session that is refused reports the refusal to conductor and does not retry it in a loop.
-Conductor answers a `[RESOURCE <repo>] disk` or `build` with "use conductor build run": there is no
-slot to grant by message.
+Conductor answers a `[RESOURCE <repo>] disk` or `build-slot` with "use conductor build run".
 
 ## 5. Enforce
 
-The [guard](/docs/security/the-guard#bash-and-monitor) denies a controller's build, test or gate
-that does not run under `conductor build run`, and the denial names the exact command to run
-instead:
+The [guard](/docs/security/the-guard) denies a controller's build, test or gate that does not run
+under `conductor build run`: `cargo build`, `test`, `check`, `clippy`, `nextest`, `install`, `run`,
+`bench`, `doc`, `rustc` and `fix`, the tasks `check`, `gate`, `install`, `regen`, `docs-generate`
+and `ui`, and `npm ci`, `npm test` and the `build` and `test` scripts. The denial gives the command to run:
 
 ```text
 `cargo test -p example` builds, tests or gates outside the host's disk ledger: run it as
-`conductor build run --reserve 8G -- cargo test -p example`, which reserves its disk first;
+`conductor build run --reserve auto -- cargo test -p example`, which reserves its disk first;
 a refusal names the shortfall: report it, do not retry
 ```
 
-`cargo fmt`, `rustfmt`, `cargo metadata` and `cargo tree` build nothing and stay allowed.
-Conductor's own session runs no builds, and its Bash is not held.
-
-## Read next
-
-- [The guard](/docs/security/the-guard): the rest of the shell rule.
-- [The loop](./the-loop.md): the watch between cycles, and the disk floors it reports.
-- [Instances and config](./instances-and-config.md): the thresholds named above.
+`cargo fmt`, `rustfmt`, `cargo metadata` and `cargo tree` build nothing and stay allowed. Conductor's own
+session runs no builds, and the rule does not hold its Bash.

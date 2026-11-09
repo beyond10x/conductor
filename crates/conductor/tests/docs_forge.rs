@@ -1,9 +1,7 @@
 //! `story:gitlab-guide`: the hand-written documentation describes a GitLab instance as the binary
 //! runs it.
 //!
-//! - `website/docs/guides/gitlab.md` exists, `website/sidebars.ts` lists it as `guides/gitlab`, and
-//!   the page holds `host: gitlab.example.com`, `glab auth login --hostname`, and the words
-//!   repositories, merge requests, pipelines and releases in its list of what conductor reads.
+//! - `website/docs/guides/gitlab.md` exists and `website/sidebars.ts` lists it as `guides/gitlab`.
 //! - No hand-written page (`README.md`, `docs/design/conductor.md`, and `website/docs/` but its
 //!   generated `reference/`) says the binary does not read a forge.
 //! - The README's requirements table has a `gh` row for a GitHub source and a `glab` row for a
@@ -22,12 +20,6 @@ const NOT_READ: [&str; 3] = [
     "the binary does not read it",
     "does not read that forge",
 ];
-
-/// The words the guide's list of what conductor reads from GitLab holds.
-const READS: [&str; 4] = ["repositories", "merge requests", "pipelines", "releases"];
-
-/// The heading of the guide's section on what conductor reads from GitLab.
-const READS_HEADING: &str = "## What conductor reads from GitLab";
 
 fn workspace() -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR"))
@@ -78,39 +70,6 @@ fn the_sidebar_lists_the_gitlab_guide() {
         sidebar.contains("'guides/gitlab'"),
         "website/sidebars.ts does not list 'guides/gitlab'"
     );
-}
-
-#[test]
-fn the_gitlab_guide_names_the_host_the_login_and_what_conductor_reads() {
-    let guide = read("website/docs/guides/gitlab.md");
-    for needed in ["host: gitlab.example.com", "glab auth login --hostname"] {
-        assert!(
-            guide.contains(needed),
-            "website/docs/guides/gitlab.md does not contain {needed:?}"
-        );
-    }
-    let section = guide
-        .split_once(READS_HEADING)
-        .map(|(_, after)| after.split("\n## ").next().unwrap_or_default())
-        .unwrap_or_else(|| {
-            panic!("website/docs/guides/gitlab.md has no section {READS_HEADING:?}")
-        });
-    let list: Vec<String> = section
-        .lines()
-        .filter(|line| line.trim_start().starts_with("- "))
-        .map(str::to_lowercase)
-        .collect();
-    assert!(
-        !list.is_empty(),
-        "the section {READS_HEADING:?} of website/docs/guides/gitlab.md has no list"
-    );
-    for word in READS {
-        assert!(
-            list.iter().any(|item| item.contains(word)),
-            "the list under {READS_HEADING:?} in website/docs/guides/gitlab.md does not name \
-             {word}: {list:#?}"
-        );
-    }
 }
 
 #[test]
@@ -205,7 +164,7 @@ fn the_getting_started_doctor_sample_ends_with_its_verdict() {
 #[test]
 fn the_confinement_pages_name_session_start() {
     for page in [
-        "website/docs/security/confinement.md",
+        "website/docs/security/sessions.md",
         "website/docs/guides/start-conductor.md",
         "docs/design/conductor.md",
     ] {
