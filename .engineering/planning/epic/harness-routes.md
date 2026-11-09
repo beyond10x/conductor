@@ -2,9 +2,11 @@
 format: aep.planning-md/3
 id: epic:harness-routes
 kind: epic
-status: draft
+status: archived
 title: Each instance declares its harnesses and model routes, and work is routed by role
-revision: 1
+revision: 2
+transitions:
+- {from: "draft", to: "archived", at: "2026-11-09T10:21:28Z", actor: "human:timo", revision: 2}
 ---
 # Epic: harness-routes
 

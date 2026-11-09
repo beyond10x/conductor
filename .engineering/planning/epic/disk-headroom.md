@@ -2,9 +2,11 @@
 format: aep.planning-md/3
 id: epic:disk-headroom
 kind: epic
-status: draft
+status: archived
 title: The host keeps 300-400G free on its build disk by default
-revision: 1
+revision: 2
+transitions:
+- {from: "draft", to: "archived", at: "2026-11-09T10:21:28Z", actor: "human:timo", revision: 2}
 ---
 # Epic: disk-headroom
 

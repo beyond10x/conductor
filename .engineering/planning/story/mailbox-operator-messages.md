@@ -2,11 +2,13 @@
 format: aep.planning-md/3
 id: story:mailbox-operator-messages
 kind: story
-status: draft
+status: archived
 title: The operator leaves conductor an instruction from outside its session
 relations:
 - decomposes: epic:host-bridge
-revision: 2
+revision: 4
+transitions:
+- {from: "draft", to: "archived", at: "2026-11-09T10:21:28Z", actor: "human:timo", revision: 4}
 ---
 # Story: mailbox-operator-messages
 
@@ -42,3 +44,7 @@ Waking a running session on send. Messages to controllers. Delivery of `[DECISIO
 ## Ambiguities
 
 None.
+
+## Archived
+
+Archived with its parent: epic:host-bridge is archived (superseded by design:architecture-next, which keeps the federated API and the one dashboard).

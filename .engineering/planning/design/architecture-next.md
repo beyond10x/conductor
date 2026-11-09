@@ -2,7 +2,7 @@
 format: aep.planning-md/3
 id: design:architecture-next
 kind: design
-status: draft
+status: implemented
 title: 'conductor v1: daemon, APIs, substrate placements, agent kinds, SQLite with sync'
 summary: 'docs/design/architecture-next.md: conductord on the control host, instance runtimes in substrate boxes (local or remote), federated /v1 APIs, one dashboard served locally and deployed remotely, agent kinds with claude-code first, SQLite synced to the daemon, secrets through the secrets crates, several operators; modelled in ESS first; built on the integration branch v1'
 relations:
@@ -12,7 +12,11 @@ relations:
 - informed_by: epic:conductor-run
 - informed_by: epic:multi-instance-host
 - informed_by: epic:process-supervision
-revision: 2
+revision: 5
+transitions:
+- {from: "draft", to: "in_review", at: "2026-11-09T10:21:37Z", actor: "human:timo", revision: 3}
+- {from: "in_review", to: "approved", at: "2026-11-09T10:21:37Z", actor: "human:timo", revision: 4}
+- {from: "approved", to: "implemented", at: "2026-11-09T10:21:37Z", actor: "human:timo", revision: 5}
 ---
 ## Design
 
