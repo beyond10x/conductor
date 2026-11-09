@@ -1,8 +1,8 @@
 # conductor
 
-An agent asked to set conductor up in a repository follows [`SETUP.md`](SETUP.md), the step list
-at <https://raw.githubusercontent.com/beyond10x/conductor/main/SETUP.md>: each step has a check,
-the exact fix, and what only the person can do.
+An agent asked to set conductor up in a repository follows [`SETUP.md`](SETUP.md), downloaded
+whole from <https://raw.githubusercontent.com/beyond10x/conductor/main/SETUP.md> with `curl -fsSL`
+(a summary drops commands): each step has a check, the exact fix, and what only the person can do.
 
 Conductor coordinates Claude Code sessions across the repositories of one organization. Its loop,
 `conductor run`, has no model call: it tracks every repository and starts one controller session

@@ -402,7 +402,7 @@ fn the_step_before_the_last_applies_conductor_setup() {
 }
 
 /// The step that installs the pinned programs quotes doctor's `install: follow <SETUP_URL>` line.
-/// That page installs the `b10x` plugins as well and asks the person first, so the step says to
+/// That page installs the ecosystem's plugins as well and asks the person first, so the step says to
 /// install with its own `Fix:` instead (the v1.0.0 onboarding runs both followed the page).
 #[test]
 fn the_pinned_programs_step_installs_with_its_fix_not_the_page_doctor_names() {
@@ -447,6 +447,28 @@ fn the_readme_points_an_agent_at_setup_md_with_its_raw_url() {
         pointer.is_some(),
         "none of the first {README_TOP} lines of README.md tells an agent to follow SETUP.md \
          with its raw URL ({RAW_HOST}…{RAW_END}):\n{}",
+        top.join("\n")
+    );
+}
+
+/// A fetch tool that summarizes a page drops the exact commands and the step 4 rule, as one of the
+/// v1.0.0 onboarding runs did; the README's pointer says to download `SETUP.md` whole with `curl`.
+#[test]
+fn the_readme_tells_an_agent_to_download_setup_md_whole_with_curl() {
+    let readme = read("README.md");
+    let top: Vec<&str> = readme.lines().take(README_TOP).collect();
+    let pointer = top
+        .split(|line| line.trim().is_empty())
+        .map(|lines| lines.join(" "))
+        .find(|paragraph| paragraph.contains("[`SETUP.md`](SETUP.md)"))
+        .unwrap_or_default();
+    let curl = spans(&pointer)
+        .into_iter()
+        .any(|span| span.split_whitespace().next() == Some("curl"));
+    assert!(
+        curl && pointer.contains("whole") && pointer.contains(RAW_END),
+        "the README's pointer to SETUP.md does not tell an agent to download it whole with \
+         `curl`:\n{}",
         top.join("\n")
     );
 }
