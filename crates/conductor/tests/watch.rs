@@ -4117,3 +4117,86 @@ fn the_panes_are_the_instances_sessions_probe_and_rotation() {
     assert_eq!(panes.rotate.as_deref(), Some("usage-rotate --best"));
     assert!(Panes::of(&acme(""), Path::new("/fixture-home/state")).is_none());
 }
+
+/// Adversary (`story:auto-resume`): a pane whose harness is working and whose tool output only
+/// quotes the words `Usage limit reached` (a controller reading this repository's watch.rs) is
+/// not on the banner: the watch types no Escape into it and runs no rotation.
+#[test]
+fn adversary_a_working_pane_that_quotes_the_banner_text_is_not_resumed() {
+    let case = Case::new("banner-quoted");
+    case.sessions(&[]);
+    case.accounts(ONE_WITH_HEADROOM);
+    case.pane(
+        "ex-dev",
+        Some(
+            "● Bash(grep -n \"Usage limit reached\" crates/conductor/src/watch.rs)\n\
+             \x20 ⎿  255:pub const BANNER: &str = \"Usage limit reached\";\n\n\
+             ✻ Working… (12s · esc to interrupt)\n\n> \n",
+        ),
+    );
+    let mut watch = case.watch(None).with_panes(case.panes(true));
+    assert_eq!(
+        pass(&mut watch),
+        NOTHING,
+        "a working pane is not a stopped one"
+    );
+    assert_eq!(
+        case.typed("ex-dev"),
+        Vec::<String>::new(),
+        "no Escape into a working pane"
+    );
+    assert_eq!(
+        case.rotations(),
+        0,
+        "no rotation for a pane that is not stopped"
+    );
+}
+
+/// Adversary (`story:auto-resume`): a pane resumed once, whose server does not answer for one
+/// pass and then still shows the banner, was never seen off it: the stop is the same one, so it
+/// is reported not lifted, and neither rotated nor resumed a second time.
+#[test]
+fn adversary_a_pane_unread_for_one_pass_is_not_resumed_twice_for_one_stop() {
+    let case = Case::new("banner-unread");
+    case.sessions(&[]);
+    case.accounts(ONE_WITH_HEADROOM);
+    case.pane("ex-alpha", Some(ON_THE_BANNER));
+    let mut watch = case.watch(None).with_panes(case.panes(true));
+    assert_eq!(pass(&mut watch), ["usage limit resumed: 1 panes: ex-alpha"]);
+
+    case.pane("ex-alpha", None);
+    let _ = pass(&mut watch);
+    case.pane("ex-alpha", Some(ON_THE_BANNER));
+    assert_eq!(
+        pass(&mut watch),
+        [
+            "usage limit not lifted: ex-alpha still shows Usage limit reached after a rotation and \
+          a resume"
+        ]
+    );
+    assert_eq!(case.rotations(), 1, "one rotation for one stop");
+}
+
+/// Adversary (`story:auto-resume`): Escape and Enter are pasted unbracketed, so the harness reads
+/// them as keys; only the message is pasted bracketed. A bracketed Escape is text, not a key,
+/// and a bracketed carriage return is a newline in the prompt, not a submit.
+#[test]
+fn adversary_escape_and_enter_are_pasted_as_keys_and_the_message_as_a_paste() {
+    let case = Case::new("banner-bracketed");
+    case.sessions(&[]);
+    case.accounts(ONE_WITH_HEADROOM);
+    case.pane("ex-alpha", Some(ON_THE_BANNER));
+    let mut watch = case.watch(None).with_panes(case.panes(true));
+    assert_eq!(pass(&mut watch), ["usage limit resumed: 1 panes: ex-alpha"]);
+    let calls = fs::read_to_string(case.dir.join("tmux.calls")).expect("tmux was called");
+    let bracketed: Vec<bool> = calls
+        .lines()
+        .filter_map(|call| call.strip_prefix("ex-alpha.tmux paste-buffer "))
+        .map(|paste| paste.split_whitespace().any(|word| word == "-p"))
+        .collect();
+    assert_eq!(
+        bracketed,
+        [false, true, false],
+        "Escape unbracketed, the message bracketed, Enter unbracketed: {calls}"
+    );
+}
