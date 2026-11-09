@@ -56,15 +56,18 @@ use conductor_model::config::{
 use crate::collect;
 use crate::config;
 
-/// Every program conductor starts: its collectors, its gate and its tasks. A forge's CLI of
-/// [`FORGES`] is among them only for an instance with a source on that forge ([`forges`]).
-pub const PROGRAMS: [&str; 10] = [
+/// Every program conductor or a role it starts runs: its collectors, the sessions' harness,
+/// `jq` for the supervisor's and the teacher's context checks (`roles/supervisor.md`,
+/// `roles/teacher.md`), and the ecosystem's CLIs. A forge's CLI of [`FORGES`] is among them only
+/// for an instance with a source on that forge ([`forges`]). `task` is not: conductor only
+/// recognises it inside a `build run` or a guarded command, and a repository whose gate is a
+/// `Taskfile.yml` brings its own.
+pub const PROGRAMS: [&str; 9] = [
     "git",
     "gh",
     "glab",
     "claude",
     "jq",
-    "task",
     "aep",
     "worktree",
     "ess",
@@ -372,7 +375,6 @@ pub fn manager(system: &str, search: Option<&OsStr>) -> Option<Manager> {
 /// The page that installs `program` without a package manager.
 fn upstream(program: &str) -> Option<&'static str> {
     Some(match program {
-        "task" => "https://taskfile.dev/installation/",
         "jq" => "https://github.com/jqlang/jq/releases/latest",
         "gh" => "https://github.com/cli/cli#installation",
         "glab" => "https://gitlab.com/gitlab-org/cli#installation",
@@ -385,8 +387,8 @@ fn upstream(program: &str) -> Option<&'static str> {
 
 /// The command that installs `program`, pinned at `pin` when one is known, with `manager`
 /// (`story:install-hints`): `aep`, `ess` and `worktree` follow [`SETUP_URL`], naming the pin; a
-/// program the manager packages is `<manager's install> <package>` (`task` is `go-task`, and only
-/// Homebrew packages `task`, `gh` and `glab`); any other is `see <its install page>`. `None` for a
+/// program the manager packages is `<manager's install> <package>` (of the forges' CLIs, only
+/// Homebrew packages `gh` and `glab`); any other is `see <its install page>`. `None` for a
 /// program doctor knows no install of.
 #[must_use]
 pub fn install_command(
@@ -401,7 +403,6 @@ pub fn install_command(
         });
     }
     let package = match (program, manager) {
-        ("task", Some(Manager::Brew)) => Some("go-task"),
         ("gh" | "glab", Some(Manager::Brew)) | ("jq" | "git", Some(_)) => Some(program),
         _ => None,
     };
@@ -1430,13 +1431,15 @@ mod tests {
     fn each_program_has_an_install_command_with_and_without_a_manager() {
         let command = |program, manager| install_command(program, None, manager);
         assert_eq!(
-            command("task", Some(Manager::Brew)).as_deref(),
-            Some("brew install go-task")
+            command("jq", Some(Manager::Brew)).as_deref(),
+            Some("brew install jq")
         );
         assert_eq!(
-            command("task", Some(Manager::AptGet)).as_deref(),
-            Some("see https://taskfile.dev/installation/")
+            command("jq", None).as_deref(),
+            Some("see https://github.com/jqlang/jq/releases/latest")
         );
+        assert_eq!(command("task", Some(Manager::Brew)), None);
+        assert!(!PROGRAMS.contains(&"task"));
         assert_eq!(
             command("gh", Some(Manager::Brew)).as_deref(),
             Some("brew install gh")

@@ -51,7 +51,7 @@ writes are the operator's answers and settings.
 
 | what | needs |
 |---|---|
-| programs | `git`, `claude`, `jq`, `task`, `aep`, `worktree`, `ess`; `gh` or `glab` for the forge; `substrate-daemon` for an instance in a substrate box. `conductor doctor` lists each against its pin and says what is missing ([getting started](/docs/getting-started)) |
+| programs | `git`, `claude`, `jq`, `aep`, `worktree`, `ess`; `gh` or `glab` for the forge; `substrate-daemon` for an instance in a substrate box. `conductor doctor` lists each against its pin and says what is missing ([getting started](/docs/getting-started)) |
 | a config | `version: conductor.config/2` and, per instance, a name, `session_prefix`, `placement`, sources and checkouts; conductord also needs `daemon.store` ([config](./config.md)) |
 | a first snapshot | install, a config, `conductor snapshot start-snapshot`; no session starts |
 | a first dispatch | the records (`conductor init`), roles with a profile and settings each, `conductor trust`, and Claude Code's bypass-permissions disclaimer accepted once ([sessions](/docs/security/sessions)) |

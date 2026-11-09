@@ -7,7 +7,7 @@
 //! - The README's requirements table has a `gh` row for a GitHub source and a `glab` row for a
 //!   GitLab source.
 //! - The sample `conductor doctor` output of `website/docs/getting-started.md` ends with its verdict
-//!   line (`story:doctor-verdict`).
+//!   line (`story:doctor-verdict`), and its program rows are doctor's programs, in their order.
 //!
 //! Every file is read relative to the workspace root, and a finding names the file and the line.
 
@@ -142,6 +142,24 @@ fn the_getting_started_doctor_sample_ends_with_its_verdict() {
         !samples.is_empty(),
         "website/docs/getting-started.md has no code block starting `$ conductor doctor`"
     );
+    for sample in &samples {
+        let rows: Vec<&str> = sample
+            .iter()
+            .filter_map(|line| line.split_once(": "))
+            .filter(|(_, state)| {
+                ["present", "missing", "not needed"]
+                    .iter()
+                    .any(|word| state.starts_with(word))
+            })
+            .map(|(program, _)| program)
+            .collect();
+        assert_eq!(
+            rows,
+            conductor_cli::doctor::PROGRAMS,
+            "the program rows of the conductor doctor sample of website/docs/getting-started.md \
+             are not doctor's programs in doctor's order"
+        );
+    }
     for sample in samples {
         let last = sample
             .iter()

@@ -36,12 +36,11 @@ fn child() {
 /// `ess` print a version newer than any pin a build carries (`story:doctor-minimum-versions`), so
 /// a case without a pin file passes whatever the repository's `b10x.toml` pins; so does
 /// `substrate-daemon`, which every placement of a config file now needs.
-const PROGRAMS: [(&str, &str); 9] = [
+const PROGRAMS: [(&str, &str); 8] = [
     ("git", "git version 2.51.0"),
     ("gh", "gh version 2.100.0 (2026-09-04)"),
     ("claude", "2.1.295 (Claude Code)"),
     ("jq", "jq-1.8.2"),
-    ("task", "3.53.1+ff3372fc"),
     ("aep", "aep 99.1.0"),
     ("worktree", "worktree-cli 99.1.0"),
     ("ess", "ess 99.1.0"),
@@ -804,20 +803,20 @@ fn under<'l>(lines: &'l [String], row: &str) -> Option<&'l str> {
     lines.get(at + 1).map(String::as_str)
 }
 
-/// On a fake macOS with `brew` on `PATH`, a missing `task` is installed with `brew install
-/// go-task` and a missing `claude` from its install page; a present program gets no install line.
+/// On a fake macOS with `brew` on `PATH`, a missing `jq` is installed with `brew install jq` and
+/// a missing `claude` from its install page; a present program gets no install line.
 #[test]
-fn doctor_prints_brew_install_go_task_under_a_missing_task_on_macos() {
+fn doctor_prints_brew_install_jq_under_a_missing_jq_on_macos() {
     let case = Case::new("install-macos");
-    case.programs_but(&["task", "claude"]);
+    case.programs_but(&["jq", "claude"]);
     case.uname("Darwin");
     case.program("brew", "Homebrew 4.6.0", 0);
     let output = case.doctor(&case.work());
     assert_eq!(output.status.code(), Some(1), "{}", shown(&output));
     let lines = stdout(&output);
     assert_eq!(
-        under(&lines, "task: missing"),
-        Some("  install: brew install go-task"),
+        under(&lines, "jq: missing"),
+        Some("  install: brew install jq"),
         "{}",
         shown(&output)
     );
@@ -836,6 +835,27 @@ fn doctor_prints_brew_install_go_task_under_a_missing_task_on_macos() {
         "only the missing programs get an install line: {}",
         shown(&output)
     );
+}
+
+/// `task` is no program conductor starts: with it off `PATH` and every other program there,
+/// doctor prints no `task` row and is ready.
+#[test]
+fn doctor_is_ready_without_task() {
+    let case = Case::new("no-task");
+    case.programs_but(&[]);
+    assert!(
+        !case.bin().join("task").exists(),
+        "the case puts no task on PATH"
+    );
+    let output = case.doctor(&case.work());
+    assert_eq!(output.status.code(), Some(0), "{}", shown(&output));
+    let lines = stdout(&output);
+    assert!(
+        !lines.iter().any(|line| line.starts_with("task")),
+        "doctor prints no task row: {}",
+        shown(&output)
+    );
+    assert_eq!(last(&output), "ready", "{}", shown(&output));
 }
 
 /// On a fake Linux, a missing `jq` is the distribution's package for the package manager on

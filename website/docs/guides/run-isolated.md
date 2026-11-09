@@ -47,9 +47,8 @@ box's paths:
 | the instance's `cache` | the collectors' exports |
 | `~/.b10x/conductor/` | the config file, the default store `conductor.sqlite`, and `daemon/`: the runtimes' binaries and the daemon's token |
 | `~/.claude/`, `~/.claude.json` | Claude Code's login, settings and session transcripts. `conductor trust` writes `~/.claude.json` |
-| the conductor checkout | the `Taskfile.yml` the tasks run from. The role profiles and settings are in the binary |
 
-Install inside the box what `conductor doctor` lists: `conductor`, `claude`, `git`, `task`, `jq`,
+Install inside the box what `conductor doctor` lists: `conductor`, `claude`, `git`, `jq`,
 `aep`, `worktree`, `ess`, `gh` or `glab` for the forge of the instance's sources, and
 `substrate-daemon` when a `placement` opens a box.
 

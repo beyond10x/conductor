@@ -52,8 +52,8 @@ to fill in, and each step says where they come from. `<target>` is the build of 
    `conductor doctor` names each pin, on a line such as `aep: 0.69.1 is older than the build's pin 0.79`,
    and under the row of each one missing or too old prints where to get it, such as
    `  install: follow https://github.com/beyond10x/agentplugins/releases/latest/download/SETUP.md (needs aep 0.79)`;
-   for `task`, `jq`, `gh` and `claude` it prints this machine's command the same way, such as
-   `  install: brew install go-task`. A pin `x.y` takes the newest `x.y.z` release of that
+   for `jq`, `gh` and `claude` it prints this machine's command the same way, such as
+   `  install: brew install jq`. A pin `x.y` takes the newest `x.y.z` release of that
    program, `<v>` below. `<name>` is the program's name and `<repo>` its repository: `aep`, `ess`
    and `worktree` for the first three, `substrate` for `substrate-daemon`, whose releases carry
    `x86_64-unknown-linux-gnu` only. The releases are listed at
@@ -155,7 +155,7 @@ to fill in, and each step says where they come from. `<target>` is the build of 
     - Check: `conductor doctor`
     - Fix: go back to the step for each program the not-ready line names: gh or glab to step 2,
       aep, ess, worktree or substrate-daemon too old to step 4. Install any other missing program
-      (git, claude, jq, task) with the system's package manager, then check again.
+      (git, claude, jq) with the system's package manager, then check again.
     - Hands: what the step it goes back to needs.
     - Next: once doctor is ready, [one task in an existing repository](https://beyond10x.github.io/conductor/docs/guides/first-task-existing-repo)
       takes the person from here to a first merged pull request.

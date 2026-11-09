@@ -61,7 +61,6 @@ gh: not needed
 glab: not needed
 claude: present, 2.1.319 (Claude Code)
 jq: present, jq-1.8.2
-task: present, 3.54.0
 aep: present, aep 0.79.0
 worktree: present, b10x-worktree-cli 0.19.4
 ess: present, ess 0.90.0
@@ -85,7 +84,7 @@ ready
 - `pins: none` means no `b10x.toml` was found at or above the working directory, so doctor checks
   against the pins the binary was built with.
 - Under a program that is missing or too old, doctor prints the command that installs it on this
-  machine, such as `  install: brew install go-task`.
+  machine, such as `  install: brew install jq`.
 - The store and the daemon unit do not exist yet. conductord creates both in step 6.
 
 The last line is `ready`, or `not ready:` and what failed, such as
