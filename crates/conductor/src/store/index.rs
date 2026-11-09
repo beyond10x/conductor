@@ -1,9 +1,16 @@
 //! The index of the instance's streams (`story:status-current-snapshot`): one row per stream of
 //! the instance's tenant, keyed `<type>/<stream id>`, holding when the stream was first stored and
-//! its newest record, so that a list of one entity reads that entity's rows and not every record
-//! of the instance. An instance of long standing holds thousands of grants of the host ledger an
-//! older binary kept in its store and every guard decision; a list of its snapshots or open
-//! dispatches read them all, on every call, before the index.
+//! the version of its newest record, so that a list of one entity reads that entity's rows and
+//! each one's newest event, not every record of the instance. An instance of long standing holds
+//! thousands of grants of the host ledger an older binary kept in its store and every guard
+//! decision; a list of its snapshots or open dispatches read them all, on every call, before the
+//! index.
+//!
+//! The index holds only what a redaction cannot change: no body, no redacted flag. A redaction
+//! erases an event's body in place and adds nothing to the feed, so a copy of the body in the
+//! index would outlive it. The newest event is read from the log's own rows on each list, where a
+//! record redacted since the index caught up reads as redacted: left out, and reported as a
+//! record this build cannot read, as without the index (`story:store-hardening`).
 //!
 //! Eventlog keeps it as a catch-up projection ([`Streams`]) beside the log, with the position of
 //! the feed it is as of in one more row ([`POSITION`]). The handle that completes a snapshot
@@ -17,8 +24,8 @@
 use std::sync::Arc;
 
 use eventlog_core::{
-    BoxFuture, EventLogError, MAX_READ_LIMIT, ProjectionSpec, ProjectionStore, Projector,
-    RecordedEvent,
+    AtomicEventStore, BoxFuture, EventLogError, MAX_READ_LIMIT, ProjectionSpec, ProjectionStore,
+    Projector, RecordedEvent, StreamId, TenantId,
 };
 use serde_json::{Value, json};
 use time::OffsetDateTime;
@@ -74,10 +81,6 @@ impl Projector for Streams {
             let row = json!({
                 "first": first,
                 "version": event.version,
-                "name": event.name,
-                "schema_version": event.schema_version,
-                "redacted": event.redacted_at.is_some(),
-                "data": event.data,
             });
             store.upsert(&SPEC, &event.tenant, &key, &row).await?;
             store
@@ -92,7 +95,8 @@ impl Projector for Streams {
     }
 }
 
-/// One stream of the index: its id, when it was first stored, and its newest record.
+/// One stream of the index: its id, when it was first stored, the version of its newest record
+/// and that record as the log holds it now.
 pub(super) struct Indexed {
     pub stream: String,
     pub first: (OffsetDateTime, u64),
@@ -120,7 +124,8 @@ impl Store {
     }
 
     /// The position of the feed the index is as of, and the streams of `entity` it holds, each
-    /// with its newest record; `None` where the database holds no index of the instance.
+    /// with its newest record read from the log; `None` where the database holds no index of the
+    /// instance.
     pub(super) fn indexed(
         &self,
         entity: &'static str,
@@ -136,7 +141,7 @@ impl Store {
             };
         let prefix = format!("{entity}/");
         let mut cursor: Option<String> = None;
-        let mut streams = Vec::new();
+        let mut rows = Vec::new();
         loop {
             let page = self
                 .runtime
@@ -148,22 +153,59 @@ impl Store {
                     MAX_READ_LIMIT,
                 ))
                 .map_err(failed)?;
-            for (key, row) in page.rows {
-                let stream = key[prefix.len()..].to_owned();
-                streams.push(indexed(entity, stream, row));
-            }
+            rows.extend(
+                page.rows
+                    .into_iter()
+                    .map(|(key, row)| (key[prefix.len()..].to_owned(), row)),
+            );
             match page.next_cursor {
                 Some(next) => cursor = Some(next),
                 None => break,
             }
         }
+        let (log, tenant) = (&*self.log, &self.tenant);
+        let streams = self.runtime.block_on(async move {
+            let mut streams = Vec::with_capacity(rows.len());
+            for (stream, row) in rows {
+                let (first, version) = placed(&row);
+                let newest = newest_of(log, tenant, entity, &stream, version).await;
+                streams.push(Indexed {
+                    stream,
+                    first,
+                    version,
+                    newest,
+                });
+            }
+            streams
+        });
         Ok(Some((position, streams)))
     }
 }
 
-/// The stream `stream` of `entity` as its index row `row` holds it: its newest record as
-/// [`super::body`] reads an event.
-fn indexed(entity: &'static str, stream: String, row: Value) -> Indexed {
+/// The event of version `version` of the stream `stream` of `entity` in `tenant` of `log`, the
+/// stream's newest the index names, as [`super::body`] reads it from the event rows: redacted
+/// since the index was brought up to date, it does not read.
+async fn newest_of(
+    log: &dyn AtomicEventStore,
+    tenant: &TenantId,
+    entity: &'static str,
+    stream: &str,
+    version: u64,
+) -> Result<Option<Value>, StoreError> {
+    let failed = |source| log_error(entity, Some(stream), source);
+    let id = StreamId::new(tenant.clone(), entity, stream).map_err(failed)?;
+    let slice = log
+        .read_stream(&id, version.saturating_sub(1), 1)
+        .await
+        .map_err(failed)?;
+    match slice.events.into_iter().next() {
+        Some(event) if event.version == version => super::body(entity, event),
+        _ => Err(failed(EventLogError::NotFound)),
+    }
+}
+
+/// Where the stream of index row `row` stands: when it was first stored, and its newest version.
+fn placed(row: &Value) -> ((OffsetDateTime, u64), u64) {
     let first = (
         row["first"]["at"]
             .as_str()
@@ -172,25 +214,5 @@ fn indexed(entity: &'static str, stream: String, row: Value) -> Indexed {
             .unwrap_or(OffsetDateTime::UNIX_EPOCH),
         row["first"]["seq"].as_u64().unwrap_or(0),
     );
-    let name = row["name"].as_str().unwrap_or_default().to_owned();
-    let schema_version = row["schema_version"]
-        .as_u64()
-        .and_then(|version| u32::try_from(version).ok())
-        .unwrap_or(0);
-    let redacted = row["redacted"].as_bool().unwrap_or(false);
-    let version = row["version"].as_u64().unwrap_or(0);
-    let newest = super::recorded_body(
-        entity,
-        stream.clone(),
-        &name,
-        schema_version,
-        redacted,
-        row.get("data").cloned().unwrap_or(Value::Null),
-    );
-    Indexed {
-        stream,
-        first,
-        version,
-        newest,
-    }
+    (first, row["version"].as_u64().unwrap_or(0))
 }

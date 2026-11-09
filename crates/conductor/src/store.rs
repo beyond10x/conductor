@@ -1836,36 +1836,21 @@ fn text(body: &Value, field: &str) -> Result<String, String> {
 /// judged at its schema version: one this build does not write, a redacted snapshot, or a name it
 /// does not know is a record it cannot read.
 fn body(entity: &'static str, event: RecordedEvent) -> Result<Option<Value>, StoreError> {
-    let redacted = event.is_redacted();
-    recorded_body(
-        entity,
-        event.stream_id,
-        &event.name,
-        event.schema_version,
-        redacted,
-        event.data,
-    )
-}
-
-/// [`body`] of an event of `entity`'s stream `stream` named `name`, of `schema_version`, redacted
-/// or not, whose data is `data`: what the index keeps of a stream's newest event ([`index`]).
-fn recorded_body(
-    entity: &'static str,
-    stream: String,
-    name: &str,
-    schema_version: u32,
-    redacted: bool,
-    data: Value,
-) -> Result<Option<Value>, StoreError> {
-    match name {
-        STORED if schema_version == SCHEMA_VERSION && !redacted => Ok(Some(data)),
-        DELETED if schema_version == SCHEMA_VERSION => Ok(None),
+    match event.name.as_str() {
+        STORED if event.schema_version == SCHEMA_VERSION && !event.is_redacted() => {
+            Ok(Some(event.data))
+        }
+        DELETED if event.schema_version == SCHEMA_VERSION => Ok(None),
         _ => {
-            let redacted = if redacted { ", redacted" } else { "" };
+            let redacted = if event.is_redacted() {
+                ", redacted"
+            } else {
+                ""
+            };
             Err(StoreError::Undecodable {
                 entity,
-                detail: format!("event {name:?} v{schema_version}{redacted}"),
-                stream,
+                detail: format!("event {:?} v{}{redacted}", event.name, event.schema_version),
+                stream: event.stream_id,
             })
         }
     }

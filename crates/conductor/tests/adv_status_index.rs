@@ -93,7 +93,13 @@ fn index(state: &Path) {
 fn listed(store: &Store) -> Vec<Row> {
     GoalStorage::list(store)
         .into_iter()
-        .map(|goal| (goal.data.goal_id.0, format!("{:?}", goal.state), goal.data.title))
+        .map(|goal| {
+            (
+                goal.data.goal_id.0,
+                format!("{:?}", goal.state),
+                goal.data.title,
+            )
+        })
         .collect()
 }
 
