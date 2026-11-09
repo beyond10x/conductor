@@ -1,5 +1,5 @@
 // generated from conductor v1
-// contract digest 3ad5226d4517a7ae569bdc15103168ac09f97332327ca0e0972b62aad9feb62a
+// contract digest 251aac8e3d7844fa8bf5d80ba2d224b99dac46d204effce0fa0168d87512e308
 // do not edit: regenerate with `ess synthesize --layout crate`
 //! Every generated declaration, as JSON, in the renderings the published wire contracts fix.
 //!
@@ -3882,6 +3882,10 @@ pub fn encode_conductor_config_usage(value: &crate::config::Usage, out: &mut Str
         json::member(out, "watcher");
         json::push_text(out, &*held0);
     }
+    if let Some(held0) = &value.rotate {
+        json::member(out, "rotate");
+        json::push_text(out, &*held0);
+    }
     out.push('}');
 }
 
@@ -3891,7 +3895,7 @@ pub fn encode_conductor_config_usage(value: &crate::config::Usage, out: &mut Str
 ///
 /// [`json::DecodeError`] naming the path and what the declaration says belongs there.
 pub fn decode_conductor_config_usage(value: &json::Value, at: &str) -> Result<crate::config::Usage, json::DecodeError> {
-    json::closed_at(value, at, &["probe", "watcher"])?;
+    json::closed_at(value, at, &["probe", "watcher", "rotate"])?;
     Ok(crate::config::Usage {
         probe: match value.member("probe") {
             None | Some(json::Value::Null) => None,
@@ -3905,6 +3909,13 @@ pub fn decode_conductor_config_usage(value: &json::Value, at: &str) -> Result<cr
             Some(member1) => {
                 let at1 = json::nested(at, "watcher");
                 Some(json::text_at(member1, &at1, "a string")?.to_owned())
+            }
+        },
+        rotate: match value.member("rotate") {
+            None | Some(json::Value::Null) => None,
+            Some(member2) => {
+                let at2 = json::nested(at, "rotate");
+                Some(json::text_at(member2, &at2, "a string")?.to_owned())
             }
         },
     })

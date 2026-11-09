@@ -155,7 +155,7 @@ A key nothing reads yet is accepted, defaulted and shown: `repositories[].activi
 | `cadence.watch`, `cadence.ci` | watch |
 | `thresholds.*` | watch, profiles, `conductor build run`, `conductor gc`, `host reclaim` ([disk](./disk.md)) |
 | `retention.snapshots` | store |
-| `usage.probe`, `usage.watcher` | usage collector, watch, `conductor status`; `conductor doctor` |
+| `usage.probe`, `usage.watcher`, `usage.rotate` | usage collector, watch, `conductor status`; `conductor doctor`; the watch's resume of a pane on `Usage limit reached` |
 | `catalog`, `secret_syncs` | repositories and secrets collectors, board |
 | `gates_policy` | `conductor repository refresh-hooks --apply` |
 | `forge.route` | guard, `conductor run`, broker `commit`, `conductor status` |

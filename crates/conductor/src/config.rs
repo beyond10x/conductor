@@ -63,8 +63,8 @@
 //!   key, where the instance sets one; a role's `writable` entry is a place's word
 //!   ([`PLACES`]) or a path, and its `network` is `open`;
 //! - `forge.route` (`story:forge-route`) is `gates` or `direct`;
-//! - `usage.probe` (`story:usage-probe`) is a command, not empty, and `usage.watcher` a systemd
-//!   unit name ([`unit_name`]);
+//! - `usage.probe` (`story:usage-probe`) and `usage.rotate` (`story:auto-resume`) are commands,
+//!   not empty, and `usage.watcher` a systemd unit name ([`unit_name`]);
 //! - the file holds no secret: a value that looks like a token (a word starting `ghp_`,
 //!   `github_pat_`, `glpat-` or `xox<letter>-`) is refused by its path, and never printed.
 //!
@@ -75,7 +75,7 @@
 //! `forge.route` is `gates`;
 //! `dashboard_port` is 7313 plus the instance's index in the file ([`dashboard_port`]);
 //! `repositories`, `reports` and `secret_syncs` are empty; `operator`, `catalog`, `gates_policy`,
-//! `usage.probe`, `usage.watcher`, `session_prefix`, and a role's
+//! `usage.probe`, `usage.watcher`, `usage.rotate`, `session_prefix`, and a role's
 //! `agent`, `settings` and `profile`, are absent, and `config show` writes an absent one as null;
 //! a catalog's `names` is `plain`. The built-in instance names no catalog and no session prefix.
 //! `confinement` is `report` through `systemd` with no limit; a role sets no limit, writes its
@@ -574,7 +574,7 @@ const FORGE_SECRET_KEYS: [&str; 3] = ["owner", "repository", "name"];
 /// A secret sync's `source.branch` when the file leaves it out (`story:policy-secret-drift`).
 const SECRET_SOURCE_BRANCH: &str = "main";
 
-const USAGE_KEYS: [&str; 2] = ["probe", "watcher"];
+const USAGE_KEYS: [&str; 3] = ["probe", "watcher", "rotate"];
 
 const FORGE_KEYS: [&str; 1] = ["route"];
 
@@ -1828,11 +1828,13 @@ pub fn forge_route_word(route: ForgeRoute) -> &'static str {
         .map_or("gates", |(word, _)| word)
 }
 
-/// No usage probe and no watcher: what an instance that names neither has (`story:usage-probe`).
+/// No usage probe, watcher or rotation: what an instance that names none has
+/// (`story:usage-probe`, `story:auto-resume`).
 fn no_usage() -> Usage {
     Usage {
         probe: None,
         watcher: None,
+        rotate: None,
     }
 }
 
@@ -4512,8 +4514,9 @@ impl Reader<'_> {
         })
     }
 
-    /// `conductor.config.Usage` (`story:usage-probe`): `probe`, a command, and `watcher`, a
-    /// systemd unit name ([`unit_name`]); each absent when not written.
+    /// `conductor.config.Usage` (`story:usage-probe`): `probe`, a command, `watcher`, a systemd
+    /// unit name ([`unit_name`]), and `rotate`, a command (`story:auto-resume`); each absent when
+    /// not written.
     fn usage(&mut self, value: &Value, path: &str) -> Option<Usage> {
         let map = self.mapping(value, path, &USAGE_KEYS)?;
         let probe = match Self::get(map, "probe") {
@@ -4541,9 +4544,14 @@ impl Reader<'_> {
             }
             None => Some(None),
         };
+        let rotate = match Self::get(map, "rotate") {
+            Some(value) => self.text(value, &join(path, "rotate")).map(Some),
+            None => Some(None),
+        };
         Some(Usage {
             probe: probe?,
             watcher: watcher?,
+            rotate: rotate?,
         })
     }
 
@@ -4964,6 +4972,7 @@ pub fn document(instance: &Instance) -> Yaml {
             mapping([
                 ("probe", optional(instance.usage.probe.as_ref())),
                 ("watcher", optional(instance.usage.watcher.as_ref())),
+                ("rotate", optional(instance.usage.rotate.as_ref())),
             ]),
         ),
         ("operator", optional(instance.operator.as_ref())),

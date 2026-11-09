@@ -226,6 +226,7 @@ instances:
     usage:
       probe: usage-probe --json
       watcher: usage-rotator.service
+      rotate: usage-rotate --best
     operator: the operator
     catalog:
       repository: registry

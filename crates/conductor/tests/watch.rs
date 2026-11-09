@@ -36,7 +36,7 @@ use conductor_cli::gc::reclaim::{READINGS_VARIABLE, ReclaimReport, floor_bytes};
 use conductor_cli::host;
 use conductor_cli::snapshot;
 use conductor_cli::store;
-use conductor_cli::watch::{Options, Settings, Sources, Watch};
+use conductor_cli::watch::{Options, Panes, RESUME_MESSAGE, Settings, Sources, Watch};
 use conductor_model::config::{Gibibytes, Tokens};
 use conductor_model::observation::{
     CommitSha, Mergeability, RecordPullRequest, RecordRepository, RecordSpecification,
@@ -3893,4 +3893,227 @@ fn a_gitlab_merge_request_s_concluded_pipeline_is_printed_once_per_head() {
         "{asked}"
     );
     assert!(asked.contains("projects/101/merge_requests/5"), "{asked}");
+}
+
+// ---------------------------------------------------------------------------------------------
+// Panes on the usage-limit banner (story:auto-resume)
+// ---------------------------------------------------------------------------------------------
+
+/// The accounts a fake usage probe prints: the active one exhausted, the other with headroom.
+const ONE_WITH_HEADROOM: &str = r#"{"accounts": [
+  {"id": "account-a", "active": true, "health": "exhausted",
+   "usage": {"windows": [{"name": "five_hour", "used_percent": 100.0, "resets_at": null}]}},
+  {"id": "account-b", "active": false, "health": "ready",
+   "usage": {"windows": [{"name": "five_hour", "used_percent": 20.0, "resets_at": null}]}}
+]}"#;
+
+/// The accounts a fake usage probe prints: none with headroom.
+const NONE_WITH_HEADROOM: &str = r#"{"accounts": [
+  {"id": "account-a", "active": true, "health": "exhausted",
+   "usage": {"windows": [{"name": "five_hour", "used_percent": 100.0, "resets_at": null}]}},
+  {"id": "account-b", "active": false, "health": "ready",
+   "usage": {"windows": [{"name": "seven_day", "used_percent": 100.0, "resets_at": null}]}}
+]}"#;
+
+/// What a pane on the banner shows.
+const ON_THE_BANNER: &str = "> working on it\n\n  Usage limit reached · limit resets 6am\n";
+
+impl Case {
+    /// The sessions directory of the panes: `<name>.tmux` a socket, `<name>.screen` the visible
+    /// text the fake `tmux` prints for its pane.
+    fn panes_dir(&self) -> PathBuf {
+        self.dir.join("sessions")
+    }
+
+    /// A pane `name` showing `screen`; `None`: a socket whose server is gone.
+    fn pane(&self, name: &str, screen: Option<&str>) {
+        let dir = self.panes_dir();
+        fs::create_dir_all(&dir).expect("create sessions/");
+        fs::write(dir.join(format!("{name}.tmux")), "").expect("write a socket");
+        let file = dir.join(format!("{name}.screen"));
+        match screen {
+            Some(text) => replace(&file, text),
+            None => {
+                let _ = fs::remove_file(file);
+            }
+        }
+    }
+
+    /// The panes of this case: a fake `tmux` that records each call in `tmux.calls` and prints
+    /// `<name>.screen` for `capture-pane`, failing without it; the probe prints `accounts.json`;
+    /// the rotation, when `rotate`, appends a line to `rotations.txt`.
+    fn panes(&self, rotate: bool) -> Panes {
+        let bin = self.dir.join("bin");
+        fs::create_dir_all(&bin).expect("create bin/");
+        program(
+            &bin,
+            "tmux",
+            &format!(
+                "#!/bin/sh\n\
+                 socket=\"$2\"\n\
+                 shift 2\n\
+                 printf '%s' \"$socket\" >> '{calls}'\n\
+                 for word in \"$@\"; do printf ' %s' \"$word\" \
+                 | sed \"s/$(printf '\\r')/<Enter>/g; s/$(printf '\\033')/<Esc>/g\" \
+                 >> '{calls}'; done\n\
+                 printf '\\n' >> '{calls}'\n\
+                 if [ \"$1\" = capture-pane ]; then exec cat \"${{socket%.tmux}}.screen\"; fi\n\
+                 exit 0\n",
+                calls = self.dir.join("tmux.calls").display()
+            ),
+        );
+        Panes {
+            sessions: self.panes_dir(),
+            tmux: bin.join("tmux").into_os_string(),
+            probe: format!("cat '{}'", self.dir.join("accounts.json").display()),
+            rotate: rotate.then(|| {
+                format!(
+                    "echo rotated >> '{}'",
+                    self.dir.join("rotations.txt").display()
+                )
+            }),
+        }
+    }
+
+    fn accounts(&self, text: &str) {
+        replace(&self.dir.join("accounts.json"), text);
+    }
+
+    /// How many times the rotation ran.
+    fn rotations(&self) -> usize {
+        fs::read_to_string(self.dir.join("rotations.txt"))
+            .unwrap_or_default()
+            .lines()
+            .count()
+    }
+
+    /// What was typed into the pane `name`, in order, each `set-buffer` text as the fake `tmux`
+    /// wrote it (Escape as `<Esc>`, Enter as `<Enter>`); each followed by a paste into that pane.
+    fn typed(&self, name: &str) -> Vec<String> {
+        let calls = fs::read_to_string(self.dir.join("tmux.calls")).unwrap_or_default();
+        let socket = format!("{name}.tmux ");
+        let calls: Vec<&str> = calls
+            .lines()
+            .filter_map(|call| call.strip_prefix(&socket))
+            .filter(|call| !call.starts_with("capture-pane"))
+            .collect();
+        let mut typed = Vec::new();
+        for pair in calls.chunks(2) {
+            let text = pair[0]
+                .split_once(" -- ")
+                .map(|(_, text)| text)
+                .unwrap_or_else(|| panic!("a set-buffer with a text: {calls:?}"));
+            assert!(
+                pair.get(1)
+                    .is_some_and(|paste| paste.starts_with("paste-buffer ")
+                        && paste.ends_with(&format!("-t ={name}:"))),
+                "each text is pasted into the pane: {calls:?}"
+            );
+            typed.push(text.to_owned());
+        }
+        typed
+    }
+}
+
+/// `story:auto-resume`: a pane on `Usage limit reached` while the probe shows an account with
+/// headroom is resumed after one rotation, with Escape and then a continue message; still on the
+/// banner at the next tick it is reported in one line, and resumed no more; off the banner it is
+/// forgotten, so its next banner is a new stop.
+#[test]
+fn a_pane_on_the_usage_limit_banner_is_rotated_once_and_resumed() {
+    let case = Case::new("banner-resume");
+    case.sessions(&[]);
+    case.accounts(ONE_WITH_HEADROOM);
+    case.pane("ex-alpha", Some(ON_THE_BANNER));
+    case.pane("ex-beta", Some("> all quiet\n"));
+    case.pane("ex-gone", None);
+    let mut watch = case.watch(None).with_panes(case.panes(true));
+
+    assert_eq!(pass(&mut watch), ["usage limit resumed: 1 panes: ex-alpha"]);
+    assert_eq!(case.rotations(), 1, "the rotation runs once");
+    let resumed = [
+        "<Esc>".to_owned(),
+        RESUME_MESSAGE.to_owned(),
+        "<Enter>".to_owned(),
+    ];
+    assert_eq!(case.typed("ex-alpha"), resumed, "Escape, then the message");
+    assert_eq!(case.typed("ex-beta"), Vec::<String>::new());
+    assert_eq!(case.typed("ex-gone"), Vec::<String>::new());
+
+    assert_eq!(
+        pass(&mut watch),
+        [
+            "usage limit not lifted: ex-alpha still shows Usage limit reached after a rotation and \
+          a resume"
+        ]
+    );
+    assert_eq!(pass(&mut watch), NOTHING, "reported once");
+    assert_eq!(case.rotations(), 1, "no second rotation for the same stop");
+    assert_eq!(case.typed("ex-alpha"), resumed, "no second resume");
+
+    case.pane("ex-alpha", Some("> working again\n"));
+    assert_eq!(pass(&mut watch), NOTHING);
+    case.pane("ex-alpha", Some(ON_THE_BANNER));
+    assert_eq!(
+        pass(&mut watch),
+        ["usage limit resumed: 1 panes: ex-alpha"],
+        "a new stop"
+    );
+    assert_eq!(case.rotations(), 2);
+}
+
+/// `story:auto-resume`: a pane on the banner while no account has headroom is neither rotated
+/// nor resumed; without `usage.rotate` it waits for the active account's headroom, as another
+/// rotation, the operator's, gives it.
+#[test]
+fn a_pane_on_the_banner_waits_for_headroom() {
+    let case = Case::new("banner-wait");
+    case.sessions(&[]);
+    case.accounts(NONE_WITH_HEADROOM);
+    case.pane("ex-alpha", Some(ON_THE_BANNER));
+    let mut watch = case.watch(None).with_panes(case.panes(true));
+    assert_eq!(pass(&mut watch), NOTHING, "no account has headroom");
+    assert_eq!(case.rotations(), 0);
+    assert_eq!(case.typed("ex-alpha"), Vec::<String>::new());
+
+    case.accounts(ONE_WITH_HEADROOM);
+    let mut unrotated = case.watch(None).with_panes(case.panes(false));
+    assert_eq!(
+        pass(&mut unrotated),
+        NOTHING,
+        "without a rotation the active account has none"
+    );
+    assert_eq!(case.typed("ex-alpha"), Vec::<String>::new());
+
+    case.accounts(
+        &ONE_WITH_HEADROOM
+            .replace(
+                r#""active": true, "health": "exhausted""#,
+                r#""active": false, "health": "exhausted""#,
+            )
+            .replace(
+                r#""active": false, "health": "ready""#,
+                r#""active": true, "health": "ready""#,
+            ),
+    );
+    assert_eq!(
+        pass(&mut unrotated),
+        ["usage limit resumed: 1 panes: ex-alpha"]
+    );
+    assert_eq!(case.rotations(), 0, "no rotation is named");
+}
+
+/// `story:auto-resume`: the panes of an instance are its sessions directory's, read with its
+/// `usage.probe` and rotated with its `usage.rotate`; an instance without a probe has none.
+#[test]
+fn the_panes_are_the_instances_sessions_probe_and_rotation() {
+    let panes = Panes::of(
+        &acme("\x20   usage: {probe: usage-probe --json, rotate: usage-rotate --best}\n"),
+        Path::new("/fixture-home/state"),
+    )
+    .expect("a probe is named");
+    assert_eq!(panes.sessions, Path::new("/fixture-home/state/sessions"));
+    assert_eq!(panes.probe, "usage-probe --json");
+    assert_eq!(panes.rotate.as_deref(), Some("usage-rotate --best"));
+    assert!(Panes::of(&acme(""), Path::new("/fixture-home/state")).is_none());
 }
