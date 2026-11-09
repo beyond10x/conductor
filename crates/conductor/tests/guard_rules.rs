@@ -6470,13 +6470,18 @@ fn under_the_direct_route_a_pipeline_write_reaches_only_the_repository_glab_read
     for (cwd, command) in [
         (&widget, "glab ci retry 123 -Rexample-group/widget"),
         (&widget, "glab ci run -R=example-group/widget"),
-        (&widget, "cd src && glab ci retry 123"),
-        (&widget, "cd src && glab api -X POST projects/:id/pipeline"),
+        (&widget, "cd ./src && glab ci retry 123"),
+        (
+            &widget,
+            "cd ./src && glab api -X POST projects/:id/pipeline",
+        ),
         (
             &widget,
             "cd ~/clones/other && glab ci retry 1 -R example-group/widget",
         ),
         (&tree, "glab ci retry 123"),
+        (&widget, "pushd ./src && popd && glab ci retry 123"),
+        (&widget, "glab ci retry 123 && glab ci view"),
         (&tree, "glab api -X POST projects/:fullpath/jobs/5/retry"),
     ] {
         assert_verdict(&bash_by(&home, &places, cwd, command), Verdict::Allow, "");
@@ -6525,6 +6530,11 @@ fn under_the_direct_route_a_pipeline_write_reaches_only_the_repository_glab_read
             "names no repository",
         ),
         (&widget, "popd && glab ci run", "names no repository"),
+        (
+            &widget,
+            "cd src && glab ci retry 123",
+            "names no repository",
+        ),
         (
             &widget,
             "cd vendor/other && glab ci retry 123",
@@ -6828,7 +6838,11 @@ fn adversary_the_writes_the_cases_rely_on_are_admitted_alone() {
         "git init --bare sub",
         "ln -s ~/clones/other l",
     ] {
-        assert_verdict(&bash_by(&home, &places, &widget, command), Verdict::Allow, "");
+        assert_verdict(
+            &bash_by(&home, &places, &widget, command),
+            Verdict::Allow,
+            "",
+        );
     }
 }
 
@@ -6967,6 +6981,10 @@ fn adversary_a_git_variable_that_moves_nothing_keeps_the_own_retry() {
         "GIT_PAGER=cat glab ci retry 123",
         "export GIT_TERMINAL_PROMPT=0; glab ci run",
     ] {
-        assert_verdict(&bash_by(&home, &places, &widget, command), Verdict::Allow, "");
+        assert_verdict(
+            &bash_by(&home, &places, &widget, command),
+            Verdict::Allow,
+            "",
+        );
     }
 }

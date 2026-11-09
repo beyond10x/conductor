@@ -27,7 +27,7 @@
 //! instances a recipient is read against are those of the config file: the host registry that
 //! added every other file's is gone in v1 (design architecture-next § 11), one daemon reading one
 //! file.
-//! | Bash | a `cd`, `pushd` or `git -C` (`--git-dir`, `--work-tree`, `GIT_DIR=`, `GIT_WORK_TREE=`) reaches another repository's checkout or managed worktrees, or `<records>`; a git subcommand that writes ([`git_reads`]) has a target (the directory `-C` leaves it in, else the cwd; `--git-dir`, `--work-tree`, `GIT_DIR`, `GIT_WORK_TREE`) outside `<root>/<repo>/`, `<trees>/<repo>/` and the session's scratch; a `gh` or `glab` call that is not a read ([`forge_write`]), except, under `forge.route: direct`, `gh pr create|edit|comment|merge|ready` and `glab mr create|update|note|merge` naming the repository the checkout's `origin` names with `-R` ([`Session::direct_denial`]), and `glab ci retry|run` of that repository (named with `-R` in any spelling, or none where `glab` reads it: the line moves neither the directory nor git's location, and every remote of the nearest checkout names it, [`Session::implicit_denial`]) and `glab api -X POST` to its pipeline and job retry endpoints ([`own_pipeline_endpoint`]); a direct write after the line assigns a variable that points the forge elsewhere is denied; a run of the bot route `b10x-gates gh` that is not `release create|upload|edit|view`, `run rerun` or `workflow run` with `--repository` naming the repository the checkout's `origin` names ([`bot_route`]); the command writes a `.claude/` settings file or a `<settings>` ([`Places::writes_settings`]); the command writes a `<profile>` ([`Places::writes_profile`]); the command names `<config>` and holds a write form ([`Places::names_config`], [`holds_write_form`]); it runs a `conductor` leaf the command tree does not declare a controller may run ([`cli::LEAVES`], [`conductor_run`]), or one whose leaf a shell expansion, `xargs` or a program word a substitution names decides at run time; or the command writes `<records>` or a path under it ([`Places::writes_records`]) | a `gh` or `glab` call that is not a read, except a direct write as for a controller, its own repository the one the `origin` of `<records>` names; a run of the bot route as for a controller, its own repository the one the `origin` of `<records>` names; the command writes a `.claude/` settings file or a `<settings>`; the command writes a `<profile>` |
+//! | Bash | a `cd`, `pushd` or `git -C` (`--git-dir`, `--work-tree`, `GIT_DIR=`, `GIT_WORK_TREE=`) reaches another repository's checkout or managed worktrees, or `<records>`; a git subcommand that writes ([`git_reads`]) has a target (the directory `-C` leaves it in, else the cwd; `--git-dir`, `--work-tree`, `GIT_DIR`, `GIT_WORK_TREE`) outside `<root>/<repo>/`, `<trees>/<repo>/` and the session's scratch; a `gh` or `glab` call that is not a read ([`forge_write`]), except, under `forge.route: direct`, `gh pr create|edit|comment|merge|ready` and `glab mr create|update|note|merge` naming the repository the checkout's `origin` names with `-R` ([`Session::direct_denial`]), and `glab ci retry|run` of that repository (named with `-R` in any spelling, or none where `glab` reads it: every other command on the line is a `cd`, `pushd` or `popd` before it that the guard follows, an assignment that moves nothing ([`moves_glab`]) or another `glab` call, and the repository git discovers there is no bare one and has a config with no include, `insteadOf` or `worktreeConfig` whose every remote names it, [`Session::glab_place`], [`Session::implicit_denial`]) and `glab api -X POST` to its pipeline and job retry endpoints ([`own_pipeline_endpoint`]); a direct write on a line that names a variable that points the forge elsewhere ([`FORGE_TARGET_VARIABLES`]) is denied; a run of the bot route `b10x-gates gh` that is not `release create|upload|edit|view`, `run rerun` or `workflow run` with `--repository` naming the repository the checkout's `origin` names ([`bot_route`]); the command writes a `.claude/` settings file or a `<settings>` ([`Places::writes_settings`]); the command writes a `<profile>` ([`Places::writes_profile`]); the command names `<config>` and holds a write form ([`Places::names_config`], [`holds_write_form`]); it runs a `conductor` leaf the command tree does not declare a controller may run ([`cli::LEAVES`], [`conductor_run`]), or one whose leaf a shell expansion, `xargs` or a program word a substitution names decides at run time; or the command writes `<records>` or a path under it ([`Places::writes_records`]) | a `gh` or `glab` call that is not a read, except a direct write as for a controller, its own repository the one the `origin` of `<records>` names; a run of the bot route as for a controller, its own repository the one the `origin` of `<records>` names; the command writes a `.claude/` settings file or a `<settings>`; the command writes a `<profile>` |
 //!
 //! A Bash command that kills by pattern, name or group is denied for every role, before the rows
 //! above ([`kill_denial`], `story:guard-no-pattern-kill`): `pkill`, `killall`, and a `kill` that
@@ -1519,13 +1519,7 @@ impl Session<'_> {
         if let Some(reason) = kill_denial(&commands) {
             return (Verdict::Deny, reason);
         }
-        // Where a forge call runs as the line moves it, `None` once a move cannot be followed,
-        // and the forge variable the line assigned before it (`story:guard-admits-own-pipelines`).
-        let mut line = Line {
-            here: Some(self.cwd.clone()),
-            assigned: None,
-        };
-        for words in &commands {
+        for (index, words) in commands.iter().enumerate() {
             if let Some(gh) = bot_route(words)
                 && let Some(reason) = self.bot_route_denial(&gh)
             {
@@ -1552,7 +1546,7 @@ impl Session<'_> {
                     );
                 }
                 if self.places.forge_route == ForgeRoute::Direct {
-                    match self.direct_denial(words, forge, &write, &line) {
+                    match self.direct_denial(&commands, index, forge, &write, command) {
                         None => continue,
                         Some(reason) => return (Verdict::Deny, reason),
                     }
@@ -1568,7 +1562,6 @@ impl Session<'_> {
                     ),
                 );
             }
-            self.follow(&mut line, words);
         }
         if self.places.posts_to_dashboard(command) {
             return (
@@ -1726,60 +1719,171 @@ impl Session<'_> {
         })
     }
 
-    /// `line` after the simple command `words` ran: a `cd` or `pushd` moves where the next forge
-    /// call runs, to a place [`Session::word_path`] follows or to none; a `popd` to none; an
-    /// assignment of a git variable (`GIT_DIR`, `GIT_CONFIG_*`, …) moves git's location, to none;
-    /// an assignment of one of [`FORGE_TARGET_VARIABLES`] is kept, the first one.
-    fn follow(&self, line: &mut Line, words: &[String]) {
-        let named = command_words(words);
-        match named.first().map(String::as_str) {
-            Some("cd" | "pushd") => {
-                let argument = named[1..]
-                    .iter()
-                    .find(|word| !word.starts_with('-') || word.as_str() == "-");
-                line.here = match (line.here.take(), argument) {
-                    (None, _) => None,
-                    (Some(_), None) => Some(self.home().to_path_buf()),
-                    (Some(here), Some(word)) => self.word_path(word, &here),
-                };
-            }
-            Some("popd") => line.here = None,
-            _ => {}
+    /// Where `glab`, the program word `at` of the simple command `commands[index]`, runs when no
+    /// `-R` names its repository (`story:guard-admits-own-pipelines`): the session's cwd, moved
+    /// by each `cd`, `pushd` and `popd` before it on the line. `Err` says why the guard cannot know
+    /// that it reads the repository there: the line holds a loop or a compound command; a word
+    /// before `glab` is no assignment, or assigns a variable that moves what it reads
+    /// ([`moves_glab`]); a command before it is none of a `cd`, `pushd` or `popd` the guard
+    /// follows ([`Session::cd_path`]) and an assignment or `export` of variables that move
+    /// nothing; or a command after it runs another program than `glab`, which a loop, a function
+    /// or a background job may run first.
+    fn glab_place(
+        &self,
+        commands: &[Vec<String>],
+        index: usize,
+        at: usize,
+    ) -> Result<PathBuf, String> {
+        /// First words that make a loop, a function or a compound command around the line's
+        /// simple commands.
+        const COMPOUND: [&str; 8] = [
+            "for", "while", "until", "select", "function", "case", "do", "done",
+        ];
+        let shown = |words: &[String]| words.join(" ");
+        let may_change = |words: &[String]| {
+            format!(
+                "`{}` runs on the line with it and may change the directory or the repository \
+                 glab reads",
+                shown(words)
+            )
+        };
+        if let Some(words) = commands.iter().find(|words| {
+            words
+                .first()
+                .is_some_and(|first| COMPOUND.contains(&first.as_str()))
+        }) {
+            return Err(format!(
+                "`{}` makes a loop or a compound command, which may run it elsewhere",
+                shown(words)
+            ));
         }
-        for word in words.iter().filter(|word| is_assignment(word)) {
-            if is_git_variable(word) {
-                line.here = None;
+        if let Some(word) = commands[index][..at]
+            .iter()
+            .find(|word| !is_assignment(word) || moves_glab(variable_name(word)))
+        {
+            return Err(format!("`{word}` before it may move it or what it reads"));
+        }
+        let mut here = self.cwd.clone();
+        let mut stack: Vec<PathBuf> = Vec::new();
+        for words in commands[..index].iter().filter(|words| !words.is_empty()) {
+            let named = command_words(words);
+            let unfollowed = || {
+                format!(
+                    "`{}` moves it where the guard cannot follow (a relative directory may be \
+                     one CDPATH names)",
+                    shown(words)
+                )
+            };
+            if words[..words.len() - named.len()]
+                .iter()
+                .any(|word| is_assignment(word) && moves_glab(variable_name(word)))
+            {
+                return Err(may_change(words));
             }
-            let name = word.split_once('=').map_or("", |(name, _)| name);
-            if line.assigned.is_none() && FORGE_TARGET_VARIABLES.contains(&name) {
-                line.assigned = Some(name.to_owned());
+            match named.first().map(String::as_str) {
+                Some(name @ ("cd" | "pushd")) => {
+                    let argument = named[1..]
+                        .iter()
+                        .find(|word| !word.starts_with('-') || word.as_str() == "-");
+                    let target = match argument {
+                        None if name == "cd" => Some(self.home().to_path_buf()),
+                        None => None,
+                        Some(word) => self.cd_path(word, &here),
+                    };
+                    let target = target.ok_or_else(unfollowed)?;
+                    if name == "pushd" {
+                        stack.push(here);
+                    }
+                    here = target;
+                }
+                Some("popd") => here = stack.pop().ok_or_else(unfollowed)?,
+                None => {}
+                Some("export") => {
+                    if named[1..]
+                        .iter()
+                        .filter(|word| !word.starts_with('-'))
+                        .any(|word| moves_glab(variable_name(word)))
+                    {
+                        return Err(may_change(words));
+                    }
+                }
+                Some(_) => return Err(may_change(words)),
             }
         }
+        if let Some(words) = commands[index + 1..].iter().find(|words| {
+            !words.is_empty()
+                && !command_words(words)
+                    .first()
+                    .is_some_and(|program| Forge::GitLab.runs(program))
+        }) {
+            return Err(may_change(words));
+        }
+        Ok(here)
     }
 
-    /// Why `glab`, run in `here` with no `-R`, may not read the session's own repository `own` on
-    /// `host`, if it may not (`story:guard-admits-own-pipelines`): `here` is `None` (the line
-    /// moved the directory or git's location where the guard cannot follow), or the nearest
-    /// directory holding `.git` above it has no remote, or one remote, `origin` or another (glab
-    /// prefers `upstream` to `origin`), that names another repository.
-    fn implicit_denial(&self, here: Option<&Path>, host: &str, own: &str) -> Option<String> {
-        let Some(here) = here else {
-            return Some(
-                "the line moves the directory or git's location glab reads it from".to_owned(),
-            );
+    /// Where `cd word` from `here` lands, when the guard can follow it: `word` names the
+    /// directory from `/`, `~`, `$HOME` or `.` (`./x`, `..`), which no `CDPATH` redirects, and
+    /// [`Session::word_path`] resolves it. `None` otherwise.
+    fn cd_path(&self, word: &str, here: &Path) -> Option<PathBuf> {
+        let anchored = ["/", "~", "$HOME", "${HOME}", "."]
+            .iter()
+            .any(|anchor| word.starts_with(anchor));
+        anchored.then(|| self.word_path(word, here)).flatten()
+    }
+
+    /// Why `glab`, run where [`Session::glab_place`] says with no `-R`, may not read the
+    /// session's own repository `own` on `host`, if it may not (`story:guard-admits-own-pipelines`):
+    /// the place is unknown; the repository git discovers there is a bare one, or none; its git
+    /// config includes another file (`[include]`, `[includeIf]`), rewrites URLs (`insteadOf`) or
+    /// keeps per-worktree config (`worktreeConfig`), which the guard does not follow; or it has
+    /// no remote, or one remote, `origin` or another (glab prefers `upstream` to `origin`), that
+    /// names another repository. The global git config is not read.
+    fn implicit_denial(
+        &self,
+        place: Result<PathBuf, String>,
+        host: &str,
+        own: &str,
+    ) -> Option<String> {
+        let here = match place {
+            Ok(here) => here,
+            Err(why) => return Some(why),
         };
-        let Some(top) = here.ancestors().find(|dir| dir.join(".git").exists()) else {
+        let mut top = None;
+        for dir in here.ancestors() {
+            if dir.join(".git").exists() {
+                top = Some(dir);
+                break;
+            }
+            if is_bare_repository(dir) {
+                return Some(format!(
+                    "{} is a bare repository, the one glab reads there",
+                    self.places.shown_landing(dir)
+                ));
+            }
+        }
+        let Some(top) = top else {
             return Some(format!(
                 "{} is in no git checkout",
-                self.places.shown_landing(here)
+                self.places.shown_landing(&here)
             ));
         };
-        let remotes = git_remotes(top);
-        if remotes.is_empty() {
+        let shown = self.places.shown_landing(top);
+        let Some(text) = git_config_text(top) else {
+            return Some(format!("the git config of {shown} cannot be read"));
+        };
+        let lower = text.to_ascii_lowercase();
+        if ["[include", "insteadof", "worktreeconfig"]
+            .iter()
+            .any(|form| lower.contains(form))
+        {
             return Some(format!(
-                "the git config of {} names no remote",
-                self.places.shown_landing(top)
+                "the git config of {shown} includes another file, rewrites URLs or keeps \
+                 per-worktree config, which the guard does not follow"
             ));
+        }
+        let remotes = config_remotes(&text);
+        if remotes.is_empty() {
+            return Some(format!("the git config of {shown} names no remote"));
         }
         remotes
             .iter()
@@ -1790,8 +1894,7 @@ impl Session<'_> {
             })
             .map(|(name, url)| {
                 format!(
-                    "glab reads it from the remotes of {}, whose remote {name} names {url}",
-                    self.places.shown_landing(top)
+                    "glab reads it from the remotes of {shown}, whose remote {name} names {url}"
                 )
             })
     }
@@ -1802,17 +1905,21 @@ impl Session<'_> {
     /// create|edit|comment|merge|ready`, `glab mr create|update|note|merge`), with no flag between
     /// the group and the verb, naming with `-R`/`--repo` the session's own repository and no
     /// other, with no operand that is a URL (which may name another repository's request), and
-    /// assigning none of [`FORGE_TARGET_VARIABLES`], nor following an assignment of one on the
-    /// line. A pipeline write ([`DIRECT_PIPELINES_GLAB`], [`own_pipeline_endpoint`]) that names no
-    /// repository is admitted where `glab` reads the session's own ([`Session::implicit_denial`]).
-    /// `-R` is read in every spelling ([`repo_flag`]). Everything else stays denied.
+    /// on a line, `command`, that names none of [`FORGE_TARGET_VARIABLES`] (a line may set one by
+    /// an assignment, `export`, `printf -v`, `read` or `declare`). A pipeline write
+    /// ([`DIRECT_PIPELINES_GLAB`], [`own_pipeline_endpoint`]) that names no repository is admitted
+    /// where `glab` reads the session's own ([`Session::glab_place`],
+    /// [`Session::implicit_denial`]). `-R` is read in every spelling ([`repo_flag`]). Everything
+    /// else stays denied. `words` is `commands[index]`, the line's simple command that runs it.
     fn direct_denial(
         &self,
-        words: &[String],
+        commands: &[Vec<String>],
+        index: usize,
         forge: Forge,
         write: &str,
-        line: &Line,
+        command: &str,
     ) -> Option<String> {
+        let words = &commands[index];
         let program = forge.program();
         let carried: Vec<String> = forge
             .direct_carries()
@@ -1848,19 +1955,17 @@ impl Session<'_> {
                  {carried}"
             ));
         }
-        if let Some(variable) = &line.assigned {
+        if let Some(variable) = FORGE_TARGET_VARIABLES
+            .iter()
+            .find(|variable| command.contains(**variable))
+        {
             return Some(format!(
-                "`{write}` runs after the line assigns {variable}, which may point {program} at \
+                "`{write}` runs on a line that names {variable}: a line that assigns {variable}, \
+                 by an assignment, export, printf -v, read or declare, may point {program} at \
                  another repository: {carried}"
             ));
         }
-        // Where `glab` runs and reads its repository from, unless a git location it is handed
-        // or a launcher's option before it (`env -C`, `sudo -D`) may move it.
-        let here = line.here.as_deref().filter(|_| {
-            !words[..at]
-                .iter()
-                .any(|word| word.starts_with('-') || (is_assignment(word) && is_git_variable(word)))
-        });
+        let here = || self.glab_place(commands, index, at);
         let rest = &words[at + 1..];
         if forge == Forge::GitLab
             && rest
@@ -1876,7 +1981,7 @@ impl Session<'_> {
             return match own_pipeline_endpoint(rest, &host, &own) {
                 Err(why) => Some(format!("`{write}` {why}: {carried}")),
                 Ok(Project::Named) => None,
-                Ok(Project::Placeholder) => self.implicit_denial(here, &host, &own).map(|why| {
+                Ok(Project::Placeholder) => self.implicit_denial(here(), &host, &own).map(|why| {
                     format!(
                         "`{write}` names no repository but by :fullpath or :id, which glab fills \
                          from the directory it runs in, and {why}: {carried}, written with the \
@@ -1937,7 +2042,7 @@ impl Session<'_> {
         };
         if repos.is_empty() {
             if pipeline {
-                return self.implicit_denial(here, &host, &own).map(|why| {
+                return self.implicit_denial(here(), &host, &own).map(|why| {
                     format!(
                         "`{write}` names no repository with -R, and {why}: {carried}, written as \
                          `{program} {group} {verb} -R {own} …`"
@@ -3342,14 +3447,6 @@ enum Project {
     Placeholder,
 }
 
-/// What a Bash line did before a forge call, as [`Session::follow`] reads it: where the call runs
-/// (`None` once a move cannot be followed) and the first of [`FORGE_TARGET_VARIABLES`] it
-/// assigned.
-struct Line {
-    here: Option<PathBuf>,
-    assigned: Option<String>,
-}
-
 /// The repository the `gh` or `glab` word `word` names with `-R`/`--repo`, in every spelling
 /// their flag parser reads, `next` the word after it: `-R x`, `--repo x` (taking `next`), `-Rx`,
 /// `-R=x`, `--repo=x`, and `R` in a cluster of short flags (`-yR x`, `-yRx`), which the guard
@@ -3371,31 +3468,65 @@ fn repo_flag<'w>(word: &'w str, next: Option<&'w str>) -> Option<(Option<&'w str
     }
 }
 
-/// Whether the assignment `word` sets a git variable (`GIT_DIR`, `GIT_WORK_TREE`,
-/// `GIT_CONFIG_*`, …), which may move the repository a program reads its remotes from.
-fn is_git_variable(word: &str) -> bool {
-    word.starts_with("GIT_")
+/// The variables that move the repository git discovers or the config it reads: its location
+/// (`GIT_DIR`, `GIT_WORK_TREE`, `GIT_COMMON_DIR`), its discovery (`GIT_CEILING_DIRECTORIES`,
+/// `GIT_DISCOVERY_ACROSS_FILESYSTEM`) and every `GIT_CONFIG*`. `GIT_PAGER` and the like move
+/// nothing.
+const GIT_LOCATION_VARIABLES: [&str; 5] = [
+    "GIT_DIR",
+    "GIT_WORK_TREE",
+    "GIT_COMMON_DIR",
+    "GIT_CEILING_DIRECTORIES",
+    "GIT_DISCOVERY_ACROSS_FILESYSTEM",
+];
+
+/// The name the assignment or `export` operand `word` sets: before its `=`, or the whole word.
+fn variable_name(word: &str) -> &str {
+    word.split_once('=').map_or(word, |(name, _)| name)
 }
 
-/// The remotes the git config of the checkout or linked worktree `dir` names, each `(name, url)`:
-/// every `url` and `pushurl` of every `[remote "<name>"]`, in order. Empty when the config cannot
-/// be read.
-fn git_remotes(dir: &Path) -> Vec<(String, String)> {
+/// Whether setting the variable `name` may move the directory `glab` runs in or what it reads
+/// there: a git location ([`GIT_LOCATION_VARIABLES`], `GIT_CONFIG*`), one of
+/// [`FORGE_TARGET_VARIABLES`] or another `GITLAB_*`, `GLAB_*` or `GL_*`, `CDPATH`, `HOME`,
+/// `XDG_CONFIG_HOME` (where git's and glab's own config lie) or `PATH` (which `git` and `glab`
+/// run).
+fn moves_glab(name: &str) -> bool {
+    GIT_LOCATION_VARIABLES.contains(&name)
+        || name.starts_with("GIT_CONFIG")
+        || FORGE_TARGET_VARIABLES.contains(&name)
+        || ["GITLAB_", "GLAB_", "GL_"]
+            .iter()
+            .any(|prefix| name.starts_with(prefix))
+        || ["CDPATH", "HOME", "XDG_CONFIG_HOME", "PATH"].contains(&name)
+}
+
+/// Whether `dir` is a bare repository, which git discovers as a repository of its own: it holds
+/// a `HEAD` file and the `objects` and `refs` directories.
+fn is_bare_repository(dir: &Path) -> bool {
+    dir.join("HEAD").is_file() && dir.join("objects").is_dir() && dir.join("refs").is_dir()
+}
+
+/// The text of the git config of the checkout or linked worktree `dir`: `.git/config`, or for a
+/// `.git` file the config of the common directory its `gitdir` names. `None` when it cannot be
+/// read.
+fn git_config_text(dir: &Path) -> Option<String> {
     let git = dir.join(".git");
     let config = if git.is_dir() {
-        Some(git.join("config"))
+        git.join("config")
     } else {
-        fs::read_to_string(&git).ok().and_then(|pointer| {
-            let gitdir = dir.join(pointer.trim().strip_prefix("gitdir:")?.trim());
-            let common = fs::read_to_string(gitdir.join("commondir"))
-                .ok()
-                .map_or_else(|| gitdir.clone(), |common| gitdir.join(common.trim()));
-            Some(common.join("config"))
-        })
+        let pointer = fs::read_to_string(&git).ok()?;
+        let gitdir = dir.join(pointer.trim().strip_prefix("gitdir:")?.trim());
+        let common = fs::read_to_string(gitdir.join("commondir"))
+            .ok()
+            .map_or_else(|| gitdir.clone(), |common| gitdir.join(common.trim()));
+        common.join("config")
     };
-    let Some(text) = config.and_then(|config| fs::read_to_string(config).ok()) else {
-        return Vec::new();
-    };
+    fs::read_to_string(config).ok()
+}
+
+/// The remotes the git config `text` names, each `(name, url)`: every `url` and `pushurl` of
+/// every `[remote "<name>"]` (or the old `[remote.<name>]`), in order.
+fn config_remotes(text: &str) -> Vec<(String, String)> {
     let mut remotes = Vec::new();
     let mut remote: Option<String> = None;
     for line in text.lines() {
@@ -3404,7 +3535,8 @@ fn git_remotes(dir: &Path) -> Vec<(String, String)> {
             let header = header.split(']').next().unwrap_or_default().trim();
             remote = header
                 .split_once(char::is_whitespace)
-                .filter(|(section, _)| section.eq_ignore_ascii_case("remote"))
+                .or_else(|| header.split_once('.'))
+                .filter(|(section, _)| section.trim().eq_ignore_ascii_case("remote"))
                 .map(|(_, name)| name.trim().trim_matches('"').to_owned());
             continue;
         }
