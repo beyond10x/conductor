@@ -1,0 +1,14 @@
+{
+  "at": "2026-11-09T10:22:25Z",
+  "actor": "human:timo",
+  "artifact": "story:sandbox-spec",
+  "kind": "story",
+  "revision": 20,
+  "change": {
+    "change": "evidence",
+    "kind": "review_outcome",
+    "source": "review-result:sandbox-parallel-r2",
+    "review": "review-result:sandbox-parallel-r2",
+    "outcome": "no-op"
+  }
+}
