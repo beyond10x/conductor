@@ -401,6 +401,32 @@ fn the_step_before_the_last_applies_conductor_setup() {
     );
 }
 
+/// The step that installs the pinned programs quotes doctor's `install: follow <SETUP_URL>` line.
+/// That page installs the `b10x` plugins as well and asks the person first, so the step says to
+/// install with its own `Fix:` instead (the v1.0.0 onboarding runs both followed the page).
+#[test]
+fn the_pinned_programs_step_installs_with_its_fix_not_the_page_doctor_names() {
+    let steps = steps(&read("SETUP.md"));
+    let url = conductor_cli::doctor::SETUP_URL;
+    let step = steps
+        .iter()
+        .find(|step| step.lines.iter().any(|(_, text)| text.contains(url)))
+        .unwrap_or_else(|| panic!("no step of SETUP.md quotes doctor's install page {url}"));
+    let text = step
+        .lines
+        .iter()
+        .map(|(_, text)| text.trim())
+        .collect::<Vec<_>>()
+        .join(" ");
+    assert!(
+        text.contains("with this step's Fix, not that page"),
+        "SETUP.md:{}: step {} quotes doctor's install page but does not say to install with this \
+         step's Fix, not that page",
+        step.line,
+        step.title.trim()
+    );
+}
+
 #[test]
 fn the_readme_points_an_agent_at_setup_md_with_its_raw_url() {
     let readme = read("README.md");
