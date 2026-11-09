@@ -24,7 +24,12 @@ function hideDone(wrapper: ReturnType<typeof mount>) {
   return wrapper.findAll('button').find((button) => button.text() === 'Hide done')!;
 }
 
+function columnsOf(wrapper: ReturnType<typeof mount>) {
+  return wrapper.findAll('section.col').map((section) => section.attributes('data-col'));
+}
+
 afterEach(() => {
+  vi.restoreAllMocks();
   window.localStorage.clear();
 });
 
@@ -43,6 +48,44 @@ describe('the Plan board', () => {
     expect(hideDone(wrapper).attributes('aria-pressed')).toBe('false');
     expect(wrapper.text()).toContain('Shipped');
     expect(window.localStorage.getItem('conductor.plan.hideDone')).toBe('false');
+    wrapper.unmount();
+  });
+
+  it('lays out the other four columns while pressed and all five once released', async () => {
+    const wrapper = mount(Plan, { props: { fetcher: fetcher() } });
+    await flushPromises();
+
+    expect(columnsOf(wrapper)).toEqual(['Draft', 'Proposed', 'Accepted', 'InProgress']);
+    expect(wrapper.find('.board').attributes('style')).toContain('--board-columns: 4');
+
+    await hideDone(wrapper).trigger('click');
+
+    expect(columnsOf(wrapper)).toEqual(['Draft', 'Proposed', 'Accepted', 'InProgress', 'Done']);
+    expect(wrapper.find('.board').attributes('style')).toContain('--board-columns: 5');
+    expect(wrapper.find('[data-col="Done"]').text()).toContain('Shipped');
+    wrapper.unmount();
+  });
+
+  it('renders with the toggle pressed on a page without storage, and still releases it', async () => {
+    vi.spyOn(window, 'localStorage', 'get').mockImplementation(() => {
+      throw new DOMException('storage is disabled', 'SecurityError');
+    });
+    const errors: unknown[] = [];
+    const wrapper = mount(Plan, {
+      props: { fetcher: fetcher() },
+      global: { config: { errorHandler: (error) => void errors.push(error) } },
+    });
+    await flushPromises();
+
+    expect(hideDone(wrapper).attributes('aria-pressed')).toBe('true');
+    expect(wrapper.text()).toContain('Being built');
+    expect(wrapper.find('[data-col="Done"]').exists()).toBe(false);
+
+    await hideDone(wrapper).trigger('click');
+
+    expect(errors).toEqual([]);
+    expect(hideDone(wrapper).attributes('aria-pressed')).toBe('false');
+    expect(wrapper.text()).toContain('Shipped');
     wrapper.unmount();
   });
 
