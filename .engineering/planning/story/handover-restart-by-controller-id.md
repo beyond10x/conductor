@@ -7,7 +7,18 @@ title: A pending hand-over restart follows the controller it was asked of, never
 summary: The loop stopped a 5-min-old session restarted by hand under the same name
 relations:
 - decomposes: epic:loop-without-handwork
-revision: 3
+scope:
+- confidence: inferred
+  path: crates/conductor/src/run.rs
+- confidence: cited
+  path: crates/conductor/src/run/handlers.rs
+- confidence: cited
+  path: crates/conductor/src/systemd.rs
+- confidence: inferred
+  path: crates/conductor/tests/deliver.rs
+- confidence: inferred
+  path: crates/conductor/tests/session_attach.rs
+revision: 5
 transitions:
 - {from: "draft", to: "proposed", at: "2026-11-08T09:58:06Z", actor: "human:timo", revision: 2}
 - {from: "proposed", to: "active", at: "2026-11-08T09:58:07Z", actor: "human:timo", revision: 3}

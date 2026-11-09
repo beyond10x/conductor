@@ -5,7 +5,36 @@ kind: story
 status: active
 title: Every release carries pre-built binaries for Linux, macOS and Windows
 summary: Add the Windows archive to the four Linux and macOS ones, and a download-and-verify install line per platform
-revision: 4
+scope:
+- confidence: cited
+  path: .github/workflows/release.yml
+- confidence: cited
+  path: AGENTS.md
+- confidence: cited
+  path: README.md
+- confidence: inferred
+  path: crates/conductor-broker/src/server.rs
+- confidence: cited
+  path: crates/conductor/Cargo.toml
+- confidence: inferred
+  path: crates/conductor/src/attach.rs
+- confidence: inferred
+  path: crates/conductor/src/cli.rs
+- confidence: inferred
+  path: crates/conductor/src/confine/mod.rs
+- confidence: inferred
+  path: crates/conductor/src/daemon/units.rs
+- confidence: inferred
+  path: crates/conductor/src/doctor.rs
+- confidence: inferred
+  path: crates/conductor/src/main.rs
+- confidence: inferred
+  path: crates/conductor/src/session.rs
+- confidence: inferred
+  path: crates/conductor/src/systemd.rs
+- confidence: cited
+  path: website/docs/getting-started.md
+revision: 6
 transitions:
 - {from: "draft", to: "proposed", at: "2026-11-07T20:27:06Z", actor: "human:timo", revision: 3}
 - {from: "proposed", to: "active", at: "2026-11-07T20:27:06Z", actor: "human:timo", revision: 4}

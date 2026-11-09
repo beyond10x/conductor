@@ -4,7 +4,26 @@ id: story:host-scripts-into-conductor
 kind: story
 status: active
 title: The host supervisor's status pass, watch and controller restart are conductor commands
-revision: 5
+scope:
+- confidence: inferred
+  path: crates/conductor/cli.yaml
+- confidence: inferred
+  path: crates/conductor/src/cli.rs
+- confidence: inferred
+  path: crates/conductor/src/controller.rs
+- confidence: inferred
+  path: crates/conductor/src/decide.rs
+- confidence: inferred
+  path: crates/conductor/src/dispatch.rs
+- confidence: inferred
+  path: crates/conductor/src/session.rs
+- confidence: inferred
+  path: crates/conductor/src/status.rs
+- confidence: inferred
+  path: crates/conductor/src/status/federated.rs
+- confidence: inferred
+  path: crates/conductor/src/watch.rs
+revision: 6
 transitions:
 - {from: "draft", to: "proposed", at: "2026-11-07T16:52:25Z", actor: "human:timo", revision: 3}
 - {from: "proposed", to: "active", at: "2026-11-07T16:52:26Z", actor: "human:timo", revision: 4}

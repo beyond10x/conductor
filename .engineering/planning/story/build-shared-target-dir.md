@@ -5,7 +5,28 @@ kind: story
 status: active
 title: build run gives each repository one target directory, shared by its trees under a lock
 summary: 12 per-tree target directories held 77 GB under the disk floor
-revision: 3
+scope:
+- confidence: cited
+  path: AGENTS.md
+- confidence: cited
+  path: crates/conductor/src/build.rs
+- confidence: cited
+  path: crates/conductor/src/dashboard/waste.rs
+- confidence: cited
+  path: crates/conductor/src/gc.rs
+- confidence: cited
+  path: crates/conductor/src/gc/targets.rs
+- confidence: cited
+  path: crates/conductor/tests/build_shared_target.rs
+- confidence: cited
+  path: crates/conductor/tests/build_shared_target_adv.rs
+- confidence: cited
+  path: crates/conductor/tests/gc.rs
+- confidence: cited
+  path: spec/domains/host.yaml
+- confidence: cited
+  path: spec/domains/observation.yaml
+revision: 4
 transitions:
 - {from: "draft", to: "proposed", at: "2026-11-07T13:53:35Z", actor: "human:timo", revision: 2}
 - {from: "proposed", to: "active", at: "2026-11-07T13:53:36Z", actor: "human:timo", revision: 3}

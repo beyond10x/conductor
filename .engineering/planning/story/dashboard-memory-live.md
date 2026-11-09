@@ -4,7 +4,22 @@ id: story:dashboard-memory-live
 kind: story
 status: active
 title: The live dashboard's memory stays bounded and its health view reads it right
-revision: 4
+scope:
+- confidence: inferred
+  path: crates/conductor-model/src/observation.rs
+- confidence: inferred
+  path: crates/conductor-model/src/server/wire.rs
+- confidence: inferred
+  path: crates/conductor/dashboard/src/api/health.ts
+- confidence: cited
+  path: crates/conductor/src/dashboard.rs
+- confidence: cited
+  path: crates/conductor/src/dashboard/cache.rs
+- confidence: cited
+  path: crates/conductor/src/dashboard/health.rs
+- confidence: cited
+  path: crates/conductor/tests/dashboard_memory.rs
+revision: 6
 transitions:
 - {from: "draft", to: "proposed", at: "2026-10-17T01:12:33Z", actor: "human:timo", revision: 3}
 - {from: "proposed", to: "active", at: "2026-10-17T01:12:34Z", actor: "human:timo", revision: 4}
