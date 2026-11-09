@@ -1424,3 +1424,55 @@ fn the_metric_views_create_no_store() {
         assert!(!case.state().exists(), "`metric {view}` created the store");
     }
 }
+
+/// Adversary, `story:kpi-scope-active-repositories` acceptance: a repository-scoped KPI counts
+/// the repositories Active "on the reading's day". alpha is observed Active by the complete
+/// snapshot of the day (started 10-14 23:00) and goes quiet later: the snapshot of 10-30 observes
+/// it with no real commit in 7 days. `metric compute --day 2026-10-14`, run after that (a missed
+/// daily tick, the supervisor's documented recovery), must still read alpha's scope for the day:
+/// K5.unreleased of alpha 1 (alpha#4), of the instance 1; K4.median of alpha 3 h (1, 3, 14).
+#[test]
+fn adversary_a_reading_counts_the_repositories_active_on_its_day() {
+    let case = Case::empty("adv-active-on-its-day");
+    for (log, text) in [("decisions", DECISIONS), ("dispatches", DISPATCHES)] {
+        let dir = case.records().join(log);
+        fs::create_dir_all(&dir).expect("create a log's directory");
+        fs::write(dir.join("2026-10.jsonl"), text).expect("write a log");
+    }
+    case.snapshot("2026-10-14T23:00:00Z", &RELEASES, &MERGED);
+    case.snapshot_with_inactive("2026-10-30T00:30:00Z", &RELEASES, &MERGED, &["alpha"]);
+    case.compute();
+    close(
+        case.value("K5.unreleased", "alpha"),
+        1.0,
+        "K5.unreleased of alpha, Active on the day",
+    );
+    close(
+        case.value("K5.unreleased", "instance"),
+        1.0,
+        "K5.unreleased",
+    );
+    close(
+        case.value("K4.median", "alpha"),
+        3.0,
+        "K4.median of alpha, Active on the day",
+    );
+}
+
+/// Adversary: the scope rule (`crates/conductor/src/metric.rs` module documentation) reads
+/// activity from "the newest complete snapshot's observation, the snapshot K5 and K6 read the
+/// forge from". Two complete snapshots with the same start: the forge is read from the first
+/// stored (alpha observed Active), `repository activity` from the last stored (alpha observed
+/// Inactive). Read from one snapshot, alpha is Active and has its K5.unreleased reading of 1.
+#[test]
+fn adversary_activity_comes_from_the_snapshot_the_forge_is_read_from() {
+    let case = Case::empty("adv-same-start");
+    case.snapshot("2026-10-15T00:30:00Z", &RELEASES, &MERGED);
+    case.snapshot_with_inactive("2026-10-15T00:30:00Z", &RELEASES, &MERGED, &["alpha"]);
+    case.compute();
+    close(
+        case.value("K5.unreleased", "alpha"),
+        1.0,
+        "K5.unreleased of alpha, Active in the forge's snapshot",
+    );
+}
