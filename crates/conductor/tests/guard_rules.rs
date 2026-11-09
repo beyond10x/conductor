@@ -1405,6 +1405,8 @@ fn the_bot_route_naming_another_repository_is_denied() {
         "b10x-gates gh --repository=other-org/widget -- release upload v1.0.0 a.tar.gz",
         "b10x-gates gh --repository example-org/widget -- release create v1.0.0 --repo example-org/other",
         "b10x-gates gh --repository example-org/widget -- -R example-org/other release edit v1.0.0",
+        "b10x-gates gh --repository example-org/widget -- release edit v1.0.0 -Rexample-org/other",
+        "b10x-gates gh --repository example-org/widget -- run rerun 5 -R=example-org/other",
         "b10x-gates gh -- release create v1.0.0",
     ] {
         assert_verdict(
@@ -6430,6 +6432,171 @@ fn under_the_direct_route_a_controller_retries_and_starts_its_own_pipelines() {
             Verdict::Deny,
             because,
         );
+    }
+}
+
+/// Writes `dir/.git/config` with the remotes `remotes`, each `(name, url)`.
+fn git_remotes(dir: &Path, remotes: &[(&str, &str)]) {
+    fs::create_dir_all(dir.join(".git")).expect("create the .git directory");
+    let mut text = "[core]\n\tbare = false\n".to_owned();
+    for (name, url) in remotes {
+        text.push_str(&format!(
+            "[remote \"{name}\"]\n\turl = {url}\n\tfetch = +refs/heads/*:refs/remotes/{name}/*\n"
+        ));
+    }
+    fs::write(dir.join(".git/config"), text).expect("write the git config");
+}
+
+/// A pipeline write that names no repository is admitted only where `glab` reads the session's
+/// own repository: in the checkout or a tree of it, every remote naming that repository, the line
+/// moving neither the directory nor git's location first. `-R` counts in every spelling `glab`
+/// reads, and each denial names the rule, forge.route direct.
+#[test]
+fn under_the_direct_route_a_pipeline_write_reaches_only_the_repository_glab_reads() {
+    let home = home("forge-direct-pipelines-reach");
+    let (places, widget, _) = forge_layout(
+        &home,
+        Some("direct"),
+        "git@gitlab.example.com:example-group/widget.git",
+        "https://gitlab.example.com/example-group/records.git",
+    );
+    fs::create_dir_all(widget.join("src")).expect("create the working directory");
+    let other = "git@gitlab.example.com:example-group/other.git";
+    git_remotes(&home.join("clones/other"), &[("origin", other)]);
+    git_remotes(&widget.join("vendor/other"), &[("origin", other)]);
+    let case = home.parent().expect("the case's directory");
+    let tree = case.join("trees/widget/w1");
+    linked_tree(&widget, &tree);
+    for (cwd, command) in [
+        (&widget, "glab ci retry 123 -Rexample-group/widget"),
+        (&widget, "glab ci run -R=example-group/widget"),
+        (&widget, "cd src && glab ci retry 123"),
+        (&widget, "cd src && glab api -X POST projects/:id/pipeline"),
+        (
+            &widget,
+            "cd ~/clones/other && glab ci retry 1 -R example-group/widget",
+        ),
+        (&tree, "glab ci retry 123"),
+        (&tree, "glab api -X POST projects/:fullpath/jobs/5/retry"),
+    ] {
+        assert_verdict(&bash_by(&home, &places, cwd, command), Verdict::Allow, "");
+    }
+    let nested = widget.join("vendor/other");
+    for (cwd, command, because) in [
+        (
+            &widget,
+            "glab ci retry 123 -Rexample-group/other",
+            "names the repository",
+        ),
+        (
+            &widget,
+            "glab ci retry 123 -R=example-group/other",
+            "names the repository",
+        ),
+        (
+            &widget,
+            "glab ci run -R example-group/other",
+            "names the repository",
+        ),
+        (
+            &widget,
+            "glab ci run --repo=example-group/other",
+            "names the repository",
+        ),
+        (
+            &widget,
+            "glab api -X POST projects/example-group%2Fother/pipelines/7/retry",
+            "no pipeline endpoint of example-group/widget",
+        ),
+        (
+            &widget,
+            "glab api -X POST projects/example-group%2Fother/jobs/7/retry",
+            "no pipeline endpoint of example-group/widget",
+        ),
+        (
+            &widget,
+            "cd ~/clones/other && glab ci retry 123",
+            "names no repository",
+        ),
+        (&widget, "cd .. && glab ci run", "names no repository"),
+        (
+            &widget,
+            "pushd ~/clones/other && glab ci run",
+            "names no repository",
+        ),
+        (&widget, "popd && glab ci run", "names no repository"),
+        (
+            &widget,
+            "cd vendor/other && glab ci retry 123",
+            "names no repository",
+        ),
+        (&nested, "glab ci retry 123", "names no repository"),
+        (
+            &widget,
+            "cd ~/clones/other && glab api -X POST projects/:fullpath/pipeline",
+            "names no repository",
+        ),
+        (
+            &widget,
+            "env -C ~/clones/other glab ci retry 123",
+            "names no repository",
+        ),
+        (
+            &widget,
+            "env --chdir=$HOME/clones/other glab ci run",
+            "names no repository",
+        ),
+        (
+            &widget,
+            "GIT_DIR=~/clones/other/.git glab ci retry 123",
+            "names no repository",
+        ),
+        (
+            &widget,
+            "export GIT_DIR=~/clones/other/.git; glab ci run",
+            "names no repository",
+        ),
+        (
+            &widget,
+            "export GITLAB_HOST=gitlab.other.example; glab ci retry 1 -R example-group/widget",
+            "assigns GITLAB_HOST",
+        ),
+        (
+            &widget,
+            "GITLAB_HOST=gitlab.other.example; glab mr merge 3 -R example-group/widget",
+            "assigns GITLAB_HOST",
+        ),
+    ] {
+        let decision = bash_by(&home, &places, cwd, command);
+        assert_verdict(&decision, Verdict::Deny, because);
+        assert_verdict(&decision, Verdict::Deny, "forge.route direct");
+    }
+    // A checkout with another remote: `glab` prefers `upstream` to `origin`, so only `-R` names
+    // the repository.
+    git_remotes(
+        &widget,
+        &[
+            ("origin", "git@gitlab.example.com:example-group/widget.git"),
+            ("upstream", other),
+        ],
+    );
+    assert_verdict(
+        &bash_by(
+            &home,
+            &places,
+            &widget,
+            "glab ci retry 123 -R example-group/widget",
+        ),
+        Verdict::Allow,
+        "",
+    );
+    for command in [
+        "glab ci retry 123",
+        "glab api -X POST projects/:id/pipeline",
+    ] {
+        let decision = bash_by(&home, &places, &widget, command);
+        assert_verdict(&decision, Verdict::Deny, "upstream");
+        assert_verdict(&decision, Verdict::Deny, "forge.route direct");
     }
 }
 
