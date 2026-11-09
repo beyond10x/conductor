@@ -260,7 +260,7 @@ tasks:
   ux-round:
     desc: "One UX round into ux/rounds/<round>: task ux-round -- R-02"
     cmds:
-      - node ux/round.mjs {{.CLI_ARGS}}
+      - node ux/round.mjs {{shellQuote .CLI_ARGS}}
 
   regen:
     desc: Regenerate crates/conductor-model from spec/ and the HTTP binding crates/conductor/http.yaml; every byte of it is generated
