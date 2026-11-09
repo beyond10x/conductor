@@ -2,11 +2,13 @@
 format: aep.planning-md/3
 id: story:restart-message
 kind: story
-status: draft
+status: archived
 title: Model the restart message, the ready report and the conductor-dev actor
 relations:
 - decomposes: epic:deterministic-steps
-revision: 1
+revision: 3
+transitions:
+- {from: "draft", to: "archived", at: "2026-11-09T10:28:16Z", actor: "human:timo", revision: 3}
 ---
 # Model the restart message, the ready report and the conductor-dev actor
 
@@ -50,3 +52,7 @@ declarations.
 - `task check` passes on the integration branch, and `crates/conductor-model` is the output of
   `task regen`.
 - `rg -n 'not in .spec/. yet' docs/design/conductor.md` prints nothing.
+
+## Archived 2026-11-09 (draft sweep)
+
+[RESTART conductor] and its ready report belonged to the retired conductor session (commit fde22c979).

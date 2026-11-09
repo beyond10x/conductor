@@ -2,11 +2,13 @@
 format: aep.planning-md/3
 id: story:install-restarts-dashboard
 kind: story
-status: draft
+status: archived
 title: An install restarts the services that run the old binary
 relations:
 - decomposes: epic:loop-without-handwork
-revision: 1
+revision: 3
+transitions:
+- {from: "draft", to: "archived", at: "2026-11-09T10:28:15Z", actor: "human:timo", revision: 3}
 ---
 ## Why
 
@@ -28,3 +30,7 @@ old one.
 
 `crates/conductor/src/doctor.rs`, `crates/conductor/tests/`, `Taskfile.yml`,
 `crates/conductor/tests/taskfile.rs`.
+
+## Archived 2026-11-09 (draft sweep)
+
+The per-instance dashboard server and its unit are removed (docs/design/architecture-next.md section 11); the daemon serves the dashboard.

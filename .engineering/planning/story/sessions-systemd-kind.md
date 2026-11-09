@@ -2,9 +2,11 @@
 format: aep.planning-md/3
 id: story:sessions-systemd-kind
 kind: story
-status: draft
+status: archived
 title: task sessions recognises a session started under the systemd provider
-revision: 2
+revision: 4
+transitions:
+- {from: "draft", to: "archived", at: "2026-11-09T10:28:17Z", actor: "human:timo", revision: 4}
 ---
 # Story: sessions-systemd-kind
 
@@ -30,3 +32,7 @@ Changing how the harness labels the session.
 ## Ambiguities
 
 None.
+
+## Archived 2026-11-09 (draft sweep)
+
+The systemd session provider and confine/systemd.rs are removed (docs/design/architecture-next.md section 11).

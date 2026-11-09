@@ -2,12 +2,14 @@
 format: aep.planning-md/3
 id: story:sessions-start-with-claude-bg
 kind: story
-status: draft
+status: archived
 title: Role sessions start with claude --bg, without the systemd and tmux launcher
 summary: attach is claude attach, delivery a message, no tmux pane
 relations:
 - informed_by: story:systemd-session-starts-unattended
-revision: 1
+revision: 3
+transitions:
+- {from: "draft", to: "archived", at: "2026-11-09T10:28:17Z", actor: "human:timo", revision: 3}
 ---
 ## Why
 
@@ -40,3 +42,7 @@ messages them may run in another mode. The design says how delivery handles that
   live within its bound.
 - `conductor session attach <name>` attaches to it; a delivered message reaches it.
 - `docs/design/conductor-run.md` § 4 describes the new launcher.
+
+## Archived 2026-11-09 (draft sweep)
+
+Proposes claude attach and no tmux; the design keeps tmux and attach through the API (docs/design/architecture-next.md sections 7 and 11).
