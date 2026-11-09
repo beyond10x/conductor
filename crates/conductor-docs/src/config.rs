@@ -49,6 +49,11 @@ const DERIVED: [(&str, &str); 1] = [("roles", "session_name")];
 /// written `derived`.
 const DERIVED_SECTIONS: [&str; 2] = ["conductor", "remote"];
 
+/// The instance keys `(key, dependent)` where the library refuses `dependent` without `key`
+/// (`story:auto-resume`: `usage.rotate` only beside `usage.probe`). Whether `key` is optional is
+/// read with `dependent` left out too, else the refusal would make `key` read `required`.
+const DEPENDENT: [(&str, &str); 1] = [("usage.probe", "usage.rotate")];
+
 /// A config file that sets every key of the specification but [`DERIVED`] to a value that differs
 /// from its default, so that leaving one out shows the default the library fills. Generation fails
 /// when a key of the specification is missing here.
@@ -226,6 +231,7 @@ instances:
     usage:
       probe: usage-probe --json
       watcher: usage-rotator.service
+      rotate: usage-rotate --best
     operator: the operator
     catalog:
       repository: registry
@@ -585,6 +591,15 @@ fn probe(sample: &Value, path: &[Step], top: bool) -> Result<Found> {
     } else {
         let removed = remove(&mut file["instances"][0], path);
         remove(&mut file["globals"], path);
+        for (key, dependent) in DEPENDENT {
+            if written(path) == key {
+                let dependent: Vec<Step> = dependent
+                    .split('.')
+                    .map(|key| Step::Key(key.to_owned()))
+                    .collect();
+                remove(&mut file["instances"][0], &dependent);
+            }
+        }
         removed
     };
     ensure!(removed > 0, "the sample file sets no {}", written(path));

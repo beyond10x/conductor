@@ -36,7 +36,7 @@ use conductor_cli::gc::reclaim::{READINGS_VARIABLE, ReclaimReport, floor_bytes};
 use conductor_cli::host;
 use conductor_cli::snapshot;
 use conductor_cli::store;
-use conductor_cli::watch::{Options, Settings, Sources, Watch};
+use conductor_cli::watch::{Options, Panes, RESUME_MESSAGE, Settings, Sources, Watch};
 use conductor_model::config::{Gibibytes, Tokens};
 use conductor_model::observation::{
     CommitSha, Mergeability, RecordPullRequest, RecordRepository, RecordSpecification,
@@ -3893,4 +3893,469 @@ fn a_gitlab_merge_request_s_concluded_pipeline_is_printed_once_per_head() {
         "{asked}"
     );
     assert!(asked.contains("projects/101/merge_requests/5"), "{asked}");
+}
+
+// ---------------------------------------------------------------------------------------------
+// Panes on the usage-limit banner (story:auto-resume)
+// ---------------------------------------------------------------------------------------------
+
+/// The accounts a fake usage probe prints: the active one exhausted, the other with headroom.
+const ONE_WITH_HEADROOM: &str = r#"{"accounts": [
+  {"id": "account-a", "active": true, "health": "exhausted",
+   "usage": {"windows": [{"name": "five_hour", "used_percent": 100.0, "resets_at": null}]}},
+  {"id": "account-b", "active": false, "health": "ready",
+   "usage": {"windows": [{"name": "five_hour", "used_percent": 20.0, "resets_at": null}]}}
+]}"#;
+
+/// The accounts a fake usage probe prints: none with headroom.
+const NONE_WITH_HEADROOM: &str = r#"{"accounts": [
+  {"id": "account-a", "active": true, "health": "exhausted",
+   "usage": {"windows": [{"name": "five_hour", "used_percent": 100.0, "resets_at": null}]}},
+  {"id": "account-b", "active": false, "health": "ready",
+   "usage": {"windows": [{"name": "seven_day", "used_percent": 100.0, "resets_at": null}]}}
+]}"#;
+
+/// What a pane on the banner shows.
+const ON_THE_BANNER: &str = "> working on it\n\n  Usage limit reached · limit resets 6am\n";
+
+impl Case {
+    /// The sessions directory of the panes: `<name>.tmux` a socket, `<name>.screen` the visible
+    /// text the fake `tmux` prints for its pane.
+    fn panes_dir(&self) -> PathBuf {
+        self.dir.join("sessions")
+    }
+
+    /// A pane `name` showing `screen`; `None`: a socket whose server is gone.
+    fn pane(&self, name: &str, screen: Option<&str>) {
+        let dir = self.panes_dir();
+        fs::create_dir_all(&dir).expect("create sessions/");
+        fs::write(dir.join(format!("{name}.tmux")), "").expect("write a socket");
+        let file = dir.join(format!("{name}.screen"));
+        match screen {
+            Some(text) => replace(&file, text),
+            None => {
+                let _ = fs::remove_file(file);
+            }
+        }
+    }
+
+    /// The panes of this case: a fake `tmux` that records each call in `tmux.calls` and prints
+    /// `<name>.screen` for `capture-pane`, failing without it; the probe prints `accounts.json`;
+    /// the rotation, when `rotate`, appends a line to `rotations.txt`.
+    fn panes(&self, rotate: bool) -> Panes {
+        let bin = self.dir.join("bin");
+        fs::create_dir_all(&bin).expect("create bin/");
+        program(
+            &bin,
+            "tmux",
+            &format!(
+                "#!/bin/sh\n\
+                 socket=\"$2\"\n\
+                 shift 2\n\
+                 printf '%s' \"$socket\" >> '{calls}'\n\
+                 for word in \"$@\"; do printf ' %s' \"$word\" \
+                 | sed \"s/$(printf '\\r')/<Enter>/g; s/$(printf '\\033')/<Esc>/g\" \
+                 >> '{calls}'; done\n\
+                 printf '\\n' >> '{calls}'\n\
+                 if [ \"$1\" = capture-pane ]; then exec cat \"${{socket%.tmux}}.screen\"; fi\n\
+                 exit 0\n",
+                calls = self.dir.join("tmux.calls").display()
+            ),
+        );
+        Panes {
+            sessions: self.panes_dir(),
+            tmux: bin.join("tmux").into_os_string(),
+            probe: format!("cat '{}'", self.dir.join("accounts.json").display()),
+            rotate: rotate.then(|| {
+                format!(
+                    "echo rotated >> '{}'",
+                    self.dir.join("rotations.txt").display()
+                )
+            }),
+        }
+    }
+
+    fn accounts(&self, text: &str) {
+        replace(&self.dir.join("accounts.json"), text);
+    }
+
+    /// How many times the rotation ran.
+    fn rotations(&self) -> usize {
+        fs::read_to_string(self.dir.join("rotations.txt"))
+            .unwrap_or_default()
+            .lines()
+            .count()
+    }
+
+    /// What was typed into the pane `name`, in order, each `set-buffer` text as the fake `tmux`
+    /// wrote it (Escape as `<Esc>`, Enter as `<Enter>`); each followed by a paste into that pane,
+    /// and written `[bracketed] <text>` when that paste was bracketed (`-p`): a bracketed Escape
+    /// or Enter is text in the prompt, not a key.
+    fn typed(&self, name: &str) -> Vec<String> {
+        let calls = fs::read_to_string(self.dir.join("tmux.calls")).unwrap_or_default();
+        let socket = format!("{name}.tmux ");
+        let calls: Vec<&str> = calls
+            .lines()
+            .filter_map(|call| call.strip_prefix(&socket))
+            .filter(|call| !call.starts_with("capture-pane"))
+            .collect();
+        let mut typed = Vec::new();
+        for pair in calls.chunks(2) {
+            let text = pair[0]
+                .split_once(" -- ")
+                .map(|(_, text)| text)
+                .unwrap_or_else(|| panic!("a set-buffer with a text: {calls:?}"));
+            let paste = pair
+                .get(1)
+                .filter(|paste| {
+                    paste.starts_with("paste-buffer ") && paste.ends_with(&format!("-t ={name}:"))
+                })
+                .unwrap_or_else(|| panic!("each text is pasted into the pane: {calls:?}"));
+            if paste.split_whitespace().any(|word| word == "-p") {
+                typed.push(format!("[bracketed] {text}"));
+            } else {
+                typed.push(text.to_owned());
+            }
+        }
+        typed
+    }
+}
+
+/// `story:auto-resume`: a pane on `Usage limit reached` while the probe shows an account with
+/// headroom is resumed after one rotation, with Escape and then a continue message; still on the
+/// banner at the next tick it is reported in one line, and resumed no more; off the banner it is
+/// forgotten, so its next banner is a new stop.
+#[test]
+fn a_pane_on_the_usage_limit_banner_is_rotated_once_and_resumed() {
+    let case = Case::new("banner-resume");
+    case.sessions(&[]);
+    case.accounts(ONE_WITH_HEADROOM);
+    case.pane("ex-alpha", Some(ON_THE_BANNER));
+    case.pane("ex-beta", Some("> all quiet\n"));
+    case.pane("ex-gone", None);
+    let mut watch = case.watch(None).with_panes(case.panes(true));
+
+    assert_eq!(pass(&mut watch), ["usage limit resumed: 1 panes: ex-alpha"]);
+    assert_eq!(case.rotations(), 1, "the rotation runs once");
+    let resumed = [
+        "<Esc>".to_owned(),
+        format!("[bracketed] {RESUME_MESSAGE}"),
+        "<Enter>".to_owned(),
+    ];
+    assert_eq!(
+        case.typed("ex-alpha"),
+        resumed,
+        "Escape as a key, then the message as a paste, then Enter as a key"
+    );
+    assert_eq!(case.typed("ex-beta"), Vec::<String>::new());
+    assert_eq!(case.typed("ex-gone"), Vec::<String>::new());
+
+    assert_eq!(
+        pass(&mut watch),
+        [
+            "usage limit not lifted: ex-alpha still shows Usage limit reached after a rotation and \
+          a resume"
+        ]
+    );
+    assert_eq!(pass(&mut watch), NOTHING, "reported once");
+    assert_eq!(case.rotations(), 1, "no second rotation for the same stop");
+    assert_eq!(case.typed("ex-alpha"), resumed, "no second resume");
+
+    case.pane("ex-alpha", Some("> working again\n"));
+    assert_eq!(pass(&mut watch), NOTHING);
+    case.pane("ex-alpha", Some(ON_THE_BANNER));
+    assert_eq!(
+        pass(&mut watch),
+        ["usage limit resumed: 1 panes: ex-alpha"],
+        "a new stop"
+    );
+    assert_eq!(case.rotations(), 2);
+}
+
+/// `story:auto-resume`: a pane on the banner while no account has headroom is neither rotated
+/// nor resumed; without `usage.rotate` it waits for the active account's headroom, as another
+/// rotation, the operator's, gives it.
+#[test]
+fn a_pane_on_the_banner_waits_for_headroom() {
+    let case = Case::new("banner-wait");
+    case.sessions(&[]);
+    case.accounts(NONE_WITH_HEADROOM);
+    case.pane("ex-alpha", Some(ON_THE_BANNER));
+    let mut watch = case.watch(None).with_panes(case.panes(true));
+    assert_eq!(pass(&mut watch), NOTHING, "no account has headroom");
+    assert_eq!(case.rotations(), 0);
+    assert_eq!(case.typed("ex-alpha"), Vec::<String>::new());
+
+    case.accounts(ONE_WITH_HEADROOM);
+    let mut unrotated = case.watch(None).with_panes(case.panes(false));
+    assert_eq!(
+        pass(&mut unrotated),
+        NOTHING,
+        "without a rotation the active account has none"
+    );
+    assert_eq!(case.typed("ex-alpha"), Vec::<String>::new());
+
+    case.accounts(
+        &ONE_WITH_HEADROOM
+            .replace(
+                r#""active": true, "health": "exhausted""#,
+                r#""active": false, "health": "exhausted""#,
+            )
+            .replace(
+                r#""active": false, "health": "ready""#,
+                r#""active": true, "health": "ready""#,
+            ),
+    );
+    assert_eq!(
+        pass(&mut unrotated),
+        ["usage limit resumed: 1 panes: ex-alpha"]
+    );
+    assert_eq!(case.rotations(), 0, "no rotation is named");
+}
+
+/// `story:auto-resume`: the panes of an instance are its sessions directory's, read with its
+/// `usage.probe` and rotated with its `usage.rotate`; an instance without a probe has none.
+#[test]
+fn the_panes_are_the_instances_sessions_probe_and_rotation() {
+    let panes = Panes::of(
+        &acme("\x20   usage: {probe: usage-probe --json, rotate: usage-rotate --best}\n"),
+        Path::new("/fixture-home/state"),
+    )
+    .expect("a probe is named");
+    assert_eq!(panes.sessions, Path::new("/fixture-home/state/sessions"));
+    assert_eq!(panes.probe, "usage-probe --json");
+    assert_eq!(panes.rotate.as_deref(), Some("usage-rotate --best"));
+    assert!(Panes::of(&acme(""), Path::new("/fixture-home/state")).is_none());
+}
+
+/// Adversary (`story:auto-resume`): a pane whose harness is working and whose tool output only
+/// quotes the words `Usage limit reached` (a controller reading this repository's watch.rs) is
+/// not on the banner: the watch types no Escape into it and runs no rotation.
+#[test]
+fn adversary_a_working_pane_that_quotes_the_banner_text_is_not_resumed() {
+    let case = Case::new("banner-quoted");
+    case.sessions(&[]);
+    case.accounts(ONE_WITH_HEADROOM);
+    case.pane(
+        "ex-dev",
+        Some(
+            "● Bash(grep -n \"Usage limit reached\" crates/conductor/src/watch.rs)\n\
+             \x20 ⎿  255:pub const BANNER: &str = \"Usage limit reached\";\n\n\
+             ✻ Working… (12s · esc to interrupt)\n\n> \n",
+        ),
+    );
+    let mut watch = case.watch(None).with_panes(case.panes(true));
+    assert_eq!(
+        pass(&mut watch),
+        NOTHING,
+        "a working pane is not a stopped one"
+    );
+    assert_eq!(
+        case.typed("ex-dev"),
+        Vec::<String>::new(),
+        "no Escape into a working pane"
+    );
+    assert_eq!(
+        case.rotations(),
+        0,
+        "no rotation for a pane that is not stopped"
+    );
+}
+
+/// `story:auto-resume`, the class of the adversary's quoted banner: an idle pane whose last lines
+/// quote the stop banner in a tool's output (on its `⎿` line, and alone on a line indented under
+/// it) or in the prompt is not on the banner; the banner line further up than the pane's last
+/// lines is not either.
+#[test]
+fn an_idle_pane_quoting_the_banner_is_not_resumed() {
+    let case = Case::new("banner-quoted-idle");
+    case.sessions(&[]);
+    case.accounts(ONE_WITH_HEADROOM);
+    case.pane(
+        "ex-quote",
+        Some(
+            "● Read the watch\n  ⎿  Usage limit reached · limit resets 6am\n     Usage limit \
+             reached\n\n> Usage limit reached · limit resets 6am\n",
+        ),
+    );
+    let scrolled: String = std::iter::once(ON_THE_BANNER.to_owned())
+        .chain((0..9).map(|line| format!("output line {line}\n")))
+        .collect();
+    case.pane("ex-scrolled", Some(&scrolled));
+    let mut watch = case.watch(None).with_panes(case.panes(true));
+    assert_eq!(pass(&mut watch), NOTHING);
+    assert_eq!(case.typed("ex-quote"), Vec::<String>::new());
+    assert_eq!(case.typed("ex-scrolled"), Vec::<String>::new());
+    assert_eq!(case.rotations(), 0);
+}
+
+/// Adversary (`story:auto-resume`): a pane resumed once, whose server does not answer for one
+/// pass and then still shows the banner, was never seen off it: the stop is the same one, so it
+/// is reported not lifted, and neither rotated nor resumed a second time.
+#[test]
+fn adversary_a_pane_unread_for_one_pass_is_not_resumed_twice_for_one_stop() {
+    let case = Case::new("banner-unread");
+    case.sessions(&[]);
+    case.accounts(ONE_WITH_HEADROOM);
+    case.pane("ex-alpha", Some(ON_THE_BANNER));
+    let mut watch = case.watch(None).with_panes(case.panes(true));
+    assert_eq!(pass(&mut watch), ["usage limit resumed: 1 panes: ex-alpha"]);
+
+    case.pane("ex-alpha", None);
+    let _ = pass(&mut watch);
+    case.pane("ex-alpha", Some(ON_THE_BANNER));
+    assert_eq!(
+        pass(&mut watch),
+        [
+            "usage limit not lifted: ex-alpha still shows Usage limit reached after a rotation and \
+          a resume"
+        ]
+    );
+    assert_eq!(case.rotations(), 1, "one rotation for one stop");
+}
+
+/// Adversary (`story:auto-resume`): Escape and Enter are pasted unbracketed, so the harness reads
+/// them as keys; only the message is pasted bracketed. A bracketed Escape is text, not a key,
+/// and a bracketed carriage return is a newline in the prompt, not a submit.
+#[test]
+fn adversary_escape_and_enter_are_pasted_as_keys_and_the_message_as_a_paste() {
+    let case = Case::new("banner-bracketed");
+    case.sessions(&[]);
+    case.accounts(ONE_WITH_HEADROOM);
+    case.pane("ex-alpha", Some(ON_THE_BANNER));
+    let mut watch = case.watch(None).with_panes(case.panes(true));
+    assert_eq!(pass(&mut watch), ["usage limit resumed: 1 panes: ex-alpha"]);
+    let calls = fs::read_to_string(case.dir.join("tmux.calls")).expect("tmux was called");
+    let bracketed: Vec<bool> = calls
+        .lines()
+        .filter_map(|call| call.strip_prefix("ex-alpha.tmux paste-buffer "))
+        .map(|paste| paste.split_whitespace().any(|word| word == "-p"))
+        .collect();
+    assert_eq!(
+        bracketed,
+        [false, true, false],
+        "Escape unbracketed, the message bracketed, Enter unbracketed: {calls}"
+    );
+}
+
+/// Adversary pass 2 (`story:auto-resume`): a multi-line tool output draws `⎿` only on its first
+/// line and indents the rest with blanks. A pane whose session captured another pane (the
+/// supervisor's documented `capture-pane -p | tail`) shows the banner's words on such a
+/// continuation line; it is no banner, so the watch types nothing into it and rotates nothing.
+#[test]
+fn adversary2_a_banner_quoted_on_a_tool_outputs_second_line_is_not_resumed() {
+    let case = Case::new("banner-quoted-continuation");
+    case.sessions(&[]);
+    case.accounts(ONE_WITH_HEADROOM);
+    case.pane(
+        "ex-super",
+        Some(
+            "● Bash(tmux -S <state>/sessions/ex-other.tmux capture-pane -p | tail -2)\n\
+             \x20 ⎿  > working on it\n\
+             \x20    Usage limit reached · limit resets 6am\n\n\
+             ● ex-other was stopped on the usage limit.\n\n> \n",
+        ),
+    );
+    let mut watch = case.watch(None).with_panes(case.panes(true));
+    assert_eq!(pass(&mut watch), NOTHING, "a quoted banner is no stop");
+    assert_eq!(case.typed("ex-super"), Vec::<String>::new());
+    assert_eq!(
+        case.rotations(),
+        0,
+        "no rotation for a pane that is not stopped"
+    );
+}
+
+/// Adversary pass 2 (`story:auto-resume`), on the installed harness's strings: a pane still
+/// working under the limit draws `Usage limit reached · wrapping up`, outside any tool's output;
+/// it is no stop, and a stop banner printed in a tool's output under it is none either.
+#[test]
+fn adversary2_a_working_pane_with_a_banner_shaped_line_is_not_resumed() {
+    let case = Case::new("banner-shaped-working");
+    case.sessions(&[]);
+    case.accounts(ONE_WITH_HEADROOM);
+    case.pane(
+        "ex-busy",
+        Some(
+            "● Bash(printf 'x\\nUsage limit reached · limit resets 6am\\n')\n\
+             \x20 ⎿  x\n\
+             \x20    Usage limit reached · limit resets 6am\n\n\
+             \x20 Usage limit reached · wrapping up\n\n> \n",
+        ),
+    );
+    let mut watch = case.watch(None).with_panes(case.panes(true));
+    assert_eq!(pass(&mut watch), NOTHING);
+    assert_eq!(case.typed("ex-busy"), Vec::<String>::new());
+    assert_eq!(case.rotations(), 0);
+}
+
+/// Adversary pass 2 (`story:auto-resume`): the banner drawn with the bullet operator (` ∙ `) is a
+/// stop like the middle dot one; guards the second separator, which no other case reaches. The
+/// banner as the 8th of the pane's last non-empty lines is still read, the 9th is not.
+#[test]
+fn adversary2_the_bullet_banner_and_the_eighth_last_line_are_read() {
+    let case = Case::new("banner-bullet");
+    case.sessions(&[]);
+    case.accounts(ONE_WITH_HEADROOM);
+    case.pane(
+        "ex-bullet",
+        Some("> working on it\n\n  Usage limit reached ∙ limit resets 6am\n"),
+    );
+    let eighth: String = std::iter::once(ON_THE_BANNER.to_owned())
+        .chain((0..7).map(|line| format!("status line {line}\n")))
+        .collect();
+    case.pane("ex-eighth", Some(&eighth));
+    let ninth: String = std::iter::once(ON_THE_BANNER.to_owned())
+        .chain((0..8).map(|line| format!("status line {line}\n")))
+        .collect();
+    case.pane("ex-ninth", Some(&ninth));
+    let mut watch = case.watch(None).with_panes(case.panes(true));
+    assert_eq!(
+        pass(&mut watch),
+        ["usage limit resumed: 2 panes: ex-bullet ex-eighth"]
+    );
+    assert_eq!(case.rotations(), 1);
+    assert_eq!(case.typed("ex-ninth"), Vec::<String>::new());
+}
+
+/// `story:auto-resume`, on the installed harness's strings: its banners that are no stop, the
+/// harness continuing by itself (`continuing automatically … · esc to cancel`, either casing),
+/// wrapping up a brief, or a paused workflow, even one naming its reset, are not resumed; the
+/// stop banner alone, `Usage limit reached`, is.
+#[test]
+fn the_harness_banners_that_are_no_stop_are_not_resumed() {
+    let case = Case::new("banner-not-stopped");
+    case.sessions(&[]);
+    case.accounts(ONE_WITH_HEADROOM);
+    let others = [
+        (
+            "ex-auto",
+            "Usage limit reached · continuing automatically at 6am · esc to cancel",
+        ),
+        (
+            "ex-auto-cap",
+            "Usage limit reached · continuing automatically in 5m · Esc to cancel",
+        ),
+        ("ex-brief", "Usage limit reached · brief included wrap-up…"),
+        (
+            "ex-paused",
+            "Usage limit reached · limit resets 6am. Workflow paused; resume it with /workflow",
+        ),
+    ];
+    for (name, banner) in others {
+        case.pane(
+            name,
+            Some(&format!("> working on it\n\n  {banner}\n\n> \n")),
+        );
+    }
+    case.pane(
+        "ex-bare",
+        Some("> working on it\n\n  Usage limit reached\n\n> \n"),
+    );
+    let mut watch = case.watch(None).with_panes(case.panes(true));
+    assert_eq!(pass(&mut watch), ["usage limit resumed: 1 panes: ex-bare"]);
+    for (name, _) in others {
+        assert_eq!(case.typed(name), Vec::<String>::new(), "{name}");
+    }
+    assert_eq!(case.rotations(), 1);
 }

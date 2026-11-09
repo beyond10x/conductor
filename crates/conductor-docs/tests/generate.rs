@@ -291,3 +291,14 @@ fn provenance_writes_the_site_record_and_trailing_slash_routes() {
     assert!(site.join(".nojekyll").is_file());
     fs::remove_dir_all(site).unwrap();
 }
+
+/// Adversary pass 2 (`story:auto-resume`): `usage.probe` is not required (an instance may name no
+/// usage at all, or only a `watcher`); the page's default column says so. The row turned
+/// `required` when `usage.rotate` became valid only beside a probe, because the generator drops
+/// the probe from a sample that also sets `rotate`.
+#[test]
+fn adversary2_the_config_page_does_not_call_usage_probe_required() {
+    let page = conductor_docs::config::page(&root()).unwrap();
+    let row = "| `usage.probe` | string | none |";
+    assert!(page.contains(row), "missing {row}\n{page}");
+}

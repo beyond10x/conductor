@@ -169,16 +169,16 @@ one background Bash that exits on it.
    lines naming an account with headroom; free disk at or above `thresholds.disk_low`;
    `context: <session> <n>k tokens` lines in each run journal against
    `thresholds.context_handover`; a `Usage limit reached` banner in any session's `claude logs`
-   tail (empty for a controller run under tmux: `tmux -S <state>/sessions/<session>.tmux
-   capture-pane -p | tail` shows it; resume it with `send-keys Escape`, then `send-keys -l
-   "<message>"` and `send-keys Enter` on the same socket; or read its newest `[REPORT …] blocked
+   tail (empty under tmux: `tmux -S <state>/sessions/<session>.tmux capture-pane -p | tail`; with
+   `usage.probe` set the watch resumes it, rotating first under `usage.rotate`, so type nothing; on
+   `usage limit not lifted` or without a probe, `send-keys Escape`, `-l "<message>"`, `Enter`; or read its newest `[REPORT …] blocked
    handover` file in `<state>/mailbox/conductor/`: a controller that hit the limit stays listed
    `idle` with its dispatch open, and no loop line shows it); yesterday's readings (`conductor
    metric metric-readings`, rows with `day` = yesterday UTC), and `conductor session run-ticks`
    holding a `daily` tick since the last daily cadence. Best headroom in `ais status` under 10 %, or
    `no_better_account` in the ais-watch journal: one brief line with the active account's headroom,
    the usable accounts and the earliest weekly reset (`ais status --details`); logins are the
-   operator's; until then resume every `Usage limit reached` by hand on the account with headroom.
+   operator's; resume a `Usage limit reached` pane by hand only as said above: on `usage limit not lifted` or without `usage.probe`.
 2. Fix what is reversible: a dead daemon (`conductor daemon serve --install`; it starts a dead
    runtime again itself), a stuck session start, a stale workspace file (`conductor config
    workspace`), Active marks outside the operator's selection, a missing charter for a selected
@@ -186,9 +186,9 @@ one background Bash that exits on it.
    reclaim`, then `conductor gc` per instance, then build output in worktrees with no running build,
    then the host's disk keeper, in a background Bash printing `df` before and after; the report
    names the amount freed and the three largest holders, `du -sh <checkouts.trees>/*/target | sort
-   -h | tail -3`; no other `du` over a home), a session stopped on `Usage limit reached` (rotate to an account with headroom by the host's own file; an account
-   that needs a browser login is the operator's: report it as a to-try line); once the active
-   account has headroom, message every controller listed `idle` with a `Started` or `Blocked`
+   -h | tail -3`; no other `du` over a home), a session stopped on `Usage limit reached` (with `usage.probe` set the watch rotates and resumes it and you type nothing;
+   only on `usage limit not lifted` or without a probe rotate by the host's own file, a browser login being the operator's to-try line);
+   then, once the active account has headroom, message every controller listed `idle` with a `Started` or `Blocked`
    dispatch and a usage-limit report: "account rotated, continue from your hand-over <path>" (the
    loop does not: the session is live, so no `session gone` line), a session over
    `thresholds.context_handover` (ask it for its hand-off, wait for the reply, then resume it fresh

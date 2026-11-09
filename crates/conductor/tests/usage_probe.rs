@@ -553,8 +553,9 @@ fn conductor_status_shows_the_usage_line() {
 // The config and doctor
 // ---------------------------------------------------------------------------------------------
 
-/// `usage.probe` and `usage.watcher` are config keys `config show` gives back, null when absent;
-/// a watcher that is no unit name, and a key `usage` does not declare, are refused by their path.
+/// `usage.probe`, `usage.watcher` and `usage.rotate` (`story:auto-resume`) are config keys
+/// `config show` gives back, null when absent; a watcher that is no unit name, an empty command,
+/// and a key `usage` does not declare, are refused by their path.
 #[test]
 fn the_config_names_the_probe_and_the_watcher_and_refuses_a_watcher_that_is_no_unit() {
     let case = Case::new("config");
@@ -566,13 +567,15 @@ fn the_config_names_the_probe_and_the_watcher_and_refuses_a_watcher_that_is_no_u
     };
     assert_eq!(
         show(&case.config("")),
-        json!({"probe": null, "watcher": null})
+        json!({"probe": null, "watcher": null, "rotate": null})
     );
     assert_eq!(
         show(&case.config(
-            "    usage:\n      probe: usage-probe --json\n      watcher: rotator.service\n"
+            "    usage:\n      probe: usage-probe --json\n      watcher: rotator.service\n      \
+             rotate: usage-rotate --best\n"
         )),
-        json!({"probe": "usage-probe --json", "watcher": "rotator.service"})
+        json!({"probe": "usage-probe --json", "watcher": "rotator.service",
+               "rotate": "usage-rotate --best"})
     );
 
     let refused = |usage: &str, path: &str| {
@@ -592,7 +595,30 @@ fn the_config_names_the_probe_and_the_watcher_and_refuses_a_watcher_that_is_no_u
         "    usage:\n      probe: \"\"\n",
         "instances[0].usage.probe",
     );
+    refused(
+        "    usage:\n      probe: usage-probe --json\n      rotate: \"\"\n",
+        "instances[0].usage.rotate",
+    );
     refused("    usage:\n      every: 5m\n", "instances[0].usage.every");
+}
+
+/// `story:auto-resume`: `usage.rotate` without `usage.probe` does nothing, since the watch
+/// rotates only once the probe shows headroom, so the config refuses it by its path and names the
+/// probe it lacks.
+#[test]
+fn a_rotation_without_a_probe_is_refused() {
+    let case = Case::new("config-rotate-alone");
+    let output = case.conductor(
+        Some(&case.config("    usage:\n      rotate: usage-rotate --best\n")),
+        &["config", "validate"],
+    );
+    assert_eq!(output.status.code(), Some(1), "{}", describe(&output));
+    let said = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        said.contains("instances[0].usage.rotate") && said.contains("usage.probe"),
+        "{}",
+        describe(&output)
+    );
 }
 
 /// `conductor doctor` reports the configured watcher running when `systemctl --user is-active`

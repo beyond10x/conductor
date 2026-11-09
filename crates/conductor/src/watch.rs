@@ -21,6 +21,7 @@
 //! |---|---|---|
 //! | sessions | the session list (`claude agents --json`); only the entries whose working directory lies in the instance's checkouts root or managed trees, or in its records when a config file names them, so no other session is ever named | `session exited (blocked): <name> <id>`, `session gone: <name> <id>`, `conductors: <n> live sessions named <name>: <id> <id>…` |
 //! | usage limit | the last [`TAIL`] lines of each such session's transcript | `usage limit: <text>; <n> sessions: <names>` |
+//! | usage-limit banner, when the instance names a `usage.probe` ([`Panes::of`]) | the visible text of the pane of each session with a tmux socket in the instance's sessions directory (`tmux capture-pane -p`), then the probe, then `usage.rotate` | `usage limit resumed: <n> panes: <names>`, `usage limit not lifted: <name> …` |
 //! | context | the newest line with a usage in the transcript of each such session that has a `pid` | `context: <repo> <n>k tokens (session <id>)` |
 //! | silent controllers | the modification times of the transcript of each such session that is a controller, and of its sub-agents' transcripts | `session silent: <name> <id> <minutes>m` |
 //! | stalled sessions | the dispatch log's `sent` and report lines of each such session that is a live controller, and the newest commit of its checkout and managed trees (`git log -1`) | `session stalled: <name> <id> <minutes>m` |
@@ -56,6 +57,17 @@
 //!   limit text per [`LIMIT_AGAIN`] from its last report, with a desktop notification to the
 //!   operator through [`Sources::notify`], titled `<instance>: usage limit`, because conductor is
 //!   stopped by the same limit.
+//! - **banner** for a pane that stands on the harness's stop banner, `Usage limit reached` alone
+//!   or `Usage limit reached · limit resets <when>`, among its last lines and in no tool's output
+//!   ([`stopped`]; the words quoted elsewhere, and the harness's other banners, are no stop)
+//!   (`story:auto-resume`): once the probe shows an account with headroom (any account when
+//!   `usage.rotate` is set, else the active one), the watch runs the rotation once for every such pane of the pass, then
+//!   resumes each, Escape and then [`RESUME_MESSAGE`], pasted as `conductor session deliver`
+//!   types; `usage limit resumed` names those it resumed. A pane resumed that still shows the
+//!   banner at the next pass is `usage limit not lifted`, once, and is resumed no more; a pane off
+//!   the banner is forgotten (`banner.resumed`, `banner.reported`), so its next banner is a new
+//!   stop; one whose server does not answer for a pass is kept as it was. Without headroom
+//!   nothing is done, and the next pass asks again.
 //! - **context** at or above the instance's `context_handover` tokens, once per session
 //!   (`story:controller-context`). `<repo>` is the directory the session works in under the
 //!   managed trees or the checkouts root, and a session in neither is not reported (a role's
@@ -108,7 +120,7 @@
 //! with [`Options::follow`] it prints and goes on, for the harness `Monitor` tool. Its state is
 //! kept under `<state>/watch/`: `sessions.json` (the kept list and the instant it was taken),
 //! `exited.seen`, `conductors.reported` (the ids last reported, on one line), `silent.reported`,
-//! `stalled.reported`, `build-queued.reported`,
+//! `stalled.reported`, `build-queued.reported`, `banner.resumed`, `banner.reported`,
 //! `review.full` (the repositories last reported full, one per line), `gates-hooks.snapshot`
 //! (the id of the snapshot the Gates hooks probe read last), `escalated.seen` (each escalated
 //! request printed, when, whether its 30-minute unanswered line was, and whether its line at the
@@ -241,6 +253,50 @@ const WORKSPACE_READ: &str = "workspace.snapshot";
 
 /// The forecast hour the usage line was last printed for (`story:usage-probe`).
 const USAGE_HOUR: &str = "usage.hour";
+
+/// The panes the watch resumed after a rotation and has not seen off the banner since, one name
+/// per line (`story:auto-resume`).
+const BANNER_RESUMED: &str = "banner.resumed";
+
+/// The panes of [`BANNER_RESUMED`] reported still on the banner, one name per line.
+const BANNER_REPORTED: &str = "banner.reported";
+
+/// The text a harness shows in its pane once a usage limit stopped it (`story:auto-resume`).
+pub const BANNER: &str = "Usage limit reached";
+
+/// What follows [`BANNER`] on the harness's banner line: a middle dot, or the bullet operator
+/// some versions draw, between spaces.
+const BANNER_SEPARATORS: [&str; 2] = [" · ", " ∙ "];
+
+/// What a stopped harness writes after [`BANNER`] and a separator: `limit resets <when>`. Its
+/// other banners, `wrapping up`, `continuing automatically … · esc to cancel`, `brief included
+/// wrap-up…`, are no stop.
+const BANNER_RESETS: &str = "limit resets ";
+
+/// Words that make a banner line no stop even after [`BANNER_RESETS`], lower case: the harness
+/// continues by itself, or a workflow it paused waits for its own resume.
+const BANNER_NOT_STOPPED: [&str; 2] = ["esc to cancel", "workflow paused"];
+
+/// How many of a pane's last non-empty lines the banner is looked for in: the banner, the prompt
+/// box under it and the status lines.
+const BANNER_LINES: usize = 8;
+
+/// The mark a harness draws on the first line of a tool's output; the lines indented under it
+/// belong to that output too.
+const TOOL_OUTPUT: char = '⎿';
+
+/// The border of the harness's prompt box.
+const BOX_BORDER: char = '│';
+
+/// What the watch types into a pane it resumed, after Escape.
+pub const RESUME_MESSAGE: &str =
+    "The usage limit is lifted: an account with headroom is active. Continue where you stopped.";
+
+/// How long a pane is given to take what was typed before the next key.
+const PANE_SETTLE: Duration = Duration::from_millis(500);
+
+/// The tmux buffer the watch types through.
+const PANE_BUFFER: &str = "conductor-resume";
 
 /// The escalated requests the watch has printed, one per line: `<request-id>\t<instant of the
 /// pass that printed its escalation, RFC 3339>\t<1 once its unanswered line was printed, else 0>`
@@ -384,6 +440,222 @@ impl Sources {
             bound: BOUND,
         }
     }
+}
+
+/// The panes the banner probe reads, and how it reads the accounts and rotates them
+/// (`story:auto-resume`). [`Panes::of`] gives an instance's.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Panes {
+    /// The instance's sessions directory: the session `<name>` that runs in tmux has its server on
+    /// the socket `<name>.tmux` in it, its one pane the tmux session of that name.
+    pub sessions: PathBuf,
+    /// The tmux program.
+    pub tmux: OsString,
+    /// `usage.probe`, run with `sh -c`: the accounts as [`crate::collect::usage::parse`] reads
+    /// them.
+    pub probe: String,
+    /// `usage.rotate`, run with `sh -c`: makes an account with headroom the active one; none:
+    /// the watch rotates nothing.
+    pub rotate: Option<String>,
+}
+
+impl Panes {
+    /// The panes of `instance`, whose state directory is `state`: its sessions directory, `tmux`,
+    /// its `usage.probe` and `usage.rotate`; none without a `usage.probe`.
+    #[must_use]
+    pub fn of(instance: &Instance, state: &Path) -> Option<Self> {
+        Some(Self {
+            sessions: crate::placement::sessions_dir(state),
+            tmux: OsString::from(crate::systemd::TMUX),
+            probe: instance.usage.probe.clone()?,
+            rotate: instance.usage.rotate.clone(),
+        })
+    }
+
+    /// The names of the sessions whose socket the sessions directory holds, in order.
+    fn names(&self) -> Result<Vec<String>> {
+        let entries = match fs::read_dir(&self.sessions) {
+            Ok(entries) => entries,
+            Err(error) if error.kind() == ErrorKind::NotFound => return Ok(Vec::new()),
+            Err(error) => {
+                return Err(error).with_context(|| format!("read {}", self.sessions.display()));
+            }
+        };
+        let mut names = Vec::new();
+        for entry in entries {
+            let file = entry
+                .with_context(|| format!("read {}", self.sessions.display()))?
+                .file_name();
+            if let Some(name) = file.to_string_lossy().strip_suffix(".tmux") {
+                names.push(name.to_owned());
+            }
+        }
+        names.sort();
+        Ok(names)
+    }
+
+    /// Runs `tmux -S <name>.tmux <args>` from the sessions directory, within `bound`; what it
+    /// printed.
+    fn call(&self, name: &str, args: &[&str], bound: Duration) -> Result<String> {
+        let socket = format!("{name}.tmux");
+        let shown = format!(
+            "tmux -S {socket} {}",
+            args.first().copied().unwrap_or_default()
+        );
+        let output = collect::run(
+            Command::new(&self.tmux)
+                .current_dir(&self.sessions)
+                .args(["-S", &socket])
+                .args(args)
+                .env_remove("TMUX"),
+            bound,
+        )
+        .with_context(|| format!("run `{shown}`"))?;
+        if !output.status.success() {
+            bail!("`{shown}` exited {:?}", output.status.code());
+        }
+        Ok(String::from_utf8_lossy(&output.stdout).into_owned())
+    }
+
+    /// Whether the pane of the session `name` stands on the banner ([`stopped`]); none when its
+    /// server does not answer, which says nothing either way.
+    fn on_the_banner(&self, name: &str, bound: Duration) -> Option<bool> {
+        self.call(
+            name,
+            &["capture-pane", "-p", "-t", &format!("={name}:")],
+            bound,
+        )
+        .ok()
+        .map(|screen| stopped(&screen))
+    }
+
+    /// Pastes `text` into the pane of the session `name`, bracketed when `bracketed`. A paste,
+    /// not `send-keys`, which tmux refuses while a read-only client is attached.
+    fn paste(&self, name: &str, text: &str, bracketed: bool, bound: Duration) -> Result<()> {
+        let pane = format!("={name}:");
+        self.call(name, &["set-buffer", "-b", PANE_BUFFER, "--", text], bound)?;
+        let mut paste = vec!["paste-buffer", "-d"];
+        if bracketed {
+            paste.push("-p");
+        }
+        paste.extend(["-b", PANE_BUFFER, "-t", &pane]);
+        self.call(name, &paste, bound)?;
+        Ok(())
+    }
+
+    /// Resumes the pane of the session `name`: Escape, then [`RESUME_MESSAGE`] and Enter.
+    fn resume(&self, name: &str, bound: Duration) -> Result<()> {
+        self.paste(name, "\x1b", false, bound)?;
+        thread::sleep(PANE_SETTLE);
+        self.paste(name, RESUME_MESSAGE, true, bound)?;
+        thread::sleep(PANE_SETTLE);
+        self.paste(name, "\r", false, bound)
+    }
+
+    /// Whether the panes on the banner are to be resumed: the probe shows an account with
+    /// headroom (any account when a rotation is named, else the active one), and the rotation,
+    /// when one is named, ran.
+    ///
+    /// # Errors
+    ///
+    /// The probe or the rotation does not answer, exits unsuccessfully, or the probe prints
+    /// another shape; the source is named first.
+    fn rotated(&self) -> Result<bool, (&'static str, anyhow::Error)> {
+        let probe = |error| ("usage probe", error);
+        let output = collect::run(Command::new("sh").args(["-c", &self.probe]), BOUND)
+            .context("run the usage probe")
+            .map_err(probe)?;
+        if !output.status.success() {
+            return Err(probe(anyhow!(
+                "the usage probe exited {:?}",
+                output.status.code()
+            )));
+        }
+        let readings = collect::usage::parse(&String::from_utf8_lossy(&output.stdout))
+            .context("read the usage probe")
+            .map_err(probe)?;
+        if !headroom(&readings, self.rotate.is_some()) {
+            return Ok(false);
+        }
+        if let Some(rotate) = &self.rotate {
+            let rotation = |error| ("usage rotation", error);
+            let output = collect::run(Command::new("sh").args(["-c", rotate]), BOUND)
+                .with_context(|| format!("run the rotation `{rotate}`"))
+                .map_err(rotation)?;
+            if !output.status.success() {
+                return Err(rotation(anyhow!(
+                    "the rotation `{rotate}` exited {:?}",
+                    output.status.code()
+                )));
+            }
+        }
+        Ok(true)
+    }
+}
+
+/// Whether `screen`, a pane's visible text, stands on the banner as the harness draws it
+/// (`story:auto-resume`): one of its last [`BANNER_LINES`] non-empty lines is a stop banner
+/// ([`stop_banner`]) and lies in no tool's output. A line is read on its raw indent, which
+/// decides whether it lies in a tool's output: a [`TOOL_OUTPUT`] line opens one, and every later
+/// line indented deeper than its mark lies in it, until a line that is not. A prompt-box line has
+/// only its [`BOX_BORDER`]s and their padding taken off. The words quoted in a tool's output, in
+/// a prompt (`> …`) or in any other shape are no banner.
+fn stopped(screen: &str) -> bool {
+    let mut lines: Vec<(&str, bool)> = Vec::new();
+    let mut output: Option<usize> = None;
+    for raw in screen.lines() {
+        let text = raw.trim();
+        if text.is_empty() {
+            continue;
+        }
+        let indent = raw.chars().take_while(|c| c.is_whitespace()).count();
+        if let Some(inner) = text.strip_prefix(BOX_BORDER) {
+            lines.push((inner.trim_end_matches(BOX_BORDER).trim(), false));
+        } else if text.starts_with(TOOL_OUTPUT) {
+            output = Some(indent);
+            lines.push((text, true));
+        } else {
+            let inside = output.is_some_and(|mark| indent > mark);
+            if !inside {
+                output = None;
+            }
+            lines.push((text, inside));
+        }
+    }
+    lines[lines.len().saturating_sub(BANNER_LINES)..]
+        .iter()
+        .any(|(text, inside)| !inside && stop_banner(text))
+}
+
+/// Whether `text`, one line with its indent taken off, is the banner of a harness a usage limit
+/// stopped: [`BANNER`] alone, or [`BANNER`], a separator and [`BANNER_RESETS`], with none of
+/// [`BANNER_NOT_STOPPED`] after it.
+fn stop_banner(text: &str) -> bool {
+    let Some(rest) = text.strip_prefix(BANNER) else {
+        return false;
+    };
+    rest.is_empty()
+        || BANNER_SEPARATORS.iter().any(|separator| {
+            rest.strip_prefix(separator).is_some_and(|after| {
+                let after = after.to_lowercase();
+                after.starts_with(BANNER_RESETS)
+                    && !BANNER_NOT_STOPPED.iter().any(|word| after.contains(word))
+            })
+        })
+}
+
+/// Whether `readings` show an account with headroom, among all of them when `any`, else the
+/// active one: its health is not `exhausted` and none of its windows is full.
+fn headroom(readings: &[collect::usage::Reading], any: bool) -> bool {
+    let mut accounts: BTreeMap<&str, bool> = BTreeMap::new();
+    for reading in readings.iter().filter(|reading| any || reading.active) {
+        let left = reading.health != collect::usage::EXHAUSTED && reading.used_percent < 100;
+        accounts
+            .entry(reading.account.as_str())
+            .and_modify(|all| *all &= left)
+            .or_insert(left);
+    }
+    accounts.values().any(|left| *left)
 }
 
 /// What the instance sets for the watch besides its sources: its name, its thresholds and its
@@ -553,7 +825,7 @@ impl Watch {
         let active = config::active();
         let host = crate::host::dir(state)?;
         let state = state::dir(state)?;
-        Ok(Self::new(
+        let mut watch = Self::new(
             Sources::new(home, active, state.clone()),
             state.join("watch"),
         )
@@ -561,8 +833,10 @@ impl Watch {
         .with_gitlab(Forge::all(&active.instance))
         .with_usage(state.clone())
         .with_decisions(state.clone())
-        .with_reclaim(state, crate::gc::reclaim::reclaim)
-        .with_host(host))
+        .with_reclaim(state.clone(), crate::gc::reclaim::reclaim)
+        .with_host(host);
+        watch.panes = Panes::of(&active.instance, &state);
+        Ok(watch)
     }
 
     /// The context, in tokens, of the live session (one with a `pid`) the session list names
@@ -634,6 +908,8 @@ pub struct Watch {
     /// The state directory whose store's escalated decision requests the decisions probe reads;
     /// none: no `escalated` or `unanswered` line (`story:decisions-notify`).
     decisions: Option<PathBuf>,
+    /// The panes the banner probe reads; none: no banner probe (`story:auto-resume`).
+    panes: Option<Panes>,
 }
 
 /// A reclaim run to a floor, recorded under a state directory: [`crate::gc::reclaim::reclaim`],
@@ -735,7 +1011,16 @@ impl Watch {
             host: None,
             usage: None,
             decisions: None,
+            panes: None,
         }
+    }
+
+    /// This watch reading `panes` for the usage-limit banner, rotating and resuming them
+    /// (`story:auto-resume`).
+    #[must_use]
+    pub fn with_panes(mut self, panes: Panes) -> Self {
+        self.panes = Some(panes);
+        self
     }
 
     /// This watch printing the `escalated` and `unanswered` lines of the decision requests of the
@@ -850,6 +1135,7 @@ impl Watch {
             }
             Err(error) => self.failed("sessions", &error, notes),
         }
+        self.banners(&mut lines, notes)?;
         if ci {
             self.ci(&mut lines, notes)?;
             self.reviews(&mut lines)?;
@@ -1204,6 +1490,89 @@ impl Watch {
             replace(&reported_file, &kept)?;
         }
         Ok(())
+    }
+
+    /// The panes on [`BANNER`] (`story:auto-resume`). Those not resumed since they turned to it
+    /// are resumed ([`Panes::resume`]) once [`Panes::rotated`] answers yes, which runs the
+    /// rotation once for all of them, with one line `usage limit resumed: <n> panes: <names>`;
+    /// one resumed that still shows it is reported once, `usage limit not lifted: <name> …`, and
+    /// resumed no more. A pane off the banner is forgotten, so its next banner is a new stop.
+    fn banners(&mut self, lines: &mut Vec<String>, notes: &mut dyn Write) -> Result<()> {
+        let Some(panes) = self.panes.clone() else {
+            return Ok(());
+        };
+        let bound = self.sources.bound;
+        let names = match panes.names() {
+            Ok(names) => names,
+            Err(error) => {
+                self.failed("panes", &error, notes);
+                return Ok(());
+            }
+        };
+        self.answered("panes");
+        // A pane whose server did not answer this pass is neither on nor off the banner: what is
+        // kept of it stays, so one unread pass does not make its stop a new one.
+        let mut on = Vec::new();
+        let mut unread = Vec::new();
+        for name in names {
+            match panes.on_the_banner(&name, bound) {
+                Some(true) => on.push(name),
+                Some(false) => {}
+                None => unread.push(name),
+            }
+        }
+        let kept = |file: &str| -> Result<BTreeSet<String>> {
+            Ok(read_optional(&self.state(file))?
+                .unwrap_or_default()
+                .lines()
+                .filter(|name| on.iter().chain(&unread).any(|kept| kept == name))
+                .map(str::to_owned)
+                .collect())
+        };
+        let mut resumed = kept(BANNER_RESUMED)?;
+        let mut reported = kept(BANNER_REPORTED)?;
+        for name in resumed.iter().filter(|name| on.contains(*name)) {
+            if reported.insert(name.clone()) {
+                lines.push(format!(
+                    "usage limit not lifted: {name} still shows {BANNER} after a rotation and a \
+                     resume"
+                ));
+            }
+        }
+        let fresh: Vec<&String> = on.iter().filter(|name| !resumed.contains(*name)).collect();
+        if !fresh.is_empty() {
+            match panes.rotated() {
+                Ok(false) => self.answered("usage probe"),
+                Ok(true) => {
+                    self.answered("usage probe");
+                    self.answered("usage rotation");
+                    let mut done = Vec::new();
+                    for name in fresh {
+                        match panes.resume(name, bound) {
+                            Ok(()) => {
+                                self.answered(&format!("pane {name}"));
+                                resumed.insert(name.clone());
+                                done.push(name.as_str());
+                            }
+                            Err(error) => self.failed(&format!("pane {name}"), &error, notes),
+                        }
+                    }
+                    if !done.is_empty() {
+                        lines.push(format!(
+                            "usage limit resumed: {} panes: {}",
+                            done.len(),
+                            done.join(" ")
+                        ));
+                    }
+                }
+                Err((source, error)) => self.failed(source, &error, notes),
+            }
+        }
+        let text = |names: &BTreeSet<String>| -> String {
+            names.iter().map(|name| format!("{name}\n")).collect()
+        };
+        replace(&self.state(BANNER_RESUMED), &text(&resumed))?;
+        replace(&self.state(BANNER_REPORTED), &text(&reported))
     }
 
     fn notify(&self, title: &str, body: &str) -> Result<()> {
