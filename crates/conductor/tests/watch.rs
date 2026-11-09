@@ -4236,3 +4236,83 @@ fn adversary_escape_and_enter_are_pasted_as_keys_and_the_message_as_a_paste() {
         "Escape unbracketed, the message bracketed, Enter unbracketed: {calls}"
     );
 }
+
+/// Adversary pass 2 (`story:auto-resume`): a multi-line tool output draws `⎿` only on its first
+/// line and indents the rest with blanks. A pane whose session captured another pane (the
+/// supervisor's documented `capture-pane -p | tail`) shows the banner's words on such a
+/// continuation line; it is no banner, so the watch types nothing into it and rotates nothing.
+#[test]
+fn adversary2_a_banner_quoted_on_a_tool_outputs_second_line_is_not_resumed() {
+    let case = Case::new("banner-quoted-continuation");
+    case.sessions(&[]);
+    case.accounts(ONE_WITH_HEADROOM);
+    case.pane(
+        "ex-super",
+        Some(
+            "● Bash(tmux -S <state>/sessions/ex-other.tmux capture-pane -p | tail -2)\n\
+             \x20 ⎿  > working on it\n\
+             \x20    Usage limit reached · limit resets 6am\n\n\
+             ● ex-other was stopped on the usage limit.\n\n> \n",
+        ),
+    );
+    let mut watch = case.watch(None).with_panes(case.panes(true));
+    assert_eq!(pass(&mut watch), NOTHING, "a quoted banner is no stop");
+    assert_eq!(case.typed("ex-super"), Vec::<String>::new());
+    assert_eq!(
+        case.rotations(),
+        0,
+        "no rotation for a pane that is not stopped"
+    );
+}
+
+/// Adversary pass 2 (`story:auto-resume`): a working pane is not stopped even when one of its
+/// last lines has the banner's shape; guards the `esc to interrupt` check, which no other case
+/// reaches (the first pass's working pane has no banner-shaped line).
+#[test]
+fn adversary2_a_working_pane_with_a_banner_shaped_line_is_not_resumed() {
+    let case = Case::new("banner-shaped-working");
+    case.sessions(&[]);
+    case.accounts(ONE_WITH_HEADROOM);
+    case.pane(
+        "ex-busy",
+        Some(
+            "● Bash(printf 'x\\nUsage limit reached · limit resets 6am\\n')\n\
+             \x20 ⎿  x\n\
+             \x20    Usage limit reached · limit resets 6am\n\n\
+             ✻ Working… (3s · esc to interrupt)\n\n> \n",
+        ),
+    );
+    let mut watch = case.watch(None).with_panes(case.panes(true));
+    assert_eq!(pass(&mut watch), NOTHING);
+    assert_eq!(case.typed("ex-busy"), Vec::<String>::new());
+    assert_eq!(case.rotations(), 0);
+}
+
+/// Adversary pass 2 (`story:auto-resume`): the banner drawn with the bullet operator (` ∙ `) is a
+/// stop like the middle dot one; guards the second separator, which no other case reaches. The
+/// banner as the 8th of the pane's last non-empty lines is still read, the 9th is not.
+#[test]
+fn adversary2_the_bullet_banner_and_the_eighth_last_line_are_read() {
+    let case = Case::new("banner-bullet");
+    case.sessions(&[]);
+    case.accounts(ONE_WITH_HEADROOM);
+    case.pane(
+        "ex-bullet",
+        Some("> working on it\n\n  Usage limit reached ∙ limit resets 6am\n"),
+    );
+    let eighth: String = std::iter::once(ON_THE_BANNER.to_owned())
+        .chain((0..7).map(|line| format!("status line {line}\n")))
+        .collect();
+    case.pane("ex-eighth", Some(&eighth));
+    let ninth: String = std::iter::once(ON_THE_BANNER.to_owned())
+        .chain((0..8).map(|line| format!("status line {line}\n")))
+        .collect();
+    case.pane("ex-ninth", Some(&ninth));
+    let mut watch = case.watch(None).with_panes(case.panes(true));
+    assert_eq!(
+        pass(&mut watch),
+        ["usage limit resumed: 2 panes: ex-bullet ex-eighth"]
+    );
+    assert_eq!(case.rotations(), 1);
+    assert_eq!(case.typed("ex-ninth"), Vec::<String>::new());
+}
