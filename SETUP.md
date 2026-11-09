@@ -60,7 +60,8 @@ to fill in, and each step says where they come from. `<target>` is the build of 
    and `worktree` for the first three, `substrate` for `substrate-daemon`, whose releases carry
    `x86_64-unknown-linux-gnu` only. The releases are listed at
    https://github.com/beyond10x/<repo>/releases; their tags carry no `v`. Doctor needs
-   `substrate-daemon` once the config of step 6 names `placement: systemd`.
+   `substrate-daemon` once the config of step 6 names `placement: systemd`, as the file step 6
+   writes does: install it here even while doctor prints `substrate-daemon: not needed`.
    - Check: `conductor doctor`; each of the four meets the build's pin, or its pin under a
      b10x.toml.
    - Fix: for each program that does not,
