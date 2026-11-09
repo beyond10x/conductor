@@ -77,10 +77,14 @@
 //! **Scope rule** (`story:kpi-scope-active-repositories`). K4, K5, K6 and K12 are
 //! repository-scoped: they count only the repositories Active on the reading's day
 //! ([`crate::repository::activity_on`] the day's end): a mark, which holds on every day, else the
-//! repository's observation in the newest complete snapshot that started before the day's end,
-//! or, when no snapshot before it observed the repository, in the first complete snapshot after.
-//! A past day computed later keeps the repositories Active then. An Inactive or unobserved
-//! repository has no reading, and the `instance` scope sums the Active scopes only. K1 and K2 are
+//! repository's observation in the newest complete snapshot that started before the day's end (a
+//! repository it does not observe is unobserved), or, only when no complete snapshot started
+//! before the day's end, in the first complete snapshot after. A past day computed later keeps
+//! the repositories Active then while that snapshot's observations are retained: retention
+//! (`retention.snapshots`) keeps those of the newest complete snapshots only, and a day computed
+//! after its snapshots left retention reads the oldest retained snapshot instead, since no
+//! retained record holds a repository's activity per day. An Inactive or unobserved repository
+//! has no reading, and the `instance` scope sums the Active scopes only. K1 and K2 are
 //! instance-only and count every decision and merged pull request. The forge facts of K1, K5 and
 //! K6 are read from the newest complete snapshot as `repository activity` picks it
 //! ([`crate::repository::newest_complete`]: of equal starts, the one stored later).
@@ -809,11 +813,14 @@ pub fn compute(state: Option<&Path>, args: &MetricComputeArgs) -> Result<ExitCod
     let mut generated = Generated::new(Ports::open(state)?);
     let forge = Forge::read(state).with_context(|| COMMAND.to_owned())?;
 
-    let active: BTreeSet<String> = crate::repository::activity_on(&generated.ports.store, day.end)
-        .into_iter()
-        .filter(|row| row.activity == Activity::Active)
-        .map(|row| row.repository.0)
-        .collect();
+    // The complete snapshots whose observations retention keeps, as `snapshot` reads it.
+    let retained = usize::try_from(instance.retention.snapshots).unwrap_or(1);
+    let active: BTreeSet<String> =
+        crate::repository::activity_on(&generated.ports.store, day.end, retained)
+            .into_iter()
+            .filter(|row| row.activity == Activity::Active)
+            .map(|row| row.repository.0)
+            .collect();
     kept(COMMAND, &generated.ports.store)?;
 
     let mut measured = Vec::new();

@@ -26,10 +26,11 @@
 //!   and v1.0 (10-14 12:00), beta's v2.0 (10-14 20:00); merged pull requests alpha#1 (10-13
 //!   10:00, released by v0.9), alpha#2 (06:00, v1.0 after 6 h), alpha#3 (11:00, v1.0 after 1 h),
 //!   alpha#4 (13:00, not released), beta#5 (10:00, v2.0 after 10 h), beta#6 (10-13 20:00, v2.0
-//!   after 24 h). An older complete snapshot holds one more merged pull request on the day,
-//!   which no metric counts: the newest complete snapshot is read. Each snapshot observes every
-//!   repository it names with a real commit in 7 days, so `repository activity` answers it
-//!   Active: the repository-scoped KPIs count Active repositories only
+//!   after 24 h). An older complete snapshot (started 10-14 23:00) holds the same releases and
+//!   one more merged pull request on the day, which no metric counts: the newest complete
+//!   snapshot is read. Each snapshot observes every repository it names with a real commit in 7
+//!   days, so it observes them Active: the repository-scoped KPIs count only the repositories
+//!   Active on the day, which the older snapshot, the day's last, decides
 //!   (`story:kpi-scope-active-repositories`).
 //!
 //! K6 and K12 read the daily rollups the completed snapshots write, and have their own fixture
@@ -182,10 +183,11 @@ impl Case {
             fs::create_dir_all(&dir).expect("create a log's directory");
             fs::write(dir.join("2026-10.jsonl"), text).expect("write a log");
         }
-        // An older complete snapshot, whose pull request merged on the day no metric counts.
+        // An older complete snapshot, the day's last, whose pull request merged on the day no
+        // metric counts; its releases make it observe alpha and beta, Active on the day.
         case.snapshot(
             "2026-10-14T23:00:00Z",
-            &[],
+            &RELEASES,
             &[("gamma", 77, "2026-10-14T09:00:00Z")],
         );
         case.snapshot("2026-10-15T00:30:00Z", &RELEASES, &MERGED);
@@ -741,8 +743,9 @@ fn mark(case: &Case, repository: &str, activity: &str) {
     ]);
 }
 
-/// `story:kpi-scope-active-repositories`: the fixture whose newest snapshot (started 10-15
-/// 01:00) also observes `idle` with no real commit in 7 days, so Inactive unless marked. idle#1
+/// `story:kpi-scope-active-repositories`: the fixture with two more complete snapshots holding
+/// the same facts, the day's last (started 10-14 23:30) and the newest (10-15 01:00), which also
+/// observe `idle` with no real commit in 7 days, so Inactive unless marked. idle#1
 /// merged 10-14 11:00 and was never released; idle#2 merged 08:00 and was released by v1.0.0 at
 /// 10:00 (2 h); idle's dispatch D-90 was sent 01:00 and done 05:00 (4 h). Computed once, `idle`
 /// marked Active first when `marked`.
@@ -764,6 +767,7 @@ fn with_idle(name: &str, marked: bool) -> Case {
         ("idle", 1, "2026-10-14T11:00:00Z"),
         ("idle", 2, "2026-10-14T08:00:00Z"),
     ]);
+    case.snapshot_with_inactive("2026-10-14T23:30:00Z", &releases, &merged, &["idle"]);
     case.snapshot_with_inactive("2026-10-15T01:00:00Z", &releases, &merged, &["idle"]);
     if marked {
         mark(&case, "idle", "Active");
@@ -1501,14 +1505,17 @@ fn adversary_activity_comes_from_the_snapshot_the_forge_is_read_from() {
     );
 }
 
-/// Adversary, pass 2: the scope rule promises "A past day computed later keeps the repositories
-/// Active then" (`crates/conductor/src/metric.rs` module documentation). With the default
-/// `retention.snapshots` (12), the twelve complete snapshots of 10-30, each observing alpha with
-/// no real commit in 7 days, drop the observations of the day's snapshot (10-14 23:00, alpha
-/// Active). `metric compute --day 2026-10-14` run after them must still read alpha's scope:
-/// K4.median of alpha 3 h (1, 3, 14).
+/// Adversary, pass 2, as the coordinator settled it: no record retention keeps holds a
+/// repository's activity per day, so the scope rule documents its bound
+/// (`crates/conductor/src/metric.rs` module documentation): a day computed after its snapshots
+/// left retention reads the oldest retained snapshot. With the default `retention.snapshots`
+/// (12), the twelve complete snapshots of 10-30 drop the observations of the day's snapshot
+/// (10-14 23:00, alpha Active). The oldest retained one (10-30 00:00) observes alpha with no real
+/// commit in 7 days, the eleven after it observe alpha Active. `metric compute --day 2026-10-14`
+/// reads the oldest retained: alpha has no K4 reading, beta keeps its 2.5 h, and the instance's
+/// K4.median is beta's alone.
 #[test]
-fn adversary_a_past_day_beyond_retention_keeps_the_repositories_active_then() {
+fn adversary_a_past_day_beyond_retention_reads_the_oldest_retained_snapshot() {
     let case = Case::empty("adv2-past-day-beyond-retention");
     for (log, text) in [("decisions", DECISIONS), ("dispatches", DISPATCHES)] {
         let dir = case.records().join(log);
@@ -1516,15 +1523,22 @@ fn adversary_a_past_day_beyond_retention_keeps_the_repositories_active_then() {
         fs::write(dir.join("2026-10.jsonl"), text).expect("write a log");
     }
     case.snapshot("2026-10-14T23:00:00Z", &RELEASES, &MERGED);
-    for hour in 0..12 {
+    case.snapshot_with_inactive("2026-10-30T00:00:00Z", &RELEASES, &MERGED, &["alpha"]);
+    for hour in 1..12 {
         let started = format!("2026-10-30T{hour:02}:00:00Z");
-        case.snapshot_with_inactive(&started, &RELEASES, &MERGED, &["alpha"]);
+        case.snapshot(&started, &RELEASES, &MERGED);
     }
     case.compute();
+    assert!(
+        case.reading("K4.median", "alpha").is_none(),
+        "K4.median has a reading for alpha, Inactive in the oldest retained snapshot: {:#?}",
+        case.all()
+    );
+    close(case.value("K4.median", "beta"), 2.5, "K4.median of beta");
     close(
-        case.value("K4.median", "alpha"),
-        3.0,
-        "K4.median of alpha, Active on the day",
+        case.value("K4.median", "instance"),
+        2.5,
+        "K4.median, beta's alone",
     );
 }
 

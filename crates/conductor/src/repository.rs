@@ -8,7 +8,7 @@
 //! (`story:marked-by-session`), overrides that computation. [`activity`] answers both, as
 //! `conductor.direction.RepositoryActivityRow` rows, and writes nothing: no computed activity is
 //! ever stored, so none can overwrite a mark. [`activity_on`] answers the same for a past day,
-//! from each repository's observation nearest that day's end, for `metric compute`.
+//! from the newest complete snapshot that started before that day's end, for `metric compute`.
 //!
 //! Each command records its outcome in the store under the state directory (`--state-dir`, else
 //! `state/`; [`crate::state::dir`]) through the generated behaviour, and prints nothing. A refusal
@@ -68,59 +68,56 @@ use crate::{config, gates};
 /// [`Store::check`] or [`crate::store::show`].
 #[must_use]
 pub fn activity(store: &Store) -> Vec<RepositoryActivityRow> {
-    let observed = match newest_complete(SnapshotStorage::list(store)) {
-        Some(newest) => RepositoryObservationStorage::list(store)
-            .into_iter()
-            .map(|observation| observation.data)
-            .filter(|data| data.snapshot_id == newest)
-            .collect(),
-        None => Vec::new(),
-    };
-    effective(observed, store)
+    let newest = newest_complete(SnapshotStorage::list(store));
+    effective(observed_in(store, newest.as_ref()), store)
 }
 
 /// Every repository's activity on the day that ended at `end` (`story:kpi-scope-active-repositories`),
-/// as [`activity`] answers it but for the observation that day: a mark decides its repository's
-/// activity, as it does any day; every other repository's is computed from its observation
-/// nearest the day's end, the one in the newest complete snapshot that started before `end` that
-/// observed it, else, when none before `end` did, the one in the first complete snapshot after.
-/// Complete snapshots are taken in the order [`newest_complete`] picks from, so of equal starts
-/// the one stored earlier comes first.
+/// as [`activity`] answers it but from the day's snapshot instead of the newest: a mark decides
+/// its repository's activity, as it does any day; every other repository's is computed from its
+/// observation in the newest complete snapshot that started before `end`, and a repository that
+/// snapshot did not observe is unobserved and answered only by its mark. Only when no complete
+/// snapshot started before `end` is the first complete snapshot after it read. Complete snapshots
+/// are taken in the order [`newest_complete`] picks from, so of equal starts the one stored
+/// earlier comes first.
+///
+/// The observations retention keeps are those of the newest `retained` complete snapshots (the
+/// instance's `retention.snapshots`, all of them when it is 0, as [`Store::retain`] drops them),
+/// and only those are read: a day computed after its snapshots left retention reads the oldest
+/// retained snapshot. No retained record holds a repository's activity per day.
 ///
 /// Reads and keeps records as [`activity`] does.
 #[must_use]
-pub fn activity_on(store: &Store, end: OffsetDateTime) -> Vec<RepositoryActivityRow> {
+pub fn activity_on(
+    store: &Store,
+    end: OffsetDateTime,
+    retained: usize,
+) -> Vec<RepositoryActivityRow> {
     let ordered = complete_in_order(SnapshotStorage::list(store));
-    let before = ordered
+    let kept = if retained == 0 {
+        &ordered[..]
+    } else {
+        &ordered[ordered.len().saturating_sub(retained)..]
+    };
+    let day = kept
         .iter()
-        .take_while(|(started, _)| started.is_none_or(|at| at < end))
-        .count();
-    let rank: BTreeMap<_, _> = ordered
-        .iter()
-        .enumerate()
-        .map(|(at, (_, snapshot))| (snapshot.0.clone(), at))
-        .collect();
-    // An observation of a snapshot before `end` beats every one after; of two before, the later
-    // snapshot; of two after, the earlier; of two in one snapshot, the one recorded last.
-    let mut nearest: BTreeMap<String, ((bool, usize), RepositoryObservationData)> = BTreeMap::new();
-    for observation in RepositoryObservationStorage::list(store) {
-        let data = observation.data;
-        let Some(&at) = rank.get(&data.snapshot_id.0) else {
-            continue;
-        };
-        let nearness = if at < before {
-            (true, at)
-        } else {
-            (false, ordered.len() - at)
-        };
-        if nearest
-            .get(&data.repository.0)
-            .is_none_or(|(held, _)| nearness >= *held)
-        {
-            nearest.insert(data.repository.0.clone(), (nearness, data));
-        }
-    }
-    effective(nearest.into_values().map(|(_, data)| data).collect(), store)
+        .rev()
+        .find(|(started, _)| started.is_none_or(|at| at < end))
+        .or_else(|| kept.first())
+        .map(|(_, snapshot)| snapshot);
+    effective(observed_in(store, day), store)
+}
+
+/// The observations of `snapshot`, in the order they were recorded; none without one.
+fn observed_in(store: &Store, snapshot: Option<&SnapshotId>) -> Vec<RepositoryObservationData> {
+    let Some(snapshot) = snapshot else {
+        return Vec::new();
+    };
+    RepositoryObservationStorage::list(store)
+        .into_iter()
+        .map(|observation| observation.data)
+        .filter(|data| data.snapshot_id == *snapshot)
+        .collect()
 }
 
 /// The rows of [`activity`] and [`activity_on`]: each repository of `observed` Active when its

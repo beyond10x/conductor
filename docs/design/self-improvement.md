@@ -54,10 +54,13 @@ target for the end of the next two weeks.
 repository (`metric compute`). They count only the repositories Active on the reading's day, and
 the `instance` scope sums those scopes only: a KPI over repositories nobody works on cannot be
 lowered by the loop. A repository's activity on a day is its mark, which holds on every day, else
-its observation in the newest complete snapshot that started before the day's end (the first
-complete snapshot after, when none before observed it), Active with a real commit in 7 days and
-not archived; a past day computed later keeps the repositories Active then. An Inactive
-repository has no reading. K1 and K2 are instance-only and count every
+its observation in the newest complete snapshot that started before the day's end (a repository
+that snapshot does not observe is unobserved; the first complete snapshot after is read only when
+none started before the end), Active with a real commit in 7 days and not archived. A past day
+computed later keeps the repositories Active then while that snapshot's observations are
+retained; one computed after they left retention (`retention.snapshots`) reads the oldest retained
+snapshot, since no retained record holds a repository's activity per day. An Inactive or
+unobserved repository has no reading. K1 and K2 are instance-only and count every
 decision and merged pull request. An Active repository that ships without releases is left out of
 K5 by `repositories[].no_releases`, as before (`story:kpi-scope-active-repositories`).
 
