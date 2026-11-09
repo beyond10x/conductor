@@ -249,6 +249,98 @@ storage!(
     decode_usage
 );
 
+/// An observation, kept in the tenant of its snapshot: what [`Store::observations_of`] reads of
+/// one snapshot.
+pub trait Observation: Sized {
+    /// Its entity's qualified name.
+    const ENTITY: &'static str;
+
+    /// It, from the body the store keeps.
+    ///
+    /// # Errors
+    ///
+    /// The body is not one of it, and why.
+    fn decode(body: &Value) -> Result<Self, String>;
+}
+
+/// [`Observation`] for `$snapshot`, the entity `$entity`, decoded by `$decode`.
+macro_rules! observation {
+    ($snapshot:ident, $entity:ident, $decode:ident) => {
+        impl Observation for $snapshot {
+            const ENTITY: &'static str = $entity;
+
+            fn decode(body: &Value) -> Result<Self, String> {
+                $decode(body)
+            }
+        }
+    };
+}
+
+observation!(RepositoryObservationSnapshot, REPOSITORY, decode_repository);
+observation!(
+    PullRequestObservationSnapshot,
+    PULL_REQUEST,
+    decode_pull_request
+);
+observation!(ReleaseObservationSnapshot, RELEASE, decode_release);
+observation!(
+    MergedPullRequestObservationSnapshot,
+    MERGED_PULL_REQUEST,
+    decode_merged_pull_request
+);
+observation!(
+    WorkflowRunObservationSnapshot,
+    WORKFLOW_RUN,
+    decode_workflow_run
+);
+observation!(SessionObservationSnapshot, SESSION, decode_session);
+observation!(BlockerObservationSnapshot, BLOCKER, decode_blocker);
+observation!(
+    SpecificationObservationSnapshot,
+    SPECIFICATION,
+    decode_specification
+);
+observation!(
+    MemberFailureObservationSnapshot,
+    MEMBER_FAILURE,
+    decode_member_failure
+);
+observation!(
+    CollectorRunObservationSnapshot,
+    COLLECTOR_RUN,
+    decode_collector_run
+);
+observation!(
+    SecretSyncObservationSnapshot,
+    SECRET_SYNC,
+    decode_secret_sync
+);
+observation!(UsageObservationSnapshot, USAGE, decode_usage);
+
+impl Store {
+    /// Every observation `T` of the snapshot `snapshot`, in the order stored, read from that
+    /// snapshot's tenant alone, never another snapshot's (`story:status-current-snapshot`): what
+    /// the list of `T`'s storage answers of it, filtered on its `snapshot_id`. One that does not
+    /// decode is left out and kept for [`Store::check`], as the list does.
+    #[must_use]
+    pub fn observations_of<T: Observation>(&self, snapshot: &SnapshotId) -> Vec<T> {
+        self.snapshot_rows(T::ENTITY, &snapshot.0.0)
+            .into_iter()
+            .filter_map(|(stream, body)| match T::decode(&body) {
+                Ok(held) => Some(held),
+                Err(detail) => {
+                    self.fail(StoreError::Undecodable {
+                        entity: T::ENTITY,
+                        stream,
+                        detail,
+                    });
+                    None
+                }
+            })
+            .collect()
+    }
+}
+
 /// The instance `key` of `entity`, decoded; `None` when absent, or when the read or the decoding
 /// failed (kept for [`Store::check`]).
 fn decoded<T>(

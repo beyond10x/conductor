@@ -25,6 +25,12 @@
 //! tenants of the snapshots retention does not keep. The `Snapshot` itself is in the instance's
 //! tenant, as every other record is.
 //!
+//! A list reads what it lists, not the whole store (`story:status-current-snapshot`): a list of
+//! one entity of the instance's tenant reads that entity's rows of the index of the instance's
+//! streams ([`index`]) and the records committed after it; a list of one snapshot's observations
+//! reads that snapshot's tenant alone ([`Store::observations_of`]); and a view that lists several
+//! entities reads each tenant's records once ([`Store::at_once`]).
+//!
 //! The store before it was eventlog's tree provider under `state/tree/` (and before that its File
 //! provider under `state/store/`). `conductor store migrate` reads that tree once into the
 //! database ([`migrate`]) and is its only reader afterwards; where a state directory holds a tree
@@ -87,6 +93,7 @@ mod decision;
 pub(crate) mod dispatch;
 mod host;
 mod improvement;
+mod index;
 mod marks;
 pub mod migrate;
 pub mod observations;
@@ -101,6 +108,7 @@ pub mod series;
 mod serving;
 mod session;
 mod snapshot;
+pub use snapshot::Observation;
 mod token;
 mod tool;
 pub use token::{grant_name, token_state_name, usage_name};
@@ -608,6 +616,34 @@ pub struct Store {
     /// The feed position of the instance's tenant this handle read snapshots up to, and the
     /// tenant of each snapshot it met there, in the order met ([`Store::observation_tenants`]).
     snapshot_tenants: RefCell<(u64, Vec<TenantId>)>,
+    /// The feeds read since [`Store::at_once`] began, by tenant; `None` outside it, where each
+    /// list reads its tenant's feed anew and the handle keeps none of its records.
+    feeds: RefCell<Option<HashMap<TenantId, Feed>>>,
+}
+
+/// One tenant's feed as far as a handle has read it inside [`Store::at_once`]: each stream's
+/// first record and newest event, by the stream's type, in the order the streams were first
+/// stored.
+struct Feed {
+    /// The position read from: what the instance's index held when it was first read, else 0.
+    start: u64,
+    /// The position read up to.
+    after: u64,
+    /// The streams of each type.
+    types: HashMap<String, Streams>,
+}
+
+/// The newest event of each stream a feed committed after a position, with the stream's id and
+/// when it was first stored after that position: the instant and the position of its record.
+type Tail = Vec<(String, (OffsetDateTime, u64), RecordedEvent)>;
+
+/// The streams of one type of a [`Feed`].
+#[derive(Default)]
+struct Streams {
+    /// Each stream's id and when it was first stored, in that order.
+    order: Vec<(String, (OffsetDateTime, u64))>,
+    /// The newest event of each stream, by its id.
+    newest: HashMap<String, RecordedEvent>,
 }
 
 /// One observation stream's records held back, in the order written, to commit with the others.
@@ -858,6 +894,7 @@ impl Store {
             failures: RefCell::default(),
             held_back: RefCell::default(),
             snapshot_tenants: RefCell::default(),
+            feeds: RefCell::default(),
         })
     }
 
@@ -933,6 +970,28 @@ impl Store {
         let answer = read(self);
         let met = self.failures.borrow_mut().split_off(before);
         (answer, met)
+    }
+
+    /// Runs `read` over this handle reading each tenant's feed at most once
+    /// (`story:status-current-snapshot`): every list `read` makes of a tenant folds what the
+    /// first read of it kept, and what was committed after it, so a view that lists several
+    /// entities, or one entity twice, reads the store once. What was kept is dropped when `read`
+    /// returns (or unwinds), so the handle holds none of the store's records between two reads
+    /// (`story:dashboard-memory-bound`). Within a `read` already running it just runs `read`.
+    pub fn at_once<T>(&self, read: impl FnOnce(&Self) -> T) -> T {
+        /// Drops what the outermost [`Store::at_once`] kept, however it ends.
+        struct Kept<'a>(&'a RefCell<Option<HashMap<TenantId, Feed>>>);
+        impl Drop for Kept<'_> {
+            fn drop(&mut self) {
+                *self.0.borrow_mut() = None;
+            }
+        }
+        if self.feeds.borrow().is_some() {
+            return read(self);
+        }
+        *self.feeds.borrow_mut() = Some(HashMap::new());
+        let _kept = Kept(&self.feeds);
+        read(self)
     }
 
     /// Keeps `failure`, unless it is already kept: an unreadable record is the same failure
@@ -1076,6 +1135,24 @@ impl Store {
         } else {
             self.fold(&self.tenant, entity)
         };
+        self.answered(folded)
+    }
+
+    /// [`Store::rows`] of the observation `entity` of the snapshot `snapshot` alone: read from
+    /// that snapshot's tenant, and no other (`story:status-current-snapshot`).
+    fn snapshot_rows(&self, entity: &'static str, snapshot: &str) -> Vec<(String, Value)> {
+        let folded = self.commit_observations().and_then(|()| {
+            let tenant = self
+                .observation_tenant(snapshot)
+                .map_err(|source| log_error(entity, None, source))?;
+            self.fold(&tenant, entity)
+        });
+        self.answered(folded)
+    }
+
+    /// The rows of `folded`, as [`Store::rows`] answers them: a deleted instance left out, and an
+    /// unreadable one, or the failure of the whole read, kept for [`Store::check`].
+    fn answered(&self, folded: Result<Vec<Folded>, StoreError>) -> Vec<(String, Value)> {
         match folded {
             Ok(streams) => streams
                 .into_iter()
@@ -1107,68 +1184,166 @@ impl Store {
     }
 
     /// Every stream of `entity` in `tenant`, in the order they were first stored, each with its
-    /// newest body.
+    /// newest body. Of the instance's tenant, the streams its index holds ([`index`]) and what
+    /// the feed committed after the index's position; of any other tenant, or where there is no
+    /// index, what its whole feed holds.
     fn fold(&self, tenant: &TenantId, entity: &'static str) -> Result<Vec<Folded>, StoreError> {
+        let indexed = if *tenant == self.tenant {
+            self.indexed(entity)?
+        } else {
+            None
+        };
+        let (from, rows) = indexed.unwrap_or_default();
+        let mut streams: Vec<(Folded, u64)> = rows
+            .into_iter()
+            .map(|row| {
+                (
+                    Folded {
+                        stream: row.stream,
+                        first: row.first,
+                        newest: row.newest,
+                    },
+                    row.version,
+                )
+            })
+            .collect();
+        let mut at: HashMap<String, usize> = streams
+            .iter()
+            .enumerate()
+            .map(|(at, (folded, _))| (folded.stream.clone(), at))
+            .collect();
+        for (stream, first, event) in self.newest_after(tenant, from, entity)? {
+            match at.get(&stream) {
+                Some(&held) => {
+                    if event.version > streams[held].1 {
+                        streams[held].1 = event.version;
+                        streams[held].0.newest = body(entity, event);
+                    }
+                }
+                None => {
+                    at.insert(stream.clone(), streams.len());
+                    let version = event.version;
+                    streams.push((
+                        Folded {
+                            stream,
+                            first,
+                            newest: body(entity, event),
+                        },
+                        version,
+                    ));
+                }
+            }
+        }
+        let mut folded: Vec<Folded> = streams.into_iter().map(|(folded, _)| folded).collect();
+        folded.sort_by_key(|folded| folded.first.1);
+        Ok(folded)
+    }
+
+    /// The newest event of each stream of `entity` that `tenant`'s feed committed after `from`,
+    /// with the stream's id and its first event after `from`, in the order those were committed.
+    /// Inside [`Store::at_once`] the feed is read once, and on each later call only what was
+    /// committed since.
+    fn newest_after(
+        &self,
+        tenant: &TenantId,
+        from: u64,
+        entity: &'static str,
+    ) -> Result<Tail, StoreError> {
+        let mut feeds = self.feeds.borrow_mut();
+        if let Some(feeds) = feeds.as_mut() {
+            if feeds.get(tenant).is_none_or(|feed| feed.start > from) {
+                feeds.insert(
+                    tenant.clone(),
+                    Feed {
+                        start: from,
+                        after: from,
+                        types: HashMap::new(),
+                    },
+                );
+            }
+            let feed = feeds.get_mut(tenant).ok_or_else(|| {
+                log_error(
+                    entity,
+                    None,
+                    EventLogError::Backend("no feed kept".to_owned()),
+                )
+            })?;
+            feed.after = self.feed(tenant, feed.after, entity, |event| {
+                let streams = feed.types.entry(event.stream_type.clone()).or_default();
+                if !streams.newest.contains_key(&event.stream_id) {
+                    streams.order.push((
+                        event.stream_id.clone(),
+                        (event.recorded_at, event.global_seq),
+                    ));
+                }
+                streams.newest.insert(event.stream_id.clone(), event);
+            })?;
+            let Some(streams) = feed.types.get(entity) else {
+                return Ok(Vec::new());
+            };
+            return Ok(streams
+                .order
+                .iter()
+                .filter_map(|(stream, first)| {
+                    let event = streams.newest.get(stream)?;
+                    (event.global_seq > from).then(|| (stream.clone(), *first, event.clone()))
+                })
+                .collect());
+        }
+        drop(feeds);
         let mut order: Vec<(String, (OffsetDateTime, u64))> = Vec::new();
-        let mut newest: HashMap<String, Result<Option<Value>, StoreError>> = HashMap::new();
-        let mut after = 0;
+        let mut newest: HashMap<String, RecordedEvent> = HashMap::new();
+        self.feed(tenant, from, entity, |event| {
+            if event.stream_type != entity {
+                return;
+            }
+            if !newest.contains_key(&event.stream_id) {
+                order.push((
+                    event.stream_id.clone(),
+                    (event.recorded_at, event.global_seq),
+                ));
+            }
+            newest.insert(event.stream_id.clone(), event);
+        })?;
+        Ok(order
+            .into_iter()
+            .filter_map(|(stream, first)| {
+                let event = newest.remove(&stream)?;
+                Some((stream, first, event))
+            })
+            .collect())
+    }
+
+    /// Hands `each` every event of `tenant`'s feed committed after `after`, in feed order; the
+    /// position read up to. A failure is named as a list of `entity`'s.
+    fn feed(
+        &self,
+        tenant: &TenantId,
+        mut after: u64,
+        entity: &'static str,
+        mut each: impl FnMut(RecordedEvent),
+    ) -> Result<u64, StoreError> {
         loop {
             let page = self
                 .runtime
                 .block_on(self.log.read_feed(tenant, after, MAX_READ_LIMIT))
                 .map_err(|source| log_error(entity, None, source))?;
             let more = page.has_more && !page.events.is_empty();
-            after = page.next_position;
-            for event in page.events {
-                if event.stream_type != entity {
-                    continue;
-                }
-                let stream = event.stream_id.clone();
-                let first = (event.recorded_at, event.global_seq);
-                let snapshot = body(entity, event);
-                if newest.insert(stream.clone(), snapshot).is_none() {
-                    order.push((stream, first));
-                }
+            if !page.events.is_empty() {
+                after = page.next_position;
             }
+            page.events.into_iter().for_each(&mut each);
             if !more {
-                break;
+                return Ok(after);
             }
         }
-        Ok(order
-            .into_iter()
-            .filter_map(|(stream, first)| {
-                let newest = newest.remove(&stream)?;
-                Some(Folded {
-                    stream,
-                    first,
-                    newest,
-                })
-            })
-            .collect())
     }
 
-    /// The streams of `entity` in the instance's tenant, deleted ones too, and each one's events:
-    /// what the host's ledger counts.
-    fn stream_lengths(&self, entity: &'static str) -> Result<HashMap<String, u64>, EventLogError> {
-        let mut lengths: HashMap<String, u64> = HashMap::new();
-        let mut after = 0;
-        loop {
-            let page =
-                self.runtime
-                    .block_on(self.log.read_feed(&self.tenant, after, MAX_READ_LIMIT))?;
-            let more = page.has_more && !page.events.is_empty();
-            after = page.next_position;
-            for event in page.events {
-                if event.stream_type == entity {
-                    let length = lengths.entry(event.stream_id).or_default();
-                    *length = (*length).max(event.version);
-                }
-            }
-            if !more {
-                break;
-            }
+    /// Forgets what [`Store::at_once`] kept of `tenant`'s feed: its tenant was erased.
+    fn forgot(&self, tenant: &TenantId) {
+        if let Some(feeds) = self.feeds.borrow_mut().as_mut() {
+            feeds.remove(tenant);
         }
-        Ok(lengths)
     }
 
     /// Appends one event to an instance's stream, unless an earlier failure stopped this handle.
@@ -1661,21 +1836,36 @@ fn text(body: &Value, field: &str) -> Result<String, String> {
 /// judged at its schema version: one this build does not write, a redacted snapshot, or a name it
 /// does not know is a record it cannot read.
 fn body(entity: &'static str, event: RecordedEvent) -> Result<Option<Value>, StoreError> {
-    match event.name.as_str() {
-        STORED if event.schema_version == SCHEMA_VERSION && !event.is_redacted() => {
-            Ok(Some(event.data))
-        }
-        DELETED if event.schema_version == SCHEMA_VERSION => Ok(None),
+    let redacted = event.is_redacted();
+    recorded_body(
+        entity,
+        event.stream_id,
+        &event.name,
+        event.schema_version,
+        redacted,
+        event.data,
+    )
+}
+
+/// [`body`] of an event of `entity`'s stream `stream` named `name`, of `schema_version`, redacted
+/// or not, whose data is `data`: what the index keeps of a stream's newest event ([`index`]).
+fn recorded_body(
+    entity: &'static str,
+    stream: String,
+    name: &str,
+    schema_version: u32,
+    redacted: bool,
+    data: Value,
+) -> Result<Option<Value>, StoreError> {
+    match name {
+        STORED if schema_version == SCHEMA_VERSION && !redacted => Ok(Some(data)),
+        DELETED if schema_version == SCHEMA_VERSION => Ok(None),
         _ => {
-            let redacted = if event.is_redacted() {
-                ", redacted"
-            } else {
-                ""
-            };
+            let redacted = if redacted { ", redacted" } else { "" };
             Err(StoreError::Undecodable {
                 entity,
-                detail: format!("event {:?} v{}{redacted}", event.name, event.schema_version),
-                stream: event.stream_id,
+                detail: format!("event {name:?} v{schema_version}{redacted}"),
+                stream,
             })
         }
     }

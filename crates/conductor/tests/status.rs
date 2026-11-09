@@ -18,6 +18,7 @@
 
 mod active;
 mod common;
+mod sized;
 
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -1307,4 +1308,41 @@ fn the_board_names_every_failing_check_of_a_pull_request() {
         "{board}"
     );
     assert_eq!(failing_checks_cell(&board, "beta"), "", "{board}");
+}
+
+/// `story:status-current-snapshot`: on an instance whose `<state>/tree` holds 50,000 files, whose
+/// observations hold 14 snapshots and whose store holds thousands of grants of the host ledger
+/// ([`sized`]), `conductor status` answers within 2 s, in text and in JSON, from the newest
+/// snapshot's observations alone: an older snapshot's record this build cannot read is never met.
+#[test]
+fn status_answers_within_2_s_on_an_instance_of_50k_tree_files_reading_the_newest_snapshot_only() {
+    let _alone = sized::alone();
+    let root = case_dir("sized");
+    let newest = sized::plant(&root.join("state"));
+    for args in [&["--format", "json"][..], &[][..], &["--full"][..]] {
+        let mut argv = vec!["status"];
+        argv.extend_from_slice(args);
+        let started = std::time::Instant::now();
+        let output = conductor(&root, &argv);
+        let took = started.elapsed();
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        assert!(
+            took < STATUS_WITHIN && output.status.success() && !stderr.contains(sized::UNREADABLE),
+            "`conductor {}` took {took:?} (bound {STATUS_WITHIN:?}): {}",
+            argv.join(" "),
+            describe(&output)
+        );
+        if args == ["--format", "json"] {
+            let json: Value = serde_json::from_slice(&output.stdout).expect("the status is JSON");
+            assert_eq!(json["snapshot_id"], newest.as_str(), "{json}");
+            let deviations = json["deviations"].as_array().expect("deviations");
+            assert_eq!(deviations.len(), sized::REPOSITORIES, "{json}");
+            assert!(
+                deviations
+                    .iter()
+                    .all(|row| row["failing_prs"] == i64::try_from(sized::PER / 2).expect("few")),
+                "{json}"
+            );
+        }
+    }
 }

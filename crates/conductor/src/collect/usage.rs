@@ -50,9 +50,10 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::process::Command;
 
 use anyhow::{Context as _, Result, bail};
-use conductor_model::behaviour::{SnapshotStorage, UsageObservationStorage};
+use conductor_model::behaviour::SnapshotStorage;
 use conductor_model::observation::{
     RecordMemberFailure, RecordUsage, RepositoryName, SnapshotState, UsageObservationData,
+    UsageObservationSnapshot,
 };
 use conductor_model::primitives::Timestamp;
 use serde::Deserialize;
@@ -299,19 +300,30 @@ pub struct Forecast {
 
 impl Forecast {
     /// The forecast of the usage readings `store` holds of its complete snapshots; `None` when
-    /// no complete snapshot holds one.
+    /// no complete snapshot holds one. The complete snapshots are read newest first, each from its
+    /// own tenant, until two hold a reading (`story:status-current-snapshot`): an older snapshot is
+    /// read only while the newer ones hold fewer.
     #[must_use]
     pub fn of(store: &Store) -> Option<Self> {
-        let complete: BTreeSet<String> = SnapshotStorage::list(store)
+        let mut complete: Vec<_> = SnapshotStorage::list(store)
             .into_iter()
             .filter(|held| held.state == SnapshotState::Complete)
-            .map(|held| held.data.snapshot_id.0.0)
             .collect();
-        let rows = UsageObservationStorage::list(store)
-            .into_iter()
-            .map(|held| held.data)
-            .filter(|data| complete.contains(&data.snapshot_id.0.0));
-        Self::from_rows(rows)
+        complete.sort_by_key(|held| OffsetDateTime::parse(&held.data.started_at.0, &Rfc3339).ok());
+        let mut rows = Vec::new();
+        let mut readings = 0;
+        for held in complete.iter().rev() {
+            let read = store.observations_of::<UsageObservationSnapshot>(&held.data.snapshot_id);
+            if read.is_empty() {
+                continue;
+            }
+            rows.extend(read.into_iter().map(|held| held.data));
+            readings += 1;
+            if readings == 2 {
+                break;
+            }
+        }
+        Self::from_rows(rows.into_iter())
     }
 
     /// The forecast of `rows`, grouped into readings by their snapshot and ordered by the instant

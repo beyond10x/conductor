@@ -18,6 +18,7 @@
 
 mod active;
 mod served;
+mod sized;
 
 use std::ffi::OsString;
 use std::fs;
@@ -70,6 +71,25 @@ const REPEAT: Duration = Duration::from_millis(50);
 
 /// How long a warm request may take on a store of an instance's size.
 const WARM: Duration = Duration::from_millis(200);
+
+/// The calls of the board, sessions and host pages (`story:status-current-snapshot`): the
+/// overview's board and its tables, the sessions and what each waits on, and the health view.
+const PAGES: [&str; 11] = [
+    "/v1/instances/example-org/board",
+    "/v1/instances/example-org/repositories",
+    "/v1/instances/example-org/pull-requests",
+    "/v1/instances/example-org/workflow-runs",
+    "/v1/instances/example-org/reviews",
+    "/v1/instances/example-org/blockers",
+    "/v1/instances/example-org/specifications",
+    "/v1/instances/example-org/data.json",
+    "/v1/instances/example-org/sessions?repository=repo-00",
+    "/v1/instances/example-org/waiting-on",
+    "/v1/instances/example-org/health",
+];
+
+/// How long a page's call may take on the store of [`sized`], asked the first time.
+const SIZED: Duration = Duration::from_secs(2);
 
 // ---------------------------------------------------------------------------------------------
 // The case
@@ -453,6 +473,47 @@ fn a_new_write_refreshes_the_cached_answer() {
         assert!(rows.contains("repo-02"), "{path}: {rows}");
         assert_eq!(get(port, path, Some(&after.etag())).status, 304, "{path}");
     }
+}
+
+/// `story:status-current-snapshot`: on an instance whose `<state>/tree` holds 50,000 files,
+/// whose observations hold 14 snapshots and whose store holds thousands of grants of the host
+/// ledger ([`sized`]), every call of the board, sessions and host pages answers within 2 s the
+/// first time it is asked, from the newest snapshot: an older snapshot's record this build cannot
+/// read is never met.
+#[test]
+fn the_board_sessions_and_host_pages_answer_within_2_s_on_an_instance_of_50k_tree_files() {
+    let _alone = sized::alone();
+    let case = Case::new("sized");
+    let newest = sized::plant(&case.state());
+    let port = case.start();
+    let mut slow = Vec::new();
+    for path in PAGES {
+        let answer = get(port, path, None);
+        if answer.status != 200 || answer.took >= SIZED {
+            slow.push(format!(
+                "{path}: {} in {:?}: {}",
+                answer.status,
+                answer.took,
+                answer.body.lines().next().unwrap_or_default()
+            ));
+        }
+        assert!(
+            !answer.body.contains(sized::UNREADABLE),
+            "{path} read an older snapshot: {}",
+            answer.body
+        );
+    }
+    assert!(
+        slow.is_empty(),
+        "calls not answered 200 within {SIZED:?}: {slow:#?}"
+    );
+    let board = get(port, PAGES[0], None).json();
+    assert_eq!(board["snapshot"]["id"], newest.as_str(), "{board}");
+    assert_eq!(
+        board["rows"].as_array().map(Vec::len),
+        Some(sized::REPOSITORIES),
+        "{board}"
+    );
 }
 
 /// The measurement: a store of an instance's size, 12 kept snapshots of 40 repositories each with

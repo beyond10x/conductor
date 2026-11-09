@@ -29,15 +29,17 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
 
 use conductor_model::behaviour::{
-    BlockerObservationStorage, ControllerStorage, DecisionRequestStorage, DispatchStorage,
-    MessageStorage, PullRequestObservationStorage, RepositoryObservationStorage,
-    ResourceRequestStorage, SnapshotStorage, SpecificationObservationStorage,
+    ControllerStorage, DecisionRequestStorage, DispatchStorage, MessageStorage,
+    ResourceRequestStorage, SnapshotStorage,
 };
 use conductor_model::decision::{DecisionClass, DecisionRequestState};
 use conductor_model::dispatch::{
     ControllerState, DispatchState, MessageKind, ResourceKind, ResourceRequestState,
 };
-use conductor_model::observation::{SnapshotSnapshot, SnapshotState};
+use conductor_model::observation::{
+    BlockerObservationSnapshot, PullRequestObservationSnapshot, RepositoryObservationSnapshot,
+    SnapshotSnapshot, SnapshotState, SpecificationObservationSnapshot,
+};
 use serde_json::{Value, json};
 use time::OffsetDateTime;
 use time::format_description::well_known::Rfc3339;
@@ -130,10 +132,10 @@ pub fn blockers(store: Option<&Store>) -> Value {
         return json!({"snapshot": null, "rows": []});
     };
     let id = &held.data.snapshot_id;
-    let rows: Vec<Value> = BlockerObservationStorage::list(store)
+    let rows: Vec<Value> = store
+        .observations_of::<BlockerObservationSnapshot>(id)
         .into_iter()
         .map(|observed| observed.data)
-        .filter(|data| data.snapshot_id == *id)
         .map(|data| {
             json!({
                 "observation_id": data.observation_id.0.0,
@@ -156,10 +158,10 @@ pub fn specifications(store: Option<&Store>) -> Value {
         return json!({"snapshot": null, "rows": []});
     };
     let id = &held.data.snapshot_id;
-    let rows: Vec<Value> = SpecificationObservationStorage::list(store)
+    let rows: Vec<Value> = store
+        .observations_of::<SpecificationObservationSnapshot>(id)
         .into_iter()
         .map(|observed| observed.data)
-        .filter(|data| data.snapshot_id == *id)
         .map(|data| {
             json!({
                 "observation_id": data.observation_id.0.0,
@@ -278,16 +280,17 @@ pub fn facts(store: Option<&Store>, sources: &Sources, agents: &[Value]) -> Fact
     let snapshot = newest_complete(store);
     if let Some(held) = &snapshot {
         let id = &held.data.snapshot_id;
-        facts.repositories = RepositoryObservationStorage::list(store)
+        facts.repositories = store
+            .observations_of::<RepositoryObservationSnapshot>(id)
             .into_iter()
             .map(|observed| observed.data)
-            .filter(|data| data.snapshot_id == *id && !data.archived)
+            .filter(|data| !data.archived)
             .map(|data| data.repository.0)
             .collect();
-        facts.pull_requests = PullRequestObservationStorage::list(store)
+        facts.pull_requests = store
+            .observations_of::<PullRequestObservationSnapshot>(id)
             .into_iter()
             .map(|observed| observed.data)
-            .filter(|data| data.snapshot_id == *id)
             .map(|data| PullRequest {
                 repository: data.repository.0,
                 number: data.number,
