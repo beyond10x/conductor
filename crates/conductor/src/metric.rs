@@ -74,6 +74,21 @@
 //!   day. K12's second quantity, issues labelled bug, has no instrument: no collector records
 //!   issues or their labels.
 //!
+//! **Scope rule** (`story:kpi-scope-active-repositories`). K4, K5, K6 and K12 are
+//! repository-scoped: they count only the repositories Active on the reading's day
+//! ([`crate::repository::activity_on`] the day's end): a mark, which holds on every day, else the
+//! repository's observation in the newest complete snapshot that started before the day's end (a
+//! repository it does not observe is unobserved), or, only when no complete snapshot started
+//! before the day's end, in the first complete snapshot after. A past day computed later keeps
+//! the repositories Active then while that snapshot's observations are retained: retention
+//! (`retention.snapshots`) keeps those of the newest complete snapshots only, and a day computed
+//! after its snapshots left retention reads the oldest retained snapshot instead, since no
+//! retained record holds a repository's activity per day. An Inactive or unobserved repository
+//! has no reading, and the `instance` scope sums the Active scopes only. K1 and K2 are
+//! instance-only and count every decision and merged pull request. The forge facts of K1, K5 and
+//! K6 are read from the newest complete snapshot as `repository activity` picks it
+//! ([`crate::repository::newest_complete`]: of equal starts, the one stored later).
+//!
 //! A median of an even count is the mean of the two middle values; a p90 is the nearest rank,
 //! the ⌈0.9 n⌉-th smallest. Values are rounded to three decimals.
 
@@ -84,7 +99,8 @@ use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
 use anyhow::{Context as _, Result, anyhow, bail};
-use conductor_model::behaviour::{Generated, MetricReadingStorage, MetricStorage};
+use conductor_model::behaviour::{Generated, MetricReadingStorage, MetricStorage, SnapshotStorage};
+use conductor_model::direction::Activity;
 use conductor_model::improvement::obligations::{
     DefineMetricBehavior, JudgeMetricReadingBehavior, KpiReadingsQuery, KpisQuery,
     MetricReadingsQuery, MetricsQuery, RecordMetricReadingBehavior, SetMetricTargetBehavior,
@@ -98,10 +114,7 @@ use conductor_model::improvement::{
     TargetDirection,
 };
 use conductor_model::obligation::UnmetObligation;
-use conductor_model::observation::SnapshotState;
-use conductor_model::observation::obligations::{
-    MergedPullRequestsQuery, ReleasesQuery, SnapshotsQuery,
-};
+use conductor_model::observation::obligations::{MergedPullRequestsQuery, ReleasesQuery};
 use conductor_model::primitives::{Decimal, Timestamp};
 use serde_json::{Map, Value};
 use time::format_description::well_known::Rfc3339;
@@ -800,14 +813,24 @@ pub fn compute(state: Option<&Path>, args: &MetricComputeArgs) -> Result<ExitCod
     let mut generated = Generated::new(Ports::open(state)?);
     let forge = Forge::read(state).with_context(|| COMMAND.to_owned())?;
 
+    // The complete snapshots whose observations retention keeps, as `snapshot` reads it.
+    let retained = usize::try_from(instance.retention.snapshots).unwrap_or(1);
+    let active: BTreeSet<String> =
+        crate::repository::activity_on(&generated.ports.store, day.end, retained)
+            .into_iter()
+            .filter(|row| row.activity == Activity::Active)
+            .map(|row| row.repository.0)
+            .collect();
+    kept(COMMAND, &generated.ports.store)?;
+
     let mut measured = Vec::new();
     measured.push(k1(&day, &decisions, forge.as_ref()));
     measured.extend(k2(&day, &decisions));
-    measured.extend(k4(&day, &dispatches));
-    measured.extend(k5(&day, forge.as_ref(), &no_releases));
-    let rollups = Rollups::read(&generated.ports.store, &day);
+    measured.extend(k4(&day, &dispatches, &active));
+    measured.extend(k5(&day, forge.as_ref(), &no_releases, &active));
+    let rollups = Rollups::read(&generated.ports.store, &day, &active);
     kept(COMMAND, &generated.ports.store)?;
-    measured.extend(k6(&day, &rollups, forge.as_ref()));
+    measured.extend(k6(&day, &rollups, forge.as_ref(), &active));
     measured.extend(k12(&rollups));
 
     for metric in &METRICS {
@@ -1074,8 +1097,8 @@ fn k2(day: &Day, decisions: &[Map<String, Value>]) -> Vec<Measured> {
         .collect()
 }
 
-/// K4.median and K4.p90, for the instance and each repository.
-fn k4(day: &Day, dispatches: &[Map<String, Value>]) -> Vec<Measured> {
+/// K4.median and K4.p90, for the instance and each repository in `active`.
+fn k4(day: &Day, dispatches: &[Map<String, Value>], active: &BTreeSet<String>) -> Vec<Measured> {
     let mut sent: BTreeMap<&str, (OffsetDateTime, &str)> = BTreeMap::new();
     let mut done: BTreeMap<&str, OffsetDateTime> = BTreeMap::new();
     for line in dispatches {
@@ -1099,6 +1122,7 @@ fn k4(day: &Day, dispatches: &[Map<String, Value>]) -> Vec<Measured> {
         }
         if let Some((sent_at, repo)) = sent.get(id)
             && sent_at <= done_at
+            && active.contains(*repo)
         {
             samples.push((id, repo, hours(*sent_at, *done_at)));
         }
@@ -1115,9 +1139,14 @@ fn k4(day: &Day, dispatches: &[Map<String, Value>]) -> Vec<Measured> {
     )
 }
 
-/// K5.median, K5.p90 and K5.unreleased, for the instance and each repository, the repositories of
-/// `no_releases` (which ship without releases) left out of every scope.
-fn k5(day: &Day, forge: Option<&Forge>, no_releases: &BTreeMap<&str, &str>) -> Vec<Measured> {
+/// K5.median, K5.p90 and K5.unreleased, for the instance and each repository in `active`, the
+/// repositories of `no_releases` (which ship without releases) left out of every scope.
+fn k5(
+    day: &Day,
+    forge: Option<&Forge>,
+    no_releases: &BTreeMap<&str, &str>,
+    active: &BTreeSet<String>,
+) -> Vec<Measured> {
     let Some(forge) = forge else {
         return ["K5.median", "K5.p90", "K5.unreleased"]
             .into_iter()
@@ -1128,7 +1157,10 @@ fn k5(day: &Day, forge: Option<&Forge>, no_releases: &BTreeMap<&str, &str>) -> V
     let mut unreleased: BTreeMap<&str, Vec<String>> = BTreeMap::new();
     unreleased.insert(INSTANCE, Vec::new());
     for pull in &forge.pulls {
-        if pull.merged_at >= day.end || no_releases.contains_key(pull.repository.as_str()) {
+        if pull.merged_at >= day.end
+            || no_releases.contains_key(pull.repository.as_str())
+            || !active.contains(&pull.repository)
+        {
             continue;
         }
         let release = forge
@@ -1177,13 +1209,13 @@ fn k5(day: &Day, forge: Option<&Forge>, no_releases: &BTreeMap<&str, &str>) -> V
 struct Rollups(BTreeMap<(String, String), BTreeSet<String>>);
 
 impl Rollups {
-    /// The rollups of `day` grouped `by` repository; a rollup that does not decode is left out
-    /// and kept for [`Store::check`].
-    fn read(store: &Store, day: &Day) -> Self {
+    /// The rollups of `day` grouped `by` repository, of the repositories in `active` only; a
+    /// rollup that does not decode is left out and kept for [`Store::check`].
+    fn read(store: &Store, day: &Day, active: &BTreeSet<String>) -> Self {
         let mut items: BTreeMap<(String, String), BTreeSet<String>> = BTreeMap::new();
         for row in store.daily_series() {
             let data = row.data;
-            if data.day == day.text && data.by == "repository" {
+            if data.day == day.text && data.by == "repository" && active.contains(&data.key) {
                 items
                     .entry((data.series, data.key))
                     .or_default()
@@ -1252,8 +1284,14 @@ fn rollup_ratio(
     measured
 }
 
-/// K6.ci_failed, K6.closed_unmerged and K6.quick_patches, for the instance and each repository.
-fn k6(day: &Day, rollups: &Rollups, forge: Option<&Forge>) -> Vec<Measured> {
+/// K6.ci_failed, K6.closed_unmerged and K6.quick_patches, for the instance and each repository
+/// in `active` (the rollups hold those only).
+fn k6(
+    day: &Day,
+    rollups: &Rollups,
+    forge: Option<&Forge>,
+    active: &BTreeSet<String>,
+) -> Vec<Measured> {
     let mut measured = rollup_ratio(
         "K6.ci_failed",
         rollups,
@@ -1281,6 +1319,9 @@ fn k6(day: &Day, rollups: &Rollups, forge: Option<&Forge>) -> Vec<Measured> {
     };
     let mut samples = Vec::new();
     for (repository, releases) in &forge.tagged {
+        if !active.contains(repository) {
+            continue;
+        }
         let mut releases: Vec<&(OffsetDateTime, String)> = releases.iter().collect();
         releases.sort();
         for (at, (published_at, tag)) in releases.iter().enumerate() {
@@ -1399,20 +1440,17 @@ struct Forge {
 
 impl Forge {
     /// The newest complete snapshot's forge observations, or none when the store holds no
-    /// complete snapshot.
+    /// complete snapshot. The newest is the one `repository activity` reads
+    /// ([`crate::repository::newest_complete`]): of equal starts, the one stored later.
     fn read(state: Option<&Path>) -> Result<Option<Self>> {
         let generated = Generated::new(crate::state::open_reader(state)?);
-        let mut newest: Option<(OffsetDateTime, _)> = None;
-        for row in generated.snapshots().map_err(|unmet| anyhow!("{unmet}"))? {
-            if row.state != SnapshotState::Complete {
-                continue;
-            }
-            let started = instant("a snapshot's start", &row.started_at.0)?;
-            if newest.as_ref().is_none_or(|(at, _)| started > *at) {
-                newest = Some((started, row.snapshot_id));
-            }
-        }
-        let Some((_, snapshot)) = newest else {
+        let Some(snapshot) =
+            crate::repository::newest_complete(SnapshotStorage::list(&generated.ports))
+        else {
+            generated
+                .ports
+                .check()
+                .map_err(|failure| anyhow!("read the snapshots: {failure}"))?;
             return Ok(None);
         };
         let mut releases: BTreeMap<String, Vec<OffsetDateTime>> = BTreeMap::new();

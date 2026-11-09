@@ -7,7 +7,8 @@
 //! with a reason, and naming the session that set it when the command names one
 //! (`story:marked-by-session`), overrides that computation. [`activity`] answers both, as
 //! `conductor.direction.RepositoryActivityRow` rows, and writes nothing: no computed activity is
-//! ever stored, so none can overwrite a mark.
+//! ever stored, so none can overwrite a mark. [`activity_on`] answers the same for a past day,
+//! from the newest complete snapshot that started before that day's end, for `metric compute`.
 //!
 //! Each command records its outcome in the store under the state directory (`--state-dir`, else
 //! `state/`; [`crate::state::dir`]) through the generated behaviour, and prints nothing. A refusal
@@ -38,7 +39,7 @@ use conductor_model::direction::{
     RepositoryMarkSnapshot, RepositoryMarkState,
 };
 use conductor_model::observation::{
-    HooksOutcome, HooksRow, SnapshotId, SnapshotSnapshot, SnapshotState,
+    HooksOutcome, HooksRow, RepositoryObservationData, SnapshotId, SnapshotSnapshot, SnapshotState,
 };
 use serde_json::Value;
 use time::OffsetDateTime;
@@ -67,29 +68,82 @@ use crate::{config, gates};
 /// [`Store::check`] or [`crate::store::show`].
 #[must_use]
 pub fn activity(store: &Store) -> Vec<RepositoryActivityRow> {
+    let newest = newest_complete(SnapshotStorage::list(store));
+    effective(observed_in(store, newest.as_ref()), store)
+}
+
+/// Every repository's activity on the day that ended at `end` (`story:kpi-scope-active-repositories`),
+/// as [`activity`] answers it but from the day's snapshot instead of the newest: a mark decides
+/// its repository's activity, as it does any day; every other repository's is computed from its
+/// observation in the newest complete snapshot that started before `end`, and a repository that
+/// snapshot did not observe is unobserved and answered only by its mark. Only when no complete
+/// snapshot started before `end` is the first complete snapshot after it read. Complete snapshots
+/// are taken in the order [`newest_complete`] picks from, so of equal starts the one stored
+/// earlier comes first.
+///
+/// The observations retention keeps are those of the newest `retained` complete snapshots (the
+/// instance's `retention.snapshots`, all of them when it is 0, as [`Store::retain`] drops them),
+/// and only those are read: a day computed after its snapshots left retention reads the oldest
+/// retained snapshot. No retained record holds a repository's activity per day.
+///
+/// Reads and keeps records as [`activity`] does.
+#[must_use]
+pub fn activity_on(
+    store: &Store,
+    end: OffsetDateTime,
+    retained: usize,
+) -> Vec<RepositoryActivityRow> {
+    let ordered = complete_in_order(SnapshotStorage::list(store));
+    let kept = if retained == 0 {
+        &ordered[..]
+    } else {
+        &ordered[ordered.len().saturating_sub(retained)..]
+    };
+    let day = kept
+        .iter()
+        .rev()
+        .find(|(started, _)| started.is_none_or(|at| at < end))
+        .or_else(|| kept.first())
+        .map(|(_, snapshot)| snapshot);
+    effective(observed_in(store, day), store)
+}
+
+/// The observations of `snapshot`, in the order they were recorded; none without one.
+fn observed_in(store: &Store, snapshot: Option<&SnapshotId>) -> Vec<RepositoryObservationData> {
+    let Some(snapshot) = snapshot else {
+        return Vec::new();
+    };
+    RepositoryObservationStorage::list(store)
+        .into_iter()
+        .map(|observation| observation.data)
+        .filter(|data| data.snapshot_id == *snapshot)
+        .collect()
+}
+
+/// The rows of [`activity`] and [`activity_on`]: each repository of `observed` Active when its
+/// `real_commits_7d` is at least 1 and it is not archived, Inactive otherwise (the last of
+/// `observed` for a repository decides), then each mark of `store` over it.
+fn effective(
+    observed: Vec<RepositoryObservationData>,
+    store: &Store,
+) -> Vec<RepositoryActivityRow> {
     let mut effective = BTreeMap::new();
-    if let Some(newest) = newest_complete(SnapshotStorage::list(store)) {
-        for observation in RepositoryObservationStorage::list(store) {
-            let data = observation.data;
-            if data.snapshot_id != newest {
-                continue;
-            }
-            let activity = if data.real_commits_7d >= 1 && !data.archived {
-                Activity::Active
-            } else {
-                Activity::Inactive
-            };
-            effective.insert(
-                data.repository.0.clone(),
-                RepositoryActivityRow {
-                    repository: MarkedRepository(data.repository.0),
-                    activity,
-                    decided_by: DecidedBy::Snapshot,
-                    marked_by: None,
-                    reason: None,
-                },
-            );
-        }
+    for data in observed {
+        let activity = if data.real_commits_7d >= 1 && !data.archived {
+            Activity::Active
+        } else {
+            Activity::Inactive
+        };
+        effective.insert(
+            data.repository.0.clone(),
+            RepositoryActivityRow {
+                repository: MarkedRepository(data.repository.0),
+                activity,
+                decided_by: DecidedBy::Snapshot,
+                marked_by: None,
+                reason: None,
+            },
+        );
     }
     for mark in RepositoryMarkStorage::list(store) {
         effective.insert(
@@ -108,18 +162,36 @@ pub fn activity(store: &Store) -> Vec<RepositoryActivityRow> {
 
 /// The `Complete` snapshot of `snapshots` that started latest; of equal starts, the later one in
 /// the store's order. A start that does not read as RFC 3339 counts as earlier than any that does.
-fn newest_complete(snapshots: Vec<SnapshotSnapshot>) -> Option<SnapshotId> {
-    snapshots
+/// `repository activity` and `metric compute`'s forge ([`crate::metric`]) read the newest
+/// complete snapshot through it, so both pick the same one.
+pub(crate) fn newest_complete(snapshots: Vec<SnapshotSnapshot>) -> Option<SnapshotId> {
+    complete_in_order(snapshots)
+        .pop()
+        .map(|(_, snapshot)| snapshot)
+}
+
+/// The `Complete` snapshots of `snapshots` with their starts, earliest first: by start, a start
+/// that does not read as RFC 3339 first, then in the store's order.
+fn complete_in_order(
+    snapshots: Vec<SnapshotSnapshot>,
+) -> Vec<(Option<OffsetDateTime>, SnapshotId)> {
+    let mut complete: Vec<(Option<OffsetDateTime>, usize, SnapshotId)> = snapshots
         .into_iter()
         .enumerate()
         .filter(|(_, snapshot)| snapshot.state == SnapshotState::Complete)
-        .max_by_key(|(stored, snapshot)| {
+        .map(|(stored, snapshot)| {
             (
                 OffsetDateTime::parse(&snapshot.data.started_at.0, &Rfc3339).ok(),
-                *stored,
+                stored,
+                snapshot.data.snapshot_id,
             )
         })
-        .map(|(_, snapshot)| snapshot.data.snapshot_id)
+        .collect();
+    complete.sort_by_key(|(started, stored, _)| (*started, *stored));
+    complete
+        .into_iter()
+        .map(|(started, _, snapshot)| (started, snapshot))
+        .collect()
 }
 
 /// The activity a mark in `state` gives its repository.
