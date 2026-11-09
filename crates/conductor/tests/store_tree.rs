@@ -226,14 +226,16 @@ fn describe(output: &Output) -> String {
 /// The fixture's eventlog-file store with one observation of each kind no build before the views
 /// that read them could record, appended in the first snapshot: a secret sync
 /// (`story:policy-secret-drift`) and a usage reading (`story:usage-probe`); and one settings
-/// proposal (`story:tuner`), written without an actor as a build before v1 wrote it. Built once per run
-/// under this test target's temporary directory; the committed store is never written.
+/// proposal (`story:tuner`), written without an actor as a build before v1 wrote it. Built once per
+/// process under this test target's temporary directory, in a directory of the process's own: a
+/// runner that starts one process per case runs several at once; the committed store is never
+/// written.
 fn fixture_store() -> &'static Path {
     static STORE: OnceLock<PathBuf> = OnceLock::new();
     STORE.get_or_init(|| {
         let store = PathBuf::from(env!("CARGO_TARGET_TMPDIR"))
             .join("store_tree")
-            .join("fixture-store");
+            .join(format!("fixture-store-{}", std::process::id()));
         if store.exists() {
             fs::remove_dir_all(&store).expect("clear the fixture store's copy");
         }

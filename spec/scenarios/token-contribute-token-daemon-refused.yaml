@@ -23,5 +23,6 @@ timeline:
 
 assert:
   - view: conductor.token.Tokens
+    params: {instance: example-org}
     excludes:
       owner: alice

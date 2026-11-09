@@ -1,132 +1,111 @@
 ---
 title: Run conductor isolated
-sidebar_position: 8
-description: What conductor's sessions can reach on a host today, how to run them in a VM, a container or a dedicated account, what works on a runner without permissions, and what the planned sandbox will change.
-lede: Conductor has no operating-system sandbox yet, so the account and the machine its sessions run on are the boundary; this guide draws that boundary on purpose.
-source: crates/conductor/src/guard.rs, crates/conductor/src/guard/rules.rs, crates/conductor/src/guard/shell.rs; crates/conductor/src/doctor.rs, crates/conductor/src/setup.rs, crates/conductor/src/config.rs, crates/conductor/src/trust.rs; crates/conductor/src/dashboard.rs; website/docs/security/; .engineering/planning/epic/session-confinement.md; conductor doctor, conductor setup, conductor snapshot start-snapshot, run without a config, without a store and without a forge login
+sidebar_position: 9
+description: What conductor can reach on a host today, how to run it in a VM, a container or a dedicated account, what works on a runner, and what is planned.
+lede: An instance's runtime can run in a substrate box, but the sessions conductor starts run unboxed as your user. The account and the machine they run on are their boundary, and this guide draws it.
+source: crates/conductor/src/placement.rs; crates/conductor/src/confine/mod.rs, crates/conductor/src/systemd.rs; crates/conductor/src/guard.rs; crates/conductor/src/doctor.rs, setup.rs, trust.rs, store.rs; crates/conductor/src/daemon/mod.rs; .engineering/planning/epic/session-confinement.md
 ---
 
-Read the [security overview](/docs/security/overview) first. This guide answers two questions
-engineers ask before they try conductor: can it be kept away from the rest of a laptop, and how
-does it run where the account has few rights.
+Read the [security overview](../security/overview.md) first.
 
-## What a session reaches today
+## What runs where today
 
-Every session runs with `--permission-mode bypassPermissions`, as the user that started it. The
-[guard](/docs/security/the-guard) decides each tool call, and it narrows **writes**:
+| process | boundary |
+|---|---|
+| conductord | your user, as the user unit `conductord.service`, or the system unit on a box with `daemon.loopback: false` |
+| an instance's runtime, `conductor instance serve` | a substrate box when `placement` names an adapter (`linux`, `systemd`), else a user unit with no box |
+| every session: the maintainer, a controller, a host role | unboxed, as your user, with `--permission-mode bypassPermissions` |
 
-- Edit, Write and NotebookEdit land only in the session's own checkout, managed worktrees, records
-  or scratch;
-- no `gh` or `glab` call that writes, and a credential write is handed to the operator (class H);
-- no write to a settings file, a profile, conductor's config or (for a controller) its records;
-- a controller messages only its conductor and its own sub-agents.
+A runtime's box mounts the binary's and the harness's directories read-only, writes its substrate
+workspace and `<state>/sessions`, and reaches only the forges of its sources and
+`api.anthropic.com` ([the host](../concepts/the-host.md)). The runtime starts no session yet.
 
-It does not narrow **reads**, the shell or the network ([known limits](/docs/security/limits)):
-
-- Read, Glob, Grep, WebFetch and WebSearch are allowed anywhere, so a session can read any file
-  its user can, `~/.ssh/` and other projects included;
-- a Bash command the heuristic does not recognise can read, write or delete anything the user can,
-  and `git push` and direct API calls are not checked;
-- each repository's own `.claude/` hooks run in its controller's session, unseen by the guard.
-
-So what the account can reach, a session can reach. The isolation is the account and the machine.
+A session is narrowed by [the guard](../security/the-guard.md) only, which narrows writes and not
+reads, the shell or the network ([known limits](../security/limits.md)). What the account can
+reach, a session can reach.
 
 ## A VM or a container for a laptop
 
-**The question:** should conductor run in a VM or a container, to keep it away from other data
-and the SSH keys on the laptop? **Yes, today that is the way.** The guard keeps a session from
-writing outside its place by mistake; it does not keep a session from reading `~/.ssh/id_*` or from
-running a command that the heuristic misses. Put conductor, its sessions and their programs in a
+Should conductor run in a VM or a container, to keep it away from other data and the SSH keys on
+the laptop? Yes. The guard does not keep a session from reading `~/.ssh/id_*`, or from running a
+command its shell rule does not recognise.
+
+Put conductor, its sessions and their programs in a
 VM, a dev container or a dedicated operating-system user whose home holds only the directories
-below and the logins they need. Nothing personal goes in: no SSH key, no cloud credentials, no
-other checkouts.
+below and the logins they need: no SSH key, no cloud credentials, no other checkouts.
 
 ### What to mount
 
-Mount these read-write, at the paths the config names (`conductor config show` prints them), or
-write the config for the paths inside the box:
+Mount these read-write at the paths `conductor config show` prints, or write the config for the
+box's paths:
 
 | directory | holds |
 |---|---|
 | `checkouts.root` and `checkouts.trees` | the repositories and the managed worktrees the controllers work in |
 | the instance's `records` | conductor's records, a git repository |
-| the instance's `state` | the store, the conductor lease, the dashboard's pid file |
+| the instance's `state` | the conductor lease, the watch's files, `run/`, `sessions/` and the runtime's `api.sock` |
 | the instance's `cache` | the collectors' exports |
-| `~/.b10x/conductor/` | the config file; the role profiles and settings are in the binary |
-| `~/.claude/`, `~/.claude.json` | Claude Code's login, settings and session transcripts; `conductor trust` writes `~/.claude.json` |
-| the conductor checkout | the `Taskfile.yml` the start tasks run from; the settings each session starts with are written into the instance's `state` |
+| `~/.b10x/conductor/` | the config file, the default store `conductor.sqlite`, and `daemon/`: the runtimes' binaries and the daemon's token |
+| `~/.claude/`, `~/.claude.json` | Claude Code's login, settings and session transcripts. `conductor trust` writes `~/.claude.json` |
 
-Install inside the box what `conductor doctor` lists: `conductor`, `claude`, `git`, `task`, `jq`,
-`aep`, `worktree`, `ess`, and `gh` or `glab` for the forge of the instance's sources.
+Install inside the box what `conductor doctor` lists: `conductor`, `claude`, `git`, `jq`,
+`aep`, `worktree`, `ess`, `gh` or `glab` for the forge of the instance's sources, and
+`substrate-daemon` when a `placement` opens a box.
 
 ### What credentials it needs
 
 | needs | how, inside the box |
 |---|---|
 | the forge CLI logged in, for each source's host | `gh auth login`, or `glab auth login --hostname gitlab.example.com` |
-| git over HTTPS through that login | `gh auth setup-git`; or a deploy key per repository |
+| git over HTTPS through that login | `gh auth setup-git`, or a deploy key per repository |
 | the Claude Code login | `claude auth login`, or `claude setup-token` for a long-lived token |
 
-It does **not** need your personal SSH key. Give the forge login a token scoped to the instance's
+It does not need your personal SSH key. Give the forge login a token scoped to the instance's
 repositories, without admin, secrets or organization rights, and protect `main`
-([hardening](/docs/security/hardening)). Run each login yourself: the guard denies a session
+([hardening](../security/hardening.md)). Run each login yourself: the guard denies a session
 `gh auth` and `glab auth` writes as class H.
 
 ### Check it
 
 ```console
-conductor doctor          # each program present, each forge CLI logged in; `ready` last
+conductor doctor          # `ready` last
 conductor config validate
 conductor snapshot start-snapshot
 ```
 
-Then provoke one denial as the [hardening checklist](/docs/security/hardening#verify-the-guard)
-shows, inside the box.
+Then provoke one denial inside the box, as the [hardening checklist](../security/hardening.md)
+shows.
 
-The dashboard listens on `127.0.0.1` only. Inside a VM, reach it with a forward that ends inside
-the box, such as `ssh -L 7313:127.0.0.1:7313` to the VM; a container needs host networking or such
-a forward, since a published port does not reach a listener on the container's own `127.0.0.1`.
+The daemon's loopback listener is on `127.0.0.1` only. Reach it in a VM with a forward that ends
+inside the box, such as `ssh -L 7300:127.0.0.1:7300`. A container needs host networking or such a
+forward: a published port does not reach the container's own `127.0.0.1`.
 
 ## A runner or an account without permissions
 
-**The question:** how do people run conductor when their runners have no permissions? The
-sessions cannot run there: they need an account that can start `claude` in bypass-permissions
-mode, write its checkouts and the state directory, and hold a forge login. What does run is the
-read side: checks, snapshots and views, which write only the state directory, or nothing. Use them
-to try conductor out, or in CI, and run the sessions in the box above.
+The sessions cannot run on a runner without permissions: they need an account that can start
+`claude` in bypass-permissions mode, write its checkouts and the state directory, and hold a
+forge login. Checks, snapshots and views do run there, and write only the store, or nothing.
 
 | command | writes | without what it needs |
 |---|---|---|
-| `conductor doctor` | nothing | ends `not ready: gh (not logged in to github.com)`, `not ready: config (unreadable)`, or names the program missing or too old; exits 1 |
-| `conductor setup` (no `--apply`) | nothing | prints the same rows and `not ready: config (unreadable), instance (none), records (missing), trust (not trusted)`; exits 1 |
-| `conductor config validate` | nothing | `conductor: config validate: read the config file <path>: No such file or directory (os error 2)`; exits 1 |
-| `conductor snapshot start-snapshot` | the state directory | refuses up front naming a program not on `PATH`; with `gh` not logged in, fails the snapshot naming the collector and `gh`'s own message, and exits 1 |
-| `conductor snapshot <view>`, `repository activity` | nothing | `conductor: no store at <state>/tree` before the first snapshot; exits 1 |
+| `conductor doctor` | nothing | ends `not ready: gh (not logged in to github.com)`, `not ready: config (unreadable)`, or lists the program missing or too old. Exits 1 |
+| `conductor setup` (no `--apply`) | nothing | prints the same rows and `not ready: config (unreadable), instance (none), records (missing), trust (not trusted)`. Exits 1 |
+| `conductor config validate` | nothing | `conductor: config validate: read the config file <path>: No such file or directory (os error 2)`. Exits 1 |
+| `conductor snapshot start-snapshot` | the store | refuses up front, naming a program not on `PATH`. With `gh` not logged in it fails the snapshot, naming the collector and `gh`'s own message. Exits 1 |
+| `conductor snapshot <view>`, `repository activity` | nothing | `conductor: no store at <path of the store file>` before the first snapshot. Exits 1 |
 
-`conductor setup --apply`, `conductor init` and `conductor trust` write the config, the records
-and `~/.claude.json`; `claude --bg` refuses `bypassPermissions` until Claude Code's
-disclaimer was accepted once ([start conductor](./start-conductor.md#4-accept-the-bypass-permissions-disclaimer-once)).
+`conductor init` and `conductor trust` write the records and `~/.claude.json`.
+`conductor setup --apply` writes a `conductor.config/1` file, which the daemon refuses until
+[`conductor config migrate`](./configure-an-instance.md#5-migrate-a-conductorconfig1-file)
+converts it. `claude --bg` refuses `bypassPermissions` until Claude Code's disclaimer was
+accepted once.
 
-## What the sandbox will change
+## What is planned for sessions
 
-The plan holds an epic, `session-confinement`, to run every session in a box conductor sets up
-and measures. It is drafted, **not built**: nothing on this page depends on it. Its stories:
-
-- `session-limits-systemd`: each session in its own cgroup under the instance, with memory, CPU
-  and process limits;
-- `session-writes-bwrap`: a Bash write outside the session's own places fails with a filesystem
-  error;
-- `session-forge-credentials`: sessions hold read-only forge tokens, so a forge write goes only
-  through the bot route;
-- `session-envelope-seam`: a session that cannot be boxed is not started, or started and recorded
-  as unboxed, as the config says.
-
-The config already accepts the keys the box will read (`confinement`, and a role's `limits`,
-`writable` and `network`; [config reference](/docs/reference/config)), but no command applies them
-yet. Until those stories land, the VM, the container or the dedicated account is the box.
-
-## Read next
-
-- [Known limits](/docs/security/limits): each gap, what to do now, and what is planned.
-- [Hardening checklist](/docs/security/hardening): the host, the forge and the config.
-- [Start conductor](./start-conductor.md): the start tasks, inside the box.
+The epic `session-confinement`, drafted and not built, runs every session conductor starts in a
+box with CPU, memory and process limits, writes to its own places only, and read-only forge
+tokens. A role's `limits`, `writable` and `network` already go into each session's request, and
+the `none` provider applies none of them. Until the epic lands,
+the VM, the container or the dedicated account is the box. Each open gap is in
+[known limits](../security/limits.md), and how a session starts in
+[sessions](../security/sessions.md).

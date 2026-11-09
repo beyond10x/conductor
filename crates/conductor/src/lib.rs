@@ -52,6 +52,7 @@ pub mod setup;
 pub mod shipped;
 pub mod snapshot;
 pub mod spawn;
+pub mod spec_api;
 pub mod state;
 pub mod status;
 pub mod store;

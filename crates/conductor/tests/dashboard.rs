@@ -1112,6 +1112,7 @@ fn the_worktree_dry_runs_name_a_checkout_under_the_checkouts_root_not_the_record
     );
     let child = common::conductor(&home)
         .args(["instance", "serve"])
+        .env(conductor_cli::instance::LOOP_VARIABLE, "off")
         .env(conductor_cli::config::CONFIG_VARIABLE, &config)
         .env("PATH", format!("{}:/usr/bin:/bin", bin.display()))
         .current_dir(&records)
@@ -1632,6 +1633,7 @@ fn the_binary_serves_the_instance_api_on_its_socket_and_says_so_first() {
     // `state/` of the working directory.
     let child = common::conductor(&case.home)
         .args(["instance", "serve"])
+        .env(conductor_cli::instance::LOOP_VARIABLE, "off")
         .current_dir(cwd)
         .stdin(Stdio::null())
         .stdout(Stdio::piped())

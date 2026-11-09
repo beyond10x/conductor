@@ -1,93 +1,88 @@
 ---
 title: Roles
 sidebar_position: 1
-description: The operator, conductor, conductor-dev, one controller per repository, and their workers; who owns what and who talks to whom.
-lede: Five roles split the work, and every message runs through conductor, so each session reads only what its role needs.
-source: docs/design/conductor.md sections 2, 3, 11 and 12; docs/design/conductor-run.md; crates/conductor/roles/maintainer.md, crates/conductor/roles/controller.md; crates/conductor/src/controller.rs
+description: The operator, conductor, the maintainer, one controller per repository with its workers, and the host roles supervisor and teacher; who owns what and who talks to whom.
+lede: Each role owns one part of the work, and every message between an instance's sessions runs through conductor.
+source: docs/design/conductor.md sections 2, 3, 11 and 12; docs/design/architecture-next.md section 10; crates/conductor/roles/maintainer.md, controller.md, supervisor.md, teacher.md; crates/conductor/src/role.rs, config.rs, controller.rs, daemon/host_roles.rs
 ---
 
 ## The roles
 
-| role | who | owns | never |
+| role | who | owns | does not |
 |---|---|---|---|
 | operator | the person running the instance | direction, architecture, new or retired repositories, credentials and spending, public-facing risk | routine approvals |
-| conductor | `conductor run`, one process per instance and no session ([start conductor](../guides/start-conductor.md)) | the cross-repository plan, decisions within its grant, dispatch, the loop's records, the operator brief | edits outside its records; anything that defines or runs conductor |
-| conductor-dev | one session, `<session_prefix>-conductor-dev`, in the conductor repository | conductor's code, specification, plan, design, profiles and tasks; the instance's `rules.md`; installing the binary; restarting `conductor run` | dispatching to controllers; writing conductor's records |
-| repository controller | one session per repository, `<session_prefix>-<repo>`, its working directory the checkout | its repository's plan, waves, reviews, releases and workers | messages to anyone but conductor, each a `conductor message send`; edits outside its repository |
-| worker | a sub-agent of a controller | one unit of work | anything outside the unit |
+| conductor | `conductor run`, one process per instance and no session ([the host](./the-host.md#the-loop)) | the cross-repository plan, decisions within its grant, dispatch, the loop's records, the operator brief | edit outside its records, or anything that defines or runs conductor |
+| maintainer (conductor-dev) | one session, `<session_prefix>-conductor-dev`, in the conductor repository | conductor's code, specification, plan, design, profiles and tasks; the instance's `rules.md`; installing the binary | dispatch to controllers, or write conductor's records |
+| controller | one session per repository, `<session_prefix>-<repo>`, in its checkout | its repository's plan, waves, reviews, releases and workers | message anyone but conductor, or edit outside its repository |
+| worker | a sub-agent of a controller | one unit of work | act outside the unit |
+| supervisor | one session per host, `supervisor` | every instance running and shipping; defects found and sent to the maintainer | act as an instance's conductor or a controller |
+| teacher | one session per host, `teacher` | the supervisor's profile and the host's file for it, improved with evidence | run the supervisor's routine |
 
-Each role runs on the harness and model the instance's `roles` name, and starts with the profile
-and settings file the role names ([instances and config](./instances-and-config.md)).
+In the config file the roles are `director`, `maintainer` and `lead`. Their old names `conductor`,
+`conductor-dev` and `controller` are read for this release. Each role runs on the harness, model,
+profile and settings file its config entry names ([config](./config.md)).
 
-**A repository needs no planning store to be dispatched to.** In a repository without an AEP
-planning store (no `.engineering/project.yaml`), the controller delivers its dispatch the same way,
-with the same gates and one pull request, and the dispatch's brief, written into the pull
-request's description, stands for the plan. It does not create a store itself: its `started`
-report offers one once.
+A repository needs no planning store to be dispatched to. In a repository without an AEP planning
+store, that is without `.engineering/project.yaml`, the controller delivers its dispatch with the same gates
+and one pull request. The dispatch's brief, written into the pull request's description, stands
+for the plan. The controller creates no store: its `started` report offers one once.
 
-**Who merges.** A charter's `merge:` line decides it: `merge: controller`, the default, lets the
-controller merge once its full gate is green; with `merge: human` it opens the pull request,
-reports it for review and never merges it.
-
-**Session names.** A session's name is derived from the instance's `session_prefix`, never chosen:
-`<session_prefix>-conductor`, `<session_prefix>-conductor-dev` and `<session_prefix>-<repo>` for a
-controller. An instance without a prefix keeps the bare names `conductor`, `conductor-dev` and
-`<repo>`; at most one instance of a config file may do so. The guard and the sessions collector read
-the name to tell which instance a session belongs to.
+A charter's `merge:` line decides who merges. With `merge: controller`, the default, the
+controller merges once its full gate is green. With `merge: human` it opens the pull request,
+reports it for review and does not merge it.
 
 ## A star
 
-Controllers send to `conductor` and receive only from it. A controller that needs something from
-another repository raises a `[NEED]`; conductor routes it to that repository's controller as a
+Controllers send to conductor and receive only from it. A controller that needs something from
+another repository raises a `[NEED]`. Conductor routes it to that repository's controller as a
 dispatch (`conductor message route-need`), or queues it. A session outside the instance that needs
-something from one of its repositories talks to conductor, not to a controller.
+something from one of its repositories talks to conductor.
 
-conductor-dev sits outside the star. It talks to the operator and to conductor, never to a
-controller.
+The maintainer sits outside the star: it talks to the operator and to conductor, not to a
+controller. `conductor controller start-controller` refuses a second controller for a repository
+that has a running or paused one (`ControllerAlreadyRunning`). It records the controller only, and
+`conductor spawn` starts the session ([sessions](/docs/security/sessions)).
 
-**One controller per repository.** `conductor controller start-controller` refuses a second
-controller for a repository that already has a running or paused one (`ControllerAlreadyRunning`).
+## Host roles
 
-`controller start-controller` records the controller only and starts no session: `conductor
-spawn` starts it, with the controller role's model, profile and settings. `controller
-pause-controller` and `stop-controller` stop the session `conductor spawn` started through the
-instance's confinement provider, and `resume-controller` resumes it from its transcript.
+The supervisor and the teacher belong to the host, not to an instance. conductord starts each
+while `globals.roles` lists it, through `conductor session start --role <role>` in the directory
+of the config file, and starts it again when it stops.
+`conductor daemon start-role --role <role>` asks for one now (`POST /v1/roles/{role}/start`). A role the file does not list is
+refused, naming `globals.roles`.
+
+- The supervisor keeps every instance's loop, controllers and maintainer running and shipping. It
+  acts without asking on anything reversible and reports blockers and decisions that need the
+  operator. `POST /v1/ask` on the daemon delivers a question to its session.
+- The teacher observes the supervisor, the maintainer and every instance. It improves the
+  supervisor through its profile and `host/supervisor.md` beside the config file, with rules backed
+  by evidence.
+
+The operator works in an ordinary harness session that is no role and talks to the supervisor.
+When the operator hands an instance to a session the supervisor did not start, the supervisor
+watches that session's merge requests and pipelines, messages it, and starts nothing in that
+instance.
 
 ## Profiles and rules
 
-Every session follows a generic profile the `conductor` binary carries (compiled in from
-`crates/conductor/roles/`; `conductor role show --role <role>` prints one), then the instance's
+Every session follows a generic profile the binary carries, compiled in from
+`crates/conductor/roles/` (`conductor role show --role <role>` prints one), then the instance's
 `rules.md` in its records directory:
 
 | file | read by |
 |---|---|
-| `crates/conductor/roles/maintainer.md` | the conductor-dev session |
-| `crates/conductor/roles/controller.md` | every repository controller |
-| `crates/conductor/roles/supervisor.md`, `teacher.md` | the host's supervisor and teacher |
-| `rules.md`, in the instance's records | every session, after its profile: the organization's own rules, one section per role, each rule with its source |
+| `maintainer.md` | the maintainer |
+| `controller.md` | every controller |
+| `supervisor.md`, `teacher.md` | the host's supervisor and teacher |
+| `rules.md`, in the records | every session, after its profile: the organization's rules, one section per role, each with its source |
 | `charters/<repo>.md`, in the records | one controller: its goal, boundaries, current dispatch and standing decisions |
 
-The profiles name no organization. A value that differs per instance is written `section.key`,
-such as `thresholds.disk_low`, and read from `conductor config show --format json`. What holds for
-one organization goes in its `rules.md`, which the repository does not ship.
+The binary carries no profile for `director`, which starts with the agent `conductor`. A role's
+`profile` in the config takes the place of the binary's text. The profiles name no organization: a
+value that differs per instance is written `section.key`, such as `thresholds.disk_low`, and read
+from `conductor config show --format json`.
 
-**Profile, not agent.** When a session starts, its agent kind writes what the harness reads from
-the binary: the `claude-code` kind writes the role's profile to
-`<state>/sessions/<session name>.profile.md` and appends it with `--append-system-prompt-file`, and
-writes the settings the binary carries for conductor and a controller, which wire the guard,
-beside it. A role's `profile` or `settings` in the config takes the place of the binary's and is
-read at start. Nothing is copied to the host: no profile directory, no adapter under
-`~/.claude/agents/`, and the repository commits none. A session the `systemd` provider starts
-passes `--setting-sources project,local`, so Claude Code loads no user-level agent; that is why
-`conductor config validate` refuses a controller role that names an `agent` and no `profile`.
-
-## Developing conductor
-
-Conductor runs the organization; it does not build itself. conductor-dev owns conductor's
-development: it reads `conductor status`, the dispatch log and `conductor metric kpi-readings`,
-turns each finding into planned work in the repository, and after a merged change with a green
-gate runs `task install`. The CLI keeps no state outside its state directory, so a new binary
-needs no restart.
-
-`conductor run` keeps no context either. After a release, conductord restarts each instance's
-runtime on the new binary at its next pass; nothing is handed over.
+The maintainer turns findings about conductor into planned work in the conductor repository and
+installs the new binary after a merged change with a green gate. A running instance keeps the binary
+conductord copied for it until `conductor instance upgrade` moves it
+([how we work](/docs/develop/how-we-work)).

@@ -1,5 +1,5 @@
 // generated from conductor v1
-// contract digest a76aa63f2ad9f5b169861cd94a585925f67f9ddebf70caf04f301709ee2e64d1
+// contract digest 3ad5226d4517a7ae569bdc15103168ac09f97332327ca0e0972b62aad9feb62a
 // do not edit: regenerate with `ess synthesize --layout crate`
 
 //! conductord — the `conductord` component of `conductor` v1.
@@ -522,7 +522,7 @@ where
     }
 
     /// Serves `conductor.token.Tokens` at `read_your_writes` consistency, from the owed projection.
-    pub fn tokens(&self) -> Result<Vec<crate::token::Tokens>, crate::obligation::UnmetObligation> {
-        self.behaviors.tokens()
+    pub fn tokens(&self, instance: crate::config::InstanceName) -> Result<Vec<crate::token::Tokens>, crate::obligation::UnmetObligation> {
+        self.behaviors.tokens(instance)
     }
 }

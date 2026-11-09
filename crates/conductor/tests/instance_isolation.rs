@@ -665,6 +665,7 @@ fn instance_serve_serves_the_instance_s_own_socket() {
     let mut child = case
         .conductor("beta")
         .args(["instance", "serve"])
+        .env(conductor_cli::instance::LOOP_VARIABLE, "off")
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
         .spawn()

@@ -51,6 +51,21 @@ const config: Config = {
     ],
   ],
 
+  plugins: [
+    [
+      '@docusaurus/plugin-client-redirects',
+      {
+        redirects: [
+          {from: '/docs/concepts/architecture', to: '/docs/concepts/the-host'},
+          {from: '/docs/concepts/instances-and-config', to: '/docs/concepts/config'},
+          {from: '/docs/concepts/the-guard', to: '/docs/security/the-guard'},
+          {from: '/docs/security/confinement', to: '/docs/security/sessions'},
+          {from: '/docs/guides/read-the-dashboard', to: '/docs/guides/dashboard'},
+        ],
+      },
+    ],
+  ],
+
   themeConfig: {
     navbar: {
       title: 'Conductor',
@@ -81,7 +96,7 @@ const config: Config = {
           items: [
             {label: 'Overview', to: '/docs/security/overview'},
             {label: 'The guard', to: '/docs/security/the-guard'},
-            {label: 'Confinement', to: '/docs/security/confinement'},
+            {label: 'Sessions', to: '/docs/security/sessions'},
             {label: 'Limits', to: '/docs/security/limits'},
             {label: 'Hardening', to: '/docs/security/hardening'},
           ],

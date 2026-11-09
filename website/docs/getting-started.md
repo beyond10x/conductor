@@ -1,74 +1,54 @@
 ---
 title: Getting started
 sidebar_position: 2
-description: Install the conductor CLI, check the programs it starts, write a one-instance config, validate it and take one snapshot of two local repositories.
+description: Take a fresh host to one running instance. Install the CLI, check the programs, write a conductor.config/2 file, write the records, start the substrate daemon and conductord, and see the instance's loop take its first snapshot.
+lede: From a fresh host to one instance whose runtime runs, with its loop, under conductord.
+source: crates/conductor/src/doctor.rs, config.rs, init.rs, trust.rs, setup.rs, placement.rs, instance.rs, run.rs, daemon/reconcile.rs, daemon/install.rs; b10x.toml; conductor --help
 ---
 
-New to conductor? Read [why conductor](./concepts/why-conductor.md) first: the problem, one day with it, and what to adopt first.
+New to conductor? Read [why conductor](./concepts/why-conductor.md) first.
 
-This page installs the `conductor` CLI, checks the programs it starts, writes the smallest config,
-checks it, and takes one snapshot of two tiny local repositories. It starts no loop and no session;
-[Start conductor](./guides/start-conductor.md) does that with `conductor daemon serve --install`.
-
-The CLI prints absolute paths; the output here writes the home directory as `~`. Version lines,
-ids, times and sizes differ on your machine.
+This page takes a fresh host to one running instance. To give that instance its first task in a
+repository, go on with [one task in an existing repository](./guides/first-task-existing-repo.md).
 
 An agent that sets conductor up in a repository follows
-[`SETUP.md`](https://github.com/beyond10x/conductor/blob/main/SETUP.md) instead: a numbered list
-of steps, each with a check, the exact fix, and what only the person can do (a login, an install
-that needs root, approving a planning store migration). Give a Claude Code session in the
-repository its raw URL, `https://raw.githubusercontent.com/beyond10x/conductor/main/SETUP.md`, and
-ask it to set conductor up.
+[`SETUP.md`](https://github.com/beyond10x/conductor/blob/main/SETUP.md) instead. Give a Claude
+Code session in the repository its raw URL,
+`https://raw.githubusercontent.com/beyond10x/conductor/main/SETUP.md`, and ask it to set
+conductor up.
 
-## Install
+The output here writes the home directory as `~`. Versions, ids and times differ on your machine.
 
-You need `git`, and a Rust toolchain (edition 2024) with `cargo` to build from source. Taking a snapshot also runs `aep`
-and `claude` (Claude Code), `gh` for a `github` source, `glab` for a `gitlab` source and `ess` for
-repositories with a specification; the [README](https://github.com/beyond10x/conductor#requirements) lists every tool.
+## 1. Install
 
-Install from the repository:
+You need `git`, `curl` and `tar`. The
+[README](https://github.com/beyond10x/conductor#requirements) lists every program conductor starts.
 
-```console
-cargo install --git https://github.com/beyond10x/conductor --tag v1.0.0 --locked conductor-cli
-```
-
-or, from a checkout, `task install`, which runs `cargo install --path crates/conductor --locked`.
-
-Without a Rust toolchain, download the pre-built binary instead. Each GitHub Release
-from `v0.6.0` on carries `conductor-<version>-<target>.tar.gz` for `x86_64-unknown-linux-gnu`,
+Each GitHub Release carries `conductor-<version>-<target>.tar.gz` for `x86_64-unknown-linux-gnu`,
 `aarch64-unknown-linux-gnu`, `x86_64-apple-darwin` and `aarch64-apple-darwin`, and one
-`SHA256SUMS`. Verify the archive against it before you unpack it:
+`SHA256SUMS`. Download the archive for your machine, check it, and put the binary on `PATH`:
 
 ```console
 version=1.0.0 target=x86_64-unknown-linux-gnu
 archive="conductor-$version-$target.tar.gz"
-gh release download "v$version" -R beyond10x/conductor -p "$archive" -p SHA256SUMS
+url="https://github.com/beyond10x/conductor/releases/download/v$version"
+curl -fsSLO "$url/$archive"
+curl -fsSLO "$url/SHA256SUMS"
 grep " $archive\$" SHA256SUMS | sha256sum --check --strict
 tar -xzf "$archive"
+mkdir -p ~/.local/bin
 install -m 755 "conductor-$version-$target/conductor" ~/.local/bin/
+conductor --version
 ```
 
-On macOS, `shasum -a 256 --check` stands in for `sha256sum --check --strict`.
+On macOS, `shasum -a 256 --check` stands in for `sha256sum --check --strict`. `~/.local/bin`
+must be on `PATH`. To build from source instead, see
+[developer onboarding](./develop/onboarding.md#build-from-source).
 
-To upgrade an installed conductor, run `conductor upgrade`. It does the same steps for the newest
-release: downloads the archive for the target the binary was built for and `SHA256SUMS`, checks
-the sum, runs the new binary's `--version`, and replaces the binary in place, keeping the old one
-as `conductor.previous`. `conductor upgrade --check` only says whether a newer release exists;
-`conductor upgrade --release <x.y.z>` installs a named release, an older one too.
+Later, `conductor upgrade` replaces the binary with the newest release, keeping the old one as
+`conductor.previous` ([upgrade and roll back](./guides/upgrade-and-rollback.md)).
 
-Each way installs one binary, `conductor`; `conductor --version` prints its version and
-`conductor --help` lists its commands:
-
-```console
-$ conductor --version
-conductor 1.0.0
-```
-
-## Check the programs
-
-`conductor doctor` names the machine it runs on and its own version, lists every program
-conductor starts, present with the first line its `--version` prints, missing, or not needed, and
-ends with its verdict:
+## 2. Check the programs
 
 ```console
 $ conductor doctor
@@ -76,164 +56,183 @@ host: workstation
 system: Linux 6.18.0
 architecture: x86_64
 conductor 1.0.0
-git: present, git version 2.55.0
+git: present, git version 2.56.0
 gh: not needed
 glab: not needed
-claude: present, 2.1.296 (Claude Code)
+claude: present, 2.1.319 (Claude Code)
 jq: present, jq-1.8.2
-task: present, 3.53.1+ff3372fc
-aep: present, aep 0.71.2
-worktree: present, b10x-worktree-cli 0.18.1
-ess: present, ess 0.59.0
+aep: present, aep 0.79.0
+worktree: present, b10x-worktree-cli 0.19.4
+ess: present, ess 0.90.0
+substrate-daemon: not needed
 pins: none
-aep: 0.71.2 meets the build's pin 0.71
-worktree: 0.18.1 meets the build's pin 0.18.1
-ess: 0.59.0 meets the build's pin 0.59
+aep: 0.79.0 meets the build's pin 0.79
+worktree: 0.19.4 meets the build's pin 0.18.1
+ess: 0.90.0 meets the build's pin 0.90
+secrets: keychain namespace default (answers)
+store: sqlite ~/.b10x/conductor/conductor.sqlite (does not answer: no database at ~/.b10x/conductor/conductor.sqlite)
+daemon unit: conductord.service not running (inactive)
+agent kind claude-code: claude 2.1.319 (Claude Code)
 ready
 ```
 
-A forge's CLI is needed only for an instance with a source on that forge: `gh` for a `github`
-source, `glab` for a `gitlab` source. With no config file yet no source is named, so neither is
-needed; once the config below is written, its `local` source needs neither. A GitLab instance needs `glab` instead of `gh`; the
-[GitLab guide](./guides/gitlab.md) sets one up.
+- The first four lines name the machine and the conductor version. Quote them when you ask for
+  help.
+- A program is needed only once the config file asks for it: `gh` for a `github` source, `glab`
+  for a `gitlab` source, `substrate-daemon` for a `placement` that opens a box. With a forge
+  source, doctor also prints the account each forge CLI is logged in as.
+- `pins: none` means no `b10x.toml` was found at or above the working directory, so doctor checks
+  against the pins the binary was built with.
+- Under a program that is missing or too old, doctor prints the command that installs it on this
+  machine, such as `  install: brew install jq`.
+- The store and the daemon unit do not exist yet. conductord creates both in step 6.
 
-The first four lines are the machine, as `uname` names it, and the conductor version: quote them
-with the rest when you ask for help. Once a config file names a `github` or `gitlab` source, doctor
-also prints, after the programs, the account each forge CLI is logged in as on each source's host,
-such as `gh: logged in to github.com as example-user`, or `glab: not logged in to
-gitlab.example.com`. It prints the login name only, never a token or an e-mail address. A CLI not
-logged in to a source's host makes the run not ready.
+The last line is `ready`, or `not ready:` and what failed, such as
+`not ready: substrate-daemon (too old)`. Doctor then exits 1. It writes nothing.
 
-`pins: none` says no `b10x.toml` was found in the working directory or a directory above it, so
-doctor checks `aep`, `ess` and `worktree` against the pins the binary was built with. Run at or
-below a directory holding a `b10x.toml` (a checkout of the conductor repository has one), it
-names that file and checks each program it pins instead.
+## 3. Write the config
 
-Under each program that is missing or older than its pin, doctor prints the command that installs
-it on this machine, for the system `uname` names and the package manager on `PATH`: on macOS with
-Homebrew, a missing `task` reads
-
-```console
-task: missing
-  install: brew install go-task
-```
-
-On Linux it is the distribution's package (`sudo apt-get install jq`), or the program's own install
-page when no package manager it knows is there; `claude` points at the Claude Code install page, and
-`aep`, `ess` and `worktree` at the ecosystem's setup page with the pin they need.
-
-The last line is `ready`, or `not ready:` and each program that failed, such as
-`not ready: worktree (too old)` or `not ready: gh (not logged in to github.com)`; doctor then exits
-1. It writes nothing.
-
-## Two repositories to watch
-
-A `local` source lists the repositories under a directory. Make two:
-
-```console
-$ mkdir -p ~/work/alpha ~/work/beta
-$ git -C ~/work/alpha init -q -b main && git -C ~/work/beta init -q -b main
-$ echo "# alpha" > ~/work/alpha/README.md && git -C ~/work/alpha add README.md && git -C ~/work/alpha commit -q -m "Add a README"
-$ echo "# beta" > ~/work/beta/README.md && git -C ~/work/beta add README.md && git -C ~/work/beta commit -q -m "Add a README"
-$ echo "fn main() {}" > ~/work/alpha/main.rs && git -C ~/work/alpha add main.rs && git -C ~/work/alpha commit -q -m "Add the program"
-```
-
-## A config
-
-Write `~/.b10x/conductor/conductor.yaml`, the default path; `--config` or `$CONDUCTOR_CONFIG` names
-another. An instance needs a name, its sources and its checkouts; every other key has a default.
-The repository's `conductor.example.yaml` has two complete instances to copy from.
+Write `~/.b10x/conductor/conductor.yaml`. `--config` or `CONDUCTOR_CONFIG` names another file.
+This instance watches the repositories under `~/src`:
 
 ```yaml
-version: conductor.config/1
+version: conductor.config/2
+daemon:
+  store: sqlite:~/.b10x/conductor/conductor.sqlite
 instances:
-  - name: demo
-    session_prefix: demo
+  - name: home
+    placement: systemd
+    session_prefix: home
     sources:
-      - local: ~/work
+      - local: ~/src
     checkouts:
-      root: ~/work
-      trees: ~/.local/state/worktree/trees/work
+      root: ~/src
+      trees: ~/.local/state/worktree/trees/home
 ```
 
-Check it:
+- `daemon.store` is the one database every instance writes its records to. conductord refuses a
+  file without it.
+- `placement: systemd` runs the instance's runtime in a substrate box (step 5).
+- `session_prefix` starts the name of every session of the instance, such as `home-alpha`.
+
+In a checkout, `conductor setup --apply` writes the same file for that repository when there is
+none ([one task in an existing repository](./guides/first-task-existing-repo.md#1-set-the-checkout-up)).
+For a forge source, see [configure an instance](./guides/configure-an-instance.md). Every key is in
+the [config reference](/docs/reference/config).
 
 ```console
 $ conductor config validate
-~/.b10x/conductor/conductor.yaml: valid, 1 instance(s): demo
+~/.b10x/conductor/conductor.yaml: valid, 1 instance(s): home
+$ conductor config show | grep -E '^instances\[0\]\.(records|state|cache):'
+instances[0].records: ~/.b10x/conductor/home/records
+instances[0].state: ~/.b10x/conductor/home/state
+instances[0].cache: ~/.cache/b10x/conductor/home
 ```
 
-See the effective values after defaults. The first lines name where the instance keeps its
-records, its store and its cache:
+Run `conductor doctor` again: it now needs `substrate-daemon`, at its pin 0.20.0.
+
+## 4. Write the records and trust the checkouts
 
 ```console
-$ conductor config show | head -10
-version: conductor.config/1
-default: demo
-instances[0].name: demo
-instances[0].session_prefix: demo
-instances[0].sources[0].local: ~/work
-instances[0].checkouts.root: ~/work
-instances[0].checkouts.trees: ~/.local/state/worktree/trees/work
-instances[0].records: ~/.b10x/conductor/demo/records
-instances[0].state: ~/.b10x/conductor/demo/state
-instances[0].cache: ~/.cache/b10x/conductor/demo
+conductor init
+conductor trust
 ```
 
-`conductor config show --format json` prints the same as JSON; the profiles read a value such as
-`thresholds.disk_low` from it. Every key is in the [config reference](/docs/reference/config).
+`conductor init` writes and commits the instance's records directory. `conductor trust` marks each
+checkout under `~/src` and the records directory as trusted Claude Code workspaces in
+`~/.claude.json`, so a session can start there. [Initialise the records](./guides/initialise-the-records.md)
+says what to write into `rules.md`.
 
-## One snapshot
+## 5. Start the substrate daemon
+
+With `placement: systemd`, conductord asks the local `substrate-daemon` for a box and runs the
+runtime in it. Install it from its own release at the pin doctor names. Substrate's tags carry no
+`v`, and its releases carry `x86_64-unknown-linux-gnu` only:
 
 ```console
-$ conductor snapshot start-snapshot
-01a11c9d-4c98-7057-9d12-f1bf3c34ae9f
-$ conductor snapshot snapshots
-snapshot_id                           state     started_at                      disk_free_bytes  failure_reason
-01a11c9d-4c98-7057-9d12-f1bf3c34ae9f  Complete  2026-10-08T17:43:53.196033707Z  39316787200      null
+v=0.20.0 target=x86_64-unknown-linux-gnu
+archive="substrate-daemon-$v-$target.tar.gz"
+url="https://github.com/beyond10x/substrate/releases/download/$v"
+curl -fsSLO "$url/$archive"
+curl -fsSLO "$url/SHA256SUMS"
+grep " $archive\$" SHA256SUMS | sha256sum --check --strict
+tar -xzf "$archive"
+install -m 755 "substrate-daemon-$v-$target/substrate-daemon" ~/.local/bin/
 ```
 
-`start-snapshot` ran the five collectors and completed the snapshot. Its rows are in the views:
+conductord does not start `substrate-daemon`, and doctor checks only its version. You start it
+and keep it running:
+
+- inside a delegated cgroup subtree carrying `cpu`, `memory` and `pids`, the subtree passed as
+  `--cgroup-root`. The `systemd` adapter needs it, and substrate's
+  [Serving exec](https://github.com/beyond10x/substrate#serving-exec) says how to set one up;
+- on the socket conductord opens, `$XDG_RUNTIME_DIR/substrate/daemon.sock`, unless
+  `CONDUCTOR_SUBSTRATE_SOCKET` in conductord's environment names another;
+- with the instance's sessions directory as a writable root, `sessions-<instance>`. It must exist
+  before the daemon starts;
+- with the aperture `conductor`, which the runtime starts with.
 
 ```console
-$ conductor snapshot repositories --format json | jq -c '.[] | {repository, main_commits_7d, real_commits_7d, dirty_files, in_catalog}'
-{"repository":"alpha","main_commits_7d":2,"real_commits_7d":1,"dirty_files":0,"in_catalog":null}
-{"repository":"beta","main_commits_7d":1,"real_commits_7d":0,"dirty_files":0,"in_catalog":null}
-$ conductor repository activity
-repository  activity  decided_by  marked_by  reason
-alpha       Active    Snapshot    null       null
-beta        Inactive  Snapshot    null       null
+state=$(conductor config show --format json | jq -r '.instances[0].state')
+install -d -m 700 "$state/sessions" "$XDG_RUNTIME_DIR/substrate" ~/.local/state/substrate/workspaces
+substrate-daemon \
+  --socket "$XDG_RUNTIME_DIR/substrate/daemon.sock" \
+  --state ~/.local/state/substrate/state.db \
+  --workspaces ~/.local/state/substrate/workspaces \
+  --deployment personal \
+  --allow-uid "$(id -u)" \
+  --cgroup-root <delegated cgroup root> \
+  --writable-root "sessions-home=$state/sessions" \
+  --egress-aperture conductor=api.anthropic.com:443/tcp \
+  --ca-bundle /etc/ssl/certs/ca-certificates.crt
 ```
 
-`beta`'s only commit touches documentation, which is not a real commit, so the snapshot decides it
-Inactive; `alpha` has one real commit in 7 days and is Active. Conductor processes issues and pull
-requests only for Active repositories ([the loop](./concepts/the-loop.md)). `in_catalog` is `null`
-because the instance names no catalog.
-
-This instance has no records directory yet, so the blockers collector has no workspace to list and
-records no blockers. [Initialise the records](./guides/initialise-the-records.md) writes one.
-
-## When a program is missing
-
-A program a collector would start must be on `PATH`. When one is missing, `start-snapshot` refuses
-up front, names it, and takes no snapshot. With `aep` missing:
+From another terminal, read the daemon's facts. `exec.writable-roots.host` lists `sessions-home`:
 
 ```console
-$ conductor snapshot start-snapshot
-conductor: snapshot start-snapshot: `aep` is not on PATH, and a snapshot's collectors start it; `conductor doctor` lists every program conductor starts
-$ echo $?
-1
+curl -s --unix-socket "$XDG_RUNTIME_DIR/substrate/daemon.sock" http://localhost/v1/machine
 ```
 
-A collector that runs and does not answer fails the snapshot and names itself. The failed snapshot
-is kept with its reason and is never read as the current state
-([troubleshoot](./guides/troubleshoot.md#a-failed-snapshot)).
+Each instance with a box adds its own `--writable-root sessions-<instance>=<state>/sessions`. An
+instance that names a `model_token` also needs `daemon.substrate_slots` and one `--secret-slot`
+per slot ([secrets](/docs/security/operators-and-credentials#secrets)).
+
+## 6. Start conductord
+
+```console
+conductor daemon serve --install
+```
+
+This installs and starts the user unit `conductord.service`. It creates the store, then opens the
+instance's box and starts `conductor instance serve` in it. It does so again when the config file
+changes, when a runtime stops, and every 60 s ([the host](./concepts/the-host.md)). Check it:
+
+```console
+curl -s http://127.0.0.1:7300/v1/instances
+journalctl --user -u conductord.service
+cat "$state/sessions/runtime.log"
+```
+
+`/v1/instances` lists each instance with its placement, state, binary version and when it was
+last seen. The journal has one line per action, `<instance>: <action> (<reason>): <result>`. A box
+substrate refuses is recorded `PlacementRefused` with substrate's name for the reason, and nothing
+falls back ([a runtime is refused](./guides/troubleshoot.md#a-runtime-is-refused)).
+
+The runtime's log says `conductor instance home: the loop runs, holding <state>/run/lock`. The
+runtime serves the instance API and runs the instance's loop beside it. The loop's first cycle
+tick takes a snapshot at once:
+
+```console
+conductor snapshot snapshots
+conductor repository activity
+```
+
+A repository with a real commit in the last 7 days is Active. The loop starts a controller only
+for an Active repository that has a charter, and no repository has one yet.
 
 ## Next
 
-- [Configure an instance](./guides/configure-an-instance.md) for a real organization.
-- [Initialise the records](./guides/initialise-the-records.md) with `conductor init`.
-- Read the [security overview](/docs/security/overview), then
-  [start conductor](./guides/start-conductor.md), its daemon `conductor daemon serve --install` and its
-  controllers.
-- [The CLI reference](/docs/reference/cli) for every command.
+- [One task in an existing repository](./guides/first-task-existing-repo.md): a charter, a
+  dispatch, a controller and its pull request.
+- [Run conductor](./guides/start-conductor.md): the daemon, the loop and the sessions, day to day.
+- The [security overview](/docs/security/overview) before a controller runs unattended.

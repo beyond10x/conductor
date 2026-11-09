@@ -1,127 +1,57 @@
 type: ess-http/1
-specification: {system: conductor, version: v1, source_digest: "sha256:cd0c2070b2955c208cbc0c707b1f3bb7649392a75e6018f07aa772a9eae2d5fa"}
+specification: {system: conductor, version: v1, source_digest: "sha256:d2dd77b62a84922a4ef64956ff51b20bc94b193ec79c7682fbcb9ff59e865c26"}
 routes:
   - command: conductor.config.PutConfig
     method: put
-    path: /v1/config/put-config
-  - command: conductor.instance.ObserveInstance
-    method: post
-    path: /v1/instance/observe
-  - command: conductor.instance.PurgeInstance
-    method: post
-    path: /v1/instance/purge
-  - command: conductor.instance.Reconcile
-    method: post
-    path: /v1/instance/reconcile
-  - command: conductor.instance.RestartInstance
-    method: post
-    path: /v1/instance/restart
-  - command: conductor.instance.StartInstance
-    method: post
-    path: /v1/instance/start
-  - command: conductor.instance.StopInstance
-    method: post
-    path: /v1/instance/stop
-  - command: conductor.instance.UpgradeInstance
-    method: post
-    path: /v1/instance/upgrade
-  - command: conductor.operator.JoinInstance
-    method: post
-    path: /v1/operator/join-instance
-  - command: conductor.operator.LeaveInstance
-    method: post
-    path: /v1/operator/leave-instance
-  - command: conductor.placement.CloseBox
-    method: post
-    path: /v1/placement/close-box
-  - command: conductor.placement.OpenBox
-    method: post
-    path: /v1/placement/open-box
-  - command: conductor.secret.PutSecret
-    method: post
-    path: /v1/secret/put-secret
-  - command: conductor.secret.ResolveSecrets
-    method: post
-    path: /v1/secret/resolve-secrets
-  - command: conductor.store.MigrateStore
-    method: post
-    path: /v1/store/migrate-store
-  - command: conductor.token.ContributeToken
-    method: post
-    path: /v1/token/contribute-token
-  - command: conductor.token.LeaseToken
-    method: post
-    path: /v1/token/lease-token
-  - command: conductor.token.MarkTokenLimited
-    method: post
-    path: /v1/token/mark-token-limited
-  - command: conductor.token.ReleaseToken
-    method: post
-    path: /v1/token/release-token
-  - command: conductor.token.WithdrawToken
-    method: post
-    path: /v1/token/withdraw-token
-  - view: conductor.config.ConfigRevisions
-    method: get
-    path: /v1/config/config-revisions
-  - view: conductor.config.EffectiveSettings
-    method: get
-    path: /v1/config/effective-settings/{instance}
-    parameters: {instance: param.instance}
+    path: /v1/config
+    outcomes:
+      changed: {status: 200}
+      actor-not-human: {status: 403}
+      invalid: {status: 422}
   - view: conductor.instance.Instances
     method: get
-    path: /v1/instance/instances
-  - view: conductor.instance.Reconciliations
-    method: get
-    path: /v1/instance/reconciliations
-  - view: conductor.operator.Operators
-    method: get
-    path: /v1/operator/operators
-  - view: conductor.placement.BoxRefusals
-    method: get
-    path: /v1/placement/box-refusals
-  - view: conductor.placement.Boxes
-    method: get
-    path: /v1/placement/boxes
-  - view: conductor.placement.Placements
-    method: get
-    path: /v1/placement/placements
+    path: /v1/instances
+    body: array
   - view: conductor.secret.Secrets
     method: get
-    path: /v1/secret/secrets
-  - view: conductor.store.Migrations
-    method: get
-    path: /v1/store/migrations
-  - view: conductor.store.StoreStatus
-    method: get
-    path: /v1/store/store-status
+    path: /v1/secrets
+    body: array
+  - command: conductor.instance.StartInstance
+    method: post
+    path: /v1/instances/{name}/start
+    parameters: {name: input.name}
+  - command: conductor.instance.StopInstance
+    method: post
+    path: /v1/instances/{name}/stop
+    parameters: {name: input.name}
+  - command: conductor.instance.RestartInstance
+    method: post
+    path: /v1/instances/{name}/restart
+    parameters: {name: input.name}
+  - command: conductor.instance.UpgradeInstance
+    method: post
+    path: /v1/instances/{name}/upgrade
+    parameters: {name: input.name}
+    outcomes:
+      upgrading: {status: 202}
+      rolled-back: {status: 200}
+      unknown: {status: 404}
+      not-running: {status: 409}
   - view: conductor.token.Tokens
     method: get
-    path: /v1/token/tokens
-  - command: conductor.agent.AttachAgent
-    method: post
-    path: /v1/agent/attach
-  - command: conductor.agent.DeclareAgentKind
-    method: post
-    path: /v1/agent/declare-kind
+    path: /v1/instances/{instance}/tokens
+    parameters: {instance: param.instance}
+    body: array
+  - view: conductor.config.EffectiveSettings
+    method: get
+    path: /v1/instances/{instance}/settings
+    parameters: {instance: param.instance}
+    body: array
   - command: conductor.agent.DeliverToAgent
     method: post
-    path: /v1/agent/deliver
-  - command: conductor.agent.RecordAgentReport
-    method: post
-    path: /v1/agent/record-report
+    path: /v1/agents/{name}/deliver
+    parameters: {name: input.name}
   - command: conductor.agent.RestartAgent
     method: post
-    path: /v1/agent/restart
-  - command: conductor.agent.StartAgent
-    method: post
-    path: /v1/agent/start
-  - command: conductor.agent.StopAgent
-    method: post
-    path: /v1/agent/stop
-  - view: conductor.agent.AgentKinds
-    method: get
-    path: /v1/agent/agent-kinds
-  - view: conductor.agent.Agents
-    method: get
-    path: /v1/agent/agents
+    path: /v1/agents/{name}/restart
+    parameters: {name: input.name}

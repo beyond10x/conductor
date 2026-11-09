@@ -99,9 +99,6 @@ impl PoolTokenStorage for Ports {
     fn delete(&mut self, identity: &TokenId) {
         PoolTokenStorage::delete(&mut self.store, identity);
     }
-    fn list(&self) -> Vec<PoolTokenSnapshot> {
-        PoolTokenStorage::list(&self.store)
-    }
 }
 
 macro_rules! unmet {
@@ -238,7 +235,8 @@ pub fn pick(
 /// The tokens of `instance`'s pool that are not withdrawn.
 #[must_use]
 pub fn pool(store: &Store, instance: &InstanceName) -> Vec<PoolTokenSnapshot> {
-    PoolTokenStorage::list(store)
+    store
+        .pool_tokens()
         .into_iter()
         .filter(|token| {
             token.data.instance == *instance && token.state != PoolTokenState::Withdrawn
@@ -249,7 +247,7 @@ pub fn pool(store: &Store, instance: &InstanceName) -> Vec<PoolTokenSnapshot> {
 /// The token `agent` holds a lease on, if any.
 #[must_use]
 pub fn held_by(store: &Store, agent: &AgentName) -> Option<PoolTokenSnapshot> {
-    PoolTokenStorage::list(store).into_iter().find(|token| {
+    store.pool_tokens().into_iter().find(|token| {
         token.state == PoolTokenState::Leased && token.data.agent.as_ref() == Some(agent)
     })
 }
@@ -275,7 +273,7 @@ pub fn lease(
             seat: held.data.seat,
         }));
     }
-    let tokens = PoolTokenStorage::list(&store);
+    let tokens = store.pool_tokens();
     let Some(token_id) = pick(
         &tokens,
         &|id| store.token_leases(id),
@@ -527,7 +525,8 @@ pub struct TokenRow {
 /// The rows of `instance`'s pool, withdrawn tokens included, by contribution time.
 #[must_use]
 pub fn rows(store: &Store, instance: &InstanceName) -> Vec<TokenRow> {
-    let mut rows: Vec<TokenRow> = PoolTokenStorage::list(store)
+    let mut rows: Vec<TokenRow> = store
+        .pool_tokens()
         .into_iter()
         .filter(|token| token.data.instance == *instance)
         .map(|token| {
@@ -759,7 +758,7 @@ pub fn on_limit(instance: &Instance, session: &str) -> Result<bool> {
     let Some(store) = runtime_store() else {
         return Ok(false);
     };
-    let tokens = PoolTokenStorage::list(&store);
+    let tokens = store.pool_tokens();
     Ok(pick(
         &tokens,
         &|id| store.token_leases(id),

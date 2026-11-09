@@ -1,5 +1,5 @@
 // generated from conductor v1
-// contract digest a76aa63f2ad9f5b169861cd94a585925f67f9ddebf70caf04f301709ee2e64d1
+// contract digest 3ad5226d4517a7ae569bdc15103168ac09f97332327ca0e0972b62aad9feb62a
 // do not edit: regenerate with `ess synthesize --layout crate`
 
 //! HTTP/1.1, as much of it as a synthesised surface needs and no more.
@@ -93,8 +93,10 @@ pub struct Response {
     pub status: u16,
     /// The media type of the body.
     pub content_type: &'static str,
-    /// The body.
+    /// The body; empty, with an empty `content_type`, for an answer that has none.
     pub body: String,
+    /// Every header the binding declares for this answer, in the order it is written.
+    pub headers: Vec<(String, String)>,
 }
 
 impl Response {
@@ -104,6 +106,7 @@ impl Response {
             status,
             content_type,
             body: body.into(),
+            headers: Vec::new(),
         }
     }
 
@@ -342,15 +345,23 @@ pub fn linger(stream: &mut std::net::TcpStream) {
 ///
 /// Whatever the socket refuses.
 pub fn write(stream: &mut std::net::TcpStream, answer: &Response) -> std::io::Result<()> {
-    let head = format!(
-        "HTTP/1.1 {} {}\r\nContent-Type: {}\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
-        answer.status,
-        reason(answer.status),
-        answer.content_type,
-        answer.body.len()
-    );
+    // RFC 9110 §8.6 and §15: a `1xx`, `204` or `304` has no content and no `Content-Length`.
+    let bodiless = answer.status < 200 || answer.status == 204 || answer.status == 304;
+    let mut head = format!("HTTP/1.1 {} {}\r\n", answer.status, reason(answer.status));
+    if !bodiless && !answer.content_type.is_empty() {
+        head.push_str(&format!("Content-Type: {}\r\n", answer.content_type));
+    }
+    if !bodiless {
+        head.push_str(&format!("Content-Length: {}\r\n", answer.body.len()));
+    }
+    for (name, value) in &answer.headers {
+        head.push_str(&format!("{name}: {value}\r\n"));
+    }
+    head.push_str("Connection: close\r\n\r\n");
     stream.write_all(head.as_bytes())?;
-    stream.write_all(answer.body.as_bytes())?;
+    if !bodiless {
+        stream.write_all(answer.body.as_bytes())?;
+    }
     stream.flush()
 }
 
@@ -372,6 +383,44 @@ pub fn reason(status: u16) -> &'static str {
         431 => "Request Header Fields Too Large",
         501 => "Not Implemented",
         502 => "Bad Gateway",
+        201 => "Created",
+        203 => "Non-Authoritative Information",
+        204 => "No Content",
+        205 => "Reset Content",
+        206 => "Partial Content",
+        301 => "Moved Permanently",
+        302 => "Found",
+        303 => "See Other",
+        307 => "Temporary Redirect",
+        308 => "Permanent Redirect",
+        401 => "Unauthorized",
+        402 => "Payment Required",
+        403 => "Forbidden",
+        406 => "Not Acceptable",
+        407 => "Proxy Authentication Required",
+        408 => "Request Timeout",
+        410 => "Gone",
+        412 => "Precondition Failed",
+        414 => "URI Too Long",
+        415 => "Unsupported Media Type",
+        416 => "Range Not Satisfiable",
+        417 => "Expectation Failed",
+        421 => "Misdirected Request",
+        423 => "Locked",
+        424 => "Failed Dependency",
+        425 => "Too Early",
+        426 => "Upgrade Required",
+        428 => "Precondition Required",
+        429 => "Too Many Requests",
+        451 => "Unavailable For Legal Reasons",
+        500 => "Internal Server Error",
+        503 => "Service Unavailable",
+        504 => "Gateway Timeout",
+        505 => "HTTP Version Not Supported",
+        506 => "Variant Also Negotiates",
+        507 => "Insufficient Storage",
+        508 => "Loop Detected",
+        511 => "Network Authentication Required",
         _ => "Unknown",
     }
 }
@@ -467,4 +516,506 @@ fn form_decoded(text: &str) -> Option<String> {
 fn whole(text: &str) -> bool {
     let digits = text.strip_prefix('-').unwrap_or(text);
     !digits.is_empty() && digits.bytes().all(|byte| byte.is_ascii_digit())
+}
+
+// ---- an `ess-http/1` binding, served -------------------------------------------------------------
+
+/// How one flat value — a path segment, a `form` or `query` value — is read as the JSON value its
+/// field's decoder reads. The same table `ess_gen::http::Flat` states, so the Rust and Go servers
+/// refuse one request alike.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Flat {
+    /// `String`, or a newtype of it: any text, the empty text included.
+    String,
+    /// Any other scalar a decoder reads from JSON text. Empty text is malformed.
+    Text,
+    /// `Integer`: a whole number's spelling is a JSON number, anything else stays text for the
+    /// decoder to refuse by name. Empty text is malformed.
+    Integer,
+    /// `Boolean`: `true` or `false`, anything else stays text. Empty text is malformed.
+    Boolean,
+}
+
+/// How many values one `form` or `query` key carries.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Shape {
+    /// Exactly one; given twice, the request is malformed (RFC 6749 §3.1).
+    One,
+    /// At most one; absent, the field is `None`.
+    Optional,
+    /// Any number: the key repeats once per element.
+    List,
+}
+
+/// The media type of a `form` request body.
+pub const FORM: &str = "application/x-www-form-urlencoded";
+
+impl Response {
+    /// An answer without a body: no `Content-Type`, and `Content-Length: 0` except on a `1xx`,
+    /// `204` or `304`, which [`write`] gives none.
+    pub fn empty(status: u16) -> Self {
+        Self::new(status, "", "")
+    }
+}
+
+/// A path's segments after its leading `/`; none for the root, and `None` for a path without one.
+fn split(path: &str) -> Option<Vec<&str>> {
+    let rest = path.strip_prefix('/')?;
+    Some(if rest.is_empty() {
+        Vec::new()
+    } else {
+        rest.split('/').collect()
+    })
+}
+
+/// The raw text of each variable segment of `path`, in order, where `path` matches `template`:
+/// as many segments, each literal equal, and each variable holding a segment that is not empty.
+/// `None` where it does not match.
+pub fn matched(template: &str, path: &str) -> Option<Vec<String>> {
+    let template = split(template)?;
+    let given = split(path)?;
+    if template.len() != given.len() {
+        return None;
+    }
+    let mut values = Vec::new();
+    for (expected, text) in template.iter().zip(given) {
+        if expected.starts_with('{') && expected.ends_with('}') {
+            if text.is_empty() {
+                return None;
+            }
+            values.push(text.to_owned());
+        } else if *expected != literal_spelling(text) {
+            return None;
+        }
+    }
+    Some(values)
+}
+
+/// `text` with each `%XX` escape of an unreserved character decoded (RFC 3986 §6.2.2.2), the
+/// spelling a segment is compared with a literal in: `%7Earchived` is `~archived`. Every other
+/// escape stays as written, and a variable's text is decoded where it is read.
+fn literal_spelling(text: &str) -> String {
+    let bytes = text.as_bytes();
+    let digit = |at: usize| bytes.get(at).and_then(|byte| char::from(*byte).to_digit(16));
+    let mut out = Vec::with_capacity(bytes.len());
+    let mut index = 0;
+    while index < bytes.len() {
+        let escaped = match (bytes[index], digit(index + 1), digit(index + 2)) {
+            (b'%', Some(high), Some(low)) => u8::try_from(high * 16 + low)
+                .ok()
+                .filter(|byte| byte.is_ascii_alphanumeric() || b"-._~".contains(byte)),
+            _ => None,
+        };
+        if let Some(byte) = escaped {
+            out.push(byte);
+            index += 3;
+        } else {
+            out.push(bytes[index]);
+            index += 1;
+        }
+    }
+    String::from_utf8(out).unwrap_or_else(|_| text.to_owned())
+}
+
+/// `text` with every `%XX` escape decoded; `None` where an escape is not two hexadecimal digits or
+/// the bytes are not UTF-8. A `+` stays a `+`: in a path it is itself.
+fn percent_decoded(text: &str) -> Option<String> {
+    let bytes = text.as_bytes();
+    let mut out = Vec::with_capacity(bytes.len());
+    let mut index = 0;
+    while index < bytes.len() {
+        if bytes[index] == b'%' {
+            let high = char::from(*bytes.get(index + 1)?).to_digit(16)?;
+            let low = char::from(*bytes.get(index + 2)?).to_digit(16)?;
+            out.push(u8::try_from(high * 16 + low).ok()?);
+            index += 3;
+        } else {
+            out.push(bytes[index]);
+            index += 1;
+        }
+    }
+    String::from_utf8(out).ok()
+}
+
+/// One flat text as the JSON value its field's decoder reads.
+///
+/// # Errors
+///
+/// A refusal naming `at` when the text is empty and the field is not a `String`.
+pub fn flat_value(text: String, flat: Flat, at: &str) -> Result<crate::server::json::Value, String> {
+    use crate::server::json::Value;
+    Ok(match flat {
+        Flat::String => Value::Text(text),
+        _ if text.is_empty() => {
+            return Err(format!("{at}: expected a value, found the empty text"));
+        }
+        Flat::Integer if whole(&text) => Value::Number(text),
+        Flat::Boolean if text == "true" => Value::Bool(true),
+        Flat::Boolean if text == "false" => Value::Bool(false),
+        _ => Value::Text(text),
+    })
+}
+
+/// One path variable's raw segment, percent-decoded, as the JSON value its field's decoder reads.
+///
+/// # Errors
+///
+/// A refusal naming `at` when the segment is not percent-encoded UTF-8, or is empty text for a
+/// field that is not a `String`.
+pub fn path_value(raw: &str, flat: Flat, at: &str) -> Result<crate::server::json::Value, String> {
+    let text = percent_decoded(raw)
+        .ok_or_else(|| format!("{at}: expected percent-encoded UTF-8 text, found `{raw}`"))?;
+    flat_value(text, flat, at)
+}
+
+/// A `form` body or a query string as the object the input's decoder reads: one member per
+/// declared `(wire name, flat, shape)` the text names, keyed by the wire name, and a `List` as an
+/// array, empty when its key is absent.
+///
+/// Keys and values are form-decoded (`+` and `%XX`, UTF-8). A key the path carries, no field
+/// declares, or that does not decode (every declared name is UTF-8), is unknown: ignored where
+/// `ignore`, and malformed otherwise.
+///
+/// # Errors
+///
+/// A refusal naming the parameter under `at` for an unknown key under `refuse` (one that does not
+/// decode included), a scalar key given twice, a known key's value that is not percent-encoded
+/// UTF-8, or an empty value for a field that is not a `String`.
+pub fn flat_object(
+    text: &str,
+    fields: &[(&str, Flat, Shape)],
+    carried: &[&str],
+    ignore: bool,
+    at: &str,
+) -> Result<crate::server::json::Value, String> {
+    let mut found: Vec<Vec<String>> = vec![Vec::new(); fields.len()];
+    for pair in text.split('&').filter(|pair| !pair.is_empty()) {
+        let (key, value) = pair.split_once('=').unwrap_or((pair, ""));
+        // Every declared name is UTF-8, so a key that does not decode names no field: unknown.
+        let Some(key) = form_decoded(key) else {
+            if ignore {
+                continue;
+            }
+            return Err(format!("{at}: a key is not percent-encoded UTF-8: `{key}`"));
+        };
+        let place = crate::server::json::nested(at, &key);
+        let index = fields.iter().position(|(wire, _, _)| *wire == key);
+        let Some(index) = index.filter(|_| !carried.contains(&key.as_str())) else {
+            if ignore {
+                continue;
+            }
+            return Err(if carried.contains(&key.as_str()) {
+                format!("{place}: the path carries this field, so it is not a parameter here")
+            } else {
+                format!("{place}: no field of this request is named so")
+            });
+        };
+        let value = form_decoded(value).ok_or_else(|| {
+            format!("{place}: expected percent-encoded UTF-8 text, found `{value}`")
+        })?;
+        found[index].push(value);
+    }
+    let mut members = Vec::new();
+    for ((wire, flat, shape), values) in fields.iter().zip(found) {
+        let place = crate::server::json::nested(at, wire);
+        match shape {
+            Shape::List => {
+                let items = values
+                    .into_iter()
+                    .map(|value| flat_value(value, *flat, &place))
+                    .collect::<Result<Vec<_>, String>>()?;
+                members.push(((*wire).to_owned(), crate::server::json::Value::Array(items)));
+            }
+            Shape::One | Shape::Optional => match values.len() {
+                0 => {}
+                1 => {
+                    let value = values.into_iter().next().unwrap_or_default();
+                    members.push(((*wire).to_owned(), flat_value(value, *flat, &place)?));
+                }
+                several => {
+                    return Err(format!("{place}: expected one value, found {several}"));
+                }
+            },
+        }
+    }
+    Ok(crate::server::json::Value::Object(members))
+}
+
+/// Whether the request's `Content-Type` is `expected`, its parameters ignored and its case too.
+pub fn content_type_is(request: &Request, expected: &str) -> bool {
+    request
+        .headers
+        .iter()
+        .find(|(name, _)| name == "content-type")
+        .is_some_and(|(_, value)| {
+            value
+                .split(';')
+                .next()
+                .unwrap_or_default()
+                .trim()
+                .eq_ignore_ascii_case(expected)
+        })
+}
+
+/// The body as text.
+///
+/// # Errors
+///
+/// A refusal when it is not UTF-8.
+pub fn body_text(body: &[u8]) -> Result<&str, String> {
+    std::str::from_utf8(body).map_err(|error| format!("the body is not UTF-8: {error}"))
+}
+
+/// A `json` body as the value the input's decoder reads. Where the body is not `required`, no
+/// body, or one of only whitespace, is the input `{}`.
+///
+/// # Errors
+///
+/// A refusal when the body is not UTF-8 or not JSON.
+pub fn json_body(body: &[u8], required: bool) -> Result<crate::server::json::Value, String> {
+    let text = body_text(body)?;
+    if !required && text.trim().is_empty() {
+        return Ok(crate::server::json::Value::Object(Vec::new()));
+    }
+    crate::server::json::parse(text).map_err(|error| format!("the body is not JSON: {error}"))
+}
+
+/// `value` with the members the path carries added. A path variable's value wins over the request
+/// for its field, and the request naming that field is malformed: the path carries it.
+///
+/// # Errors
+///
+/// A refusal naming the member under `at` when `value` already holds one the path carries.
+pub fn with_path(
+    value: crate::server::json::Value,
+    path: Vec<(String, crate::server::json::Value)>,
+    at: &str,
+) -> Result<crate::server::json::Value, String> {
+    match value {
+        crate::server::json::Value::Object(mut members) if !path.is_empty() => {
+            for (wire, _) in &path {
+                if members.iter().any(|(key, _)| key == wire) {
+                    return Err(format!(
+                        "{}: the path carries this field, so the request does not",
+                        crate::server::json::nested(at, wire)
+                    ));
+                }
+            }
+            members.extend(path);
+            Ok(crate::server::json::Value::Object(members))
+        }
+        // Not an object: the decoder refuses it by name.
+        other => Ok(other),
+    }
+}
+
+/// A scalar of an answer as text: a string as itself, a number as its spelling, a boolean as
+/// `true` or `false`; `None` for an absent optional.
+pub fn scalar_text(value: Option<&crate::server::json::Value>) -> Option<String> {
+    match value? {
+        crate::server::json::Value::Text(text) | crate::server::json::Value::Number(text) => Some(text.clone()),
+        crate::server::json::Value::Bool(value) => Some(value.to_string()),
+        _ => None,
+    }
+}
+
+/// Adds the header `name` with `value` to `answer`; an absent value omits it.
+///
+/// # Errors
+///
+/// A refusal when the value is not a field value (RFC 9110 §5.5): it holds a control character
+/// other than a horizontal tab, or starts or ends with a space or a tab. Such a value is never
+/// written, truncated or re-encoded: a header value from input must not inject a header.
+pub fn push_header(answer: &mut Response, name: &str, value: Option<String>) -> Result<(), String> {
+    let Some(value) = value else {
+        return Ok(());
+    };
+    if let Some(found) = value.chars().find(|c| c.is_control() && *c != '\t') {
+        return Err(format!(
+            "header `{name}` would hold {found:?}, which is not field-value text"
+        ));
+    }
+    if value.starts_with([' ', '\t']) || value.ends_with([' ', '\t']) {
+        return Err(format!(
+            "header `{name}` would start or end with a space or a tab, which a reader strips"
+        ));
+    }
+    answer.headers.push((name.to_owned(), value));
+    Ok(())
+}
+
+/// One RFC 9110 §11.6.1 challenge: `scheme`, then each param present as `name="value"`, in the
+/// order given, separated by `, `. Each value is a quoted string whose `"` and `\` are escaped, so
+/// no value can leave it; an absent param is omitted.
+///
+/// # Errors
+///
+/// A refusal when a value holds a control character other than a horizontal tab, which a quoted
+/// string cannot carry.
+pub fn challenge(scheme: &str, params: &[(&str, Option<String>)]) -> Result<String, String> {
+    let mut out = scheme.to_owned();
+    let mut first = true;
+    for (name, value) in params {
+        let Some(value) = value else {
+            continue;
+        };
+        if let Some(found) = value.chars().find(|c| c.is_control() && *c != '\t') {
+            return Err(format!(
+                "challenge param `{name}` would hold {found:?}, which a quoted string cannot carry"
+            ));
+        }
+        out.push_str(if first { " " } else { ", " });
+        first = false;
+        out.push_str(name);
+        out.push_str("=\"");
+        for c in value.chars() {
+            if c == '"' || c == '\\' {
+                out.push('\\');
+            }
+            out.push(c);
+        }
+        out.push('"');
+    }
+    Ok(out)
+}
+
+/// `text` as `application/x-www-form-urlencoded` writes it: ASCII letters, digits and `*-._` as
+/// themselves, a space as `+`, every other byte as `%XX`.
+pub fn form_encoded(text: &str) -> String {
+    let mut out = String::with_capacity(text.len());
+    for byte in text.bytes() {
+        match byte {
+            b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'*' | b'-' | b'.' | b'_' => {
+                out.push(char::from(byte));
+            }
+            b' ' => out.push('+'),
+            other => out.push_str(&format!("%{other:02X}")),
+        }
+    }
+    out
+}
+
+/// Where a redirect sends the caller: `location`, with each parameter present appended to its
+/// query (keeping a query it already has) or written as its fragment, form-encoded, in the order
+/// given. An absent parameter is omitted.
+///
+/// # Errors
+///
+/// A refusal when `location` is absent or is not an absolute URI without a fragment: a scheme
+/// (an ASCII letter, then letters, digits, `+`, `-` and `.`), a `:`, and visible ASCII only.
+pub fn redirect(
+    location: Option<String>,
+    fragment: bool,
+    parameters: &[(&str, Option<String>)],
+) -> Result<String, String> {
+    let location = location.ok_or_else(|| "the redirect has no location".to_owned())?;
+    let absolute = location.split_once(':').is_some_and(|(scheme, _)| {
+        let mut characters = scheme.chars();
+        characters.next().is_some_and(|c| c.is_ascii_alphabetic())
+            && characters.all(|c| c.is_ascii_alphanumeric() || matches!(c, '+' | '-' | '.'))
+    });
+    if !absolute || location.contains('#') || !location.chars().all(|c| c.is_ascii_graphic()) {
+        return Err(format!(
+            "the redirect location {location:?} is not an absolute URI without a fragment"
+        ));
+    }
+    let written: Vec<String> = parameters
+        .iter()
+        .filter_map(|(name, value)| {
+            value
+                .as_ref()
+                .map(|value| format!("{}={}", form_encoded(name), form_encoded(value)))
+        })
+        .collect();
+    if written.is_empty() {
+        return Ok(location);
+    }
+    let joined = written.join("&");
+    Ok(if fragment {
+        format!("{location}#{joined}")
+    } else {
+        match location.split_once('?') {
+            Some((_, query)) if query.is_empty() || query.ends_with('&') => {
+                format!("{location}{joined}")
+            }
+            Some(_) => format!("{location}&{joined}"),
+            None => format!("{location}?{joined}"),
+        }
+    })
+}
+
+/// Appends a JSON value exactly as it was read.
+pub fn push_json(out: &mut String, value: &crate::server::json::Value) {
+    use crate::server::json::Value;
+    match value {
+        Value::Null => out.push_str("null"),
+        Value::Bool(value) => out.push_str(if *value { "true" } else { "false" }),
+        Value::Number(spelling) => out.push_str(spelling),
+        Value::Text(text) => crate::server::json::push_text(out, text),
+        Value::Array(items) => {
+            out.push('[');
+            for (index, item) in items.iter().enumerate() {
+                if index > 0 {
+                    out.push(',');
+                }
+                push_json(out, item);
+            }
+            out.push(']');
+        }
+        Value::Object(members) => {
+            out.push('{');
+            for (index, (name, item)) in members.iter().enumerate() {
+                if index > 0 {
+                    out.push(',');
+                }
+                crate::server::json::push_text(out, name);
+                out.push(':');
+                push_json(out, item);
+            }
+            out.push('}');
+        }
+    }
+}
+
+/// A bare body: the value as JSON, `null` where there is none.
+pub fn bare(value: Option<&crate::server::json::Value>) -> String {
+    let mut out = String::new();
+    push_json(&mut out, value.unwrap_or(&crate::server::json::Value::Null));
+    out
+}
+
+/// `{<member>: <wire name>, …the error's own fields}`: the error object a binding declares.
+pub fn error_object(member: &str, wire: &str, payload: Option<&crate::server::json::Value>) -> String {
+    let mut out = String::from("{");
+    crate::server::json::member(&mut out, member);
+    crate::server::json::push_text(&mut out, wire);
+    if let Some(crate::server::json::Value::Object(fields)) = payload {
+        for (name, value) in fields {
+            crate::server::json::member(&mut out, name);
+            push_json(&mut out, value);
+        }
+    }
+    out.push('}');
+    out
+}
+
+/// `{<member>: <text>}`: a standard refusal's literal body.
+pub fn literal_object(member: &str, text: &str) -> String {
+    let mut out = String::from("{");
+    crate::server::json::member(&mut out, member);
+    crate::server::json::push_text(&mut out, text);
+    out.push('}');
+    out
+}
+
+/// A `single` view route's answer, from the `{"rows": [...]}` its shared path renders: the one row,
+/// bare, at `200`, or `empty` without a body when the view holds none.
+pub fn single(rows: &str, empty: u16) -> Response {
+    let read = crate::server::json::parse(rows).unwrap_or(crate::server::json::Value::Null);
+    match read.member("rows") {
+        Some(crate::server::json::Value::Array(items)) if !items.is_empty() => {
+            Response::new(200, JSON, bare(items.first()))
+        }
+        _ => Response::empty(empty),
+    }
 }

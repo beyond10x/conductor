@@ -17,7 +17,9 @@
 //! `trust (not trusted)`; it exits 1 unless it is `ready`.
 //!
 //! `--apply` writes a config file with one instance naming the repository when there is no config
-//! file (with one, it prints the instance to add and changes nothing), then runs `conductor init`
+//! file ([`config_text`]: a `conductor.config/2` file the daemon reconciles, its `daemon.store`
+//! and the instance's `placement` and `session_prefix` written; with one, it prints the instance
+//! to add, [`instance_text`], and changes nothing), then runs `conductor init`
 //! and `conductor trust` for the instance naming the repository when its records or its trust are
 //! missing. It never logs a CLI in, installs a program, activates a `worktree` workspace or
 //! migrates a store: it prints each as a `to install: ` or `to run: ` line. Everything it checks is read again after it applied.
@@ -167,10 +169,38 @@ pub fn instance_name(name: &str) -> String {
     }
 }
 
-/// A config file of one instance `name` naming the repository held by `parent`, with the source
-/// of `origin` and the session prefix [`config::name_prefix`] gives `name`.
+/// The `daemon.store` a written config file names: the SQLite file the daemon section's default
+/// names ([`config::default_daemon`]), written under `~`. The daemon starts only on a store the
+/// file writes (`story:store-shared`).
+pub const STORE: &str = "sqlite:~/.b10x/conductor/conductor.sqlite";
+
+/// The `placement` a written instance names: a box through substrate's `systemd` adapter, the
+/// placement of the built-in instance and the one `conductor config migrate` writes for an
+/// instance a `conductor.config/1` file gave no confinement (design architecture-next § 6:
+/// nothing falls back to no box).
+pub const PLACEMENT: &str = "systemd";
+
+/// A `conductor.config/2` file ([`config::VERSION_2`]) the daemon reconciles: its `daemon` section
+/// names [`STORE`], and its one instance is [`instance_text`].
 #[must_use]
 pub fn config_text(name: &str, origin: &Origin, parent: &Path) -> String {
+    format!(
+        "version: {version}\n\
+         daemon:\n\
+         \x20 store: {store}\n\
+         instances:\n\
+         {instance}",
+        version = config::VERSION_2,
+        store = serde_json::to_string(STORE).unwrap_or_default(),
+        instance = instance_text(name, origin, parent),
+    )
+}
+
+/// The instance `name` of a config file, an item of its `instances`, naming the repository held
+/// by `parent`: its placement [`PLACEMENT`], the session prefix [`config::name_prefix`] gives
+/// `name`, and the source of `origin`.
+#[must_use]
+pub fn instance_text(name: &str, origin: &Origin, parent: &Path) -> String {
     let quoted = |path: &Path| {
         serde_json::to_string(&path.display().to_string()).unwrap_or_else(|_| "\"\"".to_owned())
     };
@@ -182,16 +212,14 @@ pub fn config_text(name: &str, origin: &Origin, parent: &Path) -> String {
         Origin::None => format!("      - local: {}\n", quoted(parent)),
     };
     format!(
-        "version: {version}\n\
-         instances:\n\
-         \x20 - name: {name}\n\
+        "\x20 - name: {name}\n\
+         \x20   placement: {PLACEMENT}\n\
          \x20   session_prefix: {prefix}\n\
          \x20   sources:\n\
          {source}\
          \x20   checkouts:\n\
          \x20     root: {root}\n\
          \x20     trees: ~/.local/state/worktree/trees/{name}\n",
-        version = config::VERSION,
         // `config validate` refuses an instance without one (story:instance-names-unique).
         prefix = config::name_prefix(name, 0),
         root = quoted(parent),
@@ -472,7 +500,6 @@ fn apply(flag: Option<&Path>, environment: &Environment, repository: &Path) -> R
                     .map(|name| name.to_string_lossy().into_owned())
                     .unwrap_or_default(),
             );
-            let text = config_text(&name, &origin(repository), parent);
             if file.exists() {
                 println!(
                     "to write: {} names no instance holding {}; add this instance under its \
@@ -480,11 +507,12 @@ fn apply(flag: Option<&Path>, environment: &Environment, repository: &Path) -> R
                     file.display(),
                     repository.display()
                 );
-                for line in text.lines().skip(2) {
+                for line in instance_text(&name, &origin(repository), parent).lines() {
                     println!("to write: {line}");
                 }
                 return Ok(());
             }
+            let text = config_text(&name, &origin(repository), parent);
             if let Some(dir) = file.parent() {
                 fs::create_dir_all(dir)
                     .with_context(|| format!("{WHAT}: create {}", dir.display()))?;
@@ -642,8 +670,10 @@ mod tests {
             let text = config_text("alpha", &origin, parent);
             let parsed = config::parse(&text, home)
                 .unwrap_or_else(|problems| panic!("{problems:?}:\n{text}"));
+            assert_eq!(parsed.version, config::VERSION_2, "{text}");
             let instance = &parsed.instances[0];
             assert_eq!(instance.name.0, "alpha");
+            assert_eq!(instance.placement.0, PLACEMENT, "{text}");
             assert_eq!(instance.checkouts.root, "/srv/home/src");
             let matches = match (&origin, &instance.sources[0]) {
                 (Origin::GitHub { owner }, Source::GitHub(source)) => source.owner == *owner,

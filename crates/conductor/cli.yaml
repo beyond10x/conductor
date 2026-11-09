@@ -629,7 +629,7 @@ commands:
         source: {kind: option, long: role}
   - path: [instance, serve]
     callable: instance-serve
-    about: Serve the instance API, the routes of the dashboard under /v1/, on the instance's <state>/api.sock until stopped; a write takes the token the daemon minted for the instance, in CONDUCTOR_API_TOKEN
+    about: Serve the instance API, the routes of the dashboard under /v1/, on the instance's <state>/api.sock until stopped, and run the instance's loop beside it under the lock conductor run takes (<state>/run/lock), so a conductor run started by hand is refused; while a conductor run holds the lock the runtime yields and takes the loop once it is let go; CONDUCTOR_RUNTIME_LOOP=off serves the API alone; a write takes the token the daemon minted for the instance, in CONDUCTOR_API_TOKEN
     arguments: []
   - path: [instance, relay]
     callable: instance-relay

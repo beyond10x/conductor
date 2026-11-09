@@ -18,6 +18,7 @@ timeline:
 
 assert:
   - view: conductor.token.Tokens
+    params: {instance: example-org}
     contains:
       state: Available
       instance: example-org

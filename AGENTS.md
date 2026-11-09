@@ -48,6 +48,7 @@ A value a profile writes as `section.key`, such as `thresholds.build_slot`, is t
 | `crates/conductor-model/` | Rust generated from `spec/` by `ess`. Never edited by hand |
 | `crates/conductor/` | the `conductor` CLI: handlers, collectors, guard, watch, dashboard, store |
 | `crates/conductor/cli.yaml` | the `ess-cli/1` binding: global flags and the local commands outside the `cli:` block |
+| `crates/conductor/http.yaml` | the `ess-http/1` binding: the method and path conductord and the instance runtime serve each bound command and view at; `task regen` generates the servers in `crates/conductor-model/src/server/` from it, which nothing serves yet. `tests/api_parity.rs` holds them to the hand-written API against the baseline `tests/fixtures/api_parity.md` |
 | `crates/conductor/tests/` | integration tests and fixtures |
 | `crates/conductor-docs/` | the documentation generator: reference pages, status page, site provenance |
 | `website/` | the documentation site (Docusaurus on the shared Docs System); `website/docs/reference/**`, `website/docs/status.md` and `website/data/status.json` are generated |
@@ -74,7 +75,7 @@ Each session commits only the files it writes, with a pathspec.
 | `task check` | the gate: a Gates scan of every tracked file when `B10X_GATES_POLICY` names a policy (`b10x-gates scan-text`), `ess specify validate --path spec`, the conformance run, `crates/conductor-model` compared byte for byte with a fresh generation, `cargo fmt --check`, `cargo clippy --all-targets -- -D warnings`, `cargo test`, `task docs-check`, and for the dashboard app (`crates/conductor/dashboard`, Node as `.nvmrc` pins) `npm ci`, Vitest and a check that the committed `dist/` equals a fresh `task ui` build |
 | `conductor doctor`, `conductor init`, `conductor trust` | the programs conductor starts and their pins (`b10x.toml`); a new instance's records skeleton; trust for the checkouts and the records in `~/.claude.json` (`task trust` calls it) |
 | `task measure` | the wall-clock measurements, ignored by the gate (append cost against store size, guard latency, the dashboard's warm answers); run alone on a quiet host |
-| `task regen` | regenerates `crates/conductor-model` from `spec/` |
+| `task regen` | regenerates `crates/conductor-model` from `spec/` and `crates/conductor/http.yaml`; a change to `spec/` re-pins the binding's `source_digest` (`ess specify http validate --path spec --binding crates/conductor/http.yaml` names the new one) |
 | `task docs-generate`, `task docs-check` | `conductor-docs generate` writes `website/docs/reference/**`, `website/docs/status.md` and `website/data/status.json`; `--check` fails on any difference. Never edit those files by hand |
 | `npm --prefix website ci && npm --prefix website run build` | builds the documentation site; `.github/workflows/pages.yml` runs it on every push |
 | `task install` | `cargo install --path crates/conductor --locked`; the binary carries the role profiles and the `claude-code` settings, so nothing else is copied |
@@ -162,6 +163,9 @@ runs without one) are green on its head commit. Run `task check` locally only wh
 - Every pull-request and release body passes `b10x-gates scan-text` before it is sent.
 - This repository is public. Committed text (code, docs, wave pages, commit messages) names no
   private repository, session or decision id, host detail or person.
+- End-user pages (`README.md`, `SETUP.md`, `website/docs/` but `develop/` and the generated
+  pages) install from the release archive and use `conductor` commands only; a `task` or `cargo`
+  install or build step of conductor belongs in `website/docs/develop/`.
 - Record a story's gate on the story: `aep plan artifact evidence <id> --kind test_result`.
 - Fast-forward the product checkout before a session starts from it: the roles read their profile
   from it.
@@ -181,9 +185,9 @@ a day, without asking: several waves may go into one release.
 
 1. On a branch from `main`, set `version` in the root `Cargo.toml` (semver; `0.x`: a minor bump for
    a new command, config key or record, a patch bump otherwise), refresh `Cargo.lock`
-   (`cargo update -p conductor-cli --offline`), and point the install lines of the README and
-   `website/docs/getting-started.md` (`cargo install --tag` and the archive download) at the new
-   version.
+   (`cargo update -p conductor-cli --offline`), and point the install lines at the new version:
+   the archive download (`version=`) of the README and `website/docs/getting-started.md`, and the
+   `cargo install --tag` of `website/docs/develop/onboarding.md`.
 2. The `task check` job (`.github/workflows/check.yml`) and the Gates job green on that exact
    commit; CI runs them in a fresh checkout by construction, on the pull request of step 4. Read
    each job's own conclusion.

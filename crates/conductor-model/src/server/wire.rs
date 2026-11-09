@@ -1,5 +1,5 @@
 // generated from conductor v1
-// contract digest a76aa63f2ad9f5b169861cd94a585925f67f9ddebf70caf04f301709ee2e64d1
+// contract digest 3ad5226d4517a7ae569bdc15103168ac09f97332327ca0e0972b62aad9feb62a
 // do not edit: regenerate with `ess synthesize --layout crate`
 //! Every generated declaration, as JSON, in the renderings the published wire contracts fix.
 //!
@@ -19795,6 +19795,21 @@ pub fn encode_view_conductor_token_tokens(value: &crate::token::Tokens, out: &mu
     out.push('}');
 }
 
+/// Reads the parameters of `conductor.token.Tokens` from an object keyed by their wire names.
+///
+/// # Errors
+///
+/// [`json::DecodeError`] naming the parameter and what the declaration says belongs there.
+pub fn decode_params_conductor_token_tokens(value: &json::Value, at: &str) -> Result<(crate::config::InstanceName,), json::DecodeError> {
+    Ok((
+        {
+            let at0 = json::nested(at, "instance");
+            let member0 = json::member_at(value, at, "instance")?;
+            decode_conductor_config_instance_name(member0, &at0)?
+        },
+    ))
+}
+
 /// Writes one row of the view `conductor.tool.ToolCalls` as JSON.
 pub fn encode_view_conductor_tool_tool_calls(value: &crate::tool::ToolCalls, out: &mut String) {
     out.push('{');
@@ -28736,6 +28751,20 @@ pub fn decode_command_conductor_observation_publish_board(value: &json::Value, a
 pub fn encode_outcome_conductor_observation_publish_board(value: &crate::observation::PublishBoardOutcome, out: &mut String) {
     out.push('{');
     match value {
+        crate::observation::PublishBoardOutcome::NegativeRows { error } => {
+            json::member(out, "outcome");
+            json::push_text(out, "negative-rows");
+            json::member(out, "published");
+            out.push('[');
+            out.push(']');
+            json::member(out, "refusal");
+            out.push('{');
+            json::member(out, "error");
+            json::push_text(out, "conductor.observation.InvalidCount");
+            json::member(out, "payload");
+            encode_error_conductor_observation_invalid_count(error, out);
+            out.push('}');
+        }
         crate::observation::PublishBoardOutcome::NoSuchSnapshot { error } => {
             json::member(out, "outcome");
             json::push_text(out, "no-such-snapshot");
@@ -28762,20 +28791,6 @@ pub fn encode_outcome_conductor_observation_publish_board(value: &crate::observa
             json::push_text(out, "conductor.observation.SnapshotNotComplete");
             json::member(out, "payload");
             encode_error_conductor_observation_snapshot_not_complete(error, out);
-            out.push('}');
-        }
-        crate::observation::PublishBoardOutcome::NegativeRows { error } => {
-            json::member(out, "outcome");
-            json::push_text(out, "negative-rows");
-            json::member(out, "published");
-            out.push('[');
-            out.push(']');
-            json::member(out, "refusal");
-            out.push('{');
-            json::member(out, "error");
-            json::push_text(out, "conductor.observation.InvalidCount");
-            json::member(out, "payload");
-            encode_error_conductor_observation_invalid_count(error, out);
             out.push('}');
         }
         crate::observation::PublishBoardOutcome::Published { board_published } => {
@@ -28990,6 +29005,20 @@ pub fn decode_command_conductor_observation_record_collector_run(value: &json::V
 pub fn encode_outcome_conductor_observation_record_collector_run(value: &crate::observation::RecordCollectorRunOutcome, out: &mut String) {
     out.push('{');
     match value {
+        crate::observation::RecordCollectorRunOutcome::NegativeDuration { error } => {
+            json::member(out, "outcome");
+            json::push_text(out, "negative-duration");
+            json::member(out, "published");
+            out.push('[');
+            out.push(']');
+            json::member(out, "refusal");
+            out.push('{');
+            json::member(out, "error");
+            json::push_text(out, "conductor.observation.InvalidCount");
+            json::member(out, "payload");
+            encode_error_conductor_observation_invalid_count(error, out);
+            out.push('}');
+        }
         crate::observation::RecordCollectorRunOutcome::NoSuchSnapshot { error } => {
             json::member(out, "outcome");
             json::push_text(out, "no-such-snapshot");
@@ -29016,20 +29045,6 @@ pub fn encode_outcome_conductor_observation_record_collector_run(value: &crate::
             json::push_text(out, "conductor.observation.SnapshotNotCollecting");
             json::member(out, "payload");
             encode_error_conductor_observation_snapshot_not_collecting(error, out);
-            out.push('}');
-        }
-        crate::observation::RecordCollectorRunOutcome::NegativeDuration { error } => {
-            json::member(out, "outcome");
-            json::push_text(out, "negative-duration");
-            json::member(out, "published");
-            out.push('[');
-            out.push(']');
-            json::member(out, "refusal");
-            out.push('{');
-            json::member(out, "error");
-            json::push_text(out, "conductor.observation.InvalidCount");
-            json::member(out, "payload");
-            encode_error_conductor_observation_invalid_count(error, out);
             out.push('}');
         }
         crate::observation::RecordCollectorRunOutcome::Recorded { collector_run_recorded } => {
@@ -30494,6 +30509,20 @@ pub fn decode_command_conductor_observation_record_specification(value: &json::V
 pub fn encode_outcome_conductor_observation_record_specification(value: &crate::observation::RecordSpecificationOutcome, out: &mut String) {
     out.push('{');
     match value {
+        crate::observation::RecordSpecificationOutcome::NegativeRefusals { error } => {
+            json::member(out, "outcome");
+            json::push_text(out, "negative-refusals");
+            json::member(out, "published");
+            out.push('[');
+            out.push(']');
+            json::member(out, "refusal");
+            out.push('{');
+            json::member(out, "error");
+            json::push_text(out, "conductor.observation.InvalidCount");
+            json::member(out, "payload");
+            encode_error_conductor_observation_invalid_count(error, out);
+            out.push('}');
+        }
         crate::observation::RecordSpecificationOutcome::NoSuchSnapshot { error } => {
             json::member(out, "outcome");
             json::push_text(out, "no-such-snapshot");
@@ -30520,20 +30549,6 @@ pub fn encode_outcome_conductor_observation_record_specification(value: &crate::
             json::push_text(out, "conductor.observation.SnapshotNotCollecting");
             json::member(out, "payload");
             encode_error_conductor_observation_snapshot_not_collecting(error, out);
-            out.push('}');
-        }
-        crate::observation::RecordSpecificationOutcome::NegativeRefusals { error } => {
-            json::member(out, "outcome");
-            json::push_text(out, "negative-refusals");
-            json::member(out, "published");
-            out.push('[');
-            out.push(']');
-            json::member(out, "refusal");
-            out.push('{');
-            json::member(out, "error");
-            json::push_text(out, "conductor.observation.InvalidCount");
-            json::member(out, "payload");
-            encode_error_conductor_observation_invalid_count(error, out);
             out.push('}');
         }
         crate::observation::RecordSpecificationOutcome::Recorded { specification_recorded } => {
@@ -30642,6 +30657,20 @@ pub fn decode_command_conductor_observation_record_usage(value: &json::Value, at
 pub fn encode_outcome_conductor_observation_record_usage(value: &crate::observation::RecordUsageOutcome, out: &mut String) {
     out.push('{');
     match value {
+        crate::observation::RecordUsageOutcome::NegativePercent { error } => {
+            json::member(out, "outcome");
+            json::push_text(out, "negative-percent");
+            json::member(out, "published");
+            out.push('[');
+            out.push(']');
+            json::member(out, "refusal");
+            out.push('{');
+            json::member(out, "error");
+            json::push_text(out, "conductor.observation.InvalidCount");
+            json::member(out, "payload");
+            encode_error_conductor_observation_invalid_count(error, out);
+            out.push('}');
+        }
         crate::observation::RecordUsageOutcome::NoSuchSnapshot { error } => {
             json::member(out, "outcome");
             json::push_text(out, "no-such-snapshot");
@@ -30668,20 +30697,6 @@ pub fn encode_outcome_conductor_observation_record_usage(value: &crate::observat
             json::push_text(out, "conductor.observation.SnapshotNotCollecting");
             json::member(out, "payload");
             encode_error_conductor_observation_snapshot_not_collecting(error, out);
-            out.push('}');
-        }
-        crate::observation::RecordUsageOutcome::NegativePercent { error } => {
-            json::member(out, "outcome");
-            json::push_text(out, "negative-percent");
-            json::member(out, "published");
-            out.push('[');
-            out.push(']');
-            json::member(out, "refusal");
-            out.push('{');
-            json::member(out, "error");
-            json::push_text(out, "conductor.observation.InvalidCount");
-            json::member(out, "payload");
-            encode_error_conductor_observation_invalid_count(error, out);
             out.push('}');
         }
         crate::observation::RecordUsageOutcome::Recorded { usage_recorded } => {

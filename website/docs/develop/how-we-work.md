@@ -1,37 +1,21 @@
 ---
 title: How changes are planned and shipped
 sidebar_position: 2
-description: The planning store and a story's lifecycle, waves, how conductor's own behaviour becomes stories, releases, and what may go into public text.
+description: The planning store, a story's lifecycle, waves, the maintainer, the release steps and public text.
 lede: Every change starts as a story in the repository's own planning store, ships in a wave behind one gate, and reaches users in a tagged release.
-source: AGENTS.md (Commits, gates and public text; Releases); docs/design/conductor.md section 12; crates/conductor/roles/maintainer.md; docs/waves/; .engineering/project.yaml; aep plan artifact --help
+source: AGENTS.md (Commits, gates and public text; Releases); docs/design/conductor.md section 12; crates/conductor/roles/maintainer.md; crates/conductor/src/config.rs; crates/conductor/src/daemon/reconcile.rs; docs/waves/; aep plan artifact --help
 ---
 
 ## The planning store
 
-Conductor's work is planned in an AEP store in the repository itself, under
-`.engineering/planning/`: one Markdown file per artifact, with YAML front matter and a free
-body. A story's id is its kind and name, `story:<name>`, and its file is
-`.engineering/planning/story/<name>.md`. The store is plain files under git, so a status move is a
-one-line diff with an author.
+Conductor's work is planned in an AEP store under `.engineering/planning/`: one Markdown file per
+artifact, with YAML front matter and a free body. The story `story:<name>` is the file
+`.engineering/planning/story/<name>.md`. A status move is a one-line diff with an author.
 
-Write to it through `aep` rather than by hand: the commands keep the front matter and the
-history of every move, and `aep plan artifact validate` reports a file removed by hand as a
-deletion no command made. The commands you will use most:
-
-| command | does |
-|---|---|
-| `aep plan artifact new story <name> --title … --from <file>` | create a draft story with the body in the file |
-| `aep plan artifact scope <id> --add <path>` | record a path the story lands on |
-| `aep plan artifact show <id>` | print one artifact |
-| `aep plan artifact list`, `aep plan artifact board` | the plan, as lines or as status columns |
-| `aep plan artifact evidence <id> --kind test_result --source …` | record evidence about an artifact |
-| `aep plan artifact move <id> --to <status>` | move it, if its lifecycle permits |
-| `aep plan artifact explain <id>` | what each past move was decided on |
-| `aep plan artifact validate` | check every file, edge and status |
-
-A story body has three sections: **Why** (what is wrong, with where it was seen), **Acceptance**
-(what a test or a reader can check), and **Scope** (the files it lands on). The stories already in
-the store are the best examples.
+Write to the store with `aep plan artifact` (`new`, `scope`, `show`, `list`, `board`, `evidence`,
+`move`, `explain`, `validate`), not by hand: `validate` reports a file removed by hand as a
+deletion no command made. A story body has three sections: Why (what is wrong, and where it was
+seen), Acceptance (what a test or a reader can check) and Scope (the files it lands on).
 
 ## A story's lifecycle
 
@@ -43,97 +27,84 @@ implemented -> archived
 rejected    -> archived
 ```
 
-| status | means |
-|---|---|
-| `draft` | filed, not yet agreed; `aep plan artifact lifecycle story` prints the moves |
-| `proposed` | reviewed and agreed as worth doing |
-| `active` | being implemented in a tree |
-| `implemented` | merged, with its gate recorded as evidence |
-| `archived`, `rejected` | retired; the file and its history stay |
-
-Before a story moves to `implemented`, record its gate on it: `aep plan artifact evidence <id>
---kind test_result --source "task check"` (Commits, gates and public text). `move` finds that
-record by itself. A move made only on `--evidence <kind>=<count>` is journalled as an assertion,
-and `explain` says so. A story that is no longer wanted is moved to `archived`, never deleted.
+`aep plan artifact lifecycle story` prints these moves. Before `implemented`, the story's gate is
+recorded with `aep plan artifact evidence <id> --kind test_result`. A story no longer wanted is
+moved to `archived`, not deleted.
 
 ## Waves
 
-Stories are delivered in waves. One wave is one round of implementation:
-
-- **one tree per round.** A single managed worktree holds every change of the round; its units
-  run one after the other in it.
-- **units in sequence.** Each unit is one story (or a part of one), implemented test first and
-  committed on its own.
-- **review and gate once, before the merge.** `task check` runs in the round's tree, then the
-  round merges into `main`. An adversarial or security review is added for large or risky
-  changes, and for a guard rule that is loosened.
-- **cleaned up.** The tree is finished (`worktree finish --discard-cache --archive`), collected
-  with `worktree gc`, and the merged branches are deleted.
-
 `aep plan artifact waves --kind story --status draft` proposes which stories may go together: no
-two stories in one wave share a scope path, and a story never runs before one it depends on. A
-story with no recorded scope is listed as `unassessed` and never placed, so scope a story before
-you plan a wave around it. Each wave gets a page in `docs/waves/`: what was selected and why, the
-units with their commits, the decisions taken, and the stories it filed.
+two share a scope path, and none runs before one it depends on. A story with no recorded scope is
+listed as `unassessed` and is not placed.
 
-## How conductor's own behaviour becomes stories
+A wave is one round in one managed worktree, its units implemented test first and committed one
+by one. The gate is the pull request's `task check` job and Gates job. A large or risky change, or
+a loosened guard rule, also gets an adversarial or security review. The round ends with
+`worktree finish --discard-cache --archive` and `worktree gc`, and gets a page in `docs/waves/`.
 
-Conductor runs an organization's sessions; it does not build itself. A second session,
-`conductor-dev`, develops it ([design section 12](https://github.com/beyond10x/conductor/blob/main/docs/design/conductor.md#12-developing-conductor-conductor-dev),
-profile `crates/conductor/roles/maintainer.md`). It reads what conductor did and looks for:
+## The maintainer
 
-- decisions later reversed, and escalations that turned out to be routine;
-- the operator's corrections;
-- conductor's failed tool calls, and commands it invented;
-- refusals from other sessions, and messages held for the operator;
-- requests conductor sends it as `[NEED conductor <id>] conductor-dev <what>`.
+The maintainer is the role that develops conductor
+([design section 12](https://github.com/beyond10x/conductor/blob/main/docs/design/conductor.md#12-developing-conductor-conductor-dev)),
+with the profile `conductor role show --role maintainer` prints. The config writes the role as
+`maintainer`, and its old name `conductor-dev` is read for this release with a note. The session
+is named after the role as the file writes it: `<session_prefix>-maintainer`, or
+`<session_prefix>-conductor-dev`, both accepted for this release. `task maintainer:start` starts
+it.
 
-Each finding with a cause it can cite becomes a draft story, filed once. From there it follows
-the same path as any other change: spec first, a wave, the gate, a merge. After a wave merges and
-`task check` is green on `main`, conductor-dev installs the new binary with `task install`, and
-restarts conductor only when something conductor reads at session start changed (its profile,
-the controller profile, the instance's `rules.md`, the design or its settings).
+The maintainer reads `conductor status`, the `dispatches/` and `decisions/` logs and
+`conductor metric kpi-readings`. A reversed decision, an escalation that was class C or a failed
+dispatch with a cause it can cite becomes one draft story.
 
-You do not need a conductor-dev session to contribute. A story you file by hand goes through the
-same lifecycle.
+After a wave merges, `task install` installs the new binary on the `PATH`. A running instance stays
+on the binary conductord pinned for it until `conductor instance upgrade --tag v<version>`, which
+rolls back unless the runtime answers within `daemon.upgrade_timeout`. A story filed by hand, with
+no maintainer session, goes through the same lifecycle.
 
 ## Releases
 
-A release is a tag `v<version>` on `main` and a GitHub Release of the same name. Users install
-from the tag:
+A release is a tag `v<version>` on `main` and a GitHub Release of the same name
+([`AGENTS.md`](https://github.com/beyond10x/conductor/blob/main/AGENTS.md#releases)):
 
-```console
-cargo install --git https://github.com/beyond10x/conductor --tag v<version> --locked conductor-cli
-```
-
-The version follows semver at `0.x`: a **minor** bump for a new command, config key or record, a
-**patch** bump for anything else. A release usually follows a merged wave; several waves may go
-into one. The steps (Releases):
-
-1. On a branch from `main`, set `version` in the root `Cargo.toml`, refresh `Cargo.lock` with
-   `cargo update -p conductor-cli --offline`, and point the README's install line at the new tag.
-2. In a fresh clone of that exact commit, run `task check` with `B10X_GATES_POLICY` set, then
-   `task docs-check`; each must exit 0.
-3. Merge the branch through a pull request with green checks.
-4. Tag the commit, push the tag, and create the GitHub Release. Its notes list the stories
-   implemented since the last tag, one line each.
-5. Verify: the tag points at `main`'s commit, its checks are green, the Release exists, and
-   `cargo install` from the tag into a scratch root installs `conductor-cli` at the new version.
+1. On a branch from `main`, set `version` in the root `Cargo.toml`: at `0.x`, a minor bump for a
+   new command, config key or record, a patch bump otherwise. Refresh `Cargo.lock` with
+   `cargo update -p conductor-cli --offline`. Point the install lines at the new version: the
+   archive download (`version=`) of the README and `website/docs/getting-started.md`, and the
+   `cargo install --tag` of `website/docs/develop/onboarding.md`.
+2. The `task check` job and the Gates job are green on that exact commit, on the pull request of
+   step 4. Read each job's own conclusion. Only where CI cannot run: `task check` in a fresh clone
+   at that commit with `B10X_GATES_POLICY` set, exit 0.
+3. When the release changes anything onboarding runs (`SETUP.md`, the README pointer to it,
+   `conductor setup`, `conductor doctor`, the release archives or the prerequisites), repeat both
+   onboarding runs of `docs/analysis/onboarding-run.md` on that commit and append them there. One
+   repository has a GitHub `origin`, the other a self-hosted GitLab `origin`, each with a planning
+   store one format old. Both end `ready`, with questions only for logins and the store
+   migration. A gap either run hits is fixed on the branch and the runs repeated.
+4. Open a pull request through the bot route, and fast-forward `main` to it once it is green.
+5. `b10x-gates bot -- tag -a v<version> -m <title> <commit>`, then
+   `b10x-gates bot -- push origin v<version>`. Create the GitHub Release through `b10x-gates api`
+   (`POST /repos/beyond10x/conductor/releases` with `tag_name`, `name` and a `body` that lists the
+   stories implemented since the last tag, one line each). The tag push started the Release
+   workflow, which attaches the archives when its builds finish. If it finishes first, it creates
+   the Release with the tag's message as notes, and the body goes on with
+   `PATCH /repos/beyond10x/conductor/releases/<id>`. A failed run is re-run, or an existing tag's
+   archives backfilled, with `workflow_dispatch` and `tag: v<version>`.
+6. Verify that the tag points at `main`'s commit, the tag's checks and the Release workflow's run
+   are green, and the Release lists five assets: the four archives and `SHA256SUMS`. An archive
+   downloaded from it passes `sha256sum --check` against `SHA256SUMS`, and its `conductor --help`
+   exits 0. `cargo install` from the tag with `--root <scratch dir>` succeeds, and
+   `cargo install --list --root <scratch dir>` lists `conductor-cli v<version>`.
 
 ## What goes in public text
 
-The repository is public. Everything committed is public text: code, comments, tests, the
-specification, the plan, wave pages, this site and commit messages. So are pull-request and
-release bodies. The rules (Commits, gates and public text):
+The repository is public, and so are pull-request and release bodies.
 
 - Committed text names no private repository, no session or decision id, no host detail and no
   person.
-- The product names no organization (Rules, "No organization in the product"). Use
+- The product names no organization (`AGENTS.md` Rules, "No organization in the product"). Use
   `example-org` and `~/example-org/` in examples, fixtures and tests.
 - Every pull-request and release body passes `b10x-gates scan-text` before it is sent.
-- A `task check` that printed "the Gates scan is skipped" ran no secret scan and is no gate.
-- Session hand-overs hold session ids and host state, so they never go into this repository;
-  a wave page keeps only what the product's history needs.
+- Session hand-overs, which hold session ids and host state, stay out of this repository.
 
 :::note[Commits from the project's agents]
 Maintainers and the project's agents send every commit, push, pull request and tag through the

@@ -2,8 +2,8 @@
 title: Why conductor
 sidebar_position: 0
 description: The problem conductor solves, one day with it on a sample instance of two repositories, what it costs to adopt, and what can be adopted alone before any session is started.
-lede: Many repositories and many agent sessions leave nobody holding the whole picture, and work stops on questions nobody sees; conductor holds the picture, answers what it may, and records every decision.
-source: docs/design/conductor.md sections 1 to 6; crates/conductor/src/snapshot.rs, crates/conductor/src/dispatch.rs, crates/conductor/src/decide.rs, crates/conductor/src/spawn.rs, crates/conductor/src/dashboard.rs; Taskfile.yml, status and dashboard; conductor --help; a sample instance run on conductor 0.8.1
+lede: Many repositories and many agent sessions leave nobody holding the whole picture; conductor holds it, answers what it may, and records every decision.
+source: docs/design/conductor.md sections 1 to 6; docs/design/architecture-next.md; crates/conductor/src/run.rs, snapshot.rs, dispatch.rs, decide.rs, spawn.rs, doctor.rs, setup.rs, status.rs, trust.rs; conductor --help
 ---
 
 ## The problem
@@ -16,161 +16,50 @@ becomes the message bus, and work waits on whoever reads the next question.
 
 ## What conductor does about it
 
-- **One session holds the picture.** The conductor session takes a snapshot of every repository
-  of the instance (git state, pull requests, CI, releases, planning blockers, live sessions) and
-  compares it with the goals the operator set ([the loop](./the-loop.md)).
-- **One controller per repository does the work.** Conductor dispatches a brief to a controller
-  session in that repository's checkout; the controller plans and delivers in waves and reports
-  only to conductor ([roles](./roles.md)).
-- **Questions are answered, not parked.** Every decision has a class. Conductor takes the ones
-  that can be undone (class C) and records why; only what cannot be undone (class O) and what
-  needs the operator's hands (class H) reach a person
-  ([decision classes](./decisions-and-messages.md)).
-- **Everything is a record.** Decisions, dispatches, messages and snapshots are kept in an
-  append-only store, so a restarted session resumes from its records, and the operator reads what
-  happened instead of asking.
+| idea | how |
+|---|---|
+| One loop holds the picture | `conductor run`, a process with no model, takes a snapshot of every repository of the instance (git state, pull requests, CI, releases, planning blockers, live sessions) and compares it with the goals the operator set |
+| One controller per repository does the work | conductor dispatches a brief to a controller session in that repository's checkout; the controller plans and delivers in waves and reports only to conductor ([roles](./roles.md)) |
+| Questions are answered, not parked | every decision has a class; conductor takes the ones that can be undone (class C) and records why; only class O, what cannot be undone, and class H, what needs the operator's hands, reach a person ([decision classes](./decisions-and-messages.md)) |
+| Everything is a record | decisions, dispatches, messages and snapshots are kept in the store, so a restarted process resumes from records and the operator reads what happened ([records and store](./records-and-store.md)) |
+
+conductord, the daemon of the control host, keeps each instance's runtime running from the config
+file ([the host](./the-host.md)).
 
 ## One day with conductor
 
-A sample instance `demo` watches two local repositories, `alpha` and `beta`, as in
-[getting started](../getting-started.md). Most commands below are run by the conductor session,
-not by a person; the operator reads the board, the dashboard and the escalations. Ids, times and
-widths differ on your machine.
+A sample instance `demo` watches two local repositories, `alpha` and `beta`. The loop runs most
+commands below. The operator reads the board, the dashboard and the escalations. The script to record this day is
+[`docs/demo/walkthrough.md`](https://github.com/beyond10x/conductor/blob/main/docs/demo/walkthrough.md).
 
-### 1. Morning: the snapshot and the board
+| when | command | what happens |
+|---|---|---|
+| morning | `conductor snapshot start-snapshot`, `conductor repository activity` | one snapshot; only `alpha` is Active, so only its issues and pull requests are processed |
+| morning | `conductor snapshot publish-board --snapshot-id <id>` | `STATUS.md` in the records: deviations first, then an overview, specifications, open blockers and sessions |
+| goal | `conductor goal propose-goal --goal-id G-1 …`, `goal confirm-goal --goal-id G-1` | the goal the operator wrote into `NORTHSTAR.md`, recorded |
+| dispatch | `conductor dispatch send-dispatch --repository alpha --goal-id G-1 --brief …`, `conductor spawn --repository alpha` | `alpha`'s controller starts in its checkout with its role's profile, model and settings, so the [guard](/docs/security/the-guard) runs, and receives `[DISPATCH alpha DSP-<date>-01] G-1 plan and deliver the first release` |
+| wave | `decision raise-decision-request`, `decision record-conductor-decision --decision-class C …`, `decision answer-request` | the controller asks `[DECISION-REQUEST alpha REQ-1] approve the wave …?`; approving a wave is class C, so conductor answers `[DECISION REQ-1] A … (DEC-<date>-01)` and no person is asked |
+| escalation | `decision escalate-request --escalation-class O` | deleting the only copy of an old prototype branch cannot be undone, so it is class O, escalated with options and a recommendation |
+| answer | `decision record-operator-decision --recorded-by … --operator-words "archive it first"`, `decision answer-escalated-request` | the operator answers in a sentence; conductor records it as the operator's decision, quoting the words |
+| evening | `conductor dispatch report-done --dispatch-id DSP-<date>-01 --evidence "alpha v0.1.0 released"`, `conductor repository shipped --since <instant>` | the dispatch is `Done`; the daily brief lists deviations only |
 
-```console
-$ conductor snapshot start-snapshot
-01a11c9d-4c98-7057-9d12-f1bf3c34ae9f
-$ conductor repository activity
-repository  activity  decided_by  marked_by  reason
-alpha       Active    Snapshot    null       null
-beta        Inactive  Snapshot    null       null
-$ conductor snapshot publish-board --snapshot-id 01a11c9d-4c98-7057-9d12-f1bf3c34ae9f
-01a135c5-cb2a-72c7-ac66-8a2eb5fd5180
-```
-
-`publish-board` writes `STATUS.md` in the records directory: deviations first, then an overview,
-specifications, open blockers and sessions. `task status` runs both steps from a checkout of the
-conductor repository. Only `alpha` is Active, so only its issues and pull requests are processed.
-
-### 2. A goal and a dispatch
-
-The operator has written a goal into `NORTHSTAR.md`. Conductor records it and sends `alpha` a
-brief:
-
-```console
-$ conductor goal propose-goal --goal-id G-1 --title "alpha ships its first release" --exit-evidence "a v0.1.0 release of alpha"
-$ conductor goal confirm-goal --goal-id G-1
-$ conductor dispatch send-dispatch --dispatch-id DSP-20261013-01 --repository alpha --goal-id G-1 \
-    --brief "plan and deliver the first release" --sent-at 2026-10-13T09:00:00Z --priority 1
-DSP-20261013-01
-$ conductor spawn --repository alpha
-```
-
-`spawn` starts `alpha`'s controller in its checkout, with the controller role's profile, model and
-settings (so the [guard](/docs/security/the-guard) runs) and its charter, and records it running.
-The brief reaches it as `[DISPATCH alpha DSP-<date>-01] G-1 plan and deliver the first release`.
-
-### 3. The controller's wave
-
-The controller plans the release in `alpha`'s planning store, picks the stories that can be built
-at once, and asks before it starts:
-
-```text
-[DECISION-REQUEST alpha REQ-1] approve the wave of stories release-notes and version-flag?
-```
-
-Approving a wave is class C. Conductor records the request and its answer, and replies with the
-decision id:
-
-```console
-$ conductor decision raise-decision-request --request-id REQ-1 --repository alpha \
-    --question "approve the wave of stories release-notes and version-flag?" \
-    --options "A approve; B hold" --recommendation A --raised-at 2026-10-13T10:00:00Z
-$ conductor decision record-conductor-decision --decision-class C --repository alpha \
-    --question "approve the wave of stories release-notes and version-flag?" --options "A approve; B hold" \
-    --choice A --reason "inside the accepted goal; both can be reverted" --evidence REQ-1 \
-    --decided-at 2026-10-13T10:02:00Z
-DEC-20261013-01
-$ conductor decision answer-request --request-id REQ-1 --decision-id DEC-20261013-01
-```
-
-The controller reads `[DECISION REQ-1] A … (DEC-<date>-01)`, works the wave with its own
-workers, and reports `[REPORT alpha DSP-<date>-01] started …`, which conductor records with
-`conductor dispatch report-started`. No person was asked.
-
-### 4. An escalation, answered
-
-Later the controller asks whether to delete an old prototype branch, the only copy of some
-experiments. Data loss cannot be undone, so this is class O, and conductor escalates it with the
-options and its recommendation:
-
-```console
-$ conductor decision raise-decision-request --request-id REQ-2 --repository alpha \
-    --question "delete the old prototype branch, the only copy of its experiments?" \
-    --options "A delete; B archive first" --recommendation B --raised-at 2026-10-13T11:00:00Z
-$ conductor decision escalate-request --request-id REQ-2 --escalation-class O --reason "data loss cannot be undone"
-$ conductor decision requests --format jsonl | jq -c '{request_id, state, escalation_class}'
-{"request_id":"REQ-1","state":"Answered","escalation_class":null}
-{"request_id":"REQ-2","state":"Escalated","escalation_class":"O"}
-```
-
-The operator answers in a sentence. Conductor records it as the operator's decision, quoting the
-words and naming itself as the recorder, and closes the request:
-
-```console
-$ conductor decision record-operator-decision --decision-class O --repository alpha \
-    --question "delete the old prototype branch?" --options "A delete; B archive first" --choice B \
-    --reason "keep the only copy" --evidence REQ-2 --decided-at 2026-10-13T11:20:00Z \
-    --recorded-by conductor --operator-words "archive it first"
-DEC-20261013-02
-$ conductor decision answer-escalated-request --request-id REQ-2 --decision-id DEC-20261013-02
-$ conductor decision decisions --format jsonl | jq -c '{decision_id, decision_class, decided_by, choice}'
-{"decision_id":"DEC-20261013-01","decision_class":"C","decided_by":"Conductor","choice":"A"}
-{"decision_id":"DEC-20261013-02","decision_class":"O","decided_by":"Operator","choice":"B"}
-```
-
-### 5. The dashboard
-
-```console
-task dashboard          # or: conductor dashboard serve
-```
-
-A read-only page on `127.0.0.1:7313`: each session and what it works on, the dispatches, the
-decision and dispatch logs, CI, usage and disk ([read the dashboard](../guides/read-the-dashboard.md)).
-
-### 6. Evening
-
-The controller reports `[REPORT alpha DSP-<date>-01] done alpha v0.1.0 released`:
-
-```console
-$ conductor dispatch report-done --dispatch-id DSP-20261013-01 --evidence "alpha v0.1.0 released"
-$ conductor dispatch dispatches --format jsonl | jq -c '{dispatch_id, state, repository, goal_id}'
-{"dispatch_id":"DSP-20261013-01","state":"Done","repository":"alpha","goal_id":"G-1"}
-$ conductor repository shipped --since 2026-10-13T00:00:00Z
-```
-
-The daily cycle's brief to the operator lists deviations only. Everything else is in the records.
+The dashboard at `http://127.0.0.1:7300/?instance=demo`, served by conductord, shows each
+session and its work, the dispatches, the decision and dispatch logs, CI, usage and disk. Its
+writes are the operator's answers and settings.
 
 ## What it costs to adopt
 
-- **Programs.** Claude Code, `git`, `task`, `jq`, `aep`, `worktree`, `ess`, and `gh` or `glab`
-  for the forge; `conductor doctor` lists each and says what is missing. The binary comes from
-  `cargo install` or a release archive ([getting started](../getting-started.md#install)).
-- **A config of a few lines.** A name, its sources and its checkouts; every other key has a
-  default. Where there is no config file, `conductor setup --apply` writes one for the
-  repository it runs in.
-- **To first snapshot:** install, a config, `conductor snapshot start-snapshot`. Getting started
-  goes that far without starting a session.
-- **To first dispatch:** the records (`conductor init`), roles with a profile and settings each,
-  `task trust`, and accepting Claude Code's bypass-permissions disclaimer once
-  ([start conductor](../guides/start-conductor.md)).
-- **Trust.** Sessions run unattended with no permission prompts. The guard narrows what they
-  write; it is not a sandbox. Read the [security overview](/docs/security/overview), and
-  [run conductor isolated](../guides/run-isolated.md) on a machine you care about.
-- **Planning stores.** Blockers and wave plans come from each repository's AEP store; a
-  repository without one is tracked, without its blockers.
+| what | needs |
+|---|---|
+| programs | `git`, `claude`, `jq`, `aep`, `worktree`, `ess`; `gh` or `glab` for the forge; `substrate-daemon` for an instance in a substrate box. `conductor doctor` lists each against its pin and says what is missing ([getting started](/docs/getting-started)) |
+| a config | `version: conductor.config/2` and, per instance, a name, `session_prefix`, `placement`, sources and checkouts; conductord also needs `daemon.store` ([config](./config.md)) |
+| a first snapshot | install, a config, `conductor snapshot start-snapshot`; no session starts |
+| a first dispatch | the records (`conductor init`), roles with a profile and settings each, `conductor trust`, and Claude Code's bypass-permissions disclaimer accepted once ([sessions](/docs/security/sessions)) |
+| trust | sessions run unattended with no permission prompts; the guard narrows what they write and is no sandbox ([security overview](/docs/security/overview), [run isolated](/docs/guides/run-isolated)) |
+| planning stores | blockers and wave plans come from each repository's AEP store; a repository without one is tracked, without its blockers |
+
+In this release `conductor setup --apply` writes a `conductor.config/1` file, which conductord does
+not read.
 
 ## What can be adopted alone
 
@@ -178,17 +67,8 @@ None of these starts a session or dispatches anything:
 
 | piece | gives | writes |
 |---|---|---|
-| `conductor doctor`, `conductor setup` | the programs, the forge logins, the config, records and trust of a repository | nothing |
-| `conductor snapshot start-snapshot` and its views | every repository's state, pull requests, CI, releases, blockers, sessions | the state directory |
+| `conductor doctor`, `conductor setup` | the programs, the forge logins, the config, records and trust of a repository | nothing, without `--apply` |
+| `conductor snapshot start-snapshot` and its views | every repository's state, pull requests, CI, releases, blockers, sessions | the store |
 | `conductor repository activity`, `repository shipped` | which repositories are Active; what shipped since an instant | nothing |
-| `conductor snapshot publish-board`, `task status` | a `STATUS.md` board of one snapshot | the records directory |
-| `task dashboard` | the live sessions, CI, usage and disk, read-only | nothing |
-
-Start there, and add sessions once the board says what you expected.
-
-## A recording
-
-[`docs/demo/walkthrough.md`](https://github.com/beyond10x/conductor/blob/main/docs/demo/walkthrough.md)
-is a terminal script for recording this day on a fresh sample instance: from `conductor setup` to a
-published board and the dashboard with no step that needs a person, then the session steps, each
-marked where a person is needed.
+| `conductor snapshot publish-board` | a `STATUS.md` board of one snapshot | the records directory |
+| `conductor status` | what asks for attention in the newest complete snapshot | nothing |

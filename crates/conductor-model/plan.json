@@ -2,8 +2,8 @@
   "provenance": {
     "system": "conductor",
     "specification_version": "v1",
-    "source_digest": "5586712f5f754de7c827166383c39322c23d55f405877a76efa06f9a5c65dc55",
-    "contract_digest": "a76aa63f2ad9f5b169861cd94a585925f67f9ddebf70caf04f301709ee2e64d1"
+    "source_digest": "d2dd77b62a84922a4ef64956ff51b20bc94b193ec79c7682fbcb9ff59e865c26",
+    "contract_digest": "3ad5226d4517a7ae569bdc15103168ac09f97332327ca0e0972b62aad9feb62a"
   },
   "scope": {
     "profile": "component-skeletons",
@@ -6591,7 +6591,12 @@
       "kind": "view_query",
       "source": "conductor.token.Tokens",
       "disposition": {
-        "disposition": "generated"
+        "disposition": "obligation",
+        "reason": {
+          "class": "undetermined",
+          "construct": "a view parameter (`params:`), which a generated query does not apply"
+        },
+        "contract": "a query answering `conductor.token.Tokens` with rows projected from `conductor.token.PoolToken` at `read_your_writes` consistency, containing instances where `instance == param.instance`"
       }
     },
     {

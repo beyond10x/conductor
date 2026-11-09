@@ -338,16 +338,8 @@ fn a_request_is_escalated_and_answered_by_the_operator() {
     assert_eq!(decision["decision_class"], "O");
     assert_eq!(decision["decided_by"], "Operator");
 
-    // An open request is conductor's to answer, with a decision in force.
-    case.quiet(&[
-        "decision",
-        "answer-request",
-        "--request-id",
-        "cortex-2",
-        "--decision-id",
-        &conductors,
-    ]);
-    assert_eq!(case.request("cortex-2")["decision_id"], conductors.as_str());
+    // An open request is conductor's to answer, with a decision in force; one no decision
+    // carries is refused while the request is open.
     case.refused(
         &[
             "decision",
@@ -358,6 +350,28 @@ fn a_request_is_escalated_and_answered_by_the_operator() {
             "DEC-20261007-99",
         ],
         "DecisionNotFound",
+    );
+    case.quiet(&[
+        "decision",
+        "answer-request",
+        "--request-id",
+        "cortex-2",
+        "--decision-id",
+        &conductors,
+    ]);
+    assert_eq!(case.request("cortex-2")["decision_id"], conductors.as_str());
+    // The answered request's held state answers before the decision it cites is read
+    // (the one precedence rule, `ess/27`).
+    case.refused(
+        &[
+            "decision",
+            "answer-request",
+            "--request-id",
+            "cortex-2",
+            "--decision-id",
+            "DEC-20261007-99",
+        ],
+        "RequestStateConflict",
     );
     case.refused(
         &[

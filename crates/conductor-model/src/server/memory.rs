@@ -1,5 +1,5 @@
 // generated from conductor v1
-// contract digest a76aa63f2ad9f5b169861cd94a585925f67f9ddebf70caf04f301709ee2e64d1
+// contract digest 3ad5226d4517a7ae569bdc15103168ac09f97332327ca0e0972b62aad9feb62a
 // do not edit: regenerate with `ess synthesize --layout crate`
 
 //! Ephemeral stores for the generated network entry points; no durability.
@@ -745,13 +745,11 @@ impl crate::behaviour::PoolTokenStorage for MemoryPoolTokenStorage {
 fn get(&self, identity: &crate::token::TokenId) -> Option<crate::token::PoolTokenSnapshot> { let key = memory_key_312(identity); self.0.borrow().iter().find(|row| memory_key_312(&row.data.token_id) == key).cloned() }
 fn put(&mut self, snapshot: crate::token::PoolTokenSnapshot) { self.delete(&snapshot.data.token_id); let mut rows = self.0.borrow_mut(); rows.push(snapshot); rows.sort_by(|row, other| memory_key_312(&row.data.token_id).cmp(&memory_key_312(&other.data.token_id))); }
 fn delete(&mut self, identity: &crate::token::TokenId) { let key = memory_key_312(identity); self.0.borrow_mut().retain(|row| memory_key_312(&row.data.token_id) != key); }
-fn list(&self) -> Vec<crate::token::PoolTokenSnapshot> { self.0.borrow().clone() }
 }
 impl crate::behaviour::PoolTokenStorage for MemoryPorts {
 fn get(&self, identity: &crate::token::TokenId) -> Option<crate::token::PoolTokenSnapshot> { crate::behaviour::PoolTokenStorage::get(&self.pool_token_storage, identity) }
 fn put(&mut self, snapshot: crate::token::PoolTokenSnapshot) { crate::behaviour::PoolTokenStorage::put(&mut self.pool_token_storage, snapshot); }
 fn delete(&mut self, identity: &crate::token::TokenId) { crate::behaviour::PoolTokenStorage::delete(&mut self.pool_token_storage, identity); }
-fn list(&self) -> Vec<crate::token::PoolTokenSnapshot> { crate::behaviour::PoolTokenStorage::list(&self.pool_token_storage) }
 }
 
 /// Ephemeral storage of `conductor.tool.ToolCall`, shared by clones.
@@ -1013,4 +1011,7 @@ fn migrate_store(&mut self, input: crate::store::MigrateStore) -> Result<crate::
 }
 impl crate::config::obligations::EffectiveSettingsQuery for MemoryPorts {
 fn effective_settings(&self, instance: crate::config::InstanceName) -> Result<Vec<crate::config::EffectiveSettings>, crate::obligation::UnmetObligation> { crate::config::obligations::EffectiveSettingsQuery::effective_settings(&crate::config::obligations::Unimplemented, instance) }
+}
+impl crate::token::obligations::TokensQuery for MemoryPorts {
+fn tokens(&self, instance: crate::config::InstanceName) -> Result<Vec<crate::token::Tokens>, crate::obligation::UnmetObligation> { crate::token::obligations::TokensQuery::tokens(&crate::token::obligations::Unimplemented, instance) }
 }

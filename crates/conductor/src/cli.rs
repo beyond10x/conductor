@@ -600,7 +600,9 @@ impl Cli {
                 }
             },
             Group::Instance(command) => match command {
-                InstanceCommand::Serve => crate::instance::instance_serve(self.config.as_deref()),
+                InstanceCommand::Serve => {
+                    crate::instance::instance_serve(self.config.as_deref(), state, providers)
+                }
                 InstanceCommand::Relay => crate::instance::instance_relay(self.config.as_deref()),
                 InstanceCommand::Upgrade(args) => match &remote {
                     Some(daemon) => crate::remote::instance_upgrade(daemon, &args),
@@ -1184,7 +1186,7 @@ pub enum InstanceCommand {
     /// Bridge one instance API exchange from standard input to the instance's api.sock (CONDUCTOR_API_SOCKET, else <state>/api.sock) and its answer to standard output; conductord runs it as a substrate pipe session in a box on a remote substrate daemon
     #[command(name = "relay")]
     Relay,
-    /// Serve the instance API, the routes of the dashboard under /v1/, on the instance's <state>/api.sock until stopped; a write takes the token the daemon minted for the instance, in CONDUCTOR_API_TOKEN
+    /// Serve the instance API, the routes of the dashboard under /v1/, on the instance's <state>/api.sock until stopped, and run the instance's loop beside it under the lock conductor run takes (<state>/run/lock), so a conductor run started by hand is refused; while a conductor run holds the lock the runtime yields and takes the loop once it is let go; CONDUCTOR_RUNTIME_LOOP=off serves the API alone; a write takes the token the daemon minted for the instance, in CONDUCTOR_API_TOKEN
     #[command(name = "serve")]
     Serve,
     /// Ask the daemon to upgrade an instance to a released binary (POST /v1/instances/{name}/upgrade) - it fetches the release, installs its binary, runs its conductor doctor, restarts the runtime on it and rolls back to the previous binary unless it answers within daemon.upgrade_timeout; --all goes through every instance of the config file one at a time and stops at the first rollback

@@ -320,6 +320,8 @@ fn serve(case: &Case, cwd: &Path, config: Option<&Path>) -> Served {
         .command(cwd, config)
         .env("PATH", case.dir.join("bin"))
         .args(["instance", "serve"])
+        // The API alone: the runtime's loop off (`LOOP_VARIABLE`).
+        .env("CONDUCTOR_RUNTIME_LOOP", "off")
         .stdout(Stdio::piped())
         .stderr(File::create(&errors).expect("create the server's stderr file"))
         .spawn()

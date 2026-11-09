@@ -305,9 +305,9 @@ fn validate_passes_on_the_repository_s_example_file() {
         "validate says the file is valid: {}",
         describe(&output)
     );
-    // It writes the role names the start tasks select, conductor and controller, until the
-    // tasks are renamed (story:role-names-in-files): one note per old name, nothing else.
-    assert_only_old_name_notes(&output, 4);
+    // It writes the roles' own names, director and lead, so validate prints no old-name note
+    // and nothing else on standard error.
+    assert_only_old_name_notes(&output, 0);
     // It holds no maintainer: that is the host's role, in `host.yaml`
     // (story:maintainer-host-config).
     let written: Value = serde_yaml::from_str(&fs::read_to_string(&file).expect("read the file"))
