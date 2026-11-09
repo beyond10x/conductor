@@ -100,6 +100,7 @@ impl Ledger for FakeLedger {
         let status = Command::new(&job.command[0])
             .args(&job.command[1..])
             .current_dir(&job.cwd)
+            .env_remove("CARGO_TARGET_DIR")
             .stdin(Stdio::null())
             .stdout(log.try_clone().expect("the log twice"))
             .stderr(log)
