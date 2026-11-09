@@ -48,8 +48,9 @@ to fill in, and each step says where they come from. `<target>` is the build of 
      and keeps the old binary as conductor.previous beside it.
    - Hands: none when `~/.local/bin` is on `PATH`; otherwise the person adds it.
 
-4. **Install `aep`, `ess`, `worktree`, `substrate-daemon` and `b10x-gates`.** The first four at
-   conductor's pins: `conductor doctor` names each pin, on a line such as
+4. **Install all five: `aep`, `ess`, `worktree`, `substrate-daemon` and `b10x-gates`.** Install
+   every one of the five in this step, asking nothing. `aep`, `ess`, `worktree` and
+   `substrate-daemon` at conductor's pins: `conductor doctor` names each pin, on a line such as
    `aep: 0.69.1 is older than the build's pin 0.79`, and under the row of each program missing or
    too old prints the command that installs it on this machine, such as
    `  install: curl -fsSLO https://github.com/beyond10x/aep/releases/download/<v>/aep-<v>-x86_64-unknown-linux-gnu.tar.gz && …`,
@@ -60,15 +61,16 @@ to fill in, and each step says where they come from. `<target>` is the build of 
    `substrate-daemon`, whose releases carry `x86_64-unknown-linux-gnu` only. The releases are
    listed at https://github.com/beyond10x/<repo>/releases; their tags carry no `v`. Doctor needs
    `substrate-daemon` once the config of step 6 names `placement: systemd`, as the file step 6
-   writes does: install it here even while doctor prints `substrate-daemon: not needed`.
+   writes does: install it here even while doctor prints `substrate-daemon: not needed`. Installing
+   it asks the person nothing; only starting it, step 9, may.
    `b10x-gates` is the Gates CLI: under `forge.route: gates`, the default, conductor and every
    session commit and push through it (`b10x-gates bot`), so doctor needs it unless every
    instance writes `forge: {route: direct}`. Its releases carry one binary, for
    `x86_64-unknown-linux-gnu`; on another machine, build it as
    https://github.com/beyond10x/gates#readme says.
-   - Check: `conductor doctor`; each of the four meets the build's pin, or its pin under a
-     b10x.toml, and b10x-gates is present.
-   - Fix: for each of the four that does not,
+   - Check: `conductor doctor`; aep, ess, worktree and substrate-daemon each meet the build's pin,
+     or its pin under a b10x.toml, and b10x-gates is present.
+   - Fix: for each of aep, ess, worktree and substrate-daemon that does not,
      `curl -fsSLO https://github.com/beyond10x/<repo>/releases/download/<v>/<name>-<v>-<target>.tar.gz`,
      `curl -fsSLO https://github.com/beyond10x/<repo>/releases/download/<v>/SHA256SUMS`,
      `sha256sum --check --ignore-missing SHA256SUMS`, then
@@ -125,9 +127,12 @@ to fill in, and each step says where they come from. `<target>` is the build of 
    - Fix: `conductor init --instance <name>`
    - Hands: none.
 
-8. **Trust the checkouts and the records** as Claude Code workspaces.
-   - Check: none is needed; `conductor trust --instance <name>` is safe to repeat.
-   - Fix: `conductor trust --instance <name>`
+8. **Trust the checkouts and the records** as Claude Code workspaces, **and activate the
+   worktree workspace** of the checkouts root. `conductor setup --apply` activates it with a
+   profile it writes (step 11 says how); it needs no profile of the person's and asks nothing,
+   so run it here, before the steps that may wait for the person.
+   - Check: `conductor doctor`; it prints worktree workspace: <root> activated.
+   - Fix: `conductor trust --instance <name>`, then `conductor setup --apply`
    - Hands: none.
 
 9. **Start the substrate daemon.** With `placement: systemd`, conductord runs the instance's

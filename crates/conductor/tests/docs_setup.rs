@@ -443,6 +443,55 @@ fn the_pinned_programs_step_installs_from_the_release_archives_the_gates_cli_inc
     }
 }
 
+/// The step that installs the pinned programs names each by name on its Check and Fix lines, not
+/// by a count (a v1.0.1 onboarding run read "each of the four" as aep, ess, worktree and the
+/// Gates CLI, and skipped `substrate-daemon`).
+#[test]
+fn the_pinned_programs_step_names_substrate_daemon_on_its_check_and_fix() {
+    let steps = steps(&read("SETUP.md"));
+    let step = steps
+        .iter()
+        .find(|step| joined(step).contains("<name>-<v>-<target>.tar.gz"))
+        .unwrap_or_else(|| panic!("no step of SETUP.md downloads the pinned programs' archives"));
+    for (line, item) in items(step) {
+        assert!(
+            item.contains("substrate-daemon") && !item.contains("of the four"),
+            "SETUP.md:{line}: step {}: a Check or Fix item does not name substrate-daemon",
+            step.title.trim()
+        );
+    }
+}
+
+/// The step that trusts the checkouts also activates the worktree workspace with
+/// `conductor setup --apply`: it asks nothing, so it runs before the steps that may wait for the
+/// person (a v1.0.1 onboarding run stopped at step 9 and left the activation to step 11).
+#[test]
+fn the_trust_step_activates_the_worktree_workspace() {
+    let steps = steps(&read("SETUP.md"));
+    let step = steps
+        .iter()
+        .find(|step| {
+            items(step)
+                .iter()
+                .any(|(_, item)| item.contains("conductor trust --instance"))
+        })
+        .unwrap_or_else(|| panic!("no step of SETUP.md fixes with conductor trust"));
+    assert!(
+        items(step)
+            .iter()
+            .any(|(_, item)| item.contains("`conductor setup --apply`")),
+        "SETUP.md:{}: step {} does not run conductor setup --apply",
+        step.line,
+        step.title.trim()
+    );
+    assert!(
+        joined(step).contains("worktree workspace"),
+        "SETUP.md:{}: step {} does not say it activates the worktree workspace",
+        step.line,
+        step.title.trim()
+    );
+}
+
 /// The worktree workspace is activated by `conductor setup --apply`, with a profile it writes:
 /// no step asks for a profile the person does not have (every v1.0.0 onboarding run asked).
 #[test]
