@@ -22,7 +22,7 @@ use clap::CommandFactory;
 use conductor_cli::cli::Cli;
 
 /// The tools a step may name besides `conductor` and the programs `b10x.toml` pins.
-const TOOLS: [&str; 8] = [
+const TOOLS: [&str; 9] = [
     "git",
     "gh",
     "glab",
@@ -31,6 +31,7 @@ const TOOLS: [&str; 8] = [
     "tar",
     "sha256sum",
     "shasum",
+    "install",
 ];
 
 /// The keys every step carries, each on a line of its own.
@@ -401,27 +402,63 @@ fn the_step_before_the_last_applies_conductor_setup() {
     );
 }
 
-/// The step that installs the pinned programs quotes doctor's `install: follow <SETUP_URL>` line.
-/// That page installs the ecosystem's plugins as well and asks the person first, so the step says to
-/// install with its own `Fix:` instead (the v1.0.0 onboarding runs both followed the page).
-#[test]
-fn the_pinned_programs_step_installs_with_its_fix_not_the_page_doctor_names() {
-    let steps = steps(&read("SETUP.md"));
-    let url = conductor_cli::doctor::SETUP_URL;
-    let step = steps
-        .iter()
-        .find(|step| step.lines.iter().any(|(_, text)| text.contains(url)))
-        .unwrap_or_else(|| panic!("no step of SETUP.md quotes doctor's install page {url}"));
-    let text = step
-        .lines
+/// The text of `step`, its lines joined by one space.
+fn joined(step: &Step) -> String {
+    step.lines
         .iter()
         .map(|(_, text)| text.trim())
         .collect::<Vec<_>>()
-        .join(" ");
+        .join(" ")
+}
+
+/// No step sends an agent to the plugin marketplace's setup page: it installs the plugins as well
+/// and asks the person first (both v1.0.0 onboarding runs followed it). The step that installs
+/// the pinned programs installs them from their release archives, `b10x-gates` among them, which
+/// the default route `forge.route: gates` commits and pushes through.
+#[test]
+fn the_pinned_programs_step_installs_from_the_release_archives_the_gates_cli_included() {
+    let text = read("SETUP.md");
     assert!(
-        text.contains("with this step's Fix, not that page"),
-        "SETUP.md:{}: step {} quotes doctor's install page but does not say to install with this \
-         step's Fix, not that page",
+        !text.contains("agentplugins"),
+        "SETUP.md names the plugin marketplace's setup page"
+    );
+    let steps = steps(&text);
+    let step = steps
+        .iter()
+        .find(|step| joined(step).contains("<name>-<v>-<target>.tar.gz"))
+        .unwrap_or_else(|| panic!("no step of SETUP.md downloads the pinned programs' archives"));
+    let text = joined(step);
+    for needed in [
+        "b10x-gates",
+        "https://github.com/beyond10x/gates/releases/latest/download/b10x-gates-linux-x86_64",
+        "~/.local/bin/b10x-gates",
+        "forge.route",
+    ] {
+        assert!(
+            text.contains(needed),
+            "SETUP.md:{}: step {} does not name {needed}",
+            step.line,
+            step.title.trim()
+        );
+    }
+}
+
+/// The worktree workspace is activated by `conductor setup --apply`, with a profile it writes:
+/// no step asks for a profile the person does not have (every v1.0.0 onboarding run asked).
+#[test]
+fn the_worktree_workspace_is_activated_by_setup_apply() {
+    let text = read("SETUP.md");
+    assert!(
+        !text.contains("<profile>"),
+        "SETUP.md asks for a worktree profile the person does not have"
+    );
+    let steps = steps(&text);
+    let step = &steps[steps.len() - 2];
+    let text = joined(step);
+    assert!(
+        text.contains("worktree activate") && text.contains("profile"),
+        "SETUP.md:{}: step {} does not say that conductor setup --apply activates the worktree \
+         workspace with a profile it writes",
         step.line,
         step.title.trim()
     );

@@ -15,15 +15,19 @@
 //! e-mail address the CLI prints beside it ([`account_of`]).
 //!
 //! Under the row of each program missing or older than its pin it prints, indented two spaces,
-//! `install: ` and the command that installs it on this machine (`story:install-hints`): the
-//! package of the package manager found on the `PATH` it searches ([`manager`]) for the system
-//! `uname -s` names, else the program's own install page ([`install_command`]).
+//! `install: ` and the command that installs it on this machine (`story:install-hints`): for
+//! `aep`, `ess`, `worktree` and `substrate-daemon` the download of their release archive at the
+//! pin, for `b10x-gates` of its newest release; for any other the package of the package manager
+//! found on the `PATH` it searches ([`manager`]) for the system `uname -s` names, else the
+//! program's own install page ([`install_command`]). `b10x-gates` is needed unless every instance
+//! takes `forge.route: direct` ([`GATES`]).
 //!
 //! After the logins, for each instance's checkouts root, whether it is inside an activated
 //! `worktree` workspace, as `worktree workspace: <root> activated` or `… not activated`, the
-//! latter with `  activate: ` and the command that activates it ([`activate_command`]), which
-//! doctor never runs; a root not activated makes the run not ready
-//! (`story:worktree-activation`, [`activation_of`]).
+//! latter with `  activate: ` and the command that activates it, `conductor setup --apply` for a
+//! checkout under it ([`setup_command`]), which writes the root's profile template and runs
+//! `worktree activate` with it; doctor itself writes nothing. A root not activated makes the run
+//! not ready (`story:worktree-activation`, [`activation_of`]).
 //!
 //! After the workspaces, for each `usage.watcher` of the config file's instances, the systemd user
 //! unit that rotates the harness accounts, whether it runs, as `systemctl --user is-active` on the
@@ -49,7 +53,7 @@ use std::time::Duration;
 
 use anyhow::{Context as _, Result, bail};
 use conductor_model::config::{
-    Config, DoctorReport, ForgeLogin, ForgeLoginState, Instance, Machine, Prerequisite,
+    Config, DoctorReport, ForgeLogin, ForgeLoginState, ForgeRoute, Instance, Machine, Prerequisite,
     PrerequisiteState, Source,
 };
 
@@ -62,7 +66,7 @@ use crate::config;
 /// for an instance with a source on that forge ([`forges`]). `task` is not: conductor only
 /// recognises it inside a `build run` or a guarded command, and a repository whose gate is a
 /// `Taskfile.yml` brings its own.
-pub const PROGRAMS: [&str; 9] = [
+pub const PROGRAMS: [&str; 10] = [
     "git",
     "gh",
     "glab",
@@ -72,7 +76,14 @@ pub const PROGRAMS: [&str; 9] = [
     "worktree",
     "ess",
     SUBSTRATE_DAEMON,
+    GATES,
 ];
+
+/// The Gates CLI, the bot route of `forge.route: gates`, the default: `conductor run` commits and
+/// pushes the records through it, and every session's commits and pushes take it. Needed unless
+/// every instance of the config file takes `forge.route: direct`; without a config file it is
+/// needed, since the instance `SETUP.md` writes takes the default.
+pub const GATES: &str = crate::gates::PROGRAM;
 
 /// The substrate daemon a substrate placement opens its box through (`story:placement-substrate-local`):
 /// needed only when an instance of the config file runs in a substrate box ([`crate::placement::boxed`]),
@@ -305,13 +316,80 @@ fn find_in(program: &str, path: &OsStr) -> Option<PathBuf> {
         })
 }
 
-/// The ecosystem's setup page, which installs `aep`, `ess` and `worktree` at a pin
-/// (`story:install-hints`).
-pub const SETUP_URL: &str =
-    "https://github.com/beyond10x/agentplugins/releases/latest/download/SETUP.md";
+/// The repository whose releases carry `program`'s archives, `<name>-<v>-<target>.tar.gz` with
+/// one `SHA256SUMS`, tags without a `v` (`story:install-hints`): `aep`, `ess`, `worktree` and
+/// `substrate-daemon`; `None` for any other program.
+fn release_repository(program: &str) -> Option<&'static str> {
+    Some(match program {
+        "aep" => "https://github.com/beyond10x/aep",
+        "ess" => "https://github.com/beyond10x/ess",
+        "worktree" => "https://github.com/beyond10x/worktree",
+        SUBSTRATE_DAEMON => "https://github.com/beyond10x/substrate",
+        _ => return None,
+    })
+}
 
-/// The programs [`SETUP_URL`] installs.
-const ECOSYSTEM: [&str; 3] = ["aep", "ess", "worktree"];
+/// Where the Gates CLI is released: one binary for `x86_64-unknown-linux-gnu`, named without a
+/// version, so the newest release's `latest/download` URL is exact.
+const GATES_RELEASES: &str = "https://github.com/beyond10x/gates";
+
+/// The release binary of [`GATES`] and the one target it is built for.
+const GATES_BINARY: &str = "b10x-gates-linux-x86_64";
+const GATES_TARGET: &str = "x86_64-unknown-linux-gnu";
+
+/// The command that checks a download against the release's `SHA256SUMS` on `target`.
+fn checksum(target: &str) -> &'static str {
+    if target.ends_with("apple-darwin") {
+        "shasum -a 256 --check --ignore-missing SHA256SUMS"
+    } else {
+        "sha256sum --check --ignore-missing SHA256SUMS"
+    }
+}
+
+/// The direct install of `program`'s release archive for `target`, as `SETUP.md` step 4 writes
+/// it: download the archive and the release's `SHA256SUMS`, check the archive, unpack the binary
+/// into `~/.local/bin`. An exact pin is the version downloaded; for a pin `x.y`, or none, the
+/// version is `<v>`, named after the command as the newest such release.
+fn archive_install(repository: &str, program: &str, pin: Option<&str>, target: &str) -> String {
+    let (version, note) = match pin.and_then(Pin::parse) {
+        Some(Pin::Exact(major, minor, patch)) => (format!("{major}.{minor}.{patch}"), None),
+        Some(Pin::Line(major, minor)) => (
+            "<v>".to_owned(),
+            Some(format!(
+                " (<v>: the newest {major}.{minor}.z release at {repository}/releases)"
+            )),
+        ),
+        None => (
+            "<v>".to_owned(),
+            Some(format!(
+                " (<v>: the newest release at {repository}/releases)"
+            )),
+        ),
+    };
+    let base = format!("{repository}/releases/download/{version}");
+    let stem = format!("{program}-{version}-{target}");
+    format!(
+        "curl -fsSLO {base}/{stem}.tar.gz && curl -fsSLO {base}/SHA256SUMS && {} && tar -xzf \
+         {stem}.tar.gz -C ~/.local/bin --strip-components=1 {stem}/{program}{}",
+        checksum(target),
+        note.unwrap_or_default()
+    )
+}
+
+/// The direct install of the newest [`GATES`] release on `target`: its one binary, checked
+/// against the release's `SHA256SUMS`, installed into `~/.local/bin`; on any other target, its
+/// repository, whose README says how to build it.
+fn gates_install(target: &str) -> String {
+    if target != GATES_TARGET {
+        return format!("see {GATES_RELEASES}#readme (its releases carry {GATES_TARGET} only)");
+    }
+    let base = format!("{GATES_RELEASES}/releases/latest/download");
+    format!(
+        "curl -fsSLO {base}/{GATES_BINARY} && curl -fsSLO {base}/SHA256SUMS && {} && install -m \
+         755 {GATES_BINARY} ~/.local/bin/{GATES}",
+        checksum(target)
+    )
+}
 
 /// A package manager doctor names an install command of (`story:install-hints`).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -380,27 +458,38 @@ fn upstream(program: &str) -> Option<&'static str> {
         "glab" => "https://gitlab.com/gitlab-org/cli#installation",
         "git" => "https://git-scm.com/downloads",
         "claude" => "https://docs.anthropic.com/en/docs/claude-code/setup",
-        SUBSTRATE_DAEMON => "https://github.com/beyond10x/substrate/releases",
         _ => return None,
     })
 }
 
-/// The command that installs `program`, pinned at `pin` when one is known, with `manager`
-/// (`story:install-hints`): `aep`, `ess` and `worktree` follow [`SETUP_URL`], naming the pin; a
-/// program the manager packages is `<manager's install> <package>` (of the forges' CLIs, only
-/// Homebrew packages `gh` and `glab`); any other is `see <its install page>`. `None` for a
-/// program doctor knows no install of.
+/// The command that installs `program`, pinned at `pin` when one is known, with `manager`, on the
+/// target this binary was built for (`story:install-hints`): `aep`, `ess`, `worktree` and
+/// `substrate-daemon` from their release archive at the pin ([`archive_install`]), `b10x-gates`
+/// from its newest release ([`gates_install`]); a program the manager packages is `<manager's
+/// install> <package>` (of the forges' CLIs, only Homebrew packages `gh` and `glab`); any other
+/// is `see <its install page>`. `None` for a program doctor knows no install of.
 #[must_use]
 pub fn install_command(
     program: &str,
     pin: Option<&str>,
     manager: Option<Manager>,
 ) -> Option<String> {
-    if ECOSYSTEM.contains(&program) {
-        return Some(match pin {
-            Some(pin) => format!("follow {SETUP_URL} (needs {program} {pin})"),
-            None => format!("follow {SETUP_URL}"),
-        });
+    install_command_for(program, pin, manager, crate::upgrade::TARGET)
+}
+
+/// [`install_command`] on `target`.
+#[must_use]
+pub fn install_command_for(
+    program: &str,
+    pin: Option<&str>,
+    manager: Option<Manager>,
+    target: &str,
+) -> Option<String> {
+    if let Some(repository) = release_repository(program) {
+        return Some(archive_install(repository, program, pin, target));
+    }
+    if program == GATES {
+        return Some(gates_install(target));
     }
     let package = match (program, manager) {
         ("gh" | "glab", Some(Manager::Brew)) | ("jq" | "git", Some(_)) => Some(program),
@@ -611,7 +700,8 @@ fn uncommented(line: &str) -> &str {
 }
 
 /// One row per program of [`PROGRAMS`], with its pin from `pins` when there is one; a forge
-/// CLI of [`FORGES`] that `needed` does not name is `NotNeeded`, whether it is there or not.
+/// CLI of [`FORGES`], [`SUBSTRATE_DAEMON`] or [`GATES`] that `needed` does not name is
+/// `NotNeeded`, whether it is there or not.
 /// Each program is looked for on `search`, a `PATH`; none finds nothing.
 fn examine(
     pins: &[(String, String)],
@@ -625,7 +715,7 @@ fn examine(
                 .iter()
                 .find(|(name, _)| name == program)
                 .map(|(_, spec)| spec.clone());
-            if (FORGES.contains(program) || *program == SUBSTRATE_DAEMON)
+            if (FORGES.contains(program) || *program == SUBSTRATE_DAEMON || *program == GATES)
                 && !needed.contains(program)
             {
                 return Prerequisite {
@@ -717,6 +807,67 @@ pub struct Workspace {
     pub root: PathBuf,
     /// What `worktree` answered for it.
     pub activation: Activation,
+    /// The checkout under the root `worktree` was asked about, when there is one.
+    pub checkout: Option<PathBuf>,
+    /// The `worktree` profile template `conductor setup --apply` writes for the root's first
+    /// instance and activates it with ([`profile_file`]).
+    pub profile: PathBuf,
+}
+
+/// The directory beside the config file that holds the `worktree` profile templates
+/// `conductor setup --apply` writes (`story:worktree-activation`).
+const PROFILES: &str = "worktree";
+
+/// The `worktree` profile template of the instance `instance` of the config file `config`:
+/// `worktree/<instance>.toml` beside it. `conductor setup --apply` writes it when it is not
+/// there, and activates the instance's checkouts root with it (`story:worktree-activation`).
+#[must_use]
+pub fn profile_file(config: &Path, instance: &str) -> PathBuf {
+    config
+        .parent()
+        .unwrap_or_else(|| Path::new("."))
+        .join(PROFILES)
+        .join(format!("{instance}.toml"))
+}
+
+/// The `worktree` profile name of the instance `instance`: `conductor-` and the instance's name in
+/// lower case, every character but a letter, a digit or `-` as `-`, since `worktree` takes one
+/// lower-case path component.
+#[must_use]
+pub fn profile_name(instance: &str) -> String {
+    let name: String = instance
+        .chars()
+        .map(|c| {
+            let c = c.to_ascii_lowercase();
+            if c.is_ascii_lowercase() || c.is_ascii_digit() || c == '-' {
+                c
+            } else {
+                '-'
+            }
+        })
+        .collect();
+    format!("conductor-{name}")
+}
+
+/// How long a profile keeps a tree no session holds before `worktree` counts it abandoned: seven
+/// days, as `worktree`'s own default profile.
+const PROFILE_EXPIRY_SECONDS: u64 = 7 * 24 * 60 * 60;
+
+/// The `worktree` profile template (`version = 1`) of the instance `instance` whose managed trees
+/// are `trees`, its `checkouts.trees`: named [`profile_name`], its `worktree_root` those trees,
+/// trees expiring after [`PROFILE_EXPIRY_SECONDS`], and the checkouts root protected.
+#[must_use]
+pub fn profile_text(instance: &str, trees: &Path) -> String {
+    let quoted = |text: &str| serde_json::to_string(text).unwrap_or_else(|_| "\"\"".to_owned());
+    format!(
+        "version = 1\n\
+         name = {}\n\
+         worktree_root = {}\n\
+         expire_after_seconds = {PROFILE_EXPIRY_SECONDS}\n\
+         protect_workspace_root = true\n",
+        quoted(&profile_name(instance)),
+        quoted(&trees.display().to_string()),
+    )
 }
 
 /// The refusal `worktree` 0.18 answers, on standard error, for a repository no activated
@@ -731,14 +882,30 @@ const PROBE_ID: &str = "conductor.activation-probe";
 /// How long `worktree inspect` may take to refuse.
 const ACTIVATION_BOUND: Duration = Duration::from_secs(10);
 
-/// The command that activates `root` as a `worktree` workspace: doctor prints it, `conductor
-/// setup --apply` prints it as a `to run:` line, and neither runs it, since it writes the user's
-/// own `worktree` config. `<profile>` is the user's profile template.
+/// The `worktree` command that activates `root` as a workspace with the profile template
+/// `profile`: `conductor setup --apply` runs it, and prints it as a `to run:` line when
+/// `worktree` refused it.
 #[must_use]
-pub fn activate_command(root: &Path) -> String {
+pub fn activate_command(profile: &Path, root: &Path) -> String {
     format!(
-        "worktree activate --profile <profile> --workspace {}",
+        "worktree activate --profile {} --workspace {}",
+        profile.display(),
         root.display()
+    )
+}
+
+/// The command doctor prints under a checkouts root not activated: `conductor setup --apply` for
+/// `checkout`, a checkout under it, with the `--config` doctor was given, which writes the
+/// root's profile template when it is not there and activates the root with it. Doctor itself
+/// writes nothing.
+#[must_use]
+pub fn setup_command(flag: Option<&Path>, checkout: &Path) -> String {
+    let config = flag
+        .map(|file| format!(" --config {}", file.display()))
+        .unwrap_or_default();
+    format!(
+        "conductor{config} setup --apply --repository {}",
+        checkout.display()
     )
 }
 
@@ -767,12 +934,17 @@ pub fn activation_of(stderr: &[u8], stdout: &[u8]) -> Activation {
 /// (`story:worktree-activation`). `worktree doctor` and `worktree status` take no path, and every
 /// command that does takes a git repository, so doctor asks `worktree inspect --json --repo
 /// <checkout> --id` with [`PROBE_ID`] for the first git checkout under `root`
-/// ([`crate::dashboard::waste::profile_checkout`]), or `root` itself when it is one. Read-only.
-fn activation(program: &Path, root: &Path) -> Activation {
+/// ([`crate::dashboard::waste::profile_checkout`]), or `root` itself when it is one; the checkout
+/// asked about, none when there is none. Read-only.
+#[must_use]
+pub fn activation(program: &Path, root: &Path) -> (Activation, Option<PathBuf>) {
     let checkout = crate::dashboard::waste::profile_checkout(root)
         .or_else(|| root.join(".git").exists().then(|| root.to_path_buf()));
     let Some(checkout) = checkout else {
-        return Activation::Unchecked("no git checkout in it".to_owned());
+        return (
+            Activation::Unchecked("no git checkout in it".to_owned()),
+            None,
+        );
     };
     let answered = collect::run(
         Command::new(program)
@@ -781,10 +953,11 @@ fn activation(program: &Path, root: &Path) -> Activation {
             .args(["--id", PROBE_ID]),
         ACTIVATION_BOUND,
     );
-    match answered {
+    let activation = match answered {
         Ok(output) => activation_of(&output.stderr, &output.stdout),
         Err(error) => Activation::Unchecked(format!("{error:#}")),
-    }
+    };
+    (activation, Some(checkout))
 }
 
 /// How long `systemctl --user is-active` may take to answer (`story:usage-probe`).
@@ -863,27 +1036,32 @@ pub fn workspace_line(workspace: &Workspace) -> String {
     }
 }
 
-/// The forge CLIs a config needs, the hosts of its file's sources with the CLI of each, the
-/// checkouts root of each instance of the file, each once, and the `usage.watcher` of each
-/// instance that names one, each once ([`read_config`]).
-type Forges = (
-    Vec<&'static str>,
-    Vec<(&'static str, String)>,
-    Vec<PathBuf>,
-    Vec<String>,
-);
+/// What doctor reads of a config ([`read_config`]).
+#[derive(Debug, Default)]
+struct Read {
+    /// The programs of [`FORGES`], [`SUBSTRATE_DAEMON`] and [`GATES`] it needs.
+    needed: Vec<&'static str>,
+    /// The hosts of its file's sources, with the CLI of each.
+    hosts: Vec<(&'static str, String)>,
+    /// The checkouts root of each instance of the file, each once, with the profile template of
+    /// the first instance that names it ([`profile_file`]).
+    roots: Vec<(PathBuf, PathBuf)>,
+    /// The `usage.watcher` of each instance that names one, each once.
+    units: Vec<String>,
+}
 
 /// What doctor reads of the config `flag` (the global `--config`) and the environment name: the
 /// forge CLIs of [`FORGES`] that any of its instances starts ([`forges`]), in [`FORGES`]' order,
 /// every instance of the file, not only the one a command would select, since the default
-/// instance's conductor serves them all, none when there is no config file; and the hosts of the
-/// file's sources ([`forge_hosts`]), none without a file. Why the config
-/// does not load when it does not, each line of it. The environment is `environment`, or this
-/// process's when none is given.
+/// instance's conductor serves them all, none when there is no config file; `substrate-daemon`
+/// when an instance runs in a box; `b10x-gates` unless every instance of the file takes
+/// `forge.route: direct`, and without a file; and the hosts of the file's sources
+/// ([`forge_hosts`]), none without a file. Why the config does not load when it does not, each
+/// line of it. The environment is `environment`, or this process's when none is given.
 fn read_config(
     flag: Option<&Path>,
     environment: Option<&config::Environment>,
-) -> Result<Forges, Vec<String>> {
+) -> Result<Read, Vec<String>> {
     let loaded = match environment {
         Some(environment) => config::load(flag, environment),
         None => config::Environment::from_process()
@@ -891,51 +1069,55 @@ fn read_config(
     };
     match loaded {
         // Without a config file no source is named, so no forge CLI is needed: the built-in
-        // instance's placeholder GitHub source is no source of the user's.
-        Ok(loaded) if !loaded.read => Ok((Vec::new(), Vec::new(), Vec::new(), Vec::new())),
-        Ok(loaded) => Ok((
-            FORGES
-                .into_iter()
-                .filter(|forge| {
-                    loaded
-                        .config
-                        .instances
-                        .iter()
-                        .any(|instance| forges(instance).contains(forge))
-                })
-                .chain(
-                    loaded
-                        .config
-                        .instances
-                        .iter()
-                        .any(crate::placement::boxed)
-                        .then_some(SUBSTRATE_DAEMON),
-                )
-                .collect(),
-            forge_hosts(&loaded.config),
-            loaded
-                .config
-                .instances
-                .iter()
-                .map(|instance| PathBuf::from(&instance.checkouts.root))
-                .fold(Vec::new(), |mut roots, root| {
-                    if !roots.contains(&root) {
-                        roots.push(root);
-                    }
-                    roots
-                }),
-            loaded
-                .config
-                .instances
-                .iter()
-                .filter_map(|instance| instance.usage.watcher.clone())
-                .fold(Vec::new(), |mut units, unit| {
-                    if !units.contains(&unit) {
-                        units.push(unit);
-                    }
-                    units
-                }),
-        )),
+        // instance's placeholder GitHub source is no source of the user's. The instance a first
+        // config file names takes the default route, the bot route, so `b10x-gates` is.
+        Ok(loaded) if !loaded.read => Ok(Read {
+            needed: vec![GATES],
+            ..Read::default()
+        }),
+        Ok(loaded) => {
+            let instances = &loaded.config.instances;
+            let mut roots: Vec<(PathBuf, PathBuf)> = Vec::new();
+            for instance in instances {
+                let root = PathBuf::from(&instance.checkouts.root);
+                if !roots.iter().any(|(known, _)| *known == root) {
+                    roots.push((root, profile_file(&loaded.path, &instance.name.0)));
+                }
+            }
+            Ok(Read {
+                needed: FORGES
+                    .into_iter()
+                    .filter(|forge| {
+                        instances
+                            .iter()
+                            .any(|instance| forges(instance).contains(forge))
+                    })
+                    .chain(
+                        instances
+                            .iter()
+                            .any(crate::placement::boxed)
+                            .then_some(SUBSTRATE_DAEMON),
+                    )
+                    .chain(
+                        instances
+                            .iter()
+                            .any(|instance| instance.forge.route == ForgeRoute::Gates)
+                            .then_some(GATES),
+                    )
+                    .collect(),
+                hosts: forge_hosts(&loaded.config),
+                roots,
+                units: instances
+                    .iter()
+                    .filter_map(|instance| instance.usage.watcher.clone())
+                    .fold(Vec::new(), |mut units, unit| {
+                        if !units.contains(&unit) {
+                            units.push(unit);
+                        }
+                        units
+                    }),
+            })
+        }
         Err(error) => Err(format!("{error:#}")
             .split(['\n', '\r'])
             .filter(|line| !line.trim().is_empty())
@@ -976,6 +1158,9 @@ pub struct Doctor {
     project: Vec<(String, String)>,
     /// The package manager found for the machine's system ([`manager`]).
     manager: Option<Manager>,
+    /// The `--config` doctor was given, which the command it prints under a root not activated
+    /// passes on ([`setup_command`]).
+    flag: Option<PathBuf>,
 }
 
 impl Doctor {
@@ -1022,7 +1207,13 @@ impl Doctor {
         for workspace in &self.workspaces {
             out.push(workspace_line(workspace));
             if workspace.activation == Activation::NotActivated {
-                out.push(format!("  activate: {}", activate_command(&workspace.root)));
+                out.push(format!(
+                    "  activate: {}",
+                    match &workspace.checkout {
+                        Some(checkout) => setup_command(self.flag.as_deref(), checkout),
+                        None => activate_command(&workspace.profile, &workspace.root),
+                    }
+                ));
             }
         }
         out.extend(self.watchers.iter().map(watcher_line));
@@ -1079,7 +1270,7 @@ impl Doctor {
         self.workspaces
             .iter()
             .filter(|workspace| workspace.activation == Activation::NotActivated)
-            .map(|workspace| activate_command(&workspace.root))
+            .map(|workspace| activate_command(&workspace.profile, &workspace.root))
             .collect()
     }
 
@@ -1153,10 +1344,22 @@ pub fn check_in(
     // The build's own pins stay the minimum for each program the file does not pin
     // (story:doctor-minimum-versions).
     let pins = merge_pins(&project, &build_pins());
-    let (needed, hosts, roots, units, config_problems) = match read_config(flag, environment) {
-        Ok((needed, hosts, roots, units)) => (needed, hosts, roots, units, Vec::new()),
-        Err(why) => (FORGES.to_vec(), Vec::new(), Vec::new(), Vec::new(), why),
+    let (read, config_problems) = match read_config(flag, environment) {
+        Ok(read) => (read, Vec::new()),
+        Err(why) => (
+            Read {
+                needed: FORGES.into_iter().chain([GATES]).collect(),
+                ..Read::default()
+            },
+            why,
+        ),
     };
+    let Read {
+        needed,
+        hosts,
+        roots,
+        units,
+    } = read;
     let rows = examine(&pins, &needed, search);
     // A login is read only for a CLI that is there (story:doctor-identity).
     let logins = hosts
@@ -1178,9 +1381,14 @@ pub fn check_in(
     let workspaces = match search.and_then(|search| find_in("worktree", search)) {
         Some(program) => roots
             .into_iter()
-            .map(|root| Workspace {
-                activation: activation(&program, &root),
-                root,
+            .map(|(root, profile)| {
+                let (activation, checkout) = activation(&program, &root);
+                Workspace {
+                    root,
+                    activation,
+                    checkout,
+                    profile,
+                }
             })
             .collect(),
         None => Vec::new(),
@@ -1203,6 +1411,7 @@ pub fn check_in(
         pin_file,
         project,
         manager,
+        flag: flag.map(Path::to_path_buf),
     })
 }
 
@@ -1456,7 +1665,7 @@ mod tests {
             command("git", Some(Manager::Pacman)).as_deref(),
             Some("sudo pacman -S git")
         );
-        assert_eq!(command("aep", None), Some(format!("follow {SETUP_URL}")));
+        assert!(command("aep", None).is_some_and(|command| command.starts_with("curl -fsSLO ")));
         for program in PROGRAMS {
             assert!(command(program, None).is_some(), "{program}");
         }
@@ -1566,9 +1775,113 @@ mod tests {
             Activation::Unchecked(_)
         ));
         assert_eq!(
-            activate_command(Path::new("/srv/example-org")),
-            "worktree activate --profile <profile> --workspace /srv/example-org"
+            activate_command(
+                Path::new("/srv/conductor/worktree/alpha.toml"),
+                Path::new("/srv/example-org")
+            ),
+            "worktree activate --profile /srv/conductor/worktree/alpha.toml --workspace \
+             /srv/example-org"
         );
+        assert_eq!(
+            setup_command(None, Path::new("/srv/example-org/alpha")),
+            "conductor setup --apply --repository /srv/example-org/alpha"
+        );
+        assert_eq!(
+            setup_command(
+                Some(Path::new("/srv/conductor.yaml")),
+                Path::new("/srv/example-org/alpha")
+            ),
+            "conductor --config /srv/conductor.yaml setup --apply --repository \
+             /srv/example-org/alpha"
+        );
+    }
+
+    /// The profile template `conductor setup --apply` writes is one `worktree` 0.18 reads: the
+    /// fields of its `ProfileTemplate`, a name of one lower-case path component, the instance's
+    /// trees as its managed root (`story:worktree-activation`).
+    #[test]
+    fn the_profile_template_is_one_worktree_reads() {
+        assert_eq!(
+            profile_file(
+                Path::new("/srv/home/.b10x/conductor/conductor.yaml"),
+                "Alpha_1"
+            ),
+            Path::new("/srv/home/.b10x/conductor/worktree/Alpha_1.toml")
+        );
+        assert_eq!(profile_name("Alpha_1.x"), "conductor-alpha-1-x");
+        assert_eq!(
+            profile_text("alpha", Path::new("/srv/home/trees/alpha")),
+            "version = 1\n\
+             name = \"conductor-alpha\"\n\
+             worktree_root = \"/srv/home/trees/alpha\"\n\
+             expire_after_seconds = 604800\n\
+             protect_workspace_root = true\n"
+        );
+    }
+
+    /// `aep`, `ess`, `worktree` and `substrate-daemon` install from their release archive, at an
+    /// exact pin or the newest of a line; `b10x-gates` from its newest release, on the one target
+    /// it is built for (`story:install-hints`). None names the plugin marketplace's setup page.
+    #[test]
+    fn the_ecosystem_installs_from_its_release_archives() {
+        let linux = "x86_64-unknown-linux-gnu";
+        assert_eq!(
+            install_command_for("worktree", Some("0.18.1"), None, linux).as_deref(),
+            Some(
+                "curl -fsSLO https://github.com/beyond10x/worktree/releases/download/0.18.1/\
+                 worktree-0.18.1-x86_64-unknown-linux-gnu.tar.gz && curl -fsSLO \
+                 https://github.com/beyond10x/worktree/releases/download/0.18.1/SHA256SUMS && \
+                 sha256sum --check --ignore-missing SHA256SUMS && tar -xzf \
+                 worktree-0.18.1-x86_64-unknown-linux-gnu.tar.gz -C ~/.local/bin \
+                 --strip-components=1 worktree-0.18.1-x86_64-unknown-linux-gnu/worktree"
+            )
+        );
+        assert_eq!(
+            install_command_for("aep", Some("0.79"), None, "aarch64-apple-darwin").as_deref(),
+            Some(
+                "curl -fsSLO https://github.com/beyond10x/aep/releases/download/<v>/\
+                 aep-<v>-aarch64-apple-darwin.tar.gz && curl -fsSLO \
+                 https://github.com/beyond10x/aep/releases/download/<v>/SHA256SUMS && \
+                 shasum -a 256 --check --ignore-missing SHA256SUMS && tar -xzf \
+                 aep-<v>-aarch64-apple-darwin.tar.gz -C ~/.local/bin --strip-components=1 \
+                 aep-<v>-aarch64-apple-darwin/aep (<v>: the newest 0.79.z release at \
+                 https://github.com/beyond10x/aep/releases)"
+            )
+        );
+        assert!(
+            install_command_for(SUBSTRATE_DAEMON, None, None, linux).is_some_and(|command| command
+                .contains(
+                    "https://github.com/beyond10x/substrate/releases/download/<v>/\
+                     substrate-daemon-<v>-x86_64-unknown-linux-gnu.tar.gz"
+                )
+                && command.ends_with(
+                    "(<v>: the newest release at \
+                     https://github.com/beyond10x/substrate/releases)"
+                ))
+        );
+        assert_eq!(
+            install_command_for(GATES, None, Some(Manager::Pacman), linux).as_deref(),
+            Some(
+                "curl -fsSLO https://github.com/beyond10x/gates/releases/latest/download/\
+                 b10x-gates-linux-x86_64 && curl -fsSLO \
+                 https://github.com/beyond10x/gates/releases/latest/download/SHA256SUMS && \
+                 sha256sum --check --ignore-missing SHA256SUMS && install -m 755 \
+                 b10x-gates-linux-x86_64 ~/.local/bin/b10x-gates"
+            )
+        );
+        assert_eq!(
+            install_command_for(GATES, None, None, "aarch64-apple-darwin").as_deref(),
+            Some(
+                "see https://github.com/beyond10x/gates#readme (its releases carry \
+                 x86_64-unknown-linux-gnu only)"
+            )
+        );
+        for program in PROGRAMS {
+            for target in [linux, "aarch64-apple-darwin"] {
+                let command = install_command_for(program, None, None, target).unwrap_or_default();
+                assert!(!command.contains("agentplugins"), "{program}: {command}");
+            }
+        }
     }
 
     #[test]

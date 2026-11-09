@@ -997,10 +997,12 @@ types:
   # The input of `conductor setup` (story:setup-command), which checks one repository's
   # prerequisites: `repository` is its directory, by default the working directory; `apply`
   # applies the fixes that are safe to repeat, and only those: it writes a config file with an
-  # instance naming the repository when there is no config file, and runs `conductor init` and
-  # `conductor trust` for the instance naming it when its records or its trust are missing. It
-  # never logs a CLI in, installs a program or migrates a planning store: it prints each of those
-  # as the command to run.
+  # instance naming the repository when there is no config file, runs `conductor init` and
+  # `conductor trust` for the instance naming it when its records or its trust are missing, and
+  # activates that instance's checkouts root as a `worktree` workspace when it is not activated,
+  # with a profile template it writes beside the config file when there is none
+  # (story:worktree-activation). It never logs a CLI in, installs a program or migrates a planning
+  # store: it prints each of those as the command to run.
   - name: conductor.config.SetupRepository
     kind: struct
     fields:

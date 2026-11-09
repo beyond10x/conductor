@@ -21,8 +21,12 @@
 //! and the instance's `placement` and `session_prefix` written; with one, it prints the instance
 //! to add, [`instance_text`], and changes nothing), then runs `conductor init`
 //! and `conductor trust` for the instance naming the repository when its records or its trust are
-//! missing. It never logs a CLI in, installs a program, activates a `worktree` workspace or
-//! migrates a store: it prints each as a `to install: ` or `to run: ` line. Everything it checks is read again after it applied.
+//! missing, and activates the `worktree` workspace of that instance's checkouts root when it is
+//! not activated, with a profile template it writes beside the config file when there is none
+//! ([`activate`], `story:worktree-activation`). It never logs a CLI in, installs a program or
+//! migrates a store: it prints each as a `to install: ` or `to run: ` line, and a `worktree
+//! activate` that `worktree` refused as a `to run: ` line too. Everything it checks is read again
+//! after it applied.
 
 use std::fs;
 use std::io::ErrorKind;
@@ -432,8 +436,8 @@ fn failure(check: &RepositoryCheck) -> Option<String> {
 /// What `--apply` leaves to a person, as the command to run: `to install: <program>: <command>`
 /// for each program missing or older than its pin, the command doctor prints under its row
 /// ([`Doctor::install`], `story:install-hints`), `to run: <cli> auth login --hostname <host>` for
-/// each forge CLI not logged in, `to run: worktree activate …` for each checkouts root not in an
-/// activated `worktree` workspace ([`Doctor::activations`], `story:worktree-activation`), and the
+/// each forge CLI not logged in, `to run: worktree activate --profile <template> --workspace <root>`
+/// for each checkouts root still not in an activated `worktree` workspace after [`activate`] ([`Doctor::activations`], `story:worktree-activation`), and the
 /// store's migration.
 fn left_to_a_person(doctor: &Doctor, checks: &[RepositoryCheck]) -> Vec<String> {
     let installs = doctor
@@ -459,8 +463,8 @@ fn left_to_a_person(doctor: &Doctor, checks: &[RepositoryCheck]) -> Vec<String> 
                 login.program, login.host
             )
         });
-    // Activating a worktree workspace writes the user's own worktree config, so it is only
-    // printed (story:worktree-activation).
+    // A root still not activated: `--apply` ran the activation and `worktree` refused it, or it
+    // is another instance's (story:worktree-activation).
     let activations = doctor
         .activations()
         .into_iter()
@@ -540,6 +544,75 @@ fn apply(flag: Option<&Path>, environment: &Environment, repository: &Path) -> R
             eprintln!("conductor: setup: {error:#}");
         }
     }
+    if let Err(error) = activate(flag, environment, repository) {
+        eprintln!("conductor: setup: {error:#}");
+    }
+    Ok(())
+}
+
+/// How long `worktree activate` may take.
+const ACTIVATE_BOUND: Duration = Duration::from_secs(20);
+
+/// `--apply`'s activation of the `worktree` workspace (`story:worktree-activation`): when the
+/// checkouts root of the instance naming `repository` is in no activated workspace, writes the
+/// instance's profile template beside the config file when it is not there
+/// ([`doctor::profile_file`], [`doctor::profile_text`]: its trees the instance's
+/// `checkouts.trees`), and runs `worktree activate --profile <it> --workspace <root>`, which adds
+/// that one profile to the user's `worktree` config. A template that is there is the person's and
+/// is used as it is. Nothing is done without a `worktree` on `PATH`, or for a root `worktree`
+/// finds activated or does not answer for.
+///
+/// # Errors
+///
+/// The template cannot be written, or `worktree activate` does not run or refuses.
+fn activate(flag: Option<&Path>, environment: &Environment, repository: &Path) -> Result<()> {
+    const WHAT: &str = "activate the worktree workspace";
+    let Ok(loaded) = config::load(flag, environment) else {
+        return Ok(());
+    };
+    let Some(instance) = naming(&loaded, repository) else {
+        return Ok(());
+    };
+    let Some(program) = doctor::find("worktree") else {
+        return Ok(());
+    };
+    let root = Path::new(&instance.checkouts.root);
+    if doctor::activation(&program, root).0 != doctor::Activation::NotActivated {
+        return Ok(());
+    }
+    let profile = doctor::profile_file(&loaded.path, &instance.name.0);
+    if !profile.exists() {
+        if let Some(dir) = profile.parent() {
+            fs::create_dir_all(dir).with_context(|| format!("{WHAT}: create {}", dir.display()))?;
+        }
+        fs::write(
+            &profile,
+            doctor::profile_text(&instance.name.0, Path::new(&instance.checkouts.trees)),
+        )
+        .with_context(|| format!("{WHAT}: write {}", profile.display()))?;
+        println!("wrote: {}", profile.display());
+    }
+    let command = doctor::activate_command(&profile, root);
+    let output = collect::run(
+        Command::new(&program)
+            .arg("activate")
+            .arg("--profile")
+            .arg(&profile)
+            .arg("--workspace")
+            .arg(root),
+        ACTIVATE_BOUND,
+    )
+    .with_context(|| format!("{WHAT}: {command}"))?;
+    if !output.status.success() {
+        let why = String::from_utf8_lossy(&output.stderr)
+            .lines()
+            .map(str::trim)
+            .find(|line| !line.is_empty())
+            .unwrap_or("no reason given")
+            .to_owned();
+        bail!("{WHAT}: {command} refused: {why}");
+    }
+    println!("ran: {command}");
     Ok(())
 }
 

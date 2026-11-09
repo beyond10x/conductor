@@ -29,7 +29,7 @@ Each GitHub Release carries `conductor-<version>-<target>.tar.gz` for `x86_64-un
 `SHA256SUMS`. Download the archive for your machine, check it, and put the binary on `PATH`:
 
 ```console
-version=1.0.0 target=x86_64-unknown-linux-gnu
+version=1.0.1 target=x86_64-unknown-linux-gnu
 archive="conductor-$version-$target.tar.gz"
 url="https://github.com/beyond10x/conductor/releases/download/v$version"
 curl -fsSLO "$url/$archive"
@@ -55,7 +55,7 @@ $ conductor doctor
 host: workstation
 system: Linux 6.18.0
 architecture: x86_64
-conductor 1.0.0
+conductor 1.0.1
 git: present, git version 2.56.0
 gh: not needed
 glab: not needed
@@ -65,6 +65,7 @@ aep: present, aep 0.79.0
 worktree: present, b10x-worktree-cli 0.19.4
 ess: present, ess 0.90.0
 substrate-daemon: not needed
+b10x-gates: present, b10x-gates 0.1.27
 pins: none
 aep: 0.79.0 meets the build's pin 0.79
 worktree: 0.19.4 meets the build's pin 0.18.1
@@ -79,12 +80,15 @@ ready
 - The first four lines name the machine and the conductor version. Quote them when you ask for
   help.
 - A program is needed only once the config file asks for it: `gh` for a `github` source, `glab`
-  for a `gitlab` source, `substrate-daemon` for a `placement` that opens a box. With a forge
-  source, doctor also prints the account each forge CLI is logged in as.
+  for a `gitlab` source, `substrate-daemon` for a `placement` that opens a box. `b10x-gates` is
+  needed unless every instance takes `forge.route: direct`: the default route commits and pushes
+  through it. With a forge source, doctor also prints the account each forge CLI is logged in as.
 - `pins: none` means no `b10x.toml` was found at or above the working directory, so doctor checks
   against the pins the binary was built with.
 - Under a program that is missing or too old, doctor prints the command that installs it on this
-  machine, such as `  install: brew install jq`.
+  machine, such as `  install: brew install jq`; for `aep`, `ess`, `worktree`, `substrate-daemon`
+  and `b10x-gates` it downloads the release archive and checks it against the release's
+  `SHA256SUMS`.
 - The store and the daemon unit do not exist yet. conductord creates both in step 6.
 
 The last line is `ready`, or `not ready:` and what failed, such as

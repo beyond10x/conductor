@@ -15,8 +15,9 @@
 //! - `github.com/beyond10x/eventlog`, where the store's crates are published;
 //! - `github.com/beyond10x/secrets`, where the secrets source's crates are published
 //!   (`story:secrets-source`);
-//! - `github.com/beyond10x/agentplugins`, the setup page `conductor doctor` points `aep`, `ess` and
-//!   `worktree` at (`story:install-hints`);
+//! - `github.com/beyond10x/aep`, `github.com/beyond10x/ess`, `github.com/beyond10x/worktree` and
+//!   `github.com/beyond10x/gates`, the releases `conductor doctor`'s install lines download `aep`,
+//!   `ess`, `worktree` and `b10x-gates` from (`story:install-hints`);
 //! - `github.com/beyond10x/substrate` and `b10x-substrate-sdk`, where the substrate SDK a placement
 //!   opens its box through is published, and its package name (`story:placement-substrate-local`);
 //! - `b10x.toml`, the file the ecosystem installer writes its CLI pins to, which
@@ -47,7 +48,7 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
-const ALLOWED: [&str; 15] = [
+const ALLOWED: [&str; 18] = [
     ".b10x/conductor",
     ".b10x/./conductor",
     "~/.b10x",
@@ -57,7 +58,10 @@ const ALLOWED: [&str; 15] = [
     "b10x_gates_policy",
     "github.com/beyond10x/eventlog",
     "github.com/beyond10x/secrets",
-    "github.com/beyond10x/agentplugins",
+    "github.com/beyond10x/aep",
+    "github.com/beyond10x/ess",
+    "github.com/beyond10x/worktree",
+    "github.com/beyond10x/gates",
     "github.com/beyond10x/substrate",
     "b10x-substrate-sdk",
     "b10x.toml",

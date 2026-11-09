@@ -36,7 +36,7 @@ fn child() {
 /// `ess` print a version newer than any pin a build carries (`story:doctor-minimum-versions`), so
 /// a case without a pin file passes whatever the repository's `b10x.toml` pins; so does
 /// `substrate-daemon`, which every placement of a config file now needs.
-const PROGRAMS: [(&str, &str); 8] = [
+const PROGRAMS: [(&str, &str); 9] = [
     ("git", "git version 2.51.0"),
     ("gh", "gh version 2.100.0 (2026-09-04)"),
     ("claude", "2.1.295 (Claude Code)"),
@@ -45,6 +45,7 @@ const PROGRAMS: [(&str, &str); 8] = [
     ("worktree", "worktree-cli 99.1.0"),
     ("ess", "ess 99.1.0"),
     ("substrate-daemon", "substrate-daemon 99.1.0"),
+    ("b10x-gates", "b10x-gates 0.1.27"),
 ];
 
 /// The pins of the repository's own `b10x.toml`, which the build carries as its minimum versions.
@@ -889,11 +890,42 @@ fn doctor_prints_the_distribution_package_or_the_upstream_url_for_jq_on_linux() 
     );
 }
 
-/// `aep`, `ess` and `worktree`, missing or older than their pin, name the ecosystem's setup page
-/// and the pin doctor checks them against.
+/// The repository each pinned program is released from.
+fn repository_of(program: &str) -> &'static str {
+    match program {
+        "aep" => "https://github.com/beyond10x/aep",
+        "ess" => "https://github.com/beyond10x/ess",
+        "worktree" => "https://github.com/beyond10x/worktree",
+        _ => "https://github.com/beyond10x/substrate",
+    }
+}
+
+/// The download of `name`'s release archive `<v>`, for this build's target, checked against the
+/// release's `SHA256SUMS` and unpacked into `~/.local/bin`, as `SETUP.md` step 4 writes it
+/// (`story:install-hints`).
+fn archive_install(name: &str, version: &str) -> String {
+    let repo = repository_of(name);
+    let target = conductor_cli::upgrade::TARGET;
+    let sum = if target.ends_with("apple-darwin") {
+        "shasum -a 256"
+    } else {
+        "sha256sum"
+    };
+    let base = format!("{repo}/releases/download/{version}");
+    let stem = format!("{name}-{version}-{target}");
+    format!(
+        "curl -fsSLO {base}/{stem}.tar.gz && curl -fsSLO {base}/SHA256SUMS && {sum} --check \
+         --ignore-missing SHA256SUMS && tar -xzf {stem}.tar.gz -C ~/.local/bin \
+         --strip-components=1 {stem}/{name}"
+    )
+}
+
+/// `aep`, `ess` and `worktree`, missing or older than their pin, name the direct install from
+/// their release archive (the v1.0.0 onboarding runs followed the plugin marketplace page doctor
+/// named before, which asks the person first): an exact pin is the version downloaded, a pin
+/// `x.y` the newest `x.y.z`, `<v>`, named after the command.
 #[test]
-fn doctor_prints_the_setup_line_with_the_pin_for_aep_ess_and_worktree() {
-    let setup = conductor_cli::doctor::SETUP_URL;
+fn doctor_prints_the_release_archive_install_for_aep_ess_and_worktree() {
     let case = Case::new("install-setup");
     case.programs_but(&["ess", "worktree"]);
     case.uname("Linux");
@@ -909,23 +941,110 @@ fn doctor_prints_the_setup_line_with_the_pin_for_aep_ess_and_worktree() {
     let output = case.doctor(&repository);
     assert_eq!(output.status.code(), Some(1), "{}", shown(&output));
     let lines = stdout(&output);
-    let expected =
-        |program: &str, pin: &str| format!("  install: follow {setup} (needs {program} {pin})");
+    let newest = |program: &str, line: &str| {
+        format!(
+            "  install: {} (<v>: the newest {line}.z release at {}/releases)",
+            archive_install(program, "<v>"),
+            repository_of(program)
+        )
+    };
     assert_eq!(
         under(&lines, "aep: present, aep 0.69.1"),
-        Some(expected("aep", "0.70").as_str()),
+        Some(newest("aep", "0.70").as_str()),
         "too old: {}",
         shown(&output)
     );
     assert_eq!(
         under(&lines, "ess: missing"),
-        Some(expected("ess", "0.55").as_str()),
+        Some(newest("ess", "0.55").as_str()),
         "{}",
         shown(&output)
     );
     assert_eq!(
         under(&lines, "worktree: missing"),
-        Some(expected("worktree", "0.13.0").as_str()),
+        Some(format!("  install: {}", archive_install("worktree", "0.13.0")).as_str()),
+        "{}",
+        shown(&output)
+    );
+    assert!(
+        !lines.iter().any(|line| line.contains("agentplugins")),
+        "no install line names the plugin marketplace: {}",
+        shown(&output)
+    );
+}
+
+// ---------------------------------------------------------------------------------------------
+// The Gates CLI: the bot route `forge.route: gates`, the default, commits and pushes through it.
+// ---------------------------------------------------------------------------------------------
+
+/// The direct install of the newest `b10x-gates` release, as `SETUP.md` step 4 writes it.
+const GATES_INSTALL: &str = "  install: curl -fsSLO \
+    https://github.com/beyond10x/gates/releases/latest/download/b10x-gates-linux-x86_64 && \
+    curl -fsSLO https://github.com/beyond10x/gates/releases/latest/download/SHA256SUMS && \
+    sha256sum --check --ignore-missing SHA256SUMS && install -m 755 b10x-gates-linux-x86_64 \
+    ~/.local/bin/b10x-gates";
+
+/// An instance on the default route, `gates`, needs `b10x-gates`: without it doctor names it
+/// missing, under it the direct install of its release, and is not ready.
+#[test]
+fn doctor_needs_the_gates_cli_under_the_gates_route() {
+    let case = Case::new("gates-route");
+    case.programs_but(&["b10x-gates"]);
+    let config = case.config("[{github: example-org}]");
+    let output = case.doctor_for(&config);
+    assert_eq!(output.status.code(), Some(1), "{}", shown(&output));
+    let lines = stdout(&output);
+    if conductor_cli::upgrade::TARGET == "x86_64-unknown-linux-gnu" {
+        assert_eq!(
+            under(&lines, "b10x-gates: missing"),
+            Some(GATES_INSTALL),
+            "{}",
+            shown(&output)
+        );
+    } else {
+        assert!(
+            lines.contains(&"b10x-gates: missing".to_owned()),
+            "{}",
+            shown(&output)
+        );
+    }
+    assert_eq!(
+        last(&output),
+        "not ready: b10x-gates (missing)",
+        "{}",
+        shown(&output)
+    );
+}
+
+/// Without a config file the instance `SETUP.md` writes takes the default route, `gates`, so
+/// `b10x-gates` is needed already.
+#[test]
+fn doctor_needs_the_gates_cli_without_a_config_file() {
+    let case = Case::new("gates-no-config");
+    case.programs_but(&["b10x-gates"]);
+    let output = case.doctor(&case.work());
+    assert_eq!(output.status.code(), Some(1), "{}", shown(&output));
+    assert!(
+        stdout(&output).contains(&"b10x-gates: missing".to_owned()),
+        "{}",
+        shown(&output)
+    );
+}
+
+/// When every instance takes `forge.route: direct`, nothing commits through the bot route:
+/// `b10x-gates: not needed`, and doctor is ready without it.
+#[test]
+fn doctor_needs_no_gates_cli_when_every_instance_is_direct() {
+    let case = Case::new("gates-direct");
+    case.programs_but(&["b10x-gates"]);
+    let config = case.config("[{github: example-org}]");
+    let text = fs::read_to_string(&config).expect("the config file");
+    fs::write(&config, format!("{text}\x20   forge: {{route: direct}}\n"))
+        .expect("write the config file");
+    let output = case.doctor_for(&config);
+    assert_eq!(output.status.code(), Some(0), "{}", shown(&output));
+    assert!(
+        stdout(&output).contains(&"b10x-gates: not needed".to_owned()),
         "{}",
         shown(&output)
     );
@@ -980,7 +1099,9 @@ impl Case {
 }
 
 /// A checkouts root `worktree` finds in no activated workspace: doctor prints it `not activated`,
-/// under it the command that activates it, and is `not ready`; it never runs that command.
+/// under it the one command that activates it, `conductor setup --apply` for the checkout it
+/// asked about, which needs no profile the person has (every v1.0.0 onboarding run asked for
+/// one), and is `not ready`; it never activates anything itself.
 #[test]
 fn doctor_names_a_checkouts_root_not_in_an_activated_worktree_workspace() {
     let case = Case::new("worktree-not-activated");
@@ -993,8 +1114,13 @@ fn doctor_names_a_checkouts_root_not_in_an_activated_worktree_workspace() {
     let lines = stdout(&output);
     let row = format!("worktree workspace: {} not activated", root.display());
     let activate = format!(
-        "  activate: worktree activate --profile <profile> --workspace {}",
-        root.display()
+        "  activate: conductor setup --apply --repository {}",
+        root.join("alpha").display()
+    );
+    assert!(
+        !lines.iter().any(|line| line.contains("<profile>")),
+        "no line asks for a profile the person does not have: {}",
+        shown(&output)
     );
     assert_eq!(
         under(&lines, &row),

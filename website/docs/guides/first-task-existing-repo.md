@@ -42,18 +42,22 @@ repository's `origin`, and `~/src` as the checkouts root. Then it runs `conducto
 `conductor trust`. With a config file whose instances do not name the repository, it prints the
 instance to add as `to write:` lines and changes nothing.
 
-It never logs in, installs a program, migrates a store or activates a worktree workspace. Each of
-those is a line for you to run:
+When doctor's row reads `worktree workspace: ~/src not activated`, `--apply` also activates the
+checkouts root as a worktree workspace. It writes a profile for the instance beside the config
+file, `~/.b10x/conductor/worktree/alpha.toml`, unless one is there, and runs
+`worktree activate --profile ~/.b10x/conductor/worktree/alpha.toml --workspace ~/src`. You need
+no profile of your own.
+
+It never logs in, installs a program or migrates a store. Each of those is a line for you to run:
 
 ```text
 to run: gh auth login --hostname github.com
-to run: worktree activate --profile <profile> --workspace <root>
+to run: worktree activate --profile ~/.b10x/conductor/worktree/alpha.toml --workspace ~/src
 ```
 
-The second line appears when the checkouts root is not inside an activated worktree workspace:
-doctor's row then reads `worktree workspace: ~/src not activated`. `<profile>` is your committed
-worktree profile template. Run each `to run:` and `to install:` line, then `conductor setup` again
-until its last line is `ready`.
+The second line appears only when `worktree` refused the activation; the reason is on standard
+error. Run each `to run:` and `to install:` line, then `conductor setup` again until its last line
+is `ready`.
 
 ## 2. Start the instance
 

@@ -74,8 +74,9 @@ keep conductor away from the rest of a machine, in a VM, a container or a dedica
 
 The pins are in [`b10x.toml`](b10x.toml). With no `b10x.toml` in the working directory or a
 directory above it, `conductor doctor` checks `aep`, `ess` and `worktree` against the
-pins the binary was built with. `aep`, `ess`, `worktree` and `b10x-gates` come from the `b10x`
-marketplace (`/plugin marketplace add beyond10x/agentplugins` in Claude Code).
+pins the binary was built with. `aep`, `ess`, `worktree`, `substrate-daemon` and `b10x-gates`
+install from their release archives: under each one missing or too old, `conductor doctor`
+prints the command, and [`SETUP.md`](SETUP.md) step 4 lists them.
 
 A `gitlab` source names the host its group is on, such as `host: gitlab.example.com`
 (`gitlab.com` when absent), and needs `glab` logged in to that host; the
@@ -88,7 +89,7 @@ Each GitHub Release carries `conductor-<version>-<target>.tar.gz` for `x86_64-un
 `SHA256SUMS`. Download the archive for your machine, check it, and put the binary on `PATH`:
 
 ```console
-version=1.0.0 target=x86_64-unknown-linux-gnu
+version=1.0.1 target=x86_64-unknown-linux-gnu
 archive="conductor-$version-$target.tar.gz"
 url="https://github.com/beyond10x/conductor/releases/download/v$version"
 curl -fsSLO "$url/$archive"
@@ -113,7 +114,7 @@ target the binary was built for and `SHA256SUMS`, checks the sum, runs the new b
 binary until `conductor instance upgrade --instance <name> --tag v<version>` moves it
 ([upgrade and roll back](https://beyond10x.github.io/conductor/docs/guides/upgrade-and-rollback)).
 
-`conductor --version` prints the installed version, `conductor 1.0.0`. `conductor doctor` lists
+`conductor --version` prints the installed version, `conductor 1.0.1`. `conductor doctor` lists
 each program conductor starts with its version, `not needed` for the forge CLI the instance has no
 source on, and ends with `ready`, or `not ready:` and each program missing or older than its pin;
 it exits 1 when not ready.

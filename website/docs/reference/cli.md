@@ -208,7 +208,7 @@ Every command takes these, before or after its name.
 | [`conductor run`](#conductor-run) | Run the instance's loop with no model call, recording each tick - every cadence.watch the watch pass, its handlers and the mailbox; every cadence.cycle the snapshot, the board, records check and dispatch v1; at cadence.daily metric compute, REPORT.md and a commit of the records through the bot route. --once runs one watch tick and one cycle tick and exits; --once --commit-records commits the records alone |
 | [`conductor secret`](#conductor-secret) |  |
 | [`conductor secret put`](#conductor-secret-put) | Put a secret's value, read from standard input, into the daemon's secrets source (daemon.secrets) under --name through the secrets crates, and record its name and source in the daemon's store; a name already on record is refused (SecretExists) unless --replace |
-| [`conductor setup`](#conductor-setup) | Check a repository's prerequisites, doctor's and its planning store, instance, records and trust; --apply writes the instance config, runs init and trust, and prints what only a person may run |
+| [`conductor setup`](#conductor-setup) | Check a repository's prerequisites, doctor's and its planning store, instance, records and trust; --apply writes the instance config, runs init and trust, activates the worktree workspace, and prints what only a person may run |
 | [`conductor spawn`](#conductor-spawn) | Start a repository's controller session in its checkout, with the controller role's profile, model and settings and its charter, and record it running; refuse while a session of that name runs |
 | [`conductor status`](#conductor-status) | Print what asks for attention, one line each, from the store alone (the newest complete snapshot's id and age, its deviations, blocked dispatches, waits, pending requests and usage); --full prints its sessions and every open dispatch besides; start no snapshot and create nothing |
 | [`conductor store`](#conductor-store) |  |
@@ -2717,7 +2717,7 @@ Usage: conductor secret put [OPTIONS]
 
 ## `conductor setup`
 
-Check a repository's prerequisites, doctor's and its planning store, instance, records and trust; --apply writes the instance config, runs init and trust, and prints what only a person may run
+Check a repository's prerequisites, doctor's and its planning store, instance, records and trust; --apply writes the instance config, runs init and trust, activates the worktree workspace, and prints what only a person may run
 
 ```text
 Usage: conductor setup [OPTIONS]
@@ -2726,7 +2726,7 @@ Usage: conductor setup [OPTIONS]
 | Argument | Required | Default | Meaning |
 |---|---|---|---|
 | `--repository <DIR>` | no | none | The repository checked: its directory. Default: the working directory |
-| `--apply <BOOL>` | no | none | Write the instance config naming the repository, and run conductor init and conductor trust, when they are missing; never log in, install or migrate. `--apply` alone is `--apply true` One of `true`, `false`. |
+| `--apply <BOOL>` | no | none | Write the instance config naming the repository, run conductor init and conductor trust, and activate its checkouts root as a worktree workspace with a profile written beside the config file, when they are missing; never log in, install or migrate. `--apply` alone is `--apply true` One of `true`, `false`. |
 
 ## `conductor spawn`
 

@@ -14,7 +14,7 @@ use std::process::{Output, Stdio};
 
 /// Each program conductor starts but `glab`, with the version line its fake prints (as
 /// `tests/doctor.rs`), `substrate-daemon` included, which every placement now needs.
-const PROGRAMS: [(&str, &str); 8] = [
+const PROGRAMS: [(&str, &str); 9] = [
     ("git", "git version 2.51.0"),
     ("gh", "gh version 2.100.0 (2026-09-04)"),
     ("claude", "2.1.295 (Claude Code)"),
@@ -23,6 +23,7 @@ const PROGRAMS: [(&str, &str); 8] = [
     ("worktree", "worktree-cli 99.1.0"),
     ("ess", "ess 99.1.0"),
     ("substrate-daemon", "substrate-daemon 99.1.0"),
+    ("b10x-gates", "b10x-gates 0.1.27"),
 ];
 
 const GLAB: (&str, &str) = ("glab", "glab 1.46.0 (2024-09-01)");

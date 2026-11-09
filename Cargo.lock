@@ -589,7 +589,7 @@ dependencies = [
 
 [[package]]
 name = "conductor-broker"
-version = "1.0.0"
+version = "1.0.1"
 dependencies = [
  "conductor",
  "serde_json",
@@ -598,7 +598,7 @@ dependencies = [
 
 [[package]]
 name = "conductor-cli"
-version = "1.0.0"
+version = "1.0.1"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -632,7 +632,7 @@ dependencies = [
 
 [[package]]
 name = "conductor-docs"
-version = "1.0.0"
+version = "1.0.1"
 dependencies = [
  "anyhow",
  "clap",
@@ -2943,7 +2943,7 @@ dependencies = [
 
 [[package]]
 name = "tool"
-version = "1.0.0"
+version = "1.0.1"
 dependencies = [
  "clap",
  "conductor-broker",

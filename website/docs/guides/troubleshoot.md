@@ -27,7 +27,7 @@ exits 1:
 | `<program> (version unread)` | its `--version` prints no version doctor can read |
 | `<program> (pin unread)` | correct its pin in `b10x.toml` to `x.y.z` or `x.y` |
 | `<program> (not logged in to <host>)` | `gh auth login --hostname github.com`, or `glab auth login --hostname <host>` |
-| `worktree workspace (not activated: <root>)` | run the `activate:` line under the root's row |
+| `worktree workspace (not activated: <root>)` | run the `activate:` line under the root's row, `conductor setup --apply` for a checkout under it, which writes the profile and activates the root |
 | `agent kind <kind> (not implemented)` | set the role's `kind` to `claude-code`, the only kind |
 
 `substrate-daemon` is needed only for a `placement` that opens a box, a forge's CLI only for a

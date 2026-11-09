@@ -769,7 +769,7 @@ pub enum Group {
     #[command(subcommand)]
     Secret(SecretCommand),
 
-    /// Check a repository's prerequisites, doctor's and its planning store, instance, records and trust; --apply writes the instance config, runs init and trust, and prints what only a person may run
+    /// Check a repository's prerequisites, doctor's and its planning store, instance, records and trust; --apply writes the instance config, runs init and trust, activates the worktree workspace, and prints what only a person may run
     #[command(name = "setup")]
     Setup(SetupArgs),
 
@@ -2288,8 +2288,9 @@ pub struct SetupArgs {
     /// The repository checked: its directory. Default: the working directory
     #[arg(long, value_name = "DIR")]
     pub repository: Option<PathBuf>,
-    /// Write the instance config naming the repository, and run conductor init and conductor
-    /// trust, when they are missing; never log in, install or migrate. `--apply` alone is
+    /// Write the instance config naming the repository, run conductor init and conductor trust,
+    /// and activate its checkouts root as a worktree workspace with a profile written beside the
+    /// config file, when they are missing; never log in, install or migrate. `--apply` alone is
     /// `--apply true`
     #[arg(long, value_name = "BOOL", num_args = 0..=1, default_missing_value = "true")]
     pub apply: Option<bool>,

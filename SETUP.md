@@ -48,27 +48,36 @@ to fill in, and each step says where they come from. `<target>` is the build of 
      and keeps the old binary as conductor.previous beside it.
    - Hands: none when `~/.local/bin` is on `PATH`; otherwise the person adds it.
 
-4. **Install `aep`, `ess`, `worktree` and `substrate-daemon` at conductor's pins.**
-   `conductor doctor` names each pin, on a line such as `aep: 0.69.1 is older than the build's pin 0.79`,
-   and under the row of each one missing or too old prints where to get it, such as
-   `  install: follow https://github.com/beyond10x/agentplugins/releases/latest/download/SETUP.md (needs aep 0.79)`;
-   for `jq`, `gh` and `claude` it prints this machine's command the same way, such as
-   `  install: brew install jq`. Install the four with this step's Fix, not that page: the page
-   installs the `b10x` plugins as well and asks the person first, and this step asks nothing.
-   A pin `x.y` takes the newest `x.y.z` release of that
-   program, `<v>` below. `<name>` is the program's name and `<repo>` its repository: `aep`, `ess`
-   and `worktree` for the first three, `substrate` for `substrate-daemon`, whose releases carry
-   `x86_64-unknown-linux-gnu` only. The releases are listed at
-   https://github.com/beyond10x/<repo>/releases; their tags carry no `v`. Doctor needs
+4. **Install `aep`, `ess`, `worktree`, `substrate-daemon` and `b10x-gates`.** The first four at
+   conductor's pins: `conductor doctor` names each pin, on a line such as
+   `aep: 0.69.1 is older than the build's pin 0.79`, and under the row of each program missing or
+   too old prints the command that installs it on this machine, such as
+   `  install: curl -fsSLO https://github.com/beyond10x/aep/releases/download/<v>/aep-<v>-x86_64-unknown-linux-gnu.tar.gz && …`,
+   the Fix below with the values filled in; for `jq`, `gh` and `claude` it prints this machine's
+   package command the same way, such as `  install: brew install jq`. A pin `x.y` takes the
+   newest `x.y.z` release of that program, `<v>` below. `<name>` is the program's name and
+   `<repo>` its repository: `aep`, `ess` and `worktree` for the first three, `substrate` for
+   `substrate-daemon`, whose releases carry `x86_64-unknown-linux-gnu` only. The releases are
+   listed at https://github.com/beyond10x/<repo>/releases; their tags carry no `v`. Doctor needs
    `substrate-daemon` once the config of step 6 names `placement: systemd`, as the file step 6
    writes does: install it here even while doctor prints `substrate-daemon: not needed`.
+   `b10x-gates` is the Gates CLI: under `forge.route: gates`, the default, conductor and every
+   session commit and push through it (`b10x-gates bot`), so doctor needs it unless every
+   instance writes `forge: {route: direct}`. Its releases carry one binary, for
+   `x86_64-unknown-linux-gnu`; on another machine, build it as
+   https://github.com/beyond10x/gates#readme says.
    - Check: `conductor doctor`; each of the four meets the build's pin, or its pin under a
-     b10x.toml.
-   - Fix: for each program that does not,
+     b10x.toml, and b10x-gates is present.
+   - Fix: for each of the four that does not,
      `curl -fsSLO https://github.com/beyond10x/<repo>/releases/download/<v>/<name>-<v>-<target>.tar.gz`,
      `curl -fsSLO https://github.com/beyond10x/<repo>/releases/download/<v>/SHA256SUMS`,
      `sha256sum --check --ignore-missing SHA256SUMS`, then
-     `tar -xzf <name>-<v>-<target>.tar.gz -C ~/.local/bin --strip-components=1 <name>-<v>-<target>/<name>`.
+     `tar -xzf <name>-<v>-<target>.tar.gz -C ~/.local/bin --strip-components=1 <name>-<v>-<target>/<name>`;
+     for b10x-gates,
+     `curl -fsSLO https://github.com/beyond10x/gates/releases/latest/download/b10x-gates-linux-x86_64`,
+     `curl -fsSLO https://github.com/beyond10x/gates/releases/latest/download/SHA256SUMS`,
+     `sha256sum --check --ignore-missing SHA256SUMS`, then
+     `install -m 755 b10x-gates-linux-x86_64 ~/.local/bin/b10x-gates`.
    - Hands: none.
 
 5. **Bring the planning store up to date.** The store is `.engineering/` in the repository; its
@@ -146,9 +155,15 @@ to fill in, and each step says where they come from. `<target>` is the build of 
 11. **Check the repository as a whole, and apply what is safe.** `conductor setup` prints doctor's
     rows, then the repository's: its planning store, the instance naming it, its records and its
     trust, and ends with one verdict. `--apply` writes the step 6 file when there is no config
-    file, and runs `conductor init` and `conductor trust` when they are missing. It never logs in,
-    installs a program or migrates the store: it prints each of those as a `to run:` or
-    `to install:` line, which goes back to step 2, 4 or 5.
+    file, and runs `conductor init` and `conductor trust` when they are missing. It also
+    activates the instance's checkouts root as a `worktree` workspace when doctor prints
+    worktree workspace: <root> not activated: it writes a profile for it beside the config file,
+    ~/.b10x/conductor/worktree/<name>.toml, when there is none, and runs
+    `worktree activate --profile ~/.b10x/conductor/worktree/<name>.toml --workspace <root>`
+    with it. That needs no profile of the person's and asks nothing. It never logs in, installs a
+    program or migrates the store: it prints each of those as a `to run:` or `to install:` line,
+    which goes back to step 2, 4 or 5; an activation `worktree` refused it prints as a
+    `to run: worktree activate …` line with the reason on standard error.
     - Check: `conductor setup`; its last line is ready.
     - Fix: `conductor setup --apply`
     - Hands: what each `to run:` and `to install:` line it prints needs: a login, an install that
@@ -157,8 +172,9 @@ to fill in, and each step says where they come from. `<target>` is the build of 
 12. **Run doctor until it is ready.** Its last line is `ready`, or `not ready:` and what failed.
     - Check: `conductor doctor`
     - Fix: go back to the step for each program the not-ready line names: gh or glab to step 2,
-      aep, ess, worktree or substrate-daemon too old to step 4. Install any other missing program
-      (git, claude, jq) with the system's package manager, then check again.
+      aep, ess, worktree, substrate-daemon or b10x-gates missing or too old to step 4, a worktree
+      workspace not activated to step 11. Install any other missing program (git, claude, jq)
+      with the system's package manager, then check again.
     - Hands: what the step it goes back to needs.
     - Next: once doctor is ready, [one task in an existing repository](https://beyond10x.github.io/conductor/docs/guides/first-task-existing-repo)
       takes the person from here to a first merged pull request.

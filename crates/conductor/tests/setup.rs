@@ -25,13 +25,14 @@ use serde_json::Value;
 
 /// Each program conductor starts but `git`, `gh` and `glab`, with the version line its fake
 /// prints; `aep`, `worktree`, `ess` and `substrate-daemon` newer than any pin a build carries.
-const PROGRAMS: [(&str, &str); 6] = [
+const PROGRAMS: [(&str, &str); 7] = [
     ("claude", "2.1.295 (Claude Code)"),
     ("jq", "jq-1.8.2"),
     ("aep", "aep 99.1.0"),
     ("worktree", "worktree-cli 99.1.0"),
     ("ess", "ess 99.1.0"),
     ("substrate-daemon", "substrate-daemon 99.1.0"),
+    ("b10x-gates", "b10x-gates 0.1.27"),
 ];
 
 /// The planning store version `aep` writes today, and one an older `aep` wrote.
@@ -644,30 +645,72 @@ fn setup_apply_writes_a_second_version_file_the_daemon_reconciles() {
     );
 }
 
-/// `story:worktree-activation`: a fake `worktree` that finds the instance's checkouts root in no
-/// activated workspace, refusing `inspect` as `worktree` 0.18.1 does. `--apply` prints the
-/// command that activates it as a `to run:` line and never runs it: it writes the user's own
-/// worktree config.
+// ---------------------------------------------------------------------------------------------
+// story:worktree-activation: `--apply` activates the checkouts root as a `worktree` workspace with
+// a profile it writes, since a person new to conductor has none (every v1.0.0 onboarding run
+// asked for one).
+// ---------------------------------------------------------------------------------------------
+
+impl Case {
+    /// A fake `worktree` 0.18: `inspect` refuses as `workspace-not-activated` until `activate`
+    /// has run, and as `invalid-worktree-id`, the refusal after the workspace resolved, from then
+    /// on; `activate` exits `activate_exit`, and on 0 prints its line and marks the workspace
+    /// activated. Every call but `--version` is recorded.
+    fn worktree(&self, activate_exit: i32) {
+        let marker = self.dir.join("worktree-activated");
+        let file = self.bin().join("worktree");
+        fs::write(
+            &file,
+            format!(
+                "#!/bin/sh\n\
+                 if [ \"$1\" = --version ]; then printf '%s\\n' 'worktree-cli 99.1.0'; exit 0; fi\n\
+                 printf '%s %s\\n' worktree \"$*\" >> '{calls}'\n\
+                 if [ \"$1\" = inspect ]; then\n\
+                 if [ -e '{marker}' ]; then code=invalid-worktree-id; else code=workspace-not-activated; fi\n\
+                 printf '{{\"code\":\"%s\",\"message\":\"%s: refused\",\"ok\":false,\"version\":4}}\\n' \"$code\" \"$code\" >&2\n\
+                 exit 1\n\
+                 fi\n\
+                 if [ \"$1\" = activate ]; then\n\
+                 if [ {activate_exit} -ne 0 ]; then printf '%s\\n' 'workspace-root-invalid: refused' >&2; exit {activate_exit}; fi\n\
+                 : > '{marker}'\n\
+                 printf '%s\\n' 'activated'\n\
+                 exit 0\n\
+                 fi\n\
+                 exit 1\n",
+                calls = self.calls().display(),
+                marker = marker.display(),
+            ),
+        )
+        .expect("write worktree");
+        fs::set_permissions(&file, fs::Permissions::from_mode(0o755)).expect("make it runnable");
+    }
+
+    /// The `worktree` profile template `--apply` writes for the instance `name`, beside the
+    /// config file.
+    fn profile(&self, name: &str) -> PathBuf {
+        self.home()
+            .join(".b10x/conductor/worktree")
+            .join(format!("{name}.toml"))
+    }
+
+    /// The `worktree activate` calls the fake recorded.
+    fn activations(&self) -> Vec<String> {
+        fs::read_to_string(self.calls())
+            .unwrap_or_default()
+            .lines()
+            .filter(|call| call.starts_with("worktree activate"))
+            .map(str::to_owned)
+            .collect()
+    }
+}
+
+/// With no config file and no profile, `--apply` writes the profile template for the instance it
+/// writes, its trees the instance's `checkouts.trees`, runs `worktree activate` with it on the
+/// checkouts root, reads the root again as activated, and ends `ready`.
 #[test]
-fn setup_apply_prints_the_worktree_activation_and_does_not_run_it() {
+fn setup_apply_activates_the_worktree_workspace_with_a_profile_it_writes() {
     let case = Case::new("worktree-activation");
-    let file = case.bin().join("worktree");
-    fs::write(
-        &file,
-        format!(
-            "#!/bin/sh\n\
-             if [ \"$1\" = --version ]; then printf '%s\\n' 'worktree-cli 99.1.0'; exit 0; fi\n\
-             printf '%s %s\\n' worktree \"$*\" >> '{calls}'\n\
-             if [ \"$1\" = inspect ]; then\n\
-             printf '%s\\n' '{{\"code\":\"workspace-not-activated\",\"message\":\"workspace-not-activated: refused\",\"ok\":false,\"version\":4}}' >&2\n\
-             exit 1\n\
-             fi\n\
-             exit 0\n",
-            calls = case.calls().display(),
-        ),
-    )
-    .expect("write worktree");
-    fs::set_permissions(&file, fs::Permissions::from_mode(0o755)).expect("make it runnable");
+    case.worktree(0);
     case.claude_json();
     let repository = case.repository(
         "zeta",
@@ -675,17 +718,131 @@ fn setup_apply_prints_the_worktree_activation_and_does_not_run_it() {
         Some(CURRENT_STORE),
     );
     let root = case.home().join("src");
+    let profile = case.profile("zeta");
     let output = case.setup(&repository, &["--apply"]);
+    assert_eq!(
+        fs::read_to_string(&profile).unwrap_or_default(),
+        format!(
+            "version = 1\n\
+             name = \"conductor-zeta\"\n\
+             worktree_root = \"{}\"\n\
+             expire_after_seconds = 604800\n\
+             protect_workspace_root = true\n",
+            case.home()
+                .join(".local/state/worktree/trees/zeta")
+                .display()
+        ),
+        "{}",
+        shown(&output)
+    );
+    assert_eq!(
+        case.activations(),
+        vec![format!(
+            "worktree activate --profile {} --workspace {}",
+            profile.display(),
+            root.display()
+        )],
+        "{}",
+        shown(&output)
+    );
+    holds(
+        &output,
+        &[format!("worktree workspace: {} activated", root.display())],
+    );
+    assert_eq!(last(&output), "ready", "{}", shown(&output));
+    assert_eq!(output.status.code(), Some(0), "{}", shown(&output));
+}
+
+/// A profile template that is there already is the person's: `--apply` activates with it and
+/// leaves it as it is.
+#[test]
+fn setup_apply_keeps_a_profile_that_is_there() {
+    let case = Case::new("worktree-profile-kept");
+    case.worktree(0);
+    case.claude_json();
+    let repository = case.repository(
+        "zeta",
+        Some("https://github.com/example-org/zeta.git"),
+        Some(CURRENT_STORE),
+    );
+    let profile = case.profile("zeta");
+    fs::create_dir_all(profile.parent().expect("a directory")).expect("create its directory");
+    let own = "version = 1\nname = \"own\"\nexpire_after_seconds = 60\n";
+    fs::write(&profile, own).expect("write the profile");
+    let output = case.setup(&repository, &["--apply"]);
+    assert_eq!(
+        fs::read_to_string(&profile).expect("the profile"),
+        own,
+        "{}",
+        shown(&output)
+    );
+    assert_eq!(case.activations().len(), 1, "{}", shown(&output));
+    assert_eq!(last(&output), "ready", "{}", shown(&output));
+}
+
+/// Without `--apply` setup writes nothing: no profile, no activation, and the root's row says
+/// `not activated` with the command that activates it.
+#[test]
+fn setup_without_apply_activates_nothing() {
+    let case = Case::new("worktree-check-only");
+    case.worktree(0);
+    case.claude_json();
+    let repository = case.repository(
+        "zeta",
+        Some("https://github.com/example-org/zeta.git"),
+        Some(CURRENT_STORE),
+    );
+    let first = case.setup(&repository, &["--apply"]);
+    assert_eq!(last(&first), "ready", "{}", shown(&first));
+    fs::remove_file(case.dir.join("worktree-activated")).expect("deactivate the fake's workspace");
+    fs::remove_file(case.profile("zeta")).expect("remove the profile");
+    fs::remove_file(case.calls()).expect("clear the calls");
+    let root = case.home().join("src");
+    let output = case.setup(&repository, &[]);
     assert_eq!(output.status.code(), Some(1), "{}", shown(&output));
+    assert!(case.activations().is_empty(), "{}", shown(&output));
+    assert!(!case.profile("zeta").exists(), "{}", shown(&output));
     holds(
         &output,
         &[
             format!("worktree workspace: {} not activated", root.display()),
             format!(
-                "to run: worktree activate --profile <profile> --workspace {}",
-                root.display()
+                "  activate: conductor setup --apply --repository {}",
+                repository.display()
             ),
         ],
+    );
+}
+
+/// A `worktree` that refuses the activation: `--apply` names the refusal on standard error,
+/// prints the exact command as a `to run:` line, with the profile it wrote, and is not ready.
+#[test]
+fn setup_apply_prints_the_activation_worktree_refused() {
+    let case = Case::new("worktree-activation-refused");
+    case.worktree(1);
+    case.claude_json();
+    let repository = case.repository(
+        "zeta",
+        Some("https://github.com/example-org/zeta.git"),
+        Some(CURRENT_STORE),
+    );
+    let root = case.home().join("src");
+    let profile = case.profile("zeta");
+    let output = case.setup(&repository, &["--apply"]);
+    assert_eq!(output.status.code(), Some(1), "{}", shown(&output));
+    assert!(profile.is_file(), "{}", shown(&output));
+    holds(
+        &output,
+        &[format!(
+            "to run: worktree activate --profile {} --workspace {}",
+            profile.display(),
+            root.display()
+        )],
+    );
+    assert!(
+        String::from_utf8_lossy(&output.stderr).contains("workspace-root-invalid"),
+        "{}",
+        shown(&output)
     );
     assert_eq!(
         last(&output),
@@ -695,14 +852,5 @@ fn setup_apply_prints_the_worktree_activation_and_does_not_run_it() {
         ),
         "{}",
         shown(&output)
-    );
-    let calls = fs::read_to_string(case.calls()).unwrap_or_default();
-    assert!(
-        calls.contains("worktree inspect"),
-        "setup asked worktree:\n{calls}"
-    );
-    assert!(
-        !calls.contains("worktree activate"),
-        "--apply ran the activation:\n{calls}"
     );
 }

@@ -449,7 +449,7 @@ commands:
     arguments: []
   - path: [setup]
     callable: setup
-    about: Check a repository's prerequisites, doctor's and its planning store, instance, records and trust; --apply writes the instance config, runs init and trust, and prints what only a person may run
+    about: Check a repository's prerequisites, doctor's and its planning store, instance, records and trust; --apply writes the instance config, runs init and trust, activates the worktree workspace, and prints what only a person may run
     arguments:
       - field: repository
         source: {kind: option, long: repository}
