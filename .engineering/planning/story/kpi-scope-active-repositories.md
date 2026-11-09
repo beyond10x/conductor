@@ -5,7 +5,16 @@ kind: story
 status: active
 title: Repository-scoped KPIs count only Active repositories
 summary: K5 counted 28 repositories where 4 are Active
-revision: 3
+scope:
+- confidence: cited
+  path: crates/conductor/src/metric.rs
+- confidence: cited
+  path: crates/conductor/src/repository.rs
+- confidence: inferred
+  path: crates/conductor/tests/metric.rs
+- confidence: cited
+  path: docs/design/self-improvement.md
+revision: 5
 transitions:
 - {from: "draft", to: "proposed", at: "2026-11-07T15:37:36Z", actor: "human:timo", revision: 2}
 - {from: "proposed", to: "active", at: "2026-11-07T15:37:36Z", actor: "human:timo", revision: 3}

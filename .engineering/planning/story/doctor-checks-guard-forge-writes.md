@@ -5,7 +5,22 @@ kind: story
 status: active
 title: conductor doctor checks the guard allows each role's forge writes
 summary: doctor said ready while the guard denied every forge write
-revision: 5
+scope:
+- confidence: inferred
+  path: crates/conductor/cli.yaml
+- confidence: inferred
+  path: crates/conductor/src/config.rs
+- confidence: cited
+  path: crates/conductor/src/doctor.rs
+- confidence: inferred
+  path: crates/conductor/src/guard.rs
+- confidence: inferred
+  path: crates/conductor/src/guard/rules.rs
+- confidence: inferred
+  path: crates/conductor/src/role.rs
+- confidence: cited
+  path: crates/conductor/tests/doctor.rs
+revision: 7
 transitions:
 - {from: "draft", to: "proposed", at: "2026-11-07T13:11:40Z", actor: "human:timo", revision: 3}
 - {from: "proposed", to: "active", at: "2026-11-07T13:11:40Z", actor: "human:timo", revision: 4}

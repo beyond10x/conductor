@@ -5,7 +5,14 @@ kind: story
 status: active
 title: The controller guard admits pipeline retry and run of its own repository under forge.route direct
 summary: Controllers wait on the supervisor to retry or start their own pipelines
-revision: 4
+scope:
+- confidence: cited
+  path: crates/conductor/src/guard/rules.rs
+- confidence: cited
+  path: crates/conductor/tests/guard_rules.rs
+- confidence: cited
+  path: docs/waves/wave-47.md
+revision: 5
 transitions:
 - {from: "draft", to: "proposed", at: "2026-11-07T19:23:25Z", actor: "human:timo", revision: 3}
 - {from: "proposed", to: "active", at: "2026-11-07T19:23:25Z", actor: "human:timo", revision: 4}

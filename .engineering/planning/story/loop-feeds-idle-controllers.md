@@ -5,7 +5,28 @@ kind: story
 status: active
 title: The loop feeds every idle controller at each watch tick
 summary: An idle controller gets its next dispatch or a nudge at the watch tick, not two hours later at a cycle
-revision: 4
+scope:
+- confidence: cited
+  path: crates/conductor/roles/supervisor.md
+- confidence: inferred
+  path: crates/conductor/src/dashboard/overview.rs
+- confidence: inferred
+  path: crates/conductor/src/decide.rs
+- confidence: inferred
+  path: crates/conductor/src/init.rs
+- confidence: inferred
+  path: crates/conductor/src/metric.rs
+- confidence: cited
+  path: crates/conductor/src/run.rs
+- confidence: inferred
+  path: crates/conductor/src/run/handlers.rs
+- confidence: cited
+  path: crates/conductor/src/watch.rs
+- confidence: inferred
+  path: crates/conductor/tests/run.rs
+- confidence: inferred
+  path: docs/design/conductor-run.md
+revision: 6
 transitions:
 - {from: "draft", to: "proposed", at: "2026-11-07T18:39:58Z", actor: "human:timo", revision: 3}
 - {from: "proposed", to: "active", at: "2026-11-07T18:39:58Z", actor: "human:timo", revision: 4}

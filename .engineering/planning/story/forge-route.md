@@ -6,7 +6,32 @@ status: active
 title: An instance names its forge-write route; direct writes its own requests with gh or glab and git
 relations:
 - decomposes: epic:forge-neutral
-revision: 3
+scope:
+- confidence: inferred
+  path: README.md
+- confidence: cited
+  path: crates/conductor-broker/src/commit.rs
+- confidence: cited
+  path: crates/conductor-broker/src/services.rs
+- confidence: cited
+  path: crates/conductor-broker/tests/commit.rs
+- confidence: cited
+  path: crates/conductor-model/src/config.rs
+- confidence: cited
+  path: crates/conductor/src/config.rs
+- confidence: cited
+  path: crates/conductor/src/guard/rules.rs
+- confidence: cited
+  path: crates/conductor/src/run/records.rs
+- confidence: cited
+  path: crates/conductor/src/status.rs
+- confidence: cited
+  path: crates/conductor/tests/config.rs
+- confidence: cited
+  path: crates/conductor/tests/guard_rules.rs
+- confidence: cited
+  path: crates/conductor/tests/run_records.rs
+revision: 5
 transitions:
 - {from: "draft", to: "proposed", at: "2026-11-07T13:11:41Z", actor: "human:timo", revision: 2}
 - {from: "proposed", to: "active", at: "2026-11-07T13:11:41Z", actor: "human:timo", revision: 3}

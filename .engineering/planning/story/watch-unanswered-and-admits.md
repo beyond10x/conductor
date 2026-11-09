@@ -6,7 +6,22 @@ status: active
 title: The watch names an unanswered report and disk coming back
 relations:
 - decomposes: epic:loop-without-handwork
-revision: 5
+scope:
+- confidence: inferred
+  path: crates/conductor/src/broker.rs
+- confidence: inferred
+  path: crates/conductor/src/cli.rs
+- confidence: inferred
+  path: crates/conductor/src/config.rs
+- confidence: inferred
+  path: crates/conductor/src/dispatch.rs
+- confidence: inferred
+  path: crates/conductor/src/message.rs
+- confidence: cited
+  path: crates/conductor/src/watch.rs
+- confidence: cited
+  path: crates/conductor/tests/watch.rs
+revision: 7
 transitions:
 - {from: "draft", to: "proposed", at: "2026-11-07T13:13:52Z", actor: "human:timo", revision: 3}
 - {from: "proposed", to: "active", at: "2026-11-07T13:13:52Z", actor: "human:timo", revision: 4}

@@ -5,7 +5,14 @@ kind: story
 status: active
 title: A denied forge write names the instance's route, its policy and the fix
 summary: a gates route with no policy was read as a credential rule for two hours
-revision: 3
+scope:
+- confidence: inferred
+  path: crates/conductor/src/config.rs
+- confidence: cited
+  path: crates/conductor/src/guard/rules.rs
+- confidence: cited
+  path: crates/conductor/tests/guard_rules.rs
+revision: 5
 transitions:
 - {from: "draft", to: "proposed", at: "2026-11-07T13:21:16Z", actor: "human:timo", revision: 2}
 - {from: "proposed", to: "active", at: "2026-11-07T13:21:17Z", actor: "human:timo", revision: 3}

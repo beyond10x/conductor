@@ -5,7 +5,30 @@ kind: story
 status: active
 title: Releases are cut on a cadence and announced through a configured route
 summary: the operator asked for a default rule to cut and announce releases, with names only in config
-revision: 3
+scope:
+- confidence: inferred
+  path: crates/conductor-model/src/config.rs
+- confidence: inferred
+  path: crates/conductor/cli.yaml
+- confidence: cited
+  path: crates/conductor/roles/supervisor.md
+- confidence: inferred
+  path: crates/conductor/src/cli.rs
+- confidence: inferred
+  path: crates/conductor/src/collect/gitlab.rs
+- confidence: inferred
+  path: crates/conductor/src/config.rs
+- confidence: inferred
+  path: crates/conductor/src/records.rs
+- confidence: inferred
+  path: crates/conductor/src/shipped.rs
+- confidence: inferred
+  path: crates/conductor/src/watch.rs
+- confidence: inferred
+  path: docs/config.md
+- confidence: inferred
+  path: spec/domains/config.yaml
+revision: 5
 transitions:
 - {from: "draft", to: "proposed", at: "2026-11-07T16:52:27Z", actor: "human:timo", revision: 2}
 - {from: "proposed", to: "active", at: "2026-11-07T16:52:27Z", actor: "human:timo", revision: 3}

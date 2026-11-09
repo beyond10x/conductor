@@ -5,7 +5,22 @@ kind: story
 status: active
 title: 'A role runs one session: start refuses a second, the watch reports one'
 summary: two maintainer sessions ran at once, the second named -2
-revision: 3
+scope:
+- confidence: inferred
+  path: Taskfile.yml
+- confidence: cited
+  path: crates/conductor/roles/supervisor.md
+- confidence: cited
+  path: crates/conductor/src/confine/mod.rs
+- confidence: cited
+  path: crates/conductor/src/session.rs
+- confidence: cited
+  path: crates/conductor/src/watch.rs
+- confidence: inferred
+  path: crates/conductor/tests/confine.rs
+- confidence: inferred
+  path: crates/conductor/tests/profiles.rs
+revision: 5
 transitions:
 - {from: "draft", to: "proposed", at: "2026-11-07T13:50:17Z", actor: "human:timo", revision: 2}
 - {from: "proposed", to: "active", at: "2026-11-07T13:50:17Z", actor: "human:timo", revision: 3}

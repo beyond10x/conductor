@@ -8,7 +8,42 @@ summary: role profiles move from .agents/ and .claude/agents/ into the binary; t
 relations:
 - decomposes: epic:architecture-next
 - depends_on: story:agent-kinds
-revision: 3
+scope:
+- confidence: inferred
+  path: README.md
+- confidence: cited
+  path: crates/conductor/roles/controller.md
+- confidence: cited
+  path: crates/conductor/roles/maintainer.md
+- confidence: cited
+  path: crates/conductor/roles/supervisor.md
+- confidence: cited
+  path: crates/conductor/roles/teacher.md
+- confidence: cited
+  path: crates/conductor/src/agent/claude_code.rs
+- confidence: cited
+  path: crates/conductor/src/cli.rs
+- confidence: cited
+  path: crates/conductor/src/role.rs
+- confidence: cited
+  path: crates/conductor/src/session.rs
+- confidence: cited
+  path: crates/conductor/src/spawn.rs
+- confidence: cited
+  path: crates/conductor/tests/no_organization.rs
+- confidence: cited
+  path: crates/conductor/tests/profiles.rs
+- confidence: cited
+  path: crates/conductor/tests/roles.rs
+- confidence: cited
+  path: crates/conductor/tests/taskfile.rs
+- confidence: inferred
+  path: docs/design/conductor.md
+- confidence: cited
+  path: spec/domains/agent.yaml
+- confidence: cited
+  path: spec/domains/config.yaml
+revision: 5
 transitions:
 - {from: "draft", to: "proposed", at: "2026-11-08T21:45:10Z", actor: "human:timo", revision: 2}
 - {from: "proposed", to: "active", at: "2026-11-08T21:45:10Z", actor: "human:timo", revision: 3}
