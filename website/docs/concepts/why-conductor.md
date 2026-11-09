@@ -3,7 +3,7 @@ title: Why conductor
 sidebar_position: 0
 description: The problem conductor solves, one day with it on a sample instance of two repositories, what it costs to adopt, and what can be adopted alone before any session is started.
 lede: Many repositories and many agent sessions leave nobody holding the whole picture; conductor holds it, answers what it may, and records every decision.
-source: docs/design/conductor.md sections 1 to 6; docs/design/architecture-next.md; crates/conductor/src/run.rs, snapshot.rs, dispatch.rs, decide.rs, spawn.rs, doctor.rs, setup.rs; Taskfile.yml, status and dashboard; conductor --help
+source: docs/design/conductor.md sections 1 to 6; docs/design/architecture-next.md; crates/conductor/src/run.rs, snapshot.rs, dispatch.rs, decide.rs, spawn.rs, doctor.rs, setup.rs, status.rs, trust.rs; conductor --help
 ---
 
 ## The problem
@@ -35,7 +35,7 @@ commands below. The operator reads the board, the dashboard and the escalations.
 | when | command | what happens |
 |---|---|---|
 | morning | `conductor snapshot start-snapshot`, `conductor repository activity` | one snapshot; only `alpha` is Active, so only its issues and pull requests are processed |
-| morning | `conductor snapshot publish-board --snapshot-id <id>` | `STATUS.md` in the records: deviations first, then an overview, specifications, open blockers and sessions; `task status` runs both steps |
+| morning | `conductor snapshot publish-board --snapshot-id <id>` | `STATUS.md` in the records: deviations first, then an overview, specifications, open blockers and sessions |
 | goal | `conductor goal propose-goal --goal-id G-1 …`, `goal confirm-goal --goal-id G-1` | the goal the operator wrote into `NORTHSTAR.md`, recorded |
 | dispatch | `conductor dispatch send-dispatch --repository alpha --goal-id G-1 --brief …`, `conductor spawn --repository alpha` | `alpha`'s controller starts in its checkout with its role's profile, model and settings, so the [guard](/docs/security/the-guard) runs, and receives `[DISPATCH alpha DSP-<date>-01] G-1 plan and deliver the first release` |
 | wave | `decision raise-decision-request`, `decision record-conductor-decision --decision-class C …`, `decision answer-request` | the controller asks `[DECISION-REQUEST alpha REQ-1] approve the wave …?`; approving a wave is class C, so conductor answers `[DECISION REQ-1] A … (DEC-<date>-01)` and no person is asked |
@@ -43,7 +43,7 @@ commands below. The operator reads the board, the dashboard and the escalations.
 | answer | `decision record-operator-decision --recorded-by … --operator-words "archive it first"`, `decision answer-escalated-request` | the operator answers in a sentence; conductor records it as the operator's decision, quoting the words |
 | evening | `conductor dispatch report-done --dispatch-id DSP-<date>-01 --evidence "alpha v0.1.0 released"`, `conductor repository shipped --since <instant>` | the dispatch is `Done`; the daily brief lists deviations only |
 
-`task dashboard` prints `http://127.0.0.1:7300/?instance=demo`, served by conductord: each
+The dashboard at `http://127.0.0.1:7300/?instance=demo`, served by conductord, shows each
 session and its work, the dispatches, the decision and dispatch logs, CI, usage and disk. Its
 writes are the operator's answers and settings.
 
@@ -54,7 +54,7 @@ writes are the operator's answers and settings.
 | programs | `git`, `claude`, `jq`, `task`, `aep`, `worktree`, `ess`; `gh` or `glab` for the forge; `substrate-daemon` for an instance in a substrate box. `conductor doctor` lists each against its pin and says what is missing ([getting started](/docs/getting-started)) |
 | a config | `version: conductor.config/2` and, per instance, a name, `session_prefix`, `placement`, sources and checkouts; conductord also needs `daemon.store` ([config](./config.md)) |
 | a first snapshot | install, a config, `conductor snapshot start-snapshot`; no session starts |
-| a first dispatch | the records (`conductor init`), roles with a profile and settings each, `task trust`, and Claude Code's bypass-permissions disclaimer accepted once ([sessions](/docs/security/sessions)) |
+| a first dispatch | the records (`conductor init`), roles with a profile and settings each, `conductor trust`, and Claude Code's bypass-permissions disclaimer accepted once ([sessions](/docs/security/sessions)) |
 | trust | sessions run unattended with no permission prompts; the guard narrows what they write and is no sandbox ([security overview](/docs/security/overview), [run isolated](/docs/guides/run-isolated)) |
 | planning stores | blockers and wave plans come from each repository's AEP store; a repository without one is tracked, without its blockers |
 
@@ -70,5 +70,5 @@ None of these starts a session or dispatches anything:
 | `conductor doctor`, `conductor setup` | the programs, the forge logins, the config, records and trust of a repository | nothing, without `--apply` |
 | `conductor snapshot start-snapshot` and its views | every repository's state, pull requests, CI, releases, blockers, sessions | the store |
 | `conductor repository activity`, `repository shipped` | which repositories are Active; what shipped since an instant | nothing |
-| `conductor snapshot publish-board`, `task status` | a `STATUS.md` board of one snapshot | the records directory |
-| `task dashboard` | the URL of the dashboard conductord serves | nothing |
+| `conductor snapshot publish-board` | a `STATUS.md` board of one snapshot | the records directory |
+| `conductor status` | what asks for attention in the newest complete snapshot | nothing |

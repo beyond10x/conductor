@@ -68,9 +68,9 @@ A release is a tag `v<version>` on `main` and a GitHub Release of the same name
 
 1. On a branch from `main`, set `version` in the root `Cargo.toml`: at `0.x`, a minor bump for a
    new command, config key or record, a patch bump otherwise. Refresh `Cargo.lock` with
-   `cargo update -p conductor-cli --offline`. Point the install lines of the README and
-   `website/docs/getting-started.md` (`cargo install --tag` and the archive download) at the new
-   version.
+   `cargo update -p conductor-cli --offline`. Point the install lines at the new version: the
+   archive download (`version=`) of the README and `website/docs/getting-started.md`, and the
+   `cargo install --tag` of `website/docs/develop/onboarding.md`.
 2. The `task check` job and the Gates job are green on that exact commit, on the pull request of
    step 4. Read each job's own conclusion. Only where CI cannot run: `task check` in a fresh clone
    at that commit with `B10X_GATES_POLICY` set, exit 0.

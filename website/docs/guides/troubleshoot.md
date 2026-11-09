@@ -3,7 +3,7 @@ title: Troubleshoot
 sidebar_position: 8
 description: Read conductor doctor's verdict, why the daemon does not start or a runtime is refused, why a snapshot failed, what a guard denial means, and a fix on macOS.
 lede: Conductor stops with a message that says what failed, so start from the message and the command that printed it.
-source: crates/conductor/src/doctor.rs; crates/conductor/src/daemon/mod.rs, daemon/reconcile.rs; crates/conductor/src/placement.rs, secret.rs; crates/conductor/src/snapshot.rs, collect/; crates/conductor/src/guard.rs; crates/conductor/src/run.rs; Taskfile.yml, maintainer:start
+source: crates/conductor/src/doctor.rs; crates/conductor/src/daemon/mod.rs, daemon/reconcile.rs; crates/conductor/src/placement.rs, secret.rs; crates/conductor/src/snapshot.rs, collect/; crates/conductor/src/guard.rs; crates/conductor/src/run.rs; crates/conductor/src/session.rs; spec/domains/session.yaml
 ---
 
 ## Start with doctor
@@ -68,14 +68,16 @@ conductor run's; one runs per instance`.
 
 ## A refused session start
 
-`task maintainer:start` starts nothing when a check fails:
+`conductor session start --role <role>` starts nothing when a check fails, and prints one line,
+`session start: refused: <refusal>: role "<role>": <detail>`:
 
-| message | fix |
+| refusal | fix |
 |---|---|
-| `conductor config show names no maintainer under host.roles …` | the instance's `roles` lists no `maintainer`: add it, or remove `roles` |
-| `the maintainer runs on codex …; this task starts claude only` | set `harness: claude` |
-| `the profile … of the maintainer is not a file` | fix `profile`, or remove it to start from `conductor role show --role maintainer` |
-| `a session named … is already running; see task sessions` | attach to it, or stop it first |
+| `UnknownRole` | the config names no such role, or the role does not run on `claude`: add the role, or set `harness: claude` |
+| `InstanceNotPinned` | the role's own `settings` file is missing, is no JSON, or pins another instance: fix it, or remove `settings` |
+| `SessionRunning` | a live session holds the name: attach to it with `conductor session attach --role <role>`, or stop it with `conductor session stop --role <role>` |
+| `ProviderUnavailable`, `MeasurementShort` | under `strict` confinement, the provider is missing or the box is short of the request |
+| `LaunchFailed` | the start or the first prompt failed; the detail names why |
 
 ## A failed snapshot
 
@@ -114,7 +116,7 @@ conductor guard guard-decisions --format json
 
 The guard records denials only, in the store `daemon.store` names. The session sees the reason
 and can take another route. When every tool call of a session is blocked, the hook could not run
-`conductor`: install it with `task install`. An empty list does not show that a session ran under
+`conductor`: put it on the session's `PATH` ([getting started](../getting-started.md#1-install)). An empty list does not show that a session ran under
 the guard ([the guard](../security/the-guard.md), [sessions](../security/sessions.md)).
 
 ## On macOS

@@ -52,7 +52,7 @@ capability with the test that checks it.
 | [Eventlog](https://beyond10x.github.io/docs/eventlog/) ([GitHub](https://github.com/beyond10x/eventlog)) | the store's port, with the `eventlog-sqlite` and `eventlog-postgres` adapters |
 | [Substrate](https://beyond10x.github.io/docs/substrate/) ([GitHub](https://github.com/beyond10x/substrate)) | opens the box an instance's runtime runs in, when its `placement` names an adapter |
 | [Worktree](https://beyond10x.github.io/docs/worktree/) ([GitHub](https://github.com/beyond10x/worktree)) | managed worktrees, which the guard treats as their repository's own |
-| [Gates](https://beyond10x.github.io/docs/gates/) ([GitHub](https://github.com/beyond10x/gates)) | the bot route for commits and pushes, and the secret scan of `task check` |
+| [Gates](https://beyond10x.github.io/docs/gates/) ([GitHub](https://github.com/beyond10x/gates)) | the bot route for commits and pushes, and the secret scan of conductor's own gate |
 
 ## Where to go next
 

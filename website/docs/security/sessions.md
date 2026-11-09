@@ -3,7 +3,7 @@ title: Sessions
 sidebar_position: 3
 description: How a session starts; the claude --bg launch, settings, setting sources, profile, refusals, and which processes run in a box.
 lede: Every session starts as a background Claude Code session through conductor session start or conductor spawn; its settings decide whether the guard runs.
-source: crates/conductor/src/session.rs, spawn.rs, confine/mod.rs, agent/, placement.rs, systemd.rs, daemon/reconcile.rs, daemon/host_roles.rs, config.rs; Taskfile.yml (maintainer:start)
+source: crates/conductor/src/session.rs, spawn.rs, confine/mod.rs, agent/, placement.rs, systemd.rs, daemon/reconcile.rs, daemon/host_roles.rs, config.rs; spec/domains/session.yaml
 ---
 
 ## Who starts a session
@@ -11,7 +11,7 @@ source: crates/conductor/src/session.rs, spawn.rs, confine/mod.rs, agent/, place
 | session | command | start directory |
 |---|---|---|
 | a controller | `conductor spawn --repository <repo>`, which `conductor run` calls | the checkout `<checkouts.root>/<repo>` |
-| the maintainer | `conductor session start --role maintainer`, run by `task maintainer:start` | the working directory |
+| the maintainer | `conductor session start --role maintainer` | the working directory |
 | a conductor session, by hand | `conductor session start --role conductor` | the instance's `records` |
 | a host role, `supervisor` or `teacher` | conductord runs `conductor --config <file> --state-dir <daemon dir>/host session start --role <role>` for each role `globals.roles` lists | the config file's directory |
 
@@ -65,8 +65,8 @@ configuration out, run sessions as an OS user whose user settings hold only the 
 
 A role's own `settings` file takes their place. Make it wire the same hook
 ([the guard](/docs/security/the-guard)). Under a config file a session starts with a copy pinned
-to its instance, `<state>/sessions/<session name>.settings.json`: `"env": {"CONDUCTOR_INSTANCE":
-"<name>"}`, and `CONDUCTOR_INSTANCE=<name>` before `conductor` in each hook command. The harness
+to its instance, `<state>/sessions/<session name>.settings.json`:
+`"env": {"CONDUCTOR_INSTANCE": "<name>"}`, and `CONDUCTOR_INSTANCE=<name>` before `conductor` in each hook command. The harness
 does not pass the starter's environment to the session, so only the pin selects the instance its
 hooks act for. A file that pins another instance, or is no JSON, is refused (`InstanceNotPinned`).
 `conductor config validate` names it by its `settings` path.
@@ -117,9 +117,9 @@ trust` does), `NoCharter` (missing, empty, not UTF-8, or starting with `-`), `Se
 repository's controller is `Running` or `Paused`, and launches. A failed launch is
 `LaunchFailed`.
 
-`task maintainer:start`
-refuses while a live session of its name runs, when its profile is not a file, and when its
-harness is not `claude`. `conductor watch` reports `conductors: <n> live sessions named <name>:
+`conductor session start --role maintainer` refuses while a live session of its name runs
+(`SessionRunning`), when its harness is not `claude` (`UnknownRole`), and when its own settings
+file pins another instance (`InstanceNotPinned`). `conductor watch` reports `conductors: <n> live sessions named <name>:
 <ids>` when two sessions hold the conductor's name.
 
 ## Boxes, slices and limits

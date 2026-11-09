@@ -42,8 +42,8 @@ to fill in, and each step says where they come from. `<target>` is the build of 
      `sha256sum --check --ignore-missing SHA256SUMS` (it must print OK for the archive; stop
      when it does not), then
      `tar -xzf conductor-<version>-<target>.tar.gz -C ~/.local/bin --strip-components=1 conductor-<version>-<target>/conductor`.
-     When the release has no archive for this machine's target:
-     `cargo install --git https://github.com/beyond10x/conductor --tag v<version> --locked conductor-cli`.
+     When the release has no archive for this machine's target, stop and tell the person: a build
+     from source is in https://beyond10x.github.io/conductor/docs/develop/onboarding#build-from-source.
      Once a conductor is installed, `conductor upgrade` does all of this for the newest release
      and keeps the old binary as conductor.previous beside it.
    - Hands: none when `~/.local/bin` is on `PATH`; otherwise the person adds it.

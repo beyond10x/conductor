@@ -3,7 +3,7 @@ title: Config
 sidebar_position: 3
 description: One conductor.config/2 file names the daemon, the global defaults and every instance; how a command finds the file and the instance, the three levels of a setting, how a key is changed or a /1 file migrated, and which part of conductor reads each key.
 lede: One file is the desired state of a deployment, and an instance is one organization in it, so one generic profile serves every organization.
-source: docs/design/architecture-next.md section 9; spec/domains/config.yaml; crates/conductor/src/config.rs, config/convert.rs, config/put.rs, config/effective.rs, daemon/api.rs, daemon/install.rs, build.rs, metric.rs; Taskfile.yml; conductor config --help
+source: docs/design/architecture-next.md section 9; spec/domains/config.yaml; crates/conductor/src/config.rs, config/convert.rs, config/put.rs, config/effective.rs, daemon/api.rs, daemon/install.rs, build.rs, metric.rs, attach.rs, trust.rs; spec/domains/session.yaml; conductor config --help
 ---
 
 ## One file
@@ -111,8 +111,8 @@ Session names are one namespace for the machine: `<session_prefix>-conductor`,
 write only that value. `config validate` refuses two instances with one prefix, a prefix that starts with
 another followed by `-`, and a prefix followed by `-` that begins a bare name another instance
 keeps, such as `conductor-dev`. For one release an instance without a prefix keeps the bare names.
-The guard lets a conductor message only its own instance's sessions. `task sessions`, `task
-conductor:attach` and `task maintainer:attach` refuse a name more than one live session holds.
+The guard lets a conductor message only its own instance's sessions. `conductor session attach
+--name <name>` refuses a name two instances hold (`Ambiguous`).
 
 ## Workspace and sources
 
@@ -144,13 +144,13 @@ A key nothing reads yet is accepted, defaulted and shown: `repositories[].activi
 
 | key | read by |
 |---|---|
-| `daemon.*` | `conductor daemon serve`; `port` and `timeout` also by `conductor status` and `task dashboard` |
+| `daemon.*` | `conductor daemon serve`; `port` and `timeout` also by `conductor status` |
 | `globals.roles` | conductord (host roles), every role lookup |
 | `placement`, `remote.*`, `model_token` | conductord, opening the box |
-| `session_prefix` | start tasks, guard, sessions collector, `controller start-controller` |
-| `sources`, `checkouts.*` | collectors, watch, guard, dashboard, `resource usage`, `config workspace`, `task trust` |
+| `session_prefix` | `session start`, `session attach`, guard, sessions collector, `controller start-controller` |
+| `sources`, `checkouts.*` | collectors, watch, guard, dashboard, `resource usage`, `config workspace`, `conductor trust` |
 | `records`, `state`, `cache` | every store command, guard, watch, dashboard, collectors |
-| `roles[]` | `session start`, `spawn`, `controller resume-controller`, the start tasks, watch; `read_only_tools` by the guard; `grant` by `conductor broker serve` |
+| `roles[]` | `session start`, `spawn`, `controller resume-controller`, `session attach --role`, watch; `read_only_tools` by the guard; `grant` by `conductor broker serve` |
 | `controllers.*`, `authority.class_c`, `cadence.cycle`, `cadence.daily` | profiles, `conductor run` |
 | `cadence.watch`, `cadence.ci` | watch |
 | `thresholds.*` | watch, profiles, `conductor build run`, `conductor gc`, `host reclaim` ([disk](./disk.md)) |

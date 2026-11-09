@@ -47,9 +47,9 @@ that has a running or paused one (`ControllerAlreadyRunning`). It records the co
 
 The supervisor and the teacher belong to the host, not to an instance. conductord starts each
 while `globals.roles` lists it, through `conductor session start --role <role>` in the directory
-of the config file, and starts it again when it stops. `task supervisor:start` and `task
-teacher:start` ask for one now (`conductor daemon start-role`, `POST /v1/roles/{role}/start`). A
-role the file does not list is refused, naming `globals.roles`.
+of the config file, and starts it again when it stops.
+`conductor daemon start-role --role <role>` asks for one now (`POST /v1/roles/{role}/start`). A role the file does not list is
+refused, naming `globals.roles`.
 
 - The supervisor keeps every instance's loop, controllers and maintainer running and shipping. It
   acts without asking on anything reversible and reports blockers and decisions that need the
@@ -83,6 +83,6 @@ value that differs per instance is written `section.key`, such as `thresholds.di
 from `conductor config show --format json`.
 
 The maintainer turns findings about conductor into planned work in the conductor repository and
-runs `task install` after a merged change with a green gate. A running instance keeps the binary
+installs the new binary after a merged change with a green gate. A running instance keeps the binary
 conductord copied for it until `conductor instance upgrade` moves it
 ([how we work](/docs/develop/how-we-work)).

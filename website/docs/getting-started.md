@@ -21,30 +21,32 @@ The output here writes the home directory as `~`. Versions, ids and times differ
 
 ## 1. Install
 
-You need `git`, and a Rust toolchain (edition 2024) with `cargo` to build from source. The
+You need `git`, `curl` and `tar`. The
 [README](https://github.com/beyond10x/conductor#requirements) lists every program conductor starts.
 
-```console
-cargo install --git https://github.com/beyond10x/conductor --tag v0.25.0 --locked conductor-cli
-```
-
-From a checkout, `task install` runs `cargo install --path crates/conductor --locked`.
-
-Without a Rust toolchain, take the pre-built binary. Each GitHub Release carries
-`conductor-<version>-<target>.tar.gz` for `x86_64-unknown-linux-gnu`, `aarch64-unknown-linux-gnu`,
-`x86_64-apple-darwin` and `aarch64-apple-darwin`, and one `SHA256SUMS`:
+Each GitHub Release carries `conductor-<version>-<target>.tar.gz` for `x86_64-unknown-linux-gnu`,
+`aarch64-unknown-linux-gnu`, `x86_64-apple-darwin` and `aarch64-apple-darwin`, and one
+`SHA256SUMS`. Download the archive for your machine, check it, and put the binary on `PATH`:
 
 ```console
 version=0.25.0 target=x86_64-unknown-linux-gnu
 archive="conductor-$version-$target.tar.gz"
-gh release download "v$version" -R beyond10x/conductor -p "$archive" -p SHA256SUMS
+url="https://github.com/beyond10x/conductor/releases/download/v$version"
+curl -fsSLO "$url/$archive"
+curl -fsSLO "$url/SHA256SUMS"
 grep " $archive\$" SHA256SUMS | sha256sum --check --strict
 tar -xzf "$archive"
+mkdir -p ~/.local/bin
 install -m 755 "conductor-$version-$target/conductor" ~/.local/bin/
+conductor --version
 ```
 
-On macOS, `shasum -a 256 --check` stands in for `sha256sum --check --strict`. `conductor upgrade`
-later replaces the binary with the newest release, keeping the old one as `conductor.previous`.
+On macOS, `shasum -a 256 --check` stands in for `sha256sum --check --strict`. `~/.local/bin`
+must be on `PATH`. To build from source instead, see
+[developer onboarding](./develop/onboarding.md#build-from-source).
+
+Later, `conductor upgrade` replaces the binary with the newest release, keeping the old one as
+`conductor.previous` ([upgrade and roll back](./guides/upgrade-and-rollback.md)).
 
 ## 2. Check the programs
 
@@ -145,8 +147,22 @@ says what to write into `rules.md`.
 ## 5. Start the substrate daemon
 
 With `placement: systemd`, conductord asks the local `substrate-daemon` for a box and runs the
-runtime in it. conductord does not start `substrate-daemon`, and doctor checks only its version.
-You start it and keep it running:
+runtime in it. Install it from its own release at the pin doctor names. Substrate's tags carry no
+`v`, and its releases carry `x86_64-unknown-linux-gnu` only:
+
+```console
+v=0.20.0 target=x86_64-unknown-linux-gnu
+archive="substrate-daemon-$v-$target.tar.gz"
+url="https://github.com/beyond10x/substrate/releases/download/$v"
+curl -fsSLO "$url/$archive"
+curl -fsSLO "$url/SHA256SUMS"
+grep " $archive\$" SHA256SUMS | sha256sum --check --strict
+tar -xzf "$archive"
+install -m 755 "substrate-daemon-$v-$target/substrate-daemon" ~/.local/bin/
+```
+
+conductord does not start `substrate-daemon`, and doctor checks only its version. You start it
+and keep it running:
 
 - inside a delegated cgroup subtree carrying `cpu`, `memory` and `pids`, the subtree passed as
   `--cgroup-root`. The `systemd` adapter needs it, and substrate's

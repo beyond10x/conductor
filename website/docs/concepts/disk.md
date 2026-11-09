@@ -7,11 +7,15 @@ source: docs/design/conductor.md sections 7 and 9; spec/domains/host.yaml; crate
 ---
 
 Several sessions build on one machine, and a build that runs out of disk stops everyone's work.
-Conductor grants no build slot in conversation. A session's part is one command:
+Conductor grants no build slot in conversation. A session's part is one command, which wraps the
+build, test or gate of the repository it works in:
 
 ```console
 $ conductor build run -- task check
 ```
+
+The `cargo` and `task` commands on this page are those of the repositories conductor manages, not
+steps to install conductor.
 
 ## 1. Reserve
 

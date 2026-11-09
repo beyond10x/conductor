@@ -93,8 +93,9 @@ directories.
 
 ## Repository and build
 
-- [ ] **Set a Gates policy for `task check`.** Its secret scan runs only when `B10X_GATES_POLICY`
-  names a policy, and is skipped otherwise.
+- [ ] **Building conductor from source? Set a Gates policy for its gate.** Its secret scan runs
+  only when `B10X_GATES_POLICY` names a policy, and is skipped otherwise
+  ([developer onboarding](../develop/onboarding.md#clone-and-run-the-gate)).
 - [ ] **Review what `conductor trust` trusts.** It marks the records directory and every git
   checkout directly under `checkouts.root` as trusted Claude Code workspaces in `~/.claude.json`.
   Their project settings and hooks then run without a prompt. Keep only repositories you have

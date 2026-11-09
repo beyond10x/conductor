@@ -68,8 +68,8 @@ activity` decides each one when read, and stores nothing:
 
 A commit is not real when it is a merge, its normalised subject is in 3 or more repositories in
 the window, its subject is maintenance, or it touches only docs, CI, planning, markdown or lock
-files ([add a repository rule](../guides/add-a-repository-rule.md)). `conductor repository shipped
---since <RFC 3339>` lists what was released or merged since an instant.
+files ([add a repository rule](../guides/add-a-repository-rule.md)).
+`conductor repository shipped --since <RFC 3339>` lists what was released or merged since an instant.
 
 ## The watch
 

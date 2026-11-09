@@ -42,7 +42,7 @@ accept agents that run unattended under your account (see the next section).
   checked. The guard catches mistakes. It is no defence against a hostile prompt in an issue or
   pull request a controller reads.
 - **Not every session is guarded.** The maintainer runs without the guard by default, a session
-  started by hand without the instance's settings is not guarded, and `task trust` lets each
+  started by hand without the instance's settings is not guarded, and `conductor trust` lets each
   checkout's own project hooks run.
 - **Conductor confines no session itself.** An instance's runtime runs in a Substrate box when its
   `placement` names an adapter, and a session that runtime starts runs in the box. A
@@ -60,18 +60,17 @@ keep conductor away from the rest of a machine, in a VM, a container or a dedica
 
 | program | pin | used for |
 |---|---|---|
-| Claude Code (`claude`) | | the sessions; `claude agents --json` for the sessions collector and the tasks |
-| Rust toolchain and `cargo` | edition 2024 | building and installing the CLI from source |
+| Claude Code (`claude`) | | the sessions; `claude agents --json` for the sessions collector |
 | `git` | | the repositories collector, worktree listing |
 | `gh`, logged in | | pull requests, CI runs, releases, repository lists of a GitHub source; not needed without one |
 | `glab`, logged in to the source's host | | merge requests, pipelines, releases, project lists of a GitLab source; not needed without one |
-| `task` (go-task) | | the tasks in [`Taskfile.yml`](Taskfile.yml) |
-| `jq` | | the tasks in `Taskfile.yml` |
+| `task` (go-task) | | the gate of a repository with a `Taskfile.yml`, which a controller runs under `conductor build run`; `conductor doctor` reports `not ready` without it |
+| `jq` | | the supervisor's checks, and the shell examples of the documentation |
 | `aep` | 0.79 | the planning stores: blockers per repository |
-| `ess` | 0.90 | the specifications collector, and the specification gate of `task check` |
+| `ess` | 0.90 | the specifications collector |
 | `worktree` | 0.18.1 | managed worktrees for controllers and their workers |
 | `substrate-daemon` | 0.20.0 | the box of an instance whose `placement` names an adapter; not needed otherwise |
-| `b10x-gates` | | under `forge.route: gates`, the default: the bot route for commits and pushes; the secret scan of `task check` |
+| `b10x-gates` | | under `forge.route: gates`, the default: the bot route for commits and pushes |
 | `notify-send` (optional) | | the watch's desktop notification on a usage limit |
 
 The pins are in [`b10x.toml`](b10x.toml). With no `b10x.toml` in the working directory or a
@@ -85,34 +84,35 @@ A `gitlab` source names the host its group is on, such as `host: gitlab.example.
 
 ## Install
 
-```console
-cargo install --git https://github.com/beyond10x/conductor --tag v0.25.0 --locked conductor-cli
-conductor doctor
-```
-
-From a checkout, `task install` does the same. Without a Rust toolchain, take the pre-built binary
-from the release instead: each GitHub Release from `v0.6.0` on carries
-`conductor-<version>-<target>.tar.gz` for `x86_64-unknown-linux-gnu`, `aarch64-unknown-linux-gnu`,
-`x86_64-apple-darwin` and `aarch64-apple-darwin`, and one `SHA256SUMS`:
+Each GitHub Release carries `conductor-<version>-<target>.tar.gz` for `x86_64-unknown-linux-gnu`,
+`aarch64-unknown-linux-gnu`, `x86_64-apple-darwin` and `aarch64-apple-darwin`, and one
+`SHA256SUMS`. Download the archive for your machine, check it, and put the binary on `PATH`:
 
 ```console
 version=0.25.0 target=x86_64-unknown-linux-gnu
 archive="conductor-$version-$target.tar.gz"
-gh release download "v$version" -R beyond10x/conductor -p "$archive" -p SHA256SUMS
+url="https://github.com/beyond10x/conductor/releases/download/v$version"
+curl -fsSLO "$url/$archive"
+curl -fsSLO "$url/SHA256SUMS"
 grep " $archive\$" SHA256SUMS | sha256sum --check --strict
 tar -xzf "$archive"
+mkdir -p ~/.local/bin
 install -m 755 "conductor-$version-$target/conductor" ~/.local/bin/
 conductor doctor
 ```
 
-On macOS, `shasum -a 256 --check` stands in for `sha256sum --check --strict`.
+On macOS, `shasum -a 256 --check` stands in for `sha256sum --check --strict`. `~/.local/bin`
+must be on `PATH`. To build from source instead, see
+[developer onboarding](https://beyond10x.github.io/conductor/docs/develop/onboarding#build-from-source).
 
 To upgrade, run `conductor upgrade`: it reads the newest release, downloads its archive for the
 target the binary was built for and `SHA256SUMS`, checks the sum, runs the new binary's
 `--version`, and replaces the binary in place, keeping the old one as `conductor.previous`.
 `conductor upgrade --check` only says whether a newer release exists, and
 `conductor upgrade --release 0.6.0` installs a named release, older ones too. It needs `curl`,
-`tar` and `sha256sum` (or `shasum` on macOS).
+`tar` and `sha256sum` (or `shasum` on macOS). A running instance stays on its own copy of the
+binary until `conductor instance upgrade --instance <name> --tag v<version>` moves it
+([upgrade and roll back](https://beyond10x.github.io/conductor/docs/guides/upgrade-and-rollback)).
 
 `conductor --version` prints the installed version, `conductor 0.25.0`. `conductor doctor` lists
 each program conductor starts with its version, `not needed` for the forge CLI the instance has no
@@ -173,7 +173,7 @@ catalog; the [config reference](https://beyond10x.github.io/conductor/docs/refer
            model: opus
    ```
 
-3. `task trust` marks every checkout under `checkouts.root` and the records directory as trusted
+3. `conductor trust` marks every checkout under `checkouts.root` and the records directory as trusted
    Claude Code workspaces.
 4. Accept Claude Code's bypass-permissions disclaimer once, as the OS user the sessions run as:
    run `claude --dangerously-skip-permissions` interactively in a checkout, or set
@@ -191,8 +191,8 @@ catalog; the [config reference](https://beyond10x.github.io/conductor/docs/refer
    under `<state>/run/lock`: the watch, the cycle, the mailbox and dispatch from the charters in
    `<records>/charters/`, with no conductor session. A `conductor run` started by hand beside it is
    refused; without conductord, `conductor run --once` runs one watch and one cycle tick.
-   `task sessions` lists the sessions and `task dashboard` prints the dashboard's address,
-   `http://127.0.0.1:<daemon.port>/?instance=<name>`, 7300 by default.
+   `conductor session list` lists the sessions, and the dashboard is at
+   `http://127.0.0.1:<daemon.port>/?instance=<name>`, port 7300 by default.
 
 Conductor starts a session with `claude --bg`. A session in `bypassPermissions` mode gets `user`
 added to its `--setting-sources`, because Claude Code takes the disclaimer acceptance only from
@@ -227,9 +227,9 @@ its state directory, from the binary that starts it.
 
 Agents and people working on this repository follow [`AGENTS.md`](AGENTS.md): specification
 first, Rust with clap derive, and every command in `Taskfile.yml`. A pull request merges when its
-`task check` job and its Gates job are green.
+CI gate and its Gates job are green.
 [Developer onboarding](https://beyond10x.github.io/conductor/docs/develop/onboarding) walks through
-the setup and a first change, from story to pull request.
+building from source, the gate and a first change, from story to pull request.
 
 ## Licence
 

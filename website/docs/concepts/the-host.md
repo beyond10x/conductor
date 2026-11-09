@@ -3,7 +3,7 @@ title: The host
 sidebar_position: 2
 description: What runs on a conductor host. conductord reconciles each instance's runtime from the config file, at the placement the instance names, against one shared store; the loop, the host roles and the sessions beside them.
 lede: One daemon, conductord, reads the config file and keeps one runtime per instance running at that instance's placement.
-source: docs/design/architecture-next.md sections 2, 4, 5, 6 and 10; crates/conductor/src/daemon/mod.rs, daemon/reconcile.rs, daemon/upgrade.rs, daemon/host_roles.rs, daemon/api.rs, instance.rs, run.rs, placement.rs, confine/mod.rs; Taskfile.yml; conductor daemon --help, conductor instance --help
+source: docs/design/architecture-next.md sections 2, 4, 5, 6 and 10; crates/conductor/src/daemon/mod.rs, daemon/reconcile.rs, daemon/upgrade.rs, daemon/host_roles.rs, daemon/api.rs, instance.rs, run.rs, placement.rs, confine/mod.rs, session.rs; conductor daemon --help, conductor instance --help
 ---
 
 ## What runs
@@ -14,7 +14,7 @@ source: docs/design/architecture-next.md sections 2, 4, 5, 6 and 10; crates/cond
 | instance runtime, `conductor instance serve` | instance | conductord | serves the instance API |
 | the loop, `conductor run` | instance | nothing in this release | the watch, cycle and daily ticks, with no model ([records and store](./records-and-store.md)) |
 | supervisor, teacher | host | conductord, while `globals.roles` lists the role | the host roles ([roles](./roles.md#host-roles)) |
-| maintainer | host | `task maintainer:start` | develops conductor |
+| maintainer | host | `conductor session start --role maintainer` | develops conductor |
 | controller | repository | `conductor spawn` | one repository's work |
 
 ## conductord
@@ -80,8 +80,8 @@ is released ([run conductor](../guides/start-conductor.md)).
 
 ## Placement
 
-Every instance writes `placement`: `{daemon, adapter}`, or a bare string read as `{daemon: local,
-adapter: <string>}`. `daemon` is `local` or an `https://` URL. `adapter` is `systemd`, `linux`,
+Every instance writes `placement`: `{daemon, adapter}`, or a bare string read as
+`{daemon: local, adapter: <string>}`. `daemon` is `local` or an `https://` URL. `adapter` is `systemd`, `linux`,
 `oci` or `pod`, and a local daemon refuses `oci` and `pod`.
 
 Conductor implements no sandbox. Every adapter goes through `substrate-daemon`: one substrate box

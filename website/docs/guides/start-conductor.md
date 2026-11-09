@@ -3,7 +3,7 @@ title: Run conductor
 sidebar_position: 3
 description: Run conductor day to day. Start, check and stop conductord; the loop each instance's runtime runs and conductor run by hand; the controllers the loop starts and who merges; attach to a session; start the maintainer and the host roles; a new binary.
 lede: conductord keeps one runtime per instance running, and each runtime runs the instance's loop, which starts the controllers. This page operates all three.
-source: Taskfile.yml; crates/conductor/src/daemon/mod.rs, daemon/reconcile.rs, daemon/install.rs, instance.rs, run.rs, run/dispatch.rs, spawn.rs, session.rs; crates/conductor/roles/controller.md; conductor daemon --help, conductor run --help, conductor session --help
+source: crates/conductor/src/attach.rs, upgrade.rs; crates/conductor/src/daemon/mod.rs, daemon/reconcile.rs, daemon/install.rs, instance.rs, run.rs, run/dispatch.rs, spawn.rs, session.rs; crates/conductor/roles/controller.md; conductor daemon --help, conductor run --help, conductor session --help
 ---
 
 [Getting started](../getting-started.md) takes a host to a running instance. This page runs it
@@ -92,9 +92,9 @@ transcript.
 
 ```console
 conductor session list             # one line per live session of every instance
+conductor session list --instance <name>
 conductor session attach           # a picker of every instance's sessions
 conductor session attach --name <session name> --watch
-task sessions                      # the active instance's sessions, by their full names
 ```
 
 In the picker, Enter attaches and `w` watches read-only. `ctrl-]` then `d` detaches, and the
@@ -105,14 +105,14 @@ profile the binary carries for the role unless the role names its own:
 
 | session | start |
 |---|---|
-| maintainer, which develops conductor in this checkout | `task maintainer:start`, then `task maintainer:attach` |
-| supervisor, teacher | conductord, for each role `globals.roles` lists. `task supervisor:start` and `task teacher:start` ask it to start one now |
+| maintainer, which develops conductor in a checkout of it | `conductor session start --role maintainer` in that checkout, then `conductor session attach --role maintainer` |
+| supervisor, teacher | conductord, for each role `globals.roles` lists. `conductor daemon start-role --role supervisor` or `--role teacher` asks it to start one now |
 
 The maintainer starts without the guard unless its role names a `settings` file.
 
 ## A new binary
 
-`task install` and `conductor upgrade` replace the binary on your `PATH` and change no runtime:
+`conductor upgrade` replaces the binary on your `PATH` and changes no runtime:
 at an instance's first start conductord copies its own binary to `binaries/<version>/` in its
 directory, and the runtime runs that copy. `conductor instance upgrade --instance <name> --tag
 v<x.y.z>` restarts one runtime on a release, and rolls it back unless it answers within

@@ -162,6 +162,9 @@ runs without one) are green on its head commit. Run `task check` locally only wh
 - Every pull-request and release body passes `b10x-gates scan-text` before it is sent.
 - This repository is public. Committed text (code, docs, wave pages, commit messages) names no
   private repository, session or decision id, host detail or person.
+- End-user pages (`README.md`, `SETUP.md`, `website/docs/` but `develop/` and the generated
+  pages) install from the release archive and use `conductor` commands only; a `task` or `cargo`
+  install or build step of conductor belongs in `website/docs/develop/`.
 - Record a story's gate on the story: `aep plan artifact evidence <id> --kind test_result`.
 - Fast-forward the product checkout before a session starts from it: the roles read their profile
   from it.
@@ -181,9 +184,9 @@ a day, without asking: several waves may go into one release.
 
 1. On a branch from `main`, set `version` in the root `Cargo.toml` (semver; `0.x`: a minor bump for
    a new command, config key or record, a patch bump otherwise), refresh `Cargo.lock`
-   (`cargo update -p conductor-cli --offline`), and point the install lines of the README and
-   `website/docs/getting-started.md` (`cargo install --tag` and the archive download) at the new
-   version.
+   (`cargo update -p conductor-cli --offline`), and point the install lines at the new version:
+   the archive download (`version=`) of the README and `website/docs/getting-started.md`, and the
+   `cargo install --tag` of `website/docs/develop/onboarding.md`.
 2. The `task check` job (`.github/workflows/check.yml`) and the Gates job green on that exact
    commit; CI runs them in a fresh checkout by construction, on the pull request of step 4. Read
    each job's own conclusion.

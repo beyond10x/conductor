@@ -119,9 +119,11 @@ controller runs the reads, `doctor` included, plus `guard record-guard-decision`
 check`, `agent attach`, `tui`), every other leaf, and a leaf the shell expands or `xargs` supplies
 are denied.
 
-**Builds.** `cargo build|test|check|clippy|nextest|install|run|bench|doc|rustc|fix` (and `b`,
-`t`, `c`, `r`), `task check|gate|install|regen|docs-generate|ui`, `npm ci`, `npm test` and `npm run
-build|test` are held behind launchers, in `sh -c` and in substitutions. The denial names
+**Builds.** A controller builds and tests the repository it works in with that repository's own
+tools; these are not steps you run to install conductor.
+`cargo build|test|check|clippy|nextest|install|run|bench|doc|rustc|fix` (and `b`, `t`, `c`, `r`),
+`task check|gate|install|regen|docs-generate|ui`, `npm ci`, `npm test` and `npm run build|test`
+are held behind launchers, in `sh -c` and in substitutions. The denial names
 `conductor build run --reserve auto -- <command>` ([disk](/docs/concepts/disk)). `cargo fmt`,
 `rustfmt`, `cargo metadata` and `cargo tree` are allowed.
 

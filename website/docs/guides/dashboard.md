@@ -3,7 +3,7 @@ title: The dashboard and the TUI
 sidebar_position: 5
 description: Open the dashboard conductord serves, pick an instance with ?instance=, read its views, read the same data from the /v1 routes, know which writes need which grant, and use conductor tui in a terminal.
 lede: Conductord serves one dashboard for every instance of its config file, on 127.0.0.1 at daemon.port, and proxies each instance's API under /v1/instances/<name>/. The terminal UI reads the same API.
-source: crates/conductor/src/daemon/mod.rs, daemon/api.rs, daemon/federate.rs; crates/conductor/src/dashboard.rs, dashboard/series.rs; crates/conductor/src/instance.rs; crates/conductor/src/tui/; crates/conductor/dashboard/src/App.vue, src/api/route.ts; Taskfile.yml, dashboard; conductor daemon serve --help, conductor tui --help
+source: crates/conductor/src/daemon/mod.rs, daemon/api.rs, daemon/federate.rs; crates/conductor/src/dashboard.rs, dashboard/series.rs; crates/conductor/src/instance.rs; crates/conductor/src/tui/; crates/conductor/dashboard/src/App.vue, src/api/route.ts; conductor daemon serve --help, conductor tui --help
 ---
 
 ## 1. Open it
@@ -19,13 +19,9 @@ conductord: config ~/.b10x/conductor/conductor.yaml, serving the dashboard and /
 
 The daemon reads only a `conductor.config/2` file that writes `daemon.store`
 ([configure an instance](./configure-an-instance.md)). It listens on `127.0.0.1` at
-`daemon.port`, 7300 unless the file writes another. `task dashboard` prints the active
-instance's page:
-
-```console
-$ task dashboard
-Open http://127.0.0.1:7300/?instance=personal
-```
+`daemon.port`, 7300 unless the file writes another. An instance's page is
+`http://127.0.0.1:<daemon.port>/?instance=<name>`, for the instance `personal` on the default
+port `http://127.0.0.1:7300/?instance=personal`.
 
 The page shows the instance `?instance=` names, else the first that `GET /v1/instances` lists.
 The selector in its header switches instance and keeps the view.

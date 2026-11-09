@@ -54,6 +54,18 @@ is skipped" and goes on, having checked no secrets. A pull request merges on CI'
 job and its Gates job, so run the full gate locally only where CI cannot run. While you work, run
 the test file you touched: `cargo test -p conductor-cli --test <name>`.
 
+## Build from source
+
+The release archive of [getting started](../getting-started.md#1-install) needs no Rust toolchain.
+To build a release from source instead, or on a target the release carries no archive for:
+
+```console
+cargo install --git https://github.com/beyond10x/conductor --tag v0.25.0 --locked conductor-cli
+```
+
+From a checkout, `task install` runs `cargo install --path crates/conductor --locked`. The binary
+carries the role profiles and the `claude-code` settings, so nothing else is copied.
+
 ## The repository and its rules
 
 The Layout and Rules sections of

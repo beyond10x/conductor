@@ -130,8 +130,9 @@ record-operator-decision`.
 - **A sub-agent is recognised by the shape of its id** in a controller's SendMessage.
 - **Recording a denial can fail**: no state directory, or the store's lock held over 2 seconds.
   The call is still denied, with no record.
-- **The Gates secret scan in `task check` runs only when `B10X_GATES_POLICY` names a policy**;
-  without one, it prints `B10X_GATES_POLICY is not set; the Gates scan is skipped`.
+- **The Gates secret scan in conductor's own gate runs only when `B10X_GATES_POLICY` names a
+  policy**; without one, it prints `B10X_GATES_POLICY is not set; the Gates scan is skipped`
+  ([developer onboarding](../develop/onboarding.md#clone-and-run-the-gate)).
 - **`conductor gc` keeps a checkout's `target/` only where a live session works.** A build started
   from a parent directory with `--manifest-path` is not seen, and its target can be removed while
   it runs.

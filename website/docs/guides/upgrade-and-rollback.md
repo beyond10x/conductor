@@ -3,14 +3,14 @@ title: Upgrade and roll back
 sidebar_position: 7
 description: Replace the conductor binary on a host, restart the daemon on it, move each instance's runtime to a release with conductor instance upgrade, and read how the daemon rolls an upgrade back.
 lede: Each instance runtime runs a copy of the binary it was first started on, so installing a new conductor changes the daemon and the commands, and conductor instance upgrade moves a runtime.
-source: crates/conductor/src/daemon/upgrade.rs, daemon/reconcile.rs, daemon/api.rs, daemon/install.rs; crates/conductor/src/upgrade.rs, instance.rs, placement.rs; Taskfile.yml, install; conductor instance upgrade --help, conductor upgrade --help
+source: crates/conductor/src/daemon/upgrade.rs, daemon/reconcile.rs, daemon/api.rs, daemon/install.rs; crates/conductor/src/upgrade.rs, instance.rs, placement.rs; conductor instance upgrade --help, conductor upgrade --help
 ---
 
 ## The binaries on a host
 
 | binary | who runs it | changed by |
 |---|---|---|
-| `conductor` on `PATH` | every command you type, and conductord, which keeps the binary it started with until it restarts | `task install`, `conductor upgrade`, `cargo install` |
+| `conductor` on `PATH` | every command you type, and conductord, which keeps the binary it started with until it restarts | `conductor upgrade`, or a new release archive ([getting started](../getting-started.md#1-install)) |
 | `~/.b10x/conductor/daemon/binaries/<version>/conductor` | each instance runtime, `conductor instance serve` | the daemon: a copy of its own binary at an instance's first start, then each upgrade |
 
 The daemon keeps each instance's binary, and the one it ran before its last upgrade, in
@@ -20,17 +20,6 @@ A runtime stays on its copy until an upgrade moves it, so installing over the `c
 fresh copy of the daemon's binary when it comes back.
 
 ## 1. Install a new binary on this host
-
-From a checkout of the conductor repository:
-
-```console
-$ task install
-```
-
-`task install` runs `cargo install --path crates/conductor --locked`. The binary carries the role
-profiles and the `claude-code` settings, so nothing else is copied.
-
-From a release:
 
 ```console
 $ conductor upgrade --check
@@ -42,7 +31,9 @@ $ conductor upgrade --release 0.25.0
 archive for this target and `SHA256SUMS`, checks the sum, runs the new binary's `--version`, and
 replaces this binary. The old file is kept beside it as `conductor.previous`. `--check` only
 compares versions, and `--release` installs a named release, older or newer. A refusal changes
-no file and exits 1.
+no file and exits 1. The binary carries the role profiles and the `claude-code` settings, so
+nothing else is copied. A binary built from source is installed as
+[developer onboarding](../develop/onboarding.md#build-from-source) says.
 
 Then restart the daemon on the new binary:
 
