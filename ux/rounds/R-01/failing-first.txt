@@ -1,0 +1,13 @@
+Failing-first run against the unfixed build (dad6b16b9 site sources), node --test:
+not ok 1 - UXF-002: the theme toggle is fully in the viewport and not covered at every gating viewport
+not ok 2 - UXF-002: the visible theme toggle switches the theme
+not ok 3 - UXF-003: links inside running text are distinguishable without colour alone (axe link-in-text-block)
+not ok 4 - UXF-004: every checklist checkbox has an accessible name (axe label)
+# tests 4
+# pass 0
+# fail 4
+not ok 1 - UXF-006: text in code blocks computes to 14 px or more
+1280x800 light: unlabelled form controls
+/conductor/ 390x844 light: theme toggle outside viewport
+/conductor/docs/getting-started 1280x800: 132 code elements under 14 px
+/conductor/docs/getting-started 1280x800 light: 16 link(s) rely on colour alone

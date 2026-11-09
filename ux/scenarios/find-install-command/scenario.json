@@ -1,0 +1,1 @@
+{"task":"find the install command","anchor":true,"start":"/conductor/","target":"/conductor/docs/getting-started","truthText":"conductor-$version-$target","keywords":["install","getting started","setup"],"labels":["Getting started","Get started"],"via":[],"expectations":{"maxActions":4}}

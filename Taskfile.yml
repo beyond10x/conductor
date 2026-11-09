@@ -246,6 +246,22 @@ tasks:
     cmds:
       - cargo run --locked -p conductor-docs -- generate --check
 
+  ux-build:
+    desc: Build the documentation site the UX gate and rounds measure (website/build)
+    cmds:
+      - npm --prefix website run build
+
+  ux-gate:
+    desc: The UX ratchet on the built site, gating viewports, both themes, then the regression assets and the findings test (about 5 minutes; needs task ux-build and a Playwright Chromium)
+    cmds:
+      - node ux/gate.mjs
+      - node --test ux/regression/*.test.mjs ux/findings.test.mjs
+
+  ux-round:
+    desc: "One UX round into ux/rounds/<round>: task ux-round -- R-02"
+    cmds:
+      - node ux/round.mjs {{.CLI_ARGS}}
+
   regen:
     desc: Regenerate crates/conductor-model from spec/ and the HTTP binding crates/conductor/http.yaml; every byte of it is generated
     cmds:

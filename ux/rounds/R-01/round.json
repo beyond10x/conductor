@@ -1,0 +1,827 @@
+{
+  "round": "R-01",
+  "date": "2026-11-09T10:29:26.301Z",
+  "commit": "dad6b16b9",
+  "tree_dirty": [
+    "M website/docusaurus.config.ts",
+    "M website/package-lock.json",
+    "M website/package.json",
+    "?? ux/",
+    "?? website/src/"
+  ],
+  "pages": 36,
+  "viewports": [
+    {
+      "name": "1440x900",
+      "gating": false
+    },
+    {
+      "name": "1280x800",
+      "gating": true
+    },
+    {
+      "name": "1024x768",
+      "gating": false
+    },
+    {
+      "name": "768x1024",
+      "gating": false
+    },
+    {
+      "name": "390x844",
+      "gating": true
+    }
+  ],
+  "themes": [
+    "light",
+    "dark"
+  ],
+  "levels": [
+    "L1",
+    "L2",
+    "L3",
+    "L7"
+  ],
+  "skipped_levels": {
+    "L0": "no guidance cue in a docs site",
+    "L4": "paid, not requested",
+    "L5": "paid, not requested",
+    "L6": "no people in this round",
+    "L8": "paid, not requested"
+  },
+  "gating_metrics": {
+    "site-contract": {
+      "hscroll_pages@1280x800": {
+        "value": 0,
+        "tolerance": 0
+      },
+      "overflow_pages@1280x800": {
+        "value": 0,
+        "tolerance": 0
+      },
+      "always_visible_violations@1280x800": {
+        "value": 72,
+        "tolerance": 0
+      },
+      "axe_serious_critical_nodes@1280x800": {
+        "value": 330,
+        "tolerance": 0
+      },
+      "axe_rule_cases@1280x800": {
+        "value": 60,
+        "tolerance": 0
+      },
+      "always_visible_defects@1280x800": {
+        "value": 1,
+        "tolerance": 0
+      },
+      "theme_not_applied@1280x800": {
+        "value": 0,
+        "tolerance": 0
+      },
+      "truncated_pages@1280x800": {
+        "value": 0,
+        "tolerance": 0
+      },
+      "layout_shift_max@1280x800": {
+        "value": 0,
+        "tolerance": 0.01
+      },
+      "reduced_motion_violations@1280x800": {
+        "value": 0,
+        "tolerance": 0
+      },
+      "hscroll_pages@390x844": {
+        "value": 0,
+        "tolerance": 0
+      },
+      "overflow_pages@390x844": {
+        "value": 0,
+        "tolerance": 0
+      },
+      "always_visible_violations@390x844": {
+        "value": 144,
+        "tolerance": 0
+      },
+      "axe_serious_critical_nodes@390x844": {
+        "value": 324,
+        "tolerance": 0
+      },
+      "axe_rule_cases@390x844": {
+        "value": 58,
+        "tolerance": 0
+      },
+      "always_visible_defects@390x844": {
+        "value": 2,
+        "tolerance": 0
+      },
+      "theme_not_applied@390x844": {
+        "value": 0,
+        "tolerance": 0
+      },
+      "truncated_pages@390x844": {
+        "value": 0,
+        "tolerance": 0
+      },
+      "layout_shift_max@390x844": {
+        "value": 0,
+        "tolerance": 0.01
+      },
+      "reduced_motion_violations@390x844": {
+        "value": 0,
+        "tolerance": 0
+      }
+    },
+    "configure-an-instance": {
+      "screen_only.actions@1280x800": {
+        "value": 1,
+        "tolerance": 0
+      },
+      "screen_only.looks@1280x800": {
+        "value": 2,
+        "tolerance": 0
+      },
+      "screen_only.steers@1280x800": {
+        "value": 0,
+        "tolerance": 0
+      },
+      "screen_only.time_to_act_steps.max@1280x800": {
+        "value": 1,
+        "tolerance": 0
+      },
+      "glance_cost.median@1280x800": {
+        "value": 2,
+        "tolerance": 0
+      },
+      "glance_cost.p95@1280x800": {
+        "value": 2,
+        "tolerance": 0
+      },
+      "completion_miss@1280x800": {
+        "value": 0,
+        "tolerance": 0
+      },
+      "false_complete@1280x800": {
+        "value": 0,
+        "tolerance": 0
+      },
+      "over_budget@1280x800": {
+        "value": 0,
+        "tolerance": 0
+      },
+      "keyboard.tabs@1280x800": {
+        "value": 6,
+        "tolerance": 0.05
+      },
+      "keyboard.miss@1280x800": {
+        "value": 0,
+        "tolerance": 0
+      },
+      "screen_only.actions@390x844": {
+        "value": 2,
+        "tolerance": 0
+      },
+      "screen_only.looks@390x844": {
+        "value": 3,
+        "tolerance": 0
+      },
+      "screen_only.steers@390x844": {
+        "value": 0,
+        "tolerance": 0
+      },
+      "screen_only.time_to_act_steps.max@390x844": {
+        "value": 2,
+        "tolerance": 0
+      },
+      "glance_cost.median@390x844": {
+        "value": 2.5,
+        "tolerance": 0
+      },
+      "glance_cost.p95@390x844": {
+        "value": 3,
+        "tolerance": 0
+      },
+      "completion_miss@390x844": {
+        "value": 0,
+        "tolerance": 0
+      },
+      "false_complete@390x844": {
+        "value": 0,
+        "tolerance": 0
+      },
+      "over_budget@390x844": {
+        "value": 0,
+        "tolerance": 0
+      },
+      "keyboard.tabs@390x844": {
+        "value": 92,
+        "tolerance": 0.05
+      },
+      "keyboard.miss@390x844": {
+        "value": 0,
+        "tolerance": 0
+      }
+    },
+    "find-install-command": {
+      "screen_only.actions@1280x800": {
+        "value": 2,
+        "tolerance": 0
+      },
+      "screen_only.looks@1280x800": {
+        "value": 3,
+        "tolerance": 0
+      },
+      "screen_only.steers@1280x800": {
+        "value": 0,
+        "tolerance": 0
+      },
+      "screen_only.time_to_act_steps.max@1280x800": {
+        "value": 2,
+        "tolerance": 0
+      },
+      "glance_cost.median@1280x800": {
+        "value": 2,
+        "tolerance": 0
+      },
+      "glance_cost.p95@1280x800": {
+        "value": 3,
+        "tolerance": 0
+      },
+      "completion_miss@1280x800": {
+        "value": 0,
+        "tolerance": 0
+      },
+      "false_complete@1280x800": {
+        "value": 0,
+        "tolerance": 0
+      },
+      "over_budget@1280x800": {
+        "value": 0,
+        "tolerance": 0
+      },
+      "keyboard.tabs@1280x800": {
+        "value": 12,
+        "tolerance": 0.05
+      },
+      "keyboard.miss@1280x800": {
+        "value": 0,
+        "tolerance": 0
+      },
+      "screen_only.actions@390x844": {
+        "value": 2,
+        "tolerance": 0
+      },
+      "screen_only.looks@390x844": {
+        "value": 3,
+        "tolerance": 0
+      },
+      "screen_only.steers@390x844": {
+        "value": 0,
+        "tolerance": 0
+      },
+      "screen_only.time_to_act_steps.max@390x844": {
+        "value": 2,
+        "tolerance": 0
+      },
+      "glance_cost.median@390x844": {
+        "value": 2,
+        "tolerance": 0
+      },
+      "glance_cost.p95@390x844": {
+        "value": 3,
+        "tolerance": 0
+      },
+      "completion_miss@390x844": {
+        "value": 0,
+        "tolerance": 0
+      },
+      "false_complete@390x844": {
+        "value": 0,
+        "tolerance": 0
+      },
+      "over_budget@390x844": {
+        "value": 0,
+        "tolerance": 0
+      },
+      "keyboard.tabs@390x844": {
+        "value": 5,
+        "tolerance": 0.05
+      },
+      "keyboard.miss@390x844": {
+        "value": 0,
+        "tolerance": 0
+      }
+    },
+    "start-the-daemon": {
+      "screen_only.actions@1280x800": {
+        "value": 3,
+        "tolerance": 0
+      },
+      "screen_only.looks@1280x800": {
+        "value": 4,
+        "tolerance": 0
+      },
+      "screen_only.steers@1280x800": {
+        "value": 1,
+        "tolerance": 0
+      },
+      "screen_only.time_to_act_steps.max@1280x800": {
+        "value": 2,
+        "tolerance": 0
+      },
+      "glance_cost.median@1280x800": {
+        "value": 2,
+        "tolerance": 0
+      },
+      "glance_cost.p95@1280x800": {
+        "value": 3,
+        "tolerance": 0
+      },
+      "completion_miss@1280x800": {
+        "value": 0,
+        "tolerance": 0
+      },
+      "false_complete@1280x800": {
+        "value": 0,
+        "tolerance": 0
+      },
+      "over_budget@1280x800": {
+        "value": 0,
+        "tolerance": 0
+      },
+      "keyboard.tabs@1280x800": {
+        "value": 80,
+        "tolerance": 0.05
+      },
+      "keyboard.miss@1280x800": {
+        "value": 0,
+        "tolerance": 0
+      },
+      "screen_only.actions@390x844": {
+        "value": 6,
+        "tolerance": 0
+      },
+      "screen_only.looks@390x844": {
+        "value": 7,
+        "tolerance": 0
+      },
+      "screen_only.steers@390x844": {
+        "value": 1,
+        "tolerance": 0
+      },
+      "screen_only.time_to_act_steps.max@390x844": {
+        "value": 4,
+        "tolerance": 0
+      },
+      "glance_cost.median@390x844": {
+        "value": 3,
+        "tolerance": 0
+      },
+      "glance_cost.p95@390x844": {
+        "value": 3,
+        "tolerance": 0
+      },
+      "completion_miss@390x844": {
+        "value": 0,
+        "tolerance": 0
+      },
+      "false_complete@390x844": {
+        "value": 0,
+        "tolerance": 0
+      },
+      "over_budget@390x844": {
+        "value": 1,
+        "tolerance": 0
+      },
+      "keyboard.tabs@390x844": {
+        "value": 64,
+        "tolerance": 0.05
+      },
+      "keyboard.miss@390x844": {
+        "value": 0,
+        "tolerance": 0
+      }
+    }
+  },
+  "measured_only": {
+    "1440x900": {
+      "hscroll_pages": 0,
+      "overflow_pages": 0,
+      "always_visible_violations": 72,
+      "truncated_pages": 0,
+      "layout_shift_max": 0.005,
+      "scrollable_block_cases": 30
+    },
+    "1024x768": {
+      "hscroll_pages": 0,
+      "overflow_pages": 0,
+      "always_visible_violations": 72,
+      "truncated_pages": 0,
+      "layout_shift_max": 0,
+      "scrollable_block_cases": 50
+    },
+    "768x1024": {
+      "hscroll_pages": 0,
+      "overflow_pages": 0,
+      "always_visible_violations": 144,
+      "truncated_pages": 0,
+      "layout_shift_max": 0.016,
+      "scrollable_block_cases": 36
+    }
+  },
+  "details": {
+    "1280x800": {
+      "violations": {
+        "search: missing (load)": 72
+      },
+      "axe": {
+        "link-in-text-block (serious), The link has insufficient color contrast of 1.48:1 with the surrounding text. (Minimum contrast is 3:1, link text: #b6e5ce, surrounding text: #a8b8b3)": {
+          "pages": 10,
+          "nodes": 58
+        },
+        "link-in-text-block (serious), The link has insufficient color contrast of 1.03:1 with the surrounding text. (Minimum contrast is 3:1, link text: #17684a, surrounding text: #4f625d)": {
+          "pages": 10,
+          "nodes": 58
+        },
+        "link-in-text-block (serious), The link has insufficient color contrast of 1.18:1 with the surrounding text. (Minimum contrast is 3:1, link text: #b6e5ce, surrounding text: #e7eeea)": {
+          "pages": 19,
+          "nodes": 85
+        },
+        "link-in-text-block (serious), The link has insufficient color contrast of 2.19:1 with the surrounding text. (Minimum contrast is 3:1, link text: #17684a, surrounding text: #1d2a2b)": {
+          "pages": 19,
+          "nodes": 85
+        },
+        "label (critical), Element does not have an implicit (wrapped) <label>": {
+          "pages": 1,
+          "nodes": 44
+        }
+      },
+      "overflow": [],
+      "truncated": [],
+      "smallTextPages": 36
+    },
+    "390x844": {
+      "violations": {
+        "search: missing (load)": 72,
+        "theme-toggle: not visible (load)": 72
+      },
+      "axe": {
+        "link-in-text-block (serious), The link has insufficient color contrast of 1.18:1 with the surrounding text. (Minimum contrast is 3:1, link text: #b6e5ce, surrounding text: #e7eeea)": {
+          "pages": 23,
+          "nodes": 106
+        },
+        "link-in-text-block (serious), The link has insufficient color contrast of 2.19:1 with the surrounding text. (Minimum contrast is 3:1, link text: #17684a, surrounding text: #1d2a2b)": {
+          "pages": 23,
+          "nodes": 106
+        },
+        "link-in-text-block (serious), The link has insufficient color contrast of 1.48:1 with the surrounding text. (Minimum contrast is 3:1, link text: #b6e5ce, surrounding text: #a8b8b3)": {
+          "pages": 5,
+          "nodes": 34
+        },
+        "link-in-text-block (serious), The link has insufficient color contrast of 1.03:1 with the surrounding text. (Minimum contrast is 3:1, link text: #17684a, surrounding text: #4f625d)": {
+          "pages": 5,
+          "nodes": 34
+        },
+        "label (critical), Element does not have an implicit (wrapped) <label>": {
+          "pages": 1,
+          "nodes": 44
+        }
+      },
+      "overflow": [],
+      "truncated": [],
+      "smallTextPages": 36
+    }
+  },
+  "motion_reduced_violations": {
+    "1280x800": 0,
+    "390x844": 0
+  },
+  "bot": {
+    "configure-an-instance": {
+      "1280x800": {
+        "summary": {
+          "actions": 1,
+          "looks": 2,
+          "steers": 0,
+          "time_to_act_steps_max": 1,
+          "glance_median": 2,
+          "glance_p95": 2,
+          "completion_miss": 0,
+          "false_complete": 0
+        },
+        "path": [
+          "/conductor/docs/guides/configure-an-instance"
+        ],
+        "log": [
+          "click Guides"
+        ],
+        "keyboard": {
+          "tabs": 6,
+          "hops": 1,
+          "completed": true
+        }
+      },
+      "390x844": {
+        "summary": {
+          "actions": 2,
+          "looks": 3,
+          "steers": 0,
+          "time_to_act_steps_max": 2,
+          "glance_median": 2.5,
+          "glance_p95": 3,
+          "completion_miss": 0,
+          "false_complete": 0
+        },
+        "path": [
+          "/conductor/docs/guides/configure-an-instance"
+        ],
+        "log": [
+          "toggle Toggle navigation bar",
+          "click Guides"
+        ],
+        "keyboard": {
+          "tabs": 92,
+          "hops": 2,
+          "completed": true
+        }
+      }
+    },
+    "find-install-command": {
+      "1280x800": {
+        "summary": {
+          "actions": 2,
+          "looks": 3,
+          "steers": 0,
+          "time_to_act_steps_max": 2,
+          "glance_median": 2,
+          "glance_p95": 3,
+          "completion_miss": 0,
+          "false_complete": 0
+        },
+        "path": [
+          "/conductor/docs/getting-started"
+        ],
+        "log": [
+          "scroll Get started →",
+          "click Get started →"
+        ],
+        "keyboard": {
+          "tabs": 12,
+          "hops": 1,
+          "completed": true
+        }
+      },
+      "390x844": {
+        "summary": {
+          "actions": 2,
+          "looks": 3,
+          "steers": 0,
+          "time_to_act_steps_max": 2,
+          "glance_median": 2,
+          "glance_p95": 3,
+          "completion_miss": 0,
+          "false_complete": 0
+        },
+        "path": [
+          "/conductor/docs/getting-started"
+        ],
+        "log": [
+          "scroll Get started →",
+          "click Get started →"
+        ],
+        "keyboard": {
+          "tabs": 5,
+          "hops": 1,
+          "completed": true
+        }
+      }
+    },
+    "start-the-daemon": {
+      "1280x800": {
+        "summary": {
+          "actions": 3,
+          "looks": 4,
+          "steers": 1,
+          "time_to_act_steps_max": 2,
+          "glance_median": 2,
+          "glance_p95": 3,
+          "completion_miss": 0,
+          "false_complete": 0
+        },
+        "path": [
+          "/conductor/docs/guides/configure-an-instance",
+          "/conductor/docs/guides/start-conductor"
+        ],
+        "log": [
+          "click Guides",
+          "scroll Run conductor",
+          "click Run conductor"
+        ],
+        "keyboard": {
+          "tabs": 80,
+          "hops": 3,
+          "completed": true
+        }
+      },
+      "390x844": {
+        "summary": {
+          "actions": 6,
+          "looks": 7,
+          "steers": 1,
+          "time_to_act_steps_max": 4,
+          "glance_median": 3,
+          "glance_p95": 3,
+          "completion_miss": 0,
+          "false_complete": 0
+        },
+        "path": [
+          "/conductor/docs/guides/configure-an-instance",
+          "/conductor/docs/guides/start-conductor"
+        ],
+        "log": [
+          "toggle Toggle navigation bar",
+          "click Guides",
+          "toggle Toggle navigation bar",
+          "scroll Run conductor",
+          "scroll Run conductor",
+          "click Run conductor"
+        ],
+        "keyboard": {
+          "tabs": 64,
+          "hops": 2,
+          "completed": true
+        }
+      }
+    }
+  },
+  "ratchet": null,
+  "duration_s": 307,
+  "shots": {
+    "moments": [
+      {
+        "file": "moment-home-1280x800-light.png",
+        "path": "/conductor/",
+        "viewport": "1280x800",
+        "theme": "light"
+      },
+      {
+        "file": "moment-docs_getting-started-1280x800-light.png",
+        "path": "/conductor/docs/getting-started",
+        "viewport": "1280x800",
+        "theme": "light"
+      },
+      {
+        "file": "moment-docs_guides_start-conductor-1280x800-light.png",
+        "path": "/conductor/docs/guides/start-conductor",
+        "viewport": "1280x800",
+        "theme": "light"
+      },
+      {
+        "file": "moment-docs_guides_configure-an-instance-1280x800-light.png",
+        "path": "/conductor/docs/guides/configure-an-instance",
+        "viewport": "1280x800",
+        "theme": "light"
+      },
+      {
+        "file": "moment-docs_reference_cli-1280x800-light.png",
+        "path": "/conductor/docs/reference/cli",
+        "viewport": "1280x800",
+        "theme": "light"
+      },
+      {
+        "file": "moment-home-1280x800-dark.png",
+        "path": "/conductor/",
+        "viewport": "1280x800",
+        "theme": "dark"
+      },
+      {
+        "file": "moment-docs_getting-started-1280x800-dark.png",
+        "path": "/conductor/docs/getting-started",
+        "viewport": "1280x800",
+        "theme": "dark"
+      },
+      {
+        "file": "moment-docs_guides_start-conductor-1280x800-dark.png",
+        "path": "/conductor/docs/guides/start-conductor",
+        "viewport": "1280x800",
+        "theme": "dark"
+      },
+      {
+        "file": "moment-docs_guides_configure-an-instance-1280x800-dark.png",
+        "path": "/conductor/docs/guides/configure-an-instance",
+        "viewport": "1280x800",
+        "theme": "dark"
+      },
+      {
+        "file": "moment-docs_reference_cli-1280x800-dark.png",
+        "path": "/conductor/docs/reference/cli",
+        "viewport": "1280x800",
+        "theme": "dark"
+      },
+      {
+        "file": "moment-home-390x844-light.png",
+        "path": "/conductor/",
+        "viewport": "390x844",
+        "theme": "light"
+      },
+      {
+        "file": "moment-docs_getting-started-390x844-light.png",
+        "path": "/conductor/docs/getting-started",
+        "viewport": "390x844",
+        "theme": "light"
+      },
+      {
+        "file": "moment-docs_guides_start-conductor-390x844-light.png",
+        "path": "/conductor/docs/guides/start-conductor",
+        "viewport": "390x844",
+        "theme": "light"
+      },
+      {
+        "file": "moment-docs_guides_configure-an-instance-390x844-light.png",
+        "path": "/conductor/docs/guides/configure-an-instance",
+        "viewport": "390x844",
+        "theme": "light"
+      },
+      {
+        "file": "moment-docs_reference_cli-390x844-light.png",
+        "path": "/conductor/docs/reference/cli",
+        "viewport": "390x844",
+        "theme": "light"
+      },
+      {
+        "file": "moment-home-390x844-dark.png",
+        "path": "/conductor/",
+        "viewport": "390x844",
+        "theme": "dark"
+      },
+      {
+        "file": "moment-docs_getting-started-390x844-dark.png",
+        "path": "/conductor/docs/getting-started",
+        "viewport": "390x844",
+        "theme": "dark"
+      },
+      {
+        "file": "moment-docs_guides_start-conductor-390x844-dark.png",
+        "path": "/conductor/docs/guides/start-conductor",
+        "viewport": "390x844",
+        "theme": "dark"
+      },
+      {
+        "file": "moment-docs_guides_configure-an-instance-390x844-dark.png",
+        "path": "/conductor/docs/guides/configure-an-instance",
+        "viewport": "390x844",
+        "theme": "dark"
+      },
+      {
+        "file": "moment-docs_reference_cli-390x844-dark.png",
+        "path": "/conductor/docs/reference/cli",
+        "viewport": "390x844",
+        "theme": "dark"
+      }
+    ],
+    "worst": [
+      {
+        "file": "worst-docs_security_hardening-390x844-dark.png",
+        "path": "/conductor/docs/security/hardening",
+        "viewport": "390x844",
+        "theme": "dark",
+        "score": 6
+      },
+      {
+        "file": "worst-docs_security_hardening-390x844-light.png",
+        "path": "/conductor/docs/security/hardening",
+        "viewport": "390x844",
+        "theme": "light",
+        "score": 6
+      },
+      {
+        "file": "worst-docs_concepts_config-390x844-dark.png",
+        "path": "/conductor/docs/concepts/config",
+        "viewport": "390x844",
+        "theme": "dark",
+        "score": 5
+      },
+      {
+        "file": "worst-docs_concepts_config-390x844-light.png",
+        "path": "/conductor/docs/concepts/config",
+        "viewport": "390x844",
+        "theme": "light",
+        "score": 5
+      },
+      {
+        "file": "worst-docs_concepts_decisions-and-messages-390x844-dark.png",
+        "path": "/conductor/docs/concepts/decisions-and-messages",
+        "viewport": "390x844",
+        "theme": "dark",
+        "score": 5
+      },
+      {
+        "file": "worst-docs_concepts_decisions-and-messages-390x844-light.png",
+        "path": "/conductor/docs/concepts/decisions-and-messages",
+        "viewport": "390x844",
+        "theme": "light",
+        "score": 5
+      }
+    ]
+  }
+}

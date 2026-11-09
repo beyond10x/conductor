@@ -1,0 +1,1 @@
+{"task":"start the daemon","anchor":true,"start":"/conductor/","target":"/conductor/docs/guides/start-conductor","truthText":"conductor daemon serve --install","keywords":["start","daemon","conductord"],"labels":["Run conductor","Start conductor"],"via":["Get started","Guides"],"expectations":{"maxActions":4}}
