@@ -2,11 +2,13 @@
 format: aep.planning-md/3
 id: story:session-pty-relay
 kind: story
-status: draft
+status: archived
 title: A systemd-provider session runs its harness under a conductor-owned pty relay in place of script
 relations:
 - decomposes: epic:session-attach
-revision: 1
+revision: 3
+transitions:
+- {from: "draft", to: "archived", at: "2026-11-09T10:28:17Z", actor: "human:timo", revision: 3}
 ---
 # Story: session-pty-relay
 
@@ -40,3 +42,7 @@ The `attach` command (`story:session-attach-command`); any other provider.
 
 - Whether the relay keeps the FIFO for conductor's own prompts or moves them to the socket. Smallest change: keep the FIFO; revisit if attach and prompt delivery must not interleave.
 - Pty library: a small crate such as `rustix` or `nix` is a build dependency, not a host one; the implementor takes the one the workspace already carries.
+
+## Archived 2026-11-09 (draft sweep)
+
+Never built; tmux stays the attach path (docs/design/architecture-next.md section 7) and the systemd provider it replaces is removed (docs/design/architecture-next.md section 11).

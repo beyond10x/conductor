@@ -2,9 +2,11 @@
 format: aep.planning-md/3
 id: story:mailbox
 kind: story
-status: draft
+status: archived
 title: The harness-neutral mailbox
-revision: 1
+revision: 3
+transitions:
+- {from: "draft", to: "archived", at: "2026-11-09T10:28:14Z", actor: "human:timo", revision: 3}
 ---
 # The harness-neutral mailbox
 
@@ -64,3 +66,7 @@ Depends on `story:pilot` and `story:spec-review-closure`.
       `[REPORT repo-a <dispatch id>] done gate green` is recorded by `mail collect-mail` as a
       `Message` with kind `Report`, sender `repo-a` and transport `Mailbox`.
    4. A second collect records nothing new.
+
+## Archived 2026-11-09 (draft sweep)
+
+Duplicate of story:mailbox-send-and-deliver: same file-mailbox outcome, built as conductor message send (crates/conductor/src/message.rs send); no mail group exists.

@@ -1,0 +1,13 @@
+{
+  "at": "2026-11-09T10:24:47Z",
+  "actor": "human:timo",
+  "artifact": "story:watch-tests-shared-isolation",
+  "kind": "story",
+  "revision": 5,
+  "change": {
+    "change": "evidence",
+    "kind": "test_result",
+    "source": "cargo nextest run -p conductor-cli --test watch --test adv_watch, 3 consecutive runs: 74 passed, 0 failed each",
+    "reference": "crates/conductor/tests/watch.rs, crates/conductor/tests/adv_watch.rs (active::isolate; no isolate_active left) @ dad6b16b9"
+  }
+}

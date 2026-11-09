@@ -2,11 +2,13 @@
 format: aep.planning-md/3
 id: story:session-home-spike
 kind: story
-status: draft
+status: archived
 title: One controller starts with its own HOME, CLAUDE_CONFIG_DIR and TMPDIR under the instance, and what breaks is recorded with its fix
 relations:
 - decomposes: epic:conductor-run
-revision: 1
+revision: 3
+transitions:
+- {from: "draft", to: "archived", at: "2026-11-09T10:28:16Z", actor: "human:timo", revision: 3}
 ---
 ## Why
 
@@ -39,3 +41,7 @@ the default in a follow-up story with no guessing.
 
 `crates/conductor/src/spawn.rs`, `crates/conductor/src/confine/systemd.rs`,
 `docs/analysis/session-home-spike.md`, `.engineering/planning/story/session-home.md` (draft).
+
+## Archived 2026-11-09 (draft sweep)
+
+confine/systemd.rs is removed; per-instance CLAUDE_CONFIG_DIR is replaced by the box (docs/design/architecture-next.md section 11).

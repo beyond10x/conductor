@@ -1,0 +1,13 @@
+{
+  "at": "2026-11-09T10:24:47Z",
+  "actor": "human:timo",
+  "artifact": "story:workspace-from-config",
+  "kind": "story",
+  "revision": 7,
+  "change": {
+    "change": "evidence",
+    "kind": "test_result",
+    "source": "cargo nextest run -p conductor-cli --test config_workspace: 7 passed, 0 failed",
+    "reference": "crates/conductor/tests/config_workspace.rs @ dad6b16b9"
+  }
+}

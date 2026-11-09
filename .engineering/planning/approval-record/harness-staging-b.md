@@ -2,11 +2,13 @@
 format: aep.planning-md/3
 id: approval-record:harness-staging-b
 kind: approval-record
-status: draft
+status: archived
 title: 'The operator chose B: conductor stages its programs through substrate, no harness work'
 relations:
 - decides: upstream-blocker:harness-gate-staging
-revision: 1
+revision: 3
+transitions:
+- {from: "draft", to: "archived", at: "2026-11-09T10:28:14Z", actor: "human:timo", revision: 3}
 ---
 ## The question
 
@@ -25,3 +27,7 @@ The operator, 2026-10-09, to conductor-dev: "B".
 
 `story:substrate-client` gains the staging acceptance; `upstream-blocker:harness-gate-staging` is
 cleared with this record cited; nothing is dispatched to harness.
+
+## Archived 2026-11-09 (draft sweep)
+
+Decision B belongs to epic:session-confinement's substrate-client, superseded by the substrate placement (docs/design/architecture-next.md section 11); upstream-blocker:harness-gate-staging is cleared.

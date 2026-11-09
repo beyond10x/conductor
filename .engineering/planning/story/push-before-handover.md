@@ -4,7 +4,20 @@ id: story:push-before-handover
 kind: story
 status: active
 title: conductor-dev pushes every branch and opens its pull requests before a hand-over
-revision: 4
+scope:
+- confidence: inferred
+  path: crates/conductor/roles/maintainer.md
+- confidence: inferred
+  path: crates/conductor/src/collect/repositories.rs
+- confidence: inferred
+  path: crates/conductor/src/message.rs
+- confidence: inferred
+  path: crates/conductor/src/run/handlers.rs
+- confidence: inferred
+  path: crates/conductor/src/watch.rs
+- confidence: inferred
+  path: crates/conductor/tests/watch.rs
+revision: 5
 transitions:
 - {from: "draft", to: "proposed", at: "2026-11-07T16:52:27Z", actor: "human:timo", revision: 3}
 - {from: "proposed", to: "active", at: "2026-11-07T16:52:27Z", actor: "human:timo", revision: 4}

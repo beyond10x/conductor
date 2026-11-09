@@ -1,0 +1,13 @@
+{
+  "at": "2026-11-09T10:24:47Z",
+  "actor": "human:timo",
+  "artifact": "story:guard-read-flag-paths",
+  "kind": "story",
+  "revision": 5,
+  "change": {
+    "change": "evidence",
+    "kind": "test_result",
+    "source": "cargo nextest run -p conductor-cli --test guard_rules --test guard_latency: 146 passed, 0 failed, 3 skipped (latency measurement ignored)",
+    "reference": "crates/conductor/tests/guard_rules.rs::a_role_s_settings_or_profile_file_as_a_read_flag_value_is_no_write_to_it @ dad6b16b9"
+  }
+}

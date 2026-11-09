@@ -7,7 +7,28 @@ title: conductor status reads the current snapshot only
 summary: status and the dashboards answer in under 2 s on an instance with 50k tree files, reading the current snapshot's streams or an index, older snapshots on request
 relations:
 - decomposes: epic:loop-without-handwork
-revision: 3
+scope:
+- confidence: inferred
+  path: crates/conductor/src/collect/usage.rs
+- confidence: cited
+  path: crates/conductor/src/dashboard
+- confidence: inferred
+  path: crates/conductor/src/host.rs
+- confidence: cited
+  path: crates/conductor/src/status.rs
+- confidence: cited
+  path: crates/conductor/src/store.rs
+- confidence: inferred
+  path: crates/conductor/src/store/board.rs
+- confidence: cited
+  path: crates/conductor/src/store/host.rs
+- confidence: cited
+  path: crates/conductor/src/store/observations.rs
+- confidence: cited
+  path: crates/conductor/tests/dashboard_fast.rs
+- confidence: cited
+  path: crates/conductor/tests/status.rs
+revision: 5
 transitions:
 - {from: "draft", to: "proposed", at: "2026-11-08T02:16:46Z", actor: "human:timo", revision: 2}
 - {from: "proposed", to: "active", at: "2026-11-08T02:16:47Z", actor: "human:timo", revision: 3}

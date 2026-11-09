@@ -2,9 +2,11 @@
 format: aep.planning-md/3
 id: story:message-restart-kind
 kind: story
-status: draft
+status: archived
 title: '[RESTART conductor] is a recorded message kind'
-revision: 2
+revision: 4
+transitions:
+- {from: "draft", to: "archived", at: "2026-11-09T10:28:16Z", actor: "human:timo", revision: 4}
 ---
 # Story: message-restart-kind
 
@@ -29,3 +31,7 @@ Changing who may send it (conductor-dev only, as the profile says).
 ## Ambiguities
 
 None.
+
+## Archived 2026-11-09 (draft sweep)
+
+[RESTART conductor] belonged to the retired conductor session (commit fde22c979); message.rs has no Restart kind.

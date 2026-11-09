@@ -4,7 +4,24 @@ id: story:merge-policy-in-config
 kind: story
 status: active
 title: Who merges is an instance config key, and unwatched open pull requests are listed
-revision: 5
+scope:
+- confidence: inferred
+  path: crates/conductor-model/src/config.rs
+- confidence: cited
+  path: crates/conductor/roles/controller.md
+- confidence: inferred
+  path: crates/conductor/roles/supervisor.md
+- confidence: cited
+  path: crates/conductor/src/config.rs
+- confidence: cited
+  path: crates/conductor/src/run/dispatch.rs
+- confidence: inferred
+  path: crates/conductor/src/shipped.rs
+- confidence: inferred
+  path: crates/conductor/src/watch.rs
+- confidence: inferred
+  path: website/docs/guides/start-conductor.md
+revision: 7
 transitions:
 - {from: "draft", to: "proposed", at: "2026-11-07T16:46:10Z", actor: "human:timo", revision: 3}
 - {from: "proposed", to: "active", at: "2026-11-07T16:46:11Z", actor: "human:timo", revision: 4}

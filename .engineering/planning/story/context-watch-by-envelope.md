@@ -7,7 +7,16 @@ title: The context watch labels only sessions conductor started
 summary: Label a session by its envelope under <state>/sessions/, never by its bare name, so a foreign session never triggers a controller's hand-over
 relations:
 - decomposes: epic:deterministic-steps
-revision: 4
+scope:
+- confidence: cited
+  path: crates/conductor/src/run/handlers.rs
+- confidence: cited
+  path: crates/conductor/src/watch.rs
+- confidence: inferred
+  path: crates/conductor/tests/run.rs
+- confidence: inferred
+  path: crates/conductor/tests/watch.rs
+revision: 6
 transitions:
 - {from: "draft", to: "proposed", at: "2026-11-08T01:25:57Z", actor: "human:timo", revision: 3}
 - {from: "proposed", to: "active", at: "2026-11-08T01:25:58Z", actor: "human:timo", revision: 4}

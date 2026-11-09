@@ -5,7 +5,22 @@ kind: story
 status: active
 title: 'The dashboard runs the UI iteration loop: a baseline, layout and accessibility gates on every merge, rounds of at most five changes'
 summary: the dashboard has no baseline, no layout gate and no screen-only check
-revision: 3
+scope:
+- confidence: cited
+  path: .github/workflows/check.yml
+- confidence: inferred
+  path: AGENTS.md
+- confidence: cited
+  path: Taskfile.yml
+- confidence: inferred
+  path: crates/conductor/dashboard/package-lock.json
+- confidence: cited
+  path: crates/conductor/dashboard/package.json
+- confidence: inferred
+  path: crates/conductor/dashboard/src/views/__tests__/pages.spec.ts
+- confidence: inferred
+  path: crates/conductor/dashboard/vite.config.ts
+revision: 5
 transitions:
 - {from: "draft", to: "proposed", at: "2026-11-07T13:03:17Z", actor: "human:timo", revision: 2}
 - {from: "proposed", to: "active", at: "2026-11-07T13:03:17Z", actor: "human:timo", revision: 3}

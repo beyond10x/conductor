@@ -7,7 +7,20 @@ title: A Blocked dispatch whose request merged or closed is unblocked and its co
 summary: A controller blocked on CI sat idle 16 h after its auto-merge request merged
 relations:
 - decomposes: epic:loop-without-handwork
-revision: 4
+scope:
+- confidence: inferred
+  path: crates/conductor/roles/supervisor.md
+- confidence: inferred
+  path: crates/conductor/src/dispatch.rs
+- confidence: inferred
+  path: crates/conductor/src/records.rs
+- confidence: inferred
+  path: crates/conductor/src/run/handlers.rs
+- confidence: cited
+  path: crates/conductor/src/watch.rs
+- confidence: inferred
+  path: crates/conductor/tests/watch.rs
+revision: 6
 transitions:
 - {from: "draft", to: "proposed", at: "2026-11-08T10:59:41Z", actor: "human:timo", revision: 3, decided_on: {"recorded":{"approval":1}}}
 - {from: "proposed", to: "active", at: "2026-11-08T10:59:41Z", actor: "human:timo", revision: 4, decided_on: {"recorded":{"approval":1}}}

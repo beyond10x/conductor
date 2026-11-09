@@ -2,7 +2,7 @@
 format: aep.planning-md/3
 id: story:maintainer-reads-instances
 kind: story
-status: draft
+status: archived
 title: The maintainer reads every registered instance, and a check fails on committed text that names an instance
 relations:
 - decomposes: epic:role-names
@@ -29,7 +29,9 @@ scope:
   path: spec/components.yaml
 - confidence: cited
   path: website/docs/reference
-revision: 3
+revision: 5
+transitions:
+- {from: "draft", to: "archived", at: "2026-11-09T10:28:16Z", actor: "human:timo", revision: 5}
 ---
 # Story: maintainer-reads-instances
 
@@ -85,3 +87,7 @@ operator's real config. So the check that knows the names runs from the host reg
 - Where the maintainer is configured (decision-blocker `maintainer-host-config`).
 - The host registry itself (story `instance-names-unique`).
 - A view across instances for the operator (epic `host-bridge`).
+
+## Archived 2026-11-09 (draft sweep)
+
+Scans host/instances.json and the registry, removed (docs/design/architecture-next.md section 11); its target .agents/maintainer.md no longer exists.

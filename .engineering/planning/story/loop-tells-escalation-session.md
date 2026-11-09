@@ -5,7 +5,26 @@ kind: story
 status: active
 title: The loop tells a session of the events it cannot handle
 summary: refusals and over-threshold lines reach no session
-revision: 4
+scope:
+- confidence: inferred
+  path: conductor.example.yaml
+- confidence: inferred
+  path: crates/conductor-docs/src/status.rs
+- confidence: inferred
+  path: crates/conductor/src/agent/mod.rs
+- confidence: inferred
+  path: crates/conductor/src/config.rs
+- confidence: inferred
+  path: crates/conductor/src/config/convert.rs
+- confidence: inferred
+  path: crates/conductor/src/config/effective.rs
+- confidence: inferred
+  path: crates/conductor/src/run.rs
+- confidence: cited
+  path: crates/conductor/src/run/handlers.rs
+- confidence: cited
+  path: crates/conductor/src/run/mailbox.rs
+revision: 6
 transitions:
 - {from: "draft", to: "proposed", at: "2026-11-07T13:11:39Z", actor: "human:timo", revision: 3}
 - {from: "proposed", to: "active", at: "2026-11-07T13:11:39Z", actor: "human:timo", revision: 4}

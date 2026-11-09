@@ -7,7 +7,22 @@ title: session respawn hands a session over and restarts it under its own name
 summary: seven hand-overs by hand in a day; two left a duplicate session
 relations:
 - depends_on: story:one-session-per-role
-revision: 3
+scope:
+- confidence: inferred
+  path: AGENTS.md
+- confidence: inferred
+  path: crates/conductor-model/src/session.rs
+- confidence: inferred
+  path: crates/conductor/cli.yaml
+- confidence: inferred
+  path: crates/conductor/roles/supervisor.md
+- confidence: cited
+  path: crates/conductor/src/session.rs
+- confidence: inferred
+  path: crates/conductor/tests/cli_tree.rs
+- confidence: inferred
+  path: crates/conductor/tests/session.rs
+revision: 5
 transitions:
 - {from: "draft", to: "proposed", at: "2026-11-07T13:53:36Z", actor: "human:timo", revision: 2}
 - {from: "proposed", to: "active", at: "2026-11-07T13:53:36Z", actor: "human:timo", revision: 3}

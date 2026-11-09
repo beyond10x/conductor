@@ -7,7 +7,38 @@ title: Conductor runs 4 hours before its hand-over threshold
 summary: Measure what fills conductor's context and cut the largest source
 relations:
 - decomposes: epic:measured-self-improvement
-revision: 6
+scope:
+- confidence: inferred
+  path: crates/conductor-model/src/observation.rs
+- confidence: cited
+  path: crates/conductor/kinds/claude-code/conductor-settings.json
+- confidence: inferred
+  path: crates/conductor/roles/maintainer.md
+- confidence: cited
+  path: crates/conductor/src/cli.rs
+- confidence: cited
+  path: crates/conductor/src/controller.rs
+- confidence: cited
+  path: crates/conductor/src/rules.rs
+- confidence: cited
+  path: crates/conductor/src/session.rs
+- confidence: cited
+  path: crates/conductor/src/status.rs
+- confidence: cited
+  path: crates/conductor/tests/controller.rs
+- confidence: cited
+  path: crates/conductor/tests/guard_hook.rs
+- confidence: cited
+  path: crates/conductor/tests/profiles.rs
+- confidence: cited
+  path: crates/conductor/tests/records_log.rs
+- confidence: cited
+  path: crates/conductor/tests/rules.rs
+- confidence: cited
+  path: crates/conductor/tests/status.rs
+- confidence: cited
+  path: docs/analysis/conductor-context-budget.md
+revision: 8
 transitions:
 - {from: "draft", to: "proposed", at: "2026-11-08T00:06:56Z", actor: "human:timo", revision: 5}
 - {from: "proposed", to: "active", at: "2026-11-08T00:06:56Z", actor: "human:timo", revision: 6}

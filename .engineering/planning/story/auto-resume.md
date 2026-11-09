@@ -6,7 +6,22 @@ status: active
 title: The watch resumes limit-stopped controllers itself
 relations:
 - decomposes: epic:deterministic-steps
-revision: 3
+scope:
+- confidence: inferred
+  path: crates/conductor/roles/supervisor.md
+- confidence: inferred
+  path: crates/conductor/src/agent/claude_code.rs
+- confidence: inferred
+  path: crates/conductor/src/config.rs
+- confidence: inferred
+  path: crates/conductor/src/run/handlers.rs
+- confidence: inferred
+  path: crates/conductor/src/session.rs
+- confidence: cited
+  path: crates/conductor/src/watch.rs
+- confidence: cited
+  path: crates/conductor/tests/run.rs
+revision: 5
 transitions:
 - {from: "draft", to: "proposed", at: "2026-11-07T13:11:40Z", actor: "human:timo", revision: 2}
 - {from: "proposed", to: "active", at: "2026-11-07T13:11:40Z", actor: "human:timo", revision: 3}

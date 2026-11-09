@@ -1,0 +1,13 @@
+{
+  "at": "2026-11-09T10:24:47Z",
+  "actor": "human:timo",
+  "artifact": "story:guard-all-tools",
+  "kind": "story",
+  "revision": 7,
+  "change": {
+    "change": "evidence",
+    "kind": "test_result",
+    "source": "cargo nextest run -p conductor-cli --test guard_hook --test guard_latency: 34 passed, 0 failed, 1 skipped (guard_latency measurement, ignored by default)",
+    "reference": "crates/conductor/tests/guard_hook.rs::an_unknown_tool_is_denied_and_an_allowlisted_read_tool_is_allowed @ dad6b16b9"
+  }
+}
