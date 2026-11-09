@@ -1,5 +1,5 @@
 // generated from conductor v1
-// contract digest a76aa63f2ad9f5b169861cd94a585925f67f9ddebf70caf04f301709ee2e64d1
+// contract digest 8d3aee133e936ba053cf7cd2ad3b3aadd389f7fad772cddd3c670bb87f21cfef
 // do not edit: regenerate with `ess synthesize --layout crate`
 
 //! Observation — `conductor.observation`.
@@ -3058,6 +3058,13 @@ pub struct PublishBoard {
 /// outcomes exist to prevent.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum PublishBoardOutcome {
+    /// `negative-rows` — when `deviation_rows < 0`.
+    ///
+    /// A row count is never negative; nothing was published.
+    NegativeRows {
+        /// Why it was refused: `conductor.observation.InvalidCount`.
+        error: InvalidCount,
+    },
     /// `no-such-snapshot` — when no `conductor.observation.Snapshot` carries the identity `input.snapshot_id` names.
     ///
     /// No snapshot has this id; nothing was published.
@@ -3071,13 +3078,6 @@ pub enum PublishBoardOutcome {
     NotComplete {
         /// Why it was refused: `conductor.observation.SnapshotNotComplete`.
         error: SnapshotNotComplete,
-    },
-    /// `negative-rows` — when `deviation_rows < 0`.
-    ///
-    /// A row count is never negative; nothing was published.
-    NegativeRows {
-        /// Why it was refused: `conductor.observation.InvalidCount`.
-        error: InvalidCount,
     },
     /// `published` — otherwise.
     ///
@@ -3167,6 +3167,13 @@ pub struct RecordCollectorRun {
 /// outcomes exist to prevent.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum RecordCollectorRunOutcome {
+    /// `negative-duration` — when `duration_ms < 0`.
+    ///
+    /// A duration is never negative; nothing was recorded.
+    NegativeDuration {
+        /// Why it was refused: `conductor.observation.InvalidCount`.
+        error: InvalidCount,
+    },
     /// `no-such-snapshot` — when no `conductor.observation.Snapshot` carries the identity `input.snapshot_id` names.
     ///
     /// No snapshot has this id, and nothing was recorded.
@@ -3180,13 +3187,6 @@ pub enum RecordCollectorRunOutcome {
     Closed {
         /// Why it was refused: `conductor.observation.SnapshotNotCollecting`.
         error: SnapshotNotCollecting,
-    },
-    /// `negative-duration` — when `duration_ms < 0`.
-    ///
-    /// A duration is never negative; nothing was recorded.
-    NegativeDuration {
-        /// Why it was refused: `conductor.observation.InvalidCount`.
-        error: InvalidCount,
     },
     /// `recorded` — otherwise.
     ///
@@ -3723,6 +3723,13 @@ pub struct RecordSpecification {
 /// outcomes exist to prevent.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum RecordSpecificationOutcome {
+    /// `negative-refusals` — when `validation_refusals < 0`.
+    ///
+    /// A refusal count is never negative; nothing was recorded.
+    NegativeRefusals {
+        /// Why it was refused: `conductor.observation.InvalidCount`.
+        error: InvalidCount,
+    },
     /// `no-such-snapshot` — when no `conductor.observation.Snapshot` carries the identity `input.snapshot_id` names.
     ///
     /// No snapshot has this id, and nothing was recorded.
@@ -3736,13 +3743,6 @@ pub enum RecordSpecificationOutcome {
     Closed {
         /// Why it was refused: `conductor.observation.SnapshotNotCollecting`.
         error: SnapshotNotCollecting,
-    },
-    /// `negative-refusals` — when `validation_refusals < 0`.
-    ///
-    /// A refusal count is never negative; nothing was recorded.
-    NegativeRefusals {
-        /// Why it was refused: `conductor.observation.InvalidCount`.
-        error: InvalidCount,
     },
     /// `recorded` — otherwise.
     ///
@@ -3785,6 +3785,13 @@ pub struct RecordUsage {
 /// outcomes exist to prevent.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum RecordUsageOutcome {
+    /// `negative-percent` — when `used_percent < 0`.
+    ///
+    /// A percent used is never negative; nothing was recorded.
+    NegativePercent {
+        /// Why it was refused: `conductor.observation.InvalidCount`.
+        error: InvalidCount,
+    },
     /// `no-such-snapshot` — when no `conductor.observation.Snapshot` carries the identity `input.snapshot_id` names.
     ///
     /// No snapshot has this id, and nothing was recorded.
@@ -3798,13 +3805,6 @@ pub enum RecordUsageOutcome {
     Closed {
         /// Why it was refused: `conductor.observation.SnapshotNotCollecting`.
         error: SnapshotNotCollecting,
-    },
-    /// `negative-percent` — when `used_percent < 0`.
-    ///
-    /// A percent used is never negative; nothing was recorded.
-    NegativePercent {
-        /// Why it was refused: `conductor.observation.InvalidCount`.
-        error: InvalidCount,
     },
     /// `recorded` — otherwise.
     ///

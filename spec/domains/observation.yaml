@@ -1644,6 +1644,13 @@ commands:
         type: Optional<String>
         example: "validated"
     outcomes:
+      - name: negative-refusals
+        when: validation_refusals < 0
+        error: conductor.observation.InvalidCount
+        payload:
+          conductor.observation.InvalidCount:
+            count: input.validation_refusals
+        summary: A refusal count is never negative; nothing was recorded.
       - name: no-such-snapshot
         when_related: {via: input.snapshot_id, exists: false}
         error: conductor.observation.SnapshotNotFound
@@ -1658,13 +1665,6 @@ commands:
           conductor.observation.SnapshotNotCollecting:
             snapshot_id: input.snapshot_id
         summary: The snapshot is not collecting, and nothing was recorded.
-      - name: negative-refusals
-        when: validation_refusals < 0
-        error: conductor.observation.InvalidCount
-        payload:
-          conductor.observation.InvalidCount:
-            count: input.validation_refusals
-        summary: A refusal count is never negative; nothing was recorded.
       - name: recorded
         creates: conductor.observation.SpecificationObservation
         instance: observation_id
@@ -1722,6 +1722,13 @@ commands:
         type: Optional<Timestamp>
         example: "2026-10-16T11:00:00Z"
     outcomes:
+      - name: negative-percent
+        when: used_percent < 0
+        error: conductor.observation.InvalidCount
+        payload:
+          conductor.observation.InvalidCount:
+            count: input.used_percent
+        summary: A percent used is never negative; nothing was recorded.
       - name: no-such-snapshot
         when_related: {via: input.snapshot_id, exists: false}
         error: conductor.observation.SnapshotNotFound
@@ -1736,13 +1743,6 @@ commands:
           conductor.observation.SnapshotNotCollecting:
             snapshot_id: input.snapshot_id
         summary: The snapshot is not collecting, and nothing was recorded.
-      - name: negative-percent
-        when: used_percent < 0
-        error: conductor.observation.InvalidCount
-        payload:
-          conductor.observation.InvalidCount:
-            count: input.used_percent
-        summary: A percent used is never negative; nothing was recorded.
       - name: recorded
         creates: conductor.observation.UsageObservation
         instance: observation_id
@@ -1845,6 +1845,13 @@ commands:
         type: Optional<Integer>
         example: 1048576
     outcomes:
+      - name: negative-duration
+        when: duration_ms < 0
+        error: conductor.observation.InvalidCount
+        payload:
+          conductor.observation.InvalidCount:
+            count: input.duration_ms
+        summary: A duration is never negative; nothing was recorded.
       - name: no-such-snapshot
         when_related: {via: input.snapshot_id, exists: false}
         error: conductor.observation.SnapshotNotFound
@@ -1859,13 +1866,6 @@ commands:
           conductor.observation.SnapshotNotCollecting:
             snapshot_id: input.snapshot_id
         summary: The snapshot is not collecting, and nothing was recorded.
-      - name: negative-duration
-        when: duration_ms < 0
-        error: conductor.observation.InvalidCount
-        payload:
-          conductor.observation.InvalidCount:
-            count: input.duration_ms
-        summary: A duration is never negative; nothing was recorded.
       - name: recorded
         creates: conductor.observation.CollectorRunObservation
         instance: observation_id
@@ -1971,6 +1971,13 @@ commands:
       - name: path
         type: String
     outcomes:
+      - name: negative-rows
+        when: deviation_rows < 0
+        error: conductor.observation.InvalidCount
+        payload:
+          conductor.observation.InvalidCount:
+            count: input.deviation_rows
+        summary: A row count is never negative; nothing was published.
       - name: no-such-snapshot
         when_related: {via: input.snapshot_id, exists: false}
         error: conductor.observation.SnapshotNotFound
@@ -1985,13 +1992,6 @@ commands:
           conductor.observation.SnapshotNotComplete:
             snapshot_id: input.snapshot_id
         summary: Only a complete snapshot is published; a failed or collecting one never is.
-      - name: negative-rows
-        when: deviation_rows < 0
-        error: conductor.observation.InvalidCount
-        payload:
-          conductor.observation.InvalidCount:
-            count: input.deviation_rows
-        summary: A row count is never negative; nothing was published.
       - name: published
         creates: conductor.observation.Board
         instance: board_id

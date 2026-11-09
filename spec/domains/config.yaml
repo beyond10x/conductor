@@ -1326,8 +1326,8 @@ entities:
   # the instance, the role it holds for (absent for an instance-wide key), its YAML path, its
   # effective value as `config show` writes it, and the level it came from. The daemon derives the
   # rows from the config file at every read; no command of the specification creates one, and a
-  # `PutConfig` changes them by changing the file. At `ess/33` this entity is `provided: true`;
-  # the specification stays on `ess/22` (see the report).
+  # `PutConfig` changes them by changing the file. From `ess/33` this entity may be declared
+  # `provided: true`; it is not declared so yet.
   - name: conductor.config.EffectiveSetting
     identity:
       name: setting_key

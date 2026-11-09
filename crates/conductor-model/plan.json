@@ -2,8 +2,8 @@
   "provenance": {
     "system": "conductor",
     "specification_version": "v1",
-    "source_digest": "5586712f5f754de7c827166383c39322c23d55f405877a76efa06f9a5c65dc55",
-    "contract_digest": "a76aa63f2ad9f5b169861cd94a585925f67f9ddebf70caf04f301709ee2e64d1"
+    "source_digest": "e63067ee7ce605246f7843caaf0eb36c65e6821b2766ab4b99aa13b1616a75d7",
+    "contract_digest": "8d3aee133e936ba053cf7cd2ad3b3aadd389f7fad772cddd3c670bb87f21cfef"
   },
   "scope": {
     "profile": "component-skeletons",

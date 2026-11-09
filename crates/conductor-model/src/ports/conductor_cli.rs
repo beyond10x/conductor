@@ -1,5 +1,5 @@
 // generated from conductor v1
-// contract digest a76aa63f2ad9f5b169861cd94a585925f67f9ddebf70caf04f301709ee2e64d1
+// contract digest 8d3aee133e936ba053cf7cd2ad3b3aadd389f7fad772cddd3c670bb87f21cfef
 // do not edit: regenerate with `ess synthesize --layout crate`
 
 //! conductor-cli — the `conductor-cli` component of `conductor` v1.
@@ -1264,9 +1264,9 @@ where
     pub fn publish_board(&mut self, input: crate::observation::PublishBoard) -> Result<crate::observation::PublishBoardOutcome, crate::obligation::UnmetObligation> {
         let outcome = self.behaviors.publish_board(input)?;
         match &outcome {
+            crate::observation::PublishBoardOutcome::NegativeRows { .. } => {}
             crate::observation::PublishBoardOutcome::NoSuchSnapshot { .. } => {}
             crate::observation::PublishBoardOutcome::NotComplete { .. } => {}
-            crate::observation::PublishBoardOutcome::NegativeRows { .. } => {}
             crate::observation::PublishBoardOutcome::Published { board_published, .. } => {
                 self.outbox.push(PublishedEvent::BoardPublished(board_published.clone()));
             }
@@ -1299,9 +1299,9 @@ where
     pub fn record_collector_run(&mut self, input: crate::observation::RecordCollectorRun) -> Result<crate::observation::RecordCollectorRunOutcome, crate::obligation::UnmetObligation> {
         let outcome = self.behaviors.record_collector_run(input)?;
         match &outcome {
+            crate::observation::RecordCollectorRunOutcome::NegativeDuration { .. } => {}
             crate::observation::RecordCollectorRunOutcome::NoSuchSnapshot { .. } => {}
             crate::observation::RecordCollectorRunOutcome::Closed { .. } => {}
-            crate::observation::RecordCollectorRunOutcome::NegativeDuration { .. } => {}
             crate::observation::RecordCollectorRunOutcome::Recorded { collector_run_recorded, .. } => {
                 self.outbox.push(PublishedEvent::CollectorRunRecorded(collector_run_recorded.clone()));
             }
@@ -1439,9 +1439,9 @@ where
     pub fn record_specification(&mut self, input: crate::observation::RecordSpecification) -> Result<crate::observation::RecordSpecificationOutcome, crate::obligation::UnmetObligation> {
         let outcome = self.behaviors.record_specification(input)?;
         match &outcome {
+            crate::observation::RecordSpecificationOutcome::NegativeRefusals { .. } => {}
             crate::observation::RecordSpecificationOutcome::NoSuchSnapshot { .. } => {}
             crate::observation::RecordSpecificationOutcome::Closed { .. } => {}
-            crate::observation::RecordSpecificationOutcome::NegativeRefusals { .. } => {}
             crate::observation::RecordSpecificationOutcome::Recorded { specification_recorded, .. } => {
                 self.outbox.push(PublishedEvent::SpecificationRecorded(specification_recorded.clone()));
             }
@@ -1457,9 +1457,9 @@ where
     pub fn record_usage(&mut self, input: crate::observation::RecordUsage) -> Result<crate::observation::RecordUsageOutcome, crate::obligation::UnmetObligation> {
         let outcome = self.behaviors.record_usage(input)?;
         match &outcome {
+            crate::observation::RecordUsageOutcome::NegativePercent { .. } => {}
             crate::observation::RecordUsageOutcome::NoSuchSnapshot { .. } => {}
             crate::observation::RecordUsageOutcome::Closed { .. } => {}
-            crate::observation::RecordUsageOutcome::NegativePercent { .. } => {}
             crate::observation::RecordUsageOutcome::Recorded { usage_recorded, .. } => {
                 self.outbox.push(PublishedEvent::UsageRecorded(usage_recorded.clone()));
             }
