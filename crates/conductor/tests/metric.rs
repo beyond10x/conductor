@@ -1500,3 +1500,65 @@ fn adversary_activity_comes_from_the_snapshot_the_forge_is_read_from() {
         "K5.unreleased of alpha, Active in the forge's snapshot",
     );
 }
+
+/// Adversary, pass 2: the scope rule promises "A past day computed later keeps the repositories
+/// Active then" (`crates/conductor/src/metric.rs` module documentation). With the default
+/// `retention.snapshots` (12), the twelve complete snapshots of 10-30, each observing alpha with
+/// no real commit in 7 days, drop the observations of the day's snapshot (10-14 23:00, alpha
+/// Active). `metric compute --day 2026-10-14` run after them must still read alpha's scope:
+/// K4.median of alpha 3 h (1, 3, 14).
+#[test]
+fn adversary_a_past_day_beyond_retention_keeps_the_repositories_active_then() {
+    let case = Case::empty("adv2-past-day-beyond-retention");
+    for (log, text) in [("decisions", DECISIONS), ("dispatches", DISPATCHES)] {
+        let dir = case.records().join(log);
+        fs::create_dir_all(&dir).expect("create a log's directory");
+        fs::write(dir.join("2026-10.jsonl"), text).expect("write a log");
+    }
+    case.snapshot("2026-10-14T23:00:00Z", &RELEASES, &MERGED);
+    for hour in 0..12 {
+        let started = format!("2026-10-30T{hour:02}:00:00Z");
+        case.snapshot_with_inactive(&started, &RELEASES, &MERGED, &["alpha"]);
+    }
+    case.compute();
+    close(
+        case.value("K4.median", "alpha"),
+        3.0,
+        "K4.median of alpha, Active on the day",
+    );
+}
+
+/// Adversary, pass 2, acceptance: a repository-scoped KPI counts only the repositories Active in
+/// `repository activity` on the reading's day. Both snapshots are of the day: the 10:00 one
+/// observes alpha and beta Active, the newest (20:00) observes beta only (alpha a member it could
+/// not read, or a repository no longer in the instance). `repository activity` answers no row for
+/// alpha, so `metric compute --day 2026-10-14` must give alpha no K4 reading.
+#[test]
+fn adversary_a_repository_the_newest_snapshot_of_the_day_does_not_observe_has_no_reading() {
+    let case = Case::empty("adv2-unobserved-on-the-day");
+    for (log, text) in [("decisions", DECISIONS), ("dispatches", DISPATCHES)] {
+        let dir = case.records().join(log);
+        fs::create_dir_all(&dir).expect("create a log's directory");
+        fs::write(dir.join("2026-10.jsonl"), text).expect("write a log");
+    }
+    case.snapshot("2026-10-14T10:00:00Z", &RELEASES, &MERGED);
+    case.snapshot(
+        "2026-10-14T20:00:00Z",
+        &[("beta", "v2.0", "2026-10-14T20:00:00Z")],
+        &[
+            ("beta", 5, "2026-10-14T10:00:00Z"),
+            ("beta", 6, "2026-10-13T20:00:00Z"),
+        ],
+    );
+    let activity = case.rows("repository", "activity");
+    assert!(
+        activity.iter().all(|row| row["repository"] != "alpha"),
+        "`repository activity` answers alpha: {activity:#?}"
+    );
+    case.compute();
+    assert!(
+        case.reading("K4.median", "alpha").is_none(),
+        "K4.median has a reading for alpha, which `repository activity` does not answer Active: {:#?}",
+        case.all()
+    );
+}
