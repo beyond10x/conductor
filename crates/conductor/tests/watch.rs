@@ -4163,8 +4163,9 @@ fn adversary_a_working_pane_that_quotes_the_banner_text_is_not_resumed() {
 }
 
 /// `story:auto-resume`, the class of the adversary's quoted banner: an idle pane whose last lines
-/// quote the words without the banner's shape, in a tool's output, in the prompt, or alone, is
-/// not on the banner; the banner line further up than the pane's last lines is not either.
+/// quote the stop banner in a tool's output (on its `⎿` line, and alone on a line indented under
+/// it) or in the prompt is not on the banner; the banner line further up than the pane's last
+/// lines is not either.
 #[test]
 fn an_idle_pane_quoting_the_banner_is_not_resumed() {
     let case = Case::new("banner-quoted-idle");
@@ -4173,8 +4174,8 @@ fn an_idle_pane_quoting_the_banner_is_not_resumed() {
     case.pane(
         "ex-quote",
         Some(
-            "● Read the watch\n  ⎿  Usage limit reached · limit resets 6am\nUsage limit reached\n\
-             \n> Usage limit reached · limit resets 6am\n",
+            "● Read the watch\n  ⎿  Usage limit reached · limit resets 6am\n     Usage limit \
+             reached\n\n> Usage limit reached · limit resets 6am\n",
         ),
     );
     let scrolled: String = std::iter::once(ON_THE_BANNER.to_owned())
@@ -4265,9 +4266,9 @@ fn adversary2_a_banner_quoted_on_a_tool_outputs_second_line_is_not_resumed() {
     );
 }
 
-/// Adversary pass 2 (`story:auto-resume`): a working pane is not stopped even when one of its
-/// last lines has the banner's shape; guards the `esc to interrupt` check, which no other case
-/// reaches (the first pass's working pane has no banner-shaped line).
+/// Adversary pass 2 (`story:auto-resume`), on the installed harness's strings: a pane still
+/// working under the limit draws `Usage limit reached · wrapping up`, outside any tool's output;
+/// it is no stop, and a stop banner printed in a tool's output under it is none either.
 #[test]
 fn adversary2_a_working_pane_with_a_banner_shaped_line_is_not_resumed() {
     let case = Case::new("banner-shaped-working");
@@ -4279,7 +4280,7 @@ fn adversary2_a_working_pane_with_a_banner_shaped_line_is_not_resumed() {
             "● Bash(printf 'x\\nUsage limit reached · limit resets 6am\\n')\n\
              \x20 ⎿  x\n\
              \x20    Usage limit reached · limit resets 6am\n\n\
-             ✻ Working… (3s · esc to interrupt)\n\n> \n",
+             \x20 Usage limit reached · wrapping up\n\n> \n",
         ),
     );
     let mut watch = case.watch(None).with_panes(case.panes(true));
@@ -4315,4 +4316,46 @@ fn adversary2_the_bullet_banner_and_the_eighth_last_line_are_read() {
     );
     assert_eq!(case.rotations(), 1);
     assert_eq!(case.typed("ex-ninth"), Vec::<String>::new());
+}
+
+/// `story:auto-resume`, on the installed harness's strings: its banners that are no stop, the
+/// harness continuing by itself (`continuing automatically … · esc to cancel`, either casing),
+/// wrapping up a brief, or a paused workflow, even one naming its reset, are not resumed; the
+/// stop banner alone, `Usage limit reached`, is.
+#[test]
+fn the_harness_banners_that_are_no_stop_are_not_resumed() {
+    let case = Case::new("banner-not-stopped");
+    case.sessions(&[]);
+    case.accounts(ONE_WITH_HEADROOM);
+    let others = [
+        (
+            "ex-auto",
+            "Usage limit reached · continuing automatically at 6am · esc to cancel",
+        ),
+        (
+            "ex-auto-cap",
+            "Usage limit reached · continuing automatically in 5m · Esc to cancel",
+        ),
+        ("ex-brief", "Usage limit reached · brief included wrap-up…"),
+        (
+            "ex-paused",
+            "Usage limit reached · limit resets 6am. Workflow paused; resume it with /workflow",
+        ),
+    ];
+    for (name, banner) in others {
+        case.pane(
+            name,
+            Some(&format!("> working on it\n\n  {banner}\n\n> \n")),
+        );
+    }
+    case.pane(
+        "ex-bare",
+        Some("> working on it\n\n  Usage limit reached\n\n> \n"),
+    );
+    let mut watch = case.watch(None).with_panes(case.panes(true));
+    assert_eq!(pass(&mut watch), ["usage limit resumed: 1 panes: ex-bare"]);
+    for (name, _) in others {
+        assert_eq!(case.typed(name), Vec::<String>::new(), "{name}");
+    }
+    assert_eq!(case.rotations(), 1);
 }

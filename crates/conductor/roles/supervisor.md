@@ -178,7 +178,7 @@ one background Bash that exits on it.
    holding a `daily` tick since the last daily cadence. Best headroom in `ais status` under 10 %, or
    `no_better_account` in the ais-watch journal: one brief line with the active account's headroom,
    the usable accounts and the earliest weekly reset (`ais status --details`); logins are the
-   operator's; until then resume every `Usage limit reached` by hand on the account with headroom.
+   operator's; resume a `Usage limit reached` pane by hand only as said above: on `usage limit not lifted` or without `usage.probe`.
 2. Fix what is reversible: a dead daemon (`conductor daemon serve --install`; it starts a dead
    runtime again itself), a stuck session start, a stale workspace file (`conductor config
    workspace`), Active marks outside the operator's selection, a missing charter for a selected
@@ -186,9 +186,9 @@ one background Bash that exits on it.
    reclaim`, then `conductor gc` per instance, then build output in worktrees with no running build,
    then the host's disk keeper, in a background Bash printing `df` before and after; the report
    names the amount freed and the three largest holders, `du -sh <checkouts.trees>/*/target | sort
-   -h | tail -3`; no other `du` over a home), a session stopped on `Usage limit reached` (rotate to an account with headroom by the host's own file; an account
-   that needs a browser login is the operator's: report it as a to-try line); once the active
-   account has headroom, message every controller listed `idle` with a `Started` or `Blocked`
+   -h | tail -3`; no other `du` over a home), a session stopped on `Usage limit reached` (with `usage.probe` set the watch rotates and resumes it and you type nothing;
+   only on `usage limit not lifted` or without a probe rotate by the host's own file, a browser login being the operator's to-try line);
+   then, once the active account has headroom, message every controller listed `idle` with a `Started` or `Blocked`
    dispatch and a usage-limit report: "account rotated, continue from your hand-over <path>" (the
    loop does not: the session is live, so no `session gone` line), a session over
    `thresholds.context_handover` (ask it for its hand-off, wait for the reply, then resume it fresh

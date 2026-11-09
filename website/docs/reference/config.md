@@ -207,7 +207,7 @@ A key path written `a[].b` is the key `b` of each element of the list `a`. A def
 | `reports[].when` | list of string | required |  |
 | `authority.class_c` | `conductor` \| `operator` | `conductor` |  |
 | `authority.class_o` | `conductor` \| `operator` | `operator` |  |
-| `usage.probe` | string | required |  |
+| `usage.probe` | string | none |  |
 | `usage.watcher` | string | none |  |
 | `usage.rotate` | string | none |  |
 | `operator` | string | none |  |

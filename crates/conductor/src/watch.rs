@@ -57,10 +57,11 @@
 //!   limit text per [`LIMIT_AGAIN`] from its last report, with a desktop notification to the
 //!   operator through [`Sources::notify`], titled `<instance>: usage limit`, because conductor is
 //!   stopped by the same limit.
-//! - **banner** for a pane that stands on the harness's banner, `Usage limit reached · …` among
-//!   its last lines and no `esc to interrupt` ([`stopped`]; the words quoted elsewhere are no
-//!   banner) (`story:auto-resume`): once the probe shows an account with headroom (any account when `usage.rotate` is set, else
-//!   the active one), the watch runs the rotation once for every such pane of the pass, then
+//! - **banner** for a pane that stands on the harness's stop banner, `Usage limit reached` alone
+//!   or `Usage limit reached · limit resets <when>`, among its last lines and in no tool's output
+//!   ([`stopped`]; the words quoted elsewhere, and the harness's other banners, are no stop)
+//!   (`story:auto-resume`): once the probe shows an account with headroom (any account when
+//!   `usage.rotate` is set, else the active one), the watch runs the rotation once for every such pane of the pass, then
 //!   resumes each, Escape and then [`RESUME_MESSAGE`], pasted as `conductor session deliver`
 //!   types; `usage limit resumed` names those it resumed. A pane resumed that still shows the
 //!   banner at the next pass is `usage limit not lifted`, once, and is resumed no more; a pane off
@@ -267,12 +268,25 @@ pub const BANNER: &str = "Usage limit reached";
 /// some versions draw, between spaces.
 const BANNER_SEPARATORS: [&str; 2] = [" · ", " ∙ "];
 
+/// What a stopped harness writes after [`BANNER`] and a separator: `limit resets <when>`. Its
+/// other banners, `wrapping up`, `continuing automatically … · esc to cancel`, `brief included
+/// wrap-up…`, are no stop.
+const BANNER_RESETS: &str = "limit resets ";
+
+/// Words that make a banner line no stop even after [`BANNER_RESETS`], lower case: the harness
+/// continues by itself, or a workflow it paused waits for its own resume.
+const BANNER_NOT_STOPPED: [&str; 2] = ["esc to cancel", "workflow paused"];
+
 /// How many of a pane's last non-empty lines the banner is looked for in: the banner, the prompt
 /// box under it and the status lines.
 const BANNER_LINES: usize = 8;
 
-/// What a harness shows while it works, so a pane showing it is not stopped.
-const WORKING: &str = "esc to interrupt";
+/// The mark a harness draws on the first line of a tool's output; the lines indented under it
+/// belong to that output too.
+const TOOL_OUTPUT: char = '⎿';
+
+/// The border of the harness's prompt box.
+const BOX_BORDER: char = '│';
 
 /// What the watch types into a pane it resumed, after Escape.
 pub const RESUME_MESSAGE: &str =
@@ -579,25 +593,53 @@ impl Panes {
     }
 }
 
-/// Whether `screen`, a pane's visible text, stands on the banner as the harness draws it: one of
-/// its last [`BANNER_LINES`] non-empty lines, its leading blanks and box border taken off, is
-/// starts with [`BANNER`] and one of [`BANNER_SEPARATORS`] (`Usage limit reached · limit resets
-/// 6am`), and none of them says the harness is working ([`WORKING`]). The words quoted anywhere
-/// else, in a tool's output or a prompt, are no banner (`story:auto-resume`).
+/// Whether `screen`, a pane's visible text, stands on the banner as the harness draws it
+/// (`story:auto-resume`): one of its last [`BANNER_LINES`] non-empty lines is a stop banner
+/// ([`stop_banner`]) and lies in no tool's output. A line is read on its raw indent, which
+/// decides whether it lies in a tool's output: a [`TOOL_OUTPUT`] line opens one, and every later
+/// line indented deeper than its mark lies in it, until a line that is not. A prompt-box line has
+/// only its [`BOX_BORDER`]s and their padding taken off. The words quoted in a tool's output, in
+/// a prompt (`> …`) or in any other shape are no banner.
 fn stopped(screen: &str) -> bool {
-    let last: Vec<&str> = screen
-        .lines()
-        .map(|line| line.trim_start_matches(|c: char| c.is_whitespace() || c == '│'))
-        .map(str::trim_end)
-        .filter(|line| !line.is_empty())
-        .collect();
-    let last = &last[last.len().saturating_sub(BANNER_LINES)..];
-    !last.iter().any(|line| line.contains(WORKING))
-        && last.iter().any(|line| {
-            line.strip_prefix(BANNER).is_some_and(|rest| {
-                BANNER_SEPARATORS
-                    .iter()
-                    .any(|separator| rest.starts_with(separator))
+    let mut lines: Vec<(&str, bool)> = Vec::new();
+    let mut output: Option<usize> = None;
+    for raw in screen.lines() {
+        let text = raw.trim();
+        if text.is_empty() {
+            continue;
+        }
+        let indent = raw.chars().take_while(|c| c.is_whitespace()).count();
+        if let Some(inner) = text.strip_prefix(BOX_BORDER) {
+            lines.push((inner.trim_end_matches(BOX_BORDER).trim(), false));
+        } else if text.starts_with(TOOL_OUTPUT) {
+            output = Some(indent);
+            lines.push((text, true));
+        } else {
+            let inside = output.is_some_and(|mark| indent > mark);
+            if !inside {
+                output = None;
+            }
+            lines.push((text, inside));
+        }
+    }
+    lines[lines.len().saturating_sub(BANNER_LINES)..]
+        .iter()
+        .any(|(text, inside)| !inside && stop_banner(text))
+}
+
+/// Whether `text`, one line with its indent taken off, is the banner of a harness a usage limit
+/// stopped: [`BANNER`] alone, or [`BANNER`], a separator and [`BANNER_RESETS`], with none of
+/// [`BANNER_NOT_STOPPED`] after it.
+fn stop_banner(text: &str) -> bool {
+    let Some(rest) = text.strip_prefix(BANNER) else {
+        return false;
+    };
+    rest.is_empty()
+        || BANNER_SEPARATORS.iter().any(|separator| {
+            rest.strip_prefix(separator).is_some_and(|after| {
+                let after = after.to_lowercase();
+                after.starts_with(BANNER_RESETS)
+                    && !BANNER_NOT_STOPPED.iter().any(|word| after.contains(word))
             })
         })
 }
