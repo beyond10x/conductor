@@ -6448,9 +6448,9 @@ fn git_remotes(dir: &Path, remotes: &[(&str, &str)]) {
 }
 
 /// A pipeline write that names no repository is admitted only where `glab` reads the session's
-/// own repository: in the checkout or a tree of it, every remote naming that repository, the line
-/// moving neither the directory nor git's location first. `-R` counts in every spelling `glab`
-/// reads, and each denial names the rule, forge.route direct.
+/// own repository: in the checkout or a tree of it, every remote naming that repository, nothing
+/// before it on the line moving the directory (no `cd` at all) or git's location. `-R` counts in
+/// every spelling `glab` reads, and each denial names the rule, forge.route direct.
 #[test]
 fn under_the_direct_route_a_pipeline_write_reaches_only_the_repository_glab_reads() {
     let home = home("forge-direct-pipelines-reach");
@@ -6470,18 +6470,13 @@ fn under_the_direct_route_a_pipeline_write_reaches_only_the_repository_glab_read
     for (cwd, command) in [
         (&widget, "glab ci retry 123 -Rexample-group/widget"),
         (&widget, "glab ci run -R=example-group/widget"),
-        (&widget, "cd ./src && glab ci retry 123"),
-        (
-            &widget,
-            "cd ./src && glab api -X POST projects/:id/pipeline",
-        ),
         (
             &widget,
             "cd ~/clones/other && glab ci retry 1 -R example-group/widget",
         ),
         (&tree, "glab ci retry 123"),
-        (&widget, "pushd ./src && popd && glab ci retry 123"),
         (&widget, "glab ci retry 123 && glab ci view"),
+        (&widget, "glab ci retry 123; cd ~/clones/other"),
         (&tree, "glab api -X POST projects/:fullpath/jobs/5/retry"),
     ] {
         assert_verdict(&bash_by(&home, &places, cwd, command), Verdict::Allow, "");
@@ -6535,6 +6530,28 @@ fn under_the_direct_route_a_pipeline_write_reaches_only_the_repository_glab_read
             "cd src && glab ci retry 123",
             "names no repository",
         ),
+        // A move inside the own checkout is denied too: the guard follows no directory move.
+        (
+            &widget,
+            "cd ./src && glab ci retry 123",
+            "-R example-group/widget",
+        ),
+        (
+            &widget,
+            "cd ./src && glab api -X POST projects/:id/pipeline",
+            "names no repository",
+        ),
+        (
+            &widget,
+            "pushd ./src && popd && glab ci retry 123",
+            "-R example-group/widget",
+        ),
+        (
+            &widget,
+            "glab ci retry 123 & git remote add upstream x",
+            "names no repository",
+        ),
+        (&widget, "glab ci retry 123 | sh", "names no repository"),
         (
             &widget,
             "cd vendor/other && glab ci retry 123",

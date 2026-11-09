@@ -143,12 +143,15 @@ Two routes write for the session's own repository, the one its checkout's `origi
 | `forge.route: direct` | `gh pr` `create`, `edit`, `comment`, `merge`, `ready` and `glab mr` `create`, `update`, `note`, `merge` with `-R` naming it; `glab ci retry` or `run` with `-R` naming it, or none where `glab` reads it (below); `glab api -X POST` to its pipeline and job retry endpoints, its path encoded, or `:id` and `:fullpath` as with no `-R`. A direct write on a line that names `GITLAB_HOST`, `GH_HOST` or a like variable is denied |
 
 Without `-R`, `glab` reads the repository of the directory it runs in, so the guard admits that
-form only when it can tell which one that is. Every other command on the line is a `cd`, `pushd`
-or `popd` before the call, to a path from `/`, `~` or `.` (a bare `cd dir` may follow `CDPATH`),
-an assignment that moves nothing (`GIT_PAGER=cat`, not `GIT_DIR`, `GIT_CONFIG*`, `CDPATH`,
-`HOME`, `PATH` or a `GITLAB_*` variable), or another `glab` call; no loop or function. The
-repository git discovers there is no bare one, its own config holds no `[include]`,
-`[includeIf]`, `insteadOf` or `worktreeConfig`, and every remote in it names the session's
+form only in the session's own directory, with nothing on the line that may move it or change
+what it reads. Before the call: only an assignment that moves nothing (`GIT_PAGER=cat`; not
+`GIT_DIR`, `GIT_CONFIG*`, `CDPATH`, `HOME`, `PATH` or a `GITLAB_*` variable) or another `glab`
+call. A `cd`, `pushd` or `popd` before it denies it, even inside the checkout: the guard follows
+no directory move. After the call: anything but `git` or a file write. Beside it, in a pipe or
+the background: only a read-only filter (`tail`, `head`, `grep`, `wc`, `sort`, `jq` and the
+like). No loop or function. The repository git discovers there is no bare one, and its own
+config holds no `[include]`, `[includeIf]`, `insteadOf`, `worktreeConfig`, key on a section's
+header line or `glab-resolved` other than `base`, and every remote in it names the session's
 repository (`glab` prefers `upstream` to `origin`). The global git config is not read. Anything
 else is denied, and the denial asks for `-R <repository>`.
 
