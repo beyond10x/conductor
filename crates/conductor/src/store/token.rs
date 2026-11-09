@@ -91,8 +91,14 @@ impl PoolTokenStorage for Store {
     fn delete(&mut self, identity: &TokenId) {
         self.write(POOL_TOKEN, &identity.0.0, DELETED, json!({}));
     }
+}
 
-    fn list(&self) -> Vec<PoolTokenSnapshot> {
+impl Store {
+    /// Every token of every pool. Not `PoolTokenStorage::list`: the model's port has no `list`
+    /// since `conductor.token.Tokens` takes the instance as a parameter, and its query is no
+    /// longer generated over the port.
+    #[must_use]
+    pub fn pool_tokens(&self) -> Vec<PoolTokenSnapshot> {
         self.rows(POOL_TOKEN)
             .into_iter()
             .filter_map(|(stream, body)| match decode_token(&body) {

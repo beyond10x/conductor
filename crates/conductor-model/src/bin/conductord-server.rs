@@ -1,5 +1,5 @@
 // generated from conductor v1
-// contract digest 8d3aee133e936ba053cf7cd2ad3b3aadd389f7fad772cddd3c670bb87f21cfef
+// contract digest 3ad5226d4517a7ae569bdc15103168ac09f97332327ca0e0972b62aad9feb62a
 // do not edit: regenerate with `ess synthesize --layout crate`
 
 //! Ephemeral generated server. Durable storage and production authentication remain ports.
@@ -18,6 +18,6 @@ static_root: Option<std::path::PathBuf>,
 fn main() -> std::process::ExitCode {
 let options = Options::parse();
 let _ = options;
-eprintln!("unmet startup obligations:\nassigned value: String\nassigned value: conductor.placement.RefusalReason\ncommand behaviour: conductor.instance.StartInstance\ncommand behaviour: conductor.secret.PutSecret\ncommand behaviour: conductor.secret.ResolveSecrets\ncommand behaviour: conductor.store.MigrateStore\nexternal branch answer: conductor.config.PutConfig/actor-not-human\nexternal branch answer: conductor.config.PutConfig/invalid\nexternal branch answer: conductor.instance.RestartInstance/placement-refused\nexternal branch answer: conductor.placement.OpenBox/adapter-refused\nexternal branch answer: conductor.placement.OpenBox/refused\nexternal branch answer: conductor.token.LeaseToken/none-available\nexternal branch answer: conductor.token.WithdrawToken/not-owner\nview query: conductor.config.EffectiveSettings");
+eprintln!("unmet startup obligations:\nassigned value: String\nassigned value: conductor.placement.RefusalReason\ncommand behaviour: conductor.instance.StartInstance\ncommand behaviour: conductor.secret.PutSecret\ncommand behaviour: conductor.secret.ResolveSecrets\ncommand behaviour: conductor.store.MigrateStore\nexternal branch answer: conductor.config.PutConfig/actor-not-human\nexternal branch answer: conductor.config.PutConfig/invalid\nexternal branch answer: conductor.instance.RestartInstance/placement-refused\nexternal branch answer: conductor.placement.OpenBox/adapter-refused\nexternal branch answer: conductor.placement.OpenBox/refused\nexternal branch answer: conductor.token.LeaseToken/none-available\nexternal branch answer: conductor.token.WithdrawToken/not-owner\nview query: conductor.config.EffectiveSettings\nview query: conductor.token.Tokens");
 std::process::ExitCode::FAILURE
 }

@@ -3,12 +3,12 @@
   "info": {
     "title": "conductord",
     "summary": "The daemon of the control host. It reconciles every instance of the config file against what runs at its placement, opens and closes each instance's box, resolves the secrets the config names, records who operates each instance and the tokens they contribute, writes the config on an accepted change, and serves the global API.\n",
-    "description": "The HTTP surface of `conductord`, one of the components of `conductor` v1.\n\nEvery path here is one semantic command, so the method is always POST and the path is the command's wire name under its domain's: a command is not a resource, and this document does not invent one. A status code is the outcome the specification declares — 202 for a branch that was taken, 422 for a refusal the input decides, 502 for a refusal decided outside the request — and the `outcome` property of every response body names the branch. This component publishes `ConfigChanged`, `InstanceAnswered`, `InstancePurged`, `InstanceReconciled`, `InstanceRestarted`, `InstanceRolledBack`, `InstanceStarted`, `InstanceStopped`, `InstanceUnreachable`, `InstanceUpgrading`, `OperatorJoined`, `OperatorLeft`, `BoxClosed`, `BoxOpened`, `BoxRefused`, `SecretPut`, `SecretsResolved`, `StoreMigrated`, `TokenContributed`, `TokenLeased`, `TokenLimited`, `TokenReleased` and `TokenWithdrawn` to consumers through the event transport; an event a branch emits that is not among them stays inside the component. The `published` property of every response body lists every event its branch emitted, in the order it emits them, published or not.\n\nThe specification declares who may invoke what (`x-ess-may-invoke` on each operation), so every command is sent as a declared actor. How a request proves which actor it is belongs to the realization, which authenticates it and hands the surface the caller; nothing in the request itself names one. The grant is checked before the command runs, and a request authenticated as no actor, or as one without the grant, is answered 403 with one standard refusal, the same for every command: `{\"refused\": \"not granted\", \"actor\": <name or null>}`. A 403 a declared branch answers carries `outcome` and the declared `error` instead, so a client tells the two apart by the members present. A command no declared actor may invoke is refused to every caller. A view an actor's grant names is read-checked the same way (`x-ess-may-read` on its operation): a request authenticated as no actor, or as one the grant does not name, is answered 403 with the same standard refusal before the view is read. A view no grant names is open, and any caller may read what it publishes.\n\nThis component declares `reached_by: network`, so its callers are not deployed with it and this contract is the surface they reach it through. That declaration is also why the views its domains declare have paths here: a GET under `views` per projection, answering every row it holds. There is no page size, no cursor, no ordering and no filter parameter, because the specification states none — a view's filter is part of the projection, not of the request. A view that declares `params:` is the exception: each is a query parameter, described on its operation, and a view that declares `paging:` takes its page and size there.",
+    "description": "The HTTP surface of `conductord`, one of the components of `conductor` v1.\n\nEvery path here is one semantic command, so the method is always POST and the path is the command's wire name under its domain's: a command is not a resource, and this document does not invent one. A status code is the outcome the specification declares — 202 for a branch that was taken, 422 for a refusal the input decides, 502 for a refusal decided outside the request — and the `outcome` property of every response body names the branch. This component publishes `ConfigChanged`, `InstanceAnswered`, `InstancePurged`, `InstanceReconciled`, `InstanceRestarted`, `InstanceRolledBack`, `InstanceStarted`, `InstanceStopped`, `InstanceUnreachable`, `InstanceUpgrading`, `OperatorJoined`, `OperatorLeft`, `BoxClosed`, `BoxOpened`, `BoxRefused`, `SecretPut`, `SecretsResolved`, `StoreMigrated`, `TokenContributed`, `TokenLeased`, `TokenLimited`, `TokenReleased` and `TokenWithdrawn` to consumers through the event transport; an event a branch emits that is not among them stays inside the component. The `published` property of every response body lists every event its branch emitted, in the order it emits them, published or not.\n\nThe specification declares who may invoke what (`x-ess-may-invoke` on each operation), so every command is sent as a declared actor. How a request proves which actor it is belongs to the realization, which authenticates it and hands the surface the caller; nothing in the request itself names one. The grant is checked before the command runs, and a request authenticated as no actor, or as one without the grant, is answered 403 with one standard refusal, the same for every command: `{\"refused\": \"not granted\", \"actor\": <name or null>}`. A 403 a declared branch answers carries `outcome` and the declared `error` instead, so a client tells the two apart by the members present. A command no declared actor may invoke is refused to every caller. A view an actor's grant names is read-checked the same way (`x-ess-may-read` on its operation): a request authenticated as no actor, or as one the grant does not name, is answered 403 with the same standard refusal before the view is read. A view no grant names is open, and any caller may read what it publishes.\n\nThis component declares `reached_by: network`, so its callers are not deployed with it and this contract is the surface they reach it through. That declaration is also why the views its domains declare have paths here: a GET under `views` per projection, answering every row it holds. There is no page size, no cursor, no ordering and no filter parameter, because the specification states none — a view's filter is part of the projection, not of the request. A view that declares `params:` is the exception: each is a query parameter, described on its operation, and a view that declares `paging:` takes its page and size there.\n\nAn `ess-http/1` binding declares the method and path of every operation marked `x-ess-route-source: binding`, so those are the protocol's and not derived from wire names. Each variable of such a path is a required path parameter carrying the input field or view parameter the binding maps to it, and a field carried in the path is not in the request body. Every other operation keeps the method and path described above.\n\nThe binding also declares how some of those operations are encoded and answered: a request body that is form-encoded, or input carried in the query string; the status, body and headers of an outcome; a redirect; a view that answers its one row; or a standard refusal's answer. Such an operation is described as the binding declares it, and each response of such a command lists the outcomes it answers under `x-ess-outcomes`, because a bare body carries no `outcome` naming the branch and no `published` list. A `WWW-Authenticate` challenge is a response header: the specification states what a refusal answers, not how a caller proves who it is, so no security scheme is declared.",
     "version": "v1",
     "x-ess-provenance": {
       "system": "conductor",
       "specification_version": "v1",
-      "contract_digest": "slice-sha256/2:618433098a19a0540e90db3439d0f0e918fa3c58efedd8865096b5adbb981195"
+      "contract_digest": "slice-sha256/2:ebf8f5b48394bae3ef56c1e23b4fd78948d5953525904e0fbb46f60ab429a9de"
     },
     "x-ess-reached-by": "network"
   },
@@ -43,132 +43,6 @@
     }
   ],
   "paths": {
-    "/config/commands/put-config": {
-      "post": {
-        "operationId": "conductor.config.PutConfig",
-        "summary": "Change the config",
-        "tags": [
-          "config"
-        ],
-        "x-ess-may-invoke": [
-          "conductor.config.Operator",
-          "conductor.config.Tuner"
-        ],
-        "requestBody": {
-          "description": "The input `conductor.config.PutConfig` declares.",
-          "required": true,
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/conductor.config.PutConfig.Input"
-              }
-            }
-          }
-        },
-        "responses": {
-          "202": {
-            "description": "Outcome `changed`: the branch the specification declares for this input. Events this branch emits are published to consumers and listed under `published`.",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/conductor.config.PutConfig.changed.Response"
-                }
-              }
-            }
-          },
-          "403": {
-            "description": "No declared outcome: the standard refusal for an actor no grant admits: the request was authenticated as no actor, or as one `x-ess-may-invoke` does not list. It is checked before the command runs, so nothing was read, written or published, and the same request from a granted actor is decided by the command. Its body carries `refused` and `actor`, never the `outcome` and `error` a declared branch carries.",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "additionalProperties": false,
-                  "properties": {
-                    "actor": {
-                      "description": "The qualified name of the actor the request was authenticated as, or null where it was authenticated as none.",
-                      "type": [
-                        "string",
-                        "null"
-                      ]
-                    },
-                    "refused": {
-                      "description": "The standard refusal for an actor no grant admits.",
-                      "enum": [
-                        "not granted"
-                      ],
-                      "type": "string"
-                    }
-                  },
-                  "required": [
-                    "refused",
-                    "actor"
-                  ],
-                  "type": "object"
-                }
-              }
-            }
-          },
-          "422": {
-            "description": "Outcome `level-scope-mismatch`: the request was understood and refused on domain grounds. The body names the declared error and carries whatever that error declares.",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/conductor.config.PutConfig.level-scope-mismatch.Response"
-                }
-              }
-            }
-          },
-          "501": {
-            "description": "No declared outcome: the realization is unfinished. Either a port this command runs reported an unmet obligation, and nothing was written: `committed` is `false`. Or the command's effect was committed and delivering what this command published to a binding failed: `committed` is `true`, the effect and its events stand, and each binding whose delivery failed keeps its event and is attempted again on a later delivery, while no other binding receives it twice. Do not retry: after a failed delivery a retry performs the command a second time.",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "additionalProperties": false,
-                  "properties": {
-                    "committed": {
-                      "description": "`true` when the command's effect and events were committed and delivering what it published failed; `false` when an unmet obligation stopped the command before anything was written.",
-                      "type": "boolean"
-                    },
-                    "refused": {
-                      "description": "What was left unfinished, in words.",
-                      "type": "string"
-                    }
-                  },
-                  "required": [
-                    "refused",
-                    "committed"
-                  ],
-                  "type": "object"
-                }
-              }
-            }
-          },
-          "502": {
-            "description": "Outcomes `actor-not-human` and `invalid`: something outside the request refused. The input was acceptable, so the caller has nothing to correct and a retry is meaningful.",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "discriminator": {
-                    "mapping": {
-                      "actor-not-human": "#/components/schemas/conductor.config.PutConfig.actor-not-human.Response",
-                      "invalid": "#/components/schemas/conductor.config.PutConfig.invalid.Response"
-                    },
-                    "propertyName": "outcome"
-                  },
-                  "oneOf": [
-                    {
-                      "$ref": "#/components/schemas/conductor.config.PutConfig.actor-not-human.Response"
-                    },
-                    {
-                      "$ref": "#/components/schemas/conductor.config.PutConfig.invalid.Response"
-                    }
-                  ]
-                }
-              }
-            }
-          }
-        }
-      }
-    },
     "/config/views/config-revisions": {
       "get": {
         "operationId": "conductor.config.ConfigRevisions",
@@ -184,39 +58,6 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/conductor.config.ConfigRevisions.Response"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    "/config/views/effective-settings": {
-      "get": {
-        "operationId": "conductor.config.EffectiveSettings",
-        "summary": "Effective settings",
-        "tags": [
-          "config"
-        ],
-        "x-ess-consistency": "eventual",
-        "parameters": [
-          {
-            "name": "instance",
-            "in": "query",
-            "description": "Read by the view's filter as `param.instance`; it selects which rows the view holds.",
-            "required": true,
-            "schema": {
-              "$ref": "#/components/schemas/conductor.config.InstanceName"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "Every row of `conductor.config.EffectiveSettings`, a projection of `conductor.config.EffectiveSetting`. Contains the instances where `instance == param.instance` holds. Eventually consistent: a row may not yet reflect a command that has already returned.",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/conductor.config.EffectiveSettings.Response"
                 }
               }
             }
@@ -554,546 +395,6 @@
                     "committed"
                   ],
                   "type": "object"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    "/instance/commands/restart": {
-      "post": {
-        "operationId": "conductor.instance.RestartInstance",
-        "summary": "Restart an instance",
-        "tags": [
-          "instance"
-        ],
-        "x-ess-may-invoke": [
-          "conductor.instance.Conductord",
-          "conductor.instance.Operator"
-        ],
-        "requestBody": {
-          "description": "The input `conductor.instance.RestartInstance` declares.",
-          "required": true,
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/conductor.instance.RestartInstance.Input"
-              }
-            }
-          }
-        },
-        "responses": {
-          "202": {
-            "description": "Outcome `restarted`: the branch the specification declares for this input. Events this branch emits are published to consumers and listed under `published`.",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/conductor.instance.RestartInstance.restarted.Response"
-                }
-              }
-            }
-          },
-          "403": {
-            "description": "No declared outcome: the standard refusal for an actor no grant admits: the request was authenticated as no actor, or as one `x-ess-may-invoke` does not list. It is checked before the command runs, so nothing was read, written or published, and the same request from a granted actor is decided by the command. Its body carries `refused` and `actor`, never the `outcome` and `error` a declared branch carries.",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "additionalProperties": false,
-                  "properties": {
-                    "actor": {
-                      "description": "The qualified name of the actor the request was authenticated as, or null where it was authenticated as none.",
-                      "type": [
-                        "string",
-                        "null"
-                      ]
-                    },
-                    "refused": {
-                      "description": "The standard refusal for an actor no grant admits.",
-                      "enum": [
-                        "not granted"
-                      ],
-                      "type": "string"
-                    }
-                  },
-                  "required": [
-                    "refused",
-                    "actor"
-                  ],
-                  "type": "object"
-                }
-              }
-            }
-          },
-          "404": {
-            "description": "Outcome `unknown`: the branch the specification declares for this input. Events this branch emits are published to consumers and listed under `published`.",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/conductor.instance.RestartInstance.unknown.Response"
-                }
-              }
-            }
-          },
-          "409": {
-            "description": "Outcome `not-running`: the input was acceptable and the subject is in a state this command does not act from. Resending the same request changes nothing until something else moves it.",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/conductor.instance.RestartInstance.not-running.Response"
-                }
-              }
-            }
-          },
-          "501": {
-            "description": "No declared outcome: the realization is unfinished. Either a port this command runs reported an unmet obligation, and nothing was written: `committed` is `false`. Or the command's effect was committed and delivering what this command published to a binding failed: `committed` is `true`, the effect and its events stand, and each binding whose delivery failed keeps its event and is attempted again on a later delivery, while no other binding receives it twice. Do not retry: after a failed delivery a retry performs the command a second time.",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "additionalProperties": false,
-                  "properties": {
-                    "committed": {
-                      "description": "`true` when the command's effect and events were committed and delivering what it published failed; `false` when an unmet obligation stopped the command before anything was written.",
-                      "type": "boolean"
-                    },
-                    "refused": {
-                      "description": "What was left unfinished, in words.",
-                      "type": "string"
-                    }
-                  },
-                  "required": [
-                    "refused",
-                    "committed"
-                  ],
-                  "type": "object"
-                }
-              }
-            }
-          },
-          "502": {
-            "description": "Outcome `placement-refused`: something outside the request refused. The input was acceptable, so the caller has nothing to correct and a retry is meaningful.",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/conductor.instance.RestartInstance.placement-refused.Response"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    "/instance/commands/start": {
-      "post": {
-        "operationId": "conductor.instance.StartInstance",
-        "summary": "Start an instance",
-        "tags": [
-          "instance"
-        ],
-        "x-ess-may-invoke": [
-          "conductor.instance.Conductord",
-          "conductor.instance.Operator"
-        ],
-        "requestBody": {
-          "description": "The input `conductor.instance.StartInstance` declares.",
-          "required": true,
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/conductor.instance.StartInstance.Input"
-              }
-            }
-          }
-        },
-        "responses": {
-          "202": {
-            "description": "Outcomes `created`, `started` and `already-started`: the branch the specification declares for this input. Events this branch emits are published to consumers and listed under `published`.",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "discriminator": {
-                    "mapping": {
-                      "already-started": "#/components/schemas/conductor.instance.StartInstance.already-started.Response",
-                      "created": "#/components/schemas/conductor.instance.StartInstance.created.Response",
-                      "started": "#/components/schemas/conductor.instance.StartInstance.started.Response"
-                    },
-                    "propertyName": "outcome"
-                  },
-                  "oneOf": [
-                    {
-                      "$ref": "#/components/schemas/conductor.instance.StartInstance.created.Response"
-                    },
-                    {
-                      "$ref": "#/components/schemas/conductor.instance.StartInstance.started.Response"
-                    },
-                    {
-                      "$ref": "#/components/schemas/conductor.instance.StartInstance.already-started.Response"
-                    }
-                  ]
-                }
-              }
-            }
-          },
-          "403": {
-            "description": "No declared outcome: the standard refusal for an actor no grant admits: the request was authenticated as no actor, or as one `x-ess-may-invoke` does not list. It is checked before the command runs, so nothing was read, written or published, and the same request from a granted actor is decided by the command. Its body carries `refused` and `actor`, never the `outcome` and `error` a declared branch carries.",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "additionalProperties": false,
-                  "properties": {
-                    "actor": {
-                      "description": "The qualified name of the actor the request was authenticated as, or null where it was authenticated as none.",
-                      "type": [
-                        "string",
-                        "null"
-                      ]
-                    },
-                    "refused": {
-                      "description": "The standard refusal for an actor no grant admits.",
-                      "enum": [
-                        "not granted"
-                      ],
-                      "type": "string"
-                    }
-                  },
-                  "required": [
-                    "refused",
-                    "actor"
-                  ],
-                  "type": "object"
-                }
-              }
-            }
-          },
-          "422": {
-            "description": "Outcome `not-startable`: the request was understood and refused on domain grounds. The body names the declared error and carries whatever that error declares.",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/conductor.instance.StartInstance.not-startable.Response"
-                }
-              }
-            }
-          },
-          "501": {
-            "description": "No declared outcome: the realization is unfinished. Either a port this command runs reported an unmet obligation, and nothing was written: `committed` is `false`. Or the command's effect was committed and delivering what this command published to a binding failed: `committed` is `true`, the effect and its events stand, and each binding whose delivery failed keeps its event and is attempted again on a later delivery, while no other binding receives it twice. Do not retry: after a failed delivery a retry performs the command a second time.",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "additionalProperties": false,
-                  "properties": {
-                    "committed": {
-                      "description": "`true` when the command's effect and events were committed and delivering what it published failed; `false` when an unmet obligation stopped the command before anything was written.",
-                      "type": "boolean"
-                    },
-                    "refused": {
-                      "description": "What was left unfinished, in words.",
-                      "type": "string"
-                    }
-                  },
-                  "required": [
-                    "refused",
-                    "committed"
-                  ],
-                  "type": "object"
-                }
-              }
-            }
-          },
-          "502": {
-            "description": "Outcomes `not-in-config` and `placement-refused`: something outside the request refused. The input was acceptable, so the caller has nothing to correct and a retry is meaningful.",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "discriminator": {
-                    "mapping": {
-                      "not-in-config": "#/components/schemas/conductor.instance.StartInstance.not-in-config.Response",
-                      "placement-refused": "#/components/schemas/conductor.instance.StartInstance.placement-refused.Response"
-                    },
-                    "propertyName": "outcome"
-                  },
-                  "oneOf": [
-                    {
-                      "$ref": "#/components/schemas/conductor.instance.StartInstance.not-in-config.Response"
-                    },
-                    {
-                      "$ref": "#/components/schemas/conductor.instance.StartInstance.placement-refused.Response"
-                    }
-                  ]
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    "/instance/commands/stop": {
-      "post": {
-        "operationId": "conductor.instance.StopInstance",
-        "summary": "Stop an instance",
-        "tags": [
-          "instance"
-        ],
-        "x-ess-may-invoke": [
-          "conductor.instance.Conductord",
-          "conductor.instance.Operator"
-        ],
-        "requestBody": {
-          "description": "The input `conductor.instance.StopInstance` declares.",
-          "required": true,
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/conductor.instance.StopInstance.Input"
-              }
-            }
-          }
-        },
-        "responses": {
-          "202": {
-            "description": "Outcomes `stopped` and `already-stopped`: the branch the specification declares for this input. Events this branch emits are published to consumers and listed under `published`.",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "discriminator": {
-                    "mapping": {
-                      "already-stopped": "#/components/schemas/conductor.instance.StopInstance.already-stopped.Response",
-                      "stopped": "#/components/schemas/conductor.instance.StopInstance.stopped.Response"
-                    },
-                    "propertyName": "outcome"
-                  },
-                  "oneOf": [
-                    {
-                      "$ref": "#/components/schemas/conductor.instance.StopInstance.stopped.Response"
-                    },
-                    {
-                      "$ref": "#/components/schemas/conductor.instance.StopInstance.already-stopped.Response"
-                    }
-                  ]
-                }
-              }
-            }
-          },
-          "403": {
-            "description": "No declared outcome: the standard refusal for an actor no grant admits: the request was authenticated as no actor, or as one `x-ess-may-invoke` does not list. It is checked before the command runs, so nothing was read, written or published, and the same request from a granted actor is decided by the command. Its body carries `refused` and `actor`, never the `outcome` and `error` a declared branch carries.",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "additionalProperties": false,
-                  "properties": {
-                    "actor": {
-                      "description": "The qualified name of the actor the request was authenticated as, or null where it was authenticated as none.",
-                      "type": [
-                        "string",
-                        "null"
-                      ]
-                    },
-                    "refused": {
-                      "description": "The standard refusal for an actor no grant admits.",
-                      "enum": [
-                        "not granted"
-                      ],
-                      "type": "string"
-                    }
-                  },
-                  "required": [
-                    "refused",
-                    "actor"
-                  ],
-                  "type": "object"
-                }
-              }
-            }
-          },
-          "404": {
-            "description": "Outcome `unknown`: the branch the specification declares for this input. Events this branch emits are published to consumers and listed under `published`.",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/conductor.instance.StopInstance.unknown.Response"
-                }
-              }
-            }
-          },
-          "422": {
-            "description": "Outcome `purged`: the request was understood and refused on domain grounds. The body names the declared error and carries whatever that error declares.",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/conductor.instance.StopInstance.purged.Response"
-                }
-              }
-            }
-          },
-          "501": {
-            "description": "No declared outcome: the realization is unfinished. Either a port this command runs reported an unmet obligation, and nothing was written: `committed` is `false`. Or the command's effect was committed and delivering what this command published to a binding failed: `committed` is `true`, the effect and its events stand, and each binding whose delivery failed keeps its event and is attempted again on a later delivery, while no other binding receives it twice. Do not retry: after a failed delivery a retry performs the command a second time.",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "additionalProperties": false,
-                  "properties": {
-                    "committed": {
-                      "description": "`true` when the command's effect and events were committed and delivering what it published failed; `false` when an unmet obligation stopped the command before anything was written.",
-                      "type": "boolean"
-                    },
-                    "refused": {
-                      "description": "What was left unfinished, in words.",
-                      "type": "string"
-                    }
-                  },
-                  "required": [
-                    "refused",
-                    "committed"
-                  ],
-                  "type": "object"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    "/instance/commands/upgrade": {
-      "post": {
-        "operationId": "conductor.instance.UpgradeInstance",
-        "summary": "Upgrade an instance",
-        "tags": [
-          "instance"
-        ],
-        "x-ess-may-invoke": [
-          "conductor.instance.Conductord",
-          "conductor.instance.Operator"
-        ],
-        "requestBody": {
-          "description": "The input `conductor.instance.UpgradeInstance` declares.",
-          "required": true,
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/conductor.instance.UpgradeInstance.Input"
-              }
-            }
-          }
-        },
-        "responses": {
-          "202": {
-            "description": "Outcomes `upgrading` and `rolled-back`: the branch the specification declares for this input. Events this branch emits are published to consumers and listed under `published`.",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "discriminator": {
-                    "mapping": {
-                      "rolled-back": "#/components/schemas/conductor.instance.UpgradeInstance.rolled-back.Response",
-                      "upgrading": "#/components/schemas/conductor.instance.UpgradeInstance.upgrading.Response"
-                    },
-                    "propertyName": "outcome"
-                  },
-                  "oneOf": [
-                    {
-                      "$ref": "#/components/schemas/conductor.instance.UpgradeInstance.upgrading.Response"
-                    },
-                    {
-                      "$ref": "#/components/schemas/conductor.instance.UpgradeInstance.rolled-back.Response"
-                    }
-                  ]
-                }
-              }
-            }
-          },
-          "403": {
-            "description": "No declared outcome: the standard refusal for an actor no grant admits: the request was authenticated as no actor, or as one `x-ess-may-invoke` does not list. It is checked before the command runs, so nothing was read, written or published, and the same request from a granted actor is decided by the command. Its body carries `refused` and `actor`, never the `outcome` and `error` a declared branch carries.",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "additionalProperties": false,
-                  "properties": {
-                    "actor": {
-                      "description": "The qualified name of the actor the request was authenticated as, or null where it was authenticated as none.",
-                      "type": [
-                        "string",
-                        "null"
-                      ]
-                    },
-                    "refused": {
-                      "description": "The standard refusal for an actor no grant admits.",
-                      "enum": [
-                        "not granted"
-                      ],
-                      "type": "string"
-                    }
-                  },
-                  "required": [
-                    "refused",
-                    "actor"
-                  ],
-                  "type": "object"
-                }
-              }
-            }
-          },
-          "404": {
-            "description": "Outcome `unknown`: the branch the specification declares for this input. Events this branch emits are published to consumers and listed under `published`.",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/conductor.instance.UpgradeInstance.unknown.Response"
-                }
-              }
-            }
-          },
-          "422": {
-            "description": "Outcome `not-running`: the request was understood and refused on domain grounds. The body names the declared error and carries whatever that error declares.",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/conductor.instance.UpgradeInstance.not-running.Response"
-                }
-              }
-            }
-          },
-          "501": {
-            "description": "No declared outcome: the realization is unfinished. Either a port this command runs reported an unmet obligation, and nothing was written: `committed` is `false`. Or the command's effect was committed and delivering what this command published to a binding failed: `committed` is `true`, the effect and its events stand, and each binding whose delivery failed keeps its event and is attempted again on a later delivery, while no other binding receives it twice. Do not retry: after a failed delivery a retry performs the command a second time.",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "additionalProperties": false,
-                  "properties": {
-                    "committed": {
-                      "description": "`true` when the command's effect and events were committed and delivering what it published failed; `false` when an unmet obligation stopped the command before anything was written.",
-                      "type": "boolean"
-                    },
-                    "refused": {
-                      "description": "What was left unfinished, in words.",
-                      "type": "string"
-                    }
-                  },
-                  "required": [
-                    "refused",
-                    "committed"
-                  ],
-                  "type": "object"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    "/instance/views/instances": {
-      "get": {
-        "operationId": "conductor.instance.Instances",
-        "summary": "Instances",
-        "tags": [
-          "instance"
-        ],
-        "x-ess-consistency": "read_your_writes",
-        "responses": {
-          "200": {
-            "description": "Every row of `conductor.instance.Instances`, a projection of `conductor.instance.Instance`. Contains every instance. Read-your-writes: a caller that has just issued a command sees its effect here.",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/conductor.instance.Instances.Response"
                 }
               }
             }
@@ -1968,28 +1269,6 @@
         }
       }
     },
-    "/secret/views/secrets": {
-      "get": {
-        "operationId": "conductor.secret.Secrets",
-        "summary": "Secrets",
-        "tags": [
-          "secret"
-        ],
-        "x-ess-consistency": "read_your_writes",
-        "responses": {
-          "200": {
-            "description": "Every row of `conductor.secret.Secrets`, a projection of `conductor.secret.Secret`. Contains every instance. Read-your-writes: a caller that has just issued a command sees its effect here.",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/conductor.secret.Secrets.Response"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
     "/store/commands/migrate-store": {
       "post": {
         "operationId": "conductor.store.MigrateStore",
@@ -2704,21 +1983,836 @@
         }
       }
     },
-    "/token/views/tokens": {
+    "/v1/config": {
+      "put": {
+        "operationId": "conductor.config.PutConfig",
+        "x-ess-route-source": "binding",
+        "summary": "Change the config",
+        "tags": [
+          "config"
+        ],
+        "x-ess-may-invoke": [
+          "conductor.config.Operator",
+          "conductor.config.Tuner"
+        ],
+        "requestBody": {
+          "description": "The input `conductor.config.PutConfig` declares.",
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/conductor.config.PutConfig.Input"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Outcome `changed`, answered 200 as the `ess-http/1` binding declares, with ESS's own body: `outcome` names the branch and `published` lists what it published.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/conductor.config.PutConfig.changed.Response"
+                }
+              }
+            },
+            "x-ess-outcomes": [
+              "changed"
+            ]
+          },
+          "403": {
+            "description": "Outcome `actor-not-human`, answered 403 as the `ess-http/1` binding declares, with ESS's own body: `outcome` names the branch and `published` lists what it published. No declared outcome: the standard refusal for an actor no grant admits: the request was authenticated as no actor, or as one `x-ess-may-invoke` does not list. It is checked before the command runs, so nothing was read, written or published, and the same request from a granted actor is decided by the command. Its body carries `refused` and `actor`, never the `outcome` and `error` a declared branch carries.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "oneOf": [
+                    {
+                      "$ref": "#/components/schemas/conductor.config.PutConfig.actor-not-human.Response"
+                    },
+                    {
+                      "additionalProperties": false,
+                      "properties": {
+                        "actor": {
+                          "description": "The qualified name of the actor the request was authenticated as, or null where it was authenticated as none.",
+                          "type": [
+                            "string",
+                            "null"
+                          ]
+                        },
+                        "refused": {
+                          "description": "The standard refusal for an actor no grant admits.",
+                          "enum": [
+                            "not granted"
+                          ],
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "refused",
+                        "actor"
+                      ],
+                      "type": "object"
+                    }
+                  ]
+                }
+              }
+            },
+            "x-ess-outcomes": [
+              "actor-not-human"
+            ]
+          },
+          "422": {
+            "description": "Outcome `level-scope-mismatch`: the request was understood and refused on domain grounds. The body names the declared error and carries whatever that error declares. Outcome `invalid`, answered 422 as the `ess-http/1` binding declares, with ESS's own body: `outcome` names the branch and `published` lists what it published.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "discriminator": {
+                    "mapping": {
+                      "invalid": "#/components/schemas/conductor.config.PutConfig.invalid.Response",
+                      "level-scope-mismatch": "#/components/schemas/conductor.config.PutConfig.level-scope-mismatch.Response"
+                    },
+                    "propertyName": "outcome"
+                  },
+                  "oneOf": [
+                    {
+                      "$ref": "#/components/schemas/conductor.config.PutConfig.level-scope-mismatch.Response"
+                    },
+                    {
+                      "$ref": "#/components/schemas/conductor.config.PutConfig.invalid.Response"
+                    }
+                  ]
+                }
+              }
+            },
+            "x-ess-outcomes": [
+              "level-scope-mismatch",
+              "invalid"
+            ]
+          },
+          "501": {
+            "description": "No declared outcome: the realization is unfinished. Either a port this command runs reported an unmet obligation, and nothing was written: `committed` is `false`. Or the command's effect was committed and delivering what this command published to a binding failed: `committed` is `true`, the effect and its events stand, and each binding whose delivery failed keeps its event and is attempted again on a later delivery, while no other binding receives it twice. Do not retry: after a failed delivery a retry performs the command a second time.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "committed": {
+                      "description": "`true` when the command's effect and events were committed and delivering what it published failed; `false` when an unmet obligation stopped the command before anything was written.",
+                      "type": "boolean"
+                    },
+                    "refused": {
+                      "description": "What was left unfinished, in words.",
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "refused",
+                    "committed"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "x-ess-outcomes": []
+          }
+        }
+      }
+    },
+    "/v1/instances": {
+      "get": {
+        "operationId": "conductor.instance.Instances",
+        "x-ess-route-source": "binding",
+        "summary": "Instances",
+        "tags": [
+          "instance"
+        ],
+        "x-ess-consistency": "read_your_writes",
+        "responses": {
+          "200": {
+            "description": "Every row of `conductor.instance.Instances`, a projection of `conductor.instance.Instance`, as a bare JSON array, as the `ess-http/1` binding declares (`body: array`): no object around it.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/conductor.instance.Instances.Row"
+                  },
+                  "type": "array"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/instances/{instance}/settings": {
+      "get": {
+        "operationId": "conductor.config.EffectiveSettings",
+        "x-ess-route-source": "binding",
+        "summary": "Effective settings",
+        "tags": [
+          "config"
+        ],
+        "x-ess-consistency": "eventual",
+        "parameters": [
+          {
+            "name": "instance",
+            "in": "path",
+            "description": "Read by the view's filter as `param.instance`; carried in the path rather than the query.",
+            "required": true,
+            "schema": {
+              "$ref": "#/components/schemas/conductor.config.InstanceName"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Every row of `conductor.config.EffectiveSettings`, a projection of `conductor.config.EffectiveSetting`, as a bare JSON array, as the `ess-http/1` binding declares (`body: array`): no object around it.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/conductor.config.EffectiveSettings.Row"
+                  },
+                  "type": "array"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/instances/{instance}/tokens": {
       "get": {
         "operationId": "conductor.token.Tokens",
+        "x-ess-route-source": "binding",
         "summary": "Tokens of the pool",
         "tags": [
           "token"
         ],
         "x-ess-consistency": "read_your_writes",
+        "parameters": [
+          {
+            "name": "instance",
+            "in": "path",
+            "description": "Read by the view's filter as `param.instance`; carried in the path rather than the query.",
+            "required": true,
+            "schema": {
+              "$ref": "#/components/schemas/conductor.config.InstanceName"
+            }
+          }
+        ],
         "responses": {
           "200": {
-            "description": "Every row of `conductor.token.Tokens`, a projection of `conductor.token.PoolToken`. Contains every instance. Read-your-writes: a caller that has just issued a command sees its effect here.",
+            "description": "Every row of `conductor.token.Tokens`, a projection of `conductor.token.PoolToken`, as a bare JSON array, as the `ess-http/1` binding declares (`body: array`): no object around it.",
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/conductor.token.Tokens.Response"
+                  "items": {
+                    "$ref": "#/components/schemas/conductor.token.Tokens.Row"
+                  },
+                  "type": "array"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/instances/{name}/restart": {
+      "post": {
+        "operationId": "conductor.instance.RestartInstance",
+        "x-ess-route-source": "binding",
+        "summary": "Restart an instance",
+        "tags": [
+          "instance"
+        ],
+        "x-ess-may-invoke": [
+          "conductor.instance.Conductord",
+          "conductor.instance.Operator"
+        ],
+        "parameters": [
+          {
+            "name": "name",
+            "in": "path",
+            "description": "The input field `name`, carried in the path rather than the request body.",
+            "required": true,
+            "schema": {
+              "$ref": "#/components/schemas/conductor.config.InstanceName"
+            }
+          }
+        ],
+        "requestBody": {
+          "description": "The input `conductor.instance.RestartInstance` declares.",
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/conductor.instance.RestartInstance.Input"
+              }
+            }
+          }
+        },
+        "responses": {
+          "202": {
+            "description": "Outcome `restarted`: the branch the specification declares for this input. Events this branch emits are published to consumers and listed under `published`.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/conductor.instance.RestartInstance.restarted.Response"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "No declared outcome: the standard refusal for an actor no grant admits: the request was authenticated as no actor, or as one `x-ess-may-invoke` does not list. It is checked before the command runs, so nothing was read, written or published, and the same request from a granted actor is decided by the command. Its body carries `refused` and `actor`, never the `outcome` and `error` a declared branch carries.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "actor": {
+                      "description": "The qualified name of the actor the request was authenticated as, or null where it was authenticated as none.",
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "refused": {
+                      "description": "The standard refusal for an actor no grant admits.",
+                      "enum": [
+                        "not granted"
+                      ],
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "refused",
+                    "actor"
+                  ],
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Outcome `unknown`: the branch the specification declares for this input. Events this branch emits are published to consumers and listed under `published`.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/conductor.instance.RestartInstance.unknown.Response"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Outcome `not-running`: the input was acceptable and the subject is in a state this command does not act from. Resending the same request changes nothing until something else moves it.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/conductor.instance.RestartInstance.not-running.Response"
+                }
+              }
+            }
+          },
+          "501": {
+            "description": "No declared outcome: the realization is unfinished. Either a port this command runs reported an unmet obligation, and nothing was written: `committed` is `false`. Or the command's effect was committed and delivering what this command published to a binding failed: `committed` is `true`, the effect and its events stand, and each binding whose delivery failed keeps its event and is attempted again on a later delivery, while no other binding receives it twice. Do not retry: after a failed delivery a retry performs the command a second time.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "committed": {
+                      "description": "`true` when the command's effect and events were committed and delivering what it published failed; `false` when an unmet obligation stopped the command before anything was written.",
+                      "type": "boolean"
+                    },
+                    "refused": {
+                      "description": "What was left unfinished, in words.",
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "refused",
+                    "committed"
+                  ],
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "502": {
+            "description": "Outcome `placement-refused`: something outside the request refused. The input was acceptable, so the caller has nothing to correct and a retry is meaningful.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/conductor.instance.RestartInstance.placement-refused.Response"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/instances/{name}/start": {
+      "post": {
+        "operationId": "conductor.instance.StartInstance",
+        "x-ess-route-source": "binding",
+        "summary": "Start an instance",
+        "tags": [
+          "instance"
+        ],
+        "x-ess-may-invoke": [
+          "conductor.instance.Conductord",
+          "conductor.instance.Operator"
+        ],
+        "parameters": [
+          {
+            "name": "name",
+            "in": "path",
+            "description": "The input field `name`, carried in the path rather than the request body.",
+            "required": true,
+            "schema": {
+              "$ref": "#/components/schemas/conductor.config.InstanceName"
+            }
+          }
+        ],
+        "requestBody": {
+          "description": "The input `conductor.instance.StartInstance` declares.",
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/conductor.instance.StartInstance.Input"
+              }
+            }
+          }
+        },
+        "responses": {
+          "202": {
+            "description": "Outcomes `created`, `started` and `already-started`: the branch the specification declares for this input. Events this branch emits are published to consumers and listed under `published`.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "discriminator": {
+                    "mapping": {
+                      "already-started": "#/components/schemas/conductor.instance.StartInstance.already-started.Response",
+                      "created": "#/components/schemas/conductor.instance.StartInstance.created.Response",
+                      "started": "#/components/schemas/conductor.instance.StartInstance.started.Response"
+                    },
+                    "propertyName": "outcome"
+                  },
+                  "oneOf": [
+                    {
+                      "$ref": "#/components/schemas/conductor.instance.StartInstance.created.Response"
+                    },
+                    {
+                      "$ref": "#/components/schemas/conductor.instance.StartInstance.started.Response"
+                    },
+                    {
+                      "$ref": "#/components/schemas/conductor.instance.StartInstance.already-started.Response"
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "No declared outcome: the standard refusal for an actor no grant admits: the request was authenticated as no actor, or as one `x-ess-may-invoke` does not list. It is checked before the command runs, so nothing was read, written or published, and the same request from a granted actor is decided by the command. Its body carries `refused` and `actor`, never the `outcome` and `error` a declared branch carries.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "actor": {
+                      "description": "The qualified name of the actor the request was authenticated as, or null where it was authenticated as none.",
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "refused": {
+                      "description": "The standard refusal for an actor no grant admits.",
+                      "enum": [
+                        "not granted"
+                      ],
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "refused",
+                    "actor"
+                  ],
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Outcome `not-startable`: the request was understood and refused on domain grounds. The body names the declared error and carries whatever that error declares.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/conductor.instance.StartInstance.not-startable.Response"
+                }
+              }
+            }
+          },
+          "501": {
+            "description": "No declared outcome: the realization is unfinished. Either a port this command runs reported an unmet obligation, and nothing was written: `committed` is `false`. Or the command's effect was committed and delivering what this command published to a binding failed: `committed` is `true`, the effect and its events stand, and each binding whose delivery failed keeps its event and is attempted again on a later delivery, while no other binding receives it twice. Do not retry: after a failed delivery a retry performs the command a second time.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "committed": {
+                      "description": "`true` when the command's effect and events were committed and delivering what it published failed; `false` when an unmet obligation stopped the command before anything was written.",
+                      "type": "boolean"
+                    },
+                    "refused": {
+                      "description": "What was left unfinished, in words.",
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "refused",
+                    "committed"
+                  ],
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "502": {
+            "description": "Outcomes `not-in-config` and `placement-refused`: something outside the request refused. The input was acceptable, so the caller has nothing to correct and a retry is meaningful.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "discriminator": {
+                    "mapping": {
+                      "not-in-config": "#/components/schemas/conductor.instance.StartInstance.not-in-config.Response",
+                      "placement-refused": "#/components/schemas/conductor.instance.StartInstance.placement-refused.Response"
+                    },
+                    "propertyName": "outcome"
+                  },
+                  "oneOf": [
+                    {
+                      "$ref": "#/components/schemas/conductor.instance.StartInstance.not-in-config.Response"
+                    },
+                    {
+                      "$ref": "#/components/schemas/conductor.instance.StartInstance.placement-refused.Response"
+                    }
+                  ]
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/instances/{name}/stop": {
+      "post": {
+        "operationId": "conductor.instance.StopInstance",
+        "x-ess-route-source": "binding",
+        "summary": "Stop an instance",
+        "tags": [
+          "instance"
+        ],
+        "x-ess-may-invoke": [
+          "conductor.instance.Conductord",
+          "conductor.instance.Operator"
+        ],
+        "parameters": [
+          {
+            "name": "name",
+            "in": "path",
+            "description": "The input field `name`, carried in the path rather than the request body.",
+            "required": true,
+            "schema": {
+              "$ref": "#/components/schemas/conductor.config.InstanceName"
+            }
+          }
+        ],
+        "requestBody": {
+          "description": "The input `conductor.instance.StopInstance` declares.",
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/conductor.instance.StopInstance.Input"
+              }
+            }
+          }
+        },
+        "responses": {
+          "202": {
+            "description": "Outcomes `stopped` and `already-stopped`: the branch the specification declares for this input. Events this branch emits are published to consumers and listed under `published`.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "discriminator": {
+                    "mapping": {
+                      "already-stopped": "#/components/schemas/conductor.instance.StopInstance.already-stopped.Response",
+                      "stopped": "#/components/schemas/conductor.instance.StopInstance.stopped.Response"
+                    },
+                    "propertyName": "outcome"
+                  },
+                  "oneOf": [
+                    {
+                      "$ref": "#/components/schemas/conductor.instance.StopInstance.stopped.Response"
+                    },
+                    {
+                      "$ref": "#/components/schemas/conductor.instance.StopInstance.already-stopped.Response"
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "No declared outcome: the standard refusal for an actor no grant admits: the request was authenticated as no actor, or as one `x-ess-may-invoke` does not list. It is checked before the command runs, so nothing was read, written or published, and the same request from a granted actor is decided by the command. Its body carries `refused` and `actor`, never the `outcome` and `error` a declared branch carries.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "actor": {
+                      "description": "The qualified name of the actor the request was authenticated as, or null where it was authenticated as none.",
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "refused": {
+                      "description": "The standard refusal for an actor no grant admits.",
+                      "enum": [
+                        "not granted"
+                      ],
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "refused",
+                    "actor"
+                  ],
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Outcome `unknown`: the branch the specification declares for this input. Events this branch emits are published to consumers and listed under `published`.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/conductor.instance.StopInstance.unknown.Response"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Outcome `purged`: the request was understood and refused on domain grounds. The body names the declared error and carries whatever that error declares.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/conductor.instance.StopInstance.purged.Response"
+                }
+              }
+            }
+          },
+          "501": {
+            "description": "No declared outcome: the realization is unfinished. Either a port this command runs reported an unmet obligation, and nothing was written: `committed` is `false`. Or the command's effect was committed and delivering what this command published to a binding failed: `committed` is `true`, the effect and its events stand, and each binding whose delivery failed keeps its event and is attempted again on a later delivery, while no other binding receives it twice. Do not retry: after a failed delivery a retry performs the command a second time.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "committed": {
+                      "description": "`true` when the command's effect and events were committed and delivering what it published failed; `false` when an unmet obligation stopped the command before anything was written.",
+                      "type": "boolean"
+                    },
+                    "refused": {
+                      "description": "What was left unfinished, in words.",
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "refused",
+                    "committed"
+                  ],
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/instances/{name}/upgrade": {
+      "post": {
+        "operationId": "conductor.instance.UpgradeInstance",
+        "x-ess-route-source": "binding",
+        "summary": "Upgrade an instance",
+        "tags": [
+          "instance"
+        ],
+        "x-ess-may-invoke": [
+          "conductor.instance.Conductord",
+          "conductor.instance.Operator"
+        ],
+        "parameters": [
+          {
+            "name": "name",
+            "in": "path",
+            "description": "The input field `name`, carried in the path rather than the request body.",
+            "required": true,
+            "schema": {
+              "$ref": "#/components/schemas/conductor.config.InstanceName"
+            }
+          }
+        ],
+        "requestBody": {
+          "description": "The input `conductor.instance.UpgradeInstance` declares.",
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/conductor.instance.UpgradeInstance.Input"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Outcome `rolled-back`, answered 200 as the `ess-http/1` binding declares, with ESS's own body: `outcome` names the branch and `published` lists what it published.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/conductor.instance.UpgradeInstance.rolled-back.Response"
+                }
+              }
+            },
+            "x-ess-outcomes": [
+              "rolled-back"
+            ]
+          },
+          "202": {
+            "description": "Outcome `upgrading`, answered 202 as the `ess-http/1` binding declares, with ESS's own body: `outcome` names the branch and `published` lists what it published.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/conductor.instance.UpgradeInstance.upgrading.Response"
+                }
+              }
+            },
+            "x-ess-outcomes": [
+              "upgrading"
+            ]
+          },
+          "403": {
+            "description": "No declared outcome: the standard refusal for an actor no grant admits: the request was authenticated as no actor, or as one `x-ess-may-invoke` does not list. It is checked before the command runs, so nothing was read, written or published, and the same request from a granted actor is decided by the command. Its body carries `refused` and `actor`, never the `outcome` and `error` a declared branch carries.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "actor": {
+                      "description": "The qualified name of the actor the request was authenticated as, or null where it was authenticated as none.",
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "refused": {
+                      "description": "The standard refusal for an actor no grant admits.",
+                      "enum": [
+                        "not granted"
+                      ],
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "refused",
+                    "actor"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "x-ess-outcomes": []
+          },
+          "404": {
+            "description": "Outcome `unknown`, answered 404 as the `ess-http/1` binding declares, with ESS's own body: `outcome` names the branch and `published` lists what it published.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/conductor.instance.UpgradeInstance.unknown.Response"
+                }
+              }
+            },
+            "x-ess-outcomes": [
+              "unknown"
+            ]
+          },
+          "409": {
+            "description": "Outcome `not-running`, answered 409 as the `ess-http/1` binding declares, with ESS's own body: `outcome` names the branch and `published` lists what it published.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/conductor.instance.UpgradeInstance.not-running.Response"
+                }
+              }
+            },
+            "x-ess-outcomes": [
+              "not-running"
+            ]
+          },
+          "501": {
+            "description": "No declared outcome: the realization is unfinished. Either a port this command runs reported an unmet obligation, and nothing was written: `committed` is `false`. Or the command's effect was committed and delivering what this command published to a binding failed: `committed` is `true`, the effect and its events stand, and each binding whose delivery failed keeps its event and is attempted again on a later delivery, while no other binding receives it twice. Do not retry: after a failed delivery a retry performs the command a second time.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "committed": {
+                      "description": "`true` when the command's effect and events were committed and delivering what it published failed; `false` when an unmet obligation stopped the command before anything was written.",
+                      "type": "boolean"
+                    },
+                    "refused": {
+                      "description": "What was left unfinished, in words.",
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "refused",
+                    "committed"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "x-ess-outcomes": []
+          }
+        }
+      }
+    },
+    "/v1/secrets": {
+      "get": {
+        "operationId": "conductor.secret.Secrets",
+        "x-ess-route-source": "binding",
+        "summary": "Secrets",
+        "tags": [
+          "secret"
+        ],
+        "x-ess-consistency": "read_your_writes",
+        "responses": {
+          "200": {
+            "description": "Every row of `conductor.secret.Secrets`, a projection of `conductor.secret.Secret`, as a bare JSON array, as the `ess-http/1` binding declares (`body: array`): no object around it.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/conductor.secret.Secrets.Row"
+                  },
+                  "type": "array"
                 }
               }
             }
@@ -2884,23 +2978,6 @@
         "enum": [
           "Effective"
         ]
-      },
-      "conductor.config.EffectiveSettings.Response": {
-        "additionalProperties": false,
-        "description": "The rows of `conductor.config.EffectiveSettings`.",
-        "properties": {
-          "rows": {
-            "description": "Every row the projection holds, in the order it holds them.",
-            "items": {
-              "$ref": "#/components/schemas/conductor.config.EffectiveSettings.Row"
-            },
-            "type": "array"
-          }
-        },
-        "required": [
-          "rows"
-        ],
-        "type": "object"
       },
       "conductor.config.EffectiveSettings.Row": {
         "title": "Effective settings row",
@@ -3492,23 +3569,6 @@
           "at"
         ],
         "additionalProperties": false
-      },
-      "conductor.instance.Instances.Response": {
-        "additionalProperties": false,
-        "description": "The rows of `conductor.instance.Instances`.",
-        "properties": {
-          "rows": {
-            "description": "Every row the projection holds, in the order it holds them.",
-            "items": {
-              "$ref": "#/components/schemas/conductor.instance.Instances.Row"
-            },
-            "type": "array"
-          }
-        },
-        "required": [
-          "rows"
-        ],
-        "type": "object"
       },
       "conductor.instance.Instances.Row": {
         "title": "Instances row",
@@ -4110,9 +4170,6 @@
           "actor": {
             "$ref": "#/components/schemas/conductor.operator.Actor"
           },
-          "name": {
-            "$ref": "#/components/schemas/conductor.config.InstanceName"
-          },
           "placement": {
             "$ref": "#/components/schemas/conductor.placement.PlacementName"
           },
@@ -4132,7 +4189,6 @@
         },
         "required": [
           "actor",
-          "name",
           "placement",
           "roles",
           "box_id",
@@ -4280,9 +4336,6 @@
           "actor": {
             "$ref": "#/components/schemas/conductor.operator.Actor"
           },
-          "name": {
-            "$ref": "#/components/schemas/conductor.config.InstanceName"
-          },
           "placement": {
             "$ref": "#/components/schemas/conductor.placement.PlacementName"
           },
@@ -4302,7 +4355,6 @@
         },
         "required": [
           "actor",
-          "name",
           "placement",
           "roles",
           "box_id",
@@ -4511,9 +4563,6 @@
           "actor": {
             "$ref": "#/components/schemas/conductor.operator.Actor"
           },
-          "name": {
-            "$ref": "#/components/schemas/conductor.config.InstanceName"
-          },
           "at": {
             "type": "string",
             "format": "date-time"
@@ -4521,7 +4570,6 @@
         },
         "required": [
           "actor",
-          "name",
           "at"
         ],
         "additionalProperties": false
@@ -4672,9 +4720,6 @@
           "actor": {
             "$ref": "#/components/schemas/conductor.operator.Actor"
           },
-          "name": {
-            "$ref": "#/components/schemas/conductor.config.InstanceName"
-          },
           "binary_version": {
             "type": "string"
           },
@@ -4685,7 +4730,6 @@
         },
         "required": [
           "actor",
-          "name",
           "binary_version",
           "at"
         ],
@@ -6644,23 +6688,6 @@
         ],
         "additionalProperties": false
       },
-      "conductor.secret.Secrets.Response": {
-        "additionalProperties": false,
-        "description": "The rows of `conductor.secret.Secrets`.",
-        "properties": {
-          "rows": {
-            "description": "Every row the projection holds, in the order it holds them.",
-            "items": {
-              "$ref": "#/components/schemas/conductor.secret.Secrets.Row"
-            },
-            "type": "array"
-          }
-        },
-        "required": [
-          "rows"
-        ],
-        "type": "object"
-      },
       "conductor.secret.Secrets.Row": {
         "title": "Secrets row",
         "x-ess-name": "conductor.secret.Secrets",
@@ -7915,23 +7942,6 @@
           "withdrawn_at"
         ],
         "additionalProperties": false
-      },
-      "conductor.token.Tokens.Response": {
-        "additionalProperties": false,
-        "description": "The rows of `conductor.token.Tokens`.",
-        "properties": {
-          "rows": {
-            "description": "Every row the projection holds, in the order it holds them.",
-            "items": {
-              "$ref": "#/components/schemas/conductor.token.Tokens.Row"
-            },
-            "type": "array"
-          }
-        },
-        "required": [
-          "rows"
-        ],
-        "type": "object"
       },
       "conductor.token.Tokens.Row": {
         "title": "Tokens of the pool row",

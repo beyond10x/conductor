@@ -59,6 +59,7 @@ timeline:
 
 assert:
   - view: conductor.token.Tokens
+    params: {instance: example-org}
     contains:
       token_id: {$instance: token}
       state: Withdrawn

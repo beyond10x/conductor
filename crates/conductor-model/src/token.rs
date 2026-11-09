@@ -1,5 +1,5 @@
 // generated from conductor v1
-// contract digest 8d3aee133e936ba053cf7cd2ad3b3aadd389f7fad772cddd3c670bb87f21cfef
+// contract digest 3ad5226d4517a7ae569bdc15103168ac09f97332327ca0e0972b62aad9feb62a
 // do not edit: regenerate with `ess synthesize --layout crate`
 
 //! Token — `conductor.token`.
@@ -818,9 +818,9 @@ pub struct TokenStateConflict {
 
 /// Tokens of the pool — one row of the view `conductor.token.Tokens`.
 ///
-/// Projects `conductor.token.PoolToken` at `read_your_writes` consistency.
-/// The specification fully determines every row, so its query is generated over the storage port —
-/// see the plan.
+/// Projects `conductor.token.PoolToken` at `read_your_writes` consistency, containing instances where `instance == param.instance`.
+/// Serving it is an implementation obligation — see the plan — because how a projection is kept
+/// current is a storage decision the specification does not take.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Tokens {
     /// `token_id` — `conductor.token.TokenId`.
@@ -849,6 +849,7 @@ pub struct Tokens {
 ///
 /// One trait per obligation in the synthesis plan, each carrying the plan's own contract, and one
 /// per generated behaviour, which [`Generated`](crate::behaviour::Generated) implements.
+/// [`Unimplemented`](obligations::Unimplemented) satisfies every owed trait by refusing in the type system.
 pub mod obligations {
     /// The behaviour `conductor.token.ContributeToken` — generated.
     ///
@@ -905,15 +906,28 @@ pub mod obligations {
         fn withdraw_token(&mut self, input: super::WithdrawToken) -> Result<super::WithdrawTokenOutcome, crate::obligation::UnmetObligation>;
     }
 
-    /// The query `conductor.token.Tokens` — generated.
+    /// The query `conductor.token.Tokens` — an implementation obligation.
     ///
-    /// The specification fully determines it: [`crate::behaviour::Generated`] implements it
-    /// over the storage port. Implement it yourself to replace that query.
+    /// Why it is not generated: kept an obligation by a view parameter (`params:`), which a generated query does not apply.
+    ///
+    /// Contract: a query answering `conductor.token.Tokens` with rows projected from `conductor.token.PoolToken` at `read_your_writes` consistency, containing instances where `instance == param.instance`.
     pub trait TokensQuery {
         /// Serves `conductor.token.Tokens` rows at the view's declared consistency.
         ///
-        /// `Err` is the typed refusal of a row whose declared type cannot hold its value.
-        fn tokens(&self) -> Result<Vec<super::Tokens>, crate::obligation::UnmetObligation>;
+        /// `Err` is the typed refusal of an obligation nothing has satisfied; a satisfying
+        /// implementation never returns it.
+        fn tokens(&self, instance: crate::config::InstanceName) -> Result<Vec<super::Tokens>, crate::obligation::UnmetObligation>;
     }
 
+    /// Every obligation of this bounded context, refused in the type system.
+    ///
+    /// Each method returns the typed refusal naming what is owed — never a panic, never a guessed
+    /// value — so a workspace built on this stub compiles and reports its own gaps.
+    pub struct Unimplemented;
+
+    impl TokensQuery for Unimplemented {
+        fn tokens(&self, _instance: crate::config::InstanceName) -> Result<Vec<super::Tokens>, crate::obligation::UnmetObligation> {
+            Err(crate::obligation::UnmetObligation { capability: "view query", source: "conductor.token.Tokens" })
+        }
+    }
 }

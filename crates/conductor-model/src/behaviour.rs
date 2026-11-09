@@ -1,5 +1,5 @@
 // generated from conductor v1
-// contract digest 8d3aee133e936ba053cf7cd2ad3b3aadd389f7fad772cddd3c670bb87f21cfef
+// contract digest 3ad5226d4517a7ae569bdc15103168ac09f97332327ca0e0972b62aad9feb62a
 // do not edit: regenerate with `ess synthesize --layout crate`
 
 //! What the specification fully determines, generated: the behaviour of every command the plan
@@ -855,10 +855,6 @@ pub trait PoolTokenStorage {
 
     /// Removes the instance with this identity.
     fn delete(&mut self, identity: &crate::token::TokenId);
-
-    /// Every stored instance, in the order the store keeps them: the order a generated query
-    /// answers an unordered view in.
-    fn list(&self) -> Vec<crate::token::PoolTokenSnapshot>;
 }
 
 /// Where `conductor.tool.ToolCall` is stored — a port the implementor provides.
@@ -6227,28 +6223,9 @@ where
     }
 }
 
-/// `conductor.token.Tokens`, generated: every row is one the specification fully determines from the stored `conductor.token.PoolToken`s.
-impl<P> crate::token::obligations::TokensQuery for Generated<P>
-where
-    P: PoolTokenStorage,
-{
-    fn tokens(&self) -> Result<Vec<crate::token::Tokens>, UnmetObligation> {
-        let admitted = PoolTokenStorage::list(&self.ports);
-        Ok(admitted
-            .into_iter()
-            .map(|held| crate::token::Tokens {
-                token_id: held.data.token_id,
-                state: held.state,
-                instance: held.data.instance,
-                owner: held.data.owner,
-                seat: held.data.seat,
-                token_state: held.data.token_state,
-                limited_until: held.data.limited_until,
-                agent: held.data.agent,
-                contributed_at: held.data.contributed_at,
-                actor: held.data.actor,
-            })
-            .collect())
+impl<P: crate::token::obligations::TokensQuery> crate::token::obligations::TokensQuery for Generated<P> {
+    fn tokens(&self, instance: crate::config::InstanceName) -> Result<Vec<crate::token::Tokens>, UnmetObligation> {
+        crate::token::obligations::TokensQuery::tokens(&self.ports, instance)
     }
 }
 

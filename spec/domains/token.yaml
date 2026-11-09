@@ -503,11 +503,16 @@ events:
       - {name: limited_at, type: Timestamp}
 
 views:
-  # `GET /v1/instances/{name}/tokens` (§ 5.3): owners, seats, states and the holding agent; never
-  # a value, nor the name of the secret that holds it.
+  # `GET /v1/instances/{name}/tokens` (§ 5.3): owners, seats, states and the holding agent of one
+  # instance's pool; never a value, nor the name of the secret that holds it. The instance is the
+  # route's path segment (`crates/conductor/http.yaml`).
   - name: conductor.token.Tokens
     source: conductor.token.PoolToken
     consistency: read_your_writes
+    params:
+      - name: instance
+        type: conductor.config.InstanceName
+    filter: instance == param.instance
     fields:
       - name: token_id
         type: conductor.token.TokenId

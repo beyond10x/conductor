@@ -224,7 +224,7 @@ tasks:
       - echo '*' > .check/.gitignore
       - "{{shellQuote .ESS}} verify conform run --path spec --scenarios spec/scenarios --target interpreted --report-format 2 --report-out .check/conformance.json"
       - rm -rf .check/conductor-model
-      - "{{shellQuote .ESS}} generate synthesize --path spec --target rust --layout crate --out .check/conductor-model"
+      - "{{shellQuote .ESS}} generate synthesize --path spec --target rust --layout crate --http crates/conductor/http.yaml --out .check/conductor-model"
       - diff -r --exclude=.ess-output crates/conductor-model .check/conductor-model
       - npm --prefix crates/conductor/dashboard ci
       - npm --prefix crates/conductor/dashboard test
@@ -247,7 +247,7 @@ tasks:
       - cargo run --locked -p conductor-docs -- generate --check
 
   regen:
-    desc: Regenerate crates/conductor-model from spec/; every byte of it is generated
+    desc: Regenerate crates/conductor-model from spec/ and the HTTP binding crates/conductor/http.yaml; every byte of it is generated
     cmds:
       - rm -rf crates/conductor-model
-      - "{{shellQuote .ESS}} generate synthesize --path spec --target rust --layout crate --out crates/conductor-model"
+      - "{{shellQuote .ESS}} generate synthesize --path spec --target rust --layout crate --http crates/conductor/http.yaml --out crates/conductor-model"

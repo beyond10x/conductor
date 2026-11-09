@@ -1,5 +1,5 @@
 // generated from conductor v1
-// contract digest 8d3aee133e936ba053cf7cd2ad3b3aadd389f7fad772cddd3c670bb87f21cfef
+// contract digest 3ad5226d4517a7ae569bdc15103168ac09f97332327ca0e0972b62aad9feb62a
 // do not edit: regenerate with `ess synthesize --layout crate`
 //! Every generated declaration, as JSON, in the renderings the published wire contracts fix.
 //!
@@ -19793,6 +19793,21 @@ pub fn encode_view_conductor_token_tokens(value: &crate::token::Tokens, out: &mu
     json::member(out, "actor");
     encode_conductor_operator_actor(&value.actor, out);
     out.push('}');
+}
+
+/// Reads the parameters of `conductor.token.Tokens` from an object keyed by their wire names.
+///
+/// # Errors
+///
+/// [`json::DecodeError`] naming the parameter and what the declaration says belongs there.
+pub fn decode_params_conductor_token_tokens(value: &json::Value, at: &str) -> Result<(crate::config::InstanceName,), json::DecodeError> {
+    Ok((
+        {
+            let at0 = json::nested(at, "instance");
+            let member0 = json::member_at(value, at, "instance")?;
+            decode_conductor_config_instance_name(member0, &at0)?
+        },
+    ))
 }
 
 /// Writes one row of the view `conductor.tool.ToolCalls` as JSON.
