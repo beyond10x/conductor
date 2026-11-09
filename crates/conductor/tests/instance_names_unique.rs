@@ -260,6 +260,8 @@ impl Drop for Server {
 fn serve(case: &Path, config: &Path) -> (Server, String) {
     let child = common::conductor(case.join("home"))
         .args(["instance", "serve"])
+        // The API alone: the runtime's loop off (`LOOP_VARIABLE`).
+        .env("CONDUCTOR_RUNTIME_LOOP", "off")
         .env(CONFIG_VARIABLE, config)
         .current_dir(case)
         .stdin(Stdio::null())

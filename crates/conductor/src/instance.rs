@@ -10,7 +10,14 @@
 //! but one that reads its environment can write. The socket is created mode 0600, after a stale
 //! one is removed; a socket another runtime answers on is refused.
 //!
-//! The loop (`conductor run`) and the agents are not started here yet: the runtime is the API.
+//! The runtime also runs the instance's loop (design architecture-next § 2: "the loop
+//! (`conductor-run.md`), the instance API, the starter of the instance's agents"; § 11: the loop
+//! is the runtime's core), in this process beside the API, under the lock `conductor run` takes
+//! ([`crate::run::in_runtime`]): its watch ticks, its cycle ticks, whose dispatch v1 starts the
+//! controllers, and its daily tick. A `conductor run` started by hand beside it is refused; one
+//! that held the lock first keeps the loop, and the runtime takes it once that one ends. The API
+//! serves in its own thread; should it end, the process exits 1, so the service manager restarts
+//! the runtime as a whole. [`LOOP_VARIABLE`] set to `off` serves the API alone.
 
 use std::fs;
 use std::os::unix::fs::PermissionsExt as _;
@@ -39,6 +46,11 @@ pub const SOCKET_VARIABLE: &str = "CONDUCTOR_API_SOCKET";
 /// The variable the daemon names the runtime's log file in: a runtime in a substrate box writes
 /// what it says there, not to its session, which substrate ends at its output bound.
 pub const LOG_VARIABLE: &str = "CONDUCTOR_API_LOG";
+
+/// The variable that, set to `off`, has the runtime serve the instance API without the loop: for
+/// a case that tests the API alone, or an operator who runs `conductor run` by hand. The daemon
+/// never sets it.
+pub const LOOP_VARIABLE: &str = "CONDUCTOR_RUNTIME_LOOP";
 
 /// The instance API's socket of the instance whose state directory is `state`: `<state>/api.sock`,
 /// or, where that is longer than a socket address holds, `conductor-api-<hash>.sock` in the
@@ -167,8 +179,12 @@ fn log_to(log: &Path) -> Result<()> {
 /// # Errors
 ///
 /// The config file does not load, the home directory is not absolute, the token cannot be
-/// minted, or the socket cannot be bound.
-pub fn instance_serve(config_flag: Option<&Path>) -> Result<ExitCode> {
+/// minted, the socket cannot be bound, or the loop cannot start ([`crate::run::in_runtime`]).
+pub fn instance_serve(
+    config_flag: Option<&Path>,
+    state_flag: Option<&Path>,
+    providers: &dyn crate::confine::Providers,
+) -> Result<ExitCode> {
     const WHAT: &str = "instance serve";
     config::set_active(config_flag).context(WHAT)?;
     let active = config::active();
@@ -185,11 +201,32 @@ pub fn instance_serve(config_flag: Option<&Path>) -> Result<ExitCode> {
         log_to(Path::new(&log)).context(WHAT)?;
     }
     let listener = bind(&path).context(WHAT)?;
-    println!(
-        "conductor instance {}: serving /v1/ on {}",
-        active.instance.name.0,
-        path.display()
-    );
-    dashboard::serve_unix(listener, sources, Some(state), token);
-    Ok(ExitCode::SUCCESS)
+    let what = format!("conductor instance {}", active.instance.name.0);
+    println!("{what}: serving /v1/ on {}", path.display());
+    let api = std::thread::Builder::new()
+        .name("instance-api".to_owned())
+        .spawn(move || {
+            // The runtime is the API and the loop together: an API that ended, or panicked, ends
+            // the process, so the service manager restarts both.
+            struct Ended;
+            impl Drop for Ended {
+                fn drop(&mut self) {
+                    crate::run::say(true, "conductor: instance serve: the instance API ended");
+                    std::process::exit(1);
+                }
+            }
+            let _ended = Ended;
+            dashboard::serve_unix(listener, sources, Some(state), token);
+        })
+        .context("instance serve: start the instance API")?;
+    if std::env::var(LOOP_VARIABLE).is_ok_and(|value| value.trim() == "off") {
+        crate::run::say(
+            false,
+            &format!("{what}: the loop is off ({LOOP_VARIABLE}=off)"),
+        );
+        let _ = api.join();
+        return Ok(ExitCode::FAILURE);
+    }
+    let Err(error) = crate::run::in_runtime(&what, config_flag, state_flag, providers);
+    Err(error.context(WHAT))
 }

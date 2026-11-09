@@ -12,6 +12,7 @@
 //! which `conductor init` commits with. Git reads no system config and takes its identity from
 //! the environment.
 
+mod active;
 mod common;
 
 use std::env;
@@ -472,6 +473,176 @@ fn setup_apply_fixes_what_is_safe_and_prints_what_is_not() {
     for never in ["glab auth login", "aep plan store migrate", "apt-get"] {
         assert!(!calls.contains(never), "--apply ran `{never}`:\n{calls}");
     }
+}
+
+/// The variable that names the config file a [`daemon_child`] run opens the daemon on.
+const DAEMON_CHILD: &str = "CONDUCTOR_TEST_SETUP_DAEMON";
+
+/// A service manager that starts nothing: [`daemon_child`] only opens the daemon.
+struct NoUnits;
+
+impl conductor_cli::daemon::units::Units for NoUnits {
+    fn start(&mut self, service: &conductor_cli::systemd::Service) -> anyhow::Result<()> {
+        anyhow::bail!("no unit starts here: {}", service.unit)
+    }
+
+    fn stop(&mut self, _: &str) -> anyhow::Result<()> {
+        Ok(())
+    }
+
+    fn active(&mut self, _: &str) -> anyhow::Result<bool> {
+        Ok(false)
+    }
+
+    fn enable(&mut self, _: &str) -> anyhow::Result<()> {
+        Ok(())
+    }
+
+    fn disable(&mut self, _: &str) -> anyhow::Result<()> {
+        Ok(())
+    }
+}
+
+/// The child run of this test binary that opens conductord on the config file [`DAEMON_CHILD`]
+/// names, with `HOME` the case's (so the store URL's `~` is the case's home); a plain run of the
+/// suite passes at once. It prints `opened` and exits 0, or names the refusal and fails.
+#[test]
+fn daemon_child() {
+    let Some(file) = env::var_os(DAEMON_CHILD) else {
+        return;
+    };
+    active::isolate();
+    let home = PathBuf::from(env::var_os("HOME").expect("the case's HOME"));
+    let dir = PathBuf::from(env::var_os("CONDUCTOR_TEST_SETUP_DAEMON_DIR").expect("a directory"));
+    let binary = conductor_cli::daemon::reconcile::Binary {
+        path: PathBuf::from("/opt/conductor/bin/conductor"),
+        version: "1.0.0".to_owned(),
+    };
+    match conductor_cli::daemon::reconcile::Daemon::open(
+        PathBuf::from(file),
+        home,
+        dir,
+        binary,
+        NoUnits,
+    ) {
+        Ok(daemon) => println!("opened {}", daemon.config().instances.len()),
+        Err(error) => panic!("the daemon refuses the file: {error:#}"),
+    }
+}
+
+/// `--apply` with no config file writes a `conductor.config/2` file the daemon reconciles: it
+/// names `daemon.store`, and its instance its `placement` and `session_prefix`. `conductor config
+/// validate` accepts it, and conductord opens on it (it refuses a `/1` file and one without
+/// `daemon.store`). With a config file there, `--apply` prints the instance to add, the lines of
+/// one instance only, its placement among them.
+#[test]
+fn setup_apply_writes_a_second_version_file_the_daemon_reconciles() {
+    let case = Case::new("second");
+    case.claude_json();
+    let repository = case.repository(
+        "zeta",
+        Some("https://github.com/example-org/zeta.git"),
+        Some(CURRENT_STORE),
+    );
+    let output = case.setup(&repository, &["--apply"]);
+    let config = fs::read_to_string(case.config_file()).unwrap_or_else(|error| {
+        panic!("--apply wrote no config file ({error}): {}", shown(&output))
+    });
+    assert!(
+        config.starts_with("version: conductor.config/2\n"),
+        "a /2 file:\n{config}"
+    );
+    let parsed: serde_yaml::Value = serde_yaml::from_str(&config).expect("the file is YAML");
+    let store = parsed["daemon"]["store"].as_str().unwrap_or_default();
+    assert!(store.starts_with("sqlite:"), "daemon.store:\n{config}");
+    let instance = &parsed["instances"][0];
+    assert_eq!(instance["name"].as_str(), Some("zeta"), "{config}");
+    assert_eq!(instance["placement"].as_str(), Some("systemd"), "{config}");
+    assert_eq!(
+        instance["session_prefix"].as_str(),
+        Some("zeta"),
+        "{config}"
+    );
+
+    let validated = case
+        .isolated(
+            common::conductor(case.home())
+                .args(["config", "validate"])
+                .current_dir(&repository)
+                .env_clear()
+                .env("PATH", case.bin()),
+        )
+        .output()
+        .expect("conductor runs");
+    assert_eq!(
+        validated.status.code(),
+        Some(0),
+        "config validate: {}",
+        shown(&validated)
+    );
+
+    let opened = Command::new(env::current_exe().expect("this test binary"))
+        .args(["--exact", "daemon_child", "--nocapture", "-q"])
+        .env_clear()
+        .env("HOME", case.home())
+        .env("PATH", case.bin())
+        .env(DAEMON_CHILD, case.config_file())
+        .env("CONDUCTOR_TEST_SETUP_DAEMON_DIR", case.dir.join("daemon"))
+        .stdin(Stdio::null())
+        .output()
+        .expect("the child runs");
+    assert!(
+        opened.status.success() && String::from_utf8_lossy(&opened.stdout).contains("opened 1"),
+        "the daemon opens on the file: {}",
+        shown(&opened)
+    );
+    assert!(
+        case.home()
+            .join(".b10x/conductor/conductor.sqlite")
+            .is_file(),
+        "the store is under the case's home"
+    );
+
+    // A repository outside the instance's checkouts root, which no instance names.
+    let other = case.home().join("elsewhere/eta");
+    fs::create_dir_all(&other).expect("create the repository");
+    let init = case
+        .isolated(
+            Command::new("git")
+                .arg("-C")
+                .arg(&other)
+                .args(["init", "--quiet"]),
+        )
+        .output()
+        .expect("git runs");
+    assert!(init.status.success(), "git init: {}", shown(&init));
+    let output = case.setup(&other, &["--apply"]);
+    let added: Vec<String> = stdout(&output)
+        .into_iter()
+        .filter_map(|line| line.strip_prefix("to write: ").map(str::to_owned))
+        .collect();
+    assert!(
+        added.iter().any(|line| line.trim() == "- name: eta"),
+        "the instance to add: {}",
+        shown(&output)
+    );
+    assert!(
+        added.iter().any(|line| line.trim() == "placement: systemd"),
+        "its placement: {}",
+        shown(&output)
+    );
+    for key in ["version:", "daemon:", "store:", "instances:"] {
+        assert!(
+            !added.iter().any(|line| line.trim_start().starts_with(key)),
+            "no {key} line among the instance's: {}",
+            shown(&output)
+        );
+    }
+    assert_eq!(
+        fs::read_to_string(case.config_file()).expect("the config file"),
+        config,
+        "the file is unchanged"
+    );
 }
 
 /// `story:worktree-activation`: a fake `worktree` that finds the instance's checkouts root in no

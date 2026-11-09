@@ -2,8 +2,11 @@
 //! a program, with no model call.
 //!
 //! The command is presented by the `ess-cli/1` binding `crates/conductor/cli.yaml`, over the
-//! `local` callable `run` and its input `conductor.session.RunDaemon`. It is one process per
-//! instance, which holds `<state>/run/lock` while it runs, so a second one refuses. It keeps
+//! `local` callable `run` and its input `conductor.session.RunDaemon`. One loop runs per
+//! instance, holding `<state>/run/lock` while it runs, so a second one refuses. On a v1 host the
+//! instance runtime runs it (`conductor instance serve`, [`in_runtime`], design architecture-next
+//! § 2), and a `conductor run` started by hand beside it is refused; the runtime yields to a
+//! `conductor run` that held the lock first and takes the loop once it ends. It keeps
 //! nothing in memory that is not in the store, the watch's state files or its own files under
 //! `<state>/run/` ([`RUN_DIR`]): a restart of the process loses nothing.
 //!
@@ -29,7 +32,7 @@
 //! with no tick and without the daemon's lock (git's own lock keeps two commits apart): it prints
 //! what it did and exits 0, or 1 when the commit was refused. The per-instance user unit and
 //! `--install` are gone (design architecture-next § 11): conductord starts every instance's runtime
-//! (`conductor daemon serve`, [`crate::daemon`]).
+//! (`conductor daemon serve`, [`crate::daemon`]), and the runtime runs the loop.
 //!
 //! The daemon acts through [`Seams`]: the confinement providers sessions start and stop through,
 //! the [`Deliverer`] that puts a text in front of a session (`conductor session deliver`,
@@ -249,15 +252,101 @@ pub fn run(
         return commit_alone(config_flag, state);
     }
     let deliverer = ShellDeliverer::current(config_flag, state)?;
-    let seams = Seams {
+    let seams = real_seams(providers, &deliverer)?;
+    run_with(config_flag, state, args.once == Some(true), &seams)
+}
+
+/// The seams of the real loop: `providers`, `deliverer`, [`Ais`], [`handle_request`], this
+/// binary and `gc`.
+///
+/// # Errors
+///
+/// The path of this binary cannot be read.
+fn real_seams<'a>(providers: &'a dyn Providers, deliverer: &'a dyn Deliverer) -> Result<Seams<'a>> {
+    Ok(Seams {
         providers,
-        deliverer: &deliverer,
+        deliverer,
         headroom: &Ais,
         handle_request: Some(handle_request),
         program: std::env::current_exe().context("run: read the path of the conductor binary")?,
         gc: crate::gc::gc,
-    };
-    run_with(config_flag, state, args.once == Some(true), &seams)
+    })
+}
+
+/// The loop as the instance runtime runs it (`conductor instance serve`, design
+/// architecture-next § 2): for ever, [`run_with`]'s loop under the same lock, `<state>/run/lock`,
+/// so a `conductor run` started by hand beside it is refused. While another process holds the
+/// lock the runtime yields: it says so once, on standard error, `<what>: the loop yields: …`, and
+/// tries again every `cadence.watch`; once it holds the lock it says `<what>: the loop runs …` on
+/// standard output. A loop that fails (a tick that cannot be recorded, a state file that cannot
+/// be written) is named on standard error, its lock let go, and started again a period later.
+/// Answers only an error, and only before the loop first starts.
+///
+/// # Errors
+///
+/// The state directory cannot be resolved or `<state>/run/` created, or the path of this binary
+/// cannot be read.
+pub fn in_runtime(
+    what: &str,
+    config_flag: Option<&Path>,
+    state: Option<&Path>,
+    providers: &dyn Providers,
+) -> Result<std::convert::Infallible> {
+    let deliverer = ShellDeliverer::current(config_flag, state)?;
+    let seams = real_seams(providers, &deliverer)?;
+    let dir = run_dir(state)?;
+    let every = Duration::from_secs(
+        config::seconds(&config::active().instance.cadence.watch).unwrap_or(config::WATCH_EVERY),
+    );
+    let mut yielding = false;
+    loop {
+        match try_lock(&dir) {
+            Ok(Some(lock)) => {
+                yielding = false;
+                say(
+                    false,
+                    &format!(
+                        "{what}: the loop runs, holding {}",
+                        dir.join(LOCK).display()
+                    ),
+                );
+                let Err(error) = run_locked(config_flag, state, &dir, &seams);
+                say(
+                    true,
+                    &format!("{what}: the loop stopped: {error:#}; it starts again"),
+                );
+                drop(lock);
+            }
+            Ok(None) => {
+                if !yielding {
+                    say(
+                        true,
+                        &format!(
+                            "{what}: the loop yields: another conductor run holds {}; the \
+                             runtime takes it once it is let go, trying every {}s",
+                            dir.join(LOCK).display(),
+                            every.as_secs()
+                        ),
+                    );
+                    yielding = true;
+                }
+            }
+            Err(error) => say(true, &format!("{what}: the loop: {error:#}")),
+        }
+        thread::sleep(every);
+    }
+}
+
+/// Writes `line` to standard error when `error`, else to standard output, and goes on whatever
+/// the write answers: a runtime whose reader closed its output (a pipe read for its first line)
+/// keeps serving and looping rather than panic in `println!`.
+pub fn say(error: bool, line: &str) {
+    if error {
+        let _ = writeln!(io::stderr().lock(), "{line}");
+    } else {
+        let mut out = io::stdout().lock();
+        let _ = writeln!(out, "{line}").and_then(|()| out.flush());
+    }
 }
 
 /// [`run`] over `seams`: with `once`, one watch tick and one cycle tick; else the loop.
@@ -290,6 +379,22 @@ pub fn run_with(
             ExitCode::SUCCESS
         });
     }
+    let never = run_locked(config_flag, state, &dir, seams)?;
+    match never {}
+}
+
+/// The loop of [`run_with`] and [`in_runtime`], its lock in `dir` held by the caller: the ticks,
+/// for ever; it answers only an error.
+///
+/// # Errors
+///
+/// A state file of `dir` cannot be written.
+fn run_locked(
+    config_flag: Option<&Path>,
+    state: Option<&Path>,
+    dir: &Path,
+    seams: &Seams<'_>,
+) -> Result<std::convert::Infallible> {
     let instance = &config::active().instance;
     let every = Duration::from_secs(
         config::seconds(&instance.cadence.watch).unwrap_or(config::WATCH_EVERY),
@@ -302,13 +407,13 @@ pub fn run_with(
         }
         let now = OffsetDateTime::now_utc();
         if due(&dir.join(CYCLE_LAST), now, cycle_every) {
-            cycle_step(&dir, now, || {
+            cycle_step(dir, now, || {
                 if let Err(error) = cycle_tick(config_flag, state, seams) {
                     eprintln!("conductor run: cycle tick: {error:#}");
                 }
             })?;
         }
-        if let Some(day) = daily_due(&dir, now, &instance.cadence.daily.0) {
+        if let Some(day) = daily_due(dir, now, &instance.cadence.daily.0) {
             // Written once the tick ended, failed or not, so a loop stopped during it runs it
             // again at its next start (`story:daily-tick-runs`).
             if let Err(error) = dispatch::daily_tick(config_flag, state, &day, seams) {
@@ -369,7 +474,7 @@ fn watch(
     let mut watch = Watch::of_instance(state)?;
     let lines = watch.pass(ci, &mut io::stderr().lock())?;
     for line in &lines {
-        println!("{line}");
+        say(false, line);
     }
     handle(config_flag, state, &lines, seams, gc)
 }
@@ -1174,8 +1279,25 @@ pub fn run_dir(state: Option<&Path>) -> Result<PathBuf> {
     Ok(dir)
 }
 
-/// Takes the daemon's lock in `dir`, held while the answer is.
+/// Takes the loop's lock in `dir`, held while the answer is; refuses when another process holds
+/// it: the instance runtime ([`in_runtime`]) or a `conductor run`.
 fn lock(dir: &Path) -> Result<File> {
+    match try_lock(dir)? {
+        Some(file) => Ok(file),
+        None => bail!(
+            "run: another loop holds {}, the instance runtime's (conductor instance serve) or a \
+             conductor run's; one runs per instance",
+            dir.join(LOCK).display()
+        ),
+    }
+}
+
+/// The loop's lock in `dir`, held while the answer is; none while another process holds it.
+///
+/// # Errors
+///
+/// The lock file cannot be opened, or the lock not taken for another reason than that.
+fn try_lock(dir: &Path) -> Result<Option<File>> {
     let path = dir.join(LOCK);
     let file = OpenOptions::new()
         .create(true)
@@ -1183,13 +1305,13 @@ fn lock(dir: &Path) -> Result<File> {
         .write(true)
         .open(&path)
         .with_context(|| format!("open {}", path.display()))?;
-    if file.try_lock().is_err() {
-        bail!(
-            "run: another conductor run holds {}; one runs per instance",
-            path.display()
-        );
+    match file.try_lock() {
+        Ok(()) => Ok(Some(file)),
+        Err(fs::TryLockError::WouldBlock) => Ok(None),
+        Err(fs::TryLockError::Error(error)) => {
+            Err(error).with_context(|| format!("lock {}", path.display()))
+        }
     }
-    Ok(file)
 }
 
 /// Writes `text` to `path`, beside it first and then renamed into place.
