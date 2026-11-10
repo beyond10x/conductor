@@ -6649,6 +6649,177 @@ fn under_the_gates_route_a_pipeline_retry_stays_denied() {
     }
 }
 
+// story:guard-admits-own-mr-auto-merge: under `forge.route: direct` a session sets merge-on-green
+// on a merge request of its own repository with `glab api -X PUT
+// projects/<own>/merge_requests/<iid>/merge -f merge_when_pipeline_succeeds=true`; another
+// project's merge request stays denied.
+
+#[test]
+fn under_the_direct_route_a_controller_sets_merge_on_green_on_its_own_merge_request() {
+    let home = home("forge-direct-auto-merge");
+    let (places, widget, _) = forge_layout(
+        &home,
+        Some("direct"),
+        "git@gitlab.example.com:example-group/widget.git",
+        "https://gitlab.example.com/example-group/records.git",
+    );
+    for command in [
+        "glab api -X PUT projects/example-group%2Fwidget/merge_requests/7/merge -f merge_when_pipeline_succeeds=true",
+        "glab api --method PUT /projects/example-group%2fwidget/merge_requests/7/merge -F merge_when_pipeline_succeeds=true",
+        "glab api -XPUT api/v4/projects/example-group%2Fwidget/merge_requests/7/merge --raw-field merge_when_pipeline_succeeds=true",
+        "glab api --method=put projects/example-group%2Fwidget/merge_requests/7/merge --field=merge_when_pipeline_succeeds=true",
+        "glab api -X PUT projects/:id/merge_requests/7/merge -f merge_when_pipeline_succeeds=true",
+        "glab api -X PUT projects/:fullpath/merge_requests/7/merge -fmerge_when_pipeline_succeeds=true --hostname gitlab.example.com",
+        "glab api -X PUT projects/:id/merge_requests/7/merge -f merge_when_pipeline_succeeds=true -f squash=true -f should_remove_source_branch=true -f sha=0123abcd",
+    ] {
+        assert_verdict(
+            &bash_by(&home, &places, &widget, command),
+            Verdict::Allow,
+            "",
+        );
+    }
+    for (command, because) in [
+        (
+            "glab api -X PUT projects/example-group%2Fother/merge_requests/7/merge -f merge_when_pipeline_succeeds=true",
+            "no merge endpoint of example-group/widget",
+        ),
+        (
+            "glab api -X PUT projects/42/merge_requests/7/merge -f merge_when_pipeline_succeeds=true",
+            "by its number",
+        ),
+        (
+            "glab api -X PUT projects/example-group%2Fwidget/merge_requests/7/merge",
+            "it carries no field merge_when_pipeline_succeeds",
+        ),
+        (
+            "glab api -X PUT projects/example-group%2Fwidget/merge_requests/7/merge -f merge_when_pipeline_succeeds=false",
+            "it sets merge_when_pipeline_succeeds to `false`",
+        ),
+        (
+            "glab api -X PUT projects/example-group%2Fwidget/merge_requests/7/merge -f merge_when_pipeline_succeeds=true -f merge_when_pipeline_succeeds=false",
+            "it sets merge_when_pipeline_succeeds to `false`",
+        ),
+        (
+            "glab api -X PUT projects/example-group%2Fwidget/merge_requests/7/merge -f merge_when_pipeline_succeeds=true -f merge_commit_message=x",
+            "the field merge_commit_message",
+        ),
+        (
+            "glab api -X PUT projects/example-group%2Fwidget/merge_requests/7/merge -f merge_when_pipeline_succeeds=true -F sha=@notes.txt",
+            "which reads a file",
+        ),
+        (
+            "glab api -X PUT projects/example-group%2Fwidget/merge_requests/7/merge -f merge_when_pipeline_succeeds=true --input body.json",
+            "carries --input,",
+        ),
+        (
+            "glab api -X PUT projects/example-group%2Fwidget/merge_requests/7/merge --input=body.json -f merge_when_pipeline_succeeds=true",
+            "carries --input=body.json,",
+        ),
+        (
+            "glab api -X PUT projects/example-group%2Fwidget/merge_requests/7/merge?merge_when_pipeline_succeeds=true",
+            "with a query",
+        ),
+        (
+            "glab api -X PUT projects/example-group%2Fwidget/merge_requests/x/merge -f merge_when_pipeline_succeeds=true",
+            "no merge endpoint",
+        ),
+        (
+            "glab api -X PUT projects/example-group%2Fwidget/merge_requests/7 -f merge_when_pipeline_succeeds=true",
+            "no merge endpoint",
+        ),
+        (
+            "glab api -X PUT projects/example-group%2Fwidget/merge_requests/7/merge/x -f merge_when_pipeline_succeeds=true",
+            "no merge endpoint",
+        ),
+        (
+            "glab api -X PUT projects/example-group%2Fwidget -f merge_when_pipeline_succeeds=true",
+            "no merge endpoint",
+        ),
+        (
+            "glab api -X PUT projects/example-group%2Fwidget/pipeline -f merge_when_pipeline_succeeds=true",
+            "no merge endpoint",
+        ),
+        (
+            "glab api -X POST projects/example-group%2Fwidget/merge_requests/7/merge -f merge_when_pipeline_succeeds=true",
+            "no pipeline endpoint",
+        ),
+        (
+            "glab api -X DELETE projects/example-group%2Fwidget/merge_requests/7/merge -f merge_when_pipeline_succeeds=true",
+            "is no POST",
+        ),
+        (
+            "glab api -X PUT projects/:id/merge_requests/7/merge -f merge_when_pipeline_succeeds=true --hostname gitlab.other.example",
+            "names the host",
+        ),
+        (
+            "glab api -X PUT projects/:id/merge_requests/7/merge projects/:id/merge_requests/8/merge -f merge_when_pipeline_succeeds=true",
+            "no single endpoint",
+        ),
+        (
+            "GITLAB_HOST=example.invalid glab api -X PUT projects/:id/merge_requests/7/merge -f merge_when_pipeline_succeeds=true",
+            "assigns GITLAB_HOST",
+        ),
+        (
+            "cd ./src && glab api -X PUT projects/:id/merge_requests/7/merge -f merge_when_pipeline_succeeds=true",
+            "forge.route direct",
+        ),
+    ] {
+        let decision = bash_by(&home, &places, &widget, command);
+        assert_verdict(&decision, Verdict::Deny, because);
+        assert_verdict(&decision, Verdict::Deny, "forge.route direct");
+    }
+    // A checkout whose `upstream` names another repository: `glab` fills `:id` from it, so only
+    // the encoded path names the session's own.
+    git_remotes(
+        &widget,
+        &[
+            ("origin", "git@gitlab.example.com:example-group/widget.git"),
+            ("upstream", "git@gitlab.example.com:example-group/other.git"),
+        ],
+    );
+    assert_verdict(
+        &bash_by(
+            &home,
+            &places,
+            &widget,
+            "glab api -X PUT projects/:id/merge_requests/7/merge -f merge_when_pipeline_succeeds=true",
+        ),
+        Verdict::Deny,
+        "upstream",
+    );
+    assert_verdict(
+        &bash_by(
+            &home,
+            &places,
+            &widget,
+            "glab api -X PUT projects/example-group%2Fwidget/merge_requests/7/merge -f merge_when_pipeline_succeeds=true",
+        ),
+        Verdict::Allow,
+        "",
+    );
+}
+
+#[test]
+fn under_the_gates_route_setting_merge_on_green_stays_denied() {
+    let home = home("forge-gates-auto-merge");
+    let (places, widget, _) = forge_layout(
+        &home,
+        Some("gates"),
+        "git@gitlab.example.com:example-group/widget.git",
+        "https://gitlab.example.com/example-group/records.git",
+    );
+    assert_verdict(
+        &bash_by(
+            &home,
+            &places,
+            &widget,
+            "glab api -X PUT projects/example-group%2Fwidget/merge_requests/7/merge -f merge_when_pipeline_succeeds=true",
+        ),
+        Verdict::Deny,
+        "GitLab write",
+    );
+}
+
 #[test]
 fn under_the_direct_route_a_checkout_three_folders_deep_writes_its_own_merge_requests() {
     let home = home("forge-direct-glab-nested");

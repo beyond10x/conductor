@@ -27,7 +27,7 @@
 //! instances a recipient is read against are those of the config file: the host registry that
 //! added every other file's is gone in v1 (design architecture-next § 11), one daemon reading one
 //! file.
-//! | Bash | a `cd`, `pushd` or `git -C` (`--git-dir`, `--work-tree`, `GIT_DIR=`, `GIT_WORK_TREE=`) reaches another repository's checkout or managed worktrees, or `<records>`; a git subcommand that writes ([`git_reads`]) has a target (the directory `-C` leaves it in, else the cwd; `--git-dir`, `--work-tree`, `GIT_DIR`, `GIT_WORK_TREE`) outside `<root>/<repo>/`, `<trees>/<repo>/` and the session's scratch; a `gh` or `glab` call that is not a read ([`forge_write`]), except, under `forge.route: direct`, `gh pr create|edit|comment|merge|ready` and `glab mr create|update|note|merge` naming the repository the checkout's `origin` names with `-R` ([`Session::direct_denial`]), and `glab ci retry|run` of that repository (named with `-R` in any spelling, or none where `glab` reads it: the session's cwd, no command before it on the line but an assignment that moves nothing ([`moves_glab`]) or another `glab` call (no `cd`, `pushd` or `popd`), no `git` and no write form after it, nothing beside it in a pipe or the background but a read-only filter, and the repository git discovers there is no bare one and has a config with no include, `insteadOf`, `worktreeConfig`, key on a header line or `glab-resolved` other than `base`, whose every remote names it, [`Session::glab_place`], [`Session::implicit_denial`]) and `glab api -X POST` to its pipeline and job retry endpoints ([`own_pipeline_endpoint`]); a direct write on a line that names a variable that points the forge elsewhere ([`FORGE_TARGET_VARIABLES`]) is denied; a run of the bot route `b10x-gates gh` that is not `release create|upload|edit|view`, `run rerun` or `workflow run` with `--repository` naming the repository the checkout's `origin` names ([`bot_route`]); the command writes a `.claude/` settings file or a `<settings>` ([`Places::writes_settings`]); the command writes a `<profile>` ([`Places::writes_profile`]); the command names `<config>` and holds a write form ([`Places::names_config`], [`holds_write_form`]); it runs a `conductor` leaf the command tree does not declare a controller may run ([`cli::LEAVES`], [`conductor_run`]), or one whose leaf a shell expansion, `xargs` or a program word a substitution names decides at run time; or the command writes `<records>` or a path under it ([`Places::writes_records`]) | a `gh` or `glab` call that is not a read, except a direct write as for a controller, its own repository the one the `origin` of `<records>` names; a run of the bot route as for a controller, its own repository the one the `origin` of `<records>` names; the command writes a `.claude/` settings file or a `<settings>`; the command writes a `<profile>` |
+//! | Bash | a `cd`, `pushd` or `git -C` (`--git-dir`, `--work-tree`, `GIT_DIR=`, `GIT_WORK_TREE=`) reaches another repository's checkout or managed worktrees, or `<records>`; a git subcommand that writes ([`git_reads`]) has a target (the directory `-C` leaves it in, else the cwd; `--git-dir`, `--work-tree`, `GIT_DIR`, `GIT_WORK_TREE`) outside `<root>/<repo>/`, `<trees>/<repo>/` and the session's scratch; a `gh` or `glab` call that is not a read ([`forge_write`]), except, under `forge.route: direct`, `gh pr create|edit|comment|merge|ready` and `glab mr create|update|note|merge` naming the repository the checkout's `origin` names with `-R` ([`Session::direct_denial`]), and `glab ci retry|run` of that repository (named with `-R` in any spelling, or none where `glab` reads it: the session's cwd, no command before it on the line but an assignment that moves nothing ([`moves_glab`]) or another `glab` call (no `cd`, `pushd` or `popd`), no `git` and no write form after it, nothing beside it in a pipe or the background but a read-only filter, and the repository git discovers there is no bare one and has a config with no include, `insteadOf`, `worktreeConfig`, key on a header line or `glab-resolved` other than `base`, whose every remote names it, [`Session::glab_place`], [`Session::implicit_denial`]) and `glab api -X POST` to its pipeline and job retry endpoints and `glab api -X PUT` to a merge request's merge endpoint with `merge_when_pipeline_succeeds=true` ([`own_api_write`], [`sets_merge_on_green`]); a direct write on a line that names a variable that points the forge elsewhere ([`FORGE_TARGET_VARIABLES`]) is denied; a run of the bot route `b10x-gates gh` that is not `release create|upload|edit|view`, `run rerun` or `workflow run` with `--repository` naming the repository the checkout's `origin` names ([`bot_route`]); the command writes a `.claude/` settings file or a `<settings>` ([`Places::writes_settings`]); the command writes a `<profile>` ([`Places::writes_profile`]); the command names `<config>` and holds a write form ([`Places::names_config`], [`holds_write_form`]); it runs a `conductor` leaf the command tree does not declare a controller may run ([`cli::LEAVES`], [`conductor_run`]), or one whose leaf a shell expansion, `xargs` or a program word a substitution names decides at run time; or the command writes `<records>` or a path under it ([`Places::writes_records`]) | a `gh` or `glab` call that is not a read, except a direct write as for a controller, its own repository the one the `origin` of `<records>` names; a run of the bot route as for a controller, its own repository the one the `origin` of `<records>` names; the command writes a `.claude/` settings file or a `<settings>`; the command writes a `<profile>` |
 //!
 //! A Bash command that kills by pattern, name or group is denied for every role, before the rows
 //! above ([`kill_denial`], `story:guard-no-pattern-kill`): `pkill`, `killall`, and a `kill` that
@@ -791,9 +791,20 @@ const DIRECT_PIPELINES_GLAB: [(&str, &[&str]); 1] = [("ci", &["retry", "run"])];
 
 /// The endpoints under `projects/<own project>/` that `glab api -X POST` may call under
 /// `forge.route: direct`: a pipeline's start, a pipeline's retry and a job's retry; `<id>` is a
-/// number ([`own_pipeline_endpoint`]).
+/// number ([`own_api_write`]).
 const DIRECT_PIPELINE_ENDPOINTS: [&str; 3] =
     ["pipeline", "pipelines/<id>/retry", "jobs/<id>/retry"];
+
+/// The endpoint under `projects/<own project>/` that `glab api -X PUT` may call under
+/// `forge.route: direct` to set merge-on-green on a merge request of the session's own repository
+/// (`story:guard-admits-own-mr-auto-merge`); `<iid>` is a number ([`own_api_write`]).
+const DIRECT_MERGE_ENDPOINT: &str = "merge_requests/<iid>/merge";
+
+/// The field a PUT to [`DIRECT_MERGE_ENDPOINT`] must set to `true` ([`sets_merge_on_green`]).
+const MERGE_ON_GREEN: &str = "merge_when_pipeline_succeeds";
+
+/// The fields a PUT to [`DIRECT_MERGE_ENDPOINT`] may carry besides [`MERGE_ON_GREEN`].
+const DIRECT_MERGE_FIELDS: [&str; 3] = ["squash", "should_remove_source_branch", "sha"];
 
 /// The variables that point `gh` or `glab` at another host or repository than its `-R` names: a
 /// direct write that assigns one is denied.
@@ -1904,8 +1915,9 @@ impl Session<'_> {
     /// the group and the verb, naming with `-R`/`--repo` the session's own repository and no
     /// other, with no operand that is a URL (which may name another repository's request), and
     /// on a line, `command`, that names none of [`FORGE_TARGET_VARIABLES`] (a line may set one by
-    /// an assignment, `export`, `printf -v`, `read` or `declare`). A pipeline write
-    /// ([`DIRECT_PIPELINES_GLAB`], [`own_pipeline_endpoint`]) that names no repository is admitted
+    /// an assignment, `export`, `printf -v`, `read` or `declare`). A pipeline write or a setting
+    /// of merge-on-green ([`DIRECT_PIPELINES_GLAB`], [`own_api_write`]) that names no repository
+    /// is admitted
     /// where `glab` reads the session's own ([`Session::glab_place`],
     /// [`Session::implicit_denial`]). `-R` is read in every spelling ([`repo_flag`]). Everything
     /// else stays denied. `words` is `commands[index]`, the line's simple command that runs it.
@@ -1927,7 +1939,9 @@ impl Session<'_> {
         let pipelines = if forge == Forge::GitLab {
             format!(
                 "; its pipelines with `glab ci retry|run` (-R its repository, or none) and `glab \
-                 api -X POST projects/<its path, encoded>/{}`",
+                 api -X POST projects/<its path, encoded>/{}`; merge-on-green with `glab api -X \
+                 PUT projects/<its path, encoded>/{DIRECT_MERGE_ENDPOINT} -f \
+                 {MERGE_ON_GREEN}=true`",
                 DIRECT_PIPELINE_ENDPOINTS.join("|")
             )
         } else {
@@ -1976,7 +1990,7 @@ impl Session<'_> {
                 Ok(own) => own,
                 Err(why) => return Some(format!("`{write}` is denied: {why}; {carried}")),
             };
-            return match own_pipeline_endpoint(rest, &host, &own) {
+            return match own_api_write(rest, &host, &own) {
                 Err(why) => Some(format!("`{write}` {why}: {carried}")),
                 Ok(Project::Named) => None,
                 Ok(Project::Placeholder) => self.implicit_denial(here(), &host, &own).map(|why| {
@@ -3335,27 +3349,24 @@ fn glab_reads(group: &str, verb: &str) -> bool {
         .any(|(name, verbs)| *name == group && verbs.contains(&verb))
 }
 
-/// Whether the arguments of `glab api`, `arguments`, call a pipeline endpoint of the project
-/// `own` on `host` that `forge.route: direct` admits ([`DIRECT_PIPELINE_ENDPOINTS`]): the method
-/// POST, the endpoint `projects/<own, its slashes written %2F>/…` or `projects/:fullpath/…` or
-/// `projects/:id/…` (which `glab` fills from the checkout it runs in), with or without a leading
-/// `/` or `api/v4/` and with any query, and a `--hostname`, if any, naming `host`. `Ok` says how
-/// the endpoint names the project, `Err` why it is not one.
-fn own_pipeline_endpoint(arguments: &[String], host: &str, own: &str) -> Result<Project, String> {
-    /// Flags of `glab api` that take the next word as their value, besides the method and the
-    /// host.
-    const VALUED: &[&str] = &[
-        "-H",
-        "--header",
-        "-f",
-        "-F",
-        "--field",
-        "--raw-field",
-        "--input",
-    ];
+/// Whether the arguments of `glab api`, `arguments`, are a write to the project `own` on `host`
+/// that `forge.route: direct` admits: a POST to one of its pipeline endpoints
+/// ([`DIRECT_PIPELINE_ENDPOINTS`]), or a PUT to a merge request's merge endpoint that sets
+/// merge-on-green ([`DIRECT_MERGE_ENDPOINT`], [`sets_merge_on_green`]). The endpoint is
+/// `projects/<own, its slashes written %2F>/…` or `projects/:fullpath/…` or `projects/:id/…`
+/// (which `glab` fills from the checkout it runs in), with or without a leading `/` or
+/// `api/v4/`, and a `--hostname`, if any, names `host`. A project named by its number is not
+/// one: the guard reads no forge, so it cannot tell whose number it is. A POST may carry any
+/// query; a PUT carries none. `Ok` says how the endpoint names the project, `Err` why the call
+/// is not one of these.
+fn own_api_write(arguments: &[String], host: &str, own: &str) -> Result<Project, String> {
     let mut method: Option<&str> = None;
     let mut hostname: Option<&str> = None;
     let mut operands: Vec<&str> = Vec::new();
+    // The request fields, each `key=value`, and the flags that shape the request another way
+    // (`--input`, a long flag this parser does not read).
+    let mut fields: Vec<&str> = Vec::new();
+    let mut unread: Vec<&str> = Vec::new();
     let mut next = 0;
     while let Some(word) = arguments.get(next) {
         let word = word.as_str();
@@ -3370,10 +3381,22 @@ fn own_pipeline_endpoint(arguments: &[String], host: &str, own: &str) -> Result<
             next += 1;
         } else if let Some(value) = word.strip_prefix("--hostname=") {
             hostname = Some(value);
-        } else if VALUED.contains(&word) {
+        } else if word == "--field" || word == "--raw-field" {
+            fields.push(arguments.get(next).map_or("", String::as_str));
+            next += 1;
+        } else if let Some(value) = word
+            .strip_prefix("--field=")
+            .or_else(|| word.strip_prefix("--raw-field="))
+        {
+            fields.push(value);
+        } else if word == "--header" {
+            next += 1;
+        } else if word == "--input" {
+            unread.push(word);
             next += 1;
         } else if word.starts_with("--") {
             // A flag with no value: `--paginate`, `--silent`, `--include`.
+            unread.push(word);
         } else if let Some(cluster) = word.strip_prefix('-').filter(|cluster| !cluster.is_empty()) {
             for (at, flag) in cluster.char_indices() {
                 if matches!(flag, 'X' | 'f' | 'F' | 'H') {
@@ -3384,8 +3407,10 @@ fn own_pipeline_endpoint(arguments: &[String], host: &str, own: &str) -> Result<
                     } else {
                         Some(value)
                     };
-                    if flag == 'X' {
-                        method = value;
+                    match flag {
+                        'X' => method = value,
+                        'f' | 'F' => fields.push(value.unwrap_or_default()),
+                        _ => {}
                     }
                     break;
                 }
@@ -3397,18 +3422,30 @@ fn own_pipeline_endpoint(arguments: &[String], host: &str, own: &str) -> Result<
     if let Some(named) = hostname.filter(|named| !named.eq_ignore_ascii_case(host)) {
         return Err(format!("names the host {named}, not {host}"));
     }
-    if !method.is_some_and(|method| method.eq_ignore_ascii_case("POST")) {
-        return Err("is no POST to a pipeline endpoint".to_owned());
+    let merge = method.is_some_and(|method| method.eq_ignore_ascii_case("PUT"));
+    if !merge && !method.is_some_and(|method| method.eq_ignore_ascii_case("POST")) {
+        return Err(
+            "is no POST to a pipeline endpoint and no PUT to a merge request's merge".to_owned(),
+        );
     }
     let ["api", endpoint] = operands.as_slice() else {
         return Err("names no single endpoint".to_owned());
     };
-    let endpoint = endpoint.split('?').next().unwrap_or_default();
+    let (endpoint, query) = match endpoint.split_once('?') {
+        Some((endpoint, _)) => (endpoint, true),
+        None => (*endpoint, false),
+    };
+    if merge && query {
+        return Err(format!(
+            "calls {endpoint} with a query: a PUT names its fields with -f, not in the endpoint"
+        ));
+    }
     let endpoint = endpoint.trim_start_matches('/');
     let endpoint = endpoint.strip_prefix("api/v4/").unwrap_or(endpoint);
+    let what = if merge { "merge" } else { "pipeline" };
     let not_own = || {
         Err(format!(
-            "calls {endpoint}, which is no pipeline endpoint of {own}"
+            "calls {endpoint}, which is no {what} endpoint of {own}"
         ))
     };
     let Some((project, tail)) = endpoint
@@ -3417,25 +3454,81 @@ fn own_pipeline_endpoint(arguments: &[String], host: &str, own: &str) -> Result<
     else {
         return not_own();
     };
-    let decoded = project.replace("%2F", "/").replace("%2f", "/");
-    let named = if project == ":fullpath" || project == ":id" {
-        Some(Project::Placeholder)
-    } else {
-        decoded.eq_ignore_ascii_case(own).then_some(Project::Named)
-    };
     let number = |word: &str| !word.is_empty() && word.bytes().all(|byte| byte.is_ascii_digit());
-    let carried = match tail.split('/').collect::<Vec<_>>().as_slice() {
-        ["pipeline"] => true,
-        ["pipelines" | "jobs", id, "retry"] => number(id),
+    let tail: Vec<&str> = tail.split('/').collect();
+    let carried = match (merge, tail.as_slice()) {
+        (false, ["pipeline"]) => true,
+        (false, ["pipelines" | "jobs", id, "retry"]) => number(id),
+        (true, ["merge_requests", iid, "merge"]) => number(iid),
         _ => false,
     };
-    match named {
-        Some(named) if carried => Ok(named),
-        _ => not_own(),
+    if !carried {
+        return not_own();
     }
+    if number(project) {
+        return Err(format!(
+            "calls {endpoint}, which is no {what} endpoint of {own} the guard can tell: it names \
+             the project by its number, {project}, and the guard reads no forge to learn whose \
+             that is; name it by its path, encoded, or by :id"
+        ));
+    }
+    let decoded = project.replace("%2F", "/").replace("%2f", "/");
+    let named = if project == ":fullpath" || project == ":id" {
+        Project::Placeholder
+    } else if decoded.eq_ignore_ascii_case(own) {
+        Project::Named
+    } else {
+        return not_own();
+    };
+    if merge {
+        sets_merge_on_green(&fields, &unread)?;
+    }
+    Ok(named)
 }
 
-/// How a `glab api` endpoint names its project ([`own_pipeline_endpoint`]).
+/// Whether the request of a PUT to a merge request's merge endpoint ([`DIRECT_MERGE_ENDPOINT`])
+/// only sets merge-on-green (`story:guard-admits-own-mr-auto-merge`): its fields `fields`, each
+/// `key=value`, hold `merge_when_pipeline_succeeds=true`, no other value of that key, and
+/// otherwise only keys of [`DIRECT_MERGE_FIELDS`]; no value reads a file (`@…`); and no flag
+/// `unread` (`--input`, a long flag the guard does not read) shapes the request another way.
+/// `Err` says what does not hold.
+fn sets_merge_on_green(fields: &[&str], unread: &[&str]) -> Result<(), String> {
+    if let Some(flag) = unread.first() {
+        return Err(format!(
+            "carries {flag}, which the guard does not read in a PUT: name the fields with -f"
+        ));
+    }
+    let mut on_green = false;
+    for &field in fields {
+        let (key, value) = field.split_once('=').unwrap_or((field, ""));
+        if value.starts_with('@') {
+            return Err(format!(
+                "sets the field {key} to {value}, which reads a file"
+            ));
+        }
+        if key == MERGE_ON_GREEN {
+            if value != "true" {
+                return Err(format!(
+                    "is no setting of merge-on-green: it sets {MERGE_ON_GREEN} to `{value}`"
+                ));
+            }
+            on_green = true;
+        } else if !DIRECT_MERGE_FIELDS.contains(&key) {
+            return Err(format!(
+                "sets the field {key}, which is none a setting of merge-on-green carries ({})",
+                DIRECT_MERGE_FIELDS.join(", ")
+            ));
+        }
+    }
+    if !on_green {
+        return Err(format!(
+            "is no setting of merge-on-green: it carries no field {MERGE_ON_GREEN}"
+        ));
+    }
+    Ok(())
+}
+
+/// How a `glab api` endpoint names its project ([`own_api_write`]).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Project {
     /// By its path, which the guard compares with the session's own.
