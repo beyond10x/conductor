@@ -3,16 +3,16 @@ format: aep.planning-md/3
 id: epic:deployable-in-kubernetes
 kind: epic
 status: draft
-title: Conductor is deployable into a Kubernetes cluster, beside the operator's assembly
+title: Conductor is deployable into a Kubernetes cluster, beside a consumer control plane
 relations:
 - decomposes: initiative:adoption
 - informed_by: story:placement-substrate-remote
 - informed_by: story:store-shared
-revision: 1
+revision: 4
 ---
 ## Why
 
-Operator, 2026-11-10: "deployable into k8s cluster alongside my assembly".
+Operator, 2026-11-10: "deployable into k8s cluster alongside" a system of the operator's, named here a consumer control plane.
 
 Read on 2026-11-10 at wave/49 3290f2211:
 
@@ -23,16 +23,16 @@ Read on 2026-11-10 at wave/49 3290f2211:
 
 ## Outcome
 
-Conductor's daemon, dashboard and instance runtimes run as workloads in a Kubernetes cluster, installed beside the operator's assembly in that cluster, with the shared store on postgres, agents placed through the `pod` adapter, and credentials taken from cluster secrets. A release publishes what the install needs (an image and the install manifests) next to the binary archives.
+Conductor's daemon, dashboard and instance runtimes run as workloads in a Kubernetes cluster, installed beside a consumer control plane in that cluster, with the shared store on postgres, agents placed through the `pod` adapter, and credentials taken from cluster secrets. A release publishes what the install needs (an image and the install manifests) next to the binary archives.
 
 ## Open before decomposition
 
-- UNMAPPED: "my assembly". No document in this repository declares it, and the tree does not say what it is (a product, a namespace, a chart or a set of services). The relation to it is unknown as well: same namespace or a neighbour one, a shared postgres or its own, a shared ingress and identity or separate ones, one install unit or two.
+- Answered on 2026-11-10 by the session that develops it: that system is a consumer control plane for system changes, deployed from a Helm chart into one namespace (a model server pod, a UI and a Prometheus), today on a local cluster only. It names conductor as one kind of work handler, one instance per group of repositories, and has tried nothing with conductor yet. Not decided on either side: conductor's placement and store in a cluster (decision-blocker:cluster-placement-and-store) and the work contract between the two (story:control-plane-work-handler, UNMAPPED there).
 - Whether the harness sessions (Claude Code today) run in pods of that cluster or stay on a remote host the daemon reaches.
 - The install format: plain manifests, a Helm chart or a Kustomize base.
 - Where an agent's worktree lives in a cluster (a volume per instance, or a clone per pod).
 
-This epic is not decomposed: guardrail 7 of the planning skill asks for the new noun to be modelled first, and the first open point is the operator's to answer.
+Decomposed on 2026-11-10 from the consumer's answers into five draft stories: story:release-container-image, story:daemon-probes-and-metrics, story:container-start-without-prompt (the three it asked for first), story:cluster-install (blocked on the placement decision) and story:control-plane-work-handler (not ready: its contract is not modelled here). The plan-critic panel has not read them.
 
 ## Acceptance
 
