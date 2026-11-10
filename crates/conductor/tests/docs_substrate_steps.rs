@@ -146,3 +146,57 @@ fn the_checks_of_this_test_find_what_they_look_for() {
     let bare = "- Fix: `x --ca-bundle $(realpath /etc/ssl/certs/ca-certificates.crt)`, kept\n";
     assert!(bundle_problems("page", bare).is_empty(), "{bare}");
 }
+
+/// Adversary cases of wave 50, unit U6, pass 1. Each is red on the tree it was written against.
+mod adversary {
+    use super::*;
+
+    /// The predicate of `setup_md_names_the_substrate_state_directory_as_mode_700`, word for word,
+    /// over a text instead of the file: that test holds it inline.
+    fn setup_holds(setup: &str) -> bool {
+        let lines = setup.lines().collect::<Vec<_>>();
+        lines
+            .iter()
+            .enumerate()
+            .filter(|(_, line)| words(line).contains(&PARENT))
+            .any(|(index, _)| {
+                lines[index..(index + 3).min(lines.len())]
+                    .join(" ")
+                    .contains("mode 700")
+            })
+    }
+
+    /// The resolved path is one of the acceptance's three distributions only: the file exists on
+    /// Fedora and neither on Debian nor on Arch, where `readlink -f` prints the name of a file
+    /// that is not there and exits 0.
+    #[test]
+    fn adv_a_a_resolved_path_two_of_the_three_distributions_lack_is_found() {
+        let fedora_only = "  --ca-bundle \"$(readlink -f /etc/pki/tls/certs/ca-bundle.crt)\"\n";
+        assert_eq!(
+            bundle_problems("page", fedora_only).len(),
+            1,
+            "{fedora_only}"
+        );
+    }
+
+    /// `realpath -s` resolves no symbolic link: the value is the link the story reports.
+    #[test]
+    fn adv_b_a_realpath_that_resolves_no_link_is_found() {
+        let unresolved = "  --ca-bundle \"$(realpath -s /etc/ssl/certs/ca-certificates.crt)\"\n";
+        assert_eq!(bundle_problems("page", unresolved).len(), 1, "{unresolved}");
+    }
+
+    /// SETUP.md with its instruction turned to mode 755: the reason beside it, "a state directory
+    /// that is not mode 700", must not stand in for the instruction.
+    #[test]
+    fn adv_c_setup_md_telling_mode_755_is_not_held_by_the_reason_beside_it() {
+        let setup = read("SETUP.md");
+        let mutant = setup.replace("each at mode 700", "each at mode 755");
+        assert_ne!(setup, mutant, "SETUP.md no longer says `each at mode 700`");
+        assert!(setup_holds(&setup), "the predicate holds the page as it is");
+        assert!(
+            !setup_holds(&mutant),
+            "SETUP.md telling mode 755 for {PARENT} passes the check"
+        );
+    }
+}
