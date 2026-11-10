@@ -803,6 +803,50 @@ fn a_report_after_since_is_an_event_and_one_before_is_not() {
     );
 }
 
+/// `story:dashboard-live-controllers-and-report-text`: a report row carries the report's text
+/// after its verb: a message's first line, a block's or failure's reason, a completion's evidence;
+/// a report that says nothing more is its verb alone.
+#[test]
+fn a_report_row_carries_the_report_s_text_as_well_as_its_verb() {
+    let case = Case::new("events-report-text");
+    let dispatches = [
+        json!({"id": "DSP-A", "to": "alpha", "goal": "goal after", "brief": "b", "at": AFTER}),
+        json!({"id": "DSP-A", "event": "started", "repo": "alpha", "at": AFTER}),
+        json!({"id": "DSP-A", "event": "message-received", "repo": "alpha", "from": "alpha",
+               "kind": "STATUS", "first_line": "STATUS alpha: wave 3 merged, 2 units left",
+               "at": "2026-10-13T00:00:02Z"}),
+        json!({"id": "DSP-A", "event": "blocked", "repo": "alpha",
+               "reason": "waits for the registry login", "at": "2026-10-13T00:00:03Z"}),
+        json!({"id": "DSP-A", "event": "done", "repo": "alpha", "evidence": "tree alpha-w3",
+               "at": "2026-10-13T00:00:04Z"}),
+        json!({"id": "DSP-A", "event": "unblocked", "repo": "alpha", "reason": " ",
+               "at": "2026-10-13T00:00:05Z"}),
+    ];
+    let lines: String = dispatches.iter().map(|line| format!("{line}\n")).collect();
+    case.write(
+        "home/example-org/conductor/dispatches/2026-10.jsonl",
+        &lines,
+    );
+    case.complete(EARLIER);
+    let port = case.start();
+    let texts: Vec<Value> = events(port)
+        .into_iter()
+        .filter(|row| row["kind"] == "report")
+        .map(|row| row["text"].clone())
+        .collect();
+    assert_eq!(
+        texts,
+        [
+            json!("unblocked"),
+            json!("done: tree alpha-w3"),
+            json!("blocked: waits for the registry login"),
+            json!("message-received: STATUS alpha: wave 3 merged, 2 units left"),
+            json!("started"),
+        ],
+        "newest first, each with what the report said"
+    );
+}
+
 #[test]
 fn a_decision_after_since_is_an_event_and_one_before_is_not() {
     assert_eq!(

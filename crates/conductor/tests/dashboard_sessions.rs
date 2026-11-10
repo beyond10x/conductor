@@ -243,6 +243,32 @@ impl Case {
         sources
     }
 
+    /// A fake `claude` under the case's `bin/`, whose `claude agents --json` prints the case's
+    /// session list; the session-list command that runs it.
+    fn fake_claude(&self) -> Vec<OsString> {
+        use std::os::unix::fs::PermissionsExt as _;
+        let fake = self.dir.join("bin/claude");
+        write(
+            &fake,
+            &format!(
+                "#!/bin/sh\n[ \"$1\" = agents ] && [ \"$2\" = --json ] && cat '{}'\n",
+                self.home().join("agents.json").display()
+            ),
+        );
+        fs::set_permissions(&fake, fs::Permissions::from_mode(0o755)).expect("make it runnable");
+        vec![fake.into_os_string(), "agents".into(), "--json".into()]
+    }
+
+    /// [`Case::start`], with the session list read from the fake `claude`.
+    fn start_with_fake_claude(&self) -> u16 {
+        let listener = TcpListener::bind("127.0.0.1:0").expect("bind a free port");
+        let port = listener.local_addr().expect("the bound address").port();
+        let (mut sources, state) = (self.sources(), self.state());
+        sources.agents = self.fake_claude();
+        served::serve(listener, sources, Some(state));
+        port
+    }
+
     fn start(&self) -> u16 {
         let listener = TcpListener::bind("127.0.0.1:0").expect("bind a free port");
         let port = listener.local_addr().expect("the bound address").port();
@@ -387,6 +413,75 @@ fn the_rows_are_the_instance_s_sessions_from_its_records_with_their_open_dispatc
     assert!(
         !data.to_string().contains("DSP-20261013-04"),
         "a foreign session's dispatch is not shown: {data:#}"
+    );
+}
+
+/// `story:dashboard-live-controllers-and-report-text`: a controller whose session `claude agents`
+/// shows live is listed and counted whatever the store recorded for it: the loop records a
+/// controller `Stopped` when it cannot reach its session, and the session works on. A stopped
+/// controller whose session is gone, or exited, is not listed; a controller started again is
+/// one row, its running record's.
+#[test]
+fn a_controller_whose_session_claude_agents_shows_live_is_counted_whatever_the_store_recorded() {
+    let case = Case::new("live-whatever-recorded");
+    case.controller("alpha");
+    let stop = |id: &str| {
+        case.run(&[
+            "controller",
+            "stop-controller",
+            "--controller-id",
+            id,
+            "--reason",
+            "the session was not reachable",
+        ]);
+    };
+    for repository in ["beta", "gamma", "delta", "epsilon"] {
+        stop(&case.controller(repository));
+    }
+    // epsilon was stopped and started again: two records under one session name.
+    case.controller("epsilon");
+    let now = OffsetDateTime::now_utc();
+    let started = millis(now - time::Duration::hours(2));
+    let home = case.home();
+    let at = |path: &str| home.join(path).display().to_string();
+    case.sessions(&json!([
+        {"name": "ex-alpha", "kind": "background", "status": "busy", "state": "working",
+         "startedAt": started, "cwd": at("example-org/alpha"), "sessionId": "s-alpha",
+         "pid": 1001},
+        // Recorded stopped, and live.
+        {"name": "ex-beta", "kind": "background", "status": "busy", "state": "working",
+         "startedAt": started, "cwd": at("example-org/beta"), "sessionId": "s-beta",
+         "pid": 1002},
+        // Recorded stopped, and exited: the list keeps it without a pid.
+        {"name": "ex-delta", "kind": "background", "status": "idle", "state": "idle",
+         "startedAt": started, "cwd": at("example-org/delta"), "sessionId": "s-delta"},
+        {"name": "ex-epsilon", "kind": "background", "status": "idle", "state": "idle",
+         "startedAt": started, "cwd": at("example-org/epsilon"), "sessionId": "s-epsilon",
+         "pid": 1005},
+    ]));
+    let port = case.start_with_fake_claude();
+    let data = get(port, "/v1/instances/example-org/data.json");
+
+    assert_eq!(
+        data["reading"]["sessions"]
+            .as_str()
+            .map(|command| command.ends_with("bin/claude agents --json")),
+        Some(true),
+        "the session list is the fake claude's: {data:#}"
+    );
+    assert_eq!(
+        names(&data),
+        [CONDUCTOR, "ex-alpha", "ex-beta", "ex-epsilon"],
+        "every controller with a live session, each once, and no stopped one without: {data:#}"
+    );
+    let beta = row(&data, "ex-beta");
+    assert_eq!(beta["role"], "controller", "{data:#}");
+    assert_eq!(beta["repository"], "beta", "{data:#}");
+    assert_eq!(beta["exited"], false, "{data:#}");
+    assert_eq!(beta["state"], "working", "{data:#}");
+    assert_eq!(
+        data["controllers"], 3,
+        "ex-alpha, ex-beta (recorded stopped, live) and ex-epsilon: {data:#}"
     );
 }
 
