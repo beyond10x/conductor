@@ -47,7 +47,10 @@
 //! `.keeper-hold` file. Any other is a holder. Without `--dry-run` the idle ones are cleaned
 //! oldest last write first, each under cargo's lock after every check was made again, while free
 //! disk on `/` is under the floor of the host reclaim (`thresholds.disk_admit` plus its margin);
-//! one left because the floor is reached stays `reclaimable`.
+//! one left because the floor is reached stays `reclaimable`. A target is moved aside in its own
+//! directory, to `.conductor-gc-<pid>-<count>`, and then removed, so a build that starts
+//! meanwhile loses nothing; what a gc that ended left under that name is a row of its own and is
+//! removed whatever is free.
 //!
 //! After the rows it prints one table of the holders it measures and never reclaims: the panel's
 //! shared rows ([`waste::shared_rows`]: shared build targets, sccache, the rustup toolchains, the
@@ -319,6 +322,41 @@ fn idle_targets(
     for candidate in candidates {
         let path = candidate.path.display().to_string();
         let written = candidate.last_write();
+        if candidate.left {
+            let mut row = GarbageRow {
+                repository: None,
+                what: targets::LEFT.to_owned(),
+                paths: vec![path],
+                count: Some(1),
+                bytes: candidate.bytes.and_then(|bytes| i64::try_from(bytes).ok()),
+                freed: None,
+                outcome: GarbageOutcome::Reclaimable,
+                detail: Some(format!(
+                    "{written}; a gc that ended moved it aside and did not remove it"
+                )),
+                tree: None,
+                verdict: None,
+            };
+            if !dry_run {
+                let freed = match targets::clean(&candidate, window) {
+                    Ok(freed) => {
+                        row.outcome = GarbageOutcome::Removed;
+                        freed
+                    }
+                    Err((why, freed)) => {
+                        row.outcome = GarbageOutcome::Refused;
+                        row.detail = Some(format!("{written}; not removed: {why}"));
+                        freed
+                    }
+                };
+                row.freed = i64::try_from(freed).ok();
+                if freed > 0 {
+                    free = read();
+                }
+            }
+            rows.push(row);
+            continue;
+        }
         if let Some(why) = &candidate.held {
             holders.push(Holder {
                 repository: None,

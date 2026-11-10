@@ -414,7 +414,8 @@ fn trees(sources: &Sources, steps: &mut Steps) -> Result<Vec<(String, u64)>> {
 /// Step 1, second half (`story:gc-idle-targets`): each idle cargo target under the instance's
 /// trees and cache roots that no lock of `build run` answers for ([`targets::assess`]), the
 /// oldest last write first, until enough is free. The window is the one of the free disk the step
-/// starts with, and [`targets::clean`] makes every check again just before it removes one. When
+/// starts with, and [`targets::clean`] makes every check again just before it moves one aside
+/// and removes it. What a reclaim that ended left moved aside comes first, with no check. When
 /// the host's processes cannot be read, the step cleans nothing and says why on standard error.
 fn idle_targets(sources: &Sources, steps: &mut Steps) -> Result<()> {
     if steps.reached() {

@@ -18,9 +18,12 @@
 //! a path in it on its command line (each compared as written and with its links resolved), and
 //! nothing in its top three levels was written for [`WINDOW`] ([`WINDOW_LOW`] while less than
 //! [`LOW`] is free on `/`). A process this user may not read (another user's) is not seen.
-//! [`clean`] makes every check again under cargo's lock, which it holds until the removal has
-//! ended; `conductor gc` and the host reclaim clean idle targets oldest first until free disk is
-//! at the floor.
+//! [`clean`] makes every check again under cargo's lock, and under it moves the target aside in
+//! its own directory, to `.conductor-gc-<pid>-<count>`, before it removes it: a build that starts
+//! meanwhile makes a target of its own and loses nothing. `conductor gc` and the host reclaim
+//! clean idle targets oldest first until free disk is at the floor. A directory of that name
+//! whose process has ended is what a gc that died left: it is gc's own, listed and removed
+//! without an idle check.
 
 use std::ffi::OsStr;
 use std::fs::{self, File, OpenOptions, TryLockError};
@@ -28,6 +31,7 @@ use std::io::{self, Read as _};
 use std::os::unix::ffi::OsStrExt as _;
 use std::os::unix::fs::MetadataExt as _;
 use std::path::{Component, Path, PathBuf};
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::{Duration, SystemTime};
 
 use time::OffsetDateTime;
@@ -123,6 +127,18 @@ pub(super) const IDLE: &str = "idle cargo target";
 /// What gc calls a cargo target it keeps, among the holders.
 pub(super) const KEPT: &str = "cargo target";
 
+/// What gc calls a target an earlier gc moved aside and did not finish removing.
+pub(super) const LEFT: &str = "cargo target gc left half-removed";
+
+/// How the name gc gives a target it moves aside begins: `.conductor-gc-<pid>-<count>`.
+const ASIDE: &str = ".conductor-gc-";
+
+/// The longest path Linux takes, `PATH_MAX`: a longer word a process names is no path.
+const PATH_MAX: usize = 4096;
+
+/// The targets this process has moved aside, for the `<count>` of the next one's name.
+static MOVED: AtomicU64 = AtomicU64::new(0);
+
 /// The file that keeps the target holding it from ever being cleaned.
 pub const HOLD: &str = ".keeper-hold";
 
@@ -171,6 +187,8 @@ pub(super) struct Candidate {
     pub(super) written: Option<SystemTime>,
     /// Why it is not idle; none when it is.
     pub(super) held: Option<String>,
+    /// It is no target but what a gc that ended left moved aside ([`mover`]): gc's own.
+    pub(super) left: bool,
 }
 
 impl Candidate {
@@ -260,6 +278,53 @@ fn is_cargo(dir: &Path) -> bool {
         && (is_file(&dir.join(RUSTC_INFO)) || !cargo_locks(dir).is_empty())
 }
 
+/// The process that moved `dir` aside, by its name `.conductor-gc-<pid>-<count>`; none when
+/// the name is not one gc gives.
+fn mover(dir: &Path) -> Option<u32> {
+    let name = dir.file_name()?.to_str()?;
+    let (pid, count) = name.strip_prefix(ASIDE)?.split_once('-')?;
+    let digits = |text: &str| !text.is_empty() && text.bytes().all(|byte| byte.is_ascii_digit());
+    if digits(pid) && digits(count) {
+        pid.parse().ok()
+    } else {
+        None
+    }
+}
+
+/// Whether `dir` is what a gc that ended left moved aside: a directory, no link, of gc's name
+/// ([`mover`]) whose process is no more. One whose process runs is being removed by it.
+fn left(dir: &Path) -> bool {
+    is_dir(dir)
+        && mover(dir).is_some_and(|pid| {
+            pid != std::process::id() && !Path::new("/proc").join(pid.to_string()).exists()
+        })
+}
+
+/// A name in the directory of `target` that nothing has, to move it aside to.
+fn aside(target: &Path) -> Result<PathBuf, String> {
+    let parent = target
+        .parent()
+        .ok_or_else(|| format!("{} has no directory to move it aside in", target.display()))?;
+    loop {
+        let count = MOVED.fetch_add(1, Ordering::Relaxed);
+        let aside = parent.join(format!("{ASIDE}{}-{count}", std::process::id()));
+        match fs::symlink_metadata(&aside) {
+            Ok(_) => {}
+            Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(aside),
+            Err(error) => return Err(format!("cannot read {}: {error}", aside.display())),
+        }
+    }
+}
+
+/// Whether `dir` lies outside `root` or in a primary checkout under it.
+fn in_checkout(root: &Path, dir: &Path) -> bool {
+    !dir.starts_with(root)
+        || dir
+            .ancestors()
+            .take_while(|dir| dir.starts_with(root))
+            .any(primary)
+}
+
 /// Whether `dir` is a primary checkout: it holds a `.git` directory. A linked worktree, as a
 /// managed tree is, holds a `.git` file.
 fn primary(dir: &Path) -> bool {
@@ -291,10 +356,11 @@ fn resolved_far(path: &Path) -> PathBuf {
     }
 }
 
-/// The cargo targets under `root`, at most [`DEPTH`] below it, found without following a link:
-/// never `root` itself, nothing inside a primary checkout or under the checkouts root
-/// `checkouts`, nothing inside a directory that holds a [`TAG`] file (another target, or another
-/// tool's cache, which is no target), and nothing below a `.git` or `node_modules`.
+/// The cargo targets under `root`, at most [`DEPTH`] below it, and what a gc that ended left
+/// moved aside ([`left`]), found without following a link: never `root` itself, nothing inside a
+/// primary checkout or under the checkouts root `checkouts`, nothing inside a target or a
+/// directory of gc's name, and nothing below a `.git` or `node_modules`. A directory another
+/// tool tagged is no target, and the walk goes on below it.
 fn find(root: &Path, checkouts: &Path) -> Vec<PathBuf> {
     let (real_root, real_checkouts) = (resolved(root), resolved(checkouts));
     let mut found = Vec::new();
@@ -310,10 +376,14 @@ fn find(root: &Path, checkouts: &Path) -> Vec<PathBuf> {
         {
             continue;
         }
-        if depth > 0 && fs::symlink_metadata(dir.join(TAG)).is_ok() {
-            if is_cargo(&dir) {
+        if depth > 0 && mover(&dir).is_some() {
+            if left(&dir) {
                 found.push(dir);
             }
+            continue;
+        }
+        if depth > 0 && is_cargo(&dir) {
+            found.push(dir);
             continue;
         }
         if depth >= DEPTH {
@@ -400,8 +470,12 @@ fn normal(path: &Path) -> PathBuf {
 /// The path a process whose working directory is `cwd` names with `path`, a relative one from
 /// that directory: as written, and with its links resolved as far as it is there
 /// ([`resolved_far`]), so a target named through a link is the target. None when it is relative
-/// and the working directory is not known.
+/// and the working directory is not known, and none when it is longer than [`PATH_MAX`]: that
+/// is no path, and resolving it costs its length for each of its components.
 fn named(path: &Path, cwd: Option<&Path>) -> Vec<PathBuf> {
+    if path.as_os_str().len() > PATH_MAX {
+        return Vec::new();
+    }
     let path = match cwd {
         _ if path.is_absolute() => path.to_path_buf(),
         Some(cwd) => cwd.join(path),
@@ -535,12 +609,7 @@ fn kept(root: &Path, target: &Path) -> Option<String> {
             "it is no cargo target: no directory with cargo's {TAG} and layout"
         ));
     }
-    if !target.starts_with(root)
-        || target
-            .ancestors()
-            .take_while(|dir| dir.starts_with(root))
-            .any(primary)
-    {
+    if in_checkout(root, target) {
         return Some("it lies in a primary checkout".to_owned());
     }
     if fs::symlink_metadata(target.join(HOLD)).is_ok() {
@@ -614,7 +683,8 @@ fn busy(
 /// path of `skip` (what another row of gc answers for), each with its last write and why it is
 /// not idle within `window` (the first of [`kept`], a lock of cargo's that is held ([`lock`],
 /// released at once) and [`busy`]), and with its bytes when `measure`; the oldest last write
-/// first. When the host's processes cannot be read, why: nothing is then known to be idle.
+/// first. Before them what a gc that ended left moved aside, which nothing holds. When the
+/// host's processes cannot be read, why: nothing is then known to be idle.
 pub(super) fn assess(
     sources: &Sources,
     window: Duration,
@@ -631,29 +701,57 @@ pub(super) fn assess(
                 continue;
             }
             let written = newest(&path);
-            let held = kept(&root, &path)
-                .or_else(|| lock(&path).err())
-                .or_else(|| busy(&path, window, &processes, &written));
+            let left = mover(&path).is_some();
+            let held = if left {
+                None
+            } else {
+                kept(&root, &path)
+                    .or_else(|| lock(&path).err())
+                    .or_else(|| busy(&path, window, &processes, &written))
+            };
             candidates.push(Candidate {
                 bytes: measure.then(|| allocated(&path)),
                 root: root.clone(),
                 path,
                 written: written.ok(),
                 held,
+                left,
             });
         }
     }
-    candidates.sort_by(|a, b| a.written.cmp(&b.written).then_with(|| a.path.cmp(&b.path)));
+    candidates.sort_by(|a, b| {
+        b.left
+            .cmp(&a.left)
+            .then_with(|| a.written.cmp(&b.written))
+            .then_with(|| a.path.cmp(&b.path))
+    });
     Ok(candidates)
 }
 
-/// Removes the idle target `candidate` under cargo's own lock: [`kept`] is asked again, the lock
-/// is taken ([`lock`]) and held until the removal has ended, so no build starts into the target
-/// meanwhile, and under it the host's processes are read anew and [`busy`] is asked again (a
-/// cargo that waits for the lock has its lock file open, and holds the target). The bytes freed;
-/// or why it stays, with the bytes a removal that failed half-way freed.
+/// Removes the idle target `candidate`: [`kept`] is asked again, cargo's own lock is taken
+/// ([`lock`]), and under it the host's processes are read anew and [`busy`] is asked again (a
+/// cargo that waits for the lock has its lock file open, and holds the target). Still under the
+/// lock the target is moved aside in its own directory ([`aside`]), and what was moved is
+/// removed. The lock files go with the target, so the lock keeps no build out once they are
+/// gone: a cargo that starts after the move finds no target, makes one of its own and loses
+/// nothing to the removal. A target that cannot be moved stays. What a gc that ended left moved
+/// aside (`candidate.left`) is removed as it is, when it still is that ([`left`]) and lies in no
+/// primary checkout. The bytes freed; or why it stays, with the bytes a removal that failed
+/// half-way freed: what is left of it then is this process's, for a later gc.
 pub(super) fn clean(candidate: &Candidate, window: Duration) -> Result<u64, (String, u64)> {
     let path = &candidate.path;
+    if candidate.left {
+        if !left(path) || in_checkout(&candidate.root, path) {
+            return Err(("it is no longer what a gc that ended left".to_owned(), 0));
+        }
+        let before = allocated(path);
+        let removed = fs::remove_dir_all(path);
+        let freed = before.saturating_sub(allocated(path));
+        return match removed {
+            Ok(()) => Ok(freed),
+            Err(error) => Err((format!("remove {}: {error}", path.display()), freed)),
+        };
+    }
     if let Some(why) = kept(&candidate.root, path) {
         return Err((why, 0));
     }
@@ -663,12 +761,17 @@ pub(super) fn clean(candidate: &Candidate, window: Duration) -> Result<u64, (Str
         return Err((why, 0));
     }
     let before = allocated(path);
-    let removed = fs::remove_dir_all(path);
-    let freed = before.saturating_sub(allocated(path));
+    let aside = aside(path).map_err(|why| (why, 0))?;
+    fs::rename(path, &aside).map_err(|error| {
+        let why = format!("cannot move it aside to {}: {error}", aside.display());
+        (why, 0)
+    })?;
+    let removed = fs::remove_dir_all(&aside);
+    let freed = before.saturating_sub(allocated(&aside));
     drop(locks);
     match removed {
         Ok(()) => Ok(freed),
-        Err(error) => Err((format!("remove {}: {error}", path.display()), freed)),
+        Err(error) => Err((format!("remove {}: {error}", aside.display()), freed)),
     }
 }
 

@@ -2246,3 +2246,102 @@ fn the_dry_run_is_not_slowed_by_a_process_with_long_command_line_words() {
         "the dry run took {with:?} beside one process with ten long words, {before:?} without"
     );
 }
+
+// Round 3 (`story:gc-idle-targets`).
+
+const LEFT_TARGET: &str = "cargo target gc left half-removed";
+
+/// The rows of what an earlier gc left half-removed in `report`, by path.
+fn left_rows(report: &Value) -> BTreeMap<String, Value> {
+    report["rows"]
+        .as_array()
+        .expect("rows")
+        .iter()
+        .filter(|row| row["what"] == LEFT_TARGET)
+        .map(|row| {
+            let path = row["paths"][0].as_str().expect("a row's path").to_owned();
+            (path, row.clone())
+        })
+        .collect()
+}
+
+/// A target gc moved aside and did not finish removing (it died) is gc's own: a row of the dry
+/// run, and removed by the next run without an idle check, written a moment ago and with free
+/// disk at the floor. One inside a primary checkout is not found, and one whose gc still runs
+/// is left to it.
+#[test]
+fn a_target_a_dead_gc_left_moved_aside_is_a_row_of_the_dry_run_and_removed() {
+    let case = Case::new("idle-targets-leftover");
+    let tree = case
+        .agent_target("left")
+        .parent()
+        .expect("the tree")
+        .to_path_buf();
+    // No process has this number: it is above the largest a Linux host gives.
+    let left = tree.join(".conductor-gc-4000000000-0");
+    fill(&left.join("debug/deps/out.bin"), 64 * KIB);
+    let running = tree.join(format!(".conductor-gc-{}-0", std::process::id()));
+    fill(&running.join("debug/deps/out.bin"), 64 * KIB);
+    let unlike = tree.join(".conductor-gc-4000000000-x");
+    fill(&unlike.join("debug/deps/out.bin"), 64 * KIB);
+    let checkout = case.tree("checkout");
+    fs::create_dir_all(checkout.join(".git")).expect("a primary checkout");
+    let inside = checkout.join(".conductor-gc-4000000000-1");
+    fill(&inside.join("debug/deps/out.bin"), 64 * KIB);
+
+    let output = case.gc_at(&["--dry-run", "--format", "json"], &[60]);
+    assert!(output.status.success(), "{}", shown(&output));
+    let report: Value = serde_json::from_slice(&output.stdout).expect("JSON");
+    let rows = left_rows(&report);
+    assert_eq!(
+        rows.keys().collect::<Vec<_>>(),
+        [&left.display().to_string()],
+        "{}",
+        shown(&output)
+    );
+    assert_eq!(rows[&left.display().to_string()]["outcome"], "reclaimable");
+    assert!(left.join("debug/deps/out.bin").is_file(), "a dry run");
+
+    let output = case.gc_at(&["--format", "json"], &[60]);
+    assert!(output.status.success(), "{}", shown(&output));
+    let report: Value = serde_json::from_slice(&output.stdout).expect("JSON");
+    assert_eq!(
+        left_rows(&report)[&left.display().to_string()]["outcome"],
+        "removed",
+        "{}",
+        shown(&output)
+    );
+    assert!(!left.exists(), "{}", shown(&output));
+    for kept in [&running, &unlike, &inside] {
+        assert!(
+            kept.join("debug/deps/out.bin").is_file(),
+            "{} stays: {}",
+            kept.display(),
+            shown(&output)
+        );
+    }
+}
+
+/// Holds the `.rustc_info.json` half of the layout test: a target cargo has made and not yet
+/// built a profile into has its tag and that file, and no lock file.
+#[test]
+fn a_target_with_cargos_tag_and_rustc_info_and_no_profile_lock_is_found() {
+    let case = Case::new("idle-targets-no-profile");
+    let target = case.agent_target("fresh");
+    write(&target.join("CACHEDIR.TAG"), CARGO_TAG);
+    write(&target.join(".rustc_info.json"), "{}\n");
+    fill(&target.join("tmp/out.bin"), 64 * KIB);
+    age_by(&target, 240 * MINUTE);
+
+    let output = case.gc_at(&["--dry-run", "--format", "json"], &[10]);
+    assert!(output.status.success(), "{}", shown(&output));
+    let report: Value = serde_json::from_slice(&output.stdout).expect("JSON");
+    assert!(
+        idle_rows(&report).contains_key(&target.display().to_string()),
+        "a target with cargo's tag and .rustc_info.json is a row: {}",
+        shown(&output)
+    );
+    let output = case.gc_at(&["--format", "json"], &[10]);
+    assert!(output.status.success(), "{}", shown(&output));
+    assert!(!target.exists(), "{}", shown(&output));
+}

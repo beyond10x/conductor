@@ -49,7 +49,9 @@ reading free disk after each step:
    `target/` in it; then every other idle cargo target under the trees and the cache, oldest
    first: no process and no cargo lock holds it, nothing wrote it for 180 minutes (90 while less
    than 50G are free) and it holds no `.keeper-hold` file. A target of another user is kept; a
-   process of another user is not seen;
+   process of another user is not seen. A target is moved aside as `.conductor-gc-<pid>-<count>`
+   in its own directory and then removed, so a build that starts meanwhile loses nothing; one a
+   reclaim that died left is removed by the next;
 3. build output in worktree archives;
 4. stale scratch and caches;
 5. observations of snapshots past `retention.snapshots`.
