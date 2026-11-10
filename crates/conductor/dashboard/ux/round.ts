@@ -11,7 +11,8 @@ import { systemMisses, themeMisses } from './contract.ts';
 import { flatten, measureAll, measuredOnly } from './measure.ts';
 import { compare, readBaseline } from './ratchet.ts';
 
-const args = process.argv.slice(2);
+// The Taskfile hands every argument over as one shell-quoted word.
+const args = process.argv.slice(2).flatMap((word) => word.split(/\s+/)).filter((word) => word !== '');
 const round = args[0] ?? '';
 if (!/^R-\d\d$/.test(round)) {
   console.error('usage: node ux/round.ts R-nn [--no-shots]');

@@ -12,7 +12,8 @@ import { breakTests } from './breaks.ts';
 import { flatten, measureAll } from './measure.ts';
 import { baselinePath, compare, decided, hardFailures, mainProblems, needsDecision, readBaseline, readMain, undecided, worseThanMain, writeBaseline } from './ratchet.ts';
 
-const args = process.argv.slice(2);
+// The Taskfile hands every argument over as one shell-quoted word.
+const args = process.argv.slice(2).flatMap((word) => word.split(/\s+/)).filter((word) => word !== '');
 const update = args.includes('--update');
 const at = args.indexOf('--decision');
 const decision = at >= 0 ? args[at + 1] : undefined;

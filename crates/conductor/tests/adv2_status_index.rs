@@ -365,7 +365,11 @@ fn adv2_rows_of_the_earlier_build_are_read_at_their_version_and_replaced_on_the_
     let reader = open(&state);
     let rows = listed(&reader);
     let check = reader.check();
-    assert_eq!(rows, readable(), "G2's copied body is not answered ({check:?})");
+    assert_eq!(
+        rows,
+        readable(),
+        "G2's copied body is not answered ({check:?})"
+    );
     assert!(
         matches!(
             &check,
@@ -426,7 +430,10 @@ fn adv2_a_list_over_rows_ahead_of_the_index_position_answers_the_feed() {
         .find(|(key, _)| key.ends_with("/G0"))
         .and_then(|(_, row)| row["first"]["seq"].as_u64())
         .expect("G0's row");
-    assert!(g0 > position, "the rows are ahead of the position ({g0} > {position})");
+    assert!(
+        g0 > position,
+        "the rows are ahead of the position ({g0} > {position})"
+    );
     put(&state, goal("G3", GoalState::Met, "three, met"));
     put(&state, goal("G2", GoalState::Draft, "two, again"));
 
@@ -527,7 +534,11 @@ fn adv2_the_indexed_list_equals_the_whole_feed_fold_through_redactions_and_catch
         }
         let (expected, unreadable) = oracle(&state);
         let reader = open(&state);
-        assert_eq!(listed(&reader), expected, "step {step}: the list against the feed");
+        assert_eq!(
+            listed(&reader),
+            expected,
+            "step {step}: the list against the feed"
+        );
         let check = reader.check();
         match unreadable.as_slice() {
             [] => assert!(check.is_ok(), "step {step}: {check:?}"),

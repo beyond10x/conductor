@@ -219,13 +219,13 @@ tasks:
     desc: "The dashboard's UX gate (story:dashboard-ui-loop, part of task check): the layout contract's break-tests, then over every scenario state of crates/conductor/dashboard/ux/scenarios at 1440x900 and 1280x800 in both themes the layout contract (no horizontal page scroll, no element past its box, the header with the instance selector and the page navigation wholly in view, every element the state names shown, each theme on screen with a page background of its own), axe-core (no serious or critical violation of wcag2a to wcag22aa) and the screen-only and keyboard-only users, from the committed dist/ and the store fixtures, without keys or network; fails on a value worse than ux/baseline.json or an improvement not taken into it (task ui:ux-gate -- --update, a hard-gate value that enters above 0 or rises with --decision <id>) or a baseline worse than origin/main without a decision of its own, which in CI must be fetched; needs the locked packages (npm ci) and a Playwright Chromium (npx --prefix crates/conductor/dashboard playwright install chromium)"
     dir: crates/conductor/dashboard
     cmds:
-      - node ux/gate.ts {{.CLI_ARGS}}
+      - node ux/gate.ts {{shellQuote .CLI_ARGS}}
 
   ui:ux-round:
     desc: "One UX round of the dashboard into crates/conductor/dashboard/ux/rounds/<round>, every viewport, with shots, and one row of its ux/trend.md: task ui:ux-round -- R-02"
     dir: crates/conductor/dashboard
     cmds:
-      - node ux/round.ts {{.CLI_ARGS}}
+      - node ux/round.ts {{shellQuote .CLI_ARGS}}
 
   check:
     desc: Scan every tracked file with Gates (when B10X_GATES_POLICY names a policy), validate and run the specification, hold crates/conductor-model to it, test the dashboard app, hold crates/conductor/dashboard/dist to a fresh build and run the dashboard's UX gate (task ui:ux-gate) on it, then format, lint and test
