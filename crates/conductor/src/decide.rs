@@ -94,6 +94,7 @@ use crate::store::{Store, StoreError};
 mod handle;
 pub mod model;
 
+pub(crate) use handle::stated_cost;
 pub use handle::{
     Classification, DEADLINE_HOURS, DECISION_DAYS, Handled, OPERATOR_DECIDES, PROMPT_CAP,
     ParsedRequest, PromptInputs, build_prompt, class_of, classify, handle, handle_request,
