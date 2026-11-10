@@ -20,7 +20,11 @@
 //!    process on the host works in it (`/proc/<pid>/cwd`: a running gate, a `conductor build
 //!    run` whose process group is alive, or anything else), and nothing under its `target/` was
 //!    written in the last [`RECENT`] (a gate between two compiler runs). The live sessions are
-//!    read again just before each tree, as `conductor gc` does;
+//!    read again just before each tree, as `conductor gc` does; then every other idle cargo
+//!    target under the instance's trees and cache roots, the oldest last write first
+//!    ([`super::targets`], `story:gc-idle-targets`): the target of a tree a session still holds
+//!    among them, never one a process holds, one written inside the window or one holding a
+//!    `.keeper-hold` file;
 //! 2. the build output in the instance's worktree archives that `worktree prune-archives
 //!    --strip-build-output` lists strippable, through its `--apply` on each archive's id;
 //! 3. stale scratch and caches (`story:reclaim-scratch-class-c`: freeing them is class C): each
@@ -76,7 +80,7 @@ use serde_json::{Value, json};
 use time::OffsetDateTime;
 use time::format_description::well_known::Rfc3339;
 
-use super::{allocated, archive_strip, archives, remove, trees};
+use super::{allocated, archive_strip, archives, remove, targets, trees};
 use crate::config;
 use crate::dashboard::Sources;
 use crate::dashboard::waste::{self, Reclaim, Row};
@@ -285,6 +289,7 @@ fn run(state: &Path, need: u64) -> Result<Run> {
         }
         let mut kept = managed_trees(&sources, &mut steps)?;
         kept.extend(trees(&sources, &mut steps)?);
+        idle_targets(&sources, &mut steps)?;
         let archives = strip_archives(&sources, state, &mut steps)?;
         scratch(&sources, state, &mut steps)?;
         if !steps.reached() {
@@ -404,6 +409,49 @@ fn trees(sources: &Sources, steps: &mut Steps) -> Result<Vec<(String, u64)>> {
         }
     }
     Ok(kept)
+}
+
+/// Step 1, second half (`story:gc-idle-targets`): each idle cargo target under the instance's
+/// trees and cache roots that no lock of `build run` answers for ([`targets::assess`]), the
+/// oldest last write first, until enough is free. The window is the one of the free disk the step
+/// starts with, and [`targets::clean`] makes every check again just before it removes one. When
+/// the host's processes cannot be read, the step cleans nothing and says why on standard error.
+fn idle_targets(sources: &Sources, steps: &mut Steps) -> Result<()> {
+    if steps.reached() {
+        return Ok(());
+    }
+    let window = targets::window(steps.free);
+    let root = crate::build::targets_root(&config::active().instance);
+    let locked = targets::handled(&root, &targets::list(&root));
+    let candidates = match targets::assess(sources, window, &locked, false) {
+        Ok(candidates) => candidates,
+        Err(why) => {
+            let _ = writeln!(
+                io::stderr().lock(),
+                "conductor: {COMMAND}: the idle cargo targets were not assessed: {why}"
+            );
+            return Ok(());
+        }
+    };
+    for candidate in candidates
+        .iter()
+        .filter(|candidate| candidate.held.is_none())
+    {
+        if steps.reached() {
+            break;
+        }
+        let kind = if candidate.path.starts_with(&sources.trees) {
+            ReclaimKind::IdleTreeBuildOutput
+        } else {
+            ReclaimKind::Cache
+        };
+        match targets::clean(candidate, window) {
+            Ok(freed) => steps.took(&candidate.path, kind, freed)?,
+            Err((_, freed)) if freed > 0 => steps.took(&candidate.path, kind, freed)?,
+            Err(_) => {}
+        }
+    }
+    Ok(())
 }
 
 /// Step 2: the build output `worktree` lists strippable in the instance's archives, one archive

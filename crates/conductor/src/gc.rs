@@ -37,6 +37,17 @@
 //! and is listed with its bytes and removed under that lock; one whose lock a build holds is a
 //! holder, kept.
 //!
+//! Beside them it lists every other cargo target (a directory holding `CACHEDIR.TAG`) under the
+//! instance's trees and cache roots, never one inside a primary checkout ([`targets`],
+//! `story:gc-idle-targets`): each with its bytes, its last write and why it is or is not idle. An
+//! idle one is a row: no process has its working directory, its program or an open file in it,
+//! names it in `CARGO_TARGET_DIR` or on its command line, nothing in its top three levels was
+//! written for 180 minutes (90 while less than 50 GiB are free on `/`), and it holds no
+//! `.keeper-hold` file. Any other is a holder. Without `--dry-run` the idle ones are cleaned
+//! oldest last write first, each after every check was made again, while free disk on `/` is
+//! under the floor of the host reclaim (`thresholds.disk_admit` plus its margin); one left because
+//! the floor is reached stays `reclaimable`.
+//!
 //! After the rows it prints one table of the holders it measures and never reclaims: the panel's
 //! shared rows ([`waste::shared_rows`]: shared build targets, sccache, the rustup toolchains, the
 //! Go build cache, the agents' scratch and `/var/tmp`), and the archive strip when it could not be
@@ -189,6 +200,13 @@ pub fn gc(args: &GcArgs) -> Result<ExitCode> {
         }
     }
     let handled = targets::handled(&root, &shared_targets);
+    // The idle cargo targets (`story:gc-idle-targets`) no row above and no lock answers for.
+    let claimed: Vec<PathBuf> = rows
+        .iter()
+        .flat_map(|row| row.paths.iter().map(PathBuf::from))
+        .chain(handled.iter().cloned())
+        .collect();
+    idle_targets(&sources, &claimed, dry_run, &mut rows, &mut holders);
     let shared = waste::shared_rows(&sources);
     holders.extend(
         shared
@@ -261,6 +279,100 @@ fn shared_target(target: &targets::Target, dry_run: bool) -> Result<GarbageRow, 
     }
     drop(held);
     Ok(row)
+}
+
+/// The cargo targets under the instance's trees and cache roots that lie under no path of
+/// `claimed` ([`targets::assess`], `story:gc-idle-targets`): a row for each idle one, oldest last
+/// write first, and a holder for each other, both naming the last write and why it is or is not
+/// idle. Unless `dry_run`, the idle ones are cleaned in that order while free disk on `/` is under
+/// the floor of the host reclaim ([`reclaim::floor_bytes`]); one left because the floor is
+/// reached, or because free disk cannot be read, stays `reclaimable`.
+fn idle_targets(
+    sources: &Sources,
+    claimed: &[PathBuf],
+    dry_run: bool,
+    rows: &mut Vec<GarbageRow>,
+    holders: &mut Vec<Holder>,
+) {
+    let read = || reclaim::free_bytes(Path::new("/")).map_err(|error| format!("{error:#}"));
+    let mut free = read();
+    // Free disk that cannot be read is not known to be low: the longer window, and nothing cleaned.
+    let window = free
+        .as_ref()
+        .map_or(targets::WINDOW, |free| targets::window(*free));
+    let admit = crate::config::active().instance.thresholds.disk_admit.0;
+    let floor = reclaim::floor_bytes(u64::try_from(admit).unwrap_or(0));
+    let candidates = match targets::assess(sources, window, claimed, true) {
+        Ok(candidates) => candidates,
+        Err(why) => {
+            holders.push(Holder {
+                repository: None,
+                what: targets::KEPT.to_owned(),
+                path: None,
+                bytes: None,
+                kept: format!("not assessed: {why}"),
+            });
+            return;
+        }
+    };
+    for candidate in candidates {
+        let path = candidate.path.display().to_string();
+        let written = candidate.last_write();
+        if let Some(why) = &candidate.held {
+            holders.push(Holder {
+                repository: None,
+                what: targets::KEPT.to_owned(),
+                path: Some(path),
+                bytes: candidate.bytes,
+                kept: format!("{written}; not idle: {why}"),
+            });
+            continue;
+        }
+        let idle = format!(
+            "{written}; idle: nothing written for {} minutes, no process holds it",
+            window.as_secs() / 60
+        );
+        let mut row = GarbageRow {
+            repository: None,
+            what: targets::IDLE.to_owned(),
+            paths: vec![path],
+            count: Some(1),
+            bytes: candidate.bytes.and_then(|bytes| i64::try_from(bytes).ok()),
+            freed: None,
+            outcome: GarbageOutcome::Reclaimable,
+            detail: Some(idle.clone()),
+            tree: None,
+            verdict: None,
+        };
+        if !dry_run {
+            let kept = match &free {
+                Err(why) => Some(format!("free disk on / could not be read: {why}")),
+                Ok(free) if *free >= floor => Some("free disk is at the floor".to_owned()),
+                Ok(_) => None,
+            };
+            if let Some(kept) = kept {
+                row.freed = Some(0);
+                row.detail = Some(format!("{idle}; kept: {kept}"));
+            } else {
+                let freed = match targets::clean(&candidate, window) {
+                    Ok(freed) => {
+                        row.outcome = GarbageOutcome::Removed;
+                        freed
+                    }
+                    Err((why, freed)) => {
+                        row.outcome = GarbageOutcome::Refused;
+                        row.detail = Some(format!("{written}; no longer idle: {why}"));
+                        freed
+                    }
+                };
+                row.freed = i64::try_from(freed).ok();
+                if freed > 0 || row.outcome == GarbageOutcome::Removed {
+                    free = read();
+                }
+            }
+        }
+        rows.push(row);
+    }
 }
 
 /// `thresholds.tree_stale` of the active instance.
