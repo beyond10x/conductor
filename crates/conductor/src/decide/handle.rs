@@ -7,7 +7,7 @@
 //! **The request.** Its first line is `[DECISION-REQUEST <repo> <request-id>] <question>` (design
 //! § 6); below it, each option on a line of its own, `A: <label>`, `A) <label>` or `A. <label>`,
 //! optionally led by `- ` and with its cost as `(cost: <cost>)`, `; cost: <cost>`, `. Cost:
-//! <cost>` or `— cost <cost>`; and a line that opens with
+//! <cost>`, `— cost <cost>` or `: <cost>`; and a line that opens with
 //! `Recommendation` (or `Recommended`) naming one of the options' letters ([`parse_request`]).
 //!
 //! **Class** (`story:classify-tightened`). A rule reads whole words of the question and the option
@@ -879,14 +879,13 @@ fn option_line(line: &str) -> Option<(String, String)> {
 }
 
 /// Where an option's text names its cost: the byte its label ends before and the byte its cost
-/// starts at. The cost follows `cost:`, in any case, wherever it stands; or the word `cost`
-/// alone right after a dash (`— cost`, `– cost`, or a hyphen between spaces, ` - cost`).
+/// starts at. The cost follows `cost:`, in any case, where that opens the text or follows
+/// punctuation (`(`, `;`, `,`, `.`, `:` or a dash), so a label that ends in the word `cost` is
+/// no marker; or the word `cost` alone right after a dash (`— cost`, `– cost`, or a hyphen
+/// between spaces, ` - cost`).
 fn cost_marker(text: &str) -> Option<(usize, usize)> {
     // ASCII lower case keeps every byte where it was, so an index into it indexes `text` too.
     let lower = text.to_ascii_lowercase();
-    if let Some(at) = lower.find("cost:") {
-        return Some((at, at + "cost:".len()));
-    }
     lower.match_indices("cost").find_map(|(at, word)| {
         let end = at + word.len();
         let before = text[..at].trim_end();
@@ -894,32 +893,48 @@ fn cost_marker(text: &str) -> Option<(usize, usize)> {
             || before
                 .strip_suffix('-')
                 .is_some_and(|label| label.ends_with(char::is_whitespace));
+        if text[end..].starts_with(':') {
+            let marks = dashed || before.is_empty() || before.ends_with(['(', ';', ',', '.', ':']);
+            return marks.then_some((at, end + 1));
+        }
         (dashed && text[end..].starts_with(char::is_whitespace)).then_some((at, end))
     })
 }
 
-/// The label and the cost of an option whose text names its cost ([`cost_marker`]), the
-/// punctuation between them and the cost's closing `)` or full stop dropped; `None` when the
-/// text names no cost or nothing after the marker.
+/// The label and the cost of an option whose text marks its cost ([`cost_marker`]): the
+/// punctuation between them is dropped, as are the cost's final full stop and the `)` that
+/// closes a `(` the marker stands in; a cost's own parenthesis stays. The cost is empty when
+/// nothing follows the marker. `None` when the text marks no cost.
 pub(crate) fn stated_cost(text: &str) -> Option<(String, String)> {
     let (label_end, cost_start) = cost_marker(text)?;
-    let label =
-        text[..label_end].trim_end_matches(|c: char| c.is_whitespace() || "(;,.:—–-".contains(c));
-    let cost = text[cost_start..]
-        .trim()
-        .trim_end_matches([')', '.'])
-        .trim();
-    if cost.is_empty() {
-        return None;
+    let before = text[..label_end].trim_end();
+    let label = before.trim_end_matches(|c: char| c.is_whitespace() || "(;,.:—–-".contains(c));
+    let mut cost = text[cost_start..].trim().trim_end_matches('.').trim_end();
+    if before.ends_with('(') {
+        cost = cost.strip_suffix(')').unwrap_or(cost);
+        cost = cost.trim_end().trim_end_matches('.').trim_end();
     }
     let label = if label.is_empty() { text } else { label };
     Some((label.to_owned(), cost.to_owned()))
 }
 
-/// An option's label and cost, from the text after its letter ([`stated_cost`]); without a cost
-/// the label is the whole text and the cost [`NO_COST`].
+/// An option's label and cost, from the text after its letter: the cost its text marks
+/// ([`stated_cost`]), else what follows its first `: ` (`<label>: <cost>`); without either, or
+/// with nothing after the marker, the cost is [`NO_COST`].
 fn label_and_cost(text: &str) -> (String, String) {
-    stated_cost(text).unwrap_or_else(|| (text.to_owned(), NO_COST.to_owned()))
+    let (label, cost) = stated_cost(text)
+        .or_else(|| {
+            let (label, cost) = text.split_once(": ")?;
+            let (label, cost) = (label.trim(), cost.trim());
+            (!label.is_empty() && !cost.is_empty()).then(|| (label.to_owned(), cost.to_owned()))
+        })
+        .unwrap_or_else(|| (text.to_owned(), String::new()));
+    let cost = if cost.is_empty() {
+        NO_COST.to_owned()
+    } else {
+        cost
+    };
+    (label, cost)
 }
 
 /// The request `text` holds, as the module documentation describes it.

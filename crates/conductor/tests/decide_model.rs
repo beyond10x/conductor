@@ -594,6 +594,99 @@ fn an_option_written_with_a_dash_before_its_cost_is_read() {
     assert_eq!(request.recommended, "A");
 }
 
+/// Adversary, `story:decision-options-spellings`: in both spellings the story names, a cost that
+/// ends in a parenthesis of its own keeps it; only a `)` that closes `(cost: …` is the option's.
+#[test]
+fn adv_a_cost_that_ends_in_its_own_parenthesis_keeps_it() {
+    active::isolate();
+    let request = parse_request(
+        "[DECISION-REQUEST example-repo req-a1] Which mirror?\n\
+         A. The first mirror. Cost: about 2 h (one migration).\n\
+         B) the default mirror — cost nothing (for now)\n\
+         Recommendation: B",
+    )
+    .expect("the request parses");
+    assert_eq!(
+        spelled(&request),
+        [
+            ("A", "The first mirror", "about 2 h (one migration)"),
+            ("B", "the default mirror", "nothing (for now)"),
+        ]
+    );
+}
+
+/// Adversary, `story:decision-options-spellings`: an option whose cost marker is followed by
+/// nothing kept its label without the marker before this story, and still does.
+#[test]
+fn adv_an_option_with_an_empty_cost_keeps_its_label_without_the_marker() {
+    active::isolate();
+    let request = parse_request(
+        "[DECISION-REQUEST example-repo req-a2] Which mirror?\n\
+         A: the first mirror (cost: )\n\
+         B: the default mirror; cost:\n\
+         Recommendation: B",
+    )
+    .expect("the request parses");
+    assert_eq!(
+        spelled(&request),
+        [
+            ("A", "the first mirror", "not stated in the request"),
+            ("B", "the default mirror", "not stated in the request"),
+        ]
+    );
+}
+
+/// Adversary, `story:decision-options-spellings`: the spelling a mailbox refusal teaches the
+/// sender, `A) <label>: <cost>` (`run/mailbox.rs`), is read with its cost by the reader the real
+/// loop uses, also when the label ends in the word `cost`.
+#[test]
+fn adv_the_spelling_a_refusal_teaches_is_read_with_its_cost() {
+    active::isolate();
+    let request = parse_request(
+        "[DECISION-REQUEST example-repo req-a3] Which mirror?\n\
+         A) Tree layout: one migration\n\
+         B) accept the higher cost: 200 a month\n\
+         Recommendation: A",
+    )
+    .expect("the request parses");
+    assert_eq!(
+        spelled(&request),
+        [
+            ("A", "Tree layout", "one migration"),
+            ("B", "accept the higher cost", "200 a month"),
+        ]
+    );
+}
+
+/// Adversary, `story:decision-options-spellings`: a dash followed by a longer word that starts
+/// with `cost` names no cost. Pins the whitespace `cost_marker` asks for after the word.
+#[test]
+fn adv_a_dash_before_a_longer_word_names_no_cost() {
+    active::isolate();
+    let request = parse_request(
+        "[DECISION-REQUEST example-repo req-a4] Which mirror?\n\
+         A) the first mirror — costs nothing\n\
+         B) the default mirror - cost-free\n\
+         Recommendation: A",
+    )
+    .expect("the request parses");
+    assert_eq!(
+        spelled(&request),
+        [
+            (
+                "A",
+                "the first mirror — costs nothing",
+                "not stated in the request"
+            ),
+            (
+                "B",
+                "the default mirror - cost-free",
+                "not stated in the request"
+            ),
+        ]
+    );
+}
+
 #[test]
 fn the_prompt_hash_is_the_sha256_of_the_prompt() {
     assert_eq!(

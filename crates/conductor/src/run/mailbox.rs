@@ -369,7 +369,12 @@ fn option(line: &str) -> Option<Value> {
         .map(|(label, cost)| (label.as_str(), cost.as_str()))
         .or_else(|| rest.split_once(": "))
         .or_else(|| rest.split_once(" - "))
-        .unwrap_or((rest, "not stated"));
+        .unwrap_or((rest, ""));
+    let cost = if cost.trim().is_empty() {
+        "not stated"
+    } else {
+        cost
+    };
     Some(json!({"letter": letter.to_string(), "label": label.trim(), "cost": cost.trim()}))
 }
 
