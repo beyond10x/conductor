@@ -988,9 +988,10 @@ fn request(instance: &Instance, role: &Role, cwd: &Path, home: &Path) -> Session
 /// (`--append-system-prompt-file`: the role's own, else the one the binary carries, written into
 /// the state directory, [`profile_for`]) or else its agent (`--agent`, by default the role's old
 /// name: `conductor` for the director, which the binary carries no profile for), its model,
-/// bypass permissions, no user settings (the `none` provider adds them for `claude --bg`,
-/// [`crate::confine::background_args`]), and its settings file; the director's defaults to the one
-/// the binary carries ([`claude_code::settings`]).
+/// the tools it never calls ([`denied_tools_argument`]), bypass permissions, no user settings
+/// (the `none` provider adds them for `claude --bg`, [`crate::confine::background_args`]), and
+/// its settings file; the director's defaults to the one the binary carries
+/// ([`claude_code::settings`]).
 fn harness_args(
     role: &Role,
     name: &SessionName,
@@ -1011,10 +1012,12 @@ fn harness_args(
             ),
         ]),
     }
+    args.extend(["--model".to_owned(), role.model.0.clone()]);
+    if let Some(denied) = denied_tools_argument(&role.role) {
+        args.extend(["--disallowedTools".to_owned(), denied]);
+    }
     args.extend(
         [
-            "--model",
-            &role.model.0,
             "--permission-mode",
             "bypassPermissions",
             "--setting-sources",
@@ -1026,6 +1029,18 @@ fn harness_args(
         args.extend(["--settings".to_owned(), settings]);
     }
     args
+}
+
+/// The value of `--disallowedTools` a session of `role` starts with
+/// (`story:conductor-context-budget`): the tools the role never calls
+/// ([`claude_code::denied_tools`]) as one comma-separated word, so their definitions leave its
+/// first-turn context; none for a role without such a list. A role whose config names its own
+/// settings file starts without them too: that file may deny more, never less. The harness reads
+/// every word up to the next flag as a tool, so the argument stands before a flag and never last
+/// before the prompt.
+fn denied_tools_argument(role: &str) -> Option<String> {
+    let denied = claude_code::denied_tools(role);
+    (!denied.is_empty()).then(|| denied.join(","))
 }
 
 /// The profile the session `name` of `role` appends to its system prompt
@@ -1481,6 +1496,42 @@ impl Deliverer for ShellDeliverer {
             session: name.to_owned(),
             first_line: text.lines().next().unwrap_or_default().to_owned(),
         })
+    }
+}
+
+#[cfg(test)]
+mod start_arguments {
+    use super::denied_tools_argument;
+    use crate::agent::claude_code;
+
+    /// `story:conductor-context-budget`: the director starts without the seven tools it never
+    /// calls, the list its settings deny, under either name of its role; the maintainer without
+    /// five of them; every other role with every tool.
+    #[test]
+    fn the_director_and_the_maintainer_start_without_the_tools_they_never_call() {
+        let director = "Artifact,Workflow,ScheduleWakeup,EnterWorktree,AskUserQuestion,\
+                        ReportFindings,ShareOnboardingGuide";
+        let maintainer =
+            "Artifact,ScheduleWakeup,AskUserQuestion,ReportFindings,ShareOnboardingGuide";
+        for (role, denied) in [
+            ("director", Some(director)),
+            ("conductor", Some(director)),
+            ("maintainer", Some(maintainer)),
+            ("conductor-dev", Some(maintainer)),
+            ("lead", None),
+            ("controller", None),
+            ("supervisor", None),
+            ("teacher", None),
+        ] {
+            assert_eq!(denied_tools_argument(role).as_deref(), denied, "{role}");
+        }
+        let settings: serde_json::Value =
+            serde_json::from_str(claude_code::CONDUCTOR_SETTINGS).expect("the settings are JSON");
+        assert_eq!(
+            settings["permissions"]["deny"],
+            serde_json::json!(claude_code::DIRECTOR_DENIED_TOOLS),
+            "the director's settings deny the same tools"
+        );
     }
 }
 
