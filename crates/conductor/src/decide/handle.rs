@@ -5,8 +5,9 @@
 //! ([`build_prompt`]) and records the answer, and escalates class O and H to the Decisions page.
 //!
 //! **The request.** Its first line is `[DECISION-REQUEST <repo> <request-id>] <question>` (design
-//! § 6); below it, each option on a line of its own, `A: <label>` or `A) <label>`, optionally led
-//! by `- ` and with its cost as `(cost: <cost>)` or `; cost: <cost>`; and a line that opens with
+//! § 6); below it, each option on a line of its own, `A: <label>`, `A) <label>` or `A. <label>`,
+//! optionally led by `- ` and with its cost as `(cost: <cost>)`, `; cost: <cost>`, `. Cost:
+//! <cost>` or `— cost <cost>`; and a line that opens with
 //! `Recommendation` (or `Recommended`) naming one of the options' letters ([`parse_request`]).
 //!
 //! **Class** (`story:classify-tightened`). A rule reads whole words of the question and the option
@@ -858,7 +859,8 @@ impl ParsedRequest {
     }
 }
 
-/// The letter and the rest of an option line: `A: …` or `A) …`, optionally led by `- ` or `* `.
+/// The letter and the rest of an option line: `A: …`, `A) …` or `A. …`, optionally led by `- `
+/// or `* `.
 fn option_line(line: &str) -> Option<(String, String)> {
     let line = line.trim();
     let line = line
@@ -868,8 +870,7 @@ fn option_line(line: &str) -> Option<(String, String)> {
         .trim_start();
     let mut chars = line.chars();
     let letter = chars.next().filter(char::is_ascii_uppercase)?;
-    let rest = chars.as_str();
-    let rest = rest.strip_prefix(':').or_else(|| rest.strip_prefix(')'))?;
+    let rest = chars.as_str().strip_prefix([':', ')', '.'])?;
     if !rest.starts_with(char::is_whitespace) {
         return None;
     }
@@ -877,32 +878,48 @@ fn option_line(line: &str) -> Option<(String, String)> {
     (!text.is_empty()).then(|| (letter.to_string(), text.to_owned()))
 }
 
-/// An option's label and cost, from the text after its letter: the cost follows `cost:`, in
-/// any case, inside parentheses or after `;`; without one the cost is [`NO_COST`].
+/// Where an option's text names its cost: the byte its label ends before and the byte its cost
+/// starts at. The cost follows `cost:`, in any case, wherever it stands; or the word `cost`
+/// alone right after a dash (`— cost`, `– cost`, or a hyphen between spaces, ` - cost`).
+fn cost_marker(text: &str) -> Option<(usize, usize)> {
+    // ASCII lower case keeps every byte where it was, so an index into it indexes `text` too.
+    let lower = text.to_ascii_lowercase();
+    if let Some(at) = lower.find("cost:") {
+        return Some((at, at + "cost:".len()));
+    }
+    lower.match_indices("cost").find_map(|(at, word)| {
+        let end = at + word.len();
+        let before = text[..at].trim_end();
+        let dashed = before.ends_with(['—', '–'])
+            || before
+                .strip_suffix('-')
+                .is_some_and(|label| label.ends_with(char::is_whitespace));
+        (dashed && text[end..].starts_with(char::is_whitespace)).then_some((at, end))
+    })
+}
+
+/// The label and the cost of an option whose text names its cost ([`cost_marker`]), the
+/// punctuation between them and the cost's closing `)` or full stop dropped; `None` when the
+/// text names no cost or nothing after the marker.
+pub(crate) fn stated_cost(text: &str) -> Option<(String, String)> {
+    let (label_end, cost_start) = cost_marker(text)?;
+    let label =
+        text[..label_end].trim_end_matches(|c: char| c.is_whitespace() || "(;,.:—–-".contains(c));
+    let cost = text[cost_start..]
+        .trim()
+        .trim_end_matches([')', '.'])
+        .trim();
+    if cost.is_empty() {
+        return None;
+    }
+    let label = if label.is_empty() { text } else { label };
+    Some((label.to_owned(), cost.to_owned()))
+}
+
+/// An option's label and cost, from the text after its letter ([`stated_cost`]); without a cost
+/// the label is the whole text and the cost [`NO_COST`].
 fn label_and_cost(text: &str) -> (String, String) {
-    // ASCII lower case keeps every byte where it was, so `at` indexes `text` too.
-    let Some(at) = text.to_ascii_lowercase().find("cost:") else {
-        return (text.to_owned(), NO_COST.to_owned());
-    };
-    let label = text[..at]
-        .trim_end_matches(|c: char| c.is_whitespace() || "(;,—–-".contains(c))
-        .to_owned();
-    let cost = text[at + "cost:".len()..]
-        .trim()
-        .trim_end_matches(')')
-        .trim()
-        .to_owned();
-    let label = if label.is_empty() {
-        text.to_owned()
-    } else {
-        label
-    };
-    let cost = if cost.is_empty() {
-        NO_COST.to_owned()
-    } else {
-        cost
-    };
-    (label, cost)
+    stated_cost(text).unwrap_or_else(|| (text.to_owned(), NO_COST.to_owned()))
 }
 
 /// The request `text` holds, as the module documentation describes it.

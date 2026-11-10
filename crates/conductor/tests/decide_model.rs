@@ -525,6 +525,75 @@ fn an_option_line_gives_its_label_and_cost_whatever_its_letters() {
     }
 }
 
+/// Each option of `request` as its letter, label and cost.
+fn spelled(request: &decide::ParsedRequest) -> Vec<(&str, &str, &str)> {
+    request
+        .options
+        .iter()
+        .map(|option| {
+            (
+                option.letter.as_str(),
+                option.label.as_str(),
+                option.cost.as_str(),
+            )
+        })
+        .collect()
+}
+
+/// `story:decision-options-spellings`: `A. <label>. Cost: <cost>` is read as a lettered option
+/// with its cost.
+#[test]
+fn an_option_written_with_a_full_stop_and_a_cost_sentence_is_read() {
+    active::isolate();
+    let request = parse_request(
+        "[DECISION-REQUEST example-repo req-s1] Which mirror?\n\
+         A. The first mirror. Cost: one build slot.\n\
+         - B. the default mirror v1.2. cost: slower\n\
+         C. no cost named.\n\
+         Recommendation: B, it is the default",
+    )
+    .expect("the request parses");
+    assert_eq!(
+        spelled(&request),
+        [
+            ("A", "The first mirror", "one build slot"),
+            ("B", "the default mirror v1.2", "slower"),
+            ("C", "no cost named.", "not stated in the request"),
+        ]
+    );
+    assert_eq!(request.recommended, "B");
+}
+
+/// `story:decision-options-spellings`: `A) <label> — cost <cost>` is read as a lettered option
+/// with its cost, the dash an em dash, an en dash or a hyphen between spaces.
+#[test]
+fn an_option_written_with_a_dash_before_its_cost_is_read() {
+    active::isolate();
+    let request = parse_request(
+        "[DECISION-REQUEST example-repo req-s2] Which mirror?\n\
+         A) the first mirror — cost one build slot\n\
+         B) the default mirror – Cost a day\n\
+         - C) a low-cost mirror - cost none\n\
+         D) a low-cost mirror whose cost is unknown\n\
+         Recommendation: A",
+    )
+    .expect("the request parses");
+    assert_eq!(
+        spelled(&request),
+        [
+            ("A", "the first mirror", "one build slot"),
+            ("B", "the default mirror", "a day"),
+            ("C", "a low-cost mirror", "none"),
+            (
+                "D",
+                "a low-cost mirror whose cost is unknown",
+                "not stated in the request"
+            ),
+        ]
+    );
+    assert_eq!(request.recommended, "A");
+}
+
 #[test]
 fn the_prompt_hash_is_the_sha256_of_the_prompt() {
     assert_eq!(
