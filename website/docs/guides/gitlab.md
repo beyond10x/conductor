@@ -46,7 +46,9 @@ $ conductor config show --format json | jq -c '.instances[0].sources'
 [{"gitlab":"example-group","host":"gitlab.example.com"}]
 ```
 
-A `gitlab` source may also carry `exclude`, as a `local` source does. Every key is in the
+A `gitlab` source may also carry `exclude`, as a `local` source does. An entry names a project
+that is checked out by its checkout's path under `checkouts.root` (`checks`) or by the project's
+path under the group (`example-checks`); either leaves it out. Every key is in the
 [config reference](../reference/config.md).
 
 ## 2. Log glab in to the host
@@ -88,7 +90,10 @@ $ conductor config workspace
 
 For a `gitlab` source, the workspace file has one member per git checkout under `checkouts.root`
 whose `origin` remote is on the source's host and under its group, except those its `exclude`
-lists. It reads the checkouts only, not the forge. A checkout of the same group path on another
+lists. It reads the checkouts only, not the forge. The repository's name is the checkout's path
+under `checkouts.root`, not the project's name: a checkout `checks` of the project
+`example-checks` is `checks` in the workspace file, the snapshots, `conductor repository activity`,
+its charter `charters/checks.md` and its dispatches. A checkout of the same group path on another
 host, or of another group on this host, is not a member. The records directory is a member too
 ([initialise the records](./initialise-the-records.md#3-keep-the-workspace-file-in-step)).
 
@@ -98,12 +103,12 @@ Each snapshot reads the group with `glab api --hostname <host>` and records:
 
 | record | what |
 |---|---|
-| repositories | one row per project of the group and its subgroups, archived projects marked archived, with whether a checkout of it is under `checkouts.root`. A project with no commit yet is left out |
-| issues | the number of open issues of each project |
-| releases | each project's newest release, its tag and date, and the commits on the default branch after it. Each release published within the collector's window. A `v<major>.<minor>.<patch>` tag counts as a release |
-| merge requests | each open merge request, failing when its head pipeline failed, and each merge request merged within the collector's window |
-| pipelines | the newest pipeline of each project's default branch, its status read as the conclusions a GitHub workflow run has |
-| specifications | for each project, whether its checkout holds a specification |
+| repositories | one row per checkout under `checkouts.root` of a project of the group and its subgroups, named by the checkout's path under the root, and one row per project without a checkout, named by its path under the group; archived projects marked archived. A project with no commit yet is left out |
+| issues | the number of open issues of each repository |
+| releases | each repository's newest release, its tag and date, and the commits on the default branch after it. Each release published within the collector's window. A `v<major>.<minor>.<patch>` tag counts as a release |
+| merge requests | each open merge request, failing when its head pipeline failed, and each merge request merged within the collector's window, once per repository: a project checked out under two directory names has each of its merge requests, releases and pipelines recorded twice, once under each name |
+| pipelines | the newest pipeline of each repository's default branch, its status read as the conclusions a GitHub workflow run has |
+| specifications | for each repository, whether its checkout holds a specification |
 
 The board, the dashboard and `conductor repository shipped` read these rows as they read a GitHub
 instance's. For the active repositories of the newest complete snapshot, `conductor watch run`

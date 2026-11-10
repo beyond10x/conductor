@@ -198,7 +198,18 @@ impl Case {
     /// specification under `spec/`, whose `origin` is the project `example-org/alpha` on
     /// [`HOST`]. It is never fetched.
     fn alpha(&self) -> PathBuf {
-        let dir = self.root().join("alpha");
+        self.checkout("alpha", "example-org/alpha")
+    }
+
+    /// The checkout `name` under the checkouts root, as [`Case::alpha`] is one, whose `origin`
+    /// is the project `project` (its full path) on [`HOST`].
+    fn checkout(&self, name: &str, project: &str) -> PathBuf {
+        self.checkout_under(&self.root(), name, project)
+    }
+
+    /// [`Case::checkout`] under the directory `root`.
+    fn checkout_under(&self, root: &Path, name: &str, project: &str) -> PathBuf {
+        let dir = root.join(name);
         fs::create_dir_all(dir.join("spec")).expect("create the checkout");
         git(&dir, &["init", "--quiet", "--initial-branch=main"]);
         fs::write(dir.join("README.md"), "# alpha\n").expect("write a file");
@@ -216,18 +227,53 @@ impl Case {
                 "remote",
                 "add",
                 "origin",
-                &format!("git@{HOST}:example-org/alpha.git"),
+                &format!("git@{HOST}:{project}.git"),
             ],
         );
         dir
     }
 
+    /// The project list `file` of the fake `glab`'s answers: each `(id, full path, default
+    /// branch)` a private project that is not archived.
+    fn projects(&self, file: &str, projects: &[(u64, &str, &str)]) {
+        let listed: Vec<Value> = projects
+            .iter()
+            .map(|(id, path, branch)| {
+                json!({
+                    "id": id,
+                    "path_with_namespace": path,
+                    "archived": false,
+                    "visibility": "private",
+                    "default_branch": branch,
+                    "open_issues_count": 0,
+                    "empty_repo": false,
+                    "web_url": format!("https://{HOST}/{path}"),
+                })
+            })
+            .collect();
+        fs::write(self.answers().join(file), Value::from(listed).to_string())
+            .expect("write the project list");
+    }
+
+    /// The repository of each row of the view `view`, in the view's order.
+    fn names(&self, config: &Path, view: &str) -> Vec<String> {
+        self.rows(config, view)
+            .iter()
+            .map(|row| row["repository"].as_str().expect("a name").to_owned())
+            .collect()
+    }
+
     /// The config file of one instance `acme` whose one source is the group `example-org` on
     /// [`HOST`], with the case's checkouts root, trees, records, state and cache.
     fn config(&self) -> PathBuf {
+        self.config_of(&format!("{{gitlab: example-org, host: {HOST}}}"))
+    }
+
+    /// [`Case::config`] with the sources `sources`, the entries of a YAML flow sequence.
+    fn config_of(&self, sources: &str) -> PathBuf {
         let text = format!(
-            "version: conductor.config/1\ninstances:\n  - name: acme\n    sources: [{{gitlab: \
-             example-org, host: {HOST}}}]\n    checkouts:\n      root: {}\n      trees: {}\n    \
+            "version: conductor.config/1\ninstances:\n  - name: acme\n    sources: [{sources}]\n    \
+             checkouts:\n      root: {}\n      trees: {}\n    \
              records: {}\n    state: {}\n    cache: {}\n",
             quoted(&self.root()),
             quoted(&self.dir.join("trees")),
@@ -711,4 +757,359 @@ fn the_newest_default_branch_pipeline_is_a_workflow_run_with_its_status_mapped()
         let line = format!("api --hostname {HOST} {path}");
         assert!(asked.contains(&line), "{line}: {asked:#?}");
     }
+}
+
+// ---------------------------------------------------------------------------------------------
+// story:checkout-name-differs-from-project
+// ---------------------------------------------------------------------------------------------
+
+impl Case {
+    /// Answers the project `to` as the project `from` is answered: a copy of each of its files.
+    fn answer_as(&self, from: u64, to: u64) {
+        for entry in fs::read_dir(self.answers()).expect("read the answers") {
+            let path = entry.expect("an answer").path();
+            let name = path
+                .file_name()
+                .and_then(|name| name.to_str())
+                .expect("an answer's name")
+                .to_owned();
+            if let Some(rest) = name.strip_prefix(&format!("{from}.")) {
+                fs::copy(&path, self.answers().join(format!("{to}.{rest}")))
+                    .expect("copy an answer");
+            }
+        }
+    }
+
+    /// The repositories `repository activity` names.
+    fn activity(&self, config: &Path) -> Vec<String> {
+        let output = self.conductor(config, &["repository", "activity", "--format", "jsonl"]);
+        assert!(output.status.success(), "{}", describe(&output));
+        String::from_utf8(output.stdout)
+            .expect("UTF-8")
+            .lines()
+            .map(|line| {
+                let row: Value = serde_json::from_str(line).expect("one JSON object a line");
+                row["repository"].as_str().expect("a name").to_owned()
+            })
+            .collect()
+    }
+}
+
+/// The acceptance, in what a snapshot records: the checkout `checks` of the project
+/// `example-checks` is the repository `checks` in every row a snapshot records of it, in
+/// `repository activity` and in the workspace file, and nothing names it `example-checks`; the
+/// forge is asked by the project's id.
+#[test]
+fn a_checkout_named_differently_from_its_project_is_the_repository_of_its_directory_name() {
+    let case = Case::new("checks");
+    case.checkout("checks", "example-org/example-checks");
+    case.projects(
+        "projects.json",
+        &[(101, "example-org/example-checks", "main")],
+    );
+    let config = case.config();
+    case.snapshot(&config);
+
+    let rows = case.rows(&config, "repositories");
+    assert_eq!(rows.len(), 1, "{rows:#?}");
+    assert_eq!(rows[0]["repository"], json!("checks"), "{rows:#?}");
+    assert_eq!(rows[0]["local_checkout"], json!(true), "{rows:#?}");
+    assert_eq!(rows[0]["main_head"], json!("abc123"), "{rows:#?}");
+    for view in [
+        "specifications",
+        "pull-requests",
+        "merged-pull-requests",
+        "releases",
+        "workflow-runs",
+    ] {
+        let names = case.names(&config, view);
+        assert!(!names.is_empty(), "{view} holds a row");
+        assert!(
+            names.iter().all(|name| name == "checks"),
+            "{view}: {names:?}"
+        );
+    }
+    assert_eq!(
+        case.rows(&config, "specifications")[0]["presence"],
+        json!("Present"),
+        "the specification is read in the checkout"
+    );
+    assert_eq!(case.activity(&config), ["checks"]);
+
+    let output = case.conductor(&config, &["config", "workspace"]);
+    assert_eq!(output.status.code(), Some(0), "{}", describe(&output));
+    let workspace = fs::read_to_string(case.dir.join("records/.engineering/workspace.yaml"))
+        .expect("the workspace file");
+    assert!(workspace.contains("  - name: checks\n"), "{workspace}");
+    assert!(!workspace.contains("example-checks"), "{workspace}");
+
+    let asked = case.lines("glab");
+    let pipelines = format!("api --hostname {HOST} projects/101/pipelines?ref=main&per_page=1");
+    assert!(asked.contains(&pipelines), "{asked:#?}");
+}
+
+/// Two projects of one name in two groups, checked out under two directory names, are two
+/// repositories, each under its directory's name.
+#[test]
+fn two_projects_of_one_name_in_two_groups_are_two_repositories_under_their_directories() {
+    let case = Case::new("two-groups");
+    case.checkout("tool-one", "example-org/one/tool");
+    case.checkout("tool-two", "example-org/two/tool");
+    case.projects(
+        "one.projects.json",
+        &[(101, "example-org/one/tool", "main")],
+    );
+    case.projects(
+        "two.projects.json",
+        &[(104, "example-org/two/tool", "main")],
+    );
+    case.answer_as(101, 104);
+    case.script(
+        "glab",
+        &GLAB
+            .replace(
+                "  groups/*/projects\\?*) file=projects.json ;;",
+                "  groups/*one/projects\\?*) file=one.projects.json ;;\n  \
+                 groups/*two/projects\\?*) file=two.projects.json ;;",
+            )
+            .replace("{log}", &text(&case.log("glab")))
+            .replace("{answers}", &text(&case.answers())),
+    );
+    let config = case.config_of(&format!(
+        "{{gitlab: example-org/one, host: {HOST}}}, {{gitlab: example-org/two, host: {HOST}}}"
+    ));
+    case.snapshot(&config);
+
+    assert_eq!(
+        case.names(&config, "repositories"),
+        ["tool-one", "tool-two"]
+    );
+    assert_eq!(
+        case.names(&config, "workflow-runs"),
+        ["tool-one", "tool-two"]
+    );
+    assert_eq!(
+        case.names(&config, "specifications"),
+        ["tool-one", "tool-two"]
+    );
+}
+
+/// Two checkouts of one project under two directory names are two repositories, each under its
+/// directory's name and each read from the one project.
+#[test]
+fn two_checkouts_of_one_project_are_two_repositories_under_their_directories() {
+    let case = Case::new("two-checkouts");
+    case.checkout("checks", "example-org/example-checks");
+    case.checkout("checks-next", "example-org/example-checks");
+    case.projects(
+        "projects.json",
+        &[(101, "example-org/example-checks", "main")],
+    );
+    let config = case.config();
+    case.snapshot(&config);
+
+    let rows = case.rows(&config, "repositories");
+    let read: Vec<(&Value, &Value, &Value)> = rows
+        .iter()
+        .map(|row| {
+            (
+                &row["repository"],
+                &row["local_checkout"],
+                &row["main_head"],
+            )
+        })
+        .collect();
+    assert_eq!(
+        read,
+        [
+            (&json!("checks"), &json!(true), &json!("abc123")),
+            (&json!("checks-next"), &json!(true), &json!("abc123")),
+        ],
+        "{rows:#?}"
+    );
+    assert_eq!(
+        case.names(&config, "workflow-runs"),
+        ["checks", "checks-next"]
+    );
+}
+
+/// A project without a checkout keeps its path under the group as its name; one whose name a
+/// checkout of another project holds fails the snapshot, naming the name and both projects.
+#[test]
+fn a_project_without_a_checkout_named_as_another_projects_checkout_fails_the_snapshot() {
+    let case = Case::new("name-taken");
+    case.checkout("alpha", "example-org/gamma");
+    case.projects(
+        "projects.json",
+        &[
+            (101, "example-org/alpha", "main"),
+            (104, "example-org/gamma", "main"),
+        ],
+    );
+    case.answer_as(101, 104);
+    let config = case.config();
+    let output = case.conductor(
+        &config,
+        &[
+            "snapshot",
+            "start-snapshot",
+            "--started-at",
+            NOW,
+            "--disk-free-bytes",
+            "100000000000",
+        ],
+    );
+    let said = describe(&output);
+    assert_ne!(output.status.code(), Some(0), "{said}");
+    for part in ["alpha", "gamma", "the gitlab group example-org"] {
+        assert!(said.contains(part), "names {part}: {said}");
+    }
+    assert!(
+        case.names(&config, "repositories").is_empty(),
+        "no repository row is recorded"
+    );
+}
+
+/// An `exclude` entry names a repository, so a checkout by its directory: the excluded checkout
+/// `checks` is no repository, and its project is not listed under its own name beside it.
+#[test]
+fn an_excluded_checkout_is_not_listed_under_its_projects_name() {
+    let case = Case::new("excluded-checks");
+    case.checkout("checks", "example-org/example-checks");
+    case.alpha();
+    case.projects(
+        "projects.json",
+        &[
+            (101, "example-org/alpha", "main"),
+            (104, "example-org/example-checks", "main"),
+        ],
+    );
+    case.answer_as(101, 104);
+    let config = case.config_of(&format!(
+        "{{gitlab: example-org, host: {HOST}, exclude: [checks]}}"
+    ));
+    case.snapshot(&config);
+
+    assert_eq!(case.names(&config, "repositories"), ["alpha"]);
+    assert_eq!(case.names(&config, "workflow-runs"), ["alpha"]);
+}
+
+/// A `local` source's repository is named by its directory whatever its `origin` names: the
+/// checkout `tools`, whose `origin` is the project `example-tools` on the forge, is `tools`.
+#[test]
+fn a_local_sources_repository_keeps_its_directory_name_whatever_its_origin_names() {
+    let case = Case::new("local-name");
+    let local = case.dir.join("local");
+    case.checkout_under(&local, "tools", "example-org/example-tools");
+    let config = case.config_of(&format!("{{local: {}}}", quoted(&local)));
+    case.snapshot(&config);
+
+    assert_eq!(case.names(&config, "repositories"), ["tools"]);
+    assert_eq!(case.names(&config, "specifications"), ["tools"]);
+    assert_eq!(case.activity(&config), ["tools"]);
+    assert!(case.lines("glab").is_empty(), "the forge is not asked");
+}
+
+/// Two sources may list one project, and it is then one repository; two different projects
+/// under one name are not: `tool` of the group `one` and `tool` of the group `two`, neither
+/// checked out, fail the snapshot, which names the name and both sources.
+#[test]
+fn two_different_projects_under_one_name_in_two_sources_fail_the_snapshot() {
+    let case = Case::new("two-projects-one-name");
+    case.projects(
+        "one.projects.json",
+        &[(101, "example-org/one/tool", "main")],
+    );
+    case.projects(
+        "two.projects.json",
+        &[(104, "example-org/two/tool", "main")],
+    );
+    case.answer_as(101, 104);
+    case.script(
+        "glab",
+        &GLAB
+            .replace(
+                "  groups/*/projects\\?*) file=projects.json ;;",
+                "  groups/*one/projects\\?*) file=one.projects.json ;;\n  \
+                 groups/*two/projects\\?*) file=two.projects.json ;;",
+            )
+            .replace("{log}", &text(&case.log("glab")))
+            .replace("{answers}", &text(&case.answers())),
+    );
+    let config = case.config_of(&format!(
+        "{{gitlab: example-org/one, host: {HOST}}}, {{gitlab: example-org/two, host: {HOST}}}"
+    ));
+    let output = case.conductor(
+        &config,
+        &[
+            "snapshot",
+            "start-snapshot",
+            "--started-at",
+            NOW,
+            "--disk-free-bytes",
+            "100000000000",
+        ],
+    );
+    let said = describe(&output);
+    assert_ne!(output.status.code(), Some(0), "{said}");
+    for part in [
+        "repository tool is listed by",
+        "the gitlab group example-org/one",
+        "the gitlab group example-org/two",
+    ] {
+        assert!(said.contains(part), "names {part}: {said}");
+    }
+}
+
+/// A clone of a project under a directory that is no repository name is not recorded and
+/// stops nothing: the snapshot completes, records the project's other checkout, and names the
+/// directory once on standard error.
+#[test]
+fn a_clone_under_a_directory_that_is_no_repository_name_is_named_once_and_not_recorded() {
+    let case = Case::new("unnamed-clone");
+    case.checkout("checks", "example-org/example-checks");
+    let copy = case.checkout("checks copy", "example-org/example-checks");
+    case.projects(
+        "projects.json",
+        &[(101, "example-org/example-checks", "main")],
+    );
+    let config = case.config();
+    let output = case.conductor(
+        &config,
+        &[
+            "snapshot",
+            "start-snapshot",
+            "--started-at",
+            NOW,
+            "--disk-free-bytes",
+            "100000000000",
+        ],
+    );
+    assert_eq!(output.status.code(), Some(0), "{}", describe(&output));
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert_eq!(
+        stderr.matches(&text(&copy)).count(),
+        1,
+        "the directory is named once: {stderr}"
+    );
+    assert_eq!(case.names(&config, "repositories"), ["checks"]);
+    assert_eq!(case.names(&config, "workflow-runs"), ["checks"]);
+}
+
+/// An `exclude` entry written as the project's path leaves its checkout out of the workspace
+/// file too, as one written as the checkout's path does.
+#[test]
+fn an_exclude_entry_naming_the_project_leaves_its_checkout_out_of_the_workspace_file() {
+    let case = Case::new("exclude-workspace");
+    case.checkout("checks", "example-org/example-checks");
+    case.alpha();
+    let config = case.config_of(&format!(
+        "{{gitlab: example-org, host: {HOST}, exclude: [example-checks]}}"
+    ));
+    let output = case.conductor(&config, &["config", "workspace"]);
+    assert_eq!(output.status.code(), Some(0), "{}", describe(&output));
+    let workspace = fs::read_to_string(case.dir.join("records/.engineering/workspace.yaml"))
+        .expect("the workspace file");
+    assert!(workspace.contains("  - name: alpha\n"), "{workspace}");
+    assert!(!workspace.contains("checks"), "{workspace}");
 }

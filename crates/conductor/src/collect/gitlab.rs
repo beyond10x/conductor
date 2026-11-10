@@ -7,14 +7,18 @@
 //! page, [`PER_PAGE`] entries a page, until a page is not full ([`Forge::pages`]).
 //!
 //! - A source's projects ([`Forge::projects`]) are `groups/<group>/projects` with its subgroups,
-//!   projects shared into the group aside: each named by its path under the group (`alpha`,
-//!   `sub/gamma`), archived ones included, but a project with no commit yet (no default branch),
-//!   which has nothing to read, and one whose name an `exclude` entry of the source names or holds.
-//! - A project's checkout ([`checkouts`]) is the git checkout under the checkouts root, at depth 1
-//!   or 2 (`<root>/<repo>` or `<root>/<group>/<repo>`) and not under one of the source's `exclude`
-//!   entries, whose `origin` remote, read from its git config with no network read and no git
-//!   command, is on the source's host and names the project. `conductor config workspace` writes
-//!   the same checkouts as the source's members.
+//!   projects shared into the group aside, archived ones included, but a project with no commit
+//!   yet (no default branch), which has nothing to read.
+//! - A project's checkout ([`checkouts`]) is each git checkout under the checkouts root, at depth
+//!   1 or 2 (`<root>/<repo>` or `<root>/<group>/<repo>`) and not under one of the source's
+//!   `exclude` entries, whose `origin` remote, read from its git config with no network read and
+//!   no git command, is on the source's host and names the project. `conductor config workspace`
+//!   writes the same checkouts as the source's members.
+//! - The checkout is the repository and its path under the root the repository's name
+//!   (`story:checkout-name-differs-from-project`), as for every other source: the checkout
+//!   `checks` of the project `example-checks` is `checks` in every record, and the project's id
+//!   and path are read only to call the forge. A project without a checkout is named by its path
+//!   under the group (`alpha`, `sub/gamma`), but one whose name an `exclude` entry names or holds.
 //!
 //! The repositories collector reads each project's row from the forge ([`read`]), the
 //! specifications collector each project's checkout.
@@ -131,14 +135,11 @@ pub fn collect_over(
     let since = start
         .format(&Rfc3339)
         .context("format the window's start")?;
-    let mut projects: Vec<(Forge, Project)> = Vec::new();
-    for forge in forges {
-        for project in forge.projects()? {
-            if !project.archived {
-                projects.push((forge.clone(), project));
-            }
-        }
-    }
+    let mut projects: Vec<(Forge, Project)> = Forge::every(forges)?
+        .into_iter()
+        .filter(|mapped| !mapped.project.archived)
+        .map(|mapped| (mapped.forge, mapped.project))
+        .collect();
     projects.sort_by(|(_, one), (_, other)| one.name.cmp(&other.name));
     one_of_each(
         &projects,
@@ -467,22 +468,26 @@ pub struct Forge {
     pub host: String,
     /// The group whose projects are read, as the source writes it.
     pub group: String,
-    /// The source's `exclude` entries: paths under the checkouts root, which name projects by
-    /// their path under the group too.
+    /// The source's `exclude` entries: paths under the checkouts root, each a checkout's path
+    /// or a project's path under the group, checked out or not.
     pub exclude: Vec<String>,
+    /// The checkouts root, whose checkouts name the projects they hold ([`Forge::projects`]).
+    pub checkouts: PathBuf,
     /// How long one command may run before it is stopped.
     pub bound: Duration,
 }
 
 impl Forge {
-    /// `source`'s forge, read through `glab` under [`collect::BOUND`].
+    /// `source`'s forge, read through `glab` under [`collect::BOUND`], its projects' checkouts
+    /// under the checkouts root `checkouts`.
     #[must_use]
-    pub fn of(source: &GitLabSource) -> Self {
+    pub fn of(source: &GitLabSource, checkouts: &Path) -> Self {
         Self {
             glab: words(&["glab"]),
             host: source.host.clone(),
             group: source.group.clone(),
             exclude: source.exclude.clone(),
+            checkouts: checkouts.to_owned(),
             bound: collect::BOUND,
         }
     }
@@ -493,7 +498,7 @@ impl Forge {
         let mut forges: Vec<Self> = Vec::new();
         for source in &instance.sources {
             if let Source::GitLab(gitlab) = source {
-                let forge = Self::of(gitlab);
+                let forge = Self::of(gitlab, Path::new(&instance.checkouts.root));
                 if !forges.contains(&forge) {
                     forges.push(forge);
                 }
@@ -550,13 +555,26 @@ impl Forge {
         )
     }
 
-    /// The source's projects, by name: each of the group and its subgroups, archived ones
-    /// included, but those with no default branch and those an `exclude` entry names or holds.
+    /// The source's repositories, by name: each project of the group and its subgroups, archived
+    /// ones included, but those with no default branch, once per checkout of it under
+    /// [`Forge::checkouts`] ([`found`]).
+    ///
+    /// The directory is the repository (`story:checkout-name-differs-from-project`), as it is
+    /// for every other source: a checkout is named by its path under the checkouts root,
+    /// whatever its project is called, so the checkout `checks` of the project `example-checks`
+    /// is `checks`, and two checkouts of one project are two repositories. A project without a
+    /// checkout is named by its path under the group, the path its checkout would have. An
+    /// `exclude` entry names a checked-out project by either: by its checkout's path under the
+    /// root, which leaves that checkout out and does not list its project under its own name
+    /// beside it, or by the project's path under the group, which leaves the project out with
+    /// every checkout of it. A checkout whose directory is no repository name (`checks copy`)
+    /// is no repository: it is named once on standard error ([`unnamed`]) and stops nothing.
     ///
     /// # Errors
     ///
-    /// The list did not answer, a project's path is not under the group, or a step of its name
-    /// is no repository name.
+    /// The list did not answer, a project's path is not under the group, a step of a project's
+    /// path is no repository name, or a project without a checkout has the name of another
+    /// project's checkout.
     pub fn projects(&self) -> Result<Vec<Project>> {
         let what = self.named();
         let listed: Vec<ApiProject> = self.pages(
@@ -566,18 +584,22 @@ impl Forge {
                 encoded(self.group.trim_matches('/'))
             ),
         )?;
+        let checkouts = found(&self.checkouts, &self.host, &self.group);
+        let mut seen = std::collections::BTreeSet::new();
         let mut projects = Vec::new();
         for project in listed {
-            let Some(name) = under(&self.group, &project.path_with_namespace) else {
+            let Some(path) = under(&self.group, &project.path_with_namespace) else {
                 bail!(
                     "{what}: the project {} is not under the group",
                     project.path_with_namespace
                 );
             };
-            let steps: Vec<&str> = name.split('/').collect();
+            let steps: Vec<&str> = path.split('/').collect();
             for step in &steps {
                 checked(&what, (*step).to_owned())?;
             }
+            // An entry written as the project's path leaves the project out, checked out under
+            // another name or not.
             if collect::is_excluded(steps.as_slice(), &self.exclude) {
                 continue;
             }
@@ -587,9 +609,14 @@ impl Forge {
             else {
                 continue;
             };
-            projects.push(Project {
+            if !seen.insert(path.clone()) {
+                continue;
+            }
+            let listed = Project {
                 id: project.id,
-                name,
+                name: path.clone(),
+                path,
+                checkout: None,
                 archived: project.archived,
                 visibility: match project.visibility.as_deref() {
                     Some("public") => Visibility::Public,
@@ -598,46 +625,139 @@ impl Forge {
                 default_branch,
                 open_issues: project.open_issues_count.unwrap_or(0).max(0),
                 web_url: project.web_url,
-            });
+            };
+            // A clone under a directory that is no repository name is no repository and stops
+            // nothing: it is named once on standard error, and the project is read as without it.
+            let mut held = checkouts
+                .iter()
+                .filter(|checkout| checkout.project.eq_ignore_ascii_case(&listed.path))
+                .filter(|checkout| {
+                    let named = checkout
+                        .path
+                        .split('/')
+                        .all(|step| checked(&what, step.to_owned()).is_ok());
+                    if !named {
+                        unnamed(&what, checkout);
+                    }
+                    named
+                })
+                .peekable();
+            if held.peek().is_none() {
+                projects.push(listed);
+                continue;
+            }
+            for checkout in held {
+                let steps: Vec<&str> = checkout.path.split('/').collect();
+                if collect::is_excluded(steps.as_slice(), &self.exclude) {
+                    continue;
+                }
+                projects.push(Project {
+                    name: checkout.path.clone(),
+                    checkout: Some(checkout.dir.clone()),
+                    ..listed.clone()
+                });
+            }
         }
         projects.sort_by(|one, other| one.name.cmp(&other.name));
-        projects.dedup_by(|one, other| one.name == other.name);
+        // Two checkouts have two paths, and two listed projects two: a name held twice is a
+        // checkout's and that of a project without one.
+        if let Some(pair) = projects
+            .windows(2)
+            .find(|pair| pair[0].name == pair[1].name)
+        {
+            let (held, bare) = if pair[0].checkout.is_some() {
+                (&pair[0], &pair[1])
+            } else {
+                (&pair[1], &pair[0])
+            };
+            bail!(
+                "{what}: repository {} is the checkout of the project {} and the project {}, \
+                 which has no checkout; a snapshot records one repository of a name",
+                held.name,
+                held.path,
+                bare.path
+            );
+        }
         Ok(projects)
     }
 
-    /// The source's projects ([`Forge::projects`]), each with its checkout under `root`
-    /// ([`checkouts`]) when one names it.
+    /// The source's repositories ([`Forge::projects`]), each with its forge.
     ///
     /// # Errors
     ///
     /// What [`Forge::projects`] answers.
-    pub fn mapped(&self, root: &Path) -> Result<Vec<Mapped>> {
-        let checkouts = checkouts(root, &self.host, &self.group, &self.exclude);
+    pub fn mapped(&self) -> Result<Vec<Mapped>> {
         Ok(self
             .projects()?
             .into_iter()
-            .map(|project| {
-                let checkout = checkouts
-                    .iter()
-                    .find(|checkout| checkout.project.eq_ignore_ascii_case(&project.name))
-                    .map(|checkout| checkout.dir.clone());
-                Mapped {
-                    forge: self.clone(),
-                    project,
-                    checkout,
-                }
+            .map(|project| Mapped {
+                forge: self.clone(),
+                checkout: project.checkout.clone(),
+                project,
             })
             .collect())
     }
+
+    /// The repositories of `forges` ([`Forge::mapped`] of each), in their order. A project two
+    /// sources list, the same id on the same host, as sources whose groups nest do, is one
+    /// repository: the source written first lists it, and a later one leaves it out without a
+    /// word. Two projects under one name stay two entries, which the collectors refuse
+    /// ([`one_of_each`]).
+    ///
+    /// # Errors
+    ///
+    /// What [`Forge::projects`] answers.
+    pub fn every(forges: &[Self]) -> Result<Vec<Mapped>> {
+        let mut listed = std::collections::BTreeSet::new();
+        let mut every = Vec::new();
+        for forge in forges {
+            let host = host_name(&forge.host);
+            let mapped = forge.mapped()?;
+            let own: Vec<u64> = mapped.iter().map(|mapped| mapped.project.id).collect();
+            every.extend(
+                mapped
+                    .into_iter()
+                    .filter(|mapped| !listed.contains(&(host.clone(), mapped.project.id))),
+            );
+            listed.extend(own.into_iter().map(|id| (host.clone(), id)));
+        }
+        Ok(every)
+    }
 }
 
-/// One project of a group, as [`Forge::projects`] lists it.
+/// Names on standard error, once per process, the checkout `checkout` of a project of the source
+/// `what` whose directory is no repository name: it is no repository, and stops no snapshot.
+fn unnamed(what: &str, checkout: &Checkout) {
+    static NAMED: std::sync::Mutex<std::collections::BTreeSet<PathBuf>> =
+        std::sync::Mutex::new(std::collections::BTreeSet::new());
+    let first = NAMED
+        .lock()
+        .is_ok_and(|mut named| named.insert(checkout.dir.clone()));
+    if first {
+        eprintln!(
+            "{what}: {} is a checkout of the project {} under a name that is no repository \
+             name; it is not recorded",
+            checkout.dir.display(),
+            checkout.project
+        );
+    }
+}
+
+/// One repository of a group, as [`Forge::projects`] lists it: a project, in one checkout of it
+/// or in none.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Project {
     /// GitLab's id of the project, which every further API path names.
     pub id: u64,
-    /// Its path under the group: `alpha`, or `sub/gamma` in a subgroup.
+    /// The repository's name: its checkout's path under the checkouts root (`checks`, or
+    /// `sub/gamma` in a group directory), or without a checkout the project's path under the
+    /// group. What every record names it by.
     pub name: String,
+    /// The project's path under the group: `example-checks`, or `sub/gamma` in a subgroup. With
+    /// [`Project::id`] the project's address on the forge, and no repository's name.
+    pub path: String,
+    /// The checkout this repository is, when the project has one.
+    pub checkout: Option<PathBuf>,
     pub archived: bool,
     /// `Public` for a public project; `Private` for an internal or a private one.
     pub visibility: Visibility,
@@ -923,17 +1043,29 @@ pub struct Checkout {
 /// The git checkouts under `root` whose `origin` remote is on `host` and names a project under
 /// `group`, by their path under `root`: each directory at depth 1 holding `.git`, and each at
 /// depth 2 holding one in a directory at depth 1 that holds none, but those an entry of `exclude`
-/// names or holds. The `origin` is read from each checkout's git config with no network read and
+/// names or holds, by the checkout's path or by its project's path under the group. The `origin`
+/// is read from each checkout's git config with no network read and
 /// no git command ([`origin`]); hosts are compared without their port and without regard to case.
 /// A directory that cannot be read, or whose name is not UTF-8, holds none.
 #[must_use]
 pub fn checkouts(root: &Path, host: &str, group: &str, exclude: &[String]) -> Vec<Checkout> {
+    let mut found = found(root, host, group);
+    found.retain(|checkout| {
+        let steps: Vec<&str> = checkout.path.split('/').collect();
+        let project: Vec<&str> = checkout.project.split('/').collect();
+        !collect::is_excluded(steps.as_slice(), exclude)
+            && !collect::is_excluded(project.as_slice(), exclude)
+    });
+    found
+}
+
+/// What [`checkouts`] answers with no `exclude` entry: every checkout of a project of the group,
+/// those a source leaves out included, which [`Forge::projects`] reads so that a project whose
+/// checkout is excluded is not taken to have none.
+fn found(root: &Path, host: &str, group: &str) -> Vec<Checkout> {
     let host = host_name(host);
     let mut found = Vec::new();
     let mut consider = |dir: PathBuf, steps: &[&str]| {
-        if collect::is_excluded(steps, exclude) {
-            return;
-        }
         let Some((origin_host, origin_path)) = origin(&dir) else {
             return;
         };

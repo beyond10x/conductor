@@ -1322,6 +1322,7 @@ impl Case {
             host: "gitlab.example.com".to_owned(),
             group: "example-org".to_owned(),
             exclude: Vec::new(),
+            checkouts: self.dir.join("checkouts"),
             bound: Duration::from_secs(10),
         }
     }
@@ -1414,6 +1415,48 @@ fn a_gitlab_default_branch_turning_red_and_green_again_is_reported() {
         ),
         "{asked}"
     );
+    assert!(
+        asked.contains("projects/101/pipelines?ref=main&per_page=20"),
+        "{asked}"
+    );
+}
+
+/// `story:checkout-name-differs-from-project`: the CI pass reads the repository `checks`, the
+/// checkout of that name of the project `alpha`, from that project's pipelines, and names it
+/// `checks`.
+#[test]
+fn a_gitlab_checkout_named_differently_from_its_project_is_read_under_its_directory_name() {
+    let case = Case::new("ci-checkout-name");
+    let forge = case.gitlab();
+    let git = forge.checkouts.join("checks/.git");
+    fs::create_dir_all(&git).expect("create the checkout");
+    fs::write(
+        git.join("config"),
+        "[remote \"origin\"]\n\turl = git@gitlab.example.com:example-org/alpha.git\n",
+    )
+    .expect("write the checkout's git config");
+    let mut sources = case.sources(None);
+    sources.organization = String::new();
+    sources.repositories = vec!["checks".to_owned()];
+    let mut watch = Watch::new(sources, case.state()).with_gitlab(vec![forge]);
+
+    case.pipelines(&json!([pipeline(601, "success", "2026-10-07T10:00:00Z")]));
+    let (lines, notes) = passed(&mut watch, true);
+    assert_eq!(lines, NOTHING, "the first CI pass has nothing to compare");
+    assert!(!notes.contains("checks"), "{notes:?}");
+    assert_eq!(
+        case.kept("ci.state"),
+        "checks|pipeline|601|success|2026-10-07T10:00:00Z\n"
+    );
+    case.pipelines(&json!([
+        pipeline(602, "failed", "2026-10-07T11:00:00Z"),
+        pipeline(601, "success", "2026-10-07T10:00:00Z"),
+    ]));
+    assert_eq!(
+        passed(&mut watch, true).0,
+        ["CI red on main: checks / pipeline (run 602)"]
+    );
+    let asked = fs::read_to_string(case.dir.join("glab.log")).expect("glab was asked");
     assert!(
         asked.contains("projects/101/pipelines?ref=main&per_page=20"),
         "{asked}"
