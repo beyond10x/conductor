@@ -6666,8 +6666,8 @@ fn under_the_direct_route_a_controller_sets_merge_on_green_on_its_own_merge_requ
     for command in [
         "glab api -X PUT projects/example-group%2Fwidget/merge_requests/7/merge -f merge_when_pipeline_succeeds=true",
         "glab api --method PUT /projects/example-group%2fwidget/merge_requests/7/merge -F merge_when_pipeline_succeeds=true",
-        "glab api -XPUT api/v4/projects/example-group%2Fwidget/merge_requests/7/merge --raw-field merge_when_pipeline_succeeds=true",
-        "glab api --method=put projects/example-group%2Fwidget/merge_requests/7/merge --field=merge_when_pipeline_succeeds=true",
+        "glab api -XPUT projects/example-group%2Fwidget/merge_requests/7/merge --raw-field merge_when_pipeline_succeeds=true",
+        "glab api --method=PUT projects/example-group%2Fwidget/merge_requests/7/merge --field=merge_when_pipeline_succeeds=true",
         "glab api -X PUT projects/:id/merge_requests/7/merge -f merge_when_pipeline_succeeds=true",
         "glab api -X PUT projects/:fullpath/merge_requests/7/merge -fmerge_when_pipeline_succeeds=true --hostname gitlab.example.com",
         "glab api -X PUT projects/:id/merge_requests/7/merge -f merge_when_pipeline_succeeds=true -f squash=true -f should_remove_source_branch=true -f sha=0123abcd",
@@ -6679,6 +6679,15 @@ fn under_the_direct_route_a_controller_sets_merge_on_green_on_its_own_merge_requ
         );
     }
     for (command, because) in [
+        // `glab` sends `api/v4/api/v4/…` and the method `put`: neither reaches the endpoint.
+        (
+            "glab api -X PUT api/v4/projects/example-group%2Fwidget/merge_requests/7/merge -f merge_when_pipeline_succeeds=true",
+            "no merge endpoint",
+        ),
+        (
+            "glab api --method=put projects/example-group%2Fwidget/merge_requests/7/merge -f merge_when_pipeline_succeeds=true",
+            "is no POST",
+        ),
         (
             "glab api -X PUT projects/example-group%2Fother/merge_requests/7/merge -f merge_when_pipeline_succeeds=true",
             "no merge endpoint of example-group/widget",
@@ -7356,5 +7365,373 @@ fn adversary2_an_own_bare_retry_piped_or_repeated_is_admitted() {
     ]
     .map(str::to_owned);
     let misses = adversary2_misses(&home, &places, &widget, &commands, Verdict::Allow, "");
+    assert!(misses.is_empty(), "{misses:#?}");
+}
+
+// -------------------------------------------------------------------------------------------------
+// Wave 49 unit U15, adversary pass 1 (story:guard-admits-own-mr-auto-merge): the PUT that sets
+// merge-on-green, driven against the unit's own contract: "the request must set
+// merge_when_pipeline_succeeds=true and may add only squash, should_remove_source_branch and
+// sha", "another project stays denied".
+// -------------------------------------------------------------------------------------------------
+
+/// The admitted call, by the project's path.
+const U15_MERGE: &str = "glab api -X PUT projects/example-group%2Fwidget/merge_requests/7/merge -f merge_when_pipeline_succeeds=true";
+/// The same call to another project.
+const U15_OTHER: &str = "glab api -X PUT projects/example-group%2Fother/merge_requests/7/merge -f merge_when_pipeline_succeeds=true";
+/// The field the admitted call carries.
+const U15_FIELD: &str = "-f merge_when_pipeline_succeeds=true";
+
+/// The forms the cases below build on are admitted, and so are the method spellings `glab` reads
+/// as a PUT (its last `-X` wins).
+#[test]
+fn u15_adv_the_forms_the_cases_build_on_are_admitted() {
+    let (home, places, widget) = adversary_layout("u15-adv-reach");
+    let commands = [
+        U15_MERGE.to_owned(),
+        format!("{U15_MERGE} -f sha=0123abcd"),
+        format!("{U15_MERGE} -f 'sha=a b'"),
+        format!(
+            "glab api -X POST -X PUT projects/example-group%2Fwidget/merge_requests/7/merge {U15_FIELD}"
+        ),
+        format!(
+            "glab api -X DELETE --method=PUT projects/EXAMPLE-GROUP%2FWidget/merge_requests/007/merge {U15_FIELD}"
+        ),
+    ];
+    let misses = adversary2_misses(&home, &places, &widget, &commands, Verdict::Allow, "");
+    assert!(misses.is_empty(), "{misses:#?}");
+}
+
+/// A header that changes how the forge reads the body: `glab` sends the JSON body under the
+/// content type the header names (measured against a local listener, glab 1.115.0), so the forge
+/// does not read `merge_when_pipeline_succeeds` from it and the request is a plain merge.
+#[test]
+fn u15_adv_a_header_that_retypes_the_body_is_no_setting_of_merge_on_green() {
+    let (home, places, widget) = adversary_layout("u15-adv-header");
+    let commands = [
+        format!("{U15_MERGE} -H 'Content-Type: application/x-www-form-urlencoded'"),
+        format!("{U15_MERGE} --header 'Content-Type: text/plain'"),
+        format!("{U15_MERGE} -HContent-Type:text/plain"),
+        format!(
+            "glab api -iH content-type:text/plain -X PUT projects/:id/merge_requests/7/merge {U15_FIELD}"
+        ),
+    ];
+    let misses = adversary2_misses(&home, &places, &widget, &commands, Verdict::Deny, "");
+    assert!(misses.is_empty(), "{misses:#?}");
+}
+
+/// A field value the shell expands into more words: the words it adds are flags `glab` reads
+/// after the ones the guard read, and its last `merge_when_pipeline_succeeds` and `--hostname`
+/// win (measured against a local listener: the body is `{"merge_when_pipeline_succeeds":"false",
+/// "sha":"abc"}`).
+#[test]
+fn u15_adv_a_field_value_the_shell_splits_into_flags_is_denied() {
+    let (home, places, widget) = adversary_layout("u15-adv-expansion");
+    let commands = [
+        format!("{U15_MERGE} -f sha=$(echo abc -f merge_when_pipeline_succeeds=false)"),
+        format!("{U15_MERGE} -f sha=`echo abc -f merge_when_pipeline_succeeds=false`"),
+        format!("{U15_MERGE} -f sha=$(echo abc --hostname gitlab.other.example)"),
+        format!("{U15_MERGE} -f squash=$(cat flags.txt)"),
+        format!("EXTRA='abc -f merge_when_pipeline_succeeds=false'; {U15_MERGE} -f sha=$EXTRA"),
+        format!("EXTRA='abc --hostname gitlab.other.example'; {U15_MERGE} -f sha=${{EXTRA}}"),
+        format!("{U15_MERGE} -H $(echo a:b -f merge_when_pipeline_succeeds=false)"),
+        format!("{U15_MERGE} -f sha=abc $EXTRA"),
+        format!("{U15_MERGE}$(echo ' -X DELETE')"),
+    ];
+    let misses = adversary2_misses(&home, &places, &widget, &commands, Verdict::Deny, "");
+    assert!(misses.is_empty(), "{misses:#?}");
+}
+
+/// Spellings of the fields that leave `merge_when_pipeline_succeeds` other than `true` in the
+/// request `glab` sends.
+#[test]
+fn u15_adv_a_field_spelling_that_unsets_merge_on_green_is_denied() {
+    let (home, places, widget) = adversary_layout("u15-adv-fields");
+    let put = "glab api -X PUT projects/example-group%2Fwidget/merge_requests/7/merge";
+    let mut commands: Vec<String> = [
+        "-f=merge_when_pipeline_succeeds=false",
+        "-F=merge_when_pipeline_succeeds=false",
+        "--raw-field=merge_when_pipeline_succeeds=false",
+        "--field merge_when_pipeline_succeeds=false",
+        "-Fmerge_when_pipeline_succeeds=false",
+        "-if merge_when_pipeline_succeeds=false",
+        "-f 'merge_when_pipeline_succeeds'=false",
+        "-f \"merge_when_pipeline_succeeds=false\"",
+        "-f merge_when_pipeline_succeeds\\=false",
+        "-f merge_when_pipeline_succeeds=fal''se",
+        "-f mer''ge_when_pipeline_succeeds=false",
+        "-f $'merge_when_pipeline_succeeds=false'",
+        "-f $'merge_when_pipeline_succeeds\\x3dfalse'",
+        "-f merge_when_pipeline_succeeds=null",
+        "-f squash_commit_message=x",
+        "-f auto_merge=false",
+        "-f 'squash[x]=1'",
+        "--form merge_when_pipeline_succeeds=false",
+        "--input -",
+        "-- -f merge_when_pipeline_succeeds=false",
+        "-F merge_when_pipeline_succeeds=@flag.txt",
+        "-F squash=@-",
+    ]
+    .iter()
+    .map(|extra| format!("{U15_MERGE} {extra}"))
+    .collect();
+    commands.extend(
+        [
+            "-f merge_when_pipeline_succeeds=True",
+            "-f merge_when_pipeline_succeeds=TRUE",
+            "-f merge_when_pipeline_succeeds=1",
+            "-f merge_when_pipeline_succeeds=yes",
+            "-f 'merge_when_pipeline_succeeds= true'",
+            "-f 'merge_when_pipeline_succeeds=true '",
+            "-f merge_when_pipeline_succeeds=",
+            "-f merge_when_pipeline_succeeds",
+            "-f Merge_When_Pipeline_Succeeds=true",
+            "-f merge%5Fwhen_pipeline_succeeds=true",
+            "-f ' merge_when_pipeline_succeeds=true'",
+            "--form merge_when_pipeline_succeeds=true",
+            "-f",
+            "-H merge_when_pipeline_succeeds=true",
+            "-X merge_when_pipeline_succeeds=true",
+        ]
+        .iter()
+        .map(|field| format!("{put} {field}")),
+    );
+    let misses = adversary2_misses(&home, &places, &widget, &commands, Verdict::Deny, "");
+    assert!(misses.is_empty(), "{misses:#?}");
+}
+
+/// A method `glab` does not read as PUT: its last `-X` wins, and it reads `-X=DELETE` as DELETE.
+#[test]
+fn u15_adv_a_method_glab_does_not_read_as_put_is_denied() {
+    let (home, places, widget) = adversary_layout("u15-adv-method");
+    let end = "projects/example-group%2Fwidget/merge_requests/7/merge";
+    let commands = [
+        format!("glab api -X PUT -X DELETE {end} {U15_FIELD}"),
+        format!("glab api -X PUT {end} {U15_FIELD} --method POST"),
+        format!("glab api -XPUT -XGET {end} {U15_FIELD}"),
+        format!("glab api -X PUT {end} {U15_FIELD} -X=DELETE"),
+        format!("glab api --method PUT --method=PATCH {end} {U15_FIELD}"),
+        format!("glab api -X PATCH {end} {U15_FIELD}"),
+        format!("glab api -X 'PUT ' {end} {U15_FIELD}"),
+        format!("glab api -XPUTT {end} {U15_FIELD}"),
+        format!("glab api {end} {U15_FIELD}"),
+        format!("glab api -X PUT {end} {U15_FIELD} -iX DELETE"),
+    ];
+    let misses = adversary2_misses(&home, &places, &widget, &commands, Verdict::Deny, "");
+    assert!(misses.is_empty(), "{misses:#?}");
+}
+
+/// Another project, another host or another endpoint, by a path or a flag trick.
+#[test]
+fn u15_adv_another_project_host_or_endpoint_is_denied() {
+    let (home, places, widget) = adversary_layout("u15-adv-other");
+    let mut commands: Vec<String> = [
+        "projects/example-group%2Fwidget%2F..%2Fother/merge_requests/7/merge",
+        "projects/example-group%2Fwidget-2/merge_requests/7/merge",
+        "projects/example-group%2Fwidget%2Fsub/merge_requests/7/merge",
+        "projects/sub%2Fexample-group%2Fwidget/merge_requests/7/merge",
+        "projects/example-group%252Fwidget/merge_requests/7/merge",
+        "projects/example-group%2Fwidget%2F/merge_requests/7/merge",
+        "projects/example-group/widget/merge_requests/7/merge",
+        "projects/example-group%2Fwidget/../example-group%2Fother/merge_requests/7/merge",
+        "projects/example-group%2Fother/../example-group%2Fwidget/merge_requests/7/merge",
+        "projects/example-group%2Fwidget/merge_requests/7/merge/",
+        "projects/example-group%2Fwidget/merge_requests/7/merge_ref",
+        "projects/example-group%2Fwidget/merge_requests/7/merge%2F",
+        "'projects/example-group%2Fwidget/merge_requests/7/merge#x'",
+        "'projects/example-group%2Fwidget/merge_requests/7/merge;x'",
+        "'projects/example-group%2Fwidget/merge_requests/7/merge?'",
+        "'projects/example-group%2Fwidget/merge_requests/7/merge?x'",
+        "projects/example-group%2Fwidget/merge_requests/7/approve",
+        "projects/example-group%2Fwidget/merge_requests/7/rebase",
+        "projects/example-group%2Fwidget/merge_requests/7/merge/../approve",
+        "projects/example-group%2Fwidget/merge_requests/7%2F..%2F8/merge",
+        "projects/example-group%2Fwidget/merge_requests/-7/merge",
+        "projects/example-group%2Fwidget/merge_requests//merge",
+        "projects/example-group%2Fwidget/merge_requests/\u{667}/merge",
+        "projects/example-group%2Fwidget/merge_requests/:id/merge",
+        "projects/example-group%2Fwidget/merge_requests/7/:branch",
+        "projects/:namespace%2F:repo/merge_requests/7/merge",
+        "projects/:group%2Fwidget/merge_requests/7/merge",
+        "projects/:ID/merge_requests/7/merge",
+        "projects/:id%2F..%2Fexample-group%2Fother/merge_requests/7/merge",
+        "projects/:repo/merge_requests/7/merge",
+        "projects/%34%32/merge_requests/7/merge",
+        "projects/0042/merge_requests/7/merge",
+        "projects/+42/merge_requests/7/merge",
+        "https://gitlab.other.example/api/v4/projects/example-group%2Fwidget/merge_requests/7/merge",
+        "https://gitlab.example.com/api/v4/projects/example-group%2Fother/merge_requests/7/merge",
+        "gitlab.other.example/api/v4/projects/example-group%2Fwidget/merge_requests/7/merge",
+        "groups/example-group/merge_requests/7/merge",
+        "projects/example-group%2Fwidget/merge_requests/7/merge -R example-group/other",
+        "projects/example-group%2Fwidget/merge_requests/7/merge --repo example-group/other",
+        "projects/example-group%2Fwidget/merge_requests/7/merge --repo=example-group/other",
+        "projects/example-group%2Fwidget/merge_requests/7/merge --hostname=gitlab.other.example",
+        "projects/example-group%2Fwidget/merge_requests/7/merge --hostname gitlab.example.com --hostname gitlab.other.example",
+        "projects/example-group%2Fwidget/merge_requests/7/merge --hostname=gitlab.example.com --hostname=gitlab.other.example",
+        "projects/example-group%2Fwidget/merge_requests/7/merge --hostname gitlab.example.com.other.example",
+        "projects/example-group%2Fwidget/merge_requests/7/merge --hostname gitlab.example.com@gitlab.other.example",
+    ]
+    .iter()
+    .map(|end| format!("glab api -X PUT {end} {U15_FIELD}"))
+    .collect();
+    commands.extend([
+        format!("GL_HOST=gitlab.other.example {U15_MERGE}"),
+        format!("export GITLAB_HOST=gitlab.other.example; {U15_MERGE}"),
+        format!("env GITLAB_URI=https://gitlab.other.example {U15_MERGE}"),
+        format!("GITLAB_REPO=example-group/other {U15_MERGE}"),
+        format!(
+            "cd ~/clones/other && glab api -X PUT projects/:id/merge_requests/7/merge {U15_FIELD}"
+        ),
+        format!(
+            "git -C ~/clones/other status; glab api -X PUT projects/:fullpath/merge_requests/7/merge {U15_FIELD}"
+        ),
+        format!(
+            "glab -R example-group/other api -X PUT projects/:id/merge_requests/7/merge {U15_FIELD}"
+        ),
+    ]);
+    let mut misses = adversary2_misses(&home, &places, &widget, &commands, Verdict::Deny, "");
+    // `:id` where `glab` reads another repository: the session's cwd is the other clone.
+    misses.extend(adversary2_misses(
+        &home,
+        &places,
+        &home.join("clones/other"),
+        &[format!(
+            "glab api -X PUT projects/:id/merge_requests/7/merge {U15_FIELD}"
+        )],
+        Verdict::Deny,
+        "",
+    ));
+    assert!(misses.is_empty(), "{misses:#?}");
+}
+
+/// A wrapper does not carry a merge write to another project, and one that feeds words to `glab`
+/// (`xargs`, `parallel`) does not carry the own one: the words it adds or replaces are not the
+/// ones the guard read.
+#[test]
+fn u15_adv_a_wrapper_carries_no_merge_write_the_guard_did_not_read() {
+    let (home, places, widget) = adversary_layout("u15-adv-wrappers");
+    let commands = [
+        format!("env {U15_OTHER}"),
+        format!("sh -c '{U15_OTHER}'"),
+        format!("bash -c \"{U15_OTHER}\""),
+        format!("true && {U15_OTHER}"),
+        format!("({U15_OTHER})"),
+        format!("echo x | {U15_OTHER}"),
+        format!("{U15_MERGE}; {U15_OTHER}"),
+        format!("{U15_MERGE} && {U15_OTHER}"),
+        format!("{U15_MERGE} | {U15_OTHER}"),
+        format!("eval \"{U15_OTHER}\""),
+        format!("time {U15_OTHER}"),
+        format!("nohup {U15_OTHER}"),
+        format!("command {U15_OTHER}"),
+        format!("if true; then {U15_OTHER}; fi"),
+        format!("f() {{ {U15_OTHER}; }}; f"),
+        format!("{U15_OTHER} &"),
+        format!(
+            "$(echo glab) api -X PUT projects/example-group%2Fother/merge_requests/7/merge {U15_FIELD}"
+        ),
+        format!(
+            "echo 7 | xargs -I{{}} glab api -X PUT projects/example-group%2Fother/merge_requests/{{}}/merge {U15_FIELD}"
+        ),
+        format!("echo -f merge_when_pipeline_succeeds=false | xargs {U15_MERGE}"),
+        format!("echo false | xargs -I true {U15_MERGE}"),
+        format!("echo example-group%2Fother | xargs -I example-group%2Fwidget {U15_MERGE}"),
+        format!("echo --hostname gitlab.other.example | xargs {U15_MERGE}"),
+        format!("xargs -a flags.txt {U15_MERGE}"),
+        format!("echo -f merge_when_pipeline_succeeds=false | parallel {U15_MERGE}"),
+        format!("echo merge_when_pipeline_succeeds=false | xargs {U15_MERGE} -f"),
+    ];
+    let misses = adversary2_misses(&home, &places, &widget, &commands, Verdict::Deny, "");
+    assert!(misses.is_empty(), "{misses:#?}");
+}
+
+/// The pipeline endpoints the function admitted before it also read a PUT keep their verdicts.
+#[test]
+fn u15_adv_the_pipeline_endpoints_keep_their_verdicts() {
+    let (home, places, widget) = adversary_layout("u15-adv-pipelines");
+    let allowed = [
+        "glab api -X POST projects/example-group%2Fwidget/pipeline -f ref=main",
+        "glab api --method post /projects/example-group%2fwidget/pipelines/5/retry",
+        "glab api -XPOST api/v4/projects/:id/jobs/9/retry",
+        "glab api -X POST 'projects/example-group%2Fwidget/pipeline?ref=main'",
+        "glab api -X POST projects/example-group%2Fwidget/pipeline --input body.json",
+        "glab api -X POST projects/example-group%2Fwidget/pipeline --field=ref=main --silent",
+        "glab api -X POST projects/example-group%2Fwidget/pipeline -F ref=main -H 'X-Note: y'",
+        "glab api -X PUT -X POST projects/example-group%2Fwidget/jobs/9/retry",
+    ]
+    .map(str::to_owned);
+    let mut misses = adversary2_misses(&home, &places, &widget, &allowed, Verdict::Allow, "");
+    let denied = [
+        "glab api -X POST projects/42/pipeline",
+        "glab api -X POST projects/example-group%2Fother/pipeline",
+        "glab api -X PUT projects/example-group%2Fwidget/pipelines/5/retry",
+        "glab api -X PUT projects/example-group%2Fwidget/pipeline -f merge_when_pipeline_succeeds=true",
+        "glab api -X PUT projects/example-group%2Fwidget/jobs/9/retry -f merge_when_pipeline_succeeds=true",
+        "glab api -X DELETE projects/example-group%2Fwidget/pipelines/5",
+        "glab api -X POST projects/example-group%2Fwidget/pipelines/5/cancel",
+        "glab api -X POST projects/example-group%2Fwidget/pipelines/x/retry",
+        "glab api -X POST projects/example-group%2Fwidget/merge_requests/7/merge",
+        "glab api -X POST projects/example-group%2Fwidget/merge_requests/7/merge -f merge_when_pipeline_succeeds=true",
+        "glab api -X POST -X PUT projects/example-group%2Fwidget/pipeline",
+        "glab api projects/example-group%2Fwidget/pipeline -f ref=main",
+    ]
+    .map(str::to_owned);
+    misses.extend(adversary2_misses(
+        &home,
+        &places,
+        &widget,
+        &denied,
+        Verdict::Deny,
+        "",
+    ));
+    assert!(misses.is_empty(), "{misses:#?}");
+}
+
+/// The same tricks on the pipeline POST, which the function admitted before this unit: here to
+/// tell what the unit introduced from what it inherited.
+#[test]
+#[ignore = "pre-existing: story:guard-direct-write-expansions"]
+fn u15_adv_origin_probe_the_pipeline_post_under_the_same_tricks() {
+    let (home, places, widget) = adversary_layout("u15-adv-origin-post");
+    let post = "glab api -X POST projects/example-group%2Fwidget/pipeline";
+    let commands = [
+        format!("{post} -f ref=$(echo main --hostname gitlab.other.example)"),
+        format!("echo --hostname gitlab.other.example | xargs {post}"),
+        format!("echo example-group%2Fother | xargs -I example-group%2Fwidget {post}"),
+        format!("GLAB_CONFIG_DIR=./cfg {post}"),
+    ];
+    let misses = adversary2_misses(&home, &places, &widget, &commands, Verdict::Deny, "");
+    assert!(misses.is_empty(), "{misses:#?}");
+}
+
+/// The same tricks on `glab mr merge`, whose code this unit's diff does not touch.
+#[test]
+#[ignore = "pre-existing: story:guard-direct-write-expansions"]
+fn u15_adv_origin_probe_glab_mr_merge_under_the_same_tricks() {
+    let (home, places, widget) = adversary_layout("u15-adv-origin-mr");
+    let merge = "glab mr merge 7 -R example-group/widget";
+    let commands = [
+        format!("{merge} -m $(echo x -R example-group/other)"),
+        format!("echo -R example-group/other | xargs {merge}"),
+        format!("echo example-group/other | xargs -I example-group/widget {merge}"),
+        format!("GLAB_CONFIG_DIR=./cfg {merge}"),
+    ];
+    let misses = adversary2_misses(&home, &places, &widget, &commands, Verdict::Deny, "");
+    assert!(misses.is_empty(), "{misses:#?}");
+}
+
+/// A config directory the line names: `glab` reads `api_host` and `api_protocol` of the host from
+/// it (measured: a config naming `api_host` sent the PUT there), so the request leaves for
+/// whatever that file names.
+#[test]
+fn u15_adv_a_config_directory_the_line_names_is_denied() {
+    let (home, places, widget) = adversary_layout("u15-adv-config-dir");
+    let commands = [
+        format!("GLAB_CONFIG_DIR=./cfg {U15_MERGE}"),
+        format!("export GLAB_CONFIG_DIR=./cfg; {U15_MERGE}"),
+        format!("XDG_CONFIG_HOME=./cfg {U15_MERGE}"),
+    ];
+    let misses = adversary2_misses(&home, &places, &widget, &commands, Verdict::Deny, "");
     assert!(misses.is_empty(), "{misses:#?}");
 }
