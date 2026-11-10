@@ -88,7 +88,10 @@ $ conductor config workspace
 
 For a `gitlab` source, the workspace file has one member per git checkout under `checkouts.root`
 whose `origin` remote is on the source's host and under its group, except those its `exclude`
-lists. It reads the checkouts only, not the forge. A checkout of the same group path on another
+lists. It reads the checkouts only, not the forge. The repository's name is the checkout's path
+under `checkouts.root`, not the project's name: a checkout `checks` of the project
+`example-checks` is `checks` in the workspace file, the snapshots, `conductor repository activity`,
+its charter `charters/checks.md` and its dispatches. A checkout of the same group path on another
 host, or of another group on this host, is not a member. The records directory is a member too
 ([initialise the records](./initialise-the-records.md#3-keep-the-workspace-file-in-step)).
 
@@ -98,7 +101,7 @@ Each snapshot reads the group with `glab api --hostname <host>` and records:
 
 | record | what |
 |---|---|
-| repositories | one row per project of the group and its subgroups, archived projects marked archived, with whether a checkout of it is under `checkouts.root`. A project with no commit yet is left out |
+| repositories | one row per checkout under `checkouts.root` of a project of the group and its subgroups, named by the checkout's path under the root, and one row per project without a checkout, named by its path under the group; archived projects marked archived. A project with no commit yet is left out |
 | issues | the number of open issues of each project |
 | releases | each project's newest release, its tag and date, and the commits on the default branch after it. Each release published within the collector's window. A `v<major>.<minor>.<patch>` tag counts as a release |
 | merge requests | each open merge request, failing when its head pipeline failed, and each merge request merged within the collector's window |

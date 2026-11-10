@@ -18,7 +18,8 @@
 //!   is its workspace member's, when one names it as its source;
 //! - each project of a `gitlab:` source's group and its subgroups, archived ones included, as the
 //!   repositories collector lists it ([`Forge::mapped`], `story:gitlab-repositories`): read
-//!   at `HEAD` of the checkout under the checkouts root whose `origin` names it, exported as a
+//!   at `HEAD` of the checkout under the checkouts root whose `origin` names it, under that
+//!   checkout's name, exported as a
 //!   local source's repository is, with no fetch; a project without such a checkout is `Missing`,
 //!   nothing read. Its conformance status is its workspace member's, when one names it.
 //!
@@ -114,7 +115,7 @@ pub struct Sources {
     /// `HEAD`.
     pub local: Vec<(PathBuf, Vec<String>)>,
     /// Each `gitlab:` source's forge, whose projects are listed as the repositories collector
-    /// lists them, each read at `HEAD` of its checkout under [`Sources::checkouts`].
+    /// lists them, each read at `HEAD` of its checkout under [`Forge::checkouts`].
     pub gitlab: Vec<Forge>,
     /// The checkouts root, which holds the checkouts of the `gitlab:` sources' projects.
     pub checkouts: PathBuf,
@@ -367,7 +368,7 @@ fn enumerated(sources: &Sources) -> Result<Vec<(String, Origin)>> {
         );
     }
     for forge in &sources.gitlab {
-        listed.extend(forge.mapped(&sources.checkouts)?.into_iter().map(|mapped| {
+        listed.extend(forge.mapped()?.into_iter().map(|mapped| {
             (
                 mapped.project.name,
                 Origin::GitLab {

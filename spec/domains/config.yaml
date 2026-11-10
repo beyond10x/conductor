@@ -83,10 +83,18 @@ types:
   # forge's host name, without a scheme or a path, such as `gitlab.example.com` for a self-hosted
   # GitLab; absent, it is `gitlab.com` (story:gitlab-source-host). The collectors read that forge
   # with `glab api --hostname <host>` (story:gitlab-repositories): one repository row and one
-  # specification row per project of the group and its subgroups, archived ones included, each
-  # named by its path under the group. A project's checkout is the git checkout under
-  # `checkouts.root` whose `origin` remote is on the host and names the project, read from its git
-  # config with no network read.
+  # specification row per checkout of a project of the group and its subgroups, and one per
+  # project without a checkout, archived ones included. A project's checkout is each git checkout
+  # under `checkouts.root` whose `origin` remote is on the host and names the project, read from
+  # its git config with no network read. A checkout is the repository, named as every repository
+  # is, by its path under `checkouts.root`, whatever its project is called
+  # (story:checkout-name-differs-from-project): the workspace file, the snapshots, `repository
+  # activity`, the charters and the dispatches name it so, and the project's id and path are used
+  # only where the forge is called. Two checkouts of one project are two repositories. A project
+  # without a checkout is named by its path under the group, the path its checkout would have
+  # under the root; one whose name a checkout of another project holds fails the snapshot, which
+  # names both. An `exclude` entry names a repository by that one name: a checkout by its path
+  # under the root, whose project is then not listed under its own name either.
   - name: conductor.config.GitLabSource
     kind: struct
     fields:
@@ -887,7 +895,8 @@ types:
   # `checkouts.root` for a `github` source; one per git checkout directly under its `path`, but
   # its `exclude` entries, for a `local` source; one per git checkout under `checkouts.root`
   # whose `origin` remote, read from its git config, is on its host and under its group, but its
-  # `exclude` entries, for a `gitlab` source (story:gitlab-workspace); and the records
+  # `exclude` entries, for a `gitlab` source, named by its path under the root and not by its
+  # project (story:gitlab-workspace, story:checkout-name-differs-from-project); and the records
   # directory itself. `instance` is selected as for `config show`; a config file must name it.
   # `check` writes nothing and exits 1 naming each member that differs from the file.
   - name: conductor.config.WriteWorkspace

@@ -2893,3 +2893,184 @@ fn ais_reads_headroom_from_the_active_account() {
         ["resumed"]
     );
 }
+
+// ---------------------------------------------------------------------------------------------
+// story:checkout-name-differs-from-project
+// ---------------------------------------------------------------------------------------------
+
+/// The answers the fake `glab` of [`Case::gitlab_checks`] gives, the collector tests' fixtures.
+const GITLAB_FIXTURES: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fixtures/gitlab");
+
+/// Runs git in `dir` with no configuration of the user's, at a fixed date.
+fn git(dir: &Path, args: &[&str]) {
+    let output = Command::new("git")
+        .current_dir(dir)
+        .args(args)
+        .env("GIT_CONFIG_GLOBAL", "/dev/null")
+        .env("GIT_CONFIG_NOSYSTEM", "1")
+        .env("GIT_AUTHOR_NAME", "Fixture")
+        .env("GIT_AUTHOR_EMAIL", "fixture@example.invalid")
+        .env("GIT_COMMITTER_NAME", "Fixture")
+        .env("GIT_COMMITTER_EMAIL", "fixture@example.invalid")
+        .env("GIT_AUTHOR_DATE", "2026-09-01T09:00:00Z")
+        .env("GIT_COMMITTER_DATE", "2026-09-01T09:00:00Z")
+        .stdin(Stdio::null())
+        .output()
+        .expect("git runs");
+    assert!(
+        output.status.success(),
+        "git {args:?} in {}: {}",
+        dir.display(),
+        String::from_utf8_lossy(&output.stderr)
+    );
+}
+
+impl Case {
+    /// Makes the instance one of the group `example-org` on `gitlab.example.com`, whose one
+    /// project is `example-checks` (id 101), checked out and trusted as `checks` under the
+    /// checkouts root: a git repository with one commit whose `origin` names the project. The
+    /// fake `glab` answers the project list with that project and every other read of it with
+    /// the collector tests' fixtures; `aep` answers an empty workspace and an empty listing.
+    fn gitlab_checks(&self) {
+        let config = fs::read_to_string(self.config()).expect("the config file");
+        let github = "sources: [{github: example-org}]";
+        assert!(config.contains(github), "{config}");
+        write(
+            &self.config(),
+            &config.replace(
+                github,
+                "sources: [{gitlab: example-org, host: gitlab.example.com}]",
+            ),
+        );
+
+        let checkout = self.checkout("checks");
+        fs::create_dir_all(&checkout).expect("create the checkout");
+        git(&checkout, &["init", "--quiet", "--initial-branch=main"]);
+        write(&checkout.join("README.md"), "# checks\n");
+        git(&checkout, &["add", "--all"]);
+        git(&checkout, &["commit", "--quiet", "-m", "Start checks"]);
+        git(
+            &checkout,
+            &[
+                "remote",
+                "add",
+                "origin",
+                "git@gitlab.example.com:example-org/example-checks.git",
+            ],
+        );
+        let trusted = self.home().join(".claude.json");
+        let mut claude: Value =
+            serde_json::from_str(&fs::read_to_string(&trusted).expect("the trust file"))
+                .expect("the trust file is JSON");
+        claude["projects"][checkout.display().to_string()] =
+            json!({"hasTrustDialogAccepted": true});
+        write(&trusted, &claude.to_string());
+
+        write(
+            &self.fake().join("projects.json"),
+            &json!([{
+                "id": 101,
+                "path_with_namespace": "example-org/example-checks",
+                "archived": false,
+                "visibility": "private",
+                "default_branch": "main",
+                "open_issues_count": 0,
+                "empty_repo": false,
+                "web_url": "https://gitlab.example.com/example-org/example-checks",
+            }])
+            .to_string(),
+        );
+        let fake = self.fake();
+        let fake = fake.display();
+        executable(
+            &self.bin().join("glab"),
+            &format!(
+                "#!/bin/sh\n\
+                 printf '%s\\n' \"$*\" >> '{fake}/glab.calls'\n\
+                 for last in \"$@\"; do :; done\n\
+                 id=${{last#projects/}}\n\
+                 id=${{id%%/*}}\n\
+                 case \"$last\" in\n\
+                 \x20 groups/*/projects\\?*) exec cat '{fake}/projects.json' ;;\n\
+                 \x20 projects/*/repository/commits/*/diff*)\n\
+                 \x20   sha=${{last#*/repository/commits/}}\n\
+                 \x20   file=${{sha%%/*}}.diff.json ;;\n\
+                 \x20 projects/*/repository/commits\\?*) file=$id.commits.json ;;\n\
+                 \x20 projects/*/repository/commits/*) file=$id.commit.json ;;\n\
+                 \x20 projects/*/repository/compare\\?*) file=$id.compare.json ;;\n\
+                 \x20 projects/*/releases\\?*) file=$id.releases.json ;;\n\
+                 \x20 projects/*/repository/tags\\?*) file=$id.tags.json ;;\n\
+                 \x20 projects/*/issues\\?*) file=$id.issues.json ;;\n\
+                 \x20 projects/*/merge_requests\\?state=opened*) file=$id.opened.json ;;\n\
+                 \x20 projects/*/merge_requests\\?state=merged*) file=$id.merged.json ;;\n\
+                 \x20 projects/*/merge_requests/*) file=$id.mr-${{last##*/}}.json ;;\n\
+                 \x20 projects/*/pipelines\\?*) file=$id.pipelines.json ;;\n\
+                 \x20 *) printf 'no answer for %s\\n' \"$last\" >&2; exit 1 ;;\n\
+                 esac\n\
+                 exec cat '{GITLAB_FIXTURES}'/\"$file\"\n"
+            ),
+        );
+        executable(
+            &self.bin().join("aep"),
+            "#!/bin/sh\n\
+             case \"$3\" in\n\
+             \x20 members) printf '%s' '{\"members\": []}' ;;\n\
+             \x20 *) printf '%s' '{\"artifacts\": []}' ;;\n\
+             esac\n",
+        );
+    }
+}
+
+/// The acceptance: the checkout `checks` of the GitLab project `example-checks` is the
+/// repository `checks`. A snapshot holds it Active under that name, and the cycle starts its
+/// controller from `charters/checks.md` on the dispatch sent to `checks`, in its checkout.
+#[test]
+fn a_dispatch_to_a_checkout_named_differently_from_its_gitlab_project_starts_its_controller() {
+    let case = Case::new("gitlab-checks");
+    case.gitlab_checks();
+    write(
+        &case.charter("checks"),
+        "# Charter: checks\n\nKeep main green.\n",
+    );
+    case.ok(&[
+        "snapshot",
+        "start-snapshot",
+        "--started-at",
+        "2026-10-07T12:00:00Z",
+        "--disk-free-bytes",
+        "100000000000",
+    ]);
+    // Sent after the snapshot, which holds the names a dispatch may go to.
+    let dispatch = case.dispatch("checks");
+    let activity = case.view(&["repository", "activity"]);
+    let named: Vec<(&Value, &Value)> = activity
+        .iter()
+        .map(|row| (&row["repository"], &row["activity"]))
+        .collect();
+    assert_eq!(
+        named,
+        [(&json!("checks"), &json!("Active"))],
+        "{activity:?}"
+    );
+
+    let tick = case.child(json!({
+        "do": "cycle",
+        "program": case.bin().join("conductor-steps"),
+    }));
+    assert_eq!(case.launched(), ["ex-checks"], "{tick}");
+    let cycle = case.lines_of(&tick);
+    let summary = cycle
+        .iter()
+        .find(|line| line["event"] == "cycle")
+        .and_then(|line| line["line"].as_str())
+        .expect("the cycle's line");
+    assert!(summary.contains("spawned checks"), "{summary}");
+    let charter = fs::read_to_string(case.fake().join("charter.1")).expect("the charter sent");
+    assert!(charter.contains("# Charter: checks"), "{charter}");
+    assert!(charter.contains(&dispatch), "names {dispatch}: {charter}");
+    assert_eq!(case.dispatch_state(&dispatch), "Sent");
+    assert_eq!(
+        case.controllers(),
+        [("checks".to_owned(), "Running".to_owned())]
+    );
+}

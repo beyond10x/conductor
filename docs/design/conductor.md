@@ -361,7 +361,11 @@ A repository is the directory holding `.git` at depth 1 or 2 under a root (`<roo
 `<root>/<group>/<repo>`), named by its path under the root. A `local` or `gitlab` source may
 `exclude` paths under its root. A `gitlab` source names its `host` (default `gitlab.com`);
 `conductor config workspace` writes a member for each checkout under the checkouts root whose
-`origin` remote is on that host and under the source's group, but those it excludes. An instance's `catalog` names a repository under the checkouts
+`origin` remote is on that host and under the source's group, but those it excludes. Such a
+checkout is the repository under its path under the root, whatever its project is called: the
+workspace file, the snapshots, `repository activity`, the charters and the dispatches name it so,
+and the project's id and path are used only to call the forge. A project without a checkout is
+named by its path under the group. An instance's `catalog` names a repository under the checkouts
 root and a directory in it; the repositories collector reads it (§ 4).
 
 The file never holds a secret. A value that looks like a token is refused by its path and never

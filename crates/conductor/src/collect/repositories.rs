@@ -13,9 +13,12 @@
 //! it is: at `HEAD`, with no fetch, and with nothing asked of GitHub, so it is `Private`, not
 //! archived, and has no issue and no GitHub Release; and each project of a `gitlab:` source's group
 //! and its subgroups, archived ones included, read from its forge with `glab api --hostname <host>`
-//! ([`gitlab::read`], `story:gitlab-repositories`), named by its path under the group, with what
-//! only a checkout shows read from the checkout under the checkouts root whose `origin` names it
-//! ([`gitlab::checkouts`]), with no fetch. A name two origins list is one checkout and one
+//! ([`gitlab::read`], `story:gitlab-repositories`), once per checkout under the checkouts root
+//! whose `origin` names it ([`gitlab::checkouts`]) and named by that checkout's path under the
+//! root, as every other repository is by its directory
+//! (`story:checkout-name-differs-from-project`), with what only a checkout shows read from it,
+//! with no fetch; a project without a checkout is named by its path under the group
+//! ([`Forge::projects`]). A name two origins list is one checkout and one
 //! recorded repository, so the collector fails naming it and both origins. The specifications collector lists a local
 //! source's repositories through this collector's own listing ([`local_names`]). Each field has
 //! one source:
@@ -350,7 +353,7 @@ pub fn collect_excluding(
 }
 
 /// [`collect_excluding`], and one `RecordRepository` per project of each of `forges`
-/// ([`Forge::mapped`] under [`Sources::workspace`]), read from its forge
+/// ([`Forge::mapped`], its checkouts under [`Forge::checkouts`]), read from its forge
 /// (`story:gitlab-repositories`).
 ///
 /// # Errors
@@ -488,18 +491,13 @@ fn listed(
         listed.extend(local_repositories(dir, exclude)?);
     }
     for forge in forges {
-        listed.extend(
-            forge
-                .mapped(&sources.workspace)?
-                .into_iter()
-                .map(|mapped| Listed {
-                    name: mapped.project.name.clone(),
-                    visibility: mapped.project.visibility,
-                    archived: mapped.project.archived,
-                    issues: false,
-                    origin: Origin::GitLab(Box::new(mapped)),
-                }),
-        );
+        listed.extend(forge.mapped()?.into_iter().map(|mapped| Listed {
+            name: mapped.project.name.clone(),
+            visibility: mapped.project.visibility,
+            archived: mapped.project.archived,
+            issues: false,
+            origin: Origin::GitLab(Box::new(mapped)),
+        }));
     }
     listed.sort_by(|one, other| one.name.cmp(&other.name));
     one_of_each(&listed, |listed| &listed.name, Listed::origin_named)?;
