@@ -31,10 +31,14 @@
 //! closes. A box keeps its lease past one 24-hour lease by renewing it, and its runtime past
 //! substrate's hard deadline of one run by a restart in the same box ([`RUN_BOUND`]).
 //!
-//! The runtime writes the sessions directory under the state directory through a writable host
-//! root ([`HostRoot`]): a start names a root, never its path, so the operator declares it on the
-//! local daemon, `substrate-daemon --writable-root sessions-<instance>=<state>/sessions`
-//! ([`writable_root_name`]).
+//! What the box sees of the host is one list ([`mounts`], `story:box-runtime-starts`): what the
+//! runtime and the loop write (the state directory, the records, the directory of a sqlite
+//! store) and what they read (the binary's and the harness's directories, the checkouts root,
+//! the config file, the harness binary, each forge's CLI and its login). The runtime writes
+//! through writable host roots ([`HostRoot`]): a start names a root, never its path, so the
+//! operator declares each on the local daemon, `substrate-daemon --writable-root
+//! state-<instance>=<state>` ([`writable_root_name`]); the refusal of an undeclared one prints
+//! the flag ([`roots_unserved`]). The box's `HOME` is the daemon's.
 //!
 //! A remote daemon (`story:placement-substrate-remote`) is `placement: {daemon: https://…,
 //! adapter, bearer: secret:<name>, trust_roots, server_identity}` ([`read`]): the box opens
@@ -516,10 +520,11 @@ pub struct BoxRequest {
     pub cwd: String,
     /// Variables set for the runtime; never a credential.
     pub env: Vec<(String, String)>,
-    /// Host directories mounted read-only at their own path: the conductor binary's directory
-    /// (it carries the role profiles), the harness's directory, the checkouts root when the
-    /// trees are elsewhere.
+    /// Host directories mounted read-only at their own path: the read-only roots of [`mounts`].
     pub read_only_roots: Vec<String>,
+    /// Single host files mounted read-only: the read-only files of [`mounts`]. [`Sdk`] names
+    /// each in the runtime's start.
+    pub read_only_files: Vec<HostFile>,
     /// The six writable places, each a subdirectory of the one workspace.
     pub places: Vec<String>,
     /// The instance's limits.
@@ -532,10 +537,20 @@ pub struct BoxRequest {
     pub secret_slots: Vec<String>,
     /// The confinement facts the box requires ([`requires`]).
     pub requires: Requirement,
-    /// The host directories the box must write outside its workspace: the sessions directory
-    /// under the state directory, where the terminal log and the envelope are written. [`Sdk`]
-    /// names each in the runtime's start, mounted at its own path, in this order.
+    /// The host directories the box must write outside its workspace: the writable roots of
+    /// [`mounts`], the state directory first. [`Sdk`] names each in the runtime's start, mounted
+    /// at its own path, in this order.
     pub writable_roots: Vec<HostRoot>,
+}
+
+/// A single host file the box reads (substrate's ADR 0033): the regular file at `host_path`,
+/// reached through no symlink, appears at `mount`.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct HostFile {
+    /// The host file, every symlink on its way resolved.
+    pub host_path: String,
+    /// Where the box sees it.
+    pub mount: String,
 }
 
 /// A writable host root (substrate's ADR 0038 kind 1): a start names it, never its path, so
@@ -548,10 +563,11 @@ pub struct HostRoot {
     pub path: String,
 }
 
-/// The name of `instance`'s sessions root: `sessions-<instance>`, each byte outside letters,
-/// digits, `_` and `-` written `_`, so it is in substrate's root-name set.
+/// The name of `instance`'s writable root for `what` (`state`, `records`): `<what>-<instance>`,
+/// each byte of the instance outside letters, digits, `_` and `-` written `_`, so it is in
+/// substrate's root-name set.
 #[must_use]
-pub fn writable_root_name(instance: &str) -> String {
+pub fn writable_root_name(what: &str, instance: &str) -> String {
     let name: String = instance
         .chars()
         .map(|c| {
@@ -562,11 +578,15 @@ pub fn writable_root_name(instance: &str) -> String {
             }
         })
         .collect();
-    format!("sessions-{name}")
+    format!("{what}-{name}")
 }
 
-/// The sessions directory of the instance whose state directory is `state`, the box's writable
-/// host root: `<state>/sessions`.
+/// The name of the writable root that holds a sqlite `daemon.store`: one database for every
+/// instance of the file, so one root, declared once.
+pub const STORE_ROOT: &str = "store";
+
+/// The sessions directory of the instance whose state directory is `state`, in the box's
+/// writable state root: `<state>/sessions`.
 #[must_use]
 pub fn sessions_dir(state: &Path) -> PathBuf {
     state.join("sessions")
@@ -578,7 +598,7 @@ pub fn sessions_dir(state: &Path) -> PathBuf {
 pub const RUNTIME_LOG: &str = "runtime.log";
 
 /// Creates the sessions directory of `state` ([`sessions_dir`]) mode 0700, or makes an existing
-/// one 0700, so the box's writable host root is there before the box is asked for.
+/// one 0700, so it and the state root around it are there before the box is asked for.
 ///
 /// # Errors
 ///
@@ -618,9 +638,255 @@ pub fn roots_unserved(roots: &[HostRoot], served: Option<&[String]>) -> Option<R
         })
 }
 
+/// How the box sees one host path of [`mounts`].
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum Bind {
+    /// A directory the box reads (substrate's ADR 0010).
+    ReadOnlyRoot,
+    /// A single file the box reads (substrate's ADR 0033).
+    ReadOnlyFile,
+    /// A directory the box writes, by the name the daemon declares it under (substrate's ADR
+    /// 0038 kind 1).
+    WritableRoot(String),
+}
+
+/// One host path the box sees.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Mount {
+    /// What it is to the runtime: `state`, `records`, `store`, `binary`, `harness`,
+    /// `checkouts`, `config`, `forge-cli` or `forge-login`.
+    pub what: &'static str,
+    /// The path on the host; of a file, with every symlink on its way resolved.
+    pub host_path: String,
+    /// The path in the box.
+    pub mount: String,
+    /// How the box sees it.
+    pub bind: Bind,
+}
+
+/// What of the daemon's host decides a box's mounts: the three things the runtime finds through
+/// its own environment.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct Host {
+    /// `HOME`: where each forge CLI keeps its login.
+    pub home: Option<PathBuf>,
+    /// `PATH`: where the harness and the forge CLIs are found.
+    pub path: Option<std::ffi::OsString>,
+    /// The store URL ([`crate::store::STORE_VARIABLE`]).
+    pub store: Option<String>,
+}
+
+impl Host {
+    /// The host as the runtime's environment `env` names it; without a `PATH` there, this
+    /// process's.
+    #[must_use]
+    pub fn of(env: &[(String, String)]) -> Self {
+        let named = |name: &str| {
+            env.iter()
+                .find(|(known, value)| known == name && !value.is_empty())
+                .map(|(_, value)| value.clone())
+        };
+        Self {
+            home: named("HOME")
+                .map(PathBuf::from)
+                .filter(|home| home.is_absolute()),
+            path: named("PATH")
+                .map(std::ffi::OsString::from)
+                .or_else(|| std::env::var_os("PATH")),
+            store: named(crate::store::STORE_VARIABLE),
+        }
+    }
+
+    /// The directory of the sqlite file the store URL names, `~/` read under [`Self::home`];
+    /// `None` for any other store.
+    fn store_dir(&self) -> Option<PathBuf> {
+        let path = self.store.as_deref()?.strip_prefix("sqlite:")?;
+        let path = path
+            .strip_prefix("//")
+            .filter(|rest| rest.starts_with('/'))
+            .unwrap_or(path);
+        let file = match path.strip_prefix("~/") {
+            Some(rest) => self.home.as_ref()?.join(rest),
+            None => PathBuf::from(path),
+        };
+        file.parent()
+            .filter(|dir| dir.is_absolute())
+            .map(Path::to_owned)
+    }
+
+    fn find(&self, program: &str) -> Option<PathBuf> {
+        crate::doctor::find_in(program, self.path.as_deref()?)
+    }
+}
+
+/// The directories every box has of the host's base system, read-only (substrate's reserved
+/// mounts): a path at or under one is already there, and a mount on it is refused.
+const BASE: [&str; 4] = ["/usr", "/bin", "/lib", "/lib64"];
+
+/// The files of a forge CLI's login under `HOME`, by the CLI's program.
+const LOGINS: [(&str, &[&str]); 2] = [
+    ("gh", &[".config/gh/hosts.yml", ".config/gh/config.yml"]),
+    ("glab", &[".config/glab-cli/config.yml"]),
+];
+
+fn at_or_under(path: &str, root: &str) -> bool {
+    path == root
+        || path
+            .strip_prefix(root)
+            .is_some_and(|rest| rest.starts_with('/'))
+}
+
+/// Adds `mount` to `kept` unless the box sees its path already, and says whether it did.
+/// Substrate refuses mounts that nest, so of two writable directories one inside the other the
+/// outer one stays, under its own name, and a path to read at or under a mount or the base
+/// system is not named again.
+fn admit(kept: &mut Vec<Mount>, mount: Mount) -> bool {
+    if !Path::new(&mount.mount).is_absolute() || !Path::new(&mount.host_path).is_absolute() {
+        return false;
+    }
+    let seen = kept.iter().any(|known| {
+        known.mount == mount.mount
+            || (known.bind != Bind::ReadOnlyFile && at_or_under(&mount.mount, &known.mount))
+    });
+    if seen {
+        return false;
+    }
+    let inside = |known: &Mount| at_or_under(&known.mount, &mount.mount);
+    match mount.bind {
+        Bind::WritableRoot(_) => match kept.iter().position(inside) {
+            Some(first) => {
+                let mut index = 0;
+                kept.retain(|known| {
+                    index += 1;
+                    index - 1 == first || !inside(known)
+                });
+                kept[first] = mount;
+            }
+            None => kept.push(mount),
+        },
+        Bind::ReadOnlyRoot | Bind::ReadOnlyFile => {
+            if BASE.iter().any(|base| at_or_under(&mount.mount, base)) {
+                return false;
+            }
+            kept.retain(|known| matches!(known.bind, Bind::WritableRoot(_)) || !inside(known));
+            kept.push(mount);
+        }
+    }
+    true
+}
+
+/// Everything of the host the box of `instance` sees, in one list (`story:box-runtime-starts`):
+/// what `conductor instance serve` and the loop write, then what they read. The runtime is the
+/// binary at `binary` reading `config_file`, on `host`.
+///
+/// | what | path | the box |
+/// |---|---|---|
+/// | `state` | the state directory (`run/lock`, `api.sock`, `sessions/`) | writes, root `state-<instance>` |
+/// | `records` | the records directory | writes, root `records-<instance>` |
+/// | `store` | the directory of a sqlite store (the database and its journal) | writes, root [`STORE_ROOT`] |
+/// | `binary` | the conductor binary's directory (it carries the role profiles) | reads |
+/// | `harness` | the harness's directory on `PATH` | reads |
+/// | `checkouts` | the checkouts root, when the trees are elsewhere | reads |
+/// | `config` | the config file | reads, one file |
+/// | `harness` | the file the harness's name on `PATH` links to | reads, one file |
+/// | `forge-cli` | the CLI of each forge among the sources (`gh`, `glab`) | reads, one file |
+/// | `forge-login` | that CLI's login files under `HOME` | reads, one file each |
+///
+/// Each path is named once: a writable directory inside another is the outer one's,
+/// and a path to read that a mount or the box's base system already holds is left out. A
+/// program appears at the path `PATH` names it by; where that path is in the box already and is
+/// a link, the file it links to appears at its own path, so the link resolves. A login file is
+/// named only when it is there.
+#[must_use]
+pub fn mounts(instance: &Instance, config_file: &Path, binary: &Path, host: &Host) -> Vec<Mount> {
+    let text = |path: &Path| path.display().to_string();
+    let real = |path: &Path| std::fs::canonicalize(path).unwrap_or_else(|_| path.to_owned());
+    let writable = |what, name: String, path: &Path| Mount {
+        what,
+        host_path: text(path),
+        mount: text(path),
+        bind: Bind::WritableRoot(name),
+    };
+    let root = |what, path: &Path| Mount {
+        what,
+        host_path: text(path),
+        mount: text(path),
+        bind: Bind::ReadOnlyRoot,
+    };
+    let file = |what, path: &Path, mount: &Path| Mount {
+        what,
+        host_path: text(path),
+        mount: text(mount),
+        bind: Bind::ReadOnlyFile,
+    };
+    let name = &instance.name.0;
+    let harness = host.find(crate::confine::CLAUDE);
+    let mut kept: Vec<Mount> = Vec::new();
+
+    // What the runtime and the loop write.
+    let state = writable_root_name("state", name);
+    admit(
+        &mut kept,
+        writable("state", state, Path::new(&instance.state)),
+    );
+    let records = writable_root_name("records", name);
+    admit(
+        &mut kept,
+        writable("records", records, Path::new(&instance.records)),
+    );
+    if let Some(dir) = host.store_dir() {
+        admit(&mut kept, writable("store", STORE_ROOT.to_owned(), &dir));
+    }
+
+    // What they read: directories.
+    if let Some(dir) = binary.parent() {
+        admit(&mut kept, root("binary", dir));
+    }
+    if let Some(dir) = harness.as_deref().and_then(Path::parent) {
+        admit(&mut kept, root("harness", dir));
+    }
+    if !Path::new(&instance.checkouts.trees).starts_with(&instance.checkouts.root) {
+        admit(
+            &mut kept,
+            root("checkouts", Path::new(&instance.checkouts.root)),
+        );
+    }
+
+    // What they read: single files.
+    admit(&mut kept, file("config", &real(config_file), config_file));
+    let mut programs: Vec<(&'static str, PathBuf)> = Vec::new();
+    programs.extend(harness.map(|found| ("harness", found)));
+    let mut logins: Vec<PathBuf> = Vec::new();
+    for source in &instance.sources {
+        let program = match source {
+            Source::GitHub(_) => "gh",
+            Source::GitLab(_) => "glab",
+            Source::Local(_) => continue,
+        };
+        programs.extend(host.find(program).map(|found| ("forge-cli", found)));
+        for (_, paths) in LOGINS.iter().filter(|(known, _)| *known == program) {
+            if let Some(home) = &host.home {
+                logins.extend(paths.iter().map(|path| home.join(path)));
+            }
+        }
+    }
+    for (what, found) in programs {
+        let target = real(&found);
+        if !admit(&mut kept, file(what, &target, &found)) && target != found {
+            admit(&mut kept, file(what, &target, &target));
+        }
+    }
+    for login in logins {
+        if login.is_file() {
+            admit(&mut kept, file("forge-login", &real(&login), &login));
+        }
+    }
+    kept
+}
+
 /// The box `instance` asks for, its runtime the binary at `binary` reading `config_file`, with
-/// `env` set beside nothing inherited, and the runtime's log file ([`RUNTIME_LOG`]) in its
-/// writable root.
+/// `env` set beside nothing inherited, the runtime's log file ([`RUNTIME_LOG`]) in its writable
+/// state root, and the mounts of [`mounts`] on the host `env` names ([`Host::of`]).
 #[must_use]
 pub fn request(
     instance: &Instance,
@@ -628,25 +894,27 @@ pub fn request(
     binary: &Path,
     mut env: Vec<(String, String)>,
 ) -> BoxRequest {
+    let mounts = mounts(instance, config_file, binary, &Host::of(&env));
     let sessions = sessions_dir(Path::new(&instance.state));
     env.push((
         crate::instance::LOG_VARIABLE.to_owned(),
         sessions.join(RUNTIME_LOG).display().to_string(),
     ));
     let mut read_only_roots: Vec<String> = Vec::new();
-    let mut add = |path: Option<PathBuf>| {
-        if let Some(path) = path {
-            let text = path.display().to_string();
-            if !text.is_empty() && !read_only_roots.contains(&text) {
-                read_only_roots.push(text);
-            }
+    let mut read_only_files: Vec<HostFile> = Vec::new();
+    let mut writable_roots: Vec<HostRoot> = Vec::new();
+    for mount in mounts {
+        match mount.bind {
+            Bind::ReadOnlyRoot => read_only_roots.push(mount.mount),
+            Bind::ReadOnlyFile => read_only_files.push(HostFile {
+                host_path: mount.host_path,
+                mount: mount.mount,
+            }),
+            Bind::WritableRoot(name) => writable_roots.push(HostRoot {
+                name,
+                path: mount.mount,
+            }),
         }
-    };
-    add(binary.parent().map(Path::to_owned));
-    add(crate::doctor::find(crate::confine::CLAUDE)
-        .and_then(|path| path.parent().map(Path::to_owned)));
-    if !Path::new(&instance.checkouts.trees).starts_with(&instance.checkouts.root) {
-        add(Some(PathBuf::from(&instance.checkouts.root)));
     }
     let mut egress: Vec<String> = Vec::new();
     for source in &instance.sources {
@@ -673,6 +941,7 @@ pub fn request(
         cwd: instance.state.clone(),
         env,
         read_only_roots,
+        read_only_files,
         places: crate::config::PLACES.map(str::to_owned).to_vec(),
         limits: instance.limits.clone(),
         egress,
@@ -680,10 +949,7 @@ pub fn request(
         requires: resolve(&instance.placement.0)
             .map(|resolved| requires(resolved.adapter))
             .unwrap_or_default(),
-        writable_roots: vec![HostRoot {
-            name: writable_root_name(&instance.name.0),
-            path: sessions.display().to_string(),
-        }],
+        writable_roots,
     }
 }
 
@@ -1346,6 +1612,12 @@ impl Sdk {
             session = session.read_only_root(substrate_sdk::ReadOnlyRoot {
                 host_path: root.clone(),
                 mount: root.clone(),
+            });
+        }
+        for file in &request.read_only_files {
+            session = session.read_only_file(substrate_sdk::ReadOnlyFile {
+                host_path: file.host_path.clone(),
+                mount: file.mount.clone(),
             });
         }
         for root in &request.writable_roots {

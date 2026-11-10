@@ -143,9 +143,14 @@ to fill in, and each step says where they come from. `<target>` is the build of 
    `$XDG_RUNTIME_DIR/substrate/daemon.sock`. `<state>` is the instance's `state` value in
    `conductor config show`; create `<state>/sessions` and ~/.local/state/substrate/workspaces mode
    700 before the daemon starts, since it refuses a writable root that does not exist. `<uid>` is the user's numeric id.
+   The runtime writes its state directory, its records and the directory of the sqlite store
+   (`daemon.store`), each a writable root: `state-<name>=<state>`, `records-<name>=<records>`,
+   `store=<store directory>`. Directories inside one another are one root, the outer one: with
+   the store at ~/.b10x/conductor/conductor.sqlite and the default state and records, that is
+   `store=~/.b10x/conductor` alone. Each is one `--writable-root <root>` below.
    - Check: `curl --silent --unix-socket $XDG_RUNTIME_DIR/substrate/daemon.sock http://localhost/v1/machine`;
-     it answers, and its exec.writable-roots.host fact lists sessions-<name>.
-   - Fix: `substrate-daemon --socket $XDG_RUNTIME_DIR/substrate/daemon.sock --state ~/.local/state/substrate/state.db --workspaces ~/.local/state/substrate/workspaces --deployment personal --allow-uid <uid> --cgroup-root <delegated cgroup root> --writable-root sessions-<name>=<state>/sessions --egress-aperture conductor=api.anthropic.com:443/tcp --ca-bundle /etc/ssl/certs/ca-certificates.crt`,
+     it answers, and its exec.writable-roots.host fact lists each root by its name.
+   - Fix: `substrate-daemon --socket $XDG_RUNTIME_DIR/substrate/daemon.sock --state ~/.local/state/substrate/state.db --workspaces ~/.local/state/substrate/workspaces --deployment personal --allow-uid <uid> --cgroup-root <delegated cgroup root> --writable-root <root> --egress-aperture conductor=api.anthropic.com:443/tcp --ca-bundle /etc/ssl/certs/ca-certificates.crt`,
      run inside that subtree and kept running.
    - Hands: the delegated cgroup subtree, when the user's systemd does not delegate one.
 

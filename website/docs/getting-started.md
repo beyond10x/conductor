@@ -172,8 +172,11 @@ and keep it running:
   [Serving exec](https://github.com/beyond10x/substrate#serving-exec) says how to set one up;
 - on the socket conductord opens, `$XDG_RUNTIME_DIR/substrate/daemon.sock`, unless
   `CONDUCTOR_SUBSTRATE_SOCKET` in conductord's environment names another;
-- with the instance's sessions directory as a writable root, `sessions-<instance>`. It must exist
-  before the daemon starts;
+- with a writable root for each directory the runtime writes: `state-<instance>` for the state
+  directory, `records-<instance>` for the records and `store` for the directory of the sqlite
+  store. Directories that lie inside one another are one root, the outer one: with the config of
+  step 3 the store's directory `~/.b10x/conductor` holds the other two, so `store` is the only
+  root. Each must exist before the daemon starts;
 - with the aperture `conductor`, which the runtime starts with.
 
 ```console
@@ -186,18 +189,23 @@ substrate-daemon \
   --deployment personal \
   --allow-uid "$(id -u)" \
   --cgroup-root <delegated cgroup root> \
-  --writable-root "sessions-home=$state/sessions" \
+  --writable-root "store=$HOME/.b10x/conductor" \
   --egress-aperture conductor=api.anthropic.com:443/tcp \
   --ca-bundle /etc/ssl/certs/ca-certificates.crt
 ```
 
-From another terminal, read the daemon's facts. `exec.writable-roots.host` lists `sessions-home`:
+From another terminal, read the daemon's facts. `exec.writable-roots.host` lists `store`:
 
 ```console
 curl -s --unix-socket "$XDG_RUNTIME_DIR/substrate/daemon.sock" http://localhost/v1/machine
 ```
 
-Each instance with a box adds its own `--writable-root sessions-<instance>=<state>/sessions`. An
+An instance whose state directory or records lie outside the store's directory adds
+`--writable-root state-<instance>=<state>` or `--writable-root records-<instance>=<records>`. A
+box that names a root the daemon does not serve is refused, and the refusal prints the flag to
+add. Besides its writable roots the box gets conductord's `HOME` and, read-only, the config
+file, the directories of `conductor` and `claude`, the checkouts root, and the CLI and login of
+each forge among the sources. An
 instance that names a `model_token` also needs `daemon.substrate_slots` and one `--secret-slot`
 per slot ([secrets](/docs/security/operators-and-credentials#secrets)).
 

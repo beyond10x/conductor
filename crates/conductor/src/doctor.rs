@@ -306,7 +306,7 @@ pub fn find(program: &str) -> Option<PathBuf> {
     find_in(program, env::var_os("PATH").as_deref()?)
 }
 
-fn find_in(program: &str, path: &OsStr) -> Option<PathBuf> {
+pub(crate) fn find_in(program: &str, path: &OsStr) -> Option<PathBuf> {
     env::split_paths(path)
         .filter(|dir| !dir.as_os_str().is_empty())
         .map(|dir| dir.join(program))

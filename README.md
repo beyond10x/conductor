@@ -182,8 +182,10 @@ catalog; the [config reference](https://beyond10x.github.io/conductor/docs/refer
    file.
 5. Start `substrate-daemon` yourself: conductord does not. `placement: systemd` runs the
    instance's runtime in a box of the local `substrate-daemon`, which runs in a delegated cgroup
-   subtree, on `$XDG_RUNTIME_DIR/substrate/daemon.sock`, and declares the writable root
-   `sessions-<instance>=<state>/sessions` and the egress aperture `conductor`
+   subtree, on `$XDG_RUNTIME_DIR/substrate/daemon.sock`, and declares a writable root for
+   what the runtime writes (`state-<instance>=<state>`, `records-<instance>=<records>`,
+   `store=<the store's directory>`; one root where one holds the others) and the egress
+   aperture `conductor`
    ([getting started](https://beyond10x.github.io/conductor/docs/getting-started#5-start-the-substrate-daemon)).
 6. `conductor daemon serve --install` installs conductord as the user unit `conductord.service`. It
    opens each instance's box, starts the runtime in it, and lists them at

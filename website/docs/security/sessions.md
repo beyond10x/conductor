@@ -137,9 +137,12 @@ The adapters are `systemd`, `linux`, `oci` and `pod`. A local daemon refuses `oc
 validate. `systemd` is `linux` inside a delegated systemd scope, adding `limits` and
 `whole-tree-kill`. Before anything starts, the facts are checked against `substrate-daemon`'s
 `/v1/machine`. A shortfall is refused with substrate's name (`confinement.family-unserved`,
-`confinement.fact-unserved`), and nothing falls back. The runtime writes `<state>/sessions`
-through a host root the operator declares, `substrate-daemon --writable-root
-sessions-<instance>=<state>/sessions`. The box gets one secret slot, the model token
+`confinement.fact-unserved`), and nothing falls back. The runtime writes its state directory,
+its records and the directory of a sqlite store through host roots the operator declares,
+`substrate-daemon --writable-root state-<instance>=<state>`, `records-<instance>=<records>` and
+`store=<directory>`, one root where one holds the others. It reads the config file, the
+directories of `conductor` and the harness, the checkouts root, and each forge's CLI and login,
+and nothing else of the host. The box gets one secret slot, the model token
 ([secrets](/docs/security/operators-and-credentials#secrets)). For a daemon on another host, see
 the [remote daemon guide](/docs/guides/remote-daemon).
 

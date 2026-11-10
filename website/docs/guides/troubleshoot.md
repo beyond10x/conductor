@@ -57,7 +57,7 @@ detail of a `Refused` result. For a `placement` that opens a box, the detail is 
 
 | detail | fix |
 |---|---|
-| `exec.writable-roots-host-unserved` | start `substrate-daemon` with the `--writable-root sessions-<instance>=<state>/sessions` the detail prints |
+| `exec.writable-roots-host-unserved` | start `substrate-daemon` with the `--writable-root <name>=<path>` the detail prints, such as `state-<instance>=<state>` |
 | `confinement.family-unserved`, `confinement.fact-unserved` | the local `substrate-daemon` does not serve the adapter. `systemd` needs it in a delegated systemd scope |
 | `placement.substrate-unreachable` | the remote substrate daemon did not answer within 10 s |
 | `SecretMissing` | `conductor secret put --name <name>` for each name printed |
