@@ -26,6 +26,11 @@ export interface InPage {
   background: string;
   /** Each element the state must show and does not, `<selector>: <shown> of <count>`. */
   absent: string[];
+  /**
+   * On a page that pins the theme the system scheme is not: the background the page shows without
+   * the pin, which is the system palette's.
+   */
+  system: { scheme: string; background: string } | null;
   motion: number;
 }
 
@@ -40,12 +45,16 @@ export interface AxeFinding {
 export interface Check extends InPage {
   viewport: string;
   theme: Theme;
+  /**
+   * The theme the page carries; null when it carries none, and when the page without its pin shows
+   * the same background under the other system scheme: that scheme's palette is dead.
+   */
   themeApplied: string | null;
   axe: AxeFinding[] | null;
 }
 
 /** Runs in the page: everything the contract reads from the laid-out document. */
-function inPage([width, height, visible, present]: [number, number, { kind: string; selector: string }[], { selector: string; count: number }[]]): InPage {
+function inPage([width, height, visible, present]: [number, number, { kind: string; selector: string }[], { selector: string; count: number; text?: boolean }[]]): InPage {
   const out: InPage = {
     violations: [],
     hscroll: false,
@@ -56,12 +65,30 @@ function inPage([width, height, visible, present]: [number, number, { kind: stri
     theme: document.documentElement.getAttribute('data-theme'),
     background: getComputedStyle(document.body).backgroundColor,
     absent: [],
+    system: null,
     motion: document.getAnimations().filter((animation) => animation.playState === 'running').length,
   };
   const shown = (el: Element): boolean => {
     const box = el.getBoundingClientRect();
-    const style = getComputedStyle(el);
-    return box.width > 0 && box.height > 0 && style.visibility !== 'hidden' && style.display !== 'none' && style.opacity !== '0';
+    // With its ancestors: none without a box, none hidden, none at opacity 0.
+    return box.width > 0 && box.height > 0 && el.checkVisibility({ opacityProperty: true, visibilityProperty: true, contentVisibilityAuto: true });
+  };
+  /** Whether `el` holds text that is on screen: a text node with a box, in a visible element. */
+  const hasText = (el: Element): boolean => {
+    const walker = document.createTreeWalker(el, NodeFilter.SHOW_TEXT);
+    for (let node = walker.nextNode(); node !== null; node = walker.nextNode()) {
+      const parent = node.parentElement;
+      if (parent === null || (node.textContent ?? '').trim() === '' || !parent.checkVisibility({ opacityProperty: true, visibilityProperty: true, contentVisibilityAuto: true })) {
+        continue;
+      }
+      const range = document.createRange();
+      range.selectNodeContents(node);
+      const box = range.getBoundingClientRect();
+      if (box.width > 0 && box.height > 0) {
+        return true;
+      }
+    }
+    return false;
   };
   const inView = (box: DOMRect): boolean =>
     box.left >= -0.5 && box.top >= -0.5 && box.right <= width + 0.5 && box.bottom <= height + 0.5;
@@ -98,8 +125,9 @@ function inPage([width, height, visible, present]: [number, number, { kind: stri
       }
     }
   }
-  for (const { selector, count } of present) {
-    const found = [...document.querySelectorAll(selector)].filter(shown).length;
+  for (const { selector, count, text } of present) {
+    const filled = (el: Element): boolean => (text === false ? [...el.querySelectorAll('*')].some(shown) : hasText(el));
+    const found = [...document.querySelectorAll(selector)].filter((el) => shown(el) && filled(el)).length;
     if (found !== count) {
       out.absent.push(`${selector}: ${found} of ${count}`);
     }
@@ -151,6 +179,13 @@ function inPage([width, height, visible, present]: [number, number, { kind: stri
       }
     }
   }
+  // Last, since it takes the pin off for one read: what the page shows when it follows the system.
+  const scheme = matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
+  if (out.theme !== null && out.theme !== scheme) {
+    root.removeAttribute('data-theme');
+    out.system = { scheme, background: getComputedStyle(document.body).backgroundColor };
+    root.setAttribute('data-theme', out.theme);
+  }
   out.overflow = [...new Set(out.overflow)].slice(0, 8);
   out.truncated = [...new Set(out.truncated)].slice(0, 8);
   return out;
@@ -177,7 +212,8 @@ export async function checkPage(page: Page, viewport: Viewport, theme: Theme, { 
         summary: violation.nodes[0]?.failureSummary?.split('\n')[1]?.trim() ?? '',
       }));
   }
-  return { ...read, viewport: viewport.name, theme, themeApplied: read.theme, axe: found };
+  const systemDead = read.system !== null && read.system.background === read.background;
+  return { ...read, viewport: viewport.name, theme, themeApplied: systemDead ? null : read.theme, axe: found };
 }
 
 /** What one state case shows of its theme. */
@@ -204,5 +240,28 @@ export function themeMisses(rows: Themed[]): Themed[] {
       const other = rows.find((one) => one.scenario === row.scenario && one.state === row.state && one.viewport === row.viewport && one.theme === theme);
       return other === undefined || other.background === row.background;
     });
+  });
+}
+
+/** What a state shows on the page that pins no theme, under the system scheme `scheme`. */
+export interface Unpinned {
+  scenario: string;
+  state: string;
+  viewport: string;
+  scheme: Theme;
+  /** The theme the page carries, which is none. */
+  themeApplied: string | null;
+  background: string;
+}
+
+/**
+ * The unpinned pages that do not follow the system: the page carries a theme, or its background is
+ * not the one the same state shows with the theme of that name pinned, so the system palette (the
+ * prefers-color-scheme block) of that scheme is dead. A page with no pinned one to compare misses.
+ */
+export function systemMisses(system: Unpinned[], rows: Themed[]): Unpinned[] {
+  return system.filter((page) => {
+    const pinned = rows.find((row) => row.scenario === page.scenario && row.state === page.state && row.viewport === page.viewport && row.theme === page.scheme);
+    return page.themeApplied !== null || pinned === undefined || pinned.background !== page.background;
   });
 }

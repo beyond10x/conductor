@@ -7,7 +7,9 @@
 //   answered state;
 // - gating viewports 1440x900 and 1280x800; measured-only 1024x768, 768x1024 and 390x844;
 // - themes: light and dark, the two the theme button pins (src/style.css), each measured under the
-//   other system colour scheme, so the pinned palette rules are what is on screen;
+//   other system colour scheme, so the pinned palette rules are what is on screen, and the page that
+//   pins none (the app's default, `system`) once per system scheme, against the pinned theme of
+//   that name;
 // - presence: each state names the elements it must show, with their count from the fixture;
 // - always visible: the header, its instance selector and the page navigation;
 // - completion state: an answered decision on the Decisions page;
@@ -66,10 +68,15 @@ export interface Step {
   within?: string;
 }
 
-/** An element a state must show: exactly `count` visible elements match `selector`. */
+/**
+ * An element a state must show: exactly `count` elements match `selector`, each visible with its
+ * ancestors (none hidden, none at opacity 0) and holding text that is on screen. `text: false`
+ * names an element the fixture gives no text (a chart): a visible element inside it is asked for.
+ */
 export interface Present {
   selector: string;
   count: number;
+  text?: boolean;
 }
 
 export interface State {

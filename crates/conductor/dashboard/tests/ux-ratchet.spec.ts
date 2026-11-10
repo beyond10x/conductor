@@ -12,6 +12,7 @@ import {
   writeBaseline,
   type Baseline,
   type Metrics,
+  decided,
   mainProblems,
   needsDecision,
   undecided,
@@ -134,6 +135,47 @@ describe('a decision', () => {
     const tabs = writeBaseline(at(4, 30), held, undefined);
     expect(worseThanMain(tabs, held)).toEqual(['baseline made worse without a decision id: repository/keyboard.tabs@1280x800 20 -> 30']);
     expect(worseThanMain(writeBaseline(at(152, 30), held, 'R-02'), held)).toEqual([]);
+  });
+});
+
+describe('a decision id', () => {
+  const key = 'axe_serious_critical_nodes@1280x800';
+  const held = baseline({ repository: { [key]: { value: 4, tolerance: 0, decision: 'R-01' } } });
+  const at = (value: number, tolerance = 0): Metrics => ({ repository: { [key]: { value, tolerance } } });
+
+  it('is not an empty or blank one: at --update, in the baseline and against main', () => {
+    for (const blank of ['', ' ', '\t']) {
+      expect(decided(blank)).toBe(false);
+      expect(needsDecision(at(152), held, blank)).toEqual([{ s: 'repository', k: key, value: 152 }]);
+      const written = writeBaseline(at(152), held, blank);
+      expect(written.scenarios.repository?.[key]).toEqual({ value: 152, tolerance: 0 });
+      const byHand = baseline({ repository: { [key]: { value: 152, tolerance: 0, decision: blank } } });
+      expect(undecided(byHand)).toEqual([`hard-gate value above 0 held without a decision id: repository/${key} = 152`]);
+      expect(worseThanMain(byHand, held)).toEqual([`baseline made worse without a decision id: repository/${key} 4 -> 152`]);
+    }
+    expect(decided(undefined)).toBe(false);
+    expect(decided('R-02')).toBe(true);
+  });
+
+  it('is a new one for a value that rose: --update refuses the id the lower value was held under', () => {
+    expect(needsDecision(at(152), held, 'R-01')).toEqual([{ s: 'repository', k: key, value: 152 }]);
+    expect(needsDecision(at(152), held, 'R-02')).toEqual([]);
+    expect(needsDecision(at(4), held, 'R-01')).toEqual([]);
+    expect(needsDecision(at(1), null, 'R-01')).toEqual([]);
+    expect(writeBaseline(at(152), held, 'R-01').scenarios.repository?.[key]).toEqual({ value: 152, tolerance: 0 });
+  });
+
+  it('is what a tolerance above the gate\'s own, or above main\'s, needs', () => {
+    const edited = baseline({ repository: { [key]: { value: 4, tolerance: 1000, decision: 'R-01' } } });
+    expect(compare(edited, at(152)).problems).toEqual([
+      `tolerance of repository/${key} is 1000 in the baseline, the gate's is 0; run task ui:ux-gate -- --update`,
+      `worse repository/${key}: 152 > baseline 4 (tolerance 0)`,
+    ]);
+    expect(compare(edited, at(4)).ok).toBe(false);
+    expect(worseThanMain(edited, held)).toEqual([`baseline tolerance raised without a decision id: repository/${key} 0 -> 1000`]);
+    const own = baseline({ repository: { [key]: { value: 4, tolerance: 1000, decision: 'R-02' } } });
+    expect(worseThanMain(own, held)).toEqual([]);
+    expect(worseThanMain(held, held)).toEqual([]);
   });
 });
 

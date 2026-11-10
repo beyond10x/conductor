@@ -1,6 +1,7 @@
-// The findings test's checker (the ui-iteration-loop skill, § 5): every record ux/findings/UXF-nnn.md
-// carries the header fields, and no closed S1 or S2 finding stands without a regression asset that
-// exists. tests/ux-findings.spec.ts runs it over ux/findings/ in npm test.
+// The findings test's checker (the ui-iteration-loop skill, § 5): every .md file in ux/findings/ is
+// a record named UXF-nnn.md that carries the header fields, and no closed S1 or S2 finding stands
+// without a regression asset: a test or scenario file that exists. tests/ux-findings.spec.ts runs it
+// over ux/findings/ in npm test.
 import { existsSync, readFileSync, readdirSync, statSync } from 'node:fs';
 import { join } from 'node:path';
 
@@ -24,6 +25,13 @@ export const FIELDS = [
  * R-02", "fixed") would pass the closed-finding rule unread.
  */
 export const STATUSES = ['open', 'closed', 'duplicate', 'known-loss'] as const;
+
+/**
+ * What a regression asset may be, as a path relative to the dashboard app: a file that asserts or
+ * that the gate drives. A record, a screenshot or a manifest asserts nothing.
+ */
+export const ASSETS = [/^tests\/[^/]+\.spec\.ts$/, /^src\/(.+\/)?__tests__\/[^/]+$/, /^ux\/scenarios\/.+$/, /^ux\/breaks\.ts$/];
+export const ASSET_KINDS = 'tests/*.spec.ts, src/**/__tests__/*, ux/scenarios/**, ux/breaks.ts';
 
 /** Whether `asset`, relative to `root`, is a file. */
 export function fileIn(root: string): (asset: string) => boolean {
@@ -54,12 +62,13 @@ export function parseFinding(text: string): Record<string, string> | null {
  * path relative to the dashboard app, is a file there ([`fileIn`]). A directory is no asset.
  */
 export function findingProblems(file: string, text: string, isFile: (asset: string) => boolean): string[] {
+  const named = /^UXF-\d{3}\.md$/.test(file) ? [] : [`${file}: a record is named UXF-nnn.md`];
   const header = parseFinding(text);
   if (header === null) {
-    return [`${file}: no header`];
+    return [...named, `${file}: no header`];
   }
-  const problems = FIELDS.filter((field) => !(field in header)).map((field) => `${file}: missing ${field}`);
-  if (problems.length > 0) {
+  const problems = [...named, ...FIELDS.filter((field) => !(field in header)).map((field) => `${file}: missing ${field}`)];
+  if (problems.length > named.length) {
     return problems;
   }
   if (`${header.id}.md` !== file) {
@@ -79,6 +88,8 @@ export function findingProblems(file: string, text: string, isFile: (asset: stri
       problems.push(`${file}: closed ${severity} without a regression asset`);
     } else if (!/(^|\/)[^/]+\.[A-Za-z0-9]+$/.test(asset)) {
       problems.push(`${file}: regression asset ${asset} does not name a file`);
+    } else if (asset.split('/').some((part) => part === '..' || part === '.') || !ASSETS.some((kind) => kind.test(asset))) {
+      problems.push(`${file}: regression asset ${asset} is not a test or scenario file (${ASSET_KINDS})`);
     } else if (!isFile(asset)) {
       problems.push(`${file}: regression asset ${asset} not found`);
     }
@@ -86,13 +97,13 @@ export function findingProblems(file: string, text: string, isFile: (asset: stri
   return problems;
 }
 
-/** Every record `UXF-nnn.md` in `dir`, by name. */
+/** Every record in `dir`, by name: each .md file, whatever it is called. */
 export function readFindings(dir: string): { file: string; text: string }[] {
   if (!existsSync(dir)) {
     return [];
   }
   return readdirSync(dir)
-    .filter((file) => /^UXF-\d{3}\.md$/.test(file))
+    .filter((file) => file.toLowerCase().endsWith('.md'))
     .sort()
     .map((file) => ({ file, text: readFileSync(join(dir, file), 'utf8') }));
 }

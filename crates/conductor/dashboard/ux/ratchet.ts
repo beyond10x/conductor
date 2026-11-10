@@ -1,7 +1,8 @@
 // The ratchet over ux/baseline.json (the ui-iteration-loop skill, § 6), the dashboard's port of the
 // documentation site's ux/ratchet.mjs: every value is lower-is-better, and the gate fails on a value
 // worse than the baseline, an improvement not taken into it, a missing value, a value the baseline
-// does not hold, and a baseline made worse than main's without a decision id.
+// does not hold, a tolerance in the baseline that is not the gate's own, and a baseline made worse
+// than main's (a higher value or a higher tolerance) without a decision id of its own.
 import { execFileSync } from 'node:child_process';
 import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
@@ -28,6 +29,11 @@ export const baselinePath = join(UX_DIR, 'baseline.json');
 
 const UPDATE = 'run task ui:ux-gate -- --update';
 
+/** Whether `id` is a decision id: an empty or blank one (an unset shell variable) is none. */
+export function decided(id: string | undefined): id is string {
+  return id !== undefined && id.trim() !== '';
+}
+
 /** The slack a key's tolerance allows around `value`: relative below 1, absolute for a shift. */
 function slack(key: string, held: Value): number {
   const tolerance = held.tolerance ?? 0;
@@ -45,7 +51,12 @@ export function compare(baseline: Baseline, metrics: Metrics): { ok: boolean; pr
         problems.push(`missing value ${scenario}/${key}`);
         continue;
       }
-      const allowed = slack(key, held);
+      // The tolerance is the gate's own, measured with the value: one raised by hand in the file
+      // would hold any worse value.
+      if ((held.tolerance ?? 0) !== now.tolerance) {
+        problems.push(`tolerance of ${scenario}/${key} is ${held.tolerance} in the baseline, the gate's is ${now.tolerance}; ${UPDATE}`);
+      }
+      const allowed = slack(key, { ...held, tolerance: now.tolerance });
       if (now.value > held.value + allowed) {
         problems.push(`worse ${scenario}/${key}: ${now.value} > baseline ${held.value} (tolerance ${allowed})`);
       } else if (now.value < held.value - allowed) {
@@ -105,8 +116,8 @@ export function mainProblems(main: MainRead, ci: boolean): { problems: string[];
 }
 
 /**
- * The values of `baseline` that are worse than main's without a decision of their own: none, or
- * the one main already held the lower value under.
+ * The values of `baseline` that are worse than main's without a decision of their own, in value or
+ * in tolerance: no decision, a blank one, or the one main already held the key under.
  */
 export function worseThanMain(baseline: Baseline, main: Baseline | null): string[] {
   const problems: string[] = [];
@@ -116,11 +127,14 @@ export function worseThanMain(baseline: Baseline, main: Baseline | null): string
   for (const [scenario, keys] of Object.entries(baseline.scenarios)) {
     for (const [key, held] of Object.entries(keys)) {
       const before = main.scenarios[scenario]?.[key];
-      if (before === undefined || held.value <= before.value + (before.tolerance ?? 0)) {
+      if (before === undefined || (decided(held.decision) && held.decision !== before.decision)) {
         continue;
       }
-      if (held.decision === undefined || held.decision === before.decision) {
+      if (held.value > before.value + (before.tolerance ?? 0)) {
         problems.push(`baseline made worse without a decision id: ${scenario}/${key} ${before.value} -> ${held.value}`);
+      }
+      if ((held.tolerance ?? 0) > (before.tolerance ?? 0)) {
+        problems.push(`baseline tolerance raised without a decision id: ${scenario}/${key} ${before.tolerance ?? 0} -> ${held.tolerance}`);
       }
     }
   }
@@ -140,27 +154,29 @@ export function hardFailures(metrics: Metrics): { s: string; k: string; value: n
 }
 
 /**
- * The hard-gate values `--update` may write only with a decision: one above 0 the baseline does
- * not hold, and one above the value it holds, whatever decision that lower value was held under.
+ * The hard-gate values `--update` may not write with `decision`: one above 0 the baseline does not
+ * hold, and one above the value it holds, unless `decision` is an id ([`decided`]) and not the one
+ * the lower value was held under.
  */
-export function needsDecision(metrics: Metrics, baseline: Baseline | null): { s: string; k: string; value: number }[] {
+export function needsDecision(metrics: Metrics, baseline: Baseline | null, decision?: string): { s: string; k: string; value: number }[] {
   return hardFailures(metrics).filter(({ s, k, value }) => {
     const held = baseline?.scenarios[s]?.[k];
-    return held === undefined || value > held.value;
+    const rose = held === undefined || value > held.value;
+    return rose && !(decided(decision) && decision !== held?.decision);
   });
 }
 
 /** The hard-gate values above 0 a baseline holds under no decision. */
 export function undecided(baseline: Baseline): string[] {
   return hardFailures(baseline.scenarios)
-    .filter(({ s, k }) => baseline.scenarios[s]?.[k]?.decision === undefined)
+    .filter(({ s, k }) => !decided(baseline.scenarios[s]?.[k]?.decision))
     .map(({ s, k, value }) => `hard-gate value above 0 held without a decision id: ${s}/${k} = ${value}`);
 }
 
 /**
  * The baseline of `metrics`. A decision is an acceptance of one value: a value that did not rise
  * keeps the decision it was held under, a value that rose carries `decision` or none, never the
- * old id.
+ * old id, also when `decision` repeats it; a blank `decision` is none.
  */
 export function writeBaseline(metrics: Metrics, previous: Baseline | null, decision: string | undefined): Baseline {
   const scenarios: Metrics = {};
@@ -171,8 +187,9 @@ export function writeBaseline(metrics: Metrics, previous: Baseline | null, decis
       const old = previous?.scenarios[scenario]?.[key];
       const entry: Value = { value: now.value, tolerance: now.tolerance };
       const rose = old === undefined ? HARD.test(key) && now.value > 0 : now.value > old.value;
-      const kept = rose ? decision : now.value > 0 ? old?.decision : undefined;
-      if (kept !== undefined) {
+      const fresh = decided(decision) && decision !== old?.decision ? decision : undefined;
+      const kept = rose ? fresh : now.value > 0 ? old?.decision : undefined;
+      if (decided(kept)) {
         entry.decision = kept;
       }
       out[key] = entry;
@@ -180,7 +197,7 @@ export function writeBaseline(metrics: Metrics, previous: Baseline | null, decis
   }
   return {
     about:
-      'UX ratchet baseline for the conductor dashboard (crates/conductor/dashboard). All values lower is better. Keys carry @<viewport>; the gating viewports are 1440x900 and 1280x800. Each scenario is one page driven state by state from the store fixtures (ux/fixtures.ts) in both themes; the *_states counts are state x theme cases. Rewrite with: task ui:ux-gate -- --update (a hard-gate value above 0 needs --decision <id>).',
+      'UX ratchet baseline for the conductor dashboard (crates/conductor/dashboard). All values lower is better. Keys carry @<viewport>; the gating viewports are 1440x900 and 1280x800. Each scenario is one page driven state by state from the store fixtures (ux/fixtures.ts) in both themes; the *_states counts are state x theme cases. Rewrite with: task ui:ux-gate -- --update (a hard-gate value that enters above 0 or rises needs --decision <id>, a new id).',
     scenarios,
     tolerances: { counts: 0, steps: 0.05, layout_shift: 0.01 },
   };

@@ -19,7 +19,7 @@ import {
   type Theme,
   type Viewport,
 } from './adapter.ts';
-import { checkPage, themeMisses, type Check } from './contract.ts';
+import { checkPage, systemMisses, themeMisses, type Check, type Unpinned } from './contract.ts';
 import { FixtureStore } from './fixtures.ts';
 import type { Metrics } from './ratchet.ts';
 import { startServer } from './serve.ts';
@@ -47,6 +47,8 @@ export interface Keyboard {
 
 export interface Measurement {
   rows: Row[];
+  /** Each scenario on the page that pins no theme, once per viewport and system scheme. */
+  system: Unpinned[];
   plays: Record<string, Record<string, { theme: Theme; play: Play; keyboard: Keyboard }[]>>;
   shots: { moments: Shot[]; worst: Shot[] } | null;
   scenarios: Scenario[];
@@ -68,23 +70,30 @@ interface Opened {
   network: string[];
 }
 
-/** A context at `viewport` in `theme`, its instance API answered by a store in `state`. */
-async function open(browser: Browser, url: string, viewport: Viewport, theme: Theme, state: State): Promise<Opened> {
+/**
+ * A context at `viewport` in `theme`, its instance API answered by a store in `state`. With
+ * `system` the page pins no theme and the system scheme is `theme`.
+ */
+async function open(browser: Browser, url: string, viewport: Viewport, theme: Theme, state: State, system = false): Promise<Opened> {
   const context = await browser.newContext({
     viewport: { width: viewport.width, height: viewport.height },
     // The system scheme is the other one: only the pinned theme's own palette rules can show it.
-    colorScheme: theme === 'dark' ? 'light' : 'dark',
+    colorScheme: system ? theme : theme === 'dark' ? 'light' : 'dark',
     reducedMotion: 'reduce',
   });
   await context.addInitScript(
     ([key, value]) => {
       try {
+        if (value === '') {
+          localStorage.removeItem(key);
+          return;
+        }
         localStorage.setItem(key, value);
       } catch {
         // A page without storage shows the system theme, which the colour scheme sets.
       }
     },
-    [THEME_KEY, theme] as [string, string],
+    [THEME_KEY, system ? '' : theme] as [string, string],
   );
   const store = new FixtureStore(state.store);
   const network: string[] = [];
@@ -247,6 +256,7 @@ export async function measureAll({ gatingOnly = false, shotsDir = null }: { gati
   const all = scenarios();
   const viewports = gatingOnly ? GATING : VIEWPORTS;
   const rows: Row[] = [];
+  const system: Unpinned[] = [];
   const plays: Measurement['plays'] = {};
   const jobs = all.flatMap((scenario) => viewports.flatMap((viewport) => THEMES.map((theme) => ({ scenario, viewport, theme }))));
   const moments: Shot[] = [];
@@ -292,13 +302,28 @@ export async function measureAll({ gatingOnly = false, shotsDir = null }: { gati
         await last.context.close();
       }
     });
+    // The page that pins no theme, each scenario's full state once per system scheme.
+    const unpinned = all.flatMap((scenario) => viewports.flatMap((viewport) => THEMES.map((scheme) => ({ scenario, viewport, scheme }))));
+    await pool(unpinned, 4, async ({ scenario, viewport, scheme }) => {
+      const state = scenario.states.find((one) => one.store === 'full' && one.act === undefined);
+      if (state === undefined) {
+        return;
+      }
+      const opened = await open(browser, url, viewport, scheme, state, true);
+      await opened.page.goto(url + pagePath(scenario));
+      await settle(opened.page, false);
+      const check = await checkPage(opened.page, viewport, scheme, { axe: false, present: state.present });
+      system.push({ scenario: scenario.name, state: state.name, viewport: viewport.name, scheme, themeApplied: check.themeApplied, background: check.background });
+      await opened.context.close();
+    });
+    system.sort((a, b) => `${a.scenario} ${a.viewport} ${a.scheme}`.localeCompare(`${b.scenario} ${b.viewport} ${b.scheme}`));
     rows.sort((a, b) => `${a.scenario} ${a.viewport} ${a.theme} ${a.state}`.localeCompare(`${b.scenario} ${b.viewport} ${b.theme} ${b.state}`));
     let shots: Measurement['shots'] = null;
     if (shotsDir !== null) {
       shots = { moments: moments.sort((a, b) => a.file.localeCompare(b.file)), worst: await worstShots(browser, url, shotsDir, rows, all) };
       await contactSheets(browser, shotsDir, shots.moments);
     }
-    return { rows, plays, shots, scenarios: all };
+    return { rows, system, plays, shots, scenarios: all };
   } finally {
     await browser.close();
     server.close();
@@ -370,7 +395,8 @@ export function flatten(measured: Measurement): Metrics {
       put('always_visible_violations', rows.reduce((sum, row) => sum + row.violations.length, 0));
       put('axe_serious_critical_nodes', rows.reduce((sum, row) => sum + (row.axe ?? []).reduce((inner, finding) => inner + finding.nodes, 0), 0));
       put('axe_rule_cases', rows.reduce((sum, row) => sum + (row.axe?.length ?? 0), 0));
-      put('theme_not_applied', themeMisses(rows).length);
+      const unpinned = measured.system.filter((page) => page.scenario === scenario.name && page.viewport === viewport.name);
+      put('theme_not_applied', themeMisses(rows).length + systemMisses(unpinned, rows).length + (unpinned.length === THEMES.length ? 0 : 1));
       put('presence_misses', rows.reduce((sum, row) => sum + row.absent.length, 0));
       put('truncated_states', count((row) => row.truncated.length > 0));
       put('reduced_motion_violations', rows.reduce((sum, row) => sum + row.motion, 0));
@@ -402,7 +428,7 @@ export function measuredOnly(measured: Measurement): Record<string, Record<strin
       overflow_states: rows.filter((row) => row.overflow.length > 0).length,
       always_visible_violations: rows.reduce((sum, row) => sum + row.violations.length, 0),
       truncated_states: rows.filter((row) => row.truncated.length > 0).length,
-      theme_not_applied: themeMisses(rows).length,
+      theme_not_applied: themeMisses(rows).length + systemMisses(measured.system.filter((page) => page.viewport === viewport.name), rows).length,
       presence_misses: rows.reduce((sum, row) => sum + row.absent.length, 0),
       scrolling_block_states: rows.filter((row) => row.innerScroll > 0).length,
       small_text_states: rows.filter((row) => row.smallText > 0).length,

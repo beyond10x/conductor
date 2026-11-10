@@ -7,7 +7,7 @@ import { execFileSync } from 'node:child_process';
 import { existsSync, mkdirSync, readFileSync, readdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { APP_DIR, GATING, THEMES, UX_DIR, VIEWPORTS } from './adapter.ts';
-import { themeMisses } from './contract.ts';
+import { systemMisses, themeMisses } from './contract.ts';
 import { flatten, measureAll, measuredOnly } from './measure.ts';
 import { compare, readBaseline } from './ratchet.ts';
 
@@ -57,7 +57,10 @@ for (const viewport of VIEWPORTS) {
     overflow: [...new Set(rows.flatMap((row) => row.overflow.map((one) => `${row.scenario}/${row.state}: ${one}`)))].slice(0, 12),
     truncated: [...new Set(rows.flatMap((row) => row.truncated))].slice(0, 12),
     absent: rows.flatMap((row) => row.absent.map((one) => `${row.scenario}/${row.state}[${row.theme}]: ${one}`)),
-    theme_misses: themeMisses(rows).map((row) => `${row.scenario}/${row.state}[${row.theme}] background ${row.background}`),
+    theme_misses: [
+      ...themeMisses(rows).map((row) => `${row.scenario}/${row.state}[${row.theme}] background ${row.background}`),
+      ...systemMisses(measured.system.filter((page) => page.viewport === viewport.name), rows).map((page) => `${page.scenario}/${page.state}[system ${page.scheme}] background ${page.background}`),
+    ],
     network: [...new Set(rows.flatMap((row) => row.network))],
     unanswered: [...new Set(rows.flatMap((row) => row.unanswered))],
     small_text_states: rows.filter((row) => row.smallText > 0).length,
@@ -87,6 +90,7 @@ const summary = {
   measured_only: measuredOnly(measured),
   details,
   plays: measured.plays,
+  system: measured.system,
   rows: measured.rows.map((row) => ({
     scenario: row.scenario,
     state: row.state,
@@ -162,7 +166,7 @@ for (const viewport of VIEWPORTS) {
     `Elements past their box: ${detail.overflow.join('; ') || 'none'}`,
     `Text cut off without its full value: ${detail.truncated.join(' | ') || 'none'}`,
     `Elements a state names and does not show (shown of named): ${detail.absent.join('; ') || 'none'}`,
-    `State cases whose theme is not on screen (not pinned, or the background of the other theme): ${detail.theme_misses.join('; ') || 'none'}`,
+    `State cases whose theme is not on screen (not pinned, the background of the other theme, or a system page that is not its scheme's theme): ${detail.theme_misses.join('; ') || 'none'}`,
     `Requests off the loopback origin: ${detail.network.join(', ') || 'none'}`,
     `Requests no fixture answers: ${detail.unanswered.join(', ') || 'none'}`,
     `State cases with text under 14 px in main: ${detail.small_text_states} of ${measured.rows.filter((row) => row.viewport === viewport.name).length}`,

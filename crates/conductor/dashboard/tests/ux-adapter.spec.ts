@@ -15,7 +15,7 @@ import {
   VIEWPORTS,
   scenarios,
 } from '../ux/adapter.ts';
-import { themeMisses } from '../ux/contract.ts';
+import { systemMisses, themeMisses } from '../ux/contract.ts';
 import { FixtureStore } from '../ux/fixtures.ts';
 
 const REPO = join(process.cwd(), '..', '..', '..');
@@ -102,6 +102,30 @@ describe('the theme check', () => {
   it('misses a page that does not carry the theme, and a case with no other theme to compare', () => {
     expect(themeMisses([row('light', 'rgb(255, 255, 255)'), row('dark', 'rgb(15, 18, 22)', null)]).map((one) => one.theme)).toEqual(['dark']);
     expect(themeMisses([row('dark', 'rgb(15, 18, 22)')])).toHaveLength(1);
+  });
+
+  const unpinned = (scheme: 'light' | 'dark', background: string, themeApplied: string | null = null) => ({
+    scenario: 'health',
+    state: 'full',
+    viewport: '1280x800',
+    scheme,
+    themeApplied,
+    background,
+  });
+  const pinned = [row('light', 'rgb(255, 255, 255)'), row('dark', 'rgb(15, 18, 22)')];
+
+  it('passes the page that pins no theme when it shows the theme of its system scheme', () => {
+    expect(systemMisses([unpinned('light', 'rgb(255, 255, 255)'), unpinned('dark', 'rgb(15, 18, 22)')], pinned)).toEqual([]);
+  });
+
+  it('misses the unpinned page that is light on a dark system: the prefers-color-scheme block is dead', () => {
+    const misses = systemMisses([unpinned('light', 'rgb(255, 255, 255)'), unpinned('dark', 'rgb(255, 255, 255)')], pinned);
+    expect(misses.map((one) => one.scheme)).toEqual(['dark']);
+  });
+
+  it('misses an unpinned page that carries a theme, and one with no pinned page to compare', () => {
+    expect(systemMisses([unpinned('dark', 'rgb(15, 18, 22)', 'dark')], pinned)).toHaveLength(1);
+    expect(systemMisses([unpinned('dark', 'rgb(15, 18, 22)')], [row('light', 'rgb(255, 255, 255)')])).toHaveLength(1);
   });
 });
 

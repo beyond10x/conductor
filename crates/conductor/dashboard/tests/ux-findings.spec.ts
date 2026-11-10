@@ -43,9 +43,9 @@ describe('the findings checker', () => {
   });
 
   it('fails on a closed S1 or S2 finding whose regression asset does not exist', () => {
-    const text = record({ status: 'closed', regression_asset: 'ux/regression/UXF-001.ts' });
+    const text = record({ status: 'closed', regression_asset: 'tests/ux-uxf-001.spec.ts' });
     expect(findingProblems('UXF-001.md', text, nothing)).toEqual([
-      'UXF-001.md: regression asset ux/regression/UXF-001.ts not found',
+      'UXF-001.md: regression asset tests/ux-uxf-001.spec.ts not found',
     ]);
     expect(findingProblems('UXF-001.md', text, () => true)).toEqual([]);
   });
@@ -92,7 +92,36 @@ describe('the findings checker', () => {
     expect(findingProblems('UXF-001.md', record({ status: 'closed', regression_asset: 'none yet; proposed: a case' }), () => true)).toEqual([
       'UXF-001.md: closed S2 without a regression asset',
     ]);
-    expect(findingProblems('UXF-001.md', record({ status: 'closed', regression_asset: 'package.json#a case' }), here)).toEqual([]);
+    expect(findingProblems('UXF-001.md', record({ status: 'closed', regression_asset: 'tests/ux-findings.spec.ts#a case' }), here)).toEqual([]);
+  });
+
+  it('takes only a test or scenario file for a regression asset, never a record, a shot or a manifest', () => {
+    const closed = (regression_asset: string) => findingProblems('UXF-001.md', record({ status: 'closed', regression_asset }), () => true);
+    for (const asset of ['tests/ux-findings.spec.ts', 'src/__tests__/App.spec.ts', 'src/views/__tests__/Health.spec.ts', 'ux/scenarios/health/scenario.json', 'ux/breaks.ts']) {
+      expect(closed(asset), asset).toEqual([]);
+    }
+    for (const asset of [
+      'ux/findings/UXF-001.md',
+      'ux/rounds/R-01/shots/health-full-1280x800-dark.png',
+      'package.json',
+      'ux/contract.ts',
+      'tests/setup.ts',
+      'ux/scenarios/../findings/UXF-001.md',
+      './tests/ux-findings.spec.ts',
+      'node_modules/x/tests/a.spec.ts',
+    ]) {
+      expect(closed(asset), asset).toEqual([
+        `UXF-001.md: regression asset ${asset} is not a test or scenario file (tests/*.spec.ts, src/**/__tests__/*, ux/scenarios/**, ux/breaks.ts)`,
+      ]);
+    }
+  });
+
+  it('holds every .md file in the directory to the record name', () => {
+    for (const file of ['UXF-005-header.md', 'UXF-1000.md', 'uxf-006.md', 'README.md']) {
+      expect(findingProblems(file, record({ id: file.replace(/\.md$/, '') }), nothing), file).toEqual([`${file}: a record is named UXF-nnn.md`]);
+    }
+    expect(findingProblems('notes.md', 'no header', nothing)).toEqual(['notes.md: a record is named UXF-nnn.md', 'notes.md: no header']);
+    expect(readFindings(join(ROOT, 'tests', 'fixtures-none'))).toEqual([]);
   });
 
   it('names every header field of the skill', () => {

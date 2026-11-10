@@ -10,12 +10,16 @@ import { writeFileSync } from 'node:fs';
 import { chromium } from 'playwright';
 import { breakTests } from './breaks.ts';
 import { flatten, measureAll } from './measure.ts';
-import { baselinePath, compare, hardFailures, mainProblems, needsDecision, readBaseline, readMain, undecided, worseThanMain, writeBaseline } from './ratchet.ts';
+import { baselinePath, compare, decided, hardFailures, mainProblems, needsDecision, readBaseline, readMain, undecided, worseThanMain, writeBaseline } from './ratchet.ts';
 
 const args = process.argv.slice(2);
 const update = args.includes('--update');
 const at = args.indexOf('--decision');
 const decision = at >= 0 ? args[at + 1] : undefined;
+if (at >= 0 && (!decided(decision) || decision.startsWith('--'))) {
+  console.error('ux gate failed: --decision names no id; an empty or blank one is no decision');
+  process.exit(1);
+}
 
 const browser = await chromium.launch();
 const breaks = await breakTests(browser);
@@ -33,9 +37,9 @@ console.log(`measured ${measured.rows.length} state cases over ${measured.scenar
 const baseline = readBaseline();
 
 if (update) {
-  const open = needsDecision(metrics, baseline);
-  if (open.length > 0 && decision === undefined) {
-    console.error(`hard-gate values above 0 enter or rise in the baseline only with --decision <id>:\n${open.map(({ s, k, value }) => `- ${s}/${k} = ${value}`).join('\n')}`);
+  const open = needsDecision(metrics, baseline, decision);
+  if (open.length > 0) {
+    console.error(`hard-gate values above 0 enter or rise in the baseline only with --decision <id>, an id the value was not held under before:\n${open.map(({ s, k, value }) => `- ${s}/${k} = ${value}`).join('\n')}`);
     process.exit(1);
   }
   writeFileSync(baselinePath, `${JSON.stringify(writeBaseline(metrics, baseline, decision), null, 2)}\n`);
