@@ -373,9 +373,12 @@ fn typed_through_attach(case: &Case, first: &[String], id: &str, text: &str) -> 
             "-y",
             "50",
             "--",
+            "sh",
+            "-c",
+            r#""$0" attach "$1"; : > "$2"; exec sleep 86400"#,
             "claude",
-            "attach",
             id,
+            &dir.join(format!("{pane}.ended")).display().to_string(),
         ]),
         call(&["capture-pane", "-p", "-t", &target]),
     ];

@@ -8,8 +8,8 @@
 //! --json` lists one live background session; `attach <id>` appends its process id to
 //! `attach.pids`, prints one line and then, as `attach.mode` says, appends what it reads from
 //! its terminal to `received` at once (no mode), after three seconds (`slow`), or never
-//! (`never`), or ends after three seconds without reading (`dies`); `silent` prints nothing and
-//! never reads. No real session, harness or default tmux server is touched.
+//! (`never`), or ends, without reading, as soon as its terminal holds a line it could read
+//! (`dies`); `silent` prints nothing and never reads. No real session, harness or default tmux server is touched.
 
 mod common;
 mod scratch;
@@ -81,7 +81,7 @@ impl Case {
                  \x20 case \"$M\" in\n\
                  \x20 never) exec sleep 600;;\n\
                  \x20 slow) sleep 3;;\n\
-                 \x20 dies) sleep 3; exit 0;;\n\
+                 \x20 dies) until bash -c 'read -t 0'; do sleep 0.02; done; exit 0;;\n\
                  \x20 esac\n\
                  \x20 exec cat >> \"$D/received\"\n\
                  fi\n\
@@ -256,9 +256,11 @@ fn a_delivery_to_an_attach_client_that_draws_nothing_is_refused_at_the_bound() {
     assert_eq!(case.panes(), Vec::<String>::new(), "no socket is left");
 }
 
-/// An attach client that ends, three seconds after it drew, without reading: the text was typed
-/// and was still unread on the pane's terminal when the pane ended. The delivery is refused
-/// `DeliveryNotSeenRead` on one line, not `SessionNotReachable`, and nothing is recorded.
+/// An attach client that ends without reading, the moment the typed line is on its terminal
+/// (it asks whether a line is there, and reads none): the text was typed and was still unread
+/// when the client ended, however soon after Enter that was and whether or not the delivery
+/// looked at the terminal in between. The delivery is refused `DeliveryNotSeenRead` on one
+/// line, not `SessionNotReachable`, and nothing is recorded.
 #[test]
 fn a_delivery_whose_pane_ended_with_the_text_unread_is_refused_as_not_seen_read() {
     let case = Case::new("dies", "dies");

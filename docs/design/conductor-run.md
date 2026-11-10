@@ -103,8 +103,9 @@ delivery, which runs `claude attach <id>` on a socket of the delivery's own
 (`<state>/sessions/deliveries/<process id>-<count>.tmux`, so two deliveries at once share
 nothing, no reader of launcher sockets lists the pane, and the socket's name does not grow with
 the session's) and is ended once the attach client has read the text; a client that does not
-read it within 10 s, or whose pane ends with the text unread, is refused `DeliveryNotSeenRead`,
-and a pane that ended after Enter with no unread text seen counts as read. A delivery asked to
+read it within 10 s, or that ends with the text unread, is refused `DeliveryNotSeenRead`. The
+pane outlives its client, so a client that ended is looked at like one that runs: only a look at
+the pane's terminal after the typing that shows nothing unread answers "read". A delivery asked to
 end (SIGTERM, SIGINT) ends its pane first (`story:deliver-reaches-bg-session`). A session
 neither route reaches is reported, never
 retried in a loop. `SendMessage` is no longer used between roles; the guard allows `message send`
