@@ -1,7 +1,7 @@
 // The findings test's checker (the ui-iteration-loop skill, § 5): every record ux/findings/UXF-nnn.md
 // carries the header fields, and no closed S1 or S2 finding stands without a regression asset that
 // exists. tests/ux-findings.spec.ts runs it over ux/findings/ in npm test.
-import { readFileSync, readdirSync, existsSync } from 'node:fs';
+import { existsSync, readFileSync, readdirSync, statSync } from 'node:fs';
 import { join } from 'node:path';
 
 /** The header fields of a finding record, in the skill's order. */
@@ -18,6 +18,20 @@ export const FIELDS = [
   'evidence_lines',
   'regression_asset',
 ] as const;
+
+/**
+ * What a record's status may read, and nothing else: a status in other words ("Closed", "closed in
+ * R-02", "fixed") would pass the closed-finding rule unread.
+ */
+export const STATUSES = ['open', 'closed', 'duplicate', 'known-loss'] as const;
+
+/** Whether `asset`, relative to `root`, is a file. */
+export function fileIn(root: string): (asset: string) => boolean {
+  return (asset) => {
+    const path = join(root, asset);
+    return existsSync(path) && statSync(path).isFile();
+  };
+}
 
 /** The header of a record: the `key: value` lines between its two `---` lines. */
 export function parseFinding(text: string): Record<string, string> | null {
@@ -36,10 +50,10 @@ export function parseFinding(text: string): Record<string, string> | null {
 }
 
 /**
- * What is wrong with the record `file` holding `text`; `exists` says whether a regression asset,
- * a path relative to the dashboard app, is there.
+ * What is wrong with the record `file` holding `text`; `isFile` says whether a regression asset, a
+ * path relative to the dashboard app, is a file there ([`fileIn`]). A directory is no asset.
  */
-export function findingProblems(file: string, text: string, exists: (asset: string) => boolean): string[] {
+export function findingProblems(file: string, text: string, isFile: (asset: string) => boolean): string[] {
   const header = parseFinding(text);
   if (header === null) {
     return [`${file}: no header`];
@@ -55,11 +69,17 @@ export function findingProblems(file: string, text: string, exists: (asset: stri
   if (!/^S[123]$/.test(severity)) {
     problems.push(`${file}: severity ${severity} is not S1, S2 or S3`);
   }
-  if (header.status === 'closed' && (severity === 'S1' || severity === 'S2')) {
+  const status = header.status ?? '';
+  if (!(STATUSES as readonly string[]).includes(status)) {
+    problems.push(`${file}: status ${status} is not one of ${STATUSES.join(', ')}`);
+  }
+  if (status === 'closed' && (severity === 'S1' || severity === 'S2')) {
     const asset = (header.regression_asset ?? '').split('#')[0]?.trim() ?? '';
-    if (asset === '' || asset === 'none' || asset.startsWith('none ')) {
+    if (asset === '' || /^none\b/.test(asset)) {
       problems.push(`${file}: closed ${severity} without a regression asset`);
-    } else if (!exists(asset)) {
+    } else if (!/(^|\/)[^/]+\.[A-Za-z0-9]+$/.test(asset)) {
+      problems.push(`${file}: regression asset ${asset} does not name a file`);
+    } else if (!isFile(asset)) {
       problems.push(`${file}: regression asset ${asset} not found`);
     }
   }

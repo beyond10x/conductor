@@ -4,23 +4,101 @@
   "states": [
     {
       "name": "loading",
-      "store": "loading"
+      "store": "loading",
+      "present": [
+        {
+          "selector": "main h1",
+          "count": 1
+        },
+        {
+          "selector": "main p.state-loading",
+          "count": 1
+        }
+      ]
     },
     {
       "name": "error",
-      "store": "error"
+      "store": "error",
+      "present": [
+        {
+          "selector": "main h1",
+          "count": 1
+        },
+        {
+          "selector": "main p.state-error",
+          "count": 1
+        }
+      ]
     },
     {
       "name": "empty",
-      "store": "empty"
+      "store": "empty",
+      "present": [
+        {
+          "selector": "main h1",
+          "count": 1
+        },
+        {
+          "selector": "main h2",
+          "count": 2
+        },
+        {
+          "selector": "main p.state-empty",
+          "count": 2
+        }
+      ]
     },
     {
       "name": "full",
-      "store": "full"
+      "store": "full",
+      "present": [
+        {
+          "selector": "main h1",
+          "count": 1
+        },
+        {
+          "selector": "main h2",
+          "count": 2
+        },
+        {
+          "selector": "main article.decision",
+          "count": 4
+        },
+        {
+          "selector": "main ol.history li",
+          "count": 3
+        },
+        {
+          "selector": "main button.send",
+          "count": 1
+        }
+      ]
     },
     {
       "name": "answered",
       "store": "full",
+      "present": [
+        {
+          "selector": "main h1",
+          "count": 1
+        },
+        {
+          "selector": "main h2",
+          "count": 2
+        },
+        {
+          "selector": "main article.decision",
+          "count": 3
+        },
+        {
+          "selector": "main ul.results li",
+          "count": 1
+        },
+        {
+          "selector": "main ol.history li",
+          "count": 4
+        }
+      ],
       "act": [
         {
           "role": "button",

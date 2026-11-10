@@ -6,7 +6,9 @@
 //   store fixtures (fixtures.ts): loading, error, empty, full, and on the Decisions page the
 //   answered state;
 // - gating viewports 1440x900 and 1280x800; measured-only 1024x768, 768x1024 and 390x844;
-// - themes: light and dark, the two the theme button pins (src/style.css);
+// - themes: light and dark, the two the theme button pins (src/style.css), each measured under the
+//   other system colour scheme, so the pinned palette rules are what is on screen;
+// - presence: each state names the elements it must show, with their count from the fixture;
 // - always visible: the header, its instance selector and the page navigation;
 // - completion state: an answered decision on the Decisions page;
 // - no guidance cue (no L0, no gate 6) and no protected focus.
@@ -64,9 +66,17 @@ export interface Step {
   within?: string;
 }
 
+/** An element a state must show: exactly `count` visible elements match `selector`. */
+export interface Present {
+  selector: string;
+  count: number;
+}
+
 export interface State {
   name: string;
   store: StoreState;
+  /** What the page shows in this state, read from the fixture: a page that shows less is blank. */
+  present: Present[];
   /** The steps that take the page from the state before to this one. */
   act?: Step[];
 }

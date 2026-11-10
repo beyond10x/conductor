@@ -19,7 +19,7 @@ import {
   type Theme,
   type Viewport,
 } from './adapter.ts';
-import { checkPage, type Check } from './contract.ts';
+import { checkPage, themeMisses, type Check } from './contract.ts';
 import { FixtureStore } from './fixtures.ts';
 import type { Metrics } from './ratchet.ts';
 import { startServer } from './serve.ts';
@@ -72,7 +72,8 @@ interface Opened {
 async function open(browser: Browser, url: string, viewport: Viewport, theme: Theme, state: State): Promise<Opened> {
   const context = await browser.newContext({
     viewport: { width: viewport.width, height: viewport.height },
-    colorScheme: theme,
+    // The system scheme is the other one: only the pinned theme's own palette rules can show it.
+    colorScheme: theme === 'dark' ? 'light' : 'dark',
     reducedMotion: 'reduce',
   });
   await context.addInitScript(
@@ -277,7 +278,7 @@ export async function measureAll({ gatingOnly = false, shotsDir = null }: { gati
           await settle(opened.page, state.store === 'loading');
         }
         last = opened;
-        const check = await checkPage(opened.page, viewport, theme, { axe: viewport.gating });
+        const check = await checkPage(opened.page, viewport, theme, { axe: viewport.gating, present: state.present });
         rows.push({ ...check, scenario: scenario.name, state: state.name, network: [...opened.network], unanswered: [...opened.store.unanswered] });
         const keyState = state.act !== undefined || (state.store === 'full' && scenario.states.at(-1) === state);
         if (shotsDir !== null && viewport.name === '1280x800' && keyState) {
@@ -369,7 +370,8 @@ export function flatten(measured: Measurement): Metrics {
       put('always_visible_violations', rows.reduce((sum, row) => sum + row.violations.length, 0));
       put('axe_serious_critical_nodes', rows.reduce((sum, row) => sum + (row.axe ?? []).reduce((inner, finding) => inner + finding.nodes, 0), 0));
       put('axe_rule_cases', rows.reduce((sum, row) => sum + (row.axe?.length ?? 0), 0));
-      put('theme_not_applied', count((row) => row.themeApplied !== row.theme));
+      put('theme_not_applied', themeMisses(rows).length);
+      put('presence_misses', rows.reduce((sum, row) => sum + row.absent.length, 0));
       put('truncated_states', count((row) => row.truncated.length > 0));
       put('reduced_motion_violations', rows.reduce((sum, row) => sum + row.motion, 0));
       put('network_requests', rows.reduce((sum, row) => sum + row.network.length, 0));
@@ -400,6 +402,8 @@ export function measuredOnly(measured: Measurement): Record<string, Record<strin
       overflow_states: rows.filter((row) => row.overflow.length > 0).length,
       always_visible_violations: rows.reduce((sum, row) => sum + row.violations.length, 0),
       truncated_states: rows.filter((row) => row.truncated.length > 0).length,
+      theme_not_applied: themeMisses(rows).length,
+      presence_misses: rows.reduce((sum, row) => sum + row.absent.length, 0),
       scrolling_block_states: rows.filter((row) => row.innerScroll > 0).length,
       small_text_states: rows.filter((row) => row.smallText > 0).length,
     };

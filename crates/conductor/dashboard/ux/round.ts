@@ -7,6 +7,7 @@ import { execFileSync } from 'node:child_process';
 import { existsSync, mkdirSync, readFileSync, readdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { APP_DIR, GATING, THEMES, UX_DIR, VIEWPORTS } from './adapter.ts';
+import { themeMisses } from './contract.ts';
 import { flatten, measureAll, measuredOnly } from './measure.ts';
 import { compare, readBaseline } from './ratchet.ts';
 
@@ -55,6 +56,8 @@ for (const viewport of VIEWPORTS) {
     axe,
     overflow: [...new Set(rows.flatMap((row) => row.overflow.map((one) => `${row.scenario}/${row.state}: ${one}`)))].slice(0, 12),
     truncated: [...new Set(rows.flatMap((row) => row.truncated))].slice(0, 12),
+    absent: rows.flatMap((row) => row.absent.map((one) => `${row.scenario}/${row.state}[${row.theme}]: ${one}`)),
+    theme_misses: themeMisses(rows).map((row) => `${row.scenario}/${row.state}[${row.theme}] background ${row.background}`),
     network: [...new Set(rows.flatMap((row) => row.network))],
     unanswered: [...new Set(rows.flatMap((row) => row.unanswered))],
     small_text_states: rows.filter((row) => row.smallText > 0).length,
@@ -93,6 +96,9 @@ const summary = {
     hscroll: row.hscroll,
     overflow: row.overflow,
     truncated: row.truncated,
+    absent: row.absent,
+    theme_applied: row.themeApplied,
+    background: row.background,
     axe: row.axe,
     small_text: row.smallText,
   })),
@@ -118,9 +124,9 @@ for (const [scenario, keys] of Object.entries(metrics)) {
     lines.push(`| ${scenario} | ${key} | ${value.value} | ${baseline?.scenarios[scenario]?.[key]?.value ?? 'none'} | ${last?.gating_metrics[scenario]?.[key]?.value ?? 'none'} |`);
   }
 }
-lines.push('', '## Measured only (not gated)', '', '| viewport | hscroll states | overflow states | always-visible violations | truncated states | states with a scrolling block | states with text under 14 px |', '|---|---|---|---|---|---|---|');
+lines.push('', '## Measured only (not gated)', '', '| viewport | hscroll states | overflow states | always-visible violations | truncated states | theme not on screen | presence misses | states with a scrolling block | states with text under 14 px |', '|---|---|---|---|---|---|---|---|---|');
 for (const [viewport, values] of Object.entries(summary.measured_only)) {
-  lines.push(`| ${viewport} | ${values.hscroll_states} | ${values.overflow_states} | ${values.always_visible_violations} | ${values.truncated_states} | ${values.scrolling_block_states} | ${values.small_text_states} |`);
+  lines.push(`| ${viewport} | ${values.hscroll_states} | ${values.overflow_states} | ${values.always_visible_violations} | ${values.truncated_states} | ${values.theme_not_applied} | ${values.presence_misses} | ${values.scrolling_block_states} | ${values.small_text_states} |`);
 }
 for (const viewport of VIEWPORTS) {
   const detail = details[viewport.name] as {
@@ -128,6 +134,8 @@ for (const viewport of VIEWPORTS) {
     axe: Record<string, { cases: string[]; nodes: number; target: string }>;
     overflow: string[];
     truncated: string[];
+    absent: string[];
+    theme_misses: string[];
     network: string[];
     unanswered: string[];
     small_text_states: number;
@@ -153,6 +161,8 @@ for (const viewport of VIEWPORTS) {
     '',
     `Elements past their box: ${detail.overflow.join('; ') || 'none'}`,
     `Text cut off without its full value: ${detail.truncated.join(' | ') || 'none'}`,
+    `Elements a state names and does not show (shown of named): ${detail.absent.join('; ') || 'none'}`,
+    `State cases whose theme is not on screen (not pinned, or the background of the other theme): ${detail.theme_misses.join('; ') || 'none'}`,
     `Requests off the loopback origin: ${detail.network.join(', ') || 'none'}`,
     `Requests no fixture answers: ${detail.unanswered.join(', ') || 'none'}`,
     `State cases with text under 14 px in main: ${detail.small_text_states} of ${measured.rows.filter((row) => row.viewport === viewport.name).length}`,

@@ -10,7 +10,7 @@ import { writeFileSync } from 'node:fs';
 import { chromium } from 'playwright';
 import { breakTests } from './breaks.ts';
 import { flatten, measureAll } from './measure.ts';
-import { baselinePath, compare, hardFailures, mainBaseline, readBaseline, worseThanMain, writeBaseline } from './ratchet.ts';
+import { baselinePath, compare, hardFailures, mainProblems, needsDecision, readBaseline, readMain, undecided, worseThanMain, writeBaseline } from './ratchet.ts';
 
 const args = process.argv.slice(2);
 const update = args.includes('--update');
@@ -33,10 +33,7 @@ console.log(`measured ${measured.rows.length} state cases over ${measured.scenar
 const baseline = readBaseline();
 
 if (update) {
-  const open = hardFailures(metrics).filter(({ s, k, value }) => {
-    const held = baseline?.scenarios[s]?.[k];
-    return held?.decision === undefined && !(held !== undefined && held.value >= value);
-  });
+  const open = needsDecision(metrics, baseline);
   if (open.length > 0 && decision === undefined) {
     console.error(`hard-gate values above 0 enter or rise in the baseline only with --decision <id>:\n${open.map(({ s, k, value }) => `- ${s}/${k} = ${value}`).join('\n')}`);
     process.exit(1);
@@ -49,15 +46,16 @@ if (baseline === null) {
   console.error('ux gate failed: no ux/baseline.json; run task ui:ux-gate -- --update');
   process.exit(1);
 }
-const main = mainBaseline();
-if (main === null) {
-  console.error('note: origin/main has no crates/conductor/dashboard/ux/baseline.json; the worse-than-main check is skipped');
+const main = readMain();
+const read = mainProblems(main, process.env.CI !== undefined && process.env.CI !== '' && process.env.CI !== 'false');
+for (const note of read.notes) {
+  console.error(`note: ${note}`);
 }
 const hard = hardFailures(metrics);
 if (hard.length > 0) {
   console.error(`note: ${hard.length} hard-gate values are above 0 and held by the baseline with a decision:\n${hard.map(({ s, k, value }) => `- ${s}/${k} = ${value}`).join('\n')}`);
 }
-const problems = [...compare(baseline, metrics).problems, ...worseThanMain(baseline, main)];
+const problems = [...read.problems, ...undecided(baseline), ...compare(baseline, metrics).problems, ...worseThanMain(baseline, main.kind === 'baseline' ? main.baseline : null)];
 if (problems.length > 0) {
   console.error(`ux gate failed:\n${problems.map((problem) => `- ${problem}`).join('\n')}`);
   process.exit(1);

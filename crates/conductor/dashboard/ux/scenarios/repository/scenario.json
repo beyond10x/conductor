@@ -4,19 +4,79 @@
   "states": [
     {
       "name": "loading",
-      "store": "loading"
+      "store": "loading",
+      "present": [
+        {
+          "selector": "main h1",
+          "count": 1
+        },
+        {
+          "selector": "main p.state-loading",
+          "count": 1
+        }
+      ]
     },
     {
       "name": "error",
-      "store": "error"
+      "store": "error",
+      "present": [
+        {
+          "selector": "main h1",
+          "count": 1
+        },
+        {
+          "selector": "main h2",
+          "count": 5
+        },
+        {
+          "selector": "main p.state-error",
+          "count": 11
+        }
+      ]
     },
     {
       "name": "empty",
-      "store": "empty"
+      "store": "empty",
+      "present": [
+        {
+          "selector": "main h1",
+          "count": 1
+        },
+        {
+          "selector": "main h2",
+          "count": 5
+        },
+        {
+          "selector": "main p.state-empty",
+          "count": 4
+        }
+      ]
     },
     {
       "name": "full",
-      "store": "full"
+      "store": "full",
+      "present": [
+        {
+          "selector": "main h1",
+          "count": 1
+        },
+        {
+          "selector": "main h2",
+          "count": 5
+        },
+        {
+          "selector": "main section",
+          "count": 9
+        },
+        {
+          "selector": "main li",
+          "count": 12
+        },
+        {
+          "selector": "main svg",
+          "count": 3
+        }
+      ]
     }
   ],
   "expectations": {

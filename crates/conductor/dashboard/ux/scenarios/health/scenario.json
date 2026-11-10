@@ -4,19 +4,75 @@
   "states": [
     {
       "name": "loading",
-      "store": "loading"
+      "store": "loading",
+      "present": [
+        {
+          "selector": "main h1",
+          "count": 1
+        },
+        {
+          "selector": "main p.state-loading",
+          "count": 1
+        }
+      ]
     },
     {
       "name": "error",
-      "store": "error"
+      "store": "error",
+      "present": [
+        {
+          "selector": "main h1",
+          "count": 1
+        },
+        {
+          "selector": "main p.state-error",
+          "count": 1
+        }
+      ]
     },
     {
       "name": "empty",
-      "store": "empty"
+      "store": "empty",
+      "present": [
+        {
+          "selector": "main h1",
+          "count": 1
+        },
+        {
+          "selector": "main h2",
+          "count": 5
+        },
+        {
+          "selector": "main section",
+          "count": 5
+        }
+      ]
     },
     {
       "name": "full",
-      "store": "full"
+      "store": "full",
+      "present": [
+        {
+          "selector": "main h1",
+          "count": 1
+        },
+        {
+          "selector": "main h2",
+          "count": 5
+        },
+        {
+          "selector": "main section",
+          "count": 5
+        },
+        {
+          "selector": "main tbody tr",
+          "count": 6
+        },
+        {
+          "selector": "main li",
+          "count": 8
+        }
+      ]
     }
   ],
   "expectations": {

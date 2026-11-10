@@ -39,6 +39,9 @@ jobs:
           node-version-file: crates/conductor/dashboard/.nvmrc
           cache: npm
           cache-dependency-path: crates/conductor/dashboard/package-lock.json
+      # The dashboard's UX gate compares ux/baseline.json with main's, and fails here without it.
+      - name: Fetch main for the UX gate's worse-than-main check
+        run: git fetch --no-tags --depth=1 origin +refs/heads/main:refs/remotes/origin/main
       - name: Install the Playwright Chromium the dashboard's UX gate drives
         run: |
           npm --prefix crates/conductor/dashboard ci

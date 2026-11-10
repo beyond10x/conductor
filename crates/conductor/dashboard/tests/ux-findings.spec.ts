@@ -3,9 +3,8 @@
 // ux/findings/ carries the header fields, and a closed S1 or S2 finding names a regression asset
 // that exists; the checker is shown to fail on each kind of bad record first.
 import { describe, expect, it } from 'vitest';
-import { existsSync } from 'node:fs';
 import { join } from 'node:path';
-import { FIELDS, findingProblems, readFindings } from '../ux/findings.ts';
+import { FIELDS, STATUSES, fileIn, findingProblems, readFindings } from '../ux/findings.ts';
 
 const ROOT = process.cwd();
 
@@ -68,6 +67,34 @@ describe('the findings checker', () => {
     expect(findingProblems('UXF-001.md', 'no header', nothing)).toEqual(['UXF-001.md: no header']);
   });
 
+  it('holds the status to its vocabulary, so no other word for closed passes unread', () => {
+    expect(STATUSES).toEqual(['open', 'closed', 'duplicate', 'known-loss']);
+    for (const status of STATUSES.filter((one) => one !== 'closed')) {
+      expect(findingProblems('UXF-001.md', record({ status }), nothing)).toEqual([]);
+    }
+    for (const status of ['Closed', 'closed in R-02', 'fixed', 'done', 'resolved', 'duplicate of UXF-001']) {
+      expect(findingProblems('UXF-001.md', record({ status }), nothing), status).toEqual([
+        `UXF-001.md: status ${status} is not one of open, closed, duplicate, known-loss`,
+      ]);
+    }
+  });
+
+  it('takes only a file for a regression asset: no directory, no name without a file in it', () => {
+    const here = fileIn(ROOT);
+    expect(here('package.json')).toBe(true);
+    expect(here('ux')).toBe(false);
+    expect(here('ux/no-such-file.ts')).toBe(false);
+    for (const regression_asset of ['.', 'ux', 'ux/findings', 'ux/findings/', 'tests']) {
+      expect(findingProblems('UXF-001.md', record({ status: 'closed', regression_asset }), () => true), regression_asset).toEqual([
+        `UXF-001.md: regression asset ${regression_asset} does not name a file`,
+      ]);
+    }
+    expect(findingProblems('UXF-001.md', record({ status: 'closed', regression_asset: 'none yet; proposed: a case' }), () => true)).toEqual([
+      'UXF-001.md: closed S2 without a regression asset',
+    ]);
+    expect(findingProblems('UXF-001.md', record({ status: 'closed', regression_asset: 'package.json#a case' }), here)).toEqual([]);
+  });
+
   it('names every header field of the skill', () => {
     expect(FIELDS).toEqual([
       'id',
@@ -95,7 +122,7 @@ describe('ux/findings/', () => {
   it.each(found.map((finding) => [finding.file, finding.text] as const))(
     '%s passes the findings checker',
     (file, text) => {
-      expect(findingProblems(file, text, (asset) => existsSync(join(ROOT, asset)))).toEqual([]);
+      expect(findingProblems(file, text, fileIn(ROOT))).toEqual([]);
     },
   );
 });

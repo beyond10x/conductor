@@ -1,11 +1,13 @@
 // The layout contract (the ui-iteration-loop skill, § 4, hard gates 1, 2 and 5), the dashboard's
 // port of the documentation site's ux/contract.mjs. In one page state it reads: a horizontal page
 // scroll, any element running past its box, the always-visible elements of the adapter wholly in
-// the viewport and uncovered, the theme applied, text cut off without its full value, and axe-core's
-// serious and critical violations under the story's tags. breaks.ts proves each check can fail.
+// the viewport and uncovered, the elements the state must show (a blank page breaks nothing else),
+// the theme applied and its palette's page background, text cut off without its full value, and
+// axe-core's serious and critical violations under the story's tags. breaks.ts proves each check
+// can fail.
 import type { Page } from 'playwright';
 import { AxeBuilder } from '@axe-core/playwright';
-import { ALWAYS_VISIBLE, AXE_TAGS, type Theme, type Viewport } from './adapter.ts';
+import { ALWAYS_VISIBLE, AXE_TAGS, THEMES, type Present, type Theme, type Viewport } from './adapter.ts';
 
 export interface Violation {
   kind: string;
@@ -20,6 +22,10 @@ export interface InPage {
   truncated: string[];
   smallText: number;
   theme: string | null;
+  /** The computed background of the page, which each theme's palette sets. */
+  background: string;
+  /** Each element the state must show and does not, `<selector>: <shown> of <count>`. */
+  absent: string[];
   motion: number;
 }
 
@@ -39,7 +45,7 @@ export interface Check extends InPage {
 }
 
 /** Runs in the page: everything the contract reads from the laid-out document. */
-function inPage([width, height, visible]: [number, number, { kind: string; selector: string }[]]): InPage {
+function inPage([width, height, visible, present]: [number, number, { kind: string; selector: string }[], { selector: string; count: number }[]]): InPage {
   const out: InPage = {
     violations: [],
     hscroll: false,
@@ -48,6 +54,8 @@ function inPage([width, height, visible]: [number, number, { kind: string; selec
     truncated: [],
     smallText: 0,
     theme: document.documentElement.getAttribute('data-theme'),
+    background: getComputedStyle(document.body).backgroundColor,
+    absent: [],
     motion: document.getAnimations().filter((animation) => animation.playState === 'running').length,
   };
   const shown = (el: Element): boolean => {
@@ -88,6 +96,12 @@ function inPage([width, height, visible]: [number, number, { kind: string; selec
           break;
         }
       }
+    }
+  }
+  for (const { selector, count } of present) {
+    const found = [...document.querySelectorAll(selector)].filter(shown).length;
+    if (found !== count) {
+      out.absent.push(`${selector}: ${found} of ${count}`);
     }
   }
   const root = document.documentElement;
@@ -142,12 +156,13 @@ function inPage([width, height, visible]: [number, number, { kind: string; selec
   return out;
 }
 
-/** The contract over the page as it stands; axe-core too when `axe` is set. */
-export async function checkPage(page: Page, viewport: Viewport, theme: Theme, { axe }: { axe: boolean }): Promise<Check> {
-  const read = await page.evaluate(inPage, [viewport.width, viewport.height, ALWAYS_VISIBLE] as [
+/** The contract over the page as it stands, with the elements `present` says it must show; axe-core too when `axe` is set. */
+export async function checkPage(page: Page, viewport: Viewport, theme: Theme, { axe, present }: { axe: boolean; present: Present[] }): Promise<Check> {
+  const read = await page.evaluate(inPage, [viewport.width, viewport.height, ALWAYS_VISIBLE, present] as [
     number,
     number,
     { kind: string; selector: string }[],
+    Present[],
   ]);
   let found: AxeFinding[] | null = null;
   if (axe) {
@@ -163,4 +178,31 @@ export async function checkPage(page: Page, viewport: Viewport, theme: Theme, { 
       }));
   }
   return { ...read, viewport: viewport.name, theme, themeApplied: read.theme, axe: found };
+}
+
+/** What one state case shows of its theme. */
+export interface Themed {
+  scenario: string;
+  state: string;
+  viewport: string;
+  theme: Theme;
+  themeApplied: string | null;
+  background: string;
+}
+
+/**
+ * The state cases whose theme is not on screen: the page does not carry the theme pinned, or its
+ * background is the one the same state shows in another theme, so the palette rules of one of the
+ * two are dead. A case with no counterpart in the other theme is a miss too: nothing compares it.
+ */
+export function themeMisses(rows: Themed[]): Themed[] {
+  return rows.filter((row) => {
+    if (row.themeApplied !== row.theme) {
+      return true;
+    }
+    return THEMES.filter((theme) => theme !== row.theme).some((theme) => {
+      const other = rows.find((one) => one.scenario === row.scenario && one.state === row.state && one.viewport === row.viewport && one.theme === theme);
+      return other === undefined || other.background === row.background;
+    });
+  });
 }

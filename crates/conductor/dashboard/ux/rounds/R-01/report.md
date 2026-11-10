@@ -1,6 +1,6 @@
 # R-01 report: the dashboard
 
-Commit 3a27c6469 (7 changed paths under crates/conductor/dashboard, listed in round.json), 2026-11-10T00:20:06.074Z. 5 scenarios (decisions, health, kpis, overview, repository), 21 states, viewports 1440x900*, 1280x800*, 1024x768, 768x1024, 390x844 (* gating), themes light and dark: 210 state cases. Levels L1 to L3; L0 (no guidance cue), L4, L5, L6, L7 and L8 are not run by this command.
+Commit 8eaa9f159 (30 changed paths under crates/conductor/dashboard, listed in round.json), 2026-11-10T01:12:59.663Z. 5 scenarios (decisions, health, kpis, overview, repository), 21 states, viewports 1440x900*, 1280x800*, 1024x768, 768x1024, 390x844 (* gating), themes light and dark: 210 state cases. Levels L1 to L3; L0 (no guidance cue), L4, L5, L6, L7 and L8 are not run by this command.
 
 ## Gating metrics (lower is better)
 
@@ -12,6 +12,7 @@ Commit 3a27c6469 (7 changed paths under crates/conductor/dashboard, listed in ro
 | decisions | axe_serious_critical_nodes@1440x900 | 0 | 0 | none |
 | decisions | axe_rule_cases@1440x900 | 0 | 0 | none |
 | decisions | theme_not_applied@1440x900 | 0 | 0 | none |
+| decisions | presence_misses@1440x900 | 0 | 0 | none |
 | decisions | truncated_states@1440x900 | 0 | 0 | none |
 | decisions | reduced_motion_violations@1440x900 | 0 | 0 | none |
 | decisions | network_requests@1440x900 | 0 | 0 | none |
@@ -28,6 +29,7 @@ Commit 3a27c6469 (7 changed paths under crates/conductor/dashboard, listed in ro
 | decisions | axe_serious_critical_nodes@1280x800 | 0 | 0 | none |
 | decisions | axe_rule_cases@1280x800 | 0 | 0 | none |
 | decisions | theme_not_applied@1280x800 | 0 | 0 | none |
+| decisions | presence_misses@1280x800 | 0 | 0 | none |
 | decisions | truncated_states@1280x800 | 0 | 0 | none |
 | decisions | reduced_motion_violations@1280x800 | 0 | 0 | none |
 | decisions | network_requests@1280x800 | 0 | 0 | none |
@@ -44,6 +46,7 @@ Commit 3a27c6469 (7 changed paths under crates/conductor/dashboard, listed in ro
 | health | axe_serious_critical_nodes@1440x900 | 0 | 0 | none |
 | health | axe_rule_cases@1440x900 | 0 | 0 | none |
 | health | theme_not_applied@1440x900 | 0 | 0 | none |
+| health | presence_misses@1440x900 | 0 | 0 | none |
 | health | truncated_states@1440x900 | 0 | 0 | none |
 | health | reduced_motion_violations@1440x900 | 0 | 0 | none |
 | health | network_requests@1440x900 | 0 | 0 | none |
@@ -54,6 +57,7 @@ Commit 3a27c6469 (7 changed paths under crates/conductor/dashboard, listed in ro
 | health | axe_serious_critical_nodes@1280x800 | 0 | 0 | none |
 | health | axe_rule_cases@1280x800 | 0 | 0 | none |
 | health | theme_not_applied@1280x800 | 0 | 0 | none |
+| health | presence_misses@1280x800 | 0 | 0 | none |
 | health | truncated_states@1280x800 | 0 | 0 | none |
 | health | reduced_motion_violations@1280x800 | 0 | 0 | none |
 | health | network_requests@1280x800 | 0 | 0 | none |
@@ -64,6 +68,7 @@ Commit 3a27c6469 (7 changed paths under crates/conductor/dashboard, listed in ro
 | kpis | axe_serious_critical_nodes@1440x900 | 0 | 0 | none |
 | kpis | axe_rule_cases@1440x900 | 0 | 0 | none |
 | kpis | theme_not_applied@1440x900 | 0 | 0 | none |
+| kpis | presence_misses@1440x900 | 0 | 0 | none |
 | kpis | truncated_states@1440x900 | 0 | 0 | none |
 | kpis | reduced_motion_violations@1440x900 | 0 | 0 | none |
 | kpis | network_requests@1440x900 | 0 | 0 | none |
@@ -74,6 +79,7 @@ Commit 3a27c6469 (7 changed paths under crates/conductor/dashboard, listed in ro
 | kpis | axe_serious_critical_nodes@1280x800 | 0 | 0 | none |
 | kpis | axe_rule_cases@1280x800 | 0 | 0 | none |
 | kpis | theme_not_applied@1280x800 | 0 | 0 | none |
+| kpis | presence_misses@1280x800 | 0 | 0 | none |
 | kpis | truncated_states@1280x800 | 0 | 0 | none |
 | kpis | reduced_motion_violations@1280x800 | 0 | 0 | none |
 | kpis | network_requests@1280x800 | 0 | 0 | none |
@@ -84,6 +90,7 @@ Commit 3a27c6469 (7 changed paths under crates/conductor/dashboard, listed in ro
 | overview | axe_serious_critical_nodes@1440x900 | 2 | 2 | none |
 | overview | axe_rule_cases@1440x900 | 2 | 2 | none |
 | overview | theme_not_applied@1440x900 | 0 | 0 | none |
+| overview | presence_misses@1440x900 | 0 | 0 | none |
 | overview | truncated_states@1440x900 | 0 | 0 | none |
 | overview | reduced_motion_violations@1440x900 | 0 | 0 | none |
 | overview | network_requests@1440x900 | 0 | 0 | none |
@@ -94,6 +101,7 @@ Commit 3a27c6469 (7 changed paths under crates/conductor/dashboard, listed in ro
 | overview | axe_serious_critical_nodes@1280x800 | 2 | 2 | none |
 | overview | axe_rule_cases@1280x800 | 2 | 2 | none |
 | overview | theme_not_applied@1280x800 | 0 | 0 | none |
+| overview | presence_misses@1280x800 | 0 | 0 | none |
 | overview | truncated_states@1280x800 | 0 | 0 | none |
 | overview | reduced_motion_violations@1280x800 | 0 | 0 | none |
 | overview | network_requests@1280x800 | 0 | 0 | none |
@@ -104,6 +112,7 @@ Commit 3a27c6469 (7 changed paths under crates/conductor/dashboard, listed in ro
 | repository | axe_serious_critical_nodes@1440x900 | 4 | 4 | none |
 | repository | axe_rule_cases@1440x900 | 2 | 2 | none |
 | repository | theme_not_applied@1440x900 | 0 | 0 | none |
+| repository | presence_misses@1440x900 | 0 | 0 | none |
 | repository | truncated_states@1440x900 | 0 | 0 | none |
 | repository | reduced_motion_violations@1440x900 | 0 | 0 | none |
 | repository | network_requests@1440x900 | 0 | 0 | none |
@@ -114,6 +123,7 @@ Commit 3a27c6469 (7 changed paths under crates/conductor/dashboard, listed in ro
 | repository | axe_serious_critical_nodes@1280x800 | 4 | 4 | none |
 | repository | axe_rule_cases@1280x800 | 2 | 2 | none |
 | repository | theme_not_applied@1280x800 | 0 | 0 | none |
+| repository | presence_misses@1280x800 | 0 | 0 | none |
 | repository | truncated_states@1280x800 | 0 | 0 | none |
 | repository | reduced_motion_violations@1280x800 | 0 | 0 | none |
 | repository | network_requests@1280x800 | 0 | 0 | none |
@@ -121,11 +131,11 @@ Commit 3a27c6469 (7 changed paths under crates/conductor/dashboard, listed in ro
 
 ## Measured only (not gated)
 
-| viewport | hscroll states | overflow states | always-visible violations | truncated states | states with a scrolling block | states with text under 14 px |
-|---|---|---|---|---|---|---|
-| 1024x768 | 0 | 0 | 6 | 0 | 6 | 36 |
-| 768x1024 | 0 | 0 | 6 | 0 | 2 | 36 |
-| 390x844 | 0 | 0 | 6 | 0 | 12 | 36 |
+| viewport | hscroll states | overflow states | always-visible violations | truncated states | theme not on screen | presence misses | states with a scrolling block | states with text under 14 px |
+|---|---|---|---|---|---|---|---|---|
+| 1024x768 | 0 | 0 | 6 | 0 | 0 | 0 | 6 | 36 |
+| 768x1024 | 0 | 0 | 6 | 0 | 0 | 0 | 2 | 36 |
+| 390x844 | 0 | 0 | 6 | 0 | 0 | 0 | 12 | 36 |
 
 ## Detail at 1440x900 (gating)
 
@@ -141,6 +151,8 @@ axe serious or critical, by rule (state cases, nodes, first target):
 
 Elements past their box: none
 Text cut off without its full value: none
+Elements a state names and does not show (shown of named): none
+State cases whose theme is not on screen (not pinned, or the background of the other theme): none
 Requests off the loopback origin: none
 Requests no fixture answers: none
 State cases with text under 14 px in main: 36 of 42
@@ -159,6 +171,8 @@ axe serious or critical, by rule (state cases, nodes, first target):
 
 Elements past their box: none
 Text cut off without its full value: none
+Elements a state names and does not show (shown of named): none
+State cases whose theme is not on screen (not pinned, or the background of the other theme): none
 Requests off the loopback origin: none
 Requests no fixture answers: none
 State cases with text under 14 px in main: 36 of 42
@@ -172,6 +186,8 @@ Always-visible defects (kind: why: state cases):
 
 Elements past their box: none
 Text cut off without its full value: none
+Elements a state names and does not show (shown of named): none
+State cases whose theme is not on screen (not pinned, or the background of the other theme): none
 Requests off the loopback origin: none
 Requests no fixture answers: none
 State cases with text under 14 px in main: 36 of 42
@@ -185,6 +201,8 @@ Always-visible defects (kind: why: state cases):
 
 Elements past their box: none
 Text cut off without its full value: none
+Elements a state names and does not show (shown of named): none
+State cases whose theme is not on screen (not pinned, or the background of the other theme): none
 Requests off the loopback origin: none
 Requests no fixture answers: none
 State cases with text under 14 px in main: 36 of 42
@@ -198,6 +216,8 @@ Always-visible defects (kind: why: state cases):
 
 Elements past their box: none
 Text cut off without its full value: none
+Elements a state names and does not show (shown of named): none
+State cases whose theme is not on screen (not pinned, or the background of the other theme): none
 Requests off the loopback origin: none
 Requests no fixture answers: none
 State cases with text under 14 px in main: 36 of 42
@@ -206,10 +226,10 @@ State cases with text under 14 px in main: 36 of 42
 
 | scenario | viewport | theme | completed | actions | looks | path | keyboard tabs | keyboard completed |
 |---|---|---|---|---|---|---|---|---|
-| decisions | 1280x800 | light | yes | 2 | 1 | button "Yes" > button "Send 1 answer" | 22 | yes |
-| decisions | 1280x800 | dark | yes | 2 | 1 | button "Yes" > button "Send 1 answer" | 22 | yes |
 | decisions | 1440x900 | light | yes | 2 | 1 | button "Yes" > button "Send 1 answer" | 22 | yes |
 | decisions | 1440x900 | dark | yes | 2 | 1 | button "Yes" > button "Send 1 answer" | 22 | yes |
+| decisions | 1280x800 | dark | yes | 2 | 1 | button "Yes" > button "Send 1 answer" | 22 | yes |
+| decisions | 1280x800 | light | yes | 2 | 1 | button "Yes" > button "Send 1 answer" | 22 | yes |
 
 ## Worst moments
 

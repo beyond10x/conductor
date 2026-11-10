@@ -12,6 +12,9 @@ import {
   writeBaseline,
   type Baseline,
   type Metrics,
+  mainProblems,
+  needsDecision,
+  undecided,
 } from '../ux/ratchet.ts';
 
 function baseline(scenarios: Baseline['scenarios']): Baseline {
@@ -99,6 +102,62 @@ describe('the ratchet', () => {
   });
 });
 
+describe('a decision', () => {
+  const key = 'axe_serious_critical_nodes@1280x800';
+  const held = baseline({ repository: { [key]: { value: 4, tolerance: 0, decision: 'R-01' }, 'keyboard.tabs@1280x800': { value: 20, tolerance: 0.05 } } });
+  const at = (value: number, tabs = 20): Metrics => ({ repository: { [key]: { value, tolerance: 0 }, 'keyboard.tabs@1280x800': { value: tabs, tolerance: 0.05 } } });
+
+  it('is asked for by every rise of a hard-gate value, also one held under an older decision', () => {
+    expect(needsDecision(at(152), held)).toEqual([{ s: 'repository', k: key, value: 152 }]);
+    expect(needsDecision(at(5), held)).toEqual([{ s: 'repository', k: key, value: 5 }]);
+    expect(needsDecision(at(4), held)).toEqual([]);
+    expect(needsDecision(at(3), held)).toEqual([]);
+    expect(needsDecision(at(1), null)).toEqual([{ s: 'repository', k: key, value: 1 }]);
+    expect(needsDecision(at(0), null)).toEqual([]);
+  });
+
+  it('accepts one value: a higher one carries the new id or none, never the old one', () => {
+    expect(writeBaseline(at(152), held, undefined).scenarios.repository?.[key]).toEqual({ value: 152, tolerance: 0 });
+    expect(writeBaseline(at(152), held, 'R-02').scenarios.repository?.[key]).toEqual({ value: 152, tolerance: 0, decision: 'R-02' });
+    expect(writeBaseline(at(4), held, 'R-02').scenarios.repository?.[key]).toEqual({ value: 4, tolerance: 0, decision: 'R-01' });
+    expect(writeBaseline(at(2), held, undefined).scenarios.repository?.[key]).toEqual({ value: 2, tolerance: 0, decision: 'R-01' });
+    expect(writeBaseline(at(0), held, undefined).scenarios.repository?.[key]).toEqual({ value: 0, tolerance: 0 });
+    expect(writeBaseline(at(4, 30), held, undefined).scenarios.repository?.['keyboard.tabs@1280x800']).toEqual({ value: 30, tolerance: 0.05 });
+    expect(writeBaseline(at(4, 30), held, 'R-02').scenarios.repository?.['keyboard.tabs@1280x800']).toEqual({ value: 30, tolerance: 0.05, decision: 'R-02' });
+  });
+
+  it('is missed by the gate on a baseline that holds a hard-gate value above 0 without one, or a rise under the id main held', () => {
+    expect(undecided(writeBaseline(at(152), held, undefined))).toEqual([`hard-gate value above 0 held without a decision id: repository/${key} = 152`]);
+    expect(undecided(held)).toEqual([]);
+    const carried = baseline({ repository: { [key]: { value: 152, tolerance: 0, decision: 'R-01' } } });
+    expect(worseThanMain(carried, held)).toEqual([`baseline made worse without a decision id: repository/${key} 4 -> 152`]);
+    const tabs = writeBaseline(at(4, 30), held, undefined);
+    expect(worseThanMain(tabs, held)).toEqual(['baseline made worse without a decision id: repository/keyboard.tabs@1280x800 20 -> 30']);
+    expect(worseThanMain(writeBaseline(at(152, 30), held, 'R-02'), held)).toEqual([]);
+  });
+});
+
+describe("main's baseline", () => {
+  it('fails the gate in CI when the checkout has no origin/main, and is a note elsewhere', () => {
+    const none = { kind: 'no-ref', why: 'this checkout has no origin/main' } as const;
+    expect(mainProblems(none, true)).toEqual({
+      problems: ['the worse-than-main check cannot run: this checkout has no origin/main; fetch origin main before the gate'],
+      notes: [],
+    });
+    expect(mainProblems(none, false)).toEqual({ problems: [], notes: ['the worse-than-main check cannot run: this checkout has no origin/main; it is skipped'] });
+  });
+
+  it('is a note where main holds no baseline yet, and nothing where it reads', () => {
+    for (const ci of [true, false]) {
+      expect(mainProblems({ kind: 'absent' }, ci)).toEqual({
+        problems: [],
+        notes: ['origin/main has no crates/conductor/dashboard/ux/baseline.json yet; the worse-than-main check is skipped'],
+      });
+      expect(mainProblems({ kind: 'baseline', baseline: baseline({}) }, ci)).toEqual({ problems: [], notes: [] });
+    }
+  });
+});
+
 describe('ux/baseline.json', () => {
   const file: Baseline = JSON.parse(readFileSync(join(process.cwd(), 'ux', 'baseline.json'), 'utf8'));
 
@@ -106,7 +165,7 @@ describe('ux/baseline.json', () => {
     expect(Object.keys(file.scenarios).sort()).toEqual(['decisions', 'health', 'kpis', 'overview', 'repository']);
     for (const [scenario, keys] of Object.entries(file.scenarios)) {
       for (const viewport of ['1440x900', '1280x800']) {
-        for (const metric of ['hscroll_states', 'overflow_states', 'always_visible_violations', 'axe_serious_critical_nodes']) {
+        for (const metric of ['hscroll_states', 'overflow_states', 'always_visible_violations', 'axe_serious_critical_nodes', 'theme_not_applied', 'presence_misses']) {
           expect(keys[`${metric}@${viewport}`], `${scenario}/${metric}@${viewport}`).toBeDefined();
         }
       }

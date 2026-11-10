@@ -63,19 +63,51 @@ export function compare(baseline: Baseline, metrics: Metrics): { ok: boolean; pr
   return { ok: problems.length === 0, problems };
 }
 
-/** The baseline on `origin/main`, or null where main has none yet. */
-export function mainBaseline(): Baseline | null {
+/**
+ * What `origin/main` holds: its baseline; `absent` where main's tree has no baseline file yet;
+ * `no-ref` where this checkout has no `origin/main` at all, or its baseline does not read.
+ */
+export type MainRead = { kind: 'baseline'; baseline: Baseline } | { kind: 'absent' } | { kind: 'no-ref'; why: string };
+
+export function readMain(): MainRead {
+  const git = (...args: string[]) => execFileSync('git', args, { cwd: APP_DIR, stdio: ['ignore', 'pipe', 'ignore'] }).toString();
   try {
-    const text = execFileSync('git', ['show', `origin/main:${BASELINE_IN_REPO}`], {
-      cwd: APP_DIR,
-      stdio: ['ignore', 'pipe', 'ignore'],
-    }).toString();
-    return JSON.parse(text) as Baseline;
+    git('rev-parse', '--verify', '--quiet', 'origin/main^{commit}');
   } catch {
-    return null;
+    return { kind: 'no-ref', why: 'this checkout has no origin/main' };
+  }
+  try {
+    git('cat-file', '-e', `origin/main:${BASELINE_IN_REPO}`);
+  } catch {
+    return { kind: 'absent' };
+  }
+  try {
+    return { kind: 'baseline', baseline: JSON.parse(git('show', `origin/main:${BASELINE_IN_REPO}`)) as Baseline };
+  } catch (error) {
+    return { kind: 'no-ref', why: `origin/main:${BASELINE_IN_REPO} does not read: ${String(error)}` };
   }
 }
 
+/**
+ * What the gate says of a main it could not compare with. In CI (`ci`) a checkout without
+ * `origin/main` is a failure, since the worse-than-main check would be skipped on every pull
+ * request; elsewhere, and where main holds no baseline yet, it is a note.
+ */
+export function mainProblems(main: MainRead, ci: boolean): { problems: string[]; notes: string[] } {
+  if (main.kind === 'baseline') {
+    return { problems: [], notes: [] };
+  }
+  if (main.kind === 'absent') {
+    return { problems: [], notes: [`origin/main has no ${BASELINE_IN_REPO} yet; the worse-than-main check is skipped`] };
+  }
+  const text = `the worse-than-main check cannot run: ${main.why}`;
+  return ci ? { problems: [`${text}; fetch origin main before the gate`], notes: [] } : { problems: [], notes: [`${text}; it is skipped`] };
+}
+
+/**
+ * The values of `baseline` that are worse than main's without a decision of their own: none, or
+ * the one main already held the lower value under.
+ */
 export function worseThanMain(baseline: Baseline, main: Baseline | null): string[] {
   const problems: string[] = [];
   if (main === null) {
@@ -84,7 +116,10 @@ export function worseThanMain(baseline: Baseline, main: Baseline | null): string
   for (const [scenario, keys] of Object.entries(baseline.scenarios)) {
     for (const [key, held] of Object.entries(keys)) {
       const before = main.scenarios[scenario]?.[key];
-      if (before !== undefined && held.value > before.value + (before.tolerance ?? 0) && held.decision === undefined) {
+      if (before === undefined || held.value <= before.value + (before.tolerance ?? 0)) {
+        continue;
+      }
+      if (held.decision === undefined || held.decision === before.decision) {
         problems.push(`baseline made worse without a decision id: ${scenario}/${key} ${before.value} -> ${held.value}`);
       }
     }
@@ -94,7 +129,7 @@ export function worseThanMain(baseline: Baseline, main: Baseline | null): string
 
 /** The hard gates of the skill's § 4: any value above 0 is a failure the baseline holds only with a decision. */
 export const HARD =
-  /^(hscroll_states|overflow_states|always_visible|axe_serious|axe_rule|theme_not_applied|completion_miss|false_complete|over_budget|keyboard\.miss|network_requests|unanswered_requests)/;
+  /^(hscroll_states|overflow_states|always_visible|axe_serious|axe_rule|theme_not_applied|completion_miss|false_complete|over_budget|keyboard\.miss|network_requests|unanswered_requests|presence_misses)/;
 
 export function hardFailures(metrics: Metrics): { s: string; k: string; value: number }[] {
   return Object.entries(metrics).flatMap(([s, keys]) =>
@@ -104,6 +139,29 @@ export function hardFailures(metrics: Metrics): { s: string; k: string; value: n
   );
 }
 
+/**
+ * The hard-gate values `--update` may write only with a decision: one above 0 the baseline does
+ * not hold, and one above the value it holds, whatever decision that lower value was held under.
+ */
+export function needsDecision(metrics: Metrics, baseline: Baseline | null): { s: string; k: string; value: number }[] {
+  return hardFailures(metrics).filter(({ s, k, value }) => {
+    const held = baseline?.scenarios[s]?.[k];
+    return held === undefined || value > held.value;
+  });
+}
+
+/** The hard-gate values above 0 a baseline holds under no decision. */
+export function undecided(baseline: Baseline): string[] {
+  return hardFailures(baseline.scenarios)
+    .filter(({ s, k }) => baseline.scenarios[s]?.[k]?.decision === undefined)
+    .map(({ s, k, value }) => `hard-gate value above 0 held without a decision id: ${s}/${k} = ${value}`);
+}
+
+/**
+ * The baseline of `metrics`. A decision is an acceptance of one value: a value that did not rise
+ * keeps the decision it was held under, a value that rose carries `decision` or none, never the
+ * old id.
+ */
 export function writeBaseline(metrics: Metrics, previous: Baseline | null, decision: string | undefined): Baseline {
   const scenarios: Metrics = {};
   for (const [scenario, keys] of Object.entries(metrics)) {
@@ -112,11 +170,10 @@ export function writeBaseline(metrics: Metrics, previous: Baseline | null, decis
     for (const [key, now] of Object.entries(keys)) {
       const old = previous?.scenarios[scenario]?.[key];
       const entry: Value = { value: now.value, tolerance: now.tolerance };
-      if (old?.decision !== undefined) {
-        entry.decision = old.decision;
-      }
-      if (decision !== undefined && ((old !== undefined && now.value > old.value) || (old === undefined && HARD.test(key) && now.value > 0))) {
-        entry.decision = decision;
+      const rose = old === undefined ? HARD.test(key) && now.value > 0 : now.value > old.value;
+      const kept = rose ? decision : now.value > 0 ? old?.decision : undefined;
+      if (kept !== undefined) {
+        entry.decision = kept;
       }
       out[key] = entry;
     }

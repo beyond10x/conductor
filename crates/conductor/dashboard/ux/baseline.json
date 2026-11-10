@@ -27,6 +27,10 @@
         "value": 0,
         "tolerance": 0
       },
+      "presence_misses@1440x900": {
+        "value": 0,
+        "tolerance": 0
+      },
       "truncated_states@1440x900": {
         "value": 0,
         "tolerance": 0
@@ -89,6 +93,10 @@
         "tolerance": 0
       },
       "theme_not_applied@1280x800": {
+        "value": 0,
+        "tolerance": 0
+      },
+      "presence_misses@1280x800": {
         "value": 0,
         "tolerance": 0
       },
@@ -158,6 +166,10 @@
         "value": 0,
         "tolerance": 0
       },
+      "presence_misses@1440x900": {
+        "value": 0,
+        "tolerance": 0
+      },
       "truncated_states@1440x900": {
         "value": 0,
         "tolerance": 0
@@ -195,6 +207,10 @@
         "tolerance": 0
       },
       "theme_not_applied@1280x800": {
+        "value": 0,
+        "tolerance": 0
+      },
+      "presence_misses@1280x800": {
         "value": 0,
         "tolerance": 0
       },
@@ -240,6 +256,10 @@
         "value": 0,
         "tolerance": 0
       },
+      "presence_misses@1440x900": {
+        "value": 0,
+        "tolerance": 0
+      },
       "truncated_states@1440x900": {
         "value": 0,
         "tolerance": 0
@@ -277,6 +297,10 @@
         "tolerance": 0
       },
       "theme_not_applied@1280x800": {
+        "value": 0,
+        "tolerance": 0
+      },
+      "presence_misses@1280x800": {
         "value": 0,
         "tolerance": 0
       },
@@ -324,6 +348,10 @@
         "value": 0,
         "tolerance": 0
       },
+      "presence_misses@1440x900": {
+        "value": 0,
+        "tolerance": 0
+      },
       "truncated_states@1440x900": {
         "value": 0,
         "tolerance": 0
@@ -363,6 +391,10 @@
         "decision": "R-01"
       },
       "theme_not_applied@1280x800": {
+        "value": 0,
+        "tolerance": 0
+      },
+      "presence_misses@1280x800": {
         "value": 0,
         "tolerance": 0
       },
@@ -410,6 +442,10 @@
         "value": 0,
         "tolerance": 0
       },
+      "presence_misses@1440x900": {
+        "value": 0,
+        "tolerance": 0
+      },
       "truncated_states@1440x900": {
         "value": 0,
         "tolerance": 0
@@ -449,6 +485,10 @@
         "decision": "R-01"
       },
       "theme_not_applied@1280x800": {
+        "value": 0,
+        "tolerance": 0
+      },
+      "presence_misses@1280x800": {
         "value": 0,
         "tolerance": 0
       },

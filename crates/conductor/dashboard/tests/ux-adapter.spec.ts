@@ -15,6 +15,7 @@ import {
   VIEWPORTS,
   scenarios,
 } from '../ux/adapter.ts';
+import { themeMisses } from '../ux/contract.ts';
 import { FixtureStore } from '../ux/fixtures.ts';
 
 const REPO = join(process.cwd(), '..', '..', '..');
@@ -63,6 +64,44 @@ describe('the adapter', () => {
     const decisions = all.find((scenario) => scenario.name === 'decisions');
     expect(decisions?.states.at(-1)?.name).toBe('answered');
     expect(decisions?.completion).toBeDefined();
+  });
+
+  it('names what every state must show, so a blank page is a miss', () => {
+    for (const scenario of scenarios()) {
+      for (const state of scenario.states) {
+        const where = `${scenario.name}/${state.name}`;
+        expect(state.present.length, where).toBeGreaterThanOrEqual(2);
+        expect(state.present, where).toContainEqual({ selector: 'main h1', count: 1 });
+        for (const one of state.present) {
+          expect(one.selector, where).toMatch(/^main /);
+          expect(one.count, where).toBeGreaterThan(0);
+        }
+      }
+    }
+  });
+});
+
+describe('the theme check', () => {
+  const row = (theme: 'light' | 'dark', background: string, themeApplied: string | null = theme) => ({
+    scenario: 'health',
+    state: 'full',
+    viewport: '1280x800',
+    theme,
+    themeApplied,
+    background,
+  });
+
+  it('passes two themes that each show their own page background', () => {
+    expect(themeMisses([row('light', 'rgb(255, 255, 255)'), row('dark', 'rgb(15, 18, 22)')])).toEqual([]);
+  });
+
+  it('misses both cases of a state whose themes show one background: a palette is dead', () => {
+    expect(themeMisses([row('light', 'rgb(255, 255, 255)'), row('dark', 'rgb(255, 255, 255)')])).toHaveLength(2);
+  });
+
+  it('misses a page that does not carry the theme, and a case with no other theme to compare', () => {
+    expect(themeMisses([row('light', 'rgb(255, 255, 255)'), row('dark', 'rgb(15, 18, 22)', null)]).map((one) => one.theme)).toEqual(['dark']);
+    expect(themeMisses([row('dark', 'rgb(15, 18, 22)')])).toHaveLength(1);
   });
 });
 
@@ -142,5 +181,12 @@ describe('the gate', () => {
     const install = workflow.indexOf('playwright install --with-deps chromium');
     expect(install).toBeGreaterThan(0);
     expect(workflow.indexOf('run: task check')).toBeGreaterThan(install);
+  });
+
+  it('has the main branch in the CI checkout before task check runs, for the worse-than-main check', () => {
+    const workflow = readFileSync(join(REPO, '.github', 'workflows', 'check.yml'), 'utf8');
+    const fetch = workflow.indexOf('git fetch --no-tags --depth=1 origin +refs/heads/main:refs/remotes/origin/main');
+    expect(fetch).toBeGreaterThan(0);
+    expect(workflow.indexOf('run: task check')).toBeGreaterThan(fetch);
   });
 });
