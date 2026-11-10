@@ -2010,3 +2010,239 @@ fn a_target_held_after_the_listing_is_refused_when_its_turn_comes() {
         shown(&output)
     );
 }
+
+// Adversary pass 2 (`story:gc-idle-targets`).
+
+/// The files named `old-*` under `dir`.
+fn old_files(dir: &Path) -> usize {
+    fs::read_dir(dir)
+        .into_iter()
+        .flatten()
+        .flatten()
+        .map(|entry| {
+            if entry.file_type().is_ok_and(|kind| kind.is_dir()) {
+                old_files(&entry.path())
+            } else {
+                usize::from(entry.file_name().to_string_lossy().starts_with("old-"))
+            }
+        })
+        .sum()
+}
+
+/// The removal unlinks cargo's lock files with the rest, so the lock gc holds on them stops
+/// nothing once they are gone: a cargo that starts then creates the lock file anew, as cargo
+/// does, takes it at once and builds into a target that is still being removed.
+#[test]
+fn a_build_that_takes_cargos_lock_while_a_target_is_removed_loses_nothing_after_it() {
+    let case = Case::new("idle-targets-lock-unlinked");
+    let target = case.agent_target("racing");
+    cargo_target(&target, 240 * MINUTE);
+    let profiles: Vec<PathBuf> = (0..24)
+        .map(|n| target.join(format!("profile-{n:02}")))
+        .collect();
+    for profile in &profiles {
+        write(&profile.join(".cargo-lock"), "");
+        for n in 0..1500 {
+            write(&profile.join(format!("deps/old-{n}")), "");
+        }
+    }
+    age_by(&target, 240 * MINUTE);
+    let all = old_files(&target);
+
+    let readings = case.dir.join("free.txt");
+    write(&readings, &format!("{}\n", 10 * GIB));
+    let path = format!("{}:/usr/bin:/bin", case.bin().display());
+    let mut gc = common::conductor(case.home())
+        .args(["gc", "--format", "json"])
+        .current_dir(case.records())
+        .env("PATH", path)
+        .env(conductor_cli::gc::reclaim::READINGS_VARIABLE, &readings)
+        .stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .expect("conductor runs");
+    // The stand-in of a cargo that starts: it touches nothing while every lock file is there
+    // (gc holds them), and where one is gone it does what cargo does: creates the profile
+    // directory and the lock file and takes the lock without waiting.
+    let mut taken = None;
+    let deadline = Instant::now() + Duration::from_secs(120);
+    while taken.is_none() && gc.try_wait().expect("ask for gc").is_none() {
+        assert!(Instant::now() < deadline, "gc did not end");
+        for profile in &profiles {
+            let lock = profile.join(".cargo-lock");
+            if fs::symlink_metadata(&lock).is_ok() || fs::create_dir_all(profile).is_err() {
+                continue;
+            }
+            let Ok(file) = fs::OpenOptions::new()
+                .read(true)
+                .write(true)
+                .create(true)
+                .truncate(false)
+                .open(&lock)
+            else {
+                continue;
+            };
+            if file.try_lock_shared().is_ok() {
+                taken = Some((file, old_files(&target)));
+                break;
+            }
+        }
+    }
+    let output = gc.wait_with_output().expect("conductor ends");
+    let Some((_lock, at_lock)) = taken else {
+        panic!(
+            "no lock file went while gc ran, of {all} files {} are left: {}",
+            old_files(&target),
+            shown(&output)
+        );
+    };
+    let at_end = old_files(&target);
+    assert_eq!(
+        at_end,
+        at_lock,
+        "a build took cargo's lock in the target while {at_lock} of its {all} files were there, \
+         and gc went on to remove {} of them under that lock: {}",
+        at_lock - at_end,
+        shown(&output)
+    );
+}
+
+/// Holds the tag half of the shape test: with it dropped, cargo's layout alone would do.
+#[test]
+fn a_directory_another_tool_tagged_is_no_target_even_with_cargos_layout() {
+    let case = Case::new("idle-targets-foreign-tag-cargo-layout");
+    let tree = case
+        .agent_target("python")
+        .parent()
+        .expect("the tree")
+        .to_path_buf();
+    let cache = tree.join(".venv");
+    write(&cache.join("CACHEDIR.TAG"), UV_TAG);
+    write(&cache.join(".rustc_info.json"), "{}\n");
+    write(&cache.join("debug/.cargo-lock"), "");
+    fill(&cache.join("debug/deps/kept.bin"), 64 * KIB);
+    age_by(&cache, 240 * MINUTE);
+
+    let output = case.gc_at(&["--dry-run", "--format", "json"], &[10]);
+    assert!(output.status.success(), "{}", shown(&output));
+    assert!(
+        !shown(&output).contains(&cache.display().to_string()),
+        "a directory uv tagged is no cargo target: {}",
+        shown(&output)
+    );
+    let output = case.gc_at(&["--format", "json"], &[10]);
+    assert!(output.status.success(), "{}", shown(&output));
+    assert!(
+        cache.join("debug/deps/kept.bin").is_file(),
+        "{}",
+        shown(&output)
+    );
+}
+
+/// The walk stops at a directory another tool tagged, so a cargo target below one is never
+/// listed, idle or held.
+#[test]
+fn a_cargo_target_below_a_directory_another_tool_tagged_is_still_listed() {
+    let case = Case::new("idle-targets-below-foreign-tag");
+    let tree = case
+        .agent_target("python")
+        .parent()
+        .expect("the tree")
+        .to_path_buf();
+    write(&tree.join(".venv/CACHEDIR.TAG"), UV_TAG);
+    let target = tree.join(".venv/src/extension/target");
+    cargo_target(&target, 240 * MINUTE);
+
+    let output = case.gc_at(&["--dry-run", "--format", "json"], &[10]);
+    assert!(output.status.success(), "{}", shown(&output));
+    let report: Value = serde_json::from_slice(&output.stdout).expect("JSON");
+    assert!(
+        idle_rows(&report).contains_key(&target.display().to_string()),
+        "an idle cargo target in a virtual environment's sources is a row: {}",
+        shown(&output)
+    );
+}
+
+/// A target built only for another triple, with no `.rustc_info.json`: its one lock file lies
+/// in `<triple>/<profile>/`. It is found by that lock, kept while it is held, and cleaned after.
+#[test]
+fn a_cross_compile_target_is_found_by_its_triples_lock_and_kept_while_it_is_held() {
+    let case = Case::new("idle-targets-triple");
+    let target = case.agent_target("cross");
+    write(&target.join("CACHEDIR.TAG"), CARGO_TAG);
+    let lock_path = target.join("aarch64-unknown-linux-gnu/release/.cargo-lock");
+    write(&lock_path, "");
+    let built = target.join("aarch64-unknown-linux-gnu/release/deps/out.bin");
+    fill(&built, 64 * KIB);
+    age_by(&target, 240 * MINUTE);
+
+    let output = case.gc_at(&["--dry-run", "--format", "json"], &[10]);
+    assert!(output.status.success(), "{}", shown(&output));
+    let report: Value = serde_json::from_slice(&output.stdout).expect("JSON");
+    assert!(
+        idle_rows(&report).contains_key(&target.display().to_string()),
+        "a target with only a triple's profile directory is a row: {}",
+        shown(&output)
+    );
+
+    let lock = fs::File::open(&lock_path).expect("open cargo's lock file");
+    lock.lock_shared().expect("this process holds cargo's lock");
+    let output = case.gc_at(&["--dry-run", "--format", "json"], &[10]);
+    assert!(output.status.success(), "{}", shown(&output));
+    let report: Value = serde_json::from_slice(&output.stdout).expect("JSON");
+    let kept = kept_target(&report, &target).expect("listed as kept");
+    assert!(kept.contains("not idle: cargo's lock"), "{kept}");
+    assert!(
+        kept.contains("aarch64-unknown-linux-gnu/release/.cargo-lock is held"),
+        "{kept}"
+    );
+    let output = case.gc_at(&["--format", "json"], &[10]);
+    assert!(output.status.success(), "{}", shown(&output));
+    assert!(built.is_file(), "{}", shown(&output));
+    drop(lock);
+
+    let output = case.gc_at(&["--format", "json"], &[10]);
+    assert!(output.status.success(), "{}", shown(&output));
+    assert!(!target.exists(), "{}", shown(&output));
+}
+
+/// A measurement, not part of the gate: every word of every command line on the host is
+/// resolved one ancestor at a time, so a word of many components costs its length times its
+/// components. `--run-ignored only`, alone.
+#[test]
+#[ignore = "a wall-clock measurement"]
+fn the_dry_run_is_not_slowed_by_a_process_with_long_command_line_words() {
+    let case = Case::new("idle-targets-long-words");
+    cargo_target(&case.agent_target("idle"), 240 * MINUTE);
+    let timed = || {
+        let start = Instant::now();
+        let output = case.gc_at(&["--dry-run", "--format", "json"], &[10]);
+        assert!(output.status.success(), "{}", shown(&output));
+        start.elapsed()
+    };
+    let before = timed();
+    // `cat` waits on its standard input, the first file it is given, and never reads the rest.
+    let word = "a/".repeat(60_000);
+    let holder = StandIn(
+        Command::new("cat")
+            .arg("-")
+            .args(std::iter::repeat_n(&word, 10))
+            .current_dir(&case.dir)
+            .stdin(Stdio::piped())
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .spawn()
+            .expect("the stand-in starts"),
+    );
+    std::thread::sleep(Duration::from_millis(300));
+    let with = timed();
+    drop(holder);
+    eprintln!(
+        "dry run: {before:?} before, {with:?} beside ten words of 120 kB and 60000 components"
+    );
+    assert!(
+        with < before + Duration::from_secs(5),
+        "the dry run took {with:?} beside one process with ten long words, {before:?} without"
+    );
+}
