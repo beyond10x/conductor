@@ -1,0 +1,44 @@
+{
+  "page": "#/decisions",
+  "anchor": true,
+  "states": [
+    {
+      "name": "loading",
+      "store": "loading"
+    },
+    {
+      "name": "error",
+      "store": "error"
+    },
+    {
+      "name": "empty",
+      "store": "empty"
+    },
+    {
+      "name": "full",
+      "store": "full"
+    },
+    {
+      "name": "answered",
+      "store": "full",
+      "act": [
+        {
+          "role": "button",
+          "name": "Yes",
+          "within": "article[data-request=\"REQ-release\"]"
+        },
+        {
+          "role": "button",
+          "name": "Send 1 answer"
+        }
+      ]
+    }
+  ],
+  "completion": {
+    "selector": "ul.results li.recorded[data-request=\"REQ-release\"]",
+    "text": "REQ-release: recorded DEC-20261013-90"
+  },
+  "expectations": {
+    "maxActions": 2
+  }
+}

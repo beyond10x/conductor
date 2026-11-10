@@ -1,0 +1,25 @@
+{
+  "page": "#/",
+  "anchor": true,
+  "states": [
+    {
+      "name": "loading",
+      "store": "loading"
+    },
+    {
+      "name": "error",
+      "store": "error"
+    },
+    {
+      "name": "empty",
+      "store": "empty"
+    },
+    {
+      "name": "full",
+      "store": "full"
+    }
+  ],
+  "expectations": {
+    "maxActions": 0
+  }
+}

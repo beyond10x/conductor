@@ -1,0 +1,65 @@
+// The dashboard's UX gate, every merge (story:dashboard-ui-loop; `task ui:ux-gate`, part of
+// `task check`): the contract's break-tests, then the layout contract, axe-core and the screen-only
+// and keyboard-only users over every scenario state at the gating viewports in both themes, then the
+// ratchet over ux/baseline.json. No key and no network: the page reads only the committed dist/ and
+// its store fixture.
+//
+//   node ux/gate.ts                       gate; exit 1 on any problem
+//   node ux/gate.ts --update [--decision <id>]   rewrite the baseline from this measurement
+import { writeFileSync } from 'node:fs';
+import { chromium } from 'playwright';
+import { breakTests } from './breaks.ts';
+import { flatten, measureAll } from './measure.ts';
+import { baselinePath, compare, hardFailures, mainBaseline, readBaseline, worseThanMain, writeBaseline } from './ratchet.ts';
+
+const args = process.argv.slice(2);
+const update = args.includes('--update');
+const at = args.indexOf('--decision');
+const decision = at >= 0 ? args[at + 1] : undefined;
+
+const browser = await chromium.launch();
+const breaks = await breakTests(browser);
+await browser.close();
+if (breaks.silent.length > 0) {
+  console.error(`ux gate failed: the contract misreads ${breaks.silent.length} of ${breaks.ran} break-tests:\n${breaks.silent.map((name) => `- ${name}`).join('\n')}`);
+  process.exit(1);
+}
+console.log(`break-tests: ${breaks.ran} of ${breaks.ran} read as built`);
+
+const measured = await measureAll({ gatingOnly: true });
+const metrics = flatten(measured);
+const values = Object.values(metrics).reduce((sum, keys) => sum + Object.keys(keys).length, 0);
+console.log(`measured ${measured.rows.length} state cases over ${measured.scenarios.length} scenarios, ${values} values`);
+const baseline = readBaseline();
+
+if (update) {
+  const open = hardFailures(metrics).filter(({ s, k, value }) => {
+    const held = baseline?.scenarios[s]?.[k];
+    return held?.decision === undefined && !(held !== undefined && held.value >= value);
+  });
+  if (open.length > 0 && decision === undefined) {
+    console.error(`hard-gate values above 0 enter or rise in the baseline only with --decision <id>:\n${open.map(({ s, k, value }) => `- ${s}/${k} = ${value}`).join('\n')}`);
+    process.exit(1);
+  }
+  writeFileSync(baselinePath, `${JSON.stringify(writeBaseline(metrics, baseline, decision), null, 2)}\n`);
+  console.log(`baseline written: ${baselinePath}`);
+  process.exit(0);
+}
+if (baseline === null) {
+  console.error('ux gate failed: no ux/baseline.json; run task ui:ux-gate -- --update');
+  process.exit(1);
+}
+const main = mainBaseline();
+if (main === null) {
+  console.error('note: origin/main has no crates/conductor/dashboard/ux/baseline.json; the worse-than-main check is skipped');
+}
+const hard = hardFailures(metrics);
+if (hard.length > 0) {
+  console.error(`note: ${hard.length} hard-gate values are above 0 and held by the baseline with a decision:\n${hard.map(({ s, k, value }) => `- ${s}/${k} = ${value}`).join('\n')}`);
+}
+const problems = [...compare(baseline, metrics).problems, ...worseThanMain(baseline, main)];
+if (problems.length > 0) {
+  console.error(`ux gate failed:\n${problems.map((problem) => `- ${problem}`).join('\n')}`);
+  process.exit(1);
+}
+console.log(`ux gate ok: ${values} values at the baseline`);

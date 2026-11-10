@@ -1,0 +1,3676 @@
+{
+  "round": "R-01",
+  "date": "2026-11-10T00:20:06.074Z",
+  "commit": "3a27c6469",
+  "tree_dirty": [
+    "M crates/conductor/dashboard/package-lock.json",
+    "M crates/conductor/dashboard/package.json",
+    "M crates/conductor/dashboard/tsconfig.json",
+    "?? crates/conductor/dashboard/tests/ux-adapter.spec.ts",
+    "?? crates/conductor/dashboard/tests/ux-findings.spec.ts",
+    "?? crates/conductor/dashboard/tests/ux-ratchet.spec.ts",
+    "?? crates/conductor/dashboard/ux/"
+  ],
+  "scenarios": [
+    {
+      "name": "decisions",
+      "page": "#/decisions",
+      "anchor": true,
+      "states": [
+        "loading",
+        "error",
+        "empty",
+        "full",
+        "answered"
+      ]
+    },
+    {
+      "name": "health",
+      "page": "#/health",
+      "anchor": false,
+      "states": [
+        "loading",
+        "error",
+        "empty",
+        "full"
+      ]
+    },
+    {
+      "name": "kpis",
+      "page": "#/kpis",
+      "anchor": false,
+      "states": [
+        "loading",
+        "error",
+        "empty",
+        "full"
+      ]
+    },
+    {
+      "name": "overview",
+      "page": "#/",
+      "anchor": true,
+      "states": [
+        "loading",
+        "error",
+        "empty",
+        "full"
+      ]
+    },
+    {
+      "name": "repository",
+      "page": "#/repo/alpha",
+      "anchor": false,
+      "states": [
+        "loading",
+        "error",
+        "empty",
+        "full"
+      ]
+    }
+  ],
+  "viewports": [
+    {
+      "name": "1440x900",
+      "gating": true
+    },
+    {
+      "name": "1280x800",
+      "gating": true
+    },
+    {
+      "name": "1024x768",
+      "gating": false
+    },
+    {
+      "name": "768x1024",
+      "gating": false
+    },
+    {
+      "name": "390x844",
+      "gating": false
+    }
+  ],
+  "themes": [
+    "light",
+    "dark"
+  ],
+  "levels": [
+    "L1",
+    "L2",
+    "L3"
+  ],
+  "skipped_levels": {
+    "L0": "no guidance cue on the dashboard",
+    "L4": "paid, not requested",
+    "L5": "paid, not requested",
+    "L6": "no people in this round",
+    "L7": "the review agents are run by the session after the round command",
+    "L8": "paid, not requested"
+  },
+  "gating_metrics": {
+    "decisions": {
+      "hscroll_states@1440x900": {
+        "value": 0,
+        "tolerance": 0
+      },
+      "overflow_states@1440x900": {
+        "value": 0,
+        "tolerance": 0
+      },
+      "always_visible_violations@1440x900": {
+        "value": 6,
+        "tolerance": 0
+      },
+      "axe_serious_critical_nodes@1440x900": {
+        "value": 0,
+        "tolerance": 0
+      },
+      "axe_rule_cases@1440x900": {
+        "value": 0,
+        "tolerance": 0
+      },
+      "theme_not_applied@1440x900": {
+        "value": 0,
+        "tolerance": 0
+      },
+      "truncated_states@1440x900": {
+        "value": 0,
+        "tolerance": 0
+      },
+      "reduced_motion_violations@1440x900": {
+        "value": 0,
+        "tolerance": 0
+      },
+      "network_requests@1440x900": {
+        "value": 0,
+        "tolerance": 0
+      },
+      "unanswered_requests@1440x900": {
+        "value": 0,
+        "tolerance": 0
+      },
+      "completion_miss@1440x900": {
+        "value": 0,
+        "tolerance": 0
+      },
+      "false_complete@1440x900": {
+        "value": 0,
+        "tolerance": 0
+      },
+      "over_budget@1440x900": {
+        "value": 0,
+        "tolerance": 0
+      },
+      "screen_only.actions@1440x900": {
+        "value": 4,
+        "tolerance": 0
+      },
+      "keyboard.tabs@1440x900": {
+        "value": 44,
+        "tolerance": 0.05
+      },
+      "keyboard.miss@1440x900": {
+        "value": 0,
+        "tolerance": 0
+      },
+      "hscroll_states@1280x800": {
+        "value": 0,
+        "tolerance": 0
+      },
+      "overflow_states@1280x800": {
+        "value": 0,
+        "tolerance": 0
+      },
+      "always_visible_violations@1280x800": {
+        "value": 6,
+        "tolerance": 0
+      },
+      "axe_serious_critical_nodes@1280x800": {
+        "value": 0,
+        "tolerance": 0
+      },
+      "axe_rule_cases@1280x800": {
+        "value": 0,
+        "tolerance": 0
+      },
+      "theme_not_applied@1280x800": {
+        "value": 0,
+        "tolerance": 0
+      },
+      "truncated_states@1280x800": {
+        "value": 0,
+        "tolerance": 0
+      },
+      "reduced_motion_violations@1280x800": {
+        "value": 0,
+        "tolerance": 0
+      },
+      "network_requests@1280x800": {
+        "value": 0,
+        "tolerance": 0
+      },
+      "unanswered_requests@1280x800": {
+        "value": 0,
+        "tolerance": 0
+      },
+      "completion_miss@1280x800": {
+        "value": 0,
+        "tolerance": 0
+      },
+      "false_complete@1280x800": {
+        "value": 0,
+        "tolerance": 0
+      },
+      "over_budget@1280x800": {
+        "value": 0,
+        "tolerance": 0
+      },
+      "screen_only.actions@1280x800": {
+        "value": 4,
+        "tolerance": 0
+      },
+      "keyboard.tabs@1280x800": {
+        "value": 44,
+        "tolerance": 0.05
+      },
+      "keyboard.miss@1280x800": {
+        "value": 0,
+        "tolerance": 0
+      }
+    },
+    "health": {
+      "hscroll_states@1440x900": {
+        "value": 0,
+        "tolerance": 0
+      },
+      "overflow_states@1440x900": {
+        "value": 0,
+        "tolerance": 0
+      },
+      "always_visible_violations@1440x900": {
+        "value": 0,
+        "tolerance": 0
+      },
+      "axe_serious_critical_nodes@1440x900": {
+        "value": 0,
+        "tolerance": 0
+      },
+      "axe_rule_cases@1440x900": {
+        "value": 0,
+        "tolerance": 0
+      },
+      "theme_not_applied@1440x900": {
+        "value": 0,
+        "tolerance": 0
+      },
+      "truncated_states@1440x900": {
+        "value": 0,
+        "tolerance": 0
+      },
+      "reduced_motion_violations@1440x900": {
+        "value": 0,
+        "tolerance": 0
+      },
+      "network_requests@1440x900": {
+        "value": 0,
+        "tolerance": 0
+      },
+      "unanswered_requests@1440x900": {
+        "value": 0,
+        "tolerance": 0
+      },
+      "hscroll_states@1280x800": {
+        "value": 0,
+        "tolerance": 0
+      },
+      "overflow_states@1280x800": {
+        "value": 0,
+        "tolerance": 0
+      },
+      "always_visible_violations@1280x800": {
+        "value": 0,
+        "tolerance": 0
+      },
+      "axe_serious_critical_nodes@1280x800": {
+        "value": 0,
+        "tolerance": 0
+      },
+      "axe_rule_cases@1280x800": {
+        "value": 0,
+        "tolerance": 0
+      },
+      "theme_not_applied@1280x800": {
+        "value": 0,
+        "tolerance": 0
+      },
+      "truncated_states@1280x800": {
+        "value": 0,
+        "tolerance": 0
+      },
+      "reduced_motion_violations@1280x800": {
+        "value": 0,
+        "tolerance": 0
+      },
+      "network_requests@1280x800": {
+        "value": 0,
+        "tolerance": 0
+      },
+      "unanswered_requests@1280x800": {
+        "value": 0,
+        "tolerance": 0
+      }
+    },
+    "kpis": {
+      "hscroll_states@1440x900": {
+        "value": 0,
+        "tolerance": 0
+      },
+      "overflow_states@1440x900": {
+        "value": 0,
+        "tolerance": 0
+      },
+      "always_visible_violations@1440x900": {
+        "value": 0,
+        "tolerance": 0
+      },
+      "axe_serious_critical_nodes@1440x900": {
+        "value": 0,
+        "tolerance": 0
+      },
+      "axe_rule_cases@1440x900": {
+        "value": 0,
+        "tolerance": 0
+      },
+      "theme_not_applied@1440x900": {
+        "value": 0,
+        "tolerance": 0
+      },
+      "truncated_states@1440x900": {
+        "value": 0,
+        "tolerance": 0
+      },
+      "reduced_motion_violations@1440x900": {
+        "value": 0,
+        "tolerance": 0
+      },
+      "network_requests@1440x900": {
+        "value": 0,
+        "tolerance": 0
+      },
+      "unanswered_requests@1440x900": {
+        "value": 0,
+        "tolerance": 0
+      },
+      "hscroll_states@1280x800": {
+        "value": 0,
+        "tolerance": 0
+      },
+      "overflow_states@1280x800": {
+        "value": 0,
+        "tolerance": 0
+      },
+      "always_visible_violations@1280x800": {
+        "value": 0,
+        "tolerance": 0
+      },
+      "axe_serious_critical_nodes@1280x800": {
+        "value": 0,
+        "tolerance": 0
+      },
+      "axe_rule_cases@1280x800": {
+        "value": 0,
+        "tolerance": 0
+      },
+      "theme_not_applied@1280x800": {
+        "value": 0,
+        "tolerance": 0
+      },
+      "truncated_states@1280x800": {
+        "value": 0,
+        "tolerance": 0
+      },
+      "reduced_motion_violations@1280x800": {
+        "value": 0,
+        "tolerance": 0
+      },
+      "network_requests@1280x800": {
+        "value": 0,
+        "tolerance": 0
+      },
+      "unanswered_requests@1280x800": {
+        "value": 0,
+        "tolerance": 0
+      }
+    },
+    "overview": {
+      "hscroll_states@1440x900": {
+        "value": 0,
+        "tolerance": 0
+      },
+      "overflow_states@1440x900": {
+        "value": 0,
+        "tolerance": 0
+      },
+      "always_visible_violations@1440x900": {
+        "value": 0,
+        "tolerance": 0
+      },
+      "axe_serious_critical_nodes@1440x900": {
+        "value": 2,
+        "tolerance": 0
+      },
+      "axe_rule_cases@1440x900": {
+        "value": 2,
+        "tolerance": 0
+      },
+      "theme_not_applied@1440x900": {
+        "value": 0,
+        "tolerance": 0
+      },
+      "truncated_states@1440x900": {
+        "value": 0,
+        "tolerance": 0
+      },
+      "reduced_motion_violations@1440x900": {
+        "value": 0,
+        "tolerance": 0
+      },
+      "network_requests@1440x900": {
+        "value": 0,
+        "tolerance": 0
+      },
+      "unanswered_requests@1440x900": {
+        "value": 0,
+        "tolerance": 0
+      },
+      "hscroll_states@1280x800": {
+        "value": 0,
+        "tolerance": 0
+      },
+      "overflow_states@1280x800": {
+        "value": 0,
+        "tolerance": 0
+      },
+      "always_visible_violations@1280x800": {
+        "value": 0,
+        "tolerance": 0
+      },
+      "axe_serious_critical_nodes@1280x800": {
+        "value": 2,
+        "tolerance": 0
+      },
+      "axe_rule_cases@1280x800": {
+        "value": 2,
+        "tolerance": 0
+      },
+      "theme_not_applied@1280x800": {
+        "value": 0,
+        "tolerance": 0
+      },
+      "truncated_states@1280x800": {
+        "value": 0,
+        "tolerance": 0
+      },
+      "reduced_motion_violations@1280x800": {
+        "value": 0,
+        "tolerance": 0
+      },
+      "network_requests@1280x800": {
+        "value": 0,
+        "tolerance": 0
+      },
+      "unanswered_requests@1280x800": {
+        "value": 0,
+        "tolerance": 0
+      }
+    },
+    "repository": {
+      "hscroll_states@1440x900": {
+        "value": 0,
+        "tolerance": 0
+      },
+      "overflow_states@1440x900": {
+        "value": 0,
+        "tolerance": 0
+      },
+      "always_visible_violations@1440x900": {
+        "value": 0,
+        "tolerance": 0
+      },
+      "axe_serious_critical_nodes@1440x900": {
+        "value": 4,
+        "tolerance": 0
+      },
+      "axe_rule_cases@1440x900": {
+        "value": 2,
+        "tolerance": 0
+      },
+      "theme_not_applied@1440x900": {
+        "value": 0,
+        "tolerance": 0
+      },
+      "truncated_states@1440x900": {
+        "value": 0,
+        "tolerance": 0
+      },
+      "reduced_motion_violations@1440x900": {
+        "value": 0,
+        "tolerance": 0
+      },
+      "network_requests@1440x900": {
+        "value": 0,
+        "tolerance": 0
+      },
+      "unanswered_requests@1440x900": {
+        "value": 0,
+        "tolerance": 0
+      },
+      "hscroll_states@1280x800": {
+        "value": 0,
+        "tolerance": 0
+      },
+      "overflow_states@1280x800": {
+        "value": 0,
+        "tolerance": 0
+      },
+      "always_visible_violations@1280x800": {
+        "value": 0,
+        "tolerance": 0
+      },
+      "axe_serious_critical_nodes@1280x800": {
+        "value": 4,
+        "tolerance": 0
+      },
+      "axe_rule_cases@1280x800": {
+        "value": 2,
+        "tolerance": 0
+      },
+      "theme_not_applied@1280x800": {
+        "value": 0,
+        "tolerance": 0
+      },
+      "truncated_states@1280x800": {
+        "value": 0,
+        "tolerance": 0
+      },
+      "reduced_motion_violations@1280x800": {
+        "value": 0,
+        "tolerance": 0
+      },
+      "network_requests@1280x800": {
+        "value": 0,
+        "tolerance": 0
+      },
+      "unanswered_requests@1280x800": {
+        "value": 0,
+        "tolerance": 0
+      }
+    }
+  },
+  "measured_only": {
+    "1024x768": {
+      "hscroll_states": 0,
+      "overflow_states": 0,
+      "always_visible_violations": 6,
+      "truncated_states": 0,
+      "scrolling_block_states": 6,
+      "small_text_states": 36
+    },
+    "768x1024": {
+      "hscroll_states": 0,
+      "overflow_states": 0,
+      "always_visible_violations": 6,
+      "truncated_states": 0,
+      "scrolling_block_states": 2,
+      "small_text_states": 36
+    },
+    "390x844": {
+      "hscroll_states": 0,
+      "overflow_states": 0,
+      "always_visible_violations": 6,
+      "truncated_states": 0,
+      "scrolling_block_states": 12,
+      "small_text_states": 36
+    }
+  },
+  "details": {
+    "1440x900": {
+      "violations": {
+        "header: outside viewport": [
+          "decisions/answered[dark]",
+          "decisions/answered[light]"
+        ],
+        "instance-selector: outside viewport": [
+          "decisions/answered[dark]",
+          "decisions/answered[light]"
+        ],
+        "navigation: outside viewport": [
+          "decisions/answered[dark]",
+          "decisions/answered[light]"
+        ]
+      },
+      "axe": {
+        "link-in-text-block (serious), The link has insufficient color contrast of 1.54:1 with the surrounding text. (Minimum contrast is 3:1, link text: #7cc4ff, surrounding text: #e6e9ee)": {
+          "cases": [
+            "overview/full[dark]"
+          ],
+          "nodes": 1,
+          "target": "a[rel=\"noreferrer\"][data-v-34d6433b=\"\"]"
+        },
+        "link-in-text-block (serious), The link has insufficient color contrast of 2.67:1 with the surrounding text. (Minimum contrast is 3:1, link text: #0b62b0, surrounding text: #1a1f26)": {
+          "cases": [
+            "overview/full[light]"
+          ],
+          "nodes": 1,
+          "target": "a[rel=\"noreferrer\"][data-v-34d6433b=\"\"]"
+        },
+        "scrollable-region-focusable (serious), Element should have focusable content": {
+          "cases": [
+            "repository/full[dark]",
+            "repository/full[light]"
+          ],
+          "nodes": 4,
+          "target": ".stack.session.card:nth-child(2) > .s13.row[data-v-d220f67f=\"\"]:nth-child(5) > .transcript"
+        }
+      },
+      "overflow": [],
+      "truncated": [],
+      "network": [],
+      "unanswered": [],
+      "small_text_states": 36
+    },
+    "1280x800": {
+      "violations": {
+        "header: outside viewport": [
+          "decisions/answered[dark]",
+          "decisions/answered[light]"
+        ],
+        "instance-selector: outside viewport": [
+          "decisions/answered[dark]",
+          "decisions/answered[light]"
+        ],
+        "navigation: outside viewport": [
+          "decisions/answered[dark]",
+          "decisions/answered[light]"
+        ]
+      },
+      "axe": {
+        "link-in-text-block (serious), The link has insufficient color contrast of 1.54:1 with the surrounding text. (Minimum contrast is 3:1, link text: #7cc4ff, surrounding text: #e6e9ee)": {
+          "cases": [
+            "overview/full[dark]"
+          ],
+          "nodes": 1,
+          "target": "a[rel=\"noreferrer\"][data-v-34d6433b=\"\"]"
+        },
+        "link-in-text-block (serious), The link has insufficient color contrast of 2.67:1 with the surrounding text. (Minimum contrast is 3:1, link text: #0b62b0, surrounding text: #1a1f26)": {
+          "cases": [
+            "overview/full[light]"
+          ],
+          "nodes": 1,
+          "target": "a[rel=\"noreferrer\"][data-v-34d6433b=\"\"]"
+        },
+        "scrollable-region-focusable (serious), Element should have focusable content": {
+          "cases": [
+            "repository/full[dark]",
+            "repository/full[light]"
+          ],
+          "nodes": 4,
+          "target": ".stack.session.card:nth-child(2) > .s13.row[data-v-d220f67f=\"\"]:nth-child(5) > .transcript"
+        }
+      },
+      "overflow": [],
+      "truncated": [],
+      "network": [],
+      "unanswered": [],
+      "small_text_states": 36
+    },
+    "1024x768": {
+      "violations": {
+        "header: outside viewport": [
+          "decisions/answered[dark]",
+          "decisions/answered[light]"
+        ],
+        "instance-selector: outside viewport": [
+          "decisions/answered[dark]",
+          "decisions/answered[light]"
+        ],
+        "navigation: outside viewport": [
+          "decisions/answered[dark]",
+          "decisions/answered[light]"
+        ]
+      },
+      "axe": {},
+      "overflow": [],
+      "truncated": [],
+      "network": [],
+      "unanswered": [],
+      "small_text_states": 36
+    },
+    "768x1024": {
+      "violations": {
+        "header: outside viewport": [
+          "decisions/answered[dark]",
+          "decisions/answered[light]"
+        ],
+        "instance-selector: outside viewport": [
+          "decisions/answered[dark]",
+          "decisions/answered[light]"
+        ],
+        "navigation: outside viewport": [
+          "decisions/answered[dark]",
+          "decisions/answered[light]"
+        ]
+      },
+      "axe": {},
+      "overflow": [],
+      "truncated": [],
+      "network": [],
+      "unanswered": [],
+      "small_text_states": 36
+    },
+    "390x844": {
+      "violations": {
+        "header: outside viewport": [
+          "decisions/answered[dark]",
+          "decisions/answered[light]"
+        ],
+        "instance-selector: outside viewport": [
+          "decisions/answered[dark]",
+          "decisions/answered[light]"
+        ],
+        "navigation: outside viewport": [
+          "decisions/answered[dark]",
+          "decisions/answered[light]"
+        ]
+      },
+      "axe": {},
+      "overflow": [],
+      "truncated": [],
+      "network": [],
+      "unanswered": [],
+      "small_text_states": 36
+    }
+  },
+  "plays": {
+    "decisions": {
+      "1280x800": [
+        {
+          "theme": "light",
+          "play": {
+            "completed": true,
+            "falseComplete": false,
+            "actions": 2,
+            "looks": 1,
+            "glances": [
+              1,
+              3
+            ],
+            "log": [
+              "button \"Yes\"",
+              "button \"Send 1 answer\""
+            ]
+          },
+          "keyboard": {
+            "completed": true,
+            "tabs": 22
+          }
+        },
+        {
+          "theme": "dark",
+          "play": {
+            "completed": true,
+            "falseComplete": false,
+            "actions": 2,
+            "looks": 1,
+            "glances": [
+              1,
+              3
+            ],
+            "log": [
+              "button \"Yes\"",
+              "button \"Send 1 answer\""
+            ]
+          },
+          "keyboard": {
+            "completed": true,
+            "tabs": 22
+          }
+        }
+      ],
+      "1440x900": [
+        {
+          "theme": "light",
+          "play": {
+            "completed": true,
+            "falseComplete": false,
+            "actions": 2,
+            "looks": 1,
+            "glances": [
+              1,
+              3
+            ],
+            "log": [
+              "button \"Yes\"",
+              "button \"Send 1 answer\""
+            ]
+          },
+          "keyboard": {
+            "completed": true,
+            "tabs": 22
+          }
+        },
+        {
+          "theme": "dark",
+          "play": {
+            "completed": true,
+            "falseComplete": false,
+            "actions": 2,
+            "looks": 1,
+            "glances": [
+              1,
+              3
+            ],
+            "log": [
+              "button \"Yes\"",
+              "button \"Send 1 answer\""
+            ]
+          },
+          "keyboard": {
+            "completed": true,
+            "tabs": 22
+          }
+        }
+      ]
+    }
+  },
+  "rows": [
+    {
+      "scenario": "decisions",
+      "state": "answered",
+      "viewport": "1024x768",
+      "theme": "dark",
+      "violations": [
+        {
+          "kind": "header",
+          "why": "outside viewport"
+        },
+        {
+          "kind": "instance-selector",
+          "why": "outside viewport"
+        },
+        {
+          "kind": "navigation",
+          "why": "outside viewport"
+        }
+      ],
+      "hscroll": false,
+      "overflow": [],
+      "truncated": [],
+      "axe": null,
+      "small_text": 62
+    },
+    {
+      "scenario": "decisions",
+      "state": "empty",
+      "viewport": "1024x768",
+      "theme": "dark",
+      "violations": [],
+      "hscroll": false,
+      "overflow": [],
+      "truncated": [],
+      "axe": null,
+      "small_text": 1
+    },
+    {
+      "scenario": "decisions",
+      "state": "error",
+      "viewport": "1024x768",
+      "theme": "dark",
+      "violations": [],
+      "hscroll": false,
+      "overflow": [],
+      "truncated": [],
+      "axe": null,
+      "small_text": 1
+    },
+    {
+      "scenario": "decisions",
+      "state": "full",
+      "viewport": "1024x768",
+      "theme": "dark",
+      "violations": [],
+      "hscroll": false,
+      "overflow": [],
+      "truncated": [],
+      "axe": null,
+      "small_text": 74
+    },
+    {
+      "scenario": "decisions",
+      "state": "loading",
+      "viewport": "1024x768",
+      "theme": "dark",
+      "violations": [],
+      "hscroll": false,
+      "overflow": [],
+      "truncated": [],
+      "axe": null,
+      "small_text": 1
+    },
+    {
+      "scenario": "decisions",
+      "state": "answered",
+      "viewport": "1024x768",
+      "theme": "light",
+      "violations": [
+        {
+          "kind": "header",
+          "why": "outside viewport"
+        },
+        {
+          "kind": "instance-selector",
+          "why": "outside viewport"
+        },
+        {
+          "kind": "navigation",
+          "why": "outside viewport"
+        }
+      ],
+      "hscroll": false,
+      "overflow": [],
+      "truncated": [],
+      "axe": null,
+      "small_text": 62
+    },
+    {
+      "scenario": "decisions",
+      "state": "empty",
+      "viewport": "1024x768",
+      "theme": "light",
+      "violations": [],
+      "hscroll": false,
+      "overflow": [],
+      "truncated": [],
+      "axe": null,
+      "small_text": 1
+    },
+    {
+      "scenario": "decisions",
+      "state": "error",
+      "viewport": "1024x768",
+      "theme": "light",
+      "violations": [],
+      "hscroll": false,
+      "overflow": [],
+      "truncated": [],
+      "axe": null,
+      "small_text": 1
+    },
+    {
+      "scenario": "decisions",
+      "state": "full",
+      "viewport": "1024x768",
+      "theme": "light",
+      "violations": [],
+      "hscroll": false,
+      "overflow": [],
+      "truncated": [],
+      "axe": null,
+      "small_text": 74
+    },
+    {
+      "scenario": "decisions",
+      "state": "loading",
+      "viewport": "1024x768",
+      "theme": "light",
+      "violations": [],
+      "hscroll": false,
+      "overflow": [],
+      "truncated": [],
+      "axe": null,
+      "small_text": 1
+    },
+    {
+      "scenario": "decisions",
+      "state": "answered",
+      "viewport": "1280x800",
+      "theme": "dark",
+      "violations": [
+        {
+          "kind": "header",
+          "why": "outside viewport"
+        },
+        {
+          "kind": "instance-selector",
+          "why": "outside viewport"
+        },
+        {
+          "kind": "navigation",
+          "why": "outside viewport"
+        }
+      ],
+      "hscroll": false,
+      "overflow": [],
+      "truncated": [],
+      "axe": [],
+      "small_text": 62
+    },
+    {
+      "scenario": "decisions",
+      "state": "empty",
+      "viewport": "1280x800",
+      "theme": "dark",
+      "violations": [],
+      "hscroll": false,
+      "overflow": [],
+      "truncated": [],
+      "axe": [],
+      "small_text": 1
+    },
+    {
+      "scenario": "decisions",
+      "state": "error",
+      "viewport": "1280x800",
+      "theme": "dark",
+      "violations": [],
+      "hscroll": false,
+      "overflow": [],
+      "truncated": [],
+      "axe": [],
+      "small_text": 1
+    },
+    {
+      "scenario": "decisions",
+      "state": "full",
+      "viewport": "1280x800",
+      "theme": "dark",
+      "violations": [],
+      "hscroll": false,
+      "overflow": [],
+      "truncated": [],
+      "axe": [],
+      "small_text": 74
+    },
+    {
+      "scenario": "decisions",
+      "state": "loading",
+      "viewport": "1280x800",
+      "theme": "dark",
+      "violations": [],
+      "hscroll": false,
+      "overflow": [],
+      "truncated": [],
+      "axe": [],
+      "small_text": 1
+    },
+    {
+      "scenario": "decisions",
+      "state": "answered",
+      "viewport": "1280x800",
+      "theme": "light",
+      "violations": [
+        {
+          "kind": "header",
+          "why": "outside viewport"
+        },
+        {
+          "kind": "instance-selector",
+          "why": "outside viewport"
+        },
+        {
+          "kind": "navigation",
+          "why": "outside viewport"
+        }
+      ],
+      "hscroll": false,
+      "overflow": [],
+      "truncated": [],
+      "axe": [],
+      "small_text": 62
+    },
+    {
+      "scenario": "decisions",
+      "state": "empty",
+      "viewport": "1280x800",
+      "theme": "light",
+      "violations": [],
+      "hscroll": false,
+      "overflow": [],
+      "truncated": [],
+      "axe": [],
+      "small_text": 1
+    },
+    {
+      "scenario": "decisions",
+      "state": "error",
+      "viewport": "1280x800",
+      "theme": "light",
+      "violations": [],
+      "hscroll": false,
+      "overflow": [],
+      "truncated": [],
+      "axe": [],
+      "small_text": 1
+    },
+    {
+      "scenario": "decisions",
+      "state": "full",
+      "viewport": "1280x800",
+      "theme": "light",
+      "violations": [],
+      "hscroll": false,
+      "overflow": [],
+      "truncated": [],
+      "axe": [],
+      "small_text": 74
+    },
+    {
+      "scenario": "decisions",
+      "state": "loading",
+      "viewport": "1280x800",
+      "theme": "light",
+      "violations": [],
+      "hscroll": false,
+      "overflow": [],
+      "truncated": [],
+      "axe": [],
+      "small_text": 1
+    },
+    {
+      "scenario": "decisions",
+      "state": "answered",
+      "viewport": "1440x900",
+      "theme": "dark",
+      "violations": [
+        {
+          "kind": "header",
+          "why": "outside viewport"
+        },
+        {
+          "kind": "instance-selector",
+          "why": "outside viewport"
+        },
+        {
+          "kind": "navigation",
+          "why": "outside viewport"
+        }
+      ],
+      "hscroll": false,
+      "overflow": [],
+      "truncated": [],
+      "axe": [],
+      "small_text": 62
+    },
+    {
+      "scenario": "decisions",
+      "state": "empty",
+      "viewport": "1440x900",
+      "theme": "dark",
+      "violations": [],
+      "hscroll": false,
+      "overflow": [],
+      "truncated": [],
+      "axe": [],
+      "small_text": 1
+    },
+    {
+      "scenario": "decisions",
+      "state": "error",
+      "viewport": "1440x900",
+      "theme": "dark",
+      "violations": [],
+      "hscroll": false,
+      "overflow": [],
+      "truncated": [],
+      "axe": [],
+      "small_text": 1
+    },
+    {
+      "scenario": "decisions",
+      "state": "full",
+      "viewport": "1440x900",
+      "theme": "dark",
+      "violations": [],
+      "hscroll": false,
+      "overflow": [],
+      "truncated": [],
+      "axe": [],
+      "small_text": 74
+    },
+    {
+      "scenario": "decisions",
+      "state": "loading",
+      "viewport": "1440x900",
+      "theme": "dark",
+      "violations": [],
+      "hscroll": false,
+      "overflow": [],
+      "truncated": [],
+      "axe": [],
+      "small_text": 1
+    },
+    {
+      "scenario": "decisions",
+      "state": "answered",
+      "viewport": "1440x900",
+      "theme": "light",
+      "violations": [
+        {
+          "kind": "header",
+          "why": "outside viewport"
+        },
+        {
+          "kind": "instance-selector",
+          "why": "outside viewport"
+        },
+        {
+          "kind": "navigation",
+          "why": "outside viewport"
+        }
+      ],
+      "hscroll": false,
+      "overflow": [],
+      "truncated": [],
+      "axe": [],
+      "small_text": 62
+    },
+    {
+      "scenario": "decisions",
+      "state": "empty",
+      "viewport": "1440x900",
+      "theme": "light",
+      "violations": [],
+      "hscroll": false,
+      "overflow": [],
+      "truncated": [],
+      "axe": [],
+      "small_text": 1
+    },
+    {
+      "scenario": "decisions",
+      "state": "error",
+      "viewport": "1440x900",
+      "theme": "light",
+      "violations": [],
+      "hscroll": false,
+      "overflow": [],
+      "truncated": [],
+      "axe": [],
+      "small_text": 1
+    },
+    {
+      "scenario": "decisions",
+      "state": "full",
+      "viewport": "1440x900",
+      "theme": "light",
+      "violations": [],
+      "hscroll": false,
+      "overflow": [],
+      "truncated": [],
+      "axe": [],
+      "small_text": 74
+    },
+    {
+      "scenario": "decisions",
+      "state": "loading",
+      "viewport": "1440x900",
+      "theme": "light",
+      "violations": [],
+      "hscroll": false,
+      "overflow": [],
+      "truncated": [],
+      "axe": [],
+      "small_text": 1
+    },
+    {
+      "scenario": "decisions",
+      "state": "answered",
+      "viewport": "390x844",
+      "theme": "dark",
+      "violations": [
+        {
+          "kind": "header",
+          "why": "outside viewport"
+        },
+        {
+          "kind": "instance-selector",
+          "why": "outside viewport"
+        },
+        {
+          "kind": "navigation",
+          "why": "outside viewport"
+        }
+      ],
+      "hscroll": false,
+      "overflow": [],
+      "truncated": [],
+      "axe": null,
+      "small_text": 62
+    },
+    {
+      "scenario": "decisions",
+      "state": "empty",
+      "viewport": "390x844",
+      "theme": "dark",
+      "violations": [],
+      "hscroll": false,
+      "overflow": [],
+      "truncated": [],
+      "axe": null,
+      "small_text": 1
+    },
+    {
+      "scenario": "decisions",
+      "state": "error",
+      "viewport": "390x844",
+      "theme": "dark",
+      "violations": [],
+      "hscroll": false,
+      "overflow": [],
+      "truncated": [],
+      "axe": null,
+      "small_text": 1
+    },
+    {
+      "scenario": "decisions",
+      "state": "full",
+      "viewport": "390x844",
+      "theme": "dark",
+      "violations": [],
+      "hscroll": false,
+      "overflow": [],
+      "truncated": [],
+      "axe": null,
+      "small_text": 74
+    },
+    {
+      "scenario": "decisions",
+      "state": "loading",
+      "viewport": "390x844",
+      "theme": "dark",
+      "violations": [],
+      "hscroll": false,
+      "overflow": [],
+      "truncated": [],
+      "axe": null,
+      "small_text": 1
+    },
+    {
+      "scenario": "decisions",
+      "state": "answered",
+      "viewport": "390x844",
+      "theme": "light",
+      "violations": [
+        {
+          "kind": "header",
+          "why": "outside viewport"
+        },
+        {
+          "kind": "instance-selector",
+          "why": "outside viewport"
+        },
+        {
+          "kind": "navigation",
+          "why": "outside viewport"
+        }
+      ],
+      "hscroll": false,
+      "overflow": [],
+      "truncated": [],
+      "axe": null,
+      "small_text": 62
+    },
+    {
+      "scenario": "decisions",
+      "state": "empty",
+      "viewport": "390x844",
+      "theme": "light",
+      "violations": [],
+      "hscroll": false,
+      "overflow": [],
+      "truncated": [],
+      "axe": null,
+      "small_text": 1
+    },
+    {
+      "scenario": "decisions",
+      "state": "error",
+      "viewport": "390x844",
+      "theme": "light",
+      "violations": [],
+      "hscroll": false,
+      "overflow": [],
+      "truncated": [],
+      "axe": null,
+      "small_text": 1
+    },
+    {
+      "scenario": "decisions",
+      "state": "full",
+      "viewport": "390x844",
+      "theme": "light",
+      "violations": [],
+      "hscroll": false,
+      "overflow": [],
+      "truncated": [],
+      "axe": null,
+      "small_text": 74
+    },
+    {
+      "scenario": "decisions",
+      "state": "loading",
+      "viewport": "390x844",
+      "theme": "light",
+      "violations": [],
+      "hscroll": false,
+      "overflow": [],
+      "truncated": [],
+      "axe": null,
+      "small_text": 1
+    },
+    {
+      "scenario": "decisions",
+      "state": "answered",
+      "viewport": "768x1024",
+      "theme": "dark",
+      "violations": [
+        {
+          "kind": "header",
+          "why": "outside viewport"
+        },
+        {
+          "kind": "instance-selector",
+          "why": "outside viewport"
+        },
+        {
+          "kind": "navigation",
+          "why": "outside viewport"
+        }
+      ],
+      "hscroll": false,
+      "overflow": [],
+      "truncated": [],
+      "axe": null,
+      "small_text": 62
+    },
+    {
+      "scenario": "decisions",
+      "state": "empty",
+      "viewport": "768x1024",
+      "theme": "dark",
+      "violations": [],
+      "hscroll": false,
+      "overflow": [],
+      "truncated": [],
+      "axe": null,
+      "small_text": 1
+    },
+    {
+      "scenario": "decisions",
+      "state": "error",
+      "viewport": "768x1024",
+      "theme": "dark",
+      "violations": [],
+      "hscroll": false,
+      "overflow": [],
+      "truncated": [],
+      "axe": null,
+      "small_text": 1
+    },
+    {
+      "scenario": "decisions",
+      "state": "full",
+      "viewport": "768x1024",
+      "theme": "dark",
+      "violations": [],
+      "hscroll": false,
+      "overflow": [],
+      "truncated": [],
+      "axe": null,
+      "small_text": 74
+    },
+    {
+      "scenario": "decisions",
+      "state": "loading",
+      "viewport": "768x1024",
+      "theme": "dark",
+      "violations": [],
+      "hscroll": false,
+      "overflow": [],
+      "truncated": [],
+      "axe": null,
+      "small_text": 1
+    },
+    {
+      "scenario": "decisions",
+      "state": "answered",
+      "viewport": "768x1024",
+      "theme": "light",
+      "violations": [
+        {
+          "kind": "header",
+          "why": "outside viewport"
+        },
+        {
+          "kind": "instance-selector",
+          "why": "outside viewport"
+        },
+        {
+          "kind": "navigation",
+          "why": "outside viewport"
+        }
+      ],
+      "hscroll": false,
+      "overflow": [],
+      "truncated": [],
+      "axe": null,
+      "small_text": 62
+    },
+    {
+      "scenario": "decisions",
+      "state": "empty",
+      "viewport": "768x1024",
+      "theme": "light",
+      "violations": [],
+      "hscroll": false,
+      "overflow": [],
+      "truncated": [],
+      "axe": null,
+      "small_text": 1
+    },
+    {
+      "scenario": "decisions",
+      "state": "error",
+      "viewport": "768x1024",
+      "theme": "light",
+      "violations": [],
+      "hscroll": false,
+      "overflow": [],
+      "truncated": [],
+      "axe": null,
+      "small_text": 1
+    },
+    {
+      "scenario": "decisions",
+      "state": "full",
+      "viewport": "768x1024",
+      "theme": "light",
+      "violations": [],
+      "hscroll": false,
+      "overflow": [],
+      "truncated": [],
+      "axe": null,
+      "small_text": 74
+    },
+    {
+      "scenario": "decisions",
+      "state": "loading",
+      "viewport": "768x1024",
+      "theme": "light",
+      "violations": [],
+      "hscroll": false,
+      "overflow": [],
+      "truncated": [],
+      "axe": null,
+      "small_text": 1
+    },
+    {
+      "scenario": "health",
+      "state": "empty",
+      "viewport": "1024x768",
+      "theme": "dark",
+      "violations": [],
+      "hscroll": false,
+      "overflow": [],
+      "truncated": [],
+      "axe": null,
+      "small_text": 17
+    },
+    {
+      "scenario": "health",
+      "state": "error",
+      "viewport": "1024x768",
+      "theme": "dark",
+      "violations": [],
+      "hscroll": false,
+      "overflow": [],
+      "truncated": [],
+      "axe": null,
+      "small_text": 0
+    },
+    {
+      "scenario": "health",
+      "state": "full",
+      "viewport": "1024x768",
+      "theme": "dark",
+      "violations": [],
+      "hscroll": false,
+      "overflow": [],
+      "truncated": [],
+      "axe": null,
+      "small_text": 50
+    },
+    {
+      "scenario": "health",
+      "state": "loading",
+      "viewport": "1024x768",
+      "theme": "dark",
+      "violations": [],
+      "hscroll": false,
+      "overflow": [],
+      "truncated": [],
+      "axe": null,
+      "small_text": 0
+    },
+    {
+      "scenario": "health",
+      "state": "empty",
+      "viewport": "1024x768",
+      "theme": "light",
+      "violations": [],
+      "hscroll": false,
+      "overflow": [],
+      "truncated": [],
+      "axe": null,
+      "small_text": 17
+    },
+    {
+      "scenario": "health",
+      "state": "error",
+      "viewport": "1024x768",
+      "theme": "light",
+      "violations": [],
+      "hscroll": false,
+      "overflow": [],
+      "truncated": [],
+      "axe": null,
+      "small_text": 0
+    },
+    {
+      "scenario": "health",
+      "state": "full",
+      "viewport": "1024x768",
+      "theme": "light",
+      "violations": [],
+      "hscroll": false,
+      "overflow": [],
+      "truncated": [],
+      "axe": null,
+      "small_text": 50
+    },
+    {
+      "scenario": "health",
+      "state": "loading",
+      "viewport": "1024x768",
+      "theme": "light",
+      "violations": [],
+      "hscroll": false,
+      "overflow": [],
+      "truncated": [],
+      "axe": null,
+      "small_text": 0
+    },
+    {
+      "scenario": "health",
+      "state": "empty",
+      "viewport": "1280x800",
+      "theme": "dark",
+      "violations": [],
+      "hscroll": false,
+      "overflow": [],
+      "truncated": [],
+      "axe": [],
+      "small_text": 17
+    },
+    {
+      "scenario": "health",
+      "state": "error",
+      "viewport": "1280x800",
+      "theme": "dark",
+      "violations": [],
+      "hscroll": false,
+      "overflow": [],
+      "truncated": [],
+      "axe": [],
+      "small_text": 0
+    },
+    {
+      "scenario": "health",
+      "state": "full",
+      "viewport": "1280x800",
+      "theme": "dark",
+      "violations": [],
+      "hscroll": false,
+      "overflow": [],
+      "truncated": [],
+      "axe": [],
+      "small_text": 50
+    },
+    {
+      "scenario": "health",
+      "state": "loading",
+      "viewport": "1280x800",
+      "theme": "dark",
+      "violations": [],
+      "hscroll": false,
+      "overflow": [],
+      "truncated": [],
+      "axe": [],
+      "small_text": 0
+    },
+    {
+      "scenario": "health",
+      "state": "empty",
+      "viewport": "1280x800",
+      "theme": "light",
+      "violations": [],
+      "hscroll": false,
+      "overflow": [],
+      "truncated": [],
+      "axe": [],
+      "small_text": 17
+    },
+    {
+      "scenario": "health",
+      "state": "error",
+      "viewport": "1280x800",
+      "theme": "light",
+      "violations": [],
+      "hscroll": false,
+      "overflow": [],
+      "truncated": [],
+      "axe": [],
+      "small_text": 0
+    },
+    {
+      "scenario": "health",
+      "state": "full",
+      "viewport": "1280x800",
+      "theme": "light",
+      "violations": [],
+      "hscroll": false,
+      "overflow": [],
+      "truncated": [],
+      "axe": [],
+      "small_text": 50
+    },
+    {
+      "scenario": "health",
+      "state": "loading",
+      "viewport": "1280x800",
+      "theme": "light",
+      "violations": [],
+      "hscroll": false,
+      "overflow": [],
+      "truncated": [],
+      "axe": [],
+      "small_text": 0
+    },
+    {
+      "scenario": "health",
+      "state": "empty",
+      "viewport": "1440x900",
+      "theme": "dark",
+      "violations": [],
+      "hscroll": false,
+      "overflow": [],
+      "truncated": [],
+      "axe": [],
+      "small_text": 17
+    },
+    {
+      "scenario": "health",
+      "state": "error",
+      "viewport": "1440x900",
+      "theme": "dark",
+      "violations": [],
+      "hscroll": false,
+      "overflow": [],
+      "truncated": [],
+      "axe": [],
+      "small_text": 0
+    },
+    {
+      "scenario": "health",
+      "state": "full",
+      "viewport": "1440x900",
+      "theme": "dark",
+      "violations": [],
+      "hscroll": false,
+      "overflow": [],
+      "truncated": [],
+      "axe": [],
+      "small_text": 50
+    },
+    {
+      "scenario": "health",
+      "state": "loading",
+      "viewport": "1440x900",
+      "theme": "dark",
+      "violations": [],
+      "hscroll": false,
+      "overflow": [],
+      "truncated": [],
+      "axe": [],
+      "small_text": 0
+    },
+    {
+      "scenario": "health",
+      "state": "empty",
+      "viewport": "1440x900",
+      "theme": "light",
+      "violations": [],
+      "hscroll": false,
+      "overflow": [],
+      "truncated": [],
+      "axe": [],
+      "small_text": 17
+    },
+    {
+      "scenario": "health",
+      "state": "error",
+      "viewport": "1440x900",
+      "theme": "light",
+      "violations": [],
+      "hscroll": false,
+      "overflow": [],
+      "truncated": [],
+      "axe": [],
+      "small_text": 0
+    },
+    {
+      "scenario": "health",
+      "state": "full",
+      "viewport": "1440x900",
+      "theme": "light",
+      "violations": [],
+      "hscroll": false,
+      "overflow": [],
+      "truncated": [],
+      "axe": [],
+      "small_text": 50
+    },
+    {
+      "scenario": "health",
+      "state": "loading",
+      "viewport": "1440x900",
+      "theme": "light",
+      "violations": [],
+      "hscroll": false,
+      "overflow": [],
+      "truncated": [],
+      "axe": [],
+      "small_text": 0
+    },
+    {
+      "scenario": "health",
+      "state": "empty",
+      "viewport": "390x844",
+      "theme": "dark",
+      "violations": [],
+      "hscroll": false,
+      "overflow": [],
+      "truncated": [],
+      "axe": null,
+      "small_text": 17
+    },
+    {
+      "scenario": "health",
+      "state": "error",
+      "viewport": "390x844",
+      "theme": "dark",
+      "violations": [],
+      "hscroll": false,
+      "overflow": [],
+      "truncated": [],
+      "axe": null,
+      "small_text": 0
+    },
+    {
+      "scenario": "health",
+      "state": "full",
+      "viewport": "390x844",
+      "theme": "dark",
+      "violations": [],
+      "hscroll": false,
+      "overflow": [],
+      "truncated": [],
+      "axe": null,
+      "small_text": 50
+    },
+    {
+      "scenario": "health",
+      "state": "loading",
+      "viewport": "390x844",
+      "theme": "dark",
+      "violations": [],
+      "hscroll": false,
+      "overflow": [],
+      "truncated": [],
+      "axe": null,
+      "small_text": 0
+    },
+    {
+      "scenario": "health",
+      "state": "empty",
+      "viewport": "390x844",
+      "theme": "light",
+      "violations": [],
+      "hscroll": false,
+      "overflow": [],
+      "truncated": [],
+      "axe": null,
+      "small_text": 17
+    },
+    {
+      "scenario": "health",
+      "state": "error",
+      "viewport": "390x844",
+      "theme": "light",
+      "violations": [],
+      "hscroll": false,
+      "overflow": [],
+      "truncated": [],
+      "axe": null,
+      "small_text": 0
+    },
+    {
+      "scenario": "health",
+      "state": "full",
+      "viewport": "390x844",
+      "theme": "light",
+      "violations": [],
+      "hscroll": false,
+      "overflow": [],
+      "truncated": [],
+      "axe": null,
+      "small_text": 50
+    },
+    {
+      "scenario": "health",
+      "state": "loading",
+      "viewport": "390x844",
+      "theme": "light",
+      "violations": [],
+      "hscroll": false,
+      "overflow": [],
+      "truncated": [],
+      "axe": null,
+      "small_text": 0
+    },
+    {
+      "scenario": "health",
+      "state": "empty",
+      "viewport": "768x1024",
+      "theme": "dark",
+      "violations": [],
+      "hscroll": false,
+      "overflow": [],
+      "truncated": [],
+      "axe": null,
+      "small_text": 17
+    },
+    {
+      "scenario": "health",
+      "state": "error",
+      "viewport": "768x1024",
+      "theme": "dark",
+      "violations": [],
+      "hscroll": false,
+      "overflow": [],
+      "truncated": [],
+      "axe": null,
+      "small_text": 0
+    },
+    {
+      "scenario": "health",
+      "state": "full",
+      "viewport": "768x1024",
+      "theme": "dark",
+      "violations": [],
+      "hscroll": false,
+      "overflow": [],
+      "truncated": [],
+      "axe": null,
+      "small_text": 50
+    },
+    {
+      "scenario": "health",
+      "state": "loading",
+      "viewport": "768x1024",
+      "theme": "dark",
+      "violations": [],
+      "hscroll": false,
+      "overflow": [],
+      "truncated": [],
+      "axe": null,
+      "small_text": 0
+    },
+    {
+      "scenario": "health",
+      "state": "empty",
+      "viewport": "768x1024",
+      "theme": "light",
+      "violations": [],
+      "hscroll": false,
+      "overflow": [],
+      "truncated": [],
+      "axe": null,
+      "small_text": 17
+    },
+    {
+      "scenario": "health",
+      "state": "error",
+      "viewport": "768x1024",
+      "theme": "light",
+      "violations": [],
+      "hscroll": false,
+      "overflow": [],
+      "truncated": [],
+      "axe": null,
+      "small_text": 0
+    },
+    {
+      "scenario": "health",
+      "state": "full",
+      "viewport": "768x1024",
+      "theme": "light",
+      "violations": [],
+      "hscroll": false,
+      "overflow": [],
+      "truncated": [],
+      "axe": null,
+      "small_text": 50
+    },
+    {
+      "scenario": "health",
+      "state": "loading",
+      "viewport": "768x1024",
+      "theme": "light",
+      "violations": [],
+      "hscroll": false,
+      "overflow": [],
+      "truncated": [],
+      "axe": null,
+      "small_text": 0
+    },
+    {
+      "scenario": "kpis",
+      "state": "empty",
+      "viewport": "1024x768",
+      "theme": "dark",
+      "violations": [],
+      "hscroll": false,
+      "overflow": [],
+      "truncated": [],
+      "axe": null,
+      "small_text": 1
+    },
+    {
+      "scenario": "kpis",
+      "state": "error",
+      "viewport": "1024x768",
+      "theme": "dark",
+      "violations": [],
+      "hscroll": false,
+      "overflow": [],
+      "truncated": [],
+      "axe": null,
+      "small_text": 1
+    },
+    {
+      "scenario": "kpis",
+      "state": "full",
+      "viewport": "1024x768",
+      "theme": "dark",
+      "violations": [],
+      "hscroll": false,
+      "overflow": [],
+      "truncated": [],
+      "axe": null,
+      "small_text": 73
+    },
+    {
+      "scenario": "kpis",
+      "state": "loading",
+      "viewport": "1024x768",
+      "theme": "dark",
+      "violations": [],
+      "hscroll": false,
+      "overflow": [],
+      "truncated": [],
+      "axe": null,
+      "small_text": 1
+    },
+    {
+      "scenario": "kpis",
+      "state": "empty",
+      "viewport": "1024x768",
+      "theme": "light",
+      "violations": [],
+      "hscroll": false,
+      "overflow": [],
+      "truncated": [],
+      "axe": null,
+      "small_text": 1
+    },
+    {
+      "scenario": "kpis",
+      "state": "error",
+      "viewport": "1024x768",
+      "theme": "light",
+      "violations": [],
+      "hscroll": false,
+      "overflow": [],
+      "truncated": [],
+      "axe": null,
+      "small_text": 1
+    },
+    {
+      "scenario": "kpis",
+      "state": "full",
+      "viewport": "1024x768",
+      "theme": "light",
+      "violations": [],
+      "hscroll": false,
+      "overflow": [],
+      "truncated": [],
+      "axe": null,
+      "small_text": 73
+    },
+    {
+      "scenario": "kpis",
+      "state": "loading",
+      "viewport": "1024x768",
+      "theme": "light",
+      "violations": [],
+      "hscroll": false,
+      "overflow": [],
+      "truncated": [],
+      "axe": null,
+      "small_text": 1
+    },
+    {
+      "scenario": "kpis",
+      "state": "empty",
+      "viewport": "1280x800",
+      "theme": "dark",
+      "violations": [],
+      "hscroll": false,
+      "overflow": [],
+      "truncated": [],
+      "axe": [],
+      "small_text": 1
+    },
+    {
+      "scenario": "kpis",
+      "state": "error",
+      "viewport": "1280x800",
+      "theme": "dark",
+      "violations": [],
+      "hscroll": false,
+      "overflow": [],
+      "truncated": [],
+      "axe": [],
+      "small_text": 1
+    },
+    {
+      "scenario": "kpis",
+      "state": "full",
+      "viewport": "1280x800",
+      "theme": "dark",
+      "violations": [],
+      "hscroll": false,
+      "overflow": [],
+      "truncated": [],
+      "axe": [],
+      "small_text": 73
+    },
+    {
+      "scenario": "kpis",
+      "state": "loading",
+      "viewport": "1280x800",
+      "theme": "dark",
+      "violations": [],
+      "hscroll": false,
+      "overflow": [],
+      "truncated": [],
+      "axe": [],
+      "small_text": 1
+    },
+    {
+      "scenario": "kpis",
+      "state": "empty",
+      "viewport": "1280x800",
+      "theme": "light",
+      "violations": [],
+      "hscroll": false,
+      "overflow": [],
+      "truncated": [],
+      "axe": [],
+      "small_text": 1
+    },
+    {
+      "scenario": "kpis",
+      "state": "error",
+      "viewport": "1280x800",
+      "theme": "light",
+      "violations": [],
+      "hscroll": false,
+      "overflow": [],
+      "truncated": [],
+      "axe": [],
+      "small_text": 1
+    },
+    {
+      "scenario": "kpis",
+      "state": "full",
+      "viewport": "1280x800",
+      "theme": "light",
+      "violations": [],
+      "hscroll": false,
+      "overflow": [],
+      "truncated": [],
+      "axe": [],
+      "small_text": 73
+    },
+    {
+      "scenario": "kpis",
+      "state": "loading",
+      "viewport": "1280x800",
+      "theme": "light",
+      "violations": [],
+      "hscroll": false,
+      "overflow": [],
+      "truncated": [],
+      "axe": [],
+      "small_text": 1
+    },
+    {
+      "scenario": "kpis",
+      "state": "empty",
+      "viewport": "1440x900",
+      "theme": "dark",
+      "violations": [],
+      "hscroll": false,
+      "overflow": [],
+      "truncated": [],
+      "axe": [],
+      "small_text": 1
+    },
+    {
+      "scenario": "kpis",
+      "state": "error",
+      "viewport": "1440x900",
+      "theme": "dark",
+      "violations": [],
+      "hscroll": false,
+      "overflow": [],
+      "truncated": [],
+      "axe": [],
+      "small_text": 1
+    },
+    {
+      "scenario": "kpis",
+      "state": "full",
+      "viewport": "1440x900",
+      "theme": "dark",
+      "violations": [],
+      "hscroll": false,
+      "overflow": [],
+      "truncated": [],
+      "axe": [],
+      "small_text": 73
+    },
+    {
+      "scenario": "kpis",
+      "state": "loading",
+      "viewport": "1440x900",
+      "theme": "dark",
+      "violations": [],
+      "hscroll": false,
+      "overflow": [],
+      "truncated": [],
+      "axe": [],
+      "small_text": 1
+    },
+    {
+      "scenario": "kpis",
+      "state": "empty",
+      "viewport": "1440x900",
+      "theme": "light",
+      "violations": [],
+      "hscroll": false,
+      "overflow": [],
+      "truncated": [],
+      "axe": [],
+      "small_text": 1
+    },
+    {
+      "scenario": "kpis",
+      "state": "error",
+      "viewport": "1440x900",
+      "theme": "light",
+      "violations": [],
+      "hscroll": false,
+      "overflow": [],
+      "truncated": [],
+      "axe": [],
+      "small_text": 1
+    },
+    {
+      "scenario": "kpis",
+      "state": "full",
+      "viewport": "1440x900",
+      "theme": "light",
+      "violations": [],
+      "hscroll": false,
+      "overflow": [],
+      "truncated": [],
+      "axe": [],
+      "small_text": 73
+    },
+    {
+      "scenario": "kpis",
+      "state": "loading",
+      "viewport": "1440x900",
+      "theme": "light",
+      "violations": [],
+      "hscroll": false,
+      "overflow": [],
+      "truncated": [],
+      "axe": [],
+      "small_text": 1
+    },
+    {
+      "scenario": "kpis",
+      "state": "empty",
+      "viewport": "390x844",
+      "theme": "dark",
+      "violations": [],
+      "hscroll": false,
+      "overflow": [],
+      "truncated": [],
+      "axe": null,
+      "small_text": 1
+    },
+    {
+      "scenario": "kpis",
+      "state": "error",
+      "viewport": "390x844",
+      "theme": "dark",
+      "violations": [],
+      "hscroll": false,
+      "overflow": [],
+      "truncated": [],
+      "axe": null,
+      "small_text": 1
+    },
+    {
+      "scenario": "kpis",
+      "state": "full",
+      "viewport": "390x844",
+      "theme": "dark",
+      "violations": [],
+      "hscroll": false,
+      "overflow": [],
+      "truncated": [],
+      "axe": null,
+      "small_text": 73
+    },
+    {
+      "scenario": "kpis",
+      "state": "loading",
+      "viewport": "390x844",
+      "theme": "dark",
+      "violations": [],
+      "hscroll": false,
+      "overflow": [],
+      "truncated": [],
+      "axe": null,
+      "small_text": 1
+    },
+    {
+      "scenario": "kpis",
+      "state": "empty",
+      "viewport": "390x844",
+      "theme": "light",
+      "violations": [],
+      "hscroll": false,
+      "overflow": [],
+      "truncated": [],
+      "axe": null,
+      "small_text": 1
+    },
+    {
+      "scenario": "kpis",
+      "state": "error",
+      "viewport": "390x844",
+      "theme": "light",
+      "violations": [],
+      "hscroll": false,
+      "overflow": [],
+      "truncated": [],
+      "axe": null,
+      "small_text": 1
+    },
+    {
+      "scenario": "kpis",
+      "state": "full",
+      "viewport": "390x844",
+      "theme": "light",
+      "violations": [],
+      "hscroll": false,
+      "overflow": [],
+      "truncated": [],
+      "axe": null,
+      "small_text": 73
+    },
+    {
+      "scenario": "kpis",
+      "state": "loading",
+      "viewport": "390x844",
+      "theme": "light",
+      "violations": [],
+      "hscroll": false,
+      "overflow": [],
+      "truncated": [],
+      "axe": null,
+      "small_text": 1
+    },
+    {
+      "scenario": "kpis",
+      "state": "empty",
+      "viewport": "768x1024",
+      "theme": "dark",
+      "violations": [],
+      "hscroll": false,
+      "overflow": [],
+      "truncated": [],
+      "axe": null,
+      "small_text": 1
+    },
+    {
+      "scenario": "kpis",
+      "state": "error",
+      "viewport": "768x1024",
+      "theme": "dark",
+      "violations": [],
+      "hscroll": false,
+      "overflow": [],
+      "truncated": [],
+      "axe": null,
+      "small_text": 1
+    },
+    {
+      "scenario": "kpis",
+      "state": "full",
+      "viewport": "768x1024",
+      "theme": "dark",
+      "violations": [],
+      "hscroll": false,
+      "overflow": [],
+      "truncated": [],
+      "axe": null,
+      "small_text": 73
+    },
+    {
+      "scenario": "kpis",
+      "state": "loading",
+      "viewport": "768x1024",
+      "theme": "dark",
+      "violations": [],
+      "hscroll": false,
+      "overflow": [],
+      "truncated": [],
+      "axe": null,
+      "small_text": 1
+    },
+    {
+      "scenario": "kpis",
+      "state": "empty",
+      "viewport": "768x1024",
+      "theme": "light",
+      "violations": [],
+      "hscroll": false,
+      "overflow": [],
+      "truncated": [],
+      "axe": null,
+      "small_text": 1
+    },
+    {
+      "scenario": "kpis",
+      "state": "error",
+      "viewport": "768x1024",
+      "theme": "light",
+      "violations": [],
+      "hscroll": false,
+      "overflow": [],
+      "truncated": [],
+      "axe": null,
+      "small_text": 1
+    },
+    {
+      "scenario": "kpis",
+      "state": "full",
+      "viewport": "768x1024",
+      "theme": "light",
+      "violations": [],
+      "hscroll": false,
+      "overflow": [],
+      "truncated": [],
+      "axe": null,
+      "small_text": 73
+    },
+    {
+      "scenario": "kpis",
+      "state": "loading",
+      "viewport": "768x1024",
+      "theme": "light",
+      "violations": [],
+      "hscroll": false,
+      "overflow": [],
+      "truncated": [],
+      "axe": null,
+      "small_text": 1
+    },
+    {
+      "scenario": "overview",
+      "state": "empty",
+      "viewport": "1024x768",
+      "theme": "dark",
+      "violations": [],
+      "hscroll": false,
+      "overflow": [],
+      "truncated": [],
+      "axe": null,
+      "small_text": 36
+    },
+    {
+      "scenario": "overview",
+      "state": "error",
+      "viewport": "1024x768",
+      "theme": "dark",
+      "violations": [],
+      "hscroll": false,
+      "overflow": [],
+      "truncated": [],
+      "axe": null,
+      "small_text": 40
+    },
+    {
+      "scenario": "overview",
+      "state": "full",
+      "viewport": "1024x768",
+      "theme": "dark",
+      "violations": [],
+      "hscroll": false,
+      "overflow": [],
+      "truncated": [],
+      "axe": null,
+      "small_text": 186
+    },
+    {
+      "scenario": "overview",
+      "state": "loading",
+      "viewport": "1024x768",
+      "theme": "dark",
+      "violations": [],
+      "hscroll": false,
+      "overflow": [],
+      "truncated": [],
+      "axe": null,
+      "small_text": 1
+    },
+    {
+      "scenario": "overview",
+      "state": "empty",
+      "viewport": "1024x768",
+      "theme": "light",
+      "violations": [],
+      "hscroll": false,
+      "overflow": [],
+      "truncated": [],
+      "axe": null,
+      "small_text": 36
+    },
+    {
+      "scenario": "overview",
+      "state": "error",
+      "viewport": "1024x768",
+      "theme": "light",
+      "violations": [],
+      "hscroll": false,
+      "overflow": [],
+      "truncated": [],
+      "axe": null,
+      "small_text": 40
+    },
+    {
+      "scenario": "overview",
+      "state": "full",
+      "viewport": "1024x768",
+      "theme": "light",
+      "violations": [],
+      "hscroll": false,
+      "overflow": [],
+      "truncated": [],
+      "axe": null,
+      "small_text": 186
+    },
+    {
+      "scenario": "overview",
+      "state": "loading",
+      "viewport": "1024x768",
+      "theme": "light",
+      "violations": [],
+      "hscroll": false,
+      "overflow": [],
+      "truncated": [],
+      "axe": null,
+      "small_text": 1
+    },
+    {
+      "scenario": "overview",
+      "state": "empty",
+      "viewport": "1280x800",
+      "theme": "dark",
+      "violations": [],
+      "hscroll": false,
+      "overflow": [],
+      "truncated": [],
+      "axe": [],
+      "small_text": 36
+    },
+    {
+      "scenario": "overview",
+      "state": "error",
+      "viewport": "1280x800",
+      "theme": "dark",
+      "violations": [],
+      "hscroll": false,
+      "overflow": [],
+      "truncated": [],
+      "axe": [],
+      "small_text": 40
+    },
+    {
+      "scenario": "overview",
+      "state": "full",
+      "viewport": "1280x800",
+      "theme": "dark",
+      "violations": [],
+      "hscroll": false,
+      "overflow": [],
+      "truncated": [],
+      "axe": [
+        {
+          "id": "link-in-text-block",
+          "impact": "serious",
+          "nodes": 1,
+          "target": "a[rel=\"noreferrer\"][data-v-34d6433b=\"\"]",
+          "summary": "The link has insufficient color contrast of 1.54:1 with the surrounding text. (Minimum contrast is 3:1, link text: #7cc4ff, surrounding text: #e6e9ee)"
+        }
+      ],
+      "small_text": 186
+    },
+    {
+      "scenario": "overview",
+      "state": "loading",
+      "viewport": "1280x800",
+      "theme": "dark",
+      "violations": [],
+      "hscroll": false,
+      "overflow": [],
+      "truncated": [],
+      "axe": [],
+      "small_text": 1
+    },
+    {
+      "scenario": "overview",
+      "state": "empty",
+      "viewport": "1280x800",
+      "theme": "light",
+      "violations": [],
+      "hscroll": false,
+      "overflow": [],
+      "truncated": [],
+      "axe": [],
+      "small_text": 36
+    },
+    {
+      "scenario": "overview",
+      "state": "error",
+      "viewport": "1280x800",
+      "theme": "light",
+      "violations": [],
+      "hscroll": false,
+      "overflow": [],
+      "truncated": [],
+      "axe": [],
+      "small_text": 40
+    },
+    {
+      "scenario": "overview",
+      "state": "full",
+      "viewport": "1280x800",
+      "theme": "light",
+      "violations": [],
+      "hscroll": false,
+      "overflow": [],
+      "truncated": [],
+      "axe": [
+        {
+          "id": "link-in-text-block",
+          "impact": "serious",
+          "nodes": 1,
+          "target": "a[rel=\"noreferrer\"][data-v-34d6433b=\"\"]",
+          "summary": "The link has insufficient color contrast of 2.67:1 with the surrounding text. (Minimum contrast is 3:1, link text: #0b62b0, surrounding text: #1a1f26)"
+        }
+      ],
+      "small_text": 186
+    },
+    {
+      "scenario": "overview",
+      "state": "loading",
+      "viewport": "1280x800",
+      "theme": "light",
+      "violations": [],
+      "hscroll": false,
+      "overflow": [],
+      "truncated": [],
+      "axe": [],
+      "small_text": 1
+    },
+    {
+      "scenario": "overview",
+      "state": "empty",
+      "viewport": "1440x900",
+      "theme": "dark",
+      "violations": [],
+      "hscroll": false,
+      "overflow": [],
+      "truncated": [],
+      "axe": [],
+      "small_text": 36
+    },
+    {
+      "scenario": "overview",
+      "state": "error",
+      "viewport": "1440x900",
+      "theme": "dark",
+      "violations": [],
+      "hscroll": false,
+      "overflow": [],
+      "truncated": [],
+      "axe": [],
+      "small_text": 40
+    },
+    {
+      "scenario": "overview",
+      "state": "full",
+      "viewport": "1440x900",
+      "theme": "dark",
+      "violations": [],
+      "hscroll": false,
+      "overflow": [],
+      "truncated": [],
+      "axe": [
+        {
+          "id": "link-in-text-block",
+          "impact": "serious",
+          "nodes": 1,
+          "target": "a[rel=\"noreferrer\"][data-v-34d6433b=\"\"]",
+          "summary": "The link has insufficient color contrast of 1.54:1 with the surrounding text. (Minimum contrast is 3:1, link text: #7cc4ff, surrounding text: #e6e9ee)"
+        }
+      ],
+      "small_text": 186
+    },
+    {
+      "scenario": "overview",
+      "state": "loading",
+      "viewport": "1440x900",
+      "theme": "dark",
+      "violations": [],
+      "hscroll": false,
+      "overflow": [],
+      "truncated": [],
+      "axe": [],
+      "small_text": 1
+    },
+    {
+      "scenario": "overview",
+      "state": "empty",
+      "viewport": "1440x900",
+      "theme": "light",
+      "violations": [],
+      "hscroll": false,
+      "overflow": [],
+      "truncated": [],
+      "axe": [],
+      "small_text": 36
+    },
+    {
+      "scenario": "overview",
+      "state": "error",
+      "viewport": "1440x900",
+      "theme": "light",
+      "violations": [],
+      "hscroll": false,
+      "overflow": [],
+      "truncated": [],
+      "axe": [],
+      "small_text": 40
+    },
+    {
+      "scenario": "overview",
+      "state": "full",
+      "viewport": "1440x900",
+      "theme": "light",
+      "violations": [],
+      "hscroll": false,
+      "overflow": [],
+      "truncated": [],
+      "axe": [
+        {
+          "id": "link-in-text-block",
+          "impact": "serious",
+          "nodes": 1,
+          "target": "a[rel=\"noreferrer\"][data-v-34d6433b=\"\"]",
+          "summary": "The link has insufficient color contrast of 2.67:1 with the surrounding text. (Minimum contrast is 3:1, link text: #0b62b0, surrounding text: #1a1f26)"
+        }
+      ],
+      "small_text": 186
+    },
+    {
+      "scenario": "overview",
+      "state": "loading",
+      "viewport": "1440x900",
+      "theme": "light",
+      "violations": [],
+      "hscroll": false,
+      "overflow": [],
+      "truncated": [],
+      "axe": [],
+      "small_text": 1
+    },
+    {
+      "scenario": "overview",
+      "state": "empty",
+      "viewport": "390x844",
+      "theme": "dark",
+      "violations": [],
+      "hscroll": false,
+      "overflow": [],
+      "truncated": [],
+      "axe": null,
+      "small_text": 36
+    },
+    {
+      "scenario": "overview",
+      "state": "error",
+      "viewport": "390x844",
+      "theme": "dark",
+      "violations": [],
+      "hscroll": false,
+      "overflow": [],
+      "truncated": [],
+      "axe": null,
+      "small_text": 40
+    },
+    {
+      "scenario": "overview",
+      "state": "full",
+      "viewport": "390x844",
+      "theme": "dark",
+      "violations": [],
+      "hscroll": false,
+      "overflow": [],
+      "truncated": [],
+      "axe": null,
+      "small_text": 186
+    },
+    {
+      "scenario": "overview",
+      "state": "loading",
+      "viewport": "390x844",
+      "theme": "dark",
+      "violations": [],
+      "hscroll": false,
+      "overflow": [],
+      "truncated": [],
+      "axe": null,
+      "small_text": 1
+    },
+    {
+      "scenario": "overview",
+      "state": "empty",
+      "viewport": "390x844",
+      "theme": "light",
+      "violations": [],
+      "hscroll": false,
+      "overflow": [],
+      "truncated": [],
+      "axe": null,
+      "small_text": 36
+    },
+    {
+      "scenario": "overview",
+      "state": "error",
+      "viewport": "390x844",
+      "theme": "light",
+      "violations": [],
+      "hscroll": false,
+      "overflow": [],
+      "truncated": [],
+      "axe": null,
+      "small_text": 40
+    },
+    {
+      "scenario": "overview",
+      "state": "full",
+      "viewport": "390x844",
+      "theme": "light",
+      "violations": [],
+      "hscroll": false,
+      "overflow": [],
+      "truncated": [],
+      "axe": null,
+      "small_text": 186
+    },
+    {
+      "scenario": "overview",
+      "state": "loading",
+      "viewport": "390x844",
+      "theme": "light",
+      "violations": [],
+      "hscroll": false,
+      "overflow": [],
+      "truncated": [],
+      "axe": null,
+      "small_text": 1
+    },
+    {
+      "scenario": "overview",
+      "state": "empty",
+      "viewport": "768x1024",
+      "theme": "dark",
+      "violations": [],
+      "hscroll": false,
+      "overflow": [],
+      "truncated": [],
+      "axe": null,
+      "small_text": 36
+    },
+    {
+      "scenario": "overview",
+      "state": "error",
+      "viewport": "768x1024",
+      "theme": "dark",
+      "violations": [],
+      "hscroll": false,
+      "overflow": [],
+      "truncated": [],
+      "axe": null,
+      "small_text": 40
+    },
+    {
+      "scenario": "overview",
+      "state": "full",
+      "viewport": "768x1024",
+      "theme": "dark",
+      "violations": [],
+      "hscroll": false,
+      "overflow": [],
+      "truncated": [],
+      "axe": null,
+      "small_text": 186
+    },
+    {
+      "scenario": "overview",
+      "state": "loading",
+      "viewport": "768x1024",
+      "theme": "dark",
+      "violations": [],
+      "hscroll": false,
+      "overflow": [],
+      "truncated": [],
+      "axe": null,
+      "small_text": 1
+    },
+    {
+      "scenario": "overview",
+      "state": "empty",
+      "viewport": "768x1024",
+      "theme": "light",
+      "violations": [],
+      "hscroll": false,
+      "overflow": [],
+      "truncated": [],
+      "axe": null,
+      "small_text": 36
+    },
+    {
+      "scenario": "overview",
+      "state": "error",
+      "viewport": "768x1024",
+      "theme": "light",
+      "violations": [],
+      "hscroll": false,
+      "overflow": [],
+      "truncated": [],
+      "axe": null,
+      "small_text": 40
+    },
+    {
+      "scenario": "overview",
+      "state": "full",
+      "viewport": "768x1024",
+      "theme": "light",
+      "violations": [],
+      "hscroll": false,
+      "overflow": [],
+      "truncated": [],
+      "axe": null,
+      "small_text": 186
+    },
+    {
+      "scenario": "overview",
+      "state": "loading",
+      "viewport": "768x1024",
+      "theme": "light",
+      "violations": [],
+      "hscroll": false,
+      "overflow": [],
+      "truncated": [],
+      "axe": null,
+      "small_text": 1
+    },
+    {
+      "scenario": "repository",
+      "state": "empty",
+      "viewport": "1024x768",
+      "theme": "dark",
+      "violations": [],
+      "hscroll": false,
+      "overflow": [],
+      "truncated": [],
+      "axe": null,
+      "small_text": 9
+    },
+    {
+      "scenario": "repository",
+      "state": "error",
+      "viewport": "1024x768",
+      "theme": "dark",
+      "violations": [],
+      "hscroll": false,
+      "overflow": [],
+      "truncated": [],
+      "axe": null,
+      "small_text": 9
+    },
+    {
+      "scenario": "repository",
+      "state": "full",
+      "viewport": "1024x768",
+      "theme": "dark",
+      "violations": [],
+      "hscroll": false,
+      "overflow": [],
+      "truncated": [],
+      "axe": null,
+      "small_text": 65
+    },
+    {
+      "scenario": "repository",
+      "state": "loading",
+      "viewport": "1024x768",
+      "theme": "dark",
+      "violations": [],
+      "hscroll": false,
+      "overflow": [],
+      "truncated": [],
+      "axe": null,
+      "small_text": 0
+    },
+    {
+      "scenario": "repository",
+      "state": "empty",
+      "viewport": "1024x768",
+      "theme": "light",
+      "violations": [],
+      "hscroll": false,
+      "overflow": [],
+      "truncated": [],
+      "axe": null,
+      "small_text": 9
+    },
+    {
+      "scenario": "repository",
+      "state": "error",
+      "viewport": "1024x768",
+      "theme": "light",
+      "violations": [],
+      "hscroll": false,
+      "overflow": [],
+      "truncated": [],
+      "axe": null,
+      "small_text": 9
+    },
+    {
+      "scenario": "repository",
+      "state": "full",
+      "viewport": "1024x768",
+      "theme": "light",
+      "violations": [],
+      "hscroll": false,
+      "overflow": [],
+      "truncated": [],
+      "axe": null,
+      "small_text": 65
+    },
+    {
+      "scenario": "repository",
+      "state": "loading",
+      "viewport": "1024x768",
+      "theme": "light",
+      "violations": [],
+      "hscroll": false,
+      "overflow": [],
+      "truncated": [],
+      "axe": null,
+      "small_text": 0
+    },
+    {
+      "scenario": "repository",
+      "state": "empty",
+      "viewport": "1280x800",
+      "theme": "dark",
+      "violations": [],
+      "hscroll": false,
+      "overflow": [],
+      "truncated": [],
+      "axe": [],
+      "small_text": 9
+    },
+    {
+      "scenario": "repository",
+      "state": "error",
+      "viewport": "1280x800",
+      "theme": "dark",
+      "violations": [],
+      "hscroll": false,
+      "overflow": [],
+      "truncated": [],
+      "axe": [],
+      "small_text": 9
+    },
+    {
+      "scenario": "repository",
+      "state": "full",
+      "viewport": "1280x800",
+      "theme": "dark",
+      "violations": [],
+      "hscroll": false,
+      "overflow": [],
+      "truncated": [],
+      "axe": [
+        {
+          "id": "scrollable-region-focusable",
+          "impact": "serious",
+          "nodes": 2,
+          "target": ".stack.session.card:nth-child(2) > .s13.row[data-v-d220f67f=\"\"]:nth-child(5) > .transcript",
+          "summary": "Element should have focusable content"
+        }
+      ],
+      "small_text": 65
+    },
+    {
+      "scenario": "repository",
+      "state": "loading",
+      "viewport": "1280x800",
+      "theme": "dark",
+      "violations": [],
+      "hscroll": false,
+      "overflow": [],
+      "truncated": [],
+      "axe": [],
+      "small_text": 0
+    },
+    {
+      "scenario": "repository",
+      "state": "empty",
+      "viewport": "1280x800",
+      "theme": "light",
+      "violations": [],
+      "hscroll": false,
+      "overflow": [],
+      "truncated": [],
+      "axe": [],
+      "small_text": 9
+    },
+    {
+      "scenario": "repository",
+      "state": "error",
+      "viewport": "1280x800",
+      "theme": "light",
+      "violations": [],
+      "hscroll": false,
+      "overflow": [],
+      "truncated": [],
+      "axe": [],
+      "small_text": 9
+    },
+    {
+      "scenario": "repository",
+      "state": "full",
+      "viewport": "1280x800",
+      "theme": "light",
+      "violations": [],
+      "hscroll": false,
+      "overflow": [],
+      "truncated": [],
+      "axe": [
+        {
+          "id": "scrollable-region-focusable",
+          "impact": "serious",
+          "nodes": 2,
+          "target": ".stack.session.card:nth-child(2) > .s13.row[data-v-d220f67f=\"\"]:nth-child(5) > .transcript",
+          "summary": "Element should have focusable content"
+        }
+      ],
+      "small_text": 65
+    },
+    {
+      "scenario": "repository",
+      "state": "loading",
+      "viewport": "1280x800",
+      "theme": "light",
+      "violations": [],
+      "hscroll": false,
+      "overflow": [],
+      "truncated": [],
+      "axe": [],
+      "small_text": 0
+    },
+    {
+      "scenario": "repository",
+      "state": "empty",
+      "viewport": "1440x900",
+      "theme": "dark",
+      "violations": [],
+      "hscroll": false,
+      "overflow": [],
+      "truncated": [],
+      "axe": [],
+      "small_text": 9
+    },
+    {
+      "scenario": "repository",
+      "state": "error",
+      "viewport": "1440x900",
+      "theme": "dark",
+      "violations": [],
+      "hscroll": false,
+      "overflow": [],
+      "truncated": [],
+      "axe": [],
+      "small_text": 9
+    },
+    {
+      "scenario": "repository",
+      "state": "full",
+      "viewport": "1440x900",
+      "theme": "dark",
+      "violations": [],
+      "hscroll": false,
+      "overflow": [],
+      "truncated": [],
+      "axe": [
+        {
+          "id": "scrollable-region-focusable",
+          "impact": "serious",
+          "nodes": 2,
+          "target": ".stack.session.card:nth-child(2) > .s13.row[data-v-d220f67f=\"\"]:nth-child(5) > .transcript",
+          "summary": "Element should have focusable content"
+        }
+      ],
+      "small_text": 65
+    },
+    {
+      "scenario": "repository",
+      "state": "loading",
+      "viewport": "1440x900",
+      "theme": "dark",
+      "violations": [],
+      "hscroll": false,
+      "overflow": [],
+      "truncated": [],
+      "axe": [],
+      "small_text": 0
+    },
+    {
+      "scenario": "repository",
+      "state": "empty",
+      "viewport": "1440x900",
+      "theme": "light",
+      "violations": [],
+      "hscroll": false,
+      "overflow": [],
+      "truncated": [],
+      "axe": [],
+      "small_text": 9
+    },
+    {
+      "scenario": "repository",
+      "state": "error",
+      "viewport": "1440x900",
+      "theme": "light",
+      "violations": [],
+      "hscroll": false,
+      "overflow": [],
+      "truncated": [],
+      "axe": [],
+      "small_text": 9
+    },
+    {
+      "scenario": "repository",
+      "state": "full",
+      "viewport": "1440x900",
+      "theme": "light",
+      "violations": [],
+      "hscroll": false,
+      "overflow": [],
+      "truncated": [],
+      "axe": [
+        {
+          "id": "scrollable-region-focusable",
+          "impact": "serious",
+          "nodes": 2,
+          "target": ".stack.session.card:nth-child(2) > .s13.row[data-v-d220f67f=\"\"]:nth-child(5) > .transcript",
+          "summary": "Element should have focusable content"
+        }
+      ],
+      "small_text": 65
+    },
+    {
+      "scenario": "repository",
+      "state": "loading",
+      "viewport": "1440x900",
+      "theme": "light",
+      "violations": [],
+      "hscroll": false,
+      "overflow": [],
+      "truncated": [],
+      "axe": [],
+      "small_text": 0
+    },
+    {
+      "scenario": "repository",
+      "state": "empty",
+      "viewport": "390x844",
+      "theme": "dark",
+      "violations": [],
+      "hscroll": false,
+      "overflow": [],
+      "truncated": [],
+      "axe": null,
+      "small_text": 9
+    },
+    {
+      "scenario": "repository",
+      "state": "error",
+      "viewport": "390x844",
+      "theme": "dark",
+      "violations": [],
+      "hscroll": false,
+      "overflow": [],
+      "truncated": [],
+      "axe": null,
+      "small_text": 9
+    },
+    {
+      "scenario": "repository",
+      "state": "full",
+      "viewport": "390x844",
+      "theme": "dark",
+      "violations": [],
+      "hscroll": false,
+      "overflow": [],
+      "truncated": [],
+      "axe": null,
+      "small_text": 65
+    },
+    {
+      "scenario": "repository",
+      "state": "loading",
+      "viewport": "390x844",
+      "theme": "dark",
+      "violations": [],
+      "hscroll": false,
+      "overflow": [],
+      "truncated": [],
+      "axe": null,
+      "small_text": 0
+    },
+    {
+      "scenario": "repository",
+      "state": "empty",
+      "viewport": "390x844",
+      "theme": "light",
+      "violations": [],
+      "hscroll": false,
+      "overflow": [],
+      "truncated": [],
+      "axe": null,
+      "small_text": 9
+    },
+    {
+      "scenario": "repository",
+      "state": "error",
+      "viewport": "390x844",
+      "theme": "light",
+      "violations": [],
+      "hscroll": false,
+      "overflow": [],
+      "truncated": [],
+      "axe": null,
+      "small_text": 9
+    },
+    {
+      "scenario": "repository",
+      "state": "full",
+      "viewport": "390x844",
+      "theme": "light",
+      "violations": [],
+      "hscroll": false,
+      "overflow": [],
+      "truncated": [],
+      "axe": null,
+      "small_text": 65
+    },
+    {
+      "scenario": "repository",
+      "state": "loading",
+      "viewport": "390x844",
+      "theme": "light",
+      "violations": [],
+      "hscroll": false,
+      "overflow": [],
+      "truncated": [],
+      "axe": null,
+      "small_text": 0
+    },
+    {
+      "scenario": "repository",
+      "state": "empty",
+      "viewport": "768x1024",
+      "theme": "dark",
+      "violations": [],
+      "hscroll": false,
+      "overflow": [],
+      "truncated": [],
+      "axe": null,
+      "small_text": 9
+    },
+    {
+      "scenario": "repository",
+      "state": "error",
+      "viewport": "768x1024",
+      "theme": "dark",
+      "violations": [],
+      "hscroll": false,
+      "overflow": [],
+      "truncated": [],
+      "axe": null,
+      "small_text": 9
+    },
+    {
+      "scenario": "repository",
+      "state": "full",
+      "viewport": "768x1024",
+      "theme": "dark",
+      "violations": [],
+      "hscroll": false,
+      "overflow": [],
+      "truncated": [],
+      "axe": null,
+      "small_text": 65
+    },
+    {
+      "scenario": "repository",
+      "state": "loading",
+      "viewport": "768x1024",
+      "theme": "dark",
+      "violations": [],
+      "hscroll": false,
+      "overflow": [],
+      "truncated": [],
+      "axe": null,
+      "small_text": 0
+    },
+    {
+      "scenario": "repository",
+      "state": "empty",
+      "viewport": "768x1024",
+      "theme": "light",
+      "violations": [],
+      "hscroll": false,
+      "overflow": [],
+      "truncated": [],
+      "axe": null,
+      "small_text": 9
+    },
+    {
+      "scenario": "repository",
+      "state": "error",
+      "viewport": "768x1024",
+      "theme": "light",
+      "violations": [],
+      "hscroll": false,
+      "overflow": [],
+      "truncated": [],
+      "axe": null,
+      "small_text": 9
+    },
+    {
+      "scenario": "repository",
+      "state": "full",
+      "viewport": "768x1024",
+      "theme": "light",
+      "violations": [],
+      "hscroll": false,
+      "overflow": [],
+      "truncated": [],
+      "axe": null,
+      "small_text": 65
+    },
+    {
+      "scenario": "repository",
+      "state": "loading",
+      "viewport": "768x1024",
+      "theme": "light",
+      "violations": [],
+      "hscroll": false,
+      "overflow": [],
+      "truncated": [],
+      "axe": null,
+      "small_text": 0
+    }
+  ],
+  "ratchet": {
+    "ok": true,
+    "problems": []
+  },
+  "duration_s": 70,
+  "shots": {
+    "moments": [
+      {
+        "file": "decisions-answered-1280x800-dark.png",
+        "scenario": "decisions",
+        "state": "answered",
+        "viewport": "1280x800",
+        "theme": "dark"
+      },
+      {
+        "file": "decisions-answered-1280x800-light.png",
+        "scenario": "decisions",
+        "state": "answered",
+        "viewport": "1280x800",
+        "theme": "light"
+      },
+      {
+        "file": "health-full-1280x800-dark.png",
+        "scenario": "health",
+        "state": "full",
+        "viewport": "1280x800",
+        "theme": "dark"
+      },
+      {
+        "file": "health-full-1280x800-light.png",
+        "scenario": "health",
+        "state": "full",
+        "viewport": "1280x800",
+        "theme": "light"
+      },
+      {
+        "file": "kpis-full-1280x800-dark.png",
+        "scenario": "kpis",
+        "state": "full",
+        "viewport": "1280x800",
+        "theme": "dark"
+      },
+      {
+        "file": "kpis-full-1280x800-light.png",
+        "scenario": "kpis",
+        "state": "full",
+        "viewport": "1280x800",
+        "theme": "light"
+      },
+      {
+        "file": "overview-full-1280x800-dark.png",
+        "scenario": "overview",
+        "state": "full",
+        "viewport": "1280x800",
+        "theme": "dark"
+      },
+      {
+        "file": "overview-full-1280x800-light.png",
+        "scenario": "overview",
+        "state": "full",
+        "viewport": "1280x800",
+        "theme": "light"
+      },
+      {
+        "file": "repository-full-1280x800-dark.png",
+        "scenario": "repository",
+        "state": "full",
+        "viewport": "1280x800",
+        "theme": "dark"
+      },
+      {
+        "file": "repository-full-1280x800-light.png",
+        "scenario": "repository",
+        "state": "full",
+        "viewport": "1280x800",
+        "theme": "light"
+      }
+    ],
+    "worst": [
+      {
+        "file": "worst-decisions-answered-1280x800-dark.png",
+        "scenario": "decisions",
+        "state": "answered",
+        "viewport": "1280x800",
+        "theme": "dark",
+        "score": 6
+      },
+      {
+        "file": "worst-decisions-answered-1280x800-light.png",
+        "scenario": "decisions",
+        "state": "answered",
+        "viewport": "1280x800",
+        "theme": "light",
+        "score": 6
+      },
+      {
+        "file": "worst-decisions-answered-1440x900-dark.png",
+        "scenario": "decisions",
+        "state": "answered",
+        "viewport": "1440x900",
+        "theme": "dark",
+        "score": 6
+      },
+      {
+        "file": "worst-decisions-answered-1440x900-light.png",
+        "scenario": "decisions",
+        "state": "answered",
+        "viewport": "1440x900",
+        "theme": "light",
+        "score": 6
+      }
+    ]
+  }
+}

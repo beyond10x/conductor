@@ -215,8 +215,20 @@ tasks:
     cmds:
       - npm run dev
 
+  ui:ux-gate:
+    desc: "The dashboard's UX gate (story:dashboard-ui-loop, part of task check): the layout contract's break-tests, then over every scenario state of crates/conductor/dashboard/ux/scenarios at 1440x900 and 1280x800 in both themes the layout contract (no horizontal page scroll, no element past its box, the header with the instance selector and the page navigation wholly in view), axe-core (no serious or critical violation of wcag2a to wcag22aa) and the screen-only and keyboard-only users, from the committed dist/ and the store fixtures, without keys or network; fails on a value worse than ux/baseline.json or an improvement not taken into it (task ui:ux-gate -- --update, a hard-gate value above 0 with --decision <id>); needs the locked packages (npm ci) and a Playwright Chromium (npx --prefix crates/conductor/dashboard playwright install chromium)"
+    dir: crates/conductor/dashboard
+    cmds:
+      - node ux/gate.ts {{.CLI_ARGS}}
+
+  ui:ux-round:
+    desc: "One UX round of the dashboard into crates/conductor/dashboard/ux/rounds/<round>, every viewport, with shots, and one row of its ux/trend.md: task ui:ux-round -- R-02"
+    dir: crates/conductor/dashboard
+    cmds:
+      - node ux/round.ts {{.CLI_ARGS}}
+
   check:
-    desc: Scan every tracked file with Gates (when B10X_GATES_POLICY names a policy), validate and run the specification, hold crates/conductor-model to it, test the dashboard app and hold crates/conductor/dashboard/dist to a fresh build, then format, lint and test
+    desc: Scan every tracked file with Gates (when B10X_GATES_POLICY names a policy), validate and run the specification, hold crates/conductor-model to it, test the dashboard app, hold crates/conductor/dashboard/dist to a fresh build and run the dashboard's UX gate (task ui:ux-gate) on it, then format, lint and test
     cmds:
       - if [ -n "${B10X_GATES_POLICY:-}" ]; then git ls-files -z | xargs -0 b10x-gates scan-text; else echo "B10X_GATES_POLICY is not set; the Gates scan is skipped" >&2; fi
       - "{{shellQuote .ESS}} specify validate --path spec"
@@ -231,6 +243,7 @@ tasks:
       - task: ui
       - git diff --exit-code -- crates/conductor/dashboard/dist
       - test -z "$(git status --porcelain --untracked-files=all -- crates/conductor/dashboard/dist)" || { git status --short --untracked-files=all -- crates/conductor/dashboard/dist; echo "crates/conductor/dashboard/dist differs from a fresh build; run task ui and commit dist/" >&2; exit 1; }
+      - task: ui:ux-gate
       - cargo fmt --check
       - cargo clippy --all-targets -- -D warnings
       - LC_ALL=C cargo nextest run --no-fail-fast
