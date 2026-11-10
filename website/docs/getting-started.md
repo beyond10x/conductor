@@ -178,7 +178,7 @@ and keep it running:
 
 ```console
 state=$(conductor config show --format json | jq -r '.instances[0].state')
-install -d -m 700 "$state/sessions" "$XDG_RUNTIME_DIR/substrate" ~/.local/state/substrate/workspaces
+install -d -m 700 "$state/sessions" "$XDG_RUNTIME_DIR/substrate" ~/.local/state/substrate ~/.local/state/substrate/workspaces
 substrate-daemon \
   --socket "$XDG_RUNTIME_DIR/substrate/daemon.sock" \
   --state ~/.local/state/substrate/state.db \
@@ -188,7 +188,7 @@ substrate-daemon \
   --cgroup-root <delegated cgroup root> \
   --writable-root "sessions-home=$state/sessions" \
   --egress-aperture conductor=api.anthropic.com:443/tcp \
-  --ca-bundle /etc/ssl/certs/ca-certificates.crt
+  --ca-bundle "$(readlink -f /etc/ssl/certs/ca-certificates.crt)"
 ```
 
 From another terminal, read the daemon's facts. `exec.writable-roots.host` lists `sessions-home`:

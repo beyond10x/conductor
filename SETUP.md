@@ -141,11 +141,11 @@ to fill in, and each step says where they come from. `<target>` is the build of 
    subtree carrying cpu, memory and pids, passed as `--cgroup-root`
    (https://github.com/beyond10x/substrate#serving-exec), and serves the socket conductord opens,
    `$XDG_RUNTIME_DIR/substrate/daemon.sock`. `<state>` is the instance's `state` value in
-   `conductor config show`; create `<state>/sessions` and ~/.local/state/substrate/workspaces mode
-   700 before the daemon starts, since it refuses a writable root that does not exist. `<uid>` is the user's numeric id.
+   `conductor config show`; create `<state>/sessions`, ~/.local/state/substrate and
+   ~/.local/state/substrate/workspaces, each at mode 700, before the daemon starts: it refuses a writable root that does not exist and a state directory that is not mode 700. `<uid>` is the user's numeric id.
    - Check: `curl --silent --unix-socket $XDG_RUNTIME_DIR/substrate/daemon.sock http://localhost/v1/machine`;
      it answers, and its exec.writable-roots.host fact lists sessions-<name>.
-   - Fix: `substrate-daemon --socket $XDG_RUNTIME_DIR/substrate/daemon.sock --state ~/.local/state/substrate/state.db --workspaces ~/.local/state/substrate/workspaces --deployment personal --allow-uid <uid> --cgroup-root <delegated cgroup root> --writable-root sessions-<name>=<state>/sessions --egress-aperture conductor=api.anthropic.com:443/tcp --ca-bundle /etc/ssl/certs/ca-certificates.crt`,
+   - Fix: `substrate-daemon --socket $XDG_RUNTIME_DIR/substrate/daemon.sock --state ~/.local/state/substrate/state.db --workspaces ~/.local/state/substrate/workspaces --deployment personal --allow-uid <uid> --cgroup-root <delegated cgroup root> --writable-root sessions-<name>=<state>/sessions --egress-aperture conductor=api.anthropic.com:443/tcp --ca-bundle $(readlink -f /etc/ssl/certs/ca-certificates.crt)`,
      run inside that subtree and kept running.
    - Hands: the delegated cgroup subtree, when the user's systemd does not delegate one.
 
