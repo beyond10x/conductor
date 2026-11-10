@@ -893,10 +893,13 @@ fn reclaim_cleans_the_idle_cargo_targets_oldest_first_and_keeps_a_held_one() {
     let case = Case::new("idle-targets");
     let target = |name: &str, minutes: u64| {
         let target = case.tree("live").join(name);
+        // As cargo lays a target out: its tag, `.rustc_info.json` and a profile's lock file.
         write(
             &target.join("CACHEDIR.TAG"),
-            "Signature: 8a477f597d28d172789f06886806bc55\n",
+            "Signature: 8a477f597d28d172789f06886806bc55\n# This file is a cache directory tag created by cargo.\n# For information about cache directory tags see https://bford.info/cachedir/\n",
         );
+        write(&target.join(".rustc_info.json"), "{}\n");
+        write(&target.join("debug/.cargo-lock"), "");
         fill(&target.join("debug/deps/out.bin"), 64 * KIB);
         if name == "held" {
             write(&target.join(".keeper-hold"), "");

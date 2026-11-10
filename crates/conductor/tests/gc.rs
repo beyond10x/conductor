@@ -1310,12 +1310,16 @@ fn age_by(path: &Path, ago: Duration) {
         .expect("set a modification time");
 }
 
-/// A cargo target at `dir` with 64 KiB of build output three levels down, last written `ago` ago.
+/// The `CACHEDIR.TAG` cargo writes into a target directory, read from one cargo 1.99 made.
+const CARGO_TAG: &str = "Signature: 8a477f597d28d172789f06886806bc55\n# This file is a cache directory tag created by cargo.\n# For information about cache directory tags see https://bford.info/cachedir/\n";
+
+/// A cargo target at `dir` as cargo lays one out (its tag, `.rustc_info.json`, and the profile
+/// directory `debug/` with cargo's lock file), with 64 KiB of build output three levels down,
+/// last written `ago` ago.
 fn cargo_target(dir: &Path, ago: Duration) {
-    write(
-        &dir.join("CACHEDIR.TAG"),
-        "Signature: 8a477f597d28d172789f06886806bc55\n",
-    );
+    write(&dir.join("CACHEDIR.TAG"), CARGO_TAG);
+    write(&dir.join(".rustc_info.json"), "{}\n");
+    write(&dir.join("debug/.cargo-lock"), "");
     fill(&dir.join("debug/deps/out.bin"), 64 * KIB);
     age_by(dir, ago);
 }
@@ -1861,6 +1865,148 @@ fn nothing_is_cleaned_when_free_disk_cannot_be_read() {
     assert!(
         target.join("debug/deps/out.bin").is_file(),
         "the target stays: {}",
+        shown(&output)
+    );
+}
+
+// Correction round after adversary pass 1 (`story:gc-idle-targets`).
+
+/// What pytest writes into `.pytest_cache`, read from one.
+const PYTEST_TAG: &str = "Signature: 8a477f597d28d172789f06886806bc55\n# This file is a cache directory tag created by pytest.\n# For information about cache directory tags, see:\n#\thttps://bford.info/cachedir/spec.html\n";
+
+/// A tag that holds the signature and names no tool, as a `.mypy_cache` or `.ruff_cache` stands
+/// in for here.
+const BARE_TAG: &str = "Signature: 8a477f597d28d172789f06886806bc55\n";
+
+#[test]
+fn other_tools_cache_directories_are_no_rows_of_the_dry_run_and_stay() {
+    let case = Case::new("idle-targets-other-caches");
+    let tree = case
+        .agent_target("python")
+        .parent()
+        .expect("the tree")
+        .to_path_buf();
+    // The last has cargo's own tag and nothing else of a target: no `.rustc_info.json`, no
+    // profile directory with cargo's lock.
+    let caches = [
+        (tree.join(".pytest_cache"), PYTEST_TAG),
+        (tree.join(".mypy_cache"), BARE_TAG),
+        (tree.join(".ruff_cache"), BARE_TAG),
+        (tree.join("tagged-as-cargo"), CARGO_TAG),
+    ];
+    for (cache, tag) in &caches {
+        write(&cache.join("CACHEDIR.TAG"), tag);
+        fill(&cache.join("v/cache/kept.bin"), 64 * KIB);
+        age_by(cache, 240 * MINUTE);
+    }
+
+    let output = case.gc_at(&["--dry-run", "--format", "json"], &[10]);
+    assert!(output.status.success(), "{}", shown(&output));
+    for (cache, _) in &caches {
+        assert!(
+            !shown(&output).contains(&cache.display().to_string()),
+            "{} is no cargo target and is not listed: {}",
+            cache.display(),
+            shown(&output)
+        );
+    }
+    let output = case.gc_at(&["--format", "json"], &[10]);
+    assert!(output.status.success(), "{}", shown(&output));
+    for (cache, _) in &caches {
+        assert!(
+            cache.join("v/cache/kept.bin").is_file(),
+            "{} stays: {}",
+            cache.display(),
+            shown(&output)
+        );
+    }
+}
+
+#[test]
+fn a_target_whose_cargo_lock_is_held_is_kept_for_that_reason() {
+    let case = Case::new("idle-targets-cargo-lock");
+    let target = case.agent_target("building");
+    cargo_target(&target, 240 * MINUTE);
+    // As a cargo that builds into the target holds it: a shared lock on the profile's lock file.
+    let lock = fs::File::open(target.join("debug/.cargo-lock")).expect("open cargo's lock file");
+    lock.lock_shared().expect("this process holds cargo's lock");
+
+    let output = case.gc_at(&["--dry-run", "--format", "json"], &[10]);
+    assert!(output.status.success(), "{}", shown(&output));
+    let report: Value = serde_json::from_slice(&output.stdout).expect("JSON");
+    assert!(idle_rows(&report).is_empty(), "{}", shown(&output));
+    let kept = kept_target(&report, &target).expect("listed as kept");
+    assert!(kept.contains("not idle: cargo's lock"), "{kept}");
+    assert!(kept.contains("is held: a build is running"), "{kept}");
+
+    let output = case.gc_at(&["--format", "json"], &[10]);
+    assert!(output.status.success(), "{}", shown(&output));
+    assert!(
+        target.join("debug/deps/out.bin").is_file(),
+        "the target a build holds stays: {}",
+        shown(&output)
+    );
+    drop(lock);
+
+    // Released, the target is idle again and goes.
+    let output = case.gc_at(&["--format", "json"], &[10]);
+    assert!(output.status.success(), "{}", shown(&output));
+    assert!(!target.exists(), "{}", shown(&output));
+}
+
+/// The readings are a FIFO here, so `gc` waits for each one: the case decides what happens
+/// between the listing and the second target's turn.
+#[test]
+fn a_target_held_after_the_listing_is_refused_when_its_turn_comes() {
+    let case = Case::new("idle-targets-recheck");
+    let (first, second) = (case.agent_target("first"), case.agent_target("second"));
+    cargo_target(&first, 600 * MINUTE);
+    cargo_target(&second, 240 * MINUTE);
+    let readings = case.dir.join("free.fifo");
+    let made = Command::new("mkfifo")
+        .arg(&readings)
+        .status()
+        .expect("mkfifo runs");
+    assert!(made.success(), "mkfifo failed");
+    let path = format!("{}:/usr/bin:/bin", case.bin().display());
+    let gc = common::conductor(case.home())
+        .args(["gc", "--format", "json"])
+        .current_dir(case.records())
+        .env("PATH", path)
+        .env(conductor_cli::gc::reclaim::READINGS_VARIABLE, &readings)
+        .stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .expect("conductor runs");
+    // Each write ends when `gc` has opened the FIFO to read free disk: 10G, under the floor.
+    let reading = || fs::write(&readings, format!("{}\n", 10 * GIB)).expect("give a reading");
+    reading();
+    let deadline = Instant::now() + Duration::from_secs(120);
+    while first.exists() {
+        assert!(
+            Instant::now() < deadline,
+            "the oldest target was not cleaned"
+        );
+        std::thread::sleep(Duration::from_millis(50));
+    }
+    // Listed idle, and held before its turn.
+    write(&second.join(".keeper-hold"), "");
+    reading();
+    let output = gc.wait_with_output().expect("conductor ends");
+
+    assert_eq!(output.status.code(), Some(1), "{}", shown(&output));
+    let report: Value = serde_json::from_slice(&output.stdout).expect("JSON");
+    let rows = idle_rows(&report);
+    assert_eq!(rows[&first.display().to_string()]["outcome"], "removed");
+    let row = &rows[&second.display().to_string()];
+    assert_eq!(row["outcome"], "refused", "{}", shown(&output));
+    let detail = row["detail"].as_str().expect("the refusal's detail");
+    assert!(detail.contains("no longer idle"), "{detail}");
+    assert!(detail.contains(".keeper-hold"), "{detail}");
+    assert!(
+        second.join("debug/deps/out.bin").is_file(),
+        "the target held after the listing stays: {}",
         shown(&output)
     );
 }

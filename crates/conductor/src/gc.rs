@@ -37,16 +37,17 @@
 //! and is listed with its bytes and removed under that lock; one whose lock a build holds is a
 //! holder, kept.
 //!
-//! Beside them it lists every other cargo target (a directory holding `CACHEDIR.TAG`) under the
-//! instance's trees and cache roots, never one inside a primary checkout ([`targets`],
-//! `story:gc-idle-targets`): each with its bytes, its last write and why it is or is not idle. An
-//! idle one is a row: no process has its working directory, its program or an open file in it,
-//! names it in `CARGO_TARGET_DIR` or on its command line, nothing in its top three levels was
-//! written for 180 minutes (90 while less than 50 GiB are free on `/`), and it holds no
+//! Beside them it lists every other cargo target (a directory with cargo's own `CACHEDIR.TAG`
+//! and layout; one another tool tagged is none) under the instance's trees and cache roots, never
+//! one inside a primary checkout ([`targets`], `story:gc-idle-targets`): each with its bytes, its
+//! last write and why it is or is not idle. An idle one is a row: no cargo holds its lock, no
+//! process has its working directory, its program or an open file in it, names it in
+//! `CARGO_TARGET_DIR` or on its command line, nothing in its top three levels was written for 180
+//! minutes (90 while less than 50 GiB are free on `/`), it is this user's, and it holds no
 //! `.keeper-hold` file. Any other is a holder. Without `--dry-run` the idle ones are cleaned
-//! oldest last write first, each after every check was made again, while free disk on `/` is
-//! under the floor of the host reclaim (`thresholds.disk_admit` plus its margin); one left because
-//! the floor is reached stays `reclaimable`.
+//! oldest last write first, each under cargo's lock after every check was made again, while free
+//! disk on `/` is under the floor of the host reclaim (`thresholds.disk_admit` plus its margin);
+//! one left because the floor is reached stays `reclaimable`.
 //!
 //! After the rows it prints one table of the holders it measures and never reclaims: the panel's
 //! shared rows ([`waste::shared_rows`]: shared build targets, sccache, the rustup toolchains, the

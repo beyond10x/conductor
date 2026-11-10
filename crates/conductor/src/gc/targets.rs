@@ -7,20 +7,24 @@
 //! left alone.
 //!
 //! And every other cargo target under the instance's trees and cache roots
-//! (`story:gc-idle-targets`): a directory holding `CACHEDIR.TAG` under the managed trees, the
-//! shared targets' directory or the instance's scratch, never one inside a primary checkout (a
-//! directory holding a `.git` directory, or anything under the checkouts root) and never one a
-//! lock above answers for. [`assess`] lists each with its last write and why it is not idle; one
-//! is idle when it holds no [`HOLD`] file, no process on the host has its working directory, its
-//! program or an open file in it, names it in `CARGO_TARGET_DIR` or names a path in it on its
-//! command line, and nothing in its top three levels was written for [`WINDOW`] ([`WINDOW_LOW`]
-//! while less than [`LOW`] is free on `/`). [`clean`] makes every check again and removes an idle
-//! one; `conductor gc` and the host reclaim clean them oldest first until free disk is at the
-//! floor.
+//! (`story:gc-idle-targets`): a directory of cargo's own shape (a `CACHEDIR.TAG` that names
+//! cargo, and `.rustc_info.json` or a profile directory with cargo's `.cargo-lock`; a directory
+//! another tool tagged is none) under the managed trees, the shared targets' directory or the
+//! instance's scratch, never one inside a primary checkout (a directory holding a `.git`
+//! directory, or anything under the checkouts root) and never one a lock above answers for.
+//! [`assess`] lists each with its last write and why it is not idle; one is idle when it holds no
+//! [`HOLD`] file, it is this user's, no cargo holds its lock, no process on the host has its
+//! working directory, its program or an open file in it, names it in `CARGO_TARGET_DIR` or names
+//! a path in it on its command line (each compared as written and with its links resolved), and
+//! nothing in its top three levels was written for [`WINDOW`] ([`WINDOW_LOW`] while less than
+//! [`LOW`] is free on `/`). A process this user may not read (another user's) is not seen.
+//! [`clean`] makes every check again under cargo's lock, which it holds until the removal has
+//! ended; `conductor gc` and the host reclaim clean idle targets oldest first until free disk is
+//! at the floor.
 
 use std::ffi::OsStr;
 use std::fs::{self, File, OpenOptions, TryLockError};
-use std::io;
+use std::io::{self, Read as _};
 use std::os::unix::ffi::OsStrExt as _;
 use std::os::unix::fs::MetadataExt as _;
 use std::path::{Component, Path, PathBuf};
@@ -140,6 +144,16 @@ const DEPTH: usize = 8;
 /// The file cargo writes into a target directory.
 const TAG: &str = "CACHEDIR.TAG";
 
+/// What cargo's tag says of itself, after the signature every tool's tag carries.
+const TAG_OF_CARGO: &str = "created by cargo";
+
+/// The file cargo writes directly into a target directory beside its tag.
+const RUSTC_INFO: &str = ".rustc_info.json";
+
+/// The lock file cargo keeps in each profile directory of a target; a cargo that builds into the
+/// target holds a shared `flock` on it for the whole build.
+const CARGO_LOCK: &str = ".cargo-lock";
+
 /// The window a target must have been quiet for with `free` bytes free on `/`.
 pub(super) fn window(free: u64) -> Duration {
     if free < LOW { WINDOW_LOW } else { WINDOW }
@@ -193,9 +207,57 @@ fn is_dir(path: &Path) -> bool {
     fs::symlink_metadata(path).is_ok_and(|meta| meta.is_dir())
 }
 
-/// Whether `dir` is a cargo target: a directory, no link, holding the file [`TAG`].
+fn is_file(path: &Path) -> bool {
+    fs::symlink_metadata(path).is_ok_and(|meta| meta.is_file())
+}
+
+/// Whether the file [`TAG`] of `dir` is cargo's: a file, no link, one of whose first lines says
+/// [`TAG_OF_CARGO`]. Other tools write the same signature into caches of their own (a virtual
+/// environment, `.pytest_cache`, `.mypy_cache`, `.ruff_cache`), under their own name or none.
+fn tagged_by_cargo(dir: &Path) -> bool {
+    let tag = dir.join(TAG);
+    let mut text = Vec::new();
+    is_file(&tag)
+        && File::open(&tag)
+            .and_then(|file| file.take(4096).read_to_end(&mut text))
+            .is_ok()
+        && String::from_utf8_lossy(&text)
+            .lines()
+            .any(|line| line.contains(TAG_OF_CARGO))
+}
+
+/// The lock files cargo keeps in the profile directories of `target`, `<target>/<profile>/` and
+/// `<target>/<triple>/<profile>/`, in path order; no link is followed.
+fn cargo_locks(target: &Path) -> Vec<PathBuf> {
+    let directories = |dir: &Path| -> Vec<PathBuf> {
+        fs::read_dir(dir)
+            .into_iter()
+            .flatten()
+            .flatten()
+            .filter(|entry| entry.file_type().is_ok_and(|kind| kind.is_dir()))
+            .map(|entry| entry.path())
+            .collect()
+    };
+    let mut locks: Vec<PathBuf> = directories(target)
+        .into_iter()
+        .flat_map(|first| {
+            let below = directories(&first);
+            std::iter::once(first).chain(below)
+        })
+        .map(|dir| dir.join(CARGO_LOCK))
+        .filter(|lock| is_file(lock))
+        .collect();
+    locks.sort();
+    locks
+}
+
+/// Whether `dir` is a cargo target, by what cargo itself puts there: a directory, no link, whose
+/// [`TAG`] is cargo's ([`tagged_by_cargo`]) and which holds [`RUSTC_INFO`] or a profile directory
+/// with cargo's lock file ([`cargo_locks`]).
 fn is_cargo(dir: &Path) -> bool {
-    is_dir(dir) && fs::symlink_metadata(dir.join(TAG)).is_ok_and(|meta| meta.is_file())
+    is_dir(dir)
+        && tagged_by_cargo(dir)
+        && (is_file(&dir.join(RUSTC_INFO)) || !cargo_locks(dir).is_empty())
 }
 
 /// Whether `dir` is a primary checkout: it holds a `.git` directory. A linked worktree, as a
@@ -209,9 +271,30 @@ fn resolved(path: &Path) -> PathBuf {
     fs::canonicalize(path).unwrap_or_else(|_| path.to_path_buf())
 }
 
+/// `path` with the links on its way resolved as far as it is there: its deepest ancestor that
+/// resolves, and the rest as written (a path a process names need not exist yet); `path` as
+/// written when nothing of it resolves.
+fn resolved_far(path: &Path) -> PathBuf {
+    let mut rest = Vec::new();
+    let mut at = path;
+    loop {
+        if let Ok(real) = fs::canonicalize(at) {
+            return rest.iter().rev().fold(real, |path, name| path.join(name));
+        }
+        match (at.parent(), at.file_name()) {
+            (Some(parent), Some(name)) => {
+                rest.push(name.to_os_string());
+                at = parent;
+            }
+            _ => return path.to_path_buf(),
+        }
+    }
+}
+
 /// The cargo targets under `root`, at most [`DEPTH`] below it, found without following a link:
 /// never `root` itself, nothing inside a primary checkout or under the checkouts root
-/// `checkouts`, nothing inside another target, and nothing below a `.git` or `node_modules`.
+/// `checkouts`, nothing inside a directory that holds a [`TAG`] file (another target, or another
+/// tool's cache, which is no target), and nothing below a `.git` or `node_modules`.
 fn find(root: &Path, checkouts: &Path) -> Vec<PathBuf> {
     let (real_root, real_checkouts) = (resolved(root), resolved(checkouts));
     let mut found = Vec::new();
@@ -227,8 +310,10 @@ fn find(root: &Path, checkouts: &Path) -> Vec<PathBuf> {
         {
             continue;
         }
-        if depth > 0 && is_cargo(&dir) {
-            found.push(dir);
+        if depth > 0 && fs::symlink_metadata(dir.join(TAG)).is_ok() {
+            if is_cargo(&dir) {
+                found.push(dir);
+            }
             continue;
         }
         if depth >= DEPTH {
@@ -289,10 +374,12 @@ struct Process {
     exe: Option<PathBuf>,
     /// `/proc/<pid>/fd/*`.
     open: Vec<PathBuf>,
-    /// `CARGO_TARGET_DIR` of `/proc/<pid>/environ`, from its working directory when relative.
-    target_dir: Option<PathBuf>,
+    /// `CARGO_TARGET_DIR` of `/proc/<pid>/environ`, as [`named`] reads a path.
+    target_dir: Vec<PathBuf>,
     /// The words of `/proc/<pid>/cmdline`.
     words: Vec<String>,
+    /// Each word, and what follows a `=` in it, read as a path ([`named`]); an option is none.
+    paths: Vec<PathBuf>,
 }
 
 /// `path` without its `.` and `..` components, each `..` taking the component before it.
@@ -310,9 +397,27 @@ fn normal(path: &Path) -> PathBuf {
     out
 }
 
-/// Every process on the host; one whose links cannot be read (another user's, or one that ended)
-/// holds nothing that is known. When `/proc` cannot be listed, why: no process can then be told
-/// to be clear of a target.
+/// The path a process whose working directory is `cwd` names with `path`, a relative one from
+/// that directory: as written, and with its links resolved as far as it is there
+/// ([`resolved_far`]), so a target named through a link is the target. None when it is relative
+/// and the working directory is not known.
+fn named(path: &Path, cwd: Option<&Path>) -> Vec<PathBuf> {
+    let path = match cwd {
+        _ if path.is_absolute() => path.to_path_buf(),
+        Some(cwd) => cwd.join(path),
+        None => return Vec::new(),
+    };
+    let (written, real) = (normal(&path), normal(&resolved_far(&path)));
+    if written == real {
+        vec![written]
+    } else {
+        vec![written, real]
+    }
+}
+
+/// Every process on the host but this one; one whose links cannot be read (another user's, or
+/// one that ended) holds nothing that is known. When `/proc` cannot be listed, why: no process
+/// can then be told to be clear of a target.
 fn processes() -> Result<Vec<Process>, String> {
     let entries = fs::read_dir("/proc").map_err(|error| format!("cannot list /proc: {error}"))?;
     let mut processes = Vec::new();
@@ -321,24 +426,23 @@ fn processes() -> Result<Vec<Process>, String> {
             .file_name()
             .to_str()
             .and_then(|name| name.parse::<u32>().ok())
+            .filter(|pid| *pid != std::process::id())
         else {
             continue;
         };
         let dir = entry.path();
         let cwd = fs::read_link(dir.join("cwd")).ok();
-        let from_cwd = |path: PathBuf| match &cwd {
-            _ if path.is_absolute() => Some(normal(&path)),
-            Some(cwd) => Some(normal(&cwd.join(path))),
-            None => None,
-        };
-        let target_dir = fs::read(dir.join("environ")).ok().and_then(|environ| {
-            environ
-                .split(|byte| *byte == 0)
-                .find_map(|variable| variable.strip_prefix(b"CARGO_TARGET_DIR="))
-                .filter(|value| !value.is_empty())
-                .and_then(|value| from_cwd(PathBuf::from(OsStr::from_bytes(value))))
-        });
-        let words = fs::read(dir.join("cmdline"))
+        let target_dir = fs::read(dir.join("environ"))
+            .ok()
+            .and_then(|environ| {
+                environ
+                    .split(|byte| *byte == 0)
+                    .find_map(|variable| variable.strip_prefix(b"CARGO_TARGET_DIR="))
+                    .filter(|value| !value.is_empty())
+                    .map(|value| named(Path::new(OsStr::from_bytes(value)), cwd.as_deref()))
+            })
+            .unwrap_or_default();
+        let words: Vec<String> = fs::read(dir.join("cmdline"))
             .map(|cmdline| {
                 cmdline
                     .split(|byte| *byte == 0)
@@ -347,6 +451,18 @@ fn processes() -> Result<Vec<Process>, String> {
                     .collect()
             })
             .unwrap_or_default();
+        let paths = words
+            .iter()
+            .flat_map(|word| {
+                [
+                    Some(word.as_str()),
+                    word.split_once('=').map(|(_, value)| value),
+                ]
+            })
+            .flatten()
+            .filter(|part| !part.is_empty() && !part.starts_with('-'))
+            .flat_map(|part| named(Path::new(part), cwd.as_deref()))
+            .collect();
         processes.push(Process {
             pid,
             exe: fs::read_link(dir.join("exe")).ok(),
@@ -358,42 +474,35 @@ fn processes() -> Result<Vec<Process>, String> {
                 .collect(),
             target_dir,
             words,
+            paths,
             cwd,
         });
     }
     Ok(processes)
 }
 
-/// Whether `word` names `target` or a path in it: it holds the target's path where a path ends or
-/// goes on below it, or it is a relative path, alone or after a `=`, that leads into the target
-/// from the working directory `cwd`.
-fn names(word: &str, cwd: Option<&Path>, target: &Path) -> bool {
+/// Whether `word` holds the path of `target` where a path ends or goes on below it: a path inside
+/// a longer word, as a shell command carries one.
+fn writes(word: &str, target: &Path) -> bool {
     let text = target.to_string_lossy();
-    let written = word.match_indices(text.as_ref()).any(|(at, _)| {
+    word.match_indices(text.as_ref()).any(|(at, _)| {
         word[at + text.len()..]
             .chars()
             .next()
             .is_none_or(|next| !(next.is_alphanumeric() || matches!(next, '-' | '_' | '.')))
-    });
-    written
-        || cwd.is_some_and(|cwd| {
-            [Some(word), word.split_once('=').map(|(_, value)| value)]
-                .into_iter()
-                .flatten()
-                .filter(|part| !part.is_empty() && !part.starts_with(['/', '-']))
-                .any(|part| normal(&cwd.join(part)).starts_with(target))
-        })
+    })
 }
 
 /// The first of `processes` that holds `target`, and how: its working directory, its program or
-/// an open file lies in it, its `CARGO_TARGET_DIR` names it, or a word of its command line does.
+/// an open file lies in it, its `CARGO_TARGET_DIR` names it, or its command line names it or a
+/// path in it. The target is compared as written and resolved, and so is what a process names.
 fn holding(processes: &[Process], target: &Path) -> Option<String> {
-    let mut paths = vec![target.to_path_buf()];
+    let mut targets = vec![target.to_path_buf()];
     let real = resolved(target);
     if real != target {
-        paths.push(real);
+        targets.push(real);
     }
-    let within = |path: &Path| paths.iter().any(|target| path.starts_with(target));
+    let within = |path: &Path| targets.iter().any(|target| path.starts_with(target));
     processes.iter().find_map(|process| {
         let how = if process.cwd.as_deref().is_some_and(within) {
             "has its working directory in it"
@@ -401,13 +510,14 @@ fn holding(processes: &[Process], target: &Path) -> Option<String> {
             "runs a program in it"
         } else if process.open.iter().any(|open| within(open)) {
             "has a file open in it"
-        } else if process.target_dir.as_deref().is_some_and(within) {
+        } else if process.target_dir.iter().any(|path| within(path)) {
             "has CARGO_TARGET_DIR naming it"
-        } else if process.words.iter().any(|word| {
-            paths
+        } else if process.paths.iter().any(|path| within(path))
+            || process
+                .words
                 .iter()
-                .any(|target| names(word, process.cwd.as_deref(), target))
-        }) {
+                .any(|word| targets.iter().any(|target| writes(word, target)))
+        {
             "names it on its command line"
         } else {
             return None;
@@ -416,67 +526,94 @@ fn holding(processes: &[Process], target: &Path) -> Option<String> {
     })
 }
 
-/// Why the cargo target `target`, found under `root`, is not idle; none when it is: it is still a
-/// cargo target outside every primary checkout, it holds no [`HOLD`] file, it is this user's, none
-/// of `processes` holds it ([`holding`]), and nothing in its top [`LEVELS`] levels was written
-/// within `window`. Anything that cannot be read is a reason. With it, the last write.
-fn held(
-    root: &Path,
+/// Why the directory `target`, found under `root`, is never cleaned as it stands, whatever runs:
+/// it is no cargo target ([`is_cargo`]), it lies in a primary checkout, it holds a [`HOLD`] file,
+/// or it is not this user's. None when none holds.
+fn kept(root: &Path, target: &Path) -> Option<String> {
+    if !is_cargo(target) {
+        return Some(format!(
+            "it is no cargo target: no directory with cargo's {TAG} and layout"
+        ));
+    }
+    if !target.starts_with(root)
+        || target
+            .ancestors()
+            .take_while(|dir| dir.starts_with(root))
+            .any(primary)
+    {
+        return Some("it lies in a primary checkout".to_owned());
+    }
+    if fs::symlink_metadata(target.join(HOLD)).is_ok() {
+        return Some(format!("it holds a {HOLD} file"));
+    }
+    // The owner of `/proc/self` is the effective user of this process.
+    match (fs::metadata("/proc/self"), fs::symlink_metadata(target)) {
+        (Ok(me), Ok(it)) if me.uid() == it.uid() => None,
+        (Ok(_), Ok(_)) => Some("it is another user's".to_owned()),
+        _ => Some("cannot tell whose it is".to_owned()),
+    }
+}
+
+/// Takes cargo's own lock on `target` without waiting: an exclusive `flock` on every lock file of
+/// its profile directories ([`cargo_locks`]), which a cargo that builds into the target holds
+/// shared for the whole build and a cargo that starts waits for. The locks, held until they are
+/// dropped; or why one is not taken: a build is running.
+fn lock(target: &Path) -> Result<Vec<File>, String> {
+    cargo_locks(target)
+        .into_iter()
+        .map(|path| {
+            let shown = path.display();
+            let file = File::open(&path)
+                .map_err(|error| format!("cargo's lock {shown} cannot be opened: {error}"))?;
+            match file.try_lock() {
+                Ok(()) => Ok(file),
+                Err(TryLockError::WouldBlock) => {
+                    Err(format!("cargo's lock {shown} is held: a build is running"))
+                }
+                Err(TryLockError::Error(error)) => {
+                    Err(format!("cargo's lock {shown} cannot be taken: {error}"))
+                }
+            }
+        })
+        .collect()
+}
+
+/// Why something works in `target` or did within `window`; none when nothing does: none of
+/// `processes` holds it ([`holding`]), and its last write `written`, the newest in its top
+/// [`LEVELS`] levels, is older than the window. A write that could not be read is a reason.
+fn busy(
     target: &Path,
     window: Duration,
     processes: &[Process],
-) -> (Option<SystemTime>, Option<String>) {
-    let written = newest(target);
-    let last = written.as_ref().ok().copied();
-    let why = || -> Option<String> {
-        if !is_cargo(target) {
-            return Some(format!("it is no cargo target: no directory holding {TAG}"));
-        }
-        if !target.starts_with(root)
-            || target
-                .ancestors()
-                .take_while(|dir| dir.starts_with(root))
-                .any(primary)
-        {
-            return Some("it lies in a primary checkout".to_owned());
-        }
-        if fs::symlink_metadata(target.join(HOLD)).is_ok() {
-            return Some(format!("it holds a {HOLD} file"));
-        }
-        // The owner of `/proc/self` is the effective user of this process.
-        match (fs::metadata("/proc/self"), fs::symlink_metadata(target)) {
-            (Ok(me), Ok(it)) if me.uid() == it.uid() => {}
-            (Ok(_), Ok(_)) => return Some("it is another user's".to_owned()),
-            _ => return Some("cannot tell whose it is".to_owned()),
-        }
-        if let Some(holder) = holding(processes, target) {
-            return Some(holder);
-        }
-        let written = match &written {
-            Ok(written) => *written,
-            Err(why) => return Some(why.clone()),
-        };
-        let now = SystemTime::now();
-        let Some(quiet_since) = now.checked_sub(window) else {
-            return Some("the clock is before the window".to_owned());
-        };
-        if written > quiet_since {
-            let minutes = now
-                .duration_since(written)
-                .map_or(0, |ago| ago.as_secs() / 60);
-            return Some(format!(
-                "written {minutes} minutes ago, within the {} minutes a target must be quiet",
-                window.as_secs() / 60
-            ));
-        }
-        None
+    written: &Result<SystemTime, String>,
+) -> Option<String> {
+    if let Some(holder) = holding(processes, target) {
+        return Some(holder);
+    }
+    let written = match written {
+        Ok(written) => *written,
+        Err(why) => return Some(why.clone()),
     };
-    (last, why())
+    let now = SystemTime::now();
+    let Some(quiet_since) = now.checked_sub(window) else {
+        return Some("the clock is before the window".to_owned());
+    };
+    if written > quiet_since {
+        let minutes = now
+            .duration_since(written)
+            .map_or(0, |ago| ago.as_secs() / 60);
+        return Some(format!(
+            "written {minutes} minutes ago, within the {} minutes a target must be quiet",
+            window.as_secs() / 60
+        ));
+    }
+    None
 }
 
 /// Every cargo target under the instance's trees and cache roots ([`find`]) but those under a
 /// path of `skip` (what another row of gc answers for), each with its last write and why it is
-/// not idle within `window` ([`held`]), and with its bytes when `measure`; the oldest last write
+/// not idle within `window` (the first of [`kept`], a lock of cargo's that is held ([`lock`],
+/// released at once) and [`busy`]), and with its bytes when `measure`; the oldest last write
 /// first. When the host's processes cannot be read, why: nothing is then known to be idle.
 pub(super) fn assess(
     sources: &Sources,
@@ -493,12 +630,15 @@ pub(super) fn assess(
             {
                 continue;
             }
-            let (written, held) = held(&root, &path, window, &processes);
+            let written = newest(&path);
+            let held = kept(&root, &path)
+                .or_else(|| lock(&path).err())
+                .or_else(|| busy(&path, window, &processes, &written));
             candidates.push(Candidate {
                 bytes: measure.then(|| allocated(&path)),
                 root: root.clone(),
                 path,
-                written,
+                written: written.ok(),
                 held,
             });
         }
@@ -507,23 +647,28 @@ pub(super) fn assess(
     Ok(candidates)
 }
 
-/// Removes the idle target `candidate`, once every check of [`held`] has passed again over the
-/// host's processes read anew: the bytes freed; or why it stays, with the bytes a removal that
-/// failed half-way freed.
+/// Removes the idle target `candidate` under cargo's own lock: [`kept`] is asked again, the lock
+/// is taken ([`lock`]) and held until the removal has ended, so no build starts into the target
+/// meanwhile, and under it the host's processes are read anew and [`busy`] is asked again (a
+/// cargo that waits for the lock has its lock file open, and holds the target). The bytes freed;
+/// or why it stays, with the bytes a removal that failed half-way freed.
 pub(super) fn clean(candidate: &Candidate, window: Duration) -> Result<u64, (String, u64)> {
-    let processes = processes().map_err(|why| (why, 0))?;
-    if let (_, Some(why)) = held(&candidate.root, &candidate.path, window, &processes) {
+    let path = &candidate.path;
+    if let Some(why) = kept(&candidate.root, path) {
         return Err((why, 0));
     }
-    let before = allocated(&candidate.path);
-    let removed = fs::remove_dir_all(&candidate.path);
-    let freed = before.saturating_sub(allocated(&candidate.path));
+    let locks = lock(path).map_err(|why| (why, 0))?;
+    let processes = processes().map_err(|why| (why, 0))?;
+    if let Some(why) = busy(path, window, &processes, &newest(path)) {
+        return Err((why, 0));
+    }
+    let before = allocated(path);
+    let removed = fs::remove_dir_all(path);
+    let freed = before.saturating_sub(allocated(path));
+    drop(locks);
     match removed {
         Ok(()) => Ok(freed),
-        Err(error) => Err((
-            format!("remove {}: {error}", candidate.path.display()),
-            freed,
-        )),
+        Err(error) => Err((format!("remove {}: {error}", path.display()), freed)),
     }
 }
 

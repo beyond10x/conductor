@@ -47,8 +47,9 @@ reading free disk after each step:
    `target/` of stale ones, whose trees are kept;
 2. the build output of each idle managed tree: no live session, no process and no write to its
    `target/` in it; then every other idle cargo target under the trees and the cache, oldest
-   first: no process holds it, nothing wrote it for 180 minutes (90 while less than 50G are free)
-   and it holds no `.keeper-hold` file;
+   first: no process and no cargo lock holds it, nothing wrote it for 180 minutes (90 while less
+   than 50G are free) and it holds no `.keeper-hold` file. A target of another user is kept; a
+   process of another user is not seen;
 3. build output in worktree archives;
 4. stale scratch and caches;
 5. observations of snapshots past `retention.snapshots`.
