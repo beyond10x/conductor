@@ -7,7 +7,7 @@ title: A cargo started by any command under build run builds in the shared targe
 scope:
 - confidence: cited
   path: crates/conductor/src/build.rs
-revision: 2
+revision: 3
 ---
 ## Why
 
@@ -16,3 +16,5 @@ Seen at the close of wave 49 (2026-11-10): `conductor build run -- task check` a
 ## Acceptance
 
 - A `cargo` started by any command under `conductor build run` (a task runner, a shell script) builds in the repository's shared target; a test runs a script that prints `CARGO_TARGET_DIR` and sees the shared directory.
+
+A trial instance reported the same on 2026-11-10 with conductor 1.0.1: units that ran cargo in their worktrees held 10 GB in three private `target/` directories and compiled a release for 98 minutes from an empty target, while the host ledger refused three reservations in 85 minutes at under 40 GB free. It asked that `build run --repository <name>` set `CARGO_TARGET_DIR` to the repository's shared target unless the caller sets one, or that the refusal name the private targets of the caller's own trees as reclaimable.
