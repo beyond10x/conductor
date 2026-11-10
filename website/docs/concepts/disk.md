@@ -46,7 +46,12 @@ reading free disk after each step:
 1. finished managed trees, through `worktree finish` and `worktree gc --apply`, then the cargo
    `target/` of stale ones, whose trees are kept;
 2. the build output of each idle managed tree: no live session, no process and no write to its
-   `target/` in it;
+   `target/` in it; then every other idle cargo target under the trees and the cache, oldest
+   first: no process and no cargo lock holds it, nothing wrote it for 180 minutes (90 while less
+   than 50G are free) and it holds no `.keeper-hold` file. A target of another user is kept; a
+   process of another user is not seen. A target is moved aside as `.conductor-gc-<pid>-<count>`
+   in its own directory and then removed, so a build that starts meanwhile loses nothing; one a
+   reclaim that died left is removed by the next;
 3. build output in worktree archives;
 4. stale scratch and caches;
 5. observations of snapshots past `retention.snapshots`.
@@ -54,9 +59,9 @@ reading free disk after each step:
 A tree that is dirty or unmerged and untouched for `thresholds.tree_stale` (48 h) is stale: its
 `target/` goes and it is listed `stale, kept`. Each step is recorded with the path it removed and
 the bytes it freed. One reclaim walks the disk at a time, `host.reclaim.lock`. A tree a live
-session works in, a running gate's target, and the instance's records, state, checkouts and trees
-are not touched, however a symbolic link leads into them. A scratch entry that is a link is removed
-as a link. The watch also reclaims once each time free disk falls under `thresholds.disk_admit`.
+session works in keeps everything but an idle cargo target; a running gate's target, and the
+instance's records, state, checkouts and trees are not touched, however a symbolic link leads
+into them. A scratch entry that is a link is removed as a link. The watch also reclaims once each time free disk falls under `thresholds.disk_admit`.
 
 ## 3. Watch the run
 

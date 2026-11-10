@@ -884,3 +884,65 @@ fn reclaim_removes_only_its_own_instances_scratch() {
         );
     }
 }
+
+/// `story:gc-idle-targets`: a reclaim run cleans the idle cargo targets `conductor gc` finds, the
+/// oldest first, and keeps a held one. The tree is one a live session still works in, so the
+/// steps before leave its build output alone; its target was last written four hours ago.
+#[test]
+fn reclaim_cleans_the_idle_cargo_targets_oldest_first_and_keeps_a_held_one() {
+    let case = Case::new("idle-targets");
+    let target = |name: &str, minutes: u64| {
+        let target = case.tree("live").join(name);
+        // As cargo lays a target out: its tag, `.rustc_info.json` and a profile's lock file.
+        write(
+            &target.join("CACHEDIR.TAG"),
+            "Signature: 8a477f597d28d172789f06886806bc55\n# This file is a cache directory tag created by cargo.\n# For information about cache directory tags see https://bford.info/cachedir/\n",
+        );
+        write(&target.join(".rustc_info.json"), "{}\n");
+        write(&target.join("debug/.cargo-lock"), "");
+        fill(&target.join("debug/deps/out.bin"), 64 * KIB);
+        if name == "held" {
+            write(&target.join(".keeper-hold"), "");
+        }
+        age_by(&target, Duration::from_secs(minutes * 60));
+        target
+    };
+    let (newer, older, held) = (
+        target("a-newer", 240),
+        target("b-older", 480),
+        target("held", 480),
+    );
+    // Never over the floor: every step runs.
+    case.readings(&[10]);
+    let output = case.reclaim(&[]);
+    assert_eq!(output.status.code(), Some(1), "{}", shown(&output));
+    let cleaned: Vec<(u64, String, String)> = steps(&String::from_utf8_lossy(&output.stdout))
+        .into_iter()
+        .filter(|(_, _, what)| what.starts_with(&case.tree("live").display().to_string()))
+        .collect();
+    assert_eq!(
+        cleaned
+            .iter()
+            .map(|(_, kind, what)| (kind.as_str(), what.clone()))
+            .collect::<Vec<_>>(),
+        [
+            ("idle-tree-build-output", older.display().to_string()),
+            ("idle-tree-build-output", newer.display().to_string()),
+        ],
+        "{}",
+        shown(&output)
+    );
+    assert!(cleaned.iter().all(|(bytes, _, _)| *bytes >= 64 * KIB));
+    assert!(
+        !older.exists() && !newer.exists(),
+        "the idle targets are gone"
+    );
+    assert!(
+        held.join("debug/deps/out.bin").is_file(),
+        "the held target stays"
+    );
+    assert!(
+        case.tree("live").join("src/lib.rs").is_file(),
+        "the tree stays"
+    );
+}
