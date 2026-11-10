@@ -6288,7 +6288,7 @@ pub fn workspace_text(members: &[WorkspaceMember]) -> String {
 
 /// The members a workspace file holds, by name, and its version. A file that is not there holds
 /// none, at version none.
-fn written_members(file: &Path) -> Result<(Option<String>, BTreeMap<String, String>)> {
+pub(crate) fn written_members(file: &Path) -> Result<(Option<String>, BTreeMap<String, String>)> {
     let text = match fs::read_to_string(file) {
         Ok(text) => text,
         Err(error) if error.kind() == ErrorKind::NotFound => return Ok((None, BTreeMap::new())),
