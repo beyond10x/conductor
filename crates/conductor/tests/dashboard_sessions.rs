@@ -714,3 +714,70 @@ fn recent_decisions_are_decisions_only_newest_first_without_empty_rows() {
         "{data:#}"
     );
 }
+
+/// Adversary, wave 49 U24 pass 1 (`story:dashboard-live-controllers-and-report-text`): of two
+/// records under one session name the `Running` one is the row, whatever the session list says.
+/// A controller stopped and started again whose session is not in the list is a `not running`
+/// row, and one whose session exited is an `exited` row; neither is counted. A mutant of
+/// `roster()` that keeps whichever record the store lists first drops these rows, and the unit's
+/// own case does not see it: its restarted controller has a live session, which either record
+/// shows.
+#[test]
+fn adversary_a_restarted_controller_is_its_running_record_s_row_when_its_session_is_not_live() {
+    let case = Case::new("adversary-restarted-not-live");
+    let repositories = ["beta", "gamma", "delta", "epsilon", "zeta", "eta"];
+    for repository in repositories {
+        let id = case.controller(repository);
+        case.run(&[
+            "controller",
+            "stop-controller",
+            "--controller-id",
+            &id,
+            "--reason",
+            "the session was not reachable",
+        ]);
+        case.controller(repository);
+    }
+    // One stopped for good, with no session: never a row.
+    let gone = case.controller("theta");
+    case.run(&[
+        "controller",
+        "stop-controller",
+        "--controller-id",
+        &gone,
+        "--reason",
+        "the session was not reachable",
+    ]);
+    let now = OffsetDateTime::now_utc();
+    let started = millis(now - time::Duration::hours(2));
+    let home = case.home();
+    // eta's session exited: the list keeps it without a pid.
+    case.sessions(&json!([
+        {"name": "ex-eta", "kind": "background", "status": "idle", "state": "idle",
+         "startedAt": started, "cwd": home.join("example-org/eta").display().to_string(),
+         "sessionId": "s-eta"},
+    ]));
+    let port = case.start();
+    let data = get(port, "/v1/instances/example-org/data.json");
+
+    assert_eq!(
+        names(&data),
+        [
+            CONDUCTOR,
+            "ex-beta",
+            "ex-delta",
+            "ex-epsilon",
+            "ex-eta",
+            "ex-gamma",
+            "ex-zeta"
+        ],
+        "each restarted controller once, by its running record; the stopped one not: {data:#}"
+    );
+    for repository in ["beta", "gamma", "delta", "epsilon", "zeta"] {
+        let shown = row(&data, &format!("ex-{repository}"));
+        assert_eq!(shown["state"], "not running", "{data:#}");
+        assert_eq!(shown["repository"], repository, "{data:#}");
+    }
+    assert_eq!(row(&data, "ex-eta")["state"], "exited", "{data:#}");
+    assert_eq!(data["controllers"], 0, "no live session: {data:#}");
+}

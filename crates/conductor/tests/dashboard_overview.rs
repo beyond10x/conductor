@@ -1451,3 +1451,114 @@ fn the_overview_fixtures_have_the_keys_the_endpoints_answer() {
         "the events fixture holds one event of each kind"
     );
 }
+
+/// The texts of the report rows of `/events` over the dispatch lines `lines`, newest first.
+fn adversary_report_texts(name: &str, lines: &[Value]) -> Vec<String> {
+    let case = Case::new(name);
+    let text: String = lines.iter().map(|line| format!("{line}\n")).collect();
+    case.write("home/example-org/conductor/dispatches/2026-10.jsonl", &text);
+    case.complete(EARLIER);
+    let port = case.start();
+    events(port)
+        .into_iter()
+        .filter(|row| row["kind"] == "report")
+        .map(|row| row["text"].as_str().expect("a text").to_owned())
+        .collect()
+}
+
+/// Adversary, wave 49 U24 pass 1: a report that says nothing beside its verb is its verb alone.
+/// The loop records such a report with the verb as its text (`run/mailbox.rs`: a bare
+/// `[REPORT <repo> <dispatch>] done` is recorded with the evidence `done`, a bare `blocked` with
+/// the reason `blocked`, a bare `failed` with the reason `failed`), so the row must not read the
+/// verb twice.
+#[test]
+fn adversary_a_report_the_loop_recorded_with_its_verb_as_its_text_is_the_verb_once() {
+    let texts = adversary_report_texts(
+        "adversary-events-bare-verb",
+        &[
+            json!({"id": "DSP-A", "to": "alpha", "goal": "goal", "brief": "b", "at": AFTER}),
+            json!({"id": "DSP-A", "event": "blocked", "repo": "alpha", "reason": "blocked",
+                   "at": "2026-10-13T00:00:02Z"}),
+            json!({"id": "DSP-A", "event": "failed", "repo": "alpha", "reason": "failed",
+                   "at": "2026-10-13T00:00:03Z"}),
+            json!({"id": "DSP-A", "event": "done", "repo": "alpha", "evidence": "done",
+                   "at": "2026-10-13T00:00:04Z"}),
+        ],
+    );
+    assert_eq!(
+        texts,
+        ["done", "failed", "blocked"],
+        "a report with no text of its own reads its verb once"
+    );
+}
+
+/// Adversary, wave 49 U24 pass 1: the order the module table states (`first_line`, else `reason`,
+/// else `evidence`) and the trimming, which the unit's case leaves open: no line of it carries
+/// two of the three, and none has text with space around it.
+#[test]
+fn adversary_a_report_row_takes_first_line_before_reason_before_evidence_and_trims_it() {
+    let texts = adversary_report_texts(
+        "adversary-events-precedence",
+        &[
+            json!({"id": "DSP-A", "to": "alpha", "goal": "goal", "brief": "b", "at": AFTER}),
+            json!({"id": "DSP-A", "event": "message-received", "repo": "alpha",
+                   "first_line": "the first line", "reason": "the reason",
+                   "evidence": "the evidence", "at": "2026-10-13T00:00:02Z"}),
+            json!({"id": "DSP-A", "event": "failed", "repo": "alpha",
+                   "reason": "the reason", "evidence": "the evidence",
+                   "at": "2026-10-13T00:00:03Z"}),
+            json!({"id": "DSP-A", "event": "blocked", "repo": "alpha", "first_line": " \n",
+                   "reason": "  padded reason \n", "at": "2026-10-13T00:00:04Z"}),
+            json!({"id": "DSP-A", "event": "done", "repo": "alpha", "first_line": 7,
+                   "reason": null, "evidence": "the evidence", "at": "2026-10-13T00:00:05Z"}),
+        ],
+    );
+    assert_eq!(
+        texts,
+        [
+            "done: the evidence",
+            "blocked: padded reason",
+            "failed: the reason",
+            "message-received: the first line",
+        ]
+    );
+}
+
+/// Adversary, wave 49 U24 pass 1: a report row is one entry of a timeline. `dispatch
+/// report-done --evidence` and `report-failed --reason` take any text, so a controller that
+/// passes a log as its evidence puts all of it into every answer of `/events`. The bound asserted
+/// here is the adversary's reading, not the story's: one line, and no longer than ten times the
+/// 120 characters the Sessions page excerpts a reason to (`dashboard.rs` `EXCERPT`).
+#[test]
+fn adversary_a_report_row_s_text_is_one_bounded_line_whatever_the_report_carried() {
+    let log: String = (0..400)
+        .map(|line| {
+            format!(
+                "line {line}: \u{1b}[31mFAILED\u{1b}[0m <script>x</script> {}\n",
+                "x".repeat(120)
+            )
+        })
+        .collect();
+    let mut lines =
+        vec![json!({"id": "DSP-A", "to": "alpha", "goal": "goal", "brief": "b", "at": AFTER})];
+    for second in 0..50 {
+        lines.push(
+            json!({"id": "DSP-A", "event": "failed", "repo": "alpha", "reason": log,
+                          "at": format!("2026-10-13T00:01:{second:02}Z")}),
+        );
+    }
+    let started = std::time::Instant::now();
+    let texts = adversary_report_texts("adversary-events-long", &lines);
+    let elapsed = started.elapsed();
+    let total: usize = texts.iter().map(String::len).sum();
+    let longest = texts.iter().map(|text| text.chars().count()).max();
+    let breaks = texts.iter().filter(|text| text.contains('\n')).count();
+    let escapes = texts.iter().filter(|text| text.contains('\u{1b}')).count();
+    assert_eq!(texts.len(), 50);
+    assert!(
+        longest <= Some(1200) && breaks == 0,
+        "50 report rows carry {total} bytes of text (longest {longest:?} characters, {breaks} \
+         with a line break, {escapes} with an escape character), case set up and answered in \
+         {elapsed:?}"
+    );
+}
