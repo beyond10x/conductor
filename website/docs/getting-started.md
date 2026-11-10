@@ -174,8 +174,8 @@ tar -xzf "$archive"
 install -m 755 "substrate-daemon-$v-$target/substrate-daemon" ~/.local/bin/
 ```
 
-conductord does not start `substrate-daemon`, and doctor checks only its version. You start it
-and keep it running:
+conductord does not start `substrate-daemon`. Doctor checks its version and, with a `box <instance>:` row,
+that it answers and serves the box. You start it and keep it running:
 
 - inside a delegated cgroup subtree carrying `cpu`, `memory` and `pids`, the subtree passed as
   `--cgroup-root`. The `systemd` adapter needs it, and substrate's

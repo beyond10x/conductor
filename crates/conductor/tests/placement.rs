@@ -1851,8 +1851,9 @@ fn conductord_starts_again_a_box_runtime_substrate_ended_at_its_output_bound() {
     assert_eq!(daemon.due(now).expect("due"), None);
 
     // Substrate ends the session with `session.output-limit` (state Cancelled): it no longer
-    // runs.
+    // runs. It ran past the start bound, so this is no failed start.
     fake.log.lock().expect("the log").running.remove("ses_1");
+    let now = now + conductor_cli::daemon::reconcile::START_BOUND;
     assert_eq!(
         daemon.due(now).expect("due"),
         Some(conductor_model::instance::ReconcileReason::LostRuntime)
@@ -2959,5 +2960,397 @@ fn the_sdk_starts_the_runtime_with_each_read_only_file_at_its_mount() {
         Some(&Value::Array(expected)),
         "the start names each file: {}",
         starts[0]
+    );
+}
+
+// ---------------------------------------------------------------------------------------------
+// story:box-crash-loop-reads-failed: a runtime that exits at once is a failed start
+// ---------------------------------------------------------------------------------------------
+
+/// The runtime log of the instance `name` of a case, where its box writes what it says.
+fn runtime_log(case: &Case, name: &str) -> PathBuf {
+    placement::sessions_dir(&case.dir.join(name).join("state")).join(placement::RUNTIME_LOG)
+}
+
+fn append(file: &Path, text: &str) {
+    use std::io::Write as _;
+    fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(file)
+        .and_then(|mut file| file.write_all(text.as_bytes()))
+        .expect("append to the runtime log");
+}
+
+#[test]
+fn a_boxed_runtime_that_exits_within_the_start_bound_is_a_failed_start_with_its_error() {
+    use conductor_model::instance::ReconcileReason;
+    use std::time::Duration;
+    let case = Case::new("failed-start");
+    case.config(&[("alpha", "systemd")]);
+    let fake = Fake::default();
+    let mut daemon = case.daemon(fake.clone());
+    let start = std::time::Instant::now();
+    let log = runtime_log(&case, "alpha");
+    fs::create_dir_all(log.parent().expect("the sessions directory")).expect("create it");
+    append(&log, "conductor: an older line of another start\n");
+    let done = daemon
+        .pass(ReconcileReason::ConfigChange, start)
+        .expect("a pass");
+    assert_eq!(done[0].result, ReconcileResult::Succeeded, "{done:?}");
+
+    // The runtime says why and exits; the daemon's next tick, 2 s after the start, finds no
+    // session.
+    append(
+        &log,
+        "conductor: instance serve: the store does not open: example failure\n",
+    );
+    fake.log.lock().expect("the log").running.clear();
+    let at = start + Duration::from_secs(2);
+    assert_eq!(
+        daemon.due(at).expect("due"),
+        Some(ReconcileReason::LostRuntime)
+    );
+    let done = daemon
+        .pass(ReconcileReason::LostRuntime, at)
+        .expect("a pass");
+    assert_eq!(done.len(), 1, "{done:?}");
+    assert_eq!(
+        (done[0].action, done[0].reason, done[0].result),
+        (
+            ReconcileAction::Start,
+            ReconcileReason::LostRuntime,
+            ReconcileResult::Refused
+        ),
+        "a failed start, not a start that succeeded: {done:?}"
+    );
+    let detail = done[0].detail.clone().unwrap_or_default();
+    assert!(
+        detail.contains("the store does not open: example failure"),
+        "the record carries the runtime's error text: {detail}"
+    );
+    assert!(
+        !detail.contains("an older line"),
+        "only what this start wrote: {detail}"
+    );
+    assert_eq!(
+        fake.log.lock().expect("the log").opened.len(),
+        1,
+        "nothing is started in the same pass"
+    );
+    let rows = daemon.rows();
+    assert_eq!(rows[0]["state"], "Unreachable", "{rows:?}");
+    assert!(!daemon.routes().contains_key("alpha"));
+    let recorded = ReconciliationStorage::list(daemon.store());
+    assert!(
+        recorded
+            .iter()
+            .any(|row| row.data.result == ReconcileResult::Refused
+                && row
+                    .data
+                    .detail
+                    .as_deref()
+                    .is_some_and(|detail| detail.contains("example failure"))),
+        "the failed start is in the store"
+    );
+
+    // While it waits no pass starts or records anything, and no pass is due for it.
+    let waiting = start + Duration::from_secs(4);
+    assert_eq!(daemon.due(waiting).expect("due"), None);
+    let done = daemon
+        .pass(ReconcileReason::Cadence, waiting)
+        .expect("a pass");
+    assert!(done.is_empty(), "{done:?}");
+    assert_eq!(daemon.rows()[0]["state"], "Unreachable");
+
+    // The wait over, a pass is due and starts it again; one that then runs is Running.
+    let retry = start + Duration::from_secs(12);
+    assert_eq!(
+        daemon.due(retry).expect("due"),
+        Some(ReconcileReason::LostRuntime)
+    );
+    let done = daemon
+        .pass(ReconcileReason::LostRuntime, retry)
+        .expect("a pass");
+    assert_eq!(done.len(), 1, "{done:?}");
+    assert_eq!(done[0].result, ReconcileResult::Succeeded, "{done:?}");
+    assert_eq!(fake.log.lock().expect("the log").opened.len(), 2);
+    assert_eq!(daemon.rows()[0]["state"], "Running");
+
+    // A runtime lost after the bound is no failed start: it is started again at once.
+    fake.log.lock().expect("the log").running.clear();
+    let later = retry + Duration::from_secs(60);
+    let done = daemon
+        .pass(ReconcileReason::LostRuntime, later)
+        .expect("a pass");
+    assert_eq!(done.len(), 1, "{done:?}");
+    assert_eq!(done[0].result, ReconcileResult::Succeeded, "{done:?}");
+    assert_eq!(fake.log.lock().expect("the log").opened.len(), 3);
+}
+
+#[test]
+fn a_crash_looping_boxed_runtime_is_started_ever_less_often() {
+    use std::time::Duration;
+    let case = Case::new("crash-loop");
+    case.config(&[("alpha", "systemd")]);
+    let fake = Fake::default();
+    let mut daemon = case.daemon(fake.clone());
+    let start = std::time::Instant::now();
+    // conductord's loop: one tick every 2 s; every runtime exits before the next tick.
+    let mut opened_at = Vec::new();
+    for tick in 0..900_u64 {
+        let before = fake.log.lock().expect("the log").opened.len();
+        daemon
+            .tick(start + Duration::from_secs(tick * 2))
+            .expect("a tick");
+        let mut log = fake.log.lock().expect("the log");
+        let started = log.opened.len() > before;
+        if started {
+            opened_at.push(tick * 2);
+        }
+        log.running.clear();
+        drop(log);
+        // Between two starts the instance never reads as running.
+        if !started {
+            assert_ne!(
+                daemon.rows()[0]["state"],
+                "Running",
+                "at {} s: {opened_at:?}",
+                tick * 2
+            );
+        }
+    }
+    let first_four_minutes = opened_at.iter().filter(|at| **at < 240).count();
+    assert!(
+        (2..=6).contains(&first_four_minutes),
+        "the starts back off: {opened_at:?}"
+    );
+    // The delay doubles to a cap, so it keeps being started.
+    let last_ten_minutes = opened_at.iter().filter(|at| **at >= 1200).count();
+    assert!(
+        (1..=3).contains(&last_ten_minutes),
+        "the delay is capped: {opened_at:?}"
+    );
+}
+
+// ---------------------------------------------------------------------------------------------
+// story:box-crash-loop-reads-failed: doctor dry-runs the box
+// ---------------------------------------------------------------------------------------------
+
+/// What a `systemd` box requires its daemon to prove.
+const SYSTEMD_PROPERTIES: [Property; 3] = [
+    Property::WholeTreeKill,
+    Property::IpcSocketAllowlist,
+    Property::IpcSignalsContained,
+];
+
+fn systemd_families() -> Vec<Family> {
+    let mut families = LINUX_FAMILIES.to_vec();
+    families.push(Family::Limits);
+    families
+}
+
+impl Case {
+    /// `conductor doctor` for `file` with the local substrate daemon at `socket`.
+    fn doctor_on(&self, file: &Path, socket: &Path) -> Output {
+        common::conductor(self.home())
+            .arg("doctor")
+            .current_dir(self.home().join("work"))
+            .env_clear()
+            .env("HOME", self.home())
+            .env("PATH", self.dir.join("bin"))
+            .env("CONDUCTOR_CONFIG", file)
+            .env(placement::SOCKET_VARIABLE, socket)
+            .stdin(Stdio::null())
+            .output()
+            .expect("conductor runs")
+    }
+
+    /// The three directories of the instance `name` that its config names.
+    fn directories(&self, name: &str) {
+        for sub in ["state", "records", "cache"] {
+            fs::create_dir_all(self.dir.join(name).join(sub)).expect("an instance directory");
+        }
+    }
+}
+
+/// Every file and directory under `dir`, sorted.
+fn tree(dir: &Path) -> Vec<PathBuf> {
+    let mut found = Vec::new();
+    let mut left = vec![dir.to_path_buf()];
+    while let Some(dir) = left.pop() {
+        for entry in fs::read_dir(&dir).into_iter().flatten().flatten() {
+            let path = entry.path();
+            if path.is_dir() && !path.is_symlink() {
+                left.push(path.clone());
+            }
+            found.push(path);
+        }
+    }
+    found.sort();
+    found
+}
+
+#[test]
+fn doctor_is_not_ready_for_a_box_whose_substrate_daemon_does_not_answer() {
+    let case = Case::new("doctor-box-silent");
+    let file = case.config(&[("alpha", "systemd")]);
+    case.directories("alpha");
+    let output = case.doctor_on(&file, &case.dir.join("no.sock"));
+    let lines = lines(&output);
+    assert!(
+        lines
+            .iter()
+            .any(|line| line.starts_with("box alpha: placement.substrate-unreachable")),
+        "{}",
+        describe(&output)
+    );
+    let verdict = lines.last().cloned().unwrap_or_default();
+    assert!(
+        verdict.starts_with("not ready: ")
+            && verdict.contains("box alpha (placement.substrate-unreachable)"),
+        "{}",
+        describe(&output)
+    );
+    assert_eq!(output.status.code(), Some(1), "{}", describe(&output));
+}
+
+#[test]
+fn doctor_dry_runs_a_box_against_the_substrate_daemon_and_starts_nothing() {
+    let case = Case::new("dbox");
+    let file = case.config(&[("alpha", "systemd"), ("beta", "box-b")]);
+    case.directories("alpha");
+    let before = tree(&case.dir);
+
+    // The daemon serves the box's facts and three of its four roots: refused as it would be.
+    let socket = case.dir.join("a.sock");
+    let fake = FakeLocal::opening(
+        &socket,
+        &systemd_families(),
+        &SYSTEMD_PROPERTIES,
+        &["state-alpha", "records-alpha", "cache-alpha"],
+    );
+    let output = case.doctor_on(&file, &socket);
+    let verdict = lines(&output).last().cloned().unwrap_or_default();
+    assert!(
+        verdict.contains("box alpha (exec.writable-roots-host-unserved)"),
+        "{}",
+        describe(&output)
+    );
+    assert!(
+        String::from_utf8_lossy(&output.stdout).contains("--writable-root store="),
+        "the row says what to declare: {}",
+        describe(&output)
+    );
+    assert_eq!(output.status.code(), Some(1), "{}", describe(&output));
+    let asked = fake.lines.lock().expect("the lines").clone();
+    assert!(
+        !asked.is_empty()
+            && asked
+                .iter()
+                .all(|line| line.starts_with("GET /v1/machine ")),
+        "only the machine is asked: {asked:?}"
+    );
+    fs::remove_file(&socket).expect("remove the socket");
+
+    // It serves all four: the box is no failure, nothing was started and nothing written.
+    let socket = case.dir.join("b.sock");
+    let fake = FakeLocal::opening(
+        &socket,
+        &systemd_families(),
+        &SYSTEMD_PROPERTIES,
+        &["state-alpha", "records-alpha", "cache-alpha", "store"],
+    );
+    let output = case.doctor_on(&file, &socket);
+    let shown = lines(&output);
+    assert!(
+        shown.iter().any(
+            |line| line.starts_with("box alpha: systemd") && line.contains("4 writable roots")
+        ),
+        "{}",
+        describe(&output)
+    );
+    assert!(
+        !shown.last().is_some_and(|verdict| verdict.contains("box ")),
+        "{}",
+        describe(&output)
+    );
+    assert!(
+        !shown.iter().any(|line| line.starts_with("box beta")),
+        "an instance in no box has no box row: {}",
+        describe(&output)
+    );
+    let asked = fake.lines.lock().expect("the lines").clone();
+    assert!(
+        !asked.is_empty()
+            && asked
+                .iter()
+                .all(|line| line.starts_with("GET /v1/machine ")),
+        "no workspace and no session is asked for: {asked:?}"
+    );
+    assert!(fake.starts.lock().expect("the starts").is_empty());
+    fs::remove_file(&socket).expect("remove the socket");
+    assert_eq!(tree(&case.dir), before, "doctor writes nothing");
+
+    // A root the box writes is not there: named before substrate would refuse it.
+    fs::remove_dir_all(case.dir.join("alpha/records")).expect("remove the records");
+    let socket = case.dir.join("c.sock");
+    let _fake = FakeLocal::opening(
+        &socket,
+        &systemd_families(),
+        &SYSTEMD_PROPERTIES,
+        &["state-alpha", "records-alpha", "cache-alpha", "store"],
+    );
+    let output = case.doctor_on(&file, &socket);
+    let verdict = lines(&output).last().cloned().unwrap_or_default();
+    assert!(
+        verdict.contains("box alpha (placement.writable-root-missing)"),
+        "{}",
+        describe(&output)
+    );
+    assert!(
+        String::from_utf8_lossy(&output.stdout)
+            .contains(&case.dir.join("alpha/records").display().to_string()),
+        "the row names the directory: {}",
+        describe(&output)
+    );
+}
+
+#[test]
+fn doctor_names_a_box_conductord_would_refuse_before_it_asks_substrate() {
+    let case = Case::new("dbref");
+    // The store beside the config file: the store's root would hold the config file.
+    let text = format!(
+        "version: conductor.config/2\ndaemon: {{port: 7300, store: {store:?}}}\ninstances:\n  \
+         - name: alpha\n    placement: systemd\n    session_prefix: alpha\n    \
+         sources: [{{github: example-org}}]\n    \
+         checkouts: {{root: {root:?}, trees: {trees:?}}}\n    records: {records:?}\n    \
+         state: {state:?}\n    cache: {cache:?}\n",
+        store = format!("sqlite:{}", case.dir.join("shared.sqlite").display()),
+        root = case.dir.join("alpha/checkouts"),
+        trees = case.dir.join("alpha/trees"),
+        records = case.dir.join("alpha/records"),
+        state = case.dir.join("alpha/state"),
+        cache = case.dir.join("alpha/cache"),
+    );
+    fs::write(case.file(), text).expect("write the config file");
+    case.directories("alpha");
+    let socket = case.dir.join("s.sock");
+    let fake = FakeLocal::opening(
+        &socket,
+        &systemd_families(),
+        &SYSTEMD_PROPERTIES,
+        &["state-alpha", "records-alpha", "cache-alpha", "store"],
+    );
+    let output = case.doctor_on(&case.file(), &socket);
+    let verdict = lines(&output).last().cloned().unwrap_or_default();
+    assert!(
+        verdict.contains("box alpha (placement.writable-root-shared)"),
+        "{}",
+        describe(&output)
+    );
+    assert!(
+        fake.lines.lock().expect("the lines").is_empty(),
+        "substrate is not asked for a box conductord refuses itself"
     );
 }

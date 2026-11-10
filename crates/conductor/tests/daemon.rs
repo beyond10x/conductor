@@ -378,6 +378,9 @@ fn a_runtime_that_stopped_answering_is_started_again() {
     daemon.pass(ReconcileReason::Cadence, now).expect("pass");
     assert_eq!(daemon.due(now).expect("due"), None);
     daemon.units.running.clear();
+    // It ran past the start bound: a lost runtime, no failed start
+    // (`story:box-crash-loop-reads-failed`).
+    let now = now + conductor_cli::daemon::reconcile::START_BOUND;
     assert_eq!(
         daemon.due(now).expect("due"),
         Some(ReconcileReason::LostRuntime)
@@ -390,6 +393,7 @@ fn a_runtime_that_stopped_answering_is_started_again() {
         [("alpha".to_owned(), ReconcileAction::Start)]
     );
     assert_eq!(done[0].reason, ReconcileReason::LostRuntime);
+    assert_eq!(done[0].result, ReconcileResult::Succeeded, "{done:?}");
     assert_eq!(daemon.due(now).expect("due"), None);
 }
 

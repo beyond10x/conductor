@@ -5468,8 +5468,15 @@ pub(crate) fn box_refusals(
     environment: &Environment,
     store: Option<&str>,
 ) -> Vec<(usize, crate::placement::Refused)> {
-    let home = environment.home().ok().map(Path::to_owned);
-    let written = fs::read_to_string(file)
+    box_requests(config, file, environment, store)
+        .into_iter()
+        .filter_map(|(index, request)| request.refused.map(|refused| (index, refused)))
+        .collect()
+}
+
+/// Whether the config file `file` writes `daemon.store`: conductord starts on no other file.
+pub(crate) fn writes_store(file: &Path) -> bool {
+    fs::read_to_string(file)
         .ok()
         .and_then(|text| serde_yaml::from_str::<Value>(&text).ok())
         .is_some_and(|value| {
@@ -5477,7 +5484,20 @@ pub(crate) fn box_refusals(
                 .get("daemon")
                 .and_then(|daemon| daemon.get("store"))
                 .is_some()
-        });
+        })
+}
+
+/// The box conductord would ask for, for each instance of `config` in a box, by its index, on
+/// the host [`box_refusals`] reads; a box conductord would refuse itself carries the refusal
+/// ([`crate::placement::BoxRequest::refused`]). Reads the host, writes nothing.
+pub(crate) fn box_requests(
+    config: &Config,
+    file: &Path,
+    environment: &Environment,
+    store: Option<&str>,
+) -> Vec<(usize, crate::placement::BoxRequest)> {
+    let home = environment.home().ok().map(Path::to_owned);
+    let written = writes_store(file);
     let host = crate::placement::Host {
         daemon: home.as_ref().map(|home| home.join(crate::daemon::DIR)),
         home,
@@ -5492,9 +5512,11 @@ pub(crate) fn box_refusals(
         .iter()
         .enumerate()
         .filter(|(_, instance)| crate::placement::boxed(instance))
-        .filter_map(|(index, instance)| {
-            crate::placement::unmountable(instance, file, &binary, &host)
-                .map(|refused| (index, refused))
+        .map(|(index, instance)| {
+            (
+                index,
+                crate::placement::request_on(instance, file, &binary, Vec::new(), &host),
+            )
         })
         .collect()
 }

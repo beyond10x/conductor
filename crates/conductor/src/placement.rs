@@ -644,6 +644,25 @@ pub fn roots_unserved(roots: &[HostRoot], served: Option<&[String]>) -> Option<R
         })
 }
 
+/// Conductor's name for a writable root whose directory is not there: substrate refuses it,
+/// and `conductor doctor` names it before any box is asked for.
+pub const ROOT_MISSING: &str = "placement.writable-root-missing";
+
+/// The refusal `roots` earn on this host: the first whose path is no directory.
+#[must_use]
+pub fn roots_missing(roots: &[HostRoot]) -> Option<Refused> {
+    roots
+        .iter()
+        .find(|root| !Path::new(&root.path).is_dir())
+        .map(|root| Refused {
+            name: ROOT_MISSING.to_owned(),
+            detail: format!(
+                "the writable root {} is no directory: create {}",
+                root.name, root.path
+            ),
+        })
+}
+
 /// How the box sees one host path of [`mounts`].
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Bind {
@@ -1905,23 +1924,44 @@ impl Sdk {
     }
 }
 
+impl Sdk {
+    /// The refusal `request` earns against the facts `machine` publishes, before anything
+    /// starts: a family or a property it requires and the daemon does not serve ([`unmet`]),
+    /// then a writable root the daemon does not list ([`roots_unserved`]).
+    fn unserved(machine: &substrate_sdk::Machine, request: &BoxRequest) -> Option<Refused> {
+        unmet(
+            &request.requires,
+            &machine.served_families(),
+            &machine.proved_properties(),
+        )
+        .or_else(|| {
+            roots_unserved(
+                &request.writable_roots,
+                machine.facts.exec_writable_roots_host.as_deref(),
+            )
+        })
+    }
+
+    /// Whether this daemon would take `request` as far as [`Substrate::open`] checks before it
+    /// asks for anything: the daemon answers, and its facts serve the box ([`Self::unserved`]).
+    /// It reads the daemon's machine and starts nothing: `conductor doctor`'s dry run.
+    ///
+    /// # Errors
+    ///
+    /// [`UNREACHABLE`] when the daemon does not answer, else the refusal `open` would answer.
+    pub fn admits(&self, request: &BoxRequest) -> Result<(), Refused> {
+        let request = request.clone();
+        self.block_on(async move |client| Ok(Self::unserved(&client.machine(), &request)))
+            .and_then(|refused| refused.map_or(Ok(()), Err))
+    }
+}
+
 impl Substrate for Sdk {
     fn open(&mut self, request: &BoxRequest) -> Result<Opened, Refused> {
         let request = request.clone();
         self.block_on(async move |client| {
             // The facts the start's capability snapshot carries: the same client's machine.
-            let machine = client.machine();
-            if let Some(refused) = unmet(
-                &request.requires,
-                &machine.served_families(),
-                &machine.proved_properties(),
-            ) {
-                return Ok(Err(refused));
-            }
-            if let Some(refused) = roots_unserved(
-                &request.writable_roots,
-                machine.facts.exec_writable_roots_host.as_deref(),
-            ) {
+            if let Some(refused) = Self::unserved(&client.machine(), &request) {
                 return Ok(Err(refused));
             }
             let workspace = client
@@ -1961,18 +2001,7 @@ impl Substrate for Sdk {
     fn restart(&mut self, workspace: &str, request: &BoxRequest) -> Result<String, Refused> {
         let (id, request) = (workspace.to_owned(), request.clone());
         self.block_on(async move |client| {
-            let machine = client.machine();
-            if let Some(refused) = unmet(
-                &request.requires,
-                &machine.served_families(),
-                &machine.proved_properties(),
-            ) {
-                return Ok(Err(refused));
-            }
-            if let Some(refused) = roots_unserved(
-                &request.writable_roots,
-                machine.facts.exec_writable_roots_host.as_deref(),
-            ) {
+            if let Some(refused) = Self::unserved(&client.machine(), &request) {
                 return Ok(Err(refused));
             }
             let workspace = client.get_workspace(&id).await?;

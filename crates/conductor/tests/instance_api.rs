@@ -353,6 +353,43 @@ fn instance_serve_writes_its_output_to_the_log_file_it_is_handed() {
     assert_eq!(mode, 0o600, "the log is the owner's only");
 }
 
+/// A runtime that cannot start says why in the log file it is handed: in a box its standard
+/// error is substrate's session output, which the daemon does not read
+/// (`story:box-crash-loop-reads-failed`).
+#[test]
+fn instance_serve_writes_an_error_before_it_serves_to_the_log_file_it_is_handed() {
+    let case = Case::new("log-early");
+    let log = case.state().join("sessions").join("runtime.log");
+    let broken = case.home().join("broken.yaml");
+    fs::write(&broken, "version: conductor.config/2\ninstances: 7\n").expect("write the file");
+    let output = common::conductor(case.home())
+        .current_dir(case.state())
+        .arg("--config")
+        .arg(&broken)
+        .args(["instance", "serve"])
+        .env(conductor_cli::instance::LOOP_VARIABLE, "off")
+        .env(conductor_cli::config::INSTANCE_VARIABLE, "example-org")
+        .env(conductor_cli::instance::TOKEN_VARIABLE, INSTANCE_TOKEN)
+        .env(conductor_cli::instance::LOG_VARIABLE, &log)
+        .stdin(Stdio::null())
+        .output()
+        .expect("instance serve runs");
+    assert_eq!(output.status.code(), Some(1), "{output:?}");
+    let text = fs::read_to_string(&log).unwrap_or_default();
+    assert!(
+        text.contains("conductor: ")
+            && text.contains("instance serve")
+            && text.contains("broken.yaml"),
+        "the log holds the error: {text:?}; standard error: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert_eq!(
+        String::from_utf8_lossy(&output.stderr),
+        "",
+        "nothing on standard error"
+    );
+}
+
 #[test]
 fn instance_serve_answers_the_v1_routes_on_its_socket_with_settings_and_the_token_rule() {
     let case = Case::new("serve");

@@ -137,7 +137,7 @@ to fill in, and each step says where they come from. `<target>` is the build of 
 
 9. **Start the substrate daemon.** With `placement: systemd`, conductord runs the instance's
    runtime in a box it asks the local `substrate-daemon` for. Conductord does not start
-   `substrate-daemon`, and doctor checks only its version. It runs inside a delegated cgroup
+   `substrate-daemon`; doctor checks its version, and that it answers and serves the box (its box <name>: row). It runs inside a delegated cgroup
    subtree carrying cpu, memory and pids, passed as `--cgroup-root`
    (https://github.com/beyond10x/substrate#serving-exec), and serves the socket conductord opens,
    `$XDG_RUNTIME_DIR/substrate/daemon.sock`. `<state>` is the instance's `state` value in

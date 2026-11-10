@@ -93,10 +93,17 @@ daemon publishes. A miss is refused with substrate's name, `confinement.family-u
 | need | how |
 |---|---|
 | the state directory, the records, the cache, the sqlite store's directory | the operator declares `substrate-daemon --writable-root state-<instance>=<state>`, `records-<instance>=<records>`, `cache-<instance>=<cache>` and `store=<directory>`, one root where one holds the others; without one the box is refused `exec.writable-roots-host-unserved` |
+| each of those directories there | the four roots exist before the box opens: conductord creates the state directory and the store's directory at its start, and nothing else; `conductor doctor` names one that is missing, `placement.writable-root-missing` |
+| the substrate daemon | `substrate-daemon`, at least the version `conductor doctor` pins (0.20.0), kept running by the operator and answering on `$XDG_RUNTIME_DIR/substrate/daemon.sock`, or on the socket `CONDUCTOR_SUBSTRATE_SOCKET` names; one that does not answer is `placement.substrate-unreachable` |
+| a delegated cgroup | the substrate daemon runs inside a delegated cgroup subtree, its `--cgroup-root`, carrying `cpu`, `memory` and `pids`: the `systemd` adapter requires the `limits` family and whole-tree kill, which the daemon publishes only there |
 | nothing else written | a root is a whole directory: a box whose state, records, cache or store directory holds the config file or lies with `~/.b10x/conductor/daemon` is refused `placement.writable-root-shared` before substrate is asked, so a sqlite store is in a directory of its own |
 | the runtime's output | `<state>/sessions/runtime.log` |
 | the model token | a slot of `daemon.substrate_slots`, which the daemon fills from the instance's `model_token` before the box opens |
 | a remote daemon | `placement` also writes `bearer: secret:<name>`, `trust_roots` and `server_identity`; one `conductor instance relay` pipe session carries each API request; an unanswering daemon shows the instance `Unreachable` |
+
+For a config file that writes `daemon.store`, the only kind conductord starts on, `conductor doctor` dry-runs the box of each instance on the local daemon: it builds the request conductord would send, checks conductord's own refusals and that each writable root is a directory, and asks the substrate daemon for its facts, as conductord does before anything starts. It prints one `box <instance>:` row, starts no box and writes nothing. A box that would be refused makes the verdict `not ready: box <instance> (<refusal>)`. A box on a remote daemon is checked up to conductord's own refusals; the remote daemon is not asked.
+
+A runtime that exits within 10 s of its start is a failed start. The daemon records it as a `Start` that was `Refused`, with what the runtime wrote to `runtime.log` since that start, and `/v1/instances` shows the instance `Unreachable`. The next start waits 10 s, and twice as long after each further failed start, up to 5 minutes; a change to the config file starts it at the next pass. A runtime that ran longer and stopped is started again at once.
 
 A bare string that names no adapter keeps the runtime in the systemd user unit
 `conductor_<instance>-runtime.service`. Sessions run in no box: substrate 0.20.0 starts no agent

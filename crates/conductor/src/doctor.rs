@@ -1419,7 +1419,8 @@ pub fn check_in(
 /// verdict, `ready` or `not ready: ` with what failed ([`verdict_of`]). Exits 1 when the config
 /// does not load, a program is missing, older than its pin, or pinned with a pin or version that
 /// does not read, or a forge CLI is not logged in to a host of the config file's sources; 0
-/// otherwise. Writes nothing. The confinement providers' rows are gone with `confinement.*`
+/// otherwise; also when the box of an instance would be refused ([`box_lines`]), which only this
+/// command checks. Writes nothing. The confinement providers' rows are gone with `confinement.*`
 /// (design architecture-next § 11, `conductor.config.DoctorReport`).
 ///
 /// # Errors
@@ -1439,6 +1440,10 @@ pub fn doctor_with(flag: Option<&Path>) -> Result<ExitCode> {
     println!("{}", daemon_unit());
     let mut failures = doctor.failures();
     for (line, failure) in kind_lines(flag) {
+        println!("{line}");
+        failures.extend(failure);
+    }
+    for (line, failure) in box_lines(flag, &crate::placement::Sdk::default()) {
         println!("{line}");
         failures.extend(failure);
     }
@@ -1489,6 +1494,82 @@ fn kind_lines(flag: Option<&Path>) -> Vec<(String, Option<String>)> {
                     None => (format!("agent kind {name}: {binary} missing"), None),
                 }
             }
+        })
+        .collect()
+}
+
+/// One line per instance of the config file that runs in a substrate box, in the file's order
+/// (`story:box-crash-loop-reads-failed`): the dry run of its box. It builds the request
+/// conductord would send ([`config::box_requests`]) and runs what conductord and its box opener
+/// check before anything starts: conductord's own refusals
+/// ([`crate::placement::unmountable`]), each writable root a directory
+/// ([`crate::placement::roots_missing`]), and, for a box on the local daemon, that `substrate`
+/// answers and its facts serve the box ([`crate::placement::Sdk::admits`]). A box on a remote
+/// daemon is checked as far as conductord's own refusals and its roots: the remote daemon is
+/// not asked. The line is `box <instance>: <placement>, <n> writable roots served by the
+/// substrate daemon`, or `box <instance>: <refusal>: <detail>`, which adds `box <instance>
+/// (<refusal>)` to the verdict. It opens no box, starts nothing and writes nothing; only
+/// [`doctor_with`] calls it, never [`check_in`], which the dashboard's health thread repeats.
+/// A config that does not load, no config file, and a file that writes no `daemon.store`
+/// ([`config::writes_store`]: conductord starts on no such file, so nothing opens its boxes)
+/// name none.
+fn box_lines(
+    flag: Option<&Path>,
+    substrate: &crate::placement::Sdk,
+) -> Vec<(String, Option<String>)> {
+    let Ok(environment) = config::Environment::from_process() else {
+        return Vec::new();
+    };
+    let Some(loaded) = config::load(flag, &environment)
+        .ok()
+        .filter(|loaded| loaded.read)
+    else {
+        return Vec::new();
+    };
+    let file = environment.cwd.join(&loaded.path);
+    if !config::writes_store(&file) {
+        return Vec::new();
+    }
+    config::box_requests(&loaded.config, &file, &environment, None)
+        .into_iter()
+        .filter_map(|(index, request)| {
+            let instance = loaded.config.instances.get(index)?;
+            let name = &instance.name.0;
+            let remote = instance.remote.is_some();
+            let refused = request
+                .refused
+                .clone()
+                .or_else(|| crate::placement::roots_missing(&request.writable_roots))
+                .or_else(|| {
+                    if remote {
+                        None
+                    } else {
+                        substrate.admits(&request).err()
+                    }
+                });
+            Some(match refused {
+                Some(refused) => (
+                    format!(
+                        "box {name}: {}: {}",
+                        refused.name,
+                        one_line(&refused.detail)
+                    ),
+                    Some(format!("box {name} ({})", refused.name)),
+                ),
+                None => (
+                    format!(
+                        "box {name}: {}, {} writable roots {}",
+                        request.placement.0,
+                        request.writable_roots.len(),
+                        if remote {
+                            "there (its remote substrate daemon is not asked)"
+                        } else {
+                            "served by the substrate daemon"
+                        }
+                    ),
+                    None,
+                ),
+            })
         })
         .collect()
 }
