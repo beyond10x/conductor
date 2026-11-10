@@ -1,0 +1,73 @@
+{
+  "page": "#/kpis",
+  "anchor": false,
+  "states": [
+    {
+      "name": "loading",
+      "store": "loading",
+      "present": [
+        {
+          "selector": "main h1",
+          "count": 1
+        },
+        {
+          "selector": "main p.state-loading",
+          "count": 1
+        }
+      ]
+    },
+    {
+      "name": "error",
+      "store": "error",
+      "present": [
+        {
+          "selector": "main h1",
+          "count": 1
+        },
+        {
+          "selector": "main p.state-error",
+          "count": 1
+        }
+      ]
+    },
+    {
+      "name": "empty",
+      "store": "empty",
+      "present": [
+        {
+          "selector": "main h1",
+          "count": 1
+        },
+        {
+          "selector": "main p.state-empty",
+          "count": 1
+        }
+      ]
+    },
+    {
+      "name": "full",
+      "store": "full",
+      "present": [
+        {
+          "selector": "main h1",
+          "count": 1
+        },
+        {
+          "selector": "main article",
+          "count": 16
+        },
+        {
+          "selector": "main h2",
+          "count": 16
+        },
+        {
+          "selector": "main svg",
+          "count": 7
+        }
+      ]
+    }
+  ],
+  "expectations": {
+    "maxActions": 0
+  }
+}
