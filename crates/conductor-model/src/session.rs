@@ -1,5 +1,5 @@
 // generated from conductor v1
-// contract digest 8ce3c34c923965d9c78f62d6f46b79563c4a2d8bfd87a5b7c346b2a030ad13e4
+// contract digest a1cc34768181dead81bc45def213171589d80ca0e637d39ce715944032bf1a7c
 // do not edit: regenerate with `ess synthesize --layout crate`
 
 //! Session — `conductor.session`.
@@ -811,10 +811,17 @@ pub struct DeliverMessage {
 pub enum DeliverMessageOutcome {
     /// `unreachable` — externally decided (neither the session's tmux launcher nor the harness's attach to a live session of that name took the text).
     ///
-    /// The text reached the session by neither route, its launcher socket or the harness's attach to a live session of that name; nothing was recorded, and the caller names the session and why, and the command does not try again.
+    /// The text reached the session by neither route, its launcher socket or the harness's attach to a live session of that name; nothing was typed or recorded, and the caller names the session and why, and the command does not try again.
     Unreachable {
         /// Why it was refused: `conductor.session.SessionNotReachable`.
         error: SessionNotReachable,
+    },
+    /// `unread` — externally decided (the text was typed into the harness's attach to the live session, and its client was not seen to read it).
+    ///
+    /// The text was typed and not seen to be read; nothing was recorded, and the caller names the session and why and does not offer the text again.
+    Unread {
+        /// Why it was refused: `conductor.session.DeliveryNotSeenRead`.
+        error: DeliveryNotSeenRead,
     },
     /// `delivered` — otherwise.
     ///
@@ -925,6 +932,15 @@ pub struct RunTickRecorded {
     pub started_at: crate::primitives::Timestamp,
     /// `lines_handled` — `Integer`.
     pub lines_handled: i64,
+}
+
+/// The declared error `conductor.session.DeliveryNotSeenRead`.
+///
+/// The text was typed into the pane made for the delivery, whose client is the harness's attach to the live session, and that client was not seen to read it: the text was still unread on the pane's terminal when its bound passed or when the pane ended, or the delivery was ended by a signal first. Nothing was recorded. The session may hold the text, so the caller is told which session and does not offer the same text again.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct DeliveryNotSeenRead {
+    /// `session_name` — `conductor.config.SessionName`.
+    pub session_name: crate::config::SessionName,
 }
 
 /// The declared error `conductor.session.InvalidLineCount`.

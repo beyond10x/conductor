@@ -79,7 +79,11 @@ again; a kept delivery waits for the repository's next controller start
 list (`claude agents --json`) names the session live, or cannot be read, the controller stays
 Running and the one journal line says so (`story:deliver-reaches-bg-session`). A kept delivery is
 then offered to that same controller again on the next tick, since nothing was typed and no next
-controller starts while it runs.
+controller starts while it runs; the kept item counts its offers, and after the fifth refusal it
+is marked refused by that controller with the last refusal, with one journal line, and waits for
+the repository's next controller. A refusal that is not `SessionNotReachable`
+(`DeliveryNotSeenRead`: the text was typed and not seen to be read; a delivery past its bound) is
+never offered again: the session may hold the text.
 
 Mailbox: a controller reports with `conductor message send --to conductor --from <session>
 --text <file|->`, which parses the first line with the existing grammar (unparsed: exit 1 and
@@ -96,10 +100,13 @@ message and the form its kind expects (`relayed`). Delivery to a session is `con
 (`type_text`) and records `delivered`. A session started with `claude --bg` has no launcher: when
 the session list names it live, the text is typed the same way into a pane made for that one
 delivery, which runs `claude attach <id>` on a socket of the delivery's own
-(`<state>/sessions/deliveries/<session>-<process id>-<count>.tmux`, so two deliveries at once
-share nothing and no reader of launcher sockets lists the pane) and is ended once the attach
-client has read the text; a client that does not read it within 10 s is refused
-(`story:deliver-reaches-bg-session`). A session neither route reaches is reported, never
+(`<state>/sessions/deliveries/<process id>-<count>.tmux`, so two deliveries at once share
+nothing, no reader of launcher sockets lists the pane, and the socket's name does not grow with
+the session's) and is ended once the attach client has read the text; a client that does not
+read it within 10 s, or whose pane ends with the text unread, is refused `DeliveryNotSeenRead`,
+and a pane that ended after Enter with no unread text seen counts as read. A delivery asked to
+end (SIGTERM, SIGINT) ends its pane first (`story:deliver-reaches-bg-session`). A session
+neither route reaches is reported, never
 retried in a loop. `SendMessage` is no longer used between roles; the guard allows `message send`
 and denies `session deliver` to a controller.
 

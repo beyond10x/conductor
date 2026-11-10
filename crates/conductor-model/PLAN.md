@@ -1,13 +1,13 @@
 <!--
   generated from conductor v1
-  contract digest 8ce3c34c923965d9c78f62d6f46b79563c4a2d8bfd87a5b7c346b2a030ad13e4
+  contract digest a1cc34768181dead81bc45def213171589d80ca0e637d39ce715944032bf1a7c
   do not edit: regenerate with `ess synthesize --layout crate`
 -->
 # Synthesis plan — conductor v1
 
 Scope: `component-skeletons`, laid out as `crate`, planned by `ess-synth`. Regenerate with `ess synthesize --layout crate`.
 
-972 capabilities: **959 generated**, **13 obligations**, **0 refused**. An obligation is yours to implement against its contract; a refusal is a fact about this synthesis scope, not about the specification.
+973 capabilities: **960 generated**, **13 obligations**, **0 refused**. An obligation is yours to implement against its contract; a refusal is a fact about this synthesis scope, not about the specification.
 
 ## Generated
 
@@ -817,6 +817,7 @@ Scope: `component-skeletons`, laid out as `crate`, planned by `ess-synth`. Regen
 | error type | `conductor.secret.SecretMissing` |
 | error type | `conductor.secret.SourceUnreachable` |
 | error type | `conductor.secret.SourceUnusable` |
+| error type | `conductor.session.DeliveryNotSeenRead` |
 | error type | `conductor.session.InvalidLineCount` |
 | error type | `conductor.session.LeaseHeld` |
 | error type | `conductor.session.SessionNotReachable` |

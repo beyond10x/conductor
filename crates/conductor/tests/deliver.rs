@@ -292,12 +292,13 @@ fn describe(output: &Output) -> String {
 /// loaded from its paste file (the fake logs the file's content in its place) as one bracketed
 /// paste, then a carriage return pasted unbracketed.
 fn typed(case: &Case, text: &str) -> Vec<Vec<String>> {
-    typed_on(&case.state().join("sessions"), SESSION, text)
+    typed_on(&case.state().join("sessions"), SESSION, SESSION, text)
 }
 
-/// [`typed`]'s four calls for the tmux session `name` on `<name>.tmux`, made from `dir`.
-fn typed_on(dir: &Path, name: &str, text: &str) -> Vec<Vec<String>> {
-    let call = called(dir, name);
+/// [`typed`]'s four calls for the tmux session `name` on the socket `<socket>.tmux`, made from
+/// `dir`.
+fn typed_on(dir: &Path, socket: &str, name: &str, text: &str) -> Vec<Vec<String>> {
+    let call = called(dir, socket);
     let pane = format!("={name}:");
     vec![
         call(&["load-buffer", "-b", "conductor", text]),
@@ -307,10 +308,11 @@ fn typed_on(dir: &Path, name: &str, text: &str) -> Vec<Vec<String>> {
     ]
 }
 
-/// A recorded call of the fake `tmux` from `dir` on the socket `<name>.tmux`, by its arguments.
-fn called(dir: &Path, name: &str) -> impl Fn(&[&str]) -> Vec<String> {
+/// A recorded call of the fake `tmux` from `dir` on the socket `<socket>.tmux`, by its
+/// arguments.
+fn called(dir: &Path, socket: &str) -> impl Fn(&[&str]) -> Vec<String> {
     let dir = dir.display().to_string();
-    let socket = format!("{name}.tmux");
+    let socket = format!("{socket}.tmux");
     move |args: &[&str]| -> Vec<String> {
         [dir.as_str(), "-S", socket.as_str()]
             .iter()
@@ -320,10 +322,10 @@ fn called(dir: &Path, name: &str) -> impl Fn(&[&str]) -> Vec<String> {
     }
 }
 
-/// The name of the pane a delivery made for itself, read from `call`, the fake `tmux`'s record
-/// of its `new-session`: `<SESSION>-<process id>-<count>`, on a socket of that name under
-/// `<state>/sessions/deliveries`, so no two deliveries share one and none is on the session's
-/// launcher socket path.
+/// The socket of the pane a delivery made for itself, without its `.tmux`, read from `call`,
+/// the fake `tmux`'s record of its `new-session`: `<process id>-<count>`, under
+/// `<state>/sessions/deliveries`, so no two deliveries share one, none is on the session's
+/// launcher socket path, and its length does not grow with the session's name.
 fn pane_of(case: &Case, call: &[String]) -> String {
     assert_eq!(
         call[0],
@@ -337,31 +339,27 @@ fn pane_of(case: &Case, call: &[String]) -> String {
         .strip_suffix(".tmux")
         .unwrap_or_else(|| panic!("no socket: {call:?}"))
         .to_owned();
-    let numbers: Vec<&str> = pane
-        .strip_prefix(&format!("{SESSION}-"))
-        .unwrap_or_else(|| panic!("not named after the session: {pane}"))
-        .split('-')
-        .collect();
+    let numbers: Vec<&str> = pane.split('-').collect();
     assert!(
         numbers.len() == 2
             && numbers
                 .iter()
                 .all(|number| !number.is_empty() && number.chars().all(|c| c.is_ascii_digit())),
-        "the process id and a count: {pane}"
+        "the process id and a count, and nothing of the session's name: {pane}"
     );
     pane
 }
 
 /// The calls a delivery to a background session with the id `id` makes, the first of which is
 /// `first`: the pane that runs `claude attach <id>` on a socket of the delivery's own
-/// ([`pane_of`]), with no configuration file, and one look at what it drew; [`typed`]'s four on
-/// it; the question which terminal the pane has, whose input the delivery waits to see taken;
-/// and the end of that server.
+/// ([`pane_of`]), as the tmux session of the session's name, with no configuration file, and
+/// one look at what it drew; [`typed`]'s four on it; the question which terminal the pane has,
+/// whose input the delivery waits to see taken; and the end of that server.
 fn typed_through_attach(case: &Case, first: &[String], id: &str, text: &str) -> Vec<Vec<String>> {
     let pane = pane_of(case, first);
     let dir = case.state().join("sessions/deliveries");
     let call = called(&dir, &pane);
-    let target = format!("={pane}:");
+    let target = format!("={SESSION}:");
     let mut calls = vec![
         call(&[
             "-f",
@@ -369,7 +367,7 @@ fn typed_through_attach(case: &Case, first: &[String], id: &str, text: &str) -> 
             "new-session",
             "-d",
             "-s",
-            &pane,
+            SESSION,
             "-x",
             "160",
             "-y",
@@ -381,7 +379,7 @@ fn typed_through_attach(case: &Case, first: &[String], id: &str, text: &str) -> 
         ]),
         call(&["capture-pane", "-p", "-t", &target]),
     ];
-    calls.extend(typed_on(&dir, &pane, text));
+    calls.extend(typed_on(&dir, &pane, SESSION, text));
     calls.push(call(&[
         "display-message",
         "-p",

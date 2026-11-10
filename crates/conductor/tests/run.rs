@@ -77,7 +77,9 @@ const CHECK_IN: &str = "[REPORT alpha -] check-in: report your state or blocked"
 
 /// The deliverer of a child run: appends `{"name", "text"}` of each attempt to
 /// `fake/attempts.jsonl`, and of each delivery to `fake/deliveries.jsonl`; refuses a session
-/// `fake/unreachable/<name>` names, as `session deliver` refuses one with no socket.
+/// `fake/unreachable/<name>` names, as `session deliver` refuses one with no socket, and one
+/// `fake/unread/<name>` names, as it refuses one whose attach client was not seen to read the
+/// text it typed.
 struct Recorder {
     dir: PathBuf,
 }
@@ -92,6 +94,13 @@ impl Deliverer for Recorder {
                 "session deliver: refused: SessionNotReachable: session {name}: its launcher \
                  socket is absent, so nothing was typed; nothing was recorded, and it is not \
                  tried again"
+            );
+        }
+        if self.dir.join("unread").join(name).exists() {
+            bail!(
+                "session deliver: refused: DeliveryNotSeenRead: session {name}: the text was \
+                 typed into a pane of its own, and its client did not read the text within 10 s; \
+                 nothing was recorded, and it is not tried again"
             );
         }
         let mut lines = fs::read_to_string(self.dir.join("deliveries.jsonl")).unwrap_or_default();
@@ -1884,6 +1893,91 @@ fn a_delivery_refused_for_a_live_session_leaves_its_controller_running() {
             .count(),
         1,
         "one line a tick: {said:?}"
+    );
+}
+
+/// What `<state>/run/pending.json` keeps: the deliveries that wait.
+fn kept(case: &Case) -> Vec<Value> {
+    let text = fs::read_to_string(case.state().join("run/pending.json")).unwrap_or_default();
+    serde_json::from_str::<Value>(&text)
+        .ok()
+        .and_then(|kept| kept.as_array().cloned())
+        .unwrap_or_default()
+}
+
+/// A kept delivery refused for a live session is offered to its controller again five times at
+/// most: over six ticks the session is asked five times, and after the fifth refusal the item is
+/// marked refused by that controller, with the last refusal, and one journal line says it is
+/// not offered again. The controller stays Running throughout.
+#[test]
+fn a_delivery_refused_for_a_live_session_is_offered_five_times_and_then_marked() {
+    let case = Case::new("unreachable-live-bound");
+    case.spawn("alpha", FIRST);
+    answer_request(&case);
+    write(&case.fake().join("unreachable/ex-alpha"), "");
+
+    let mut said = Vec::new();
+    for tick in 1..=6_usize {
+        let lines: &[&str] = if tick == 1 { &["answered R-1 A"] } else { &[] };
+        said.extend(case.tick_said(lines).1);
+        assert_eq!(case.attempts().len(), tick.min(5), "after tick {tick}");
+        assert_eq!(states_of(&case, "alpha"), ["Running"]);
+    }
+    let marks: Vec<&String> = said
+        .iter()
+        .filter(|line| line.contains("not offered again"))
+        .collect();
+    assert_eq!(marks.len(), 1, "one mark: {said:#?}");
+    assert!(
+        marks[0].contains("5 times") && marks[0].contains("SessionNotReachable"),
+        "it names the count and the last refusal: {marks:?}"
+    );
+    let kept = kept(&case);
+    assert_eq!(kept.len(), 1, "{kept:?}");
+    assert!(kept[0]["refused_by"].is_string(), "{kept:?}");
+    assert!(
+        kept[0]["refusal"]
+            .as_str()
+            .is_some_and(|refusal| refusal.contains("SessionNotReachable")),
+        "the kept item names the last refusal: {kept:?}"
+    );
+    assert!(case.deliveries().is_empty());
+}
+
+/// A delivery refused `DeliveryNotSeenRead` was typed: the session may hold the text, so the
+/// loop does not offer it again, whatever the session list says. One attempt over three ticks,
+/// the controller stays Running, and the kept item is marked refused by it with that reason.
+#[test]
+fn a_delivery_typed_and_not_seen_read_is_not_offered_again() {
+    let case = Case::new("unread-live");
+    case.spawn("alpha", FIRST);
+    answer_request(&case);
+    write(&case.fake().join("unread/ex-alpha"), "");
+
+    let (_, said) = case.tick_said(&["answered R-1 A"]);
+    let named: Vec<&String> = said
+        .iter()
+        .filter(|line| line.contains("DeliveryNotSeenRead"))
+        .collect();
+    assert_eq!(named.len(), 1, "one journal line: {said:?}");
+    for _ in 0..2 {
+        let (_, said) = case.tick_said(&[]);
+        assert!(
+            said.iter()
+                .all(|line| !line.contains("DeliveryNotSeenRead")),
+            "no further line: {said:?}"
+        );
+    }
+    assert_eq!(case.attempts().len(), 1, "typed once");
+    assert_eq!(states_of(&case, "alpha"), ["Running"]);
+    let kept = kept(&case);
+    assert_eq!(kept.len(), 1, "{kept:?}");
+    assert!(kept[0]["refused_by"].is_string(), "{kept:?}");
+    assert!(
+        kept[0]["refusal"]
+            .as_str()
+            .is_some_and(|refusal| refusal.contains("DeliveryNotSeenRead")),
+        "the kept item names the refusal: {kept:?}"
     );
 }
 

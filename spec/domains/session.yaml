@@ -198,7 +198,9 @@ types:
   # `<state>/sessions/deliveries/`, which is ended once the attach client has read the text
   # (story:deliver-reaches-bg-session). The delivery is then recorded with `DeliverMessage`. A
   # session neither route reaches is refused (`SessionNotReachable`), exit 1 naming it and both
-  # routes, and the command does not try again. The guard denies it to a controller.
+  # routes, and the command does not try again. A text that was typed into such a pane and not
+  # seen to be read is refused `DeliveryNotSeenRead`, exit 1: the session may hold it, so no
+  # caller offers it again. The guard denies it to a controller.
   - name: conductor.session.DeliverToSession
     kind: struct
     fields:
@@ -437,6 +439,17 @@ errors:
       - name: session_name
         type: conductor.config.SessionName
 
+  - name: conductor.session.DeliveryNotSeenRead
+    summary: >
+      The text was typed into the pane made for the delivery, whose client is the harness's
+      attach to the live session, and that client was not seen to read it: the text was still
+      unread on the pane's terminal when its bound passed or when the pane ended, or the
+      delivery was ended by a signal first. Nothing was recorded. The session may hold the
+      text, so the caller is told which session and does not offer the same text again.
+    fields:
+      - name: session_name
+        type: conductor.config.SessionName
+
   - name: conductor.session.InvalidLineCount
     summary: A count of lines handled is never negative, so no tick was recorded.
     fields:
@@ -562,7 +575,14 @@ commands:
         payload:
           conductor.session.SessionNotReachable:
             session_name: input.session_name
-        summary: The text reached the session by neither route, its launcher socket or the harness's attach to a live session of that name; nothing was recorded, and the caller names the session and why, and the command does not try again.
+        summary: The text reached the session by neither route, its launcher socket or the harness's attach to a live session of that name; nothing was typed or recorded, and the caller names the session and why, and the command does not try again.
+      - name: unread
+        external: the text was typed into the harness's attach to the live session, and its client was not seen to read it
+        error: conductor.session.DeliveryNotSeenRead
+        payload:
+          conductor.session.DeliveryNotSeenRead:
+            session_name: input.session_name
+        summary: The text was typed and not seen to be read; nothing was recorded, and the caller names the session and why and does not offer the text again.
       - name: delivered
         creates: conductor.session.Delivery
         instance: delivery_id

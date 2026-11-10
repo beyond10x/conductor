@@ -8,7 +8,8 @@
 //! --json` lists one live background session; `attach <id>` appends its process id to
 //! `attach.pids`, prints one line and then, as `attach.mode` says, appends what it reads from
 //! its terminal to `received` at once (no mode), after three seconds (`slow`), or never
-//! (`never`). No real session, harness or default tmux server is touched.
+//! (`never`), or ends after three seconds without reading (`dies`); `silent` prints nothing and
+//! never reads. No real session, harness or default tmux server is touched.
 
 mod common;
 mod scratch;
@@ -74,10 +75,13 @@ impl Case {
                  if [ \"$1\" = agents ]; then cat \"$D/agents.json\"; exit 0; fi\n\
                  if [ \"$1\" = attach ]; then\n\
                  \x20 echo $$ >> \"$D/attach.pids\"\n\
+                 \x20 M=\"$(cat \"$D/attach.mode\")\"\n\
+                 \x20 if [ \"$M\" = silent ]; then exec sleep 600; fi\n\
                  \x20 echo ready\n\
-                 \x20 case \"$(cat \"$D/attach.mode\")\" in\n\
+                 \x20 case \"$M\" in\n\
                  \x20 never) exec sleep 600;;\n\
                  \x20 slow) sleep 3;;\n\
+                 \x20 dies) sleep 3; exit 0;;\n\
                  \x20 esac\n\
                  \x20 exec cat >> \"$D/received\"\n\
                  fi\n\
@@ -203,7 +207,8 @@ fn describe(output: &Output) -> String {
 
 /// An attach client that draws and never reads its terminal: the delivery waits for the text to
 /// be taken, within its bound, and is then refused on one line that says so; nothing is
-/// recorded, and neither the client nor its socket is left.
+/// recorded, and neither the client nor its socket is left. The text was typed, so the refusal
+/// is `DeliveryNotSeenRead` and not `SessionNotReachable`, which says that nothing was typed.
 #[test]
 fn a_delivery_the_attach_client_never_reads_is_refused_and_leaves_nothing() {
     let case = Case::new("never", "never");
@@ -212,7 +217,8 @@ fn a_delivery_the_attach_client_never_reads_is_refused_and_leaves_nothing() {
     let stderr = String::from_utf8_lossy(&output.stderr);
     assert_eq!(stderr.trim().lines().count(), 1, "one line: {stderr}");
     assert!(
-        stderr.contains("SessionNotReachable")
+        stderr.contains("DeliveryNotSeenRead")
+            && !stderr.contains("SessionNotReachable")
             && stderr.contains(SESSION)
             && stderr.contains("did not read the text within"),
         "the refusal names the error, the session and what was waited for: {stderr}"
@@ -226,6 +232,51 @@ fn a_delivery_the_attach_client_never_reads_is_refused_and_leaves_nothing() {
     assert_eq!(case.attached(), Vec::<String>::new(), "no client is left");
     assert_eq!(case.panes(), Vec::<String>::new(), "no socket is left");
     assert_eq!(case.launchers(), Vec::<String>::new());
+}
+
+/// An attach client that draws nothing: nothing is typed, and after the bound the delivery is
+/// refused `SessionNotReachable` on one line that says so; neither the client nor its socket is
+/// left.
+#[test]
+fn a_delivery_to_an_attach_client_that_draws_nothing_is_refused_at_the_bound() {
+    let case = Case::new("silent", "silent");
+    let output = case.deliver("[DECISION R-7] A merge now (DEC-20991231-01)");
+    assert_eq!(output.status.code(), Some(1), "{}", describe(&output));
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert_eq!(stderr.trim().lines().count(), 1, "one line: {stderr}");
+    assert!(
+        stderr.contains("SessionNotReachable")
+            && stderr.contains(SESSION)
+            && stderr.contains("it drew nothing within 20 s"),
+        "the refusal names the error, the session and the bound: {stderr}"
+    );
+    assert!(!case.dir.join("state/mailbox").exists(), "no body is kept");
+    thread::sleep(Duration::from_millis(500));
+    assert_eq!(case.attached(), Vec::<String>::new(), "no client is left");
+    assert_eq!(case.panes(), Vec::<String>::new(), "no socket is left");
+}
+
+/// An attach client that ends, three seconds after it drew, without reading: the text was typed
+/// and was still unread on the pane's terminal when the pane ended. The delivery is refused
+/// `DeliveryNotSeenRead` on one line, not `SessionNotReachable`, and nothing is recorded.
+#[test]
+fn a_delivery_whose_pane_ended_with_the_text_unread_is_refused_as_not_seen_read() {
+    let case = Case::new("dies", "dies");
+    let output = case.deliver("[DECISION R-7] A merge now (DEC-20991231-01)");
+    assert_eq!(output.status.code(), Some(1), "{}", describe(&output));
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert_eq!(stderr.trim().lines().count(), 1, "one line: {stderr}");
+    assert!(
+        stderr.contains("DeliveryNotSeenRead")
+            && !stderr.contains("SessionNotReachable")
+            && stderr.contains(SESSION)
+            && stderr.contains("ended with the text unread"),
+        "the refusal names the error, the session and what was seen: {stderr}"
+    );
+    assert!(output.stdout.is_empty(), "no delivery id: {stderr}");
+    assert!(!case.dir.join("state/mailbox").exists(), "no body is kept");
+    assert_eq!(case.received(), "", "nobody read it");
+    assert_eq!(case.panes(), Vec::<String>::new(), "no socket is left");
 }
 
 /// While a delivery's pane is up (the client reads three seconds after it drew), and after it,
@@ -251,9 +302,7 @@ fn a_delivery_s_pane_is_never_listed_as_a_launcher() {
     assert_eq!(case.received(), format!("{text}\n"), "the text, whole");
     assert_eq!(seen, Vec::<String>::new(), "listed as a launcher meanwhile");
     assert!(
-        panes
-            .iter()
-            .any(|name| name.starts_with(&format!("{SESSION}-")) && name.ends_with(".tmux")),
+        panes.iter().any(|name| name.ends_with(".tmux")),
         "the pane's socket was in the deliveries' directory meanwhile: {panes:?}"
     );
     assert_eq!(case.launchers(), Vec::<String>::new());
@@ -276,12 +325,12 @@ fn a_pane_left_by_a_delivery_that_was_killed_is_ended_by_the_next_delivery() {
         child.wait().expect("it ends");
         pid
     };
-    let pane = |owner: u32| format!("ex-other-{owner}-0");
+    let pane = |owner: u32| format!("{owner}-0");
     for owner in [gone, std::process::id()] {
         let started = Command::new("tmux")
             .current_dir(&panes)
             .args(["-S", &format!("{}.tmux", pane(owner)), "-f", "/dev/null"])
-            .args(["new-session", "-d", "-s", &pane(owner), "-x", "160", "-y"])
+            .args(["new-session", "-d", "-s", "ex-other", "-x", "160", "-y"])
             .args(["50", "--", "claude", "attach", "cc062faf"])
             .env("PATH", case.path())
             .env("SHELL", "/bin/sh")

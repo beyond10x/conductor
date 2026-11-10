@@ -220,6 +220,7 @@ fn a_delivery_the_attach_client_read_before_it_ended_is_not_answered_refused() {
 /// terminal reports no input, and the client still has not read a byte. A delivery nobody read
 /// is not answered `delivered`.
 #[test]
+#[ignore = "stand-in only: a client in raw mode makes every byte readable"]
 fn a_delivery_nobody_read_on_a_terminal_that_reports_no_input_is_not_answered_delivered() {
     let case = Case::new("cooked", "ex-cortex", "cooked");
     let output = case.deliver("[DECISION R-7] A merge now (DEC-20991231-01)");

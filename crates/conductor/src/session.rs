@@ -65,7 +65,8 @@ use std::os::fd::AsFd as _;
 use std::os::unix::fs::OpenOptionsExt as _;
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
-use std::sync::atomic::{AtomicU32, Ordering};
+use std::sync::Arc;
+use std::sync::atomic::{AtomicU32, AtomicUsize, Ordering};
 use std::thread;
 use std::time::{Duration, Instant};
 
@@ -94,7 +95,7 @@ use conductor_model::tool::ToolCallId;
 use nix::errno::Errno;
 use nix::fcntl::OFlag;
 use nix::poll::{PollFd, PollFlags, PollTimeout, poll};
-use nix::sys::signal::kill;
+use nix::sys::signal::{Signal, kill};
 use nix::unistd::Pid;
 use serde_json::{Value, json};
 use time::OffsetDateTime;
@@ -334,13 +335,14 @@ pub fn deliver_text(
     let dir = crate::state::dir(state)?;
     let sessions = dir.join("sessions");
     let name = SessionName(name.to_owned());
-    let unreached = reach(&sessions, &name, typed);
+    let reach = reach(&sessions, &name, typed);
     let delivered_at = records::now()?;
     let mut generated = Generated::new(Delivering {
         store: None,
-        reached: unreached.is_none(),
+        unreachable: matches!(reach, Reach::Unreached(_)),
+        unread: matches!(reach, Reach::Unread(_)),
     });
-    let body_path = if unreached.is_some() {
+    let body_path = if !matches!(reach, Reach::Typed) {
         None
     } else {
         let body_path = if let Some(file) = file {
@@ -376,7 +378,15 @@ pub fn deliver_text(
             "{WHAT}: refused: SessionNotReachable: session {}: {}; nothing was recorded, and it is \
              not tried again",
             error.session_name.0,
-            unreached.as_deref().unwrap_or("it was not reached")
+            reach.why().unwrap_or("it was not reached")
+        ),
+        DeliverMessageOutcome::Unread { error } => bail!(
+            "{WHAT}: refused: DeliveryNotSeenRead: session {}: {}; nothing was recorded, and it is \
+             not offered again, since the session may hold the text",
+            error.session_name.0,
+            reach
+                .why()
+                .unwrap_or("the text was typed and not seen to be read")
         ),
     };
     let repo = crate::message::named_repository(&first_line).unwrap_or_else(|| name.0.clone());
@@ -408,6 +418,14 @@ const ATTACH_SETTLE: Duration = Duration::from_millis(500);
 /// pane.
 const ATTACH_READS: Duration = Duration::from_secs(10);
 
+/// How long the session list (`claude agents --json`) may take on the delivery route: not the
+/// 120 s of [`confine::BOUND`], which alone is longer than a delivery may take.
+const DELIVERY_LIST: Duration = Duration::from_secs(20);
+
+/// What a delivery may take beside the waits its route names: the launcher's try on a socket
+/// left behind, about ten tmux calls, the panes other deliveries left, and the record.
+const DELIVERY_MARGIN: Duration = Duration::from_secs(15);
+
 /// The directory under `<state>/sessions` that holds the socket of each pane made for one
 /// delivery: not the sessions directory itself, where every `*.tmux` is a launcher's socket to
 /// the watch ([`crate::watch`]) and to `session attach` ([`crate::attach`]).
@@ -417,8 +435,98 @@ const DELIVERY_PANES: &str = "deliveries";
 /// API's) name two.
 static DELIVERY_PANE: AtomicU32 = AtomicU32::new(0);
 
-/// Types `typed` into the session `name`, whose files are in `sessions`; answers why it was not
-/// reached, on one line, or nothing once it was typed.
+/// What became of a text [`reach`] was given.
+enum Reach {
+    /// It was typed into the session, and, where that is observable, seen to be read.
+    Typed,
+    /// Nothing was typed, and why: the specification's `unreachable`.
+    Unreached(String),
+    /// It was typed through the harness's attach and not seen to be read, and why: the
+    /// specification's `unread`. The session may hold it.
+    Unread(String),
+}
+
+impl Reach {
+    /// Why the text is not in front of the session, on one line; nothing once it was typed.
+    fn why(&self) -> Option<&str> {
+        match self {
+            Self::Typed => None,
+            Self::Unreached(why) | Self::Unread(why) => Some(why),
+        }
+    }
+}
+
+/// Why [`type_through_attach`] did not put the text in front of the session.
+enum Untaken {
+    /// Before the text was typed: nothing is in the pane.
+    NotTyped(anyhow::Error),
+    /// After [`systemd::type_into`] answered: the text was typed, then Enter, and the client was
+    /// not seen to read it.
+    Unread(anyhow::Error),
+}
+
+/// The signals that ask a delivery to end, watched while its pane is up
+/// (`story:deliver-reaches-bg-session`): the delivery ends its pane and its `claude attach`
+/// client first, then ends as the signal ends a process that does not watch it.
+struct Asked {
+    /// The number of the signal that arrived, or 0.
+    signal: Arc<AtomicUsize>,
+    hooks: Vec<signal_hook::SigId>,
+}
+
+impl Asked {
+    /// Watches SIGTERM and SIGINT until it is dropped.
+    fn watch() -> Self {
+        let signal = Arc::new(AtomicUsize::new(0));
+        let hooks = [signal_hook::consts::SIGTERM, signal_hook::consts::SIGINT]
+            .into_iter()
+            .filter_map(|number| {
+                let value = usize::try_from(number).ok()?;
+                signal_hook::flag::register_usize(number, Arc::clone(&signal), value).ok()
+            })
+            .collect();
+        Self { signal, hooks }
+    }
+
+    /// The signal that arrived, by its number.
+    fn arrived(&self) -> Option<i32> {
+        i32::try_from(self.signal.load(Ordering::Relaxed))
+            .ok()
+            .filter(|number| *number != 0)
+    }
+
+    /// Fails once a signal arrived.
+    fn check(&self) -> Result<()> {
+        match self.arrived() {
+            Some(number) => bail!("the delivery was asked to end (signal {number})"),
+            None => Ok(()),
+        }
+    }
+
+    /// Sleeps `time`, in steps short enough to notice a signal; fails once one arrived.
+    fn pause(&self, time: Duration) -> Result<()> {
+        let started = Instant::now();
+        loop {
+            self.check()?;
+            let left = time.saturating_sub(started.elapsed());
+            if left.is_zero() {
+                return Ok(());
+            }
+            thread::sleep(left.min(Duration::from_millis(50)));
+        }
+    }
+}
+
+impl Drop for Asked {
+    fn drop(&mut self) {
+        for hook in self.hooks.drain(..) {
+            signal_hook::low_level::unregister(hook);
+        }
+    }
+}
+
+/// Types `typed` into the session `name`, whose files are in `sessions`; answers whether it was
+/// typed, and when not, why, on one line.
 ///
 /// First the launcher: the tmux server on `<sessions>/<name>.tmux`. With no socket, or a socket
 /// whose tmux does not take the text, the session may be a background one, which has no launcher
@@ -426,7 +534,7 @@ static DELIVERY_PANE: AtomicU32 = AtomicU32::new(0);
 /// name, the text goes through [`type_through_attach`], on a socket of the delivery's own. A
 /// socket a tmux server still answers on is a launcher's, and is left as it is; so is a socket
 /// file no server answers on, which is not the delivery's to remove.
-fn reach(sessions: &Path, name: &SessionName, typed: &str) -> Option<String> {
+fn reach(sessions: &Path, name: &SessionName, typed: &str) -> Reach {
     // The text is one of tmux's arguments; the refusal stays one line without it.
     let said = |error: &anyhow::Error| {
         let mut said = format!("{error:#}");
@@ -439,7 +547,7 @@ fn reach(sessions: &Path, name: &SessionName, typed: &str) -> Option<String> {
     let planted = fs::symlink_metadata(&socket).is_ok();
     let launcher = if planted {
         match systemd::type_text(sessions, name, typed) {
-            Ok(()) => return None,
+            Ok(()) => return Reach::Typed,
             Err(error) => format!(
                 "its tmux on {} did not take the text: {}",
                 socket.display(),
@@ -450,7 +558,7 @@ fn reach(sessions: &Path, name: &SessionName, typed: &str) -> Option<String> {
         format!("its launcher socket {} is absent", socket.display())
     };
     let list = format!("`{} agents --json`", confine::CLAUDE);
-    let background = match confine::live_session(&name.0) {
+    let background = match confine::live_session_within(&name.0, DELIVERY_LIST) {
         Ok(None) => format!("{list} lists no live session of that name"),
         Err(error) => format!("the session list was not read: {}", said(&error)),
         Ok(Some(id)) if id.starts_with('-') || id.contains(char::is_whitespace) => {
@@ -464,47 +572,67 @@ fn reach(sessions: &Path, name: &SessionName, typed: &str) -> Option<String> {
             )
         }
         Ok(Some(id)) => match type_through_attach(sessions, name, &id, typed) {
-            Ok(()) => return None,
-            Err(error) => format!(
+            Ok(()) => return Reach::Typed,
+            Err(Untaken::NotTyped(error)) => format!(
                 "`{} attach {id}` in a pane of its own did not take it: {}",
                 confine::CLAUDE,
                 said(&error)
             ),
+            Err(Untaken::Unread(error)) => {
+                return Reach::Unread(format!(
+                    "the text was typed into `{} attach {id}` in a pane of its own, and {}",
+                    confine::CLAUDE,
+                    said(&error)
+                ));
+            }
         },
     };
-    Some(format!("{launcher}; {background}"))
+    Reach::Unreached(format!("{launcher}; {background}"))
 }
 
 /// Types `typed` into the live background session `id`, named `name`, through the harness's own
 /// attach (`story:deliver-reaches-bg-session`): a tmux server of this one delivery, with no
 /// configuration file, whose one pane runs `claude attach <id>`, 160 by 50; once the attach
 /// client has drawn (within [`ATTACH_DRAWS`]) and [`ATTACH_SETTLE`] passed, the launcher's
-/// [`systemd::type_text`]; then, once the client has read what was typed ([`read_from`]), the
-/// server is ended and its socket removed, so the pane lives for the one delivery and the
-/// session, which the harness keeps running without a client, has no launcher left behind.
+/// typing ([`systemd::type_into`]); then, once the client has read what was typed
+/// ([`seen_read`]), the server is ended and its socket removed, so the pane lives for the one
+/// delivery and the session, which the harness keeps running without a client, has no launcher
+/// left behind.
 ///
-/// The server's socket and tmux session are the delivery's own:
-/// `<sessions>/deliveries/<name>-<process id>-<count>.tmux`. Two deliveries to one session at
-/// once therefore share nothing, none touches the session's launcher socket path
-/// `<sessions>/<name>.tmux` (a file found there is not this delivery's, and stays), and no
-/// reader of launcher sockets lists a delivery's pane as a session. Before it makes its own, a
-/// delivery ends each pane a delivery left whose process is gone ([`end_left_panes`]).
+/// The server's socket is the delivery's own: `<sessions>/deliveries/<process id>-<count>.tmux`,
+/// whose length does not grow with the session's name; the name is that of the server's one
+/// tmux session. Two deliveries to one session at once therefore share nothing, none touches
+/// the session's launcher socket path `<sessions>/<name>.tmux` (a file found there is not this
+/// delivery's, and stays), and no reader of launcher sockets lists a delivery's pane as a
+/// session. Before it makes its own, a delivery ends each pane a delivery left whose process is
+/// gone ([`end_left_panes`]).
+///
+/// A delivery asked to end while its pane is up (SIGTERM, SIGINT: [`Asked`]) ends the pane
+/// first, and then ends as that signal ends a process.
 ///
 /// # Errors
 ///
-/// tmux does not start the pane, `claude attach` draws nothing within its bound or ends, the
-/// text is not typed, or the client does not read it within [`ATTACH_READS`].
-fn type_through_attach(sessions: &Path, name: &SessionName, id: &str, typed: &str) -> Result<()> {
+/// [`Untaken::NotTyped`]: tmux does not start the pane, `claude attach` draws nothing within its
+/// bound or ends, or the text is not typed. [`Untaken::Unread`]: the text was typed, and the
+/// client was not seen to read it.
+fn type_through_attach(
+    sessions: &Path,
+    name: &SessionName,
+    id: &str,
+    typed: &str,
+) -> Result<(), Untaken> {
     let panes = sessions.join(DELIVERY_PANES);
-    fs::create_dir_all(&panes).with_context(|| format!("create {}", panes.display()))?;
+    fs::create_dir_all(&panes)
+        .with_context(|| format!("create {}", panes.display()))
+        .map_err(Untaken::NotTyped)?;
     end_left_panes(&panes);
-    let pane = SessionName(format!(
-        "{}-{}-{}",
-        name.0,
+    let pane = format!(
+        "{}-{}",
         std::process::id(),
         DELIVERY_PANE.fetch_add(1, Ordering::Relaxed)
-    ));
-    let taken = systemd::tmux_call(
+    );
+    let asked = Asked::watch();
+    let taken = systemd::tmux_on(
         &panes,
         &pane,
         &[
@@ -513,7 +641,7 @@ fn type_through_attach(sessions: &Path, name: &SessionName, id: &str, typed: &st
             "new-session",
             "-d",
             "-s",
-            &pane.0,
+            &name.0,
             "-x",
             "160",
             "-y",
@@ -524,21 +652,28 @@ fn type_through_attach(sessions: &Path, name: &SessionName, id: &str, typed: &st
             id,
         ],
     )
-    .and_then(|_| type_once_drawn(&panes, &pane, typed));
-    end_pane(&panes, &pane.0);
+    .map_err(Untaken::NotTyped)
+    .and_then(|_| type_once_drawn(&panes, &pane, name, typed, &asked));
+    end_pane(&panes, &pane);
+    let signal = asked.arrived();
+    drop(asked);
+    if let Some(signal) = signal {
+        // The pane is gone; the process ends as it would have without the watch.
+        let _ = signal_hook::low_level::emulate_default_handler(signal);
+    }
     taken
 }
 
-/// Ends the tmux server of the delivery pane `pane` in `panes` and removes its socket.
+/// Ends the tmux server of the delivery pane on `<panes>/<pane>.tmux` and removes its socket.
 fn end_pane(panes: &Path, pane: &str) {
-    let _ = systemd::tmux_call(panes, &SessionName(pane.to_owned()), &["kill-server"]);
+    let _ = systemd::tmux_on(panes, pane, &["kill-server"]);
     let _ = fs::remove_file(panes.join(format!("{pane}.tmux")));
 }
 
 /// Ends each delivery pane in `panes` whose delivery is gone: a socket
-/// `<name>-<process id>-<count>.tmux` whose process does not exist was left by a delivery that
-/// was killed before [`type_through_attach`] ended its pane, and its `claude attach` client
-/// would run on. A pane whose process exists is another delivery's, and is left alone.
+/// `<process id>-<count>.tmux` whose process does not exist was left by a delivery that was
+/// killed before [`type_through_attach`] ended its pane, and its `claude attach` client would
+/// run on. A pane whose process exists is another delivery's, and is left alone.
 fn end_left_panes(panes: &Path) {
     let Ok(entries) = fs::read_dir(panes) else {
         return;
@@ -549,8 +684,8 @@ fn end_left_panes(panes: &Path) {
             continue;
         };
         let owner = pane
-            .rsplit('-')
-            .nth(1)
+            .split('-')
+            .next()
             .and_then(|pid| pid.parse::<i32>().ok())
             .filter(|pid| *pid > 0);
         if let Some(owner) = owner
@@ -561,80 +696,146 @@ fn end_left_panes(panes: &Path) {
     }
 }
 
-/// [`type_through_attach`]'s typing, into the pane `pane` it made in `panes`: waits until the
-/// pane shows anything (within [`ATTACH_DRAWS`]), then [`ATTACH_SETTLE`], the text,
-/// [`ATTACH_SETTLE`] again, and until the client has read the text ([`read_from`]).
-fn type_once_drawn(panes: &Path, pane: &SessionName, typed: &str) -> Result<()> {
-    let target = systemd::target(pane);
+/// [`type_through_attach`]'s typing, into the pane of the tmux session `name` on
+/// `<panes>/<pane>.tmux`: waits until the pane shows anything (within [`ATTACH_DRAWS`]), then
+/// [`ATTACH_SETTLE`], the text, and until the client is seen to have read it ([`seen_read`]).
+fn type_once_drawn(
+    panes: &Path,
+    pane: &str,
+    name: &SessionName,
+    typed: &str,
+    asked: &Asked,
+) -> Result<(), Untaken> {
+    let target = systemd::target(name);
     let started = Instant::now();
-    while systemd::tmux_call(panes, pane, &["capture-pane", "-p", "-t", &target])?
+    while systemd::tmux_on(panes, pane, &["capture-pane", "-p", "-t", &target])
+        .map_err(Untaken::NotTyped)?
         .trim()
         .is_empty()
     {
         if started.elapsed() >= ATTACH_DRAWS {
-            bail!("it drew nothing within {} s", ATTACH_DRAWS.as_secs());
+            return Err(Untaken::NotTyped(anyhow!(
+                "it drew nothing within {} s",
+                ATTACH_DRAWS.as_secs()
+            )));
         }
-        thread::sleep(Duration::from_millis(100));
+        asked
+            .pause(Duration::from_millis(100))
+            .map_err(Untaken::NotTyped)?;
     }
-    thread::sleep(ATTACH_SETTLE);
-    systemd::type_text(panes, pane, typed)?;
-    thread::sleep(ATTACH_SETTLE);
-    let tty = systemd::tmux_call(
-        panes,
-        pane,
-        &["display-message", "-p", "-t", &target, "#{pane_tty}"],
-    )?;
-    read_from(tty.trim())
+    asked.pause(ATTACH_SETTLE).map_err(Untaken::NotTyped)?;
+    systemd::type_into(panes, pane, name, typed).map_err(Untaken::NotTyped)?;
+    seen_read(panes, pane, &target, asked).map_err(Untaken::Unread)
 }
 
-/// Waits until the terminal `tty`, a delivery pane's, holds no input its client has not read:
-/// a client that draws before it reads its terminal has not taken the text yet, and ending its
-/// pane then would lose it while the delivery is recorded. Text the client took only after the
-/// first look is given [`ATTACH_SETTLE`] more to pass on.
-///
-/// That is observable where the terminal can be opened and polled: tmux named it, and it opens
-/// for reading (without becoming this process's terminal). Elsewhere the delivery is as sure as
-/// the launcher's, which types and does not look.
-///
-/// # Errors
-///
-/// The client did not read the text within [`ATTACH_READS`], or its terminal closed first.
-fn read_from(tty: &str) -> Result<()> {
+/// What one look at a delivery pane's terminal showed ([`look`]).
+enum Seen {
+    /// tmux names no terminal, or it cannot be opened and polled: nothing can be said.
+    Unobservable,
+    /// The pane is gone: its server does not answer, or its terminal is closed.
+    Ended,
+    /// The terminal holds input its client has not read.
+    Unread,
+    /// The terminal holds no input its client could read.
+    Clear,
+}
+
+/// Looks at the terminal of the pane `target` on `<panes>/<pane>.tmux`: asks tmux for it, opens
+/// it for reading (without it becoming this process's terminal), polls it once and closes it,
+/// so the pane's end is not held up by this process holding its terminal.
+fn look(panes: &Path, pane: &str, target: &str) -> Seen {
+    let Ok(tty) = systemd::tmux_on(
+        panes,
+        pane,
+        &["display-message", "-p", "-t", target, "#{pane_tty}"],
+    ) else {
+        return Seen::Ended;
+    };
+    let tty = tty.trim();
     if tty.is_empty() {
-        return Ok(());
+        return Seen::Unobservable;
     }
-    let Ok(terminal) = fs::OpenOptions::new()
+    let terminal = match fs::OpenOptions::new()
         .read(true)
         .custom_flags((OFlag::O_NOCTTY | OFlag::O_NONBLOCK).bits())
         .open(tty)
-    else {
-        return Ok(());
+    {
+        Ok(terminal) => terminal,
+        Err(error)
+            if matches!(
+                error.raw_os_error().map(Errno::from_raw),
+                Some(Errno::ENOENT | Errno::EIO)
+            ) =>
+        {
+            return Seen::Ended;
+        }
+        Err(_) => return Seen::Unobservable,
     };
+    let mut fds = [PollFd::new(terminal.as_fd(), PollFlags::POLLIN)];
+    if poll(&mut fds, PollTimeout::ZERO).is_err() {
+        return Seen::Unobservable;
+    }
+    let state = fds[0].revents().unwrap_or(PollFlags::empty());
+    if state.intersects(PollFlags::POLLHUP | PollFlags::POLLERR) {
+        Seen::Ended
+    } else if state.contains(PollFlags::POLLIN) {
+        Seen::Unread
+    } else {
+        Seen::Clear
+    }
+}
+
+/// Waits, after the text and Enter were typed into the pane `target` on `<panes>/<pane>.tmux`,
+/// until its terminal holds no input the client has not read: a client that draws before it
+/// reads its terminal has not taken the text yet, and ending its pane then would lose it while
+/// the delivery is recorded. The first [`ATTACH_SETTLE`] is given in any case, for tmux to
+/// write what was typed; text the client took only after a look that showed it unread is given
+/// [`ATTACH_SETTLE`] more to pass on.
+///
+/// A pane that ended after Enter counts as read unless the last look showed the text unread: a
+/// client that read it and ended is not offered the same text again.
+///
+/// Where the terminal cannot be looked at, the delivery is as sure as the launcher's, which
+/// types and does not look. A terminal on which Enter ends no line shows no input that could be
+/// read, and is taken as read: what a client does not read there is not observable.
+///
+/// # Errors
+///
+/// The text was still unread after [`ATTACH_READS`] or when the pane ended, or the delivery was
+/// asked to end first.
+fn seen_read(panes: &Path, pane: &str, target: &str, asked: &Asked) -> Result<()> {
     let started = Instant::now();
+    let mut unread = false;
     let mut waited = false;
     loop {
-        let mut fds = [PollFd::new(terminal.as_fd(), PollFlags::POLLIN)];
-        if poll(&mut fds, PollTimeout::ZERO).is_err() {
-            return Ok(());
+        asked.check()?;
+        match look(panes, pane, target) {
+            Seen::Unobservable => return asked.pause(ATTACH_SETTLE),
+            Seen::Ended if unread => {
+                bail!("its pane ended with the text unread on its terminal")
+            }
+            Seen::Ended => return Ok(()),
+            Seen::Unread => {
+                unread = true;
+                waited = true;
+            }
+            Seen::Clear => {
+                unread = false;
+                if started.elapsed() >= ATTACH_SETTLE {
+                    break;
+                }
+            }
         }
-        let state = fds[0].revents().unwrap_or(PollFlags::empty());
-        if state.intersects(PollFlags::POLLHUP | PollFlags::POLLERR) {
-            bail!("its terminal {tty} closed before it was seen to read the text");
-        }
-        if !state.contains(PollFlags::POLLIN) {
-            break;
-        }
-        if started.elapsed() >= ATTACH_READS {
+        if started.elapsed() >= ATTACH_SETTLE.saturating_add(ATTACH_READS) {
             bail!(
-                "it did not read the text within {} s",
+                "its client did not read the text within {} s",
                 ATTACH_READS.as_secs()
             );
         }
-        waited = true;
-        thread::sleep(Duration::from_millis(100));
+        asked.pause(Duration::from_millis(100))?;
     }
     if waited {
-        thread::sleep(ATTACH_SETTLE);
+        asked.pause(ATTACH_SETTLE)?;
     }
     Ok(())
 }
@@ -701,11 +902,12 @@ pub fn deliveries(state: Option<&Path>, view: ViewArgs) -> Result<ExitCode> {
 }
 
 /// The ports `DeliverMessage` runs over: the store, opened only once the session was reached,
-/// so a refusal creates none; whether the launcher reached the session, which answers the
-/// specification's `unreachable` branch; and the delivery's id, assigned here.
+/// so a refusal creates none; what became of the text ([`Reach`]), which answers the
+/// specification's `unreachable` and `unread` branches; and the delivery's id, assigned here.
 struct Delivering {
     store: Option<Store>,
-    reached: bool,
+    unreachable: bool,
+    unread: bool,
 }
 
 impl DeliveryStorage for Delivering {
@@ -805,8 +1007,9 @@ impl TryContext for Delivering {
     ) -> Result<bool, UnmetObligation> {
         match (command, outcome) {
             (ExternalCommand::ConductorSessionDeliverMessage(_), "unreachable") => {
-                Ok(!self.reached)
+                Ok(self.unreachable)
             }
+            (ExternalCommand::ConductorSessionDeliverMessage(_), "unread") => Ok(self.unread),
             (command, _) => Err(unmet_context(command.name())),
         }
     }
@@ -1649,8 +1852,22 @@ pub trait Deliverer {
     fn deliver(&self, name: &str, text: &str) -> Result<Delivery>;
 }
 
-/// How long one delivery may take before it is stopped.
-pub const DELIVER_BOUND: std::time::Duration = std::time::Duration::from_secs(60);
+/// How long one delivery may take before it is stopped: the waits of its longest route, the
+/// one through `claude attach` ([`reach`], [`type_through_attach`]), each at its own bound, and
+/// [`DELIVERY_MARGIN`]. A delivery stopped earlier than its route allows would be stopped while
+/// it types.
+pub const DELIVER_BOUND: Duration = DELIVERY_LIST
+    .saturating_add(ATTACH_DRAWS)
+    .saturating_add(ATTACH_SETTLE)
+    .saturating_add(systemd::PASTE_SETTLE)
+    .saturating_add(ATTACH_SETTLE)
+    .saturating_add(ATTACH_READS)
+    .saturating_add(ATTACH_SETTLE)
+    .saturating_add(DELIVERY_MARGIN);
+
+/// How long a delivery past [`DELIVER_BOUND`] is given, after SIGTERM, to end its pane before it
+/// is killed.
+const DELIVER_GRACE: Duration = Duration::from_secs(3);
 
 /// The deliverer that runs `conductor session deliver --name <name> --text -` with the text on
 /// standard input (`story:mailbox-send-and-deliver` writes that command: it types the text into
@@ -1715,6 +1932,14 @@ impl Deliverer for ShellDeliverer {
             .is_none()
         {
             if started.elapsed() >= DELIVER_BOUND {
+                // Asked first, so it ends its pane (`type_through_attach`); killed after.
+                if let Ok(pid) = i32::try_from(child.id()) {
+                    let _ = kill(Pid::from_raw(pid), Signal::SIGTERM);
+                }
+                let asked = std::time::Instant::now();
+                while asked.elapsed() < DELIVER_GRACE && matches!(child.try_wait(), Ok(None)) {
+                    thread::sleep(Duration::from_millis(50));
+                }
                 let _ = child.kill();
                 let _ = child.wait();
                 bail!(
@@ -1769,6 +1994,41 @@ mod start_arguments {
             settings["permissions"]["deny"],
             serde_json::json!(claude_code::DIRECTOR_DENIED_TOOLS),
             "the director's settings deny the same tools"
+        );
+    }
+}
+
+#[cfg(test)]
+mod delivery_bounds {
+    use std::time::Duration;
+
+    use super::{
+        ATTACH_DRAWS, ATTACH_READS, ATTACH_SETTLE, DELIVER_BOUND, DELIVERY_LIST, DELIVERY_MARGIN,
+    };
+    use crate::systemd::PASTE_SETTLE;
+
+    /// The deliverer's bound is no shorter than the attach route's own worst case: the session
+    /// list, the wait for the client to draw, the settle before the paste, the paste's own
+    /// settle before Enter, the settle and the wait for the client to read, and the settle
+    /// after a late read; and it leaves a margin of ten seconds at least beyond them.
+    #[test]
+    fn the_deliverer_s_bound_covers_the_attach_route_s_waits_and_a_margin() {
+        let route: Duration = [
+            DELIVERY_LIST,
+            ATTACH_DRAWS,
+            ATTACH_SETTLE,
+            PASTE_SETTLE,
+            ATTACH_SETTLE,
+            ATTACH_READS,
+            ATTACH_SETTLE,
+        ]
+        .into_iter()
+        .sum();
+        assert_eq!(DELIVER_BOUND, route + DELIVERY_MARGIN);
+        assert!(DELIVERY_MARGIN >= Duration::from_secs(10), "a margin");
+        assert!(
+            DELIVERY_LIST < crate::confine::BOUND,
+            "the list's bound on this route is its own"
         );
     }
 }
