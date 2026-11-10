@@ -1,5 +1,5 @@
 // generated from conductor v1
-// contract digest 251aac8e3d7844fa8bf5d80ba2d224b99dac46d204effce0fa0168d87512e308
+// contract digest 8ce3c34c923965d9c78f62d6f46b79563c4a2d8bfd87a5b7c346b2a030ad13e4
 // do not edit: regenerate with `ess synthesize --layout crate`
 
 //! Session — `conductor.session`.
@@ -809,9 +809,9 @@ pub struct DeliverMessage {
 /// outcomes exist to prevent.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum DeliverMessageOutcome {
-    /// `unreachable` — externally decided (no tmux server answers on the session's launcher socket).
+    /// `unreachable` — externally decided (neither the session's tmux launcher nor the harness's attach to a live session of that name took the text).
     ///
-    /// The session has no launcher socket; nothing was typed, nothing recorded, and the caller names the session and does not retry in a loop.
+    /// The text reached the session by neither route, its launcher socket or the harness's attach to a live session of that name; nothing was recorded, and the caller names the session and why, and the command does not try again.
     Unreachable {
         /// Why it was refused: `conductor.session.SessionNotReachable`.
         error: SessionNotReachable,
@@ -951,7 +951,7 @@ pub struct LeaseHeld {
 
 /// The declared error `conductor.session.SessionNotReachable`.
 ///
-/// No tmux server answers on the session's launcher socket, so nothing was typed into it and nothing recorded; the caller is told which session, and does not retry in a loop.
+/// The text was not put in front of the session, and nothing was recorded: no tmux server on the session's launcher socket took it, and the harness's session list names no live session of that name, was not read, names it by no id to attach to, or names one whose attach client, in a pane made for the delivery, did not draw or did not read the text within its bound. The caller is told which session and why, and the command does not try again.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SessionNotReachable {
     /// `session_name` — `conductor.config.SessionName`.

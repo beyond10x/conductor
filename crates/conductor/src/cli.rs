@@ -1752,7 +1752,7 @@ pub enum SessionCommand {
     #[command(name = "attach")]
     Attach(AttachArgs),
 
-    /// Type a text into a running session's tmux, then Enter, and record the delivery and its dispatch line; --text is a file, or - for standard input, which is kept as <state>/mailbox/delivered/<ulid>.md; refuse a session whose launcher socket is absent or whose tmux does not take the text, naming it, without trying again
+    /// Type a text into a running session, then Enter, and record the delivery and its dispatch line: into its tmux launcher, or, for a session without one that the harness's session list names live, through the harness's attach in a tmux pane made for the one delivery; --text is a file, or - for standard input, which is kept as <state>/mailbox/delivered/<ulid>.md; refuse a session neither route reaches, naming it, without trying again
     #[command(name = "deliver")]
     Deliver(DeliverArgs),
 
@@ -2309,7 +2309,7 @@ pub struct SpawnArgs {
 /// (`story:mailbox-send-and-deliver`).
 #[derive(Debug, Clone, Args)]
 pub struct DeliverArgs {
-    /// The session's full name, as its launcher socket <state>/sessions/<name>.tmux names it
+    /// The session's full name, as its launcher socket <state>/sessions/<name>.tmux or the harness's session list names it
     #[arg(long)]
     pub name: Option<String>,
     /// The file holding the text, or - for standard input

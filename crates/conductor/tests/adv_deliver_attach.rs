@@ -216,12 +216,7 @@ fn two_deliveries_at_once_to_one_background_session_both_arrive_and_leave_nothin
     let refused: Vec<String> = outcomes
         .iter()
         .filter(|(_, output)| !output.status.success())
-        .map(|(text, output)| {
-            format!(
-                "{text}: {}",
-                String::from_utf8_lossy(&output.stderr).trim()
-            )
-        })
+        .map(|(text, output)| format!("{text}: {}", String::from_utf8_lossy(&output.stderr).trim()))
         .collect();
     assert!(
         lost.is_empty() && left.is_empty() && refused.is_empty(),

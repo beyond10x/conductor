@@ -885,40 +885,69 @@ pub(crate) fn answered(tick: &mut Tick<'_, '_>, id: &str) -> Result<bool> {
 ///
 /// The deliverer refused the text.
 fn send(tick: &Tick<'_, '_>, controller: &str, session: &str, text: &str) -> Result<()> {
+    offer(tick, controller, session, text).map_err(|refusal| refusal.error)
+}
+
+/// Why a delivery to a running controller was refused, and what that leaves of the controller.
+struct Refusal {
+    /// The one line for the journal.
+    error: anyhow::Error,
+    /// Nothing was typed (`SessionNotReachable`) and the controller stays Running, because its
+    /// session is live or the session list was not read: a kept delivery is offered to this
+    /// controller again, since no other one starts while it runs.
+    again: bool,
+}
+
+/// [`send`], answering with a refusal whether the same controller is to be asked again.
+fn offer(tick: &Tick<'_, '_>, controller: &str, session: &str, text: &str) -> Result<(), Refusal> {
     let Err(error) = tick.deliver(session, text) else {
         return Ok(());
     };
     let said = one_line(&format!("{error:#}"));
     if !said.contains("SessionNotReachable") {
-        return Err(error);
+        // The text may have been typed before the deliverer failed: not offered twice.
+        return Err(Refusal {
+            error,
+            again: false,
+        });
     }
     match crate::confine::live_session(session) {
         Ok(None) => {}
         Ok(Some(id)) => {
-            return Err(anyhow!(
-                "{said}; the session list names its session live ({id}), so its controller \
-                 {controller} stays Running"
-            ));
+            return Err(Refusal {
+                error: anyhow!(
+                    "{said}; the session list names its session live ({id}), so its controller \
+                     {controller} stays Running"
+                ),
+                again: true,
+            });
         }
         Err(unread) => {
-            return Err(anyhow!(
-                "{said}; the session list was not read ({}), so its controller {controller} \
-                 stays Running",
-                one_line(&format!("{unread:#}"))
-            ));
+            return Err(Refusal {
+                error: anyhow!(
+                    "{said}; the session list was not read ({}), so its controller {controller} \
+                     stays Running",
+                    one_line(&format!("{unread:#}"))
+                ),
+                again: true,
+            });
         }
     }
-    match record_stopped(tick, controller, &said) {
-        Ok(()) => Err(anyhow!(
+    let error = match record_stopped(tick, controller, &said) {
+        Ok(()) => anyhow!(
             "{said}; its controller {controller} is recorded stopped, and \
              what waits for it is delivered at the repository's next controller start"
-        )),
-        Err(stop) => Err(anyhow!(
+        ),
+        Err(stop) => anyhow!(
             "{said}; its controller {controller} could not be recorded \
              stopped: {}",
             one_line(&format!("{stop:#}"))
-        )),
-    }
+        ),
+    };
+    Err(Refusal {
+        error,
+        again: false,
+    })
 }
 
 /// Records the running controller `controller` stopped, as the delivery that found its session
@@ -948,15 +977,17 @@ fn record_stopped(tick: &Tick<'_, '_>, controller: &str, said: &str) -> Result<(
 enum Made {
     /// It was delivered, and its line written.
     Delivered,
-    /// The repository has no running controller, or only the one that refused it.
+    /// The repository has no running controller, or only the one that refused it, or its
+    /// running controller refused it and is asked again ([`Refusal::again`]).
     Waits,
-    /// The running controller, by its id, refused it.
+    /// The running controller, by its id, refused it, and is not asked again.
     Refused(String),
 }
 
 /// Delivers `item` (`repo`, `text`, `event`, and the line's `id`, `grant` or `line`) to the
 /// running controller of its repository and writes its line; keeps it in [`PENDING`] when there
-/// is none, or when that controller refused it.
+/// is none, or when that controller refused it: for the next controller, or, when the refusal
+/// left this one Running with nothing typed, for this one's next tick.
 ///
 /// # Errors
 ///
@@ -981,7 +1012,9 @@ fn refused(mut item: Value, controller: &str) -> Value {
 }
 
 /// Delivers `item` when its repository has a running controller other than the one that refused
-/// it.
+/// it. A controller whose refusal leaves it Running is not marked as that one
+/// (`story:deliver-reaches-bg-session`): it would hold the item for good, since no next
+/// controller starts while it runs.
 fn made(tick: &mut Tick<'_, '_>, item: &Value) -> Result<Made> {
     let repo = item["repo"].as_str().unwrap_or_default();
     let Some((controller, session)) = tick.running(repo)? else {
@@ -991,9 +1024,13 @@ fn made(tick: &mut Tick<'_, '_>, item: &Value) -> Result<Made> {
         return Ok(Made::Waits);
     }
     let text = item["text"].as_str().unwrap_or_default();
-    if let Err(error) = send(tick, &controller, &session, text) {
-        tick.note(&format!("deliver to {session}"), &error);
-        return Ok(Made::Refused(controller));
+    if let Err(refusal) = offer(tick, &controller, &session, text) {
+        tick.note(&format!("deliver to {session}"), &refusal.error);
+        return Ok(if refusal.again {
+            Made::Waits
+        } else {
+            Made::Refused(controller)
+        });
     }
     let event = item["event"]
         .as_str()
@@ -1009,7 +1046,7 @@ fn made(tick: &mut Tick<'_, '_>, item: &Value) -> Result<Made> {
 }
 
 /// The deliveries kept: each made once its repository has a running controller; one refused is
-/// kept for the next controller.
+/// kept for the next controller, or for the same one while it stays Running.
 fn deliveries(tick: &mut Tick<'_, '_>) -> Result<()> {
     let kept = read_json(&tick.dir, PENDING, json!([]));
     let Some(items) = kept.as_array().filter(|items| !items.is_empty()) else {

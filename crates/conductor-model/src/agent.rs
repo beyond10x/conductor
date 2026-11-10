@@ -1,5 +1,5 @@
 // generated from conductor v1
-// contract digest 251aac8e3d7844fa8bf5d80ba2d224b99dac46d204effce0fa0168d87512e308
+// contract digest 8ce3c34c923965d9c78f62d6f46b79563c4a2d8bfd87a5b7c346b2a030ad13e4
 // do not edit: regenerate with `ess synthesize --layout crate`
 
 //! Agent — `conductor.agent`.
@@ -997,7 +997,7 @@ pub struct AgentNotFound {
 
 /// The declared error `conductor.agent.AgentNotReachable`.
 ///
-/// The agent is on record as running, but its PTY does not answer (no tmux server on its launcher socket for the `claude-code` kind), so nothing was typed or opened; the caller is told which agent, and does not retry in a loop.
+/// The agent is on record as running, but its PTY does not answer (for the `claude-code` kind: no tmux server on its launcher socket, and, for a delivery, no live background session of its name whose attach client took the text), so nothing was typed or opened; the caller is told which agent, and does not retry in a loop.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct AgentNotReachable {
     /// `name` — `conductor.agent.AgentName`.

@@ -1845,7 +1845,8 @@ fn a_relay_refused_unreachable_stops_the_controller() {
 /// `story:deliver-reaches-bg-session`, acceptance 2: a delivery refused `SessionNotReachable`
 /// to a session `claude agents --json` names live does not record its controller stopped: the
 /// controller stays Running, and the refusal is one journal line that says so. The item is kept
-/// as one a running controller refused.
+/// for that controller, which is asked again on the next tick: nothing was typed, and no other
+/// controller starts while this one is Running.
 #[test]
 fn a_delivery_refused_for_a_live_session_leaves_its_controller_running() {
     let case = Case::new("unreachable-live");
@@ -1873,14 +1874,58 @@ fn a_delivery_refused_for_a_live_session_leaves_its_controller_running() {
     let (_, said) = case.tick_said(&[]);
     assert_eq!(
         case.attempts().len(),
-        1,
-        "the same controller is not asked twice"
+        2,
+        "the controller that stays Running is asked again"
     );
     assert_eq!(states_of(&case, "alpha"), ["Running"]);
-    assert!(
+    assert_eq!(
         said.iter()
-            .all(|line| !line.contains("SessionNotReachable")),
-        "no second line: {said:?}"
+            .filter(|line| line.contains("SessionNotReachable"))
+            .count(),
+        1,
+        "one line a tick: {said:?}"
+    );
+}
+
+/// The same while the session list cannot be read (the `claude` that lists the sessions prints
+/// no JSON): the refusal proves nothing about the session, so its controller stays Running, the
+/// one journal line says the list was not read, and the kept answer reaches that controller once
+/// its session takes text.
+#[test]
+fn a_delivery_refused_while_the_session_list_is_unread_leaves_its_controller_running() {
+    let case = Case::new("unreachable-unread");
+    case.spawn("alpha", FIRST);
+    let decision = answer_request(&case);
+    write(&case.fake().join("unreachable/ex-alpha"), "");
+    write(&case.fake().join("agents/unread.json"), "no JSON");
+
+    let (refused, said) = case.tick_said(&["answered R-1 A"]);
+    assert_eq!(case.attempts().len(), 1, "one attempt");
+    assert!(case.deliveries().is_empty());
+    assert_eq!(states_of(&case, "alpha"), ["Running"], "{refused}");
+    let named: Vec<&String> = said
+        .iter()
+        .filter(|line| line.contains("SessionNotReachable"))
+        .collect();
+    assert_eq!(named.len(), 1, "one journal line: {said:?}");
+    assert!(named[0].contains("ex-alpha"), "{named:?}");
+    assert!(
+        named[0].contains("the session list was not read"),
+        "{named:?}"
+    );
+    assert!(named[0].contains("stays Running"), "{named:?}");
+    assert!(!named[0].contains("recorded stopped"), "{named:?}");
+
+    fs::remove_file(case.fake().join("unreachable/ex-alpha")).expect("reachable again");
+    let delivered = case.tick(&[]);
+    assert_eq!(actions(&delivered), ["decision-sent"], "{delivered}");
+    assert_eq!(states_of(&case, "alpha"), ["Running"]);
+    assert_eq!(
+        case.deliveries(),
+        [(
+            "ex-alpha".to_owned(),
+            format!("[DECISION R-1] A one migration, then one layout ({decision})")
+        )]
     );
 }
 

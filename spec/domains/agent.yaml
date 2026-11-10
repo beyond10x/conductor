@@ -288,9 +288,10 @@ errors:
 
   - name: conductor.agent.AgentNotReachable
     summary: >
-      The agent is on record as running, but its PTY does not answer (no tmux server on its
-      launcher socket for the `claude-code` kind), so nothing was typed or opened; the caller is
-      told which agent, and does not retry in a loop.
+      The agent is on record as running, but its PTY does not answer (for the `claude-code`
+      kind: no tmux server on its launcher socket, and, for a delivery, no live background
+      session of its name whose attach client took the text), so nothing was typed or opened;
+      the caller is told which agent, and does not retry in a loop.
     fields:
       - name: name
         type: conductor.agent.AgentName
