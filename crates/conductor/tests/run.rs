@@ -1906,6 +1906,35 @@ fn a_relay_refused_for_a_live_session_leaves_its_controller_running() {
     }
 }
 
+/// Adversary, wave 49 U11 pass 1 (`story:deliver-reaches-bg-session`): the controller of a live
+/// session stays Running after one refused delivery, so the answer it waits for is delivered to
+/// it once its session takes text again; no next controller starts while this one is Running.
+#[test]
+fn adv_a_decision_refused_once_for_a_live_session_reaches_it_when_it_takes_text_again() {
+    let case = Case::new("adv-unreachable-live-again");
+    case.spawn("alpha", FIRST);
+    let decision = answer_request(&case);
+    write(&case.fake().join("unreachable/ex-alpha"), "");
+    case.tick(&["answered R-1 A"]);
+    assert_eq!(states_of(&case, "alpha"), ["Running"]);
+    assert!(case.deliveries().is_empty());
+
+    fs::remove_file(case.fake().join("unreachable/ex-alpha")).expect("reachable again");
+    let mut ticks = Vec::new();
+    for _ in 0..3 {
+        ticks.push(case.tick(&[]));
+    }
+    assert_eq!(states_of(&case, "alpha"), ["Running"]);
+    assert_eq!(
+        case.deliveries(),
+        [(
+            "ex-alpha".to_owned(),
+            format!("[DECISION R-1] A one migration, then one layout ({decision})")
+        )],
+        "the Running controller of the live session gets its answer: {ticks:?}"
+    );
+}
+
 // ---------------------------------------------------------------------------------------------
 // Mailbox
 // ---------------------------------------------------------------------------------------------
