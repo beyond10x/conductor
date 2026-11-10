@@ -15,8 +15,10 @@
 //! digits. A `--sent-at` whose UTC year is outside 1 to 9999 is refused. An id given by hand is
 //! in that form ([`allocator_form`](crate::decide::allocator_form)), or it is refused naming the
 //! form; one a dispatch already has is refused (`DispatchExists`), naming it, and nothing is
-//! written. When another writer takes an allocated id first, the command allocates again, while
-//! the date's highest number moves and at most [`ATTEMPTS`] times in all.
+//! written. The command refuses a `--repository` that neither the newest complete snapshot nor
+//! the workspace file names, naming those they name. When another writer takes an allocated id
+//! first, the command allocates again, while the date's highest number moves and at most
+//! [`ATTEMPTS`] times in all.
 //!
 //! Once the store kept it, `send-dispatch`, each `report-*` and `cancel-dispatch` append one line
 //! to the records' dispatch log ([`crate::records`]): `sent`, `started`, `blocked`, `unblocked`,
@@ -26,12 +28,15 @@
 //! lists every row it can read, in the order the dispatches were first stored, and answers through
 //! [`crate::store::show`].
 
+use std::collections::BTreeSet;
 use std::io::Write as _;
 use std::path::Path;
 use std::process::ExitCode;
 
 use anyhow::{Context as _, Result, anyhow, bail};
-use conductor_model::behaviour::{DispatchStorage, Generated};
+use conductor_model::behaviour::{
+    DispatchStorage, Generated, RepositoryObservationStorage, SnapshotStorage,
+};
 use conductor_model::direction::GoalId;
 use conductor_model::dispatch::obligations::{
     CancelDispatchBehavior, DispatchesQuery, ReportBlockedBehavior, ReportDoneBehavior,
@@ -70,11 +75,12 @@ const DISPATCH: &str = "conductor.dispatch.Dispatch";
 ///
 /// A flag is missing, `--input-json` is given ([`NotImplemented`](crate::NotImplemented)),
 /// `--dispatch-id` is not in the allocator's form or names a dispatch that exists, `--sent-at`
-/// falls outside the UTC years 1 to 9999, the store does not open or keep the dispatch, another
-/// writer took every allocated id, or the specification refuses it: `InvalidPriority`,
+/// falls outside the UTC years 1 to 9999, `--repository` is one neither the newest complete
+/// snapshot nor the workspace names, the store does not open or keep the dispatch,
+/// another writer took every allocated id, or the specification refuses it: `InvalidPriority`,
 /// `WaitsOnItself`, `GoalNotFound`, `GoalClosed`.
 pub fn send_dispatch(state: Option<&Path>, args: SendDispatchArgs) -> Result<ExitCode> {
-    let id = send(state, args)?;
+    let id = send_to(state, args, true)?;
     print_line("dispatch send-dispatch", &id)
 }
 
@@ -127,8 +133,13 @@ pub fn open_of(state: Option<&Path>, repository: &str) -> Result<Open> {
 ///
 /// # Errors
 ///
-/// As [`send_dispatch`].
+/// As [`send_dispatch`], but for the repository: it is sent to whether or not anything names it.
 pub fn send(state: Option<&Path>, args: SendDispatchArgs) -> Result<String> {
+    send_to(state, args, false)
+}
+
+/// [`send`]; with `known_only`, a repository nothing names is refused first ([`named`]).
+fn send_to(state: Option<&Path>, args: SendDispatchArgs, known_only: bool) -> Result<String> {
     const COMMAND: &str = "dispatch send-dispatch";
     flags_only(args.input_json, "dispatch send-dispatch --input-json")?;
     let repository = RepositoryName(flag(COMMAND, "--repository", args.repository)?);
@@ -144,6 +155,9 @@ pub fn send(state: Option<&Path>, args: SendDispatchArgs) -> Result<String> {
     }
     let given = args.dispatch_id.map(DispatchId);
     let prefix = format!("{DISPATCH_PREFIX}{day}-");
+    if known_only {
+        named(COMMAND, state, &repository.0)?;
+    }
 
     let mut before = None;
     for _ in 0..ATTEMPTS {
@@ -527,6 +541,44 @@ fn state_name(state: DispatchState) -> &'static str {
         DispatchState::Sent => "Sent",
         DispatchState::Started => "Started",
     }
+}
+
+/// Refuses `repository` when neither the newest complete snapshot
+/// ([`crate::repository::newest_complete`]) observed it nor the workspace file of the records
+/// (`conductor config workspace`; read only with a config file, as the records' logs are) has a
+/// member of that name (`story:dispatch-refuses-unknown-repository`): no controller would start
+/// for it. The refusal names every repository the two name. Where they name none (a store
+/// without a complete snapshot and no workspace file) there is nothing to hold the name
+/// against, and it is accepted.
+fn named(command: &str, state: Option<&Path>, repository: &str) -> Result<()> {
+    let mut known = BTreeSet::new();
+    let store = crate::state::open(state)?;
+    if let Some(newest) = crate::repository::newest_complete(SnapshotStorage::list(&store)) {
+        known.extend(
+            RepositoryObservationStorage::list(&store)
+                .into_iter()
+                .filter(|observation| observation.data.snapshot_id == newest)
+                .map(|observation| observation.data.repository.0),
+        );
+    }
+    store
+        .check()
+        .with_context(|| format!("{command}: read the newest complete snapshot"))?;
+    let active = crate::config::active();
+    if active.from_file {
+        let file = Path::new(&active.instance.records).join(crate::config::WORKSPACE_FILE);
+        let (_, members) = crate::config::written_members(&file)
+            .with_context(|| format!("{command}: read the workspace"))?;
+        known.extend(members.into_keys());
+    }
+    if known.is_empty() || known.contains(repository) {
+        return Ok(());
+    }
+    bail!(
+        "{command}: --repository {repository}: neither the newest complete snapshot nor the \
+         workspace names it; they name {}; nothing was sent",
+        known.into_iter().collect::<Vec<_>>().join(", ")
+    )
 }
 
 /// The highest number `store` holds under `prefix`, `DSP-<day>-` ([`highest`]). Every dispatch is

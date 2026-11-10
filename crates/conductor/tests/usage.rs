@@ -370,9 +370,19 @@ fn usage_counts_each_message_once_per_repository_and_session() {
     let case = Case::new("since", &CLEAN, DAY, DAY_BEFORE);
     let before = case.files();
     let output = case.conductor(&["resource", "usage", "--since", SINCE, "--format", "json"]);
-    let printed = json_of(
+    let mut printed = json_of(
         &ok(&output, "resource usage --format json"),
         "--format json",
+    );
+    // The fourth table is held by the context cases below: here, one row per session.
+    let context = printed
+        .as_object_mut()
+        .and_then(|printed| printed.remove("context"))
+        .expect("a context table");
+    assert_eq!(
+        context.as_array().map(Vec::len),
+        expected_since()["sessions"].as_array().map(Vec::len),
+        "one context row per session: {context:#}"
     );
     assert_eq!(printed, expected_since(), "--format json since {SINCE}");
     case.assert_untouched(&before, "resource usage");
@@ -443,6 +453,11 @@ fn every_format_prints_the_same_rows_and_nothing_private() {
             "--format jsonl, table {table}"
         );
     }
+    assert_eq!(
+        jsonl.remove("context").map(|rows| rows.len()),
+        expected["sessions"].as_array().map(Vec::len),
+        "--format jsonl, table context: one row per session"
+    );
     assert!(
         jsonl.is_empty(),
         "--format jsonl names other tables: {jsonl:?}"
@@ -524,6 +539,104 @@ fn a_line_that_cannot_be_read_is_named_by_its_repository_only() {
             );
         }
     }
+}
+
+/// One conductor session, started outside the checkouts (its records directory): 40 characters
+/// of first prompt at 08:00:00, a first call that read 30,000 tokens, tool results of 400 and 800
+/// characters (one a string, one a list of blocks whose image counts nothing), a message of two
+/// lines that repeat its usage, a received message of 1,960 characters at 09:30:00, and a last
+/// call at 10:00:00.
+const CONTEXT: [Placed; 1] = [(
+    "records",
+    "99999999-9999-4999-8999-999999999999.jsonl",
+    "context.jsonl",
+)];
+
+/// The columns of the context table, in order.
+const CONTEXT_COLUMNS: [&str; 7] = [
+    "repository",
+    "session",
+    "first_context",
+    "hours",
+    "tool_output_per_hour",
+    "messages_per_hour",
+    "own_output_per_hour",
+];
+
+/// `story:conductor-context-budget`: per session, the context after its first turn and what each
+/// source added to it per hour, read from the transcript. Over the session's two hours: tool
+/// output 1,200 characters, 300 tokens at four characters a token, 150 an hour; messages
+/// received 2,000 characters, 250 an hour; its own output 100 + 300 + 200 tokens, each message
+/// once, 300 an hour.
+#[test]
+fn usage_prints_each_session_s_first_context_and_what_each_source_adds_per_hour() {
+    let case = Case::new("context", &CONTEXT, DAY, DAY_BEFORE);
+    let before = case.files();
+    let expected = json!([
+        {"repository": "other", "session": "99999999", "first_context": 30000, "hours": 2.0,
+         "tool_output_per_hour": 150, "messages_per_hour": 250, "own_output_per_hour": 300},
+    ]);
+    let output = case.conductor(&["resource", "usage", "--format", "json"]);
+    let printed = json_of(&ok(&output, "resource usage"), "--format json");
+    assert_eq!(printed["context"], expected, "{printed:#}");
+
+    let text = ok(&case.conductor(&["resource", "usage"]), "--format text");
+    let lines: Vec<Vec<&str>> = text
+        .lines()
+        .map(|line| line.split_whitespace().collect())
+        .collect();
+    assert!(
+        lines.contains(&CONTEXT_COLUMNS.to_vec()),
+        "--format text has no header {CONTEXT_COLUMNS:?}:\n{text}"
+    );
+    let row = words(&expected[0], &CONTEXT_COLUMNS);
+    assert!(
+        lines
+            .iter()
+            .any(|line| line.iter().copied().eq(row.iter().map(String::as_str))),
+        "--format text has no row {row:?}:\n{text}"
+    );
+    assert!(
+        text.contains("Context by source, per session"),
+        "the table has its heading:\n{text}"
+    );
+    for carried in [
+        "Start of session",
+        "REPORT",
+        "snapshot",
+        "fixture context title",
+    ] {
+        assert!(
+            !text.contains(carried),
+            "the table carries {carried:?}:\n{text}"
+        );
+    }
+    case.assert_untouched(&before, "resource usage");
+}
+
+/// With `--since`, the hour counts from that instant for a session that started before it, and
+/// only what the transcript holds from then on is counted; the first-turn context is still the
+/// session's first call's.
+#[test]
+fn since_counts_the_context_added_from_that_instant() {
+    let case = Case::new("context-since", &CONTEXT, DAY, DAY_BEFORE);
+    let output = case.conductor(&[
+        "resource",
+        "usage",
+        "--since",
+        "2026-10-07T09:00:00Z",
+        "--format",
+        "json",
+    ]);
+    let printed = json_of(&ok(&output, "resource usage --since"), "--format json");
+    assert_eq!(
+        printed["context"],
+        json!([
+            {"repository": "other", "session": "99999999", "first_context": 30000, "hours": 1.0,
+             "tool_output_per_hour": 0, "messages_per_hour": 490, "own_output_per_hour": 200},
+        ]),
+        "{printed:#}"
+    );
 }
 
 #[test]
@@ -662,4 +775,37 @@ fn the_dashboard_carries_the_repository_table_under_usage() {
         );
     }
     assert_private_kept(&get(port, "/"), "the app's index.html");
+}
+
+/// Adversary, wave 49 U8: one session of a single turn, its prompt at 08:00:00 and its only
+/// call nine seconds later (a `reply ok` session, as the story measured the tool deny with).
+const CONTEXT_SHORT: [Placed; 1] = [(
+    "records",
+    "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa.jsonl",
+    "context-short.jsonl",
+)];
+
+/// The module documentation of `usage.rs`: "A session whose `hours` are 0 has 0 in each per-hour
+/// column." Nine seconds are 0.0025 hours, printed as `hours` 0.0: the row a reader sees has 0
+/// hours, so each per-hour column is 0, not nine seconds scaled to an hour (100 output tokens
+/// as 40,000 an hour).
+#[test]
+fn a_session_whose_printed_hours_are_0_has_0_in_each_per_hour_column() {
+    let case = Case::new("context-short", &CONTEXT_SHORT, DAY, DAY_BEFORE);
+    let output = case.conductor(&["resource", "usage", "--format", "json"]);
+    let printed = json_of(&ok(&output, "resource usage"), "--format json");
+    let row = &printed["context"][0];
+    assert_eq!(row["session"], "aaaaaaaa", "{printed:#}");
+    assert_eq!(row["first_context"], 30000, "{printed:#}");
+    assert_eq!(row["hours"], 0.0, "nine seconds print as 0 hours: {row:#}");
+    for column in [
+        "tool_output_per_hour",
+        "messages_per_hour",
+        "own_output_per_hour",
+    ] {
+        assert_eq!(
+            row[column], 0,
+            "hours are 0, so {column} is 0 (usage.rs module documentation): {row:#}"
+        );
+    }
 }

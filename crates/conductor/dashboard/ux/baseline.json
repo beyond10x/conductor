@@ -1,0 +1,518 @@
+{
+  "about": "UX ratchet baseline for the conductor dashboard (crates/conductor/dashboard). All values lower is better. Keys carry @<viewport>; the gating viewports are 1440x900 and 1280x800. Each scenario is one page driven state by state from the store fixtures (ux/fixtures.ts) in both themes; the *_states counts are state x theme cases. Rewrite with: task ui:ux-gate -- --update (a hard-gate value above 0 needs --decision <id>).",
+  "scenarios": {
+    "decisions": {
+      "hscroll_states@1440x900": {
+        "value": 0,
+        "tolerance": 0
+      },
+      "overflow_states@1440x900": {
+        "value": 0,
+        "tolerance": 0
+      },
+      "always_visible_violations@1440x900": {
+        "value": 6,
+        "tolerance": 0,
+        "decision": "R-01"
+      },
+      "axe_serious_critical_nodes@1440x900": {
+        "value": 0,
+        "tolerance": 0
+      },
+      "axe_rule_cases@1440x900": {
+        "value": 0,
+        "tolerance": 0
+      },
+      "theme_not_applied@1440x900": {
+        "value": 0,
+        "tolerance": 0
+      },
+      "presence_misses@1440x900": {
+        "value": 0,
+        "tolerance": 0
+      },
+      "truncated_states@1440x900": {
+        "value": 0,
+        "tolerance": 0
+      },
+      "reduced_motion_violations@1440x900": {
+        "value": 0,
+        "tolerance": 0
+      },
+      "network_requests@1440x900": {
+        "value": 0,
+        "tolerance": 0
+      },
+      "unanswered_requests@1440x900": {
+        "value": 0,
+        "tolerance": 0
+      },
+      "completion_miss@1440x900": {
+        "value": 0,
+        "tolerance": 0
+      },
+      "false_complete@1440x900": {
+        "value": 0,
+        "tolerance": 0
+      },
+      "over_budget@1440x900": {
+        "value": 0,
+        "tolerance": 0
+      },
+      "screen_only.actions@1440x900": {
+        "value": 4,
+        "tolerance": 0
+      },
+      "keyboard.tabs@1440x900": {
+        "value": 44,
+        "tolerance": 0.05
+      },
+      "keyboard.miss@1440x900": {
+        "value": 0,
+        "tolerance": 0
+      },
+      "hscroll_states@1280x800": {
+        "value": 0,
+        "tolerance": 0
+      },
+      "overflow_states@1280x800": {
+        "value": 0,
+        "tolerance": 0
+      },
+      "always_visible_violations@1280x800": {
+        "value": 6,
+        "tolerance": 0,
+        "decision": "R-01"
+      },
+      "axe_serious_critical_nodes@1280x800": {
+        "value": 0,
+        "tolerance": 0
+      },
+      "axe_rule_cases@1280x800": {
+        "value": 0,
+        "tolerance": 0
+      },
+      "theme_not_applied@1280x800": {
+        "value": 0,
+        "tolerance": 0
+      },
+      "presence_misses@1280x800": {
+        "value": 0,
+        "tolerance": 0
+      },
+      "truncated_states@1280x800": {
+        "value": 0,
+        "tolerance": 0
+      },
+      "reduced_motion_violations@1280x800": {
+        "value": 0,
+        "tolerance": 0
+      },
+      "network_requests@1280x800": {
+        "value": 0,
+        "tolerance": 0
+      },
+      "unanswered_requests@1280x800": {
+        "value": 0,
+        "tolerance": 0
+      },
+      "completion_miss@1280x800": {
+        "value": 0,
+        "tolerance": 0
+      },
+      "false_complete@1280x800": {
+        "value": 0,
+        "tolerance": 0
+      },
+      "over_budget@1280x800": {
+        "value": 0,
+        "tolerance": 0
+      },
+      "screen_only.actions@1280x800": {
+        "value": 4,
+        "tolerance": 0
+      },
+      "keyboard.tabs@1280x800": {
+        "value": 44,
+        "tolerance": 0.05
+      },
+      "keyboard.miss@1280x800": {
+        "value": 0,
+        "tolerance": 0
+      }
+    },
+    "health": {
+      "hscroll_states@1440x900": {
+        "value": 0,
+        "tolerance": 0
+      },
+      "overflow_states@1440x900": {
+        "value": 0,
+        "tolerance": 0
+      },
+      "always_visible_violations@1440x900": {
+        "value": 0,
+        "tolerance": 0
+      },
+      "axe_serious_critical_nodes@1440x900": {
+        "value": 0,
+        "tolerance": 0
+      },
+      "axe_rule_cases@1440x900": {
+        "value": 0,
+        "tolerance": 0
+      },
+      "theme_not_applied@1440x900": {
+        "value": 0,
+        "tolerance": 0
+      },
+      "presence_misses@1440x900": {
+        "value": 0,
+        "tolerance": 0
+      },
+      "truncated_states@1440x900": {
+        "value": 0,
+        "tolerance": 0
+      },
+      "reduced_motion_violations@1440x900": {
+        "value": 0,
+        "tolerance": 0
+      },
+      "network_requests@1440x900": {
+        "value": 0,
+        "tolerance": 0
+      },
+      "unanswered_requests@1440x900": {
+        "value": 0,
+        "tolerance": 0
+      },
+      "hscroll_states@1280x800": {
+        "value": 0,
+        "tolerance": 0
+      },
+      "overflow_states@1280x800": {
+        "value": 0,
+        "tolerance": 0
+      },
+      "always_visible_violations@1280x800": {
+        "value": 0,
+        "tolerance": 0
+      },
+      "axe_serious_critical_nodes@1280x800": {
+        "value": 0,
+        "tolerance": 0
+      },
+      "axe_rule_cases@1280x800": {
+        "value": 0,
+        "tolerance": 0
+      },
+      "theme_not_applied@1280x800": {
+        "value": 0,
+        "tolerance": 0
+      },
+      "presence_misses@1280x800": {
+        "value": 0,
+        "tolerance": 0
+      },
+      "truncated_states@1280x800": {
+        "value": 0,
+        "tolerance": 0
+      },
+      "reduced_motion_violations@1280x800": {
+        "value": 0,
+        "tolerance": 0
+      },
+      "network_requests@1280x800": {
+        "value": 0,
+        "tolerance": 0
+      },
+      "unanswered_requests@1280x800": {
+        "value": 0,
+        "tolerance": 0
+      }
+    },
+    "kpis": {
+      "hscroll_states@1440x900": {
+        "value": 0,
+        "tolerance": 0
+      },
+      "overflow_states@1440x900": {
+        "value": 0,
+        "tolerance": 0
+      },
+      "always_visible_violations@1440x900": {
+        "value": 0,
+        "tolerance": 0
+      },
+      "axe_serious_critical_nodes@1440x900": {
+        "value": 0,
+        "tolerance": 0
+      },
+      "axe_rule_cases@1440x900": {
+        "value": 0,
+        "tolerance": 0
+      },
+      "theme_not_applied@1440x900": {
+        "value": 0,
+        "tolerance": 0
+      },
+      "presence_misses@1440x900": {
+        "value": 0,
+        "tolerance": 0
+      },
+      "truncated_states@1440x900": {
+        "value": 0,
+        "tolerance": 0
+      },
+      "reduced_motion_violations@1440x900": {
+        "value": 0,
+        "tolerance": 0
+      },
+      "network_requests@1440x900": {
+        "value": 0,
+        "tolerance": 0
+      },
+      "unanswered_requests@1440x900": {
+        "value": 0,
+        "tolerance": 0
+      },
+      "hscroll_states@1280x800": {
+        "value": 0,
+        "tolerance": 0
+      },
+      "overflow_states@1280x800": {
+        "value": 0,
+        "tolerance": 0
+      },
+      "always_visible_violations@1280x800": {
+        "value": 0,
+        "tolerance": 0
+      },
+      "axe_serious_critical_nodes@1280x800": {
+        "value": 0,
+        "tolerance": 0
+      },
+      "axe_rule_cases@1280x800": {
+        "value": 0,
+        "tolerance": 0
+      },
+      "theme_not_applied@1280x800": {
+        "value": 0,
+        "tolerance": 0
+      },
+      "presence_misses@1280x800": {
+        "value": 0,
+        "tolerance": 0
+      },
+      "truncated_states@1280x800": {
+        "value": 0,
+        "tolerance": 0
+      },
+      "reduced_motion_violations@1280x800": {
+        "value": 0,
+        "tolerance": 0
+      },
+      "network_requests@1280x800": {
+        "value": 0,
+        "tolerance": 0
+      },
+      "unanswered_requests@1280x800": {
+        "value": 0,
+        "tolerance": 0
+      }
+    },
+    "overview": {
+      "hscroll_states@1440x900": {
+        "value": 0,
+        "tolerance": 0
+      },
+      "overflow_states@1440x900": {
+        "value": 0,
+        "tolerance": 0
+      },
+      "always_visible_violations@1440x900": {
+        "value": 0,
+        "tolerance": 0
+      },
+      "axe_serious_critical_nodes@1440x900": {
+        "value": 2,
+        "tolerance": 0,
+        "decision": "R-01"
+      },
+      "axe_rule_cases@1440x900": {
+        "value": 2,
+        "tolerance": 0,
+        "decision": "R-01"
+      },
+      "theme_not_applied@1440x900": {
+        "value": 0,
+        "tolerance": 0
+      },
+      "presence_misses@1440x900": {
+        "value": 0,
+        "tolerance": 0
+      },
+      "truncated_states@1440x900": {
+        "value": 0,
+        "tolerance": 0
+      },
+      "reduced_motion_violations@1440x900": {
+        "value": 0,
+        "tolerance": 0
+      },
+      "network_requests@1440x900": {
+        "value": 0,
+        "tolerance": 0
+      },
+      "unanswered_requests@1440x900": {
+        "value": 0,
+        "tolerance": 0
+      },
+      "hscroll_states@1280x800": {
+        "value": 0,
+        "tolerance": 0
+      },
+      "overflow_states@1280x800": {
+        "value": 0,
+        "tolerance": 0
+      },
+      "always_visible_violations@1280x800": {
+        "value": 0,
+        "tolerance": 0
+      },
+      "axe_serious_critical_nodes@1280x800": {
+        "value": 2,
+        "tolerance": 0,
+        "decision": "R-01"
+      },
+      "axe_rule_cases@1280x800": {
+        "value": 2,
+        "tolerance": 0,
+        "decision": "R-01"
+      },
+      "theme_not_applied@1280x800": {
+        "value": 0,
+        "tolerance": 0
+      },
+      "presence_misses@1280x800": {
+        "value": 0,
+        "tolerance": 0
+      },
+      "truncated_states@1280x800": {
+        "value": 0,
+        "tolerance": 0
+      },
+      "reduced_motion_violations@1280x800": {
+        "value": 0,
+        "tolerance": 0
+      },
+      "network_requests@1280x800": {
+        "value": 0,
+        "tolerance": 0
+      },
+      "unanswered_requests@1280x800": {
+        "value": 0,
+        "tolerance": 0
+      }
+    },
+    "repository": {
+      "hscroll_states@1440x900": {
+        "value": 0,
+        "tolerance": 0
+      },
+      "overflow_states@1440x900": {
+        "value": 0,
+        "tolerance": 0
+      },
+      "always_visible_violations@1440x900": {
+        "value": 0,
+        "tolerance": 0
+      },
+      "axe_serious_critical_nodes@1440x900": {
+        "value": 4,
+        "tolerance": 0,
+        "decision": "R-01"
+      },
+      "axe_rule_cases@1440x900": {
+        "value": 2,
+        "tolerance": 0,
+        "decision": "R-01"
+      },
+      "theme_not_applied@1440x900": {
+        "value": 0,
+        "tolerance": 0
+      },
+      "presence_misses@1440x900": {
+        "value": 0,
+        "tolerance": 0
+      },
+      "truncated_states@1440x900": {
+        "value": 0,
+        "tolerance": 0
+      },
+      "reduced_motion_violations@1440x900": {
+        "value": 0,
+        "tolerance": 0
+      },
+      "network_requests@1440x900": {
+        "value": 0,
+        "tolerance": 0
+      },
+      "unanswered_requests@1440x900": {
+        "value": 0,
+        "tolerance": 0
+      },
+      "hscroll_states@1280x800": {
+        "value": 0,
+        "tolerance": 0
+      },
+      "overflow_states@1280x800": {
+        "value": 0,
+        "tolerance": 0
+      },
+      "always_visible_violations@1280x800": {
+        "value": 0,
+        "tolerance": 0
+      },
+      "axe_serious_critical_nodes@1280x800": {
+        "value": 4,
+        "tolerance": 0,
+        "decision": "R-01"
+      },
+      "axe_rule_cases@1280x800": {
+        "value": 2,
+        "tolerance": 0,
+        "decision": "R-01"
+      },
+      "theme_not_applied@1280x800": {
+        "value": 0,
+        "tolerance": 0
+      },
+      "presence_misses@1280x800": {
+        "value": 0,
+        "tolerance": 0
+      },
+      "truncated_states@1280x800": {
+        "value": 0,
+        "tolerance": 0
+      },
+      "reduced_motion_violations@1280x800": {
+        "value": 0,
+        "tolerance": 0
+      },
+      "network_requests@1280x800": {
+        "value": 0,
+        "tolerance": 0
+      },
+      "unanswered_requests@1280x800": {
+        "value": 0,
+        "tolerance": 0
+      }
+    }
+  },
+  "tolerances": {
+    "counts": 0,
+    "steps": 0.05,
+    "layout_shift": 0.01
+  }
+}

@@ -74,11 +74,8 @@ use std::process::ExitCode;
 
 use anyhow::{Context as _, Result, anyhow, bail};
 use conductor_model::behaviour::{
-    BlockerObservationStorage, BoardStorage, ControllerStorage, DecisionRequestStorage,
-    DispatchStorage, Generated, PullRequestObservationStorage, RepositoryObservationStorage,
-    ResourceRequestStorage, SecretSyncObservationStorage, SessionObservationStorage,
-    SnapshotStorage, SpecificationObservationStorage, TryContext, WorkflowRunObservationStorage,
-    unmet_context,
+    BoardStorage, ControllerStorage, DecisionRequestStorage, DispatchStorage, Generated,
+    ResourceRequestStorage, SnapshotStorage, TryContext, unmet_context,
 };
 use conductor_model::decision::DecisionRequestState;
 use conductor_model::direction::ServingId;
@@ -89,11 +86,14 @@ use conductor_model::dispatch::{
 use conductor_model::obligation::UnmetObligation;
 use conductor_model::observation::obligations::{BoardsQuery, PublishBoardBehavior};
 use conductor_model::observation::{
-    BlockerObservationData, BoardId, BoardSnapshot, ObservationId, PublishBoard,
-    PublishBoardOutcome, PullRequestObservationData, RepositoryFigures, RepositoryObservationData,
-    RunConclusion, SecretSyncObservationData, SessionObservationData, SnapshotId, SnapshotSnapshot,
-    SnapshotState, SpecificationObservationData, SpecificationPresence, StatusDispatch,
-    StatusReport, StatusRequest, StatusSession, ValidationResult, WorkflowRunObservationData,
+    BlockerObservationData, BlockerObservationSnapshot, BoardId, BoardSnapshot, ObservationId,
+    PublishBoard, PublishBoardOutcome, PullRequestObservationData, PullRequestObservationSnapshot,
+    RepositoryFigures, RepositoryObservationData, RepositoryObservationSnapshot, RunConclusion,
+    SecretSyncObservationData, SecretSyncObservationSnapshot, SessionObservationData,
+    SessionObservationSnapshot, SnapshotId, SnapshotSnapshot, SnapshotState,
+    SpecificationObservationData, SpecificationObservationSnapshot, SpecificationPresence,
+    StatusDispatch, StatusReport, StatusRequest, StatusSession, ValidationResult,
+    WorkflowRunObservationData, WorkflowRunObservationSnapshot,
 };
 use conductor_model::primitives::Uuid;
 use serde_json::Value;
@@ -105,7 +105,7 @@ use crate::not_implemented;
 use crate::snapshot::{
     harness_name, session_state_name, specification_presence_name, validation_result_name,
 };
-use crate::store::Store;
+use crate::store::{Observation, Store};
 
 /// The command, as the board's header and every refusal name it.
 const COMMAND: &str = "snapshot publish-board";
@@ -295,7 +295,8 @@ pub fn status(state: Option<&Path>, args: &StatusArgs) -> Result<ExitCode> {
         Some(other) => bail!("{WHAT}: --format {other:?} is not one of text, json"),
     };
     let store = crate::state::open_reader(state).context(WHAT)?;
-    let report = status_report(&store, OffsetDateTime::now_utc());
+    let now = OffsetDateTime::now_utc();
+    let report = store.at_once(|store| status_report(store, now));
     let rendered = if json {
         format!("{}\n", status_json(&report))
     } else if args.full == Some(true) {
@@ -845,48 +846,30 @@ struct Observed {
     secret_syncs: Vec<SecretSyncObservationData>,
 }
 
-/// What `store` holds of the snapshot `held`.
+/// What `store` holds of the snapshot `held`: its tenant's observations alone, read at once
+/// (`story:status-current-snapshot`).
 fn observed(store: &Store, held: &SnapshotSnapshot) -> Observed {
     let id = &held.data.snapshot_id;
-    Observed {
+    store.at_once(|store| Observed {
         snapshot_id: id.clone(),
         started_at: held.data.started_at.0.clone(),
-        repositories: RepositoryObservationStorage::list(store)
-            .into_iter()
-            .map(|held| held.data)
-            .filter(|data| data.snapshot_id == *id)
-            .collect(),
-        pull_requests: PullRequestObservationStorage::list(store)
-            .into_iter()
-            .map(|held| held.data)
-            .filter(|data| data.snapshot_id == *id)
-            .collect(),
-        workflow_runs: WorkflowRunObservationStorage::list(store)
-            .into_iter()
-            .map(|held| held.data)
-            .filter(|data| data.snapshot_id == *id)
-            .collect(),
-        specifications: SpecificationObservationStorage::list(store)
-            .into_iter()
-            .map(|held| held.data)
-            .filter(|data| data.snapshot_id == *id)
-            .collect(),
-        blockers: BlockerObservationStorage::list(store)
-            .into_iter()
-            .map(|held| held.data)
-            .filter(|data| data.snapshot_id == *id)
-            .collect(),
-        sessions: SessionObservationStorage::list(store)
-            .into_iter()
-            .map(|held| held.data)
-            .filter(|data| data.snapshot_id == *id)
-            .collect(),
-        secret_syncs: SecretSyncObservationStorage::list(store)
-            .into_iter()
-            .map(|held| held.data)
-            .filter(|data| data.snapshot_id == *id)
-            .collect(),
-    }
+        repositories: of::<RepositoryObservationSnapshot, _>(store, id, |held| held.data),
+        pull_requests: of::<PullRequestObservationSnapshot, _>(store, id, |held| held.data),
+        workflow_runs: of::<WorkflowRunObservationSnapshot, _>(store, id, |held| held.data),
+        specifications: of::<SpecificationObservationSnapshot, _>(store, id, |held| held.data),
+        blockers: of::<BlockerObservationSnapshot, _>(store, id, |held| held.data),
+        sessions: of::<SessionObservationSnapshot, _>(store, id, |held| held.data),
+        secret_syncs: of::<SecretSyncObservationSnapshot, _>(store, id, |held| held.data),
+    })
+}
+
+/// The data of every observation `T` of the snapshot `id` in `store`, `data` of each.
+fn of<T: Observation, D>(store: &Store, id: &SnapshotId, data: fn(T) -> D) -> Vec<D> {
+    store
+        .observations_of::<T>(id)
+        .into_iter()
+        .map(data)
+        .collect()
 }
 
 /// The session name of each repository's running controller, by repository.
@@ -1180,10 +1163,10 @@ pub(crate) fn waiting_in(
     held: &SnapshotSnapshot,
 ) -> Vec<PullRequestObservationData> {
     let id = &held.data.snapshot_id;
-    let pulls: Vec<PullRequestObservationData> = PullRequestObservationStorage::list(store)
+    let pulls: Vec<PullRequestObservationData> = store
+        .observations_of::<PullRequestObservationSnapshot>(id)
         .into_iter()
         .map(|held| held.data)
-        .filter(|data| data.snapshot_id == *id)
         .collect();
     waiting_for_review(&pulls)
 }

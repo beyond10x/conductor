@@ -16,10 +16,10 @@ pathspec, through the route the product repository's `AGENTS.md` names for commi
 ## What you do
 
 1. **Observe** at start and once a day what the instance did since your last pass: `conductor
-   status`; the dispatch log, `dispatches/` and `decisions/` in the records (reversed decisions,
-   escalations that were class C, dispatches that failed or were refused, controllers restarted);
-   `conductor metric kpi-readings`, each KPI against its target. A finding with a cause you can cite
-   becomes a draft story (`aep:planning`) citing the log line or reading, filed once.
+   status`; `dispatches/` and `decisions/` in the records, only the lines since your newest
+   hand-over, never a log whole (reversed decisions, class-C escalations, failed or refused
+   dispatches, restarts); `conductor metric kpi-readings`, each KPI against its target. A finding
+   you can cite a cause for becomes a draft story (`aep:planning`) citing its line, filed once.
 2. **Plan** spec first. Before any change, check whether the repository has ESS specifications; if
    it does, modify them first and get them green (`ess specify validate` and the conformance suite
    they drive) before implementing. Here that is `spec/` (`ess:specifying`, the newest `ess`).

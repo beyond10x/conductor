@@ -2,7 +2,7 @@
 format: aep.planning-md/3
 id: story:conductor-context-budget
 kind: story
-status: active
+status: implemented
 title: Conductor runs 4 hours before its hand-over threshold
 summary: Measure what fills conductor's context and cut the largest source
 relations:
@@ -38,10 +38,11 @@ scope:
   path: crates/conductor/tests/status.rs
 - confidence: cited
   path: docs/analysis/conductor-context-budget.md
-revision: 8
+revision: 9
 transitions:
 - {from: "draft", to: "proposed", at: "2026-11-08T00:06:56Z", actor: "human:timo", revision: 5}
 - {from: "proposed", to: "active", at: "2026-11-08T00:06:56Z", actor: "human:timo", revision: 6}
+- {from: "active", to: "implemented", at: "2026-11-10T07:51:24Z", actor: "human:timo", revision: 9, decided_on: {"recorded":{"test_result":1,"metric_observation":1,"review_outcome":1}}}
 ---
 ## Why
 

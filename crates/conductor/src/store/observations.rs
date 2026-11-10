@@ -149,6 +149,10 @@ impl Store {
     pub fn retain(&self, keep: usize) -> Result<Vec<SnapshotId>> {
         self.commit_observations()
             .context("commit the observations held back")?;
+        // Each snapshot brings the index of the instance's streams up to date, so a list reads
+        // at most one cycle's records past it (`story:status-current-snapshot`). The index is
+        // optional: a list reads the feed where it is behind or missing.
+        let _ = self.index();
         let mut ordered: Vec<_> = SnapshotStorage::list(self)
             .into_iter()
             .enumerate()
@@ -193,6 +197,7 @@ impl Store {
             self.runtime
                 .block_on(self.log.forget_tenant(&tenant))
                 .with_context(|| format!("drop the observations of snapshot {}", snapshot.0.0))?;
+            self.forgot(&tenant);
             erased.push(snapshot);
         }
         Ok(erased)

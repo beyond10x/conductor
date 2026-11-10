@@ -759,3 +759,69 @@ fn conductor_dev_starts_on_the_hand_over_and_the_rules_titles() {
         "maintainer.md: the design sections are not start reading"
     );
 }
+
+/// `story:conductor-context-budget`, the start reading halved (measured 2026-11-08: 114,773
+/// characters of start reading in full; the rules' titles and the hand-over, the instance's
+/// files, were 10,843 as read after the change): what the start list reads from this repository,
+/// the profile and `AGENTS.md`, keeps the whole under half of the measured one.
+#[test]
+fn the_maintainer_s_start_reading_from_this_repository_keeps_the_whole_under_half() {
+    const MEASURED: usize = 114_773;
+    const INSTANCE_FILES: usize = 10_843;
+    let read: usize = [
+        agents().join("maintainer.md"),
+        agents().join("../../../AGENTS.md"),
+    ]
+    .iter()
+    .map(|file| {
+        fs::read_to_string(file)
+            .expect("read a start-reading file")
+            .chars()
+            .count()
+    })
+    .sum();
+    assert!(
+        read + INSTANCE_FILES <= MEASURED / 2,
+        "the maintainer profile and AGENTS.md are {read} characters: with the {INSTANCE_FILES} \
+         of the rules' titles and the hand-over, over half of the {MEASURED} measured"
+    );
+}
+
+/// `story:conductor-context-budget`: decisions and dispatches are read since the hand-over, not
+/// whole and not by their last lines; and each file of the start list is named once.
+#[test]
+fn the_maintainer_reads_the_logs_since_its_hand_over_and_no_file_twice() {
+    let dev = profile("maintainer.md");
+    for phrase in [
+        "only the lines since your newest hand-over",
+        "never a log whole",
+    ] {
+        assert!(
+            dev.contains(phrase),
+            "maintainer.md: the observe step holds {phrase:?}"
+        );
+    }
+    let start = dev
+        .split("At session start read")
+        .nth(1)
+        .and_then(|rest| rest.split("You own,").next())
+        .expect("maintainer.md: a start list");
+    for file in ["`AGENTS.md`", "--section conductor-dev --brief", "handoff/"] {
+        assert_eq!(
+            start.matches(file).count(),
+            1,
+            "maintainer.md: the start list names {file} once"
+        );
+    }
+}
+
+/// `story:conductor-context-budget`: a controller's REPORT first line is at most 300 characters,
+/// which `conductor message send` holds it to.
+#[test]
+fn a_controller_keeps_a_report_s_first_line_to_300_characters() {
+    let text = profile("controller.md");
+    assert!(
+        text.contains("at most 300 characters"),
+        "controller.md: the report form names the bound of its first line"
+    );
+}

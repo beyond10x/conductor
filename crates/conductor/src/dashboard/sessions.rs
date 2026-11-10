@@ -5,7 +5,9 @@
 //! - The rows are the instance's sessions from its records, not from where a session works: its
 //!   conductor (the instance's `conductor.session_name`), its maintainer when a session of the
 //!   maintainer role's session name runs, and each controller the store holds `Running` or
-//!   `Paused`, under the session name it was started with. A row of the session list joins the
+//!   `Paused`, under the session name it was started with; a controller the store holds in any
+//!   other state is a row, and counted, while the session list shows its session live
+//!   (`story:dashboard-live-controllers-and-report-text`). A row of the session list joins the
 //!   record of its name, a live one before one that exited; a record no row joins is listed as
 //!   `not running`. Any other session is not the instance's and is not listed.
 //! - A controller's dispatch is the newest open one sent to it (its last event neither `done`,
@@ -45,7 +47,7 @@ const CLOSED: [&str; 3] = ["done", "cancelled", "failed"];
 /// What the page reads from the store: the controllers it runs and the open operator items.
 #[derive(Debug, Clone, Default)]
 pub(super) struct Roster {
-    /// The controllers `Running` or `Paused`, by session name.
+    /// The controllers the store holds, one per session name, by session name.
     pub controllers: Vec<Controller>,
     /// The open class-O and class-H items, as `/v1/decisions` lists them before the log is read.
     pub open: Vec<Value>,
@@ -58,24 +60,28 @@ pub(super) struct Roster {
 pub(super) struct Controller {
     pub repository: String,
     pub session_name: String,
+    /// Whether the store holds it `Running` or `Paused`. One it holds in any other state is
+    /// listed only while the session list shows its session live.
+    pub held: bool,
 }
 
-/// The [`Roster`] of `store`.
+/// The [`Roster`] of `store`: every controller it holds, once per session name, a `Running` or
+/// `Paused` record before any other of that name.
 pub(super) fn roster(store: &Store) -> Roster {
     let mut controllers: Vec<Controller> = ControllerStorage::list(store)
         .into_iter()
-        .filter(|held| {
-            matches!(
+        .map(|held| Controller {
+            held: matches!(
                 held.state,
                 ControllerState::Running | ControllerState::Paused
-            )
-        })
-        .map(|held| Controller {
+            ),
             repository: held.data.repository.0,
             session_name: held.data.session_name.0,
         })
         .collect();
-    controllers.sort_by(|left, right| left.session_name.cmp(&right.session_name));
+    controllers.sort_by(|left, right| {
+        (&left.session_name, !left.held).cmp(&(&right.session_name, !right.held))
+    });
     controllers.dedup_by(|left, right| left.session_name == right.session_name);
     let snapshots = SnapshotStorage::list(store);
     Roster {
@@ -188,8 +194,14 @@ pub(super) fn shown<'a>(
     for controller in &roster.controllers {
         let names = [controller.session_name.clone()];
         let row = pick(listed, &names);
+        let live = row.is_some_and(|row| !exited(row));
+        // The session list decides, whatever the store recorded: the loop records a controller
+        // stopped when it cannot reach its session, and the session may work on.
+        if !controller.held && !live {
+            continue;
+        }
         let dispatch = dispatch(&names, &controller.repository, dispatches, now);
-        if row.is_some_and(|row| !exited(row)) {
+        if live {
             shown.controllers += 1;
         }
         shown.rows.push(session(

@@ -1,0 +1,15 @@
+{
+  "at": "2026-11-10T07:53:26Z",
+  "actor": "human:timo",
+  "artifact": "review-result:w49-u23-adversary-1",
+  "kind": "review-result",
+  "revision": 3,
+  "change": {
+    "change": "redaction",
+    "literal_sha256": "1a46ebfd18248db63a67098eb89cfa9797ea0d03c7dc62a1023a18ad8b1cd37d",
+    "literal_chars": 36,
+    "replacement": "<session>",
+    "count": 8,
+    "reason": "a session id"
+  }
+}

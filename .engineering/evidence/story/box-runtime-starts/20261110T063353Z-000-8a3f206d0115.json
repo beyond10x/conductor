@@ -1,0 +1,14 @@
+{
+  "at": "2026-11-10T06:33:53Z",
+  "actor": "human:timo",
+  "artifact": "story:box-runtime-starts",
+  "kind": "story",
+  "revision": 7,
+  "change": {
+    "change": "evidence",
+    "kind": "review_outcome",
+    "source": "review-result:w49-u12-adversary-1",
+    "review": "review-result:w49-u12-adversary-1",
+    "outcome": "escalated"
+  }
+}

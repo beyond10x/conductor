@@ -89,7 +89,7 @@ Each GitHub Release carries `conductor-<version>-<target>.tar.gz` for `x86_64-un
 `SHA256SUMS`. Download the archive for your machine, check it, and put the binary on `PATH`:
 
 ```console
-version=1.0.1 target=x86_64-unknown-linux-gnu
+version=1.1.0 target=x86_64-unknown-linux-gnu
 archive="conductor-$version-$target.tar.gz"
 url="https://github.com/beyond10x/conductor/releases/download/v$version"
 curl -fsSLO "$url/$archive"
@@ -114,7 +114,7 @@ target the binary was built for and `SHA256SUMS`, checks the sum, runs the new b
 binary until `conductor instance upgrade --instance <name> --tag v<version>` moves it
 ([upgrade and roll back](https://beyond10x.github.io/conductor/docs/guides/upgrade-and-rollback)).
 
-`conductor --version` prints the installed version, `conductor 1.0.1`. `conductor doctor` lists
+`conductor --version` prints the installed version, `conductor 1.1.0`. `conductor doctor` lists
 each program conductor starts with its version, `not needed` for the forge CLI the instance has no
 source on, and ends with `ready`, or `not ready:` and each program missing or older than its pin;
 it exits 1 when not ready.

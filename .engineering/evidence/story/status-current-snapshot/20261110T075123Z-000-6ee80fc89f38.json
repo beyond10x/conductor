@@ -1,0 +1,13 @@
+{
+  "at": "2026-11-10T07:51:23Z",
+  "actor": "human:timo",
+  "artifact": "story:status-current-snapshot",
+  "kind": "story",
+  "revision": 5,
+  "change": {
+    "change": "evidence",
+    "kind": "test_result",
+    "source": "wave/49 at 7dbb18536: cargo nextest run, 1785 run, 1784 passed after one rerun; build_run::a_second_signal_ends_a_stopped_run_that_waits_for_the_ledger fails on the host, in a file the wave does not touch",
+    "reference": "7dbb18536"
+  }
+}

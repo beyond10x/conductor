@@ -169,6 +169,6 @@ pull request merged.
 | no report for a long time | the loop delivers a stalled or silent controller one check-in and restarts it from its charter at the second. `conductor session list` shows its state |
 | `conductor spawn` refused | the refusal names its cause ([refusals](/docs/security/sessions#refusals)) |
 
-`conductor controller stop-controller --controller-id <id>` ends the controller's session and
-records it stopped. `pause-controller` and `resume-controller` stop it and resume it from its
-transcript ([run conductor](./start-conductor.md#controllers)).
+`conductor controller stop-controller --controller-id <id> --reason <why>` ends the controller's
+session and records it stopped with the reason. `pause-controller` and `resume-controller` stop it
+and resume it from its transcript ([run conductor](./start-conductor.md#controllers)).

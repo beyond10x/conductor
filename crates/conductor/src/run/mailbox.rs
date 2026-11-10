@@ -353,7 +353,8 @@ fn resource(tick: &mut Tick<'_, '_>, repo: &str, first: &str) -> Result<bool> {
     Ok(true)
 }
 
-/// One lettered option of a request's body: `A) <label>: <cost>`, `A. …`, `A: …` or `- A) …`.
+/// One lettered option of a request's body: `A) <label>: <cost>`, `A. …`, `A: …` or `- A) …`;
+/// a cost the text names (`. Cost: <cost>`, `— cost <cost>`) is read as `decide` reads it.
 fn option(line: &str) -> Option<Value> {
     let line = line.trim().trim_start_matches(['-', '*']).trim_start();
     let mut chars = line.chars();
@@ -362,10 +363,18 @@ fn option(line: &str) -> Option<Value> {
     if rest.is_empty() {
         return None;
     }
-    let (label, cost) = rest
-        .split_once(": ")
+    let stated = crate::decide::stated_cost(rest);
+    let (label, cost) = stated
+        .as_ref()
+        .map(|(label, cost)| (label.as_str(), cost.as_str()))
+        .or_else(|| rest.split_once(": "))
         .or_else(|| rest.split_once(" - "))
-        .unwrap_or((rest, "not stated"));
+        .unwrap_or((rest, ""));
+    let cost = if cost.trim().is_empty() {
+        "not stated"
+    } else {
+        cost
+    };
     Some(json!({"letter": letter.to_string(), "label": label.trim(), "cost": cost.trim()}))
 }
 

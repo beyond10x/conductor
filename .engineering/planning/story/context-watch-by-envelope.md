@@ -2,7 +2,7 @@
 format: aep.planning-md/3
 id: story:context-watch-by-envelope
 kind: story
-status: active
+status: implemented
 title: The context watch labels only sessions conductor started
 summary: Label a session by its envelope under <state>/sessions/, never by its bare name, so a foreign session never triggers a controller's hand-over
 relations:
@@ -16,10 +16,11 @@ scope:
   path: crates/conductor/tests/run.rs
 - confidence: inferred
   path: crates/conductor/tests/watch.rs
-revision: 6
+revision: 7
 transitions:
 - {from: "draft", to: "proposed", at: "2026-11-08T01:25:57Z", actor: "human:timo", revision: 3}
 - {from: "proposed", to: "active", at: "2026-11-08T01:25:58Z", actor: "human:timo", revision: 4}
+- {from: "active", to: "implemented", at: "2026-11-10T07:51:24Z", actor: "human:timo", revision: 7, decided_on: {"recorded":{"test_result":2}}}
 ---
 ## Why
 
