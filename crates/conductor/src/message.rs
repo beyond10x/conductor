@@ -77,7 +77,13 @@ The first line of a message to conductor is one of:
 [RESOURCE <repo>] <build-slot|disk|usage> <amount>
 [ESCALATION <request-id>] <O|H> <question>
 [HANDOVER <repo>] context <n>k|shutdown
+A [REPORT …] first line is at most 300 characters; the detail goes in the body.
 ";
+
+/// The most characters a `[REPORT …]` first line holds (`story:conductor-context-budget`): it is
+/// logged, listed and typed into the session it reaches, so a longer one does not parse and its
+/// detail belongs in the body.
+pub const REPORT_FIRST_LINE: usize = 300;
 
 /// The prefix `conductor.dispatch.DispatchId` declares (`spec/domains/dispatch.yaml`).
 const DISPATCH_ID: &str = "DSP-";
@@ -192,7 +198,7 @@ pub struct Reading {
 /// A field inside the brackets whose type declares a prefix holds a value with that prefix; a
 /// dispatch id may be `-`, a report that answers no dispatch (`[REPORT conductor -] ready …`). A
 /// report's verb may end in `:`, `;` or `,` (`progress: …`, `started; …`). A line holding a line break is no first line, and
-/// does not parse.
+/// does not parse; nor does a report of more than [`REPORT_FIRST_LINE`] characters.
 #[must_use]
 pub fn read(line: &str) -> Reading {
     let Some(opened) = line.trim().strip_prefix('[') else {
@@ -216,6 +222,8 @@ pub fn read(line: &str) -> Reading {
         let fields: Vec<&str> = inside.split_whitespace().skip(1).collect();
         let words: Vec<&str> = rest.split_whitespace().collect();
         !line.contains(['\n', '\r'])
+            && !(matches!(form.kind, MessageKind::Report)
+                && line.trim().chars().count() > REPORT_FIRST_LINE)
             && fields.len() == form.fields.len()
             && fields.iter().zip(form.fields).all(|(field, prefix)| {
                 field.starts_with(prefix) || (*prefix == DISPATCH_ID && *field == "-")
@@ -565,10 +573,19 @@ pub fn send(state: Option<&Path>, args: &SendArgs) -> Result<ExitCode> {
             from: input.from,
             to: input.to,
             refusal: MailboxSendRefusal::Unparsed,
-            detail: format!(
-                "the first line {first:?} has none of the forms; the format is on standard \
-                 output, and nothing was written"
-            ),
+            detail: if first.trim().chars().count() > REPORT_FIRST_LINE {
+                format!(
+                    "the first line is {} characters, over the {REPORT_FIRST_LINE} a first line \
+                     holds: put the detail in the body; the format is on standard output, and \
+                     nothing was written",
+                    first.trim().chars().count()
+                )
+            } else {
+                format!(
+                    "the first line {first:?} has none of the forms; the format is on standard \
+                     output, and nothing was written"
+                )
+            },
         });
     };
     let dir = crate::state::dir(state)?;

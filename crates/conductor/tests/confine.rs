@@ -730,6 +730,11 @@ fn the_provider_is_given_the_role_s_request_and_first_prompt() {
             "conductor",
             "--model",
             "opus",
+            // The tools the director never calls leave its first-turn context
+            // (`story:conductor-context-budget`).
+            "--disallowedTools",
+            "Artifact,Workflow,ScheduleWakeup,EnterWorktree,AskUserQuestion,ReportFindings,\
+             ShareOnboardingGuide",
             "--permission-mode",
             "bypassPermissions",
             "--setting-sources",

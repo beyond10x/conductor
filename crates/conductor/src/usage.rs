@@ -37,6 +37,17 @@
 //! newest call). Per parent session, its sub-agents: their count, calls and the four counts. Each
 //! table is ordered by cache-read tokens, largest first, ties by name.
 //!
+//! **Context.** A fourth table, per session in the order of the session table, says what fills
+//! its context (`story:conductor-context-budget`): `first_context`, the context of the first
+//! call its transcript holds, whenever that was; `hours`, from the transcript's first line with
+//! an instant, or `--since` when that is later, to its last; and what each source added per hour
+//! of them. `own_output_per_hour` is the output tokens of its calls. `tool_output_per_hour` and
+//! `messages_per_hour` are estimates, a transcript holding no token count for either: the
+//! characters of its tool results, and of every other text a user line carries (a prompt, a
+//! delivered message, what the session tool adds), at [`CHARACTERS_PER_TOKEN`] characters a
+//! token. Only counts are read from a user line, and a user line that cannot be read counts
+//! nothing and is no problem. A session whose `hours` are 0 has 0 in each per-hour column.
+//!
 //! A transcript or a line that cannot be read is not counted, and is named by its repository only
 //! on standard error after the tables; the command then exits 1. A last line without its line
 //! break is a write in progress, not an error.
@@ -169,6 +180,28 @@ pub struct SubagentRow {
     pub tokens: Tokens,
 }
 
+/// What fills one session's context.
+#[derive(Debug, Clone, PartialEq)]
+pub struct ContextRow {
+    /// The repository, or [`OTHER`].
+    pub repository: String,
+    /// The first 8 characters of the session id.
+    pub session: String,
+    /// The context of the first call its transcript holds.
+    pub first_context: u64,
+    /// The hours counted, to two decimals.
+    pub hours: f64,
+    /// The tokens its tool results added per hour, estimated from their characters.
+    pub tool_output_per_hour: u64,
+    /// The tokens the messages it received added per hour, estimated from their characters.
+    pub messages_per_hour: u64,
+    /// The output tokens of its calls per hour.
+    pub own_output_per_hour: u64,
+}
+
+/// The characters counted as one token where a transcript holds text and no token count.
+pub const CHARACTERS_PER_TOKEN: f64 = 4.0;
+
 /// What one reading of the transcripts counted.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Usage {
@@ -180,6 +213,8 @@ pub struct Usage {
     pub sessions: Vec<SessionRow>,
     /// One row per session with sub-agents, largest first.
     pub subagents: Vec<SubagentRow>,
+    /// One row per session, in the order of `sessions`: what fills its context.
+    pub context: Vec<ContextRow>,
     /// What could not be counted, each naming a repository or [`OTHER`] and never a path.
     pub problems: Vec<String>,
 }
@@ -216,6 +251,16 @@ const SUBAGENT_COLUMNS: [&str; 8] = [
     "output",
     "cache_read",
     "cache_write",
+];
+
+const CONTEXT_COLUMNS: [&str; 7] = [
+    "repository",
+    "session",
+    "first_context",
+    "hours",
+    "tool_output_per_hour",
+    "messages_per_hour",
+    "own_output_per_hour",
 ];
 
 /// One table: its name in JSON, its heading, its columns and its rows.
@@ -270,7 +315,22 @@ impl Usage {
         )
     }
 
-    fn tables(&self) -> [Table; 3] {
+    fn tables(&self) -> [Table; 4] {
+        let context = self
+            .context
+            .iter()
+            .map(|row| {
+                vec![
+                    Value::from(row.repository.clone()),
+                    Value::from(row.session.clone()),
+                    Value::from(row.first_context),
+                    Value::from(row.hours),
+                    Value::from(row.tool_output_per_hour),
+                    Value::from(row.messages_per_hour),
+                    Value::from(row.own_output_per_hour),
+                ]
+            })
+            .collect();
         let sessions = self
             .sessions
             .iter()
@@ -318,10 +378,16 @@ impl Usage {
                 columns: &SUBAGENT_COLUMNS,
                 rows: subagents,
             },
+            Table {
+                name: "context",
+                heading: "Context by source, per session,",
+                columns: &CONTEXT_COLUMNS,
+                rows: context,
+            },
         ]
     }
 
-    /// The three tables as `format` renders them: `text` and `markdown` each under its heading;
+    /// The four tables as `format` renders them: `text` and `markdown` each under its heading;
     /// `json` one object holding `since` and each table as an array; `jsonl` one object per row,
     /// its first key `table` naming its table.
     #[must_use]
@@ -481,6 +547,74 @@ struct Call {
     tokens: Tokens,
 }
 
+/// What one session's transcript holds of what fills its context.
+#[derive(Debug, Default)]
+struct Filled {
+    /// Each message of the transcript: its earliest instant, its order and its tokens.
+    calls: HashMap<String, (OffsetDateTime, u64, Tokens)>,
+    /// Each user line: its instant, and the characters of its tool results and of its other text.
+    said: Vec<(OffsetDateTime, u64, u64)>,
+}
+
+/// The figures of one session's [`ContextRow`].
+#[derive(Debug, Clone, Copy)]
+struct Context {
+    first_context: u64,
+    hours: f64,
+    tool_output_per_hour: u64,
+    messages_per_hour: u64,
+    own_output_per_hour: u64,
+}
+
+impl Filled {
+    /// The figures of the transcript, counting what it holds at or after `since`; none for a
+    /// transcript without a call.
+    fn context(&self, since: Option<OffsetDateTime>) -> Option<Context> {
+        let (_, _, first) = self
+            .calls
+            .values()
+            .min_by_key(|(at, order, _)| (*at, *order))?;
+        let instants = || {
+            self.calls
+                .values()
+                .map(|(at, _, _)| *at)
+                .chain(self.said.iter().map(|(at, _, _)| *at))
+        };
+        let opened = instants().min()?;
+        let last = instants().max()?;
+        let from = since.map_or(opened, |since| since.max(opened));
+        let counted = |at: &OffsetDateTime| since.is_none_or(|since| *at >= since);
+        let hours = ((last - from).as_seconds_f64() / 3600.0).max(0.0);
+        let own: u64 = self
+            .calls
+            .values()
+            .filter(|(at, _, _)| counted(at))
+            .map(|(_, _, tokens)| tokens.output)
+            .sum();
+        let (tool, messages) = self
+            .said
+            .iter()
+            .filter(|(at, _, _)| counted(at))
+            .fold((0_u64, 0_u64), |(tool, messages), (_, a, b)| {
+                (tool + a, messages + b)
+            });
+        let per_hour = |tokens: f64| {
+            if hours > 0.0 {
+                (tokens / hours).round() as u64
+            } else {
+                0
+            }
+        };
+        Some(Context {
+            first_context: first.context(),
+            hours: (hours * 100.0).round() / 100.0,
+            tool_output_per_hour: per_hour(tool as f64 / CHARACTERS_PER_TOKEN),
+            messages_per_hour: per_hour(messages as f64 / CHARACTERS_PER_TOKEN),
+            own_output_per_hour: per_hour(own as f64),
+        })
+    }
+}
+
 /// What could not be read, per repository.
 #[derive(Debug, Default)]
 struct Unread {
@@ -497,6 +631,9 @@ pub fn measure(sources: &Sources, since: Option<OffsetDateTime>) -> Usage {
     let transcripts = transcripts(&sources.projects, &names, &mut unread);
 
     let mut calls: HashMap<String, Call> = HashMap::new();
+    // What fills each session's context, by its repository and session id: of two transcripts
+    // of one session, the first in path order.
+    let mut contexts: HashMap<(&str, &str), Context> = HashMap::new();
     let mut order = 0_u64;
     for (index, transcript) in transcripts.iter().enumerate() {
         if let Some(since) = since
@@ -506,8 +643,27 @@ pub fn measure(sources: &Sources, since: Option<OffsetDateTime>) -> Usage {
         {
             continue;
         }
-        let outcome = read(&transcript.path, &mut |id, at, tokens| {
+        let session = transcript.kind == Kind::Session;
+        let mut filled = Filled::default();
+        let outcome = read(&transcript.path, session, &mut |event| {
+            let (id, at, tokens) = match event {
+                Event::Call(id, at, tokens) => (id, at, tokens),
+                Event::Said(at, tool, messages) => {
+                    filled.said.push((at, tool, messages));
+                    return;
+                }
+            };
             order += 1;
+            if session {
+                filled
+                    .calls
+                    .entry(id.clone())
+                    .and_modify(|(known, _, counted)| {
+                        *known = at.min(*known);
+                        *counted = counted.max(tokens);
+                    })
+                    .or_insert((at, order, tokens));
+            }
             let call = Call {
                 at,
                 transcript: index,
@@ -528,6 +684,11 @@ pub fn measure(sources: &Sources, since: Option<OffsetDateTime>) -> Usage {
                 Some(_) => {}
             }
         });
+        if let Some(context) = filled.context(since) {
+            contexts
+                .entry((transcript.repository.as_str(), transcript.session.as_str()))
+                .or_insert(context);
+        }
         let entry = unread.entry(transcript.repository.clone()).or_default();
         match outcome {
             Ok(lines) => entry.lines += lines,
@@ -652,9 +813,26 @@ pub fn measure(sources: &Sources, since: Option<OffsetDateTime>) -> Usage {
         }
     }
 
+    let context = sessions
+        .iter()
+        .filter_map(|(key, row)| {
+            let context = contexts.get(*key)?;
+            Some(ContextRow {
+                repository: row.repository.clone(),
+                session: row.session.clone(),
+                first_context: context.first_context,
+                hours: context.hours,
+                tool_output_per_hour: context.tool_output_per_hour,
+                messages_per_hour: context.messages_per_hour,
+                own_output_per_hour: context.own_output_per_hour,
+            })
+        })
+        .collect();
+
     Usage {
         since: since.and_then(|since| since.format(&Rfc3339).ok()),
         repositories,
+        context,
         sessions: sessions.into_iter().map(|(_, row)| row).collect(),
         subagents: subagents.into_iter().map(|(_, row)| row).collect(),
         problems,
@@ -848,6 +1026,90 @@ struct Counted {
     cache_creation_input_tokens: Option<u64>,
 }
 
+/// The fields of a user line its characters are counted from; every other field is skipped.
+#[derive(Deserialize)]
+struct SaidLine {
+    timestamp: Option<String>,
+    message: Option<SaidMessage>,
+}
+
+#[derive(Deserialize)]
+struct SaidMessage {
+    content: Option<Content>,
+}
+
+/// What a user line, or one of its tool results, carries: a text, a list of blocks, or anything
+/// else, which counts nothing.
+#[derive(Deserialize)]
+#[serde(untagged)]
+enum Content {
+    Text(String),
+    Blocks(Vec<Block>),
+    Other(#[allow(dead_code)] serde::de::IgnoredAny),
+}
+
+#[derive(Deserialize)]
+struct Block {
+    #[serde(rename = "type")]
+    kind: Option<String>,
+    text: Option<String>,
+    content: Option<Content>,
+}
+
+impl Content {
+    /// The characters of its text, at any depth.
+    fn characters(&self) -> u64 {
+        match self {
+            Self::Text(text) => text.chars().count() as u64,
+            Self::Blocks(blocks) => blocks.iter().map(Block::characters).sum(),
+            Self::Other(_) => 0,
+        }
+    }
+}
+
+impl Block {
+    fn characters(&self) -> u64 {
+        self.text
+            .as_ref()
+            .map_or(0, |text| text.chars().count() as u64)
+            + self.content.as_ref().map_or(0, Content::characters)
+    }
+}
+
+/// One line that names a user: its instant, the characters of its tool results and those of its
+/// other text; none for a line of another kind, without an instant, or that cannot be read.
+fn said(text: &str) -> Option<(OffsetDateTime, u64, u64)> {
+    let head = serde_json::from_str::<Head>(text).ok()?;
+    if head.kind.as_ref().and_then(Value::as_str) != Some("user") {
+        return None;
+    }
+    let line = serde_json::from_str::<SaidLine>(text).ok()?;
+    let at = OffsetDateTime::parse(&line.timestamp?, &Rfc3339).ok()?;
+    let (mut tool, mut messages) = (0, 0);
+    match line.message.and_then(|message| message.content) {
+        Some(Content::Blocks(blocks)) => {
+            for block in &blocks {
+                if block.kind.as_deref() == Some("tool_result") {
+                    tool += block.characters();
+                } else {
+                    messages += block.characters();
+                }
+            }
+        }
+        Some(content) => messages += content.characters(),
+        None => {}
+    }
+    Some((at, tool, messages))
+}
+
+/// What a transcript line hands to its reader.
+enum Event {
+    /// A call: its message id, instant and tokens.
+    Call(String, OffsetDateTime, Tokens),
+    /// A user line: its instant, the characters of its tool results and of its other text.
+    Said(OffsetDateTime, u64, u64),
+}
+
 /// What a line that names an assistant is.
 enum Read {
     /// A call: its message id, instant and tokens.
@@ -896,11 +1158,12 @@ fn line(text: &str) -> Read {
     )
 }
 
-/// Reads the transcript at `path`, handing each call to `call`; answers how many lines naming an
-/// assistant could not be read. A last line without its line break is a write in progress and is
-/// not counted as one.
-fn read(path: &Path, call: &mut dyn FnMut(String, OffsetDateTime, Tokens)) -> io::Result<u64> {
+/// Reads the transcript at `path`, handing each call, and with `user` each user line, to
+/// `event`; answers how many lines naming an assistant could not be read. A last line without
+/// its line break is a write in progress and is not counted as one.
+fn read(path: &Path, user: bool, event: &mut dyn FnMut(Event)) -> io::Result<u64> {
     const MARK: &str = "\"assistant\"";
+    const USER: &str = "\"user\"";
     let mut reader = BufReader::with_capacity(1 << 16, File::open(path)?);
     let mut bytes = Vec::new();
     let mut unreadable = 0;
@@ -911,8 +1174,22 @@ fn read(path: &Path, call: &mut dyn FnMut(String, OffsetDateTime, Tokens)) -> io
         }
         let complete = bytes.last() == Some(&b'\n');
         let read = match std::str::from_utf8(&bytes) {
-            Ok(text) if !text.contains(MARK) => Read::Skip,
-            Ok(text) => line(text),
+            Ok(text) => {
+                let read = if text.contains(MARK) {
+                    line(text)
+                } else {
+                    Read::Skip
+                };
+                if user
+                    && complete
+                    && matches!(read, Read::Skip)
+                    && text.contains(USER)
+                    && let Some((at, tool, messages)) = said(text)
+                {
+                    event(Event::Said(at, tool, messages));
+                }
+                read
+            }
             Err(_)
                 if bytes
                     .windows(MARK.len())
@@ -923,7 +1200,7 @@ fn read(path: &Path, call: &mut dyn FnMut(String, OffsetDateTime, Tokens)) -> io
             Err(_) => Read::Skip,
         };
         match read {
-            Read::Call(id, at, tokens) => call(id, at, tokens),
+            Read::Call(id, at, tokens) => event(Event::Call(id, at, tokens)),
             Read::Unreadable if complete => unreadable += 1,
             Read::Unreadable | Read::Skip => {}
         }

@@ -553,8 +553,10 @@ fn dev_start_appends_the_binary_s_maintainer_profile_with_settings_pinned_to_its
         .join("home/.b10x/conductor/alpha/state/sessions/conductor-dev.profile.md");
     assert!(
         args.starts_with(&format!(
-            "--bg -n conductor-dev --append-system-prompt-file {} --model sonnet --permission-mode \
-             bypassPermissions {SETTING_SOURCES} --settings {} Start of session.",
+            "--bg -n conductor-dev --append-system-prompt-file {} --model sonnet --disallowedTools \
+             Artifact,ScheduleWakeup,AskUserQuestion,ReportFindings,ShareOnboardingGuide \
+             --permission-mode bypassPermissions {SETTING_SOURCES} --settings {} Start of \
+             session.",
             profile.display(),
             case.pinned_default("conductor-dev").display()
         )),

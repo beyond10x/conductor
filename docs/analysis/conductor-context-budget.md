@@ -58,3 +58,46 @@ conductor session decides it.
 Each "after" figure is to be read from the transcript of the first conductor session that starts on
 this change: the first `usage` for the first-turn context, and the `usage` of the turn that calls
 `CronCreate` first.
+
+## What the binary holds now (2026-11-10)
+
+The conductor session is retired: `conductor run` runs the loop with no model call, and the
+sessions that fill a context are the director, started by hand, and the maintainer. The files
+named above moved into the binary (`crates/conductor/kinds/claude-code/conductor-settings.json`,
+`crates/conductor/roles/maintainer.md`).
+
+| acceptance | held by | test |
+|---|---|---|
+| the report prints, per session, the first-turn context and what each source adds per hour | the fourth table of `conductor resource usage`, `context` | `tests/usage.rs`: `usage_prints_each_session_s_first_context_and_what_each_source_adds_per_hour`, `since_counts_the_context_added_from_that_instant` |
+| the start denies the tools the role never calls | `--disallowedTools` in the start arguments of the director (the seven tools above) and of the maintainer (Artifact, ScheduleWakeup, AskUserQuestion, ReportFindings, ShareOnboardingGuide), when the role names no settings file of its own | `session::tests`, `tests/taskfile.rs`: `dev_start_appends_the_binary_s_maintainer_profile_with_settings_pinned_to_its_instance` |
+| the start reading is halved | the maintainer profile: the hand-over first, the rules by title, the logs since the hand-over, no file twice | `tests/profiles.rs`: `conductor_dev_starts_on_the_hand_over_and_the_rules_titles`, `the_maintainer_reads_the_logs_since_its_hand_over_and_no_file_twice`, `the_maintainer_s_start_reading_from_this_repository_keeps_the_whole_under_half` |
+| received messages are logged without a session re-typing them | `conductor message send` leaves the text in the mailbox, logs it and answers its id alone | `tests/mailbox.rs`: `a_sent_message_is_answered_with_its_id_alone` |
+| a REPORT first line is at most 300 characters | `message::read`: a longer one does not parse and is answered with the format | `tests/mailbox.rs`: `a_report_whose_first_line_is_over_300_characters_is_refused` |
+
+A denied tool leaves the prompt: measured 2026-11-08 with two background sessions in an empty
+directory, 28,269 first-turn tokens without `--disallowedTools` and 26,500 with eight tools
+denied. The maintainer keeps Workflow and EnterWorktree, which a wave may call.
+
+### The context table
+
+One row per session with a call counted: `first_context`, the input, cache-read and cache-write
+tokens of its first call; `hours`, from its first line, or `--since` when later, to its last;
+and per hour `own_output_per_hour`, the output tokens of its calls, `tool_output_per_hour` and
+`messages_per_hour`, the characters of its tool results and of every other text a user line
+carries, at four characters a token. The last two are estimates: a transcript holds no token
+count for them.
+
+### Not measured
+
+No test can hold these; each is read on a live instance with `conductor resource usage`:
+
+- first-turn context at most 30k tokens: `first_context` of the first director or maintainer
+  session started on this change (before: 51.6k for conductor, 45.5k to 47.1k for the
+  maintainer);
+- context at the first `CronCreate` at most 65k tokens: the `usage` of the turn that calls it
+  first, read from that transcript (before: 69.8k for the maintainer);
+- at least 4 hours from start to `thresholds.context_handover` on a day with 8 working
+  controllers: two reports of `conductor resource usage --since <start of day>`, one from a day
+  before this change and one after, each with the session's `first_context`, its three per-hour
+  figures and the time between its first call and its hand-over. With the threshold at T tokens
+  the three per-hour figures must sum to at most (T - `first_context`) / 4.
