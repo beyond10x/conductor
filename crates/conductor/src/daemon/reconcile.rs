@@ -449,7 +449,10 @@ impl<U: Units> Daemon<U> {
                 name: crate::placement::UNREACHABLE.to_owned(),
                 detail: format!("{error:#}"),
             })
-            .and_then(|()| substrate.restart(&opened.workspace, &request));
+            .and_then(|()| match request.refused.clone() {
+                Some(why) => Err(why),
+                None => substrate.restart(&opened.workspace, &request),
+            });
         drop(substrate);
         let outcome = match restarted {
             Ok(session) => {
@@ -876,18 +879,25 @@ impl<U: Units> Daemon<U> {
     }
 
     /// The box `instance` asks for, its runtime started as `service` says, with no credential in
-    /// its environment: substrate seals only slots its daemon declares.
+    /// its environment: substrate seals only slots its daemon declares. A box inherits nothing,
+    /// so its `HOME` is set: the daemon's, which the config file's `~` stands for. The box writes
+    /// nothing of the daemon's own directory ([`crate::placement::Host::daemon`]).
     fn box_request(&self, instance: &Instance, service: &Service) -> crate::placement::BoxRequest {
         let token = format!("{}=", crate::instance::TOKEN_VARIABLE);
-        let env = service
+        let mut env: Vec<(String, String)> = service
             .env
             .iter()
             .filter(|pair| !pair.starts_with(&token))
             .filter_map(|pair| pair.split_once('='))
             .map(|(name, value)| (name.to_owned(), value.to_owned()))
             .collect();
+        if env.iter().all(|(name, _)| name != "HOME") {
+            env.push(("HOME".to_owned(), self.home.display().to_string()));
+        }
         let binary = PathBuf::from(service.command.first().cloned().unwrap_or_default());
-        crate::placement::request(instance, &self.config_file, &binary, env)
+        let mut host = crate::placement::Host::of(&env);
+        host.daemon = Some(self.dir.clone());
+        crate::placement::request_on(instance, &self.config_file, &binary, env, &host)
     }
 
     /// The local substrate daemon's model-token slot pool (`daemon.substrate_slots`), under the
@@ -955,7 +965,7 @@ impl<U: Units> Daemon<U> {
         // The runtime starts in its state directory, which a first start creates; a directory
         // that cannot be made fails the start, which names it.
         let _ = fs::create_dir_all(&instance.state);
-        // The box's writable host root, which substrate refuses by name when it is absent.
+        // In the box's writable state root, which substrate refuses by name when it is absent.
         let _ = crate::placement::prepare_sessions(Path::new(&instance.state));
         Service {
             unit: unit_name(name),

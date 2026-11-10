@@ -5360,6 +5360,22 @@ pub fn validate(config: Option<&Path>, args: &ValidateConfigArgs) -> Result<Exit
     if loaded.read {
         // No instance without a prefix (`story:instance-names-unique`).
         problems.extend(unique_problems(&loaded.config));
+        // No box conductord refuses before substrate is asked (`story:box-runtime-starts`). A
+        // sqlite store without an absolute path is refused for a box too, and noted: the file
+        // is one the commands outside a box read.
+        let (relative, refused): (Vec<Problem>, Vec<Problem>) = box_problems(
+            &loaded.config,
+            &environment.cwd.join(&loaded.path),
+            &environment,
+        )
+        .into_iter()
+        .partition(|problem| {
+            problem
+                .message
+                .starts_with(crate::placement::STORE_NOT_ABSOLUTE)
+        });
+        problems.extend(refused);
+        notes.extend(relative);
         for note in &notes {
             eprintln!(
                 "conductor: {WHAT}: {}: note: {}: {}",
@@ -5425,6 +5441,62 @@ pub(crate) fn unique_problems(config: &Config) -> Vec<Problem> {
         });
     }
     problems
+}
+
+/// One problem per instance whose box conductord would refuse before it asks substrate
+/// ([`crate::placement::unmountable`]): a directory the box writes holds the config file `file`
+/// or lies with conductord's directory, the sqlite store has no absolute path, or the box would
+/// name more mounts than one start may ([`box_refusals`]).
+fn box_problems(config: &Config, file: &Path, environment: &Environment) -> Vec<Problem> {
+    box_refusals(config, file, environment, None)
+        .into_iter()
+        .map(|(index, refused)| Problem {
+            path: format!("instances[{index}].placement"),
+            message: format!("{}: {}", refused.name, refused.detail),
+        })
+        .collect()
+}
+
+/// Each instance of `config`, by its index, whose box conductord would refuse before it asks
+/// substrate, with the refusal. Read on this host as conductord's default layout has it: `HOME`,
+/// `PATH`, and the `daemon.store` the file writes, or `store` in its place. A file that writes
+/// none is held to no store: conductord does not start on it, and the default store of the other
+/// commands stays where it is.
+pub(crate) fn box_refusals(
+    config: &Config,
+    file: &Path,
+    environment: &Environment,
+    store: Option<&str>,
+) -> Vec<(usize, crate::placement::Refused)> {
+    let home = environment.home().ok().map(Path::to_owned);
+    let written = fs::read_to_string(file)
+        .ok()
+        .and_then(|text| serde_yaml::from_str::<Value>(&text).ok())
+        .is_some_and(|value| {
+            value
+                .get("daemon")
+                .and_then(|daemon| daemon.get("store"))
+                .is_some()
+        });
+    let host = crate::placement::Host {
+        daemon: home.as_ref().map(|home| home.join(crate::daemon::DIR)),
+        home,
+        path: std::env::var_os("PATH"),
+        store: store
+            .map(str::to_owned)
+            .or_else(|| written.then(|| config.daemon.store.0.clone())),
+    };
+    let binary = std::env::current_exe().unwrap_or_default();
+    config
+        .instances
+        .iter()
+        .enumerate()
+        .filter(|(_, instance)| crate::placement::boxed(instance))
+        .filter_map(|(index, instance)| {
+            crate::placement::unmountable(instance, file, &binary, &host)
+                .map(|refused| (index, refused))
+        })
+        .collect()
 }
 
 /// Whether the prefixes `a` and `b` are one, or one followed by `-` begins the other, so that one

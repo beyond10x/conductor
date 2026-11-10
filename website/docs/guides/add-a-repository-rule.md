@@ -21,7 +21,7 @@ Add a `repositories` list to the instance. Each rule matches a repository and se
 ```yaml
 version: conductor.config/2
 daemon:
-  store: sqlite:~/.b10x/conductor/conductor.sqlite
+  store: sqlite:~/.b10x/conductor/store/conductor.sqlite
 instances:
   - name: demo
     placement: linux

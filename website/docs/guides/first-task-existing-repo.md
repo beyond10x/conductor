@@ -42,6 +42,14 @@ repository's `origin`, and `~/src` as the checkouts root. Then it runs `conducto
 `conductor trust`. With a config file whose instances do not name the repository, it prints the
 instance to add as `to write:` lines and changes nothing.
 
+`--apply` then checks each box as conductord does before it starts one. When conductord would refuse
+an instance's box, a fifth row, `box:`, names the refusal and the verdict reads
+`not ready: box (refused)`. With a database already at `~/.b10x/conductor/conductor.sqlite`, the
+file `--apply` writes names that store, which a box cannot write
+(`placement.writable-root-shared`): it prints `to write: daemon.store:
+sqlite:~/.b10x/conductor/store/conductor.sqlite` and moves nothing. Stop conductord, move the
+database there and write that value, or give the instance a placement without a box.
+
 When doctor's row reads `worktree workspace: ~/src not activated`, `--apply` also activates the
 checkouts root as a worktree workspace. It writes a profile for the instance beside the config
 file, `~/.b10x/conductor/worktree/alpha.toml`, unless one is there, and runs
@@ -66,7 +74,8 @@ An instance whose checkouts root holds the checkout, such as the `home` instance
 
 For the instance `--apply` wrote, do steps 5 and 6 of
 [getting started](../getting-started.md#5-start-the-substrate-daemon): start `substrate-daemon`
-with this instance's writable root, `--writable-root sessions-alpha=<state>/sessions`, then
+with this instance's writable roots, `--writable-root state-alpha=<state>`,
+`--writable-root records-alpha=<records>` and `--writable-root cache-alpha=<cache>`, then
 `conductor daemon serve --install`. `substrate-daemon` reads its writable roots at start, so a
 running one is restarted with the new root. A running conductord starts the new runtime at its
 next pass after the config file changed.

@@ -98,7 +98,7 @@ to fill in, and each step says where they come from. `<target>` is the build of 
    ```yaml
    version: conductor.config/2
    daemon:
-     store: sqlite:~/.b10x/conductor/conductor.sqlite
+     store: sqlite:~/.b10x/conductor/store/conductor.sqlite
    instances:
      - name: <repository's directory name>
        placement: systemd
@@ -143,9 +143,15 @@ to fill in, and each step says where they come from. `<target>` is the build of 
    `$XDG_RUNTIME_DIR/substrate/daemon.sock`. `<state>` is the instance's `state` value in
    `conductor config show`; create `<state>/sessions`, ~/.local/state/substrate and
    ~/.local/state/substrate/workspaces, each at mode 700, before the daemon starts: it refuses a writable root that does not exist and a state directory that is not mode 700. `<uid>` is the user's numeric id.
+   The runtime writes its state directory, its records, its cache and the directory of the
+   sqlite store (`daemon.store`), each a writable root: `state-<name>=<state>`,
+   `records-<name>=<records>`, `cache-<name>=<cache>`, `store=<store directory>`; `<records>`
+   and `<cache>` are the instance's `records` and `cache` values in `conductor config show`.
+   With the file of step 6 the store directory is ~/.b10x/conductor/store. Create the cache and
+   the store directory mode 700 too. Each root is one `--writable-root <root>` below.
    - Check: `curl --silent --unix-socket $XDG_RUNTIME_DIR/substrate/daemon.sock http://localhost/v1/machine`;
-     it answers, and its exec.writable-roots.host fact lists sessions-<name>.
-   - Fix: `substrate-daemon --socket $XDG_RUNTIME_DIR/substrate/daemon.sock --state ~/.local/state/substrate/state.db --workspaces ~/.local/state/substrate/workspaces --deployment personal --allow-uid <uid> --cgroup-root <delegated cgroup root> --writable-root sessions-<name>=<state>/sessions --egress-aperture conductor=api.anthropic.com:443/tcp --ca-bundle $(readlink -f /etc/ssl/certs/ca-certificates.crt)`,
+     it answers, and its exec.writable-roots.host fact lists each root by its name.
+   - Fix: `substrate-daemon --socket $XDG_RUNTIME_DIR/substrate/daemon.sock --state ~/.local/state/substrate/state.db --workspaces ~/.local/state/substrate/workspaces --deployment personal --allow-uid <uid> --cgroup-root <delegated cgroup root> --writable-root <root> --egress-aperture conductor=api.anthropic.com:443/tcp --ca-bundle $(readlink -f /etc/ssl/certs/ca-certificates.crt)`,
      run inside that subtree and kept running.
    - Hands: the delegated cgroup subtree, when the user's systemd does not delegate one.
 

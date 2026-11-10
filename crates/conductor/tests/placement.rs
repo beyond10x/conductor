@@ -76,6 +76,9 @@ struct Log {
     /// For each box asked for, the mode of each writable root's directory at that moment;
     /// `None` for one that was not there.
     roots_at_open: Vec<Vec<Option<u32>>>,
+    /// For each box asked for, the mode of the sessions directory under its state directory at
+    /// that moment; `None` when it was not there.
+    sessions_at_open: Vec<Option<u32>>,
 }
 
 /// A substrate daemon that opens every box it is asked for, unless told to refuse.
@@ -112,6 +115,12 @@ impl Substrate for Fake {
             })
             .collect();
         log.roots_at_open.push(roots);
+        log.sessions_at_open.push(
+            fs::metadata(Path::new(&request.cwd).join("sessions"))
+                .ok()
+                .filter(fs::Metadata::is_dir)
+                .map(|meta| meta.permissions().mode() & 0o777),
+        );
         log.opened.push(request.clone());
         let n = log.opened.len();
         let session = format!("ses_{n}");
@@ -250,7 +259,8 @@ impl Case {
             .join("placement")
             .join(name);
         let _ = fs::remove_dir_all(&dir);
-        for sub in ["home/work", "bin"] {
+        // The store in a directory of its own: a box writes the whole directory of a store.
+        for sub in ["home/work", "bin", "store"] {
             fs::create_dir_all(dir.join(sub)).expect("create a case directory");
         }
         Self { dir }
@@ -265,7 +275,7 @@ impl Case {
     }
 
     fn url(&self) -> String {
-        format!("sqlite:{}", self.dir.join("shared.sqlite").display())
+        format!("sqlite:{}", self.dir.join("store/shared.sqlite").display())
     }
 
     /// A `conductor.config/2` file of one instance per `(name, placement)`, each placement
@@ -1417,11 +1427,27 @@ fn an_adapter_is_the_confinement_facts_it_requires_never_its_name() {
     assert!(refused.detail.contains("whole-tree-kill"), "{refused:?}");
 }
 
+/// The names of the writable roots the box of [`linux_instance`] asks for.
+fn root_names(case: &Case) -> Vec<String> {
+    placement::request(
+        &linux_instance(case),
+        &case.file(),
+        Path::new("/opt/conductor/bin/conductor"),
+        Vec::new(),
+    )
+    .writable_roots
+    .into_iter()
+    .map(|root| root.name)
+    .collect()
+}
+
 #[test]
 fn a_box_request_carries_its_requirement_and_its_named_writable_roots() {
     let case = Case::new("box-requires");
     let mut instance = linux_instance(&case);
     instance.placement = PlacementName("systemd".to_owned());
+    instance.state = case.dir.join("i/state").display().to_string();
+    instance.records = case.dir.join("i/records").display().to_string();
     let request = placement::request(
         &instance,
         &case.file(),
@@ -1431,25 +1457,36 @@ fn a_box_request_carries_its_requirement_and_its_named_writable_roots() {
     assert_eq!(request.requires, placement::requires(Adapter::Systemd));
     assert_eq!(
         request.writable_roots,
-        [placement::HostRoot {
-            name: format!("sessions-{}", instance.name.0),
-            path: Path::new(&instance.state)
-                .join("sessions")
-                .display()
-                .to_string(),
-        }]
+        [
+            placement::HostRoot {
+                name: format!("state-{}", instance.name.0),
+                path: instance.state.clone(),
+            },
+            placement::HostRoot {
+                name: format!("records-{}", instance.name.0),
+                path: instance.records.clone(),
+            },
+            placement::HostRoot {
+                name: format!("cache-{}", instance.name.0),
+                path: instance.cache.clone(),
+            },
+        ]
     );
 }
 
 #[test]
 fn a_writable_root_name_is_in_substrates_root_name_set() {
     for (instance, name) in [
-        ("alpha", "sessions-alpha"),
-        ("example-org_2", "sessions-example-org_2"),
-        ("a.b c/d", "sessions-a_b_c_d"),
+        ("alpha", "state-alpha"),
+        ("example-org_2", "state-example-org_2"),
+        ("a.b c/d", "state-a_b_c_d"),
     ] {
-        assert_eq!(placement::writable_root_name(instance), name);
+        assert_eq!(placement::writable_root_name("state", instance), name);
     }
+    assert_eq!(
+        placement::writable_root_name("records", "a.b"),
+        "records-a_b"
+    );
 }
 
 /// A local substrate daemon on a Unix socket: it answers `GET /v1/machine` with `facts` beside
@@ -1599,12 +1636,15 @@ impl FakeLocal {
 fn the_sdk_starts_the_runtime_with_each_writable_root_by_name_in_order() {
     let case = Case::new("roots");
     let socket = case.dir.join("s.sock");
-    let root = placement::writable_root_name(&linux_instance(&case).name.0);
+    let mut served = root_names(&case);
+    let own = served.len();
+    served.push("second".to_owned());
+    let served: Vec<&str> = served.iter().map(String::as_str).collect();
     let fake = FakeLocal::opening(
         &socket,
         &LINUX_FAMILIES,
         &[Property::IpcSocketAllowlist, Property::IpcSignalsContained],
-        &[root.as_str(), "second"],
+        &served,
     );
     let mut sdk = placement::Sdk::default();
     sdk.socket = socket.clone();
@@ -1623,7 +1663,8 @@ fn the_sdk_starts_the_runtime_with_each_writable_root_by_name_in_order() {
         .iter()
         .map(|root| serde_json::json!({"host": root.name, "mount": root.path}))
         .collect();
-    assert_eq!(expected.len(), 2);
+    assert!(own >= 1, "the box writes its state directory");
+    assert_eq!(expected.len(), own + 1);
     let refused = sdk
         .open(&request)
         .expect_err("the fake answers the session start 503");
@@ -1646,12 +1687,13 @@ fn the_sdk_starts_the_runtime_with_each_writable_root_by_name_in_order() {
 fn the_sdk_refuses_a_box_whose_facts_the_local_daemon_does_not_publish_before_anything_starts() {
     let case = Case::new("facts");
     let socket = case.dir.join("s.sock");
-    let root = placement::writable_root_name(&linux_instance(&case).name.0);
+    let served = root_names(&case);
+    let served: Vec<&str> = served.iter().map(String::as_str).collect();
     let fake = FakeLocal::start(
         &socket,
         &LINUX_FAMILIES,
         &[Property::IpcSocketAllowlist, Property::IpcSignalsContained],
-        &[root.as_str()],
+        &served,
     );
     let mut sdk = placement::Sdk::default();
     sdk.socket = socket.clone();
@@ -1775,9 +1817,20 @@ fn conductord_creates_the_sessions_root_mode_0700_before_it_asks_for_the_box() {
     assert_eq!(done[0].result, ReconcileResult::Succeeded, "{done:?}");
     let log = fake.log.lock().expect("the log");
     assert_eq!(
-        log.roots_at_open,
-        [vec![Some(0o700)]],
-        "each writable root is a 0700 directory when the box is asked for: {:?}",
+        log.sessions_at_open,
+        [Some(0o700)],
+        "the sessions directory is a 0700 directory when the box is asked for: {:?}",
+        log.opened
+    );
+    let state = case.dir.join("alpha/state");
+    let holds_state = log.opened[0]
+        .writable_roots
+        .iter()
+        .position(|root| state.starts_with(&root.path))
+        .expect("a writable root holds the state directory");
+    assert!(
+        log.roots_at_open[0][holds_state].is_some(),
+        "the root that holds the state directory is there when the box is asked for: {:?}",
         log.opened
     );
 }
@@ -2087,4 +2140,824 @@ fn conductord_renews_a_box_and_restarts_its_runtime_in_the_same_box_before_the_r
         )
         .expect("a pass");
     assert!(done.is_empty(), "the restarted runtime runs: {done:?}");
+}
+
+// ---------------------------------------------------------------------------------------------
+// `story:box-runtime-starts`: the box carries HOME and mounts what the runtime reads and writes
+// ---------------------------------------------------------------------------------------------
+
+/// Whether `path` is at or under a writable root of `request`.
+fn writes(request: &BoxRequest, path: &Path) -> bool {
+    request
+        .writable_roots
+        .iter()
+        .any(|root| path.starts_with(&root.path))
+}
+
+#[test]
+fn conductord_asks_for_a_systemd_box_with_home_and_only_its_own_directories_writable() {
+    let case = Case::new("box-home");
+    let file = case.config(&[("alpha", "systemd")]);
+    let store = case.dir.join("store/shared.sqlite");
+    let fake = Fake::default();
+    let mut daemon = case.daemon(fake.clone());
+    let done = daemon
+        .pass(
+            conductor_model::instance::ReconcileReason::ConfigChange,
+            std::time::Instant::now(),
+        )
+        .expect("a pass");
+    assert_eq!(done[0].result, ReconcileResult::Succeeded, "{done:?}");
+    let log = fake.log.lock().expect("the log");
+    let asked = &log.opened[0];
+
+    let home = asked
+        .env
+        .iter()
+        .find(|(name, _)| name == "HOME")
+        .map(|(_, value)| value.clone());
+    assert_eq!(
+        home,
+        Some(case.home().display().to_string()),
+        "the box carries the daemon's HOME: {asked:?}"
+    );
+
+    let alpha = case.dir.join("alpha");
+    for (what, path) in [
+        ("the state directory", alpha.join("state")),
+        ("the loop's lock", alpha.join("state/run/lock")),
+        ("the API socket", alpha.join("state/api.sock")),
+        ("the records", alpha.join("records")),
+        ("the collectors' exports", alpha.join("cache/exports")),
+        ("the decider's directory", alpha.join("cache/decide")),
+        ("the store", store.clone()),
+    ] {
+        assert!(
+            writes(asked, &path),
+            "{what} ({}) is in a writable root: {asked:?}",
+            path.display()
+        );
+    }
+    assert_eq!(
+        asked
+            .writable_roots
+            .iter()
+            .map(|root| root.name.as_str())
+            .collect::<Vec<_>>(),
+        ["state-alpha", "records-alpha", "cache-alpha", "store"],
+        "the instance's own directories and the store's, nothing else"
+    );
+    // The daemon was opened on its own directory, not the default one under HOME.
+    for (what, path) in [
+        ("the config file", file.clone()),
+        (
+            "the runtimes' tokens",
+            case.dir.join("daemon/runtimes.json"),
+        ),
+        ("the pinned binaries", case.dir.join("daemon/binaries.json")),
+    ] {
+        assert!(
+            !writes(asked, &path),
+            "{what} ({}) is in no writable root: {asked:?}",
+            path.display()
+        );
+    }
+    assert!(
+        asked
+            .read_only_files
+            .iter()
+            .any(|known| known.mount == file.display().to_string()),
+        "the config file is read: {asked:?}"
+    );
+    assert_substrate_admits(asked);
+}
+
+/// The store beside the config file and the daemon's directory, as `~/.b10x/conductor` holds
+/// all three by default: a writable root is a whole directory, so no box can write that store.
+#[test]
+fn conductord_refuses_a_box_whose_store_shares_its_directory_before_substrate_is_asked() {
+    let case = Case::new("box-store-shared");
+    let file = case.config(&[("alpha", "systemd")]);
+    let beside = format!("sqlite:{}", case.dir.join("shared.sqlite").display());
+    let text = fs::read_to_string(&file)
+        .expect("the config")
+        .replace(&case.url(), &beside);
+    fs::write(&file, text).expect("write the config file");
+    let fake = Fake::default();
+    let mut daemon = case.daemon(fake.clone());
+    let done = daemon
+        .pass(
+            conductor_model::instance::ReconcileReason::ConfigChange,
+            std::time::Instant::now(),
+        )
+        .expect("a pass");
+    assert_eq!(done.len(), 1, "{done:?}");
+    assert_eq!(done[0].result, ReconcileResult::Refused, "{done:?}");
+    let detail = done[0].detail.clone().unwrap_or_default();
+    assert!(
+        detail.contains("PlacementRefused")
+            && detail.contains("placement.writable-root-shared")
+            && detail.contains(&format!(
+                "daemon.store: sqlite:{}",
+                case.dir.join("store/shared.sqlite").display()
+            )),
+        "the refusal names the store path to write: {detail}"
+    );
+    assert!(
+        fake.log.lock().expect("the log").opened.is_empty(),
+        "substrate is not asked"
+    );
+    assert_eq!(BoxRefusalStorage::list(daemon.store()).len(), 1);
+}
+
+/// An executable file at `path`.
+fn program(path: &Path) {
+    fs::create_dir_all(path.parent().expect("a parent")).expect("create the directory");
+    fs::write(path, "#!/bin/sh\n").expect("write the program");
+    fs::set_permissions(path, fs::Permissions::from_mode(0o755)).expect("make it executable");
+}
+
+fn real(path: &Path) -> String {
+    fs::canonicalize(path)
+        .expect("the path is there")
+        .display()
+        .to_string()
+}
+
+/// Substrate's lexical rules for one start (its `validate_read_only_roots`,
+/// `validate_read_only_files` and `validate_writable_roots`): at most 4 read-only roots, 16
+/// read-only files and 8 writable roots, each mount absolute with no trailing slash and no
+/// empty, `.` or `..` component, and no mount at or under another.
+fn assert_substrate_admits(request: &BoxRequest) {
+    assert!(request.read_only_roots.len() <= 4, "{request:?}");
+    assert!(request.read_only_files.len() <= 16, "{request:?}");
+    assert!(request.writable_roots.len() <= 8, "{request:?}");
+    let mounts: Vec<&str> = request
+        .read_only_roots
+        .iter()
+        .map(String::as_str)
+        .chain(
+            request
+                .read_only_files
+                .iter()
+                .flat_map(|file| [file.mount.as_str(), file.host_path.as_str()]),
+        )
+        .chain(request.writable_roots.iter().map(|root| root.path.as_str()))
+        .collect();
+    for mount in &mounts {
+        assert!(
+            mount.starts_with('/')
+                && mount.len() > 1
+                && mount[1..]
+                    .split('/')
+                    .all(|part| !part.is_empty() && part != "." && part != ".."),
+            "{mount} is not canonical: {request:?}"
+        );
+    }
+    let mounts: Vec<&str> = request
+        .read_only_roots
+        .iter()
+        .map(String::as_str)
+        .chain(
+            request
+                .read_only_files
+                .iter()
+                .map(|file| file.mount.as_str()),
+        )
+        .chain(request.writable_roots.iter().map(|root| root.path.as_str()))
+        .collect();
+    for (index, one) in mounts.iter().enumerate() {
+        for other in &mounts[index + 1..] {
+            assert!(
+                !Path::new(one).starts_with(other) && !Path::new(other).starts_with(one),
+                "{one} and {other} nest: {request:?}"
+            );
+        }
+    }
+}
+
+#[test]
+fn a_box_mounts_what_the_runtime_and_the_loop_read_and_write_each_named_in_one_list() {
+    let case = Case::new("box-mounts");
+    let file = case.config(&[("alpha", "systemd")]);
+    let mut instance = linux_instance(&case);
+    instance.placement = PlacementName("systemd".to_owned());
+    let own = case.dir.join("i");
+    instance.state = own.join("state").display().to_string();
+    instance.records = own.join("records").display().to_string();
+    instance.cache = own.join("cache").display().to_string();
+    instance.checkouts.root = own.join("checkouts").display().to_string();
+    instance.checkouts.trees = own.join("trees").display().to_string();
+
+    // The harness as its installer leaves it: a link in a directory on PATH to a versioned file.
+    let harness = case.dir.join("tools/share/claude/versions/2.1.0");
+    program(&harness);
+    fs::create_dir_all(case.dir.join("tools/bin")).expect("create the directory");
+    std::os::unix::fs::symlink(&harness, case.dir.join("tools/bin/claude")).expect("link");
+    // The forge CLI in a directory no mount holds, itself a link.
+    let cli = case.dir.join("forge/cellar/gh");
+    program(&cli);
+    fs::create_dir_all(case.dir.join("forge/bin")).expect("create the directory");
+    std::os::unix::fs::symlink(&cli, case.dir.join("forge/bin/gh")).expect("link");
+    // Its login: one of its two files is there.
+    let login = case.home().join(".config/gh/hosts.yml");
+    fs::create_dir_all(login.parent().expect("a parent")).expect("create the directory");
+    fs::write(&login, "github.com: {}\n").expect("write the login");
+
+    let store = case.dir.join("store/conductor.sqlite");
+    let env = vec![
+        ("HOME".to_owned(), case.home().display().to_string()),
+        (
+            "PATH".to_owned(),
+            format!(
+                "{}:{}",
+                case.dir.join("tools/bin").display(),
+                case.dir.join("forge/bin").display()
+            ),
+        ),
+        (
+            conductor_cli::store::STORE_VARIABLE.to_owned(),
+            format!("sqlite:{}", store.display()),
+        ),
+    ];
+    let binary = Path::new("/opt/conductor/bin/conductor");
+
+    let listed = placement::mounts(&instance, &file, binary, &placement::Host::of(&env));
+    assert_eq!(
+        listed.iter().map(|mount| mount.what).collect::<Vec<_>>(),
+        [
+            "state",
+            "records",
+            "cache",
+            "store",
+            "binary",
+            "harness",
+            "checkouts",
+            "config",
+            "harness",
+            "forge-cli",
+            "forge-login",
+        ],
+        "the one list: {listed:?}"
+    );
+
+    let request = placement::request(&instance, &file, binary, env);
+    assert_eq!(request.refused, None, "a box can hold this layout");
+    let mut store_of =
+        conductor_cli::store::open_url(&case.url(), conductor_cli::daemon::TENANT).expect("store");
+    let mut fake = Fake::default();
+    placement::open_box(&mut store_of, &mut fake, &request).expect("the box opens");
+    let log = fake.log.lock().expect("the log");
+    let asked = &log.opened[0];
+
+    assert!(
+        asked
+            .env
+            .contains(&("HOME".to_owned(), case.home().display().to_string())),
+        "the box carries HOME: {asked:?}"
+    );
+    let name = &instance.name.0;
+    assert_eq!(
+        asked.writable_roots,
+        [
+            placement::HostRoot {
+                name: format!("state-{name}"),
+                path: instance.state.clone(),
+            },
+            placement::HostRoot {
+                name: format!("records-{name}"),
+                path: instance.records.clone(),
+            },
+            placement::HostRoot {
+                name: format!("cache-{name}"),
+                path: instance.cache.clone(),
+            },
+            placement::HostRoot {
+                name: "store".to_owned(),
+                path: case.dir.join("store").display().to_string(),
+            },
+        ],
+        "the state directory, the records, the cache and the store's directory are written"
+    );
+    assert_eq!(
+        asked.read_only_roots,
+        [
+            "/opt/conductor/bin".to_owned(),
+            case.dir.join("tools/bin").display().to_string(),
+            instance.checkouts.root.clone(),
+        ],
+        "the binary's and the harness's directories and the checkouts root are read"
+    );
+    let at_own = |path: &Path| placement::HostFile {
+        host_path: real(path),
+        mount: real(path),
+    };
+    assert_eq!(
+        asked.read_only_files,
+        [
+            // The config file, at the path `--config` names.
+            placement::HostFile {
+                host_path: real(&file),
+                mount: file.display().to_string(),
+            },
+            // The file the harness's link names, at its own path: the link is in a root.
+            at_own(&harness),
+            // The forge CLI at the path PATH names it by, the file its link names.
+            placement::HostFile {
+                host_path: real(&cli),
+                mount: case.dir.join("forge/bin/gh").display().to_string(),
+            },
+            // Its login, the one file that is there.
+            placement::HostFile {
+                host_path: real(&login),
+                mount: login.display().to_string(),
+            },
+        ],
+        "the config file, the harness binary, the forge CLI and its login are read"
+    );
+    assert_substrate_admits(asked);
+}
+
+/// The layout the getting-started page had: the config file, the store and conductord's
+/// directory in one directory, each instance's state and records under it.
+#[test]
+fn a_box_writes_no_directory_that_holds_the_config_file_or_the_daemons_directory() {
+    let case = Case::new("box-layout");
+    let top = case.home().join(".b10x/conductor");
+    fs::create_dir_all(&top).expect("create the directory");
+    let file = top.join("conductor.yaml");
+    fs::write(&file, "version: conductor.config/2\n").expect("write the config file");
+    let mut instance = linux_instance(&case);
+    instance.placement = PlacementName("systemd".to_owned());
+    instance.state = top.join("home/state").display().to_string();
+    instance.records = top.join("home/records").display().to_string();
+    instance.cache = case.home().join(".cache/home").display().to_string();
+    let env = |store: String| {
+        vec![
+            ("HOME".to_owned(), case.home().display().to_string()),
+            (
+                "PATH".to_owned(),
+                case.dir.join("none").display().to_string(),
+            ),
+            (conductor_cli::store::STORE_VARIABLE.to_owned(), store),
+        ]
+    };
+    let binary = Path::new("/usr/bin/conductor");
+    let name = &instance.name.0;
+    let own = [
+        placement::HostRoot {
+            name: format!("state-{name}"),
+            path: instance.state.clone(),
+        },
+        placement::HostRoot {
+            name: format!("records-{name}"),
+            path: instance.records.clone(),
+        },
+        placement::HostRoot {
+            name: format!("cache-{name}"),
+            path: instance.cache.clone(),
+        },
+    ];
+
+    // The store beside the config file: its directory is no root, and the box is refused.
+    let request = placement::request(
+        &instance,
+        &file,
+        binary,
+        env(format!("sqlite:{}", top.join("conductor.sqlite").display())),
+    );
+    assert_eq!(
+        request.writable_roots, own,
+        "the store's directory is not written"
+    );
+    let refused = request
+        .refused
+        .clone()
+        .expect("no box can write that store");
+    assert_eq!(refused.name, placement::ROOT_SHARED);
+    assert!(
+        refused.detail.contains(&file.display().to_string())
+            && refused.detail.contains(&format!(
+                "daemon.store: sqlite:{}",
+                top.join("store/conductor.sqlite").display()
+            )),
+        "the refusal names what the directory holds and the store path to write: {refused:?}"
+    );
+    assert_eq!(
+        request.read_only_files,
+        [placement::HostFile {
+            host_path: real(&file),
+            mount: file.display().to_string(),
+        }],
+        "the config file is read"
+    );
+    assert!(
+        request
+            .read_only_roots
+            .iter()
+            .all(|root| !Path::new(root).starts_with("/usr")),
+        "substrate reserves the base system's mounts: {request:?}"
+    );
+    assert_substrate_admits(&request);
+
+    // The store in a directory of its own, under `~/`: read under the box's HOME, and written.
+    let request = placement::request(
+        &instance,
+        &file,
+        binary,
+        env("sqlite:~/.b10x/conductor/store/conductor.sqlite".to_owned()),
+    );
+    assert_eq!(request.refused, None);
+    assert_eq!(
+        request.writable_roots[3],
+        placement::HostRoot {
+            name: "store".to_owned(),
+            path: top.join("store").display().to_string(),
+        }
+    );
+    assert_substrate_admits(&request);
+
+    // A store in the daemon's own directory, and a state directory that holds the config file.
+    let request = placement::request(
+        &instance,
+        &file,
+        binary,
+        env("sqlite:~/.b10x/conductor/daemon/db/conductor.sqlite".to_owned()),
+    );
+    assert_eq!(
+        request.refused.map(|refused| refused.name),
+        Some(placement::ROOT_SHARED.to_owned())
+    );
+    instance.state = top.display().to_string();
+    let listed = placement::mounts(
+        &instance,
+        &file,
+        binary,
+        &placement::Host {
+            home: Some(case.home()),
+            path: None,
+            store: None,
+            daemon: None,
+        },
+    );
+    assert!(
+        listed.iter().all(|mount| mount.what != "state"),
+        "{listed:?}"
+    );
+    let refused = placement::unmountable(
+        &instance,
+        &file,
+        binary,
+        &placement::Host {
+            home: Some(case.home()),
+            path: None,
+            store: None,
+            daemon: None,
+        },
+    )
+    .expect("the state directory holds the config file");
+    assert_eq!(refused.name, placement::ROOT_SHARED);
+    assert!(refused.detail.contains("state directory"), "{refused:?}");
+}
+
+/// The records under the checkouts root, as the configure-an-instance guide writes them:
+/// substrate refuses a directory to read that holds one to write.
+#[test]
+fn a_directory_to_read_that_holds_one_to_write_is_named_by_its_other_entries() {
+    let case = Case::new("box-around");
+    let file = case.config(&[("alpha", "systemd")]);
+    let mut instance = linux_instance(&case);
+    instance.placement = PlacementName("systemd".to_owned());
+    let own = case.dir.join("i");
+    let root = own.join("checkouts");
+    // Written with what substrate takes no mount with: a trailing slash, a `.` component.
+    instance.state = format!("{}/./state/", own.display());
+    instance.records = format!("{}/records/", root.display());
+    instance.cache = own.join("cache").display().to_string();
+    instance.checkouts.root = format!("{}/", root.display());
+    instance.checkouts.trees = own.join("trees").display().to_string();
+    for dir in ["records/decisions", "one/src", "two"] {
+        fs::create_dir_all(root.join(dir)).expect("create the directory");
+    }
+    fs::write(root.join("notes.md"), "notes\n").expect("write the file");
+    std::os::unix::fs::symlink(root.join("one"), root.join("link")).expect("link");
+    let env = || {
+        vec![
+            ("HOME".to_owned(), case.home().display().to_string()),
+            (
+                "PATH".to_owned(),
+                case.dir.join("none").display().to_string(),
+            ),
+        ]
+    };
+    let binary = Path::new("/usr/bin/conductor");
+
+    let request = placement::request(&instance, &file, binary, env());
+    assert_eq!(request.refused, None, "{request:?}");
+    assert_eq!(
+        request.cwd,
+        own.join("state").display().to_string(),
+        "the state directory as substrate takes it"
+    );
+    assert_eq!(
+        request
+            .writable_roots
+            .iter()
+            .map(|root| root.path.clone())
+            .collect::<Vec<_>>(),
+        [
+            own.join("state").display().to_string(),
+            root.join("records").display().to_string(),
+            own.join("cache").display().to_string(),
+        ]
+    );
+    assert_eq!(
+        request.read_only_roots,
+        [
+            root.join("one").display().to_string(),
+            root.join("two").display().to_string(),
+        ],
+        "each directory of the checkouts root but the records, no link to one"
+    );
+    assert!(
+        request.read_only_files.contains(&placement::HostFile {
+            host_path: real(&root.join("notes.md")),
+            mount: root.join("notes.md").display().to_string(),
+        }),
+        "each file of the checkouts root: {request:?}"
+    );
+    assert_substrate_admits(&request);
+
+    // More entries than one start names: refused by conductor, naming the directory.
+    for dir in ["three", "four", "five"] {
+        fs::create_dir_all(root.join(dir)).expect("create the directory");
+    }
+    let request = placement::request(&instance, &file, binary, env());
+    let refused = request.refused.clone().expect("five directories to read");
+    assert_eq!(refused.name, placement::MOUNTS_EXCEEDED);
+    assert!(
+        refused.detail.contains(&root.display().to_string())
+            && refused.detail.contains("5 directories to read")
+            && refused
+                .detail
+                .contains(&format!("put records outside {}", root.display())),
+        "the refusal names the directory and the fix: {refused:?}"
+    );
+    let mut store =
+        conductor_cli::store::open_url(&case.url(), conductor_cli::daemon::TENANT).expect("store");
+    let mut fake = Fake::default();
+    let answer = placement::open_box(&mut store, &mut fake, &request)
+        .expect_err("conductor refuses the box");
+    assert_eq!(answer.reason, placement::MOUNTS_EXCEEDED);
+    assert!(
+        fake.log.lock().expect("the log").opened.is_empty(),
+        "substrate is not asked"
+    );
+}
+
+/// The layout the configure-an-instance guide writes: the records outside the checkouts root,
+/// which is then one directory to read however many repositories it holds.
+#[test]
+fn a_checkouts_root_of_six_repositories_with_the_records_outside_it_is_one_directory_to_read() {
+    let case = Case::new("box-six");
+    let file = case.config(&[("alpha", "systemd")]);
+    let mut instance = linux_instance(&case);
+    instance.placement = PlacementName("systemd".to_owned());
+    let own = case.dir.join("i");
+    let root = own.join("checkouts");
+    instance.state = own.join("state").display().to_string();
+    instance.records = own.join("records").display().to_string();
+    instance.cache = own.join("cache").display().to_string();
+    instance.checkouts.root = root.display().to_string();
+    instance.checkouts.trees = own.join("trees").display().to_string();
+    for repository in ["one", "two", "three", "four", "five", "six"] {
+        fs::create_dir_all(root.join(repository).join("src")).expect("create the directory");
+    }
+    let env = vec![
+        ("HOME".to_owned(), case.home().display().to_string()),
+        (
+            "PATH".to_owned(),
+            case.dir.join("none").display().to_string(),
+        ),
+        (conductor_cli::store::STORE_VARIABLE.to_owned(), case.url()),
+    ];
+    let request = placement::request(&instance, &file, Path::new("/usr/bin/conductor"), env);
+    assert_eq!(request.refused, None, "{request:?}");
+    assert_eq!(
+        request.read_only_roots,
+        [root.display().to_string()],
+        "the checkouts root, whole"
+    );
+    assert_eq!(request.writable_roots.len(), 4, "{request:?}");
+    assert_substrate_admits(&request);
+}
+
+/// The bound of files to read (`story:box-runtime-starts`): the records under the checkouts
+/// root, so each loose file beside them is named alone. Sixteen are one start's; the seventeenth
+/// is refused by conductor's own name before substrate is asked. The config file is in a
+/// directory of the root, read with it, so the loose files are every file the box names.
+#[test]
+fn sixteen_loose_files_beside_the_records_are_admitted_and_the_seventeenth_is_refused() {
+    let case = Case::new("box-files");
+    let mut instance = linux_instance(&case);
+    instance.placement = PlacementName("systemd".to_owned());
+    let own = case.dir.join("i");
+    let root = own.join("checkouts");
+    instance.state = own.join("state").display().to_string();
+    instance.records = root.join("records").display().to_string();
+    instance.cache = own.join("cache").display().to_string();
+    instance.checkouts.root = root.display().to_string();
+    instance.checkouts.trees = own.join("trees").display().to_string();
+    fs::create_dir_all(root.join("records")).expect("create the records");
+    fs::create_dir_all(root.join("etc")).expect("create the directory");
+    let file = root.join("etc/conductor.yaml");
+    fs::copy(case.config(&[("alpha", "systemd")]), &file).expect("copy the config file");
+    let asked = || {
+        let env = vec![
+            ("HOME".to_owned(), case.home().display().to_string()),
+            (
+                "PATH".to_owned(),
+                case.dir.join("none").display().to_string(),
+            ),
+            (conductor_cli::store::STORE_VARIABLE.to_owned(), case.url()),
+        ];
+        placement::request(&instance, &file, Path::new("/usr/bin/conductor"), env)
+    };
+    for number in 0..placement::READ_ONLY_FILES_BOUND {
+        fs::write(root.join(format!("note-{number}.txt")), "").expect("write a loose file");
+    }
+    let request = asked();
+    assert_eq!(request.refused, None, "{request:?}");
+    assert_eq!(
+        request.read_only_files.len(),
+        placement::READ_ONLY_FILES_BOUND,
+        "{:?}",
+        request.read_only_files
+    );
+    assert_substrate_admits(&request);
+
+    fs::write(root.join("note-more.txt"), "").expect("write a loose file");
+    let request = asked();
+    let refused = request.refused.clone().expect("seventeen files to read");
+    assert_eq!(refused.name, placement::MOUNTS_EXCEEDED);
+    assert!(
+        refused.detail.contains("17 files to read")
+            && refused
+                .detail
+                .contains(&format!("put records outside {}", root.display())),
+        "{refused:?}"
+    );
+}
+
+/// `config validate` names the refusal before conductord is started.
+#[test]
+fn config_validate_names_a_box_conductord_would_refuse() {
+    let case = Case::new("validate-box");
+    let file = case.config(&[("alpha", "systemd")]);
+    let validate = |file: &Path| {
+        case.conductor(&[
+            "--config",
+            &file.display().to_string(),
+            "config",
+            "validate",
+        ])
+    };
+    let output = validate(&file);
+    assert_eq!(output.status.code(), Some(0), "{}", describe(&output));
+
+    // The store beside the config file.
+    let beside = format!("sqlite:{}", case.dir.join("shared.sqlite").display());
+    let text = fs::read_to_string(&file)
+        .expect("the config")
+        .replace(&case.url(), &beside);
+    fs::write(&file, text).expect("write the config file");
+    let output = validate(&file);
+    assert_eq!(output.status.code(), Some(1), "{}", describe(&output));
+    let said = String::from_utf8_lossy(&output.stderr).into_owned();
+    assert!(
+        said.contains("instances[0].placement")
+            && said.contains("placement.writable-root-shared")
+            && said.contains(&format!(
+                "daemon.store: sqlite:{}",
+                case.dir.join("store/shared.sqlite").display()
+            )),
+        "the problem names its path, the refusal and the store to write: {said}"
+    );
+}
+
+/// A sqlite store written without an absolute path: conductord would open it in its working
+/// directory and the box could be handed no directory of it, so the box is refused by
+/// conductor's own name before substrate is asked, and `config validate` notes it.
+#[test]
+fn a_box_whose_sqlite_store_has_no_absolute_path_is_refused_and_validate_notes_it() {
+    let case = Case::new("box-relative-store");
+    let file = case.config(&[("alpha", "systemd")]);
+    let mut instance = linux_instance(&case);
+    instance.placement = PlacementName("systemd".to_owned());
+    let env = vec![
+        ("HOME".to_owned(), case.home().display().to_string()),
+        (
+            "PATH".to_owned(),
+            case.dir.join("none").display().to_string(),
+        ),
+        (
+            conductor_cli::store::STORE_VARIABLE.to_owned(),
+            "sqlite:shared.sqlite".to_owned(),
+        ),
+    ];
+    let request = placement::request(&instance, &file, Path::new("/usr/bin/conductor"), env);
+    let refused = request.refused.clone().expect("no directory to write");
+    assert_eq!(refused.name, placement::STORE_NOT_ABSOLUTE);
+    assert!(
+        refused.detail.contains("shared.sqlite")
+            && refused.detail.contains("write an absolute path")
+            && refused
+                .detail
+                .contains("daemon.store: sqlite:~/.b10x/conductor/store/conductor.sqlite"),
+        "{refused:?}"
+    );
+    assert!(
+        request
+            .writable_roots
+            .iter()
+            .all(|root| root.name != "store"),
+        "{:?}",
+        request.writable_roots
+    );
+    let mut store =
+        conductor_cli::store::open_url(&case.url(), conductor_cli::daemon::TENANT).expect("store");
+    let mut fake = Fake::default();
+    let answer = placement::open_box(&mut store, &mut fake, &request)
+        .expect_err("conductor refuses the box");
+    assert_eq!(answer.reason, placement::STORE_NOT_ABSOLUTE);
+    assert!(
+        fake.log.lock().expect("the log").opened.is_empty(),
+        "substrate is not asked"
+    );
+
+    let text = fs::read_to_string(&file)
+        .expect("the config")
+        .replace(&case.url(), "sqlite:shared.sqlite");
+    fs::write(&file, text).expect("write the config file");
+    let output = case.conductor(&[
+        "--config",
+        &file.display().to_string(),
+        "config",
+        "validate",
+    ]);
+    assert_eq!(output.status.code(), Some(0), "{}", describe(&output));
+    let said = String::from_utf8_lossy(&output.stderr).into_owned();
+    assert!(
+        said.contains("note: instances[0].placement: placement.store-not-absolute: "),
+        "{said}"
+    );
+}
+
+#[test]
+fn the_sdk_starts_the_runtime_with_each_read_only_file_at_its_mount() {
+    let case = Case::new("files");
+    let socket = case.dir.join("s.sock");
+    let file = case.config(&[("alpha", "linux")]);
+    let request = placement::request(
+        &linux_instance(&case),
+        &file,
+        Path::new("/opt/conductor/bin/conductor"),
+        Vec::new(),
+    );
+    assert!(
+        request
+            .read_only_files
+            .iter()
+            .any(|known| known.mount == file.display().to_string()),
+        "the config file is a read-only file: {request:?}"
+    );
+    let served: Vec<&str> = request
+        .writable_roots
+        .iter()
+        .map(|root| root.name.as_str())
+        .collect();
+    let fake = FakeLocal::opening(
+        &socket,
+        &LINUX_FAMILIES,
+        &[Property::IpcSocketAllowlist, Property::IpcSignalsContained],
+        &served,
+    );
+    let mut sdk = placement::Sdk::default();
+    sdk.socket = socket.clone();
+    let expected: Vec<Value> = request
+        .read_only_files
+        .iter()
+        .map(|file| serde_json::json!({"host_path": file.host_path, "mount": file.mount}))
+        .collect();
+    let refused = sdk
+        .open(&request)
+        .expect_err("the fake answers the session start 503");
+    let starts = fake.starts.lock().expect("the starts").clone();
+    assert_eq!(starts.len(), 1, "one session start: {starts:?} {refused:?}");
+    assert_eq!(
+        starts[0].pointer("/input/exec/read_only_files"),
+        Some(&Value::Array(expected)),
+        "the start names each file: {}",
+        starts[0]
+    );
 }

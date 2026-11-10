@@ -92,7 +92,8 @@ daemon publishes. A miss is refused with substrate's name, `confinement.family-u
 
 | need | how |
 |---|---|
-| the sessions directory | the operator declares `substrate-daemon --writable-root sessions-<instance>=<state>/sessions`; without it the box is refused `exec.writable-roots-host-unserved` |
+| the state directory, the records, the cache, the sqlite store's directory | the operator declares `substrate-daemon --writable-root state-<instance>=<state>`, `records-<instance>=<records>`, `cache-<instance>=<cache>` and `store=<directory>`, one root where one holds the others; without one the box is refused `exec.writable-roots-host-unserved` |
+| nothing else written | a root is a whole directory: a box whose state, records, cache or store directory holds the config file or lies with `~/.b10x/conductor/daemon` is refused `placement.writable-root-shared` before substrate is asked, so a sqlite store is in a directory of its own |
 | the runtime's output | `<state>/sessions/runtime.log` |
 | the model token | a slot of `daemon.substrate_slots`, which the daemon fills from the instance's `model_token` before the box opens |
 | a remote daemon | `placement` also writes `bearer: secret:<name>`, `trust_roots` and `server_identity`; one `conductor instance relay` pipe session carries each API request; an unanswering daemon shows the instance `Unreachable` |

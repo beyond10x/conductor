@@ -17,7 +17,7 @@ cache, its placement, its roles, and its cadence, thresholds and authority. The
 ```yaml
 version: conductor.config/2
 daemon:
-  store: sqlite:~/.b10x/conductor/conductor.sqlite
+  store: sqlite:~/.b10x/conductor/store/conductor.sqlite
 globals:
   roles:
     - {role: supervisor, harness: claude, model: opus}

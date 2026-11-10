@@ -598,9 +598,16 @@ fn setup_apply_writes_a_second_version_file_the_daemon_reconciles() {
     );
     assert!(
         case.home()
-            .join(".b10x/conductor/conductor.sqlite")
+            .join(".b10x/conductor/store/conductor.sqlite")
             .is_file(),
-        "the store is under the case's home"
+        "the store is under the case's home, in a directory of its own"
+    );
+    assert!(
+        !case
+            .home()
+            .join(".b10x/conductor/conductor.sqlite")
+            .exists(),
+        "no store beside the config file"
     );
 
     // A repository outside the instance's checkouts root, which no instance names.
@@ -707,6 +714,109 @@ impl Case {
 /// With no config file and no profile, `--apply` writes the profile template for the instance it
 /// writes, its trees the instance's `checkouts.trees`, runs `worktree activate` with it on the
 /// checkouts root, reads the root again as activated, and ends `ready`.
+/// `--apply` never moves a store and never changes a `daemon.store` that is written
+/// (`story:box-runtime-starts`).
+#[test]
+fn setup_apply_keeps_a_store_that_is_there_and_a_daemon_store_that_is_written() {
+    // A database at the default path of a config without the key: the new file names it.
+    let case = Case::new("store-kept");
+    case.claude_json();
+    let repository = case.repository(
+        "theta",
+        Some("https://github.com/example-org/theta.git"),
+        Some(CURRENT_STORE),
+    );
+    let before = case.home().join(".b10x/conductor/conductor.sqlite");
+    fs::create_dir_all(before.parent().expect("a parent")).expect("create the directory");
+    fs::write(&before, "kept").expect("write the store");
+    let output = case.setup(&repository, &["--apply"]);
+    let config = fs::read_to_string(case.config_file()).unwrap_or_else(|error| {
+        panic!("--apply wrote no config file ({error}): {}", shown(&output))
+    });
+    let parsed: serde_yaml::Value = serde_yaml::from_str(&config).expect("the file is YAML");
+    assert_eq!(
+        parsed["daemon"]["store"].as_str(),
+        Some("sqlite:~/.b10x/conductor/conductor.sqlite"),
+        "the store that is there stays the store:\n{config}"
+    );
+    assert_eq!(
+        fs::read_to_string(&before).expect("the store"),
+        "kept",
+        "the store is not moved"
+    );
+    assert!(
+        !case.home().join(".b10x/conductor/store").exists(),
+        "no second store"
+    );
+    // A box cannot write that store's directory: `--apply` says so, names the value to write
+    // and is not ready, and a second run says the same and changes nothing.
+    for output in [output, case.setup(&repository, &["--apply"])] {
+        let said = String::from_utf8_lossy(&output.stdout).into_owned();
+        assert_eq!(output.status.code(), Some(1), "{}", shown(&output));
+        assert!(
+            said.contains("box: instance theta: placement.writable-root-shared: ")
+                && said.contains(
+                    "to write: daemon.store: sqlite:~/.b10x/conductor/store/conductor.sqlite"
+                )
+                && said.contains("setup moves no store: move the one at ")
+                && said.contains("with conductord stopped")
+                && said.contains("a placement without a box"),
+            "{}",
+            shown(&output)
+        );
+        let verdict = said.lines().last().unwrap_or_default();
+        assert!(
+            verdict.starts_with("not ready: ") && verdict.contains("box (refused)"),
+            "{}",
+            shown(&output)
+        );
+        assert_eq!(
+            fs::read_to_string(case.config_file()).expect("the config file"),
+            config,
+            "the file is not changed"
+        );
+        assert_eq!(fs::read_to_string(&before).expect("the store"), "kept");
+    }
+
+    // A config file that is there: `--apply` prints the instance to add and changes no byte.
+    let case = Case::new("store-written");
+    case.claude_json();
+    let repository = case.repository(
+        "iota",
+        Some("https://github.com/example-org/iota.git"),
+        Some(CURRENT_STORE),
+    );
+    let written = "version: conductor.config/2\n\
+                   daemon:\n\
+                   \x20 store: sqlite:~/.b10x/conductor/conductor.sqlite\n\
+                   instances:\n\
+                   \x20 - name: other\n\
+                   \x20   placement: systemd\n\
+                   \x20   session_prefix: other\n\
+                   \x20   sources:\n\
+                   \x20     - local: ~/other\n\
+                   \x20   checkouts:\n\
+                   \x20     root: ~/other\n\
+                   \x20     trees: ~/trees/other\n";
+    let file = case.config_file();
+    fs::create_dir_all(file.parent().expect("a parent")).expect("create the directory");
+    fs::write(&file, written).expect("write the config file");
+    let output = case.setup(&repository, &["--apply"]);
+    assert_eq!(
+        fs::read_to_string(&file).expect("the config file"),
+        written,
+        "the file is as it was: {}",
+        shown(&output)
+    );
+    assert!(
+        stdout(&output)
+            .iter()
+            .any(|line| line.starts_with("to write: ")),
+        "the instance to add is printed: {}",
+        shown(&output)
+    );
+}
+
 #[test]
 fn setup_apply_activates_the_worktree_workspace_with_a_profile_it_writes() {
     let case = Case::new("worktree-activation");

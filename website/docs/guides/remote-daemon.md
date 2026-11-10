@@ -16,7 +16,7 @@ On the server, the config file lives in a git checkout of the config repository:
 ```yaml
 version: conductor.config/2
 daemon:
-  store: sqlite:~/.b10x/conductor/conductor.sqlite
+  store: sqlite:~/.b10x/conductor/store/conductor.sqlite
   loopback: false
   tls:
     listen: 0.0.0.0:7443
