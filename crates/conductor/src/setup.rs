@@ -27,6 +27,12 @@
 //! migrates a store: it prints each as a `to install: ` or `to run: ` line, and a `worktree
 //! activate` that `worktree` refused as a `to run: ` line too. Everything it checks is read again
 //! after it applied.
+//!
+//! With `--apply` a fifth row follows when conductord would refuse the box of an instance of
+//! the file `--apply` wrote or found, by the check `conductor config validate` runs
+//! ([`box_check`]): `box`, with the refusal, and the verdict names `box (refused)`. Where
+//! another `daemon.store` lifts the refusal it prints that value as a `to write: ` line and
+//! says that it moves no store.
 
 use std::fs;
 use std::io::ErrorKind;
@@ -437,6 +443,7 @@ fn failure(check: &RepositoryCheck) -> Option<String> {
         "instance" => "none",
         "records" => "missing",
         "trust" => "not trusted",
+        "box" => "refused",
         _ => "not ready",
     };
     Some(format!("{} ({what})", check.check))
@@ -487,6 +494,44 @@ fn left_to_a_person(doctor: &Doctor, checks: &[RepositoryCheck]) -> Vec<String> 
         .chain(activations)
         .chain(migrate)
         .collect()
+}
+
+/// The row `--apply` adds when conductord would refuse the box of an instance of the config
+/// file, by the check `conductor config validate` runs ([`config::box_refusals`]), and the lines
+/// for a person: where [`STORE`] as `daemon.store` lifts the refusal, that value to write and
+/// that setup moves no store. `None` when no box is refused or no file is read.
+fn box_check(
+    flag: Option<&Path>,
+    environment: &Environment,
+) -> Option<(RepositoryCheck, Vec<String>)> {
+    let loaded = config::load(flag, environment)
+        .ok()
+        .filter(|loaded| loaded.read)?;
+    let file = environment.cwd.join(&loaded.path);
+    let (index, refused) = config::box_refusals(&loaded.config, &file, environment, None)
+        .into_iter()
+        .next()?;
+    let name = &loaded.config.instances.get(index)?.name.0;
+    let lifted = config::box_refusals(&loaded.config, &file, environment, Some(STORE))
+        .iter()
+        .all(|(other, _)| *other != index);
+    let mut lines = Vec::new();
+    if lifted {
+        let written = &loaded.config.daemon.store.0;
+        lines.push(format!("to write: daemon.store: {STORE}"));
+        lines.push(format!(
+            "setup moves no store: move the one at {} there with conductord stopped, or give \
+             instance {name} a placement without a box",
+            written.strip_prefix("sqlite:").unwrap_or(written)
+        ));
+    }
+    let check = RepositoryCheck {
+        check: "box".to_owned(),
+        ready: false,
+        detail: format!("instance {name}: {}: {}", refused.name, refused.detail),
+        fix: None,
+    };
+    Some((check, lines))
 }
 
 /// `--apply`: writes the config file naming `repository` when there is none, then runs
@@ -656,7 +701,13 @@ pub fn setup(flag: Option<&Path>, args: &SetupArgs) -> Result<ExitCode> {
         apply(flag, &environment, &repository)?;
     }
     let doctor = doctor::check_at(flag, &repository)?;
-    let checks = checks(flag, &environment, &repository);
+    let mut checks = checks(flag, &environment, &repository);
+    let refused = applying.then(|| box_check(flag, &environment)).flatten();
+    let mut to_write = Vec::new();
+    if let Some((check, lines)) = refused {
+        checks.push(check);
+        to_write = lines;
+    }
     for line in doctor.lines() {
         println!("{line}");
     }
@@ -664,7 +715,10 @@ pub fn setup(flag: Option<&Path>, args: &SetupArgs) -> Result<ExitCode> {
         println!("{}", check_line(check));
     }
     if applying {
-        for line in left_to_a_person(&doctor, &checks) {
+        for line in left_to_a_person(&doctor, &checks)
+            .into_iter()
+            .chain(to_write)
+        {
             println!("{line}");
         }
     }

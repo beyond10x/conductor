@@ -42,6 +42,14 @@ repository's `origin`, and `~/src` as the checkouts root. Then it runs `conducto
 `conductor trust`. With a config file whose instances do not name the repository, it prints the
 instance to add as `to write:` lines and changes nothing.
 
+`--apply` then checks each box as conductord does before it starts one. When conductord would refuse
+an instance's box, a fifth row, `box:`, names the refusal and the verdict reads
+`not ready: box (refused)`. With a database already at `~/.b10x/conductor/conductor.sqlite`, the
+file `--apply` writes names that store, which a box cannot write
+(`placement.writable-root-shared`): it prints `to write: daemon.store:
+sqlite:~/.b10x/conductor/store/conductor.sqlite` and moves nothing. Stop conductord, move the
+database there and write that value, or give the instance a placement without a box.
+
 When doctor's row reads `worktree workspace: ~/src not activated`, `--apply` also activates the
 checkouts root as a worktree workspace. It writes a profile for the instance beside the config
 file, `~/.b10x/conductor/worktree/alpha.toml`, unless one is there, and runs

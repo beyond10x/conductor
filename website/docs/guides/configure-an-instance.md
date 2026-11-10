@@ -33,7 +33,7 @@ instances:
 
 | key | what it sets |
 |---|---|
-| `daemon.store` | the deployment's one database, `sqlite:<path>` or `postgres://…`. The daemon starts only on a `daemon.store` the file writes. A box writes the whole directory of a sqlite store, so the file is in a directory of its own, apart from the config file and `~/.b10x/conductor/daemon`; `config validate` names a box that would be refused (`placement.writable-root-shared`) |
+| `daemon.store` | the deployment's one database, `sqlite:<path>` or `postgres://…`. The daemon starts only on a `daemon.store` the file writes. A box writes the whole directory of a sqlite store, so the file is in a directory of its own, apart from the config file and `~/.b10x/conductor/daemon`; `config validate` names a box that would be refused (`placement.writable-root-shared`). Write the path absolute or under `~/`: a box is refused a store without one (`placement.store-not-absolute`) |
 | `globals` | the defaults every instance starts from. An instance key overrides the global one, and a role's key overrides both |
 | `placement` | where the instance's runtime runs: `linux` or `systemd` opens a box through the local `substrate-daemon`, and a word that names no adapter runs it as a user unit with no box ([the host](../concepts/the-host.md)) |
 | `session_prefix` | the prefix of every session name the instance starts, such as `personal-conductor`. Required |

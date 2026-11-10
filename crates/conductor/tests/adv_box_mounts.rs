@@ -307,11 +307,15 @@ fn a_config_file_that_is_a_link_in_a_writable_root_is_read_in_the_box() {
     fs::create_dir_all(&top).expect("create the directory");
     let held = home.join("dotfiles/conductor.yaml");
     fs::create_dir_all(held.parent().expect("a parent")).expect("create the directory");
-    fs::write(&held, GETTING_STARTED).expect("write the config file");
+    let store = "sqlite:~/.b10x/conductor/store/conductor.sqlite";
+    let text = GETTING_STARTED.replace(STORE, store);
+    assert!(text.contains(store), "{text}");
+    fs::write(&held, &text).expect("write the config file");
     let file = top.join("conductor.yaml");
     std::os::unix::fs::symlink(&held, &file).expect("link");
-    let instance = instances(GETTING_STARTED, &home).remove(0);
-    let request = request(&instance, &file, &home, STORE);
+    let instance = instances(&text, &home).remove(0);
+    let request = request(&instance, &file, &home, store);
+    assert_eq!(request.refused, None, "{request:?}");
     let held = fs::canonicalize(&held).expect("the file is there");
     let seen = request
         .read_only_files

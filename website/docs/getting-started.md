@@ -127,7 +127,10 @@ instances:
 In a checkout, `conductor setup --apply` writes such a file for that repository when there is
 none ([one task in an existing repository](./guides/first-task-existing-repo.md#1-set-the-checkout-up)).
 Where a database is already at `~/.b10x/conductor/conductor.sqlite`, the file it writes names that
-one, and `--apply` never changes a `daemon.store` that is written or moves a store.
+one, and `--apply` never changes a `daemon.store` that is written or moves a store. It then
+prints a `box:` row with the refusal and a `to write: daemon.store: …` line, and its verdict is
+`not ready: box (refused)`, until you move the store with conductord stopped or give the instance
+a placement without a box.
 For a forge source, see [configure an instance](./guides/configure-an-instance.md). Every key is in
 the [config reference](/docs/reference/config).
 

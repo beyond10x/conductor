@@ -40,7 +40,8 @@
 //! state-<instance>=<state>` ([`writable_root_name`]); the refusal of an undeclared one prints
 //! the flag ([`roots_unserved`]). A box writes nothing else: a layout whose writable directory
 //! would hold the config file or conductord's own directory is refused before substrate is
-//! asked ([`unmountable`], [`ROOT_SHARED`]). The box's `HOME` is the daemon's.
+//! asked ([`unmountable`], [`ROOT_SHARED`]), and so is a sqlite store written without an
+//! absolute path ([`STORE_NOT_ABSOLUTE`]). The box's `HOME` is the daemon's.
 //!
 //! A remote daemon (`story:placement-substrate-remote`) is `placement: {daemon: https://…,
 //! adapter, bearer: secret:<name>, trust_roots, server_identity}` ([`read`]): the box opens
@@ -707,19 +708,25 @@ impl Host {
         }
     }
 
-    /// The sqlite file the store URL names, `~/` read under [`Self::home`]; `None` for any
-    /// other store and for a file that is not absolute.
-    fn store_file(&self) -> Option<PathBuf> {
+    /// The sqlite file the store URL names, as written but `~/` read under [`Self::home`];
+    /// `None` for any other store.
+    fn store_path(&self) -> Option<PathBuf> {
         let path = self.store.as_deref()?.strip_prefix("sqlite:")?;
         let path = path
             .strip_prefix("//")
             .filter(|rest| rest.starts_with('/'))
             .unwrap_or(path);
-        let file = match path.strip_prefix("~/") {
+        Some(match path.strip_prefix("~/") {
             Some(rest) => self.home.as_ref()?.join(rest),
             None => PathBuf::from(path),
-        };
-        Some(clean(&file)).filter(|file| file.is_absolute() && file.parent().is_some())
+        })
+    }
+
+    /// The sqlite file the store URL names ([`Self::store_path`]) as a mount takes it; `None`
+    /// for any other store and for a file that is not absolute ([`STORE_NOT_ABSOLUTE`]).
+    fn store_file(&self) -> Option<PathBuf> {
+        let file = clean(&self.store_path()?);
+        (file.is_absolute() && file.parent().is_some()).then_some(file)
     }
 
     fn find(&self, program: &str) -> Option<PathBuf> {
@@ -753,6 +760,12 @@ pub const ROOT_SHARED: &str = "placement.writable-root-shared";
 /// [`READ_ONLY_FILES_BOUND`], [`WRITABLE_ROOTS_BOUND`]). Conductor's own refusal, before
 /// substrate is asked.
 pub const MOUNTS_EXCEEDED: &str = "placement.mounts-exceeded";
+
+/// The sqlite store is written without an absolute path (`sqlite:conductor.sqlite`): conductord
+/// opens it in its working directory, and no directory of it can be named for the box to write,
+/// so the runtime would open another database. Conductor's own refusal, before substrate is
+/// asked.
+pub const STORE_NOT_ABSOLUTE: &str = "placement.store-not-absolute";
 
 /// `path` as substrate takes a mount: no trailing slash, no empty and no `.` component, and each
 /// `..` taken with the component before it. Every path of [`mounts`] goes through it.
@@ -933,7 +946,8 @@ pub fn mounts(instance: &Instance, config_file: &Path, binary: &Path, host: &Hos
 
 /// Why no box can hold `instance` as its config and `host` lay it out, `None` when one can:
 /// [`ROOT_SHARED`] for a directory to write that would hand the box the config file or
-/// conductord's directory, [`MOUNTS_EXCEEDED`] for more mounts than one start names. Refused
+/// conductord's directory, [`STORE_NOT_ABSOLUTE`] for a sqlite store with no absolute path,
+/// [`MOUNTS_EXCEEDED`] for more mounts than one start names. Refused
 /// before substrate is asked ([`BoxRequest::refused`]).
 #[must_use]
 pub fn unmountable(
@@ -961,6 +975,18 @@ fn layout(
     let config = [text(config_file), text(&real(config_file))];
     let daemon = host.daemon.as_deref().map(text);
     let store = host.store_file();
+    if let Some(path) = host.store_path().filter(|_| store.is_none()) {
+        refused = Some(Refused {
+            name: STORE_NOT_ABSOLUTE.to_owned(),
+            detail: format!(
+                "the sqlite store {} has no absolute path, so the box of instance {name} can be \
+                 handed no directory of it to write: write an absolute path, such as \
+                 daemon.store: {}",
+                path.display(),
+                crate::setup::STORE
+            ),
+        });
+    }
     let written = [
         ("state", Some(PathBuf::from(&instance.state))),
         ("records", Some(PathBuf::from(&instance.records))),

@@ -2752,6 +2752,63 @@ fn a_checkouts_root_of_six_repositories_with_the_records_outside_it_is_one_direc
     assert_substrate_admits(&request);
 }
 
+/// The bound of files to read (`story:box-runtime-starts`): the records under the checkouts
+/// root, so each loose file beside them is named alone. Sixteen are one start's; the seventeenth
+/// is refused by conductor's own name before substrate is asked. The config file is in a
+/// directory of the root, read with it, so the loose files are every file the box names.
+#[test]
+fn sixteen_loose_files_beside_the_records_are_admitted_and_the_seventeenth_is_refused() {
+    let case = Case::new("box-files");
+    let mut instance = linux_instance(&case);
+    instance.placement = PlacementName("systemd".to_owned());
+    let own = case.dir.join("i");
+    let root = own.join("checkouts");
+    instance.state = own.join("state").display().to_string();
+    instance.records = root.join("records").display().to_string();
+    instance.cache = own.join("cache").display().to_string();
+    instance.checkouts.root = root.display().to_string();
+    instance.checkouts.trees = own.join("trees").display().to_string();
+    fs::create_dir_all(root.join("records")).expect("create the records");
+    fs::create_dir_all(root.join("etc")).expect("create the directory");
+    let file = root.join("etc/conductor.yaml");
+    fs::copy(case.config(&[("alpha", "systemd")]), &file).expect("copy the config file");
+    let asked = || {
+        let env = vec![
+            ("HOME".to_owned(), case.home().display().to_string()),
+            (
+                "PATH".to_owned(),
+                case.dir.join("none").display().to_string(),
+            ),
+            (conductor_cli::store::STORE_VARIABLE.to_owned(), case.url()),
+        ];
+        placement::request(&instance, &file, Path::new("/usr/bin/conductor"), env)
+    };
+    for number in 0..placement::READ_ONLY_FILES_BOUND {
+        fs::write(root.join(format!("note-{number}.txt")), "").expect("write a loose file");
+    }
+    let request = asked();
+    assert_eq!(request.refused, None, "{request:?}");
+    assert_eq!(
+        request.read_only_files.len(),
+        placement::READ_ONLY_FILES_BOUND,
+        "{:?}",
+        request.read_only_files
+    );
+    assert_substrate_admits(&request);
+
+    fs::write(root.join("note-more.txt"), "").expect("write a loose file");
+    let request = asked();
+    let refused = request.refused.clone().expect("seventeen files to read");
+    assert_eq!(refused.name, placement::MOUNTS_EXCEEDED);
+    assert!(
+        refused.detail.contains("17 files to read")
+            && refused
+                .detail
+                .contains(&format!("put records outside {}", root.display())),
+        "{refused:?}"
+    );
+}
+
 /// `config validate` names the refusal before conductord is started.
 #[test]
 fn config_validate_names_a_box_conductord_would_refuse() {
@@ -2785,6 +2842,74 @@ fn config_validate_names_a_box_conductord_would_refuse() {
                 case.dir.join("store/shared.sqlite").display()
             )),
         "the problem names its path, the refusal and the store to write: {said}"
+    );
+}
+
+/// A sqlite store written without an absolute path: conductord would open it in its working
+/// directory and the box could be handed no directory of it, so the box is refused by
+/// conductor's own name before substrate is asked, and `config validate` notes it.
+#[test]
+fn a_box_whose_sqlite_store_has_no_absolute_path_is_refused_and_validate_notes_it() {
+    let case = Case::new("box-relative-store");
+    let file = case.config(&[("alpha", "systemd")]);
+    let mut instance = linux_instance(&case);
+    instance.placement = PlacementName("systemd".to_owned());
+    let env = vec![
+        ("HOME".to_owned(), case.home().display().to_string()),
+        (
+            "PATH".to_owned(),
+            case.dir.join("none").display().to_string(),
+        ),
+        (
+            conductor_cli::store::STORE_VARIABLE.to_owned(),
+            "sqlite:shared.sqlite".to_owned(),
+        ),
+    ];
+    let request = placement::request(&instance, &file, Path::new("/usr/bin/conductor"), env);
+    let refused = request.refused.clone().expect("no directory to write");
+    assert_eq!(refused.name, placement::STORE_NOT_ABSOLUTE);
+    assert!(
+        refused.detail.contains("shared.sqlite")
+            && refused.detail.contains("write an absolute path")
+            && refused
+                .detail
+                .contains("daemon.store: sqlite:~/.b10x/conductor/store/conductor.sqlite"),
+        "{refused:?}"
+    );
+    assert!(
+        request
+            .writable_roots
+            .iter()
+            .all(|root| root.name != "store"),
+        "{:?}",
+        request.writable_roots
+    );
+    let mut store =
+        conductor_cli::store::open_url(&case.url(), conductor_cli::daemon::TENANT).expect("store");
+    let mut fake = Fake::default();
+    let answer = placement::open_box(&mut store, &mut fake, &request)
+        .expect_err("conductor refuses the box");
+    assert_eq!(answer.reason, placement::STORE_NOT_ABSOLUTE);
+    assert!(
+        fake.log.lock().expect("the log").opened.is_empty(),
+        "substrate is not asked"
+    );
+
+    let text = fs::read_to_string(&file)
+        .expect("the config")
+        .replace(&case.url(), "sqlite:shared.sqlite");
+    fs::write(&file, text).expect("write the config file");
+    let output = case.conductor(&[
+        "--config",
+        &file.display().to_string(),
+        "config",
+        "validate",
+    ]);
+    assert_eq!(output.status.code(), Some(0), "{}", describe(&output));
+    let said = String::from_utf8_lossy(&output.stderr).into_owned();
+    assert!(
+        said.contains("note: instances[0].placement: placement.store-not-absolute: "),
+        "{said}"
     );
 }
 

@@ -748,6 +748,35 @@ fn setup_apply_keeps_a_store_that_is_there_and_a_daemon_store_that_is_written() 
         !case.home().join(".b10x/conductor/store").exists(),
         "no second store"
     );
+    // A box cannot write that store's directory: `--apply` says so, names the value to write
+    // and is not ready, and a second run says the same and changes nothing.
+    for output in [output, case.setup(&repository, &["--apply"])] {
+        let said = String::from_utf8_lossy(&output.stdout).into_owned();
+        assert_eq!(output.status.code(), Some(1), "{}", shown(&output));
+        assert!(
+            said.contains("box: instance theta: placement.writable-root-shared: ")
+                && said.contains(
+                    "to write: daemon.store: sqlite:~/.b10x/conductor/store/conductor.sqlite"
+                )
+                && said.contains("setup moves no store: move the one at ")
+                && said.contains("with conductord stopped")
+                && said.contains("a placement without a box"),
+            "{}",
+            shown(&output)
+        );
+        let verdict = said.lines().last().unwrap_or_default();
+        assert!(
+            verdict.starts_with("not ready: ") && verdict.contains("box (refused)"),
+            "{}",
+            shown(&output)
+        );
+        assert_eq!(
+            fs::read_to_string(case.config_file()).expect("the config file"),
+            config,
+            "the file is not changed"
+        );
+        assert_eq!(fs::read_to_string(&before).expect("the store"), "kept");
+    }
 
     // A config file that is there: `--apply` prints the instance to add and changes no byte.
     let case = Case::new("store-written");

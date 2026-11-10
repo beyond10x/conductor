@@ -59,6 +59,7 @@ detail of a `Refused` result. For a `placement` that opens a box, the detail is 
 |---|---|
 | `exec.writable-roots-host-unserved` | start `substrate-daemon` with the `--writable-root <name>=<path>` the detail prints, such as `state-<instance>=<state>` |
 | `placement.writable-root-shared` | a directory the box writes holds the config file or lies with `~/.b10x/conductor/daemon`. For the store, write `daemon.store` as the detail prints it, a file in a directory of its own, and move the database there |
+| `placement.store-not-absolute` | `daemon.store` names a sqlite file without an absolute path, such as `sqlite:conductor.sqlite`, and the instance runs in a box. Write an absolute path or one under `~/`, as the detail prints it. `conductor config validate` notes it |
 | `placement.mounts-exceeded` | the records lie under a checkouts root whose other entries are more directories than one box reads (four, those of `conductor` and `claude` among them): name a `records` directory outside it |
 | `confinement.family-unserved`, `confinement.fact-unserved` | the local `substrate-daemon` does not serve the adapter. `systemd` needs it in a delegated systemd scope |
 | `placement.substrate-unreachable` | the remote substrate daemon did not answer within 10 s |
