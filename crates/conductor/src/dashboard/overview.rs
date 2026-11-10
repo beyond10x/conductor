@@ -22,7 +22,7 @@
 //! | kind | from | `at` | `repository` | `text` | `link` |
 //! |---|---|---|---|---|---|
 //! | `dispatch` | a line with a `brief` in `dispatches/*.jsonl` | its `at` (`sent_at` in an older line) | the repository whose controller session is its `to` | its goal | — |
-//! | `report` | an event line (`event`, `at`) in the same files | its `at` | its dispatch's | the event | — |
+//! | `report` | an event line (`event`, `at`) in the same files | its `at` | its dispatch's | the event, then `: ` and the line's `first_line`, else its `reason`, else its `evidence`, where it carries one that is not the event itself: its first non-empty line without control characters, at most 120 characters | — |
 //! | `decision` | a line in `decisions/*.jsonl` | its `decided_at`; `raised_at` for an open request | its `repository` | its class and choice, or class and question | — |
 //! | `release` | a row of the snapshot's `releases` | its publication | its repository | its tag | its `url` |
 //! | `merge` | a row of the snapshot's `merged-pull-requests` | its merge | its repository | `#<number> <title>` | its `url` |
@@ -403,13 +403,23 @@ pub fn events(
             .and_then(|id| sent.get(id).cloned())
             .flatten();
         let event = line["event"].as_str().unwrap_or_default();
-        push(
-            text(&line["at"]),
-            repository,
-            "report",
-            event.to_owned(),
-            None,
-        );
+        // What the report said beside its verb, as `DispatchLogLine` carries it: one line of it,
+        // as long as the Sessions page shows a reason. The loop records a report that said
+        // nothing with its verb as the text, which is the verb once.
+        let said = ["first_line", "reason", "evidence"]
+            .into_iter()
+            .find_map(|key| text(&line[key]))
+            .and_then(|said| said.lines().find(|line| !line.trim().is_empty()))
+            .map(|line| {
+                let plain: String = line.chars().filter(|c| !c.is_control()).collect();
+                super::excerpt(plain.trim())
+            })
+            .filter(|said| !said.is_empty() && said != event);
+        let shown = match said {
+            Some(said) => format!("{event}: {said}"),
+            None => event.to_owned(),
+        };
+        push(text(&line["at"]), repository, "report", shown, None);
     }
     for line in decisions {
         let class = line["class"].as_str().unwrap_or("?");
