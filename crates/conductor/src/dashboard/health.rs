@@ -336,8 +336,9 @@ fn status_bytes(field: &str) -> Option<u64> {
 pub(super) type Newest = (Value, Vec<Value>, Vec<Value>, Vec<String>);
 
 /// The store the server keeps, read through the generated queries without being owned by them:
-/// the queries only `get` and `list`, so a write through it writes nothing.
-struct Reading<'a>(&'a Store);
+/// the queries only `get` and `list`, so a write through it writes nothing. With a snapshot, a
+/// list of observations reads that snapshot's alone (`story:status-current-snapshot`).
+struct Reading<'a>(&'a Store, Option<SnapshotId>);
 
 /// The three storages the health view's queries read, each delegating its reads to the store.
 macro_rules! read_only {
@@ -352,8 +353,17 @@ macro_rules! read_only {
             fn delete(&mut self, _identity: &$identity) {}
 
             fn list(&self) -> Vec<$snapshot> {
-                $storage::list(self.0)
+                read_only!(@list $storage, $snapshot, self)
             }
+        }
+    };
+    (@list SnapshotStorage, $snapshot:ty, $reading:expr) => {
+        SnapshotStorage::list($reading.0)
+    };
+    (@list $storage:ident, $snapshot:ty, $reading:expr) => {
+        match &$reading.1 {
+            Some(snapshot) => $reading.0.observations_of::<$snapshot>(snapshot),
+            None => $storage::list($reading.0),
         }
     };
 }
@@ -389,7 +399,7 @@ fn newest_in(held: Held<'_>, errors: &mut Vec<String>) -> (Value, Vec<Value>, Ve
             return none();
         }
     };
-    let generated = Generated::new(Reading(store));
+    let generated = Generated::new(Reading(store, None));
     let snapshots = match generated.snapshots() {
         Ok(rows) => rows,
         Err(unmet) => {
@@ -405,6 +415,7 @@ fn newest_in(held: Held<'_>, errors: &mut Vec<String>) -> (Value, Vec<Value>, Ve
         return none();
     };
     let id = newest.snapshot_id.clone();
+    let generated = Generated::new(Reading(store, Some(id.clone())));
     let mut runs: Vec<CollectorRuns> = match generated.collector_runs() {
         Ok(rows) => rows
             .into_iter()

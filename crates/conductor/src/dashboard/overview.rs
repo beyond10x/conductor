@@ -32,12 +32,13 @@
 use std::cmp::Reverse;
 use std::collections::HashMap;
 
-use conductor_model::behaviour::{
-    MergedPullRequestObservationStorage, PullRequestObservationStorage, ReleaseObservationStorage,
-    RepositoryObservationStorage, SnapshotStorage, WorkflowRunObservationStorage,
-};
+use conductor_model::behaviour::SnapshotStorage;
 use conductor_model::config::Instance;
-use conductor_model::observation::SnapshotSnapshot;
+use conductor_model::observation::{
+    MergedPullRequestObservationSnapshot, PullRequestObservationSnapshot,
+    ReleaseObservationSnapshot, RepositoryObservationSnapshot, SnapshotSnapshot,
+    WorkflowRunObservationSnapshot,
+};
 use serde_json::{Value, json};
 use time::format_description::well_known::Rfc3339;
 use time::{OffsetDateTime, Time, UtcOffset};
@@ -171,10 +172,10 @@ pub fn reviews(store: Option<&Store>) -> Value {
 #[must_use]
 pub fn repositories(store: Option<&Store>) -> Value {
     answer(store, |store, held| {
-        let mut rows: Vec<_> = RepositoryObservationStorage::list(store)
+        let mut rows: Vec<_> = store
+            .observations_of::<RepositoryObservationSnapshot>(&held.data.snapshot_id)
             .into_iter()
             .map(|held| held.data)
-            .filter(|data| data.snapshot_id == held.data.snapshot_id)
             .collect();
         rows.sort_by(|left, right| left.repository.0.cmp(&right.repository.0));
         rows.into_iter()
@@ -211,10 +212,10 @@ pub fn repositories(store: Option<&Store>) -> Value {
 #[must_use]
 pub fn pull_requests(store: Option<&Store>) -> Value {
     answer(store, |store, held| {
-        let mut rows: Vec<_> = PullRequestObservationStorage::list(store)
+        let mut rows: Vec<_> = store
+            .observations_of::<PullRequestObservationSnapshot>(&held.data.snapshot_id)
             .into_iter()
             .map(|held| held.data)
-            .filter(|data| data.snapshot_id == held.data.snapshot_id)
             .collect();
         rows.sort_by(|left, right| {
             (&left.repository.0, left.number).cmp(&(&right.repository.0, right.number))
@@ -244,10 +245,10 @@ pub fn pull_requests(store: Option<&Store>) -> Value {
 #[must_use]
 pub fn workflow_runs(store: Option<&Store>) -> Value {
     answer(store, |store, held| {
-        let mut rows: Vec<_> = WorkflowRunObservationStorage::list(store)
+        let mut rows: Vec<_> = store
+            .observations_of::<WorkflowRunObservationSnapshot>(&held.data.snapshot_id)
             .into_iter()
             .map(|held| held.data)
-            .filter(|data| data.snapshot_id == held.data.snapshot_id)
             .collect();
         rows.sort_by(|left, right| {
             (&left.repository.0, &left.workflow).cmp(&(&right.repository.0, &right.workflow))
@@ -271,10 +272,10 @@ pub fn workflow_runs(store: Option<&Store>) -> Value {
 #[must_use]
 pub fn releases(store: Option<&Store>) -> Value {
     answer(store, |store, held| {
-        let mut rows: Vec<_> = ReleaseObservationStorage::list(store)
+        let mut rows: Vec<_> = store
+            .observations_of::<ReleaseObservationSnapshot>(&held.data.snapshot_id)
             .into_iter()
             .map(|held| held.data)
-            .filter(|data| data.snapshot_id == held.data.snapshot_id)
             .collect();
         rows.sort_by(|left, right| {
             (&left.repository.0, &left.published_at.0)
@@ -432,10 +433,10 @@ pub fn events(
     }
     if let Some((store, held)) = store.and_then(|store| Some((store, newest(store)?))) {
         let id = &held.data.snapshot_id;
-        for data in ReleaseObservationStorage::list(store)
+        for data in store
+            .observations_of::<ReleaseObservationSnapshot>(id)
             .into_iter()
             .map(|held| held.data)
-            .filter(|data| data.snapshot_id == *id)
         {
             push(
                 Some(data.published_at.0.as_str()),
@@ -445,10 +446,10 @@ pub fn events(
                 Some(data.url),
             );
         }
-        for data in MergedPullRequestObservationStorage::list(store)
+        for data in store
+            .observations_of::<MergedPullRequestObservationSnapshot>(id)
             .into_iter()
             .map(|held| held.data)
-            .filter(|data| data.snapshot_id == *id)
         {
             push(
                 Some(data.merged_at.0.as_str()),

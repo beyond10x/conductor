@@ -428,7 +428,9 @@ impl Shared {
             }
         }
         let held = &stores[state];
-        let answer = compute(Ok(Some(held)));
+        // One computation reads each of the store's feeds once, and keeps nothing after it
+        // (`story:status-current-snapshot`).
+        let answer = held.at_once(|held| compute(Ok(Some(held))));
         if held.check().is_err() {
             stores.remove(state);
         }
