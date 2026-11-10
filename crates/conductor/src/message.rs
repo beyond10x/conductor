@@ -198,7 +198,8 @@ pub struct Reading {
 /// A field inside the brackets whose type declares a prefix holds a value with that prefix; a
 /// dispatch id may be `-`, a report that answers no dispatch (`[REPORT conductor -] ready …`). A
 /// report's verb may end in `:`, `;` or `,` (`progress: …`, `started; …`). A line holding a line break is no first line, and
-/// does not parse; nor does a report of more than [`REPORT_FIRST_LINE`] characters.
+/// does not parse; nor does a report of more than [`REPORT_FIRST_LINE`] characters, counted on the
+/// line as it is given, which is the line that is stored and logged.
 #[must_use]
 pub fn read(line: &str) -> Reading {
     let Some(opened) = line.trim().strip_prefix('[') else {
@@ -223,7 +224,7 @@ pub fn read(line: &str) -> Reading {
         let words: Vec<&str> = rest.split_whitespace().collect();
         !line.contains(['\n', '\r'])
             && !(matches!(form.kind, MessageKind::Report)
-                && line.trim().chars().count() > REPORT_FIRST_LINE)
+                && line.chars().count() > REPORT_FIRST_LINE)
             && fields.len() == form.fields.len()
             && fields.iter().zip(form.fields).all(|(field, prefix)| {
                 field.starts_with(prefix) || (*prefix == DISPATCH_ID && *field == "-")
@@ -573,12 +574,14 @@ pub fn send(state: Option<&Path>, args: &SendArgs) -> Result<ExitCode> {
             from: input.from,
             to: input.to,
             refusal: MailboxSendRefusal::Unparsed,
-            detail: if first.trim().chars().count() > REPORT_FIRST_LINE {
+            detail: if reading.kind == Some(MessageKind::Report)
+                && first.chars().count() > REPORT_FIRST_LINE
+            {
                 format!(
-                    "the first line is {} characters, over the {REPORT_FIRST_LINE} a first line \
-                     holds: put the detail in the body; the format is on standard output, and \
-                     nothing was written",
-                    first.trim().chars().count()
+                    "the first line is {} characters, over the {REPORT_FIRST_LINE} a [REPORT …] \
+                     first line holds: put the detail in the body; the format is on standard \
+                     output, and nothing was written",
+                    first.chars().count()
                 )
             } else {
                 format!(

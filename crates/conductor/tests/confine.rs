@@ -766,6 +766,10 @@ fn the_provider_is_given_the_role_s_request_and_first_prompt() {
                 .to_string(),
             "--model",
             "sonnet",
+            // Its own settings file does not lift the deny of the tools the maintainer never
+            // calls (`story:conductor-context-budget`).
+            "--disallowedTools",
+            "Artifact,ScheduleWakeup,AskUserQuestion,ReportFindings,ShareOnboardingGuide",
             "--permission-mode",
             "bypassPermissions",
             "--setting-sources",

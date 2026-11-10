@@ -1013,7 +1013,7 @@ fn harness_args(
         ]),
     }
     args.extend(["--model".to_owned(), role.model.0.clone()]);
-    if let Some(denied) = denied_tools_argument(&role.role, role.settings.is_some()) {
+    if let Some(denied) = denied_tools_argument(&role.role) {
         args.extend(["--disallowedTools".to_owned(), denied]);
     }
     args.extend(
@@ -1034,12 +1034,13 @@ fn harness_args(
 /// The value of `--disallowedTools` a session of `role` starts with
 /// (`story:conductor-context-budget`): the tools the role never calls
 /// ([`claude_code::denied_tools`]) as one comma-separated word, so their definitions leave its
-/// first-turn context; none for a role without such a list, and none for one whose config names
-/// its own settings file, which decides its tools itself. The harness reads every word up to the
-/// next flag as a tool, so the argument stands before a flag and never last before the prompt.
-fn denied_tools_argument(role: &str, own_settings: bool) -> Option<String> {
+/// first-turn context; none for a role without such a list. A role whose config names its own
+/// settings file starts without them too: that file may deny more, never less. The harness reads
+/// every word up to the next flag as a tool, so the argument stands before a flag and never last
+/// before the prompt.
+fn denied_tools_argument(role: &str) -> Option<String> {
     let denied = claude_code::denied_tools(role);
-    (!own_settings && !denied.is_empty()).then(|| denied.join(","))
+    (!denied.is_empty()).then(|| denied.join(","))
 }
 
 /// The profile the session `name` of `role` appends to its system prompt
@@ -1505,7 +1506,7 @@ mod start_arguments {
 
     /// `story:conductor-context-budget`: the director starts without the seven tools it never
     /// calls, the list its settings deny, under either name of its role; the maintainer without
-    /// five of them; a role that names its own settings, and every other role, with every tool.
+    /// five of them; every other role with every tool.
     #[test]
     fn the_director_and_the_maintainer_start_without_the_tools_they_never_call() {
         let director = "Artifact,Workflow,ScheduleWakeup,EnterWorktree,AskUserQuestion,\
@@ -1522,16 +1523,7 @@ mod start_arguments {
             ("supervisor", None),
             ("teacher", None),
         ] {
-            assert_eq!(
-                denied_tools_argument(role, false).as_deref(),
-                denied,
-                "{role}"
-            );
-            assert_eq!(
-                denied_tools_argument(role, true),
-                None,
-                "{role}: its own settings decide"
-            );
+            assert_eq!(denied_tools_argument(role).as_deref(), denied, "{role}");
         }
         let settings: serde_json::Value =
             serde_json::from_str(claude_code::CONDUCTOR_SETTINGS).expect("the settings are JSON");

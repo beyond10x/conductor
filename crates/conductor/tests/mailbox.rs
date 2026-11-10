@@ -454,3 +454,73 @@ fn the_format_names_the_handover_form() {
         conductor_cli::message::FORMAT
     );
 }
+
+/// Adversary, wave 49 U8. The format bounds a `[REPORT …]` first line only. A first line of
+/// another kind that breaks its form (a `[NEED …]` without its request id) and happens to be
+/// over 300 characters is refused for its form: the refusal must not tell the sender that a
+/// first line holds 300 characters, which is true of no kind but a report, and a need of that
+/// length with its request id is accepted
+/// (`a_first_line_of_another_kind_is_not_bounded_and_characters_are_counted`).
+#[test]
+fn a_long_first_line_of_another_kind_that_breaks_its_form_is_not_told_the_report_bound() {
+    let case = Case::new("need-long-unparsed");
+    let first = format!("[NEED cortex] atlas {}", "x".repeat(330));
+    let output = case.send(&format!("{first}\n"), &Text::Stdin);
+    assert_eq!(output.status.code(), Some(1), "{}", describe(&output));
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(stderr.contains("Unparsed"), "{stderr}");
+    assert!(
+        !stderr.contains("over the 300"),
+        "a need has no 300-character bound; the line breaks its form: {stderr}"
+    );
+}
+
+/// Adversary, wave 49 U8. The bound is in characters, not bytes, and holds a report only:
+/// `message::read`, which `message send` and `message receive-message` both read the first line
+/// with.
+#[test]
+fn a_first_line_of_another_kind_is_not_bounded_and_characters_are_counted() {
+    use conductor_cli::message::read;
+    let head = "[REPORT cortex DSP-20991231-01] progress ";
+    let umlauts = |length: usize| format!("{head}{}", "ä".repeat(length - head.chars().count()));
+    assert!(umlauts(300).len() > 300, "over 300 bytes");
+    assert!(read(&umlauts(300)).parsed, "300 characters of a report");
+    assert!(!read(&umlauts(301)).parsed, "301 characters of a report");
+    assert!(read(&report_of(300)).parsed, "300");
+    assert!(!read(&report_of(301)).parsed, "301");
+    let need = format!("[NEED cortex N-20991231-01] atlas {}", "x".repeat(400));
+    assert!(read(&need).parsed, "a need is not bounded");
+    let request = format!("[DECISION-REQUEST cortex R-7] {}?", "x".repeat(400));
+    assert!(read(&request).parsed, "a decision request is not bounded");
+    sends(
+        "need-long",
+        &format!("{need}\n"),
+        &Text::Stdin,
+        "Need",
+        "cortex",
+    );
+}
+
+/// Adversary, wave 49 U8. The bound exists because the first line is logged, listed and typed
+/// into the session it reaches (`REPORT_FIRST_LINE`). `read` counts the trimmed line and `send`
+/// logs the line as written, so the first line the log holds is at most 300 characters too.
+#[test]
+fn the_first_line_the_log_holds_of_a_report_is_at_most_300_characters() {
+    let case = Case::new("report-padded");
+    let first = format!(
+        "[REPORT cortex -] progress wave 2 merged{}",
+        " ".repeat(400)
+    );
+    let output = case.send(&format!("{first}\nThe body.\n"), &Text::Stdin);
+    let lines = case.dispatch_lines();
+    let logged: Vec<usize> = lines
+        .iter()
+        .filter_map(|line| line["first_line"].as_str())
+        .map(|line| line.chars().count())
+        .collect();
+    assert!(
+        logged.iter().all(|length| *length <= 300),
+        "a report was accepted and logged with a first line of {logged:?} characters: {}",
+        describe(&output)
+    );
+}

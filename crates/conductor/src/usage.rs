@@ -46,7 +46,8 @@
 //! characters of its tool results, and of every other text a user line carries (a prompt, a
 //! delivered message, what the session tool adds), at [`CHARACTERS_PER_TOKEN`] characters a
 //! token. Only counts are read from a user line, and a user line that cannot be read counts
-//! nothing and is no problem. A session whose `hours` are 0 has 0 in each per-hour column.
+//! nothing and is no problem. The per-hour columns are over `hours` as printed, to two decimals:
+//! a session whose `hours` are 0 has 0 in each per-hour column.
 //!
 //! A transcript or a line that cannot be read is not counted, and is named by its repository only
 //! on standard error after the tables; the command then exits 1. A last line without its line
@@ -584,7 +585,9 @@ impl Filled {
         let last = instants().max()?;
         let from = since.map_or(opened, |since| since.max(opened));
         let counted = |at: &OffsetDateTime| since.is_none_or(|since| *at >= since);
-        let hours = ((last - from).as_seconds_f64() / 3600.0).max(0.0);
+        // The hours as printed, to two decimals: a session too short to print any has 0 in
+        // each per-hour column, never its seconds scaled to an hour.
+        let hours = (((last - from).as_seconds_f64() / 3600.0).max(0.0) * 100.0).round() / 100.0;
         let own: u64 = self
             .calls
             .values()
@@ -607,7 +610,7 @@ impl Filled {
         };
         Some(Context {
             first_context: first.context(),
-            hours: (hours * 100.0).round() / 100.0,
+            hours,
             tool_output_per_hour: per_hour(tool as f64 / CHARACTERS_PER_TOKEN),
             messages_per_hour: per_hour(messages as f64 / CHARACTERS_PER_TOKEN),
             own_output_per_hour: per_hour(own as f64),

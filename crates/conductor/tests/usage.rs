@@ -776,3 +776,36 @@ fn the_dashboard_carries_the_repository_table_under_usage() {
     }
     assert_private_kept(&get(port, "/"), "the app's index.html");
 }
+
+/// Adversary, wave 49 U8: one session of a single turn, its prompt at 08:00:00 and its only
+/// call nine seconds later (a `reply ok` session, as the story measured the tool deny with).
+const CONTEXT_SHORT: [Placed; 1] = [(
+    "records",
+    "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa.jsonl",
+    "context-short.jsonl",
+)];
+
+/// The module documentation of `usage.rs`: "A session whose `hours` are 0 has 0 in each per-hour
+/// column." Nine seconds are 0.0025 hours, printed as `hours` 0.0: the row a reader sees has 0
+/// hours, so each per-hour column is 0, not nine seconds scaled to an hour (100 output tokens
+/// as 40,000 an hour).
+#[test]
+fn a_session_whose_printed_hours_are_0_has_0_in_each_per_hour_column() {
+    let case = Case::new("context-short", &CONTEXT_SHORT, DAY, DAY_BEFORE);
+    let output = case.conductor(&["resource", "usage", "--format", "json"]);
+    let printed = json_of(&ok(&output, "resource usage"), "--format json");
+    let row = &printed["context"][0];
+    assert_eq!(row["session"], "aaaaaaaa", "{printed:#}");
+    assert_eq!(row["first_context"], 30000, "{printed:#}");
+    assert_eq!(row["hours"], 0.0, "nine seconds print as 0 hours: {row:#}");
+    for column in [
+        "tool_output_per_hour",
+        "messages_per_hour",
+        "own_output_per_hour",
+    ] {
+        assert_eq!(
+            row[column], 0,
+            "hours are 0, so {column} is 0 (usage.rs module documentation): {row:#}"
+        );
+    }
+}

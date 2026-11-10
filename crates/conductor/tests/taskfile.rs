@@ -603,6 +603,8 @@ fn dev_start_takes_the_settings_and_profile_of_the_role_conductor_dev() {
     assert!(
         args.starts_with(&format!(
             "--bg -n conductor-dev --append-system-prompt-file {} --model sonnet \
+             --disallowedTools \
+             Artifact,ScheduleWakeup,AskUserQuestion,ReportFindings,ShareOnboardingGuide \
              --permission-mode bypassPermissions {SETTING_SOURCES} --settings {} Start of session.",
             profile.display(),
             settings.display()
