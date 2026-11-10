@@ -82,7 +82,7 @@ line: it is an instruction in the controller profile.
 conductor controller controllers
 conductor controller pause-controller --controller-id <id>
 conductor controller resume-controller --controller-id <id>
-conductor controller stop-controller --controller-id <id>
+conductor controller stop-controller --controller-id <id> --reason <why>
 ```
 
 Pause and stop end the session through the instance's provider. Resume starts it again from its

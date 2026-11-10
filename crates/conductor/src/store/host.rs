@@ -3,17 +3,18 @@
 //! Every move of a grant appends its new snapshot, so the stream is the grant's history: asked,
 //! answered, started, its peak, released.
 //!
-//! **The open grants** (`story:build-queue-convoy`). Beside the host store, `ledger.open` holds the
-//! grants still open (`Requested`, `Granted`, `Running`), each with its snapshot and the length of
-//! its stream when the snapshot was written, and how many grants the store holds. A pass of the
-//! ledger reads that file ([`Store::open_grants`]), never the closed grants, which outnumber the
-//! open ones by thousands on a host of long standing. Each write of a grant through the host's
-//! ports keeps the file ([`Store::opened_put`]), written whole and renamed over the old one. The file
-//! is trusted only as far as the store's files bear it out: an entry whose stream has grown since
-//! is read from the store; a store holding another number of grants (one created by a writer that
-//! keeps no file, an older binary's) makes the pass read every grant once and write the file
-//! anew. A grant leaves the file only when a write closes it, and a closed grant never opens
-//! again, so a grant the file does not name, while the count holds, is closed.
+//! **The open grants** (`story:build-queue-convoy`, `story:status-current-snapshot`). Beside the
+//! host store, `ledger.open` is the index of the grants still open (`Requested`, `Granted`,
+//! `Running`): each with its newest snapshot, and the position of the store's feed the file is
+//! as of. A pass of the ledger reads that file and what the feed committed after its position
+//! ([`Store::open_grants`]), never the closed grants, which outnumber the open ones by thousands
+//! on a host of long standing, nor the history of any grant: of each grant written since, its
+//! newest record alone decides whether it is open. The file is then written again at the new
+//! position, whole and renamed over the old one. Each write of a grant through the host's ports
+//! keeps the file too ([`Store::opened_put`]), leaving its position where it was, so a write the
+//! file names is applied again, to the same effect, by the next pass. A writer that keeps no file
+//! (an older binary) is caught up by that pass all the same. Where the file is not there or does
+//! not read, a pass reads the feed whole once and writes it anew.
 
 use std::collections::BTreeMap;
 use std::fs;
@@ -29,7 +30,7 @@ use conductor_model::primitives::Timestamp;
 use conductor_model::session::SessionId;
 use serde_json::{Value, json};
 
-use super::{DELETED, STORED, Store, StoreError, text, undecodable};
+use super::{DELETED, STORED, Store, StoreError, stream_id, text, undecodable};
 use crate::host::{
     kind_name, kind_named, lane_name, lane_named, reason_name, reason_named, state_name,
     state_named,
@@ -44,19 +45,11 @@ pub const OPEN: &str = "ledger.open";
 /// What `ledger.open` holds.
 #[derive(Debug, Default, serde::Serialize, serde::Deserialize)]
 struct Open {
-    /// The grants the store held when the file was written: its streams of grants.
-    streams: u64,
-    /// Each open grant, by its id.
-    grants: BTreeMap<String, Entry>,
-}
-
-/// One open grant of `ledger.open`.
-#[derive(Debug, serde::Serialize, serde::Deserialize)]
-struct Entry {
-    /// The length of the grant's stream when `grant` was written: its events.
-    events: u64,
-    /// The grant's snapshot, as the store keeps it.
-    grant: Value,
+    /// The position of the store's feed the file is as of: every grant written up to it that is
+    /// open is below, and what was committed after it is still to apply.
+    position: u64,
+    /// Each open grant's snapshot, as the store keeps it, by the id of its stream.
+    grants: BTreeMap<String, Value>,
 }
 
 /// Whether `state` is a grant's open state: it still holds, or waits for, space.
@@ -78,16 +71,6 @@ fn write_open(path: &Path, open: &Open) {
         return;
     };
     let _ = replace(path, &text);
-}
-
-/// `n` as a count of the store's files.
-fn count(n: usize) -> u64 {
-    u64::try_from(n).unwrap_or(u64::MAX)
-}
-
-/// Removes `ledger.open` at `path`: the next pass reads every grant and writes it anew.
-fn drop_open(path: &Path) {
-    let _ = fs::remove_file(path);
 }
 
 /// Writes `bytes` to `path` whole, through a file of this writer's own beside it renamed over it,
@@ -113,61 +96,25 @@ fn replace(path: &Path, bytes: &[u8]) -> io::Result<()> {
 }
 
 impl Store {
-    /// How many grants the store holds: its streams of grants, closed and deleted ones too.
-    fn grant_streams(&self) -> io::Result<u64> {
-        self.stream_lengths(HOST_GRANT)
-            .map(|lengths| count(lengths.len()))
-            .map_err(io::Error::other)
-    }
-
-    /// The length of the stream of grant `id` in the store: its events committed; `None` when the
-    /// store does not answer.
-    fn grant_events(&self, id: &str) -> Option<u64> {
-        let stream = Self::stream(&self.tenant, HOST_GRANT, id).ok()?;
-        self.runtime
-            .block_on(self.log.stream_version(&stream))
-            .ok()
-            .map(|version| version.unwrap_or(0))
-    }
-
     /// `ledger.open` of this store: in the state directory it was opened on.
     fn open_file(&self) -> PathBuf {
         self.state_dir().join(OPEN)
     }
 
     /// Keeps `ledger.open` after this handle kept the write of `grant`: the grant is named with its
-    /// snapshot while open, and leaves the file once closed. A file that is not there is left to
-    /// the next pass; one that counts another number of grants than the store holds, less one this
-    /// write created, is removed, for the next pass to write anew.
+    /// snapshot while open, and leaves the file once closed. The file's position stays: the write
+    /// is after it, and the next pass applies it again. A file that is not there is left to the
+    /// next pass.
     pub(crate) fn opened_put(&self, grant: &HostGrantSnapshot) {
-        let id = &grant.data.grant_id.0;
         let path = self.open_file();
-        let version = self
-            .versions
-            .borrow()
-            .get(&(HOST_GRANT, id.clone()))
-            .copied();
-        let (Some(version), Some(mut open)) = (version, read_open(&path)) else {
+        let Some(mut open) = read_open(&path) else {
             return;
         };
-        let created = u64::from(version == 1);
-        match self.grant_streams() {
-            Ok(streams) if open.streams + created == streams => open.streams = streams,
-            _ => {
-                drop_open(&path);
-                return;
-            }
-        }
+        let stream = stream_id(&grant.data.grant_id.0);
         if open_state(grant.state) {
-            open.grants.insert(
-                id.clone(),
-                Entry {
-                    events: version,
-                    grant: encode(grant),
-                },
-            );
+            open.grants.insert(stream, encode(grant));
         } else {
-            open.grants.remove(id);
+            open.grants.remove(&stream);
         }
         write_open(&path, &open);
     }
@@ -176,94 +123,77 @@ impl Store {
     pub(crate) fn opened_delete(&self, id: &GrantId) {
         let path = self.open_file();
         if let Some(mut open) = read_open(&path)
-            && open.grants.remove(&id.0).is_some()
+            && open.grants.remove(&stream_id(&id.0)).is_some()
         {
             write_open(&path, &open);
         }
     }
 
-    /// The open grants of the store, from `ledger.open` where the store's files bear it out, with
-    /// how many grants were read for them: each entry of the file, and every grant of the store
-    /// when the file is not there or counts another number of grants than the store holds (it is
-    /// then written anew). An entry whose stream has grown since it was written is read from the
-    /// store, and the file is written again.
+    /// The open grants of the store, with how many grants were read for them: each grant of
+    /// `ledger.open`, and of each grant the feed committed after the file's position its newest
+    /// record; the whole feed's grants where the file is not there or does not read. The file is
+    /// written again at the position read up to when that moved. A grant whose record this build
+    /// cannot read is kept for [`Store::check`].
     pub(crate) fn open_grants(&self) -> (Vec<HostGrantSnapshot>, usize) {
         let path = self.open_file();
-        let streams = self.grant_streams();
-        if let (Ok(streams), Some(open)) = (&streams, read_open(&path))
-            && open.streams == *streams
-        {
-            let mut grants = Vec::new();
-            let mut kept = BTreeMap::new();
-            let mut behind = false;
-            for (id, entry) in &open.grants {
-                let current = self.grant_events(id) == Some(entry.events);
-                let held = current
-                    .then(|| decode(&entry.grant).ok())
-                    .flatten()
-                    .filter(|grant| grant.data.grant_id.0 == *id);
-                let (grant, events) = match held {
-                    Some(grant) => (Some(grant), entry.events),
-                    None => {
-                        behind = true;
-                        let grant = HostGrantStorage::get(self, &GrantId(id.clone()));
-                        let events = self
-                            .versions
-                            .borrow()
-                            .get(&(HOST_GRANT, id.clone()))
-                            .copied()
-                            .unwrap_or(0);
-                        (grant, events)
-                    }
-                };
-                if let Some(grant) = grant.filter(|grant| open_state(grant.state)) {
-                    kept.insert(
-                        id.clone(),
-                        Entry {
-                            events,
-                            grant: encode(&grant),
-                        },
-                    );
-                    grants.push(grant);
-                }
+        let held = read_open(&path);
+        let from = held.as_ref().map_or(0, |open| open.position);
+        let mut open = held.unwrap_or_default();
+        let mut read = open.grants.len();
+        let mut after = Vec::new();
+        let position = self.feed(&self.tenant, from, HOST_GRANT, |event| {
+            if event.stream_type == HOST_GRANT {
+                after.push(event);
             }
-            if behind && self.check().is_ok() {
-                write_open(
-                    &path,
-                    &Open {
-                        streams: *streams,
-                        grants: kept,
-                    },
-                );
+        });
+        let position = match position {
+            Ok(position) => position,
+            Err(failure) => {
+                self.fail(failure);
+                return (Vec::new(), read);
             }
-            return (grants, open.grants.len());
+        };
+        let mut newest: BTreeMap<String, Result<Option<Value>, StoreError>> = BTreeMap::new();
+        for event in after {
+            newest.insert(event.stream_id.clone(), super::body(HOST_GRANT, event));
         }
-        let all = HostGrantStorage::list(self);
-        let read = all.len();
-        let grants: Vec<HostGrantSnapshot> = all
-            .into_iter()
-            .filter(|grant| open_state(grant.state))
-            .collect();
-        if let Ok(streams) = streams
-            && self.check().is_ok()
-        {
-            let mut open = Open {
-                streams,
-                grants: BTreeMap::new(),
-            };
-            for grant in &grants {
-                let id = &grant.data.grant_id.0;
-                let Some(events) = self.grant_events(id) else {
-                    return (grants, read);
-                };
-                open.grants.insert(
-                    id.clone(),
-                    Entry {
-                        events,
-                        grant: encode(grant),
-                    },
-                );
+        read += newest.len();
+        for (stream, held) in newest {
+            match held {
+                Ok(Some(body)) => match decode(&body) {
+                    Ok(grant) if open_state(grant.state) => {
+                        open.grants.insert(stream, body);
+                    }
+                    Ok(_) => {
+                        open.grants.remove(&stream);
+                    }
+                    Err(detail) => {
+                        self.fail(StoreError::Undecodable {
+                            entity: HOST_GRANT,
+                            stream,
+                            detail,
+                        });
+                    }
+                },
+                Ok(None) => {
+                    open.grants.remove(&stream);
+                }
+                Err(unreadable) => self.fail(unreadable),
             }
+        }
+        let mut grants = Vec::new();
+        for (stream, body) in &open.grants {
+            match decode(body) {
+                Ok(grant) => grants.push(grant),
+                Err(detail) => self.fail(StoreError::Undecodable {
+                    entity: HOST_GRANT,
+                    stream: stream.clone(),
+                    detail,
+                }),
+            }
+        }
+        if (position != from || !path.exists()) && self.check().is_ok() {
+            open.position = position;
             write_open(&path, &open);
         }
         (grants, read)

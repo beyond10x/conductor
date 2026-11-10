@@ -2,7 +2,7 @@
 format: aep.planning-md/3
 id: story:board-hide-done
 kind: story
-status: active
+status: implemented
 title: The plan board hides done stories by default, behind a toggle
 summary: A "Hide done" toggle on the Plan board, on by default, remembered per browser
 scope:
@@ -18,10 +18,11 @@ scope:
   path: crates/conductor/dashboard/src/views/__tests__/__snapshots__/pages.spec.ts.snap
 - confidence: cited
   path: crates/conductor/dashboard/src/views/__tests__/plan-hide-done.spec.ts
-revision: 6
+revision: 7
 transitions:
 - {from: "draft", to: "proposed", at: "2026-11-07T18:17:55Z", actor: "human:timo", revision: 3}
 - {from: "proposed", to: "active", at: "2026-11-07T18:17:56Z", actor: "human:timo", revision: 4}
+- {from: "active", to: "implemented", at: "2026-11-10T07:51:21Z", actor: "human:timo", revision: 7, decided_on: {"recorded":{"test_result":1,"review_outcome":1}}}
 ---
 ## Why
 

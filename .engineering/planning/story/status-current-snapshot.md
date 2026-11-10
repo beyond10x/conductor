@@ -2,7 +2,7 @@
 format: aep.planning-md/3
 id: story:status-current-snapshot
 kind: story
-status: active
+status: implemented
 title: conductor status reads the current snapshot only
 summary: status and the dashboards answer in under 2 s on an instance with 50k tree files, reading the current snapshot's streams or an index, older snapshots on request
 relations:
@@ -28,10 +28,11 @@ scope:
   path: crates/conductor/tests/dashboard_fast.rs
 - confidence: cited
   path: crates/conductor/tests/status.rs
-revision: 5
+revision: 6
 transitions:
 - {from: "draft", to: "proposed", at: "2026-11-08T02:16:46Z", actor: "human:timo", revision: 2}
 - {from: "proposed", to: "active", at: "2026-11-08T02:16:47Z", actor: "human:timo", revision: 3}
+- {from: "active", to: "implemented", at: "2026-11-10T07:51:23Z", actor: "human:timo", revision: 6, decided_on: {"recorded":{"test_result":1,"review_outcome":2}}}
 ---
 ## Why
 

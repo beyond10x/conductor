@@ -2,7 +2,7 @@
 format: aep.planning-md/3
 id: story:kpi-scope-active-repositories
 kind: story
-status: active
+status: implemented
 title: Repository-scoped KPIs count only Active repositories
 summary: K5 counted 28 repositories where 4 are Active
 scope:
@@ -14,10 +14,11 @@ scope:
   path: crates/conductor/tests/metric.rs
 - confidence: cited
   path: docs/design/self-improvement.md
-revision: 5
+revision: 6
 transitions:
 - {from: "draft", to: "proposed", at: "2026-11-07T15:37:36Z", actor: "human:timo", revision: 2}
 - {from: "proposed", to: "active", at: "2026-11-07T15:37:36Z", actor: "human:timo", revision: 3}
+- {from: "active", to: "implemented", at: "2026-11-10T07:51:23Z", actor: "human:timo", revision: 6, decided_on: {"recorded":{"test_result":1,"metric_observation":1,"review_outcome":2}}}
 ---
 ## Why
 

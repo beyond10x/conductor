@@ -525,6 +525,168 @@ fn an_option_line_gives_its_label_and_cost_whatever_its_letters() {
     }
 }
 
+/// Each option of `request` as its letter, label and cost.
+fn spelled(request: &decide::ParsedRequest) -> Vec<(&str, &str, &str)> {
+    request
+        .options
+        .iter()
+        .map(|option| {
+            (
+                option.letter.as_str(),
+                option.label.as_str(),
+                option.cost.as_str(),
+            )
+        })
+        .collect()
+}
+
+/// `story:decision-options-spellings`: `A. <label>. Cost: <cost>` is read as a lettered option
+/// with its cost.
+#[test]
+fn an_option_written_with_a_full_stop_and_a_cost_sentence_is_read() {
+    active::isolate();
+    let request = parse_request(
+        "[DECISION-REQUEST example-repo req-s1] Which mirror?\n\
+         A. The first mirror. Cost: one build slot.\n\
+         - B. the default mirror v1.2. cost: slower\n\
+         C. no cost named.\n\
+         Recommendation: B, it is the default",
+    )
+    .expect("the request parses");
+    assert_eq!(
+        spelled(&request),
+        [
+            ("A", "The first mirror", "one build slot"),
+            ("B", "the default mirror v1.2", "slower"),
+            ("C", "no cost named.", "not stated in the request"),
+        ]
+    );
+    assert_eq!(request.recommended, "B");
+}
+
+/// `story:decision-options-spellings`: `A) <label> — cost <cost>` is read as a lettered option
+/// with its cost, the dash an em dash, an en dash or a hyphen between spaces.
+#[test]
+fn an_option_written_with_a_dash_before_its_cost_is_read() {
+    active::isolate();
+    let request = parse_request(
+        "[DECISION-REQUEST example-repo req-s2] Which mirror?\n\
+         A) the first mirror — cost one build slot\n\
+         B) the default mirror – Cost a day\n\
+         - C) a low-cost mirror - cost none\n\
+         D) a low-cost mirror whose cost is unknown\n\
+         Recommendation: A",
+    )
+    .expect("the request parses");
+    assert_eq!(
+        spelled(&request),
+        [
+            ("A", "the first mirror", "one build slot"),
+            ("B", "the default mirror", "a day"),
+            ("C", "a low-cost mirror", "none"),
+            (
+                "D",
+                "a low-cost mirror whose cost is unknown",
+                "not stated in the request"
+            ),
+        ]
+    );
+    assert_eq!(request.recommended, "A");
+}
+
+/// Adversary, `story:decision-options-spellings`: in both spellings the story names, a cost that
+/// ends in a parenthesis of its own keeps it; only a `)` that closes `(cost: …` is the option's.
+#[test]
+fn adv_a_cost_that_ends_in_its_own_parenthesis_keeps_it() {
+    active::isolate();
+    let request = parse_request(
+        "[DECISION-REQUEST example-repo req-a1] Which mirror?\n\
+         A. The first mirror. Cost: about 2 h (one migration).\n\
+         B) the default mirror — cost nothing (for now)\n\
+         Recommendation: B",
+    )
+    .expect("the request parses");
+    assert_eq!(
+        spelled(&request),
+        [
+            ("A", "The first mirror", "about 2 h (one migration)"),
+            ("B", "the default mirror", "nothing (for now)"),
+        ]
+    );
+}
+
+/// Adversary, `story:decision-options-spellings`: an option whose cost marker is followed by
+/// nothing kept its label without the marker before this story, and still does.
+#[test]
+fn adv_an_option_with_an_empty_cost_keeps_its_label_without_the_marker() {
+    active::isolate();
+    let request = parse_request(
+        "[DECISION-REQUEST example-repo req-a2] Which mirror?\n\
+         A: the first mirror (cost: )\n\
+         B: the default mirror; cost:\n\
+         Recommendation: B",
+    )
+    .expect("the request parses");
+    assert_eq!(
+        spelled(&request),
+        [
+            ("A", "the first mirror", "not stated in the request"),
+            ("B", "the default mirror", "not stated in the request"),
+        ]
+    );
+}
+
+/// Adversary, `story:decision-options-spellings`: the spelling a mailbox refusal teaches the
+/// sender, `A) <label>: <cost>` (`run/mailbox.rs`), is read with its cost by the reader the real
+/// loop uses, also when the label ends in the word `cost`.
+#[test]
+fn adv_the_spelling_a_refusal_teaches_is_read_with_its_cost() {
+    active::isolate();
+    let request = parse_request(
+        "[DECISION-REQUEST example-repo req-a3] Which mirror?\n\
+         A) Tree layout: one migration\n\
+         B) accept the higher cost: 200 a month\n\
+         Recommendation: A",
+    )
+    .expect("the request parses");
+    assert_eq!(
+        spelled(&request),
+        [
+            ("A", "Tree layout", "one migration"),
+            ("B", "accept the higher cost", "200 a month"),
+        ]
+    );
+}
+
+/// Adversary, `story:decision-options-spellings`: a dash followed by a longer word that starts
+/// with `cost` names no cost. Pins the whitespace `cost_marker` asks for after the word.
+#[test]
+fn adv_a_dash_before_a_longer_word_names_no_cost() {
+    active::isolate();
+    let request = parse_request(
+        "[DECISION-REQUEST example-repo req-a4] Which mirror?\n\
+         A) the first mirror — costs nothing\n\
+         B) the default mirror - cost-free\n\
+         Recommendation: A",
+    )
+    .expect("the request parses");
+    assert_eq!(
+        spelled(&request),
+        [
+            (
+                "A",
+                "the first mirror — costs nothing",
+                "not stated in the request"
+            ),
+            (
+                "B",
+                "the default mirror - cost-free",
+                "not stated in the request"
+            ),
+        ]
+    );
+}
+
 #[test]
 fn the_prompt_hash_is_the_sha256_of_the_prompt() {
     assert_eq!(

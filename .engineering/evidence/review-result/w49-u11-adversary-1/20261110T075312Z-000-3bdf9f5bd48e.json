@@ -1,0 +1,15 @@
+{
+  "at": "2026-11-10T07:53:12Z",
+  "actor": "human:timo",
+  "artifact": "review-result:w49-u11-adversary-1",
+  "kind": "review-result",
+  "revision": 3,
+  "change": {
+    "change": "redaction",
+    "literal_sha256": "d45ee78e7b19b98e7df5a9a359da866dbe2315eef7cd91cd832ea89f5fc7e710",
+    "literal_chars": 10,
+    "replacement": "~",
+    "count": 9,
+    "reason": "a home directory path the Gates personal-paths rule refuses"
+  }
+}

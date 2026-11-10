@@ -48,6 +48,39 @@ pub fn settings(role: &str) -> Option<&'static str> {
     }
 }
 
+/// The tools the director never calls, which its start denies so their definitions leave its
+/// first-turn context (`story:conductor-context-budget`): the list its settings deny too.
+pub const DIRECTOR_DENIED_TOOLS: [&str; 7] = [
+    "Artifact",
+    "Workflow",
+    "ScheduleWakeup",
+    "EnterWorktree",
+    "AskUserQuestion",
+    "ReportFindings",
+    "ShareOnboardingGuide",
+];
+
+/// The tools the maintainer never calls: the director's but `Workflow` and `EnterWorktree`, which
+/// a wave may call.
+pub const MAINTAINER_DENIED_TOOLS: [&str; 5] = [
+    "Artifact",
+    "ScheduleWakeup",
+    "AskUserQuestion",
+    "ReportFindings",
+    "ShareOnboardingGuide",
+];
+
+/// The tools a session of `role` starts without (`--disallowedTools`), by either name of the
+/// role: the director's and the maintainer's; none for every other role.
+#[must_use]
+pub fn denied_tools(role: &str) -> &'static [&'static str] {
+    match config::role_name(role) {
+        Some(config::BuiltInRole::Director) => &DIRECTOR_DENIED_TOOLS,
+        Some(config::BuiltInRole::Maintainer) => &MAINTAINER_DENIED_TOOLS,
+        Some(config::BuiltInRole::Lead) | None => &[],
+    }
+}
+
 /// The file the session `session`'s appended system prompt is written to:
 /// `<state>/sessions/<session>.profile.md`.
 #[must_use]

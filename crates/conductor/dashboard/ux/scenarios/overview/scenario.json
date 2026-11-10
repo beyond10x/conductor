@@ -1,0 +1,93 @@
+{
+  "page": "#/",
+  "anchor": true,
+  "states": [
+    {
+      "name": "loading",
+      "store": "loading",
+      "present": [
+        {
+          "selector": "main h1",
+          "count": 1
+        },
+        {
+          "selector": "main h2",
+          "count": 1
+        },
+        {
+          "selector": "main p.state-loading",
+          "count": 2
+        }
+      ]
+    },
+    {
+      "name": "error",
+      "store": "error",
+      "present": [
+        {
+          "selector": "main h1",
+          "count": 1
+        },
+        {
+          "selector": "main h2",
+          "count": 6
+        },
+        {
+          "selector": "main p.state-error",
+          "count": 7
+        }
+      ]
+    },
+    {
+      "name": "empty",
+      "store": "empty",
+      "present": [
+        {
+          "selector": "main h1",
+          "count": 1
+        },
+        {
+          "selector": "main h2",
+          "count": 6
+        },
+        {
+          "selector": "main p.state-empty",
+          "count": 4
+        }
+      ]
+    },
+    {
+      "name": "full",
+      "store": "full",
+      "present": [
+        {
+          "selector": "main h1",
+          "count": 1
+        },
+        {
+          "selector": "main h2",
+          "count": 6
+        },
+        {
+          "selector": "main section",
+          "count": 9
+        },
+        {
+          "selector": "main article",
+          "count": 16
+        },
+        {
+          "selector": "main tbody tr",
+          "count": 4
+        },
+        {
+          "selector": "main svg",
+          "count": 10
+        }
+      ]
+    }
+  ],
+  "expectations": {
+    "maxActions": 0
+  }
+}

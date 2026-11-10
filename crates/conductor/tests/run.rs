@@ -2114,6 +2114,88 @@ fn a_mailbox_decision_request_is_raised_and_escalated() {
     assert!((47..=48).contains(&hours), "{hours} hours");
 }
 
+/// `story:decision-options-spellings`: with no decider seam, options written `A. <label>. Cost:
+/// <cost>` and `B) <label> — cost <cost>` are escalated with their labels and costs.
+#[test]
+fn a_mailbox_decision_request_reads_the_common_option_spellings() {
+    let case = Case::new("mail-decision-spellings");
+    case.mail(
+        "0001",
+        "[DECISION-REQUEST alpha R-9] Which store layout?\n\n\
+         A. Tree layout. Cost: one migration\n\
+         B) keep the eventlog files — cost nothing now\n\n\
+         Recommendation: B, it needs no migration\n",
+    );
+    let tick = case.tick(&[]);
+    assert_eq!(tick["lines_handled"], 1);
+    let requests = case.view(&["decision", "requests"]);
+    let request = requests
+        .iter()
+        .find(|row| row["request_id"] == "R-9")
+        .unwrap_or_else(|| panic!("R-9 is raised: {requests:?}"));
+    assert_eq!(request["state"], "Escalated");
+    let options: Vec<(&str, &str, &str)> = request["lettered_options"]
+        .as_array()
+        .expect("lettered options")
+        .iter()
+        .map(|option| {
+            (
+                option["letter"].as_str().unwrap_or_default(),
+                option["label"].as_str().unwrap_or_default(),
+                option["cost"].as_str().unwrap_or_default(),
+            )
+        })
+        .collect();
+    assert_eq!(
+        options,
+        [
+            ("A", "Tree layout", "one migration"),
+            ("B", "keep the eventlog files", "nothing now"),
+        ]
+    );
+}
+
+/// Adversary, `story:decision-options-spellings`: with no decider seam, the spelling the mailbox
+/// documents, `A) <label>: <cost>`, keeps a label that ends in the word `cost` whole, as it did
+/// before the story, and a cost that ends in a parenthesis of its own keeps it.
+#[test]
+fn adv_a_mailbox_option_keeps_a_label_ending_in_cost_and_a_cost_in_parentheses() {
+    let case = Case::new("mail-decision-adv-spellings");
+    case.mail(
+        "0001",
+        "[DECISION-REQUEST alpha R-9] Which store layout?\n\n\
+         A) accept the higher cost: 200 a month\n\
+         B. Tree layout. Cost: about 2 h (one migration).\n\n\
+         Recommendation: B, it needs no migration\n",
+    );
+    let tick = case.tick(&[]);
+    assert_eq!(tick["lines_handled"], 1);
+    let requests = case.view(&["decision", "requests"]);
+    let request = requests
+        .iter()
+        .find(|row| row["request_id"] == "R-9")
+        .unwrap_or_else(|| panic!("R-9 is raised: {requests:?}"));
+    let options: Vec<(&str, &str, &str)> = request["lettered_options"]
+        .as_array()
+        .expect("lettered options")
+        .iter()
+        .map(|option| {
+            (
+                option["letter"].as_str().unwrap_or_default(),
+                option["label"].as_str().unwrap_or_default(),
+                option["cost"].as_str().unwrap_or_default(),
+            )
+        })
+        .collect();
+    assert_eq!(
+        options,
+        [
+            ("A", "accept the higher cost", "200 a month"),
+            ("B", "Tree layout", "about 2 h (one migration)"),
+        ]
+    );
+}
+
 /// With the decider seam (`story:decide-model-adapter`), a `[DECISION-REQUEST]` reaches
 /// `decide::handle_request` whole: class C is raised with its rule, answered by the fake decider
 /// and recorded with its name, and the `[DECISION]` line is delivered to the controller of the
