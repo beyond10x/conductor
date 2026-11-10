@@ -15,7 +15,7 @@ repositories, checked out under `~/example-org`:
 ```yaml
 version: conductor.config/2
 daemon:
-  store: sqlite:~/.b10x/conductor/conductor.sqlite
+  store: sqlite:~/.b10x/conductor/store/conductor.sqlite
 globals:
   cadence: {cycle: 2h}
 default: personal
@@ -28,18 +28,18 @@ instances:
     checkouts:
       root: ~/example-org
       trees: ~/.local/state/worktree/trees/example-org
-    records: ~/example-org/records
+    records: ~/records/example-org
 ```
 
 | key | what it sets |
 |---|---|
-| `daemon.store` | the deployment's one database, `sqlite:<path>` or `postgres://…`. The daemon starts only on a `daemon.store` the file writes |
+| `daemon.store` | the deployment's one database, `sqlite:<path>` or `postgres://…`. The daemon starts only on a `daemon.store` the file writes. A box writes the whole directory of a sqlite store, so the file is in a directory of its own, apart from the config file and `~/.b10x/conductor/daemon`; `config validate` names a box that would be refused (`placement.writable-root-shared`) |
 | `globals` | the defaults every instance starts from. An instance key overrides the global one, and a role's key overrides both |
 | `placement` | where the instance's runtime runs: `linux` or `systemd` opens a box through the local `substrate-daemon`, and a word that names no adapter runs it as a user unit with no box ([the host](../concepts/the-host.md)) |
 | `session_prefix` | the prefix of every session name the instance starts, such as `personal-conductor`. Required |
 | `sources` | where the repositories come from: `github: <owner>`, `local: <path>` or `gitlab: <group>` ([GitLab](./gitlab.md)) |
 | `checkouts.root`, `checkouts.trees` | where their checkouts and managed worktrees are |
-| `records` | the directory conductor keeps its records in. Default `~/.b10x/conductor/<name>/records` |
+| `records` | the directory conductor keeps its records in. Default `~/.b10x/conductor/<name>/records`. With a box placement, keep it outside `checkouts.root`: a box reads at most four directories, and a checkouts root that holds the records is read entry by entry |
 
 With no `roles`, the instance takes the built-in roles on `claude` and `opus`. A `roles` list
 replaces them. The old role names `conductor`, `conductor-dev` and `controller` are read as
@@ -89,7 +89,7 @@ Every other command resolves the instance first and stops on the same problems.
 
 ```console
 $ conductor config show --format json | jq -c '.instances[0] | {records, state, cache}'
-{"records":"~/example-org/records","state":"~/.b10x/conductor/personal/state","cache":"~/.cache/b10x/conductor/personal"}
+{"records":"~/records/example-org","state":"~/.b10x/conductor/personal/state","cache":"~/.cache/b10x/conductor/personal"}
 ```
 
 `--format yaml` prints it as a config file. `--effective` prints every key once with the level it

@@ -102,7 +102,7 @@ This instance watches the repositories under `~/src`:
 ```yaml
 version: conductor.config/2
 daemon:
-  store: sqlite:~/.b10x/conductor/conductor.sqlite
+  store: sqlite:~/.b10x/conductor/store/conductor.sqlite
 instances:
   - name: home
     placement: systemd
@@ -115,12 +115,19 @@ instances:
 ```
 
 - `daemon.store` is the one database every instance writes its records to. conductord refuses a
-  file without it.
+  file without it. It is in a directory of its own because a box writes the store's whole
+  directory: conductord refuses a box whose store lies beside the config file or
+  `~/.b10x/conductor/daemon` (`placement.writable-root-shared`), and `conductor config validate`
+  names it. To every other command a file without the key still means
+  `sqlite:~/.b10x/conductor/conductor.sqlite`, so
+  an existing deployment keeps its store.
 - `placement: systemd` runs the instance's runtime in a substrate box (step 5).
 - `session_prefix` starts the name of every session of the instance, such as `home-alpha`.
 
-In a checkout, `conductor setup --apply` writes the same file for that repository when there is
+In a checkout, `conductor setup --apply` writes such a file for that repository when there is
 none ([one task in an existing repository](./guides/first-task-existing-repo.md#1-set-the-checkout-up)).
+Where a database is already at `~/.b10x/conductor/conductor.sqlite`, the file it writes names that
+one, and `--apply` never changes a `daemon.store` that is written or moves a store.
 For a forge source, see [configure an instance](./guides/configure-an-instance.md). Every key is in
 the [config reference](/docs/reference/config).
 
@@ -173,15 +180,14 @@ and keep it running:
 - on the socket conductord opens, `$XDG_RUNTIME_DIR/substrate/daemon.sock`, unless
   `CONDUCTOR_SUBSTRATE_SOCKET` in conductord's environment names another;
 - with a writable root for each directory the runtime writes: `state-<instance>` for the state
-  directory, `records-<instance>` for the records and `store` for the directory of the sqlite
-  store. Directories that lie inside one another are one root, the outer one: with the config of
-  step 3 the store's directory `~/.b10x/conductor` holds the other two, so `store` is the only
-  root. Each must exist before the daemon starts;
+  directory, `records-<instance>` for the records, `cache-<instance>` for the cache and `store`
+  for the directory of the sqlite store. Each must exist before the daemon starts;
 - with the aperture `conductor`, which the runtime starts with.
 
 ```console
 state=$(conductor config show --format json | jq -r '.instances[0].state')
 install -d -m 700 "$state/sessions" "$XDG_RUNTIME_DIR/substrate" ~/.local/state/substrate/workspaces
+install -d -m 700 ~/.b10x/conductor/store ~/.cache/b10x/conductor/home
 substrate-daemon \
   --socket "$XDG_RUNTIME_DIR/substrate/daemon.sock" \
   --state ~/.local/state/substrate/state.db \
@@ -189,23 +195,31 @@ substrate-daemon \
   --deployment personal \
   --allow-uid "$(id -u)" \
   --cgroup-root <delegated cgroup root> \
-  --writable-root "store=$HOME/.b10x/conductor" \
+  --writable-root "state-home=$state" \
+  --writable-root "records-home=$HOME/.b10x/conductor/home/records" \
+  --writable-root "cache-home=$HOME/.cache/b10x/conductor/home" \
+  --writable-root "store=$HOME/.b10x/conductor/store" \
   --egress-aperture conductor=api.anthropic.com:443/tcp \
   --ca-bundle /etc/ssl/certs/ca-certificates.crt
 ```
 
-From another terminal, read the daemon's facts. `exec.writable-roots.host` lists `store`:
+From another terminal, read the daemon's facts. `exec.writable-roots.host` lists the four roots:
 
 ```console
 curl -s --unix-socket "$XDG_RUNTIME_DIR/substrate/daemon.sock" http://localhost/v1/machine
 ```
 
-An instance whose state directory or records lie outside the store's directory adds
-`--writable-root state-<instance>=<state>` or `--writable-root records-<instance>=<records>`. A
-box that names a root the daemon does not serve is refused, and the refusal prints the flag to
-add. Besides its writable roots the box gets conductord's `HOME` and, read-only, the config
-file, the directories of `conductor` and `claude`, the checkouts root, and the CLI and login of
-each forge among the sources. An
+Each further instance with a box adds its own `state-<instance>`, `records-<instance>` and
+`cache-<instance>`; `store` is declared once. Directories that lie inside one another are one
+root, the outer one. A box that names a root the daemon does not serve is refused, and the
+refusal prints the flag to add. The box writes nothing else of the host: not the config file,
+and not `~/.b10x/conductor/daemon`. Besides its writable roots it gets conductord's `HOME` and,
+read-only, the config file, the directories of `conductor` and `claude`, the checkouts root,
+and the CLI and login of each forge among the sources. Where the records lie under the
+checkouts root, the box reads the root's other entries one by one, and one box reads at most
+four directories, those of `conductor` and `claude` among them: with more, conductord refuses
+the box (`placement.mounts-exceeded`) until the
+records are outside the checkouts root. An
 instance that names a `model_token` also needs `daemon.substrate_slots` and one `--secret-slot`
 per slot ([secrets](/docs/security/operators-and-credentials#secrets)).
 

@@ -1,7 +1,7 @@
 version: conductor.config/2
 default: personal
 daemon:
-  store: sqlite:~/.b10x/conductor/conductor.sqlite
+  store: sqlite:~/.b10x/conductor/store/conductor.sqlite
 instances:
   - name: personal
     placement: systemd
@@ -11,7 +11,7 @@ instances:
     checkouts:
       root: ~/example-org
       trees: ~/.local/state/worktree/trees/example-org
-    records: ~/example-org/conductor
+    records: ~/records/example-org
     controllers:
       max_working: 5
       max_subagents: 4

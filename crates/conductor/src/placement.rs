@@ -32,13 +32,15 @@
 //! substrate's hard deadline of one run by a restart in the same box ([`RUN_BOUND`]).
 //!
 //! What the box sees of the host is one list ([`mounts`], `story:box-runtime-starts`): what the
-//! runtime and the loop write (the state directory, the records, the directory of a sqlite
-//! store) and what they read (the binary's and the harness's directories, the checkouts root,
+//! runtime and the loop write (the state directory, the records, the cache, the directory of a
+//! sqlite store) and what they read (the binary's and the harness's directories, the checkouts root,
 //! the config file, the harness binary, each forge's CLI and its login). The runtime writes
 //! through writable host roots ([`HostRoot`]): a start names a root, never its path, so the
 //! operator declares each on the local daemon, `substrate-daemon --writable-root
 //! state-<instance>=<state>` ([`writable_root_name`]); the refusal of an undeclared one prints
-//! the flag ([`roots_unserved`]). The box's `HOME` is the daemon's.
+//! the flag ([`roots_unserved`]). A box writes nothing else: a layout whose writable directory
+//! would hold the config file or conductord's own directory is refused before substrate is
+//! asked ([`unmountable`], [`ROOT_SHARED`]). The box's `HOME` is the daemon's.
 //!
 //! A remote daemon (`story:placement-substrate-remote`) is `placement: {daemon: https://…,
 //! adapter, bearer: secret:<name>, trust_roots, server_identity}` ([`read`]): the box opens
@@ -541,6 +543,9 @@ pub struct BoxRequest {
     /// [`mounts`], the state directory first. [`Sdk`] names each in the runtime's start, mounted
     /// at its own path, in this order.
     pub writable_roots: Vec<HostRoot>,
+    /// Why conductor cannot ask for this box at all ([`unmountable`]): [`open_box`] and a
+    /// restart refuse with it before substrate is asked.
+    pub refused: Option<Refused>,
 }
 
 /// A single host file the box reads (substrate's ADR 0033): the regular file at `host_path`,
@@ -563,7 +568,7 @@ pub struct HostRoot {
     pub path: String,
 }
 
-/// The name of `instance`'s writable root for `what` (`state`, `records`): `<what>-<instance>`,
+/// The name of `instance`'s writable root for `what` (`state`, `records`, `cache`): `<what>-<instance>`,
 /// each byte of the instance outside letters, digits, `_` and `-` written `_`, so it is in
 /// substrate's root-name set.
 #[must_use]
@@ -653,7 +658,7 @@ pub enum Bind {
 /// One host path the box sees.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Mount {
-    /// What it is to the runtime: `state`, `records`, `store`, `binary`, `harness`,
+    /// What it is to the runtime: `state`, `records`, `cache`, `store`, `binary`, `harness`,
     /// `checkouts`, `config`, `forge-cli` or `forge-login`.
     pub what: &'static str,
     /// The path on the host; of a file, with every symlink on its way resolved.
@@ -665,7 +670,7 @@ pub struct Mount {
 }
 
 /// What of the daemon's host decides a box's mounts: the three things the runtime finds through
-/// its own environment.
+/// its own environment, and the daemon's own directory.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct Host {
     /// `HOME`: where each forge CLI keeps its login.
@@ -674,11 +679,14 @@ pub struct Host {
     pub path: Option<std::ffi::OsString>,
     /// The store URL ([`crate::store::STORE_VARIABLE`]).
     pub store: Option<String>,
+    /// conductord's own directory ([`crate::daemon::DIR`] under `HOME`, unless it was started on
+    /// another): the runtimes' tokens and the binaries it starts, which no box writes.
+    pub daemon: Option<PathBuf>,
 }
 
 impl Host {
     /// The host as the runtime's environment `env` names it; without a `PATH` there, this
-    /// process's.
+    /// process's. The daemon's directory is the default one under `HOME`.
     #[must_use]
     pub fn of(env: &[(String, String)]) -> Self {
         let named = |name: &str| {
@@ -686,10 +694,12 @@ impl Host {
                 .find(|(known, value)| known == name && !value.is_empty())
                 .map(|(_, value)| value.clone())
         };
+        let home = named("HOME")
+            .map(PathBuf::from)
+            .filter(|home| home.is_absolute());
         Self {
-            home: named("HOME")
-                .map(PathBuf::from)
-                .filter(|home| home.is_absolute()),
+            daemon: home.as_ref().map(|home| home.join(crate::daemon::DIR)),
+            home,
             path: named("PATH")
                 .map(std::ffi::OsString::from)
                 .or_else(|| std::env::var_os("PATH")),
@@ -697,9 +707,9 @@ impl Host {
         }
     }
 
-    /// The directory of the sqlite file the store URL names, `~/` read under [`Self::home`];
-    /// `None` for any other store.
-    fn store_dir(&self) -> Option<PathBuf> {
+    /// The sqlite file the store URL names, `~/` read under [`Self::home`]; `None` for any
+    /// other store and for a file that is not absolute.
+    fn store_file(&self) -> Option<PathBuf> {
         let path = self.store.as_deref()?.strip_prefix("sqlite:")?;
         let path = path
             .strip_prefix("//")
@@ -709,9 +719,7 @@ impl Host {
             Some(rest) => self.home.as_ref()?.join(rest),
             None => PathBuf::from(path),
         };
-        file.parent()
-            .filter(|dir| dir.is_absolute())
-            .map(Path::to_owned)
+        Some(clean(&file)).filter(|file| file.is_absolute() && file.parent().is_some())
     }
 
     fn find(&self, program: &str) -> Option<PathBuf> {
@@ -729,6 +737,39 @@ const LOGINS: [(&str, &[&str]); 2] = [
     ("glab", &[".config/glab-cli/config.yml"]),
 ];
 
+/// The most read-only directories one start names (substrate-wire's `MAX_READ_ONLY_ROOTS`).
+pub const READ_ONLY_ROOTS_BOUND: usize = 4;
+/// The most read-only files one start names (substrate-wire's `MAX_READ_ONLY_FILES`).
+pub const READ_ONLY_FILES_BOUND: usize = 16;
+/// The most writable roots one start names (substrate-wire's `MAX_WRITABLE_ROOTS`).
+pub const WRITABLE_ROOTS_BOUND: usize = 8;
+
+/// A directory the box must write holds the config file or lies with conductord's own
+/// directory: a writable root is a whole directory, so the box would write them too. Conductor's
+/// own refusal, before substrate is asked.
+pub const ROOT_SHARED: &str = "placement.writable-root-shared";
+
+/// The box would name more directories or files than one start may ([`READ_ONLY_ROOTS_BOUND`],
+/// [`READ_ONLY_FILES_BOUND`], [`WRITABLE_ROOTS_BOUND`]). Conductor's own refusal, before
+/// substrate is asked.
+pub const MOUNTS_EXCEEDED: &str = "placement.mounts-exceeded";
+
+/// `path` as substrate takes a mount: no trailing slash, no empty and no `.` component, and each
+/// `..` taken with the component before it. Every path of [`mounts`] goes through it.
+fn clean(path: &Path) -> PathBuf {
+    let mut cleaned = PathBuf::new();
+    for part in path.components() {
+        match part {
+            std::path::Component::CurDir => {}
+            std::path::Component::ParentDir => {
+                cleaned.pop();
+            }
+            other => cleaned.push(other),
+        }
+    }
+    cleaned
+}
+
 fn at_or_under(path: &str, root: &str) -> bool {
     path == root
         || path
@@ -738,8 +779,9 @@ fn at_or_under(path: &str, root: &str) -> bool {
 
 /// Adds `mount` to `kept` unless the box sees its path already, and says whether it did.
 /// Substrate refuses mounts that nest, so of two writable directories one inside the other the
-/// outer one stays, under its own name, and a path to read at or under a mount or the base
-/// system is not named again.
+/// outer one stays, under its own name, a path to read at or under a mount or the base system
+/// is not named again, and a directory to read that holds a writable one is never added
+/// ([`beside`] names its entries instead).
 fn admit(kept: &mut Vec<Mount>, mount: Mount) -> bool {
     if !Path::new(&mount.mount).is_absolute() || !Path::new(&mount.host_path).is_absolute() {
         return false;
@@ -768,11 +810,92 @@ fn admit(kept: &mut Vec<Mount>, mount: Mount) -> bool {
             if BASE.iter().any(|base| at_or_under(&mount.mount, base)) {
                 return false;
             }
-            kept.retain(|known| matches!(known.bind, Bind::WritableRoot(_)) || !inside(known));
+            if kept
+                .iter()
+                .any(|known| matches!(known.bind, Bind::WritableRoot(_)) && inside(known))
+            {
+                return false;
+            }
+            kept.retain(|known| !inside(known));
             kept.push(mount);
         }
     }
     true
+}
+
+fn text(path: &Path) -> String {
+    clean(path).display().to_string()
+}
+
+fn real(path: &Path) -> PathBuf {
+    std::fs::canonicalize(path).unwrap_or_else(|_| clean(path))
+}
+
+fn read_only_root(what: &'static str, path: &Path) -> Mount {
+    Mount {
+        what,
+        host_path: text(path),
+        mount: text(path),
+        bind: Bind::ReadOnlyRoot,
+    }
+}
+
+fn read_only_file(what: &'static str, path: &Path, mount: &Path) -> Mount {
+    Mount {
+        what,
+        host_path: text(path),
+        mount: text(mount),
+        bind: Bind::ReadOnlyFile,
+    }
+}
+
+/// The directory `dir` as the box reads it beside the writable roots `written`: the directory
+/// itself, or, when it holds one of `written`, each of its entries but that one (a directory as
+/// a directory, a file as a file, the directory on the way to a writable root by its own
+/// entries), since substrate refuses a read-only root that holds a writable one. A link to a
+/// directory is left out: substrate refuses a root reached through a link.
+fn beside(what: &'static str, dir: &Path, written: &[String], found: &mut Vec<Mount>) {
+    let at = text(dir);
+    if !written
+        .iter()
+        .any(|root| root != &at && at_or_under(root, &at))
+    {
+        found.push(read_only_root(what, dir));
+        return;
+    }
+    let Ok(entries) = std::fs::read_dir(dir) else {
+        return;
+    };
+    let mut entries: Vec<PathBuf> = entries
+        .filter_map(|entry| entry.ok().map(|entry| entry.path()))
+        .collect();
+    entries.sort();
+    for entry in entries {
+        let at = text(&entry);
+        if written.iter().any(|root| at_or_under(&at, root)) {
+            continue;
+        }
+        let Ok(kind) = std::fs::symlink_metadata(&entry).map(|meta| meta.file_type()) else {
+            continue;
+        };
+        if kind.is_dir() {
+            beside(what, &entry, written, found);
+        } else if std::fs::metadata(&entry).is_ok_and(|meta| meta.is_file()) {
+            found.push(read_only_file(what, &real(&entry), &entry));
+        }
+    }
+}
+
+/// What a writable directory at `mount` would hand the box to write beside its own content:
+/// the config file (at `config`, a path the file is reached by) or conductord's directory
+/// `daemon`, which a box never writes.
+fn shares(mount: &str, config: &[String], daemon: Option<&str>) -> Option<String> {
+    if let Some(file) = config.iter().find(|file| at_or_under(file, mount)) {
+        return Some(format!("the config file {file}"));
+    }
+    daemon
+        .filter(|dir| at_or_under(dir, mount) || at_or_under(mount, dir))
+        .map(|dir| format!("conductord's own directory {dir}"))
 }
 
 /// Everything of the host the box of `instance` sees, in one list (`story:box-runtime-starts`):
@@ -783,6 +906,7 @@ fn admit(kept: &mut Vec<Mount>, mount: Mount) -> bool {
 /// |---|---|---|
 /// | `state` | the state directory (`run/lock`, `api.sock`, `sessions/`) | writes, root `state-<instance>` |
 /// | `records` | the records directory | writes, root `records-<instance>` |
+/// | `cache` | the cache directory (the collectors' exports, the decider's directory) | writes, root `cache-<instance>` |
 /// | `store` | the directory of a sqlite store (the database and its journal) | writes, root [`STORE_ROOT`] |
 /// | `binary` | the conductor binary's directory (it carries the role profiles) | reads |
 /// | `harness` | the harness's directory on `PATH` | reads |
@@ -792,70 +916,134 @@ fn admit(kept: &mut Vec<Mount>, mount: Mount) -> bool {
 /// | `forge-cli` | the CLI of each forge among the sources (`gh`, `glab`) | reads, one file |
 /// | `forge-login` | that CLI's login files under `HOME` | reads, one file each |
 ///
-/// Each path is named once: a writable directory inside another is the outer one's,
-/// and a path to read that a mount or the box's base system already holds is left out. A
-/// program appears at the path `PATH` names it by; where that path is in the box already and is
-/// a link, the file it links to appears at its own path, so the link resolves. A login file is
+/// Nothing else of the host is written: a writable root is a whole directory, so one that holds
+/// the config file or lies with conductord's own directory ([`Host::daemon`]) is not in the
+/// list, and the box is refused ([`unmountable`]). Each path is named once, as substrate takes
+/// it (no trailing slash): a writable directory inside another is the outer one's, and a path
+/// to read that a mount or the box's base system already holds is left out. Substrate refuses
+/// a directory to read that holds a writable one, so such a directory (the checkouts root
+/// around the records) is named by its other entries ([`beside`]). A program and the config
+/// file appear at the path they are named by; where that path is in the box already and is a
+/// link, the file it links to appears at its own path, so the link resolves. A login file is
 /// named only when it is there.
 #[must_use]
 pub fn mounts(instance: &Instance, config_file: &Path, binary: &Path, host: &Host) -> Vec<Mount> {
-    let text = |path: &Path| path.display().to_string();
-    let real = |path: &Path| std::fs::canonicalize(path).unwrap_or_else(|_| path.to_owned());
-    let writable = |what, name: String, path: &Path| Mount {
-        what,
-        host_path: text(path),
-        mount: text(path),
-        bind: Bind::WritableRoot(name),
-    };
-    let root = |what, path: &Path| Mount {
-        what,
-        host_path: text(path),
-        mount: text(path),
-        bind: Bind::ReadOnlyRoot,
-    };
-    let file = |what, path: &Path, mount: &Path| Mount {
-        what,
-        host_path: text(path),
-        mount: text(mount),
-        bind: Bind::ReadOnlyFile,
-    };
+    layout(instance, config_file, binary, host).0
+}
+
+/// Why no box can hold `instance` as its config and `host` lay it out, `None` when one can:
+/// [`ROOT_SHARED`] for a directory to write that would hand the box the config file or
+/// conductord's directory, [`MOUNTS_EXCEEDED`] for more mounts than one start names. Refused
+/// before substrate is asked ([`BoxRequest::refused`]).
+#[must_use]
+pub fn unmountable(
+    instance: &Instance,
+    config_file: &Path,
+    binary: &Path,
+    host: &Host,
+) -> Option<Refused> {
+    layout(instance, config_file, binary, host).1
+}
+
+/// The list of [`mounts`] and the refusal of [`unmountable`], from one reading of the host.
+fn layout(
+    instance: &Instance,
+    config_file: &Path,
+    binary: &Path,
+    host: &Host,
+) -> (Vec<Mount>, Option<Refused>) {
     let name = &instance.name.0;
     let harness = host.find(crate::confine::CLAUDE);
     let mut kept: Vec<Mount> = Vec::new();
+    let mut refused: Option<Refused> = None;
 
-    // What the runtime and the loop write.
-    let state = writable_root_name("state", name);
-    admit(
-        &mut kept,
-        writable("state", state, Path::new(&instance.state)),
-    );
-    let records = writable_root_name("records", name);
-    admit(
-        &mut kept,
-        writable("records", records, Path::new(&instance.records)),
-    );
-    if let Some(dir) = host.store_dir() {
-        admit(&mut kept, writable("store", STORE_ROOT.to_owned(), &dir));
+    // What the runtime and the loop write, and nothing beside it.
+    let config = [text(config_file), text(&real(config_file))];
+    let daemon = host.daemon.as_deref().map(text);
+    let store = host.store_file();
+    let written = [
+        ("state", Some(PathBuf::from(&instance.state))),
+        ("records", Some(PathBuf::from(&instance.records))),
+        ("cache", Some(PathBuf::from(&instance.cache))),
+        (
+            "store",
+            store.as_deref().and_then(Path::parent).map(Path::to_owned),
+        ),
+    ];
+    for (what, path) in written {
+        let Some(path) = path else { continue };
+        let root = match what {
+            "store" => STORE_ROOT.to_owned(),
+            _ => writable_root_name(what, name),
+        };
+        let mount = Mount {
+            what,
+            host_path: text(&path),
+            mount: text(&path),
+            bind: Bind::WritableRoot(root),
+        };
+        let Some(held) = shares(&mount.mount, &config, daemon.as_deref()) else {
+            admit(&mut kept, mount);
+            continue;
+        };
+        let dir = &mount.mount;
+        let detail = match (what, store.as_deref().and_then(Path::file_name)) {
+            ("store", Some(file)) => format!(
+                "the directory of the sqlite store, {dir}, holds {held}, and a box writes a \
+                 whole directory: put the store in a directory of its own, such as daemon.store: \
+                 sqlite:{dir}/store/{}",
+                Path::new(file).display()
+            ),
+            _ => format!(
+                "the {what} directory of instance {name}, {dir}, holds {held}, and a box writes \
+                 a whole directory: name a {what} directory apart from both"
+            ),
+        };
+        refused.get_or_insert(Refused {
+            name: ROOT_SHARED.to_owned(),
+            detail,
+        });
     }
+    let roots: Vec<String> = kept.iter().map(|mount| mount.mount.clone()).collect();
 
     // What they read: directories.
-    if let Some(dir) = binary.parent() {
-        admit(&mut kept, root("binary", dir));
-    }
-    if let Some(dir) = harness.as_deref().and_then(Path::parent) {
-        admit(&mut kept, root("harness", dir));
-    }
+    let mut read: Vec<(&'static str, PathBuf)> = Vec::new();
+    read.extend(binary.parent().map(|dir| ("binary", dir.to_owned())));
+    read.extend(
+        harness
+            .as_deref()
+            .and_then(Path::parent)
+            .map(|dir| ("harness", dir.to_owned())),
+    );
     if !Path::new(&instance.checkouts.trees).starts_with(&instance.checkouts.root) {
-        admit(
-            &mut kept,
-            root("checkouts", Path::new(&instance.checkouts.root)),
-        );
+        read.push(("checkouts", PathBuf::from(&instance.checkouts.root)));
+    }
+    // The first directory named by its entries, and what of the instance it holds (`records`).
+    let mut split: Option<(String, String)> = None;
+    for (what, dir) in read {
+        let mut found = Vec::new();
+        beside(what, &dir, &roots, &mut found);
+        let whole = found.len() == 1 && found[0].bind == Bind::ReadOnlyRoot;
+        let mut added = false;
+        for mount in found {
+            added |= admit(&mut kept, mount);
+        }
+        if added && !whole {
+            let dir = text(&dir);
+            let held: Vec<&str> = kept
+                .iter()
+                .filter(|mount| {
+                    matches!(mount.bind, Bind::WritableRoot(_)) && at_or_under(&mount.mount, &dir)
+                })
+                .map(|mount| mount.what)
+                .collect();
+            split.get_or_insert((dir, held.join(" and ")));
+        }
     }
 
     // What they read: single files.
-    admit(&mut kept, file("config", &real(config_file), config_file));
-    let mut programs: Vec<(&'static str, PathBuf)> = Vec::new();
-    programs.extend(harness.map(|found| ("harness", found)));
+    let mut files: Vec<(&'static str, PathBuf)> = vec![("config", config_file.to_owned())];
+    files.extend(harness.map(|found| ("harness", found)));
     let mut logins: Vec<PathBuf> = Vec::new();
     for source in &instance.sources {
         let program = match source {
@@ -863,25 +1051,63 @@ pub fn mounts(instance: &Instance, config_file: &Path, binary: &Path, host: &Hos
             Source::GitLab(_) => "glab",
             Source::Local(_) => continue,
         };
-        programs.extend(host.find(program).map(|found| ("forge-cli", found)));
+        files.extend(host.find(program).map(|found| ("forge-cli", found)));
         for (_, paths) in LOGINS.iter().filter(|(known, _)| *known == program) {
             if let Some(home) = &host.home {
                 logins.extend(paths.iter().map(|path| home.join(path)));
             }
         }
     }
-    for (what, found) in programs {
-        let target = real(&found);
-        if !admit(&mut kept, file(what, &target, &found)) && target != found {
-            admit(&mut kept, file(what, &target, &target));
+    for (what, found) in files {
+        let (target, found) = (real(&found), clean(&found));
+        if !admit(&mut kept, read_only_file(what, &target, &found)) && target != found {
+            admit(&mut kept, read_only_file(what, &target, &target));
         }
     }
     for login in logins {
         if login.is_file() {
-            admit(&mut kept, file("forge-login", &real(&login), &login));
+            admit(
+                &mut kept,
+                read_only_file("forge-login", &real(&login), &login),
+            );
         }
     }
-    kept
+
+    // What one start may name.
+    let count = |bind: fn(&Bind) -> bool| kept.iter().filter(|mount| bind(&mount.bind)).count();
+    let bounds = [
+        (
+            "directories to read",
+            count(|bind| *bind == Bind::ReadOnlyRoot),
+            READ_ONLY_ROOTS_BOUND,
+        ),
+        (
+            "files to read",
+            count(|bind| *bind == Bind::ReadOnlyFile),
+            READ_ONLY_FILES_BOUND,
+        ),
+        (
+            "directories to write",
+            count(|bind| matches!(bind, Bind::WritableRoot(_))),
+            WRITABLE_ROOTS_BOUND,
+        ),
+    ];
+    if let Some((what, asked, bound)) = bounds.into_iter().find(|(_, asked, bound)| asked > bound) {
+        let why = split.map_or_else(String::new, |(dir, held)| {
+            format!(
+                ": {dir} holds the {held} directory, which the box writes, so each other entry \
+                 of it is named alone; put {held} outside {dir}"
+            )
+        });
+        refused.get_or_insert(Refused {
+            name: MOUNTS_EXCEEDED.to_owned(),
+            detail: format!(
+                "the box of instance {name} would name {asked} {what} and one start names at \
+                 most {bound}{why}"
+            ),
+        });
+    }
+    (kept, refused)
 }
 
 /// The box `instance` asks for, its runtime the binary at `binary` reading `config_file`, with
@@ -892,13 +1118,26 @@ pub fn request(
     instance: &Instance,
     config_file: &Path,
     binary: &Path,
-    mut env: Vec<(String, String)>,
+    env: Vec<(String, String)>,
 ) -> BoxRequest {
-    let mounts = mounts(instance, config_file, binary, &Host::of(&env));
-    let sessions = sessions_dir(Path::new(&instance.state));
+    let host = Host::of(&env);
+    request_on(instance, config_file, binary, env, &host)
+}
+
+/// [`request`] on `host`: conductord names its own directory there ([`Host::daemon`]).
+#[must_use]
+pub fn request_on(
+    instance: &Instance,
+    config_file: &Path,
+    binary: &Path,
+    mut env: Vec<(String, String)>,
+    host: &Host,
+) -> BoxRequest {
+    let (mounts, refused) = layout(instance, config_file, binary, host);
+    let state = clean(Path::new(&instance.state));
     env.push((
         crate::instance::LOG_VARIABLE.to_owned(),
-        sessions.join(RUNTIME_LOG).display().to_string(),
+        sessions_dir(&state).join(RUNTIME_LOG).display().to_string(),
     ));
     let mut read_only_roots: Vec<String> = Vec::new();
     let mut read_only_files: Vec<HostFile> = Vec::new();
@@ -938,7 +1177,7 @@ pub fn request(
             "instance".to_owned(),
             "serve".to_owned(),
         ],
-        cwd: instance.state.clone(),
+        cwd: state.display().to_string(),
         env,
         read_only_roots,
         read_only_files,
@@ -950,6 +1189,7 @@ pub fn request(
             .map(|resolved| requires(resolved.adapter))
             .unwrap_or_default(),
         writable_roots,
+        refused,
     }
 }
 
@@ -1991,7 +2231,10 @@ pub fn open_box(
     substrate: &mut dyn Substrate,
     request: &BoxRequest,
 ) -> Result<OpenedBox, PlacementRefusal> {
-    let answer = substrate.open(request);
+    let answer = match &request.refused {
+        Some(why) => Err(why.clone()),
+        None => substrate.open(request),
+    };
     let box_id = new_box_id();
     let (refusal, detail) = match &answer {
         Ok(_) => (None, String::new()),

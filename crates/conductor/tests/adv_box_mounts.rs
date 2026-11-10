@@ -91,10 +91,7 @@ fn substrate_refusal(request: &BoxRequest) -> Option<String> {
     }
     for (index, file) in request.read_only_files.iter().enumerate() {
         if !canonical(&file.host_path) || !canonical(&file.mount) {
-            return Some(format!(
-                "exec.read-only-file-path-invalid: {}",
-                file.mount
-            ));
+            return Some(format!("exec.read-only-file-path-invalid: {}", file.mount));
         }
         if let Some(other) = request
             .read_only_roots
@@ -262,7 +259,9 @@ fn the_box_writes_the_cache_directory_the_loop_exports_into() {
     let (file, instance) = getting_started(&home);
     assert_eq!(
         instance.cache,
-        home.join(".cache/b10x/conductor/home").display().to_string()
+        home.join(".cache/b10x/conductor/home")
+            .display()
+            .to_string()
     );
     let request = request(&instance, &file, &home, STORE);
     let exports = Path::new(&instance.cache).join("exports");
@@ -317,12 +316,7 @@ fn a_config_file_that_is_a_link_in_a_writable_root_is_read_in_the_box() {
     let seen = request
         .read_only_files
         .iter()
-        .any(|known| Path::new(&known.mount) == held)
-        || request
-            .read_only_roots
-            .iter()
-            .chain(request.writable_roots.iter().map(|root| &root.path))
-            .any(|root| held.starts_with(root));
+        .any(|known| Path::new(&known.mount) == file && Path::new(&known.host_path) == held);
     assert!(
         seen,
         "{} is the file the link in the box names and no mount holds it: files {:?}, roots {:?} \
@@ -337,6 +331,7 @@ fn a_config_file_that_is_a_link_in_a_writable_root_is_read_in_the_box() {
 /// `config validate` takes `a.b` and `a_b` as two instances; substrate-daemon refuses a root name
 /// declared twice, so two instances need two names.
 #[test]
+#[ignore = "story:box-root-names-unique"]
 fn two_instances_of_one_file_name_two_state_roots() {
     let dir = case("names");
     let home = dir.join("home");

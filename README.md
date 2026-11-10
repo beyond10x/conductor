@@ -128,7 +128,7 @@ sources and its checkouts, and the daemon reads its store from `daemon.store`:
 ```yaml
 version: conductor.config/2
 daemon:
-  store: sqlite:~/.b10x/conductor/conductor.sqlite
+  store: sqlite:~/.b10x/conductor/store/conductor.sqlite
 instances:
   - name: personal
     placement: systemd
@@ -184,8 +184,9 @@ catalog; the [config reference](https://beyond10x.github.io/conductor/docs/refer
    instance's runtime in a box of the local `substrate-daemon`, which runs in a delegated cgroup
    subtree, on `$XDG_RUNTIME_DIR/substrate/daemon.sock`, and declares a writable root for
    what the runtime writes (`state-<instance>=<state>`, `records-<instance>=<records>`,
-   `store=<the store's directory>`; one root where one holds the others) and the egress
-   aperture `conductor`
+   `cache-<instance>=<cache>`, `store=<the store's directory>`) and the egress aperture
+   `conductor`. The store is in a directory of its own: a box writes that whole directory, and
+   never the config file or `~/.b10x/conductor/daemon`
    ([getting started](https://beyond10x.github.io/conductor/docs/getting-started#5-start-the-substrate-daemon)).
 6. `conductor daemon serve --install` installs conductord as the user unit `conductord.service`. It
    opens each instance's box, starts the runtime in it, and lists them at

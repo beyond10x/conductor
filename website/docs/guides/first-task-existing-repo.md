@@ -66,8 +66,8 @@ An instance whose checkouts root holds the checkout, such as the `home` instance
 
 For the instance `--apply` wrote, do steps 5 and 6 of
 [getting started](../getting-started.md#5-start-the-substrate-daemon): start `substrate-daemon`
-with this instance's writable roots, `--writable-root state-alpha=<state>` and
-`--writable-root records-alpha=<records>` where the store's root does not hold them, then
+with this instance's writable roots, `--writable-root state-alpha=<state>`,
+`--writable-root records-alpha=<records>` and `--writable-root cache-alpha=<cache>`, then
 `conductor daemon serve --install`. `substrate-daemon` reads its writable roots at start, so a
 running one is restarted with the new root. A running conductord starts the new runtime at its
 next pass after the config file changed.

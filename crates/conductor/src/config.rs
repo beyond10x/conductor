@@ -5360,6 +5360,12 @@ pub fn validate(config: Option<&Path>, args: &ValidateConfigArgs) -> Result<Exit
     if loaded.read {
         // No instance without a prefix (`story:instance-names-unique`).
         problems.extend(unique_problems(&loaded.config));
+        // No box conductord refuses before substrate is asked (`story:box-runtime-starts`).
+        problems.extend(box_problems(
+            &loaded.config,
+            &environment.cwd.join(&loaded.path),
+            &environment,
+        ));
         for note in &notes {
             eprintln!(
                 "conductor: {WHAT}: {}: note: {}: {}",
@@ -5425,6 +5431,44 @@ pub(crate) fn unique_problems(config: &Config) -> Vec<Problem> {
         });
     }
     problems
+}
+
+/// One problem per instance whose box conductord would refuse before it asks substrate
+/// ([`crate::placement::unmountable`]): a directory the box writes holds the config file `file`
+/// or lies with conductord's directory, or the box would name more mounts than one start may.
+/// Read on this host as conductord's default layout has it: `HOME`, `PATH`, and the
+/// `daemon.store` the file writes. A file that writes none is held to no store: conductord does
+/// not start on it, and the default store of the other commands stays where it is.
+fn box_problems(config: &Config, file: &Path, environment: &Environment) -> Vec<Problem> {
+    let home = environment.home().ok().map(Path::to_owned);
+    let written = fs::read_to_string(file)
+        .ok()
+        .and_then(|text| serde_yaml::from_str::<Value>(&text).ok())
+        .is_some_and(|value| {
+            value
+                .get("daemon")
+                .and_then(|daemon| daemon.get("store"))
+                .is_some()
+        });
+    let host = crate::placement::Host {
+        daemon: home.as_ref().map(|home| home.join(crate::daemon::DIR)),
+        home,
+        path: std::env::var_os("PATH"),
+        store: written.then(|| config.daemon.store.0.clone()),
+    };
+    let binary = std::env::current_exe().unwrap_or_default();
+    config
+        .instances
+        .iter()
+        .enumerate()
+        .filter(|(_, instance)| crate::placement::boxed(instance))
+        .filter_map(|(index, instance)| {
+            crate::placement::unmountable(instance, file, &binary, &host).map(|refused| Problem {
+                path: format!("instances[{index}].placement"),
+                message: format!("{}: {}", refused.name, refused.detail),
+            })
+        })
+        .collect()
 }
 
 /// Whether the prefixes `a` and `b` are one, or one followed by `-` begins the other, so that one

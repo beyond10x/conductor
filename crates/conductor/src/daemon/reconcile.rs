@@ -449,7 +449,10 @@ impl<U: Units> Daemon<U> {
                 name: crate::placement::UNREACHABLE.to_owned(),
                 detail: format!("{error:#}"),
             })
-            .and_then(|()| substrate.restart(&opened.workspace, &request));
+            .and_then(|()| match request.refused.clone() {
+                Some(why) => Err(why),
+                None => substrate.restart(&opened.workspace, &request),
+            });
         drop(substrate);
         let outcome = match restarted {
             Ok(session) => {
@@ -877,7 +880,8 @@ impl<U: Units> Daemon<U> {
 
     /// The box `instance` asks for, its runtime started as `service` says, with no credential in
     /// its environment: substrate seals only slots its daemon declares. A box inherits nothing,
-    /// so its `HOME` is set: the daemon's, which the config file's `~` stands for.
+    /// so its `HOME` is set: the daemon's, which the config file's `~` stands for. The box writes
+    /// nothing of the daemon's own directory ([`crate::placement::Host::daemon`]).
     fn box_request(&self, instance: &Instance, service: &Service) -> crate::placement::BoxRequest {
         let token = format!("{}=", crate::instance::TOKEN_VARIABLE);
         let mut env: Vec<(String, String)> = service
@@ -891,7 +895,9 @@ impl<U: Units> Daemon<U> {
             env.push(("HOME".to_owned(), self.home.display().to_string()));
         }
         let binary = PathBuf::from(service.command.first().cloned().unwrap_or_default());
-        crate::placement::request(instance, &self.config_file, &binary, env)
+        let mut host = crate::placement::Host::of(&env);
+        host.daemon = Some(self.dir.clone());
+        crate::placement::request_on(instance, &self.config_file, &binary, env, &host)
     }
 
     /// The local substrate daemon's model-token slot pool (`daemon.substrate_slots`), under the

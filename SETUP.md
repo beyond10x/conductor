@@ -98,7 +98,7 @@ to fill in, and each step says where they come from. `<target>` is the build of 
    ```yaml
    version: conductor.config/2
    daemon:
-     store: sqlite:~/.b10x/conductor/conductor.sqlite
+     store: sqlite:~/.b10x/conductor/store/conductor.sqlite
    instances:
      - name: <repository's directory name>
        placement: systemd

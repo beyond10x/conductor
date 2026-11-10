@@ -16,7 +16,7 @@ records and roles holds here too.
 ```yaml
 version: conductor.config/2
 daemon:
-  store: sqlite:~/.b10x/conductor/conductor.sqlite
+  store: sqlite:~/.b10x/conductor/store/conductor.sqlite
 default: platform
 instances:
   - name: platform
@@ -28,7 +28,7 @@ instances:
     checkouts:
       root: ~/example-group
       trees: ~/.local/state/worktree/trees/example-group
-    records: ~/example-group/records
+    records: ~/records/example-group
 ```
 
 | key | what it sets |

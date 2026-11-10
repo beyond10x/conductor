@@ -173,10 +173,18 @@ pub fn instance_name(name: &str) -> String {
     }
 }
 
-/// The `daemon.store` a written config file names: the SQLite file the daemon section's default
-/// names ([`config::default_daemon`]), written under `~`. The daemon starts only on a store the
-/// file writes (`story:store-shared`).
-pub const STORE: &str = "sqlite:~/.b10x/conductor/conductor.sqlite";
+/// The `daemon.store` a new config file names: a SQLite file in a directory of its own, written
+/// under `~`. A box writes the whole directory of its store, so the store is apart from the
+/// config file and conductord's directory ([`crate::placement::ROOT_SHARED`],
+/// `story:box-runtime-starts`). The daemon starts only on a store the file writes
+/// (`story:store-shared`).
+pub const STORE: &str = "sqlite:~/.b10x/conductor/store/conductor.sqlite";
+
+/// The store a config without `daemon.store` means ([`config::default_daemon`]), written under
+/// `~`, and its file under `HOME`: where a database is there already, a new config file names
+/// it, since setup never moves a store.
+pub const STORE_BEFORE: &str = "sqlite:~/.b10x/conductor/conductor.sqlite";
+const STORE_BEFORE_FILE: &str = ".b10x/conductor/conductor.sqlite";
 
 /// The `placement` a written instance names: a box through substrate's `systemd` adapter, the
 /// placement of the built-in instance and the one `conductor config migrate` writes for an
@@ -185,9 +193,10 @@ pub const STORE: &str = "sqlite:~/.b10x/conductor/conductor.sqlite";
 pub const PLACEMENT: &str = "systemd";
 
 /// A `conductor.config/2` file ([`config::VERSION_2`]) the daemon reconciles: its `daemon` section
-/// names [`STORE`], and its one instance is [`instance_text`].
+/// names `store` ([`STORE`], or [`STORE_BEFORE`] where that database exists), and its one
+/// instance is [`instance_text`].
 #[must_use]
-pub fn config_text(name: &str, origin: &Origin, parent: &Path) -> String {
+pub fn config_text(name: &str, origin: &Origin, parent: &Path, store: &str) -> String {
     format!(
         "version: {version}\n\
          daemon:\n\
@@ -195,7 +204,7 @@ pub fn config_text(name: &str, origin: &Origin, parent: &Path) -> String {
          instances:\n\
          {instance}",
         version = config::VERSION_2,
-        store = serde_json::to_string(STORE).unwrap_or_default(),
+        store = serde_json::to_string(store).unwrap_or_default(),
         instance = instance_text(name, origin, parent),
     )
 }
@@ -516,7 +525,11 @@ fn apply(flag: Option<&Path>, environment: &Environment, repository: &Path) -> R
                 }
                 return Ok(());
             }
-            let text = config_text(&name, &origin(repository), parent);
+            let before = environment
+                .home()
+                .is_ok_and(|home| home.join(STORE_BEFORE_FILE).exists());
+            let store = if before { STORE_BEFORE } else { STORE };
+            let text = config_text(&name, &origin(repository), parent, store);
             if let Some(dir) = file.parent() {
                 fs::create_dir_all(dir)
                     .with_context(|| format!("{WHAT}: create {}", dir.display()))?;
@@ -740,7 +753,7 @@ mod tests {
             },
             Origin::None,
         ] {
-            let text = config_text("alpha", &origin, parent);
+            let text = config_text("alpha", &origin, parent, STORE);
             let parsed = config::parse(&text, home)
                 .unwrap_or_else(|problems| panic!("{problems:?}:\n{text}"));
             assert_eq!(parsed.version, config::VERSION_2, "{text}");
