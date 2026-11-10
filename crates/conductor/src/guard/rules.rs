@@ -3399,10 +3399,7 @@ fn own_api_write(arguments: &[String], host: &str, own: &str) -> Result<(Project
             .or_else(|| word.strip_prefix("--raw-field="))
         {
             fields.push(value);
-        } else if word == "--header" {
-            unread.push(word);
-            next += 1;
-        } else if word == "--input" {
+        } else if word == "--header" || word == "--input" {
             unread.push(word);
             next += 1;
         } else if word.starts_with("--") {
