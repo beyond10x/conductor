@@ -6,13 +6,20 @@
 //! refused exits 1 with one line on standard error naming the error the specification declares,
 //! and writes nothing on standard output.
 
+mod active;
 mod common;
 
 use std::fs;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::process::{Output, Stdio};
 use std::thread;
 
+use conductor_cli::collect::Collector;
+use conductor_cli::snapshot;
+use conductor_model::observation::{
+    CommitSha, RecordRepository, RepositoryName, SnapshotId, SnapshotState, Visibility,
+};
+use conductor_model::primitives::{Timestamp, Uuid};
 use serde_json::{Value, json};
 
 /// The send instant every dispatch of a case carries unless it says otherwise.
@@ -1161,4 +1168,152 @@ fn every_tag_names_its_kind_without_its_closing_bracket() {
         problems.len(),
         problems.join("\n  - ")
     );
+}
+
+// ---------------------------------------------------------------------------------------------
+// story:dispatch-refuses-unknown-repository
+// ---------------------------------------------------------------------------------------------
+
+/// A complete snapshot in the store under `state` that observed `repository`, taken through the
+/// library over one fake collector.
+fn observed_in_a_complete_snapshot(state: &Path, repository: &str) {
+    active::isolate();
+    let input = RecordRepository {
+        actor: conductor_cli::actor::daemon(),
+        snapshot_id: SnapshotId(Uuid("00000000-0000-0000-0000-000000000000".to_owned())),
+        repository: RepositoryName(repository.to_owned()),
+        visibility: Visibility::Private,
+        archived: false,
+        local_checkout: true,
+        main_head: CommitSha("0a1b2c3".to_owned()),
+        main_committed_at: Timestamp("2026-10-01T00:00:00Z".to_owned()),
+        main_commits_7d: 3,
+        real_commits_7d: 1,
+        behind_main: 0,
+        dirty_files: 0,
+        worktrees: 1,
+        open_issues: 0,
+        oldest_open_issue_at: None,
+        latest_release: None,
+        latest_release_at: None,
+        unreleased_commits: None,
+        planning_store_version: None,
+        in_catalog: Some(true),
+        gates_hooks_version: None,
+        gates_version: None,
+        wave_width: None,
+        wave_ready: None,
+        wave_reason: None,
+    };
+    let collector = Collector::new("repositories", move |recorder| {
+        recorder.repository(input.clone())?;
+        Ok(())
+    });
+    let store = conductor_cli::store::open(state).expect("open the store");
+    let taken = snapshot::take(store, &[collector]).expect("the driver ends the snapshot");
+    assert_eq!(taken.state, SnapshotState::Complete, "{taken:?}");
+}
+
+/// `send-dispatch` refuses a repository that neither the newest complete snapshot nor the
+/// workspace names: exit 1, one line on standard error naming the repository and the ones known,
+/// nothing on standard output, and no dispatch. One the snapshot names, and one only the
+/// workspace names, are sent.
+#[test]
+fn send_dispatch_refuses_a_repository_no_snapshot_or_workspace_names() {
+    let case = Case::new("unknown-repository");
+    let root = case.work.parent().expect("the case's directory").to_owned();
+    let records = root.join("records");
+    fs::create_dir_all(records.join(".engineering")).expect("create the records directory");
+    fs::write(
+        records.join(".engineering/workspace.yaml"),
+        "version: aep.workspace/1\nmembers:\n  - name: alpha\n    source: ../example-org/alpha\n",
+    )
+    .expect("write the workspace file");
+    let config = root.join("conductor.yaml");
+    fs::write(
+        &config,
+        format!(
+            "version: conductor.config/1\n\
+             instances:\n\
+             \x20 - name: example-org\n\
+             \x20   session_prefix: ex\n\
+             \x20   sources: [{{github: example-org}}]\n\
+             \x20   checkouts: {{root: {root}, trees: {trees}}}\n\
+             \x20   records: {records}\n\
+             \x20   state: {state}\n",
+            root = root.join("home/example-org").display(),
+            trees = root.join("trees").display(),
+            records = records.display(),
+            state = case.state.display(),
+        ),
+    )
+    .expect("write the config file");
+    observed_in_a_complete_snapshot(&case.state, "example-checks");
+    let run = |args: &[&str]| {
+        common::conductor(root.join("home"))
+            .current_dir(&case.work)
+            .env("CONDUCTOR_CONFIG", &config)
+            .args(args)
+            .stdin(Stdio::null())
+            .output()
+            .expect("the conductor binary runs")
+    };
+    let ok = |args: &[&str]| {
+        let output = run(args);
+        assert!(
+            output.status.success(),
+            "`conductor {}` exited {:?}; stderr: {}",
+            args.join(" "),
+            output.status.code(),
+            String::from_utf8_lossy(&output.stderr)
+        );
+        String::from_utf8(output.stdout).expect("stdout is UTF-8")
+    };
+    let send = |repository: &'static str| {
+        [
+            "dispatch",
+            "send-dispatch",
+            "--repository",
+            repository,
+            "--goal-id",
+            "G9",
+            "--brief",
+            "b",
+            "--sent-at",
+            SENT_AT,
+        ]
+    };
+    ok(&[
+        "goal",
+        "propose-goal",
+        "--goal-id",
+        "G9",
+        "--title",
+        "Ship the pilot",
+        "--exit-evidence",
+        "G9 is listed as met in NORTHSTAR.md",
+    ]);
+
+    let output = run(&send("checks"));
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        output.status.code() == Some(1)
+            && output.stdout.is_empty()
+            && stderr.lines().count() == 1
+            && stderr.starts_with("conductor: dispatch send-dispatch: --repository checks: ")
+            && stderr.contains("alpha, example-checks")
+            && stderr.contains("nothing was sent"),
+        "a repository nothing names is refused naming the known ones: exit {:?}, stdout {:?}, \
+         stderr {stderr:?}",
+        output.status.code(),
+        String::from_utf8_lossy(&output.stdout),
+    );
+    assert_eq!(
+        ok(&["dispatch", "dispatches", "--format", "jsonl"]),
+        "",
+        "the refused dispatch was not kept"
+    );
+
+    assert_eq!(ok(&send("example-checks")), "DSP-20261007-01\n");
+    assert_eq!(ok(&send("alpha")), "DSP-20261007-02\n");
 }
