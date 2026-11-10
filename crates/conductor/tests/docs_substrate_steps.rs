@@ -6,7 +6,7 @@
 //!   own. `substrate-daemon` refuses a state directory that is not mode 0700.
 //! - `/etc/ssl/certs/ca-certificates.crt` is a symbolic link on Arch, and `substrate-daemon`
 //!   refuses a `--ca-bundle` that is not a regular file, so the value is the resolved link
-//!   (`readlink -f` or `realpath`), never a bare path under `/etc/ssl/certs`.
+//!   (`readlink -f` or `realpath` without a flag) of that one path, which all three have.
 //!
 //! Both are held on `website/docs/getting-started.md` and on step 9 of `SETUP.md`. Every file is
 //! read relative to the workspace root, and a finding names the file and the line.
@@ -18,6 +18,16 @@ use std::path::{Path, PathBuf};
 const PARENT: &str = "~/.local/state/substrate";
 
 const PAGES: [&str; 2] = ["website/docs/getting-started.md", "SETUP.md"];
+
+/// The only values of `--ca-bundle` the pages may give, an opening quote aside: the link every
+/// one of Debian, Fedora and Arch has, resolved to the regular file behind it.
+const BUNDLES: [&str; 2] = [
+    "$(readlink -f /etc/ssl/certs/ca-certificates.crt)",
+    "$(realpath /etc/ssl/certs/ca-certificates.crt)",
+];
+
+/// Where the instruction of `SETUP.md` to create the directories ends and its reason begins.
+const INSTRUCTION_END: &str = "before the daemon starts";
 
 fn read(relative: &str) -> String {
     let path: PathBuf = Path::new(env!("CARGO_MANIFEST_DIR"))
@@ -59,25 +69,47 @@ fn directory_problems(name: &str, page: &str) -> Vec<String> {
     problems
 }
 
-/// What is wrong with the CA bundle of `page`: every `--ca-bundle` whose value is a bare path
-/// under `/etc/ssl/certs`, where the distributions keep symbolic links.
+/// What is wrong with the CA bundle of `page`: every `--ca-bundle` whose value is not one of
+/// [`BUNDLES`]. A bare path is a symbolic link on Arch and Fedora, another path is missing on one
+/// of the three, and a flag such as `realpath -s` resolves no link.
 fn bundle_problems(name: &str, page: &str) -> Vec<String> {
     let mut problems = Vec::new();
     for (index, line) in page.lines().enumerate() {
         for (at, _) in line.match_indices("--ca-bundle ") {
             let value = line[at + "--ca-bundle ".len()..].trim_start_matches('"');
-            let resolved = value.starts_with("$(readlink -f ") || value.starts_with("$(realpath ");
-            if value.starts_with("/etc/ssl/certs/") || !resolved {
+            if !BUNDLES.iter().any(|bundle| value.starts_with(bundle)) {
                 problems.push(format!(
-                    "{name}:{}: `--ca-bundle` names {:?}, which is a symbolic link on Arch: \
-                     resolve it with `readlink -f` or `realpath`",
+                    "{name}:{}: `--ca-bundle` is {:?}, which is not the regular file on each of \
+                     Debian, Fedora and Arch: write {} or {}",
                     index + 1,
-                    value.split(['`', ' ']).next().unwrap_or_default()
+                    value.split(['`', '"']).next().unwrap_or_default().trim(),
+                    BUNDLES[0],
+                    BUNDLES[1]
                 ));
             }
         }
     }
     problems
+}
+
+/// Whether `setup` tells to create [`PARENT`] itself at mode 700: the instruction, from a line
+/// naming [`PARENT`] up to [`INSTRUCTION_END`], says `mode 700`. The reason after it does not
+/// count.
+fn setup_holds(setup: &str) -> bool {
+    let lines = setup.lines().collect::<Vec<_>>();
+    lines
+        .iter()
+        .enumerate()
+        .filter(|(_, line)| words(line).contains(&PARENT))
+        .any(|(index, _)| {
+            let text = lines[index..(index + 3).min(lines.len())]
+                .iter()
+                .flat_map(|line| line.split_whitespace())
+                .collect::<Vec<_>>()
+                .join(" ");
+            text.split_once(INSTRUCTION_END)
+                .is_some_and(|(instruction, _)| instruction.contains("mode 700"))
+        })
 }
 
 #[test]
@@ -99,21 +131,9 @@ fn the_directory_step_names_the_substrate_state_directory_itself() {
 
 #[test]
 fn setup_md_names_the_substrate_state_directory_as_mode_700() {
-    let setup = read("SETUP.md");
-    let named = setup
-        .lines()
-        .enumerate()
-        .filter(|(_, line)| words(line).contains(&PARENT))
-        .map(|(index, _)| index)
-        .collect::<Vec<_>>();
-    let lines = setup.lines().collect::<Vec<_>>();
     assert!(
-        named.iter().any(|index| {
-            lines[*index..(*index + 3).min(lines.len())]
-                .join(" ")
-                .contains("mode 700")
-        }),
-        "SETUP.md does not say to create {PARENT} itself at mode 700"
+        setup_holds(&read("SETUP.md")),
+        "SETUP.md does not say to create {PARENT} itself at mode 700 {INSTRUCTION_END}"
     );
 }
 
@@ -145,26 +165,22 @@ fn the_checks_of_this_test_find_what_they_look_for() {
     assert!(bundle_problems("page", quoted).is_empty(), "{quoted}");
     let bare = "- Fix: `x --ca-bundle $(realpath /etc/ssl/certs/ca-certificates.crt)`, kept\n";
     assert!(bundle_problems("page", bare).is_empty(), "{bare}");
+    let flag = "  --ca-bundle \"$(readlink -m /etc/ssl/certs/ca-certificates.crt)\"\n";
+    assert_eq!(bundle_problems("page", flag).len(), 1, "{flag}");
+
+    let told = "create ~/.local/state/substrate and\n   the rest, each at mode 700, before the \
+                daemon starts: it refuses one that is not mode 700.\n";
+    assert!(setup_holds(told), "{told}");
+    let reason_only = "create ~/.local/state/substrate and\n   the rest, before the daemon \
+                       starts: it refuses one that is not mode 700.\n";
+    assert!(!setup_holds(reason_only), "{reason_only}");
+    let no_end = "create ~/.local/state/substrate at mode 700.\n";
+    assert!(!setup_holds(no_end), "{no_end}");
 }
 
 /// Adversary cases of wave 50, unit U6, pass 1. Each is red on the tree it was written against.
 mod adversary {
     use super::*;
-
-    /// The predicate of `setup_md_names_the_substrate_state_directory_as_mode_700`, word for word,
-    /// over a text instead of the file: that test holds it inline.
-    fn setup_holds(setup: &str) -> bool {
-        let lines = setup.lines().collect::<Vec<_>>();
-        lines
-            .iter()
-            .enumerate()
-            .filter(|(_, line)| words(line).contains(&PARENT))
-            .any(|(index, _)| {
-                lines[index..(index + 3).min(lines.len())]
-                    .join(" ")
-                    .contains("mode 700")
-            })
-    }
 
     /// The resolved path is one of the acceptance's three distributions only: the file exists on
     /// Fedora and neither on Debian nor on Arch, where `readlink -f` prints the name of a file
