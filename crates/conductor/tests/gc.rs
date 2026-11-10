@@ -1694,3 +1694,173 @@ fn gc_cleans_idle_targets_oldest_first_until_free_disk_reaches_the_floor() {
         "oldest first"
     );
 }
+
+// Adversary cases of `story:gc-idle-targets`.
+
+/// What `uv venv` writes into a virtual environment: the same signature as cargo's tag, another
+/// tool's name.
+const UV_TAG: &str = "Signature: 8a477f597d28d172789f06886806bc55\n# This file is a cache directory tag created by uv.\n";
+
+#[test]
+fn a_directory_another_tool_tagged_is_not_cleaned_as_a_cargo_target() {
+    let case = Case::new("idle-targets-foreign-tag");
+    let tree = case
+        .agent_target("python")
+        .parent()
+        .expect("the tree")
+        .to_path_buf();
+    let venv = tree.join(".venv");
+    write(&venv.join("CACHEDIR.TAG"), UV_TAG);
+    write(&venv.join("pyvenv.cfg"), "home = /usr/bin\n");
+    fill(
+        &venv.join("lib/python3/site-packages/installed.bin"),
+        64 * KIB,
+    );
+    age_by(&venv, 240 * MINUTE);
+
+    let output = case.gc_at(&["--format", "json"], &[10]);
+    assert!(output.status.success(), "{}", shown(&output));
+    let report: Value = serde_json::from_slice(&output.stdout).expect("JSON");
+    assert!(
+        venv.join("pyvenv.cfg").is_file(),
+        "a virtual environment is no cargo target and stays: {}",
+        shown(&output)
+    );
+    assert!(
+        !idle_rows(&report).contains_key(&venv.display().to_string()),
+        "a virtual environment is no idle cargo target: {}",
+        shown(&output)
+    );
+}
+
+#[test]
+fn a_target_a_process_names_through_a_link_is_kept() {
+    let case = Case::new("idle-targets-through-a-link");
+    let (env, argv) = (
+        case.agent_target("env-link"),
+        case.agent_target("argv-link"),
+    );
+    for target in [&env, &argv] {
+        cargo_target(target, 240 * MINUTE);
+    }
+    // Another name of each tree: a link outside the trees that leads to it.
+    let alias = |target: &Path, name: &str| {
+        let link = case.dir.join(name);
+        std::os::unix::fs::symlink(target.parent().expect("the tree"), &link)
+            .expect("link to the tree");
+        link.join("target")
+    };
+    let (env_alias, argv_alias) = (alias(&env, "env-alias"), alias(&argv, "argv-alias"));
+    let elsewhere = case.dir.join("elsewhere");
+    fs::create_dir_all(&elsewhere).expect("create a directory outside every target");
+    let _env = stand_in(
+        Command::new("sleep")
+            .arg("120")
+            .current_dir(&elsewhere)
+            .env("CARGO_TARGET_DIR", &env_alias),
+    );
+    let _argv = stand_in(
+        Command::new("tail")
+            .arg("-F")
+            .arg(argv_alias.join("debug/absent.log"))
+            .current_dir(&elsewhere),
+    );
+    std::thread::sleep(Duration::from_millis(300));
+
+    let output = case.gc_at(&["--format", "json"], &[10]);
+    assert!(output.status.success(), "{}", shown(&output));
+    assert!(
+        env.join("debug/deps/out.bin").is_file(),
+        "a target CARGO_TARGET_DIR names through a link stays: {}",
+        shown(&output)
+    );
+    assert!(
+        argv.join("debug/deps/out.bin").is_file(),
+        "a target a command line names through a link stays: {}",
+        shown(&output)
+    );
+}
+
+#[test]
+fn a_program_running_from_a_target_keeps_it() {
+    use std::os::unix::process::CommandExt as _;
+    let case = Case::new("idle-targets-program");
+    let target = case.agent_target("program");
+    cargo_target(&target, 240 * MINUTE);
+    let sleep = ["/usr/bin/sleep", "/bin/sleep"]
+        .into_iter()
+        .find(|path| Path::new(path).is_file())
+        .expect("a sleep program");
+    let program = target.join("debug/deps/stand-in");
+    fs::copy(sleep, &program).expect("copy the program into the target");
+    age_by(&target, 240 * MINUTE);
+    let elsewhere = case.dir.join("elsewhere");
+    fs::create_dir_all(&elsewhere).expect("create a directory outside every target");
+    // Its command line does not name the target: only its program lies in it.
+    let _program = stand_in(
+        Command::new(&program)
+            .arg0("stand-in")
+            .arg("120")
+            .current_dir(&elsewhere),
+    );
+    std::thread::sleep(Duration::from_millis(300));
+
+    let output = case.gc_at(&["--format", "json"], &[10]);
+    assert!(output.status.success(), "{}", shown(&output));
+    let report: Value = serde_json::from_slice(&output.stdout).expect("JSON");
+    assert!(
+        target.join("debug/deps/out.bin").is_file(),
+        "{}",
+        shown(&output)
+    );
+    let kept = kept_target(&report, &target).expect("listed as kept");
+    assert!(kept.contains("runs a program in it"), "{kept}");
+}
+
+#[test]
+fn a_write_in_place_three_levels_down_keeps_a_target() {
+    let case = Case::new("idle-targets-in-place");
+    let target = case.agent_target("in-place");
+    cargo_target(&target, 240 * MINUTE);
+    // An existing file rewritten in place: no directory's time moves.
+    let mut file = fs::OpenOptions::new()
+        .write(true)
+        .open(target.join("debug/deps/out.bin"))
+        .expect("open the build output");
+    file.write_all(b"again").expect("write in place");
+    drop(file);
+
+    let output = case.gc_at(&["--format", "json"], &[10]);
+    assert!(output.status.success(), "{}", shown(&output));
+    let report: Value = serde_json::from_slice(&output.stdout).expect("JSON");
+    assert!(
+        target.join("debug/deps/out.bin").is_file(),
+        "{}",
+        shown(&output)
+    );
+    let kept = kept_target(&report, &target).expect("listed as kept");
+    assert!(kept.contains("not idle: written"), "{kept}");
+}
+
+#[test]
+fn nothing_is_cleaned_when_free_disk_cannot_be_read() {
+    let case = Case::new("idle-targets-unreadable-disk");
+    let target = case.agent_target("quiet");
+    cargo_target(&target, 240 * MINUTE);
+    let readings = case.dir.join("free.txt");
+    write(&readings, "unknown\n");
+    let path = format!("{}:/usr/bin:/bin", case.bin().display());
+    let output = common::conductor(case.home())
+        .args(["gc", "--format", "json"])
+        .current_dir(case.records())
+        .env("PATH", path)
+        .env(conductor_cli::gc::reclaim::READINGS_VARIABLE, readings)
+        .stdin(Stdio::null())
+        .output()
+        .expect("conductor runs");
+    assert!(
+        target.join("debug/deps/out.bin").is_file(),
+        "the target stays: {}",
+        shown(&output)
+    );
+}
