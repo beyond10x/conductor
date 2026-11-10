@@ -48,7 +48,10 @@
 //! ([`crate::config::host_maintainer`]).
 //!
 //! `session deliver` (`story:mailbox-send-and-deliver`, [`deliver`]) types a text into a running
-//! session through its tmux launcher and records the delivery; `session deliveries` is the view
+//! session through its tmux launcher and records the delivery; a session started with
+//! `claude --bg`, which has no launcher, takes it through `claude attach` in a pane made for the
+//! one delivery (`story:deliver-reaches-bg-session`, [`type_through_attach`]). `session
+//! deliveries` is the view
 //! `conductor.session.Deliveries` ([`deliveries`]). The [`Deliverer`] trait puts a text in front
 //! of a running session; its real form, [`ShellDeliverer`], runs `conductor session deliver
 //! --name <name> --text -`, which is how `conductor run` delivers (`story:run-daemon`).
@@ -60,6 +63,8 @@ use std::fs::{self, File};
 use std::io::{self, Read as _, Write as _};
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
+use std::thread;
+use std::time::{Duration, Instant};
 
 use anyhow::{Context as _, Result, anyhow, bail};
 use conductor_model::behaviour::{
@@ -271,9 +276,14 @@ const DELIVERED: &str = "delivered";
 /// from standard input is kept first as `<state>/mailbox/delivered/<ulid>.md`. Prints the
 /// delivery's id.
 ///
-/// A session with no socket, or whose tmux does not take the text, is refused
-/// (`SessionNotReachable`, the specification's `unreachable` branch), exit 1 naming the session:
-/// nothing was kept or recorded, and the command does not try again.
+/// A session with no socket, or one no tmux server answers on, is a background session's
+/// (`claude --bg` starts no launcher, `story:deliver-reaches-bg-session`): when the session list
+/// names a live session of that name, the text is typed through `claude attach <id>` in a pane
+/// made for this one delivery ([`type_through_attach`]) and recorded the same way.
+///
+/// A session neither route reaches is refused (`SessionNotReachable`, the specification's
+/// `unreachable` branch), exit 1 naming the session and both routes on one line: nothing was
+/// kept or recorded, and the command does not try again.
 ///
 /// # Errors
 ///
@@ -319,28 +329,7 @@ pub fn deliver_text(
     let dir = crate::state::dir(state)?;
     let sessions = dir.join("sessions");
     let name = SessionName(name.to_owned());
-    let socket = sessions.join(format!("{}.tmux", name.0));
-    let unreached = if fs::symlink_metadata(&socket).is_err() {
-        Some(format!(
-            "its launcher socket {} is absent, so nothing was typed",
-            socket.display()
-        ))
-    } else {
-        systemd::type_text(&sessions, &name, typed)
-            .err()
-            .map(|error| {
-                // The text is one of tmux's arguments; the refusal stays one line without it.
-                let mut said = format!("{error:#}");
-                if !typed.is_empty() {
-                    said = said.replace(typed, "<the text>");
-                }
-                format!(
-                    "its tmux on {} did not take the text: {}",
-                    socket.display(),
-                    said.split_whitespace().collect::<Vec<_>>().join(" ")
-                )
-            })
-    };
+    let unreached = reach(&sessions, &name, typed);
     let delivered_at = records::now()?;
     let mut generated = Generated::new(Delivering {
         store: None,
@@ -400,6 +389,133 @@ pub fn deliver_text(
     writeln!(io::stdout().lock(), "{}", message_delivered.delivery_id.0.0)
         .context("write the delivery's id to standard output")?;
     Ok(ExitCode::SUCCESS)
+}
+
+/// How long `claude attach` may take to draw in the pane made for a delivery.
+const ATTACH_DRAWS: Duration = Duration::from_secs(20);
+
+/// How long the attach client is given twice: between its first drawing and the paste, and
+/// between Enter and the end of its pane.
+const ATTACH_SETTLE: Duration = Duration::from_millis(500);
+
+/// Types `typed` into the session `name`, whose files are in `sessions`; answers why it was not
+/// reached, on one line, or nothing once it was typed.
+///
+/// First the launcher: the tmux server on `<sessions>/<name>.tmux`. With no socket, or a socket
+/// whose tmux does not take the text, the session may be a background one, which has no launcher
+/// (`story:deliver-reaches-bg-session`): when the session list names a live session of that
+/// name, the text goes through [`type_through_attach`]. A socket a tmux server still answers on
+/// is a launcher's, and is left as it is.
+fn reach(sessions: &Path, name: &SessionName, typed: &str) -> Option<String> {
+    // The text is one of tmux's arguments; the refusal stays one line without it.
+    let said = |error: &anyhow::Error| {
+        let mut said = format!("{error:#}");
+        if !typed.is_empty() {
+            said = said.replace(typed, "<the text>");
+        }
+        said.split_whitespace().collect::<Vec<_>>().join(" ")
+    };
+    let socket = sessions.join(format!("{}.tmux", name.0));
+    let planted = fs::symlink_metadata(&socket).is_ok();
+    let launcher = if planted {
+        match systemd::type_text(sessions, name, typed) {
+            Ok(()) => return None,
+            Err(error) => format!(
+                "its tmux on {} did not take the text: {}",
+                socket.display(),
+                said(&error)
+            ),
+        }
+    } else {
+        format!("its launcher socket {} is absent", socket.display())
+    };
+    let list = format!("`{} agents --json`", confine::CLAUDE);
+    let background = match confine::live_session(&name.0) {
+        Ok(None) => format!("{list} lists no live session of that name"),
+        Err(error) => format!("the session list was not read: {}", said(&error)),
+        Ok(Some(id)) if id.starts_with('-') || id.contains(char::is_whitespace) => {
+            format!("{list} names its live session by no id to attach to")
+        }
+        Ok(Some(_))
+            if planted && systemd::tmux_call(sessions, name, &["list-sessions"]).is_ok() =>
+        {
+            format!(
+                "{list} lists it live, but a tmux server answers on that socket and is left alone"
+            )
+        }
+        Ok(Some(id)) => match type_through_attach(sessions, name, &id, typed) {
+            Ok(()) => return None,
+            Err(error) => format!(
+                "`{} attach {id}` in a pane of its own did not take it: {}",
+                confine::CLAUDE,
+                said(&error)
+            ),
+        },
+    };
+    Some(format!("{launcher}; {background}"))
+}
+
+/// Types `typed` into the live background session `id`, named `name`, through the harness's own
+/// attach (`story:deliver-reaches-bg-session`): a tmux server on `<sessions>/<name>.tmux`, with
+/// no configuration file, whose one pane runs `claude attach <id>`, 160 by 50; once the attach
+/// client has drawn (within [`ATTACH_DRAWS`]) and [`ATTACH_SETTLE`] passed, the launcher's
+/// [`systemd::type_text`]; then, after [`ATTACH_SETTLE`], the server is ended and its socket
+/// removed, so the pane lives for the one delivery and the session, which the harness keeps
+/// running without a client, has no launcher left behind. A socket file found there is one no
+/// server answers on ([`reach`]), and is removed first.
+///
+/// # Errors
+///
+/// tmux does not start the pane, `claude attach` draws nothing within its bound or ends, or the
+/// text is not typed.
+fn type_through_attach(sessions: &Path, name: &SessionName, id: &str, typed: &str) -> Result<()> {
+    let socket = sessions.join(format!("{}.tmux", name.0));
+    fs::create_dir_all(sessions).with_context(|| format!("create {}", sessions.display()))?;
+    let _ = fs::remove_file(&socket);
+    systemd::tmux_call(
+        sessions,
+        name,
+        &[
+            "-f",
+            "/dev/null",
+            "new-session",
+            "-d",
+            "-s",
+            &name.0,
+            "-x",
+            "160",
+            "-y",
+            "50",
+            "--",
+            confine::CLAUDE,
+            "attach",
+            id,
+        ],
+    )?;
+    let taken = type_once_drawn(sessions, name, typed);
+    let _ = systemd::tmux_call(sessions, name, &["kill-server"]);
+    let _ = fs::remove_file(&socket);
+    taken
+}
+
+/// [`type_through_attach`]'s typing, into the pane it made: waits until the pane shows anything
+/// (within [`ATTACH_DRAWS`]), then [`ATTACH_SETTLE`], the text, and [`ATTACH_SETTLE`] again.
+fn type_once_drawn(sessions: &Path, name: &SessionName, typed: &str) -> Result<()> {
+    let pane = systemd::target(name);
+    let started = Instant::now();
+    while systemd::tmux_call(sessions, name, &["capture-pane", "-p", "-t", &pane])?
+        .trim()
+        .is_empty()
+    {
+        if started.elapsed() >= ATTACH_DRAWS {
+            bail!("it drew nothing within {} s", ATTACH_DRAWS.as_secs());
+        }
+        thread::sleep(Duration::from_millis(100));
+    }
+    thread::sleep(ATTACH_SETTLE);
+    systemd::type_text(sessions, name, typed)?;
+    thread::sleep(ATTACH_SETTLE);
+    Ok(())
 }
 
 /// The body path a delivery records for the file `file`: its path relative to the state
@@ -1402,7 +1518,8 @@ pub const DELIVER_BOUND: std::time::Duration = std::time::Duration::from_secs(60
 
 /// The deliverer that runs `conductor session deliver --name <name> --text -` with the text on
 /// standard input (`story:mailbox-send-and-deliver` writes that command: it types the text into
-/// the session's tmux and records the delivery), with the global `--config` and `--state-dir`
+/// the session's tmux, or through `claude attach` for a background session, and records the
+/// delivery), with the global `--config` and `--state-dir`
 /// the daemon was given, within [`DELIVER_BOUND`]. A session it cannot reach is answered as an
 /// error naming it, never retried here.
 #[derive(Debug, Clone)]

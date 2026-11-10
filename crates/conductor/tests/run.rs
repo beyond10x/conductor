@@ -1778,11 +1778,14 @@ fn states_of(case: &Case, repo: &str) -> Vec<String> {
 
 /// `story:deliver-to-stopped-controller`: a delivery refused `SessionNotReachable` records the
 /// controller stopped, with one journal line, so the next tick tries it no more; the item waits
-/// for the repository's next controller start and is delivered to it.
+/// for the repository's next controller start and is delivered to it. The session list keeps
+/// the session without a pid: one it names live keeps its controller Running
+/// (`story:deliver-reaches-bg-session`, the cases below).
 #[test]
 fn a_delivery_refused_unreachable_stops_the_controller_and_waits_for_its_next_start() {
     let case = Case::new("unreachable");
     case.spawn("alpha", FIRST);
+    case.live("alpha", FIRST, false);
     let decision = answer_request(&case);
     write(&case.fake().join("unreachable/ex-alpha"), "");
 
@@ -1823,6 +1826,7 @@ fn a_delivery_refused_unreachable_stops_the_controller_and_waits_for_its_next_st
 fn a_relay_refused_unreachable_stops_the_controller() {
     let case = Case::new("unreachable-relay");
     case.spawn("alpha", FIRST);
+    case.live("alpha", FIRST, false);
     write(&case.fake().join("unreachable/ex-alpha"), "");
     let line = "PR checks done: alpha#7 green (head 0a1b2c3)";
     let (_, said) = case.tick_said(&[line]);
@@ -1836,6 +1840,70 @@ fn a_relay_refused_unreachable_stops_the_controller() {
     );
     case.tick(&[line]);
     assert_eq!(case.attempts().len(), 1, "no attempt on the next tick");
+}
+
+/// `story:deliver-reaches-bg-session`, acceptance 2: a delivery refused `SessionNotReachable`
+/// to a session `claude agents --json` names live does not record its controller stopped: the
+/// controller stays Running, and the refusal is one journal line that says so. The item is kept
+/// as one a running controller refused.
+#[test]
+fn a_delivery_refused_for_a_live_session_leaves_its_controller_running() {
+    let case = Case::new("unreachable-live");
+    case.spawn("alpha", FIRST);
+    answer_request(&case);
+    write(&case.fake().join("unreachable/ex-alpha"), "");
+
+    let (refused, said) = case.tick_said(&["answered R-1 A"]);
+    assert_eq!(case.attempts().len(), 1, "one attempt");
+    assert!(case.deliveries().is_empty());
+    assert_eq!(states_of(&case, "alpha"), ["Running"], "{refused}");
+    let named: Vec<&String> = said
+        .iter()
+        .filter(|line| line.contains("SessionNotReachable"))
+        .collect();
+    assert_eq!(named.len(), 1, "one journal line: {said:?}");
+    assert!(named[0].contains("ex-alpha"), "{named:?}");
+    assert!(
+        named[0].contains(FIRST),
+        "it names the live session: {named:?}"
+    );
+    assert!(named[0].contains("stays Running"), "{named:?}");
+    assert!(!named[0].contains("recorded stopped"), "{named:?}");
+
+    let (_, said) = case.tick_said(&[]);
+    assert_eq!(
+        case.attempts().len(),
+        1,
+        "the same controller is not asked twice"
+    );
+    assert_eq!(states_of(&case, "alpha"), ["Running"]);
+    assert!(
+        said.iter()
+            .all(|line| !line.contains("SessionNotReachable")),
+        "no second line: {said:?}"
+    );
+}
+
+/// The same for a relayed watch line, which is not kept: each relay is one attempt and one
+/// line, and the controller of the live session stays Running throughout.
+#[test]
+fn a_relay_refused_for_a_live_session_leaves_its_controller_running() {
+    let case = Case::new("unreachable-live-relay");
+    case.spawn("alpha", FIRST);
+    write(&case.fake().join("unreachable/ex-alpha"), "");
+    let line = "PR checks done: alpha#7 green (head 0a1b2c3)";
+    for attempt in 1..=2 {
+        let (_, said) = case.tick_said(&[line]);
+        assert_eq!(states_of(&case, "alpha"), ["Running"]);
+        assert_eq!(
+            said.iter()
+                .filter(|said| said.contains("SessionNotReachable"))
+                .count(),
+            1,
+            "{said:?}"
+        );
+        assert_eq!(case.attempts().len(), attempt);
+    }
 }
 
 // ---------------------------------------------------------------------------------------------

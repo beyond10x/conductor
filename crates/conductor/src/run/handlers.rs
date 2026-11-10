@@ -19,7 +19,9 @@
 //! repository has a running controller; one refused by a running controller is kept for the next
 //! controller, never tried again for the same one. Any delivery to a controller refused
 //! `SessionNotReachable` records that controller stopped, with one journal line ([`send`],
-//! `story:deliver-to-stopped-controller`). The other files: `handover.json` (each session a
+//! `story:deliver-to-stopped-controller`), unless the session list names its session live or
+//! cannot be read: then the controller stays Running and the journal line says so
+//! (`story:deliver-reaches-bg-session`). The other files: `handover.json` (each session a
 //! hand-over was asked of, its repository, when, in nanoseconds, and the `context:` line),
 //! `limited.json` (each session a usage limit marked), `stalled.json` (each session a check-in
 //! was sent) and `resumed.json` (each session the loop resumed, and when).
@@ -874,6 +876,11 @@ pub(crate) fn answered(tick: &mut Tick<'_, '_>, id: &str) -> Result<bool> {
 /// repository waits for the next controller start; the error answered then names both, so the
 /// journal says it in one line.
 ///
+/// A refusal is no proof that the session ended (`story:deliver-reaches-bg-session`): a session
+/// the session list (`claude agents --json`, [`crate::confine::live_session`]) names live keeps
+/// its controller Running, as does a list that cannot be read, which is how `spawn` reads a
+/// failed launch; the one line says which.
+///
 /// # Errors
 ///
 /// The deliverer refused the text.
@@ -884,6 +891,22 @@ fn send(tick: &Tick<'_, '_>, controller: &str, session: &str, text: &str) -> Res
     let said = one_line(&format!("{error:#}"));
     if !said.contains("SessionNotReachable") {
         return Err(error);
+    }
+    match crate::confine::live_session(session) {
+        Ok(None) => {}
+        Ok(Some(id)) => {
+            return Err(anyhow!(
+                "{said}; the session list names its session live ({id}), so its controller \
+                 {controller} stays Running"
+            ));
+        }
+        Err(unread) => {
+            return Err(anyhow!(
+                "{said}; the session list was not read ({}), so its controller {controller} \
+                 stays Running",
+                one_line(&format!("{unread:#}"))
+            ));
+        }
     }
     match record_stopped(tick, controller, &said) {
         Ok(()) => Err(anyhow!(

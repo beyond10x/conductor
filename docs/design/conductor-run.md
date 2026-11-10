@@ -75,7 +75,9 @@ it ended, so a loop stopped during it runs it again at its next start; one start
 A delivery to a controller that `conductor session deliver` refuses `SessionNotReachable` records
 that controller stopped (`StopController`), with one journal line, so no later tick delivers to it
 again; a kept delivery waits for the repository's next controller start
-(`story:deliver-to-stopped-controller`).
+(`story:deliver-to-stopped-controller`). A refusal is no proof the session ended: when the session
+list (`claude agents --json`) names the session live, or cannot be read, the controller stays
+Running and the one journal line says so (`story:deliver-reaches-bg-session`).
 
 Mailbox: a controller reports with `conductor message send --to conductor --from <session>
 --text <file|->`, which parses the first line with the existing grammar (unparsed: exit 1 and
@@ -89,7 +91,10 @@ decide; `[RESOURCE]` is answered "use conductor build run"; `[HANDOVER]` from a 
 controller of the repository it names, as one message: `[REPORT <repo> -] refused: <reason>`, the
 message and the form its kind expects (`relayed`). Delivery to a session is `conductor session deliver --name
 <session> --text <file|->`, which types the text into the session through the tmux launcher
-(`type_text`) and records `delivered`; a session the launcher cannot reach is reported, never
+(`type_text`) and records `delivered`. A session started with `claude --bg` has no launcher: when
+the session list names it live, the text is typed the same way into a pane made for that one
+delivery, which runs `claude attach <id>` on the session's socket path and is ended afterwards
+(`story:deliver-reaches-bg-session`). A session neither route reaches is reported, never
 retried in a loop. `SendMessage` is no longer used between roles; the guard allows `message send`
 and denies `session deliver` to a controller.
 
