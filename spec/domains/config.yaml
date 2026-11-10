@@ -93,8 +93,13 @@ types:
   # only where the forge is called. Two checkouts of one project are two repositories. A project
   # without a checkout is named by its path under the group, the path its checkout would have
   # under the root; one whose name a checkout of another project holds fails the snapshot, which
-  # names both. An `exclude` entry names a repository by that one name: a checkout by its path
-  # under the root, whose project is then not listed under its own name either.
+  # names both. A project two `gitlab` sources list, as sources whose groups nest do, is one
+  # repository, which the source written first records. A checkout under a directory that is no
+  # repository name is not recorded and stops no snapshot; the collecting command names it on
+  # standard error. An `exclude` entry names a checked-out project in either form: by its
+  # checkout's path under the root, which leaves that checkout out, its project then not listed
+  # under its own name either; or by the project's path under the group, which leaves the
+  # project out with every checkout of it.
   - name: conductor.config.GitLabSource
     kind: struct
     fields:

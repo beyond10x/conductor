@@ -367,17 +367,15 @@ fn enumerated(sources: &Sources) -> Result<Vec<(String, Origin)>> {
                 .map(|name| (name, Origin::Local(dir.clone()))),
         );
     }
-    for forge in &sources.gitlab {
-        listed.extend(forge.mapped()?.into_iter().map(|mapped| {
-            (
-                mapped.project.name,
-                Origin::GitLab {
-                    source: forge.named(),
-                    checkout: mapped.checkout,
-                },
-            )
-        }));
-    }
+    listed.extend(Forge::every(&sources.gitlab)?.into_iter().map(|mapped| {
+        (
+            mapped.project.name,
+            Origin::GitLab {
+                source: mapped.forge.named(),
+                checkout: mapped.checkout,
+            },
+        )
+    }));
     listed.sort_by(|(one, _), (other, _)| one.cmp(other));
     one_of_each(&listed, |(name, _)| name, |(_, origin)| origin.named())?;
     Ok(listed)

@@ -490,15 +490,13 @@ fn listed(
         let exclude = exclude.get(dir).map_or(&[][..], Vec::as_slice);
         listed.extend(local_repositories(dir, exclude)?);
     }
-    for forge in forges {
-        listed.extend(forge.mapped()?.into_iter().map(|mapped| Listed {
-            name: mapped.project.name.clone(),
-            visibility: mapped.project.visibility,
-            archived: mapped.project.archived,
-            issues: false,
-            origin: Origin::GitLab(Box::new(mapped)),
-        }));
-    }
+    listed.extend(Forge::every(forges)?.into_iter().map(|mapped| Listed {
+        name: mapped.project.name.clone(),
+        visibility: mapped.project.visibility,
+        archived: mapped.project.archived,
+        issues: false,
+        origin: Origin::GitLab(Box::new(mapped)),
+    }));
     listed.sort_by(|one, other| one.name.cmp(&other.name));
     one_of_each(&listed, |listed| &listed.name, Listed::origin_named)?;
     Ok(listed)

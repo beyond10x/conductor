@@ -1009,3 +1009,107 @@ fn a_local_sources_repository_keeps_its_directory_name_whatever_its_origin_names
     assert_eq!(case.activity(&config), ["tools"]);
     assert!(case.lines("glab").is_empty(), "the forge is not asked");
 }
+
+/// Two sources may list one project, and it is then one repository; two different projects
+/// under one name are not: `tool` of the group `one` and `tool` of the group `two`, neither
+/// checked out, fail the snapshot, which names the name and both sources.
+#[test]
+fn two_different_projects_under_one_name_in_two_sources_fail_the_snapshot() {
+    let case = Case::new("two-projects-one-name");
+    case.projects(
+        "one.projects.json",
+        &[(101, "example-org/one/tool", "main")],
+    );
+    case.projects(
+        "two.projects.json",
+        &[(104, "example-org/two/tool", "main")],
+    );
+    case.answer_as(101, 104);
+    case.script(
+        "glab",
+        &GLAB
+            .replace(
+                "  groups/*/projects\\?*) file=projects.json ;;",
+                "  groups/*one/projects\\?*) file=one.projects.json ;;\n  \
+                 groups/*two/projects\\?*) file=two.projects.json ;;",
+            )
+            .replace("{log}", &text(&case.log("glab")))
+            .replace("{answers}", &text(&case.answers())),
+    );
+    let config = case.config_of(&format!(
+        "{{gitlab: example-org/one, host: {HOST}}}, {{gitlab: example-org/two, host: {HOST}}}"
+    ));
+    let output = case.conductor(
+        &config,
+        &[
+            "snapshot",
+            "start-snapshot",
+            "--started-at",
+            NOW,
+            "--disk-free-bytes",
+            "100000000000",
+        ],
+    );
+    let said = describe(&output);
+    assert_ne!(output.status.code(), Some(0), "{said}");
+    for part in [
+        "repository tool is listed by",
+        "the gitlab group example-org/one",
+        "the gitlab group example-org/two",
+    ] {
+        assert!(said.contains(part), "names {part}: {said}");
+    }
+}
+
+/// A clone of a project under a directory that is no repository name is not recorded and
+/// stops nothing: the snapshot completes, records the project's other checkout, and names the
+/// directory once on standard error.
+#[test]
+fn a_clone_under_a_directory_that_is_no_repository_name_is_named_once_and_not_recorded() {
+    let case = Case::new("unnamed-clone");
+    case.checkout("checks", "example-org/example-checks");
+    let copy = case.checkout("checks copy", "example-org/example-checks");
+    case.projects(
+        "projects.json",
+        &[(101, "example-org/example-checks", "main")],
+    );
+    let config = case.config();
+    let output = case.conductor(
+        &config,
+        &[
+            "snapshot",
+            "start-snapshot",
+            "--started-at",
+            NOW,
+            "--disk-free-bytes",
+            "100000000000",
+        ],
+    );
+    assert_eq!(output.status.code(), Some(0), "{}", describe(&output));
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert_eq!(
+        stderr.matches(&text(&copy)).count(),
+        1,
+        "the directory is named once: {stderr}"
+    );
+    assert_eq!(case.names(&config, "repositories"), ["checks"]);
+    assert_eq!(case.names(&config, "workflow-runs"), ["checks"]);
+}
+
+/// An `exclude` entry written as the project's path leaves its checkout out of the workspace
+/// file too, as one written as the checkout's path does.
+#[test]
+fn an_exclude_entry_naming_the_project_leaves_its_checkout_out_of_the_workspace_file() {
+    let case = Case::new("exclude-workspace");
+    case.checkout("checks", "example-org/example-checks");
+    case.alpha();
+    let config = case.config_of(&format!(
+        "{{gitlab: example-org, host: {HOST}, exclude: [example-checks]}}"
+    ));
+    let output = case.conductor(&config, &["config", "workspace"]);
+    assert_eq!(output.status.code(), Some(0), "{}", describe(&output));
+    let workspace = fs::read_to_string(case.dir.join("records/.engineering/workspace.yaml"))
+        .expect("the workspace file");
+    assert!(workspace.contains("  - name: alpha\n"), "{workspace}");
+    assert!(!workspace.contains("checks"), "{workspace}");
+}
