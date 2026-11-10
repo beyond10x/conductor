@@ -135,7 +135,7 @@ Every command takes these, before or after its name.
 | [`conductor session leases`](#conductor-session-leases) | Conductor leases |
 | [`conductor session run-ticks`](#conductor-session-run-ticks) | Ticks of the run daemon |
 | [`conductor session attach`](#conductor-session-attach) | Attach this terminal to a live session's tmux, by --name or --role, or through a picker of every instance's sessions without either; detach with ctrl-] then d, the session runs on; --watch attaches read-only, and follows the terminal log of a session started before the tmux launcher; refuse inside a session, an unknown session, and a read-write attach to a session started before the tmux launcher |
-| [`conductor session deliver`](#conductor-session-deliver) | Type a text into a running session's tmux, then Enter, and record the delivery and its dispatch line; --text is a file, or - for standard input, which is kept as &lt;state>/mailbox/delivered/&lt;ulid>.md; refuse a session whose launcher socket is absent or whose tmux does not take the text, naming it, without trying again |
+| [`conductor session deliver`](#conductor-session-deliver) | Type a text into a running session, then Enter, and record the delivery and its dispatch line: into its tmux launcher, or, for a session without one that the harness's session list names live, through the harness's attach in a tmux pane made for the one delivery; --text is a file, or - for standard input, which is kept as &lt;state>/mailbox/delivered/&lt;ulid>.md; refuse a session neither route reaches, naming it, without trying again |
 | [`conductor session list`](#conductor-session-list) | Print one line per live session of every instance (or --instance) whose state holds a launcher's files for it: its instance, its name, and attach (read-write or --watch) or watch (--watch only, started before the tmux launcher) |
 | [`conductor session start`](#conductor-session-start) | Start the session of the role director or maintainer (conductor or conductor-dev, their old names, for this release) in the box the instance's confinement asks for, measure the box at its boundary and write the measurement under the state directory; refuse an unknown role, a session of that name already running, and under strict a provider not available or a box short of the request |
 | [`conductor session stop`](#conductor-session-stop) | Stop the live session of the role director or maintainer (conductor or conductor-dev, their old names, for this release) through the provider that started it; refuse an unknown role and a role with no live session |
@@ -1821,7 +1821,7 @@ Usage: conductor session attach [OPTIONS]
 
 ## `conductor session deliver`
 
-Type a text into a running session's tmux, then Enter, and record the delivery and its dispatch line; --text is a file, or - for standard input, which is kept as &lt;state>/mailbox/delivered/&lt;ulid>.md; refuse a session whose launcher socket is absent or whose tmux does not take the text, naming it, without trying again
+Type a text into a running session, then Enter, and record the delivery and its dispatch line: into its tmux launcher, or, for a session without one that the harness's session list names live, through the harness's attach in a tmux pane made for the one delivery; --text is a file, or - for standard input, which is kept as &lt;state>/mailbox/delivered/&lt;ulid>.md; refuse a session neither route reaches, naming it, without trying again
 
 ```text
 Usage: conductor session deliver [OPTIONS]
@@ -1829,7 +1829,7 @@ Usage: conductor session deliver [OPTIONS]
 
 | Argument | Required | Default | Meaning |
 |---|---|---|---|
-| `--name <NAME>` | no | none | The session's full name, as its launcher socket &lt;state>/sessions/&lt;name>.tmux names it |
+| `--name <NAME>` | no | none | The session's full name, as its launcher socket &lt;state>/sessions/&lt;name>.tmux or the harness's session list names it |
 | `--text <FILE>` | no | none | The file holding the text, or - for standard input |
 
 ## `conductor session list`

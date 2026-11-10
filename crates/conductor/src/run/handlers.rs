@@ -19,7 +19,9 @@
 //! repository has a running controller; one refused by a running controller is kept for the next
 //! controller, never tried again for the same one. Any delivery to a controller refused
 //! `SessionNotReachable` records that controller stopped, with one journal line ([`send`],
-//! `story:deliver-to-stopped-controller`). The other files: `handover.json` (each session a
+//! `story:deliver-to-stopped-controller`), unless the session list names its session live or
+//! cannot be read: then the controller stays Running and the journal line says so
+//! (`story:deliver-reaches-bg-session`). The other files: `handover.json` (each session a
 //! hand-over was asked of, its repository, when, in nanoseconds, and the `context:` line),
 //! `limited.json` (each session a usage limit marked), `stalled.json` (each session a check-in
 //! was sent) and `resumed.json` (each session the loop resumed, and when).
@@ -874,28 +876,85 @@ pub(crate) fn answered(tick: &mut Tick<'_, '_>, id: &str) -> Result<bool> {
 /// repository waits for the next controller start; the error answered then names both, so the
 /// journal says it in one line.
 ///
+/// A refusal is no proof that the session ended (`story:deliver-reaches-bg-session`): a session
+/// the session list (`claude agents --json`, [`crate::confine::live_session`]) names live keeps
+/// its controller Running, as does a list that cannot be read, which is how `spawn` reads a
+/// failed launch; the one line says which.
+///
 /// # Errors
 ///
 /// The deliverer refused the text.
 fn send(tick: &Tick<'_, '_>, controller: &str, session: &str, text: &str) -> Result<()> {
+    offer(tick, controller, session, text).map_err(|refusal| refusal.error)
+}
+
+/// Why a delivery to a running controller was refused, and what that leaves of the controller.
+struct Refusal {
+    /// The one line for the journal.
+    error: anyhow::Error,
+    /// The refusal is `SessionNotReachable`, which `session deliver` answers only while nothing
+    /// was typed, and the controller stays Running, because its session is live or the session
+    /// list was not read: a kept delivery is offered to this controller again, [`OFFERS`] times
+    /// at most, since no other one starts while it runs. Every other refusal is false here: the
+    /// text may be in front of the session (`DeliveryNotSeenRead`, a delivery past its bound),
+    /// or the controller was recorded stopped.
+    again: bool,
+}
+
+/// How often a kept delivery is offered to one controller that stays Running before it is
+/// marked refused by it.
+const OFFERS: u64 = 5;
+
+/// [`send`], answering with a refusal whether the same controller is to be asked again.
+fn offer(tick: &Tick<'_, '_>, controller: &str, session: &str, text: &str) -> Result<(), Refusal> {
     let Err(error) = tick.deliver(session, text) else {
         return Ok(());
     };
     let said = one_line(&format!("{error:#}"));
     if !said.contains("SessionNotReachable") {
-        return Err(error);
+        // The text may have been typed before the deliverer failed: not offered twice.
+        return Err(Refusal {
+            error,
+            again: false,
+        });
     }
-    match record_stopped(tick, controller, &said) {
-        Ok(()) => Err(anyhow!(
+    match crate::confine::live_session(session) {
+        Ok(None) => {}
+        Ok(Some(id)) => {
+            return Err(Refusal {
+                error: anyhow!(
+                    "{said}; the session list names its session live ({id}), so its controller \
+                     {controller} stays Running"
+                ),
+                again: true,
+            });
+        }
+        Err(unread) => {
+            return Err(Refusal {
+                error: anyhow!(
+                    "{said}; the session list was not read ({}), so its controller {controller} \
+                     stays Running",
+                    one_line(&format!("{unread:#}"))
+                ),
+                again: true,
+            });
+        }
+    }
+    let error = match record_stopped(tick, controller, &said) {
+        Ok(()) => anyhow!(
             "{said}; its controller {controller} is recorded stopped, and \
              what waits for it is delivered at the repository's next controller start"
-        )),
-        Err(stop) => Err(anyhow!(
+        ),
+        Err(stop) => anyhow!(
             "{said}; its controller {controller} could not be recorded \
              stopped: {}",
             one_line(&format!("{stop:#}"))
-        )),
-    }
+        ),
+    };
+    Err(Refusal {
+        error,
+        again: false,
+    })
 }
 
 /// Records the running controller `controller` stopped, as the delivery that found its session
@@ -927,22 +986,47 @@ enum Made {
     Delivered,
     /// The repository has no running controller, or only the one that refused it.
     Waits,
-    /// The running controller, by its id, refused it.
-    Refused(String),
+    /// The running controller, by its id, refused it and is asked again ([`Refusal::again`]);
+    /// this was its offer of that number.
+    Again(String, u64),
+    /// The running controller, by its id, refused it, and is not asked again; the refusal.
+    Refused(String, String),
+}
+
+impl Made {
+    /// `item` as it is kept after this; nothing once it was delivered.
+    fn kept(self, mut item: Value) -> Option<Value> {
+        match self {
+            Self::Delivered => return None,
+            Self::Waits => {}
+            Self::Again(controller, offers) => {
+                item["offers"] = json!({"controller": controller, "count": offers});
+            }
+            Self::Refused(controller, refusal) => {
+                item["refused_by"] = json!(controller);
+                item["refusal"] = json!(refusal);
+                if let Some(fields) = item.as_object_mut() {
+                    fields.remove("offers");
+                }
+            }
+        }
+        Some(item)
+    }
 }
 
 /// Delivers `item` (`repo`, `text`, `event`, and the line's `id`, `grant` or `line`) to the
 /// running controller of its repository and writes its line; keeps it in [`PENDING`] when there
-/// is none, or when that controller refused it.
+/// is none, or when that controller refused it: for the next controller, or, when the refusal
+/// left this one Running with nothing typed, for this one's next tick ([`OFFERS`] times at
+/// most). A kept item names who refused it for good (`refused_by`) and that refusal
+/// (`refusal`), or how often its running controller was offered it (`offers`).
 ///
 /// # Errors
 ///
 /// The store does not open, or the line or the kept file cannot be written.
 pub(crate) fn deliver_or_keep(tick: &mut Tick<'_, '_>, item: Value) -> Result<()> {
-    let item = match made(tick, &item)? {
-        Made::Delivered => return Ok(()),
-        Made::Waits => item,
-        Made::Refused(controller) => refused(item, &controller),
+    let Some(item) = made(tick, &item)?.kept(item) else {
+        return Ok(());
     };
     let mut kept = read_json(&tick.dir, PENDING, json!([]));
     if let Some(list) = kept.as_array_mut() {
@@ -951,14 +1035,11 @@ pub(crate) fn deliver_or_keep(tick: &mut Tick<'_, '_>, item: Value) -> Result<()
     write_json(&tick.dir, PENDING, &kept)
 }
 
-/// `item` marked refused by the controller `controller`, so it waits for the next one.
-fn refused(mut item: Value, controller: &str) -> Value {
-    item["refused_by"] = json!(controller);
-    item
-}
-
 /// Delivers `item` when its repository has a running controller other than the one that refused
-/// it.
+/// it. A controller whose refusal leaves it Running is not marked as that one
+/// (`story:deliver-reaches-bg-session`): it would hold the item for good, since no next
+/// controller starts while it runs. It is offered the item again, until its refusal of offer
+/// [`OFFERS`], which marks it with one journal line of its own.
 fn made(tick: &mut Tick<'_, '_>, item: &Value) -> Result<Made> {
     let repo = item["repo"].as_str().unwrap_or_default();
     let Some((controller, session)) = tick.running(repo)? else {
@@ -968,9 +1049,30 @@ fn made(tick: &mut Tick<'_, '_>, item: &Value) -> Result<Made> {
         return Ok(Made::Waits);
     }
     let text = item["text"].as_str().unwrap_or_default();
-    if let Err(error) = send(tick, &controller, &session, text) {
-        tick.note(&format!("deliver to {session}"), &error);
-        return Ok(Made::Refused(controller));
+    if let Err(refusal) = offer(tick, &controller, &session, text) {
+        tick.note(&format!("deliver to {session}"), &refusal.error);
+        let said = one_line(&format!("{:#}", refusal.error));
+        if !refusal.again {
+            return Ok(Made::Refused(controller, said));
+        }
+        let offers = item["offers"]
+            .as_object()
+            .filter(|offers| offers["controller"].as_str() == Some(controller.as_str()))
+            .and_then(|offers| offers["count"].as_u64())
+            .unwrap_or(0)
+            + 1;
+        if offers < OFFERS {
+            return Ok(Made::Again(controller, offers));
+        }
+        tick.note(
+            &format!("deliver to {session}"),
+            &anyhow!(
+                "refused {offers} times, so it is not offered again to its controller \
+                 {controller}, and waits for the repository's next controller start; the last \
+                 refusal: {said}"
+            ),
+        );
+        return Ok(Made::Refused(controller, said));
     }
     let event = item["event"]
         .as_str()
@@ -986,7 +1088,8 @@ fn made(tick: &mut Tick<'_, '_>, item: &Value) -> Result<Made> {
 }
 
 /// The deliveries kept: each made once its repository has a running controller; one refused is
-/// kept for the next controller.
+/// kept for the next controller, or for the same one while it stays Running and has not
+/// refused it [`OFFERS`] times.
 fn deliveries(tick: &mut Tick<'_, '_>) -> Result<()> {
     let kept = read_json(&tick.dir, PENDING, json!([]));
     let Some(items) = kept.as_array().filter(|items| !items.is_empty()) else {
@@ -994,11 +1097,7 @@ fn deliveries(tick: &mut Tick<'_, '_>) -> Result<()> {
     };
     let mut left = Vec::new();
     for item in items {
-        match made(tick, item)? {
-            Made::Delivered => {}
-            Made::Waits => left.push(item.clone()),
-            Made::Refused(controller) => left.push(refused(item.clone(), &controller)),
-        }
+        left.extend(made(tick, item)?.kept(item.clone()));
     }
     write_json(&tick.dir, PENDING, &Value::Array(left)).context("keep the deliveries left")
 }

@@ -8,7 +8,7 @@
     "x-ess-provenance": {
       "system": "conductor",
       "specification_version": "v1",
-      "contract_digest": "slice-sha256/2:21bbbf685b882014425a22ea07542449bc3579de142ecb4921df404d01eec514"
+      "contract_digest": "slice-sha256/2:99ed8b636ccc4ea39666fda5004d645fa16ac906d81d632210abf57ca9b1bbf9"
     },
     "x-ess-reached-by": "network"
   },
@@ -1153,7 +1153,7 @@
       },
       "conductor.agent.AgentNotReachable.Error": {
         "title": "AgentNotReachable payload",
-        "description": "The agent is on record as running, but its PTY does not answer (no tmux server on its launcher socket for the `claude-code` kind), so nothing was typed or opened; the caller is told which agent, and does not retry in a loop.\n",
+        "description": "The agent is on record as running, but its PTY does not answer (for the `claude-code` kind: no tmux server on its launcher socket, and, for a delivery, no live background session of its name whose attach client took the text), so nothing was typed or opened; the caller is told which agent, and does not retry in a loop.\n",
         "x-ess-name": "conductor.agent.AgentNotReachable",
         "x-ess-kind": "error-payload",
         "type": "object",
@@ -1519,7 +1519,7 @@
         "properties": {
           "error": {
             "const": "conductor.agent.AgentNotReachable",
-            "description": "The agent is on record as running, but its PTY does not answer (no tmux server on its launcher socket for the `claude-code` kind), so nothing was typed or opened; the caller is told which agent, and does not retry in a loop.\n",
+            "description": "The agent is on record as running, but its PTY does not answer (for the `claude-code` kind: no tmux server on its launcher socket, and, for a delivery, no live background session of its name whose attach client took the text), so nothing was typed or opened; the caller is told which agent, and does not retry in a loop.\n",
             "type": "string"
           },
           "outcome": {
@@ -1823,7 +1823,7 @@
         "properties": {
           "error": {
             "const": "conductor.agent.AgentNotReachable",
-            "description": "The agent is on record as running, but its PTY does not answer (no tmux server on its launcher socket for the `claude-code` kind), so nothing was typed or opened; the caller is told which agent, and does not retry in a loop.\n",
+            "description": "The agent is on record as running, but its PTY does not answer (for the `claude-code` kind: no tmux server on its launcher socket, and, for a delivery, no live background session of its name whose attach client took the text), so nothing was typed or opened; the caller is told which agent, and does not retry in a loop.\n",
             "type": "string"
           },
           "outcome": {

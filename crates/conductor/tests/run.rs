@@ -77,7 +77,9 @@ const CHECK_IN: &str = "[REPORT alpha -] check-in: report your state or blocked"
 
 /// The deliverer of a child run: appends `{"name", "text"}` of each attempt to
 /// `fake/attempts.jsonl`, and of each delivery to `fake/deliveries.jsonl`; refuses a session
-/// `fake/unreachable/<name>` names, as `session deliver` refuses one with no socket.
+/// `fake/unreachable/<name>` names, as `session deliver` refuses one with no socket, and one
+/// `fake/unread/<name>` names, as it refuses one whose attach client was not seen to read the
+/// text it typed.
 struct Recorder {
     dir: PathBuf,
 }
@@ -92,6 +94,13 @@ impl Deliverer for Recorder {
                 "session deliver: refused: SessionNotReachable: session {name}: its launcher \
                  socket is absent, so nothing was typed; nothing was recorded, and it is not \
                  tried again"
+            );
+        }
+        if self.dir.join("unread").join(name).exists() {
+            bail!(
+                "session deliver: refused: DeliveryNotSeenRead: session {name}: the text was \
+                 typed into a pane of its own, and its client did not read the text within 10 s; \
+                 nothing was recorded, and it is not tried again"
             );
         }
         let mut lines = fs::read_to_string(self.dir.join("deliveries.jsonl")).unwrap_or_default();
@@ -1778,11 +1787,14 @@ fn states_of(case: &Case, repo: &str) -> Vec<String> {
 
 /// `story:deliver-to-stopped-controller`: a delivery refused `SessionNotReachable` records the
 /// controller stopped, with one journal line, so the next tick tries it no more; the item waits
-/// for the repository's next controller start and is delivered to it.
+/// for the repository's next controller start and is delivered to it. The session list keeps
+/// the session without a pid: one it names live keeps its controller Running
+/// (`story:deliver-reaches-bg-session`, the cases below).
 #[test]
 fn a_delivery_refused_unreachable_stops_the_controller_and_waits_for_its_next_start() {
     let case = Case::new("unreachable");
     case.spawn("alpha", FIRST);
+    case.live("alpha", FIRST, false);
     let decision = answer_request(&case);
     write(&case.fake().join("unreachable/ex-alpha"), "");
 
@@ -1823,6 +1835,7 @@ fn a_delivery_refused_unreachable_stops_the_controller_and_waits_for_its_next_st
 fn a_relay_refused_unreachable_stops_the_controller() {
     let case = Case::new("unreachable-relay");
     case.spawn("alpha", FIRST);
+    case.live("alpha", FIRST, false);
     write(&case.fake().join("unreachable/ex-alpha"), "");
     let line = "PR checks done: alpha#7 green (head 0a1b2c3)";
     let (_, said) = case.tick_said(&[line]);
@@ -1836,6 +1849,229 @@ fn a_relay_refused_unreachable_stops_the_controller() {
     );
     case.tick(&[line]);
     assert_eq!(case.attempts().len(), 1, "no attempt on the next tick");
+}
+
+/// `story:deliver-reaches-bg-session`, acceptance 2: a delivery refused `SessionNotReachable`
+/// to a session `claude agents --json` names live does not record its controller stopped: the
+/// controller stays Running, and the refusal is one journal line that says so. The item is kept
+/// for that controller, which is asked again on the next tick: nothing was typed, and no other
+/// controller starts while this one is Running.
+#[test]
+fn a_delivery_refused_for_a_live_session_leaves_its_controller_running() {
+    let case = Case::new("unreachable-live");
+    case.spawn("alpha", FIRST);
+    answer_request(&case);
+    write(&case.fake().join("unreachable/ex-alpha"), "");
+
+    let (refused, said) = case.tick_said(&["answered R-1 A"]);
+    assert_eq!(case.attempts().len(), 1, "one attempt");
+    assert!(case.deliveries().is_empty());
+    assert_eq!(states_of(&case, "alpha"), ["Running"], "{refused}");
+    let named: Vec<&String> = said
+        .iter()
+        .filter(|line| line.contains("SessionNotReachable"))
+        .collect();
+    assert_eq!(named.len(), 1, "one journal line: {said:?}");
+    assert!(named[0].contains("ex-alpha"), "{named:?}");
+    assert!(
+        named[0].contains(FIRST),
+        "it names the live session: {named:?}"
+    );
+    assert!(named[0].contains("stays Running"), "{named:?}");
+    assert!(!named[0].contains("recorded stopped"), "{named:?}");
+
+    let (_, said) = case.tick_said(&[]);
+    assert_eq!(
+        case.attempts().len(),
+        2,
+        "the controller that stays Running is asked again"
+    );
+    assert_eq!(states_of(&case, "alpha"), ["Running"]);
+    assert_eq!(
+        said.iter()
+            .filter(|line| line.contains("SessionNotReachable"))
+            .count(),
+        1,
+        "one line a tick: {said:?}"
+    );
+}
+
+/// What `<state>/run/pending.json` keeps: the deliveries that wait.
+fn kept(case: &Case) -> Vec<Value> {
+    let text = fs::read_to_string(case.state().join("run/pending.json")).unwrap_or_default();
+    serde_json::from_str::<Value>(&text)
+        .ok()
+        .and_then(|kept| kept.as_array().cloned())
+        .unwrap_or_default()
+}
+
+/// A kept delivery refused for a live session is offered to its controller again five times at
+/// most: over six ticks the session is asked five times, and after the fifth refusal the item is
+/// marked refused by that controller, with the last refusal, and one journal line says it is
+/// not offered again. The controller stays Running throughout.
+#[test]
+fn a_delivery_refused_for_a_live_session_is_offered_five_times_and_then_marked() {
+    let case = Case::new("unreachable-live-bound");
+    case.spawn("alpha", FIRST);
+    answer_request(&case);
+    write(&case.fake().join("unreachable/ex-alpha"), "");
+
+    let mut said = Vec::new();
+    for tick in 1..=6_usize {
+        let lines: &[&str] = if tick == 1 { &["answered R-1 A"] } else { &[] };
+        said.extend(case.tick_said(lines).1);
+        assert_eq!(case.attempts().len(), tick.min(5), "after tick {tick}");
+        assert_eq!(states_of(&case, "alpha"), ["Running"]);
+    }
+    let marks: Vec<&String> = said
+        .iter()
+        .filter(|line| line.contains("not offered again"))
+        .collect();
+    assert_eq!(marks.len(), 1, "one mark: {said:#?}");
+    assert!(
+        marks[0].contains("5 times") && marks[0].contains("SessionNotReachable"),
+        "it names the count and the last refusal: {marks:?}"
+    );
+    let kept = kept(&case);
+    assert_eq!(kept.len(), 1, "{kept:?}");
+    assert!(kept[0]["refused_by"].is_string(), "{kept:?}");
+    assert!(
+        kept[0]["refusal"]
+            .as_str()
+            .is_some_and(|refusal| refusal.contains("SessionNotReachable")),
+        "the kept item names the last refusal: {kept:?}"
+    );
+    assert!(case.deliveries().is_empty());
+}
+
+/// A delivery refused `DeliveryNotSeenRead` was typed: the session may hold the text, so the
+/// loop does not offer it again, whatever the session list says. One attempt over three ticks,
+/// the controller stays Running, and the kept item is marked refused by it with that reason.
+#[test]
+fn a_delivery_typed_and_not_seen_read_is_not_offered_again() {
+    let case = Case::new("unread-live");
+    case.spawn("alpha", FIRST);
+    answer_request(&case);
+    write(&case.fake().join("unread/ex-alpha"), "");
+
+    let (_, said) = case.tick_said(&["answered R-1 A"]);
+    let named: Vec<&String> = said
+        .iter()
+        .filter(|line| line.contains("DeliveryNotSeenRead"))
+        .collect();
+    assert_eq!(named.len(), 1, "one journal line: {said:?}");
+    for _ in 0..2 {
+        let (_, said) = case.tick_said(&[]);
+        assert!(
+            said.iter()
+                .all(|line| !line.contains("DeliveryNotSeenRead")),
+            "no further line: {said:?}"
+        );
+    }
+    assert_eq!(case.attempts().len(), 1, "typed once");
+    assert_eq!(states_of(&case, "alpha"), ["Running"]);
+    let kept = kept(&case);
+    assert_eq!(kept.len(), 1, "{kept:?}");
+    assert!(kept[0]["refused_by"].is_string(), "{kept:?}");
+    assert!(
+        kept[0]["refusal"]
+            .as_str()
+            .is_some_and(|refusal| refusal.contains("DeliveryNotSeenRead")),
+        "the kept item names the refusal: {kept:?}"
+    );
+}
+
+/// The same while the session list cannot be read (the `claude` that lists the sessions prints
+/// no JSON): the refusal proves nothing about the session, so its controller stays Running, the
+/// one journal line says the list was not read, and the kept answer reaches that controller once
+/// its session takes text.
+#[test]
+fn a_delivery_refused_while_the_session_list_is_unread_leaves_its_controller_running() {
+    let case = Case::new("unreachable-unread");
+    case.spawn("alpha", FIRST);
+    let decision = answer_request(&case);
+    write(&case.fake().join("unreachable/ex-alpha"), "");
+    write(&case.fake().join("agents/unread.json"), "no JSON");
+
+    let (refused, said) = case.tick_said(&["answered R-1 A"]);
+    assert_eq!(case.attempts().len(), 1, "one attempt");
+    assert!(case.deliveries().is_empty());
+    assert_eq!(states_of(&case, "alpha"), ["Running"], "{refused}");
+    let named: Vec<&String> = said
+        .iter()
+        .filter(|line| line.contains("SessionNotReachable"))
+        .collect();
+    assert_eq!(named.len(), 1, "one journal line: {said:?}");
+    assert!(named[0].contains("ex-alpha"), "{named:?}");
+    assert!(
+        named[0].contains("the session list was not read"),
+        "{named:?}"
+    );
+    assert!(named[0].contains("stays Running"), "{named:?}");
+    assert!(!named[0].contains("recorded stopped"), "{named:?}");
+
+    fs::remove_file(case.fake().join("unreachable/ex-alpha")).expect("reachable again");
+    let delivered = case.tick(&[]);
+    assert_eq!(actions(&delivered), ["decision-sent"], "{delivered}");
+    assert_eq!(states_of(&case, "alpha"), ["Running"]);
+    assert_eq!(
+        case.deliveries(),
+        [(
+            "ex-alpha".to_owned(),
+            format!("[DECISION R-1] A one migration, then one layout ({decision})")
+        )]
+    );
+}
+
+/// The same for a relayed watch line, which is not kept: each relay is one attempt and one
+/// line, and the controller of the live session stays Running throughout.
+#[test]
+fn a_relay_refused_for_a_live_session_leaves_its_controller_running() {
+    let case = Case::new("unreachable-live-relay");
+    case.spawn("alpha", FIRST);
+    write(&case.fake().join("unreachable/ex-alpha"), "");
+    let line = "PR checks done: alpha#7 green (head 0a1b2c3)";
+    for attempt in 1..=2 {
+        let (_, said) = case.tick_said(&[line]);
+        assert_eq!(states_of(&case, "alpha"), ["Running"]);
+        assert_eq!(
+            said.iter()
+                .filter(|said| said.contains("SessionNotReachable"))
+                .count(),
+            1,
+            "{said:?}"
+        );
+        assert_eq!(case.attempts().len(), attempt);
+    }
+}
+
+/// Adversary, wave 49 U11 pass 1 (`story:deliver-reaches-bg-session`): the controller of a live
+/// session stays Running after one refused delivery, so the answer it waits for is delivered to
+/// it once its session takes text again; no next controller starts while this one is Running.
+#[test]
+fn adv_a_decision_refused_once_for_a_live_session_reaches_it_when_it_takes_text_again() {
+    let case = Case::new("adv-unreachable-live-again");
+    case.spawn("alpha", FIRST);
+    let decision = answer_request(&case);
+    write(&case.fake().join("unreachable/ex-alpha"), "");
+    case.tick(&["answered R-1 A"]);
+    assert_eq!(states_of(&case, "alpha"), ["Running"]);
+    assert!(case.deliveries().is_empty());
+
+    fs::remove_file(case.fake().join("unreachable/ex-alpha")).expect("reachable again");
+    let mut ticks = Vec::new();
+    for _ in 0..3 {
+        ticks.push(case.tick(&[]));
+    }
+    assert_eq!(states_of(&case, "alpha"), ["Running"]);
+    assert_eq!(
+        case.deliveries(),
+        [(
+            "ex-alpha".to_owned(),
+            format!("[DECISION R-1] A one migration, then one layout ({decision})")
+        )],
+        "the Running controller of the live session gets its answer: {ticks:?}"
+    );
 }
 
 // ---------------------------------------------------------------------------------------------

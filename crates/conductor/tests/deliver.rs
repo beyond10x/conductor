@@ -8,10 +8,23 @@
 //! does not answer is refused the same way after one try. `conductor session deliveries` lists
 //! what was delivered.
 //!
+//! `story:deliver-reaches-bg-session`: a session started with `claude --bg` has no launcher
+//! socket. When `claude agents --json` names a live session of that name, the text is typed
+//! through `claude attach <id>` in a tmux pane made for the one delivery, on a socket of that
+//! delivery's own under `<state>/sessions/deliveries/`, which is ended and removed afterwards,
+//! and the delivery is recorded as any other. A socket file no server answers on does not hide
+//! the session and is left as it is; one a server answers on is left alone. A session the list
+//! does not name live, or names by no id to attach to, is refused. `tests/deliver_attach.rs`
+//! holds the route against a real `tmux`.
+//!
 //! Each case is a [`Scratch`] directory: `home/`, the `HOME` the binary runs with, whose `bin/`
 //! holds a fake `tmux` this file writes, first on `PATH`, that records each call's working
-//! directory and arguments and touches no real server; `records/`, where the binary runs;
-//! `state/`; and the config file `conductor.yaml` naming them, under the session prefix `ex`.
+//! directory and arguments and touches no real server (it prints a drawn screen for
+//! `capture-pane`, names no terminal for `display-message`, so the wait for the pane's reader
+//! is skipped, and fails its first calls as `tmux.fail` counts), and a fake `claude` that
+//! records its calls in `claude.calls` and prints `agents.json` as the session list, an empty
+//! one when the case wrote none; `records/`, where the binary runs; `state/`; and the config
+//! file `conductor.yaml` naming them, under the session prefix `ex`.
 
 mod common;
 mod scratch;
@@ -76,12 +89,31 @@ impl Case {
                  if [ \"$3\" = load-buffer ]; then set -- \"$1\" \"$2\" \"$3\" \"$4\" \"$5\" \"$(cat \"$6\")\"; fi\n\
                  {{ printf '%s\\037' \"$(pwd)\"; for a in \"$@\"; do printf '%s\\037' \"$a\"; \
                  done; printf '\\036'; }} >> '{calls}'\n\
+                 left=$(cat '{fail}' 2>/dev/null || echo 0)\n\
+                 if [ \"$left\" -gt 0 ]; then echo $((left - 1)) > '{fail}'; \
+                 echo 'no server running on {SESSION}.tmux' >&2; exit 1; fi\n\
                  [ {status} -eq 0 ] || echo 'no server running on {SESSION}.tmux' >&2\n\
+                 for a in \"$@\"; do [ \"$a\" = capture-pane ] && echo 'drawn'; done\n\
                  exit {status}\n",
                 calls = dir.join("tmux.calls").display(),
+                fail = dir.join("tmux.fail").display(),
             ),
         )
         .expect("write the fake tmux");
+        fs::set_permissions(&fake, fs::Permissions::from_mode(0o755)).expect("make it runnable");
+        let fake = dir.join("home/bin/claude");
+        fs::write(
+            &fake,
+            format!(
+                "#!/bin/sh\n\
+                 printf '%s\\n' \"$*\" >> '{calls}'\n\
+                 if [ \"$1\" = agents ]; then cat '{list}' 2>/dev/null || echo '[]'; fi\n\
+                 exit 0\n",
+                calls = dir.join("claude.calls").display(),
+                list = dir.join("agents.json").display(),
+            ),
+        )
+        .expect("write the fake claude");
         fs::set_permissions(&fake, fs::Permissions::from_mode(0o755)).expect("make it runnable");
         Self { scratch, dir }
     }
@@ -96,8 +128,63 @@ impl Case {
             .expect("plant the socket");
     }
 
+    /// Lists the session as `claude agents --json` lists a background one named [`SESSION`]
+    /// with the id `id`: with a pid when `live`, else as the list keeps one that exited.
+    fn listed(&self, id: &str, live: bool) {
+        let mut entry = serde_json::json!({
+            "id": id, "sessionId": format!("{id}-0000"), "name": SESSION, "kind": "background",
+            "cwd": self.dir.join("home/example-org/cortex"), "status": "idle", "state": "done",
+        });
+        if live {
+            entry["pid"] = serde_json::json!(4242);
+        }
+        fs::write(
+            self.dir.join("agents.json"),
+            Value::Array(vec![entry]).to_string(),
+        )
+        .expect("write the session list");
+    }
+
+    /// Makes the fake `tmux` fail its next `calls` calls, as one with no server on the socket.
+    fn tmux_fails(&self, calls: u8) {
+        fs::write(self.dir.join("tmux.fail"), format!("{calls}\n")).expect("write the count");
+    }
+
+    /// What `<state>/sessions` holds, by name in order, a directory with a `/` after it and what
+    /// it holds after that.
+    fn left_in_sessions(&self) -> Vec<String> {
+        fn walk(dir: &Path, under: &str, left: &mut Vec<String>) {
+            let Ok(entries) = fs::read_dir(dir) else {
+                return;
+            };
+            for entry in entries {
+                let entry = entry.expect("read the sessions directory");
+                let name = format!("{under}{}", entry.file_name().to_string_lossy());
+                if entry.path().is_dir() {
+                    left.push(format!("{name}/"));
+                    walk(&entry.path(), &format!("{name}/"), left);
+                } else {
+                    left.push(name);
+                }
+            }
+        }
+        let mut left = Vec::new();
+        walk(&self.state().join("sessions"), "", &mut left);
+        left.sort();
+        left
+    }
+
+    /// Every call of the fake `claude`, its arguments on one line, in order.
+    fn claude_calls(&self) -> Vec<String> {
+        fs::read_to_string(self.dir.join("claude.calls"))
+            .unwrap_or_default()
+            .lines()
+            .map(str::to_owned)
+            .collect()
+    }
+
     /// `conductor <args>` from the records directory, with the case's home, config file and fake
-    /// `tmux` first on `PATH`, and `stdin` on standard input.
+    /// `tmux` and `claude` first on `PATH`, and `stdin` on standard input.
     fn run(&self, args: &[&str], stdin: &str) -> Output {
         let path = format!(
             "{}:{}",
@@ -205,22 +292,103 @@ fn describe(output: &Output) -> String {
 /// loaded from its paste file (the fake logs the file's content in its place) as one bracketed
 /// paste, then a carriage return pasted unbracketed.
 fn typed(case: &Case, text: &str) -> Vec<Vec<String>> {
-    let sessions = case.state().join("sessions").display().to_string();
-    let socket = format!("{SESSION}.tmux");
-    let pane = format!("={SESSION}:");
-    let call = |args: &[&str]| -> Vec<String> {
-        [sessions.as_str(), "-S", socket.as_str()]
-            .iter()
-            .chain(args)
-            .map(|word| (*word).to_owned())
-            .collect()
-    };
+    typed_on(&case.state().join("sessions"), SESSION, SESSION, text)
+}
+
+/// [`typed`]'s four calls for the tmux session `name` on the socket `<socket>.tmux`, made from
+/// `dir`.
+fn typed_on(dir: &Path, socket: &str, name: &str, text: &str) -> Vec<Vec<String>> {
+    let call = called(dir, socket);
+    let pane = format!("={name}:");
     vec![
         call(&["load-buffer", "-b", "conductor", text]),
         call(&["paste-buffer", "-d", "-p", "-b", "conductor", "-t", &pane]),
         call(&["set-buffer", "-b", "conductor", "--", "\r"]),
         call(&["paste-buffer", "-d", "-b", "conductor", "-t", &pane]),
     ]
+}
+
+/// A recorded call of the fake `tmux` from `dir` on the socket `<socket>.tmux`, by its
+/// arguments.
+fn called(dir: &Path, socket: &str) -> impl Fn(&[&str]) -> Vec<String> {
+    let dir = dir.display().to_string();
+    let socket = format!("{socket}.tmux");
+    move |args: &[&str]| -> Vec<String> {
+        [dir.as_str(), "-S", socket.as_str()]
+            .iter()
+            .chain(args)
+            .map(|word| (*word).to_owned())
+            .collect()
+    }
+}
+
+/// The socket of the pane a delivery made for itself, without its `.tmux`, read from `call`,
+/// the fake `tmux`'s record of its `new-session`: `<process id>-<count>`, under
+/// `<state>/sessions/deliveries`, so no two deliveries share one, none is on the session's
+/// launcher socket path, and its length does not grow with the session's name.
+fn pane_of(case: &Case, call: &[String]) -> String {
+    assert_eq!(
+        call[0],
+        case.state()
+            .join("sessions/deliveries")
+            .display()
+            .to_string(),
+        "the pane's socket is in the deliveries' own directory: {call:?}"
+    );
+    let pane = call[2]
+        .strip_suffix(".tmux")
+        .unwrap_or_else(|| panic!("no socket: {call:?}"))
+        .to_owned();
+    let numbers: Vec<&str> = pane.split('-').collect();
+    assert!(
+        numbers.len() == 2
+            && numbers
+                .iter()
+                .all(|number| !number.is_empty() && number.chars().all(|c| c.is_ascii_digit())),
+        "the process id and a count, and nothing of the session's name: {pane}"
+    );
+    pane
+}
+
+/// The calls a delivery to a background session with the id `id` makes, the first of which is
+/// `first`: the pane that runs `claude attach <id>` on a socket of the delivery's own
+/// ([`pane_of`]), as the tmux session of the session's name, with no configuration file, and
+/// one look at what it drew; [`typed`]'s four on it; the question which terminal the pane has,
+/// whose input the delivery waits to see taken; and the end of that server.
+fn typed_through_attach(case: &Case, first: &[String], id: &str, text: &str) -> Vec<Vec<String>> {
+    let pane = pane_of(case, first);
+    let dir = case.state().join("sessions/deliveries");
+    let call = called(&dir, &pane);
+    let target = format!("={SESSION}:");
+    let mut calls = vec![
+        call(&[
+            "-f",
+            "/dev/null",
+            "new-session",
+            "-d",
+            "-s",
+            SESSION,
+            "-x",
+            "160",
+            "-y",
+            "50",
+            "--",
+            "claude",
+            "attach",
+            id,
+        ]),
+        call(&["capture-pane", "-p", "-t", &target]),
+    ];
+    calls.extend(typed_on(&dir, &pane, SESSION, text));
+    calls.push(call(&[
+        "display-message",
+        "-p",
+        "-t",
+        &target,
+        "#{pane_tty}",
+    ]));
+    calls.push(call(&["kill-server"]));
+    calls
 }
 
 /// Checks the one delivery and the one `delivered` line a case recorded.
@@ -347,6 +515,172 @@ fn a_session_without_a_socket_is_not_reachable() {
         !case.state().join("store.sqlite").exists(),
         "no store is created for a delivery that was not made"
     );
+}
+
+/// `story:deliver-reaches-bg-session`, acceptance 1: a session started with `claude --bg` has
+/// no socket; the session list names it live, so the text is typed through `claude attach` in a
+/// pane of its own, the delivery is recorded, and no socket is left behind.
+#[test]
+fn a_background_session_without_a_socket_is_typed_through_claude_attach_and_recorded() {
+    let case = Case::new("background", 0);
+    case.listed("cc062faf", true);
+    let text = "[DECISION R-7] A merge now (DEC-20991231-01)\nThe release waits.\n";
+    let output = case.deliver_stdin(text);
+    assert!(output.status.success(), "{}", describe(&output));
+    assert_eq!(case.claude_calls(), ["agents --json"], "the list is read");
+    let calls = case.calls();
+    assert_eq!(
+        calls,
+        typed_through_attach(&case, &calls[0], "cc062faf", text.trim_end_matches('\n')),
+        "a pane on `claude attach`, the text once, then Enter, then the pane's end"
+    );
+    let files: Vec<PathBuf> = fs::read_dir(case.state().join("mailbox/delivered"))
+        .expect("the delivered mailbox is there")
+        .map(|entry| entry.expect("read it").path())
+        .collect();
+    assert_eq!(files.len(), 1, "one file: {files:?}");
+    let name = files[0].file_name().expect("a name").to_string_lossy();
+    recorded(
+        &case,
+        "[DECISION R-7] A merge now (DEC-20991231-01)",
+        &format!("mailbox/delivered/{name}"),
+        SESSION,
+    );
+    assert_eq!(
+        case.left_in_sessions(),
+        ["deliveries/"],
+        "no launcher socket was made, and the pane's own is gone with it"
+    );
+}
+
+/// A session the list keeps without a pid has ended: refused, nothing typed or recorded.
+#[test]
+fn a_session_the_list_keeps_without_a_pid_is_not_reachable() {
+    let case = Case::new("exited", 0);
+    case.listed("cc062faf", false);
+    let output = case.deliver_stdin("[HANDOVER cortex] context 210k\n");
+    assert_eq!(output.status.code(), Some(1), "{}", describe(&output));
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert_eq!(stderr.trim().lines().count(), 1, "one line: {stderr}");
+    assert!(
+        stderr.contains("SessionNotReachable")
+            && stderr.contains(SESSION)
+            && stderr.contains("lists no live session"),
+        "the refusal names the error, the session and the list: {stderr}"
+    );
+    assert!(case.calls().is_empty(), "tmux is never called");
+    assert!(case.dispatch_lines().is_empty(), "no dispatch line");
+    assert!(!case.state().join("mailbox").exists(), "no body is kept");
+}
+
+/// A socket file no server answers on, left behind, does not hide a live background session:
+/// the text goes through `claude attach`, after the one refused call and one that found no
+/// server. The file is not the delivery's, and stays.
+#[test]
+fn a_socket_no_server_answers_on_does_not_hide_a_live_background_session() {
+    let case = Case::new("stale-socket", 0);
+    case.socket();
+    case.listed("cc062faf", true);
+    case.tmux_fails(2);
+    let text = "[REPORT cortex -] watch: CI red on main\n";
+    let (output, file) = case.deliver_file(text);
+    assert!(output.status.success(), "{}", describe(&output));
+    let calls = case.calls();
+    assert_eq!(calls.len(), 2 + 8, "{calls:?}");
+    assert_eq!(calls[0][3], "load-buffer", "the launcher is tried first");
+    assert_eq!(calls[1][3], "list-sessions", "then asked whether it runs");
+    assert_eq!(
+        calls[2..],
+        typed_through_attach(&case, &calls[2], "cc062faf", text.trim_end_matches('\n'))
+    );
+    recorded(
+        &case,
+        "[REPORT cortex -] watch: CI red on main",
+        &file.display().to_string(),
+        "cortex",
+    );
+    assert_eq!(
+        case.left_in_sessions(),
+        ["deliveries/".to_owned(), format!("{SESSION}.tmux")],
+        "the file left behind is as it was"
+    );
+}
+
+/// A live session the list names by an id `claude attach` would read as a flag or as two words
+/// (a leading dash, whitespace), or by none, is refused before any pane is made: one line that
+/// says so, no tmux call, nothing recorded.
+#[test]
+fn a_live_session_named_by_no_id_to_attach_to_is_refused_before_tmux_is_called() {
+    for (name, id) in [
+        ("id-dash", Some("--dangerously-skip-permissions")),
+        ("id-space", Some("cc062faf --resume")),
+        ("id-tab", Some("cc062faf\tx")),
+        ("id-none", None),
+    ] {
+        let case = Case::new(name, 0);
+        let mut entry = serde_json::json!({
+            "name": SESSION, "kind": "background", "status": "idle", "state": "done", "pid": 4242,
+        });
+        if let Some(id) = id {
+            entry["id"] = serde_json::json!(id);
+        }
+        fs::write(
+            case.dir.join("agents.json"),
+            Value::Array(vec![entry]).to_string(),
+        )
+        .expect("write the session list");
+        let output = case.deliver_stdin("[HANDOVER cortex] context 210k\n");
+        assert_eq!(
+            output.status.code(),
+            Some(1),
+            "{name}: {}",
+            describe(&output)
+        );
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        assert_eq!(
+            stderr.trim().lines().count(),
+            1,
+            "{name}: one line: {stderr}"
+        );
+        assert!(
+            stderr.contains("SessionNotReachable")
+                && stderr.contains(SESSION)
+                && stderr.contains("names its live session by no id to attach to"),
+            "{name}: the refusal names the error, the session and the id: {stderr}"
+        );
+        assert_eq!(case.claude_calls(), ["agents --json"], "{name}: no attach");
+        assert!(case.calls().is_empty(), "{name}: tmux is never called");
+        assert!(case.dispatch_lines().is_empty(), "{name}: no dispatch line");
+        assert!(
+            !case.state().join("mailbox").exists(),
+            "{name}: no body is kept"
+        );
+    }
+}
+
+/// A socket a tmux server answers on is a launcher's: when it does not take the text, its
+/// server is neither replaced nor ended, and the delivery is refused on one line.
+#[test]
+fn a_launcher_that_answers_but_does_not_take_the_text_is_left_alone() {
+    let case = Case::new("launcher-kept", 0);
+    case.socket();
+    case.listed("cc062faf", true);
+    case.tmux_fails(1);
+    let (output, _) = case.deliver_file("[REPORT cortex -] watch: CI red on main\n");
+    assert_eq!(output.status.code(), Some(1), "{}", describe(&output));
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert_eq!(stderr.trim().lines().count(), 1, "one line: {stderr}");
+    assert!(stderr.contains("SessionNotReachable"), "{stderr}");
+    let calls = case.calls();
+    assert_eq!(calls.len(), 2, "{calls:?}");
+    assert_eq!(calls[1][3], "list-sessions", "{calls:?}");
+    assert!(
+        case.state()
+            .join(format!("sessions/{SESSION}.tmux"))
+            .exists(),
+        "the launcher's socket stays"
+    );
+    assert!(case.dispatch_lines().is_empty(), "no dispatch line");
 }
 
 /// A socket whose tmux does not answer: refused after one call, never retried.

@@ -1,5 +1,5 @@
 // generated from conductor v1
-// contract digest 251aac8e3d7844fa8bf5d80ba2d224b99dac46d204effce0fa0168d87512e308
+// contract digest a1cc34768181dead81bc45def213171589d80ca0e637d39ce715944032bf1a7c
 // do not edit: regenerate with `ess synthesize --layout crate`
 //! Every generated declaration, as JSON, in the renderings the published wire contracts fix.
 //!
@@ -18043,6 +18043,14 @@ pub fn encode_error_conductor_secret_source_unusable(value: &crate::secret::Sour
     out.push('}');
 }
 
+/// Writes the declared error `conductor.session.DeliveryNotSeenRead` as JSON.
+pub fn encode_error_conductor_session_delivery_not_seen_read(value: &crate::session::DeliveryNotSeenRead, out: &mut String) {
+    out.push('{');
+    json::member(out, "session_name");
+    encode_conductor_config_session_name(&value.session_name, out);
+    out.push('}');
+}
+
 /// Writes the declared error `conductor.session.InvalidLineCount` as JSON.
 pub fn encode_error_conductor_session_invalid_line_count(value: &crate::session::InvalidLineCount, out: &mut String) {
     out.push('{');
@@ -31853,6 +31861,20 @@ pub fn encode_outcome_conductor_session_deliver_message(value: &crate::session::
             json::push_text(out, "conductor.session.SessionNotReachable");
             json::member(out, "payload");
             encode_error_conductor_session_session_not_reachable(error, out);
+            out.push('}');
+        }
+        crate::session::DeliverMessageOutcome::Unread { error } => {
+            json::member(out, "outcome");
+            json::push_text(out, "unread");
+            json::member(out, "published");
+            out.push('[');
+            out.push(']');
+            json::member(out, "refusal");
+            out.push('{');
+            json::member(out, "error");
+            json::push_text(out, "conductor.session.DeliveryNotSeenRead");
+            json::member(out, "payload");
+            encode_error_conductor_session_delivery_not_seen_read(error, out);
             out.push('}');
         }
         crate::session::DeliverMessageOutcome::Delivered { message_delivered } => {

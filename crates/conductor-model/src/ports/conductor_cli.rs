@@ -1,5 +1,5 @@
 // generated from conductor v1
-// contract digest 251aac8e3d7844fa8bf5d80ba2d224b99dac46d204effce0fa0168d87512e308
+// contract digest a1cc34768181dead81bc45def213171589d80ca0e637d39ce715944032bf1a7c
 // do not edit: regenerate with `ess synthesize --layout crate`
 
 //! conductor-cli — the `conductor-cli` component of `conductor` v1.
@@ -1531,6 +1531,7 @@ where
         let outcome = self.behaviors.deliver_message(input)?;
         match &outcome {
             crate::session::DeliverMessageOutcome::Unreachable { .. } => {}
+            crate::session::DeliverMessageOutcome::Unread { .. } => {}
             crate::session::DeliverMessageOutcome::Delivered { message_delivered, .. } => {
                 self.outbox.push(PublishedEvent::MessageDelivered(message_delivered.clone()));
             }

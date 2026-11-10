@@ -54,7 +54,7 @@ pipe-pane -o -t "=$CONDUCTOR_SESSION:" 'exec cat >> "${CONDUCTOR_TERMINAL_LOG:-$
 "#;
 
 /// How long the TUI is given between the pasted prompt and Enter.
-const PASTE_SETTLE: Duration = Duration::from_millis(500);
+pub const PASTE_SETTLE: Duration = Duration::from_millis(500);
 
 /// How long a unit of a session's name may take to be gone before a start or resume refuses.
 pub const GONE_WAIT: Duration = Duration::from_secs(30);
@@ -294,11 +294,17 @@ pub fn stop_unit(unit: &str) -> Result<()> {
 /// Runs `tmux -S <name>.tmux <args>` on the session `name`'s server, from the directory of its
 /// socket, so a long state path does not exceed a socket's path limit; within [`BOUND`].
 pub fn tmux_call(sessions: &Path, name: &SessionName, args: &[&str]) -> Result<String> {
-    let socket = format!("{}.tmux", name.0);
+    tmux_on(sessions, &name.0, args)
+}
+
+/// Runs `tmux -S <socket>.tmux <args>` from `dir`, the directory of that socket; within
+/// [`BOUND`]. [`tmux_call`] for a server whose socket is not named after its session.
+pub fn tmux_on(dir: &Path, socket: &str, args: &[&str]) -> Result<String> {
+    let socket = format!("{socket}.tmux");
     let shown = format!("{TMUX} -S {socket} {}", args.join(" "));
     let output = collect::run(
         Command::new(TMUX)
-            .current_dir(sessions)
+            .current_dir(dir)
             .args(["-S", &socket])
             .args(args)
             .env_remove("TMUX"),
@@ -323,12 +329,22 @@ pub fn tmux_call(sessions: &Path, name: &SessionName, args: &[&str]) -> Result<S
 ///
 /// The paste file cannot be written, or a tmux call fails.
 pub fn type_text(sessions: &Path, name: &SessionName, text: &str) -> Result<()> {
+    type_into(sessions, &name.0, name, text)
+}
+
+/// [`type_text`] into the pane of the tmux session `name` on the server whose socket is
+/// `<dir>/<socket>.tmux`; the paste file is `<dir>/<socket>.paste`.
+///
+/// # Errors
+///
+/// The paste file cannot be written, or a tmux call fails.
+pub fn type_into(dir: &Path, socket: &str, name: &SessionName, text: &str) -> Result<()> {
     let pane = target(name);
-    let paste = sessions.join(format!("{}.paste", name.0));
+    let paste = dir.join(format!("{socket}.paste"));
     fs::write(&paste, text).with_context(|| format!("write {}", paste.display()))?;
-    let loaded = tmux_call(
-        sessions,
-        name,
+    let loaded = tmux_on(
+        dir,
+        socket,
         &[
             "load-buffer",
             "-b",
@@ -338,20 +354,16 @@ pub fn type_text(sessions: &Path, name: &SessionName, text: &str) -> Result<()> 
     );
     let _ = fs::remove_file(&paste);
     loaded?;
-    tmux_call(
-        sessions,
-        name,
+    tmux_on(
+        dir,
+        socket,
         &["paste-buffer", "-d", "-p", "-b", "conductor", "-t", &pane],
     )?;
     thread::sleep(PASTE_SETTLE);
-    tmux_call(
-        sessions,
-        name,
-        &["set-buffer", "-b", "conductor", "--", "\r"],
-    )?;
-    tmux_call(
-        sessions,
-        name,
+    tmux_on(dir, socket, &["set-buffer", "-b", "conductor", "--", "\r"])?;
+    tmux_on(
+        dir,
+        socket,
         &["paste-buffer", "-d", "-b", "conductor", "-t", &pane],
     )?;
     Ok(())

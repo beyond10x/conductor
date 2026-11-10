@@ -867,8 +867,18 @@ fn measurement_of(value: &Value) -> Result<EnvelopeMeasurement> {
 ///
 /// The list cannot be run or read.
 pub fn live_session(name: &str) -> Result<Option<String>> {
+    live_session_within(name, BOUND)
+}
+
+/// [`live_session`], with the list given `bound` and not [`BOUND`]: a delivery waits for the
+/// list inside its own bound.
+///
+/// # Errors
+///
+/// The list cannot be run or read, within `bound`.
+pub fn live_session_within(name: &str, bound: Duration) -> Result<Option<String>> {
     let shown = format!("{CLAUDE} agents --json");
-    let output = collect::run(Command::new(CLAUDE).args(["agents", "--json"]), BOUND)
+    let output = collect::run(Command::new(CLAUDE).args(["agents", "--json"]), bound)
         .with_context(|| format!("read the Claude session list `{shown}`"))?;
     if !output.status.success() {
         bail!("`{shown}` {}", exited(&output));
