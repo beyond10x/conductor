@@ -29,7 +29,7 @@ Each GitHub Release carries `conductor-<version>-<target>.tar.gz` for `x86_64-un
 `SHA256SUMS`. Download the archive for your machine, check it, and put the binary on `PATH`:
 
 ```console
-version=1.1.0 target=x86_64-unknown-linux-gnu
+version=1.2.0 target=x86_64-unknown-linux-gnu
 archive="conductor-$version-$target.tar.gz"
 url="https://github.com/beyond10x/conductor/releases/download/v$version"
 curl -fsSLO "$url/$archive"
@@ -55,7 +55,7 @@ $ conductor doctor
 host: workstation
 system: Linux 6.18.0
 architecture: x86_64
-conductor 1.1.0
+conductor 1.2.0
 git: present, git version 2.56.0
 gh: not needed
 glab: not needed
