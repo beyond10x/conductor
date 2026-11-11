@@ -143,7 +143,11 @@ instances[0].state: ~/.b10x/conductor/home/state
 instances[0].cache: ~/.cache/b10x/conductor/home
 ```
 
-Run `conductor doctor` again: it now needs `substrate-daemon`, at its pin 0.20.0.
+Run `conductor doctor` again: it now needs `substrate-daemon`, at its pin 0.20.0. It also prints
+a `box <instance>:` row that names a refusal (a writable root that does not exist yet, or
+`placement.substrate-unreachable`), ends with `not ready: box <instance> (<refusal>)` and exits 1.
+That is expected here: step 4 writes the records directory and step 5 starts the substrate
+daemon, after which the row reads `served by the substrate daemon`.
 
 ## 4. Write the records and trust the checkouts
 

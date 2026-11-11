@@ -380,7 +380,7 @@ fn a_runtime_that_stopped_answering_is_started_again() {
     daemon.units.running.clear();
     // It ran past the start bound: a lost runtime, no failed start
     // (`story:box-crash-loop-reads-failed`).
-    let now = now + conductor_cli::daemon::reconcile::START_BOUND;
+    let now = now + conductor_cli::daemon::reconcile::RAN_BOUND;
     assert_eq!(
         daemon.due(now).expect("due"),
         Some(ReconcileReason::LostRuntime)

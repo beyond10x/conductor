@@ -139,6 +139,10 @@ const VERSION_BOUND: Duration = Duration::from_secs(10);
 /// How long `<forge CLI> auth status --hostname <host>` may take: it may ask the host.
 const AUTH_BOUND: Duration = Duration::from_secs(20);
 
+/// How long the dry run of a box waits for the local substrate daemon: the connection, the
+/// question and the answer together ([`box_lines`]).
+const SUBSTRATE_BOUND: Duration = Duration::from_secs(5);
+
 /// The host of a `github` source.
 pub const GITHUB_HOST: &str = "github.com";
 
@@ -1502,11 +1506,11 @@ fn kind_lines(flag: Option<&Path>) -> Vec<(String, Option<String>)> {
 /// (`story:box-crash-loop-reads-failed`): the dry run of its box. It builds the request
 /// conductord would send ([`config::box_requests`]) and runs what conductord and its box opener
 /// check before anything starts: conductord's own refusals
-/// ([`crate::placement::unmountable`]), each writable root a directory
-/// ([`crate::placement::roots_missing`]), and, for a box on the local daemon, that `substrate`
-/// answers and its facts serve the box ([`crate::placement::Sdk::admits`]). A box on a remote
-/// daemon is checked as far as conductord's own refusals and its roots: the remote daemon is
-/// not asked. The line is `box <instance>: <placement>, <n> writable roots served by the
+/// ([`crate::placement::unmountable`]) and, for a box on the local daemon, each writable root a
+/// directory ([`crate::placement::roots_missing`]) and that `substrate` answers within
+/// [`SUBSTRATE_BOUND`] and its facts serve the box ([`crate::placement::Sdk::admits`]). A box
+/// on a remote daemon is checked as far as conductord's own refusals: its roots are
+/// directories of that daemon's host, which is not asked, and the line says so. The line is `box <instance>: <placement>, <n> writable roots served by the
 /// substrate daemon`, or `box <instance>: <refusal>: <detail>`, which adds `box <instance>
 /// (<refusal>)` to the verdict. It opens no box, starts nothing and writes nothing; only
 /// [`doctor_with`] calls it, never [`check_in`], which the dashboard's health thread repeats.
@@ -1536,17 +1540,14 @@ fn box_lines(
             let instance = loaded.config.instances.get(index)?;
             let name = &instance.name.0;
             let remote = instance.remote.is_some();
-            let refused = request
-                .refused
-                .clone()
-                .or_else(|| crate::placement::roots_missing(&request.writable_roots))
-                .or_else(|| {
-                    if remote {
-                        None
-                    } else {
-                        substrate.admits(&request).err()
-                    }
-                });
+            // The roots of a box on a remote daemon are that host's: not looked for on this one.
+            let refused = request.refused.clone().or_else(|| {
+                if remote {
+                    return None;
+                }
+                crate::placement::roots_missing(&request.writable_roots)
+                    .or_else(|| substrate.admits(&request, SUBSTRATE_BOUND).err())
+            });
             Some(match refused {
                 Some(refused) => (
                     format!(
@@ -1562,7 +1563,8 @@ fn box_lines(
                         request.placement.0,
                         request.writable_roots.len(),
                         if remote {
-                            "there (its remote substrate daemon is not asked)"
+                            "on the remote daemon's host (not checked here, that daemon is not \
+                             asked)"
                         } else {
                             "served by the substrate daemon"
                         }

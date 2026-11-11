@@ -1816,6 +1816,16 @@ impl Sdk {
         &self,
         work: impl AsyncFnOnce(substrate_sdk::Client) -> Result<T, substrate_sdk::SdkError>,
     ) -> Result<T, Refused> {
+        let bound = self.remote.is_some().then_some(self.timeout);
+        self.block_within(bound, work)
+    }
+
+    /// [`Self::block_on`] with the bound given: `None` waits for the daemon without one.
+    fn block_within<T>(
+        &self,
+        bound: Option<Duration>,
+        work: impl AsyncFnOnce(substrate_sdk::Client) -> Result<T, substrate_sdk::SdkError>,
+    ) -> Result<T, Refused> {
         let runtime = tokio::runtime::Builder::new_current_thread()
             .enable_all()
             .build()
@@ -1828,15 +1838,23 @@ impl Sdk {
             work(client).await.map_err(refused)
         };
         runtime.block_on(async {
-            if self.remote.is_none() {
+            let Some(bound) = bound else {
                 return asked.await;
-            }
-            tokio::time::timeout(self.timeout, asked)
+            };
+            tokio::time::timeout(bound, asked)
                 .await
                 .unwrap_or_else(|_| {
                     Err(Refused {
                         name: UNREACHABLE.to_owned(),
-                        detail: format!("the daemon did not answer within {:?}", self.timeout),
+                        detail: if self.remote.is_some() {
+                            format!("the daemon did not answer within {bound:?}")
+                        } else {
+                            format!(
+                                "the substrate daemon at {} did not answer within {} s",
+                                self.socket.display(),
+                                bound.as_secs()
+                            )
+                        },
                     })
                 })
         })
@@ -1944,15 +1962,19 @@ impl Sdk {
 
     /// Whether this daemon would take `request` as far as [`Substrate::open`] checks before it
     /// asks for anything: the daemon answers, and its facts serve the box ([`Self::unserved`]).
-    /// It reads the daemon's machine and starts nothing: `conductor doctor`'s dry run.
+    /// It reads the daemon's machine and starts nothing: `conductor doctor`'s dry run. The
+    /// question, its connection included, ends within `bound`.
     ///
     /// # Errors
     ///
-    /// [`UNREACHABLE`] when the daemon does not answer, else the refusal `open` would answer.
-    pub fn admits(&self, request: &BoxRequest) -> Result<(), Refused> {
+    /// [`UNREACHABLE`] when the daemon does not answer within `bound`, naming its socket and the
+    /// bound, else the refusal `open` would answer.
+    pub fn admits(&self, request: &BoxRequest, bound: Duration) -> Result<(), Refused> {
         let request = request.clone();
-        self.block_on(async move |client| Ok(Self::unserved(&client.machine(), &request)))
-            .and_then(|refused| refused.map_or(Ok(()), Err))
+        self.block_within(Some(bound), async move |client| {
+            Ok(Self::unserved(&client.machine(), &request))
+        })
+        .and_then(|refused| refused.map_or(Ok(()), Err))
     }
 }
 

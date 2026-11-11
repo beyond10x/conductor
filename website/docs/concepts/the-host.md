@@ -101,9 +101,18 @@ daemon publishes. A miss is refused with substrate's name, `confinement.family-u
 | the model token | a slot of `daemon.substrate_slots`, which the daemon fills from the instance's `model_token` before the box opens |
 | a remote daemon | `placement` also writes `bearer: secret:<name>`, `trust_roots` and `server_identity`; one `conductor instance relay` pipe session carries each API request; an unanswering daemon shows the instance `Unreachable` |
 
-For a config file that writes `daemon.store`, the only kind conductord starts on, `conductor doctor` dry-runs the box of each instance on the local daemon: it builds the request conductord would send, checks conductord's own refusals and that each writable root is a directory, and asks the substrate daemon for its facts, as conductord does before anything starts. It prints one `box <instance>:` row, starts no box and writes nothing. A box that would be refused makes the verdict `not ready: box <instance> (<refusal>)`. A box on a remote daemon is checked up to conductord's own refusals; the remote daemon is not asked.
+For a config file that writes `daemon.store`, the only kind conductord starts on, `conductor doctor` dry-runs the box of each instance on the local daemon: it builds the request conductord would send, checks conductord's own refusals and that each writable root is a directory, and asks the substrate daemon for its facts, as conductord does before anything starts. It prints one `box <instance>:` row, starts no box and writes nothing. A box that would be refused makes the verdict `not ready: box <instance> (<refusal>)`. A substrate daemon that does not answer within 5 s is one such refusal, `placement.substrate-unreachable`; the row names its socket and the 5 s. A box on a remote daemon is checked up to conductord's own refusals: its writable roots are directories of the remote daemon's host, so doctor does not look for them on this one, does not ask that daemon, and the row says so.
 
-A runtime that exits within 10 s of its start is a failed start. The daemon records it as a `Start` that was `Refused`, with what the runtime wrote to `runtime.log` since that start, and `/v1/instances` shows the instance `Unreachable`. The next start waits 10 s, and twice as long after each further failed start, up to 5 minutes; a change to the config file starts it at the next pass. A runtime that ran longer and stopped is started again at once.
+Three numbers decide what the daemon does with a runtime it finds stopped: 10 s, 60 s and 5 minutes.
+
+- A runtime that exits within 10 s of its start is a failed start. The daemon looks every 2 s, so it is one found stopped at a look less than 12 s after its start. The daemon records it as a `Start` that was `Refused`, with the last lines the runtime wrote to `runtime.log` since that start.
+- A runtime that stopped later and before it ran 60 s is recorded the same way, as stopped short of the 60 s.
+- Both count in the row of failed starts. The next start waits 10 s after the first of the row and twice as long after each further one, up to 5 minutes. A change to the config file starts it at the next pass.
+- A runtime that ran 60 s or longer ends the row. When it stops it is started again at once.
+
+`/v1/instances` shows the instance `Unreachable` while it waits for its next start, and after a start that follows a failed one until a look 12 s after it finds the runtime running.
+
+The daemon reads `runtime.log` only when it is a regular file: it follows no link and waits for no pipe, since the box can write that directory. Otherwise the record says the log is no regular file and carries none of it. Control characters and escape sequences of the log are replaced in the record.
 
 A bare string that names no adapter keeps the runtime in the systemd user unit
 `conductor_<instance>-runtime.service`. Sessions run in no box: substrate 0.20.0 starts no agent

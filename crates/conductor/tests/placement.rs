@@ -1853,7 +1853,7 @@ fn conductord_starts_again_a_box_runtime_substrate_ended_at_its_output_bound() {
     // Substrate ends the session with `session.output-limit` (state Cancelled): it no longer
     // runs. It ran past the start bound, so this is no failed start.
     fake.log.lock().expect("the log").running.remove("ses_1");
-    let now = now + conductor_cli::daemon::reconcile::START_BOUND;
+    let now = now + conductor_cli::daemon::reconcile::RAN_BOUND;
     assert_eq!(
         daemon.due(now).expect("due"),
         Some(conductor_model::instance::ReconcileReason::LostRuntime)
@@ -3075,9 +3075,20 @@ fn a_boxed_runtime_that_exits_within_the_start_bound_is_a_failed_start_with_its_
     assert_eq!(done.len(), 1, "{done:?}");
     assert_eq!(done[0].result, ReconcileResult::Succeeded, "{done:?}");
     assert_eq!(fake.log.lock().expect("the log").opened.len(), 2);
+    // The start after a failed one reads Running once a look 12 s after it finds it running.
+    assert_eq!(daemon.rows()[0]["state"], "Unreachable");
+    assert_eq!(
+        daemon.due(retry + Duration::from_secs(10)).expect("due"),
+        None
+    );
+    assert_eq!(daemon.rows()[0]["state"], "Unreachable");
+    assert_eq!(
+        daemon.due(retry + Duration::from_secs(12)).expect("due"),
+        None
+    );
     assert_eq!(daemon.rows()[0]["state"], "Running");
 
-    // A runtime lost after the bound is no failed start: it is started again at once.
+    // A runtime lost after it ran 60 s is no failed start: it is started again at once.
     fake.log.lock().expect("the log").running.clear();
     let later = retry + Duration::from_secs(60);
     let done = daemon
@@ -3110,8 +3121,8 @@ fn a_crash_looping_boxed_runtime_is_started_ever_less_often() {
         }
         log.running.clear();
         drop(log);
-        // Between two starts the instance never reads as running.
-        if !started {
+        // After its first start the instance never reads as running, at a start's tick either.
+        if tick > 0 {
             assert_ne!(
                 daemon.rows()[0]["state"],
                 "Running",
@@ -3131,6 +3142,221 @@ fn a_crash_looping_boxed_runtime_is_started_ever_less_often() {
         (1..=3).contains(&last_ten_minutes),
         "the delay is capped: {opened_at:?}"
     );
+}
+
+/// The rule of the three numbers: a runtime found stopped 12 s or more after its start that
+/// ran less than 60 s is not started at once; its start waits the row's backoff and counts in
+/// the row. One that ran 60 s ends the row and is started at once.
+#[test]
+fn a_runtime_that_stops_before_it_ran_a_minute_waits_the_backoff_of_its_row() {
+    use conductor_model::instance::ReconcileReason;
+    use std::time::Duration;
+    let secs = Duration::from_secs;
+    let case = Case::new("ran-short");
+    case.config(&[("alpha", "systemd")]);
+    let fake = Fake::default();
+    let mut daemon = case.daemon(fake.clone());
+    let start = std::time::Instant::now();
+    daemon
+        .pass(ReconcileReason::ConfigChange, start)
+        .expect("a pass");
+    let log = runtime_log(&case, "alpha");
+    fs::create_dir_all(log.parent().expect("the sessions directory")).expect("create it");
+    append(&log, "conductor: the runtime stops after half a minute\n");
+
+    // It stops 30 s after its start: past the start bound, short of the 60 s.
+    fake.log.lock().expect("the log").running.clear();
+    let done = daemon
+        .pass(ReconcileReason::LostRuntime, start + secs(30))
+        .expect("a pass");
+    assert_eq!(done.len(), 1, "{done:?}");
+    assert_eq!(
+        (done[0].action, done[0].reason, done[0].result),
+        (
+            ReconcileAction::Start,
+            ReconcileReason::LostRuntime,
+            ReconcileResult::Refused
+        ),
+        "{done:?}"
+    );
+    let detail = done[0].detail.clone().unwrap_or_default();
+    assert!(
+        detail.contains(
+            "the runtime of alpha stopped 30 s after its start, short of the 60 s that end a row \
+             of failed starts (failed start 1 in a row, the next start in 10 s)"
+        ),
+        "{detail}"
+    );
+    assert_eq!(fake.log.lock().expect("the log").opened.len(), 1);
+    assert_eq!(daemon.rows()[0]["state"], "Unreachable");
+    assert_eq!(daemon.due(start + secs(38)).expect("due"), None);
+    assert_eq!(
+        daemon.due(start + secs(40)).expect("due"),
+        Some(ReconcileReason::LostRuntime)
+    );
+    let done = daemon
+        .pass(ReconcileReason::LostRuntime, start + secs(40))
+        .expect("a pass");
+    assert_eq!(done[0].result, ReconcileResult::Succeeded, "{done:?}");
+
+    // The second start stops 58 s after it: the second of the row, 20 s.
+    fake.log.lock().expect("the log").running.clear();
+    let done = daemon
+        .pass(ReconcileReason::LostRuntime, start + secs(98))
+        .expect("a pass");
+    let detail = done[0].detail.clone().unwrap_or_default();
+    assert!(
+        detail.contains("stopped 58 s after its start")
+            && detail.contains("failed start 2 in a row, the next start in 20 s"),
+        "{detail}"
+    );
+    assert_eq!(fake.log.lock().expect("the log").opened.len(), 2);
+    let done = daemon
+        .pass(ReconcileReason::LostRuntime, start + secs(118))
+        .expect("a pass");
+    assert_eq!(done[0].result, ReconcileResult::Succeeded, "{done:?}");
+
+    // The third runs 60 s: the row ends, it is started at once, and the next failed start is
+    // the first of a row again.
+    fake.log.lock().expect("the log").running.clear();
+    let done = daemon
+        .pass(ReconcileReason::LostRuntime, start + secs(178))
+        .expect("a pass");
+    assert_eq!(done.len(), 1, "{done:?}");
+    assert_eq!(done[0].result, ReconcileResult::Succeeded, "{done:?}");
+    assert_eq!(fake.log.lock().expect("the log").opened.len(), 4);
+    fake.log.lock().expect("the log").running.clear();
+    let done = daemon
+        .pass(ReconcileReason::LostRuntime, start + secs(180))
+        .expect("a pass");
+    let detail = done[0].detail.clone().unwrap_or_default();
+    assert!(
+        detail.contains("failed start 1 in a row, the next start in 10 s"),
+        "{detail}"
+    );
+}
+
+/// The daemon reads `runtime.log` only as a regular file it opens without following a link:
+/// a link, a directory, and a link in place of the `sessions` directory each give a record
+/// that says so and carries nothing of what is behind them.
+#[test]
+fn a_failed_start_whose_log_is_no_regular_file_says_so_and_reads_none_of_it() {
+    use conductor_model::instance::ReconcileReason;
+    use std::os::unix::fs::symlink;
+    use std::time::Duration;
+    let case = Case::new("log-irregular");
+    case.config(&[("alpha", "systemd")]);
+    let fake = Fake::default();
+    let mut daemon = case.daemon(fake.clone());
+    let start = std::time::Instant::now();
+    daemon
+        .pass(ReconcileReason::ConfigChange, start)
+        .expect("a pass");
+    let log = runtime_log(&case, "alpha");
+    let sessions = log.parent().expect("the sessions directory").to_path_buf();
+    let elsewhere = case.dir.join("elsewhere");
+    fs::create_dir_all(&elsewhere).expect("create it");
+    fs::write(
+        elsewhere.join("runtime.log"),
+        "behind-the-link-0123456789\n",
+    )
+    .expect("write it");
+    let said = format!(
+        "{} is no regular file, nothing of it is read",
+        log.display()
+    );
+    let mut at = start;
+    let mut failed = |daemon: &mut Daemon<Units0>, what: &str| {
+        fake.log.lock().expect("the log").running.clear();
+        at += Duration::from_secs(2);
+        let done = daemon
+            .pass(ReconcileReason::ConfigChange, at)
+            .expect("a pass");
+        assert_eq!(done.len(), 1, "{what}: {done:?}");
+        assert_eq!(done[0].result, ReconcileResult::Refused, "{what}: {done:?}");
+        let detail = done[0].detail.clone().unwrap_or_default();
+        assert!(detail.ends_with(&said), "{what}: {detail}");
+        assert!(!detail.contains("behind-the-link"), "{what}: {detail}");
+        // A config-change pass ends the wait: the next one starts it again.
+        at += Duration::from_secs(2);
+        let done = daemon
+            .pass(ReconcileReason::ConfigChange, at)
+            .expect("a pass");
+        assert_eq!(
+            done[0].result,
+            ReconcileResult::Succeeded,
+            "{what}: {done:?}"
+        );
+    };
+
+    // The log is a link to a file.
+    fs::create_dir_all(&sessions).expect("create it");
+    let _ = fs::remove_file(&log);
+    symlink(elsewhere.join("runtime.log"), &log).expect("link the log");
+    failed(&mut daemon, "a link");
+
+    // The log is a directory.
+    fs::remove_file(&log).expect("remove the link");
+    fs::create_dir(&log).expect("a directory");
+    failed(&mut daemon, "a directory");
+
+    // The sessions directory is a link to a directory that holds a regular `runtime.log`.
+    fs::remove_dir_all(&sessions).expect("remove the sessions directory");
+    symlink(&elsewhere, &sessions).expect("link the directory");
+    failed(&mut daemon, "a linked directory");
+}
+
+/// Doctor's question to a local substrate daemon that takes the connection and never answers
+/// ends at its 5 s bound: the row names the socket and the bound.
+#[test]
+fn doctor_names_the_socket_and_the_bound_of_a_substrate_daemon_that_never_answers() {
+    let case = Case::new("dsil");
+    let file = case.config(&[("alpha", "systemd")]);
+    case.directories("alpha");
+    let socket = case.dir.join("m.sock");
+    let listener = std::os::unix::net::UnixListener::bind(&socket).expect("bind the socket");
+    let began = std::time::Instant::now();
+    let output = case.doctor_on(&file, &socket);
+    let took = began.elapsed();
+    drop(listener);
+    let shown = lines(&output);
+    let row = shown
+        .iter()
+        .find(|line| line.starts_with("box alpha:"))
+        .cloned()
+        .unwrap_or_else(|| panic!("no box row: {}", describe(&output)));
+    assert!(
+        row.starts_with("box alpha: placement.substrate-unreachable:")
+            && row.contains(&socket.display().to_string())
+            && row.contains("did not answer within 5 s"),
+        "{row}"
+    );
+    assert_eq!(output.status.code(), Some(1), "{}", describe(&output));
+    assert!(
+        took >= std::time::Duration::from_secs(4),
+        "it waited its bound: {took:?}"
+    );
+}
+
+/// The row of a box on a remote daemon says whose its roots are; nothing on this host is
+/// asked for, so a host without those directories is not `not ready` for them.
+#[test]
+fn doctor_says_the_roots_of_a_box_on_a_remote_daemon_are_that_hosts() {
+    let case = Case::new("dremote");
+    let file = case.config(&[("alpha", &case.remote_placement(REMOTE))]);
+    let output = case.doctor_on(&file, &case.dir.join("no.sock"));
+    let shown = lines(&output);
+    let row = shown
+        .iter()
+        .find(|line| line.starts_with("box alpha:"))
+        .cloned()
+        .unwrap_or_else(|| panic!("no box row: {}", describe(&output)));
+    assert!(
+        row.contains("writable roots on the remote daemon's host"),
+        "{row}"
+    );
+    let verdict = shown.last().cloned().unwrap_or_default();
+    assert!(!verdict.contains("box alpha"), "{}", describe(&output));
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -3501,7 +3727,10 @@ mod adversary {
             assert!(made.success(), "mkfifo");
             fake.log.lock().expect("the log").running.clear();
             let done = daemon.pass(ReconcileReason::LostRuntime, start + secs(2));
-            let _ = sent.send(done.map(|done| done.len()).map_err(|error| format!("{error:#}")));
+            let _ = sent.send(
+                done.map(|done| done.len())
+                    .map_err(|error| format!("{error:#}")),
+            );
         });
         let answered = received.recv_timeout(secs(20));
         // Let the pass go, whatever it waits for: a writer that opens the pipe and closes it.
@@ -3649,7 +3878,10 @@ mod adversary {
             .into_iter()
             .map(|failures| retry_after(failures).as_secs())
             .collect();
-        assert_eq!(waits, [10, 10, 20, 40, 80, 160, 300, 300, 300, 300, 300, 300]);
+        assert_eq!(
+            waits,
+            [10, 10, 20, 40, 80, 160, 300, 300, 300, 300, 300, 300]
+        );
     }
 
     /// The same through the daemon: over two hours of a crash loop no two starts are further
@@ -3695,7 +3927,11 @@ mod adversary {
         assert_eq!(done[0].result, ReconcileResult::Succeeded, "{done:?}");
         let log = fake.log.lock().expect("the log");
         assert_eq!(log.opened.len(), 2);
-        assert_eq!(log.closed, ["ws_1".to_owned()], "the dead box is closed first");
+        assert_eq!(
+            log.closed,
+            ["ws_1".to_owned()],
+            "the dead box is closed first"
+        );
     }
 
     /// Mutant: the wait of a failed start found by a config-change pass (`Duration::ZERO`).
