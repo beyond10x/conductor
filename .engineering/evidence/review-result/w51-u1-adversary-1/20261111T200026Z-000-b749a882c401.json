@@ -1,0 +1,15 @@
+{
+  "at": "2026-11-11T20:00:26Z",
+  "actor": "human:timo",
+  "artifact": "review-result:w51-u1-adversary-1",
+  "kind": "review-result",
+  "revision": 2,
+  "change": {
+    "change": "redaction",
+    "literal_sha256": "bfaaba37614a28a303ae850f8c830dd29a6da0115f6c343003000a384077dad0",
+    "literal_chars": 13,
+    "replacement": "N-<date>-<nn>",
+    "count": 2,
+    "reason": "the public-text check of this repository refuses the shape of a request id in planning text; the id was a fixture of a test case"
+  }
+}

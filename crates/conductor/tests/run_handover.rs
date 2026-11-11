@@ -1174,7 +1174,11 @@ fn adversary2_a_start_by_hand_the_loop_resumes_before_a_tick_keeps_the_request()
         json!(controller),
         "the request stands across the loop's resume: {journal:?}"
     );
-    assert!(case.asked()[SESSION]["resumed"].is_string(), "{}", case.asked());
+    assert!(
+        case.asked()[SESSION]["resumed"].is_string(),
+        "{}",
+        case.asked()
+    );
 
     case.hand_over_written();
     case.list(FIRST, "idle", Some(resumed));
@@ -1215,7 +1219,11 @@ fn adversary2_a_replaced_controller_resumed_by_the_loop_stops_nothing() {
     );
     let (actions, journal) = case.actions(&[]);
     assert_eq!(actions, ["resumed"], "{journal:?}");
-    assert_eq!(case.stopped(), [FIRST, SECOND], "the hand's stop, the loop's end");
+    assert_eq!(
+        case.stopped(),
+        [FIRST, SECOND],
+        "the hand's stop, the loop's end"
+    );
     assert!(
         case.asked().get(SESSION).is_none(),
         "the entry of the first controller is forgotten: {}",

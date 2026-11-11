@@ -6,7 +6,7 @@ status: active
 title: Wave 51 U1 need-repository-from-tag, adversary pass 1
 relations:
 - reviews: story:need-repository-from-tag
-revision: 1
+revision: 2
 ---
 ```
 unit: U1 wave 51, story:need-repository-from-tag, head 44065353f (base 61787f015) plus my uncommitted test additions in <trees>/w51-u1
@@ -33,13 +33,13 @@ Both are test files. No implementation file was touched, and I ran no git write.
 
 **A. `crates/conductor/tests/run.rs:2335` `adv_a_mailbox_need_for_conductor_itself_is_not_refused_to_its_sender`**
 
-- **Asserts:** with alpha running, `[NEED alpha N-20261017-01] conductor worktree workspace not activated: /srv/example-org` stays in the mailbox and alpha gets no `refused` delivery.
+- **Asserts:** with alpha running, `[NEED alpha N-<date>-<nn>] conductor worktree workspace not activated: /srv/example-org` stays in the mailbox and alpha gets no `refused` delivery.
 - **Result:** the mailbox-file assertion passed; the refusal assertion is red.
 
 ```
 panicked at crates/conductor/tests/run.rs:2352:5:
 assertion `left == right` failed: the sender is told its NEED for conductor is refused and not kept: {"actions":["relayed"],"lines_handled":0,...} ["conductor run: mailbox 0001.md: the need names \"conductor\", no repository of this instance (none has a running controller or a checkout under checkouts.root), so it is not kept"]
-  left: [("ex-alpha", "[REPORT alpha -] refused: the need names \"conductor\", no repository of this instance (none has a running controller or a checkout under checkouts.root), so it is not kept\nYour message: [NEED alpha N-20261017-01] conductor worktree workspace not activated: /srv/example-org\nThe form: [NEED alpha <request-id>] <other-repo> <what>\n")]
+  left: [("ex-alpha", "[REPORT alpha -] refused: the need names \"conductor\", no repository of this instance (none has a running controller or a checkout under checkouts.root), so it is not kept\nYour message: [NEED alpha N-<date>-<nn>] conductor worktree workspace not activated: /srv/example-org\nThe form: [NEED alpha <request-id>] <other-repo> <what>\n")]
  right: []
 ```
 

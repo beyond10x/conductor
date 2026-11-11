@@ -22,7 +22,7 @@ repository under a lock. Free disk at the start: 104 GB.
 | U4 | box-reaches-forge-and-daemon | | `w51-u4` | merged (`fe099dc20`), two adversary passes; the egress half is blocked, the story stays active |
 | U5 | daemon-probes-and-metrics | | `w51-u5` | merged (`654a1c993`), two adversary passes |
 | U6 | release-container-image | | `w51-u6` | merged (`61eb01e39`), two adversary passes |
-| U7 | container-start-without-prompt | U3, U4, U5, U6 | `w51-u7` | not started |
+| U7 | container-start-without-prompt | U3, U4, U5, U6 | `w51-u7` | adversary pass 1, after round 1 (`ce52cfe6b` on its branch) |
 
 Each unit works on branch `impl/<story>`; its scratch is the session scratch directory's
 `w51/u<n>/`. No unit has a build directory of its own: every build is in the repository's shared
