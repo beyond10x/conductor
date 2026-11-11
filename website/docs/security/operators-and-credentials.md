@@ -88,7 +88,9 @@ write with the cookie must name the listener's own origin. Bearer reads come fro
 refused at validate.
 
 The daemon proxies `/v1/instances/<name>/<route>` to the runtime's socket, `<state>/api.sock`,
-mode 0600, with the instance's token (`CONDUCTOR_API_TOKEN`), which no browser holds.
+mode 0600, with the instance's token, which no browser holds. A runtime started as a unit gets
+it in `CONDUCTOR_API_TOKEN`; a runtime in a box of the local substrate daemon gets it through
+the sealed slot `api_token_<instance>` ([the host](/docs/concepts/the-host#placement)).
 
 ## conductor login
 
@@ -156,8 +158,8 @@ a terminal) and records the name and source in the daemon's store. A name on rec
 value.
 
 Before a box opens, every `secret:` the instance's effective config names and its `model_token`
-must be in the source, or the box is refused (`SecretMissing`). The box gets one slot, the model
-token. A local daemon takes it from a pool of `daemon.substrate_slots` slots, each declared as
+must be in the source, or the box is refused (`SecretMissing`). The box gets one slot from the
+source, the model token. A local daemon takes it from a pool of `daemon.substrate_slots` slots, each declared as
 `--secret-slot model_token_<i>=<daemon dir>/slots/model_token_<i>`. The daemon writes the token
 into a free slot's file (mode 0600) and frees it when the box closes. No forge token is sealed into
 a box: forge writes take the bot route.

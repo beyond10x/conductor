@@ -1493,7 +1493,8 @@ fn a_writable_root_name_is_in_substrates_root_name_set() {
 /// the vector's other facts, keeps the request line of every request, and answers every other
 /// one 503; [`FakeLocal::opening`] also creates every workspace asked for and keeps the body of
 /// every session start. It publishes `roots` as the writable host roots it serves
-/// (`exec.writable-roots.host`), and the fact not at all when `roots` is empty.
+/// (`exec.writable-roots.host`), and the fact not at all when `roots` is empty; a name among
+/// them that is an API token's slot is a secret slot it declares instead (`secrets.slots`).
 struct FakeLocal {
     lines: Arc<Mutex<Vec<String>>>,
     starts: Arc<Mutex<Vec<Value>>>,
@@ -1540,8 +1541,14 @@ impl FakeLocal {
         for property in properties {
             facts[property.fact()] = Value::Bool(true);
         }
+        let (slots, roots): (Vec<&str>, Vec<&str>) = roots
+            .iter()
+            .partition(|name| placement::is_api_token_slot(name));
         if !roots.is_empty() {
             facts["exec.writable-roots.host"] = serde_json::json!(roots);
+        }
+        if !slots.is_empty() {
+            facts["secrets.slots"] = serde_json::json!(slots);
         }
         let body = serde_json::to_vec(&serde_json::json!({
             "api_version": "v1",
@@ -3483,13 +3490,51 @@ fn doctor_dry_runs_a_box_against_the_substrate_daemon_and_starts_nothing() {
     );
     fs::remove_file(&socket).expect("remove the socket");
 
-    // It serves all four: the box is no failure, nothing was started and nothing written.
-    let socket = case.dir.join("b.sock");
+    // It serves all four and declares no slot for the daemon's token
+    // (`story:box-reaches-forge-and-daemon`): refused as it would be, with the flag.
+    let socket = case.dir.join("s.sock");
     let fake = FakeLocal::opening(
         &socket,
         &systemd_families(),
         &SYSTEMD_PROPERTIES,
         &["state-alpha", "records-alpha", "cache-alpha", "store"],
+    );
+    let output = case.doctor_on(&file, &socket);
+    let verdict = lines(&output).last().cloned().unwrap_or_default();
+    assert!(
+        verdict.contains("box alpha (exec.secret-slot-unknown)"),
+        "{}",
+        describe(&output)
+    );
+    let flag = format!(
+        "--secret-slot api_token_alpha={}",
+        case.home()
+            .join(".b10x/conductor/daemon/slots/api_token_alpha")
+            .display()
+    );
+    assert!(
+        String::from_utf8_lossy(&output.stdout).contains(&flag),
+        "the row says what to declare ({flag}): {}",
+        describe(&output)
+    );
+    assert_eq!(output.status.code(), Some(1), "{}", describe(&output));
+    assert!(fake.starts.lock().expect("the starts").is_empty());
+    fs::remove_file(&socket).expect("remove the socket");
+
+    // It serves all four and the slot: the box is no failure, nothing was started and nothing
+    // written.
+    let socket = case.dir.join("b.sock");
+    let fake = FakeLocal::opening(
+        &socket,
+        &systemd_families(),
+        &SYSTEMD_PROPERTIES,
+        &[
+            "state-alpha",
+            "records-alpha",
+            "cache-alpha",
+            "store",
+            "api_token_alpha",
+        ],
     );
     let output = case.doctor_on(&file, &socket);
     let shown = lines(&output);
@@ -3582,6 +3627,325 @@ fn doctor_names_a_box_conductord_would_refuse_before_it_asks_substrate() {
     assert!(
         fake.lines.lock().expect("the lines").is_empty(),
         "substrate is not asked for a box conductord refuses itself"
+    );
+}
+
+// ---------------------------------------------------------------------------------------------
+// story:box-reaches-forge-and-daemon: the daemon's token reaches the box through a sealed slot
+// ---------------------------------------------------------------------------------------------
+
+/// A runtime started from a box request, killed when the case ends.
+struct Runtime(std::process::Child);
+
+impl Drop for Runtime {
+    fn drop(&mut self) {
+        let _ = self.0.kill();
+        let _ = self.0.wait();
+    }
+}
+
+/// The status the runtime on `socket` answers a checked settings write that carries `token`.
+fn settings_write(socket: &Path, token: &str) -> u16 {
+    use std::io::{Read as _, Write as _};
+    let body = serde_json::to_vec(&serde_json::json!({
+        "changes": [{"path": "thresholds.disk_low", "value": "200G"}],
+        "reason": "the host has a larger disk now",
+        "check": true,
+    }))
+    .expect("a body");
+    let mut stream =
+        std::os::unix::net::UnixStream::connect(socket).expect("connect to the runtime's socket");
+    stream
+        .set_read_timeout(Some(std::time::Duration::from_secs(30)))
+        .expect("a read timeout");
+    stream
+        .write_all(
+            format!(
+                "PUT /v1/settings HTTP/1.1\r\nConnection: close\r\n{}: {token}\r\n\
+                 Content-Type: application/json\r\nContent-Length: {}\r\n\r\n",
+                conductor_cli::dashboard::TOKEN_HEADER,
+                body.len()
+            )
+            .as_bytes(),
+        )
+        .and_then(|()| stream.write_all(&body))
+        .expect("send the write");
+    let mut answer = Vec::new();
+    stream.read_to_end(&mut answer).expect("read the answer");
+    let answer = String::from_utf8_lossy(&answer).into_owned();
+    answer
+        .split(' ')
+        .nth(1)
+        .and_then(|status| status.parse().ok())
+        .unwrap_or_else(|| panic!("no status line: {answer}"))
+}
+
+/// The runtime of a local box takes the daemon's token through a sealed slot, never through its
+/// environment: conductord writes the token it proxies writes with into the instance's slot
+/// file, and the runtime started from the box request, the slot at its descriptor as substrate
+/// hands it over, accepts a write carrying that token and refuses one carrying another.
+#[test]
+fn the_runtime_started_from_the_box_request_takes_a_write_with_the_daemons_token_only() {
+    let case = Case::new("tok");
+    case.config(&[("a", "{daemon: local, adapter: linux}")]);
+    let fake = Fake::default();
+    let mut daemon = case.daemon(fake.clone());
+    let done = daemon
+        .pass(
+            conductor_model::instance::ReconcileReason::ConfigChange,
+            std::time::Instant::now(),
+        )
+        .expect("a pass");
+    assert_eq!(done[0].result, ReconcileResult::Succeeded, "{done:?}");
+    let request = fake.log.lock().expect("the log").opened[0].clone();
+    let route = daemon.routes()["a"].clone();
+    assert!(
+        request.env.iter().all(|(name, value)| {
+            name != conductor_cli::instance::TOKEN_VARIABLE && !value.contains(&route.token)
+        }),
+        "the token is not in the box's environment: {:?}",
+        request.env
+    );
+
+    // The slot's file, which the operator declares on the substrate daemon, holds the token.
+    let sealed = case.dir.join("daemon/slots/api_token_a");
+    assert_eq!(
+        request.api_token,
+        Some(placement::HostSlot {
+            name: "api_token_a".to_owned(),
+            file: sealed.display().to_string(),
+            fd: placement::API_TOKEN_FD,
+        }),
+        "the box request names the slot the token is sealed in"
+    );
+    assert_eq!(
+        fs::read_to_string(&sealed).ok().as_deref().map(str::trim),
+        Some(route.token.as_str()),
+        "the daemon's token is sealed for the box in {}",
+        sealed.display()
+    );
+    let mode = fs::metadata(&sealed)
+        .expect("the slot's file")
+        .permissions();
+    assert_eq!(mode.mode() & 0o777, 0o600, "the slot's file is the owner's");
+
+    // Substrate's part, played here: this build's conductor in place of the box's, with the
+    // request's environment and nothing else, the slot at its descriptor and named in
+    // `SUBSTRATE_SECRET_SLOTS`.
+    let program = common::conductor(case.home()).get_program().to_owned();
+    let child = std::process::Command::new("/bin/sh")
+        .arg("-c")
+        .arg("slot=$1; shift; exec \"$@\" 4<\"$slot\"")
+        .arg("sh")
+        .arg(&sealed)
+        .arg(&program)
+        .args(&request.argv[1..])
+        .env_clear()
+        .envs(request.env.iter().map(|(name, value)| (name, value)))
+        .env("SUBSTRATE_SECRET_SLOTS", "api_token_a=4")
+        .env(conductor_cli::instance::LOOP_VARIABLE, "off")
+        .stdin(Stdio::null())
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .spawn()
+        .expect("the runtime starts");
+    let mut runtime = Runtime(child);
+    let log = runtime_log(&case, "a");
+    let until = std::time::Instant::now() + std::time::Duration::from_secs(30);
+    while std::os::unix::net::UnixStream::connect(&route.socket).is_err() {
+        if let Ok(Some(status)) = runtime.0.try_wait() {
+            panic!(
+                "the runtime exited {status} before it listened: {}",
+                fs::read_to_string(&log).unwrap_or_default()
+            );
+        }
+        assert!(
+            std::time::Instant::now() < until,
+            "no socket at {}",
+            route.socket.display()
+        );
+        std::thread::sleep(std::time::Duration::from_millis(100));
+    }
+
+    assert_eq!(
+        settings_write(&route.socket, &route.token),
+        200,
+        "a write with the daemon's token is taken"
+    );
+    assert_eq!(
+        settings_write(&route.socket, &"0".repeat(route.token.len())),
+        403,
+        "a write with another token is refused"
+    );
+}
+
+/// The slot's name is in substrate's slot-name set (`[a-z][a-z0-9_]{0,63}`) whatever the
+/// instance is called, and is told from the model token's.
+#[test]
+fn an_api_token_slot_name_is_in_substrates_slot_name_set() {
+    assert_eq!(placement::api_token_slot("a"), "api_token_a");
+    assert_eq!(
+        placement::api_token_slot("Alpha.Beta-1"),
+        "api_token_alpha_beta_1"
+    );
+    let long = placement::api_token_slot(&"x".repeat(200));
+    assert_eq!(long.len(), 64, "{long}");
+    for name in ["a", "Alpha.Beta-1", &"x".repeat(200), "ä/ö"] {
+        let slot = placement::api_token_slot(name);
+        assert!(
+            slot.len() <= 64
+                && slot.starts_with("api_token_")
+                && slot
+                    .bytes()
+                    .all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'_'),
+            "{slot}"
+        );
+        assert!(placement::is_api_token_slot(&slot), "{slot}");
+    }
+    for other in ["model_token_0", "api_token", "api_tokens_a", "store"] {
+        assert!(!placement::is_api_token_slot(other), "{other}");
+    }
+}
+
+/// The box request of the instance `a` as conductord makes it: the daemon's directory known.
+fn request_of_the_daemon(case: &Case) -> BoxRequest {
+    let mut instance = linux_instance(case);
+    instance.name = conductor_model::config::InstanceName("a".to_owned());
+    let mut host = placement::Host::of(&[]);
+    host.daemon = Some(case.dir.join("daemon"));
+    placement::request_on(
+        &instance,
+        &case.file(),
+        Path::new("/opt/conductor/bin/conductor"),
+        Vec::new(),
+        &host,
+    )
+}
+
+/// The start of a local box's runtime names the token's slot at its descriptor; a daemon that
+/// does not declare the slot is refused by substrate's name before anything starts, with the
+/// flag that declares it.
+#[test]
+fn the_sdk_seals_the_api_token_slot_at_the_start_and_refuses_one_the_daemon_does_not_declare() {
+    let case = Case::new("slot");
+    let socket = case.dir.join("s.sock");
+    // As conductord asks for a local box of an instance without a model token: no pool slot.
+    let mut request = request_of_the_daemon(&case);
+    request.secret_slots.clear();
+    let slot = request.api_token.clone().expect("a local box has the slot");
+    let mut served: Vec<&str> = request
+        .writable_roots
+        .iter()
+        .map(|root| root.name.as_str())
+        .collect();
+    let properties = [Property::IpcSocketAllowlist, Property::IpcSignalsContained];
+
+    // Its roots and no slot: refused, nothing but the machine asked.
+    {
+        let fake = FakeLocal::opening(&socket, &LINUX_FAMILIES, &properties, &served);
+        let mut sdk = placement::Sdk::default();
+        sdk.socket = socket.clone();
+        let refused = sdk
+            .open(&request)
+            .expect_err("a daemon that does not declare the slot opens no box");
+        assert_eq!(refused.name, "exec.secret-slot-unknown", "{refused:?}");
+        assert!(
+            refused.detail.contains(&format!(
+                "--secret-slot api_token_a={}",
+                case.dir.join("daemon/slots/api_token_a").display()
+            )),
+            "{refused:?}"
+        );
+        let lines = fake.lines.lock().expect("the lines").clone();
+        assert!(
+            lines
+                .iter()
+                .all(|line| line.starts_with("GET /v1/machine ")),
+            "nothing but the machine was asked: {lines:?}"
+        );
+    }
+    fs::remove_file(&socket).expect("remove the socket");
+
+    // Its roots and the slot: the start names the slot at its descriptor.
+    served.push(&slot.name);
+    let fake = FakeLocal::opening(&socket, &LINUX_FAMILIES, &properties, &served);
+    let mut sdk = placement::Sdk::default();
+    sdk.socket = socket.clone();
+    let refused = sdk
+        .open(&request)
+        .expect_err("the fake answers the session start 503");
+    let starts = fake.starts.lock().expect("the starts").clone();
+    assert_eq!(starts.len(), 1, "one session start: {starts:?} {refused:?}");
+    assert_eq!(
+        starts[0].pointer("/input/exec/secret_slots"),
+        Some(&serde_json::json!([{"slot": "api_token_a", "fd": 4}])),
+        "the start names the slot: {}",
+        starts[0]
+    );
+    assert!(
+        !starts[0].to_string().contains("CONDUCTOR_API_TOKEN"),
+        "no start carries the token's variable: {}",
+        starts[0]
+    );
+}
+
+/// A box on a remote daemon has no slot for the daemon's token: conductord cannot write a file
+/// on that host, so it seals nothing and writes none here.
+#[test]
+fn a_box_on_a_remote_daemon_is_asked_for_without_an_api_token_slot() {
+    let case = Case::new("rslot");
+    case.config(&[("alpha", &case.remote_placement(REMOTE))]);
+    let local = Fake::default();
+    let remote = Fake::default();
+    let mut daemon = case.remote_daemon(local, remote.clone());
+    let done = daemon
+        .pass(
+            conductor_model::instance::ReconcileReason::ConfigChange,
+            std::time::Instant::now(),
+        )
+        .expect("a pass");
+    assert_eq!(done[0].result, ReconcileResult::Succeeded, "{done:?}");
+    let opened = remote.log.lock().expect("the log").opened[0].clone();
+    assert_eq!(opened.api_token, None, "{opened:?}");
+    assert!(
+        opened
+            .env
+            .iter()
+            .all(|(name, _)| name != conductor_cli::instance::TOKEN_VARIABLE),
+        "{:?}",
+        opened.env
+    );
+    assert!(
+        !case.dir.join("daemon/slots").exists(),
+        "nothing is sealed on this host for a box on another"
+    );
+}
+
+/// A slot file conductord cannot write refuses the box by name before substrate is asked.
+#[test]
+fn a_slot_file_that_cannot_be_written_refuses_the_box_before_substrate_is_asked() {
+    let case = Case::new("unsealed");
+    case.config(&[("a", "{daemon: local, adapter: linux}")]);
+    // The slots directory's place is taken by a file.
+    fs::create_dir_all(case.dir.join("daemon")).expect("the daemon's directory");
+    fs::write(case.dir.join("daemon/slots"), "").expect("a file");
+    let fake = Fake::default();
+    let mut daemon = case.daemon(fake.clone());
+    let done = daemon
+        .pass(
+            conductor_model::instance::ReconcileReason::ConfigChange,
+            std::time::Instant::now(),
+        )
+        .expect("a pass");
+    assert_eq!(done[0].result, ReconcileResult::Refused, "{done:?}");
+    let detail = done[0].detail.clone().unwrap_or_default();
+    assert!(
+        detail.contains("placement.api-token-unsealed"),
+        "the refusal is named: {detail}"
+    );
+    assert!(
+        fake.log.lock().expect("the log").opened.is_empty(),
+        "substrate is not asked for a box whose token is not sealed"
     );
 }
 

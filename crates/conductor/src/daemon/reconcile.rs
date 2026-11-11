@@ -1227,15 +1227,24 @@ impl<U: Units> Daemon<U> {
     }
 
     /// The box `instance` asks for, its runtime started as `service` says, with no credential in
-    /// its environment: substrate seals only slots its daemon declares. A box inherits nothing,
-    /// so its `HOME` is set: the daemon's, which the config file's `~` stands for. The box writes
+    /// its environment: substrate seals only slots its daemon declares. The token `service`
+    /// carries for the runtime goes in through the instance's sealed slot instead
+    /// (`story:box-reaches-forge-and-daemon`): it is written into the slot's file under the
+    /// daemon's directory here, just before the box is asked for, and a file that cannot be
+    /// written refuses the box ([`crate::placement::seal_api_token`]). A box on a remote daemon
+    /// has no such slot, and its runtime mints a token of its own. A box inherits nothing, so
+    /// its `HOME` is set: the daemon's, which the config file's `~` stands for. The box writes
     /// nothing of the daemon's own directory ([`crate::placement::Host::daemon`]).
     fn box_request(&self, instance: &Instance, service: &Service) -> crate::placement::BoxRequest {
-        let token = format!("{}=", crate::instance::TOKEN_VARIABLE);
+        let variable = format!("{}=", crate::instance::TOKEN_VARIABLE);
+        let token = service
+            .env
+            .iter()
+            .find_map(|pair| pair.strip_prefix(&variable));
         let mut env: Vec<(String, String)> = service
             .env
             .iter()
-            .filter(|pair| !pair.starts_with(&token))
+            .filter(|pair| !pair.starts_with(&variable))
             .filter_map(|pair| pair.split_once('='))
             .map(|(name, value)| (name.to_owned(), value.to_owned()))
             .collect();
@@ -1245,7 +1254,15 @@ impl<U: Units> Daemon<U> {
         let binary = PathBuf::from(service.command.first().cloned().unwrap_or_default());
         let mut host = crate::placement::Host::of(&env);
         host.daemon = Some(self.dir.clone());
-        crate::placement::request_on(instance, &self.config_file, &binary, env, &host)
+        let mut request =
+            crate::placement::request_on(instance, &self.config_file, &binary, env, &host);
+        if request.refused.is_none()
+            && let (Some(slot), Some(token)) = (&request.api_token, token)
+            && let Err(refused) = crate::placement::seal_api_token(slot, token)
+        {
+            request.refused = Some(refused);
+        }
+        request
     }
 
     /// The local substrate daemon's model-token slot pool (`daemon.substrate_slots`), under the

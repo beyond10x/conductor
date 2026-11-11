@@ -189,12 +189,20 @@ that it answers and serves the box. You start it and keep it running:
 - with a writable root for each directory the runtime writes: `state-<instance>` for the state
   directory, `records-<instance>` for the records, `cache-<instance>` for the cache and `store`
   for the directory of the sqlite store. Each must exist before the daemon starts;
+- with the secret slot `api_token_<instance>` on the file
+  `~/.b10x/conductor/daemon/slots/api_token_<instance>`, the instance's name in lower case with
+  `_` for every character but a letter or a digit. conductord writes the token it proxies writes
+  with into that file at each start of the runtime, and substrate hands it to the runtime sealed,
+  at a descriptor and never in its environment. The file must be there, not empty and mode 600,
+  before the daemon starts;
 - with the aperture `conductor`, which the runtime starts with.
 
 ```console
 state=$(conductor config show --format json | jq -r '.instances[0].state')
 install -d -m 700 "$state/sessions" "$XDG_RUNTIME_DIR/substrate" ~/.local/state/substrate ~/.local/state/substrate/workspaces
 install -d -m 700 ~/.b10x/conductor/store ~/.cache/b10x/conductor/home
+install -d -m 700 ~/.b10x/conductor/daemon ~/.b10x/conductor/daemon/slots
+(umask 077 && echo free > ~/.b10x/conductor/daemon/slots/api_token_home)
 substrate-daemon \
   --socket "$XDG_RUNTIME_DIR/substrate/daemon.sock" \
   --state ~/.local/state/substrate/state.db \
@@ -206,20 +214,23 @@ substrate-daemon \
   --writable-root "records-home=$HOME/.b10x/conductor/home/records" \
   --writable-root "cache-home=$HOME/.cache/b10x/conductor/home" \
   --writable-root "store=$HOME/.b10x/conductor/store" \
+  --secret-slot "api_token_home=$HOME/.b10x/conductor/daemon/slots/api_token_home" \
   --egress-aperture conductor=api.anthropic.com:443/tcp \
   --ca-bundle "$(readlink -f /etc/ssl/certs/ca-certificates.crt)"
 ```
 
-From another terminal, read the daemon's facts. `exec.writable-roots.host` lists the four roots:
+From another terminal, read the daemon's facts. `exec.writable-roots.host` lists the four roots
+and `secrets.slots` lists `api_token_home`:
 
 ```console
 curl -s --unix-socket "$XDG_RUNTIME_DIR/substrate/daemon.sock" http://localhost/v1/machine
 ```
 
-Each further instance with a box adds its own `state-<instance>`, `records-<instance>` and
-`cache-<instance>`; `store` is declared once. Directories that lie inside one another are one
-root, the outer one. A box that names a root the daemon does not serve is refused, and the
-refusal prints the flag to add. The box writes nothing else of the host: not the config file,
+Each further instance with a box adds its own `state-<instance>`, `records-<instance>`,
+`cache-<instance>` and `api_token_<instance>`; `store` is declared once. Directories that lie
+inside one another are one root, the outer one. A box that names a root or a slot the daemon
+does not serve is refused, and the refusal prints the flag to add. The box writes nothing else
+of the host: not the config file,
 and not `~/.b10x/conductor/daemon`. Besides its writable roots it gets conductord's `HOME` and,
 read-only, the config file, the directories of `conductor` and `claude`, the checkouts root,
 and the CLI and login of each forge among the sources. Where the records lie under the

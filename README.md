@@ -184,7 +184,8 @@ catalog; the [config reference](https://beyond10x.github.io/conductor/docs/refer
    instance's runtime in a box of the local `substrate-daemon`, which runs in a delegated cgroup
    subtree, on `$XDG_RUNTIME_DIR/substrate/daemon.sock`, and declares a writable root for
    what the runtime writes (`state-<instance>=<state>`, `records-<instance>=<records>`,
-   `cache-<instance>=<cache>`, `store=<the store's directory>`) and the egress aperture
+   `cache-<instance>=<cache>`, `store=<the store's directory>`), the secret slot
+   `api_token_<instance>` the runtime takes the daemon's token through, and the egress aperture
    `conductor`. The store is in a directory of its own: a box writes that whole directory, and
    never the config file or `~/.b10x/conductor/daemon`
    ([getting started](https://beyond10x.github.io/conductor/docs/getting-started#5-start-the-substrate-daemon)).
