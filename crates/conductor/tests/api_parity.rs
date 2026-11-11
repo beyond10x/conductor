@@ -26,7 +26,7 @@ use std::net::{TcpListener, TcpStream};
 use std::os::unix::net::UnixListener;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use conductor_cli::daemon::api::{Api, Route};
 use conductor_cli::dashboard::{self, Sources};
@@ -181,6 +181,9 @@ impl Case {
             .collect(),
             Vec::new(),
         );
+        // The daemon's store answers: `GET /readyz` reads ready. The answer is dated ahead, so it
+        // does not age past the readiness bound however long the case runs.
+        api.publish_store_at(true, Instant::now() + Duration::from_secs(3600));
         let listener = TcpListener::bind(("127.0.0.1", 0)).expect("bind the daemon's listener");
         let port = listener.local_addr().expect("an address").port();
         std::thread::spawn(move || conductor_cli::daemon::api::serve(&listener, &api));
@@ -452,6 +455,11 @@ fn probes() -> Vec<Probe> {
                 Binding::Bound("conductor.config.EffectiveSettings"),
                 instance("settings"),
             ),
+            read(
+                "GET /readyz",
+                Binding::Bound("conductor.store.Readiness"),
+                "/readyz".to_owned(),
+            ),
         ]
     };
     let mut all = reads();
@@ -653,6 +661,16 @@ fn probes() -> Vec<Probe> {
             instance("answers"),
             json!({}),
         ),
+        read(
+            "GET /healthz",
+            Binding::Unbound("the liveness probe reads no entity; a view has a source"),
+            "/healthz".to_owned(),
+        ),
+        read(
+            "GET /metrics",
+            Binding::Unbound("Prometheus text; a view answers JSON rows"),
+            "/metrics".to_owned(),
+        ),
     ]);
     all.extend(reads().into_iter().map(|probe| Probe {
         case: "read after the writes",
@@ -725,7 +743,8 @@ fn run(probe: &Probe, hand_port: u16, spec_ports: &BTreeMap<&str, u16>, case: &C
 }
 
 /// The routes the generated surfaces serve on a path no binding names: every operation of a
-/// network component with no hand-written route.
+/// network component with no hand-written route. The binding names its paths under `/v1/` and
+/// the readiness probe's `/readyz`.
 fn spec_only() -> Vec<Row> {
     conductord::ROUTES
         .iter()
@@ -736,7 +755,10 @@ fn spec_only() -> Vec<Row> {
                 .map(|route| ("conductor-instance", route)),
         )
         .filter(|(_, (_, path))| {
-            !path.starts_with("/v1/") && *path != "/docs" && *path != "/openapi.json"
+            !path.starts_with("/v1/")
+                && *path != "/readyz"
+                && *path != "/docs"
+                && *path != "/openapi.json"
         })
         .map(|(component, (method, path))| Row {
             route: format!("{method} {path}"),

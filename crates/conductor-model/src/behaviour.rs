@@ -1,5 +1,5 @@
 // generated from conductor v1
-// contract digest a1cc34768181dead81bc45def213171589d80ca0e637d39ce715944032bf1a7c
+// contract digest a17ef5b4db86247df9a482c134e7a5bf24ccd55cdf64ac83672245e31b8c09c4
 // do not edit: regenerate with `ess synthesize --layout crate`
 
 //! What the specification fully determines, generated: the behaviour of every command the plan
@@ -6201,6 +6201,23 @@ where
                 events_copied: held.data.events_copied,
                 migrated_at: held.data.migrated_at,
                 actor: held.data.actor,
+            })
+            .collect())
+    }
+}
+
+/// `conductor.store.Readiness`, generated: every row is one the specification fully determines from the stored `conductor.store.Store`s.
+impl<P> crate::store::obligations::ReadinessQuery for Generated<P>
+where
+    P: StoreStorage,
+{
+    fn readiness(&self) -> Result<Vec<crate::store::Readiness>, UnmetObligation> {
+        let admitted = StoreStorage::list(&self.ports);
+        Ok(admitted
+            .into_iter()
+            .map(|held| crate::store::Readiness {
+                reachable: held.data.reachable,
+                reason: held.data.reason,
             })
             .collect())
     }

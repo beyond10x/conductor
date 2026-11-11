@@ -2,7 +2,7 @@
 
 Written by `tests/api_parity.rs` (`CONDUCTOR_API_PARITY_BLESS=1`); compared line for line.
 
-Probes: 2 match, 21 differ, 11 unbound; 30 routes spec-only.
+Probes: 2 match, 23 differ, 13 unbound; 30 routes spec-only.
 
 | route | binding | probe | hand-written | generated | verdict |
 |---|---|---|---|---|---|
@@ -10,6 +10,7 @@ Probes: 2 match, 21 differ, 11 unbound; 30 routes spec-only.
 | `GET /v1/secrets` | conductor.secret.Secrets | read | `200 [0]` | `200 [0]` | match |
 | `GET /v1/instances/{name}/tokens` | conductor.token.Tokens | read | `200 [1]` | `200 [1]` | differs (body) |
 | `GET /v1/instances/{name}/settings` | conductor.config.EffectiveSettings | read | `200 {errors,fields,file,index,instance,instances,repositories,writable}` | `501 {committed,refused}` | differs (status, body) |
+| `GET /readyz` | conductor.store.Readiness | read | `200 [1]` | `200 [0]` | differs (body) |
 | `PUT /v1/config` | conductor.config.PutConfig | client | `200 {actor,commit,instance,level,path,reason,revision_id,role,value}` | `400 {refused}` | differs (status, body, store) |
 | `PUT /v1/config` | conductor.config.PutConfig | spec | `400 {error}` | `501 {committed,refused}` | differs (status, body) |
 | `PUT /v1/config` | conductor.config.PutConfig | spec level-scope-mismatch | `400 {error}` | `422 {error,outcome,payload,published}` | differs (status, body) |
@@ -36,10 +37,13 @@ Probes: 2 match, 21 differ, 11 unbound; 30 routes spec-only.
 | `POST /v1/instances/{name}/leave` | unbound: LeaveInstance's instance is a member of `key`, which no path segment carries | client | `200 {instance,operator,resume,withdrawn}` | `404 {refused}` | unbound |
 | `GET /v1/instances/{name}/<route>` | unbound: proxied to the instance runtime; no operation | read | `200 {errors,history,open}` | `404 {refused}` | unbound |
 | `POST /v1/instances/{name}/answers` | unbound: proxied to the instance runtime; a batch of decisions | client | `400 text` | `404 {refused}` | unbound |
+| `GET /healthz` | unbound: the liveness probe reads no entity; a view has a source | read | `200 {state}` | `404 {refused}` | unbound |
+| `GET /metrics` | unbound: Prometheus text; a view answers JSON rows | read | `200 text` | `404 {refused}` | unbound |
 | `GET /v1/instances` | conductor.instance.Instances | read after the writes | `200 [1]` | `200 [0]` | differs (body) |
 | `GET /v1/secrets` | conductor.secret.Secrets | read after the writes | `200 [0]` | `200 [0]` | match |
 | `GET /v1/instances/{name}/tokens` | conductor.token.Tokens | read after the writes | `200 [1]` | `200 [1]` | differs (body) |
 | `GET /v1/instances/{name}/settings` | conductor.config.EffectiveSettings | read after the writes | `200 {errors,fields,file,index,instance,instances,repositories,writable}` | `501 {committed,refused}` | differs (status, body) |
+| `GET /readyz` | conductor.store.Readiness | read after the writes | `200 [1]` | `200 [0]` | differs (body) |
 | `GET /config/views/config-revisions` | derived (conductord); no hand-written route | - | `-` | `-` | spec-only |
 | `POST /instance/commands/observe` | derived (conductord); no hand-written route | - | `-` | `-` | spec-only |
 | `POST /instance/commands/purge` | derived (conductord); no hand-written route | - | `-` | `-` | spec-only |

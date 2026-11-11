@@ -46,6 +46,34 @@ It serves the dashboard app and `/v1/` on `127.0.0.1:<daemon.port>` (7300), and 
 listener `daemon.tls` names. With `daemon.loopback: false` the loopback listener is off and
 `--install` writes the system unit instead ([remote daemon](/docs/guides/remote-daemon)).
 
+Both listeners answer three paths to `GET` without a bearer, for a cluster's probes and a
+Prometheus. The loopback listener still refuses a foreign `Host`.
+
+| Path | Answer |
+|---|---|
+| `/healthz` | `200 {"state":"serving"}` while the process serves, whatever the store does |
+| `/readyz` | `200 [{"reachable":true,"reason":null}]` once the config is read and the store answered a read within the last 10 s; otherwise `503`, `reachable` false and a one-line `reason` |
+| `/metrics` | `200`, Prometheus text format |
+
+A daemon whose store does not answer keeps serving: `/healthz` is `200` and `/readyz` is `503`. It
+starts no runtime and records nothing until the store answers, then takes up its work without a
+restart.
+
+`/metrics` holds five gauges:
+
+| Metric | Value |
+|---|---|
+| `conductor_instances{state}` | instances by the state the daemon last saw, every state named |
+| `conductor_sessions{instance,state}` | sessions by instance and state |
+| `conductor_snapshot_age_seconds{instance}` | age of the instance's newest complete snapshot |
+| `conductor_build_queue_length` | disk requests waiting in the host's build ledger |
+| `conductor_instances_unanswered` | instances the answer holds no sessions and no snapshot age of |
+
+The daemon asks every instance for its sessions and its snapshot at the scrape, all at once,
+within 3 s (`daemon.timeout` when that is shorter), and keeps one answer for 5 s. A value it could
+not read has no line, never `0`. No body of the three paths carries a name, a path, a token or the
+store URL, so `instance` is the instance's position in the config file, `1` for the first.
+
 ### Binaries
 
 At an instance's first start the daemon copies its own binary to `binaries/<version>/` in its

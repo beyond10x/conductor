@@ -65,6 +65,28 @@ fn read_open(path: &Path) -> Option<Open> {
     serde_json::from_slice(&fs::read(path).ok()?).ok()
 }
 
+/// How many disk requests wait in the build ledger of the host directory `host`
+/// (`story:daemon-probes-and-metrics`): the grants of [`OPEN`] that are still `Requested`, read
+/// without the ledger's lock and without opening its store, as the file was last written. `0`
+/// for a host directory that holds no ledger; `None` when the ledger's store is there and the
+/// file is not, or when the file or a grant in it does not read: a count nobody read is no `0`.
+#[must_use]
+pub fn queued(host: &Path) -> Option<usize> {
+    let path = host.join(OPEN);
+    if !path.exists() && !host.join(super::STORE_FILE).exists() {
+        return Some(0);
+    }
+    let mut waiting = 0;
+    for grant in read_open(&path)?.grants.values() {
+        let state = state_named(&text(grant, "state").ok()?)?;
+        let kind = kind_named(&text(grant, "kind").ok()?)?;
+        if state == HostGrantState::Requested && kind == conductor_model::host::GrantKind::Disk {
+            waiting += 1;
+        }
+    }
+    Some(waiting)
+}
+
 /// Writes `open` to `path` whole: a new file, renamed over the old.
 fn write_open(path: &Path, open: &Open) {
     let Ok(text) = serde_json::to_vec(open) else {

@@ -1,5 +1,5 @@
 // generated from conductor v1
-// contract digest a1cc34768181dead81bc45def213171589d80ca0e637d39ce715944032bf1a7c
+// contract digest a17ef5b4db86247df9a482c134e7a5bf24ccd55cdf64ac83672245e31b8c09c4
 // do not edit: regenerate with `ess synthesize --layout crate`
 //! Every generated declaration, as JSON, in the renderings the published wire contracts fix.
 //!
@@ -19754,6 +19754,18 @@ pub fn encode_view_conductor_store_migrations(value: &crate::store::Migrations, 
     json::push_text(out, &value.migrated_at.0);
     json::member(out, "actor");
     encode_conductor_operator_actor(&value.actor, out);
+    out.push('}');
+}
+
+/// Writes one row of the view `conductor.store.Readiness` as JSON.
+pub fn encode_view_conductor_store_readiness(value: &crate::store::Readiness, out: &mut String) {
+    out.push('{');
+    json::member(out, "reachable");
+    json::push_bool(out, value.reachable);
+    if let Some(held0) = &value.reason {
+        json::member(out, "reason");
+        json::push_text(out, &*held0);
+    }
     out.push('}');
 }
 

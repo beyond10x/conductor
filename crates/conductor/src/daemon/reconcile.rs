@@ -1615,6 +1615,20 @@ fn read_config(file: &Path, home: &Path) -> Result<(String, Config)> {
     Ok((text, config))
 }
 
+/// What `daemon serve` reads of `config_file` before its store answers
+/// (`story:daemon-probes-and-metrics`): the config, `~` read as `home`, and the `daemon.store`
+/// the file writes. [`Daemon::open`] reads both again once the store answers.
+///
+/// # Errors
+///
+/// As [`Daemon::open`] refuses a config file: it does not read, is not valid, or writes no
+/// `daemon.store` the daemon opens.
+pub fn written(config_file: &Path, home: &Path) -> Result<(Config, String)> {
+    let (text, config) = read_config(config_file, home)?;
+    let url = written_store(config_file, &text)?;
+    Ok((config, url))
+}
+
 /// `at` in whole seconds since the epoch; 0 before it.
 fn epoch(at: std::time::SystemTime) -> u64 {
     at.duration_since(std::time::UNIX_EPOCH)

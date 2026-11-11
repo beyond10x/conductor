@@ -1,13 +1,13 @@
 <!--
   generated from conductor v1
-  contract digest a1cc34768181dead81bc45def213171589d80ca0e637d39ce715944032bf1a7c
+  contract digest a17ef5b4db86247df9a482c134e7a5bf24ccd55cdf64ac83672245e31b8c09c4
   do not edit: regenerate with `ess synthesize --layout crate`
 -->
 # Synthesis plan — conductor v1
 
 Scope: `component-skeletons`, laid out as `crate`, planned by `ess-synth`. Regenerate with `ess synthesize --layout crate`.
 
-973 capabilities: **960 generated**, **13 obligations**, **0 refused**. An obligation is yours to implement against its contract; a refusal is a fact about this synthesis scope, not about the specification.
+975 capabilities: **962 generated**, **13 obligations**, **0 refused**. An obligation is yours to implement against its contract; a refusal is a fact about this synthesis scope, not about the specification.
 
 ## Generated
 
@@ -930,6 +930,8 @@ Scope: `component-skeletons`, laid out as `crate`, planned by `ess-synth`. Regen
 | view query | `conductor.session.RunTicks` |
 | view type | `conductor.store.Migrations` |
 | view query | `conductor.store.Migrations` |
+| view type | `conductor.store.Readiness` |
+| view query | `conductor.store.Readiness` |
 | view type | `conductor.store.StoreStatus` |
 | view query | `conductor.store.StoreStatus` |
 | view type | `conductor.token.Tokens` |

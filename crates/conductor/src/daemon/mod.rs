@@ -11,12 +11,21 @@
 //! unit `conductord.service` ([`install`]). On a box with no local operator
 //! (`daemon.loopback: false`, `story:daemon-remote`) the loopback listener is off, the TLS
 //! listener is its only API, and `--install` writes the system unit instead.
+//!
+//! It serves before its store answers (`story:daemon-probes-and-metrics`): the listeners take
+//! requests as soon as the config is read, `GET /healthz` answers `200` and `GET /readyz` `503`
+//! with the reason ([`metrics`]). While the store does not answer the daemon opens no store,
+//! starts no runtime and records nothing; when it answers, the same process opens it and
+//! reconciles. A request that is no probe waits for the reconciler's first publication while the
+//! store answers at once, and is answered without it once the store is found not to answer
+//! ([`api::Api::starting`]).
 
 pub mod api;
 pub mod browser;
 pub mod federate;
 pub mod host_roles;
 pub mod install;
+pub mod metrics;
 pub mod reconcile;
 pub mod units;
 pub mod upgrade;
@@ -51,8 +60,9 @@ const TICK: Duration = Duration::from_secs(2);
 /// # Errors
 ///
 /// Both `--install` and `--uninstall` are given; the home directory is not known; the config
-/// file does not read or is not valid at start; the store does not open; the port cannot be
-/// bound; or the service manager refuses the install.
+/// file does not read, is not valid or writes no `daemon.store` at start; the port cannot be
+/// bound; the store answers and then does not open, or what the daemon kept in its directory
+/// does not read; or the service manager refuses the install.
 pub fn daemon_serve(
     config_flag: Option<&Path>,
     state: Option<&Path>,
@@ -118,27 +128,23 @@ pub fn daemon_serve(
     }
     let dir = state.unwrap_or_else(|| home.join(DIR));
     let program = std::env::current_exe().context("daemon serve: read the binary")?;
-    let mut daemon = Daemon::open(
-        file.clone(),
-        home.clone(),
-        dir.clone(),
-        reconcile::probe(&program),
-        Systemd,
-    )
-    .context(WHAT)?;
+    // What the start reads before its store (`story:daemon-probes-and-metrics`): a file that does
+    // not read, is not valid or writes no `daemon.store` refuses the start; a store that does not
+    // answer does not.
+    let (written, url) = reconcile::written(&file, &home).context(WHAT)?;
     // The secrets source (`story:secrets-source`, decision S1): one the daemon cannot use refuses
     // the start; otherwise its line, and every instance whose config names a secret it does not
     // hold. No value is printed.
     let text = std::fs::read_to_string(&file)
         .with_context(|| format!("daemon serve: read the config file {}", file.display()))?;
-    match crate::secret::at_start(&daemon.config().daemon.secrets, &text) {
+    match crate::secret::at_start(&written.daemon.secrets, &text) {
         Ok(lines) => lines.iter().for_each(|line| println!("{line}")),
         Err(unusable) => bail!("{WHAT}: {unusable}; the daemon does not start"),
     }
-    let port = u16::try_from(daemon.config().daemon.port).context("daemon serve: daemon.port")?;
+    let port = u16::try_from(written.daemon.port).context("daemon serve: daemon.port")?;
     // The loopback listener is off on a box with no local operator (`story:daemon-remote`); the
     // TLS listener is then the daemon's only API.
-    let listener = if daemon.config().daemon.loopback {
+    let listener = if written.daemon.loopback {
         Some(
             TcpListener::bind(("127.0.0.1", port))
                 .with_context(|| format!("daemon serve: listen on 127.0.0.1:{port}"))?,
@@ -146,7 +152,7 @@ pub fn daemon_serve(
     } else {
         None
     };
-    let secure = match &daemon.config().daemon.tls {
+    let secure = match &written.daemon.tls {
         Some(tls) => Some(tls_listener(tls)?),
         None if listener.is_none() => bail!(
             "{WHAT}: daemon.loopback: is false and daemon.tls names no TLS listener: the daemon \
@@ -165,26 +171,28 @@ pub fn daemon_serve(
             local,
             secure.as_ref().map(|(_, _, identity)| identity.clone()),
         )
-        .with_config(file.clone(), home, daemon.config().daemon.store.0.clone())
+        .with_config(file.clone(), home.clone(), written.daemon.store.0.clone())
         .with_timeout(Duration::from_secs(
-            config::seconds(&daemon.config().daemon.timeout).unwrap_or(config::FEDERATED_TIMEOUT),
+            config::seconds(&written.daemon.timeout).unwrap_or(config::FEDERATED_TIMEOUT),
         ))
-        .with_secrets(daemon.config().daemon.secrets.source),
+        .with_secrets(written.daemon.secrets.source)
+        .starting(written.daemon.operators.clone()),
     );
-    publish(&api, &daemon);
-    let served = Arc::clone(&api);
-    let upgrades = upgrade::listen();
+    // The listeners take requests before the store answers: the probes answer whatever it does,
+    // and any other request waits for the reconciler's first publication ([`api::Api::starting`]).
+    let mut serving = Vec::new();
     if let Some(listener) = listener {
+        let served = Arc::clone(&api);
         thread::spawn(move || api::serve(&listener, &served));
-        println!(
+        serving.push(format!(
             "conductord: config {}, serving the dashboard and /v1/ on http://127.0.0.1:{port}/",
             file.display(),
-        );
+        ));
     } else {
-        println!(
+        serving.push(format!(
             "conductord: config {}, the loopback listener off (daemon.loopback: false)",
             file.display(),
-        );
+        ));
     }
     if let Some((secure, config, _)) = secure {
         let address = secure
@@ -192,7 +200,34 @@ pub fn daemon_serve(
             .map_or_else(|_| "?".to_owned(), |address| address.to_string());
         let served = Arc::clone(&api);
         thread::spawn(move || api::serve_tls(&secure, &served, &config));
-        println!("conductord: serving the dashboard and /v1/ on https://{address}/ with bearers");
+        serving.push(format!(
+            "conductord: serving the dashboard and /v1/ on https://{address}/ with bearers"
+        ));
+    }
+    let watched = Arc::clone(&api);
+    thread::spawn(move || metrics::watch(&url, &watched, TICK));
+    // The serving lines follow what the reconciler first publishes when the store answers at
+    // once, as they always did. Where it does not answer, or not within the readiness bound,
+    // they are printed now and the daemon waits for the store: it opens none, starts no runtime
+    // and records nothing until then.
+    let asked = Instant::now();
+    while !api.store_asked() && asked.elapsed() < metrics::STORE_BOUND {
+        thread::sleep(Duration::from_millis(20));
+    }
+    let at_once = api.store_answers();
+    if !at_once {
+        api.started();
+        serving.iter().for_each(|line| println!("{line}"));
+        while !api.store_answers() {
+            thread::sleep(TICK);
+        }
+    }
+    let mut daemon =
+        Daemon::open(file, home, dir, reconcile::probe(&program), Systemd).context(WHAT)?;
+    let upgrades = upgrade::listen();
+    publish(&api, &daemon);
+    if at_once {
+        serving.iter().for_each(|line| println!("{line}"));
     }
     loop {
         while let Ok(request) = upgrades.try_recv() {
