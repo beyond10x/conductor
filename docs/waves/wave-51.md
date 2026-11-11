@@ -19,7 +19,7 @@ repository under a lock. Free disk at the start: 104 GB.
 | U1 | need-repository-from-tag | | `w51-u1` | merged (`900de5852`), two adversary passes |
 | U2 | handover-restart-by-controller-id | | `w51-u2` | merged (`10542e8b1`), two adversary passes |
 | U3 | doctor-checks-guard-forge-writes | | `w51-u3` | correction 3 after adversary pass 2 |
-| U4 | box-reaches-forge-and-daemon | | `w51-u4` | correction 3 after adversary pass 2; the egress half is blocked |
+| U4 | box-reaches-forge-and-daemon | | `w51-u4` | merged (`fe099dc20`), two adversary passes; the egress half is blocked, the story stays active |
 | U5 | daemon-probes-and-metrics | | `w51-u5` | merged (`654a1c993`), two adversary passes |
 | U6 | release-container-image | | `w51-u6` | merged (`61eb01e39`), two adversary passes |
 | U7 | container-start-without-prompt | U3, U4, U5, U6 | `w51-u7` | not started |
@@ -158,7 +158,11 @@ is read before the first of the two merges.
   directory while a daemon installed with its own state directory writes there, so the two
   disagreed both ways; and the shared check refused a slot directory the write would have
   made owner-private and written. No test held the hand-placed removals of the slot variable.
-  All three go back; the check refuses only what the write would fail on.
+  All three go back; the check refuses only what the write would fail on. Corrected in a last
+  round: doctor reads the daemon's directory from the installed user unit (a daemon started by
+  hand on its own directory is not known to it), and one function builds every command the
+  runtime starts, held by a static case over the crate's sources. One refusal stays stricter
+  than the write: a device file of this user's.
 - U5, adversary pass 1 (`review-result:w51-u5-adversary-1`): `/readyz` answered 200 for ever
   after one failed write on the reconciler's store handle, and 200 before the first
   publication; `/v1/instances` answered `200 []` while the store was down. All three go back.
