@@ -4332,6 +4332,133 @@ fn the_boxed_runtime_keeps_the_daemons_token_after_it_closed_the_slot() {
     );
 }
 
+/// The files of the runtime's crate that start processes with `Command::new` of their own, each
+/// with why none of them runs inside a boxed runtime; a directory ends in `/`.
+const NEVER_IN_A_BOX: [(&str, &str); 6] = [
+    (
+        "build.rs",
+        "`conductor build run` and `broker serve`, which a person or a session starts; nothing in \
+         the crate starts either, and a session has no slot variable to hand on",
+    ),
+    ("attach.rs", "`conductor attach`, a command a person types"),
+    (
+        "upgrade.rs",
+        "`conductor upgrade`, typed, or conductord's upgrade on the host",
+    ),
+    (
+        "init.rs",
+        "`conductor init` and `conductor setup`, commands a person types",
+    ),
+    ("tui/", "the terminal view a person runs"),
+    (
+        "daemon/",
+        "conductord, which runs on the host, never in a box",
+    ),
+];
+
+/// Every process the runtime's crate starts outside [`NEVER_IN_A_BOX`] is built by
+/// `conductor_cli::instance::command`, the one `Command::new` of `instance.rs`, which removes
+/// `SUBSTRATE_SECRET_SLOTS`: a new start that names `Command::new` itself fails here.
+#[test]
+fn every_process_the_runtime_starts_is_built_without_the_slot_variable() {
+    let src = Path::new(env!("CARGO_MANIFEST_DIR")).join("src");
+    let mut left = vec![src.clone()];
+    let (mut helper, mut bare) = (Vec::new(), Vec::new());
+    while let Some(dir) = left.pop() {
+        for entry in fs::read_dir(&dir).expect("read src").flatten() {
+            let path = entry.path();
+            if path.is_dir() {
+                left.push(path);
+                continue;
+            }
+            let rel = path
+                .strip_prefix(&src)
+                .expect("under src")
+                .to_string_lossy()
+                .into_owned();
+            if path.extension().is_none_or(|ext| ext != "rs")
+                || NEVER_IN_A_BOX.iter().any(|(listed, _)| {
+                    rel == *listed || (listed.ends_with('/') && rel.starts_with(listed))
+                })
+            {
+                continue;
+            }
+            let text = fs::read_to_string(&path).expect("read a source file");
+            for (number, line) in text.lines().enumerate() {
+                if line.contains("Command::new") && !line.trim_start().starts_with("//") {
+                    let site = format!("{rel}:{}: {}", number + 1, line.trim());
+                    if rel == "instance.rs" {
+                        helper.push(site);
+                    } else {
+                        bare.push(site);
+                    }
+                }
+            }
+        }
+    }
+    assert!(
+        bare.is_empty(),
+        "a process started without `instance::command` keeps SUBSTRATE_SECRET_SLOTS: {bare:#?}"
+    );
+    assert_eq!(
+        helper.len(),
+        1,
+        "instance.rs holds the one helper: {helper:?}"
+    );
+}
+
+/// A slot file that is a dangling link is refused only where the write fails on it: conductord
+/// writes the token through a link into a directory it can write, and refuses the box for a link
+/// into a directory that is not there.
+#[test]
+fn a_dangling_slot_link_is_refused_only_where_its_write_fails() {
+    let case = Case::new("sdl");
+    case.config(&[("a", "{daemon: local, adapter: linux}")]);
+    let slots = case.dir.join("daemon/slots");
+    fs::create_dir_all(&slots).expect("the slots directory");
+    let target = case.dir.join("target");
+    fs::create_dir_all(&target).expect("the link's directory");
+    std::os::unix::fs::symlink(target.join("token"), slots.join("api_token_a")).expect("a link");
+    let mut daemon = case.daemon(Fake::declaring("api_token_a"));
+    let done = daemon
+        .pass(
+            conductor_model::instance::ReconcileReason::ConfigChange,
+            std::time::Instant::now(),
+        )
+        .expect("a pass");
+    assert_eq!(done[0].result, ReconcileResult::Succeeded, "{done:?}");
+    let token = daemon.routes()["a"].token.clone();
+    assert_eq!(
+        fs::read_to_string(target.join("token"))
+            .ok()
+            .as_deref()
+            .map(str::trim),
+        Some(token.as_str())
+    );
+
+    let case = Case::new("sdm");
+    case.config(&[("a", "{daemon: local, adapter: linux}")]);
+    let slots = case.dir.join("daemon/slots");
+    fs::create_dir_all(&slots).expect("the slots directory");
+    std::os::unix::fs::symlink(case.dir.join("nowhere/token"), slots.join("api_token_a"))
+        .expect("a link");
+    let mut daemon = case.daemon(Fake::declaring("api_token_a"));
+    let done = daemon
+        .pass(
+            conductor_model::instance::ReconcileReason::ConfigChange,
+            std::time::Instant::now(),
+        )
+        .expect("a pass");
+    assert_eq!(done[0].result, ReconcileResult::Refused, "{done:?}");
+    assert!(
+        done[0]
+            .detail
+            .as_deref()
+            .is_some_and(|detail| detail.contains("placement.api-token-unsealed")),
+        "{done:?}"
+    );
+}
+
 // ---------------------------------------------------------------------------------------------
 // Adversary pass 1 on story:box-crash-loop-reads-failed (uncommitted)
 // ---------------------------------------------------------------------------------------------
@@ -5471,6 +5598,21 @@ fn adv2_box_token_declaring(socket: &Path) -> FakeLocal {
     )
 }
 
+/// The user unit `conductor daemon install --state-dir <case>/daemon` writes for `file`: where
+/// doctor learns the directory conductord on its own directory writes (fixture of correction 3).
+fn adv2_box_token_installed(case: &Case, file: &Path) {
+    use conductor_cli::daemon::install;
+    let unit = install::unit_file(&case.home(), None);
+    fs::create_dir_all(unit.parent().expect("the unit's directory")).expect("the unit directory");
+    let text = install::unit_text(
+        Path::new("/opt/conductor/bin/conductor"),
+        Some(file),
+        Some(&case.dir.join("daemon")),
+        None,
+    );
+    fs::write(&unit, text).expect("write the unit");
+}
+
 /// conductord started on a directory of its own (`conductor daemon install --state-dir <dir>`,
 /// `daemon serve --state-dir <dir>`) writes the slot file under that directory, and refuses the
 /// box when it cannot. Doctor's dry run is to name the refusal conductord raises, from the slot
@@ -5480,6 +5622,7 @@ fn adv2_box_token_doctor_names_the_refusal_of_a_daemon_on_its_own_directory() {
     let case = Case::new("a2r");
     let file = case.config(&[("alpha", "systemd")]);
     case.directories("alpha");
+    adv2_box_token_installed(&case, &file);
     // conductord's directory is `<case>/daemon`, not `~/.b10x/conductor/daemon`: a file takes
     // the place of its slots directory.
     fs::create_dir_all(case.dir.join("daemon")).expect("the daemon's directory");
@@ -5519,6 +5662,7 @@ fn adv2_box_token_doctor_refuses_no_box_for_a_slot_file_its_daemon_does_not_writ
     let case = Case::new("a2s");
     let file = case.config(&[("alpha", "systemd")]);
     case.directories("alpha");
+    adv2_box_token_installed(&case, &file);
     let default = case.home().join(".b10x/conductor/daemon");
     fs::create_dir_all(&default).expect("the default daemon directory");
     fs::write(default.join("slots"), "").expect("a file");

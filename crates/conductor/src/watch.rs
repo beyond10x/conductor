@@ -140,7 +140,7 @@ use std::ffi::OsString;
 use std::fs::{self, File, OpenOptions};
 use std::io::{self, ErrorKind, Read as _, Seek as _, SeekFrom, Write};
 use std::path::{Component, Path, PathBuf};
-use std::process::{Command, ExitCode};
+use std::process::ExitCode;
 use std::thread;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
@@ -503,7 +503,7 @@ impl Panes {
             args.first().copied().unwrap_or_default()
         );
         let output = collect::run(
-            Command::new(&self.tmux)
+            crate::instance::command(&self.tmux)
                 .current_dir(&self.sessions)
                 .args(["-S", &socket])
                 .args(args)
@@ -562,9 +562,12 @@ impl Panes {
     /// another shape; the source is named first.
     fn rotated(&self) -> Result<bool, (&'static str, anyhow::Error)> {
         let probe = |error| ("usage probe", error);
-        let output = collect::run(Command::new("sh").args(["-c", &self.probe]), BOUND)
-            .context("run the usage probe")
-            .map_err(probe)?;
+        let output = collect::run(
+            crate::instance::command("sh").args(["-c", &self.probe]),
+            BOUND,
+        )
+        .context("run the usage probe")
+        .map_err(probe)?;
         if !output.status.success() {
             return Err(probe(anyhow!(
                 "the usage probe exited {:?}",
@@ -579,7 +582,7 @@ impl Panes {
         }
         if let Some(rotate) = &self.rotate {
             let rotation = |error| ("usage rotation", error);
-            let output = collect::run(Command::new("sh").args(["-c", rotate]), BOUND)
+            let output = collect::run(crate::instance::command("sh").args(["-c", rotate]), BOUND)
                 .with_context(|| format!("run the rotation `{rotate}`"))
                 .map_err(rotation)?;
             if !output.status.success() {
@@ -1180,8 +1183,11 @@ impl Watch {
             .agents
             .split_first()
             .context("no session-list command is given")?;
-        let output = collect::run(Command::new(program).args(arguments), self.sources.bound)
-            .with_context(|| format!("read the session list `{shown}`"))?;
+        let output = collect::run(
+            crate::instance::command(program).args(arguments),
+            self.sources.bound,
+        )
+        .with_context(|| format!("read the session list `{shown}`"))?;
         match output.status.code() {
             Some(0) => {}
             Some(code) => bail!("`{shown}` exited {code}"),
@@ -1583,7 +1589,10 @@ impl Watch {
             .split_first()
             .context("no notifier is given")?;
         let output = collect::run(
-            Command::new(program).args(arguments).arg(title).arg(body),
+            crate::instance::command(program)
+                .args(arguments)
+                .arg(title)
+                .arg(body),
             NOTIFY_BOUND,
         )
         .with_context(|| format!("notify the operator through `{shown}`"))?;
@@ -1812,7 +1821,7 @@ impl Watch {
             .filter(|place| place.join(".git").exists())
             .filter_map(|place| {
                 let output = collect::run(
-                    Command::new("git").arg("-C").arg(place).args([
+                    crate::instance::command("git").arg("-C").arg(place).args([
                         "-c",
                         "log.showSignature=false",
                         "log",
@@ -2531,8 +2540,11 @@ fn newest_runs_of(sources: &Sources, owner: &str, repository: &str) -> Result<Ve
     let (program, arguments) = command
         .split_first()
         .with_context(|| format!("{what}: no run-list command is given"))?;
-    let output = collect::run(Command::new(program).args(arguments), sources.bound)
-        .with_context(|| format!("{what}: `{shown}`"))?;
+    let output = collect::run(
+        crate::instance::command(program).args(arguments),
+        sources.bound,
+    )
+    .with_context(|| format!("{what}: `{shown}`"))?;
     if !output.status.success() {
         let status = output.status.code().map_or_else(
             || "was ended by a signal".to_owned(),
@@ -2664,8 +2676,11 @@ fn open_pulls_of(sources: &Sources, owner: &str, repository: &str) -> Result<Vec
     let (program, arguments) = command
         .split_first()
         .with_context(|| format!("{what}: no pull-request command is given"))?;
-    let output = collect::run(Command::new(program).args(arguments), sources.bound)
-        .with_context(|| format!("{what}: `{shown}`"))?;
+    let output = collect::run(
+        crate::instance::command(program).args(arguments),
+        sources.bound,
+    )
+    .with_context(|| format!("{what}: `{shown}`"))?;
     if !output.status.success() {
         let status = output.status.code().map_or_else(
             || "was ended by a signal".to_owned(),

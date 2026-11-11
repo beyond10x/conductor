@@ -19,7 +19,7 @@ use std::ffi::OsString;
 use std::fs;
 use std::io::Read;
 use std::path::{Path, PathBuf};
-use std::process::{Command, Stdio};
+use std::process::Stdio;
 use std::sync::mpsc;
 use std::time::{Duration, Instant, SystemTime};
 
@@ -396,9 +396,8 @@ fn run(command: &[OsString], timeout: Duration) -> Result<String, Walk> {
     let Some((program, arguments)) = command.split_first() else {
         return Err(Walk::Failed("no command".to_owned()));
     };
-    let mut child = Command::new(program)
+    let mut child = crate::instance::command(program)
         .args(arguments)
-        .env_remove(crate::instance::SLOTS_VARIABLE)
         .stdin(Stdio::null())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())

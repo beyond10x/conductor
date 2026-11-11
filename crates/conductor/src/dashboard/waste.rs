@@ -46,7 +46,7 @@ use std::io::{self, Read};
 use std::os::unix::fs::MetadataExt as _;
 use std::panic::{AssertUnwindSafe, catch_unwind};
 use std::path::{Component, Path, PathBuf};
-use std::process::{Command, ExitStatus, Stdio};
+use std::process::{ExitStatus, Stdio};
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError, mpsc};
 use std::time::{Duration, Instant, SystemTime};
 
@@ -874,9 +874,8 @@ fn run(command: &[OsString], timeout: Duration) -> Ran {
     let Some((program, arguments)) = command.split_first() else {
         return Ran::Failed("no command".to_owned());
     };
-    let mut child = match Command::new(program)
+    let mut child = match crate::instance::command(program)
         .args(arguments)
-        .env_remove(crate::instance::SLOTS_VARIABLE)
         .stdin(Stdio::null())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())

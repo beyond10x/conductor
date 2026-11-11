@@ -47,7 +47,6 @@
 //! [`Forecast::hour`] is what the watch keeps to print it once per change of that hour.
 
 use std::collections::{BTreeMap, BTreeSet};
-use std::process::Command;
 
 use anyhow::{Context as _, Result, bail};
 use conductor_model::behaviour::SnapshotStorage;
@@ -224,7 +223,7 @@ pub fn collect_with(
     read_at: Option<OffsetDateTime>,
     record: &mut Recorder<'_>,
 ) -> Result<()> {
-    let printed = collect::run(Command::new("sh").args(["-c", probe]), BOUND);
+    let printed = collect::run(crate::instance::command("sh").args(["-c", probe]), BOUND);
     let readings = match printed {
         Err(error) if collect::is_over_budget(&error) => return Err(error),
         Err(error) => Err(format!("the usage probe did not answer: {error}")),

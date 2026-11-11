@@ -106,7 +106,6 @@ use std::io::{self, ErrorKind, Read, Write as _};
 use std::net::Shutdown;
 use std::os::unix::net::{UnixListener, UnixStream};
 use std::path::{Path, PathBuf};
-use std::process::Command;
 use std::sync::{Arc, Mutex, PoisonError};
 use std::time::{Duration, Instant};
 
@@ -1620,11 +1619,7 @@ fn agents(command: &[OsString], errors: &mut Vec<String>) -> Vec<Value> {
         errors.push("no session-list command".to_owned());
         return Vec::new();
     };
-    let output = match Command::new(program)
-        .args(arguments)
-        .env_remove(crate::instance::SLOTS_VARIABLE)
-        .output()
-    {
+    let output = match crate::instance::command(program).args(arguments).output() {
         Ok(output) => output,
         Err(error) => {
             errors.push(format!("`{shown}`: {error}"));

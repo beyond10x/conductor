@@ -1930,8 +1930,8 @@ impl ShellDeliverer {
 
 impl Deliverer for ShellDeliverer {
     fn deliver(&self, name: &str, text: &str) -> Result<Delivery> {
-        use std::process::{Command, Stdio};
-        let mut command = Command::new(&self.program);
+        use std::process::Stdio;
+        let mut command = crate::instance::command(&self.program);
         if let Some(config) = &self.config {
             command.arg("--config").arg(config);
         }
@@ -1941,7 +1941,6 @@ impl Deliverer for ShellDeliverer {
         command
             .args(["session", "deliver", "--name", name, "--text", "-"])
             .env(crate::actor::DAEMON_VARIABLE, "1")
-            .env_remove(crate::instance::SLOTS_VARIABLE)
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
             .stderr(Stdio::piped());

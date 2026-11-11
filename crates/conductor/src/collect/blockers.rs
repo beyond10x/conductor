@@ -68,7 +68,7 @@ use std::ffi::{OsStr, OsString};
 use std::fmt;
 use std::fs;
 use std::path::{Path, PathBuf};
-use std::process::{Command, ExitStatus, Output};
+use std::process::{ExitStatus, Output};
 use std::time::Duration;
 
 use anyhow::{Context as _, Result, anyhow, bail};
@@ -790,7 +790,7 @@ pub(crate) fn shown(words: &[OsString]) -> String {
 /// `words` is empty, or the command did not start or answer in time; the error names it.
 pub(crate) fn run(words: &[OsString], dir: Option<&Path>, bound: Duration) -> Result<Output> {
     let (program, arguments) = words.split_first().context("an empty command line")?;
-    let mut command = Command::new(program);
+    let mut command = crate::instance::command(program);
     collect::git_environment(command.args(arguments), dir);
     if let Some(dir) = dir {
         command.current_dir(dir);

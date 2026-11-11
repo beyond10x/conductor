@@ -14,7 +14,6 @@
 use std::fmt;
 use std::fs;
 use std::path::Path;
-use std::process::Command;
 
 use anyhow::{Context as _, Result, anyhow};
 use conductor_model::behaviour::ConfigRevisionStorage;
@@ -221,11 +220,10 @@ fn granted(config: &conductor_model::config::Config, input: &PutConfig) -> bool 
 
 /// Runs `git -C <dir> <args>`; its standard output when it succeeds.
 fn git(dir: &Path, args: &[&str]) -> Result<String> {
-    let output = Command::new("git")
+    let output = crate::instance::command("git")
         .arg("-C")
         .arg(dir)
         .args(args)
-        .env_remove(crate::instance::SLOTS_VARIABLE)
         .output()
         .context("run git")?;
     if output.status.success() {

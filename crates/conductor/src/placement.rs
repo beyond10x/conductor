@@ -773,10 +773,12 @@ fn declared(served: Option<&[String]>, name: &str) -> bool {
 /// found without writing anything: an ancestor of the file that is there and is no directory;
 /// where the slot's directory is not there, the nearest ancestor that is not writable by this
 /// user; a slot directory that is not this user's (it is made 0700) or, for a file not there
-/// yet, not writable; a file there that is no regular file, is not this user's (it is made
-/// 0600) or is not writable. [`seal_api_token`] asks it before it writes and `conductor doctor`'s
-/// dry run asks it ([`api_token_unsealable`]), so the two refuse a box alike; what only a write
-/// meets, a full disk, only conductord sees.
+/// yet, not writable once it is 0700; a dangling link whose end cannot be created; a file there
+/// that is no regular file (a directory and a socket fail the write, a pipe holds it), is not
+/// this user's (it is made 0600) or is not writable. It refuses nothing the write would succeed
+/// on but a device of this user's. [`seal_api_token`] asks it before it writes and `conductor
+/// doctor`'s dry run asks it ([`api_token_unsealable`]), so the two refuse a box alike; what only
+/// a write meets, a full disk, only conductord sees.
 fn slot_unwritable(file: &Path) -> Result<()> {
     use nix::unistd::{AccessFlags, access};
     use std::os::unix::fs::MetadataExt as _;
@@ -818,12 +820,45 @@ fn slot_unwritable(file: &Path) -> Result<()> {
             .map_err(|error| anyhow!("create {}: {error:#}", dir.display()));
     }
     mine(dir, &meta).map_err(|error| anyhow!("restrict {}: {error:#}", dir.display()))?;
+    // A file `at` is created in its directory: the slot's directory, which the write makes 0700
+    // first, so what its mode bits deny this user is no refusal there (a read-only file system or
+    // an immutable directory is); or the directory a dangling link ends in, which it leaves as
+    // it is.
+    let creatable = |at: &Path| {
+        let up = at.parent().unwrap_or(dir);
+        let restricted = std::fs::canonicalize(up).ok() == std::fs::canonicalize(dir).ok();
+        match access(up, AccessFlags::W_OK | AccessFlags::X_OK) {
+            Err(nix::errno::Errno::EACCES) if restricted => Ok(()),
+            answered => answered.map_err(|errno| {
+                anyhow!(
+                    "create the slot file {}: {} is not writable: {errno}",
+                    at.display(),
+                    up.display()
+                )
+            }),
+        }
+    };
     if std::fs::symlink_metadata(file).is_err() {
-        return writable(dir, AccessFlags::W_OK | AccessFlags::X_OK)
-            .map_err(|error| anyhow!("create the slot file {}: {error:#}", file.display()));
+        return creatable(file);
     }
-    let meta = std::fs::metadata(file)
-        .map_err(|error| anyhow!("open the slot file {}: {error}", file.display()))?;
+    let meta = match std::fs::metadata(file) {
+        // A dangling link: the write creates the file it ends at, as `open` follows it.
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+            let mut end = file.to_path_buf();
+            for _ in 0..40 {
+                let Ok(next) = std::fs::read_link(&end) else {
+                    break;
+                };
+                end = end
+                    .parent()
+                    .map_or_else(|| next.clone(), |up| up.join(&next));
+            }
+            return creatable(&end);
+        }
+        answered => {
+            answered.map_err(|error| anyhow!("open the slot file {}: {error}", file.display()))?
+        }
+    };
     if !meta.is_file() {
         return Err(anyhow!(
             "open the slot file {}: it is not a regular file",

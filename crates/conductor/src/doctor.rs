@@ -48,7 +48,7 @@ use std::ffi::OsStr;
 use std::fs;
 use std::os::unix::fs::PermissionsExt as _;
 use std::path::{Path, PathBuf};
-use std::process::{Command, ExitCode};
+use std::process::ExitCode;
 use std::time::Duration;
 
 use anyhow::{Context as _, Result, bail};
@@ -163,7 +163,8 @@ fn uname(flag: &str) -> String {
             .filter(|path| path.is_file()),
     );
     for path in candidates {
-        let Ok(output) = collect::run(Command::new(&path).arg(flag), VERSION_BOUND) else {
+        let Ok(output) = collect::run(crate::instance::command(&path).arg(flag), VERSION_BOUND)
+        else {
             continue;
         };
         let text = String::from_utf8_lossy(&output.stdout).trim().to_owned();
@@ -249,7 +250,7 @@ pub fn account_of(text: &str, host: &str) -> Option<String> {
 /// `auth status --hostname <host>` exits 0; and the account it names there ([`account_of`]).
 fn login(program: &str, path: &Path, host: &str) -> ForgeLogin {
     let answered = collect::run(
-        Command::new(path).args(["auth", "status", "--hostname", host]),
+        crate::instance::command(path).args(["auth", "status", "--hostname", host]),
         AUTH_BOUND,
     );
     let (state, account) = match answered {
@@ -545,8 +546,11 @@ pub fn require(programs: &[&str], what: &str) -> Result<()> {
 /// The first line `program --version` prints, on standard output or else standard error, empty
 /// lines aside; why there is none when the run fails or prints nothing.
 fn version_line(program: &Path) -> Result<String, String> {
-    let output = collect::run(Command::new(program).arg("--version"), VERSION_BOUND)
-        .map_err(|error| format!("{error:#}"))?;
+    let output = collect::run(
+        crate::instance::command(program).arg("--version"),
+        VERSION_BOUND,
+    )
+    .map_err(|error| format!("{error:#}"))?;
     let first = |bytes: &[u8]| {
         String::from_utf8_lossy(bytes)
             .lines()
@@ -951,7 +955,7 @@ pub fn activation(program: &Path, root: &Path) -> (Activation, Option<PathBuf>) 
         );
     };
     let answered = collect::run(
-        Command::new(program)
+        crate::instance::command(program)
             .args(["inspect", "--json", "--repo"])
             .arg(&checkout)
             .args(["--id", PROBE_ID]),
@@ -989,7 +993,7 @@ fn watcher(program: Option<&Path>, unit: String) -> Watcher {
         };
     };
     let answered = collect::run(
-        Command::new(program).args(["--user", "is-active", &unit]),
+        crate::instance::command(program).args(["--user", "is-active", &unit]),
         WATCHER_BOUND,
     );
     let not_running = match answered {

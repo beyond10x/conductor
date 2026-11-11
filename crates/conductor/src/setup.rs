@@ -37,7 +37,7 @@
 use std::fs;
 use std::io::ErrorKind;
 use std::path::{Path, PathBuf};
-use std::process::{Command, ExitCode};
+use std::process::ExitCode;
 use std::time::Duration;
 
 use anyhow::{Context as _, Result, bail};
@@ -133,7 +133,7 @@ pub fn origin_of(url: &str) -> Origin {
 /// not answer.
 fn origin(repository: &Path) -> Origin {
     let answered = collect::run(
-        Command::new("git")
+        crate::instance::command("git")
             .arg("-C")
             .arg(repository)
             .args(["remote", "get-url", "origin"]),
@@ -652,7 +652,7 @@ fn activate(flag: Option<&Path>, environment: &Environment, repository: &Path) -
     }
     let command = doctor::activate_command(&profile, root);
     let output = collect::run(
-        Command::new(&program)
+        crate::instance::command(&program)
             .arg("activate")
             .arg("--profile")
             .arg(&profile)

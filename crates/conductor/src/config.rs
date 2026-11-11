@@ -102,7 +102,7 @@ use std::fmt::{self, Write as _};
 use std::fs;
 use std::io::ErrorKind;
 use std::path::{Path, PathBuf};
-use std::process::{Command, ExitCode, Stdio};
+use std::process::{ExitCode, Stdio};
 use std::sync::{OnceLock, RwLock};
 
 use anyhow::{Context as _, Result, anyhow, bail};
@@ -5459,7 +5459,9 @@ fn box_problems(config: &Config, file: &Path, environment: &Environment) -> Vec<
 
 /// Each instance of `config`, by its index, whose box conductord would refuse before it asks
 /// substrate, with the refusal. Read on this host as conductord's default layout has it: `HOME`,
-/// `PATH`, and the `daemon.store` the file writes, or `store` in its place. A file that writes
+/// `PATH`, conductord's directory as its installed unit names it
+/// ([`crate::daemon::install::daemon_dir`]), and the `daemon.store` the file writes, or `store`
+/// in its place. A file that writes
 /// none is held to no store: conductord does not start on it, and the default store of the other
 /// commands stays where it is.
 pub(crate) fn box_refusals(
@@ -5498,8 +5500,11 @@ pub(crate) fn box_requests(
 ) -> Vec<(usize, crate::placement::BoxRequest)> {
     let home = environment.home().ok().map(Path::to_owned);
     let written = writes_store(file);
+    let xdg = env::var_os("XDG_CONFIG_HOME").map(PathBuf::from);
     let host = crate::placement::Host {
-        daemon: home.as_ref().map(|home| home.join(crate::daemon::DIR)),
+        daemon: home
+            .as_ref()
+            .map(|home| crate::daemon::install::daemon_dir(home, xdg.as_deref())),
         home,
         path: std::env::var_os("PATH"),
         store: store
@@ -6188,11 +6193,10 @@ fn checkouts_under(dir: &Path, yaml: &str) -> Result<Vec<String>> {
 /// read. The collectors read each member at `origin/main`, so a local-only checkout is no member:
 /// its `git fetch origin` fails the snapshot (a conductor NEED, 2026-10-12).
 fn has_origin(dir: &Path) -> bool {
-    Command::new("git")
+    crate::instance::command("git")
         .arg("-C")
         .arg(dir)
         .args(["config", "--get", "remote.origin.url"])
-        .env_remove(crate::instance::SLOTS_VARIABLE)
         .stdin(Stdio::null())
         .stdout(Stdio::null())
         .stderr(Stdio::null())

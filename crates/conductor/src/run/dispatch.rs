@@ -22,7 +22,6 @@
 //! `records-committed` or `records-commit-refused` line carrying the tick's id.
 
 use std::path::Path;
-use std::process::Command;
 use std::time::Duration;
 
 use anyhow::{Context as _, Result};
@@ -72,7 +71,7 @@ pub fn cycle_tick(
 
 /// Runs `conductor <words>` with the daemon's global flags, to its end within [`STEP_BOUND`].
 fn run_step(tick: &Tick<'_, '_>, words: &[&str]) -> Result<std::process::Output> {
-    let mut command = Command::new(&tick.seams.program);
+    let mut command = crate::instance::command(&tick.seams.program);
     if let Some(config) = tick.config {
         command.arg("--config").arg(config);
     }

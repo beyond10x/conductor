@@ -35,7 +35,7 @@
 
 use std::fs;
 use std::path::{Path, PathBuf};
-use std::process::{Command, ExitCode, Stdio};
+use std::process::{ExitCode, Stdio};
 use std::sync::{Mutex, PoisonError};
 use std::thread::{self, JoinHandle};
 use std::time::{Duration, SystemTime};
@@ -698,7 +698,7 @@ fn active_stories(checkout: &Path) -> Result<usize> {
     }
     let shown = "aep plan artifact list --kind story --status active --format json";
     let output = crate::collect::run(
-        Command::new("aep")
+        crate::instance::command("aep")
             .args([
                 "plan", "artifact", "list", "--kind", "story", "--status", "active", "--format",
                 "json",
@@ -723,7 +723,7 @@ fn active_stories(checkout: &Path) -> Result<usize> {
 /// Runs `conductor session start --role maintainer` (this binary, the tick's `--config` and
 /// `--state-dir`) in `cwd`.
 fn start_maintainer(tick: &Tick<'_, '_>, cwd: &Path) -> Result<()> {
-    let mut command = Command::new(&tick.seams.program);
+    let mut command = crate::instance::command(&tick.seams.program);
     if let Some(config) = tick.config {
         command
             .arg("--config")
@@ -831,7 +831,7 @@ pub(crate) fn cleaned(tick: &mut Tick<'_, '_>, wait: bool) -> Result<()> {
 fn notify(tick: &Tick<'_, '_>, line: &str) {
     let title = format!("{}: decision", tick.instance().name.0);
     let ran = crate::collect::run(
-        Command::new("notify-send").args(["-u", "critical", &title, line]),
+        crate::instance::command("notify-send").args(["-u", "critical", &title, line]),
         NOTIFY_BOUND,
     );
     if let Err(error) = ran {

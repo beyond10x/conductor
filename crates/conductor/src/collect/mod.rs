@@ -409,12 +409,11 @@ pub fn ssh_command(given: Option<String>, dir: Option<&Path>) -> String {
     if let Some(given) = given.as_deref().and_then(named) {
         return given;
     }
-    let mut config = Command::new("git");
+    let mut config = crate::instance::command("git");
     config
         .args(["config", "--get", "core.sshCommand"])
         .env("GIT_TERMINAL_PROMPT", "0")
         .env(SSH_COMMAND, format!("ssh {SSH_OPTIONS}"))
-        .env_remove(crate::instance::SLOTS_VARIABLE)
         .stdin(Stdio::null())
         .stderr(Stdio::null());
     if let Some(dir) = dir {
@@ -498,8 +497,7 @@ pub fn is_over_budget(error: &anyhow::Error) -> bool {
 /// so no collector waits on a source for ever (`gh` on a network that does not answer). Every
 /// external command a collector runs goes through here. Within a collector's budget ([`within`]),
 /// a command is not started once the budget is spent, and one still running when it is spent is
-/// killed; either answers [`OverBudget`]. No command run here is told of the sealed slots a
-/// runtime in a box was handed ([`crate::instance::SLOTS_VARIABLE`]).
+/// killed; either answers [`OverBudget`].
 ///
 /// # Errors
 ///
@@ -512,7 +510,6 @@ pub fn run(command: &mut Command, bound: Duration) -> Result<Output> {
     // The command leads a process group of its own, so what it leaves running can be stopped
     // with it when the bound is spent.
     let mut child = command
-        .env_remove(crate::instance::SLOTS_VARIABLE)
         .stdin(Stdio::null())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
@@ -579,7 +576,6 @@ fn drain(mut pipe: impl Read + Send + 'static) -> Receiver<Vec<u8>> {
 
 #[cfg(test)]
 mod tests {
-    use std::process::Command;
     use std::time::{Duration, Instant};
 
     use super::run;
@@ -587,7 +583,7 @@ mod tests {
     #[test]
     fn a_command_that_answers_in_time_gives_its_status_and_output() {
         let output = run(
-            Command::new("sh").args(["-c", "echo out; echo err >&2; exit 3"]),
+            crate::instance::command("sh").args(["-c", "echo out; echo err >&2; exit 3"]),
             Duration::from_secs(10),
         )
         .expect("sh answers");
@@ -599,8 +595,11 @@ mod tests {
     #[test]
     fn a_command_past_its_bound_is_stopped_and_named() {
         let started = Instant::now();
-        let refused = run(Command::new("sleep").arg("30"), Duration::from_secs(1))
-            .expect_err("sleep 30 runs past a bound of 1 s");
+        let refused = run(
+            crate::instance::command("sleep").arg("30"),
+            Duration::from_secs(1),
+        )
+        .expect_err("sleep 30 runs past a bound of 1 s");
         assert!(
             started.elapsed() < Duration::from_secs(5),
             "run waited {:?}",
@@ -613,7 +612,10 @@ mod tests {
     fn a_command_past_the_collectors_budget_is_stopped_as_over_budget() {
         let started = Instant::now();
         let refused = super::within(Some(started + Duration::from_secs(1)), || {
-            run(Command::new("sleep").arg("30"), Duration::from_secs(20))
+            run(
+                crate::instance::command("sleep").arg("30"),
+                Duration::from_secs(20),
+            )
         })
         .expect_err("sleep 30 runs past a budget of 1 s");
         assert!(
@@ -629,7 +631,7 @@ mod tests {
     fn a_spent_budget_starts_no_command() {
         let refused = super::within(Some(Instant::now()), || {
             run(
-                &mut Command::new("conductor-no-such-program"),
+                &mut crate::instance::command("conductor-no-such-program"),
                 Duration::from_secs(1),
             )
         })
@@ -640,7 +642,7 @@ mod tests {
     #[test]
     fn a_program_that_does_not_exist_is_named() {
         let refused = run(
-            &mut Command::new("conductor-no-such-program"),
+            &mut crate::instance::command("conductor-no-such-program"),
             Duration::from_secs(1),
         )
         .expect_err("no such program");

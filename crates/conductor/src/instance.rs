@@ -40,6 +40,15 @@ pub const TOKEN_VARIABLE: &str = "CONDUCTOR_API_TOKEN";
 /// the slot [`crate::placement::is_api_token_slot`] knows (`story:box-reaches-forge-and-daemon`).
 pub const SLOTS_VARIABLE: &str = "SUBSTRATE_SECRET_SLOTS";
 
+/// `program` to start, told of no sealed slot ([`SLOTS_VARIABLE`] removed): every process the
+/// runtime starts itself is built here, which `tests/placement.rs` holds for the crate's sources.
+#[must_use]
+pub fn command(program: impl AsRef<std::ffi::OsStr>) -> std::process::Command {
+    let mut command = std::process::Command::new(program);
+    command.env_remove(SLOTS_VARIABLE);
+    command
+}
+
 /// The most a sealed token is read to: a token is far shorter, and a slot is not read whole on
 /// trust.
 const SEALED_TOKEN_BOUND: u64 = 4096;

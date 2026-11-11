@@ -304,7 +304,7 @@ pub struct Unboxed {
 impl Unboxed {
     /// `claude <args>` with the launch's working directory and variables.
     fn command(launch: &Launch, args: &[String]) -> Command {
-        let mut command = Command::new(&launch.program);
+        let mut command = crate::instance::command(&launch.program);
         command.args(args).current_dir(&launch.request.cwd);
         for (name, value) in &launch.env {
             command.env(name, value);
@@ -316,8 +316,11 @@ impl Unboxed {
     /// ended when it did not succeed.
     fn call(cwd: &str, args: &[&str]) -> Result<()> {
         let shown = format!("{CLAUDE} {}", args.join(" "));
-        let output = collect::run(Command::new(CLAUDE).args(args).current_dir(cwd), BOUND)
-            .with_context(|| format!("run `{shown}`"))?;
+        let output = collect::run(
+            crate::instance::command(CLAUDE).args(args).current_dir(cwd),
+            BOUND,
+        )
+        .with_context(|| format!("run `{shown}`"))?;
         if !output.status.success() {
             bail!("`{shown}` {}", exited(&output));
         }
@@ -878,8 +881,11 @@ pub fn live_session(name: &str) -> Result<Option<String>> {
 /// The list cannot be run or read, within `bound`.
 pub fn live_session_within(name: &str, bound: Duration) -> Result<Option<String>> {
     let shown = format!("{CLAUDE} agents --json");
-    let output = collect::run(Command::new(CLAUDE).args(["agents", "--json"]), bound)
-        .with_context(|| format!("read the Claude session list `{shown}`"))?;
+    let output = collect::run(
+        crate::instance::command(CLAUDE).args(["agents", "--json"]),
+        bound,
+    )
+    .with_context(|| format!("read the Claude session list `{shown}`"))?;
     if !output.status.success() {
         bail!("`{shown}` {}", exited(&output));
     }
@@ -907,7 +913,10 @@ pub fn live_session_within(name: &str, bound: Duration) -> Result<Option<String>
 /// screen's idle time.
 #[must_use]
 pub fn harness_busy() -> BTreeMap<String, bool> {
-    let Ok(output) = collect::run(Command::new(CLAUDE).args(["agents", "--json"]), BOUND) else {
+    let Ok(output) = collect::run(
+        crate::instance::command(CLAUDE).args(["agents", "--json"]),
+        BOUND,
+    ) else {
         return BTreeMap::new();
     };
     let Ok(Value::Array(entries)) = serde_json::from_slice::<Value>(&output.stdout) else {
@@ -950,7 +959,6 @@ fn run_launch(command: &mut Command) -> Result<Output> {
         let stderr = streams.pop().map(Stdio::from).unwrap_or_else(Stdio::null);
         let stdout = streams.pop().map(Stdio::from).unwrap_or_else(Stdio::null);
         let mut child = command
-            .env_remove(crate::instance::SLOTS_VARIABLE)
             .stdin(Stdio::null())
             .stdout(stdout)
             .stderr(stderr)

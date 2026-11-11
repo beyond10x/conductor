@@ -26,7 +26,7 @@
 use std::fs;
 use std::io::{self, Write as _};
 use std::path::{Path, PathBuf};
-use std::process::{Command, ExitCode, Stdio};
+use std::process::{ExitCode, Stdio};
 
 use crate::config::BuiltInRole;
 use anyhow::{Context as _, Result, bail};
@@ -247,11 +247,10 @@ fn rules_at(records: &Path, revision: &str) -> Result<String> {
 /// As [`rules_at`].
 fn file_at(records: &Path, revision: &str, file: &str) -> Result<String> {
     let git = |args: &[&str]| {
-        Command::new("git")
+        crate::instance::command("git")
             .arg("-C")
             .arg(records)
             .args(args)
-            .env_remove(crate::instance::SLOTS_VARIABLE)
             .stdin(Stdio::null())
             .output()
     };

@@ -80,7 +80,6 @@ use std::collections::{HashMap, HashSet};
 use std::ffi::OsStr;
 use std::fs;
 use std::path::{Path, PathBuf};
-use std::process::Command;
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::{Mutex, PoisonError};
 use std::thread;
@@ -1571,7 +1570,7 @@ pub(crate) fn answer(
         bail!("{what}: an empty command line");
     };
     let attempt = || {
-        let mut command = Command::new(program);
+        let mut command = crate::instance::command(program);
         collect::git_environment(command.args(arguments).env("GIT_OPTIONAL_LOCKS", "0"), dir);
         if let Some(dir) = dir {
             command.current_dir(dir);

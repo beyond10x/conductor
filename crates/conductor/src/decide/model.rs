@@ -13,7 +13,7 @@
 
 use std::io::{Read as _, Write as _};
 use std::path::PathBuf;
-use std::process::{Command, Stdio};
+use std::process::Stdio;
 use std::sync::Mutex;
 use std::thread;
 use std::time::{Duration, Instant};
@@ -132,10 +132,9 @@ impl Decider for ClaudePrint {
     }
 
     fn decide(&self, prompt: &str) -> Result<Answer> {
-        let mut child = Command::new("claude")
+        let mut child = crate::instance::command("claude")
             .args(self.arguments())
             .current_dir(Self::dir()?)
-            .env_remove(crate::instance::SLOTS_VARIABLE)
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
             .stderr(Stdio::piped())
