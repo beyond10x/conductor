@@ -77,7 +77,7 @@ instances:
 | listener | reads | a write needs |
 |---|---|---|
 | loopback, `127.0.0.1:<daemon.port>` (7300) | open, from any request that names this listener's host or none | this listener's own origin and the daemon's token |
-| TLS, `daemon.tls.listen` | an Identity bearer, `Authorization: Bearer`; app files and CORS preflights take none | a person's bearer with the grant |
+| TLS, `daemon.tls.listen` | an Identity bearer, `Authorization: Bearer`; app files, CORS preflights and the probes take none | a person's bearer with the grant |
 
 On loopback, `/` carries the daemon's token in `<meta name="conductor-token">`. A local client
 that is no browser reads it from `<daemon dir>/api.token`, mode 0600. The host check stops DNS
@@ -86,6 +86,10 @@ rebinding. On the TLS listener the page carries no token, and a request without 
 write with the cookie must name the listener's own origin. Bearer reads come from any origin
 (`Access-Control-Allow-Origin: *`, no credentials). `daemon.loopback: false` without `tls` is
 refused at validate.
+
+`GET /healthz`, `/readyz` and `/metrics` answer on both listeners without a bearer
+([the host](/docs/concepts/the-host)). Their bodies hold states, counts, ages and a fixed reason:
+no name, path, token or store URL.
 
 The daemon proxies `/v1/instances/<name>/<route>` to the runtime's socket, `<state>/api.sock`,
 mode 0600, with the instance's token (`CONDUCTOR_API_TOKEN`), which no browser holds.

@@ -8,7 +8,7 @@
     "x-ess-provenance": {
       "system": "conductor",
       "specification_version": "v1",
-      "contract_digest": "slice-sha256/2:7bc01448271c00020ebcff1e4b798d63ee7af7e758c72ba42b1a49d3a8bedac6"
+      "contract_digest": "slice-sha256/2:19fa28207037fcd0aa4b9fa669425372a7d42a2b3d7c3e57aaf0c303f8a1c3a2"
     },
     "x-ess-reached-by": "network"
   },
@@ -1008,6 +1008,32 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/conductor.placement.Placements.Response"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/readyz": {
+      "get": {
+        "operationId": "conductor.store.Readiness",
+        "x-ess-route-source": "binding",
+        "summary": "Readiness",
+        "tags": [
+          "store"
+        ],
+        "x-ess-consistency": "read_your_writes",
+        "responses": {
+          "200": {
+            "description": "Every row of `conductor.store.Readiness`, a projection of `conductor.store.Store`, as a bare JSON array, as the `ess-http/1` binding declares (`body: array`): no object around it.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/conductor.store.Readiness.Row"
+                  },
+                  "type": "array"
                 }
               }
             }
@@ -7123,6 +7149,24 @@
         ],
         "additionalProperties": false
       },
+      "conductor.store.Readiness.Row": {
+        "title": "Readiness row",
+        "x-ess-name": "conductor.store.Readiness",
+        "x-ess-kind": "view-row",
+        "type": "object",
+        "properties": {
+          "reachable": {
+            "type": "boolean"
+          },
+          "reason": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "reachable"
+        ],
+        "additionalProperties": false
+      },
       "conductor.store.SourceMissing.Error": {
         "title": "SourceMissing payload",
         "description": "No eventlog tree is at the source path, so nothing was copied.",
@@ -9217,6 +9261,9 @@
         },
         "reachable": {
           "type": "boolean"
+        },
+        "reason": {
+          "type": "string"
         },
         "last_event_id": {
           "type": "integer",

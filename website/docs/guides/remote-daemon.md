@@ -78,6 +78,9 @@ A browser logs in at `https://conductor.example.com:7443/login` and gets a sessi
 the daemon's memory, so a daemon restart logs every browser out. The TLS listener serves the same
 app and `/v1/` as the loopback one, and any origin may read with a bearer.
 
+A cluster probes the daemon at `GET /healthz` and `GET /readyz` and a Prometheus scrapes
+`GET /metrics`, none with a bearer ([the host](/docs/concepts/the-host)).
+
 ## 3. Send commands to it
 
 `--daemon <url>`, or `CONDUCTOR_DAEMON`, sends these commands to that daemon:

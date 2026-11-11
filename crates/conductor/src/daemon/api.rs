@@ -21,6 +21,11 @@
 //!   a host role `globals.roles` lists asked for now ([`super::host_roles`]); `GET /v1/secrets`: the secrets' names, sources and instances, never a value
 //!   ([`crate::secret::view`]);
 //! - an instance's `agents/{name}/deliver` and `restart` are proxied as writes, `attach` bare.
+//! - `GET /healthz`, `/readyz` and `/metrics`: the probes and the metrics, answered without a
+//!   bearer on both listeners, ahead of the app ([`super::metrics`],
+//!   `story:daemon-probes-and-metrics`). While the reconciler has published nothing, an answer
+//!   read from its publication (`GET /v1/instances`, the federated reads, a proxied route,
+//!   `POST /v1/ask`, `POST /v1/roles/{role}/start`) is `503` with the readiness reason.
 //! - `GET /v1/instances/{name}/tokens`, `POST .../join` and `POST .../leave`: the instance's token
 //!   pool, the daemon's own routes ([`crate::token`], `story:token-pool`); a join or a leave is a
 //!   write of the `Join` grant.
@@ -32,7 +37,8 @@
 //! from elsewhere cannot read through DNS rebinding; reads are open, and a write comes from this
 //! listener's own page ([`crate::dashboard::same_origin`]) with the daemon's token. On the TLS
 //! listener every request but the app's files and a CORS preflight carries `Authorization:
-//! Bearer`, resolved by the Identity service `daemon.tls.identity` ([`Identity`]); a request without
+//! Bearer` (the probes and the metrics carry none: their bodies hold states, counts and ages
+//! only), resolved by the Identity service `daemon.tls.identity` ([`Identity`]); a request without
 //! one is answered `401` naming that service (`identity`), where `conductor login` obtains one
 //! (`story:daemon-remote`). A browser logs in at `GET /login` instead ([`super::browser`]) and
 //! presents the session cookie it is given where it has no bearer; a write with the cookie names
@@ -55,8 +61,9 @@ use std::io::{self, Read, Write};
 use std::net::{Shutdown, TcpListener, TcpStream};
 use std::os::unix::net::UnixStream;
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex, PoisonError};
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use anyhow::{Context as _, Result, anyhow, bail};
 use conductor_model::config::{DaemonOperator, OperatorGrant};
@@ -112,6 +119,9 @@ struct Published {
     rows: Vec<Value>,
     routes: BTreeMap<String, Route>,
     operators: Vec<DaemonOperator>,
+    /// Whether the reconciler published at all: before it did, the rows are not empty but
+    /// unread (`story:daemon-probes-and-metrics`).
+    reconciled: bool,
 }
 
 /// The config file `PUT /v1/config` changes and the store it records the revision in.
@@ -139,10 +149,20 @@ pub struct Api {
     /// The secrets source a name only the config writes is listed with.
     secrets: Source,
     /// The host roles `globals.roles` lists, and the supervisor's session while it runs
-    /// (`story:host-roles-by-daemon`).
-    hosts: Mutex<(Vec<String>, Option<Supervisor>)>,
+    /// (`story:host-roles-by-daemon`); none before the reconciler published them.
+    hosts: Mutex<Option<(Vec<String>, Option<Supervisor>)>>,
     /// What `POST /v1/ask` delivers a question to the supervisor with.
     deliver: Deliver,
+    /// What the probes and the metrics keep between requests
+    /// (`story:daemon-probes-and-metrics`).
+    probes: super::metrics::Probes,
+    /// How long one answer of `/metrics` is kept: [`super::metrics::KEEP`] unless a case sets
+    /// another ([`Self::with_metrics_keep`]).
+    metrics_keep: Duration,
+    /// Whether `daemon serve` is still starting ([`Self::starting`]): a request that is no probe
+    /// waits for the reconciler's first publication, as it did while no listener took a request
+    /// before it.
+    starting: AtomicBool,
 }
 
 /// How `POST /v1/ask` delivers a question to the supervisor's session: by default the
@@ -164,9 +184,122 @@ impl Api {
             timeout: Duration::from_secs(crate::config::FEDERATED_TIMEOUT),
             answered: Mutex::new(BTreeMap::new()),
             secrets: Source::Keychain,
-            hosts: Mutex::new((Vec::new(), None)),
+            hosts: Mutex::new(None),
             deliver: Arc::new(super::host_roles::deliver),
+            probes: super::metrics::Probes::default(),
+            metrics_keep: super::metrics::KEEP,
+            starting: AtomicBool::new(false),
         }
+    }
+
+    /// The API of a daemon that serves before its reconciler published
+    /// (`story:daemon-probes-and-metrics`). Until [`Self::publish`] or [`Self::started`] a
+    /// request that is no probe waits, at most [`super::metrics::STORE_BOUND`], so a client that
+    /// connects as soon as the listener is bound still reads what the reconciler first saw. The
+    /// deployment's operators are `operators` meanwhile, as the config file writes them: a write
+    /// is refused for a missing grant before the store answers as it is after.
+    #[must_use]
+    pub fn starting(mut self, operators: Vec<DaemonOperator>) -> Self {
+        self.published
+            .get_mut()
+            .unwrap_or_else(PoisonError::into_inner)
+            .operators = operators;
+        self.starting = AtomicBool::new(true);
+        self
+    }
+
+    /// Ends the start without a publication: the store does not answer, and a request is
+    /// answered without waiting, a read of the publication `503` ([`Self::unpublished`]).
+    pub fn started(&self) {
+        self.starting.store(false, Ordering::Release);
+    }
+
+    /// Waits while the daemon starts, at most [`super::metrics::STORE_BOUND`].
+    fn await_start(&self) {
+        let asked = Instant::now();
+        while self.starting.load(Ordering::Acquire) && asked.elapsed() < super::metrics::STORE_BOUND
+        {
+            std::thread::sleep(Duration::from_millis(10));
+        }
+    }
+
+    /// Publishes whether the store answered the read just asked of it: what `GET /readyz`
+    /// answers from (`story:daemon-probes-and-metrics`).
+    pub fn publish_store(&self, answers: bool) {
+        self.publish_store_at(answers, Instant::now());
+    }
+
+    /// [`Self::publish_store`] for a read answered, or not, at `at`.
+    pub fn publish_store_at(&self, answers: bool, at: Instant) {
+        self.probes.store(answers, at);
+    }
+
+    /// Publishes whether the reconciler's last record failed and none was written since: `GET
+    /// /readyz` is `503` meanwhile (`story:daemon-probes-and-metrics`).
+    pub fn publish_unrecorded(&self, failed: bool) {
+        self.probes.unrecorded(failed);
+    }
+
+    /// Whether the reconciler published at all ([`Self::publish`]).
+    #[must_use]
+    pub fn is_reconciled(&self) -> bool {
+        self.published
+            .lock()
+            .is_ok_and(|published| published.reconciled)
+    }
+
+    /// The answer to a request whose answer is read from the reconciler's publication while it
+    /// has published nothing: `503` with the readiness reason, never an answer read from the
+    /// nothing before it (`story:daemon-probes-and-metrics`).
+    fn unpublished(&self, listener: Listener) -> Vec<u8> {
+        let reason = super::metrics::readiness(self, Instant::now())
+            .unwrap_or(super::metrics::NOT_PUBLISHED);
+        reply(
+            503,
+            "Service Unavailable",
+            &json!({"error": reason}),
+            listener,
+        )
+    }
+
+    /// Whether the store answered the last read asked of it; false before the first.
+    #[must_use]
+    pub fn store_answers(&self) -> bool {
+        matches!(self.probes.seen(), Some((true, _)))
+    }
+
+    /// Whether the store was asked a read at all, answered or not.
+    #[must_use]
+    pub fn store_asked(&self) -> bool {
+        self.probes.seen().is_some()
+    }
+
+    pub(super) const fn probes(&self) -> &super::metrics::Probes {
+        &self.probes
+    }
+
+    /// How long an instance has to answer one federated read.
+    pub(super) const fn timeout(&self) -> Duration {
+        self.timeout
+    }
+
+    /// How long one answer of `/metrics` is kept.
+    pub(super) const fn metrics_keep(&self) -> Duration {
+        self.metrics_keep
+    }
+
+    /// The host directory beside the config file ([`crate::config::host_of`]), where the build
+    /// ledger is; none for an API without a config file.
+    pub(super) fn host_dir(&self) -> Option<PathBuf> {
+        self.config
+            .as_ref()
+            .map(|config| crate::config::host_of(&config.file))
+    }
+
+    /// The instances' rows and the instances as a federated route asks them, once the reconciler
+    /// published; none before.
+    pub(super) fn reconciled(&self) -> Option<(Vec<Value>, Vec<federate::Member>)> {
+        self.is_reconciled().then(|| (self.rows(), self.members()))
     }
 
     /// The API with `deliver` taking `POST /v1/ask`'s question to the supervisor, in place of the
@@ -180,18 +313,22 @@ impl Api {
     /// Publishes the host roles `globals.roles` lists and the supervisor's session while it runs
     /// (`story:host-roles-by-daemon`).
     pub fn publish_host(&self, listed: Vec<String>, supervisor: Option<Supervisor>) {
-        *self.hosts.lock().unwrap_or_else(PoisonError::into_inner) = (listed, supervisor);
+        *self.hosts.lock().unwrap_or_else(PoisonError::into_inner) = Some((listed, supervisor));
     }
 
-    fn listed_host_roles(&self) -> Vec<String> {
+    /// The host roles `globals.roles` lists; none before [`Self::publish_host`].
+    fn listed_host_roles(&self) -> Option<Vec<String>> {
         self.hosts
             .lock()
-            .map(|hosts| hosts.0.clone())
-            .unwrap_or_default()
+            .ok()
+            .and_then(|hosts| hosts.as_ref().map(|hosts| hosts.0.clone()))
     }
 
     fn supervisor(&self) -> Option<Supervisor> {
-        self.hosts.lock().ok().and_then(|hosts| hosts.1.clone())
+        self.hosts
+            .lock()
+            .ok()
+            .and_then(|hosts| hosts.as_ref().and_then(|hosts| hosts.1.clone()))
     }
 
     /// The API with `PUT /v1/config` changing the config `file` (`~` read as `home`) and
@@ -208,6 +345,14 @@ impl Api {
     #[must_use]
     pub fn with_timeout(mut self, timeout: Duration) -> Self {
         self.timeout = timeout;
+        self
+    }
+
+    /// The API with `keep`, how long one answer of `/metrics` is kept, in place of
+    /// [`super::metrics::KEEP`]; no config key sets it, a case does.
+    #[must_use]
+    pub const fn with_metrics_keep(mut self, keep: Duration) -> Self {
+        self.metrics_keep = keep;
         self
     }
 
@@ -235,7 +380,10 @@ impl Api {
             rows,
             routes,
             operators,
+            reconciled: true,
         };
+        drop(published);
+        self.started();
     }
 
     fn rows(&self) -> Vec<Value> {
@@ -539,6 +687,19 @@ fn answer<S: Read + Write>(
             listener,
         );
     }
+    // The probes and the metrics answer without a bearer, ahead of the app
+    // (`story:daemon-probes-and-metrics`): their bodies hold states, counts and ages only.
+    if let Some(probe) = super::metrics::answer(&request.method, &path, api) {
+        return response(
+            probe.status,
+            probe.reason,
+            probe.content_type,
+            probe.body.as_bytes(),
+            probe.headers,
+            listener,
+        );
+    }
+    api.await_start();
     if request.method == "GET" && !path.starts_with("/v1/") {
         return app(&path, listener, api);
     }
@@ -609,6 +770,9 @@ fn answer<S: Read + Write>(
                 listener,
             );
         }
+        if !api.is_reconciled() {
+            return api.unpublished(listener);
+        }
         return reply(200, "OK", &Value::Array(api.rows()), listener);
     }
     let Some((name, route)) = path
@@ -657,6 +821,10 @@ fn answer<S: Read + Write>(
         );
     }
     let Some(target) = api.route(name) else {
+        // Before the reconciler published, no route is known, not none running.
+        if !api.is_reconciled() {
+            return api.unpublished(listener);
+        }
         return reply(
             404,
             "Not Found",
@@ -1141,6 +1309,10 @@ fn federated<S: Read + Write>(
             Ok(body) => body,
             Err(refusal) => return Some(refusal(listener)),
         };
+        // The instances and the supervisor it is checked against are the reconciler's.
+        if !api.is_reconciled() {
+            return Some(api.unpublished(listener));
+        }
         let (code, reason, answer) = ask(api, &body);
         return Some(reply(code, reason, &answer, listener));
     }
@@ -1158,6 +1330,10 @@ fn federated<S: Read + Write>(
         if let Err(refusal) = read_body(request, stream) {
             return Some(refusal(listener));
         }
+        // The roles `globals.roles` lists are what the reconciler published of them.
+        if api.listed_host_roles().is_none() {
+            return Some(api.unpublished(listener));
+        }
         let (code, reason, answer) = start_role(api, role);
         return Some(reply(code, reason, &answer, listener));
     }
@@ -1166,6 +1342,10 @@ fn federated<S: Read + Write>(
         .filter(|route| federate::ROUTES.contains(route))?;
     if request.method != "GET" {
         return Some(only("GET"));
+    }
+    // Every federated read asks the instances the reconciler published.
+    if !api.is_reconciled() {
+        return Some(api.unpublished(listener));
     }
     let seen = |name: &str| api.seen(name);
     if route == "events" {
@@ -1318,7 +1498,12 @@ fn ask(api: &Api, body: &[u8]) -> (u16, &'static str, Value) {
 /// host role `role` now ([`super::host_roles::ask`]), `202`; a role that is no host role, or one
 /// `globals.roles` does not list, `404` naming `globals.roles`.
 fn start_role(api: &Api, role: &str) -> (u16, &'static str, Value) {
-    if !super::host_roles::is_host_role(role) || !api.listed_host_roles().iter().any(|r| r == role)
+    if !super::host_roles::is_host_role(role)
+        || !api
+            .listed_host_roles()
+            .unwrap_or_default()
+            .iter()
+            .any(|r| r == role)
     {
         return (
             404,

@@ -1,5 +1,5 @@
 // generated from conductor v1
-// contract digest a1cc34768181dead81bc45def213171589d80ca0e637d39ce715944032bf1a7c
+// contract digest a17ef5b4db86247df9a482c134e7a5bf24ccd55cdf64ac83672245e31b8c09c4
 // do not edit: regenerate with `ess synthesize --layout crate`
 
 //! Store — `conductor.store`.
@@ -214,6 +214,8 @@ pub struct StoreData {
     pub opened_at: crate::primitives::Timestamp,
     /// `reachable` — `Boolean`.
     pub reachable: bool,
+    /// `reason` — `Optional<String>`.
+    pub reason: Option<String>,
     /// `last_event_id` — `Integer`.
     pub last_event_id: i64,
     /// `instance_last_event_ids` — `Map<String, Integer>`.
@@ -484,6 +486,19 @@ pub struct Migrations {
     pub actor: crate::operator::Actor,
 }
 
+/// Readiness — one row of the view `conductor.store.Readiness`.
+///
+/// Projects `conductor.store.Store` at `read_your_writes` consistency.
+/// The specification fully determines every row, so its query is generated over the storage port —
+/// see the plan.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Readiness {
+    /// `reachable` — `Boolean`.
+    pub reachable: bool,
+    /// `reason` — `Optional<String>`.
+    pub reason: Option<String>,
+}
+
 /// Store status — one row of the view `conductor.store.StoreStatus`.
 ///
 /// Projects `conductor.store.Store` at `read_your_writes` consistency.
@@ -533,6 +548,17 @@ pub mod obligations {
         ///
         /// `Err` is the typed refusal of a row whose declared type cannot hold its value.
         fn migrations(&self) -> Result<Vec<super::Migrations>, crate::obligation::UnmetObligation>;
+    }
+
+    /// The query `conductor.store.Readiness` — generated.
+    ///
+    /// The specification fully determines it: [`crate::behaviour::Generated`] implements it
+    /// over the storage port. Implement it yourself to replace that query.
+    pub trait ReadinessQuery {
+        /// Serves `conductor.store.Readiness` rows at the view's declared consistency.
+        ///
+        /// `Err` is the typed refusal of a row whose declared type cannot hold its value.
+        fn readiness(&self) -> Result<Vec<super::Readiness>, crate::obligation::UnmetObligation>;
     }
 
     /// The query `conductor.store.StoreStatus` — generated.

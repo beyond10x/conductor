@@ -43,7 +43,7 @@ use conductor_model::behaviour::ReconciliationStorage;
 use conductor_model::config::{Config, Instance, InstanceName, SessionName};
 use conductor_model::instance::{
     AnyReconciliation, InstanceState, ReconcileAction, ReconcileReason, ReconcileResult,
-    Reconciliation, ReconciliationData, ReconciliationId,
+    Reconciliation, ReconciliationData, ReconciliationId, ReconciliationSnapshot,
 };
 use conductor_model::primitives::Uuid;
 use serde::{Deserialize, Serialize};
@@ -416,6 +416,9 @@ pub struct Daemon<U: Units> {
     pub tokens: crate::placement::TokenSource,
     pub(super) boxes: BTreeMap<String, crate::placement::OpenedBox>,
     store: Store,
+    /// The reconciliations the store refused, in the order they were taken, held until
+    /// [`Daemon::record_held`] writes them (`story:daemon-probes-and-metrics`).
+    held: Vec<ReconciliationSnapshot>,
     /// `daemon.store` as the file wrote it at start: the store above, handed every runtime.
     url: String,
     config: Config,
@@ -431,6 +434,10 @@ pub struct Daemon<U: Units> {
     /// When the daemon last looked ([`Daemon::due`], [`Daemon::pass`]).
     looked: Option<Instant>,
     last_pass: Option<Instant>,
+    /// Why the next pass runs while a record the store refused left one undone: the reason of
+    /// the pass it is part of, `Cadence` for a record of no pass ([`Daemon::pass`],
+    /// [`Daemon::due`]).
+    rerun: Option<ReconcileReason>,
 }
 
 impl<U: Units> Daemon<U> {
@@ -473,6 +480,7 @@ impl<U: Units> Daemon<U> {
             tokens: crate::placement::token_source(),
             boxes,
             store,
+            held: Vec::new(),
             url,
             config,
             text,
@@ -483,6 +491,7 @@ impl<U: Units> Daemon<U> {
             attempts: BTreeMap::new(),
             looked: None,
             last_pass: None,
+            rerun: None,
         })
     }
 
@@ -550,7 +559,9 @@ impl<U: Units> Daemon<U> {
 
     /// Why a pass is due at `now`, if one is: the first tick; the config file's text changed;
     /// a runtime the daemon started stopped running, or one whose start failed has waited its
-    /// time ([`retry_after`]); or a cadence passed since the last pass.
+    /// time ([`retry_after`]); or a cadence passed since the last pass. A pass a refused record
+    /// left undone runs again at the next tick for its own reason, or for the config change
+    /// when the file changed since it read it (`story:daemon-probes-and-metrics`).
     /// It notes, for [`Daemon::rows`], which runtimes run.
     ///
     /// # Errors
@@ -559,10 +570,16 @@ impl<U: Units> Daemon<U> {
     pub fn due(&mut self, now: Instant) -> Result<Option<ReconcileReason>> {
         let lost = self.observe()?;
         self.looked = Some(now);
+        let changed =
+            fs::read_to_string(&self.config_file).ok().as_deref() != Some(self.text.as_str());
         let Some(last) = self.last_pass else {
-            return Ok(Some(ReconcileReason::Cadence));
+            return Ok(Some(match self.rerun {
+                Some(_) if changed => ReconcileReason::ConfigChange,
+                Some(reason) => reason,
+                None => ReconcileReason::Cadence,
+            }));
         };
-        if fs::read_to_string(&self.config_file).ok().as_deref() != Some(self.text.as_str()) {
+        if changed {
             return Ok(Some(ReconcileReason::ConfigChange));
         }
         let retry = self.attempts.iter().any(|(name, attempt)| {
@@ -873,16 +890,36 @@ impl<U: Units> Daemon<U> {
     /// One pass for `reason` at `now`, as the module documentation says; answers the actions it
     /// took, each recorded.
     ///
+    /// A pass that fails still writes [`RUNTIMES_FILE`] with what it did before it failed, so a
+    /// daemon stopped before its next pass knows each runtime it started, restarted or stopped.
+    /// One that fails on a record the store refused is not done: the next tick runs it again for
+    /// `reason` ([`Daemon::due`], `story:daemon-probes-and-metrics`).
+    ///
     /// # Errors
     ///
     /// The config file does not read or is not valid (nothing is done), the service manager
     /// cannot be asked, a reconciliation cannot be recorded, or [`RUNTIMES_FILE`] cannot be
     /// written.
     pub fn pass(&mut self, reason: ReconcileReason, now: Instant) -> Result<Vec<Done>> {
+        let passed = self.pass_once(reason, now);
+        if passed.is_err() {
+            if self.holds_records() {
+                self.rerun = Some(reason);
+            }
+            if let Err(unkept) = self.save() {
+                return passed.map_err(|error| error.context(format!("{unkept:#}")));
+            }
+        }
+        passed
+    }
+
+    /// [`Daemon::pass`] up to its first failure.
+    fn pass_once(&mut self, reason: ReconcileReason, now: Instant) -> Result<Vec<Done>> {
         let (text, config) = read_config(&self.config_file, &self.home)?;
         self.text = text;
         self.config = config;
         self.last_pass = Some(now);
+        self.rerun = None;
         self.looked = Some(now);
         let at = crate::records::now()?;
         self.pool()
@@ -1401,13 +1438,15 @@ impl<U: Units> Daemon<U> {
             actor: actor.clone(),
             at: at.clone(),
         };
-        ReconciliationStorage::put(
-            &mut self.store,
-            AnyReconciliation::Recorded(Reconciliation::new(data)).snapshot(),
-        );
-        self.store
-            .check()
-            .map_err(|error| anyhow!("record the reconciliation of {instance}: {error}"))?;
+        self.held
+            .push(AnyReconciliation::Recorded(Reconciliation::new(data)).snapshot());
+        if let Err(error) = self.record_held() {
+            // The pass this record is part of is not done: the next tick runs one, for that
+            // pass's reason ([`Daemon::pass`]), `Cadence` for a record of no pass.
+            self.last_pass = None;
+            self.rerun = self.rerun.or(Some(ReconcileReason::Cadence));
+            return Err(error.context(format!("record the reconciliation of {instance}")));
+        }
         Ok(Done {
             instance: instance.to_owned(),
             action,
@@ -1415,6 +1454,37 @@ impl<U: Units> Daemon<U> {
             result,
             detail,
         })
+    }
+
+    /// Writes the reconciliations the store refused, in the order they were taken
+    /// (`story:daemon-probes-and-metrics`). A handle that failed refuses every later write
+    /// ([`Store::check`]), so the store is opened anew first when this one failed. Each record
+    /// keeps its id, and a reconciliation is one stream by its id: one whose refused write did
+    /// land is not recorded twice. Nothing is held when it answers.
+    ///
+    /// # Errors
+    ///
+    /// The store does not open, or refuses a write again: the records stay held.
+    pub fn record_held(&mut self) -> Result<()> {
+        if self.held.is_empty() {
+            return Ok(());
+        }
+        if self.store.check().is_err() {
+            self.store = crate::store::open_url(&self.url, super::TENANT)
+                .map_err(|error| anyhow!("daemon.store: {error:#}"))?;
+        }
+        for snapshot in &self.held {
+            ReconciliationStorage::put(&mut self.store, snapshot.clone());
+        }
+        self.store.check().map_err(|error| anyhow!("{error}"))?;
+        self.held.clear();
+        Ok(())
+    }
+
+    /// Whether a reconciliation the store refused is still held ([`Self::record_held`]).
+    #[must_use]
+    pub const fn holds_records(&self) -> bool {
+        !self.held.is_empty()
     }
 
     /// Writes [`RUNTIMES_FILE`] and [`BINARIES_FILE`].
@@ -1613,6 +1683,20 @@ fn read_config(file: &Path, home: &Path) -> Result<(String, Config)> {
         anyhow!("{}", lines.join("\n"))
     })?;
     Ok((text, config))
+}
+
+/// What `daemon serve` reads of `config_file` before its store answers
+/// (`story:daemon-probes-and-metrics`): the config, `~` read as `home`, and the `daemon.store`
+/// the file writes. [`Daemon::open`] reads both again once the store answers.
+///
+/// # Errors
+///
+/// As [`Daemon::open`] refuses a config file: it does not read, is not valid, or writes no
+/// `daemon.store` the daemon opens.
+pub fn written(config_file: &Path, home: &Path) -> Result<(Config, String)> {
+    let (text, config) = read_config(config_file, home)?;
+    let url = written_store(config_file, &text)?;
+    Ok((config, url))
 }
 
 /// `at` in whole seconds since the epoch; 0 before it.

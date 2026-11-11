@@ -51,6 +51,11 @@ entities:
         type: Timestamp
       - name: reachable
         type: Boolean
+      # Why the store is not reachable, on one line; absent while it is. A fixed sentence about
+      # the store's answer: it never carries the URL, a path or a config value, since the
+      # readiness probe answers it without a bearer (`conductor.store.Readiness`).
+      - name: reason
+        type: Optional<String>
       - name: last_event_id
         type: Integer
       - name: instance_last_event_ids
@@ -239,6 +244,26 @@ views:
     naming:
       wire: store-status
       display: Store status
+
+  # The daemon's readiness probe (`GET /readyz`, `story:daemon-probes-and-metrics`): whether the
+  # deployment's store answered one read within the probe's bound, and why not. The daemon
+  # answers it at the read, without a bearer, so it carries neither the URL nor the backend; the
+  # one row is `200` while `reachable` and `503` otherwise.
+  # UNMAPPED: `ess-http/1` gives a view's route one success status, so the `503` of a row whose
+  # `reachable` is false is the daemon's and is not written in the binding.
+  # UNMAPPED: the liveness probe (`GET /healthz`) reads no entity and the metrics
+  # (`GET /metrics`) answer Prometheus text, not rows, so neither is a view here.
+  - name: conductor.store.Readiness
+    source: conductor.store.Store
+    consistency: read_your_writes
+    fields:
+      - name: reachable
+        type: Boolean
+      - name: reason
+        type: Optional<String>
+    naming:
+      wire: readiness
+      display: Readiness
 
   - name: conductor.store.Migrations
     source: conductor.store.Migration

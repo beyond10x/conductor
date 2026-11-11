@@ -210,6 +210,10 @@ entities:
 
 views:
   # § 5.2 `instances`: every instance with its placement, state, binary version and last seen.
+  # UNMAPPED: the daemon reads these rows from its reconciler; until the reconciler published
+  # once, `GET /v1/instances` answers `503` with the readiness reason of `conductor.store.Readiness`
+  # (`story:daemon-probes-and-metrics`). `ess-http/1` gives a view's route one success status, so
+  # that `503` is the daemon's and is not written in the binding.
   - name: conductor.instance.Instances
     source: conductor.instance.Instance
     consistency: read_your_writes
