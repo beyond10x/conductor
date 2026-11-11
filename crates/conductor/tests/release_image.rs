@@ -1013,3 +1013,303 @@ fn the_documents_name_the_image_and_how_a_release_verifies_it() {
         );
     }
 }
+
+// Adversary cases: the image job's step scripts run against stand-ins, so the `latest` rule,
+// the root check, the anonymous pull and the build's `image=built` are held by what the scripts
+// do, not by the words they contain.
+
+/// A `docker` that writes each call down, a line of `$CALLS`, and answers as the registry and
+/// the image would: `image inspect` with the one repository digest `$IMAGE@$ANSWERED`,
+/// `image ls` with one image id, `run … conductor --version` with `$PRINTED`, `run … id -u` with
+/// `$UID_IN_IMAGE`; `pull` fails while `$PULL_FAILS` is set.
+const ADVERSARY_DOCKER: &str = "#!/bin/sh\n\
+    echo \"$*\" >> \"$CALLS\"\n\
+    case \"$1 $2\" in\n\
+      \"login ghcr.io\") cat > /dev/null ;;\n\
+      \"image inspect\") printf '%s@%s\\n' \"$IMAGE\" \"$ANSWERED\" ;;\n\
+      \"image ls\") echo 0123456789ab ;;\n\
+      pull*) [ -z \"$PULL_FAILS\" ] || exit 1 ;;\n\
+      run*)\n\
+        shift 3\n\
+        case \"$*\" in\n\
+          \"conductor --version\") echo \"$PRINTED\" ;;\n\
+          \"id -u\") echo \"$UID_IN_IMAGE\" ;;\n\
+        esac ;;\n\
+    esac\n";
+
+/// A `gh` that answers `gh api repos/$GH_REPO/releases/latest` with `$NEWEST`, the tag of the
+/// newest Release, and fails as the API does on an error while `$NEWEST` is empty.
+const ADVERSARY_GH: &str = "#!/bin/sh\n\
+    [ \"$1 $2\" = \"api repos/$GH_REPO/releases/latest\" ] || { echo \"unexpected: gh $*\" >&2; exit 2; }\n\
+    [ -n \"$NEWEST\" ] || { echo 'HTTP 502: Bad Gateway' >&2; exit 1; }\n\
+    echo \"$NEWEST\"\n";
+
+/// A `tar` that only writes each call down.
+const ADVERSARY_TAR: &str = "#!/bin/sh\necho \"tar $*\" >> \"$CALLS\"\n";
+
+/// What a step of the image job did against the stand-ins: its exit, its stderr, the `docker`
+/// calls and its `$GITHUB_OUTPUT`.
+struct Ran {
+    success: bool,
+    stderr: String,
+    calls: Vec<String>,
+    outputs: String,
+}
+
+/// Runs `run`, a step of the image job, in a fresh scratch `name` for the tag `v1.4.0`, with
+/// `extra` added to the job's environment; `prepare` may write into the step's working
+/// directory first.
+fn image_step(name: &str, run: &str, extra: &[(&str, &str)], prepare: impl FnOnce(&Path)) -> Ran {
+    // The script is in the name, so a case and its mutant, run at once, never share a directory.
+    let script = run.bytes().fold(0u64, |hash, byte| {
+        hash.wrapping_mul(31).wrapping_add(u64::from(byte))
+    });
+    let case = scratch::Scratch::new(format!("{name}-{script:016x}"));
+    let work = case.path().join("work");
+    fs::create_dir_all(&work).expect("the step's working directory");
+    prepare(&work);
+    let outputs = case.path().join("output");
+    let calls = case.path().join("calls");
+    let mut variables = vec![
+        ("GITHUB_OUTPUT", outputs.display().to_string()),
+        ("CALLS", calls.display().to_string()),
+        ("IMAGE", "ghcr.io/example-org/conductor".to_owned()),
+        ("TAG", "v1.4.0".to_owned()),
+        ("VERSION", "1.4.0".to_owned()),
+        ("COMMIT", "0".repeat(40)),
+        ("GH_TOKEN", "none".to_owned()),
+        ("GH_REPO", "example-org/conductor".to_owned()),
+        ("ACTOR", "example-bot".to_owned()),
+        ("ANSWERED", format!("sha256:{}", "c".repeat(64))),
+        ("DIGEST", format!("sha256:{}", "c".repeat(64))),
+        ("PRINTED", "conductor 1.4.0".to_owned()),
+        ("UID_IN_IMAGE", "10001".to_owned()),
+    ];
+    for (key, value) in extra {
+        variables.retain(|(known, _)| known != key);
+        variables.push((*key, (*value).to_owned()));
+    }
+    let output = step_run(
+        case.path(),
+        run,
+        &[
+            ("docker", ADVERSARY_DOCKER),
+            ("gh", ADVERSARY_GH),
+            ("tar", ADVERSARY_TAR),
+        ],
+        &variables,
+    );
+    Ran {
+        success: output.status.success(),
+        stderr: String::from_utf8_lossy(&output.stderr).into_owned(),
+        calls: fs::read_to_string(&calls)
+            .unwrap_or_default()
+            .lines()
+            .map(str::to_owned)
+            .collect(),
+        outputs: fs::read_to_string(&outputs).unwrap_or_default(),
+    }
+}
+
+fn pushed_latest(ran: &Ran) -> bool {
+    ran.calls
+        .iter()
+        .any(|call| call == "push ghcr.io/example-org/conductor:latest")
+}
+
+/// The push step moves `latest` for the newest Release only, logs out after every push and
+/// hands on the reference and the digest the registry answered.
+fn holds_the_latest_rule(push: &str) {
+    let newest = image_step(
+        "release-image-adversary-latest-newest",
+        push,
+        &[("NEWEST", "v1.4.0")],
+        |_| {},
+    );
+    assert!(newest.success, "the push step failed: {}", newest.stderr);
+    assert!(
+        pushed_latest(&newest),
+        "the newest release moves `latest`: {:?}",
+        newest.calls
+    );
+    assert_eq!(
+        newest.calls.last().map(String::as_str),
+        Some(
+            "image inspect --format {{range .RepoDigests}}{{println .}}{{end}} \
+             ghcr.io/example-org/conductor:1.4.0"
+        )
+    );
+    assert!(newest.calls.iter().any(|call| call == "logout ghcr.io"));
+    assert_eq!(
+        newest.outputs,
+        format!(
+            "reference=ghcr.io/example-org/conductor:1.4.0\ndigest=sha256:{}\n",
+            "c".repeat(64)
+        )
+    );
+
+    let older = image_step(
+        "release-image-adversary-latest-older",
+        push,
+        &[("NEWEST", "v1.5.0")],
+        |_| {},
+    );
+    assert!(older.success, "the push step failed: {}", older.stderr);
+    assert!(
+        !pushed_latest(&older) && !older.calls.iter().any(|call| call.contains(":latest")),
+        "a backfill of an older tag leaves `latest`: {:?}",
+        older.calls
+    );
+    assert!(
+        older
+            .calls
+            .iter()
+            .any(|call| call == "push ghcr.io/example-org/conductor:1.4.0")
+    );
+}
+
+#[test]
+fn adversary_the_push_step_moves_latest_for_the_newest_release_only() {
+    let workflow = workflow();
+    holds_the_latest_rule(script(job(&workflow, "image"), "Push the image"));
+}
+
+/// When the API cannot say which Release is the newest, the push step cannot know whether
+/// `latest` should move. Ending green leaves `latest` on the previous release with nothing to
+/// show it: AGENTS.md § Releases step 6 checks `:<version>` only, so the run has to fail.
+#[test]
+fn adversary_the_push_step_fails_when_the_newest_release_cannot_be_read() {
+    let workflow = workflow();
+    let push = script(job(&workflow, "image"), "Push the image");
+    let ran = image_step(
+        "release-image-adversary-latest-unknown",
+        push,
+        &[("NEWEST", "")],
+        |_| {},
+    );
+    assert!(
+        !ran.success,
+        "the API answered no newest release, `latest` was not moved ({}), and the push step \
+         still succeeded: docker calls {:?}",
+        pushed_latest(&ran),
+        ran.calls
+    );
+}
+
+/// The smoke run fails on an image whose user is root and on one whose `conductor --version`
+/// is not the release's, and starts every program of the image.
+fn holds_the_smoke_run(smoke: &str) {
+    let fine = image_step("release-image-adversary-smoke", smoke, &[], |_| {});
+    assert!(fine.success, "the smoke run failed: {}", fine.stderr);
+    for program in programs() {
+        assert!(
+            fine.calls.iter().any(|call| call
+                == &format!("run --rm ghcr.io/example-org/conductor:1.4.0 {program} --version")),
+            "the smoke run starts `{program}`: {:?}",
+            fine.calls
+        );
+    }
+    let root = image_step(
+        "release-image-adversary-smoke-root",
+        smoke,
+        &[("UID_IN_IMAGE", "0")],
+        |_| {},
+    );
+    assert!(
+        !root.success,
+        "the smoke run passed an image that runs as root"
+    );
+    let wrong = image_step(
+        "release-image-adversary-smoke-version",
+        smoke,
+        &[("PRINTED", "conductor 1.3.9")],
+        |_| {},
+    );
+    assert!(
+        !wrong.success,
+        "the smoke run passed an image whose conductor is another version"
+    );
+}
+
+#[test]
+fn adversary_the_smoke_run_refuses_root_and_another_version() {
+    let workflow = workflow();
+    holds_the_smoke_run(script(job(&workflow, "image"), "Run the image"));
+}
+
+/// The pull after the logout fails, naming the package's visibility, when the pull fails, and
+/// pulls the digest the push answered.
+fn holds_the_public_pull(pull: &str) {
+    let public = image_step("release-image-adversary-pull", pull, &[], |_| {});
+    assert!(public.success, "the pull step failed: {}", public.stderr);
+    assert!(
+        public.calls.iter().any(|call| call
+            == &format!(
+                "pull ghcr.io/example-org/conductor@sha256:{}",
+                "c".repeat(64)
+            )),
+        "the pull step pulls the digest: {:?}",
+        public.calls
+    );
+    let private = image_step(
+        "release-image-adversary-pull-private",
+        pull,
+        &[("PULL_FAILS", "1")],
+        |_| {},
+    );
+    assert!(
+        !private.success,
+        "the pull step passed while the image cannot be pulled without a login"
+    );
+    assert!(
+        private
+            .stderr
+            .contains("set the package's visibility to public"),
+        "the pull step names the fix: {}",
+        private.stderr
+    );
+}
+
+#[test]
+fn adversary_the_pull_step_fails_while_the_package_is_not_public() {
+    let workflow = workflow();
+    holds_the_public_pull(script(
+        job(&workflow, "image"),
+        "Pull the image without a login",
+    ));
+}
+
+/// With a `Dockerfile` in the checkout the build step builds for linux/amd64 from the context
+/// holding the archive's binary, and says `image=built`, which every later step and the notes
+/// job wait on.
+fn holds_the_build(build: &str) {
+    let built = image_step("release-image-adversary-build", build, &[], |work| {
+        fs::create_dir_all(work.join("source")).expect("the checkout");
+        fs::write(work.join("source/Dockerfile"), "FROM scratch\n").expect("a Dockerfile");
+    });
+    assert!(built.success, "the build step failed: {}", built.stderr);
+    assert_eq!(built.outputs, "image=built\n");
+    assert_eq!(
+        built.calls.first().map(String::as_str),
+        Some(
+            "tar -xzf dist/conductor-1.4.0-x86_64-unknown-linux-gnu.tar.gz -C context \
+             --strip-components=1 conductor-1.4.0-x86_64-unknown-linux-gnu/conductor"
+        )
+    );
+    assert!(
+        built.calls.iter().any(|call| call
+            .starts_with("build --platform linux/amd64 --file source/Dockerfile")
+            && call.ends_with("--tag ghcr.io/example-org/conductor:1.4.0 context")),
+        "the build step builds the context: {:?}",
+        built.calls
+    );
+}
+
+#[test]
+fn adversary_the_build_step_says_built_when_the_tag_holds_a_dockerfile() {
+    let workflow = workflow();
+    holds_the_build(script(
+        job(&workflow, "image"),
+        "Build the image from the packaged binary",
+    ));
+}
