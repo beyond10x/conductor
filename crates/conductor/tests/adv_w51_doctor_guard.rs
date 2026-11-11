@@ -574,3 +574,174 @@ fn adv_setup_is_not_ready_where_doctor_is_not_ready_on_the_route() {
         shown(&setup)
     );
 }
+
+// ---------------------------------------------------------------------------------------------
+// Adversary pass 2 (wave 51, unit U3): the correction after pass 1.
+// ---------------------------------------------------------------------------------------------
+
+/// A checkout at `dir` whose git config names `url` as its `origin`, written as a file.
+fn adv2_checkout(dir: &Path, url: &str) {
+    fs::create_dir_all(dir.join(".git")).expect("create the checkout");
+    fs::write(
+        dir.join(".git/config"),
+        format!("[core]\n\tbare = false\n[remote \"origin\"]\n\turl = {url}\n"),
+    )
+    .expect("write the checkout's git config");
+}
+
+/// `conductor <args>` of a [`SetupCase`] in `cwd`, with `B10X_GATES_POLICY` naming `policy` when
+/// there is one.
+fn adv2_setup_run(case: &SetupCase, cwd: &Path, args: &[&str], policy: Option<&Path>) -> Output {
+    let mut command = common::conductor(case.home());
+    command
+        .args(args)
+        .current_dir(cwd)
+        .env_clear()
+        .env("PATH", case.bin());
+    if let Some(policy) = policy {
+        command.env(POLICY_VARIABLE, policy);
+    }
+    case.isolated(&mut command)
+        .output()
+        .expect("conductor runs")
+}
+
+/// `SETUP.md` from step 6: `conductor setup --apply` in a GitHub repository with
+/// `B10X_GATES_POLICY` naming a readable policy writes the bot route, and the checkouts root it
+/// writes is the directory holding the repository, here beside a clone of a GitLab repository.
+/// Setup derives the route from the one repository's origin; doctor checks it against every
+/// checkout under that root. The route setup writes for a fresh install must not be one doctor,
+/// and setup's own verdict, then refuses with no hand edit made (the operator's decision).
+#[test]
+fn adv2_the_bot_route_setup_writes_is_not_refused_for_a_clone_beside_it() {
+    let case = SetupCase::new("adv2-route-beside");
+    let repository = case.repository("zeta");
+    adv2_checkout(
+        &case.home().join("src/notes"),
+        "https://gitlab.example.com/example-group/notes.git",
+    );
+    let policy = case.dir.join("gates-policy.json");
+    fs::write(&policy, "{}\n").expect("write the policy");
+    let setup = adv2_setup_run(
+        &case,
+        &repository,
+        &["setup", "--apply"],
+        Some(policy.as_path()),
+    );
+    let config = fs::read_to_string(case.home().join(".b10x/conductor/conductor.yaml"))
+        .unwrap_or_else(|error| panic!("setup wrote no config ({error}): {}", shown(&setup)));
+    assert!(
+        config.contains("gates_policy"),
+        "setup writes the bot route for a GitHub origin with a policy:\n{config}\n{}",
+        shown(&setup)
+    );
+    let doctor = adv2_setup_run(&case, &repository, &["doctor"], Some(policy.as_path()));
+    let verdict = last(&doctor);
+    assert!(
+        !verdict.contains("no bot route for") && !verdict.contains("guard controller (denied)"),
+        "doctor refuses the route setup wrote for a clone beside the repository: {}",
+        shown(&doctor)
+    );
+}
+
+/// GitHub's own SSH over the HTTPS port, `ssh://git@ssh.github.com:443/<owner>/<name>.git`, names
+/// a repository on GitHub, to which the bot route writes. Doctor's verdict on a `local` source on
+/// `gates` with a checkout of that origin is the verdict with the `https://github.com/` origin of
+/// the same repository.
+#[test]
+fn adv2_a_github_checkout_over_ssh_on_port_443_is_a_github_checkout() {
+    let case = Case::new("adv2-ssh-github");
+    case.programs();
+    let policy = case.dir.join("gates-policy.json");
+    fs::write(&policy, "{}\n").expect("write the policy");
+    let config = case.config(
+        &format!("[{{local: {}}}]", case.checkouts().display()),
+        &format!("\x20   gates_policy: {}\n", policy.display()),
+    );
+    let alpha = case.checkouts().join("alpha");
+    adv2_checkout(&alpha, "https://github.com/example-org/alpha.git");
+    let https = case.run(&config, &["doctor"], &[]);
+    adv2_checkout(&alpha, "ssh://git@ssh.github.com:443/example-org/alpha.git");
+    let ssh = case.run(&config, &["doctor"], &[]);
+    assert_eq!(
+        last(&ssh),
+        last(&https),
+        "the same GitHub repository over ssh.github.com turns the verdict: {}",
+        shown(&ssh)
+    );
+}
+
+/// The operator's decision: a GitHub origin with a readable policy in `B10X_GATES_POLICY` gets the
+/// bot route. A host name is read in any case (doctor's own route check does so), so an origin
+/// written `https://GitHub.com/…` is on GitHub: the plan names the bot route under that policy.
+#[test]
+fn adv2_setup_reads_a_github_origin_in_any_case() {
+    let case = SetupCase::new("adv2-github-case");
+    let repository = case.repository("zeta");
+    let set = case
+        .isolated(Command::new("git").arg("-C").arg(&repository).args([
+            "remote",
+            "set-url",
+            "origin",
+            "https://GitHub.com/example-org/zeta.git",
+        ]))
+        .output()
+        .expect("git runs");
+    assert!(set.status.success(), "git remote set-url: {}", shown(&set));
+    let policy = case.dir.join("gates-policy.json");
+    fs::write(&policy, "{}\n").expect("write the policy");
+    let plan = adv2_setup_run(&case, &repository, &["setup"], Some(policy.as_path()));
+    let expected = format!("forge route zeta: gates, policy {}, ", policy.display());
+    assert!(
+        stdout(&plan).iter().any(|line| line.starts_with(&expected)),
+        "the plan names the bot route for a GitHub origin with a policy, {expected:?}: {}",
+        shown(&plan)
+    );
+}
+
+/// Setup's verdict names the reasons doctor's names on the same file, and no other: with the
+/// database of the old default path there (getting-started), `--apply` writes a file whose box
+/// conductord refuses, and doctor ends `not ready: box zeta (placement.writable-root-shared)`.
+/// Setup's verdict is the same line.
+#[test]
+fn adv2_setup_names_a_refused_box_as_doctor_does() {
+    let case = SetupCase::new("adv2-box-once");
+    let repository = case.repository("zeta");
+    let before = case.home().join(".b10x/conductor/conductor.sqlite");
+    fs::create_dir_all(before.parent().expect("a parent")).expect("create the directory");
+    fs::write(&before, "kept").expect("write the store");
+    let setup = adv2_setup_run(&case, &repository, &["setup", "--apply"], None);
+    let doctor = adv2_setup_run(&case, &repository, &["doctor"], None);
+    assert!(
+        last(&doctor).contains("box zeta (placement.writable-root-shared)"),
+        "doctor names the refused box: {}",
+        shown(&doctor)
+    );
+    assert_eq!(
+        last(&setup),
+        last(&doctor),
+        "setup names reasons doctor does not: {}",
+        shown(&setup)
+    );
+}
+
+/// `SETUP.md` step 8, before step 9 starts the substrate daemon: doctor on the file setup wrote
+/// names the box of the instance, and setup's verdict, with `--apply` and without, is doctor's.
+/// This holds setup to doctor's box lines: a setup that left them out of its verdict ends with
+/// another line.
+#[test]
+fn adv2_setup_before_the_substrate_daemon_ends_with_doctor_s_verdict() {
+    let case = SetupCase::new("adv2-no-substrate");
+    let repository = case.repository("zeta");
+    let applied = adv2_setup_run(&case, &repository, &["setup", "--apply"], None);
+    let plain = adv2_setup_run(&case, &repository, &["setup"], None);
+    let doctor = adv2_setup_run(&case, &repository, &["doctor"], None);
+    assert!(
+        last(&doctor).contains("box zeta ("),
+        "doctor names the box before step 9: {}",
+        shown(&doctor)
+    );
+    for setup in [&applied, &plain] {
+        assert_eq!(last(setup), last(&doctor), "{}", shown(setup));
+    }
+}
