@@ -134,13 +134,19 @@ impl Case {
 
     /// A config file of one instance `alpha` whose `sources` are `sources` (a YAML flow
     /// sequence), with its checkouts, trees and records in the case's directory, on the default
-    /// route, `gates`, with a `gates_policy` (`story:doctor-checks-guard-forge-writes`).
+    /// route, `gates`, with a `gates_policy` (`story:doctor-checks-guard-forge-writes`), a file
+    /// that is there ([`Case::policy`]).
     fn config(&self, sources: &str) -> PathBuf {
-        let policy = format!(
-            "\x20   gates_policy: {}\n",
-            self.dir.join("gates-policy.json").display()
-        );
+        let policy = format!("\x20   gates_policy: {}\n", self.policy().display());
         self.config_of(sources, &policy)
+    }
+
+    /// The Gates policy file of [`Case::config`], written: a `gates_policy` that names no readable
+    /// file is not ready.
+    fn policy(&self) -> PathBuf {
+        let policy = self.dir.join("gates-policy.json");
+        fs::write(&policy, "{}\n").expect("write the policy");
+        policy
     }
 
     /// [`Case::config`] without a `gates_policy`, the instance ending with `rest`: whole lines
@@ -1351,7 +1357,7 @@ fn doctor_is_not_ready_when_the_guard_denies_the_controller_s_forge_write() {
     let line = the_line(&lines, "guard controller: ", &output);
     assert!(
         line.starts_with("guard controller: denied by `glab mr create` is a GitLab write")
-            && line.ends_with("writes go through the bot route"),
+            && line.ends_with("writes go through the bot route; checkouts denied: alpha"),
         "the line carries the guard's reason: {}",
         shown(&output)
     );
@@ -1383,7 +1389,7 @@ fn doctor_prints_allowed_for_each_role_whose_forge_write_the_guard_allows() {
         &case.dir.join("records"),
         "https://github.com/example-org/records.git",
     );
-    let policy = case.dir.join("gates-policy.json");
+    let policy = case.policy();
     for direct in [true, false] {
         // Both configs are one file: each is written when its turn comes.
         let (config, route) = if direct {
@@ -1485,9 +1491,11 @@ fn doctor_and_the_hook_answer_the_sample_forge_write_alike() {
     let output = case.doctor_for(&config);
     let lines = stdout(&output);
     let line = the_line(&lines, "guard controller: ", &output);
-    let reason = line
+    let (reason, denied) = line
         .strip_prefix("guard controller: denied by ")
+        .and_then(|rest| rest.rsplit_once("; checkouts denied: "))
         .unwrap_or_else(|| panic!("the guard denies the sample: {}", shown(&output)));
+    assert_eq!(denied, "alpha", "{}", shown(&output));
     let hook = case.hook(&config, &checkout, sample);
     assert_eq!(hook.status.code(), Some(2), "{}", shown(&hook));
     assert!(
@@ -1535,7 +1543,7 @@ fn doctor_names_the_instance_of_each_role_when_the_file_has_several() {
             root = other.join("checkouts").display(),
             trees = other.join("trees").display(),
             records = other.join("records").display(),
-            policy = case.dir.join("gates-policy.json").display(),
+            policy = case.policy().display(),
         ),
     )
     .expect("write the config file");
@@ -1635,43 +1643,222 @@ fn doctor_is_not_ready_when_the_bot_route_has_no_route_for_a_source_s_host() {
 const POLICY_VARIABLE: &str = "B10X_GATES_POLICY";
 
 /// A policy only in the environment stays `not ready`: doctor cannot see the broker's
-/// environment, and the instance names no policy. With `B10X_GATES_POLICY` set in doctor's own
-/// environment, the fix on the route line names that path as the `gates_policy` to write.
+/// environment, and the instance names no policy. With `B10X_GATES_POLICY` naming a readable file
+/// in doctor's own environment, the fix on the route line names that file as the `gates_policy`
+/// to write, as an absolute path `config validate` accepts: a relative value is joined with
+/// doctor's working directory, as `conductor setup` joins it. A value that names no readable
+/// file is no path to write, and the fix names none.
 #[test]
 fn doctor_names_the_policy_of_its_environment_as_the_gates_policy_to_write() {
     let case = Case::new("route-policy-in-environment");
     case.programs_but(&[]);
-    let policy = case.dir.join("gates-policy.json");
+    let policy = case.policy();
+    fs::write(case.work().join("gates-policy.json"), "{}\n").expect("write the policy");
     let config = case.config_of(GITHUB_SOURCE, "");
-    let output = common::conductor(case.home())
-        .arg("doctor")
-        .current_dir(case.work())
-        .env_clear()
-        .env("HOME", case.home())
-        .env("PATH", case.bin())
-        .env("CONDUCTOR_CONFIG", &config)
-        .env(POLICY_VARIABLE, &policy)
-        .stdin(Stdio::null())
-        .output()
-        .expect("conductor runs");
+    let doctor = |value: &std::ffi::OsStr| {
+        common::conductor(case.home())
+            .arg("doctor")
+            .current_dir(case.work())
+            .env_clear()
+            .env("HOME", case.home())
+            .env("PATH", case.bin())
+            .env("CONDUCTOR_CONFIG", &config)
+            .env(POLICY_VARIABLE, value)
+            .stdin(Stdio::null())
+            .output()
+            .expect("conductor runs")
+    };
+    let missing = case.dir.join("no-such-policy.json");
+    for (value, named) in [
+        (policy.clone().into_os_string(), Some(policy.clone())),
+        (
+            "gates-policy.json".into(),
+            Some(case.work().join("gates-policy.json")),
+        ),
+        (missing.into_os_string(), None),
+        (case.dir.clone().into_os_string(), None),
+    ] {
+        let output = doctor(value.as_os_str());
+        assert_eq!(output.status.code(), Some(1), "{}", shown(&output));
+        let lines = stdout(&output);
+        let fix = named.map_or_else(String::new, |named| {
+            format!(": {}, the path {POLICY_VARIABLE} names", named.display())
+        });
+        assert_eq!(
+            the_line(&lines, "forge route alpha: ", &output),
+            format!(
+                "forge route alpha: gates without a gates_policy: set \
+                 instances[0].gates_policy{fix}, or instances[0].forge.route: direct"
+            ),
+            "{value:?}: {}",
+            shown(&output)
+        );
+        assert_eq!(
+            last(&output),
+            "not ready: forge route alpha (no gates_policy)",
+            "{}",
+            shown(&output)
+        );
+    }
+}
+
+/// A `gates_policy` that names no readable file (none there, a directory, a file this process
+/// cannot read) is no policy the bot route writes under: doctor names the path and the fixes on
+/// the route line and is not ready. A readable one is ready, and doctor prints none of its
+/// content.
+#[test]
+fn doctor_is_not_ready_on_a_gates_policy_that_is_no_readable_file() {
+    let case = Case::new("route-policy-unreadable");
+    case.programs_but(&[]);
+    let missing = case.dir.join("no-such-policy.json");
+    let directory = case.dir.join("policies");
+    fs::create_dir_all(&directory).expect("create the directory");
+    let unreadable = case.dir.join("unreadable-policy.json");
+    fs::write(&unreadable, "{}\n").expect("write the policy");
+    fs::set_permissions(&unreadable, fs::Permissions::from_mode(0o000)).expect("take its mode");
+    // A process that reads every file anyway (root) cannot see the third case.
+    let reads_anyway = fs::File::open(&unreadable).is_ok();
+    for policy in [&missing, &directory, &unreadable] {
+        if *policy == unreadable && reads_anyway {
+            continue;
+        }
+        let config = case.config_of(
+            GITHUB_SOURCE,
+            &format!("\x20   gates_policy: {}\n", policy.display()),
+        );
+        let output = case.doctor_for(&config);
+        assert_eq!(output.status.code(), Some(1), "{}", shown(&output));
+        let lines = stdout(&output);
+        assert_eq!(
+            the_line(&lines, "forge route alpha: ", &output),
+            format!(
+                "forge route alpha: gates, and gates_policy {} is not a readable file: write the \
+                 policy there, set instances[0].gates_policy to a readable policy file, or \
+                 instances[0].forge.route: direct",
+                policy.display()
+            ),
+            "{}",
+            shown(&output)
+        );
+        assert_eq!(
+            last(&output),
+            format!(
+                "not ready: forge route alpha (gates_policy {} is not a readable file)",
+                policy.display()
+            ),
+            "{}",
+            shown(&output)
+        );
+    }
+
+    let policy = case.dir.join("gates-policy.json");
+    fs::write(&policy, "{\"marker\": \"example-policy-content\"}\n").expect("write the policy");
+    let config = case.config_of(
+        GITHUB_SOURCE,
+        &format!("\x20   gates_policy: {}\n", policy.display()),
+    );
+    let output = case.doctor_for(&config);
+    assert_eq!(last(&output), "ready", "{}", shown(&output));
+    assert!(
+        !String::from_utf8_lossy(&output.stdout).contains("example-policy-content"),
+        "doctor prints no content of the policy: {}",
+        shown(&output)
+    );
+}
+
+/// The checkouts of the lead's cases below: `alpha` on GitHub, the rest on a GitLab host.
+const LEAD_CHECKOUTS: [&str; 6] = ["alpha", "beta", "gamma", "delta", "epsilon", "zeta"];
+
+/// Doctor asks the guard about every checkout of the lead, not the first: a `local` source over
+/// a directory of checkouts on the route `gates`, one on GitHub and five on a GitLab host. The
+/// hook denies the controller of each GitLab checkout its merge request, so the role's line
+/// reads `denied by` the guard's reason and names the checkouts denied, three and how many more,
+/// and the verdict names the role once. The route check reads the checkouts' origins too: a
+/// GitLab origin under a `local` source is the same reason, with the same fix, as a `gitlab`
+/// source on `gates`. With the GitLab checkouts gone the line reads `allowed`.
+#[test]
+fn doctor_asks_the_guard_about_every_checkout_of_the_lead() {
+    let case = Case::new("guard-every-checkout");
+    case.programs_but(&[]);
+    case.program(GLAB.0, GLAB.1, 0);
+    let root = case.checkouts();
+    for name in LEAD_CHECKOUTS {
+        let url = if name == "alpha" {
+            GITHUB_ORIGIN.to_owned()
+        } else {
+            format!("https://gitlab.example.com/example-group/{name}.git")
+        };
+        case.origin(&root.join(name), &url);
+    }
+    let config = case.config(&format!("[{{local: {}}}]", root.display()));
+    let output = case.doctor_for(&config);
     assert_eq!(output.status.code(), Some(1), "{}", shown(&output));
     let lines = stdout(&output);
+    let line = the_line(&lines, "guard controller: ", &output);
+    let (reason, denied) = line
+        .strip_prefix("guard controller: denied by ")
+        .and_then(|rest| rest.rsplit_once("; checkouts denied: "))
+        .unwrap_or_else(|| panic!("the guard denies the lead: {}", shown(&output)));
     assert_eq!(
-        the_line(&lines, "forge route alpha: ", &output),
-        format!(
-            "forge route alpha: gates without a gates_policy: set instances[0].gates_policy: \
-             {}, the path {POLICY_VARIABLE} names, or instances[0].forge.route: direct",
-            policy.display()
-        ),
+        denied,
+        "beta, delta, epsilon and 2 more",
         "{}",
         shown(&output)
     );
+    let hook = case.hook(
+        &config,
+        &root.join("zeta"),
+        "glab mr create -R example-group/zeta --fill",
+    );
+    assert_eq!(hook.status.code(), Some(2), "{}", shown(&hook));
+    assert!(
+        String::from_utf8_lossy(&hook.stderr)
+            .lines()
+            .any(|answered| answered == format!("conductor guard: denied: {reason}")),
+        "the hook denies the fifth GitLab checkout with the reason doctor printed: {}",
+        shown(&hook)
+    );
+    let route = the_line(&lines, "forge route alpha: ", &output).to_owned();
     assert_eq!(
         last(&output),
-        "not ready: forge route alpha (no gates_policy)",
+        "not ready: forge route alpha (no bot route for gitlab.example.com), guard controller \
+         (denied)",
         "{}",
         shown(&output)
     );
+    // The same reason and fix as for a `gitlab` source on the same host. Both files are one.
+    let gitlab = case.config(GITLAB_SOURCE);
+    let output = case.doctor_for(&gitlab);
+    assert_eq!(
+        the_line(&stdout(&output), "forge route alpha: ", &output),
+        route,
+        "{}",
+        shown(&output)
+    );
+
+    let config = case.config(&format!("[{{local: {}}}]", root.display()));
+    for name in &LEAD_CHECKOUTS[3..] {
+        fs::remove_dir_all(root.join(name)).expect("remove a checkout");
+    }
+    let output = case.doctor_for(&config);
+    let lines = stdout(&output);
+    assert!(
+        the_line(&lines, "guard controller: ", &output)
+            .ends_with("; checkouts denied: beta, gamma"),
+        "{}",
+        shown(&output)
+    );
+    for name in &LEAD_CHECKOUTS[1..3] {
+        fs::remove_dir_all(root.join(name)).expect("remove a checkout");
+    }
+    let output = case.doctor_for(&config);
+    assert_eq!(
+        the_line(&stdout(&output), "guard controller: ", &output),
+        "guard controller: allowed",
+        "{}",
+        shown(&output)
+    );
+    assert_eq!(last(&output), "ready", "{}", shown(&output));
 }
 
 /// `not checked` is only for a role with no repository on a forge. A role whose repository has
@@ -1723,7 +1910,8 @@ fn doctor_asks_the_guard_for_every_role_whose_repository_has_an_origin() {
 }
 
 /// Each fenced block of `text` that is a whole `conductor.config/2` file, its indentation taken
-/// off.
+/// off: not a console block, whose first line is a `$ ` prompt (`conductor config migrate`'s
+/// output names the version and a placement too).
 fn config_blocks(text: &str) -> Vec<String> {
     let mut blocks = Vec::new();
     let mut open: Option<(usize, Vec<String>)> = None;
@@ -1738,10 +1926,13 @@ fn config_blocks(text: &str) -> Vec<String> {
             lines.push(line.get(*indent..).unwrap_or("").to_owned());
         }
     }
+    // A block that starts with a `$ ` prompt is a command and what it printed, no file.
     blocks
         .into_iter()
         .filter(|block| {
-            block.contains("version: conductor.config/2") && block.contains("placement:")
+            block.contains("version: conductor.config/2")
+                && block.contains("placement:")
+                && !block.trim_start().starts_with("$ ")
         })
         .collect()
 }
@@ -1751,8 +1942,10 @@ fn config_blocks(text: &str) -> Vec<String> {
 /// `forge.route: direct`, or the route `gates` with a `gates_policy` and no `gitlab` source, so
 /// its verdict names no forge route. It is read here by the rule, not by running doctor: the
 /// pages' files name a store, a secrets service and boxes a test must not reach. `SETUP.md` is
-/// not among them: the file of its step 6 is the one `conductor setup --apply` writes, which
-/// chooses no route, and a step of its own asks the person for it (`docs_setup.rs`).
+/// not among them: the file of its step 6 is the one `conductor setup --apply` writes, whose
+/// route setup derives from the repository's origin (`setup.rs`), and its values are words in
+/// angle brackets. A block that does not parse fails the case, unless [`UNPARSED`] names its page
+/// and why it does not parse.
 #[test]
 fn every_config_file_a_page_shows_names_a_forge_route_doctor_is_ready_on() {
     let home = Path::new("/srv/home");
@@ -1791,9 +1984,24 @@ fn every_config_file_a_page_shows_names_a_forge_route_doctor_is_ready_on() {
     }
     let mut read = 0;
     let mut problems: Vec<String> = Vec::new();
+    let mut unparsed: Vec<(&str, &str)> = Vec::new();
     for (page, text) in &texts {
-        let Ok(parsed) = config::parse(text, home) else {
-            continue;
+        let parsed = match config::parse(text, home) {
+            Ok(parsed) => parsed,
+            Err(refused) => {
+                let said = format!("{refused:?}");
+                match UNPARSED
+                    .iter()
+                    .find(|(listed, why)| listed == page && said.contains(why))
+                {
+                    Some(listed) => unparsed.push(*listed),
+                    None => problems.push(format!(
+                        "{page}: a whole config file that does not parse, and UNPARSED does not \
+                         name it: {said}\n{text}"
+                    )),
+                }
+                continue;
+            }
         };
         read += 1;
         for instance in &parsed.instances {
@@ -1818,9 +2026,25 @@ fn every_config_file_a_page_shows_names_a_forge_route_doctor_is_ready_on() {
             }
         }
     }
+    for listed in UNPARSED {
+        let found = unparsed.iter().filter(|one| **one == listed).count();
+        if found != 1 {
+            problems.push(format!(
+                "UNPARSED names {listed:?}, and {found} blocks of the page match it, not one"
+            ));
+        }
+    }
     assert!(
         read >= 6,
         "only {read} whole config files of the pages read"
     );
     assert!(problems.is_empty(), "{}", problems.join("\n"));
 }
+
+/// The whole config files of the pages that do not parse on purpose, each by its page and the
+/// problem it shows: the one block of `configure-an-instance.md` written to show
+/// `config validate`'s answer to a broken file.
+const UNPARSED: [(&str, &str); 1] = [(
+    "website/docs/guides/configure-an-instance.md",
+    "instances[0].cadence.cycle",
+)];

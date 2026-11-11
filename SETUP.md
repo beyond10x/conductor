@@ -108,12 +108,15 @@ to fill in, and each step says where they come from. `<target>` is the build of 
        checkouts:
          root: <directory holding the repository>
          trees: ~/.local/state/worktree/trees/<repository's directory name>
+       forge: {route: direct}
    ```
 
    For GitLab the source is `gitlab: <group>` with `host: <host>` under it; with no forge it is
    `local: <directory holding the repository>`. A file that is there already gets the instance
-   under its `instances:`, with a `session_prefix` no other instance has. The file names no
-   forge route yet: step 11 asks the person for it.
+   under its `instances:`, with a `session_prefix` no other instance has. The last line is the
+   forge route `conductor setup --apply` writes: for a GitHub origin while `B10X_GATES_POLICY`
+   names a readable policy file it is `gates_policy: <that file's absolute path>` instead; step
+   11 says why.
    - Check: `conductor config show`; one instance's checkouts root is the directory that holds
      the repository.
    - Fix: write the file or the instance above, then `conductor config validate`, which names
@@ -135,8 +138,7 @@ to fill in, and each step says where they come from. `<target>` is the build of 
    - Check: `conductor doctor`; it prints worktree workspace: <root> activated. Before step 9
      it also prints a box <name>: row that names a refusal (a writable root that does not exist
      yet, or placement.substrate-unreachable), ends with not ready: box <name> (<refusal>) and
-     exits 1: read the printed line here, not the exit status. Step 9 clears the row. Until
-     step 11 the not-ready line also names forge route <name> (no gates_policy).
+     exits 1: read the printed line here, not the exit status. Step 9 clears the row.
    - Fix: `conductor trust --instance <name>`, then `conductor setup --apply`
    - Hands: none.
 
@@ -168,27 +170,28 @@ to fill in, and each step says where they come from. `<target>` is the build of 
       substrate refused shows as PlacementRefused with substrate's reason.
     - Hands: none.
 
-11. **Choose the forge route of the instance.** The route is how a controller writes its pull
-    or merge requests. Ask the person once which of the two the instance takes, and write it
-    under the instance in the config file. `forge: {route: direct}`: controllers write with the
-    person's own forge login, the one of step 2; an instance with a GitLab source takes this
-    one, since the bot route writes to GitHub only. Or `gates_policy: <path>`: controllers write
-    through the bot route, `b10x-gates`, under the policy file at `<path>`, on the default
-    `forge.route: gates`; https://github.com/beyond10x/gates#readme says how to write a policy.
-    The file of step 6 names neither, and on the default route without a `gates_policy` doctor
-    ends not ready: forge route <name> (no gates_policy). `conductor setup` chooses no route
-    either: it prints the same forge route line, and `conductor setup --apply` writes a
-    `gates_policy` only into an instance it creates, and only the readable file
-    `B10X_GATES_POLICY` names in its environment.
+11. **Read the forge route setup wrote.** The route is how a controller writes its pull or merge
+    requests. `conductor setup --apply` (step 8) wrote it into the instance it created, from the
+    repository's origin, and printed it with why; it asks nothing. A GitLab origin, a repository
+    with no forge origin, or a GitHub origin while `B10X_GATES_POLICY` names no readable policy
+    file gets `forge: {route: direct}`: controllers write with the person's own forge login, the
+    one of step 2, since the bot route writes to GitHub only and under a policy only. A GitHub
+    origin while `B10X_GATES_POLICY` names a readable policy file gets that file's absolute path
+    as its `gates_policy`, on the default route, gates: controllers write through the bot route,
+    `b10x-gates`, under that policy. Setup changes the route of no instance that is there. To
+    take the bot route later, write `gates_policy: <path>` under the instance, a policy file
+    https://github.com/beyond10x/gates#readme says how to write, and remove its `forge.route` or
+    set it to gates.
     - Check: `conductor doctor`; it prints forge route <name>: direct, or
       forge route <name>: gates, policy <path>.
-    - Fix: write the line the person chose under the instance, then `conductor config validate`.
-    - Hands: the choice of the route; for the bot route, the policy file.
+    - Fix: for the bot route, write the lines above, then `conductor config validate`; none else.
+    - Hands: none, unless the person wants the bot route: then the policy file.
 
 12. **Check the repository as a whole, and apply what is safe.** `conductor setup` prints doctor's
     rows, then the repository's: its planning store, the instance naming it, its records and its
-    trust, then the forge route of that instance as doctor prints it,
-    and ends with one verdict. `--apply` writes the step 6 file when there is no config
+    trust, then doctor's lines of the config file (each instance's box, forge route and guard
+    lines) and the forge route of the instance `--apply` writes, with why, and ends with one
+    verdict, not ready wherever doctor's is. `--apply` writes the step 6 file when there is no config
     file, and runs `conductor init` and `conductor trust` when they are missing. It also
     activates the instance's checkouts root as a `worktree` workspace when doctor prints
     worktree workspace: <root> not activated: it writes a profile for it beside the config file,

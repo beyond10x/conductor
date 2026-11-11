@@ -402,14 +402,16 @@ fn the_step_before_the_last_applies_conductor_setup() {
     );
 }
 
-/// `story:doctor-checks-guard-forge-writes`: `conductor setup --apply` chooses no forge route,
-/// and doctor is not ready on the default route without a `gates_policy`. A step of its own,
-/// before the one that applies `conductor setup`, asks the person once which route the instance
-/// takes and writes it: `forge: {route: direct}` or a `gates_policy`, with the Gates readme for
-/// the bot route. Its Check reads the `forge route` line of `conductor doctor`, and its Hands
-/// line names the choice.
+/// `story:doctor-checks-guard-forge-writes`: `conductor setup --apply` derives the forge route of
+/// the instance it creates from the repository's origin (the operator's decision of correction
+/// round 2) and asks the person nothing. A step of its own, before the one that applies
+/// `conductor setup`, says what setup writes and why (`forge: {route: direct}` for a GitLab
+/// origin, no forge origin, or no readable `B10X_GATES_POLICY`; a `gates_policy` otherwise), and
+/// how to take the bot route later, with the Gates readme for its policy. Its Check reads the
+/// `forge route` line of `conductor doctor`; its Hands line is `none` unless the person wants the
+/// bot route, and the step asks the person nothing.
 #[test]
-fn a_step_before_setup_asks_the_person_for_the_forge_route() {
+fn a_step_before_setup_says_the_forge_route_setup_writes_and_how_to_change_it() {
     let steps = steps(&read("SETUP.md"));
     let at = steps
         .iter()
@@ -426,9 +428,12 @@ fn a_step_before_setup_asks_the_person_for_the_forge_route() {
     for needed in [
         "`forge: {route: direct}`",
         "`gates_policy`",
+        "`B10X_GATES_POLICY`",
+        "GitLab",
         "https://github.com/beyond10x/gates#readme",
         "forge route <name>: direct",
         "forge route <name>: gates, policy",
+        "`forge.route`",
     ] {
         assert!(
             text.contains(needed),
@@ -460,14 +465,23 @@ fn a_step_before_setup_asks_the_person_for_the_forge_route() {
         step.line,
         step.title.trim()
     );
-    let asks = step
+    let hands: Vec<&str> = step
         .lines
         .iter()
         .filter_map(|(_, text)| keyed(text, "Hands:"))
-        .any(|rest| rest.contains("route"));
+        .collect();
     assert!(
-        asks,
-        "SETUP.md:{}: step {} leaves the choice of the route to no one",
+        hands.len() == 1
+            && hands[0].trim_start().starts_with("none")
+            && hands[0].contains("bot route"),
+        "SETUP.md:{}: step {}'s Hands line is not `none` unless the person wants the bot route: \
+         {hands:?}",
+        step.line,
+        step.title.trim()
+    );
+    assert!(
+        !text.to_lowercase().contains("ask the person"),
+        "SETUP.md:{}: step {} asks the person for the route",
         step.line,
         step.title.trim()
     );
@@ -477,8 +491,14 @@ fn a_step_before_setup_asks_the_person_for_the_forge_route() {
         .find(|step| joined(step).contains("version: conductor.config/2"))
         .unwrap_or_else(|| panic!("no step of SETUP.md shows the config file"));
     assert!(
+        joined(written).contains("forge: {route: direct}"),
+        "SETUP.md:{}: the file step {} shows names no forge route, which setup writes",
+        written.line,
+        written.title.trim()
+    );
+    assert!(
         joined(written).contains(&format!("step {}", at + 1)),
-        "SETUP.md:{}: step {} does not say step {} writes the forge route",
+        "SETUP.md:{}: step {} does not say step {} says which forge route setup writes",
         written.line,
         written.title.trim(),
         at + 1

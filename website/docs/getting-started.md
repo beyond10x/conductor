@@ -131,7 +131,7 @@ instances:
 
 In a checkout, `conductor setup --apply` writes such a file for that repository when there is
 none ([one task in an existing repository](./guides/first-task-existing-repo.md#1-set-the-checkout-up)),
-without a forge route: it prints the `forge route` line that names the two ways to write one.
+with the forge route it derives from the repository's `origin`, and prints that route with why.
 Where a database is already at `~/.b10x/conductor/conductor.sqlite`, the file it writes names that
 one, and `--apply` never changes a `daemon.store` that is written or moves a store. It then
 prints a `box:` row with the refusal and a `to write: daemon.store: …` line, and its verdict is

@@ -162,16 +162,19 @@ The denial hands the operator the command, prefixed with `!`. A call inside `pyt
 
 `conductor doctor` asks this table, with the function the hook decides every call with, about
 one forge write of each role it decides: a pull request create in the role's own repository, the
-controller's in a checkout of the instance and conductor's in its records. Under
+controller's in every checkout of the instance and conductor's in its records. Under
 `forge.route: direct` that is `gh pr create -R <own>`, under `gates` the bot route's
 `b10x-gates api`; for a repository on any other host than `github.com` it is
 `glab mr create -R <own>` under either route, since the bot route writes to GitHub only. Doctor
-prints `guard <role>: allowed` or `guard <role>: denied by <the guard's reason>`, runs nothing and
-records no denial. A denied role makes its verdict `not ready: guard <role> (denied)`. A role
+prints `guard <role>: allowed` when the guard allows it everywhere, or `guard <role>: denied by
+<the guard's reason>`, for the controller with `; checkouts denied:` and the checkouts it denies
+(three, then `and <n> more`), one line per reason; it runs nothing and records no denial. A
+denied role makes its verdict `not ready: guard <role> (denied)`, naming the role once. A role
 with no checkout whose `origin` names a repository reads `not checked`. Before those rows, a
 `forge route <instance>:` row names each instance's route. An instance on `gates` without a
-`gates_policy`, or with a `gitlab` source, makes the verdict `not ready`, and its row names the
-fix.
+`gates_policy`, with one that is not a readable file, or with a `gitlab` source or a checkout
+whose `origin` is on another host than `github.com`, makes the verdict `not ready`, and its row
+names the fix.
 
 ### Dashboard answers
 

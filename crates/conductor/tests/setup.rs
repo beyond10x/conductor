@@ -18,9 +18,11 @@ mod common;
 use std::env;
 use std::fs;
 use std::os::unix::fs::{PermissionsExt as _, symlink};
+use std::os::unix::net::UnixListener;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Output, Stdio};
 
+use conductor_cli::placement::{self, SOCKET_VARIABLE};
 use serde_json::Value;
 
 /// Each program conductor starts but `git`, `gh` and `glab`, with the version line its fake
@@ -50,6 +52,7 @@ impl Drop for Case {
     fn drop(&mut self) {
         if !std::thread::panicking() {
             let _ = fs::remove_dir_all(&self.dir);
+            let _ = fs::remove_file(self.socket());
         }
     }
 }
@@ -216,16 +219,122 @@ impl Case {
 
     /// `conductor setup <args>` in `cwd`.
     fn setup(&self, cwd: &Path, args: &[&str]) -> Output {
-        self.isolated(
-            common::conductor(self.home())
-                .arg("setup")
-                .args(args)
-                .current_dir(cwd)
-                .env_clear()
-                .env("PATH", self.bin()),
-        )
-        .output()
-        .expect("conductor runs")
+        self.run(cwd, "setup", args, None)
+    }
+
+    /// `conductor <command> <args>` in `cwd`, with `B10X_GATES_POLICY` naming `policy` when there
+    /// is one, and the local substrate daemon at the case's socket ([`Case::serve_boxes`]).
+    fn run(&self, cwd: &Path, command: &str, args: &[&str], policy: Option<&Path>) -> Output {
+        let mut run = common::conductor(self.home());
+        run.arg(command)
+            .args(args)
+            .current_dir(cwd)
+            .env_clear()
+            .env("PATH", self.bin())
+            .env(SOCKET_VARIABLE, self.socket());
+        if let Some(policy) = policy {
+            run.env(POLICY_VARIABLE, policy);
+        }
+        self.isolated(&mut run).output().expect("conductor runs")
+    }
+
+    /// The socket of the case's local substrate daemon: none answers there until
+    /// [`Case::serve_boxes`]. Its name is short, a hash of the case's directory, since a Unix
+    /// socket's path holds at most 107 bytes.
+    fn socket(&self) -> PathBuf {
+        use std::hash::{Hash as _, Hasher as _};
+        let mut hasher = std::collections::hash_map::DefaultHasher::new();
+        self.dir.hash(&mut hasher);
+        PathBuf::from(env!("CARGO_TARGET_TMPDIR"))
+            .join("ss")
+            .join(format!("{:08x}.sock", hasher.finish() & 0xffff_ffff))
+    }
+
+    /// `SETUP.md` step 9 for the instance `name` `--apply` writes: its state, cache and store
+    /// directories (its records are `conductor init`'s), and a local substrate daemon on
+    /// [`Case::socket`] that serves a `systemd` box those four writable roots. It answers
+    /// `GET /v1/machine` with the facts the box requires and every other request 503.
+    fn serve_boxes(&self, name: &str) {
+        use std::io::{Read as _, Write as _};
+        for dir in [
+            format!(".b10x/conductor/{name}/state"),
+            format!(".cache/b10x/conductor/{name}"),
+            ".b10x/conductor/store".to_owned(),
+        ] {
+            fs::create_dir_all(self.home().join(dir)).expect("create a writable root");
+        }
+        let required = placement::requires(placement::Adapter::Systemd);
+        let mut facts = serde_json::json!({
+            "events.pull": true,
+            "exec.argv-only": true,
+            "exec.cgroup-kill": true,
+            "exec.no-egress": true,
+            "exec.output-limit-bytes": 65536,
+            "leases.explicit": true,
+            "operation.ledger-global-max-bytes": 4_294_967_296_u64,
+            "operation.ledger-global-max-rows": 1_000_000,
+            "operation.ledger-subject-max-bytes": 536_870_912,
+            "operation.ledger-subject-max-rows": 100_000,
+            "workspace.guarded-io": true,
+        });
+        for family in &required.families {
+            facts[family.fact()] = Value::Bool(true);
+        }
+        for property in &required.facts {
+            facts[property.fact()] = Value::Bool(true);
+        }
+        facts["exec.writable-roots.host"] = serde_json::json!([
+            placement::writable_root_name("state", name),
+            placement::writable_root_name("records", name),
+            placement::writable_root_name("cache", name),
+            "store",
+        ]);
+        let body = serde_json::to_vec(&serde_json::json!({
+            "api_version": "v1",
+            "request_id": "req_machine",
+            "result": {
+                "config_generation": 1,
+                "driver": "host",
+                "driver_version": "fixture-1",
+                "facts": facts,
+                "probed_at": "2026-11-08T12:00:00Z",
+                "snapshot": format!("sha256:{}", "7".repeat(64)),
+            }
+        }))
+        .expect("the machine");
+        let socket = self.socket();
+        fs::create_dir_all(socket.parent().expect("a parent")).expect("create its directory");
+        let _ = fs::remove_file(&socket);
+        let listener = UnixListener::bind(&socket).expect("bind the socket");
+        std::thread::spawn(move || {
+            for stream in listener.incoming() {
+                let Ok(mut stream) = stream else { return };
+                let mut head = Vec::new();
+                let mut byte = [0_u8; 1];
+                while !head.ends_with(b"\r\n\r\n") {
+                    match stream.read(&mut byte) {
+                        Ok(1) => head.push(byte[0]),
+                        _ => break,
+                    }
+                }
+                let machine = head.starts_with(b"GET /v1/machine ");
+                let (status, answer) = if machine {
+                    ("200 OK", body.clone())
+                } else {
+                    ("503 Service Unavailable", b"{}".to_vec())
+                };
+                let _ = write!(
+                    stream,
+                    "HTTP/1.1 {status}\r\nx-b10x-contract: {}\r\n\
+                     x-b10x-contract-bundle-sha256: {}\r\ncontent-type: application/json\r\n\
+                     content-length: {}\r\nconnection: close\r\n\r\n",
+                    substrate_sdk::CONTRACT,
+                    substrate_sdk::CONTRACT_SHA256,
+                    answer.len()
+                );
+                let _ = stream.write_all(&answer);
+            }
+        });
     }
 }
 
@@ -409,6 +518,7 @@ fn setup_apply_fixes_what_is_safe_and_prints_what_is_not() {
     );
     let records = case.home().join(".b10x/conductor/epsilon/records");
     let shown_repository = repository.display().to_string();
+    case.serve_boxes("epsilon");
 
     for run in 0..2 {
         let output = case.setup(&repository, &["--apply"]);
@@ -829,6 +939,7 @@ fn setup_apply_activates_the_worktree_workspace_with_a_profile_it_writes() {
     );
     let root = case.home().join("src");
     let profile = case.profile("zeta");
+    case.serve_boxes("zeta");
     let output = case.setup(&repository, &["--apply"]);
     assert_eq!(
         fs::read_to_string(&profile).unwrap_or_default(),
@@ -879,6 +990,7 @@ fn setup_apply_keeps_a_profile_that_is_there() {
     fs::create_dir_all(profile.parent().expect("a directory")).expect("create its directory");
     let own = "version = 1\nname = \"own\"\nexpire_after_seconds = 60\n";
     fs::write(&profile, own).expect("write the profile");
+    case.serve_boxes("zeta");
     let output = case.setup(&repository, &["--apply"]);
     assert_eq!(
         fs::read_to_string(&profile).expect("the profile"),
@@ -902,6 +1014,7 @@ fn setup_without_apply_activates_nothing() {
         Some("https://github.com/example-org/zeta.git"),
         Some(CURRENT_STORE),
     );
+    case.serve_boxes("zeta");
     let first = case.setup(&repository, &["--apply"]);
     assert_eq!(last(&first), "ready", "{}", shown(&first));
     fs::remove_file(case.dir.join("worktree-activated")).expect("deactivate the fake's workspace");
@@ -938,6 +1051,7 @@ fn setup_apply_prints_the_activation_worktree_refused() {
     );
     let root = case.home().join("src");
     let profile = case.profile("zeta");
+    case.serve_boxes("zeta");
     let output = case.setup(&repository, &["--apply"]);
     assert_eq!(output.status.code(), Some(1), "{}", shown(&output));
     assert!(profile.is_file(), "{}", shown(&output));
@@ -966,143 +1080,239 @@ fn setup_apply_prints_the_activation_worktree_refused() {
 }
 
 // ---------------------------------------------------------------------------------------------
-// story:doctor-checks-guard-forge-writes: setup names the forge route of the instance before
-// doctor does, and takes the instance's Gates policy from its environment.
+// story:doctor-checks-guard-forge-writes: setup derives the forge route of an instance it
+// creates from the repository's origin and asks nobody, and its verdict is doctor's.
 // ---------------------------------------------------------------------------------------------
 
 /// The variable that names the Gates policy, as `conductor broker serve` reads it.
 const POLICY_VARIABLE: &str = "B10X_GATES_POLICY";
 
-impl Case {
-    /// [`Case::setup`] with [`POLICY_VARIABLE`] naming `policy` in its environment.
-    fn setup_with_policy(&self, cwd: &Path, args: &[&str], policy: &Path) -> Output {
-        self.isolated(
-            common::conductor(self.home())
-                .arg("setup")
-                .args(args)
-                .current_dir(cwd)
-                .env_clear()
-                .env("PATH", self.bin())
-                .env(POLICY_VARIABLE, policy),
-        )
-        .output()
-        .expect("conductor runs")
-    }
+/// The origin of a repository of [`derives_the_route`].
+#[derive(Clone, Copy)]
+enum Kind {
+    GitHub,
+    GitLab,
+    None,
 }
 
-/// With `B10X_GATES_POLICY` naming a readable file, the plan prints the `gates_policy` the
-/// instance of `--apply` takes and writes nothing; `--apply` writes that path into the instance
-/// it creates, and the route line reads as doctor's. A later `--apply` under another policy
-/// changes no instance that is there.
+/// `conductor setup` for a repository `name` whose origin is of `kind`, with a readable policy
+/// file in `B10X_GATES_POLICY` when `policy`, on a host with no config file, following SETUP.md:
+/// the plan prints the route `--apply` writes and why, and writes nothing; `--apply` writes that
+/// route into the instance it creates (`expected`, a line of the instance, or a `gates_policy`
+/// line naming the policy) and prints it again with why; a second `--apply` leaves the file
+/// byte-identical. With the box served (step 9), doctor (step 13) and setup end `ready` with no
+/// hand edit of the route, and setup's verdict is doctor's.
+fn derives_the_route(name: &str, kind: Kind, policy: bool, route: &str, why: &str) {
+    let case = Case::new(&format!("route-{name}"));
+    case.worktree(0);
+    case.claude_json();
+    let origin = match kind {
+        Kind::GitHub => Some(format!("https://github.com/example-org/{name}.git")),
+        Kind::GitLab => Some(format!("git@{GITLAB_HOST}:example-group/{name}.git")),
+        Kind::None => None,
+    };
+    let repository = case.repository(name, origin.as_deref(), Some(CURRENT_STORE));
+    let file = case.dir.join("gates-policy.json");
+    fs::write(&file, "{}\n").expect("write the policy");
+    let policy = policy.then_some(file.as_path());
+    let route = route.replace("<policy>", &file.display().to_string());
+
+    let plan = case.run(&repository, "setup", &[], policy);
+    holds(
+        &plan,
+        &[format!(
+            "forge route {name}: {route}, which --apply writes: {why}"
+        )],
+    );
+    assert!(
+        !case.config_file().exists(),
+        "without --apply setup writes nothing: {}",
+        shown(&plan)
+    );
+
+    case.serve_boxes(name);
+    let applied = case.run(&repository, "setup", &["--apply"], policy);
+    let config = fs::read_to_string(case.config_file()).unwrap_or_else(|error| {
+        panic!(
+            "--apply wrote no config file ({error}): {}",
+            shown(&applied)
+        )
+    });
+    let written = if route == "direct" {
+        "    forge: {route: direct}\n".to_owned()
+    } else {
+        format!("    gates_policy: \"{}\"\n", file.display())
+    };
+    assert!(
+        config.contains(&written),
+        "the instance names its route {written:?}:\n{config}\n{}",
+        shown(&applied)
+    );
+    assert_eq!(
+        config.contains("gates_policy"),
+        route != "direct",
+        "a gates_policy only on the bot route:\n{config}"
+    );
+    holds(
+        &applied,
+        &[
+            format!("forge route {name}: {route}, which --apply wrote: {why}"),
+            format!("forge route {name}: {route}"),
+        ],
+    );
+    assert_eq!(last(&applied), "ready", "{}", shown(&applied));
+
+    let again = case.run(&repository, "setup", &["--apply"], policy);
+    assert_eq!(
+        fs::read_to_string(case.config_file()).expect("the config file"),
+        config,
+        "a second --apply changes no byte: {}",
+        shown(&again)
+    );
+    let doctor = case.run(&repository, "doctor", &[], policy);
+    assert_eq!(last(&doctor), "ready", "{}", shown(&doctor));
+    assert_eq!(last(&again), last(&doctor), "{}", shown(&again));
+}
+
+/// A GitHub origin with `B10X_GATES_POLICY` naming a readable file: the bot route, `gates`, the
+/// default, under that policy's absolute path.
 #[test]
-fn setup_apply_writes_the_gates_policy_its_environment_names_into_the_instance_it_creates() {
-    let case = Case::new("route-policy");
+fn setup_apply_writes_the_bot_route_for_a_github_origin_and_a_policy() {
+    derives_the_route(
+        "eta",
+        Kind::GitHub,
+        true,
+        "gates, policy <policy>",
+        "the origin is on github.com and B10X_GATES_POLICY names this policy file",
+    );
+}
+
+/// A GitHub origin and no policy in the environment: `forge: {route: direct}`, since the bot
+/// route writes under a policy only.
+#[test]
+fn setup_apply_writes_the_direct_route_for_a_github_origin_without_a_policy() {
+    derives_the_route(
+        "theta",
+        Kind::GitHub,
+        false,
+        "direct",
+        "B10X_GATES_POLICY names no readable policy file, and the bot route writes under a \
+         policy only",
+    );
+}
+
+/// A GitLab origin: `forge: {route: direct}`, a policy in the environment or not, since the bot
+/// route writes to GitHub only.
+#[test]
+fn setup_apply_writes_the_direct_route_for_a_gitlab_origin() {
+    derives_the_route(
+        "iota",
+        Kind::GitLab,
+        true,
+        "direct",
+        &format!("the origin is on {GITLAB_HOST}, and the bot route writes to github.com only"),
+    );
+}
+
+/// No forge origin: `forge: {route: direct}`, a policy in the environment or not.
+#[test]
+fn setup_apply_writes_the_direct_route_for_a_repository_without_a_forge_origin() {
+    derives_the_route(
+        "kappa",
+        Kind::None,
+        true,
+        "direct",
+        "the repository has no origin on a forge, and the bot route writes to github.com only",
+    );
+}
+
+/// `--apply` changes the route of no instance that is there: an instance naming the repository on
+/// `gates` without a `gates_policy` keeps its bytes, under a policy in the environment too, and
+/// setup ends `not ready` with doctor's route reason and its fix, which names that policy. With a
+/// file whose instances do not name the repository, `--apply` prints the instance to add with the
+/// route it derives, and changes no byte.
+#[test]
+fn setup_apply_changes_the_route_of_no_instance_that_is_there() {
+    let case = Case::new("route-kept");
+    case.worktree(0);
     case.claude_json();
     let repository = case.repository(
-        "eta",
-        Some("https://github.com/example-org/eta.git"),
+        "lambda",
+        Some("https://github.com/example-org/lambda.git"),
         Some(CURRENT_STORE),
     );
     let policy = case.dir.join("gates-policy.json");
     fs::write(&policy, "{}\n").expect("write the policy");
-
-    let output = case.setup_with_policy(&repository, &[], &policy);
-    holds(
-        &output,
-        &[format!(
-            "forge route eta: gates_policy: {} in the instance of --apply, the file \
-             {POLICY_VARIABLE} names",
-            policy.display()
-        )],
+    let written = format!(
+        "version: conductor.config/2\n\
+         daemon:\n\
+         \x20 store: sqlite:~/.b10x/conductor/store/conductor.sqlite\n\
+         instances:\n\
+         \x20 - name: lambda\n\
+         \x20   placement: systemd\n\
+         \x20   session_prefix: lambda\n\
+         \x20   sources:\n\
+         \x20     - github: example-org\n\
+         \x20   checkouts:\n\
+         \x20     root: {}\n\
+         \x20     trees: ~/.local/state/worktree/trees/lambda\n",
+        repository.parent().expect("a parent").display()
     );
-    assert!(
-        !case.config_file().exists(),
-        "without --apply setup writes nothing"
-    );
-
-    let output = case.setup_with_policy(&repository, &["--apply"], &policy);
-    let config = fs::read_to_string(case.config_file()).expect("--apply wrote the config file");
-    assert!(
-        config.contains(&format!("    gates_policy: \"{}\"\n", policy.display())),
-        "the instance names the policy:\n{config}\n{}",
-        shown(&output)
-    );
-    holds(
-        &output,
-        &[format!(
-            "forge route eta: gates, policy {}",
-            policy.display()
-        )],
-    );
-
-    let other = case.dir.join("other-policy.json");
-    fs::write(&other, "{}\n").expect("write the other policy");
-    let output = case.setup_with_policy(&repository, &["--apply"], &other);
-    assert_eq!(
-        fs::read_to_string(case.config_file()).expect("the config file"),
-        config,
-        "--apply overwrites nothing of an instance that is there: {}",
-        shown(&output)
-    );
-    holds(
-        &output,
-        &[format!(
-            "forge route eta: gates, policy {}",
-            policy.display()
-        )],
-    );
-}
-
-/// Without a policy in its environment, or with one that names no readable file, setup chooses
-/// no route: the plan and `--apply` print the route line doctor prints, with its two fixes, and
-/// the instance `--apply` writes names neither a `gates_policy` nor a `forge` route. Once the
-/// instance writes its route, the line names it.
-#[test]
-fn setup_prints_the_forge_route_and_its_fix_and_chooses_no_route() {
-    let case = Case::new("route-none");
-    case.claude_json();
-    let repository = case.repository(
-        "theta",
-        Some("https://github.com/example-org/theta.git"),
-        Some(CURRENT_STORE),
-    );
-    let fix = "forge route theta: gates without a gates_policy: set instances[0].gates_policy, \
-               or instances[0].forge.route: direct"
-        .to_owned();
-
-    let output = case.setup(&repository, &[]);
-    holds(&output, std::slice::from_ref(&fix));
-    assert!(
-        !case.config_file().exists(),
-        "without --apply setup writes nothing"
-    );
-
-    let missing = case.dir.join("no-such-policy.json");
-    let output = case.setup_with_policy(&repository, &["--apply"], &missing);
-    let config = fs::read_to_string(case.config_file()).expect("--apply wrote the config file");
-    for never in ["gates_policy", "forge:"] {
-        assert!(
-            !config.contains(never),
-            "setup chooses no route, and wrote {never}:\n{config}"
+    let file = case.config_file();
+    fs::create_dir_all(file.parent().expect("a parent")).expect("create the directory");
+    fs::write(&file, &written).expect("write the config file");
+    case.serve_boxes("lambda");
+    for _ in 0..2 {
+        let output = case.run(&repository, "setup", &["--apply"], Some(policy.as_path()));
+        assert_eq!(
+            fs::read_to_string(&file).expect("the config file"),
+            written,
+            "{}",
+            shown(&output)
+        );
+        holds(
+            &output,
+            &[format!(
+                "forge route lambda: gates without a gates_policy: set \
+                 instances[0].gates_policy: {}, the path {POLICY_VARIABLE} names, or \
+                 instances[0].forge.route: direct",
+                policy.display()
+            )],
+        );
+        assert_eq!(
+            last(&output),
+            "not ready: forge route lambda (no gates_policy)",
+            "{}",
+            shown(&output)
         );
     }
-    assert!(
-        stdout(&output).iter().any(|line| {
-            line.starts_with("forge route theta: gates without a gates_policy: set ")
-                && line.ends_with("instances[0].forge.route: direct")
-        }),
-        "--apply prints the route line and its fix: {}",
+
+    let other = case.home().join("elsewhere/mu");
+    fs::create_dir_all(&other).expect("create the repository");
+    let init = case
+        .isolated(
+            Command::new("git")
+                .arg("-C")
+                .arg(&other)
+                .args(["init", "--quiet"]),
+        )
+        .output()
+        .expect("git runs");
+    assert!(init.status.success(), "git init: {}", shown(&init));
+    let output = case.run(&other, "setup", &["--apply"], Some(policy.as_path()));
+    holds(
+        &output,
+        &[
+            "to write:     forge: {route: direct}".to_owned(),
+            "forge route mu: direct, which --apply writes: the repository has no origin on a \
+             forge, and the bot route writes to github.com only"
+                .to_owned(),
+        ],
+    );
+    assert_eq!(
+        fs::read_to_string(&file).expect("the config file"),
+        written,
+        "{}",
         shown(&output)
     );
-
-    let output = case.setup(&repository, &["--apply"]);
-    holds(&output, &[fix]);
-
-    fs::write(
-        case.config_file(),
-        format!("{config}\x20   forge: {{route: direct}}\n"),
-    )
-    .expect("write the route");
-    let output = case.setup(&repository, &[]);
-    holds(&output, &["forge route theta: direct".to_owned()]);
 }

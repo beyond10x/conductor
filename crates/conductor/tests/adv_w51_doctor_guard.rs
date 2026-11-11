@@ -107,6 +107,7 @@ impl Case {
                 "version: conductor.config/1\n\
                  instances:\n\
                  \x20 - name: alpha\n\
+                 \x20   session_prefix: alpha\n\
                  \x20   sources: {sources}\n\
                  \x20   checkouts:\n\
                  \x20     root: {root}\n\
@@ -524,14 +525,40 @@ impl SetupCase {
     }
 }
 
-/// `conductor setup --apply` writes an instance on the default route, `gates`, without a
+/// `conductor setup --apply` on an instance on the default route, `gates`, without a
 /// `gates_policy`, prints the route line with its fix, and ends `ready`; doctor on the same file
 /// then ends `not ready: … forge route zeta (no gates_policy)`. Setup's closing verdict must not
 /// say `ready` then.
+///
+/// Correction round 2 of wave 51: `setup --apply` now derives the route of an instance it creates
+/// (the operator's decision), so it no longer writes one on `gates` without a policy. The
+/// instance is written before setup runs, as a person's file that is there, which setup leaves as
+/// it is; the assertions are the adversary's.
 #[test]
 fn adv_setup_is_not_ready_where_doctor_is_not_ready_on_the_route() {
     let case = SetupCase::new("ready-on-route");
     let repository = case.repository("zeta");
+    let file = case.home().join(".b10x/conductor/conductor.yaml");
+    fs::create_dir_all(file.parent().expect("a parent")).expect("create the directory");
+    fs::write(
+        &file,
+        format!(
+            "version: conductor.config/2\n\
+             daemon:\n\
+             \x20 store: sqlite:~/.b10x/conductor/store/conductor.sqlite\n\
+             instances:\n\
+             \x20 - name: zeta\n\
+             \x20   placement: systemd\n\
+             \x20   session_prefix: zeta\n\
+             \x20   sources:\n\
+             \x20     - github: example-org\n\
+             \x20   checkouts:\n\
+             \x20     root: {}\n\
+             \x20     trees: ~/.local/state/worktree/trees/zeta\n",
+            case.home().join("src").display()
+        ),
+    )
+    .expect("write the config file");
     let setup = case.conductor(&repository, &["setup", "--apply"]);
     let doctor = case.conductor(&repository, &["doctor"]);
     assert!(

@@ -32,7 +32,7 @@ store: none
 instance: none names ~/src/alpha, which --apply names with the source {github: example-org}; run conductor setup --apply
 records: missing (no instance names the repository)
 trust: not trusted (~/src/alpha)
-forge route alpha: gates without a gates_policy: set instances[0].gates_policy, or instances[0].forge.route: direct
+forge route alpha: direct, which --apply writes: B10X_GATES_POLICY names no readable policy file, and the bot route writes under a policy only
 not ready: instance (none), records (missing), trust (not trusted)
 ```
 
@@ -44,13 +44,15 @@ repository's `origin`, and `~/src` as the checkouts root. Then it runs `conducto
 `conductor trust`. With a config file whose instances do not name the repository, it prints the
 instance to add as `to write:` lines and changes nothing.
 
-`--apply` chooses no forge route, and the `forge route alpha:` line stays until the instance
-writes one; doctor ends `not ready: forge route alpha (no gates_policy)` until then.
-Write `forge: {route: direct}` under the instance, and a controller writes its pull requests
-with your own forge login; or write a `gates_policy`, the policy file of the bot route
-([forge calls](../security/the-guard.md#forge-calls)). With `B10X_GATES_POLICY` naming a
-readable policy file in its environment, `--apply` writes that path as the `gates_policy` of
-the instance it creates.
+`--apply` writes the forge route of the instance it creates from the repository's `origin`, asks
+nothing, and prints the route with why. A GitLab origin, a repository with no forge origin, or a
+GitHub origin while `B10X_GATES_POLICY` names no readable policy file gets
+`forge: {route: direct}`: a controller writes its pull requests with your own forge login. A
+GitHub origin with `B10X_GATES_POLICY` naming a readable policy file gets that file's absolute
+path as its `gates_policy`, on the default route, `gates`: a controller writes through the bot
+route under that policy ([forge calls](../security/the-guard.md#forge-calls)). It changes the
+route of no instance that is there. To take the bot route later, write a `gates_policy` under
+the instance and remove its `forge.route` or set it to `gates`.
 
 `--apply` then checks each box as conductord does before it starts one. When conductord would refuse
 an instance's box, a fifth row, `box:`, names the refusal and the verdict reads
