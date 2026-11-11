@@ -1117,3 +1117,172 @@ fn adversary_a_request_of_an_earlier_version_to_the_running_session_is_not_lost(
         case.asked()
     );
 }
+
+// ---------------------------------------------------------------------------------------------
+// Adversary pass 2 (wave 51, unit U2): cases added against the correction, not part of its commit
+// ---------------------------------------------------------------------------------------------
+
+impl Case {
+    /// Puts a `claude` before the stand-in that fails `agents --json` while `fake/list-fails`
+    /// exists, as a session list that cannot be read.
+    fn list_may_fail(&self) {
+        let bin = self.dir.join("bin");
+        fs::rename(bin.join("claude"), bin.join("claude-stand-in")).expect("keep the stand-in");
+        executable(
+            &bin.join("claude"),
+            &format!(
+                "#!/bin/sh\n\
+                 if [ \"$1\" = agents ] && [ -e '{fails}' ]; then echo 'no list' >&2; exit 1; fi\n\
+                 exec '{real}' \"$@\"\n",
+                fails = self.fake().join("list-fails").display(),
+                real = bin.join("claude-stand-in").display(),
+            ),
+        );
+    }
+
+    /// The sessions a usage limit marked, `<state>/run/limited.json`.
+    fn limited(&self) -> Value {
+        fs::read_to_string(self.state().join("run/limited.json"))
+            .ok()
+            .and_then(|text| serde_json::from_str(&text).ok())
+            .unwrap_or_else(|| json!({}))
+    }
+}
+
+/// The case the correction names as untested: the session asked is resumed by hand under its id
+/// after the delivery, and the loop ends and resumes it (`conductor leave`) before any tick saw
+/// the hand's start. The stamp makes the request stand; the session the loop then stops at its
+/// hand-over is the one asked, by its id, so the conversation that holds the request.
+#[test]
+fn adversary2_a_start_by_hand_the_loop_resumes_before_a_tick_keeps_the_request() {
+    let case = Case::new("adversary2-hand-then-loop");
+    let before = now();
+    let controller = case.spawn(FIRST);
+    case.list(FIRST, "busy", Some(before));
+    case.ask();
+    // Resumed by hand under the same id, after the delivery.
+    case.list(FIRST, "busy", Some(now()));
+    write(
+        &case.state().join("run/tokens-withdrawn.json"),
+        &json!([SESSION]).to_string(),
+    );
+    let resumed = now();
+    let (actions, journal) = case.actions(&[]);
+    assert_eq!(actions, ["resumed"], "{journal:?}");
+    assert_eq!(
+        case.asked()[SESSION]["controller"],
+        json!(controller),
+        "the request stands across the loop's resume: {journal:?}"
+    );
+    assert!(case.asked()[SESSION]["resumed"].is_string(), "{}", case.asked());
+
+    case.hand_over_written();
+    case.list(FIRST, "idle", Some(resumed));
+    let (actions, journal) = case.actions(&[]);
+    assert_eq!(
+        actions,
+        ["handover", "sent", "controller-restarted"],
+        "{journal:?}"
+    );
+    assert_eq!(
+        case.stopped(),
+        [FIRST, FIRST],
+        "only the session asked, by its id: the loop's end, then its hand-over"
+    );
+}
+
+/// Acceptance 1 against the stamp: an entry for controller A, the repository's controller
+/// replaced by B under the same session name, and B's session resumed by the loop, so the entry
+/// carries a stamp newer than B's start. The hand-over path stops nothing and forgets the entry.
+#[test]
+fn adversary2_a_replaced_controller_resumed_by_the_loop_stops_nothing() {
+    let case = Case::new("adversary2-replaced-resumed");
+    let first = case.spawn(FIRST);
+    case.ask();
+    case.ok(&[
+        "controller",
+        "stop-controller",
+        "--controller-id",
+        &first,
+        "--reason",
+        "restarted by hand",
+    ]);
+    let second = case.spawn(SECOND);
+    case.list(SECOND, "busy", Some(now()));
+    write(
+        &case.state().join("run/tokens-withdrawn.json"),
+        &json!([SESSION]).to_string(),
+    );
+    let (actions, journal) = case.actions(&[]);
+    assert_eq!(actions, ["resumed"], "{journal:?}");
+    assert_eq!(case.stopped(), [FIRST, SECOND], "the hand's stop, the loop's end");
+    assert!(
+        case.asked().get(SESSION).is_none(),
+        "the entry of the first controller is forgotten: {}",
+        case.asked()
+    );
+    assert!(
+        journal
+            .iter()
+            .any(|line| line.contains(SESSION) && line.contains(&first)),
+        "{journal:?}"
+    );
+
+    case.hand_over_written();
+    case.list(SECOND, "idle", None);
+    let (actions, journal) = case.actions(&[]);
+    assert_eq!(actions, Vec::<String>::new(), "{journal:?}");
+    assert_eq!(case.stopped(), [FIRST, SECOND], "the tick stopped nothing");
+    assert_eq!(case.running(), Some(second), "the second runs on");
+}
+
+/// The correction's claim for the usage-limit path: with headroom back and a hand-over kept for
+/// the session, a session list that cannot be read stops nothing, starts nothing and leaves the
+/// session marked and its request kept; the first tick that reads the list restarts it.
+#[test]
+fn adversary2_a_limited_session_whose_request_cannot_be_told_stays_marked() {
+    let case = Case::new("adversary2-limited-list-fails");
+    case.list_may_fail();
+    let controller = case.spawn(FIRST);
+    case.ask();
+    write(
+        &case.fake().join(format!("agents/{FIRST}.json")),
+        &json!({
+            "id": FIRST, "sessionId": FIRST, "name": SESSION, "cwd": case.checkout(),
+            "status": "blocked", "state": "blocked",
+        })
+        .to_string(),
+    );
+    write(&case.fake().join("headroom"), "no");
+    let (marked, journal) =
+        case.actions(&["usage limit: You've hit your limit; 1 sessions: ex-alpha"]);
+    assert_eq!(marked, ["usage-limit"], "{journal:?}");
+
+    write(&case.fake().join("list-fails"), "");
+    write(&case.fake().join("headroom"), "yes");
+    let (actions, journal) = case.actions(&[]);
+    assert_eq!(actions, Vec::<String>::new(), "{journal:?}");
+    assert_eq!(case.launches(), 1, "none started: {journal:?}");
+    assert!(
+        case.limited().get(SESSION).is_some(),
+        "still marked: {} {journal:?}",
+        case.limited()
+    );
+    assert_eq!(
+        case.asked()[SESSION]["controller"],
+        json!(controller),
+        "the request is kept: {journal:?}"
+    );
+    assert!(
+        journal
+            .iter()
+            .any(|line| line.contains(&format!("hand-over of {SESSION}"))),
+        "one journal line says why: {journal:?}"
+    );
+
+    fs::remove_file(case.fake().join("list-fails")).expect("the list reads again");
+    let (actions, journal) = case.actions(&[]);
+    assert_eq!(actions, ["sent", "controller-restarted"], "{journal:?}");
+    assert_eq!(case.launches(), 2, "spawned afresh: {journal:?}");
+    assert!(case.limited().get(SESSION).is_none(), "{}", case.limited());
+}
