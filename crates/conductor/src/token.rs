@@ -749,8 +749,10 @@ fn apply_helper(
 /// Leases a token for the launch of `role`'s agent and puts it into `launch` ([`apply`]); a role
 /// that names `token_owner` starts for Remote Control. Answers the lease, `None` with an empty
 /// pool. With an empty pool the launch is left as it is, but for an instance whose placement
-/// opens no box and that names a `model_token` (`story:container-start-without-prompt`): its
-/// settings then name [`model_helper`], so the agent runs on that token.
+/// opens no box and that names a `model_token`, where the config file says `daemon.unattended`
+/// (`story:container-start-without-prompt`): its settings then name [`model_helper`], so the
+/// agent runs on that token. Without that key an empty pool leaves every launch as it is, so an
+/// agent on a workstation keeps the harness's own login.
 ///
 /// # Errors
 ///
@@ -763,7 +765,10 @@ pub fn lease_into(
 ) -> Result<Option<Lease>, String> {
     let name = launch.request.session_name.0.clone();
     let Some(lease) = lease_for_start(instance, role, &name, headroom)? else {
-        if instance.model_token.is_some() && !crate::placement::boxed(instance) {
+        if instance.model_token.is_some()
+            && !crate::placement::boxed(instance)
+            && daemon_config().is_some_and(|daemon| daemon.unattended)
+        {
             apply_helper(
                 launch,
                 |program, config| model_helper(program, config, &instance.name),
@@ -1338,13 +1343,14 @@ pub fn leave(args: &LeaveArgs, daemon: Option<&str>) -> Result<ExitCode> {
 /// `conductor token reveal --token <id>`: the value of a leased token on standard output, for
 /// the harness whose settings name it as their `apiKeyHelper`. With `--model-token <instance>`
 /// instead, the value of that instance's `model_token` (`story:container-start-without-prompt`),
-/// for an agent at a placement with no box that the pool leased no token ([`model_helper`]).
+/// for an agent at a placement with no box that the pool leased no token ([`model_helper`]); an
+/// instance whose placement opens a box is refused, and nothing of its token is printed.
 ///
 /// # Errors
 ///
 /// Neither or both of `--token` and `--model-token`, the config does not load, or standard
 /// output cannot be written. A refusal is one line of standard error and exit 1, naming the
-/// specification's error.
+/// specification's error where one applies; the refusal of a boxed instance names its placement.
 pub fn token_reveal(config: Option<&Path>, args: &TokenRevealArgs) -> Result<ExitCode> {
     const WHAT: &str = "token reveal";
     let model = args
@@ -1378,6 +1384,16 @@ pub fn token_reveal(config: Option<&Path>, args: &TokenRevealArgs) -> Result<Exi
                  revealed"
             ));
         };
+        // A box receives its model token sealed through a slot of the daemon's pool; nothing
+        // prints it.
+        if crate::placement::boxed(instance) {
+            return refuse(format!(
+                "instance {name}: its placement {} opens a box, which receives its model_token \
+                 sealed through a slot; --model-token serves an instance whose placement opens \
+                 none, and nothing is revealed",
+                instance.placement.0
+            ));
+        }
         let Some(secret) = instance.model_token.clone() else {
             return refuse(format!(
                 "SecretMissing: instance {name} names no model_token; nothing is revealed"

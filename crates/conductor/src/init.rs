@@ -8,8 +8,11 @@
 //! directory is, `.engineering/workspace.yaml` as `conductor config workspace` writes it
 //! (`story:workspace-from-config`), and `decisions/`, `dispatches/` and `charters/`, then commits
 //! the files it wrote, and only those. It overwrites nothing: when any of those files is there, it writes
-//! nothing. The texts name no organization. It installs no agent adapter under `~/.claude/agents/`:
-//! the daemon starts the host roles from their profiles (`story:host-roles-by-daemon`).
+//! nothing. A skeleton whose commit failed, in a repository with no commit yet, is committed as
+//! it lies by [`commit_lying`], which the daemon's unattended start runs
+//! (`story:container-start-without-prompt`). The texts name no organization. It installs no agent
+//! adapter under `~/.claude/agents/`: the daemon starts the host roles from their profiles
+//! (`story:host-roles-by-daemon`).
 
 use std::fs::{self, File};
 use std::io::Write as _;
@@ -214,6 +217,92 @@ pub fn write(records: &Path, date: &str, workspace: &str) -> Result<Vec<PathBuf>
     }
     written.extend(DIRECTORIES.iter().map(|directory| records.join(directory)));
     Ok(written)
+}
+
+/// The files of the skeleton under `records` as they lie, relative to it: each of its files that
+/// is there, every file of `docs/handoff/` among them whatever its date.
+fn lying(records: &Path) -> Vec<String> {
+    let handoff = Path::new("docs/handoff");
+    let mut there: Vec<String> = files("", "")
+        .into_iter()
+        .map(|(file, _)| file)
+        .filter(|file| file.parent() != Some(handoff))
+        .filter(|file| records.join(file).is_file())
+        .map(|file| file.display().to_string())
+        .collect();
+    let mut handoffs: Vec<String> = fs::read_dir(records.join(handoff))
+        .into_iter()
+        .flatten()
+        .flatten()
+        .filter(|entry| entry.file_type().is_ok_and(|kind| kind.is_file()))
+        .map(|entry| handoff.join(entry.file_name()).display().to_string())
+        .collect();
+    handoffs.sort();
+    there.extend(handoffs);
+    there
+}
+
+/// Runs `git -C <records> <args>`; a refusal is one line: git's subcommand and the reason git
+/// gave, its first line of standard error and, when another, its last.
+fn git_line(records: &Path, args: &[&str]) -> Result<()> {
+    let shown = args.first().copied().unwrap_or_default();
+    let output = crate::instance::command("git")
+        .arg("-C")
+        .arg(records)
+        .args(args)
+        .stdin(Stdio::null())
+        .output()
+        .with_context(|| format!("start `git {shown}`"))?;
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        let lines: Vec<&str> = stderr
+            .lines()
+            .map(str::trim)
+            .filter(|line| !line.is_empty())
+            .collect();
+        let why = match (lines.first(), lines.last()) {
+            (Some(first), Some(last)) if first != last => format!("{first} ({last})"),
+            (Some(first), _) => (*first).to_owned(),
+            _ => "no reason given".to_owned(),
+        };
+        bail!("`git {shown}` failed: {why}");
+    }
+    Ok(())
+}
+
+/// Commits the skeleton under `records` as it lies, where `records` is a git repository of its
+/// own with no commit yet: the files of it that are there ([`lying`]), with the message
+/// `conductor init` commits with. A repository that has a commit, a directory that is no
+/// repository of its own and a skeleton of which nothing is there are left alone. Changes no
+/// file. Answers whether it committed.
+///
+/// # Errors
+///
+/// A `git` it runs fails; one line, naming `records` and the reason git gave.
+pub fn commit_lying(records: &Path) -> Result<bool> {
+    if records.join(".git").symlink_metadata().is_err()
+        || git_line(records, &["rev-parse", "--verify", "--quiet", "HEAD"]).is_ok()
+    {
+        return Ok(false);
+    }
+    let files = lying(records);
+    if files.is_empty() {
+        return Ok(false);
+    }
+    let mut add = vec!["add", "--"];
+    add.extend(files.iter().map(String::as_str));
+    let mut commit = vec!["commit", "--quiet", "-m", COMMIT_MESSAGE, "--"];
+    commit.extend(files.iter().map(String::as_str));
+    git_line(records, &add)
+        .and_then(|()| git_line(records, &commit))
+        .with_context(|| {
+            format!(
+                "the records skeleton in {} is not committed; the next start commits it",
+                records.display()
+            )
+        })?;
+    println!("committed: {}", files.join(", "));
+    Ok(true)
 }
 
 /// `conductor init`: writes and commits the active instance's records skeleton, printing one

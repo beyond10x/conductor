@@ -58,7 +58,7 @@
 use std::collections::BTreeMap;
 use std::fs;
 use std::io::{self, Read, Write};
-use std::net::{Shutdown, TcpListener, TcpStream};
+use std::net::{Ipv4Addr, Shutdown, SocketAddr, TcpListener, TcpStream};
 use std::os::unix::net::UnixStream;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -512,8 +512,9 @@ const fn grant_name(grant: OperatorGrant) -> &'static str {
 /// Which listener a request came in on.
 #[derive(Debug, Clone, Copy)]
 enum Listener {
-    /// `127.0.0.1:<port>`.
-    Loopback(u16),
+    /// The listener on `daemon.port` bound to a loopback address, `127.0.0.1` unless
+    /// `daemon.address` names another: the address it is bound to.
+    Loopback(SocketAddr),
     /// A listener reached from elsewhere, which takes bearers: the TLS listener, or the one on
     /// `daemon.port` bound to a `daemon.address` that is not loopback.
     Bearers,
@@ -526,9 +527,9 @@ enum Listener {
 pub fn serve(listener: &TcpListener, api: &Arc<Api>) {
     let local = listener.local_addr().ok();
     let kind = match local {
-        Some(address) if address.ip().is_loopback() => Listener::Loopback(address.port()),
+        Some(address) if address.ip().is_loopback() => Listener::Loopback(address),
         Some(_) => Listener::Bearers,
-        None => Listener::Loopback(0),
+        None => Listener::Loopback(SocketAddr::from((Ipv4Addr::LOCALHOST, 0))),
     };
     for stream in listener.incoming().flatten() {
         let api = Arc::clone(api);
@@ -686,8 +687,8 @@ fn answer<S: Read + Write>(
     {
         return browser_login(request, &path, api);
     }
-    if let Listener::Loopback(port) = listener
-        && !own_host(request.header("host"), port)
+    if let Listener::Loopback(bound) = listener
+        && !own_host(request.header("host"), bound)
     {
         return reply(
             403,
@@ -933,18 +934,20 @@ fn pool<S: Read>(
     reply(code, reason, &answer, listener)
 }
 
-/// Whether `host` names the loopback listener on `port`, or is absent (a client that is no
-/// browser).
-fn own_host(host: Option<&str>, port: u16) -> bool {
+/// Whether `host` names the loopback listener bound to `bound`, or is absent (a client that is no
+/// browser): `127.0.0.1`, `localhost` or the address it is bound to (an IPv6 one in brackets,
+/// `[::1]`), each with the listener's port or none.
+fn own_host(host: Option<&str>, bound: SocketAddr) -> bool {
+    let port = bound.port();
+    let address = match bound {
+        SocketAddr::V4(bound) => bound.ip().to_string(),
+        SocketAddr::V6(bound) => format!("[{}]", bound.ip()),
+    };
     host.is_none_or(|host| {
-        [
-            format!("127.0.0.1:{port}"),
-            format!("localhost:{port}"),
-            "127.0.0.1".to_owned(),
-            "localhost".to_owned(),
-        ]
-        .iter()
-        .any(|own| own.eq_ignore_ascii_case(host))
+        ["127.0.0.1", "localhost", address.as_str()]
+            .iter()
+            .flat_map(|name| [(*name).to_owned(), format!("{name}:{port}")])
+            .any(|own| own.eq_ignore_ascii_case(host))
     })
 }
 
@@ -1090,10 +1093,10 @@ fn admit_write(
     route: &str,
     api: &Api,
 ) -> Result<String, Vec<u8>> {
-    if let Listener::Loopback(port) = listener {
+    if let Listener::Loopback(bound) = listener {
         let header = |name: &str| request.header(name);
         let token = request.header(dashboard::TOKEN_HEADER);
-        if !dashboard::same_origin(header, port)
+        if !dashboard::same_origin(header, bound)
             || !token.is_some_and(|given| dashboard::same_token(&api.token, given))
         {
             return Err(reply(

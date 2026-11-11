@@ -8,8 +8,9 @@
 //! - [`READINESS`], `/readyz`: the one row of the view `conductor.store.Readiness`,
 //!   `[{"reachable", "reason"}]`. `200` once the config is read (no listener exists before), the
 //!   store answered one read no longer than [`STORE_BOUND`] ago ([`watch`] asks it every tick),
-//!   the reconciler published once, and its last record did not fail without one written since;
-//!   `503` with the one-line reason otherwise ([`readiness`]).
+//!   the reconciler published once, and its last record did not fail without one written since,
+//!   and, with `daemon.unattended`, the start has seeded with no step failing; `503` with the
+//!   one-line reason otherwise ([`readiness`]).
 //! - [`METRICS`], `/metrics`: Prometheus text format ([`render`]). `conductor_instances` by
 //!   `state`, as the reconciler last saw them; `conductor_sessions` by `instance` and `state` and
 //!   `conductor_snapshot_age_seconds` by `instance`, read from each instance's `/v1/data.json`
@@ -83,6 +84,14 @@ pub const NOT_PUBLISHED: &str = "the reconciler has not published yet";
 /// since.
 pub const UNRECORDED: &str = "the reconciler's last record failed";
 
+/// Why the daemon is not ready while its unattended start seeds (`daemon.unattended`,
+/// `story:container-start-without-prompt`).
+pub const SEEDING: &str = "the unattended start is seeding";
+
+/// Why the daemon is not ready after its unattended start's seeding failed in a step, for as
+/// long as the process runs.
+pub const SEEDING_FAILED: &str = "the unattended start's seeding failed";
+
 /// What the probes keep between requests.
 #[derive(Debug, Default)]
 pub struct Probes {
@@ -90,6 +99,10 @@ pub struct Probes {
     store: Mutex<Option<(bool, Instant)>>,
     /// Whether the reconciler's last record failed and none was written since.
     unrecorded: AtomicBool,
+    /// Whether the unattended start seeds now ([`SEEDING`]).
+    seeding: AtomicBool,
+    /// Whether a step of the unattended start's seeding failed ([`SEEDING_FAILED`]).
+    seed_failed: AtomicBool,
     /// The last answer of [`METRICS`] and when it was read.
     scraped: Mutex<Option<(Instant, String)>>,
 }
@@ -110,15 +123,34 @@ impl Probes {
     pub fn unrecorded(&self, failed: bool) {
         self.unrecorded.store(failed, Ordering::Release);
     }
+
+    /// Notes that the unattended start seeds now.
+    pub fn seeding(&self) {
+        self.seeding.store(true, Ordering::Release);
+    }
+
+    /// Notes that the unattended start has seeded, every step of it succeeding or not.
+    pub fn seeded(&self, succeeded: bool) {
+        self.seed_failed.store(!succeeded, Ordering::Release);
+        self.seeding.store(false, Ordering::Release);
+    }
 }
 
 /// Why the daemon of `api` is not ready at `now`, as [`READINESS`] answers it; none when it is:
-/// its store does not answer ([`not_ready`]), its reconciler has published nothing
+/// its unattended start seeds ([`SEEDING`]) or a step of that failed ([`SEEDING_FAILED`]), its
+/// store does not answer ([`not_ready`]), its reconciler has published nothing
 /// ([`NOT_PUBLISHED`]), or the reconciler's last record failed and none was written since
-/// ([`UNRECORDED`]). Each reason is a fixed sentence, never the store's error.
+/// ([`UNRECORDED`]). Each reason is a fixed sentence, never the store's error or a step's.
 #[must_use]
 pub fn readiness(api: &Api, now: Instant) -> Option<&'static str> {
-    not_ready(api.probes().seen(), now)
+    let probes = api.probes();
+    if probes.seeding.load(Ordering::Acquire) {
+        return Some(SEEDING);
+    }
+    if probes.seed_failed.load(Ordering::Acquire) {
+        return Some(SEEDING_FAILED);
+    }
+    not_ready(probes.seen(), now)
         .or_else(|| (!api.is_reconciled()).then_some(NOT_PUBLISHED))
         .or_else(|| {
             api.probes()

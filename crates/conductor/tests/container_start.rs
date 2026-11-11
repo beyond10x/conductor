@@ -31,7 +31,7 @@ mod common;
 use std::ffi::OsStr;
 use std::fs;
 use std::io::{Read, Write as _};
-use std::net::{TcpListener, TcpStream};
+use std::net::{IpAddr, TcpListener, TcpStream};
 use std::os::unix::fs::PermissionsExt as _;
 use std::os::unix::net::UnixStream;
 use std::path::{Path, PathBuf};
@@ -42,6 +42,7 @@ use std::time::{Duration, Instant};
 
 use conductor_cli::daemon::reconcile::{Binary, Daemon, unit_name};
 use conductor_cli::daemon::units::{self, Children, Units as _};
+use conductor_cli::daemon::{api, metrics};
 use conductor_cli::systemd::Service;
 use conductor_model::config::Limits;
 use conductor_model::instance::{ReconcileAction, ReconcileReason, ReconcileResult};
@@ -78,6 +79,14 @@ fn git_at() -> PathBuf {
         .map(PathBuf::from)
         .find(|path| path.exists())
         .expect("git is installed")
+}
+
+fn sleep_at() -> PathBuf {
+    ["/usr/bin/sleep", "/bin/sleep"]
+        .into_iter()
+        .map(PathBuf::from)
+        .find(|path| path.exists())
+        .expect("sleep is installed")
 }
 
 fn free_port() -> u16 {
@@ -196,7 +205,8 @@ impl Case {
 
     /// The `PATH` of a daemon of the case: `git`, a `worktree` that logs every call and answers
     /// a root activated once `activate` ran, and, unless `manager` is false, a `systemctl` that
-    /// knows no unit and a `systemd-run` that starts none.
+    /// knows no unit and a `systemd-run` that starts none. Where the case's file `inspect-pause`
+    /// holds a number of seconds, `worktree inspect` marks `inspect-asked` and takes that long.
     fn programs(&self, manager: bool) -> PathBuf {
         let programs = self.dir.join("programs");
         let _ = std::os::unix::fs::symlink(git_at(), programs.join("git"));
@@ -206,13 +216,18 @@ impl Case {
                 "#!/bin/sh\n\
                  printf '%s\\n' \"$*\" >> '{log}'\n\
                  case \"$1\" in\n\
-                 \x20 inspect) if [ -f '{mark}' ]; then echo '{{\"ok\":false,\"code\":\"invalid-worktree-id\"}}' >&2; \
+                 \x20 inspect) if [ -f '{pause}' ]; then : > '{asked}'; read -r pause < '{pause}'; \
+                 '{sleep}' \"$pause\"; fi; \
+                 if [ -f '{mark}' ]; then echo '{{\"ok\":false,\"code\":\"invalid-worktree-id\"}}' >&2; \
                  else echo '{{\"ok\":false,\"code\":\"workspace-not-activated\"}}' >&2; fi; exit 1 ;;\n\
                  \x20 activate) : > '{mark}'; echo '{{\"ok\":true}}' ;;\n\
                  \x20 --version) echo 'worktree 0.18.1' ;;\n\
                  esac\n",
                 log = self.dir.join("worktree.log").display(),
                 mark = self.dir.join("activated").display(),
+                pause = self.dir.join("inspect-pause").display(),
+                asked = self.dir.join("inspect-asked").display(),
+                sleep = sleep_at().display(),
             ),
         );
         if manager {
@@ -275,6 +290,15 @@ impl Served {
     /// Starts `daemon serve` of `case` with no terminal and its standard input closed, and waits
     /// for its serving line, which follows its unattended start.
     fn start(case: &Case, manager: bool, env: &[(&str, &str)]) -> Self {
+        let mut served = Self::spawn(case, manager, env);
+        served.until("the serving line", |served| {
+            served.printed().contains("conductord: config ")
+        });
+        served
+    }
+
+    /// [`Served::start`] without waiting for anything.
+    fn spawn(case: &Case, manager: bool, env: &[(&str, &str)]) -> Self {
         let mut command = case.conductor(manager);
         command
             .args(["daemon", "serve", "--state-dir"])
@@ -300,11 +324,7 @@ impl Served {
                 }
             });
         }
-        let mut served = Self { child, printed };
-        served.until("the serving line", |served| {
-            served.printed().contains("conductord: config ")
-        });
-        served
+        Self { child, printed }
     }
 
     fn printed(&self) -> String {
@@ -593,21 +613,245 @@ fn the_files_source_is_read_and_never_written() {
 
 /// One request to `127.0.0.1:port` with `host` as its `Host`: its status and body.
 fn ask(port: u16, target: &str, host: &str) -> Option<(u16, String)> {
-    let mut stream = TcpStream::connect(("127.0.0.1", port)).ok()?;
-    stream
-        .set_read_timeout(Some(Duration::from_secs(60)))
-        .expect("a read timeout");
-    stream
-        .write_all(
-            format!("GET {target} HTTP/1.1\r\nHost: {host}\r\nConnection: close\r\n\r\n")
-                .as_bytes(),
-        )
-        .ok()?;
+    ask_at(
+        IpAddr::from([127, 0, 0, 1]),
+        port,
+        target,
+        host,
+        Duration::from_secs(60),
+    )
+}
+
+/// One `GET target` to `address:port` with `host` as its `Host`, answered within `wait`: its
+/// status and body.
+fn ask_at(
+    address: IpAddr,
+    port: u16,
+    target: &str,
+    host: &str,
+    wait: Duration,
+) -> Option<(u16, String)> {
+    exchange(
+        address,
+        port,
+        &format!("GET {target} HTTP/1.1\r\nHost: {host}\r\nConnection: close\r\n\r\n"),
+        wait,
+    )
+}
+
+/// One request `text` to `address:port`, answered within `wait`: its status and body.
+fn exchange(address: IpAddr, port: u16, text: &str, wait: Duration) -> Option<(u16, String)> {
+    let mut stream = TcpStream::connect((address, port)).ok()?;
+    stream.set_read_timeout(Some(wait)).expect("a read timeout");
+    stream.write_all(text.as_bytes()).ok()?;
     let mut answer = String::new();
     stream.read_to_string(&mut answer).ok()?;
     let (head, body) = answer.split_once("\r\n\r\n")?;
     let status = head.split(' ').nth(1)?.parse().ok()?;
     Some((status, body.to_owned()))
+}
+
+/// The reason `/readyz` gave in `body`, its one row's `reason`.
+fn readiness_reason(body: &str) -> String {
+    let rows: Value = serde_json::from_str(body).unwrap_or_else(|_| panic!("no JSON: {body}"));
+    rows[0]["reason"].as_str().unwrap_or_default().to_owned()
+}
+
+/// A loopback listener bound to `::1` answers the `Host` that names it, bracketed, beside
+/// `127.0.0.1` and `localhost`, and no other; a write from a page it served, whose `Origin` is
+/// `http://[::1]:<port>`, is taken as one from its own origin. Skipped where this host has no
+/// IPv6 loopback address.
+#[test]
+fn a_loopback_address_answers_the_host_it_is_bound_to_and_no_other() {
+    let address = IpAddr::from(std::net::Ipv6Addr::LOCALHOST);
+    let Ok(free) = TcpListener::bind((address, 0)) else {
+        eprintln!("skipped: this host has no IPv6 loopback address to bind");
+        return;
+    };
+    let port = free.local_addr().expect("its address").port();
+    drop(free);
+    let case = Case::new("address-v6");
+    case.config(port, ", address: \"::1\"", "none");
+    let served = Served::start(&case, true, &[]);
+    let printed = served.printed();
+    assert!(
+        printed.contains(&format!("on http://[::1]:{port}/")),
+        "{printed}"
+    );
+    let wait = Duration::from_secs(30);
+    for host in [
+        format!("[::1]:{port}"),
+        "[::1]".to_owned(),
+        format!("127.0.0.1:{port}"),
+        "localhost".to_owned(),
+    ] {
+        let answer = ask_at(address, port, "/healthz", &host, wait);
+        assert!(
+            matches!(answer, Some((200, _))),
+            "Host {host}: {answer:?}\n{printed}"
+        );
+    }
+    for host in [
+        format!("example.org:{port}"),
+        format!("[::2]:{port}"),
+        "::1".to_owned(),
+        format!("127.0.0.2:{port}"),
+    ] {
+        let answer = ask_at(address, port, "/healthz", &host, wait);
+        assert!(
+            matches!(answer, Some((403, _))),
+            "Host {host}: {answer:?}\n{printed}"
+        );
+    }
+
+    let token = fs::read_to_string(case.dir.join("daemon").join(api::TOKEN_FILE))
+        .expect("the daemon keeps its token");
+    let write = |origin: &str| {
+        exchange(
+            address,
+            port,
+            &format!(
+                "POST /v1/roles/nothing/start HTTP/1.1\r\nHost: [::1]:{port}\r\nOrigin: {origin}\r\n\
+                 {header}: {token}\r\nContent-Type: application/json\r\nContent-Length: 2\r\n\
+                 Connection: close\r\n\r\n{{}}",
+                header = conductor_cli::dashboard::TOKEN_HEADER,
+            ),
+            wait,
+        )
+        .unwrap_or_else(|| panic!("no answer to a write from {origin}"))
+    };
+    let (status, body) = write(&format!("http://[::1]:{port}"));
+    assert!(
+        !body.contains("own origin"),
+        "a write from the listener's own page: {status} {body}"
+    );
+    let (status, body) = write("http://example.org");
+    assert_eq!(status, 403, "a write from another origin: {body}");
+    assert!(body.contains("own origin"), "{body}");
+}
+
+/// While the unattended start seeds, the listener answers: `/healthz` is `200` and `/readyz`
+/// `503` with the reason that the start is seeding; once it has seeded, `/readyz` is `200`.
+#[test]
+fn while_the_unattended_start_seeds_the_probes_answer_and_readiness_names_the_seeding() {
+    let case = Case::new("seeding");
+    case.checkout("widget");
+    let port = free_port();
+    case.config(port, ", unattended: true", "none");
+    fs::write(case.dir.join("inspect-pause"), "8\n").expect("pause worktree inspect");
+    let mut served = Served::spawn(&case, true, &[]);
+    let asked = case.dir.join("inspect-asked");
+    served.until("the start asks worktree inspect", |_| asked.exists());
+    let loopback = IpAddr::from([127, 0, 0, 1]);
+    let host = format!("127.0.0.1:{port}");
+    let within = Duration::from_secs(3);
+    let live = ask_at(loopback, port, "/healthz", &host, within);
+    let ready = ask_at(loopback, port, "/readyz", &host, within);
+    served.until("the serving line", |served| {
+        served.printed().contains("conductord: config ")
+    });
+    let printed = served.printed();
+    assert!(
+        matches!(live, Some((200, _))),
+        "/healthz while the start seeds: {live:?}\n{printed}"
+    );
+    let (status, body) =
+        ready.unwrap_or_else(|| panic!("/readyz while the start seeds: no answer\n{printed}"));
+    assert_eq!(status, 503, "{body}\n{printed}");
+    assert_eq!(readiness_reason(&body), metrics::SEEDING, "{body}");
+    served.until("/readyz answers 200 once the start has seeded", |_| {
+        ask(port, "/readyz", &host).is_some_and(|(status, _)| status == 200)
+    });
+}
+
+/// A seeding step that fails, here the records' commit with no git identity, is said in one
+/// line naming the instance with git's reason, at every start that finds it so; the daemon goes
+/// on serving and reconciling, and `/readyz` stays `503` with the reason that the seeding
+/// failed. The skeleton is left as it lies, and the first start with an identity commits it.
+#[test]
+fn a_seeding_that_fails_keeps_the_daemon_serving_and_a_later_start_commits_the_records() {
+    let case = Case::new("seed-fails");
+    let port = free_port();
+    case.config(port, ", unattended: true", "none");
+    let host = format!("127.0.0.1:{port}");
+    let records = case.records();
+    let skeleton = || -> Vec<(PathBuf, Vec<u8>)> {
+        ["NORTHSTAR.md", "rules.md", "README.md"]
+            .into_iter()
+            .map(|file| {
+                let path = records.join(file);
+                let bytes = read_bytes(&path);
+                (path, bytes)
+            })
+            .collect()
+    };
+    let has_head = || {
+        Command::new(git_at())
+            .arg("-C")
+            .arg(case.records())
+            .args(["rev-parse", "--verify", "--quiet", "HEAD"])
+            .env("HOME", case.home())
+            .output()
+            .expect("run git")
+            .status
+            .success()
+    };
+    let no_identity = [("GIT_AUTHOR_NAME", ""), ("GIT_COMMITTER_NAME", "")];
+    let mut written = None;
+    for start in 1..=2 {
+        let mut served = Served::start(&case, true, &no_identity);
+        served.until("the reconciler answers /v1/instances", |_| {
+            ask(port, "/v1/instances", &host).is_some_and(|(status, _)| status == 200)
+        });
+        let printed = served.printed();
+        let (status, body) = ask(port, "/readyz", &host).expect("an answer to /readyz");
+        assert_eq!(status, 503, "start {start}: {body}\n{printed}");
+        assert_eq!(readiness_reason(&body), metrics::SEEDING_FAILED, "{body}");
+        let live = ask(port, "/healthz", &host);
+        assert!(matches!(live, Some((200, _))), "{live:?}");
+        assert!(served.runs(), "the daemon ended: {printed}");
+        let said: Vec<&str> = printed
+            .lines()
+            .filter(|line| line.starts_with("conductor: daemon serve: unattended: alpha:"))
+            .collect();
+        assert_eq!(said.len(), 1, "start {start}: {printed}");
+        assert!(
+            said[0].contains("not committed") && said[0].contains("git commit"),
+            "start {start}: {}",
+            said[0]
+        );
+        assert!(
+            !printed
+                .lines()
+                .any(|line| line.trim_start().starts_with("***")),
+            "start {start} printed more of git than its reason: {printed}"
+        );
+        assert!(!has_head(), "start {start} committed: {printed}");
+        let now = skeleton();
+        if let Some(written) = &written {
+            assert_eq!(
+                &now, written,
+                "start {start} changed the skeleton: {printed}"
+            );
+        }
+        written = Some(now);
+    }
+
+    let mut served = Served::start(&case, true, &[]);
+    served.until("/readyz answers 200 once the commit is made", |_| {
+        ask(port, "/readyz", &host).is_some_and(|(status, _)| status == 200)
+    });
+    let printed = served.printed();
+    assert_eq!(records_head(&case), "1", "{printed}");
+    assert_eq!(
+        Some(skeleton()),
+        written,
+        "the commit changed the skeleton: {printed}"
+    );
+    assert!(
+        !printed.contains("conductor: daemon serve: unattended: alpha:"),
+        "{printed}"
+    );
 }
 
 #[test]
@@ -1120,13 +1364,13 @@ fn which(program: &str) -> Option<PathBuf> {
 /// runs `task container-test` from this tree's `Taskfile.yml` with the real `task`; the `cargo`
 /// it runs selects, in this very test binary, the image case and only it, among the ignored
 /// cases. The job writes nothing of the repository: no permission of its own, the workflow's
-/// `contents: read`. Skipped where `task` (go-task) is not on `PATH`.
+/// `contents: read`. Neither the job nor a step of it carries `if:` or `continue-on-error:`, so
+/// it runs on every event of the workflow and its failure fails the run, and no step names a
+/// `shell:` or `defaults:` other than the runner's `bash -eo pipefail` this case runs. What reads
+/// the workflow runs everywhere; only the part that runs the steps is skipped where `task`
+/// (go-task) is not on `PATH`.
 #[test]
 fn the_check_workflow_s_container_job_runs_the_image_case() {
-    let Some(real_task) = which("task") else {
-        eprintln!("skipped: `task` (go-task) is not on PATH, so the job's task is not run");
-        return;
-    };
     let workspace = Path::new(env!("CARGO_MANIFEST_DIR"))
         .join("../..")
         .canonicalize()
@@ -1145,7 +1389,43 @@ fn the_check_workflow_s_container_job_runs_the_image_case() {
         job.get("permissions").is_none(),
         "the job asks for a permission of its own"
     );
+    for key in ["if", "continue-on-error", "defaults"] {
+        assert!(
+            job.get(key).is_none(),
+            "the job carries `{key}:`: {:?}",
+            job.get(key)
+        );
+    }
+    assert!(
+        workflow.get("defaults").is_none(),
+        "the workflow carries `defaults:`: {:?}",
+        workflow.get("defaults")
+    );
+    let steps = job["steps"].as_sequence().expect("the job's steps");
+    for (index, step) in steps.iter().enumerate() {
+        for key in ["if", "continue-on-error", "shell"] {
+            assert!(
+                step.get(key).is_none(),
+                "step {index} of the job carries `{key}:`: {step:?}"
+            );
+        }
+    }
+    let scripts: Vec<&str> = steps
+        .iter()
+        .filter_map(|step| step.get("run").and_then(serde_yaml::Value::as_str))
+        .collect();
+    assert!(!scripts.is_empty(), "the job runs nothing");
+    assert!(
+        scripts
+            .last()
+            .is_some_and(|script| script.trim() == "task container-test"),
+        "the job's last script is not `task container-test`: {scripts:?}"
+    );
 
+    let Some(real_task) = which("task") else {
+        eprintln!("skipped: `task` (go-task) is not on PATH, so the job's steps are not run");
+        return;
+    };
     let case = Case::new("job");
     let runner = case.dir.join("runner");
     let bin = case.dir.join("bin");
@@ -1197,12 +1477,6 @@ fn the_check_workflow_s_container_job_runs_the_image_case() {
         })
         .collect();
     let system = std::env::var("PATH").unwrap_or_default();
-    let steps = job["steps"].as_sequence().expect("the job's steps");
-    let scripts: Vec<&str> = steps
-        .iter()
-        .filter_map(|step| step.get("run").and_then(serde_yaml::Value::as_str))
-        .collect();
-    assert!(!scripts.is_empty(), "the job runs nothing");
     for (index, script) in scripts.iter().enumerate() {
         let added: Vec<String> = fs::read_to_string(&github_path)
             .expect("GITHUB_PATH")

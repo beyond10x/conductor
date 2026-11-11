@@ -3,7 +3,7 @@ title: Run conductor in a container
 sidebar_position: 10
 description: Pull the container image each conductor release publishes for linux/amd64, run conductor from it, start one instance in it from a config file and mounted credentials with no prompt, and read which credential comes from where.
 lede: Each release pushes one image with the release's own binary and the programs conductor starts, and it runs as a user that is not root. One instance starts in it with no terminal and nothing typed.
-source: Dockerfile; .github/workflows/release.yml; .github/workflows/check.yml; crates/conductor/src/doctor.rs, daemon/mod.rs, daemon/unattended.rs, daemon/units.rs, secret.rs, token.rs; crates/conductor/tests/container_start.rs; b10x.toml
+source: Dockerfile; .github/workflows/release.yml; .github/workflows/check.yml; crates/conductor/src/doctor.rs, daemon/api.rs, daemon/metrics.rs, daemon/mod.rs, daemon/unattended.rs, daemon/units.rs, init.rs, secret.rs, token.rs; crates/conductor/tests/container_start.rs; b10x.toml
 ---
 
 ## The image
@@ -117,7 +117,8 @@ login, and the config file names the model token only as `secret:model-token`. C
 writes into the secrets directory: `conductor secret put` refuses it in one line,
 `SourceReadOnly`, and writes nothing. A token in the pool of the instance, contributed with
 `conductor join`, is leased first; the model token is what an agent runs on when the pool has
-none.
+none, and only where the config file says `daemon.unattended: true`. `conductor token reveal
+--model-token` refuses an instance whose placement opens a box and prints nothing of its token.
 
 ### What the start does
 
@@ -125,7 +126,9 @@ With `daemon.unattended: true`, `conductor daemon serve` does at its start, for 
 the file, what `conductor setup --apply` does, each only where it is missing:
 
 1. It writes the records skeleton and commits it, as `conductor init` does. Records that are there
-   are left as they are.
+   are left as they are. A skeleton whose repository has no commit yet, as after a start with no
+   git identity, is committed as it lies at the next start; each start whose commit fails says so
+   in one line with git's reason.
 2. It creates the checkouts root, then trusts each checkout under it and the records directory,
    as `conductor trust` does. Paths that are trusted already are not written again.
 3. It activates the checkouts root as a `worktree` workspace once a checkout is under it, writing
@@ -135,10 +138,20 @@ the file, what `conductor setup --apply` does, each only where it is missing:
 A second start of the same container writes nothing of the three. Without the key, the start
 creates none of them, as before.
 
+The listener answers while the start seeds: `/healthz` is `200`, and `/readyz` is `503` with the
+reason `the unattended start is seeding`. A `/v1/` request waits for the first pass, at most
+10 s, and a read is then answered `503` with that reason, as at any start. A step that fails is
+said in one line naming the instance. The daemon then goes on: it serves, starts the runtimes and
+reconciles as it would, but `/readyz` stays `503` with the reason `the unattended start's seeding
+failed` until a start whose seeding succeeds. A cluster then routes nothing to it and does not
+restart it, and the next start tries the failed step again.
+
 The instance's runtime then starts. `placement: none` opens no box. Where no user systemd manager
 runs, as in this image, the runtime is a child process of the daemon. It ends when the daemon
 ends, and the daemon starts it again when it stops. A runtime that ends within moments of its
-start counts as a failed start, and the next one waits a little longer each time. The instance's
+start counts as a failed start, and the next one waits a little longer each time. The daemon
+takes a `systemd-run` on `PATH` for a user manager, so an image that adds `systemd-run` without a
+running manager is not served: every start of its runtime fails. The instance's
 `confinement.limits` are set on a systemd slice, so a child runtime runs without them. A placement
 that opens a box, such as `systemd` or `linux`, needs `substrate-daemon`, which the image does not
 hold, so a container takes `placement: none`.
@@ -148,7 +161,10 @@ so the published port and a cluster's probes reach it. Its default is `127.0.0.1
 that is not loopback, `/healthz`, `/readyz` and `/metrics` answer without a bearer, and every
 `/v1/` request carries an Identity bearer of `daemon.tls.identity` or is refused `401`. The
 commands that reach the daemon with its own token on `127.0.0.1`, `conductor instance upgrade`
-and `conductor daemon start-role`, are refused there too.
+and `conductor daemon start-role`, are refused there too. On a loopback address other than
+`127.0.0.1`, such as `::1`, the listener answers a `Host` that names that address, `[::1]` in
+brackets, beside `127.0.0.1` and `localhost`; those commands and `conductor status` still connect
+to `127.0.0.1` and do not reach it there.
 
 ### What doctor says in the container
 

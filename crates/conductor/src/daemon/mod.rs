@@ -14,8 +14,9 @@
 //!
 //! In a container (`story:container-start-without-prompt`) it starts with no terminal and no
 //! prompt: `daemon.unattended: true` seeds each instance's records, trust and `worktree`
-//! workspace where they are missing ([`unattended`]), and where no user service manager is, each
-//! runtime is a child process of the daemon ([`units::Children`]).
+//! workspace where they are missing ([`unattended`]) while its listeners answer, `/readyz` `503`
+//! meanwhile and after a step that failed; and where no user service manager is, each runtime
+//! is a child process of the daemon ([`units::Children`]).
 //!
 //! It serves before its store answers (`story:daemon-probes-and-metrics`): the listeners take
 //! requests as soon as the config is read, `GET /healthz` answers `200` and `GET /readyz` `503`
@@ -170,11 +171,6 @@ pub fn daemon_serve(
     } else {
         None
     };
-    // `daemon.unattended` (`story:container-start-without-prompt`): what `conductor setup
-    // --apply` does for each instance, each only where it is missing, before the first pass.
-    if written.daemon.unattended {
-        unattended::seed(&file, &home);
-    }
     let secure = match &written.daemon.tls {
         Some(tls) => Some(tls_listener(tls)?),
         None if listener.is_none() => bail!(
@@ -235,6 +231,22 @@ pub fn daemon_serve(
     }
     let watched = Arc::clone(&api);
     thread::spawn(move || metrics::watch(&url, &watched, TICK));
+    // `daemon.unattended` (`story:container-start-without-prompt`): what `conductor setup
+    // --apply` does for each instance, each only where it is missing, before the first pass and
+    // while the listeners answer. `/readyz` is `503` meanwhile, and stays so for as long as the
+    // process runs once a step failed; the daemon then goes on as it would.
+    if written.daemon.unattended {
+        api.probes().seeding();
+        let seeded = unattended::seed(&file, &home);
+        api.probes().seeded(seeded);
+        if !seeded {
+            eprintln!(
+                "conductor: {WHAT}: the unattended start's seeding failed in the steps above; \
+                 the daemon serves and reconciles, and {} answers 503 until a start seeds them",
+                metrics::READINESS
+            );
+        }
+    }
     // The serving lines follow what the reconciler first publishes when the store answers at
     // once, as they always did. Where it does not answer, or not within the readiness bound,
     // they are printed now and the daemon waits for the store: it opens none, starts no runtime

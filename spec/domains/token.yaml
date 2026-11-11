@@ -50,7 +50,9 @@ types:
   # The input of `conductor token reveal`: the token whose value the `claude-code` kind's harness
   # asks for (its settings' `apiKeyHelper`), by id; or, with `model_token`, the `model_token` of
   # that instance of the config file, the token an agent at a placement with no box runs on when
-  # the pool leases it none (story:container-start-without-prompt). One of the two is given.
+  # the pool leases it none and the config file says `daemon.unattended`
+  # (story:container-start-without-prompt); an instance whose placement opens a box is refused
+  # and nothing of its token is printed. One of the two is given.
   - name: conductor.token.RevealToken
     kind: struct
     fields:
