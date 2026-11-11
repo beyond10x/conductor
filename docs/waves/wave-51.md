@@ -20,7 +20,7 @@ repository under a lock. Free disk at the start: 104 GB.
 | U2 | handover-restart-by-controller-id | | `w51-u2` | merged (`10542e8b1`), two adversary passes |
 | U3 | doctor-checks-guard-forge-writes | | `w51-u3` | correction 2 after adversary pass 1 |
 | U4 | box-reaches-forge-and-daemon | | `w51-u4` | correction 2 after adversary pass 1; the egress half is blocked |
-| U5 | daemon-probes-and-metrics | | `w51-u5` | adversary pass 2, after correction 1 |
+| U5 | daemon-probes-and-metrics | | `w51-u5` | correction 2 after adversary pass 2 |
 | U6 | release-container-image | | `w51-u6` | merged (`61eb01e39`), two adversary passes |
 | U7 | container-start-without-prompt | U3, U4, U5, U6 | `w51-u7` | not started |
 
@@ -147,6 +147,12 @@ is read before the first of the two merges.
 - U5, adversary pass 1 (`review-result:w51-u5-adversary-1`): `/readyz` answered 200 for ever
   after one failed write on the reconciler's store handle, and 200 before the first
   publication; `/v1/instances` answered `200 []` while the store was down. All three go back.
+- U5, adversary pass 2 (`review-result:w51-u5-adversary-2`): the probes, the 503 of the `/v1/`
+  reads and the bound of the held records held. Two cases were red: a pass the store refused
+  half-way ran again as a cadence pass, so a config change no longer ended a back-off; and a
+  daemon stopped while it held the record of a start started that runtime again when it came
+  back. The base stops a refused pass at the same place, but the unit made the store outage
+  its subject and its page promised more, so both go back with the page.
 - U6: the commit gate refuses a home directory under `/home/` in the `Dockerfile`; the image's
   user gets `/var/lib/conductor`. Decided: the job that builds and pushes the image holds
   `packages: write` only, and a third job with `contents: write` only writes the Release notes.
