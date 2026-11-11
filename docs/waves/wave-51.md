@@ -22,7 +22,7 @@ repository under a lock. Free disk at the start: 104 GB.
 | U4 | box-reaches-forge-and-daemon | | `w51-u4` | merged (`fe099dc20`), two adversary passes; the egress half is blocked, the story stays active |
 | U5 | daemon-probes-and-metrics | | `w51-u5` | merged (`654a1c993`), two adversary passes |
 | U6 | release-container-image | | `w51-u6` | merged (`61eb01e39`), two adversary passes |
-| U7 | container-start-without-prompt | U3, U4, U5, U6 | `w51-u7` | adversary pass 2, after correction 1 |
+| U7 | container-start-without-prompt | U3, U4, U5, U6 | `w51-u7` | last correction after adversary pass 2 |
 
 Each unit works on branch `impl/<story>`; its scratch is the session scratch directory's
 `w51/u<n>/`. No unit has a build directory of its own: every build is in the repository's shared
@@ -210,7 +210,16 @@ is read before the first of the two merges.
   commit; the listeners are served before the seeding, with `/readyz` at 503 while it runs and
   after it failed. Left for the backlog: with the listener on another loopback address the
   local clients (`status`, `instance upgrade`, `daemon start-role`) still connect to
-  `127.0.0.1`.
+  `127.0.0.1` (`story:daemon-address-local-clients`, a draft).
+- U7, adversary pass 2 (`review-result:w51-u7-adversary-2`): the reveal refusal, the host and
+  origin rule, the order of serving and seeding and the fall-back's gate held, each against its
+  mutant. Two cases were red on the records commit the correction added: it committed into a
+  repository that has commits when HEAD was on a branch with none, taking the operator's
+  uncommitted edits; and one file git ignores in the hand-over directory failed it at every
+  start. Both go back in a last round: the commit is made only where the repository has no
+  commit at all, and an ignored file is left out. Adopted: the adversary's case that holds the
+  check workflow to running the container job on every pull request. Decided: a listener
+  whose own address cannot be read takes bearers.
 
 ## What each story's close needs
 
