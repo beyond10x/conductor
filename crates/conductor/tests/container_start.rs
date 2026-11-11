@@ -816,7 +816,10 @@ fn a_seeding_that_fails_keeps_the_daemon_serving_and_a_later_start_commits_the_r
             .collect();
         assert_eq!(said.len(), 1, "start {start}: {printed}");
         assert!(
-            said[0].contains("not committed") && said[0].contains("git commit"),
+            said[0].contains("not committed")
+                && said[0].contains("git commit")
+                && said[0].contains("the next start tries again")
+                && !said[0].contains("commits it"),
             "start {start}: {}",
             said[0]
         );
@@ -852,6 +855,50 @@ fn a_seeding_that_fails_keeps_the_daemon_serving_and_a_later_start_commits_the_r
         !printed.contains("conductor: daemon serve: unattended: alpha:"),
         "{printed}"
     );
+}
+
+/// A skeleton left uncommitted and outside the index, whose every file git ignores, is not
+/// committed, and the start says so in its one line without promising that the next start
+/// commits it.
+#[test]
+fn a_records_skeleton_git_ignores_whole_is_said_and_not_promised() {
+    let case = Case::new("seed-ignored");
+    let port = free_port();
+    case.config(port, ", unattended: true", "none");
+    let host = format!("127.0.0.1:{port}");
+    let no_identity = [("GIT_AUTHOR_NAME", ""), ("GIT_COMMITTER_NAME", "")];
+    drop(Served::start(&case, true, &no_identity));
+    // A file of the index is subject to no ignore rule: the skeleton is left outside it.
+    fs::remove_file(case.records().join(".git/index")).expect("empty the index");
+    let info = case.records().join(".git/info");
+    fs::create_dir_all(&info).expect("the repository's info directory");
+    fs::write(info.join("exclude"), "*\n").expect("ignore every file");
+
+    let mut served = Served::start(&case, true, &[]);
+    served.until("the reconciler answers /v1/instances", |_| {
+        ask(port, "/v1/instances", &host).is_some_and(|(status, _)| status == 200)
+    });
+    let printed = served.printed();
+    let said: Vec<&str> = printed
+        .lines()
+        .filter(|line| line.starts_with("conductor: daemon serve: unattended: alpha:"))
+        .collect();
+    assert_eq!(said.len(), 1, "{printed}");
+    assert!(
+        said[0].contains("not committed")
+            && said[0].contains("git ignores")
+            && !said[0].contains("next start"),
+        "{}",
+        said[0]
+    );
+    let head = Command::new(git_at())
+        .arg("-C")
+        .arg(case.records())
+        .args(["rev-parse", "--verify", "--quiet", "HEAD"])
+        .env("HOME", case.home())
+        .output()
+        .expect("run git");
+    assert!(!head.status.success(), "the start committed: {printed}");
 }
 
 #[test]

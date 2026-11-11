@@ -58,7 +58,7 @@
 use std::collections::BTreeMap;
 use std::fs;
 use std::io::{self, Read, Write};
-use std::net::{Ipv4Addr, Shutdown, SocketAddr, TcpListener, TcpStream};
+use std::net::{Shutdown, SocketAddr, TcpListener, TcpStream};
 use std::os::unix::net::UnixStream;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -525,11 +525,11 @@ enum Listener {
 /// container whose port is published) as the TLS listener is, a `/v1/` request taken with a
 /// bearer only and no token in the page (`story:container-start-without-prompt`).
 pub fn serve(listener: &TcpListener, api: &Arc<Api>) {
-    let local = listener.local_addr().ok();
-    let kind = match local {
-        Some(address) if address.ip().is_loopback() => Listener::Loopback(address),
-        Some(_) => Listener::Bearers,
-        None => Listener::Loopback(SocketAddr::from((Ipv4Addr::LOCALHOST, 0))),
+    // A listener whose address cannot be read is taken as reachable from elsewhere: it fails
+    // closed.
+    let kind = match listener.local_addr() {
+        Ok(address) if address.ip().is_loopback() => Listener::Loopback(address),
+        _ => Listener::Bearers,
     };
     for stream in listener.incoming().flatten() {
         let api = Arc::clone(api);

@@ -8,7 +8,7 @@
 //! directory is, `.engineering/workspace.yaml` as `conductor config workspace` writes it
 //! (`story:workspace-from-config`), and `decisions/`, `dispatches/` and `charters/`, then commits
 //! the files it wrote, and only those. It overwrites nothing: when any of those files is there, it writes
-//! nothing. A skeleton whose commit failed, in a repository with no commit yet, is committed as
+//! nothing. A skeleton whose commit failed, in a repository with no commit at all, is committed as
 //! it lies by [`commit_lying`], which the daemon's unattended start runs
 //! (`story:container-start-without-prompt`). The texts name no organization. It installs no agent
 //! adapter under `~/.claude/agents/`: the daemon starts the host roles from their profiles
@@ -242,9 +242,10 @@ fn lying(records: &Path) -> Vec<String> {
     there
 }
 
-/// Runs `git -C <records> <args>`; a refusal is one line: git's subcommand and the reason git
-/// gave, its first line of standard error and, when another, its last.
-fn git_line(records: &Path, args: &[&str]) -> Result<()> {
+/// Runs `git -C <records> <args>` and answers its standard output; a refusal is one line: git's
+/// subcommand and the reason git gave, its first line of standard error and, when another, its
+/// last.
+fn git_line(records: &Path, args: &[&str]) -> Result<String> {
     let shown = args.first().copied().unwrap_or_default();
     let output = crate::instance::command("git")
         .arg("-C")
@@ -267,40 +268,79 @@ fn git_line(records: &Path, args: &[&str]) -> Result<()> {
         };
         bail!("`git {shown}` failed: {why}");
     }
-    Ok(())
+    Ok(String::from_utf8_lossy(&output.stdout).into_owned())
+}
+
+/// The files of `files` that `git ls-files <which>` lists in `records`, in their order.
+fn listed<'a>(records: &Path, files: &'a [String], which: &[&str]) -> Result<Vec<&'a str>> {
+    let mut args = vec!["ls-files", "-z"];
+    args.extend(which);
+    args.push("--");
+    args.extend(files.iter().map(String::as_str));
+    let output = git_line(records, &args)?;
+    let shown: Vec<&str> = output.split('\0').collect();
+    Ok(files
+        .iter()
+        .map(String::as_str)
+        .filter(|file| shown.contains(file))
+        .collect())
 }
 
 /// Commits the skeleton under `records` as it lies, where `records` is a git repository of its
-/// own with no commit yet: the files of it that are there ([`lying`]), with the message
-/// `conductor init` commits with. A repository that has a commit, a directory that is no
-/// repository of its own and a skeleton of which nothing is there are left alone. Changes no
-/// file. Answers whether it committed.
+/// own with no commit on any branch or ref: the files of it that are there ([`lying`]) and git
+/// does not ignore, with the message `conductor init` commits with. A repository that has a
+/// commit anywhere, a directory that is no repository of its own and a skeleton of which nothing
+/// is there are left alone. Changes no file. Answers whether it committed.
 ///
 /// # Errors
 ///
-/// A `git` it runs fails; one line, naming `records` and the reason git gave.
+/// A `git` it runs fails, or git ignores every file of the skeleton; one line, naming `records`
+/// and the reason.
 pub fn commit_lying(records: &Path) -> Result<bool> {
+    let not_committed = || {
+        format!(
+            "the records skeleton in {} is not committed",
+            records.display()
+        )
+    };
     if records.join(".git").symlink_metadata().is_err()
-        || git_line(records, &["rev-parse", "--verify", "--quiet", "HEAD"]).is_ok()
+        || !git_line(records, &["rev-list", "-n", "1", "--all"])
+            .with_context(not_committed)?
+            .trim()
+            .is_empty()
     {
         return Ok(false);
     }
-    let files = lying(records);
-    if files.is_empty() {
+    let lying = lying(records);
+    if lying.is_empty() {
         return Ok(false);
     }
+    // A file of the index is subject to no ignore rule; a file outside it is committed where git
+    // does not ignore it. `git add` refuses a file of the index under an ignored directory, so
+    // only the second is added.
+    let indexed = listed(records, &lying, &["--cached"]).with_context(not_committed)?;
+    let new =
+        listed(records, &lying, &["--others", "--exclude-standard"]).with_context(not_committed)?;
+    let files: Vec<&str> = lying
+        .iter()
+        .map(String::as_str)
+        .filter(|file| indexed.contains(file) || new.contains(file))
+        .collect();
+    if files.is_empty() {
+        bail!("{}: git ignores each file of it", not_committed());
+    }
     let mut add = vec!["add", "--"];
-    add.extend(files.iter().map(String::as_str));
+    add.extend(&new);
     let mut commit = vec!["commit", "--quiet", "-m", COMMIT_MESSAGE, "--"];
-    commit.extend(files.iter().map(String::as_str));
-    git_line(records, &add)
-        .and_then(|()| git_line(records, &commit))
-        .with_context(|| {
-            format!(
-                "the records skeleton in {} is not committed; the next start commits it",
-                records.display()
-            )
-        })?;
+    commit.extend(&files);
+    let added = if new.is_empty() {
+        Ok(String::new())
+    } else {
+        git_line(records, &add)
+    };
+    added
+        .and_then(|_| git_line(records, &commit))
+        .with_context(|| format!("{}; the next start tries again", not_committed()))?;
     println!("committed: {}", files.join(", "));
     Ok(true)
 }
