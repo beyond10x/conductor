@@ -22,7 +22,7 @@ repository under a lock. Free disk at the start: 104 GB.
 | U4 | box-reaches-forge-and-daemon | | `w51-u4` | merged (`fe099dc20`), two adversary passes; the egress half is blocked, the story stays active |
 | U5 | daemon-probes-and-metrics | | `w51-u5` | merged (`654a1c993`), two adversary passes |
 | U6 | release-container-image | | `w51-u6` | merged (`61eb01e39`), two adversary passes |
-| U7 | container-start-without-prompt | U3, U4, U5, U6 | `w51-u7` | correction 1 after adversary pass 1 |
+| U7 | container-start-without-prompt | U3, U4, U5, U6 | `w51-u7` | adversary pass 2, after correction 1 |
 
 Each unit works on branch `impl/<story>`; its scratch is the session scratch directory's
 `w51/u<n>/`. No unit has a build directory of its own: every build is in the repository's shared
@@ -205,7 +205,12 @@ is read before the first of the two merges.
   empty pool applies only where the config says `daemon.unattended`, so a host's agents keep
   the harness's own login; the workflow job's case fails on `if:` and `continue-on-error:`.
   Accepted, no change: `systemd-run` on PATH counts as a user manager, and the image holds
-  none.
+  none. Corrected in one round: the reveal refuses a boxed instance; a loopback listener
+  answers the address it is bound to; a start commits a skeleton whose repository has no
+  commit; the listeners are served before the seeding, with `/readyz` at 503 while it runs and
+  after it failed. Left for the backlog: with the listener on another loopback address the
+  local clients (`status`, `instance upgrade`, `daemon start-role`) still connect to
+  `127.0.0.1`.
 
 ## What each story's close needs
 
