@@ -596,6 +596,49 @@ fn the_trust_step_activates_the_worktree_workspace() {
     );
 }
 
+/// The step that migrates the planning store says the migration runs in the repository's own
+/// checkout, not in a worktree of it, since doctor and setup read the store there (a v1.3.0
+/// onboarding run took the worktree rule of conductor's own `AGENTS.md` for the repository it set
+/// up and left the checkout on the old format), and that the steps after it that ask nothing go
+/// on while the person decides (the other run stopped at the migration and left steps 6 to 8 for
+/// the person's answer).
+#[test]
+fn the_migration_step_runs_in_the_checkout_and_holds_up_no_step_that_asks_nothing() {
+    let steps = steps(&read("SETUP.md"));
+    let at = steps
+        .iter()
+        .position(|step| {
+            items(step)
+                .iter()
+                .any(|(_, item)| item.contains("aep plan store migrate git --verify"))
+        })
+        .unwrap_or_else(|| panic!("no step of SETUP.md migrates the planning store"));
+    let step = &steps[at];
+    let trust = steps
+        .iter()
+        .position(|step| {
+            items(step)
+                .iter()
+                .any(|(_, item)| item.contains("conductor trust --instance"))
+        })
+        .unwrap_or_else(|| panic!("no step of SETUP.md fixes with conductor trust"));
+    let text = joined(step);
+    assert!(
+        text.contains("not in a worktree"),
+        "SETUP.md:{}: step {} does not say the migration runs in the repository's checkout, not \
+         in a worktree",
+        step.line,
+        step.title.trim()
+    );
+    let going_on = format!("steps {} to {}", at + 2, trust + 1);
+    assert!(
+        text.contains(&going_on) && text.contains("while the person decides"),
+        "SETUP.md:{}: step {} does not say {going_on} go on while the person decides",
+        step.line,
+        step.title.trim()
+    );
+}
+
 /// The worktree workspace is activated by `conductor setup --apply`, with a profile it writes:
 /// no step asks for a profile the person does not have (every v1.0.0 onboarding run asked).
 #[test]

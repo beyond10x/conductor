@@ -83,11 +83,14 @@ to fill in, and each step says where they come from. `<target>` is the build of 
    - Hands: none.
 
 5. **Bring the planning store up to date.** The store is `.engineering/` in the repository; its
-   `version` line reads `aep.project/5` when it is current.
+   `version` line reads `aep.project/5` when it is current. Migrate it in the repository's own
+   checkout, not in a worktree of it: doctor and `conductor setup` read the store there. Steps 6
+   to 8 need no migrated store and ask nothing: ask the person here, then go on with steps 6 to
+   8 while the person decides.
    - Check: `git show HEAD:.engineering/project.yaml`; when there is no such file the repository
      has no planning store, and there is nothing to migrate.
    - Fix: `aep plan store migrate git --dry-run`; show the person what it would change, and only
-     after they agree, `aep plan store migrate git --verify`.
+     after they agree, `aep plan store migrate git --verify`, in the repository's checkout.
    - Hands: approving the migration, which rewrites the store's files.
 
 6. **Write the instance config for the repository.** The config file is
