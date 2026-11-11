@@ -78,6 +78,11 @@ conductor config validate
 conductor snapshot start-snapshot
 ```
 
+Doctor ends `ready` only once each instance writes its forge route: `forge: {route: direct}`,
+with which a controller writes its pull requests with the forge login inside the box, or a
+`gates_policy` for the bot route
+([configure an instance](./configure-an-instance.md#1-write-the-file)).
+
 Then provoke one denial inside the box, as the [hardening checklist](../security/hardening.md)
 shows.
 

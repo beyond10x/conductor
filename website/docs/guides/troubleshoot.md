@@ -29,9 +29,22 @@ exits 1:
 | `<program> (not logged in to <host>)` | `gh auth login --hostname github.com`, or `glab auth login --hostname <host>` |
 | `worktree workspace (not activated: <root>)` | run the `activate:` line under the root's row, `conductor setup --apply` for a checkout under it, which writes the profile and activates the root |
 | `agent kind <kind> (not implemented)` | set the role's `kind` to `claude-code`, the only kind |
+| `forge route <instance> (no gates_policy)` | the instance is on `forge.route: gates`, the default, and names no `gates_policy`: write its `gates_policy`, or `forge: {route: direct}` |
+| `forge route <instance> (gates_policy <path> is not a readable file)` | the instance's `gates_policy` names no file this user can read: write the policy there, name a readable policy file, or write `forge: {route: direct}` |
+| `forge route <instance> (no bot route for <host>)` | the bot route writes to GitHub only: write `forge: {route: direct}` on the instance whose `gitlab` source, or a checkout's `origin`, is on `<host>` |
+| `guard <role> (denied)` | the guard denies that role the pull or merge request create it makes by design. Its `guard <role>:` line carries the guard's reason, and for the controller the checkouts it is denied in; on the route `gates` with a source or a checkout on GitLab, the instance's `forge route` line names the fix. With several instances in the file the role reads `<role> of <instance>` |
 
 `substrate-daemon` is needed only for a `placement` that opens a box, a forge's CLI only for a
-source on that forge. The `secrets:`, `store:` and `daemon unit:` lines change no verdict.
+source on that forge. The `secrets:`, `store:` and `daemon unit:` lines change no verdict, nor
+does a `guard <role>: not checked (…)` line: that role has no checkout whose `origin` names a
+repository to ask the guard about.
+
+`conductor instance upgrade` runs the new binary's doctor first, and rolls back when it is not
+ready: an upgrade that prints `rolled back: doctor: … not ready: forge route <instance> (no
+gates_policy); forge route <instance>: …` goes through once that instance writes its
+`gates_policy` or `forge: {route: direct}`, the change the quoted `forge route` line names. A
+policy only in `B10X_GATES_POLICY` stays not ready: with the variable set, the line names its
+path as the `gates_policy` to write.
 
 ## The daemon does not start
 

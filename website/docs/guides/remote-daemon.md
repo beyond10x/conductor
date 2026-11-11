@@ -40,10 +40,12 @@ instances:
     checkouts:
       root: ~/example-group
       trees: ~/.local/state/worktree/trees/example-group
+    forge: {route: direct}
 ```
 
 | key | what it sets |
 |---|---|
+| `forge.route` | `direct`: a controller writes its merge requests with the forge login on the box. The bot route of the default, `gates`, writes to GitHub only ([GitLab](./gitlab.md#1-name-the-group-and-its-host)), so `conductor doctor` is not ready for this `gitlab` source on it |
 | `daemon.loopback` | `false`: no listener on `127.0.0.1:<daemon.port>`. Validate refuses it without `daemon.tls` |
 | `daemon.tls.listen` | `<host>:<port>` |
 | `daemon.tls.cert`, `daemon.tls.key` | the PEM files of the certificate chain and its key |

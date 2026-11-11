@@ -70,7 +70,12 @@ instances:
     sources: [{github: example-org}]
     checkouts: {root: ~/example-org, trees: ~/.local/state/worktree/trees/example-org}
     model_token: secret:example-model-token
+    forge: {route: direct}
 ```
+
+`forge: {route: direct}` lets a controller write its pull requests with the forge login of the
+account it runs as; the default route, `gates`, writes through the bot route under a
+`gates_policy` ([forge calls](./the-guard.md#forge-calls)).
 
 ## Listeners
 

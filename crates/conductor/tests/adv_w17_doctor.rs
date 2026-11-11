@@ -28,6 +28,11 @@ const PROGRAMS: [(&str, &str); 9] = [
 
 const GLAB: (&str, &str) = ("glab", "glab 1.46.0 (2024-09-01)");
 
+/// The line that puts an instance on the direct route: doctor is not ready on the default route,
+/// `gates`, without a `gates_policy` or with a GitLab source
+/// (`story:doctor-checks-guard-forge-writes`), which none of these cases is about.
+const DIRECT: &str = "\x20   forge: {route: direct}\n";
+
 /// The pins of the repository's own `b10x.toml`, which the build carries as its minimum versions.
 fn repository_pins() -> Vec<(String, String)> {
     let file = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../b10x.toml");
@@ -227,7 +232,7 @@ fn adv_w17_the_config_flag_names_doctor_s_instance_before_the_variable() {
         "gitlab.yaml",
         &format!(
             "version: conductor.config/1\ninstances:\n{}",
-            case.instance("alpha", "[{gitlab: example-group}]", "")
+            case.instance("alpha", "[{gitlab: example-group}]", DIRECT)
         ),
     );
     let github = case.write(
@@ -279,12 +284,12 @@ fn adv_w17_doctor_needs_no_gh_for_two_gitlab_instances_without_a_default() {
             case.instance(
                 "alpha",
                 "[{gitlab: group-a}]",
-                "\x20   session_prefix: alpha\n"
+                &format!("\x20   session_prefix: alpha\n{DIRECT}")
             ),
             case.instance(
                 "beta",
                 "[{gitlab: group-b, host: gitlab.example.com}]",
-                "\x20   session_prefix: beta\n"
+                &format!("\x20   session_prefix: beta\n{DIRECT}")
             ),
         ),
     );
@@ -329,11 +334,11 @@ fn adv_w17_doctor_needs_glab_when_any_instance_of_the_file_has_a_gitlab_source()
         "conductor.yaml",
         &format!(
             "version: conductor.config/1\ndefault: alpha\ninstances:\n{}{}",
-            case.instance("alpha", "[{github: example-org}]", ""),
+            case.instance("alpha", "[{github: example-org}]", DIRECT),
             case.instance(
                 "beta",
                 "[{gitlab: example-group}]",
-                "\x20   session_prefix: beta\n"
+                &format!("\x20   session_prefix: beta\n{DIRECT}")
             ),
         ),
     );

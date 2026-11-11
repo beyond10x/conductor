@@ -29,12 +29,15 @@ instances:
       root: ~/example-group
       trees: ~/.local/state/worktree/trees/example-group
     records: ~/records/example-group
+    forge:
+      route: direct
 ```
 
 | key | what it sets |
 |---|---|
 | `gitlab` | the group whose projects, and its subgroups' projects, are the instance's repositories |
 | `host` | the GitLab host name, without a scheme or a path. A port may follow as `:<port>`. Absent, it is `gitlab.com` |
+| `forge.route` | `direct`: a controller writes its own merge requests with `glab`. The bot route of the default, `gates`, writes to GitHub only, so `conductor doctor` is not ready for a `gitlab` source on it |
 
 `conductor config validate` refuses `host` beside a `github` or `local` source, and a host written
 with a scheme or a path:
@@ -118,9 +121,9 @@ turns from success to failed, and `CI green again on main: <repo> / pipeline` wh
 ## glab under the guard
 
 The guard reads a `glab` call as it reads a `gh` call. A read is allowed, and any other call is a
-forge write, denied in every guarded session. A write to a forge credential (`glab variable`,
-`auth`, `ssh-key`, `gpg-key`, `deploy-key`, `token`, `config` or `securefile`) is class H, for the
-operator to run. Which `glab` calls read, and the writes `forge.route: direct` lets a controller
+forge write, denied in every guarded session unless `forge.route: direct` carries it. A write
+to a forge credential (`glab variable`, `auth`, `ssh-key`, `gpg-key`, `deploy-key`, `token`,
+`config` or `securefile`) is class H, for the operator to run. Which `glab` calls read, and the writes `forge.route: direct` lets a controller
 make, are in [the guard](../security/the-guard.md).
 
 Next: [initialise the records](./initialise-the-records.md).

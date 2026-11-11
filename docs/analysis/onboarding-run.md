@@ -149,7 +149,8 @@ Gaps found in the first round (fixed on the release branch, and both runs repeat
   joined the step; the GitLab session read the four as `aep`, `ess`, `worktree` and
   `b10x-gates`, skipped `substrate-daemon` and asked the person about it. The Check and Fix now
   name each program.
-- **The activation waited for step 11.** The GitLab session stopped at step 9, which may need the
+- **The activation waited for step 11** (the step that applies `conductor setup`, step 12 since
+  the forge route step). The GitLab session stopped at step 9, which may need the
   person, and left `conductor setup --apply` for later. Step 8 now runs it after
   `conductor trust`: it asks nothing.
 
@@ -257,4 +258,4 @@ Open, not fixed in this release:
   box row needs the substrate daemon serving the instance's roots. The `ready` that `AGENTS.md`
   asks of both runs needs steps 9 and 10 run, which a run on a shared host does not do;
 - `conductor setup` prints doctor's rows without the box row, and its verdict does not name the
-  box, while step 11 of `SETUP.md` says it prints doctor's rows. Step 12 runs doctor, which does.
+  box, while step 12 of `SETUP.md` says it prints doctor's rows. Step 13 runs doctor, which does.

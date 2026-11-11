@@ -108,11 +108,16 @@ to fill in, and each step says where they come from. `<target>` is the build of 
        checkouts:
          root: <directory holding the repository>
          trees: ~/.local/state/worktree/trees/<repository's directory name>
+       forge: {route: direct}
    ```
 
    For GitLab the source is `gitlab: <group>` with `host: <host>` under it; with no forge it is
    `local: <directory holding the repository>`. A file that is there already gets the instance
-   under its `instances:`, with a `session_prefix` no other instance has.
+   under its `instances:`, with a `session_prefix` no other instance has. The last line is the
+   forge route `conductor setup --apply` writes: when the repository's origin and that of every
+   other checkout under the checkouts root that has one are on GitHub and `B10X_GATES_POLICY`
+   names a readable policy file, it is `gates_policy: <that file's absolute path>` instead; step
+   11 says why.
    - Check: `conductor config show`; one instance's checkouts root is the directory that holds
      the repository.
    - Fix: write the file or the instance above, then `conductor config validate`, which names
@@ -129,7 +134,7 @@ to fill in, and each step says where they come from. `<target>` is the build of 
 
 8. **Trust the checkouts and the records** as Claude Code workspaces, **and activate the
    worktree workspace** of the checkouts root. `conductor setup --apply` activates it with a
-   profile it writes (step 11 says how); it needs no profile of the person's and asks nothing,
+   profile it writes (step 12 says how); it needs no profile of the person's and asks nothing,
    so run it here, before the steps that may wait for the person.
    - Check: `conductor doctor`; it prints worktree workspace: <root> activated. Before step 9
      it also prints a box <name>: row that names a refusal (a writable root that does not exist
@@ -176,9 +181,30 @@ to fill in, and each step says where they come from. `<target>` is the build of 
       substrate refused shows as PlacementRefused with substrate's reason.
     - Hands: none.
 
-11. **Check the repository as a whole, and apply what is safe.** `conductor setup` prints doctor's
+11. **Read the forge route setup wrote.** The route is how a controller writes its pull or merge
+    requests. `conductor setup --apply` (step 8) wrote it into the instance it created and
+    printed it with why; it asks nothing. The instance gets the bot route only when the
+    repository's origin and that of every other checkout under its checkouts root that has one
+    are on GitHub and `B10X_GATES_POLICY` names a readable policy file: that file's absolute path
+    as its `gates_policy`, on the default route, gates, and controllers write through the bot
+    route, `b10x-gates`, under that policy. Anything else, a GitLab origin, a repository with no
+    forge origin, no readable policy file, or a checkout there on another host, which the route
+    line names, gets `forge: {route: direct}`: controllers write with the person's own forge
+    login, the one of step 2, since the bot route writes to GitHub only and under a policy only.
+    Setup changes the route of no instance that is there. To
+    take the bot route later, write `gates_policy: <path>` under the instance, a policy file
+    https://github.com/beyond10x/gates#readme says how to write, and remove its `forge.route` or
+    set it to gates.
+    - Check: `conductor doctor`; it prints forge route <name>: direct, or
+      forge route <name>: gates, policy <path>.
+    - Fix: for the bot route, write the lines above, then `conductor config validate`; none else.
+    - Hands: none, unless the person wants the bot route: then the policy file.
+
+12. **Check the repository as a whole, and apply what is safe.** `conductor setup` prints doctor's
     rows, then the repository's: its planning store, the instance naming it, its records and its
-    trust, and ends with one verdict. `--apply` writes the step 6 file when there is no config
+    trust, then doctor's lines of the config file (each instance's box, forge route and guard
+    lines) and the forge route of the instance `--apply` writes, with why, and ends with one
+    verdict, not ready wherever doctor's is. `--apply` writes the step 6 file when there is no config
     file, and runs `conductor init` and `conductor trust` when they are missing. It also
     activates the instance's checkouts root as a `worktree` workspace when doctor prints
     worktree workspace: <root> not activated: it writes a profile for it beside the config file,
@@ -193,12 +219,14 @@ to fill in, and each step says where they come from. `<target>` is the build of 
     - Hands: what each `to run:` and `to install:` line it prints needs: a login, an install that
       needs root, approving the store migration.
 
-12. **Run doctor until it is ready.** Its last line is `ready`, or `not ready:` and what failed.
+13. **Run doctor until it is ready.** Its last line is `ready`, or `not ready:` and what failed.
     - Check: `conductor doctor`
     - Fix: go back to the step for each program the not-ready line names: gh or glab to step 2,
       aep, ess, worktree, substrate-daemon or b10x-gates missing or too old to step 4, a worktree
-      workspace not activated to step 11. Install any other missing program (git, claude, jq)
-      with the system's package manager, then check again.
+      workspace not activated to step 12. Install any other missing program (git, claude, jq)
+      with the system's package manager, then check again. A forge route reason goes back to
+      step 11: the forge route line of that instance names the change to its config file. For
+      a guard reason, the guard line of that role carries the guard's own reason.
     - Hands: what the step it goes back to needs.
     - Next: once doctor is ready, [one task in an existing repository](https://beyond10x.github.io/conductor/docs/guides/first-task-existing-repo)
       takes the person from here to a first merged pull request.

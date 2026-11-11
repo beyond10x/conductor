@@ -23,14 +23,16 @@ conductor setup
 conductor setup --apply
 ```
 
-`conductor setup` prints the rows of `conductor doctor`, then four rows of the repository, then
-one verdict. Before `--apply`, on a host with no config file, it ends:
+`conductor setup` prints the rows of `conductor doctor`, then four rows of the repository, the
+forge route of its instance, then one verdict. Before `--apply`, on a host with no config file,
+it ends:
 
 ```text
 store: none
 instance: none names ~/src/alpha, which --apply names with the source {github: example-org}; run conductor setup --apply
 records: missing (no instance names the repository)
 trust: not trusted (~/src/alpha)
+forge route alpha: direct, which --apply writes: B10X_GATES_POLICY names no readable policy file, and the bot route writes under a policy only
 not ready: instance (none), records (missing), trust (not trusted)
 ```
 
@@ -42,11 +44,23 @@ repository's `origin`, and `~/src` as the checkouts root. Then it runs `conducto
 `conductor trust`. With a config file whose instances do not name the repository, it prints the
 instance to add as `to write:` lines and changes nothing.
 
+`--apply` writes the forge route of the instance it creates, asks nothing, and prints the route
+with why. The instance gets the bot route only when the repository's `origin` and that of every
+other checkout under `~/src` that has one are on GitHub and `B10X_GATES_POLICY` names a readable
+policy file: that file's absolute path as its `gates_policy`, on the default route, `gates`, and
+a controller writes through the bot route under that policy
+([forge calls](../security/the-guard.md#forge-calls)). Anything else gets
+`forge: {route: direct}`, and a controller writes its pull requests with your own forge login: a
+GitLab origin, a repository with no forge origin, no readable policy file, or a checkout under
+`~/src` on another host, which the route line names. It changes the route of no instance that is
+there. To take the bot route later, write a `gates_policy` under the instance and remove its
+`forge.route` or set it to `gates`.
+
 `--apply` then checks each box as conductord does before it starts one. When conductord would refuse
-an instance's box, a fifth row, `box:`, names the refusal and the verdict reads
-`not ready: box (refused)`. With a database already at `~/.b10x/conductor/conductor.sqlite`, the
-file `--apply` writes names that store, which a box cannot write
-(`placement.writable-root-shared`): it prints `to write: daemon.store:
+an instance's box, a fifth row, `box:`, names the refusal and the verdict names the box as doctor's
+does. With a database already at `~/.b10x/conductor/conductor.sqlite`, the file `--apply` writes
+names that store, which a box cannot write, and the verdict reads
+`not ready: box alpha (placement.writable-root-shared)`: it prints `to write: daemon.store:
 sqlite:~/.b10x/conductor/store/conductor.sqlite` and moves nothing. Stop conductord, move the
 database there and write that value, or give the instance a placement without a box.
 
@@ -64,8 +78,10 @@ to run: worktree activate --profile ~/.b10x/conductor/worktree/alpha.toml --work
 ```
 
 The second line appears only when `worktree` refused the activation; the reason is on standard
-error. Run each `to run:` and `to install:` line, then `conductor setup` again until its last line
-is `ready`.
+error. Run each `to run:` and `to install:` line, then `conductor setup` again. For an instance
+`--apply` wrote, its last line still names the box, `not ready: box alpha (<refusal>)`, such as
+`placement.writable-root-missing` or `placement.substrate-unreachable`, until section 2 starts the
+substrate daemon: with that one reason left, go on.
 
 ## 2. Start the instance
 

@@ -31,9 +31,14 @@ instances:
     checkouts:
       root: ~/work
       trees: ~/.local/state/worktree/trees/work
+    forge: {route: direct}
     repositories:
       - {match: beta, activity: active}
 ```
+
+`forge: {route: direct}` is the route the instance's controllers write their pull requests on;
+[configure an instance](./configure-an-instance.md#1-write-the-file) says what it means and
+what the default route needs.
 
 ```console
 $ conductor config validate

@@ -30,9 +30,23 @@
 //!
 //! With `--apply` a fifth row follows when conductord would refuse the box of an instance of
 //! the file `--apply` wrote or found, by the check `conductor config validate` runs
-//! ([`box_check`]): `box`, with the refusal, and the verdict names `box (refused)`. Where
+//! ([`box_check`]): `box`, with the refusal, which the verdict names as doctor's does,
+//! `box <instance> (<refusal>)`. Where
 //! another `daemon.store` lifts the refusal it prints that value as a `to write: ` line and
 //! says that it moves no store.
+//!
+//! After the rows it prints the lines doctor prints from the config file alone
+//! ([`doctor::config_lines`]: the agent kinds, the box dry runs, the forge routes and the guard's
+//! answers, `story:doctor-checks-guard-forge-writes`), and its verdict is doctor's over them and
+//! its rows ([`doctor::verdict_over`]): setup is not ready wherever doctor on the same file is.
+//!
+//! The instance `--apply` creates names the forge route [`route_for`] derives from the
+//! repository's `origin` and those of the checkouts under the root it writes, asking the person
+//! nothing: the bot route only when every origin there is on GitHub and `B10X_GATES_POLICY` names
+//! a readable policy file, that file's absolute path as its `gates_policy`, on the default route
+//! `gates`; `forge: {route: direct}` otherwise.
+//! The plan and the closing output print that route and why ([`route_line`]). It changes the
+//! route of no instance that is there.
 
 use std::fs;
 use std::io::ErrorKind;
@@ -117,7 +131,7 @@ pub fn origin_of(url: &str) -> Origin {
     if host.is_empty() || parts.len() < 2 {
         return Origin::None;
     }
-    if host == doctor::GITHUB_HOST {
+    if doctor::on_github(host.split(':').next().unwrap_or(host)) {
         Origin::GitHub {
             owner: parts[0].to_owned(),
         }
@@ -202,7 +216,13 @@ pub const PLACEMENT: &str = "systemd";
 /// names `store` ([`STORE`], or [`STORE_BEFORE`] where that database exists), and its one
 /// instance is [`instance_text`].
 #[must_use]
-pub fn config_text(name: &str, origin: &Origin, parent: &Path, store: &str) -> String {
+pub fn config_text(
+    name: &str,
+    origin: &Origin,
+    parent: &Path,
+    store: &str,
+    route: &Route,
+) -> String {
     format!(
         "version: {version}\n\
          daemon:\n\
@@ -211,15 +231,146 @@ pub fn config_text(name: &str, origin: &Origin, parent: &Path, store: &str) -> S
          {instance}",
         version = config::VERSION_2,
         store = serde_json::to_string(store).unwrap_or_default(),
-        instance = instance_text(name, origin, parent),
+        instance = instance_text(name, origin, parent, route),
+    )
+}
+
+/// The forge route `--apply` writes into an instance it creates
+/// (`story:doctor-checks-guard-forge-writes`, the operator's decision): [`route_for`].
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Route {
+    /// `forge: {route: direct}`: controllers write with the person's own forge login.
+    Direct,
+    /// The default route, `gates`, the bot route, under this `gates_policy`.
+    Gates(PathBuf),
+}
+
+impl Route {
+    /// The route as doctor's `forge route` line names it: `direct`, or `gates, policy <path>`.
+    #[must_use]
+    pub fn shown(&self) -> String {
+        match self {
+            Self::Direct => "direct".to_owned(),
+            Self::Gates(policy) => format!("gates, policy {}", policy.display()),
+        }
+    }
+}
+
+/// The route of the instance `--apply` creates for a repository whose `origin` is `origin`, and
+/// the one clause that says why, with `policy` the Gates policy its environment names
+/// ([`doctor::environment_policy`]) and `checkouts` those under the checkouts root `root` it
+/// writes, read as doctor reads them ([`doctor::checkouts_at`]): it asks the person nothing.
+/// - A GitLab origin, or none on a forge: [`Route::Direct`], since the bot route writes to
+///   GitHub only.
+/// - A GitHub origin and a policy: [`Route::Gates`] under it, the default route, when every
+///   checkout with an origin is on GitHub ([`doctor::on_github`]); otherwise [`Route::Direct`],
+///   naming the first checkout that is not, its host, and how many more, as doctor counts them.
+/// - A GitHub origin and none: [`Route::Direct`], since the bot route writes under a policy only.
+#[must_use]
+pub(crate) fn route_for(
+    origin: &Origin,
+    policy: Option<&Path>,
+    root: &Path,
+    checkouts: &[doctor::Checkout],
+) -> (Route, String) {
+    let variable = crate::broker::POLICY_VARIABLE;
+    let github = doctor::GITHUB_HOST;
+    let elsewhere: Vec<(String, &str)> = checkouts
+        .iter()
+        .filter_map(|checkout| {
+            let (host, _) = checkout.origin.as_ref()?;
+            let name = checkout.path.strip_prefix(root).unwrap_or(&checkout.path);
+            (!doctor::on_github(host)).then(|| (name.display().to_string(), host.as_str()))
+        })
+        .collect();
+    match (origin, policy) {
+        (Origin::GitHub { .. }, Some(_)) if !elsewhere.is_empty() => {
+            let (name, host) = &elsewhere[0];
+            let more = match elsewhere.len() - 1 {
+                0 => String::new(),
+                more => format!(" and {more} more"),
+            };
+            (
+                Route::Direct,
+                format!(
+                    "checkouts under {} not on {github}: {name} on {host}{more}; the bot route \
+                     writes to {github} only",
+                    root.display()
+                ),
+            )
+        }
+        (Origin::GitHub { .. }, Some(policy)) => (
+            Route::Gates(policy.to_path_buf()),
+            format!("the origin is on {github} and {variable} names this policy file"),
+        ),
+        (Origin::GitHub { .. }, None) => (
+            Route::Direct,
+            format!(
+                "{variable} names no readable policy file, and the bot route writes under a \
+                 policy only"
+            ),
+        ),
+        (Origin::GitLab { host, .. }, _) => (
+            Route::Direct,
+            format!("the origin is on {host}, and the bot route writes to {github} only"),
+        ),
+        (Origin::None, _) => (
+            Route::Direct,
+            format!(
+                "the repository has no origin on a forge, and the bot route writes to {github} \
+                 only"
+            ),
+        ),
+    }
+}
+
+/// The line that names the route of the instance `name` `--apply` writes, or `wrote`, and why
+/// ([`route_for`]): `forge route <name>: <route>, which --apply writes: <why>`.
+fn route_line(name: &str, route: &Route, why: &str, wrote: bool) -> String {
+    format!(
+        "forge route {name}: {}, which --apply {}: {why}",
+        route.shown(),
+        if wrote { "wrote" } else { "writes" }
+    )
+}
+
+/// The route line of the instance `--apply` would write for `repository` ([`route_line`]), when
+/// no instance of the config file names it; none when one does, or the config does not load.
+fn planned(flag: Option<&Path>, environment: &Environment, repository: &Path) -> Option<String> {
+    let loaded = config::load(flag, environment).ok()?;
+    if naming(&loaded, repository).is_some() {
+        return None;
+    }
+    let (route, why) = derived(environment, &origin(repository), repository);
+    Some(route_line(&new_name(repository), &route, &why, false))
+}
+
+/// [`route_for`] the instance `--apply` writes for `repository`, whose `origin` is `origin`: under
+/// the policy of `environment`, over the checkouts under the directory that holds it, the
+/// checkouts root that instance names.
+fn derived(environment: &Environment, origin: &Origin, repository: &Path) -> (Route, String) {
+    let root = repository.parent().unwrap_or(repository);
+    let policy = doctor::environment_policy(&environment.cwd);
+    route_for(origin, policy.as_deref(), root, &doctor::checkouts_at(root))
+}
+
+/// The name of the instance `--apply` writes for `repository`: [`instance_name`] of its
+/// directory's name.
+fn new_name(repository: &Path) -> String {
+    instance_name(
+        &repository
+            .file_name()
+            .map(|name| name.to_string_lossy().into_owned())
+            .unwrap_or_default(),
     )
 }
 
 /// The instance `name` of a config file, an item of its `instances`, naming the repository held
 /// by `parent`: its placement [`PLACEMENT`], the session prefix [`config::name_prefix`] gives
-/// `name`, and the source of `origin`.
+/// `name`, the source of `origin`, and its forge `route` ([`route_for`]): `forge: {route:
+/// direct}`, or the `gates_policy` of the default route.
 #[must_use]
-pub fn instance_text(name: &str, origin: &Origin, parent: &Path) -> String {
+pub fn instance_text(name: &str, origin: &Origin, parent: &Path, route: &Route) -> String {
     let quoted = |path: &Path| {
         serde_json::to_string(&path.display().to_string()).unwrap_or_else(|_| "\"\"".to_owned())
     };
@@ -230,6 +381,10 @@ pub fn instance_text(name: &str, origin: &Origin, parent: &Path) -> String {
         }
         Origin::None => format!("      - local: {}\n", quoted(parent)),
     };
+    let route = match route {
+        Route::Direct => "\x20   forge: {route: direct}\n".to_owned(),
+        Route::Gates(policy) => format!("\x20   gates_policy: {}\n", quoted(policy)),
+    };
     format!(
         "\x20 - name: {name}\n\
          \x20   placement: {PLACEMENT}\n\
@@ -238,7 +393,8 @@ pub fn instance_text(name: &str, origin: &Origin, parent: &Path) -> String {
          {source}\
          \x20   checkouts:\n\
          \x20     root: {root}\n\
-         \x20     trees: ~/.local/state/worktree/trees/{name}\n",
+         \x20     trees: ~/.local/state/worktree/trees/{name}\n\
+         {route}",
         // `config validate` refuses an instance without one (story:instance-names-unique).
         prefix = config::name_prefix(name, 0),
         root = quoted(parent),
@@ -433,7 +589,8 @@ pub fn check_line(check: &RepositoryCheck) -> String {
 }
 
 /// The failure a row that is not ready adds to the verdict: `store (old)`, `instance (none)`,
-/// `records (missing)` or `trust (not trusted)`.
+/// `records (missing)` or `trust (not trusted)`. The `box` row adds none: doctor's box line of the
+/// same box names it, `box <instance> (<refusal>)` ([`doctor::config_lines`]).
 fn failure(check: &RepositoryCheck) -> Option<String> {
     if check.ready {
         return None;
@@ -443,7 +600,7 @@ fn failure(check: &RepositoryCheck) -> Option<String> {
         "instance" => "none",
         "records" => "missing",
         "trust" => "not trusted",
-        "box" => "refused",
+        "box" => return None,
         _ => "not ready",
     };
     Some(format!("{} ({what})", check.check))
@@ -537,27 +694,31 @@ fn box_check(
 /// `--apply`: writes the config file naming `repository` when there is none, then runs
 /// `conductor init` and `conductor trust` for the instance naming it when its records or its
 /// trust are missing. A step that fails is named on standard error, and the rows read afterwards
-/// say what is still missing.
+/// say what is still missing. The instance it writes, or prints to add, names the route
+/// [`route_for`] derives; it answers that route's line ([`route_line`]) then, and none for an
+/// instance that is there, whose route it leaves as it is.
 ///
 /// # Errors
 ///
 /// The config file cannot be written.
-fn apply(flag: Option<&Path>, environment: &Environment, repository: &Path) -> Result<()> {
+fn apply(
+    flag: Option<&Path>,
+    environment: &Environment,
+    repository: &Path,
+) -> Result<Option<String>> {
     const WHAT: &str = "setup";
     let named = config::load(flag, environment)
         .ok()
         .and_then(|loaded| naming(&loaded, repository).map(|instance| instance.name.0.clone()));
+    let mut routed = None;
     let name = match named {
         Some(name) => name,
         None => {
             let (file, _) = config::locate(flag, environment).context(WHAT)?;
             let parent = repository.parent().unwrap_or(repository);
-            let name = instance_name(
-                &repository
-                    .file_name()
-                    .map(|name| name.to_string_lossy().into_owned())
-                    .unwrap_or_default(),
-            );
+            let name = new_name(repository);
+            let origin = origin(repository);
+            let (route, why) = derived(environment, &origin, repository);
             if file.exists() {
                 println!(
                     "to write: {} names no instance holding {}; add this instance under its \
@@ -565,22 +726,23 @@ fn apply(flag: Option<&Path>, environment: &Environment, repository: &Path) -> R
                     file.display(),
                     repository.display()
                 );
-                for line in instance_text(&name, &origin(repository), parent).lines() {
+                for line in instance_text(&name, &origin, parent, &route).lines() {
                     println!("to write: {line}");
                 }
-                return Ok(());
+                return Ok(Some(route_line(&name, &route, &why, false)));
             }
             let before = environment
                 .home()
                 .is_ok_and(|home| home.join(STORE_BEFORE_FILE).exists());
             let store = if before { STORE_BEFORE } else { STORE };
-            let text = config_text(&name, &origin(repository), parent, store);
+            let text = config_text(&name, &origin, parent, store, &route);
             if let Some(dir) = file.parent() {
                 fs::create_dir_all(dir)
                     .with_context(|| format!("{WHAT}: create {}", dir.display()))?;
             }
             fs::write(&file, text).with_context(|| format!("{WHAT}: write {}", file.display()))?;
             println!("wrote: {}", file.display());
+            routed = Some(route_line(&name, &route, &why, true));
             name
         }
     };
@@ -605,7 +767,7 @@ fn apply(flag: Option<&Path>, environment: &Environment, repository: &Path) -> R
     if let Err(error) = activate(flag, environment, repository) {
         eprintln!("conductor: setup: {error:#}");
     }
-    Ok(())
+    Ok(routed)
 }
 
 /// How long `worktree activate` may take.
@@ -675,8 +837,11 @@ fn activate(flag: Option<&Path>, environment: &Environment, repository: &Path) -
 }
 
 /// `conductor setup`: with `--apply`, [`apply`] first; then doctor's lines, the four rows of the
-/// repository, with `--apply` what it leaves to a person, and last the verdict over both. Exits 0
-/// when the verdict is `ready`, 1 otherwise. Writes nothing without `--apply`.
+/// repository, doctor's lines of the config file ([`doctor::config_lines`]), the route of the
+/// instance `--apply` writes or wrote with why ([`route_line`], [`planned`]), with `--apply`
+/// what it leaves to a person, and last the verdict over doctor's failures, those of the config
+/// file's lines and the rows ([`report`]). Exits 0 when the verdict is `ready`, 1 otherwise.
+/// Writes nothing without `--apply`.
 ///
 /// # Errors
 ///
@@ -697,9 +862,11 @@ pub fn setup(flag: Option<&Path>, args: &SetupArgs) -> Result<ExitCode> {
         ),
     };
     let applying = args.apply.unwrap_or(false);
-    if applying {
-        apply(flag, &environment, &repository)?;
-    }
+    let routed = if applying {
+        apply(flag, &environment, &repository)?
+    } else {
+        planned(flag, &environment, &repository)
+    };
     let doctor = doctor::check_at(flag, &repository)?;
     let mut checks = checks(flag, &environment, &repository);
     let refused = applying.then(|| box_check(flag, &environment)).flatten();
@@ -714,6 +881,13 @@ pub fn setup(flag: Option<&Path>, args: &SetupArgs) -> Result<ExitCode> {
     for check in &checks {
         println!("{}", check_line(check));
     }
+    let lines = doctor::config_lines(flag);
+    for (line, _) in &lines {
+        println!("{line}");
+    }
+    if let Some(line) = routed {
+        println!("{line}");
+    }
     if applying {
         for line in left_to_a_person(&doctor, &checks)
             .into_iter()
@@ -722,7 +896,7 @@ pub fn setup(flag: Option<&Path>, args: &SetupArgs) -> Result<ExitCode> {
             println!("{line}");
         }
     }
-    let report = report(&doctor, &repository, checks);
+    let report = report(&doctor, &lines, &repository, checks);
     println!("{}", report.verdict);
     Ok(if report.verdict == doctor::READY {
         ExitCode::SUCCESS
@@ -732,18 +906,22 @@ pub fn setup(flag: Option<&Path>, args: &SetupArgs) -> Result<ExitCode> {
 }
 
 /// The report the specification declares, `conductor.config.SetupReport`: its verdict is
-/// doctor's over doctor's failures and then each row's.
+/// doctor's ([`doctor::verdict_over`]), over doctor's failures, those of doctor's lines of the
+/// config file `lines` ([`doctor::config_lines`]), then each row's: the function `conductor
+/// doctor` takes its verdict from, so setup is not ready wherever doctor on the same file is, and
+/// names the same reasons.
 #[must_use]
-pub fn report(doctor: &Doctor, repository: &Path, checks: Vec<RepositoryCheck>) -> SetupReport {
-    let failures: Vec<String> = doctor
-        .failures()
-        .into_iter()
-        .chain(checks.iter().filter_map(failure))
-        .collect();
+pub fn report(
+    doctor: &Doctor,
+    lines: &[(String, Option<String>)],
+    repository: &Path,
+    checks: Vec<RepositoryCheck>,
+) -> SetupReport {
+    let rows: Vec<String> = checks.iter().filter_map(failure).collect();
     SetupReport {
         doctor: doctor.report(),
         repository: repository.display().to_string(),
-        verdict: doctor::verdict_of(&failures),
+        verdict: doctor::verdict_over(doctor, lines, &rows),
         checks,
     }
 }
@@ -761,6 +939,8 @@ mod tests {
             "https://github.com/example-org/alpha.git",
             "git@github.com:example-org/alpha.git",
             "ssh://git@github.com/example-org/alpha",
+            "https://GitHub.com/example-org/alpha.git",
+            "ssh://git@ssh.github.com:443/example-org/alpha.git",
         ] {
             assert_eq!(origin_of(url), github, "{url}");
         }
@@ -785,6 +965,62 @@ mod tests {
         }
     }
 
+    /// `story:doctor-checks-guard-forge-writes`: the route of an instance setup creates follows
+    /// from its origin and the policy of the environment alone.
+    #[test]
+    fn the_route_of_a_new_instance_follows_from_its_origin_and_the_policy() {
+        let policy = Path::new("/srv/policies/gates-policy.json");
+        let github = Origin::GitHub {
+            owner: "example-org".to_owned(),
+        };
+        let gitlab = Origin::GitLab {
+            host: "gitlab.example.com".to_owned(),
+            group: "example-group".to_owned(),
+        };
+        let root = Path::new("/srv/home/src");
+        let checkout = |name: &str, host: Option<&str>| doctor::Checkout {
+            path: root.join(name),
+            origin: host.map(|host| (host.to_owned(), format!("example-org/{name}"))),
+        };
+        let beside = [
+            checkout("alpha", Some("github.com")),
+            checkout("beta", Some("ssh.github.com")),
+            checkout("gamma", None),
+        ];
+        assert_eq!(
+            route_for(&github, Some(policy), root, &beside).0,
+            Route::Gates(policy.to_path_buf())
+        );
+        for (origin, policy) in [
+            (&github, None),
+            (&gitlab, Some(policy)),
+            (&gitlab, None),
+            (&Origin::None, Some(policy)),
+            (&Origin::None, None),
+        ] {
+            assert_eq!(
+                route_for(origin, policy, root, &beside).0,
+                Route::Direct,
+                "{origin:?}"
+            );
+        }
+        // A checkout under the root on another forge: the first by name, then how many more.
+        let elsewhere = [
+            checkout("alpha", Some("github.com")),
+            checkout("notes", Some("gitlab.example.com")),
+            checkout("wiki", Some("codeberg.org")),
+        ];
+        assert_eq!(
+            route_for(&github, Some(policy), root, &elsewhere),
+            (
+                Route::Direct,
+                "checkouts under /srv/home/src not on github.com: notes on gitlab.example.com \
+                 and 1 more; the bot route writes to github.com only"
+                    .to_owned()
+            )
+        );
+    }
+
     #[test]
     fn an_instance_name_is_a_config_name() {
         assert_eq!(instance_name("alpha"), "alpha");
@@ -807,10 +1043,31 @@ mod tests {
             },
             Origin::None,
         ] {
-            let text = config_text("alpha", &origin, parent, STORE);
+            let text = config_text("alpha", &origin, parent, STORE, &Route::Direct);
             let parsed = config::parse(&text, home)
                 .unwrap_or_else(|problems| panic!("{problems:?}:\n{text}"));
             assert_eq!(parsed.version, config::VERSION_2, "{text}");
+            assert_eq!(parsed.instances[0].gates_policy, None, "{text}");
+            assert_eq!(
+                parsed.instances[0].forge.route,
+                conductor_model::config::ForgeRoute::Direct,
+                "{text}"
+            );
+            let policy = Path::new("/srv/policies/gates-policy.json");
+            let route = Route::Gates(policy.to_path_buf());
+            let text = config_text("alpha", &origin, parent, STORE, &route);
+            let parsed = config::parse(&text, home)
+                .unwrap_or_else(|problems| panic!("{problems:?}:\n{text}"));
+            assert_eq!(
+                parsed.instances[0].gates_policy.as_deref(),
+                policy.to_str(),
+                "{text}"
+            );
+            assert_eq!(
+                parsed.instances[0].forge.route,
+                conductor_model::config::ForgeRoute::Gates,
+                "{text}"
+            );
             let instance = &parsed.instances[0];
             assert_eq!(instance.name.0, "alpha");
             assert_eq!(instance.placement.0, PLACEMENT, "{text}");

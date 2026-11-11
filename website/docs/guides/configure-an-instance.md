@@ -29,6 +29,7 @@ instances:
       root: ~/example-org
       trees: ~/.local/state/worktree/trees/example-org
     records: ~/records/example-org
+    forge: {route: direct}
 ```
 
 | key | what it sets |
@@ -40,6 +41,7 @@ instances:
 | `sources` | where the repositories come from: `github: <owner>`, `local: <path>` or `gitlab: <group>` ([GitLab](./gitlab.md)) |
 | `checkouts.root`, `checkouts.trees` | where their checkouts and managed worktrees are |
 | `records` | the directory conductor keeps its records in. Default `~/.b10x/conductor/<name>/records`. With a box placement, keep it outside `checkouts.root`: a box reads at most four directories, and a checkouts root that holds the records is read entry by entry |
+| `forge.route` | `direct`: a controller writes its pull requests with your own forge login. The default, `gates`, writes through the bot route and needs a `gates_policy` ([forge calls](../security/the-guard.md#forge-calls)); `conductor doctor` is not ready on it without one |
 
 With no `roles`, the instance takes the built-in roles on `claude` and `opus`. A `roles` list
 replaces them. The old role names `conductor`, `conductor-dev` and `controller` are read as
