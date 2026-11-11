@@ -232,8 +232,27 @@ impl Case {
         )
     }
 
-    /// The calls the fake `tmux` recorded: each its working directory, then its arguments.
+    /// The calls the fake `tmux` recorded: each its working directory, then its arguments, the
+    /// name of a buffer `type_text` made for one call ([`own_buffer`]) written [`BUFFER`].
     fn calls(&self) -> Vec<Vec<String>> {
+        self.calls_as_made()
+            .into_iter()
+            .map(|mut call| {
+                let named = call
+                    .iter()
+                    .position(|word| word == "-b")
+                    .map(|flag| flag + 1)
+                    .filter(|&at| call.get(at).is_some_and(|name| own_buffer(name)));
+                if let Some(at) = named {
+                    BUFFER.clone_into(&mut call[at]);
+                }
+                call
+            })
+            .collect()
+    }
+
+    /// [`Case::calls`], each buffer by the name the call gave it.
+    fn calls_as_made(&self) -> Vec<Vec<String>> {
         let Ok(text) = fs::read_to_string(self.dir.join("tmux.calls")) else {
             return Vec::new();
         };
@@ -301,11 +320,44 @@ fn typed_on(dir: &Path, socket: &str, name: &str, text: &str) -> Vec<Vec<String>
     let call = called(dir, socket);
     let pane = format!("={name}:");
     vec![
-        call(&["load-buffer", "-b", "conductor", text]),
-        call(&["paste-buffer", "-d", "-p", "-b", "conductor", "-t", &pane]),
-        call(&["set-buffer", "-b", "conductor", "--", "\r"]),
-        call(&["paste-buffer", "-d", "-b", "conductor", "-t", &pane]),
+        call(&["load-buffer", "-b", BUFFER, text]),
+        call(&["paste-buffer", "-d", "-p", "-b", BUFFER, "-t", &pane]),
+        call(&["set-buffer", "-b", BUFFER, "--", "\r"]),
+        call(&["paste-buffer", "-d", "-b", BUFFER, "-t", &pane]),
     ]
+}
+
+/// What [`Case::calls`] writes for the name of a buffer one `type_text` call made for itself.
+const BUFFER: &str = "<a buffer of the call's own>";
+
+/// Whether `name` is a buffer one `type_text` call made for itself: `conductor-<process
+/// id>-<count>` (`story:handover-restart-by-controller-id`).
+fn own_buffer(name: &str) -> bool {
+    let Some(numbers) = name.strip_prefix("conductor-") else {
+        return false;
+    };
+    let numbers: Vec<&str> = numbers.split('-').collect();
+    numbers.len() == 2
+        && numbers
+            .iter()
+            .all(|number| !number.is_empty() && number.chars().all(|c| c.is_ascii_digit()))
+}
+
+/// The buffers the recorded `calls` name, in order, each once.
+fn buffers(calls: &[Vec<String>]) -> Vec<String> {
+    let mut named: Vec<String> = Vec::new();
+    for call in calls {
+        let buffer = call
+            .iter()
+            .position(|word| word == "-b")
+            .and_then(|flag| call.get(flag + 1));
+        if let Some(buffer) = buffer
+            && !named.contains(buffer)
+        {
+            named.push(buffer.clone());
+        }
+    }
+    named
 }
 
 /// A recorded call of the fake `tmux` from `dir` on the socket `<socket>.tmux`, by its
@@ -455,6 +507,35 @@ fn a_file_is_typed_into_the_session_and_recorded() {
         "[HANDOVER cortex] context 210k",
         &file.display().to_string(),
         "cortex",
+    );
+}
+
+/// `story:handover-restart-by-controller-id`, acceptance 3: each `type_text` call loads and
+/// pastes a buffer of its own name. The four calls of one delivery name one buffer, made for
+/// that call, and a second delivery into the same server names another, so neither can consume
+/// the other's. `tests/session_attach.rs` holds two calls at once against a real `tmux`.
+#[test]
+fn each_delivery_types_through_a_buffer_of_its_own_name() {
+    let case = Case::new("own-buffer", 0);
+    case.socket();
+    let (first, _) = case.deliver_file("[REPORT cortex -] one\n");
+    assert!(first.status.success(), "{}", describe(&first));
+    let (second, _) = case.deliver_file("[REPORT cortex -] two\n");
+    assert!(second.status.success(), "{}", describe(&second));
+
+    let calls = case.calls_as_made();
+    assert_eq!(calls.len(), 8, "four calls a delivery: {calls:?}");
+    let (first, second) = (buffers(&calls[..4]), buffers(&calls[4..]));
+    assert_eq!(first.len(), 1, "one buffer for the first: {calls:?}");
+    assert_eq!(second.len(), 1, "one buffer for the second: {calls:?}");
+    for buffer in first.iter().chain(&second) {
+        assert!(own_buffer(buffer), "a buffer of the call's own: {buffer}");
+    }
+    assert_ne!(first, second, "never one buffer for two calls");
+    assert_eq!(
+        case.left_in_sessions(),
+        [format!("{SESSION}.tmux")],
+        "no paste file is left"
     );
 }
 

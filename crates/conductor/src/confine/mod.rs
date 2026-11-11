@@ -877,6 +877,28 @@ pub fn live_session(name: &str) -> Result<Option<String>> {
 ///
 /// The list cannot be run or read, within `bound`.
 pub fn live_session_within(name: &str, bound: Duration) -> Result<Option<String>> {
+    Ok(live_entry_within(name, bound)?.map(|entry| {
+        entry["id"]
+            .as_str()
+            .or_else(|| entry["sessionId"].as_str())
+            .unwrap_or("with no id")
+            .to_owned()
+    }))
+}
+
+/// The entry of the live session the Claude session list names `name`, as the list prints it:
+/// its `sessionId` and `id`, and `startedAt`, the instant it started at in milliseconds since
+/// the epoch, where the harness lists one (`story:handover-restart-by-controller-id`).
+///
+/// # Errors
+///
+/// The list cannot be run or read.
+pub fn live_entry(name: &str) -> Result<Option<Value>> {
+    live_entry_within(name, BOUND)
+}
+
+/// [`live_entry`], with the list given `bound`.
+fn live_entry_within(name: &str, bound: Duration) -> Result<Option<Value>> {
     let shown = format!("{CLAUDE} agents --json");
     let output = collect::run(Command::new(CLAUDE).args(["agents", "--json"]), bound)
         .with_context(|| format!("read the Claude session list `{shown}`"))?;
@@ -889,15 +911,8 @@ pub fn live_session_within(name: &str, bound: Duration) -> Result<Option<String>
         bail!("`{shown}` printed no JSON array");
     };
     Ok(entries
-        .iter()
-        .find(|entry| !entry["pid"].is_null() && entry["name"].as_str() == Some(name))
-        .map(|entry| {
-            entry["id"]
-                .as_str()
-                .or_else(|| entry["sessionId"].as_str())
-                .unwrap_or("with no id")
-                .to_owned()
-        }))
+        .into_iter()
+        .find(|entry| !entry["pid"].is_null() && entry["name"].as_str() == Some(name)))
 }
 
 /// The harness's own state of each live session it lists, by session name: true where it reports

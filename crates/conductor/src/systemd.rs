@@ -11,6 +11,7 @@
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::Command;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::thread;
 use std::time::{Duration, Instant};
 
@@ -317,9 +318,25 @@ pub fn tmux_on(dir: &Path, socket: &str, args: &[&str]) -> Result<String> {
     Ok(String::from_utf8_lossy(&output.stdout).into_owned())
 }
 
+/// How many buffers this process named ([`own_buffer`]).
+static BUFFERS: AtomicU64 = AtomicU64::new(0);
+
+/// The name of a tmux buffer no other paste has: `conductor-<process id>-<count>`
+/// (`story:handover-restart-by-controller-id`). Whoever pastes into a session's server loads,
+/// pastes and deletes a buffer of this name, so two pastes into one server at once, of one
+/// process or of two, never consume each other's buffer.
+#[must_use]
+pub fn own_buffer() -> String {
+    format!(
+        "conductor-{}-{}",
+        std::process::id(),
+        BUFFERS.fetch_add(1, Ordering::Relaxed)
+    )
+}
+
 /// Types `text` into the session `name`'s pane, then Enter: `text` as one paste
-/// (`load-buffer` from `<sessions>/<name>.paste`, written for the call and removed after it,
-/// then `paste-buffer -p`, bracketed when the harness asked for it), and, after
+/// (`load-buffer` from a paste file of the call's own, written for the call and removed after
+/// it, then `paste-buffer -p`, bracketed when the harness asked for it), and, after
 /// [`PASTE_SETTLE`], a carriage return pasted the same way unbracketed. Not `set-buffer` with
 /// the text as an argument: tmux refuses a command over its 16 KB limit ("command too long"),
 /// and a charter is longer. Not `send-keys`: tmux refuses it ("client is read-only") while a
@@ -333,38 +350,36 @@ pub fn type_text(sessions: &Path, name: &SessionName, text: &str) -> Result<()> 
 }
 
 /// [`type_text`] into the pane of the tmux session `name` on the server whose socket is
-/// `<dir>/<socket>.tmux`; the paste file is `<dir>/<socket>.paste`.
+/// `<dir>/<socket>.tmux`. The buffer is the call's own ([`own_buffer`]), and so is the paste
+/// file, `<dir>/<socket>.<buffer>.paste`: two calls on one socket at once neither load each
+/// other's text nor paste each other's buffer.
 ///
 /// # Errors
 ///
 /// The paste file cannot be written, or a tmux call fails.
 pub fn type_into(dir: &Path, socket: &str, name: &SessionName, text: &str) -> Result<()> {
     let pane = target(name);
-    let paste = dir.join(format!("{socket}.paste"));
+    let buffer = own_buffer();
+    let paste = dir.join(format!("{socket}.{buffer}.paste"));
     fs::write(&paste, text).with_context(|| format!("write {}", paste.display()))?;
     let loaded = tmux_on(
         dir,
         socket,
-        &[
-            "load-buffer",
-            "-b",
-            "conductor",
-            &paste.display().to_string(),
-        ],
+        &["load-buffer", "-b", &buffer, &paste.display().to_string()],
     );
     let _ = fs::remove_file(&paste);
     loaded?;
     tmux_on(
         dir,
         socket,
-        &["paste-buffer", "-d", "-p", "-b", "conductor", "-t", &pane],
+        &["paste-buffer", "-d", "-p", "-b", &buffer, "-t", &pane],
     )?;
     thread::sleep(PASTE_SETTLE);
-    tmux_on(dir, socket, &["set-buffer", "-b", "conductor", "--", "\r"])?;
+    tmux_on(dir, socket, &["set-buffer", "-b", &buffer, "--", "\r"])?;
     tmux_on(
         dir,
         socket,
-        &["paste-buffer", "-d", "-b", "conductor", "-t", &pane],
+        &["paste-buffer", "-d", "-b", &buffer, "-t", &pane],
     )?;
     Ok(())
 }
