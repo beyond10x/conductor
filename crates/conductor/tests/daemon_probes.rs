@@ -942,6 +942,50 @@ fn two_scrapes_inside_the_keep_ask_the_instances_once() {
     );
 }
 
+/// The kept answer of `/metrics` ends with its keep: a scrape after it asks the instances again.
+/// The keep is the case's own, a tenth of a second, so the case waits no 5 s.
+#[test]
+fn a_scrape_after_the_keep_asks_the_instances_again() {
+    let case = Case::new("keep-ends");
+    let socket = case.dir.join("1.sock");
+    let asked = answering(&socket, &json!({"sessions": [], "snapshot": null}));
+    let keep = Duration::from_millis(100);
+    let (daemon, port) = serving(
+        api::Api::new(TOKEN.to_owned(), "operator".to_owned(), None)
+            .with_timeout(Duration::from_secs(1))
+            .with_metrics_keep(keep),
+    );
+    daemon.publish(
+        vec![json!({"name": "example-one", "state": "Running"})],
+        [(
+            "example-one".to_owned(),
+            Route {
+                socket,
+                token: INSTANCE_TOKEN.to_owned(),
+                remote: None,
+            },
+        )]
+        .into_iter()
+        .collect(),
+        Vec::new(),
+    );
+    let (first, _, _) = get(port, "/metrics");
+    assert_eq!(first, 200);
+    assert_eq!(asked.load(Ordering::SeqCst), 1, "the first scrape");
+    thread::sleep(keep * 2);
+    let (second, _, again) = get(port, "/metrics");
+    assert_eq!(second, 200);
+    assert!(
+        again.contains("conductor_instances_unanswered 0"),
+        "{again}"
+    );
+    assert_eq!(
+        asked.load(Ordering::SeqCst),
+        2,
+        "a scrape after the keep answered the kept answer"
+    );
+}
+
 /// A record the store refused is held, not lost. While no handle the reconciler opens records
 /// (another writer holds the store's write lock for good, and every read is answered), `/readyz`
 /// is `503` with the reason and `/healthz` `200`; when the store takes writes again the

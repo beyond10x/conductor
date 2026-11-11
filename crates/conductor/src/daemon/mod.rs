@@ -20,8 +20,9 @@
 //! store answers at once, and is answered without it once the store is found not to answer
 //! ([`api::Api::starting`]): a read of what the reconciler publishes is then `503` with the
 //! readiness reason. A record the store refuses later is held and written on a handle opened
-//! anew at the next tick, and nothing is acted on until it is ([`Daemon::record_held`]);
-//! meanwhile `GET /readyz` is `503`.
+//! anew at the next tick, and nothing is acted on until it is ([`Daemon::record_held`]): an
+//! upgrade asked meanwhile is answered `503` with the reason ([`answer_upgrade`]), and
+//! `GET /readyz` is `503`.
 
 pub mod api;
 pub mod browser;
@@ -233,18 +234,20 @@ pub fn daemon_serve(
         serving.iter().for_each(|line| println!("{line}"));
     }
     loop {
+        // A record the store refused is written first, on a handle opened anew; while it is not,
+        // nothing is acted on, since nothing would be recorded, and an upgrade asked meanwhile is
+        // answered `503` ([`answer_upgrade`]).
+        let held = daemon
+            .record_held()
+            .context("record the reconciliations the store refused");
         while let Ok(request) = upgrades.try_recv() {
-            daemon.answer(request);
+            answer_upgrade(&mut daemon, request);
         }
         let now = Instant::now();
         // An upgrade that answered or is to roll back is settled first, so a runtime lost while
         // upgrading rolls back rather than starting again on the new binary. A host role asked
         // for through `POST /v1/roles/{role}/start` starts after the pass.
-        // A record the store refused is written first, on a handle opened anew; while it is not,
-        // nothing is acted on, since nothing would be recorded.
-        let passed = daemon
-            .record_held()
-            .context("record the reconciliations the store refused")
+        let passed = held
             .and_then(|()| daemon.settle(SystemTime::now()))
             .and_then(|mut done| {
                 if let Some(reason) = daemon.due(now)? {
@@ -327,6 +330,21 @@ pub fn start_role(
         body["placement"].as_str().unwrap_or(host_roles::PLACEMENT)
     );
     Ok(ExitCode::SUCCESS)
+}
+
+/// Answers `request`, an upgrade asked through `POST /v1/instances/{name}/upgrade`: while
+/// `daemon` holds a record the store refused ([`Daemon::record_held`]), `503` with the readiness
+/// reason [`metrics::UNRECORDED`] and nothing done, since nothing would be recorded; otherwise
+/// the upgrade ([`Daemon::answer`]).
+pub fn answer_upgrade<U: units::Units>(daemon: &mut Daemon<U>, request: upgrade::Request) {
+    if daemon.holds_records() {
+        let _ = request.reply.send((
+            "503 Service Unavailable",
+            serde_json::json!({"error": metrics::UNRECORDED}),
+        ));
+        return;
+    }
+    daemon.answer(request);
 }
 
 /// Publishes what `daemon` last saw to `api`: whether it holds a record the store refused, the

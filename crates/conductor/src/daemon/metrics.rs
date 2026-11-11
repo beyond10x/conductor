@@ -248,7 +248,8 @@ pub(super) fn answer(method: &str, path: &str, api: &Api) -> Option<Answer> {
     })
 }
 
-/// The metrics of `api`: the answer kept, when it is younger than [`KEEP`], else a new reading.
+/// The metrics of `api`: the answer kept, when it is younger than its keep ([`KEEP`] unless the
+/// API was given another), else a new reading.
 /// Scrapes at the same time take turns, so they share one reading.
 fn scrape(api: &Api) -> String {
     let mut kept = api
@@ -257,7 +258,7 @@ fn scrape(api: &Api) -> String {
         .lock()
         .unwrap_or_else(PoisonError::into_inner);
     if let Some((at, text)) = kept.as_ref()
-        && at.elapsed() < KEEP
+        && at.elapsed() < api.metrics_keep()
     {
         return text.clone();
     }

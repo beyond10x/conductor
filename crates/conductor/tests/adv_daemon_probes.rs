@@ -567,3 +567,178 @@ fn adversary2_a_daemon_stopped_while_it_holds_a_start_does_not_start_that_runtim
         recorded(&case.url())
     );
 }
+
+// Wave 51, the correction after pass 2: the implementor's cases beside the adversary's.
+
+/// A pass the store refused half-way runs again for its own reason, unless the config file
+/// changed since it read it: then the pass run again is the pass for the config change, so the
+/// change ends the back-off of a runtime the refused pass did not reach, and what the pass run
+/// again records for the change names it.
+#[test]
+fn a_pass_refused_half_way_runs_again_for_a_config_change_that_came_since() {
+    use conductor_cli::daemon::reconcile::unit_name;
+    use conductor_model::instance::{ReconcileAction, ReconcileReason};
+    let case = Case::new("rerun-newer");
+    case.instances(&[("alpha", "box-a"), ("beta", "box-b")]);
+    let mut daemon = case.reconciler(Manager::default());
+    let start = Instant::now();
+    daemon
+        .pass(ReconcileReason::Cadence, start)
+        .expect("the first pass");
+
+    // beta's runtime exits a second after its start: a failed start, its next start waits.
+    daemon.units.running.remove(&unit_name("beta"));
+    let at = start + Duration::from_secs(1);
+    daemon
+        .pass(ReconcileReason::LostRuntime, at)
+        .expect("the pass that finds beta stopped");
+
+    // alpha's runtime exits too. The store refuses the record of its failed start, before the
+    // pass reaches beta.
+    daemon.units.running.remove(&unit_name("alpha"));
+    let at = start + Duration::from_secs(2);
+    assert_eq!(
+        daemon.due(at).expect("due"),
+        Some(ReconcileReason::LostRuntime)
+    );
+    store::refuse_writes(true);
+    let refused = daemon.pass(ReconcileReason::LostRuntime, at);
+    store::refuse_writes(false);
+    assert!(refused.is_err(), "the store took the record: {refused:?}");
+
+    // Meanwhile an operator adds gamma.
+    case.instances(&[("alpha", "box-a"), ("beta", "box-b"), ("gamma", "box-c")]);
+    let at = start + Duration::from_secs(4);
+    daemon.record_held().expect("the held record is written");
+    let due = daemon.due(at).expect("due");
+    assert_eq!(
+        due,
+        Some(ReconcileReason::ConfigChange),
+        "the pass run again is not the pass for the config change that came since"
+    );
+    let done = daemon
+        .pass(ReconcileReason::ConfigChange, at)
+        .expect("the pass run again");
+    assert!(
+        daemon.units.running.contains(&unit_name("beta")),
+        "beta still waits out its back-off (starts {:?})",
+        daemon.units.starts
+    );
+    let gamma: Vec<_> = done
+        .iter()
+        .filter(|done| done.instance == "gamma")
+        .map(|done| (done.action, done.reason))
+        .collect();
+    assert_eq!(
+        gamma,
+        [(ReconcileAction::Start, ReconcileReason::ConfigChange)]
+    );
+}
+
+/// A daemon stopped while it holds the record of a start knows that runtime when it starts again:
+/// once the instance leaves the config file, the next daemon stops it. The record of the start
+/// is lost with the stopped daemon; the store holds only the stop.
+#[test]
+fn a_daemon_stopped_while_it_holds_a_start_stops_that_runtime_when_its_instance_leaves() {
+    use conductor_cli::daemon::reconcile::unit_name;
+    use conductor_model::instance::{ReconcileAction, ReconcileReason};
+    let case = Case::new("held-leaves");
+    case.instances(&[("alpha", "box-a"), ("beta", "box-b")]);
+    let mut daemon = case.reconciler(Manager::default());
+    store::refuse_writes(true);
+    let refused = daemon.pass(ReconcileReason::Cadence, Instant::now());
+    store::refuse_writes(false);
+    assert!(refused.is_err(), "the store took the record: {refused:?}");
+
+    let manager = std::mem::take(&mut daemon.units);
+    drop(daemon);
+    case.instances(&[("beta", "box-b")]);
+    let mut daemon = case.reconciler(manager);
+    let done = daemon
+        .pass(ReconcileReason::ConfigChange, Instant::now())
+        .expect("the first pass of the next daemon");
+    assert!(
+        !daemon.units.running.contains(&unit_name("alpha")),
+        "the runtime of an instance that left the config runs on (done {:?})",
+        done.iter()
+            .map(|done| (&done.instance, done.action))
+            .collect::<Vec<_>>()
+    );
+    assert!(
+        done.iter()
+            .any(|done| done.instance == "alpha" && done.action == ReconcileAction::Stop),
+        "no stop of alpha was recorded"
+    );
+}
+
+/// The releases of a case: every fetch is counted and refused; no doctor runs.
+struct Releases(Arc<std::sync::atomic::AtomicUsize>);
+
+impl conductor_cli::daemon::upgrade::Releases for Releases {
+    fn fetch(&mut self, _tag: &str, _work: &std::path::Path) -> anyhow::Result<PathBuf> {
+        self.0.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+        anyhow::bail!("this case fetches no release")
+    }
+
+    fn doctor(
+        &mut self,
+        _binary: &std::path::Path,
+        _service: &conductor_cli::systemd::Service,
+    ) -> anyhow::Result<()> {
+        anyhow::bail!("this case runs no doctor")
+    }
+}
+
+/// An upgrade asked for while the daemon holds a record the store refused is answered `503` with
+/// the readiness reason and does nothing: no release is fetched and nothing more is held. Once
+/// the held record is written, the same request is taken up.
+#[test]
+fn an_upgrade_asked_while_a_record_is_held_is_503_with_the_reason_and_fetches_nothing() {
+    use conductor_model::instance::ReconcileReason;
+    let case = Case::new("held-upgrade");
+    case.instances(&[("alpha", "box-a")]);
+    let mut daemon = case.reconciler(Manager::default());
+    let fetched = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+    daemon.releases = Box::new(Releases(Arc::clone(&fetched)));
+    store::refuse_writes(true);
+    let refused = daemon.pass(ReconcileReason::Cadence, Instant::now());
+    assert!(refused.is_err(), "the store took the record: {refused:?}");
+
+    let ask = |daemon: &mut conductor_cli::daemon::reconcile::Daemon<Manager>| {
+        let (reply, answer) = std::sync::mpsc::channel();
+        conductor_cli::daemon::answer_upgrade(
+            daemon,
+            conductor_cli::daemon::upgrade::Request {
+                name: "alpha".to_owned(),
+                tag: "v1.2.3".to_owned(),
+                actor: conductor_cli::actor::operator("operator"),
+                reply,
+            },
+        );
+        answer.recv().expect("the loop answers the upgrade")
+    };
+    let (status, body) = ask(&mut daemon);
+    store::refuse_writes(false);
+    assert_eq!(
+        (status, body["error"].as_str()),
+        (
+            "503 Service Unavailable",
+            Some(conductor_cli::daemon::metrics::UNRECORDED)
+        ),
+        "an upgrade asked while a record is held: {body}"
+    );
+    assert_eq!(
+        fetched.load(std::sync::atomic::Ordering::SeqCst),
+        0,
+        "the release was fetched"
+    );
+    daemon.record_held().expect("the held record is written");
+    assert_eq!(recorded(&case.url()), 1, "only the held start is recorded");
+
+    let (status, _) = ask(&mut daemon);
+    assert_eq!(
+        status, "502 Bad Gateway",
+        "the upgrade once nothing is held"
+    );
+    assert_eq!(fetched.load(std::sync::atomic::Ordering::SeqCst), 1);
+}

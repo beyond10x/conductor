@@ -434,6 +434,10 @@ pub struct Daemon<U: Units> {
     /// When the daemon last looked ([`Daemon::due`], [`Daemon::pass`]).
     looked: Option<Instant>,
     last_pass: Option<Instant>,
+    /// Why the next pass runs while a record the store refused left one undone: the reason of
+    /// the pass it is part of, `Cadence` for a record of no pass ([`Daemon::pass`],
+    /// [`Daemon::due`]).
+    rerun: Option<ReconcileReason>,
 }
 
 impl<U: Units> Daemon<U> {
@@ -487,6 +491,7 @@ impl<U: Units> Daemon<U> {
             attempts: BTreeMap::new(),
             looked: None,
             last_pass: None,
+            rerun: None,
         })
     }
 
@@ -554,7 +559,9 @@ impl<U: Units> Daemon<U> {
 
     /// Why a pass is due at `now`, if one is: the first tick; the config file's text changed;
     /// a runtime the daemon started stopped running, or one whose start failed has waited its
-    /// time ([`retry_after`]); or a cadence passed since the last pass.
+    /// time ([`retry_after`]); or a cadence passed since the last pass. A pass a refused record
+    /// left undone runs again at the next tick for its own reason, or for the config change
+    /// when the file changed since it read it (`story:daemon-probes-and-metrics`).
     /// It notes, for [`Daemon::rows`], which runtimes run.
     ///
     /// # Errors
@@ -563,10 +570,16 @@ impl<U: Units> Daemon<U> {
     pub fn due(&mut self, now: Instant) -> Result<Option<ReconcileReason>> {
         let lost = self.observe()?;
         self.looked = Some(now);
+        let changed =
+            fs::read_to_string(&self.config_file).ok().as_deref() != Some(self.text.as_str());
         let Some(last) = self.last_pass else {
-            return Ok(Some(ReconcileReason::Cadence));
+            return Ok(Some(match self.rerun {
+                Some(_) if changed => ReconcileReason::ConfigChange,
+                Some(reason) => reason,
+                None => ReconcileReason::Cadence,
+            }));
         };
-        if fs::read_to_string(&self.config_file).ok().as_deref() != Some(self.text.as_str()) {
+        if changed {
             return Ok(Some(ReconcileReason::ConfigChange));
         }
         let retry = self.attempts.iter().any(|(name, attempt)| {
@@ -877,16 +890,36 @@ impl<U: Units> Daemon<U> {
     /// One pass for `reason` at `now`, as the module documentation says; answers the actions it
     /// took, each recorded.
     ///
+    /// A pass that fails still writes [`RUNTIMES_FILE`] with what it did before it failed, so a
+    /// daemon stopped before its next pass knows each runtime it started, restarted or stopped.
+    /// One that fails on a record the store refused is not done: the next tick runs it again for
+    /// `reason` ([`Daemon::due`], `story:daemon-probes-and-metrics`).
+    ///
     /// # Errors
     ///
     /// The config file does not read or is not valid (nothing is done), the service manager
     /// cannot be asked, a reconciliation cannot be recorded, or [`RUNTIMES_FILE`] cannot be
     /// written.
     pub fn pass(&mut self, reason: ReconcileReason, now: Instant) -> Result<Vec<Done>> {
+        let passed = self.pass_once(reason, now);
+        if passed.is_err() {
+            if self.holds_records() {
+                self.rerun = Some(reason);
+            }
+            if let Err(unkept) = self.save() {
+                return passed.map_err(|error| error.context(format!("{unkept:#}")));
+            }
+        }
+        passed
+    }
+
+    /// [`Daemon::pass`] up to its first failure.
+    fn pass_once(&mut self, reason: ReconcileReason, now: Instant) -> Result<Vec<Done>> {
         let (text, config) = read_config(&self.config_file, &self.home)?;
         self.text = text;
         self.config = config;
         self.last_pass = Some(now);
+        self.rerun = None;
         self.looked = Some(now);
         let at = crate::records::now()?;
         self.pool()
@@ -1408,8 +1441,10 @@ impl<U: Units> Daemon<U> {
         self.held
             .push(AnyReconciliation::Recorded(Reconciliation::new(data)).snapshot());
         if let Err(error) = self.record_held() {
-            // The pass this record is part of is not done: the next tick runs one.
+            // The pass this record is part of is not done: the next tick runs one, for that
+            // pass's reason ([`Daemon::pass`]), `Cadence` for a record of no pass.
             self.last_pass = None;
+            self.rerun = self.rerun.or(Some(ReconcileReason::Cadence));
             return Err(error.context(format!("record the reconciliation of {instance}")));
         }
         Ok(Done {

@@ -156,6 +156,9 @@ pub struct Api {
     /// What the probes and the metrics keep between requests
     /// (`story:daemon-probes-and-metrics`).
     probes: super::metrics::Probes,
+    /// How long one answer of `/metrics` is kept: [`super::metrics::KEEP`] unless a case sets
+    /// another ([`Self::with_metrics_keep`]).
+    metrics_keep: Duration,
     /// Whether `daemon serve` is still starting ([`Self::starting`]): a request that is no probe
     /// waits for the reconciler's first publication, as it did while no listener took a request
     /// before it.
@@ -184,6 +187,7 @@ impl Api {
             hosts: Mutex::new(None),
             deliver: Arc::new(super::host_roles::deliver),
             probes: super::metrics::Probes::default(),
+            metrics_keep: super::metrics::KEEP,
             starting: AtomicBool::new(false),
         }
     }
@@ -279,6 +283,11 @@ impl Api {
         self.timeout
     }
 
+    /// How long one answer of `/metrics` is kept.
+    pub(super) const fn metrics_keep(&self) -> Duration {
+        self.metrics_keep
+    }
+
     /// The host directory beside the config file ([`crate::config::host_of`]), where the build
     /// ledger is; none for an API without a config file.
     pub(super) fn host_dir(&self) -> Option<PathBuf> {
@@ -336,6 +345,14 @@ impl Api {
     #[must_use]
     pub fn with_timeout(mut self, timeout: Duration) -> Self {
         self.timeout = timeout;
+        self
+    }
+
+    /// The API with `keep`, how long one answer of `/metrics` is kept, in place of
+    /// [`super::metrics::KEEP`]; no config key sets it, a case does.
+    #[must_use]
+    pub const fn with_metrics_keep(mut self, keep: Duration) -> Self {
+        self.metrics_keep = keep;
         self
     }
 
