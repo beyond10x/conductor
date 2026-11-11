@@ -5449,3 +5449,134 @@ fn adv_box_token_doctor_names_a_box_whose_declared_slot_conductord_cannot_seal()
         describe(&output)
     );
 }
+
+// ---------------------------------------------------------------------------------------------
+// Adversary pass 2 on story:box-reaches-forge-and-daemon (uncommitted)
+// ---------------------------------------------------------------------------------------------
+
+/// The serving substrate daemon of the dry runs below: it declares the roots of `alpha` and its
+/// token's slot.
+fn adv2_box_token_declaring(socket: &Path) -> FakeLocal {
+    FakeLocal::opening(
+        socket,
+        &systemd_families(),
+        &SYSTEMD_PROPERTIES,
+        &[
+            "state-alpha",
+            "records-alpha",
+            "cache-alpha",
+            "store",
+            "api_token_alpha",
+        ],
+    )
+}
+
+/// conductord started on a directory of its own (`conductor daemon install --state-dir <dir>`,
+/// `daemon serve --state-dir <dir>`) writes the slot file under that directory, and refuses the
+/// box when it cannot. Doctor's dry run is to name the refusal conductord raises, from the slot
+/// file conductord writes.
+#[test]
+fn adv2_box_token_doctor_names_the_refusal_of_a_daemon_on_its_own_directory() {
+    let case = Case::new("a2r");
+    let file = case.config(&[("alpha", "systemd")]);
+    case.directories("alpha");
+    // conductord's directory is `<case>/daemon`, not `~/.b10x/conductor/daemon`: a file takes
+    // the place of its slots directory.
+    fs::create_dir_all(case.dir.join("daemon")).expect("the daemon's directory");
+    fs::write(case.dir.join("daemon/slots"), "").expect("a file");
+    let mut daemon = case.daemon(Fake::declaring("api_token_alpha"));
+    let done = daemon
+        .pass(
+            conductor_model::instance::ReconcileReason::ConfigChange,
+            std::time::Instant::now(),
+        )
+        .expect("a pass");
+    assert_eq!(done[0].result, ReconcileResult::Refused, "{done:?}");
+    assert!(
+        done[0]
+            .detail
+            .as_deref()
+            .is_some_and(|detail| detail.contains("placement.api-token-unsealed")),
+        "{done:?}"
+    );
+
+    let socket = case.dir.join("s.sock");
+    let _fake = adv2_box_token_declaring(&socket);
+    let output = case.doctor_on(&file, &socket);
+    let verdict = lines(&output).last().cloned().unwrap_or_default();
+    assert!(
+        verdict.contains("box alpha (placement.api-token-unsealed)"),
+        "conductord refuses the box; doctor says: {}",
+        describe(&output)
+    );
+}
+
+/// The reverse: conductord on a directory of its own writes its slot file and serves the box,
+/// while the default daemon directory's slots path is broken. Doctor is not to name a refusal
+/// conductord does not raise.
+#[test]
+fn adv2_box_token_doctor_refuses_no_box_for_a_slot_file_its_daemon_does_not_write() {
+    let case = Case::new("a2s");
+    let file = case.config(&[("alpha", "systemd")]);
+    case.directories("alpha");
+    let default = case.home().join(".b10x/conductor/daemon");
+    fs::create_dir_all(&default).expect("the default daemon directory");
+    fs::write(default.join("slots"), "").expect("a file");
+    let mut daemon = case.daemon(Fake::declaring("api_token_alpha"));
+    let done = daemon
+        .pass(
+            conductor_model::instance::ReconcileReason::ConfigChange,
+            std::time::Instant::now(),
+        )
+        .expect("a pass");
+    assert_eq!(done[0].result, ReconcileResult::Succeeded, "{done:?}");
+
+    let socket = case.dir.join("s.sock");
+    let _fake = adv2_box_token_declaring(&socket);
+    let output = case.doctor_on(&file, &socket);
+    let verdict = lines(&output).last().cloned().unwrap_or_default();
+    assert!(
+        !verdict.contains("box alpha ("),
+        "conductord serves the box; doctor says: {}",
+        describe(&output)
+    );
+}
+
+/// A slot directory of this user's that lacks its write bit (mode 0500), the slot file not
+/// there yet: `seal_api_token` makes the directory 0700 before it creates the file, so the write
+/// succeeds, as it did after correction 1. The check it now asks first is not to refuse the box
+/// for what the write itself repairs.
+#[test]
+fn adv2_box_token_a_slot_directory_without_its_write_bit_is_restricted_and_written() {
+    use std::os::unix::fs::MetadataExt as _;
+    if fs::metadata("/proc/self").is_ok_and(|own| own.uid() == 0) {
+        // Root writes any directory: the case says nothing there.
+        return;
+    }
+    let case = Case::new("a2m");
+    case.config(&[("a", "{daemon: local, adapter: linux}")]);
+    let slots = case.dir.join("daemon/slots");
+    fs::create_dir_all(&slots).expect("the slots directory");
+    fs::set_permissions(&slots, fs::Permissions::from_mode(0o500)).expect("mode 500");
+    let fake = Fake::declaring("api_token_a");
+    let mut daemon = case.daemon(fake);
+    let done = daemon
+        .pass(
+            conductor_model::instance::ReconcileReason::ConfigChange,
+            std::time::Instant::now(),
+        )
+        .expect("a pass");
+    let dir_mode = fs::metadata(&slots).expect("the dir").permissions().mode() & 0o777;
+    // Leave the case removable whatever happened.
+    fs::set_permissions(&slots, fs::Permissions::from_mode(0o700)).expect("mode 700");
+    assert_eq!(done[0].result, ReconcileResult::Succeeded, "{done:?}");
+    let token = daemon.routes()["a"].token.clone();
+    assert_eq!(
+        fs::read_to_string(slots.join("api_token_a"))
+            .ok()
+            .as_deref()
+            .map(str::trim),
+        Some(token.as_str())
+    );
+    assert_eq!(dir_mode, 0o700);
+}
