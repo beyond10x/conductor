@@ -1557,3 +1557,140 @@ fn the_notes_section_ends_at_any_heading_and_a_fenced_block_stays_whole() {
         );
     }
 }
+
+// Second adversary pass: each step fails on a failed command, observed by running it, and the
+// notes section stays one section on bodies the first cases did not write.
+
+/// A `gh` whose `release view` fails as the API does on an error, and whose `release edit`
+/// writes `$BODY`; every call is written down in `$CALLS`.
+const ADVERSARY2_GH_VIEW_FAILS: &str = "#!/bin/sh\n\
+    echo \"gh $*\" >> \"$CALLS\"\n\
+    case \"$1 $2\" in\n\
+      \"release view\") echo 'HTTP 502: Bad Gateway' >&2; exit 1 ;;\n\
+      \"release edit\") cp \"$5\" \"$BODY\" ;;\n\
+    esac\n";
+
+/// When the Release's body cannot be read, the notes step fails and leaves the body as a human
+/// wrote it: it must not write the section alone over it.
+fn adversary2_holds_the_body_on_a_failed_read(notes: &str) {
+    let case = scratch::Scratch::new(format!(
+        "release-image-adversary2-view-fails-{:x}",
+        notes.len()
+    ));
+    let body = case.path().join("body");
+    let calls = case.path().join("calls");
+    fs::write(&body, "- a story\n- another story\n").expect("the written body");
+    let output = step_run(
+        case.path(),
+        notes,
+        &[("gh", ADVERSARY2_GH_VIEW_FAILS)],
+        &[
+            ("BODY", body.display().to_string()),
+            ("CALLS", calls.display().to_string()),
+            ("GH_TOKEN", "none".to_owned()),
+            ("GH_REPO", "example-org/conductor".to_owned()),
+            ("TAG", "v1.4.0".to_owned()),
+            (
+                "REFERENCE",
+                "ghcr.io/example-org/conductor:1.4.0".to_owned(),
+            ),
+            ("DIGEST", format!("sha256:{}", "a".repeat(64))),
+        ],
+    );
+    let after = fs::read_to_string(&body).expect("the body afterwards");
+    let called = fs::read_to_string(&calls).unwrap_or_default();
+    assert!(
+        !output.status.success() && after == "- a story\n- another story\n",
+        "the Release's body could not be read, and the notes step passed ({}) or wrote over it: \
+         body now {after:?}, gh calls {called:?}",
+        output.status.success()
+    );
+}
+
+#[test]
+fn adversary2_the_notes_step_leaves_the_body_when_it_cannot_be_read() {
+    let workflow = workflow();
+    adversary2_holds_the_body_on_a_failed_read(script(
+        job(&workflow, "image-notes"),
+        "Write the section",
+    ));
+}
+
+/// A `docker` as [`ADVERSARY_DOCKER`] whose `image ls` fails.
+const ADVERSARY2_DOCKER_LS_FAILS: &str = "#!/bin/sh\n\
+    echo \"$*\" >> \"$CALLS\"\n\
+    case \"$1 $2\" in\n\
+      \"image ls\") echo 'Cannot connect to the Docker daemon' >&2; exit 1 ;;\n\
+      pull*) [ -z \"$PULL_FAILS\" ] || exit 1 ;;\n\
+    esac\n";
+
+/// When the step cannot list the images it pushed, it cannot remove them, and a pull that finds
+/// the digest at hand shows nothing about the package's visibility: the step fails before it.
+fn adversary2_holds_the_pull_on_a_failed_list(pull: &str) {
+    let ran = image_step_with(
+        "release-image-adversary2-ls-fails",
+        pull,
+        &[],
+        |_| {},
+        &[("docker", ADVERSARY2_DOCKER_LS_FAILS)],
+    );
+    assert!(
+        !ran.success && !ran.calls.iter().any(|call| call.starts_with("pull ")),
+        "the local images could not be listed, and the pull step went on to pull ({}): {:?}",
+        ran.success,
+        ran.calls
+    );
+}
+
+#[test]
+fn adversary2_the_pull_step_fails_when_the_pushed_images_cannot_be_listed() {
+    let workflow = workflow();
+    adversary2_holds_the_pull_on_a_failed_list(script(
+        job(&workflow, "image"),
+        "Pull the image without a login",
+    ));
+}
+
+/// A human body with a fence that is never closed: the first write appends the section, and a
+/// re-run must replace it, not add a second (AGENTS.md § Releases, steps 5 and 6: one section).
+#[test]
+fn adversary2_a_rerun_after_an_unclosed_fence_leaves_one_section() {
+    let workflow = workflow();
+    let run = script(job(&workflow, "image-notes"), "Write the section");
+    let case = scratch::Scratch::new("release-image-adversary2-unclosed-fence");
+    fs::write(case.path().join("body"), "- a story\n\n```\nunclosed\n").expect("the body");
+    let first = noted(
+        case.path(),
+        run,
+        "1.4.0",
+        &format!("sha256:{}", "a".repeat(64)),
+    );
+    let second = noted(
+        case.path(),
+        run,
+        "1.4.0",
+        &format!("sha256:{}", "b".repeat(64)),
+    );
+    assert_eq!(
+        (
+            first.matches(SECTION).count(),
+            second.matches(SECTION).count()
+        ),
+        (1, 1),
+        "sections after the write and after the re-run; the body after the re-run:\n{second}"
+    );
+}
+
+/// An HTML comment is no fenced block, and a heading quoted in it is no heading: the comment and
+/// the text after it stay as a human wrote them.
+#[test]
+fn adversary2_a_comment_that_quotes_the_heading_keeps_the_text_after_it() {
+    let workflow = workflow();
+    let run = script(job(&workflow, "image-notes"), "Write the section");
+    let case = scratch::Scratch::new("release-image-adversary2-comment");
+    let written = format!("- a story\n\n<!--\n{SECTION}\n-->\n\nvisible\n");
+    fs::write(case.path().join("body"), &written).expect("the body");
+    let digest = format!("sha256:{}", "a".repeat(64));
+    let body = noted(case.path(), run, "1.4.0", &digest);
+    assert_eq!(body, format!("{written}\n{}", notes_section(&digest)));
+}
