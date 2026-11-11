@@ -2324,6 +2324,38 @@ fn a_mailbox_need_for_no_known_repository_is_refused_in_one_line_and_not_kept() 
     assert_eq!(kept(&case), Vec::<Value>::new());
 }
 
+/// Adversary, wave 51 U1. The controller role teaches a `[NEED]` for conductor itself
+/// (`roles/controller.md`: `[NEED conductor] worktree workspace not activated: <root>`, and to go
+/// on "until it is answered"), and the supervisor role answers every `[NEED]` it finds in
+/// `<state>/mailbox/conductor/`. In the form `conductor message send` accepts, that NEED names
+/// `conductor` as its `<other-repo>`: the recipient it was sent to, and no checkout of the
+/// instance. The message waits in the mailbox for the supervisor, so its sender is not told that
+/// it was refused and is not kept.
+#[test]
+fn adv_a_mailbox_need_for_conductor_itself_is_not_refused_to_its_sender() {
+    let case = Case::new("adv-mail-need-conductor");
+    case.spawn("alpha", FIRST);
+    case.mail(
+        "0001",
+        "[NEED alpha N-20261017-01] conductor worktree workspace not activated: /srv/example-org\n",
+    );
+    let (tick, said) = case.tick_said(&[]);
+    assert!(
+        case.state().join("mailbox/conductor/0001.md").is_file(),
+        "the message waits in the mailbox, where the supervisor reads it"
+    );
+    let refusals: Vec<(String, String)> = case
+        .deliveries()
+        .into_iter()
+        .filter(|(_, text)| text.contains("refused"))
+        .collect();
+    assert_eq!(
+        refusals,
+        Vec::<(String, String)>::new(),
+        "the sender is told its NEED for conductor is refused and not kept: {tick} {said:?}"
+    );
+}
+
 /// A `[DECISION-REQUEST]` is raised and, with no decider seam, escalated as class O
 /// with the options its body lists, its recommendation as the default and a deadline 48 hours
 /// out.
