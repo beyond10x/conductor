@@ -682,19 +682,23 @@ const fn refusal_name(refusal: SpawnRefusal) -> &'static str {
     }
 }
 
+/// Whether `c` may stand in a step of a repository's name, `<repo>` or `<group>/<repo>`: a
+/// letter, a digit, `.`, `_` or `-`.
+pub(crate) fn name_character(c: char) -> bool {
+    c.is_ascii_alphanumeric() || matches!(c, '.' | '_' | '-')
+}
+
 /// The physical path of `repository`'s checkout under `instance`'s checkouts root: `<repo>` or
 /// `<group>/<repo>`, each step a plain name starting with a letter or digit, the directory holding
 /// `.git` that the sessions collector reads as that repository ([`collect::repository_of`]), and
 /// no `exclude` entry of the instance's sources leaving it out.
-fn checkout(instance: &Instance, repository: &str) -> Result<PathBuf, String> {
+pub(crate) fn checkout(instance: &Instance, repository: &str) -> Result<PathBuf, String> {
     let steps: Vec<&str> = repository.split('/').collect();
     let plain = |step: &&str| {
         step.chars()
             .next()
             .is_some_and(|first| first.is_ascii_alphanumeric())
-            && step
-                .chars()
-                .all(|c| c.is_ascii_alphanumeric() || matches!(c, '.' | '_' | '-'))
+            && step.chars().all(name_character)
     };
     if !matches!(steps.len(), 1 | 2) || !steps.iter().all(plain) {
         return Err(

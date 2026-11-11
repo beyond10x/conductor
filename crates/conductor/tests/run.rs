@@ -2212,6 +2212,247 @@ fn a_mailbox_need_waits_for_the_other_repository_s_controller() {
     assert_eq!(case.deliveries().len(), 1, "delivered once");
 }
 
+/// `story:need-repository-from-tag`: the repository a `[NEED]` asks is the `<other-repo>` field
+/// of its form, read as that field's leading run of name characters, so `beta:`, `beta,`, `beta.`
+/// and `e2e-tests:` name `beta` and `e2e-tests`; no word of the text after the field is read as
+/// one (`gamma`). Each is kept under that name while no controller of it runs, and delivered
+/// whole once one does.
+#[test]
+fn a_mailbox_need_names_its_repository_without_trailing_punctuation() {
+    let case = Case::new("mail-need-punctuation");
+    write(
+        &case.checkout("e2e-tests").join(".git/HEAD"),
+        "ref: refs/heads/main\n",
+    );
+    let needs = [
+        (
+            "0001",
+            "[NEED alpha N-20261017-01] beta: gamma must export the store id\n",
+            "beta",
+        ),
+        (
+            "0002",
+            "[NEED alpha N-20261017-02] beta, export the store id\n",
+            "beta",
+        ),
+        (
+            "0003",
+            "[NEED alpha N-20261017-03] e2e-tests: cover the export\n",
+            "e2e-tests",
+        ),
+        (
+            "0004",
+            "[NEED alpha N-20261017-04] beta. Export the store id\n",
+            "beta",
+        ),
+    ];
+    for (name, text, _) in needs {
+        case.mail(name, text);
+    }
+    let first = case.tick(&[]);
+    assert_eq!(first["lines_handled"], needs.len(), "{first}");
+    assert!(case.deliveries().is_empty(), "no controller runs");
+    let waiting = kept(&case);
+    let named: Vec<&str> = waiting
+        .iter()
+        .map(|item| item["repo"].as_str().unwrap_or_default())
+        .collect();
+    assert_eq!(named, needs.map(|(_, _, repo)| repo), "{waiting:?}");
+
+    write(
+        &case.charter("beta"),
+        "# Charter: beta\n\nExport the store id.\n",
+    );
+    case.spawn("beta", FIRST);
+    let second = case.tick(&[]);
+    let delivered: Vec<(String, String)> = needs
+        .iter()
+        .filter(|(_, _, repo)| *repo == "beta")
+        .map(|(_, text, _)| ("ex-beta".to_owned(), (*text).to_owned()))
+        .collect();
+    assert_eq!(case.deliveries(), delivered, "{second}");
+    let waiting = kept(&case);
+    let named: Vec<&str> = waiting
+        .iter()
+        .map(|item| item["repo"].as_str().unwrap_or_default())
+        .collect();
+    assert_eq!(named, ["e2e-tests"], "{waiting:?}");
+}
+
+/// `story:need-repository-from-tag`: a `[NEED]` whose `<other-repo>` field names no repository
+/// the instance knows (a word of prose, a repository with no checkout) is not relayed and not
+/// kept: `pending.json` holds nothing for it, its file stays in the mailbox, and its sender is
+/// told so in one line that names the word read and says neither `refused` nor that the need is
+/// gone; the next tick does not answer it again. One whose own tag names no known repository
+/// either is answered by no one, and one for the mailbox's own recipient, `conductor`, is the
+/// supervisor's: its sender is told nothing. Nothing is kept for either.
+#[test]
+fn a_mailbox_need_for_no_known_repository_is_answered_in_one_line_and_not_kept() {
+    let case = Case::new("mail-need-unknown");
+    case.spawn("alpha", FIRST);
+    let prose = "[NEED alpha N-20261017-01] please: export the store id from beta";
+    let absent = "[NEED alpha N-20261017-02] delta, export the store id";
+    case.mail("0001", &format!("{prose}\n\nalpha reads it on start.\n"));
+    case.mail("0002", &format!("{absent}\n"));
+    case.mail("0003", "[NEED nowhere: N-20261017-03] please export it\n");
+    case.mail(
+        "0004",
+        "[NEED alpha N-20261017-04] conductor: activate the workspace\n",
+    );
+    let (tick, said) = case.tick_said(&[]);
+
+    let deliveries = case.deliveries();
+    assert_eq!(deliveries.len(), 2, "{deliveries:?}");
+    for ((to, text), (message, word)) in deliveries
+        .iter()
+        .zip([(prose, "\"please\""), (absent, "\"delta\"")])
+    {
+        assert_eq!(to, "ex-alpha");
+        let first = text.lines().next().unwrap_or_default();
+        assert!(
+            first.starts_with("[REPORT alpha -] not relayed: ") && first.contains(word),
+            "one line names the word read, {word}: {text}"
+        );
+        assert!(
+            first.ends_with("it stays in conductor's mailbox, where the supervisor reads it"),
+            "the line says where the need is: {text}"
+        );
+        for gone in ["refused", "not kept", "dropped"] {
+            assert!(!text.contains(gone), "does not say {gone:?}: {text}");
+        }
+        for held in [
+            &format!("Your message: {message}"),
+            "The form: [NEED alpha <request-id>] <other-repo> <what>",
+        ] {
+            assert!(text.contains(held), "names {held}: {text}");
+        }
+    }
+    assert_eq!(kept(&case), Vec::<Value>::new(), "nothing is kept: {tick}");
+    for file in ["0001.md", "0002.md", "0003.md"] {
+        assert!(
+            said.iter().any(|line| line.contains(file)),
+            "the journal names {file}: {said:?}"
+        );
+    }
+    for file in ["0001.md", "0002.md", "0003.md", "0004.md"] {
+        assert!(
+            case.state().join("mailbox/conductor").join(file).is_file(),
+            "{file} stays in the mailbox"
+        );
+    }
+
+    case.tick(&[]);
+    assert_eq!(case.deliveries().len(), 2, "each answered once");
+    assert_eq!(kept(&case), Vec::<Value>::new());
+}
+
+/// Adversary, wave 51 U1. The controller role teaches a `[NEED]` for conductor itself
+/// (`roles/controller.md`: `[NEED conductor] worktree workspace not activated: <root>`, and to go
+/// on "until it is answered"), and the supervisor role answers every `[NEED]` it finds in
+/// `<state>/mailbox/conductor/`. In the form `conductor message send` accepts, that NEED names
+/// `conductor` as its `<other-repo>`: the recipient it was sent to, and no checkout of the
+/// instance. The message waits in the mailbox for the supervisor, so its sender is not told that
+/// it was refused and is not kept.
+#[test]
+fn adv_a_mailbox_need_for_conductor_itself_is_not_refused_to_its_sender() {
+    let case = Case::new("adv-mail-need-conductor");
+    case.spawn("alpha", FIRST);
+    case.mail(
+        "0001",
+        "[NEED alpha N-20261017-01] conductor worktree workspace not activated: /srv/example-org\n",
+    );
+    let (tick, said) = case.tick_said(&[]);
+    assert!(
+        case.state().join("mailbox/conductor/0001.md").is_file(),
+        "the message waits in the mailbox, where the supervisor reads it"
+    );
+    let refusals: Vec<(String, String)> = case
+        .deliveries()
+        .into_iter()
+        .filter(|(_, text)| text.contains("refused"))
+        .collect();
+    assert_eq!(
+        refusals,
+        Vec::<(String, String)>::new(),
+        "the sender is told its NEED for conductor is refused and not kept: {tick} {said:?}"
+    );
+}
+
+/// Adversary 2, wave 51 U1. Only a `[NEED]` the loop did not relay is answered `not relayed`: a
+/// refused `[HANDOVER]` or `[REPORT]` still reads `refused:` to its sender, as on the base.
+#[test]
+fn adv2_a_refused_report_or_handover_still_reads_refused() {
+    let case = Case::new("adv2-mail-refused-verb");
+    case.spawn("alpha", FIRST);
+    case.mail("0001", "[HANDOVER alpha] context 210k\n");
+    case.tick(&[]);
+    let open = case.dispatch("alpha");
+    case.mail("0002", &format!("[REPORT alpha {open}] unblocked\n"));
+    case.tick(&[]);
+    let firsts: Vec<String> = case
+        .deliveries()
+        .iter()
+        .map(|(_, text)| text.lines().next().unwrap_or_default().to_owned())
+        .collect();
+    assert_eq!(firsts.len(), 2, "{firsts:?}");
+    for first in &firsts {
+        assert!(
+            first.starts_with("[REPORT alpha -] refused: "),
+            "a refusal reads refused: {firsts:?}"
+        );
+    }
+}
+
+/// Adversary 2, wave 51 U1. A `[NEED]` whose `<other-repo>` names `conductor` with a trailing
+/// dot is the supervisor's as `conductor:` is: no answer, nothing kept. A field of punctuation
+/// only is answered naming the field as written, not an empty name.
+#[test]
+fn adv2_a_need_for_conductor_with_a_dot_is_the_supervisor_s_and_punctuation_is_named() {
+    let case = Case::new("adv2-mail-need-dot");
+    case.spawn("alpha", FIRST);
+    case.mail(
+        "0001",
+        "[NEED alpha N-20261017-01] conductor. Activate the workspace\n",
+    );
+    case.mail(
+        "0002",
+        "[NEED alpha N-20261017-02] -- export the store id\n",
+    );
+    let (tick, said) = case.tick_said(&[]);
+    let deliveries = case.deliveries();
+    assert_eq!(deliveries.len(), 1, "{deliveries:?} {said:?}");
+    let first = deliveries[0].1.lines().next().unwrap_or_default();
+    assert!(
+        first.starts_with("[REPORT alpha -] not relayed: the need names \"--\", "),
+        "{first}"
+    );
+    assert_eq!(kept(&case), Vec::<Value>::new(), "{tick}");
+}
+
+/// Adversary 2, wave 51 U1. A repository of the instance really named `conductor` (a checkout
+/// under the checkouts root) takes the `[NEED]` that names it: it is kept for its controller's
+/// next start, and the sender is told nothing.
+#[test]
+fn adv2_a_need_for_a_checkout_named_conductor_is_kept_for_it() {
+    let case = Case::new("adv2-mail-need-checkout-conductor");
+    case.spawn("alpha", FIRST);
+    write(
+        &case.checkout("conductor").join(".git/HEAD"),
+        "ref: refs/heads/main\n",
+    );
+    case.mail(
+        "0001",
+        "[NEED alpha N-20261017-01] conductor: add a flag to message send\n",
+    );
+    let (tick, said) = case.tick_said(&[]);
+    assert!(case.deliveries().is_empty(), "{:?}", case.deliveries());
+    let named: Vec<String> = kept(&case)
+        .iter()
+        .map(|item| item["repo"].as_str().unwrap_or_default().to_owned())
+        .collect();
+    assert_eq!(named, ["conductor"], "{tick} {said:?}");
+}
+
 /// A `[DECISION-REQUEST]` is raised and, with no decider seam, escalated as class O
 /// with the options its body lists, its recommendation as the default and a deadline 48 hours
 /// out.

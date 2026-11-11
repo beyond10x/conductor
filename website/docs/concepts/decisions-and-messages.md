@@ -88,7 +88,7 @@ reads the mailbox every watch tick. It puts its own messages in front of a contr
 | `[REPORT <repo> <dispatch-id>] <started\|progress\|blocked\|unblocked\|done\|failed> <one line>` | controller → conductor | progress on a dispatch |
 | `[DECISION-REQUEST <repo> <request-id>] <question>` | controller → conductor | options A/B/C and a recommendation below |
 | `[DECISION <request-id>] <option> <one-line reason> (<decision-id>)` | conductor → controller | the answer |
-| `[NEED <repo> <request-id>] <other-repo> <what is needed>` | controller → conductor | a cross-repository request, delivered to the other repository's running controller or kept for its next start |
+| `[NEED <repo> <request-id>] <other-repo> <what is needed>` | controller → conductor | a cross-repository request, delivered to the other repository's running controller or kept for its next start. When `<other-repo>` is no repository of the instance, the request is not relayed: it stays in conductor's mailbox for the supervisor, and its sender is told so in one line (`[REPORT <repo> -] not relayed: …`), but for a request for `conductor` itself, which gets no answer from the loop |
 | `[HANDOVER <repo>] context <n>k` | conductor → controller | the context is over `thresholds.context_handover`: the controller finishes its step, writes `<checkout>/.git/handoff/<UTC stamp>.md`, reports `blocked handover <path>` and stops; `conductor run` starts it again from its charter and that file |
 | `[RESOURCE <repo>] <build-slot\|disk\|usage> <amount>` | controller → conductor | answered "use conductor build run" ([disk](./disk.md)); `conductor run` resumes the sessions a usage limit stopped |
 | `[ESCALATION <request-id>] <O\|H> <question>` | conductor → operator | class O or H |
