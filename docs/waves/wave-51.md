@@ -21,7 +21,7 @@ repository under a lock. Free disk at the start: 104 GB.
 | U3 | doctor-checks-guard-forge-writes | | `w51-u3` | correction 2 after adversary pass 1 |
 | U4 | box-reaches-forge-and-daemon | | `w51-u4` | correction 2 after adversary pass 1; the egress half is blocked |
 | U5 | daemon-probes-and-metrics | | `w51-u5` | adversary pass 2, after correction 1 |
-| U6 | release-container-image | | `w51-u6` | adversary pass 2, after correction 2 |
+| U6 | release-container-image | | `w51-u6` | correction 3 after adversary pass 2 |
 | U7 | container-start-without-prompt | U3, U4, U5, U6 | `w51-u7` | not started |
 
 Each unit works on branch `impl/<story>`; its scratch is the session scratch directory's
