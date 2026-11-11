@@ -53,6 +53,7 @@ const sidebars: SidebarsConfig = {
         'guides/upgrade-and-rollback',
         'guides/troubleshoot',
         'guides/run-isolated',
+        'guides/run-in-a-container',
       ],
     },
     {

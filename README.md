@@ -104,6 +104,8 @@ conductor doctor
 On macOS, `shasum -a 256 --check` stands in for `sha256sum --check --strict`. `~/.local/bin`
 must be on `PATH`. To build from source instead, see
 [developer onboarding](https://beyond10x.github.io/conductor/docs/develop/onboarding#build-from-source).
+Each release also has a container image:
+[run conductor in a container](https://beyond10x.github.io/conductor/docs/guides/run-in-a-container).
 
 To upgrade, run `conductor upgrade`: it reads the newest release, downloads its archive for the
 target the binary was built for and `SHA256SUMS`, checks the sum, runs the new binary's
