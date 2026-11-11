@@ -226,11 +226,77 @@ is read before the first of the two merges.
 
 `aep plan artifact lifecycle story`: `active -> implemented`, on a `test_result` record of the
 gate on `wave/51`. `release-container-image` has two acceptance lines only a release run of the
-workflow can show (the push and the Release notes); it moves on the gate's record and the first
-release after the wave reads those two lines.
+workflow can show (the push and the Release notes). It stays `active` under
+`decision-blocker:release-run-shows-image` until the first release after the wave shows them.
 
 ## Commits this wave makes
 
 One commit per unit round on its `impl/<story>` branch, the adversary's cases, the merges into
 `wave/51`, this page and the store writes, the closing commit, and the merge of `wave/51` into
 `main` through one pull request. Each through the bot route. No tag and no release.
+
+## Agents
+
+`aep:implementor` per unit and per correction round, then `aep:adversary` per unit that returns
+green; a further round went to a new agent briefed from the unit's files.
+
+What the harness named when an agent's notification arrived: tokens, tool uses and minutes. The
+token figure is the one of that notification, not a sum over the run, so the list gives the
+largest of each per agent, and a run's cost in tokens is not stated. 33 notifications carried no
+agent id and are in no row; the list has no row for the first implementors of U3 and U7.
+
+- U1: implementor 173,016 tokens, 50 tool uses, 53 min; adversary passes 142,723 / 53 / 59 and
+  95,513 / 38 / 8.
+- U2: implementor 232,024 / 91 / 78; adversary passes 136,595 / 46 / 79 and 132,494 / 43 / 14.
+- U3: correction rounds 338,426 / 222 / 53 and 163,286 / 97 / 19; adversary passes
+  194,579 / 67 / 37 and 198,742 / 120 / 17.
+- U4: implementor 255,155 / 155 / 139; correction round 230,047 / 123 / 66; adversary passes
+  145,770 / 77 / 41 and 131,448 / 65 / 12.
+- U5: implementor 67,023 / 622 / 117; correction round 190,936 / 115 / 73; adversary passes
+  191,472 / 21 / 21 and 203,019 / 81 / 44.
+- U6: implementor 227,523 / 122 / 74; correction rounds 130,373 / 53 / 40 and 52,609 / 32 / 25;
+  adversary passes 131,846 / 54 / 22 and 116,650 / 49 / 9.
+- U7: correction round 83,339 / 62 / 27; adversary passes 180,578 / 62 / 11 and
+  179,780 / 83 / 31.
+
+## Close
+
+Seven units are merged in `wave/51`. Five stories moved to `implemented` on the gate's test
+record: `need-repository-from-tag`, `handover-restart-by-controller-id`,
+`doctor-checks-guard-forge-writes`, `daemon-probes-and-metrics` and
+`container-start-without-prompt`. Two have their code merged and stay `active`:
+
+- `box-reaches-forge-and-daemon`: the egress aperture for a forge host needs a change in the
+  substrate SDK (`decision-blocker:substrate-sdk-single-aperture`).
+- `release-container-image`: the push to the registry and the Release notes with tag and digest
+  can be read only on a release run (`decision-blocker:release-run-shows-image`).
+
+Each of the seven stories has a section "Scope as merged (wave 51)": the files its merge changed.
+
+The gate on `wave/51` at `30a1d74b7`: the Gates scan (224 files), `ess specify validate` (18
+files, 89 scenarios), the conformance run (679 of 679), the model diff, `cargo fmt --check`,
+`cargo clippy --all-targets -- -D warnings` and the docs check exit 0. `cargo nextest run
+--no-fail-fast` exits 100: 2060 run, 2057 passed, 3 failed, 13 skipped.
+
+- `build_run::a_second_signal_ends_a_stopped_run_that_waits_for_the_ledger` fails on the host,
+  as in wave 50.
+- `public_text::planning_and_docs_carry_no_instance_id` named two lines of a file under
+  `.engineering/drafts/`, which git ignores: the coordinator's copy of a review body, with a
+  fixture's request id. No committed file was named. It passed alone once that copy held the placeholder.
+- `dashboard::a_slow_measurement_does_not_hold_the_page_and_a_timed_out_one_says_so` failed its
+  assertion that the page answers while the measurement runs. It passed when run alone (5.4 s).
+
+Not run on the host: the website build, the dashboard's UX gate and the new `container` job of
+the check workflow, which runs for the first time on this wave's pull request.
+
+Adversary passes: two per unit, fourteen review results, each with its outcome recorded
+(thirteen `fixed`, one `no-op`).
+
+Backlog drafts filed by the wave: `story:role-need-line-is-sendable`,
+`story:loop-request-files-by-controller`, `story:runtime-token-owner-private`,
+`story:refused-stop-keeps-runtime` and `story:daemon-address-local-clients`.
+
+Left open: no agent was started inside the container; no run had a valid forge token; the local
+clients do not follow `daemon.address` (the last draft above); `story:setup-prints-box-row` was
+not read again against the change of U3, after which `conductor setup` ends with doctor's
+verdict.

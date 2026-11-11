@@ -2,7 +2,7 @@
 format: aep.planning-md/3
 id: story:doctor-checks-guard-forge-writes
 kind: story
-status: active
+status: implemented
 title: conductor doctor checks the guard allows each role's forge writes
 summary: doctor said ready while the guard denied every forge write
 scope:
@@ -20,10 +20,11 @@ scope:
   path: crates/conductor/src/role.rs
 - confidence: cited
   path: crates/conductor/tests/doctor.rs
-revision: 7
+revision: 9
 transitions:
 - {from: "draft", to: "proposed", at: "2026-11-07T13:11:40Z", actor: "human:timo", revision: 3}
 - {from: "proposed", to: "active", at: "2026-11-07T13:11:40Z", actor: "human:timo", revision: 4}
+- {from: "active", to: "implemented", at: "2026-11-11T22:33:08Z", actor: "human:timo", revision: 9, decided_on: {"recorded":{"test_result":1,"review_outcome":2}}}
 ---
 ## Why
 
@@ -52,3 +53,35 @@ instances whose controllers could not write to the forge.
 - `conductor doctor` is red when `forge.route: gates` has no `gates_policy`, or when the bot route
   has no route for a source's host, and its line names the fix (`forge.route: direct`, a
   `gates_policy`, or the bot's route for that host). A test reads each case.
+
+## Scope as merged (wave 51)
+
+The files the unit's merge into `wave/51` (`88177fa25`) changed, from `git diff --name-only`
+of the merge against its first parent. Where this list and the Scope section above differ,
+this list is what the unit touched.
+
+- `README.md`
+- `SETUP.md`
+- `conductor.example.yaml`
+- `crates/conductor/src/daemon/upgrade.rs`
+- `crates/conductor/src/doctor.rs`
+- `crates/conductor/src/guard.rs`
+- `crates/conductor/src/setup.rs`
+- `crates/conductor/tests/adv_w17_doctor.rs`
+- `crates/conductor/tests/adv_w51_doctor_guard.rs`
+- `crates/conductor/tests/docs_setup.rs`
+- `crates/conductor/tests/doctor.rs`
+- `crates/conductor/tests/instance_upgrade.rs`
+- `crates/conductor/tests/setup.rs`
+- `docs/analysis/onboarding-run.md`
+- `website/docs/concepts/config.md`
+- `website/docs/getting-started.md`
+- `website/docs/guides/add-a-repository-rule.md`
+- `website/docs/guides/configure-an-instance.md`
+- `website/docs/guides/first-task-existing-repo.md`
+- `website/docs/guides/gitlab.md`
+- `website/docs/guides/remote-daemon.md`
+- `website/docs/guides/run-isolated.md`
+- `website/docs/guides/troubleshoot.md`
+- `website/docs/security/operators-and-credentials.md`
+- `website/docs/security/the-guard.md`

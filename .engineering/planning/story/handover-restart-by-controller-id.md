@@ -2,7 +2,7 @@
 format: aep.planning-md/3
 id: story:handover-restart-by-controller-id
 kind: story
-status: active
+status: implemented
 title: A pending hand-over restart follows the controller it was asked of, never a younger session of the same name
 summary: The loop stopped a 5-min-old session restarted by hand under the same name
 relations:
@@ -18,10 +18,11 @@ scope:
   path: crates/conductor/tests/deliver.rs
 - confidence: inferred
   path: crates/conductor/tests/session_attach.rs
-revision: 5
+revision: 7
 transitions:
 - {from: "draft", to: "proposed", at: "2026-11-08T09:58:06Z", actor: "human:timo", revision: 2}
 - {from: "proposed", to: "active", at: "2026-11-08T09:58:07Z", actor: "human:timo", revision: 3}
+- {from: "active", to: "implemented", at: "2026-11-11T22:33:08Z", actor: "human:timo", revision: 7, decided_on: {"recorded":{"test_result":1,"review_outcome":2}}}
 ---
 # Story: handover-restart-by-controller-id
 
@@ -59,3 +60,18 @@ The supervisor's hand-restart procedure (its profile).
 ## Ambiguities
 
 None.
+
+## Scope as merged (wave 51)
+
+The files the unit's merge into `wave/51` (`10542e8b1`) changed, from `git diff --name-only`
+of the merge against its first parent. Where this list and the Scope section above differ,
+this list is what the unit touched.
+
+- `crates/conductor/src/confine/mod.rs`
+- `crates/conductor/src/run/handlers.rs`
+- `crates/conductor/src/systemd.rs`
+- `crates/conductor/src/watch.rs`
+- `crates/conductor/tests/deliver.rs`
+- `crates/conductor/tests/run_handover.rs`
+- `crates/conductor/tests/session_attach.rs`
+- `docs/design/conductor-run.md`

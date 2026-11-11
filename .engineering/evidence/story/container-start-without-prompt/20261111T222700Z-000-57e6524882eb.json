@@ -1,0 +1,13 @@
+{
+  "at": "2026-11-11T22:27:00Z",
+  "actor": "human:timo",
+  "artifact": "story:container-start-without-prompt",
+  "kind": "story",
+  "revision": 29,
+  "change": {
+    "change": "evidence",
+    "kind": "test_result",
+    "source": "cargo nextest run --no-fail-fast on wave/51 at 30a1d74b7, with the scan, the specification checks, fmt, clippy and the docs check",
+    "reference": "docs/waves/wave-51.md"
+  }
+}

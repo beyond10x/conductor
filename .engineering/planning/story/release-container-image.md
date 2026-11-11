@@ -23,7 +23,7 @@ scope:
   path: website/docs/guides/run-in-a-container.md
 - confidence: inferred
   path: website/sidebars.ts
-revision: 12
+revision: 13
 transitions:
 - {from: "draft", to: "proposed", at: "2026-11-11T11:12:32Z", actor: "human:timo", revision: 3}
 - {from: "proposed", to: "active", at: "2026-11-11T11:12:32Z", actor: "human:timo", revision: 4}
@@ -79,3 +79,18 @@ the tree) or **inferred** (a reading that could be wrong).
 - **Safety fact:** `conductor upgrade` picks release assets by exact name
   (`crates/conductor/src/upgrade.rs:177,184`), and an image pushed to a registry adds no asset, so
   upgrade and the five-asset check are untouched — step 2, unproven
+
+## Scope as merged (wave 51)
+
+The files the unit's merge into `wave/51` (`61eb01e39`) changed, from `git diff --name-only`
+of the merge against its first parent. Where this list and the Scope section above differ,
+this list is what the unit touched.
+
+- `.github/workflows/release.yml`
+- `AGENTS.md`
+- `Dockerfile`
+- `README.md`
+- `crates/conductor/tests/release_image.rs`
+- `website/docs/getting-started.md`
+- `website/docs/guides/run-in-a-container.md`
+- `website/sidebars.ts`

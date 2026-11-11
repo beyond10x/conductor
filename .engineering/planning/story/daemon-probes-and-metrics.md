@@ -2,7 +2,7 @@
 format: aep.planning-md/3
 id: story:daemon-probes-and-metrics
 kind: story
-status: active
+status: implemented
 title: conductord answers liveness, readiness and a Prometheus metrics endpoint
 relations:
 - decomposes: epic:deployable-in-kubernetes
@@ -33,10 +33,11 @@ scope:
   path: spec/domains/store.yaml
 - confidence: inferred
   path: website/docs/concepts/the-host.md
-revision: 17
+revision: 19
 transitions:
 - {from: "draft", to: "proposed", at: "2026-11-11T11:12:33Z", actor: "human:timo", revision: 2}
 - {from: "proposed", to: "active", at: "2026-11-11T11:12:33Z", actor: "human:timo", revision: 3}
+- {from: "active", to: "implemented", at: "2026-11-11T22:33:09Z", actor: "human:timo", revision: 19, decided_on: {"recorded":{"test_result":1,"review_outcome":2}}}
 ---
 ## Why
 
@@ -76,3 +77,73 @@ Derived 2026-11-11 by `story-scoper` at `main` 67b0fb096. Every line is **cited*
 - **Confidence:** medium — the router, binding, generated model and parity files are read from the tree; where the four metric values come from, whether liveness and a Prometheus text body can be bound views, and which page is "the reference" are not — inferred
 - **Would collide with:** any unit that changes `spec/` (it re-pins `crates/conductor/http.yaml` line 2 and regenerates `crates/conductor-model/`), adds a branch to `answer` in `daemon/api.rs`, changes `Daemon::open` or `daemon_serve`, or changes the parity baseline — cited
 - **Safety fact:** in `answer`, a GET outside `/v1/` goes to the dashboard app (`api.rs:542`), the loopback listener refuses a foreign `Host` (`:532`) and every `/v1/` path on the TLS listener needs a bearer (`:565`); a probe or metrics branch placed ahead of these is the daemon's only unauthenticated answer, safe only while its body holds counts and a reason and no config, token or store URL — step 2, unproven — inferred
+
+## Scope as merged (wave 51)
+
+The files the unit's merge into `wave/51` (`654a1c993`) changed, from `git diff --name-only`
+of the merge against its first parent. Where this list and the Scope section above differ,
+this list is what the unit touched.
+
+- `crates/conductor-model/Cargo.toml`
+- `crates/conductor-model/PLAN.md`
+- `crates/conductor-model/plan.json`
+- `crates/conductor-model/src/actor.rs`
+- `crates/conductor-model/src/agent.rs`
+- `crates/conductor-model/src/behaviour.rs`
+- `crates/conductor-model/src/bin/conductor-instance-server.rs`
+- `crates/conductor-model/src/bin/conductord-server.rs`
+- `crates/conductor-model/src/config.rs`
+- `crates/conductor-model/src/decision.rs`
+- `crates/conductor-model/src/direction.rs`
+- `crates/conductor-model/src/dispatch.rs`
+- `crates/conductor-model/src/host.rs`
+- `crates/conductor-model/src/improvement.rs`
+- `crates/conductor-model/src/instance.rs`
+- `crates/conductor-model/src/lib.rs`
+- `crates/conductor-model/src/obligation.rs`
+- `crates/conductor-model/src/observation.rs`
+- `crates/conductor-model/src/operator.rs`
+- `crates/conductor-model/src/placement.rs`
+- `crates/conductor-model/src/ports.rs`
+- `crates/conductor-model/src/ports/conductor_broker.rs`
+- `crates/conductor-model/src/ports/conductor_cli.rs`
+- `crates/conductor-model/src/ports/conductor_instance.rs`
+- `crates/conductor-model/src/ports/conductord.rs`
+- `crates/conductor-model/src/primitives.rs`
+- `crates/conductor-model/src/secret.rs`
+- `crates/conductor-model/src/server.rs`
+- `crates/conductor-model/src/server/conductor-instance.docs.md`
+- `crates/conductor-model/src/server/conductor-instance.openapi.json`
+- `crates/conductor-model/src/server/conductor_instance.rs`
+- `crates/conductor-model/src/server/conductord.docs.md`
+- `crates/conductor-model/src/server/conductord.openapi.json`
+- `crates/conductor-model/src/server/conductord.rs`
+- `crates/conductor-model/src/server/entry.rs`
+- `crates/conductor-model/src/server/http.rs`
+- `crates/conductor-model/src/server/json.rs`
+- `crates/conductor-model/src/server/memory.rs`
+- `crates/conductor-model/src/server/static_assets.rs`
+- `crates/conductor-model/src/server/wire.rs`
+- `crates/conductor-model/src/session.rs`
+- `crates/conductor-model/src/store.rs`
+- `crates/conductor-model/src/system.rs`
+- `crates/conductor-model/src/token.rs`
+- `crates/conductor-model/src/tool.rs`
+- `crates/conductor/http.yaml`
+- `crates/conductor/src/daemon/api.rs`
+- `crates/conductor/src/daemon/metrics.rs`
+- `crates/conductor/src/daemon/mod.rs`
+- `crates/conductor/src/daemon/reconcile.rs`
+- `crates/conductor/src/store.rs`
+- `crates/conductor/src/store/host.rs`
+- `crates/conductor/src/store/readiness.rs`
+- `crates/conductor/tests/adv_daemon_probes.rs`
+- `crates/conductor/tests/api_parity.rs`
+- `crates/conductor/tests/daemon_probes.rs`
+- `crates/conductor/tests/fixtures/api_parity.md`
+- `spec/domains/instance.yaml`
+- `spec/domains/store.yaml`
+- `website/docs/concepts/config.md`
+- `website/docs/concepts/the-host.md`
+- `website/docs/guides/remote-daemon.md`
+- `website/docs/security/operators-and-credentials.md`

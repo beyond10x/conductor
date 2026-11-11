@@ -27,7 +27,7 @@ scope:
   path: website/docs/getting-started.md
 - confidence: inferred
   path: website/docs/guides/run-isolated.md
-revision: 22
+revision: 23
 transitions:
 - {from: "draft", to: "proposed", at: "2026-11-10T00:18:07Z", actor: "human:timo", revision: 6}
 - {from: "proposed", to: "active", at: "2026-11-10T00:18:07Z", actor: "human:timo", revision: 7}
@@ -64,3 +64,52 @@ Derived 2026-11-10 by `story-scoper`. Every line is **cited** (read from the sto
 - **Confidence:** medium — the two defect sites are cited and verified in the tree, but the pinned substrate SDK takes neither egress hosts nor a cwd per session, so where the egress half lands (code, operator documents, or a pin bump) is a design choice the story does not make
 - **Would collide with:** any unit touching `crates/conductor/src/placement.rs` (`request`, `Sdk::runtime`), `Reconciler::box_request` and `service` in `crates/conductor/src/daemon/reconcile.rs`, `crates/conductor/tests/placement.rs`, or the substrate-daemon command in `website/docs/getting-started.md` section 5 and `SETUP.md` — cited
 - **Safety fact:** the box's environment is documented "never a credential" (`crates/conductor/src/placement.rs:518`) and two tests hold it (`crates/conductor/tests/placement.rs:598`, `:1362`); handing the token in is safe only if it reaches the runtime without widening who can read it, and the relay's environment (`:1362`) stays without it — step 2, unproven — inferred
+
+## Scope as merged (wave 51)
+
+The files the unit's merge into `wave/51` (`fe099dc20`) changed, from `git diff --name-only`
+of the merge against its first parent. Where this list and the Scope section above differ,
+this list is what the unit touched.
+
+- `README.md`
+- `SETUP.md`
+- `crates/conductor/src/collect/blockers.rs`
+- `crates/conductor/src/collect/mod.rs`
+- `crates/conductor/src/collect/repositories.rs`
+- `crates/conductor/src/collect/sessions.rs`
+- `crates/conductor/src/collect/usage.rs`
+- `crates/conductor/src/config.rs`
+- `crates/conductor/src/config/put.rs`
+- `crates/conductor/src/confine/mod.rs`
+- `crates/conductor/src/daemon/install.rs`
+- `crates/conductor/src/daemon/reconcile.rs`
+- `crates/conductor/src/dashboard.rs`
+- `crates/conductor/src/dashboard/plan.rs`
+- `crates/conductor/src/dashboard/waste.rs`
+- `crates/conductor/src/decide/handle.rs`
+- `crates/conductor/src/decide/model.rs`
+- `crates/conductor/src/doctor.rs`
+- `crates/conductor/src/gates.rs`
+- `crates/conductor/src/gc.rs`
+- `crates/conductor/src/gc/archives.rs`
+- `crates/conductor/src/gc/reclaim.rs`
+- `crates/conductor/src/gc/trees.rs`
+- `crates/conductor/src/guard/rules.rs`
+- `crates/conductor/src/instance.rs`
+- `crates/conductor/src/placement.rs`
+- `crates/conductor/src/repository.rs`
+- `crates/conductor/src/rules.rs`
+- `crates/conductor/src/run.rs`
+- `crates/conductor/src/run/dispatch.rs`
+- `crates/conductor/src/run/handlers.rs`
+- `crates/conductor/src/run/records.rs`
+- `crates/conductor/src/secret.rs`
+- `crates/conductor/src/session.rs`
+- `crates/conductor/src/setup.rs`
+- `crates/conductor/src/systemd.rs`
+- `crates/conductor/src/watch.rs`
+- `crates/conductor/tests/placement.rs`
+- `website/docs/concepts/the-host.md`
+- `website/docs/getting-started.md`
+- `website/docs/guides/run-isolated.md`
+- `website/docs/security/operators-and-credentials.md`

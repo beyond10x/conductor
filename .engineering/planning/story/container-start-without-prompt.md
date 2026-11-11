@@ -2,7 +2,7 @@
 format: aep.planning-md/3
 id: story:container-start-without-prompt
 kind: story
-status: active
+status: implemented
 title: One instance starts in a container from a config file and mounted credentials, with no prompt
 relations:
 - decomposes: epic:deployable-in-kubernetes
@@ -55,10 +55,11 @@ scope:
   path: website/docs/security/operators-and-credentials.md
 - confidence: inferred
   path: website/sidebars.ts
-revision: 28
+revision: 30
 transitions:
 - {from: "draft", to: "proposed", at: "2026-11-11T11:12:34Z", actor: "human:timo", revision: 2}
 - {from: "proposed", to: "active", at: "2026-11-11T11:12:34Z", actor: "human:timo", revision: 3}
+- {from: "active", to: "implemented", at: "2026-11-11T22:33:09Z", actor: "human:timo", revision: 30, decided_on: {"recorded":{"test_result":1,"review_outcome":2}}}
 ---
 ## Why
 
@@ -95,3 +96,90 @@ Derived 2026-11-11 by `story-scoper` at 67b0fb096. Every line is **cited** (read
 - **Confidence:** medium — every blocker is read at its line, but the story chooses neither the credential source (a new source, or files the forge CLI and harness read themselves) nor how a runtime starts without systemd, and those choices decide the Also likely files
 - **Would collide with:** any unit touching `daemon_serve`, `secret::open` or the `Source` enum, doctor's failure list, or `spec/domains/secret.yaml` — cited
 - **Safety fact:** seeding at every start overwrites nothing: `init::check` refuses before any write when a skeleton file is there (`init.rs:155-169`, `:243`), and trust writes nothing when its file changed under it (`trust.rs:248`) — step 2, unproven; a new `Source` variant also reaches store records, `GET /v1/secrets` and `daemon/install.rs:177` — inferred
+
+## Scope as merged (wave 51)
+
+The files the unit's merge into `wave/51` (`fb16ccb43`) changed, from `git diff --name-only`
+of the merge against its first parent. Where this list and the Scope section above differ,
+this list is what the unit touched.
+
+- `.github/workflows/check.yml`
+- `AGENTS.md`
+- `Taskfile.yml`
+- `crates/conductor-docs/src/config.rs`
+- `crates/conductor-model/Cargo.toml`
+- `crates/conductor-model/PLAN.md`
+- `crates/conductor-model/plan.json`
+- `crates/conductor-model/src/actor.rs`
+- `crates/conductor-model/src/agent.rs`
+- `crates/conductor-model/src/behaviour.rs`
+- `crates/conductor-model/src/bin/conductor-instance-server.rs`
+- `crates/conductor-model/src/bin/conductord-server.rs`
+- `crates/conductor-model/src/config.rs`
+- `crates/conductor-model/src/decision.rs`
+- `crates/conductor-model/src/direction.rs`
+- `crates/conductor-model/src/dispatch.rs`
+- `crates/conductor-model/src/host.rs`
+- `crates/conductor-model/src/improvement.rs`
+- `crates/conductor-model/src/instance.rs`
+- `crates/conductor-model/src/lib.rs`
+- `crates/conductor-model/src/obligation.rs`
+- `crates/conductor-model/src/observation.rs`
+- `crates/conductor-model/src/operator.rs`
+- `crates/conductor-model/src/placement.rs`
+- `crates/conductor-model/src/ports.rs`
+- `crates/conductor-model/src/ports/conductor_broker.rs`
+- `crates/conductor-model/src/ports/conductor_cli.rs`
+- `crates/conductor-model/src/ports/conductor_instance.rs`
+- `crates/conductor-model/src/ports/conductord.rs`
+- `crates/conductor-model/src/primitives.rs`
+- `crates/conductor-model/src/secret.rs`
+- `crates/conductor-model/src/server.rs`
+- `crates/conductor-model/src/server/conductor-instance.docs.md`
+- `crates/conductor-model/src/server/conductor-instance.openapi.json`
+- `crates/conductor-model/src/server/conductor_instance.rs`
+- `crates/conductor-model/src/server/conductord.docs.md`
+- `crates/conductor-model/src/server/conductord.openapi.json`
+- `crates/conductor-model/src/server/conductord.rs`
+- `crates/conductor-model/src/server/entry.rs`
+- `crates/conductor-model/src/server/http.rs`
+- `crates/conductor-model/src/server/json.rs`
+- `crates/conductor-model/src/server/memory.rs`
+- `crates/conductor-model/src/server/static_assets.rs`
+- `crates/conductor-model/src/server/wire.rs`
+- `crates/conductor-model/src/session.rs`
+- `crates/conductor-model/src/store.rs`
+- `crates/conductor-model/src/system.rs`
+- `crates/conductor-model/src/token.rs`
+- `crates/conductor-model/src/tool.rs`
+- `crates/conductor/cli.yaml`
+- `crates/conductor/http.yaml`
+- `crates/conductor/src/cli.rs`
+- `crates/conductor/src/config.rs`
+- `crates/conductor/src/daemon/api.rs`
+- `crates/conductor/src/daemon/install.rs`
+- `crates/conductor/src/daemon/metrics.rs`
+- `crates/conductor/src/daemon/mod.rs`
+- `crates/conductor/src/daemon/unattended.rs`
+- `crates/conductor/src/daemon/units.rs`
+- `crates/conductor/src/dashboard/answers.rs`
+- `crates/conductor/src/init.rs`
+- `crates/conductor/src/instance.rs`
+- `crates/conductor/src/secret.rs`
+- `crates/conductor/src/setup.rs`
+- `crates/conductor/src/store/secret.rs`
+- `crates/conductor/src/token.rs`
+- `crates/conductor/src/trust.rs`
+- `crates/conductor/tests/adv_w51_container_start.rs`
+- `crates/conductor/tests/container_start.rs`
+- `crates/conductor/tests/token_pool.rs`
+- `spec/domains/config.yaml`
+- `spec/domains/secret.yaml`
+- `spec/domains/token.yaml`
+- `spec/ess-inputs.yaml`
+- `spec/scenarios/secret-put-secret-read-only.yaml`
+- `website/docs/concepts/config.md`
+- `website/docs/concepts/the-host.md`
+- `website/docs/guides/run-in-a-container.md`
+- `website/docs/reference/cli.md`
+- `website/docs/reference/config.md`

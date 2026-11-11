@@ -2,7 +2,7 @@
 format: aep.planning-md/3
 id: story:need-repository-from-tag
 kind: story
-status: active
+status: implemented
 title: A NEED's repository comes from its tag, without trailing punctuation
 scope:
 - confidence: inferred
@@ -23,10 +23,11 @@ scope:
   path: docs/design/conductor.md
 - confidence: inferred
   path: website/docs/concepts/decisions-and-messages.md
-revision: 21
+revision: 23
 transitions:
 - {from: "draft", to: "proposed", at: "2026-11-10T00:18:05Z", actor: "human:timo", revision: 6}
 - {from: "proposed", to: "active", at: "2026-11-10T00:18:06Z", actor: "human:timo", revision: 7}
+- {from: "active", to: "implemented", at: "2026-11-11T22:33:07Z", actor: "human:timo", revision: 23, decided_on: {"recorded":{"test_result":1,"review_outcome":2}}}
 ---
 ## Why
 
@@ -65,3 +66,16 @@ text" is met by reading `<other-repo>` as a field of that form: its leading run 
 characters is the repository, so trailing punctuation is never part of it. A NEED whose
 `<other-repo>` is no repository the instance knows is refused in one line to its sender. The
 coordinator of wave 51 took this reading; the form's text does not change.
+
+## Scope as merged (wave 51)
+
+The files the unit's merge into `wave/51` (`900de5852`) changed, from `git diff --name-only`
+of the merge against its first parent. Where this list and the Scope section above differ,
+this list is what the unit touched.
+
+- `crates/conductor/roles/controller.md`
+- `crates/conductor/src/run/mailbox.rs`
+- `crates/conductor/src/spawn.rs`
+- `crates/conductor/tests/run.rs`
+- `docs/design/conductor-run.md`
+- `website/docs/concepts/decisions-and-messages.md`
