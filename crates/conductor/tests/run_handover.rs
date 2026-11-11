@@ -725,3 +725,136 @@ fn a_limited_session_with_an_entry_of_another_controller_is_resumed_not_respawne
         case.claude_calls()
     );
 }
+
+// ---------------------------------------------------------------------------------------------
+// Adversary pass 1 (wave 51, unit U2): cases added against the unit, not part of its commit
+// ---------------------------------------------------------------------------------------------
+
+impl Case {
+    /// The first line of each delivery the ticks made, in order (`fake/deliveries.jsonl`).
+    fn delivered(&self) -> Vec<String> {
+        fs::read_to_string(self.fake().join("deliveries.jsonl"))
+            .unwrap_or_default()
+            .lines()
+            .filter_map(|line| serde_json::from_str::<Value>(line).ok())
+            .filter_map(|delivery| {
+                delivery["text"]
+                    .as_str()
+                    .and_then(|text| text.lines().next())
+                    .map(str::to_owned)
+            })
+            .collect()
+    }
+}
+
+/// Acceptance 2 through the other handler that acts on an entry: `limited()` runs before
+/// `handovers()` in a tick, and restarts a session a usage limit marked when a hand-over was
+/// asked of it. The session was asked, then marked by a usage limit; it was ended and started
+/// again by hand under the same name, after the delivery, once the limit lifted; the next tick
+/// has headroom. The loop stops nothing: the session that holds the name started after the
+/// delivery.
+#[test]
+fn adversary_a_session_started_after_the_delivery_is_not_stopped_by_the_usage_limit_path() {
+    let case = Case::new("adversary-limited-younger");
+    let controller = case.spawn(FIRST);
+    case.ask();
+    write(&case.fake().join("headroom"), "no");
+    let (marked, journal) =
+        case.actions(&["usage limit: You've hit your limit; 1 sessions: ex-alpha"]);
+    assert_eq!(marked, ["usage-limit"], "{journal:?}");
+    assert_eq!(
+        case.asked()[SESSION]["controller"],
+        json!(controller),
+        "the request stands while the session asked holds the name: {journal:?}"
+    );
+
+    // Ended and started again by hand, outside conductor, after the delivery.
+    case.unlist(FIRST);
+    case.list(FIRST, "busy", Some(now()));
+    write(&case.fake().join("headroom"), "yes");
+    let (actions, journal) = case.actions(&[]);
+
+    assert_eq!(
+        case.stopped(),
+        Vec::<String>::new(),
+        "a session started after the delivery is never stopped: {actions:?} {journal:?}"
+    );
+    assert_eq!(case.launches(), 1, "none started: {actions:?} {journal:?}");
+    assert_eq!(case.running(), Some(controller), "its controller runs on");
+}
+
+/// A request to the controller's own live session is not dropped because another live session
+/// carries the same name: one started by hand in a directory outside the instance's checkouts,
+/// which the watch never names. The request stands whichever of the two the session list
+/// prints first.
+#[test]
+fn adversary_a_session_of_the_same_name_elsewhere_does_not_drop_the_request() {
+    for (name, stray) in [
+        ("adversary-stray-listed-after", "z0000000-0000"),
+        ("adversary-stray-listed-before", "a0000000-0000"),
+    ] {
+        let case = Case::new(name);
+        let before = now();
+        let controller = case.spawn(FIRST);
+        case.list(FIRST, "busy", Some(before));
+        case.ask();
+        write(
+            &case.fake().join(format!("agents/{stray}.json")),
+            &json!({
+                "id": stray, "sessionId": stray, "name": SESSION, "pid": 5151,
+                "cwd": case.dir.join("elsewhere"), "status": "idle", "state": "idle",
+                "startedAt": u64::try_from(before / 1_000_000).expect("milliseconds"),
+            })
+            .to_string(),
+        );
+
+        let (actions, journal) = case.actions(&[]);
+        assert_eq!(actions, Vec::<String>::new(), "{name}: {journal:?}");
+        assert_eq!(
+            case.asked()[SESSION]["controller"],
+            json!(controller),
+            "{name}: the request to the controller's own session stands: {journal:?}"
+        );
+    }
+}
+
+/// A request the binary before this story kept, to the session the running controller still
+/// runs: its line names that session, the session list says it started before the delivery,
+/// its hand-over file is written and it is idle. The watch names a session's context once
+/// (`tests/watch.rs`, the cases of `context-reported`), so no later `context:` line asks
+/// again: within two ticks the controller is restarted at its hand-over, or asked again.
+#[test]
+fn adversary_a_request_of_an_earlier_version_to_the_running_session_is_not_lost() {
+    let case = Case::new("adversary-earlier-version");
+    let before = now();
+    case.spawn(FIRST);
+    case.list(FIRST, "busy", Some(before));
+    write(
+        &case.handover_file(),
+        &json!({SESSION: {
+            "repo": "alpha",
+            "delivered": now().to_string(),
+            "line": format!("context: alpha 230k tokens (session {FIRST_SHORT})"),
+        }})
+        .to_string(),
+    );
+    case.hand_over_written();
+    case.list(FIRST, "idle", Some(before));
+
+    let (first, first_journal) = case.actions(&[]);
+    let (second, second_journal) = case.actions(&[]);
+
+    let restarted = case.stopped() == [FIRST] && case.launches() == 2;
+    let asked_again = case
+        .delivered()
+        .iter()
+        .any(|line| line.starts_with("[HANDOVER alpha]"));
+    assert!(
+        restarted || asked_again,
+        "the controller asked before the upgrade is neither restarted at its hand-over nor asked \
+         again: ticks {first:?} {second:?}, journal {first_journal:?} {second_journal:?}, \
+         deliveries {:?}, kept {}",
+        case.delivered(),
+        case.asked()
+    );
+}
