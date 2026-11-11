@@ -112,6 +112,7 @@ instances:
     checkouts:
       root: ~/src
       trees: ~/.local/state/worktree/trees/home
+    forge: {route: direct}
 ```
 
 - `daemon.store` is the one database every instance writes its records to. conductord refuses a
@@ -123,9 +124,14 @@ instances:
   an existing deployment keeps its store.
 - `placement: systemd` runs the instance's runtime in a substrate box (step 5).
 - `session_prefix` starts the name of every session of the instance, such as `home-alpha`.
+- `forge: {route: direct}` lets a controller write its pull requests with your own forge login.
+  The default route, `gates`, writes through the bot route and needs a `gates_policy`
+  ([forge calls](/docs/security/the-guard#forge-calls)); without one doctor ends
+  `not ready: forge route home (no gates_policy)`.
 
 In a checkout, `conductor setup --apply` writes such a file for that repository when there is
-none ([one task in an existing repository](./guides/first-task-existing-repo.md#1-set-the-checkout-up)).
+none ([one task in an existing repository](./guides/first-task-existing-repo.md#1-set-the-checkout-up)),
+without a forge route: it prints the `forge route` line that names the two ways to write one.
 Where a database is already at `~/.b10x/conductor/conductor.sqlite`, the file it writes names that
 one, and `--apply` never changes a `daemon.store` that is written or moves a store. It then
 prints a `box:` row with the refusal and a `to write: daemon.store: …` line, and its verdict is
@@ -143,7 +149,8 @@ instances[0].state: ~/.b10x/conductor/home/state
 instances[0].cache: ~/.cache/b10x/conductor/home
 ```
 
-Run `conductor doctor` again: it now needs `substrate-daemon`, at its pin 0.20.0. It also prints
+Run `conductor doctor` again: it now needs `substrate-daemon`, at its pin 0.20.0, and prints
+`forge route home: direct` and one `guard <role>:` line for each role. It also prints
 a `box <instance>:` row that names a refusal (a writable root that does not exist yet, or
 `placement.substrate-unreachable`), ends with `not ready: box <instance> (<refusal>)` and exits 1.
 That is expected here: step 4 writes the records directory and step 5 starts the substrate

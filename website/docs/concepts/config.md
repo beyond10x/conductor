@@ -30,11 +30,15 @@ instances:
     checkouts:
       root: ~/example-org
       trees: ~/.local/state/worktree/trees/example-org
+    forge: {route: direct}
 ```
 
 An instance needs `name`, `placement`, `sources` and `checkouts`. `config validate` also refuses
 one without `session_prefix`. conductord starts only on a file that writes `daemon.store`
-([the host](./the-host.md)). Writing one is [configure an instance](/docs/guides/configure-an-instance).
+([the host](./the-host.md)). `forge: {route: direct}` lets a controller write its pull requests
+with the forge login; the default route, `gates`, writes through the bot route and needs a
+`gates_policy` ([forge calls](/docs/security/the-guard#forge-calls)), and `conductor doctor` is
+not ready on it without one. Writing a file is [configure an instance](/docs/guides/configure-an-instance).
 
 ## Which file, which instance
 

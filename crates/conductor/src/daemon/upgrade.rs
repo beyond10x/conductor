@@ -112,18 +112,46 @@ impl Releases for Github {
         if output.status.success() {
             return Ok(());
         }
-        let said = [&output.stderr, &output.stdout]
-            .iter()
-            .map(|bytes| String::from_utf8_lossy(bytes).trim().to_owned())
-            .find(|text| !text.is_empty())
-            .unwrap_or_default();
         bail!(
             "{} doctor exited {}: {}",
             binary.display(),
             output.status,
-            said.lines().next().unwrap_or_default()
+            said(
+                &String::from_utf8_lossy(&output.stdout),
+                &String::from_utf8_lossy(&output.stderr)
+            )
         )
     }
+}
+
+/// What a doctor that is not ready said, for the refusal an operator reads
+/// (`story:doctor-checks-guard-forge-writes`): its verdict, the last line of `stdout` when that
+/// starts `not ready:`, then the line of each row the verdict names (`<row>: …` for a failure
+/// `<row> (…)`), which carries the row's fix, joined by `; `. A doctor that ended without a
+/// verdict is quoted by the first line of `stderr`, or of `stdout` when that is empty.
+fn said(stdout: &str, stderr: &str) -> String {
+    let lines: Vec<&str> = stdout
+        .lines()
+        .map(str::trim_end)
+        .filter(|line| !line.is_empty())
+        .collect();
+    let Some((verdict, rows)) = lines
+        .split_last()
+        .filter(|(verdict, _)| verdict.starts_with("not ready:"))
+    else {
+        let first = |text: &str| text.trim().lines().next().map(str::to_owned);
+        return first(stderr).or_else(|| first(stdout)).unwrap_or_default();
+    };
+    let named = rows.iter().filter(|line| {
+        line.split_once(": ").is_some_and(|(row, _)| {
+            verdict.contains(&format!(": {row} (")) || verdict.contains(&format!(", {row} ("))
+        })
+    });
+    std::iter::once(verdict)
+        .chain(named)
+        .copied()
+        .collect::<Vec<_>>()
+        .join("; ")
 }
 
 /// What an upgrade that was not refused came to.

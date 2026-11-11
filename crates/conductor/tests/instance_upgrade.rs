@@ -406,6 +406,104 @@ fn a_failing_doctor_rolls_back_before_the_switch_and_the_runtime_runs_on() {
     assert_eq!(daemon.started()["alpha"].version, "1.0.0");
 }
 
+/// A program at `file` that prints each of `out` on standard output and each of `err` on
+/// standard error, and exits 1: a new binary whose doctor is not ready.
+fn failing_doctor(file: &Path, out: &[&str], err: &[&str]) {
+    use std::os::unix::fs::PermissionsExt as _;
+    let mut text = "#!/bin/sh\n".to_owned();
+    for line in out {
+        text.push_str(&format!("printf '%s\\n' '{line}'\n"));
+    }
+    for line in err {
+        text.push_str(&format!("printf '%s\\n' '{line}' >&2\n"));
+    }
+    text.push_str("exit 1\n");
+    fs::write(file, text).expect("write the program");
+    fs::set_permissions(file, fs::Permissions::from_mode(0o755)).expect("make it runnable");
+}
+
+/// What the operator reads when the new binary's doctor is not ready
+/// (`story:doctor-checks-guard-forge-writes`): the refusal carries doctor's verdict, its last
+/// line, and the line of each row the verdict names, which carries that row's fix; no other row.
+/// A doctor that ends without a verdict is quoted by the first line it wrote, as before.
+#[test]
+fn the_refusal_of_a_failing_doctor_carries_its_verdict_and_the_rows_it_names() {
+    let case = Case::new("doctor-said");
+    let binary = case.dir.join("conductor-new");
+    let service = Service {
+        unit: unit_name("alpha"),
+        slice: "conductor-alpha.slice".to_owned(),
+        limits: conductor_model::config::Limits {
+            memory_max: None,
+            cpu_weight: None,
+            tasks_max: None,
+        },
+        cwd: case.dir.clone(),
+        properties: Vec::new(),
+        env: vec![format!("HOME={}", case.dir.join("home").display())],
+        command: vec![
+            "conductor".to_owned(),
+            "--config".to_owned(),
+            case.file().display().to_string(),
+            "instance".to_owned(),
+            "serve".to_owned(),
+        ],
+    };
+    let route = "forge route alpha: gates without a gates_policy: set \
+                 instances[0].gates_policy, or instances[0].forge.route: direct";
+    let verdict = "not ready: jq (missing), forge route alpha (no gates_policy)";
+    failing_doctor(
+        &binary,
+        &[
+            "host: linux x86_64",
+            "jq: missing",
+            "  install: sudo apt-get install jq",
+            "git: present, 2.50.0",
+            route,
+            "guard controller: not checked (no git checkout under /srv/checkouts)",
+            verdict,
+        ],
+        &[],
+    );
+    let said = format!(
+        "{:#}",
+        upgrade::Github
+            .doctor(&binary, &service)
+            .expect_err("the doctor is not ready")
+    );
+    assert!(
+        said.ends_with(&format!("{verdict}; jq: missing; {route}")),
+        "the refusal carries the verdict and the rows it names: {said}"
+    );
+    for other in [
+        "host: linux",
+        "git: present",
+        "guard controller",
+        "install:",
+    ] {
+        assert!(
+            !said.contains(other),
+            "the refusal carries {other:?}: {said}"
+        );
+    }
+
+    failing_doctor(
+        &binary,
+        &[],
+        &["conductor: doctor: the config file does not load", "more"],
+    );
+    let said = format!(
+        "{:#}",
+        upgrade::Github
+            .doctor(&binary, &service)
+            .expect_err("the doctor fails")
+    );
+    assert!(
+        said.ends_with(": conductor: doctor: the config file does not load"),
+        "a doctor without a verdict is quoted by its first line: {said}"
+    );
+}
+
 #[test]
 fn an_unknown_or_stopped_instance_or_an_unread_release_is_refused_and_nothing_restarts() {
     let case = Case::new("refused");

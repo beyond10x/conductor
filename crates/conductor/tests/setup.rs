@@ -964,3 +964,145 @@ fn setup_apply_prints_the_activation_worktree_refused() {
         shown(&output)
     );
 }
+
+// ---------------------------------------------------------------------------------------------
+// story:doctor-checks-guard-forge-writes: setup names the forge route of the instance before
+// doctor does, and takes the instance's Gates policy from its environment.
+// ---------------------------------------------------------------------------------------------
+
+/// The variable that names the Gates policy, as `conductor broker serve` reads it.
+const POLICY_VARIABLE: &str = "B10X_GATES_POLICY";
+
+impl Case {
+    /// [`Case::setup`] with [`POLICY_VARIABLE`] naming `policy` in its environment.
+    fn setup_with_policy(&self, cwd: &Path, args: &[&str], policy: &Path) -> Output {
+        self.isolated(
+            common::conductor(self.home())
+                .arg("setup")
+                .args(args)
+                .current_dir(cwd)
+                .env_clear()
+                .env("PATH", self.bin())
+                .env(POLICY_VARIABLE, policy),
+        )
+        .output()
+        .expect("conductor runs")
+    }
+}
+
+/// With `B10X_GATES_POLICY` naming a readable file, the plan prints the `gates_policy` the
+/// instance of `--apply` takes and writes nothing; `--apply` writes that path into the instance
+/// it creates, and the route line reads as doctor's. A later `--apply` under another policy
+/// changes no instance that is there.
+#[test]
+fn setup_apply_writes_the_gates_policy_its_environment_names_into_the_instance_it_creates() {
+    let case = Case::new("route-policy");
+    case.claude_json();
+    let repository = case.repository(
+        "eta",
+        Some("https://github.com/example-org/eta.git"),
+        Some(CURRENT_STORE),
+    );
+    let policy = case.dir.join("gates-policy.json");
+    fs::write(&policy, "{}\n").expect("write the policy");
+
+    let output = case.setup_with_policy(&repository, &[], &policy);
+    holds(
+        &output,
+        &[format!(
+            "forge route eta: gates_policy: {} in the instance of --apply, the file \
+             {POLICY_VARIABLE} names",
+            policy.display()
+        )],
+    );
+    assert!(
+        !case.config_file().exists(),
+        "without --apply setup writes nothing"
+    );
+
+    let output = case.setup_with_policy(&repository, &["--apply"], &policy);
+    let config = fs::read_to_string(case.config_file()).expect("--apply wrote the config file");
+    assert!(
+        config.contains(&format!("    gates_policy: \"{}\"\n", policy.display())),
+        "the instance names the policy:\n{config}\n{}",
+        shown(&output)
+    );
+    holds(
+        &output,
+        &[format!(
+            "forge route eta: gates, policy {}",
+            policy.display()
+        )],
+    );
+
+    let other = case.dir.join("other-policy.json");
+    fs::write(&other, "{}\n").expect("write the other policy");
+    let output = case.setup_with_policy(&repository, &["--apply"], &other);
+    assert_eq!(
+        fs::read_to_string(case.config_file()).expect("the config file"),
+        config,
+        "--apply overwrites nothing of an instance that is there: {}",
+        shown(&output)
+    );
+    holds(
+        &output,
+        &[format!(
+            "forge route eta: gates, policy {}",
+            policy.display()
+        )],
+    );
+}
+
+/// Without a policy in its environment, or with one that names no readable file, setup chooses
+/// no route: the plan and `--apply` print the route line doctor prints, with its two fixes, and
+/// the instance `--apply` writes names neither a `gates_policy` nor a `forge` route. Once the
+/// instance writes its route, the line names it.
+#[test]
+fn setup_prints_the_forge_route_and_its_fix_and_chooses_no_route() {
+    let case = Case::new("route-none");
+    case.claude_json();
+    let repository = case.repository(
+        "theta",
+        Some("https://github.com/example-org/theta.git"),
+        Some(CURRENT_STORE),
+    );
+    let fix = "forge route theta: gates without a gates_policy: set instances[0].gates_policy, \
+               or instances[0].forge.route: direct"
+        .to_owned();
+
+    let output = case.setup(&repository, &[]);
+    holds(&output, std::slice::from_ref(&fix));
+    assert!(
+        !case.config_file().exists(),
+        "without --apply setup writes nothing"
+    );
+
+    let missing = case.dir.join("no-such-policy.json");
+    let output = case.setup_with_policy(&repository, &["--apply"], &missing);
+    let config = fs::read_to_string(case.config_file()).expect("--apply wrote the config file");
+    for never in ["gates_policy", "forge:"] {
+        assert!(
+            !config.contains(never),
+            "setup chooses no route, and wrote {never}:\n{config}"
+        );
+    }
+    assert!(
+        stdout(&output).iter().any(|line| {
+            line.starts_with("forge route theta: gates without a gates_policy: set ")
+                && line.ends_with("instances[0].forge.route: direct")
+        }),
+        "--apply prints the route line and its fix: {}",
+        shown(&output)
+    );
+
+    let output = case.setup(&repository, &["--apply"]);
+    holds(&output, &[fix]);
+
+    fs::write(
+        case.config_file(),
+        format!("{config}\x20   forge: {{route: direct}}\n"),
+    )
+    .expect("write the route");
+    let output = case.setup(&repository, &[]);
+    holds(&output, &["forge route theta: direct".to_owned()]);
+}

@@ -33,6 +33,12 @@
 //! ([`box_check`]): `box`, with the refusal, and the verdict names `box (refused)`. Where
 //! another `daemon.store` lifts the refusal it prints that value as a `to write: ` line and
 //! says that it moves no store.
+//!
+//! After the rows it prints the forge route of the repository's instance, as doctor does
+//! ([`route_lines`], `story:doctor-checks-guard-forge-writes`), so the person reads the route and
+//! its fix before doctor is not ready on it. Setup chooses no route: an instance it writes names
+//! none, but the `gates_policy` its own environment names ([`policy`]). The lines change no
+//! verdict of setup's.
 
 use std::fs;
 use std::io::ErrorKind;
@@ -202,7 +208,13 @@ pub const PLACEMENT: &str = "systemd";
 /// names `store` ([`STORE`], or [`STORE_BEFORE`] where that database exists), and its one
 /// instance is [`instance_text`].
 #[must_use]
-pub fn config_text(name: &str, origin: &Origin, parent: &Path, store: &str) -> String {
+pub fn config_text(
+    name: &str,
+    origin: &Origin,
+    parent: &Path,
+    store: &str,
+    policy: Option<&Path>,
+) -> String {
     format!(
         "version: {version}\n\
          daemon:\n\
@@ -211,15 +223,37 @@ pub fn config_text(name: &str, origin: &Origin, parent: &Path, store: &str) -> S
          {instance}",
         version = config::VERSION_2,
         store = serde_json::to_string(store).unwrap_or_default(),
-        instance = instance_text(name, origin, parent),
+        instance = instance_text(name, origin, parent, policy),
+    )
+}
+
+/// The Gates policy an instance `--apply` writes names (`story:doctor-checks-guard-forge-writes`):
+/// the path [`crate::broker::POLICY_VARIABLE`] names in this process's environment
+/// ([`doctor::environment_policy`]), made absolute from the working directory, when it is a file
+/// this process can read; none otherwise. Setup chooses no route for the person: without one the
+/// instance names neither a `gates_policy` nor a `forge.route`, and [`route_lines`] says so.
+fn policy(environment: &Environment) -> Option<PathBuf> {
+    let named = environment.cwd.join(doctor::environment_policy()?);
+    (named.is_file() && fs::File::open(&named).is_ok()).then_some(named)
+}
+
+/// The name of the instance `--apply` writes for `repository`: [`instance_name`] of its
+/// directory's name.
+fn new_name(repository: &Path) -> String {
+    instance_name(
+        &repository
+            .file_name()
+            .map(|name| name.to_string_lossy().into_owned())
+            .unwrap_or_default(),
     )
 }
 
 /// The instance `name` of a config file, an item of its `instances`, naming the repository held
 /// by `parent`: its placement [`PLACEMENT`], the session prefix [`config::name_prefix`] gives
-/// `name`, and the source of `origin`.
+/// `name`, the source of `origin`, and `policy` as its `gates_policy` when there is one
+/// ([`policy`]).
 #[must_use]
-pub fn instance_text(name: &str, origin: &Origin, parent: &Path) -> String {
+pub fn instance_text(name: &str, origin: &Origin, parent: &Path, policy: Option<&Path>) -> String {
     let quoted = |path: &Path| {
         serde_json::to_string(&path.display().to_string()).unwrap_or_else(|_| "\"\"".to_owned())
     };
@@ -230,6 +264,9 @@ pub fn instance_text(name: &str, origin: &Origin, parent: &Path) -> String {
         }
         Origin::None => format!("      - local: {}\n", quoted(parent)),
     };
+    let gates_policy = policy.map_or_else(String::new, |policy| {
+        format!("\x20   gates_policy: {}\n", quoted(policy))
+    });
     format!(
         "\x20 - name: {name}\n\
          \x20   placement: {PLACEMENT}\n\
@@ -238,11 +275,61 @@ pub fn instance_text(name: &str, origin: &Origin, parent: &Path) -> String {
          {source}\
          \x20   checkouts:\n\
          \x20     root: {root}\n\
-         \x20     trees: ~/.local/state/worktree/trees/{name}\n",
+         \x20     trees: ~/.local/state/worktree/trees/{name}\n\
+         {gates_policy}",
         // `config validate` refuses an instance without one (story:instance-names-unique).
         prefix = config::name_prefix(name, 0),
         root = quoted(parent),
     )
+}
+
+/// The `forge route` lines of `repository` (`story:doctor-checks-guard-forge-writes`), printed
+/// after its rows so the person reads the route, and its fix, before doctor is not ready on it.
+/// For the instance naming the repository they are the lines doctor prints for it
+/// ([`doctor::route_lines_of`]). When none names it, they are for the instance `--apply` writes:
+/// the `gates_policy` it takes from the environment ([`policy`]), if any, then each problem
+/// doctor would name for it, with its fix. A config that does not load names none.
+fn route_lines(flag: Option<&Path>, environment: &Environment, repository: &Path) -> Vec<String> {
+    let Ok(loaded) = config::load(flag, environment) else {
+        return Vec::new();
+    };
+    let named = doctor::environment_policy();
+    let instances = &loaded.config.instances;
+    if loaded.read
+        && let Some(index) = instances
+            .iter()
+            .position(|instance| names(instance, repository))
+    {
+        return doctor::route_lines_of(index, &instances[index], named.as_deref())
+            .into_iter()
+            .map(|(line, _)| line)
+            .collect();
+    }
+    let Ok(home) = environment.home() else {
+        return Vec::new();
+    };
+    let name = new_name(repository);
+    let parent = repository.parent().unwrap_or(repository);
+    let policy = policy(environment);
+    let text = config_text(&name, &origin(repository), parent, STORE, policy.as_deref());
+    let Ok(written) = config::parse(&text, home) else {
+        return Vec::new();
+    };
+    let index = if loaded.read { instances.len() } else { 0 };
+    let taken = policy.map(|policy| {
+        format!(
+            "forge route {name}: gates_policy: {} in the instance of --apply, the file {} names",
+            policy.display(),
+            crate::broker::POLICY_VARIABLE
+        )
+    });
+    let problems = written
+        .instances
+        .first()
+        .into_iter()
+        .flat_map(|instance| doctor::route_lines_of(index, instance, named.as_deref()))
+        .filter_map(|(line, failure)| failure.map(|_| line));
+    taken.into_iter().chain(problems).collect()
 }
 
 /// `version` in a planning store's project file, YAML or JSON; none when it names none.
@@ -552,12 +639,8 @@ fn apply(flag: Option<&Path>, environment: &Environment, repository: &Path) -> R
         None => {
             let (file, _) = config::locate(flag, environment).context(WHAT)?;
             let parent = repository.parent().unwrap_or(repository);
-            let name = instance_name(
-                &repository
-                    .file_name()
-                    .map(|name| name.to_string_lossy().into_owned())
-                    .unwrap_or_default(),
-            );
+            let name = new_name(repository);
+            let policy = policy(environment);
             if file.exists() {
                 println!(
                     "to write: {} names no instance holding {}; add this instance under its \
@@ -565,7 +648,9 @@ fn apply(flag: Option<&Path>, environment: &Environment, repository: &Path) -> R
                     file.display(),
                     repository.display()
                 );
-                for line in instance_text(&name, &origin(repository), parent).lines() {
+                for line in
+                    instance_text(&name, &origin(repository), parent, policy.as_deref()).lines()
+                {
                     println!("to write: {line}");
                 }
                 return Ok(());
@@ -574,7 +659,7 @@ fn apply(flag: Option<&Path>, environment: &Environment, repository: &Path) -> R
                 .home()
                 .is_ok_and(|home| home.join(STORE_BEFORE_FILE).exists());
             let store = if before { STORE_BEFORE } else { STORE };
-            let text = config_text(&name, &origin(repository), parent, store);
+            let text = config_text(&name, &origin(repository), parent, store, policy.as_deref());
             if let Some(dir) = file.parent() {
                 fs::create_dir_all(dir)
                     .with_context(|| format!("{WHAT}: create {}", dir.display()))?;
@@ -675,7 +760,8 @@ fn activate(flag: Option<&Path>, environment: &Environment, repository: &Path) -
 }
 
 /// `conductor setup`: with `--apply`, [`apply`] first; then doctor's lines, the four rows of the
-/// repository, with `--apply` what it leaves to a person, and last the verdict over both. Exits 0
+/// repository, the forge route of its instance ([`route_lines`]), with `--apply` what it leaves
+/// to a person, and last the verdict over doctor's failures and the rows. Exits 0
 /// when the verdict is `ready`, 1 otherwise. Writes nothing without `--apply`.
 ///
 /// # Errors
@@ -713,6 +799,9 @@ pub fn setup(flag: Option<&Path>, args: &SetupArgs) -> Result<ExitCode> {
     }
     for check in &checks {
         println!("{}", check_line(check));
+    }
+    for line in route_lines(flag, &environment, &repository) {
+        println!("{line}");
     }
     if applying {
         for line in left_to_a_person(&doctor, &checks)
@@ -807,10 +896,20 @@ mod tests {
             },
             Origin::None,
         ] {
-            let text = config_text("alpha", &origin, parent, STORE);
+            let text = config_text("alpha", &origin, parent, STORE, None);
             let parsed = config::parse(&text, home)
                 .unwrap_or_else(|problems| panic!("{problems:?}:\n{text}"));
             assert_eq!(parsed.version, config::VERSION_2, "{text}");
+            assert_eq!(parsed.instances[0].gates_policy, None, "{text}");
+            let policy = Path::new("/srv/policies/gates-policy.json");
+            let text = config_text("alpha", &origin, parent, STORE, Some(policy));
+            let parsed = config::parse(&text, home)
+                .unwrap_or_else(|problems| panic!("{problems:?}:\n{text}"));
+            assert_eq!(
+                parsed.instances[0].gates_policy.as_deref(),
+                policy.to_str(),
+                "{text}"
+            );
             let instance = &parsed.instances[0];
             assert_eq!(instance.name.0, "alpha");
             assert_eq!(instance.placement.0, PLACEMENT, "{text}");

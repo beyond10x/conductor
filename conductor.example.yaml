@@ -12,6 +12,8 @@ instances:
       root: ~/example-org
       trees: ~/.local/state/worktree/trees/example-org
     records: ~/records/example-org
+    forge:
+      route: direct
     controllers:
       max_working: 5
       max_subagents: 4

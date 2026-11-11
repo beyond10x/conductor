@@ -138,7 +138,13 @@ instances:
     checkouts:
       root: ~/example-org
       trees: ~/.local/state/worktree/trees/example-org
+    forge: {route: direct}
 ```
+
+`forge: {route: direct}` lets a controller write its pull requests with your own forge login;
+the default route, `gates`, writes through the bot route and needs a `gates_policy`
+([forge calls](https://beyond10x.github.io/conductor/docs/security/the-guard#forge-calls)), and
+`conductor doctor` is not ready on it without one.
 
 Then check it, take one snapshot, and read it:
 
@@ -151,7 +157,8 @@ conductor repository activity    # each repository Active or Inactive
 
 `snapshot start-snapshot` refuses up front, naming the program, when one it needs is missing.
 [`conductor.example.yaml`](conductor.example.yaml) has a fuller instance, a GitHub source and a
-catalog; the [config reference](https://beyond10x.github.io/conductor/docs/reference/config) lists every field.
+catalog, both its instances on the direct route; the
+[config reference](https://beyond10x.github.io/conductor/docs/reference/config) lists every field.
 
 ## Run sessions
 

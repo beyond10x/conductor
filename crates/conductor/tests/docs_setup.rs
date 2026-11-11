@@ -402,6 +402,89 @@ fn the_step_before_the_last_applies_conductor_setup() {
     );
 }
 
+/// `story:doctor-checks-guard-forge-writes`: `conductor setup --apply` chooses no forge route,
+/// and doctor is not ready on the default route without a `gates_policy`. A step of its own,
+/// before the one that applies `conductor setup`, asks the person once which route the instance
+/// takes and writes it: `forge: {route: direct}` or a `gates_policy`, with the Gates readme for
+/// the bot route. Its Check reads the `forge route` line of `conductor doctor`, and its Hands
+/// line names the choice.
+#[test]
+fn a_step_before_setup_asks_the_person_for_the_forge_route() {
+    let steps = steps(&read("SETUP.md"));
+    let at = steps
+        .iter()
+        .position(|step| step.title.contains("forge route"))
+        .unwrap_or_else(|| panic!("no step of SETUP.md is titled for the forge route"));
+    assert!(
+        at + 2 < steps.len(),
+        "SETUP.md:{}: step {} comes after the step that applies conductor setup",
+        steps[at].line,
+        at + 1
+    );
+    let step = &steps[at];
+    let text = joined(step);
+    for needed in [
+        "`forge: {route: direct}`",
+        "`gates_policy`",
+        "https://github.com/beyond10x/gates#readme",
+        "forge route <name>: direct",
+        "forge route <name>: gates, policy",
+    ] {
+        assert!(
+            text.contains(needed),
+            "SETUP.md:{}: step {} does not name {needed}",
+            step.line,
+            step.title.trim()
+        );
+    }
+    let commands = |key: &str| -> Vec<String> {
+        step.lines
+            .iter()
+            .filter_map(|(_, text)| keyed(text, key))
+            .flat_map(|rest| spans(rest).into_iter().map(|span| span.trim().to_owned()))
+            .collect()
+    };
+    assert!(
+        commands("Check:")
+            .iter()
+            .any(|command| command == "conductor doctor"),
+        "SETUP.md:{}: step {} does not check `conductor doctor`",
+        step.line,
+        step.title.trim()
+    );
+    assert!(
+        commands("Fix:")
+            .iter()
+            .any(|command| command == "conductor config validate"),
+        "SETUP.md:{}: step {} does not validate the file it changed",
+        step.line,
+        step.title.trim()
+    );
+    let asks = step
+        .lines
+        .iter()
+        .filter_map(|(_, text)| keyed(text, "Hands:"))
+        .any(|rest| rest.contains("route"));
+    assert!(
+        asks,
+        "SETUP.md:{}: step {} leaves the choice of the route to no one",
+        step.line,
+        step.title.trim()
+    );
+    // The step the file is written in says the route comes later, by its number.
+    let written = steps
+        .iter()
+        .find(|step| joined(step).contains("version: conductor.config/2"))
+        .unwrap_or_else(|| panic!("no step of SETUP.md shows the config file"));
+    assert!(
+        joined(written).contains(&format!("step {}", at + 1)),
+        "SETUP.md:{}: step {} does not say step {} writes the forge route",
+        written.line,
+        written.title.trim(),
+        at + 1
+    );
+}
+
 /// The text of `step`, its lines joined by one space.
 fn joined(step: &Step) -> String {
     step.lines
@@ -464,7 +547,8 @@ fn the_pinned_programs_step_names_substrate_daemon_on_its_check_and_fix() {
 
 /// The step that trusts the checkouts also activates the worktree workspace with
 /// `conductor setup --apply`: it asks nothing, so it runs before the steps that may wait for the
-/// person (a v1.0.1 onboarding run stopped at step 9 and left the activation to step 11).
+/// person (a v1.0.1 onboarding run stopped at step 9 and left the activation to the step that
+/// applies `conductor setup`, step 12 now).
 #[test]
 fn the_trust_step_activates_the_worktree_workspace() {
     let steps = steps(&read("SETUP.md"));

@@ -19,6 +19,7 @@ use std::path::{Path, PathBuf};
 use std::process::{Output, Stdio};
 
 use conductor_cli::config;
+use conductor_model::config::{ForgeRoute, Source};
 use fake_provider::Child;
 
 /// The child run of this test binary ([`fake_provider::command`]); a plain run of the suite
@@ -1628,4 +1629,198 @@ fn doctor_is_not_ready_when_the_bot_route_has_no_route_for_a_source_s_host() {
         shown(&output)
     );
     assert_eq!(last(&output), "ready", "{}", shown(&output));
+}
+
+/// The variable that names the Gates policy to `conductor broker serve`.
+const POLICY_VARIABLE: &str = "B10X_GATES_POLICY";
+
+/// A policy only in the environment stays `not ready`: doctor cannot see the broker's
+/// environment, and the instance names no policy. With `B10X_GATES_POLICY` set in doctor's own
+/// environment, the fix on the route line names that path as the `gates_policy` to write.
+#[test]
+fn doctor_names_the_policy_of_its_environment_as_the_gates_policy_to_write() {
+    let case = Case::new("route-policy-in-environment");
+    case.programs_but(&[]);
+    let policy = case.dir.join("gates-policy.json");
+    let config = case.config_of(GITHUB_SOURCE, "");
+    let output = common::conductor(case.home())
+        .arg("doctor")
+        .current_dir(case.work())
+        .env_clear()
+        .env("HOME", case.home())
+        .env("PATH", case.bin())
+        .env("CONDUCTOR_CONFIG", &config)
+        .env(POLICY_VARIABLE, &policy)
+        .stdin(Stdio::null())
+        .output()
+        .expect("conductor runs");
+    assert_eq!(output.status.code(), Some(1), "{}", shown(&output));
+    let lines = stdout(&output);
+    assert_eq!(
+        the_line(&lines, "forge route alpha: ", &output),
+        format!(
+            "forge route alpha: gates without a gates_policy: set instances[0].gates_policy: \
+             {}, the path {POLICY_VARIABLE} names, or instances[0].forge.route: direct",
+            policy.display()
+        ),
+        "{}",
+        shown(&output)
+    );
+    assert_eq!(
+        last(&output),
+        "not ready: forge route alpha (no gates_policy)",
+        "{}",
+        shown(&output)
+    );
+}
+
+/// `not checked` is only for a role with no repository on a forge. A role whose repository has
+/// an `origin` that names one is always asked: on either route, with or without a
+/// `gates_policy`, for an origin on GitHub, on a GitLab host or on any other host, written as a
+/// URL or as `user@host:path`, its line reads `allowed` or `denied by`, never `not checked`.
+#[test]
+fn doctor_asks_the_guard_for_every_role_whose_repository_has_an_origin() {
+    let case = Case::new("guard-always-asked");
+    case.programs_but(&[]);
+    case.program(GLAB.0, GLAB.1, 0);
+    for (origin, records) in [
+        (GITHUB_ORIGIN, "https://github.com/example-org/records.git"),
+        (
+            "git@github.com:example-org/alpha.git",
+            "git@github.com:example-org/records.git",
+        ),
+        (
+            GITLAB_ORIGIN,
+            "https://gitlab.example.com/example-group/records.git",
+        ),
+        (
+            "https://git.example.net/example-org/alpha.git",
+            "ssh://git@git.example.net/example-org/records.git",
+        ),
+    ] {
+        case.checkout(origin);
+        case.origin(&case.dir.join("records"), records);
+        for route in ["direct", "gates with a policy", "gates without one"] {
+            let config = match route {
+                "direct" => case.config_of(GITHUB_SOURCE, DIRECT),
+                "gates with a policy" => case.config(GITHUB_SOURCE),
+                _ => case.config_of(GITHUB_SOURCE, ""),
+            };
+            let output = case.doctor_for(&config);
+            let lines = stdout(&output);
+            for role in ["conductor", "controller"] {
+                let start = format!("guard {role}: ");
+                let line = the_line(&lines, &start, &output);
+                assert!(
+                    line == format!("{start}allowed")
+                        || line.starts_with(&format!("{start}denied by ")),
+                    "{origin} on {route}: the guard is asked for the {role}: {}",
+                    shown(&output)
+                );
+            }
+        }
+    }
+}
+
+/// Each fenced block of `text` that is a whole `conductor.config/2` file, its indentation taken
+/// off.
+fn config_blocks(text: &str) -> Vec<String> {
+    let mut blocks = Vec::new();
+    let mut open: Option<(usize, Vec<String>)> = None;
+    for line in text.lines() {
+        let indent = line.len() - line.trim_start().len();
+        if line.trim_start().starts_with("```") {
+            match open.take() {
+                Some((_, lines)) => blocks.push(lines.join("\n") + "\n"),
+                None => open = Some((indent, Vec::new())),
+            }
+        } else if let Some((indent, lines)) = &mut open {
+            lines.push(line.get(*indent..).unwrap_or("").to_owned());
+        }
+    }
+    blocks
+        .into_iter()
+        .filter(|block| {
+            block.contains("version: conductor.config/2") && block.contains("placement:")
+        })
+        .collect()
+}
+
+/// Every whole config file a reader is meant to run (the README's, the example file and those of
+/// the hand-written pages) names a forge route doctor is ready on, for each of its instances:
+/// `forge.route: direct`, or the route `gates` with a `gates_policy` and no `gitlab` source, so
+/// its verdict names no forge route. It is read here by the rule, not by running doctor: the
+/// pages' files name a store, a secrets service and boxes a test must not reach. `SETUP.md` is
+/// not among them: the file of its step 6 is the one `conductor setup --apply` writes, which
+/// chooses no route, and a step of its own asks the person for it (`docs_setup.rs`).
+#[test]
+fn every_config_file_a_page_shows_names_a_forge_route_doctor_is_ready_on() {
+    let home = Path::new("/srv/home");
+    let top = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+    let mut pages = vec![top.join("README.md")];
+    let mut walk = vec![top.join("website/docs")];
+    while let Some(folder) = walk.pop() {
+        for entry in fs::read_dir(&folder).expect("read the pages") {
+            let path = entry.expect("an entry").path();
+            if path.is_dir() {
+                if path.file_name().is_some_and(|name| name != "reference") {
+                    walk.push(path);
+                }
+            } else if path.extension().is_some_and(|extension| extension == "md") {
+                pages.push(path);
+            }
+        }
+    }
+    pages.sort();
+    let mut texts: Vec<(String, String)> = vec![(
+        "conductor.example.yaml".to_owned(),
+        fs::read_to_string(top.join("conductor.example.yaml")).expect("the example file"),
+    )];
+    for page in pages {
+        let text = fs::read_to_string(&page).expect("the page");
+        let name = page
+            .strip_prefix(&top)
+            .unwrap_or(&page)
+            .display()
+            .to_string();
+        texts.extend(
+            config_blocks(&text)
+                .into_iter()
+                .map(|block| (name.clone(), block)),
+        );
+    }
+    let mut read = 0;
+    let mut problems: Vec<String> = Vec::new();
+    for (page, text) in &texts {
+        let Ok(parsed) = config::parse(text, home) else {
+            continue;
+        };
+        read += 1;
+        for instance in &parsed.instances {
+            let name = &instance.name.0;
+            if instance.forge.route == ForgeRoute::Direct {
+                continue;
+            }
+            if instance.gates_policy.is_none() {
+                problems.push(format!(
+                    "{page}: instance {name} is on the route gates without a gates_policy: \
+                     doctor ends not ready: forge route {name} (no gates_policy)"
+                ));
+            }
+            for source in &instance.sources {
+                if let Source::GitLab(gitlab) = source {
+                    problems.push(format!(
+                        "{page}: instance {name} is on the route gates with a gitlab source: \
+                         doctor ends not ready: forge route {name} (no bot route for {})",
+                        gitlab.host
+                    ));
+                }
+            }
+        }
+    }
+    assert!(
+        read >= 6,
+        "only {read} whole config files of the pages read"
+    );
+    assert!(problems.is_empty(), "{}", problems.join("\n"));
 }

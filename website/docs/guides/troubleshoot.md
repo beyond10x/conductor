@@ -38,6 +38,13 @@ source on that forge. The `secrets:`, `store:` and `daemon unit:` lines change n
 does a `guard <role>: not checked (…)` line: that role has no checkout whose `origin` names a
 repository to ask the guard about.
 
+`conductor instance upgrade` runs the new binary's doctor first, and rolls back when it is not
+ready: an upgrade that prints `rolled back: doctor: … not ready: forge route <instance> (no
+gates_policy); forge route <instance>: …` goes through once that instance writes its
+`gates_policy` or `forge: {route: direct}`, the change the quoted `forge route` line names. A
+policy only in `B10X_GATES_POLICY` stays not ready: with the variable set, the line names its
+path as the `gates_policy` to write.
+
 ## The daemon does not start
 
 Run it in the foreground to see why, or read its unit's log:

@@ -1632,17 +1632,33 @@ const BOT_ROUTE_HOSTS: [&str; 1] = [GITHUB_HOST];
 /// instance's writes on that route pass, adds `forge route <instance> (no gates_policy)`; each
 /// host of its sources the bot route has no route for ([`BOT_ROUTE_HOSTS`]: every `gitlab`
 /// source's host) adds `forge route <instance> (no bot route for <host>)`.
-fn route_lines_of(index: usize, instance: &Instance) -> Vec<(String, Option<String>)> {
+///
+/// `policy` is the path [`environment_policy`] answers. A policy only there stays a failure: the
+/// broker reads its own environment, which this process cannot see, and the instance names
+/// none. The fix then names that path as the `gates_policy` to write.
+pub(crate) fn route_lines_of(
+    index: usize,
+    instance: &Instance,
+    policy: Option<&Path>,
+) -> Vec<(String, Option<String>)> {
     let name = &instance.name.0;
     if instance.forge.route == ForgeRoute::Direct {
         return vec![(format!("forge route {name}: direct"), None)];
     }
     let mut out = Vec::new();
     if instance.gates_policy.is_none() {
+        let named = policy.map_or_else(String::new, |policy| {
+            format!(
+                ": {}, the path {} names",
+                policy.display(),
+                crate::broker::POLICY_VARIABLE
+            )
+        });
         out.push((
             format!(
                 "forge route {name}: gates without a gates_policy: set \
-                 instances[{index}].gates_policy, or instances[{index}].forge.route: direct"
+                 instances[{index}].gates_policy{named}, or instances[{index}].forge.route: \
+                 direct"
             ),
             Some(format!("forge route {name} (no gates_policy)")),
         ));
@@ -1684,13 +1700,23 @@ fn route_lines(flag: Option<&Path>) -> Vec<(String, Option<String>)> {
     else {
         return Vec::new();
     };
+    let policy = environment_policy();
     loaded
         .config
         .instances
         .iter()
         .enumerate()
-        .flat_map(|(index, instance)| route_lines_of(index, instance))
+        .flat_map(|(index, instance)| route_lines_of(index, instance, policy.as_deref()))
         .collect()
+}
+
+/// The path [`crate::broker::POLICY_VARIABLE`] names in this process's environment, when it is
+/// set and not empty: the Gates policy `conductor broker serve` would take from the same
+/// variable in its own environment.
+pub(crate) fn environment_policy() -> Option<PathBuf> {
+    env::var_os(crate::broker::POLICY_VARIABLE)
+        .filter(|policy| !policy.is_empty())
+        .map(PathBuf::from)
 }
 
 /// A forge write doctor asks the guard about (`story:doctor-checks-guard-forge-writes`): the
