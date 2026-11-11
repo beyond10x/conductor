@@ -9,6 +9,16 @@
 //! - The listener is bound before the unattended seeding and served only after it, so the
 //!   probes do not answer while the start seeds.
 //!
+//! The second pass (`adv2_`), over the correction of those four:
+//!
+//! - The records commit of a later start is made where the repository's `HEAD` has no commit,
+//!   not where the repository has none: a repository with a commit whose `HEAD` is on a branch
+//!   with none yet gets one.
+//! - That commit adds every file of `docs/handoff/`; one that git ignores fails the commit at
+//!   every start, so the skeleton stays uncommitted.
+//! - The case of the check workflow's `container` job reads neither the workflow's events nor
+//!   the job's `needs:`, `runs-on:` or `timeout-minutes:`.
+//!
 //! No case reaches the host's service manager: a daemon started here runs on a `PATH` of the
 //! case's own, which holds a `systemctl` that knows no unit and a `systemd-run` that starts
 //! none, and the variables that name the user's manager are removed.
@@ -481,4 +491,226 @@ fn adv_healthz_answers_while_the_unattended_start_seeds() {
         "GET /healthz sent while the unattended start seeds: {during:?}\n{}",
         served.printed()
     );
+}
+
+/// How many commits the records repository of `case` holds, on any branch.
+fn commits_anywhere(case: &Case) -> String {
+    let count = case.git_in_records(&["rev-list", "--all", "--count"]);
+    assert!(count.status.success(), "{}", said(&count));
+    String::from_utf8_lossy(&count.stdout).trim().to_owned()
+}
+
+/// The correction's rule (`daemon/unattended.rs`, `init::commit_lying`): the start commits the
+/// skeleton "where `records` is a git repository of its own with no commit yet", and "a
+/// repository that has a commit is left alone, whatever its work tree holds". `commit_lying`
+/// asks whether `HEAD` resolves, not whether the repository holds a commit: in a records
+/// repository with a commit whose `HEAD` is on a branch that has none yet, as after `git checkout
+/// --orphan`, the start commits the skeleton onto that branch, an edit of the operator's with it.
+#[test]
+fn adv2_a_records_repository_with_a_commit_is_left_alone_while_its_head_has_none() {
+    let case = Case::new("records-orphan");
+    case.config(free_port(), ", unattended: true", "none");
+    let first = Served::start(&case, &[]);
+    let first_printed = first.printed();
+    drop(first);
+    assert_eq!(
+        commits_anywhere(&case),
+        "1",
+        "the case means a first start that committed the skeleton: {first_printed}"
+    );
+
+    let orphan = case.git_in_records(&["checkout", "--quiet", "--orphan", "draft"]);
+    assert!(orphan.status.success(), "{}", said(&orphan));
+    let rules = case.records().join("rules.md");
+    let mut edited = fs::read_to_string(&rules).expect("rules.md");
+    edited.push_str("\nAn example-org rule, not committed yet.\n");
+    fs::write(&rules, &edited).expect("edit rules.md");
+
+    let second = Served::start(&case, &[]);
+    let second_printed = second.printed();
+    drop(second);
+    let draft = case.git_in_records(&["rev-parse", "--verify", "--quiet", "refs/heads/draft"]);
+    let commits = commits_anywhere(&case);
+    assert!(
+        !draft.status.success() && commits == "1",
+        "a start committed into a records repository that has a commit: {commits} commits, \
+         branch draft at {:?}\n{second_printed}",
+        String::from_utf8_lossy(&draft.stdout).trim()
+    );
+    assert_eq!(
+        fs::read_to_string(&rules).expect("rules.md"),
+        edited,
+        "{second_printed}"
+    );
+}
+
+/// The correction (`init::lying`) commits "the skeleton files that are there, plus every file in
+/// `docs/handoff/`", added by name. `git add` refuses a path that git ignores, so one such file
+/// in `docs/handoff/` (here an editor's backup of the hand-over, ignored by the repository's own
+/// `info/exclude`) fails the commit at every start: the skeleton the first start wrote is never
+/// committed, though git has an identity and every skeleton file can be.
+#[test]
+fn adv2_a_file_git_ignores_in_the_hand_over_directory_does_not_keep_the_records_uncommitted() {
+    let case = Case::new("records-ignored");
+    case.config(free_port(), ", unattended: true", "none");
+    let no_identity = [("GIT_AUTHOR_NAME", ""), ("GIT_COMMITTER_NAME", "")];
+    let first = Served::start(&case, &no_identity);
+    let first_printed = first.printed();
+    drop(first);
+    let head = case.git_in_records(&["rev-parse", "--verify", "--quiet", "HEAD"]);
+    assert!(
+        !head.status.success(),
+        "the case means a first start whose commit failed, and it committed: {first_printed}"
+    );
+    let handoff = case.records().join("docs/handoff");
+    let written: Vec<PathBuf> = fs::read_dir(&handoff)
+        .expect("docs/handoff")
+        .flatten()
+        .map(|entry| entry.path())
+        .collect();
+    assert_eq!(written.len(), 1, "{written:?}\n{first_printed}");
+    let mut backup = written[0].clone().into_os_string();
+    backup.push("~");
+    fs::write(&backup, "an editor's backup of the hand-over\n").expect("write the backup");
+    let info = case.records().join(".git/info");
+    fs::create_dir_all(&info).expect("the repository's info directory");
+    fs::write(info.join("exclude"), "*~\n").expect("ignore editor backups");
+
+    let second = Served::start(&case, &[]);
+    let second_printed = second.printed();
+    drop(second);
+    let count = case.git_in_records(&["rev-list", "--count", "HEAD"]);
+    assert_eq!(
+        String::from_utf8_lossy(&count.stdout).trim(),
+        "1",
+        "a start with a git identity left the skeleton uncommitted: {}\nsecond start:\n\
+         {second_printed}",
+        said(&count)
+    );
+}
+
+/// Why the check workflow `text` would not run its `container` job on every pull request and
+/// every push to `main`, at once, on a runner the `check` job runs on, within a bound; none when
+/// it would.
+fn container_job_unheld(text: &str) -> Option<String> {
+    const FILTERS: [&str; 5] = [
+        "branches",
+        "branches-ignore",
+        "paths",
+        "paths-ignore",
+        "types",
+    ];
+    let workflow: serde_yaml::Value = match serde_yaml::from_str(text) {
+        Ok(workflow) => workflow,
+        Err(error) => return Some(format!("the workflow is no YAML: {error}")),
+    };
+    let on = &workflow["on"];
+    let Some(pull) = on.get("pull_request") else {
+        return Some(format!("the workflow runs on no pull request: on: {on:?}"));
+    };
+    if let Some(key) = FILTERS.into_iter().find(|key| pull.get(*key).is_some()) {
+        return Some(format!("its pull requests are filtered by `{key}:`"));
+    }
+    let push = &on["push"];
+    let to_main = push
+        .get("branches")
+        .and_then(serde_yaml::Value::as_sequence)
+        .is_some_and(|branches| {
+            branches
+                .iter()
+                .any(|branch| branch.as_str() == Some("main"))
+        });
+    if !to_main {
+        return Some(format!("the workflow runs on no push to main: on: {on:?}"));
+    }
+    if let Some(key) = ["paths", "paths-ignore"]
+        .into_iter()
+        .find(|key| push.get(*key).is_some())
+    {
+        return Some(format!("its pushes are filtered by `{key}:`"));
+    }
+    let job = &workflow["jobs"]["container"];
+    if let Some(needs) = job.get("needs") {
+        return Some(format!("the job waits on other jobs: needs: {needs:?}"));
+    }
+    let runner = &workflow["jobs"]["check"]["runs-on"];
+    if runner.is_null() || job.get("runs-on") != Some(runner) {
+        return Some(format!(
+            "the job runs on {:?}, not on the check job's runner {runner:?}",
+            job.get("runs-on")
+        ));
+    }
+    match job
+        .get("timeout-minutes")
+        .and_then(serde_yaml::Value::as_u64)
+    {
+        Some(minutes) if minutes > 0 => None,
+        other => Some(format!("the job's timeout-minutes is {other:?}")),
+    }
+}
+
+/// "A test runs the start in a container without a terminal" (the story's acceptance), as the
+/// check workflow's `container` job. `the_check_workflow_s_container_job_runs_the_image_case`
+/// reads the job's steps and its `if:`, but not the workflow's events nor the job's `needs:`,
+/// `runs-on:` or `timeout-minutes:`: a job that waits on a job that is skipped, that runs on no
+/// pull request, or on a runner no one has, never runs, and that case stays green. This case
+/// holds the tree's workflow to them, and shows each such change of it refused.
+#[test]
+fn adv2_the_check_workflow_runs_the_container_job_on_every_pull_request() {
+    let workspace = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+    let text = fs::read_to_string(workspace.join(".github/workflows/check.yml"))
+        .expect("read the check workflow");
+    assert_eq!(container_job_unheld(&text), None, "the check workflow");
+
+    let job = "  container:\n";
+    let head = "    name: container start\n    runs-on: ubuntu-latest\n    timeout-minutes: 45\n";
+    for anchor in [job, head, "  pull_request:\n", "branches: [main]"] {
+        assert_eq!(text.matches(anchor).count(), 1, "{anchor:?} in check.yml");
+    }
+    let skipped = format!(
+        "  gate:\n    if: false\n    runs-on: ubuntu-latest\n    steps:\n      - run: \"true\"\n{job}"
+    );
+    let mutants = [
+        (
+            "needs a job that is skipped",
+            text.replace(job, &skipped)
+                .replace(head, &format!("{head}    needs: gate\n")),
+        ),
+        (
+            "runs on no pull request",
+            text.replace("  pull_request:\n", ""),
+        ),
+        (
+            "runs on pull requests of docs only",
+            text.replace(
+                "  pull_request:\n",
+                "  pull_request:\n    paths: [docs/**]\n",
+            ),
+        ),
+        (
+            "runs on no push to main",
+            text.replace("branches: [main]", "branches: [release]"),
+        ),
+        (
+            "runs on a runner no one has",
+            text.replace(
+                head,
+                "    name: container start\n    runs-on: no-such-runner\n    timeout-minutes: 45\n",
+            ),
+        ),
+        (
+            "times out at once",
+            text.replace(
+                head,
+                "    name: container start\n    runs-on: ubuntu-latest\n    timeout-minutes: 0\n",
+            ),
+        ),
+    ];
+    for (what, mutant) in &mutants {
+        assert_ne!(mutant, &text, "{what}: the change applies");
+        assert!(
+            container_job_unheld(mutant).is_some(),
+            "a check workflow whose container job {what} is taken"
+        );
+    }
 }
