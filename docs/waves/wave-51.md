@@ -19,7 +19,7 @@ repository under a lock. Free disk at the start: 104 GB.
 | U1 | need-repository-from-tag | | `w51-u1` | merged (`900de5852`), two adversary passes |
 | U2 | handover-restart-by-controller-id | | `w51-u2` | merged (`10542e8b1`), two adversary passes |
 | U3 | doctor-checks-guard-forge-writes | | `w51-u3` | adversary pass 2, after correction 2 |
-| U4 | box-reaches-forge-and-daemon | | `w51-u4` | adversary pass 2, after correction 2; the egress half is blocked |
+| U4 | box-reaches-forge-and-daemon | | `w51-u4` | correction 3 after adversary pass 2; the egress half is blocked |
 | U5 | daemon-probes-and-metrics | | `w51-u5` | correction 2 after adversary pass 2 |
 | U6 | release-container-image | | `w51-u6` | merged (`61eb01e39`), two adversary passes |
 | U7 | container-start-without-prompt | U3, U4, U5, U6 | `w51-u7` | not started |
@@ -144,6 +144,12 @@ is read before the first of the two merges.
   route; `setup --apply` derives it for an instance it creates from the kind of the
   repository's origin (GitLab or no forge: direct; GitHub with a readable policy in the
   environment: the bot route; GitHub without one: direct).
+- U4, adversary pass 2 (`review-result:w51-u4-adversary-2`): the closed descriptor and the
+  spawn sites held. Three cases were red: doctor checked the slot under the default daemon
+  directory while a daemon installed with its own state directory writes there, so the two
+  disagreed both ways; and the shared check refused a slot directory the write would have
+  made owner-private and written. No test held the hand-placed removals of the slot variable.
+  All three go back; the check refuses only what the write would fail on.
 - U5, adversary pass 1 (`review-result:w51-u5-adversary-1`): `/readyz` answered 200 for ever
   after one failed write on the reconciler's store handle, and 200 before the first
   publication; `/v1/instances` answered `200 []` while the store was down. All three go back.
