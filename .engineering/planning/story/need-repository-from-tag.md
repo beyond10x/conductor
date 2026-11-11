@@ -23,7 +23,7 @@ scope:
   path: docs/design/conductor.md
 - confidence: inferred
   path: website/docs/concepts/decisions-and-messages.md
-revision: 20
+revision: 21
 transitions:
 - {from: "draft", to: "proposed", at: "2026-11-10T00:18:05Z", actor: "human:timo", revision: 6}
 - {from: "proposed", to: "active", at: "2026-11-10T00:18:06Z", actor: "human:timo", revision: 7}
@@ -55,3 +55,13 @@ Derived 2026-11-10 by `story-scoper`. Every line is **cited** (read from the sto
 - **Confidence:** medium — the tree shows the defect site exactly, but the acceptance ("read from its tag, never from the free text") contradicts the documented form, where the tag's `<repo>` is the sender and the target is the first word after `]`; which way the implementor resolves that decides whether the Also likely files are touched
 - **Would collide with:** any unit touching the mailbox tick in `crates/conductor/src/run/mailbox.rs`, or adding tests to `crates/conductor/tests/run.rs`; if the form changes, any unit touching the first-line grammar in `crates/conductor/src/message.rs` or the controller role text
 - **Safety fact:** a refusal needs no new channel: an `Err` from `need()` is already answered to the sender as one `[REPORT <repo> -] refused: <reason>` message and the file is marked handled, so nothing reaches `pending.json` — step 2 (`crates/conductor/src/run/mailbox.rs:86-91` and `:150-173`), unproven
+
+## Decision (wave 51)
+
+The first-line form stays `[NEED <repo> <request-id>] <other-repo> <what is needed>`
+(`crates/conductor/src/message.rs`): the tag's `<repo>` is the sender, and the repository the
+NEED is for is the `<other-repo>` field. The acceptance's "read from its tag, never from the free
+text" is met by reading `<other-repo>` as a field of that form: its leading run of name
+characters is the repository, so trailing punctuation is never part of it. A NEED whose
+`<other-repo>` is no repository the instance knows is refused in one line to its sender. The
+coordinator of wave 51 took this reading; the form's text does not change.
