@@ -6,9 +6,10 @@
 //! - [`LIVENESS`], `/healthz`: `200 {"state":"serving"}` while the process serves, whatever the
 //!   store does.
 //! - [`READINESS`], `/readyz`: the one row of the view `conductor.store.Readiness`,
-//!   `[{"reachable", "reason"}]`. `200` once the config is read (no listener exists before) and
-//!   the store answered one read no longer than [`STORE_BOUND`] ago ([`watch`] asks it every
-//!   tick); `503` with the one-line reason otherwise ([`not_ready`]).
+//!   `[{"reachable", "reason"}]`. `200` once the config is read (no listener exists before), the
+//!   store answered one read no longer than [`STORE_BOUND`] ago ([`watch`] asks it every tick),
+//!   the reconciler published once, and its last record did not fail without one written since;
+//!   `503` with the one-line reason otherwise ([`readiness`]).
 //! - [`METRICS`], `/metrics`: Prometheus text format ([`render`]). `conductor_instances` by
 //!   `state`, as the reconciler last saw them; `conductor_sessions` by `instance` and `state` and
 //!   `conductor_snapshot_age_seconds` by `instance`, read from each instance's `/v1/data.json`
@@ -27,6 +28,7 @@
 
 use std::collections::BTreeMap;
 use std::fmt::Write as _;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Mutex, PoisonError, mpsc};
 use std::thread;
 use std::time::{Duration, Instant};
@@ -74,11 +76,20 @@ const STATES: [InstanceState; 6] = [
     InstanceState::Upgrading,
 ];
 
+/// Why the daemon is not ready while its reconciler has published nothing.
+pub const NOT_PUBLISHED: &str = "the reconciler has not published yet";
+
+/// Why the daemon is not ready while its reconciler's last record failed and none was written
+/// since.
+pub const UNRECORDED: &str = "the reconciler's last record failed";
+
 /// What the probes keep between requests.
 #[derive(Debug, Default)]
 pub struct Probes {
     /// Whether the store answered the last read asked of it, and when; none before the first.
     store: Mutex<Option<(bool, Instant)>>,
+    /// Whether the reconciler's last record failed and none was written since.
+    unrecorded: AtomicBool,
     /// The last answer of [`METRICS`] and when it was read.
     scraped: Mutex<Option<(Instant, String)>>,
 }
@@ -94,6 +105,27 @@ impl Probes {
     pub fn seen(&self) -> Option<(bool, Instant)> {
         *self.store.lock().unwrap_or_else(PoisonError::into_inner)
     }
+
+    /// Notes whether the reconciler's last record failed and none was written since.
+    pub fn unrecorded(&self, failed: bool) {
+        self.unrecorded.store(failed, Ordering::Release);
+    }
+}
+
+/// Why the daemon of `api` is not ready at `now`, as [`READINESS`] answers it; none when it is:
+/// its store does not answer ([`not_ready`]), its reconciler has published nothing
+/// ([`NOT_PUBLISHED`]), or the reconciler's last record failed and none was written since
+/// ([`UNRECORDED`]). Each reason is a fixed sentence, never the store's error.
+#[must_use]
+pub fn readiness(api: &Api, now: Instant) -> Option<&'static str> {
+    not_ready(api.probes().seen(), now)
+        .or_else(|| (!api.is_reconciled()).then_some(NOT_PUBLISHED))
+        .or_else(|| {
+            api.probes()
+                .unrecorded
+                .load(Ordering::Acquire)
+                .then_some(UNRECORDED)
+        })
 }
 
 /// Why the daemon is not ready at `now`, given what the store last answered (`seen`); none when
@@ -190,7 +222,7 @@ pub(super) fn answer(method: &str, path: &str, api: &Api) -> Option<Answer> {
     Some(match path {
         LIVENESS => Answer::json(200, "OK", &json!({"state": "serving"})),
         READINESS => {
-            let reason = not_ready(api.probes().seen(), Instant::now());
+            let reason = readiness(api, Instant::now());
             let row = Readiness {
                 reachable: reason.is_none(),
                 reason: reason.map(str::to_owned),

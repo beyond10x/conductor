@@ -18,7 +18,10 @@
 //! starts no runtime and records nothing; when it answers, the same process opens it and
 //! reconciles. A request that is no probe waits for the reconciler's first publication while the
 //! store answers at once, and is answered without it once the store is found not to answer
-//! ([`api::Api::starting`]).
+//! ([`api::Api::starting`]): a read of what the reconciler publishes is then `503` with the
+//! readiness reason. A record the store refuses later is held and written on a handle opened
+//! anew at the next tick, and nothing is acted on until it is ([`Daemon::record_held`]);
+//! meanwhile `GET /readyz` is `503`.
 
 pub mod api;
 pub mod browser;
@@ -237,17 +240,23 @@ pub fn daemon_serve(
         // An upgrade that answered or is to roll back is settled first, so a runtime lost while
         // upgrading rolls back rather than starting again on the new binary. A host role asked
         // for through `POST /v1/roles/{role}/start` starts after the pass.
-        let passed = daemon.settle(SystemTime::now()).and_then(|mut done| {
-            if let Some(reason) = daemon.due(now)? {
-                daemon.binary = reconcile::probe(&program);
-                done.extend(daemon.pass(reason, now)?);
-            }
-            let asked = host_roles::take_asked();
-            if !asked.is_empty() {
-                done.extend(daemon.start_asked(&asked)?);
-            }
-            Ok(done)
-        });
+        // A record the store refused is written first, on a handle opened anew; while it is not,
+        // nothing is acted on, since nothing would be recorded.
+        let passed = daemon
+            .record_held()
+            .context("record the reconciliations the store refused")
+            .and_then(|()| daemon.settle(SystemTime::now()))
+            .and_then(|mut done| {
+                if let Some(reason) = daemon.due(now)? {
+                    daemon.binary = reconcile::probe(&program);
+                    done.extend(daemon.pass(reason, now)?);
+                }
+                let asked = host_roles::take_asked();
+                if !asked.is_empty() {
+                    done.extend(daemon.start_asked(&asked)?);
+                }
+                Ok(done)
+            });
         match passed {
             Ok(done) => {
                 for done in done {
@@ -320,9 +329,10 @@ pub fn start_role(
     Ok(ExitCode::SUCCESS)
 }
 
-/// Publishes what `daemon` last saw to `api`: the instances' rows, the routes to their runtimes and
-/// the deployment's operators.
+/// Publishes what `daemon` last saw to `api`: whether it holds a record the store refused, the
+/// instances' rows, the routes to their runtimes and the deployment's operators.
 fn publish(api: &api::Api, daemon: &Daemon<Systemd>) {
+    api.publish_unrecorded(daemon.holds_records());
     api.publish(
         daemon.rows(),
         daemon.routes(),

@@ -52,12 +52,15 @@ Prometheus. The loopback listener still refuses a foreign `Host`.
 | Path | Answer |
 |---|---|
 | `/healthz` | `200 {"state":"serving"}` while the process serves, whatever the store does |
-| `/readyz` | `200 [{"reachable":true,"reason":null}]` once the config is read and the store answered a read within the last 10 s; otherwise `503`, `reachable` false and a one-line `reason` |
+| `/readyz` | `200 [{"reachable":true,"reason":null}]` once the config is read, the store answered a read within the last 10 s, the reconciler published once, and its last record did not fail; otherwise `503`, `reachable` false and a one-line `reason` |
 | `/metrics` | `200`, Prometheus text format |
 
 A daemon whose store does not answer keeps serving: `/healthz` is `200` and `/readyz` is `503`. It
 starts no runtime and records nothing until the store answers, then takes up its work without a
-restart.
+restart. Until the reconciler has published once, `GET /v1/instances`, the federated reads, a
+proxied instance route, `POST /v1/ask` and `POST /v1/roles/{role}/start` answer `503` with the
+readiness reason. A record the store refuses is kept and written when the store takes writes
+again; until then the daemon acts on nothing and `/readyz` is `503`.
 
 `/metrics` holds five gauges:
 

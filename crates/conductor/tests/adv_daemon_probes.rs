@@ -310,9 +310,8 @@ fn after_a_write_the_store_refused_the_daemon_records_again_or_reads_not_ready()
 #[test]
 fn readiness_is_not_200_before_the_reconciler_published() {
     active::isolate();
-    let daemon = Arc::new(
-        api::Api::new(TOKEN.to_owned(), "operator".to_owned(), None).starting(Vec::new()),
-    );
+    let daemon =
+        Arc::new(api::Api::new(TOKEN.to_owned(), "operator".to_owned(), None).starting(Vec::new()));
     let listener = TcpListener::bind(("127.0.0.1", 0)).expect("bind");
     let port = listener.local_addr().expect("address").port();
     let served = Arc::clone(&daemon);

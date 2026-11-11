@@ -43,7 +43,7 @@ use conductor_model::behaviour::ReconciliationStorage;
 use conductor_model::config::{Config, Instance, InstanceName, SessionName};
 use conductor_model::instance::{
     AnyReconciliation, InstanceState, ReconcileAction, ReconcileReason, ReconcileResult,
-    Reconciliation, ReconciliationData, ReconciliationId,
+    Reconciliation, ReconciliationData, ReconciliationId, ReconciliationSnapshot,
 };
 use conductor_model::primitives::Uuid;
 use serde::{Deserialize, Serialize};
@@ -416,6 +416,9 @@ pub struct Daemon<U: Units> {
     pub tokens: crate::placement::TokenSource,
     pub(super) boxes: BTreeMap<String, crate::placement::OpenedBox>,
     store: Store,
+    /// The reconciliations the store refused, in the order they were taken, held until
+    /// [`Daemon::record_held`] writes them (`story:daemon-probes-and-metrics`).
+    held: Vec<ReconciliationSnapshot>,
     /// `daemon.store` as the file wrote it at start: the store above, handed every runtime.
     url: String,
     config: Config,
@@ -473,6 +476,7 @@ impl<U: Units> Daemon<U> {
             tokens: crate::placement::token_source(),
             boxes,
             store,
+            held: Vec::new(),
             url,
             config,
             text,
@@ -1401,13 +1405,13 @@ impl<U: Units> Daemon<U> {
             actor: actor.clone(),
             at: at.clone(),
         };
-        ReconciliationStorage::put(
-            &mut self.store,
-            AnyReconciliation::Recorded(Reconciliation::new(data)).snapshot(),
-        );
-        self.store
-            .check()
-            .map_err(|error| anyhow!("record the reconciliation of {instance}: {error}"))?;
+        self.held
+            .push(AnyReconciliation::Recorded(Reconciliation::new(data)).snapshot());
+        if let Err(error) = self.record_held() {
+            // The pass this record is part of is not done: the next tick runs one.
+            self.last_pass = None;
+            return Err(error.context(format!("record the reconciliation of {instance}")));
+        }
         Ok(Done {
             instance: instance.to_owned(),
             action,
@@ -1415,6 +1419,37 @@ impl<U: Units> Daemon<U> {
             result,
             detail,
         })
+    }
+
+    /// Writes the reconciliations the store refused, in the order they were taken
+    /// (`story:daemon-probes-and-metrics`). A handle that failed refuses every later write
+    /// ([`Store::check`]), so the store is opened anew first when this one failed. Each record
+    /// keeps its id, and a reconciliation is one stream by its id: one whose refused write did
+    /// land is not recorded twice. Nothing is held when it answers.
+    ///
+    /// # Errors
+    ///
+    /// The store does not open, or refuses a write again: the records stay held.
+    pub fn record_held(&mut self) -> Result<()> {
+        if self.held.is_empty() {
+            return Ok(());
+        }
+        if self.store.check().is_err() {
+            self.store = crate::store::open_url(&self.url, super::TENANT)
+                .map_err(|error| anyhow!("daemon.store: {error:#}"))?;
+        }
+        for snapshot in &self.held {
+            ReconciliationStorage::put(&mut self.store, snapshot.clone());
+        }
+        self.store.check().map_err(|error| anyhow!("{error}"))?;
+        self.held.clear();
+        Ok(())
+    }
+
+    /// Whether a reconciliation the store refused is still held ([`Self::record_held`]).
+    #[must_use]
+    pub const fn holds_records(&self) -> bool {
+        !self.held.is_empty()
     }
 
     /// Writes [`RUNTIMES_FILE`] and [`BINARIES_FILE`].

@@ -181,6 +181,8 @@ impl Case {
             .collect(),
             Vec::new(),
         );
+        // The daemon publishes the host roles with the instances: the config lists none.
+        api.publish_host(Vec::new(), None);
         // The daemon's store answers: `GET /readyz` reads ready. The answer is dated ahead, so it
         // does not age past the readiness bound however long the case runs.
         api.publish_store_at(true, Instant::now() + Duration::from_secs(3600));

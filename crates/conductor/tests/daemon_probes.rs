@@ -1,6 +1,7 @@
 //! conductord's probes and metrics (`story:daemon-probes-and-metrics`): `GET /healthz` answers
 //! `200` while the process serves, whatever the store does; `GET /readyz` answers `200` once the
-//! store answers and `503` with a one-line reason otherwise; `GET /metrics` answers Prometheus
+//! store answers, the reconciler published and its last record did not fail, and `503` with a
+//! one-line reason otherwise; `GET /metrics` answers Prometheus
 //! text. All three answer without a bearer, so no body carries a config value, a token, a path,
 //! the store URL or a name. The daemon serves while its store does not answer, and takes up its
 //! work when it does, in the same process. No case reaches the host's service manager: a daemon
@@ -17,6 +18,7 @@ use std::net::{TcpListener, TcpStream};
 use std::os::unix::net::UnixListener;
 use std::path::{Path, PathBuf};
 use std::process::{Child, Stdio};
+use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::{Duration, Instant};
@@ -265,9 +267,11 @@ fn the_daemon_serves_while_its_store_does_not_answer_and_takes_up_its_work_when_
     let (status, _, body) = get(port, "/metrics");
     assert_eq!(status, 200, "{body}");
     assert!(!body.contains("conductor_instances"), "{body}");
-    // It started no runtime and recorded nothing.
+    // It read no instance: the list is not empty but unread, `503` with the readiness reason.
     let (status, _, body) = get(port, "/v1/instances");
-    assert_eq!((status, body.trim()), (200, "[]"));
+    assert_eq!(status, 503, "{body}");
+    assert_eq!(unpublished(&body), reason, "{body}");
+    // It started no runtime and recorded nothing.
     assert!(served.runs(), "the daemon exited: {}", served.printed());
     assert!(
         !served.printed().contains("alpha: Start"),
@@ -320,8 +324,21 @@ fn a_database_server_that_takes_no_connection_is_503_and_the_daemon_lives() {
         !body.contains("postgres") && !body.contains("127.0.0.1"),
         "the readiness body names the store: {body}"
     );
-    assert_eq!(get(port, "/v1/instances").2.trim(), "[]");
+    let (status, _, listed) = get(port, "/v1/instances");
+    assert_eq!(status, 503, "{listed}");
+    let rows: Value = serde_json::from_str(&body).expect("readiness answers JSON");
+    assert_eq!(
+        Some(unpublished(&listed).as_str()),
+        rows[0]["reason"].as_str(),
+        "{listed}"
+    );
     assert!(served.runs(), "the daemon exited: {}", served.printed());
+}
+
+/// The reason of a `503` the daemon answers a read of its reconciler's publication with.
+fn unpublished(body: &str) -> String {
+    let body: Value = serde_json::from_str(body).expect("a JSON refusal");
+    body["error"].as_str().unwrap_or_default().to_owned()
 }
 
 #[test]
@@ -383,12 +400,33 @@ fn readiness_follows_what_the_store_last_answered_and_liveness_does_not() {
         (status, body.trim().to_owned())
     };
 
+    // The store answers and the reconciler has published nothing: not ready yet.
     daemon.publish_store(true);
+    assert_eq!(
+        readiness(),
+        (
+            503,
+            r#"[{"reachable":false,"reason":"the reconciler has not published yet"}]"#.to_owned()
+        )
+    );
+    daemon.publish(Vec::new(), BTreeMap::new(), Vec::new());
     assert_eq!(
         readiness(),
         (200, r#"[{"reachable":true,"reason":null}]"#.to_owned())
     );
     assert!(daemon.store_answers());
+
+    // The reconciler's last record failed and none was written since: not ready, and alive.
+    daemon.publish_unrecorded(true);
+    assert_eq!(
+        readiness(),
+        (
+            503,
+            r#"[{"reachable":false,"reason":"the reconciler's last record failed"}]"#.to_owned()
+        )
+    );
+    daemon.publish_unrecorded(false);
+    assert_eq!(readiness().0, 200);
 
     daemon.publish_store(false);
     assert_eq!(
@@ -448,11 +486,119 @@ fn while_the_daemon_starts_a_probe_answers_and_any_other_request_waits_for_the_r
     assert_eq!(status, 200, "{body}");
     assert!(body.contains("example-one"), "{body}");
 
-    // Once the store is found not to answer, a request is answered without it.
+    // Once the store is found not to answer, a request is answered without waiting: a read of
+    // what the reconciler publishes is `503` with the readiness reason, never an empty list.
     let (daemon, port) = serving(starting());
     daemon.started();
     let (status, _, body) = get(port, "/v1/instances");
-    assert_eq!((status, body.trim()), (200, "[]"));
+    assert_eq!(status, 503, "{body}");
+    assert_eq!(
+        unpublished(&body),
+        "the store has not answered yet",
+        "{body}"
+    );
+}
+
+/// `POST target` with `body` from the loopback listener's own page, with the daemon's token.
+fn post(port: u16, target: &str, body: &Value) -> (u16, String) {
+    let body = body.to_string();
+    let mut stream = TcpStream::connect(("127.0.0.1", port)).expect("connect");
+    stream
+        .set_read_timeout(Some(Duration::from_secs(60)))
+        .expect("a read timeout");
+    stream
+        .write_all(
+            format!(
+                "POST {target} HTTP/1.1\r\nHost: 127.0.0.1:{port}\r\n\
+                 Origin: http://127.0.0.1:{port}\r\nX-Conductor-Token: {TOKEN}\r\n\
+                 Content-Type: application/json\r\nContent-Length: {}\r\n\
+                 Connection: close\r\n\r\n{body}",
+                body.len()
+            )
+            .as_bytes(),
+        )
+        .expect("send");
+    let mut answer = String::new();
+    stream.read_to_string(&mut answer).expect("an answer");
+    let (head, body) = answer.split_once("\r\n\r\n").expect("a head and a body");
+    let status = head
+        .split(' ')
+        .nth(1)
+        .and_then(|code| code.parse().ok())
+        .unwrap_or_else(|| panic!("no status line: {head}"));
+    (status, body.to_owned())
+}
+
+/// Every answer the daemon reads from its reconciler's publication (the instances' rows, the
+/// routes to their runtimes, the host roles) is `503` with the readiness reason while the
+/// reconciler has published nothing; an answer that reads the config file or the store does not
+/// wait for it.
+#[test]
+fn before_the_reconciler_published_what_is_read_from_its_publication_is_503_with_the_reason() {
+    let case = Case::new("unpublished");
+    let store = format!("sqlite:{}", case.dir.join("shared.sqlite").display());
+    case.config(7300, &store);
+    let (daemon, port) = serving(
+        api::Api::new(TOKEN.to_owned(), "operator".to_owned(), None)
+            .with_config(case.file(), case.home(), store)
+            .starting(Vec::new()),
+    );
+    daemon.publish_store(true);
+    daemon.started();
+    let reason = "the reconciler has not published yet";
+    let (status, _, body) = get(port, "/readyz");
+    assert_eq!(status, 503, "{body}");
+    assert_eq!(
+        body.trim(),
+        format!(r#"[{{"reachable":false,"reason":"{reason}"}}]"#)
+    );
+
+    for target in [
+        "/v1/instances",
+        "/v1/sessions?repository=example-repo",
+        "/v1/decisions",
+        "/v1/unanswered",
+        "/v1/kpis",
+        "/v1/events",
+        "/v1/instances/alpha/status",
+    ] {
+        let (status, _, body) = get(port, target);
+        assert_eq!(status, 503, "GET {target}: {body}");
+        assert_eq!(unpublished(&body), reason, "GET {target}: {body}");
+    }
+    for (target, body) in [
+        ("/v1/ask", json!({"text": "which repository is red?"})),
+        ("/v1/ask", json!({"text": "is it green?", "to": "alpha"})),
+        ("/v1/roles/supervisor/start", json!({})),
+    ] {
+        let (status, answer) = post(port, target, &body);
+        assert_eq!(status, 503, "POST {target} {body}: {answer}");
+        assert_eq!(
+            unpublished(&answer),
+            reason,
+            "POST {target} {body}: {answer}"
+        );
+    }
+
+    // The secrets and the token pool read the config file and the store, not the publication.
+    for target in ["/v1/secrets", "/v1/instances/alpha/tokens"] {
+        let (status, _, body) = get(port, target);
+        assert_ne!(status, 503, "GET {target}: {body}");
+    }
+
+    // Once the reconciler published, the same reads answer what it read.
+    daemon.publish(
+        vec![json!({"name": "alpha", "state": "Stopped"})],
+        BTreeMap::new(),
+        Vec::new(),
+    );
+    daemon.publish_host(Vec::new(), None);
+    let (status, _, body) = get(port, "/v1/instances");
+    assert_eq!(status, 200, "{body}");
+    assert!(body.contains("\"alpha\""), "{body}");
+    assert_eq!(get(port, "/readyz").0, 200);
+    let (status, answer) = post(port, "/v1/roles/supervisor/start", &json!({}));
+    assert_eq!(status, 404, "the file lists no host role: {answer}");
 }
 
 #[test]
@@ -490,12 +636,16 @@ fn a_write_before_the_reconciler_published_needs_the_grant_the_config_file_write
     assert_eq!(body["grant"], "ChangeSettings", "{body}");
 }
 
-/// An instance's socket that answers every request with `data` as its `/v1/data.json`.
-fn answering(socket: &Path, data: &Value) {
+/// An instance's socket that answers every request with `data` as its `/v1/data.json`; how many
+/// requests it took.
+fn answering(socket: &Path, data: &Value) -> Arc<AtomicUsize> {
     let listener = UnixListener::bind(socket).expect("bind the instance's socket");
     let body = data.to_string();
+    let asked = Arc::new(AtomicUsize::new(0));
+    let counted = Arc::clone(&asked);
     thread::spawn(move || {
         for mut stream in listener.incoming().flatten() {
+            counted.fetch_add(1, Ordering::SeqCst);
             let mut head = Vec::new();
             let mut byte = [0_u8; 1];
             while !head.ends_with(b"\r\n\r\n") && matches!(stream.read(&mut byte), Ok(1)) {
@@ -511,6 +661,7 @@ fn answering(socket: &Path, data: &Value) {
             );
         }
     });
+    asked
 }
 
 /// The samples of `text`: every line that is no comment.
@@ -727,6 +878,138 @@ fn the_ledger_s_queue_is_absent_where_it_does_not_read() {
     assert_eq!(store::queued(&host), Some(1));
 }
 
+/// The queue length counts the disk requests that wait, and no slot request beside them.
+#[test]
+fn the_queue_counts_waiting_disk_requests_and_no_other_kind() {
+    let case = Case::new("queue-kinds");
+    let host = case.dir.join("host");
+    fs::create_dir_all(&host).expect("create the host directory");
+    fs::write(
+        host.join("ledger.open"),
+        json!({"position": 6, "grants": {
+            "a": {"state": "Requested", "kind": "Disk"},
+            "b": {"state": "Requested", "kind": "Disk"},
+            "c": {"state": "Requested", "kind": "BuildSlot"},
+            "d": {"state": "Requested", "kind": "ControllerSlot"},
+            "e": {"state": "Running", "kind": "Disk"},
+        }})
+        .to_string(),
+    )
+    .expect("plant the open grants");
+    assert_eq!(store::queued(&host), Some(2));
+}
+
+/// One answer of `/metrics` is kept: two scrapes inside the keep ask each instance once, so a
+/// caller without a bearer cannot make the daemon ask its instances more often than that.
+#[test]
+fn two_scrapes_inside_the_keep_ask_the_instances_once() {
+    let case = Case::new("keep");
+    let socket = case.dir.join("1.sock");
+    let asked = answering(&socket, &json!({"sessions": [], "snapshot": null}));
+    let (daemon, port) = serving(
+        api::Api::new(TOKEN.to_owned(), "operator".to_owned(), None)
+            .with_timeout(Duration::from_secs(1)),
+    );
+    daemon.publish(
+        vec![json!({"name": "example-one", "state": "Running"})],
+        [(
+            "example-one".to_owned(),
+            Route {
+                socket,
+                token: INSTANCE_TOKEN.to_owned(),
+                remote: None,
+            },
+        )]
+        .into_iter()
+        .collect(),
+        Vec::new(),
+    );
+    let started = Instant::now();
+    let (first, _, once) = get(port, "/metrics");
+    let (second, _, again) = get(port, "/metrics");
+    assert!(
+        started.elapsed() < Duration::from_secs(1),
+        "the two scrapes took a second or more: {:?}",
+        started.elapsed()
+    );
+    assert_eq!((first, second), (200, 200));
+    assert_eq!(once, again);
+    assert!(once.contains("conductor_instances_unanswered 0"), "{once}");
+    assert_eq!(
+        asked.load(Ordering::SeqCst),
+        1,
+        "the instance was asked per scrape"
+    );
+}
+
+/// A record the store refused is held, not lost. While no handle the reconciler opens records
+/// (another writer holds the store's write lock for good, and every read is answered), `/readyz`
+/// is `503` with the reason and `/healthz` `200`; when the store takes writes again the
+/// reconciler records what it held on a handle opened anew, and `/readyz` is `200` again.
+#[test]
+fn a_refused_record_is_not_ready_until_the_reconciler_records_again() {
+    let case = Case::new("refused");
+    let port = free_port();
+    let file = case.dir.join("shared.sqlite");
+    let url = format!("sqlite:{}", file.display());
+    case.config(port, &url);
+    let mut served = Served::start(&case, port);
+    served.until("the first pass acted on the instance", |served| {
+        served.printed().contains("alpha: Start")
+    });
+    served.until("readiness answers 200", |served| {
+        get(served.port, "/readyz").0 == 200
+    });
+    let recorded = || {
+        let store =
+            store::open_url(&url, conductor_cli::daemon::TENANT).expect("open the daemon's store");
+        ReconciliationStorage::list(&store).len()
+    };
+    let before = recorded();
+    assert!(before > 0, "the first pass recorded nothing");
+
+    let writer = rusqlite::Connection::open(&file).expect("open the store as another writer");
+    writer
+        .execute_batch("BEGIN IMMEDIATE")
+        .expect("take the store's write lock");
+    let mut text = fs::read_to_string(case.file()).expect("read the config file");
+    text.push_str("# a pass while the store takes no write\n");
+    fs::write(case.file(), text).expect("write the config file");
+    served.until("readiness answers 503", |served| {
+        get(served.port, "/readyz").0 == 503
+    });
+    let (status, _, body) = get(port, "/readyz");
+    assert_eq!(status, 503, "{body}");
+    assert_eq!(
+        body.trim(),
+        r#"[{"reachable":false,"reason":"the reconciler's last record failed"}]"#,
+        "{}",
+        served.printed()
+    );
+    assert!(
+        !body.contains("locked") && !body.contains("sqlite"),
+        "{body}"
+    );
+    assert_eq!(get(port, "/healthz").0, 200);
+    assert!(
+        served
+            .printed()
+            .contains("record the reconciliation of alpha"),
+        "{}",
+        served.printed()
+    );
+
+    writer
+        .execute_batch("ROLLBACK")
+        .expect("release the store's write lock");
+    drop(writer);
+    served.until("the held record is written", |_| recorded() > before);
+    served.until("readiness answers 200 again", |served| {
+        get(served.port, "/readyz").0 == 200
+    });
+    assert!(served.runs(), "the daemon restarted or exited");
+}
+
 #[test]
 fn the_tls_listener_answers_the_three_paths_without_a_bearer_and_nothing_else() {
     let case = Case::new("tls");
@@ -738,6 +1021,7 @@ fn the_tls_listener_answers_the_three_paths_without_a_bearer_and_nothing_else() 
         .expect("the TLS listener's config");
     let daemon = Arc::new(api::Api::new(TOKEN.to_owned(), "operator".to_owned(), None));
     daemon.publish_store(true);
+    daemon.publish(Vec::new(), BTreeMap::new(), Vec::new());
     let secure = TcpListener::bind(("127.0.0.1", 0)).expect("bind the TLS listener");
     let port = secure.local_addr().expect("address").port();
     thread::spawn(move || api::serve_tls(&secure, &daemon, &tls));
