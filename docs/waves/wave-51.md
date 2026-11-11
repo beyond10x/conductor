@@ -22,7 +22,7 @@ repository under a lock. Free disk at the start: 104 GB.
 | U4 | box-reaches-forge-and-daemon | | `w51-u4` | merged (`fe099dc20`), two adversary passes; the egress half is blocked, the story stays active |
 | U5 | daemon-probes-and-metrics | | `w51-u5` | merged (`654a1c993`), two adversary passes |
 | U6 | release-container-image | | `w51-u6` | merged (`61eb01e39`), two adversary passes |
-| U7 | container-start-without-prompt | U3, U4, U5, U6 | `w51-u7` | adversary pass 1, after round 1 (`ce52cfe6b` on its branch) |
+| U7 | container-start-without-prompt | U3, U4, U5, U6 | `w51-u7` | correction 1 after adversary pass 1 |
 
 Each unit works on branch `impl/<story>`; its scratch is the session scratch directory's
 `w51/u<n>/`. No unit has a build directory of its own: every build is in the repository's shared
@@ -188,6 +188,24 @@ is read before the first of the two merges.
   `latest` and the image's owners held. Two cases were red on Release bodies nobody is shown
   to write: a fence never closed, after which a re-run left two sections, and a heading quoted
   in an HTML comment. Both corrected in a last round; the lane is 29 run, 29 passed.
+- U7, round 1: the unattended start, the read-only `files` secrets source, the listener's
+  address key and a runtime as a child process where no user systemd manager is there. One
+  local container run: doctor ends `ready` and `/readyz` answers 200 inside and through the
+  published port. Not shown: an agent started inside the container, the workflow job on CI, a
+  run with a valid forge token. The unit was the first to fork from the wave branch and found
+  two things the gate refuses there, both corrected on the branch: a fixture's request id
+  quoted in a review record, and one test file not formatted.
+- U7, adversary pass 1 (`review-result:w51-u7-adversary-1`): the `files` source's writes and
+  slot names, the bearer rule off loopback, the child runtimes and the seeding's "overwrites
+  nothing" held. Four cases were red: `token reveal --model-token` printed the model token of
+  an instance whose placement opens a box; a daemon bound to a loopback address other than
+  127.0.0.1 refused requests naming that address, the probes included; a records commit that
+  failed at one start was never made at a later one; `/healthz` got no answer while the start
+  seeded. All go back. Decided with them: the fall-back to an instance's model token on an
+  empty pool applies only where the config says `daemon.unattended`, so a host's agents keep
+  the harness's own login; the workflow job's case fails on `if:` and `continue-on-error:`.
+  Accepted, no change: `systemd-run` on PATH counts as a user manager, and the image holds
+  none.
 
 ## What each story's close needs
 
