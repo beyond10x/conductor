@@ -18,7 +18,7 @@ repository under a lock. Free disk at the start: 104 GB.
 |---|---|---|---|---|
 | U1 | need-repository-from-tag | | `w51-u1` | merged (`900de5852`), two adversary passes |
 | U2 | handover-restart-by-controller-id | | `w51-u2` | merged (`10542e8b1`), two adversary passes |
-| U3 | doctor-checks-guard-forge-writes | | `w51-u3` | adversary pass 1, after correction 1 |
+| U3 | doctor-checks-guard-forge-writes | | `w51-u3` | correction 2 after adversary pass 1 |
 | U4 | box-reaches-forge-and-daemon | | `w51-u4` | correction 2 after adversary pass 1; the egress half is blocked |
 | U5 | daemon-probes-and-metrics | | `w51-u5` | adversary pass 2, after correction 1 |
 | U6 | release-container-image | | `w51-u6` | adversary pass 2, after correction 2 |
@@ -136,6 +136,14 @@ is read before the first of the two merges.
   slot's descriptor and variable were inherited by every process the boxed runtime starts.
   Both go back. The file `runtimes.json`, which holds the same token at the umask mode, was
   there before the wave and goes to the backlog.
+- U3, adversary pass 1 (`review-result:w51-u3-adversary-1`): doctor asked the guard about the
+  first checkout of a role only, so it ended `ready` while the hook denied the lead of a second
+  checkout; the fix line for a policy named relative gave a path the config check refuses; a
+  `gates_policy` naming no file read `ready`; setup ended `ready` where doctor did not. All go
+  back. Decided with them, on the operator's word: setup asks the person nothing about the
+  route; `setup --apply` derives it for an instance it creates from the kind of the
+  repository's origin (GitLab or no forge: direct; GitHub with a readable policy in the
+  environment: the bot route; GitHub without one: direct).
 - U5, adversary pass 1 (`review-result:w51-u5-adversary-1`): `/readyz` answered 200 for ever
   after one failed write on the reconciler's store handle, and 200 before the first
   publication; `/v1/instances` answered `200 []` while the store was down. All three go back.
