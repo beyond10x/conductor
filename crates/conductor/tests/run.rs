@@ -2212,6 +2212,118 @@ fn a_mailbox_need_waits_for_the_other_repository_s_controller() {
     assert_eq!(case.deliveries().len(), 1, "delivered once");
 }
 
+/// `story:need-repository-from-tag`: the repository a `[NEED]` asks is the `<other-repo>` field
+/// of its form, read as that field's leading run of name characters, so `beta:`, `beta,`, `beta.`
+/// and `e2e-tests:` name `beta` and `e2e-tests`; no word of the text after the field is read as
+/// one (`gamma`). Each is kept under that name while no controller of it runs, and delivered
+/// whole once one does.
+#[test]
+fn a_mailbox_need_names_its_repository_without_trailing_punctuation() {
+    let case = Case::new("mail-need-punctuation");
+    write(
+        &case.checkout("e2e-tests").join(".git/HEAD"),
+        "ref: refs/heads/main\n",
+    );
+    let needs = [
+        (
+            "0001",
+            "[NEED alpha N-20261017-01] beta: gamma must export the store id\n",
+            "beta",
+        ),
+        (
+            "0002",
+            "[NEED alpha N-20261017-02] beta, export the store id\n",
+            "beta",
+        ),
+        (
+            "0003",
+            "[NEED alpha N-20261017-03] e2e-tests: cover the export\n",
+            "e2e-tests",
+        ),
+        (
+            "0004",
+            "[NEED alpha N-20261017-04] beta. Export the store id\n",
+            "beta",
+        ),
+    ];
+    for (name, text, _) in needs {
+        case.mail(name, text);
+    }
+    let first = case.tick(&[]);
+    assert_eq!(first["lines_handled"], needs.len(), "{first}");
+    assert!(case.deliveries().is_empty(), "no controller runs");
+    let waiting = kept(&case);
+    let named: Vec<&str> = waiting
+        .iter()
+        .map(|item| item["repo"].as_str().unwrap_or_default())
+        .collect();
+    assert_eq!(named, needs.map(|(_, _, repo)| repo), "{waiting:?}");
+
+    write(
+        &case.charter("beta"),
+        "# Charter: beta\n\nExport the store id.\n",
+    );
+    case.spawn("beta", FIRST);
+    let second = case.tick(&[]);
+    let delivered: Vec<(String, String)> = needs
+        .iter()
+        .filter(|(_, _, repo)| *repo == "beta")
+        .map(|(_, text, _)| ("ex-beta".to_owned(), (*text).to_owned()))
+        .collect();
+    assert_eq!(case.deliveries(), delivered, "{second}");
+    let waiting = kept(&case);
+    let named: Vec<&str> = waiting
+        .iter()
+        .map(|item| item["repo"].as_str().unwrap_or_default())
+        .collect();
+    assert_eq!(named, ["e2e-tests"], "{waiting:?}");
+}
+
+/// `story:need-repository-from-tag`: a `[NEED]` whose `<other-repo>` field names no repository
+/// the instance knows (a word of prose, a repository with no checkout) is refused to its sender
+/// in one line that names the word read, and is not kept: `pending.json` holds nothing for it,
+/// and the next tick does not answer it again. One whose own tag names no known repository
+/// either is answered by no one, and nothing is kept for it.
+#[test]
+fn a_mailbox_need_for_no_known_repository_is_refused_in_one_line_and_not_kept() {
+    let case = Case::new("mail-need-unknown");
+    case.spawn("alpha", FIRST);
+    let prose = "[NEED alpha N-20261017-01] please: export the store id from beta";
+    let absent = "[NEED alpha N-20261017-02] delta, export the store id";
+    case.mail("0001", &format!("{prose}\n\nalpha reads it on start.\n"));
+    case.mail("0002", &format!("{absent}\n"));
+    case.mail("0003", "[NEED nowhere: N-20261017-03] please export it\n");
+    let (tick, said) = case.tick_said(&[]);
+
+    let deliveries = case.deliveries();
+    assert_eq!(deliveries.len(), 2, "{deliveries:?}");
+    for ((to, text), (message, word)) in deliveries
+        .iter()
+        .zip([(prose, "\"please\""), (absent, "\"delta\"")])
+    {
+        assert_eq!(to, "ex-alpha");
+        let first = text.lines().next().unwrap_or_default();
+        assert!(
+            first.starts_with("[REPORT alpha -] refused: ") && first.contains(word),
+            "one line names the word read, {word}: {text}"
+        );
+        for held in [message, "[NEED alpha <request-id>] <other-repo> <what>"] {
+            assert!(text.contains(held), "names {held}: {text}");
+        }
+    }
+    assert_eq!(kept(&case), Vec::<Value>::new(), "nothing is kept: {tick}");
+    for file in ["0001.md", "0002.md", "0003.md"] {
+        assert!(
+            said.iter().any(|line| line.contains(file)),
+            "the journal names {file}: {said:?}"
+        );
+    }
+
+    case.tick(&[]);
+    assert_eq!(case.deliveries().len(), 2, "each refused once");
+    assert_eq!(kept(&case), Vec::<Value>::new());
+}
+
 /// A `[DECISION-REQUEST]` is raised and, with no decider seam, escalated as class O
 /// with the options its body lists, its recommendation as the default and a deadline 48 hours
 /// out.

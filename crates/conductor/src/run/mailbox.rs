@@ -12,7 +12,7 @@
 //! |---|---|
 //! | `[REPORT <repo> <dispatch-id>] started\|blocked\|unblocked\|done\|failed <rest>` | moves the dispatch as `dispatch report-<verb>` does, `<rest>` its reason or evidence (`story:report-to-state`); `-` for the dispatch is the repository's one open dispatch, and with none open the report moves nothing and is not refused; `blocked handover <path>` is a report like any. A `blocked`, `done` or `failed` on a dispatch still `Sent` is reported `started` first, so the log holds both lines; a `started` on a `Blocked` dispatch is recorded `unblocked`, as a controller restarted after a hand-over reports |
 //! | `[HANDOVER <repo>] <rest>` | recorded as a report: the repository's open dispatch is reported blocked, `handover: <rest>` |
-//! | `[NEED <repo> <request-id>] <other-repo> <what>` | the whole message delivered to the running controller of `<other-repo>` (`relayed`), else kept for its next start |
+//! | `[NEED <repo> <request-id>] <other-repo> <what>` | the whole message delivered to the running controller of `<other-repo>` (`relayed`), else kept for its next start; the repository is the field's leading run of name characters (`docs:` names `docs`), and one the instance does not know is refused (`story:need-repository-from-tag`) |
 //! | `[DECISION-REQUEST <repo> <request-id>] <question>` | handed whole to `decide::handle_request` ([`super::handle_request`]), which raises it with the rule that classified it, answers and records class C and escalates class O and H; a decided request's `[DECISION]` is delivered to the controller that raised it (`decision-sent`), else kept for its next start. With no decider seam ([`super::HandleRequest`]), raised (`decision raise-decision-request`) and escalated as class O, one of the options its body lists (`A) <label>: <cost>`), its `Recommendation:` line's letter recommended and the default, the deadline 48 hours out |
 //! | `[RESOURCE <repo>] <kind> <amount>` | answered "use conductor build run" to the repository's running controller (`relayed`), else kept for its next start |
 //!
@@ -146,7 +146,8 @@ const FORMS: [(&str, &str); 5] = [
 
 /// Answers the controller of the repository the message `file` names that the loop refused it,
 /// with `error` and the form its kind expects, as one message (`relayed`), or keeps the answer
-/// for its next start. A first line that names no repository is answered by no one.
+/// for its next start. A first line that names no repository, or one the instance does not know
+/// ([`known`]), is answered by no one: no controller would ever take the answer.
 fn answer_refused(tick: &mut Tick<'_, '_>, file: &Path, error: &anyhow::Error) -> Result<()> {
     let text = fs::read_to_string(file).with_context(|| format!("read {}", file.display()))?;
     let first = text.lines().next().unwrap_or_default().trim();
@@ -164,6 +165,9 @@ fn answer_refused(tick: &mut Tick<'_, '_>, file: &Path, error: &anyhow::Error) -
     let Some((_, form)) = FORMS.iter().find(|(named, _)| named == kind) else {
         return Ok(());
     };
+    if !known(tick, repo)? {
+        return Ok(());
+    }
     let reason = one_line(&format!("{error:#}"));
     let form = form.replace("<repo>", repo);
     let mut answer = format!(
@@ -327,17 +331,57 @@ fn state_of(tick: &Tick<'_, '_>, id: &str) -> Result<Option<DispatchState>> {
 }
 
 /// `[NEED <repo> <request>] <other-repo> <what>`: the whole message to `<other-repo>`'s running
-/// controller, else kept for its next start.
+/// controller, else kept for its next start. The repository is read from the `<other-repo>`
+/// field alone ([`other_repository`]), never from the words after it; a field that names no
+/// repository the instance knows is refused, so nothing is kept for it
+/// (`story:need-repository-from-tag`).
 fn need(tick: &mut Tick<'_, '_>, text: &str, first: &str, rest: &str) -> Result<bool> {
-    let other = rest
+    let field = rest
         .split_whitespace()
         .next()
         .ok_or_else(|| anyhow!("the need names no repository"))?;
+    let other = other_repository(tick, field)?;
     deliver_or_keep(
         tick,
         json!({"repo": other, "text": text, "event": "relayed", "line": first}),
     )?;
     Ok(true)
+}
+
+/// The repository the `<other-repo>` field `field` of a `[NEED]` names: its leading run of name
+/// characters ([`crate::spawn::name_character`], and `/` between a group and its repository), so
+/// `docs:` and `specs,` name `docs` and `specs`. A name character that ends the run (`docs.`) is
+/// part of the name only when the instance knows a repository of that name; otherwise the name
+/// is the run without the punctuation at its end.
+///
+/// # Errors
+///
+/// The instance knows no repository of that name ([`known`]); the error names the word read.
+fn other_repository(tick: &Tick<'_, '_>, field: &str) -> Result<String> {
+    let end = field
+        .find(|c: char| !(crate::spawn::name_character(c) || c == '/'))
+        .unwrap_or(field.len());
+    let run = &field[..end];
+    let name = run.trim_end_matches(|c: char| !c.is_ascii_alphanumeric());
+    if known(tick, run)? {
+        return Ok(run.to_owned());
+    }
+    if name != run && known(tick, name)? {
+        return Ok(name.to_owned());
+    }
+    bail!(
+        "the need names {:?}, no repository of this instance (none has a running controller or \
+         a checkout under checkouts.root), so it is not kept",
+        if name.is_empty() { field } else { name }
+    )
+}
+
+/// Whether the instance knows the repository `name`: a controller of it runs, or one can start,
+/// in its checkout under the checkouts root ([`crate::spawn::checkout`]). An item kept for any
+/// other name would wait in `pending.json` for a controller that never starts.
+fn known(tick: &Tick<'_, '_>, name: &str) -> Result<bool> {
+    Ok(!name.is_empty()
+        && (tick.running(name)?.is_some() || crate::spawn::checkout(tick.instance(), name).is_ok()))
 }
 
 /// `[RESOURCE <repo>] …`: answered "use conductor build run".
