@@ -43,7 +43,8 @@ conductor --version
 
 On macOS, `shasum -a 256 --check` stands in for `sha256sum --check --strict`. `~/.local/bin`
 must be on `PATH`. To build from source instead, see
-[developer onboarding](./develop/onboarding.md#build-from-source).
+[developer onboarding](./develop/onboarding.md#build-from-source). Each release also has a
+container image: [run conductor in a container](./guides/run-in-a-container.md).
 
 Later, `conductor upgrade` replaces the binary with the newest release, keeping the old one as
 `conductor.previous` ([upgrade and roll back](./guides/upgrade-and-rollback.md)).

@@ -56,6 +56,7 @@ A value a profile writes as `section.key`, such as `thresholds.build_slot`, is t
 | `crates/conductor/roles/` | the role profiles, compiled into the binary (`include_str!`): `maintainer.md`, `controller.md`, and the host's `supervisor.md` and `teacher.md`; `conductor role show --role <role>` prints one |
 | `crates/conductor/kinds/claude-code/` | the `claude-code` kind's packaging, compiled in: `conductor-settings.json` and `controller-settings.json`, the settings the director and each controller start with when their role names none; both wire the guard as a PreToolUse hook. At start the kind writes the settings and the role's profile into the agent's state (`<state>/sessions/<session name>.settings.json`, `.profile.md`) |
 | `conductor.example.yaml` | an example config file |
+| `Dockerfile` | the release's container image (§ Releases): the release's binary from the build context, the programs `conductor doctor` checks for an instance with a forge source, a user that is not root. `tests/release_image.rs` holds it and the workflow's `image` job to that |
 | `Taskfile.yml` | every command below |
 
 ## Who writes what
@@ -182,7 +183,12 @@ v<version> --locked conductor-cli`) or downloaded pre-built from the Release. Pu
 `.github/workflows/release.yml`, which builds `conductor` for `x86_64-unknown-linux-gnu`,
 `aarch64-unknown-linux-gnu`, `x86_64-apple-darwin` and `aarch64-apple-darwin` and attaches
 `conductor-<version>-<target>.tar.gz` for each and one `SHA256SUMS` to the Release, in the naming
-and layout of the `ess` and `aep` releases. Conductor-dev cuts one after a wave merges, about once
+and layout of the `ess` and `aep` releases. Its `image` job then builds the release's container
+image for linux/amd64 with the root `Dockerfile`, around the `x86_64-unknown-linux-gnu` binary of
+the same run, and pushes it as `ghcr.io/beyond10x/conductor:<version>`, and as `latest` when the
+tag is the newest release; that job may write packages and nothing of the repository. Its
+`image-notes` job, which may write the Release and nothing else, then names the image in the
+Release's notes. Conductor-dev cuts one after a wave merges, about once
 a day, without asking: several waves may go into one release.
 
 1. On a branch from `main`, set `version` in the root `Cargo.toml` (semver; `0.x`: a minor bump for
@@ -209,13 +215,23 @@ a day, without asking: several waves may go into one release.
    the last tag, one line each). The tag push has started the Release workflow; it attaches the
    archives to this Release when its builds finish. Should it finish first, it creates the Release
    with the tag's message as its notes, and the `body` goes on with `PATCH
-   /repos/beyond10x/conductor/releases/<id>` instead. A failed run is re-run, or the archives of an
-   existing tag backfilled, with `workflow_dispatch` and `tag: v<version>`.
+   /repos/beyond10x/conductor/releases/<id>` instead. Once the image is pushed, the workflow
+   writes one section `## Container image`, with the image's tag and digest, at the end of the
+   Release's body: it keeps the body that is there and replaces its own section on a re-run. A
+   `body` sent after that keeps the section: read the Release's body first and put the story list
+   above it. A failed run is re-run, or the archives and the image of an existing tag backfilled,
+   with `workflow_dispatch` and `tag: v<version>`; a tag whose commit holds no `Dockerfile` gets no
+   image and no section. The image job fails, naming it, while the package is not public: its visibility is set
+   to public once, in the package's settings on GitHub, after the first push.
 6. Verify: the tag points at `main`'s commit, the tag's checks are green, the Release workflow's
    run on the tag is green, the Release exists and lists five assets (the four archives and
-   `SHA256SUMS`), an archive downloaded from it passes `sha256sum --check` against `SHA256SUMS` and
-   its `conductor --help` exits 0, and `cargo install` from the tag with `--root <scratch dir>`
-   succeeds and `cargo install --list --root <scratch dir>` names `conductor-cli v<version>`.
+   `SHA256SUMS`; the image is none), its body holds one section `## Container image` naming
+   `ghcr.io/beyond10x/conductor:<version>` and a `sha256:` digest, `docker run --rm
+   ghcr.io/beyond10x/conductor:<version> conductor --version` with no registry login prints
+   `conductor <version>`, an archive downloaded from the Release passes `sha256sum --check` against
+   `SHA256SUMS` and its `conductor --help` exits 0, and `cargo install` from the tag with `--root
+   <scratch dir>` succeeds and `cargo install --list --root <scratch dir>` names `conductor-cli
+   v<version>`.
 7. Announce: every release is announced, once step 6 holds, to the organization-memory session
    of the host (the operator names it; `ListAgents` lists it when it runs): the Release's URL,
    the tag and its commit, the assets, and the Release body's story list. When that session does
