@@ -2378,6 +2378,81 @@ fn adv_a_mailbox_need_for_conductor_itself_is_not_refused_to_its_sender() {
     );
 }
 
+/// Adversary 2, wave 51 U1. Only a `[NEED]` the loop did not relay is answered `not relayed`: a
+/// refused `[HANDOVER]` or `[REPORT]` still reads `refused:` to its sender, as on the base.
+#[test]
+fn adv2_a_refused_report_or_handover_still_reads_refused() {
+    let case = Case::new("adv2-mail-refused-verb");
+    case.spawn("alpha", FIRST);
+    case.mail("0001", "[HANDOVER alpha] context 210k\n");
+    case.tick(&[]);
+    let open = case.dispatch("alpha");
+    case.mail("0002", &format!("[REPORT alpha {open}] unblocked\n"));
+    case.tick(&[]);
+    let firsts: Vec<String> = case
+        .deliveries()
+        .iter()
+        .map(|(_, text)| text.lines().next().unwrap_or_default().to_owned())
+        .collect();
+    assert_eq!(firsts.len(), 2, "{firsts:?}");
+    for first in &firsts {
+        assert!(
+            first.starts_with("[REPORT alpha -] refused: "),
+            "a refusal reads refused: {firsts:?}"
+        );
+    }
+}
+
+/// Adversary 2, wave 51 U1. A `[NEED]` whose `<other-repo>` names `conductor` with a trailing
+/// dot is the supervisor's as `conductor:` is: no answer, nothing kept. A field of punctuation
+/// only is answered naming the field as written, not an empty name.
+#[test]
+fn adv2_a_need_for_conductor_with_a_dot_is_the_supervisor_s_and_punctuation_is_named() {
+    let case = Case::new("adv2-mail-need-dot");
+    case.spawn("alpha", FIRST);
+    case.mail(
+        "0001",
+        "[NEED alpha N-20261017-01] conductor. Activate the workspace\n",
+    );
+    case.mail(
+        "0002",
+        "[NEED alpha N-20261017-02] -- export the store id\n",
+    );
+    let (tick, said) = case.tick_said(&[]);
+    let deliveries = case.deliveries();
+    assert_eq!(deliveries.len(), 1, "{deliveries:?} {said:?}");
+    let first = deliveries[0].1.lines().next().unwrap_or_default();
+    assert!(
+        first.starts_with("[REPORT alpha -] not relayed: the need names \"--\", "),
+        "{first}"
+    );
+    assert_eq!(kept(&case), Vec::<Value>::new(), "{tick}");
+}
+
+/// Adversary 2, wave 51 U1. A repository of the instance really named `conductor` (a checkout
+/// under the checkouts root) takes the `[NEED]` that names it: it is kept for its controller's
+/// next start, and the sender is told nothing.
+#[test]
+fn adv2_a_need_for_a_checkout_named_conductor_is_kept_for_it() {
+    let case = Case::new("adv2-mail-need-checkout-conductor");
+    case.spawn("alpha", FIRST);
+    write(
+        &case.checkout("conductor").join(".git/HEAD"),
+        "ref: refs/heads/main\n",
+    );
+    case.mail(
+        "0001",
+        "[NEED alpha N-20261017-01] conductor: add a flag to message send\n",
+    );
+    let (tick, said) = case.tick_said(&[]);
+    assert!(case.deliveries().is_empty(), "{:?}", case.deliveries());
+    let named: Vec<String> = kept(&case)
+        .iter()
+        .map(|item| item["repo"].as_str().unwrap_or_default().to_owned())
+        .collect();
+    assert_eq!(named, ["conductor"], "{tick} {said:?}");
+}
+
 /// A `[DECISION-REQUEST]` is raised and, with no decider seam, escalated as class O
 /// with the options its body lists, its recommendation as the default and a deadline 48 hours
 /// out.
