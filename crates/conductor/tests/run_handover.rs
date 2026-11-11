@@ -2,9 +2,10 @@
 //! controller, by its id, and to the session that controller ran then. `<state>/run/handover.json`
 //! keeps both with the entry, and a later tick restarts only that controller's session: an entry
 //! whose repository runs another controller now, under whatever session name, is dropped; so is
-//! one whose session name a younger session holds (another id, or started after the delivery),
-//! and one that names no controller, as the binary before this story wrote it. None of them
-//! stops a session.
+//! one whose session name a younger session holds (another id, or started after the delivery).
+//! One that names no controller, as the binary before this story wrote it, stands for the
+//! session its line names while the session list names it, and is dropped otherwise. A dropped
+//! entry stops no session; the loop's own resume of a session is no start by hand.
 //!
 //! Each case is a [`Scratch`] directory: `home/`, the `HOME` the program runs with, holding the
 //! checkouts root `example-org/` with the checkout `alpha` (a `.git/HEAD`) and `~/.claude.json`
@@ -20,7 +21,8 @@
 //!
 //! The ticks are run through the library in a child of this test binary ([`child`]), with a
 //! [`Recorder`] in place of the real deliverer and a headroom read from `fake/headroom`; the
-//! controllers are spawned and stopped by hand through the built binary.
+//! controllers are spawned and stopped by hand through the built binary. One case gives the
+//! instance a token pool first ([`pool`]), in a child run too.
 
 mod common;
 mod scratch;
@@ -35,6 +37,14 @@ use anyhow::Result;
 use conductor_cli::config;
 use conductor_cli::run::{self, Headroom, Seams};
 use conductor_cli::session::{Deliverer, Delivery};
+use conductor_model::behaviour::PoolTokenStorage;
+use conductor_model::config::InstanceName;
+use conductor_model::operator::OperatorName;
+use conductor_model::primitives::{Timestamp, Uuid};
+use conductor_model::secret::SecretName;
+use conductor_model::token::{
+    PoolTokenData, PoolTokenSnapshot, PoolTokenState, Seat, TokenId, TokenState,
+};
 use scratch::Scratch;
 use serde_json::{Value, json};
 
@@ -98,6 +108,10 @@ fn child() {
     let spec: Value = serde_json::from_str(&spec).expect("the child's instructions are JSON");
     let file = PathBuf::from(std::env::var_os(config::CONFIG_VARIABLE).expect("a config file"));
     config::set_active(Some(&file)).expect("the case's config loads");
+    if spec["pool"].as_bool() == Some(true) {
+        pool();
+        std::process::exit(0);
+    }
     let fake = PathBuf::from(spec["fake"].as_str().expect("the fake directory"));
     let deliverer = Recorder { dir: fake.clone() };
     let headroom = FileHeadroom { dir: fake };
@@ -137,6 +151,41 @@ fn child() {
             std::process::exit(1);
         }
     }
+}
+
+/// Puts two tokens into the instance's pool (`story:token-pool`), in the daemon's store where a
+/// config file without a `daemon` key has it, under the case's home: a child run's work, the
+/// store being opened as the case's instance.
+fn pool() {
+    let home = PathBuf::from(std::env::var_os("HOME").expect("the case's home"));
+    let file = home.join(".b10x/conductor/conductor.sqlite");
+    fs::create_dir_all(file.parent().expect("a parent")).expect("create the store's directory");
+    let mut store = conductor_cli::store::open_url(
+        &format!("sqlite:{}", file.display()),
+        conductor_cli::daemon::TENANT,
+    )
+    .expect("open the daemon's store");
+    for id in ["0001", "0002"] {
+        PoolTokenStorage::put(
+            &mut store,
+            PoolTokenSnapshot {
+                state: PoolTokenState::Available,
+                data: PoolTokenData {
+                    token_id: TokenId(Uuid(id.to_owned())),
+                    instance: InstanceName("example-org".to_owned()),
+                    owner: OperatorName("operator".to_owned()),
+                    seat: Seat("operator@example-org.example".to_owned()),
+                    secret: SecretName(format!("claude-token/example-org/{id}")),
+                    token_state: TokenState::Ok,
+                    limited_until: None,
+                    agent: None,
+                    contributed_at: Timestamp("2026-11-08T09:00:00Z".to_owned()),
+                    actor: conductor_cli::actor::operator("operator"),
+                },
+            },
+        );
+    }
+    drop(store);
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -343,25 +392,7 @@ impl Case {
     fn tick(&self, lines: &[&str]) -> (Value, Vec<String>) {
         let program = PathBuf::from(common::conductor(self.home()).get_program());
         let spec = json!({"lines": lines, "fake": self.fake(), "program": program});
-        let output = Command::new(std::env::current_exe().expect("this test binary"))
-            .args([
-                "--exact",
-                "child",
-                "--nocapture",
-                "--test-threads",
-                "1",
-                "-q",
-            ])
-            .env("HOME", self.home())
-            .env_remove(config::INSTANCE_VARIABLE)
-            .env_remove("CLAUDE_CODE_SESSION_ID")
-            .env(config::CONFIG_VARIABLE, self.config())
-            .env("PATH", self.path())
-            .env(CHILD, spec.to_string())
-            .current_dir(self.records())
-            .stdin(Stdio::null())
-            .output()
-            .expect("the child runs");
+        let output = self.child(&spec);
         let stdout = String::from_utf8_lossy(&output.stdout);
         let summary = stdout
             .lines()
@@ -376,6 +407,41 @@ impl Case {
             (true, Some(summary)) => (summary, journal),
             _ => panic!("the child run failed: {}", describe(&output)),
         }
+    }
+
+    /// Gives the instance a pool of two tokens ([`pool`]), before its controller is spawned: the
+    /// spawn leases one of them.
+    fn pool(&self) {
+        let output = self.child(&json!({"pool": true}));
+        assert!(output.status.success(), "{}", describe(&output));
+    }
+
+    /// A child run of this test binary ([`child`]) with the instructions `spec`, the case's
+    /// home, config file and stand-ins, and a keychain file under the case's home.
+    fn child(&self, spec: &Value) -> Output {
+        Command::new(std::env::current_exe().expect("this test binary"))
+            .args([
+                "--exact",
+                "child",
+                "--nocapture",
+                "--test-threads",
+                "1",
+                "-q",
+            ])
+            .env("HOME", self.home())
+            .env_remove(config::INSTANCE_VARIABLE)
+            .env_remove("CLAUDE_CODE_SESSION_ID")
+            .env(config::CONFIG_VARIABLE, self.config())
+            .env("PATH", self.path())
+            .env(
+                conductor_cli::secret::TEST_KEYCHAIN_VARIABLE,
+                self.home().join(".test-keychain.ron"),
+            )
+            .env(CHILD, spec.to_string())
+            .current_dir(self.records())
+            .stdin(Stdio::null())
+            .output()
+            .expect("the child runs")
     }
 
     /// The events of the lines a tick over `lines` wrote, and its journal lines.
@@ -492,10 +558,17 @@ impl Case {
         write(&self.handover_file(), &asked.to_string());
     }
 
-    /// Writes a hand-over file into the checkout, newer than any delivery made before.
+    /// Writes a hand-over file into the checkout, newer than any delivery made before: it is
+    /// dated by the clock [`now`] reads, since the file system dates a write by a coarser one,
+    /// which may lie before a delivery dated a moment earlier.
     fn hand_over_written(&self) -> PathBuf {
         let file = self.checkout().join(".git/handoff/2026-11-08-alpha.md");
         write(&file, "# Hand-over\n\nNext: the store migration.\n");
+        fs::File::options()
+            .write(true)
+            .open(&file)
+            .and_then(|written| written.set_modified(SystemTime::now()))
+            .expect("date the hand-over file");
         file
     }
 }
@@ -645,41 +718,227 @@ fn a_session_started_after_the_delivery_is_never_stopped() {
     }
 }
 
-/// An entry the binary before this story wrote names no controller. After an upgrade the tick
-/// stops nothing it cannot tie to a controller id: the entry is forgotten, with one journal
-/// line, whatever its hand-over file and its age say.
+/// An entry the binary before this story wrote names no controller; its `line` names the
+/// session it measured. After an upgrade the entry stands for that session while the session
+/// list names it under the controller's session name: it is restarted at its hand-over, as
+/// before the upgrade. Tied to no such session (it is gone, or another one runs under the name)
+/// or to one that started after the delivery, the entry is forgotten with one journal line and
+/// nothing is stopped, whatever its hand-over file and its age say.
 #[test]
-fn an_entry_that_names_no_controller_stops_nothing_and_is_forgotten() {
-    let case = Case::new("no-controller");
-    let controller = case.spawn(FIRST);
-    let delivered = now() - LONG_AGO;
+fn an_entry_that_names_no_controller_stands_only_for_the_session_its_line_names() {
+    // The session that holds the name at the tick, whether the list says it started after the
+    // delivery, and what the journal says of a dropped entry; none said: the entry stands.
+    for (name, holder, younger, said) in [
+        ("no-controller-tied", Some(FIRST), false, None),
+        (
+            "no-controller-gone",
+            None,
+            false,
+            Some("names no controller"),
+        ),
+        (
+            "no-controller-other",
+            Some(SECOND),
+            false,
+            Some("names no controller"),
+        ),
+        (
+            "no-controller-younger",
+            Some(FIRST),
+            true,
+            Some("started after it was asked"),
+        ),
+    ] {
+        let case = Case::new(name);
+        let controller = case.spawn(FIRST);
+        let delivered = now() - LONG_AGO;
+        write(
+            &case.handover_file(),
+            &json!({SESSION: {
+                "repo": "alpha",
+                "delivered": delivered.to_string(),
+                "line": format!("context: alpha 230k tokens (session {FIRST_SHORT})"),
+            }})
+            .to_string(),
+        );
+        case.hand_over_written();
+        case.unlist(FIRST);
+        if let Some(holder) = holder {
+            case.list(holder, "idle", younger.then(now));
+        }
+
+        let (actions, journal) = case.actions(&[]);
+        let Some(said) = said else {
+            assert_eq!(
+                actions,
+                ["handover", "sent", "controller-restarted"],
+                "{name}: {journal:?}"
+            );
+            assert_eq!(case.stopped(), [FIRST], "{name}: the session asked");
+            assert_eq!(case.launches(), 2, "{name}: started again");
+            assert!(
+                case.asked().get(SESSION).is_none(),
+                "{name}: {}",
+                case.asked()
+            );
+            continue;
+        };
+        assert_eq!(actions, Vec::<String>::new(), "{name}: {journal:?}");
+        assert_eq!(case.stopped(), Vec::<String>::new(), "{name}: none stopped");
+        assert_eq!(case.launches(), 1, "{name}: none started");
+        assert_eq!(case.running(), Some(controller), "{name}");
+        assert!(
+            case.asked().get(SESSION).is_none(),
+            "{name}: the entry is forgotten: {}",
+            case.asked()
+        );
+        let lines: Vec<&String> = journal
+            .iter()
+            .filter(|line| line.contains(SESSION) && line.contains(said))
+            .collect();
+        assert_eq!(lines.len(), 1, "{name}: one journal line: {journal:?}");
+    }
+}
+
+/// An entry the binary before this story wrote, for a session a usage limit stopped: the list
+/// keeps that session without a `pid`, so the entry is still tied to it, and the tick with
+/// headroom spawns the controller afresh, as before the upgrade, and does not resume it.
+#[test]
+fn a_limited_session_asked_by_an_earlier_version_is_spawned_afresh() {
+    let case = Case::new("limited-earlier-version");
+    case.spawn(FIRST);
+    write(
+        &case.fake().join(format!("agents/{FIRST}.json")),
+        &json!({
+            "id": FIRST, "sessionId": FIRST, "name": SESSION, "cwd": case.checkout(),
+            "status": "blocked", "state": "blocked",
+        })
+        .to_string(),
+    );
+    write(&case.fake().join("headroom"), "no");
+    let (marked, _) = case.actions(&["usage limit: You've hit your limit; 1 sessions: ex-alpha"]);
+    assert_eq!(marked, ["usage-limit"]);
     write(
         &case.handover_file(),
         &json!({SESSION: {
             "repo": "alpha",
-            "delivered": delivered.to_string(),
+            "delivered": now().to_string(),
             "line": format!("context: alpha 230k tokens (session {FIRST_SHORT})"),
         }})
         .to_string(),
     );
-    case.hand_over_written();
-    case.list(FIRST, "idle", None);
 
+    write(&case.fake().join("headroom"), "yes");
     let (actions, journal) = case.actions(&[]);
-    assert_eq!(actions, Vec::<String>::new(), "{journal:?}");
-    assert_eq!(case.stopped(), Vec::<String>::new(), "none stopped");
-    assert_eq!(case.launches(), 1, "none started");
-    assert_eq!(case.running(), Some(controller));
+    assert_eq!(actions, ["sent", "controller-restarted"], "{journal:?}");
+    assert_eq!(case.launches(), 2, "a fresh spawn: {journal:?}");
     assert!(
-        case.asked().get(SESSION).is_none(),
-        "the entry is forgotten: {}",
-        case.asked()
+        !case
+            .claude_calls()
+            .iter()
+            .any(|call| call.starts_with("--bg --resume")),
+        "{:?}",
+        case.claude_calls()
     );
-    let said: Vec<&String> = journal
-        .iter()
-        .filter(|line| line.contains(SESSION) && line.contains("names no controller"))
-        .collect();
-    assert_eq!(said.len(), 1, "one journal line: {journal:?}");
+}
+
+/// The loop's own resume is no start by hand. `conductor leave` names the session asked for the
+/// loop (`<state>/run/tokens-withdrawn.json`), which ends it and resumes it under the same id
+/// while the hand-over is pending. The list then dates the session by the resumed process,
+/// after the delivery: the request stands and the session is restarted at its hand-over. A
+/// session the list says started after the loop's resume was started by hand: the request is
+/// dropped and the loop stops nothing more.
+#[test]
+fn the_loops_own_resume_keeps_the_request_and_a_later_start_by_hand_drops_it() {
+    for (name, by_hand) in [("own-resume", false), ("own-resume-then-by-hand", true)] {
+        let case = Case::new(name);
+        let controller = case.spawn(FIRST);
+        case.ask();
+        write(
+            &case.state().join("run/tokens-withdrawn.json"),
+            &json!([SESSION]).to_string(),
+        );
+        let resumed = now();
+        let (actions, journal) = case.actions(&[]);
+        assert_eq!(actions, ["resumed"], "{name}: {journal:?}");
+        assert_eq!(case.stopped(), [FIRST], "{name}: the loop's own end");
+        assert!(
+            case.claude_calls()
+                .iter()
+                .any(|call| call == &format!("--bg --resume {FIRST} -n")),
+            "{name}: {:?}",
+            case.claude_calls()
+        );
+        assert_eq!(
+            case.asked()[SESSION]["controller"],
+            json!(controller),
+            "{name}: the request is kept across the resume: {journal:?}"
+        );
+
+        case.hand_over_written();
+        case.list(FIRST, "idle", Some(if by_hand { now() } else { resumed }));
+        let (actions, journal) = case.actions(&[]);
+        if by_hand {
+            assert_eq!(actions, Vec::<String>::new(), "{name}: {journal:?}");
+            assert_eq!(case.stopped(), [FIRST], "{name}: none stopped by the tick");
+            assert_eq!(case.launches(), 1, "{name}: none started");
+            assert!(
+                case.asked().get(SESSION).is_none(),
+                "{name}: {}",
+                case.asked()
+            );
+        } else {
+            assert_eq!(
+                actions,
+                ["handover", "sent", "controller-restarted"],
+                "{name}: {journal:?}"
+            );
+            assert_eq!(case.stopped(), [FIRST, FIRST], "{name}: restarted");
+            assert_eq!(case.launches(), 2, "{name}: started again");
+        }
+        assert!(case.running().is_some(), "{name}: a controller runs");
+    }
+}
+
+/// The loop's other resume, on another token of the pool (`story:token-pool`): a usage limit
+/// stops the session asked while another token is Available, and the same tick resumes it under
+/// its id. The request to it is kept, and the session, dated by the resumed process, is
+/// restarted at its hand-over.
+#[test]
+fn a_resume_on_another_token_keeps_the_request_to_the_session_asked() {
+    let case = Case::new("own-resume-other-token");
+    case.pool();
+    let controller = case.spawn(FIRST);
+    case.ask();
+    // Stopped at a usage limit: the list keeps it without a pid.
+    write(
+        &case.fake().join(format!("agents/{FIRST}.json")),
+        &json!({
+            "id": FIRST, "sessionId": FIRST, "name": SESSION, "cwd": case.checkout(),
+            "status": "blocked", "state": "blocked",
+        })
+        .to_string(),
+    );
+    let resumed = now();
+    let (actions, journal) =
+        case.actions(&["usage limit: You've hit your limit; 1 sessions: ex-alpha"]);
+    assert_eq!(actions, ["usage-limit", "resumed"], "{journal:?}");
+    assert_eq!(
+        case.asked()[SESSION]["controller"],
+        json!(controller),
+        "the request is kept across the resume: {journal:?}"
+    );
+
+    case.hand_over_written();
+    case.list(FIRST, "idle", Some(resumed));
+    let (actions, journal) = case.actions(&[]);
+    assert_eq!(
+        actions,
+        ["handover", "sent", "controller-restarted"],
+        "{journal:?}"
+    );
+    assert_eq!(case.stopped(), [FIRST], "the session asked");
+    assert_eq!(case.launches(), 2, "started again");
 }
 
 /// A session a usage limit stopped is spawned afresh, not resumed, only when the hand-over was

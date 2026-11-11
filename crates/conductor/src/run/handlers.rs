@@ -285,10 +285,11 @@ fn hand_over(
 /// The request was made to one controller and to the session it ran then
 /// (`story:handover-restart-by-controller-id`), so it is dropped, with one journal line and
 /// nothing stopped, once that is no longer who holds the session name ([`superseded`]): the
-/// repository runs a controller of another id, the session list names a live session of
-/// another id under the name, or one that started after the delivery. An entry that names no
-/// controller, as the binary before that story wrote it, is tied to none and dropped the same
-/// way.
+/// repository runs a controller of another id, the session asked is not among the live
+/// sessions of the name while another is, or it started after the delivery. An entry that
+/// names no controller, as the binary before that story wrote it, stands for the session its
+/// line names while the session list names that session, and is dropped the same way
+/// otherwise.
 fn handovers(tick: &mut Tick<'_, '_>) -> Result<()> {
     let asked = read_json(&tick.dir, HANDOVER, json!({}));
     let Some(asked) = asked.as_object() else {
@@ -311,15 +312,9 @@ fn handovers(tick: &mut Tick<'_, '_>) -> Result<()> {
             forget(tick, session);
             continue;
         };
-        let delivered: u128 = entry["delivered"]
-            .as_str()
-            .and_then(|at| at.parse().ok())
-            .unwrap_or(0);
-        if let Some(why) = superseded(entry, session, &controller, delivered)? {
-            tick.note(
-                &format!("hand-over of {session}"),
-                &anyhow!("{why}; the request is dropped and nothing is stopped"),
-            );
+        let delivered = instant(&entry["delivered"]).unwrap_or(0);
+        if let Some(why) = superseded(entry, session, Some(&controller))? {
+            dropped(tick, session, &why);
             unkeep(tick, HANDOVER, session);
             continue;
         }
@@ -373,75 +368,130 @@ fn newest_handoff(checkout: &Path, since: u128) -> Option<PathBuf> {
         .map(|(_, path)| path)
 }
 
-/// Why the hand-over `entry`, kept under the session name `session` and delivered at
-/// `delivered`, is no request to who holds that name now, the repository's running controller
-/// `controller`; none when it is one (`story:handover-restart-by-controller-id`).
+/// Why the hand-over `entry`, kept under the session name `session`, is no request to who holds
+/// that name now, with `controller` the repository's running controller, if it runs one; none
+/// when it is one (`story:handover-restart-by-controller-id`).
 ///
-/// No request: an entry that names no controller, or another than `controller`, whose
-/// controller was replaced under the same session name; and one whose session name the session
-/// list ([`crate::confine::live_entry`]) gives to a live session of another id than the entry
-/// holds, or to one that started after the delivery, a session ended and started again by hand
-/// while the controller's record stayed. A name no live session holds supersedes nothing, and
-/// neither does an entry or a list that names no id or no start.
+/// The session asked is the one whose id starts with the entry's `session_id`, or, for an
+/// entry the binary before that story wrote, with the id its `line` names. The sessions of the
+/// name are read from the session list ([`crate::confine::listed`]), which is bound to no
+/// directory, so the name may be held by more than one. No request:
+///
+/// - an entry that names another controller than `controller`: its controller was replaced
+///   under the same session name;
+/// - an entry that names no controller and whose session the list does not name, live or
+///   stopped: nothing ties it to the running controller;
+/// - an entry whose session is not among the live ones of the name while another is: the
+///   session was ended and another started by hand, the controller's record staying;
+/// - an entry whose session is live and started after the delivery, the same way. A start
+///   up to the instant the loop itself resumed the session (`resumed`, [`resume`]) is the
+///   loop's own and not one by hand.
+///
+/// A live session of the name beside the one asked supersedes nothing, whichever the list
+/// prints first; neither does a name no live session holds, nor an entry or a list that names
+/// no id or no start.
 ///
 /// # Errors
 ///
 /// The session list cannot be read: nothing is told then, and so nothing stopped.
-fn superseded(
-    entry: &Value,
-    session: &str,
-    controller: &str,
-    delivered: u128,
-) -> Result<Option<String>> {
-    match entry["controller"].as_str() {
-        None => {
-            return Ok(Some(
-                "the request kept names no controller, as an earlier version wrote it".to_owned(),
-            ));
-        }
-        Some(asked) if asked != controller => {
-            return Ok(Some(format!(
-                "it was asked of the controller {asked}, and the repository's controller is \
-                 {controller} now"
-            )));
-        }
-        Some(_) => {}
+fn superseded(entry: &Value, session: &str, controller: Option<&str>) -> Result<Option<String>> {
+    let of = entry["controller"].as_str();
+    if let (Some(asked), Some(controller)) = (of, controller)
+        && asked != controller
+    {
+        return Ok(Some(format!(
+            "it was asked of the controller {asked}, and the repository's controller is \
+             {controller} now"
+        )));
     }
-    let Some(live) = crate::confine::live_entry(session)? else {
-        return Ok(None);
-    };
-    let id = live["sessionId"]
+    let asked = entry["session_id"]
         .as_str()
-        .or_else(|| live["id"].as_str())
-        .unwrap_or_default();
-    if let Some(asked) = entry["session_id"].as_str().filter(|id| !id.is_empty())
-        && !id.is_empty()
-        && !id.starts_with(asked)
-    {
+        .or_else(|| entry["line"].as_str().and_then(measured))
+        .filter(|id| !id.is_empty());
+    let id = |listed: &Value| {
+        listed["sessionId"]
+            .as_str()
+            .or_else(|| listed["id"].as_str())
+            .unwrap_or_default()
+            .to_owned()
+    };
+    let is_asked = |listed: &Value| asked.is_some_and(|asked| id(listed).starts_with(asked));
+    let listed = crate::confine::listed(session)?;
+    if of.is_none() && !listed.iter().any(&is_asked) {
+        let untied = asked.map_or_else(
+            || "its line names no session".to_owned(),
+            |asked| format!("the session list names no session {asked} under that name"),
+        );
         return Ok(Some(format!(
-            "it was asked of the session {asked}, and the session {id} holds the name now"
+            "the request kept names no controller, as an earlier version wrote it, and {untied}"
         )));
     }
+    let since = instant(&entry["delivered"])
+        .unwrap_or(0)
+        .max(instant(&entry["resumed"]).unwrap_or(0));
     // `startedAt` is in milliseconds since the epoch, the delivery in nanoseconds.
-    if live["startedAt"]
-        .as_u64()
-        .is_some_and(|started| u128::from(started) * 1_000_000 > delivered)
+    let younger = |listed: &Value| {
+        listed["startedAt"]
+            .as_u64()
+            .is_some_and(|started| u128::from(started) * 1_000_000 > since)
+    };
+    let live: Vec<&Value> = listed
+        .iter()
+        .filter(|listed| !listed["pid"].is_null())
+        .collect();
+    let started_after = |listed: &Value| {
+        format!(
+            "the session {} that holds the name now started after it was asked",
+            id(listed)
+        )
+    };
+    if let Some(own) = live.iter().copied().find(|&listed| is_asked(listed)) {
+        return Ok(younger(own).then(|| started_after(own)));
+    }
+    if let Some(asked) = asked
+        && let Some(other) = live.iter().copied().find(|&listed| !id(listed).is_empty())
     {
         return Ok(Some(format!(
-            "the session {id} that holds the name now started after it was asked"
+            "it was asked of the session {asked}, and the session {} holds the name now",
+            id(other)
         )));
     }
-    Ok(None)
+    Ok(live
+        .first()
+        .copied()
+        .filter(|_| live.iter().copied().all(&younger))
+        .map(started_after))
 }
 
-/// Whether the hand-over `entry` is a request to `repo`'s controller as the store holds it: it
-/// names a controller, and the repository runs that one or none.
-fn stands(tick: &Tick<'_, '_>, entry: &Value, repo: &str) -> bool {
-    entry["controller"].as_str().is_some_and(|asked| {
-        tick.running(repo)
-            .ok()
-            .flatten()
-            .is_none_or(|(running, _)| running == asked)
+/// An instant a kept entry holds, nanoseconds since the epoch written as a string.
+fn instant(kept: &Value) -> Option<u128> {
+    kept.as_str().and_then(|at| at.parse().ok())
+}
+
+/// Says in the journal that the hand-over asked under `session` is dropped, and `why`.
+fn dropped(tick: &Tick<'_, '_>, session: &str, why: &str) {
+    tick.note(
+        &format!("hand-over of {session}"),
+        &anyhow!("{why}; the request is dropped and nothing is stopped"),
+    );
+}
+
+/// Whether the hand-over `entry`, kept under `session`, is a request to `repo`'s controller and
+/// to the session that holds the name: nothing supersedes it ([`superseded`]), with the
+/// controller the repository runs, if it runs one. One that is none is said in the journal.
+///
+/// # Errors
+///
+/// The store or the session list cannot be read: nothing is told then.
+fn stands(tick: &Tick<'_, '_>, entry: &Value, session: &str, repo: &str) -> Result<bool> {
+    let running = tick.running(repo)?;
+    let controller = running.as_ref().map(|(controller, _)| controller.as_str());
+    Ok(match superseded(entry, session, controller)? {
+        Some(why) => {
+            dropped(tick, session, &why);
+            false
+        }
+        None => true,
     })
 }
 
@@ -483,13 +533,17 @@ fn usage_limit(tick: &mut Tick<'_, '_>, line: &str) -> Result<bool> {
 }
 
 /// `story:token-pool`: the token `name` ran on is Limited; when another token of the pool is
-/// Available the session is resumed on it now, rather than once the account has headroom.
+/// Available the session is resumed on it now, rather than once the account has headroom. A
+/// hand-over asked of it stays kept (`story:handover-restart-by-controller-id`): the session
+/// asked runs on under its id.
 fn on_limit(tick: &mut Tick<'_, '_>, name: &str, repo: &str) {
     let instance = &crate::config::active().instance;
     match crate::token::on_limit(instance, name) {
         Ok(true) if repo != "-" => match resume(tick, repo, name) {
             Ok(true) => {
-                forget(tick, name);
+                for file in [LIMITED, STALLED, RESUMED] {
+                    unkeep(tick, file, name);
+                }
                 let mut resumed = read_json(&tick.dir, RESUMED, json!({}));
                 resumed[name] = json!(nanos(SystemTime::now()).to_string());
                 if let Err(error) = write_json(&tick.dir, RESUMED, &resumed) {
@@ -581,8 +635,10 @@ fn mark(
 
 /// The sessions a usage limit marked, once [`super::Headroom`] answers yes: each resumed from its
 /// transcript (`spawn::resume`) once per stop, or restarted when a hand-over was asked of it as
-/// its repository's controller ([`stands`]); each forgotten, and one resumed kept in
-/// [`RESUMED`].
+/// its repository's controller ([`stands`]: the checks a hand-over's own restart makes, so a
+/// session started by hand after the delivery is not stopped here either); each forgotten, and
+/// one resumed kept in [`RESUMED`]. A session whose request cannot be told, the store or the
+/// session list unread, stays marked for the next tick.
 fn limited(tick: &mut Tick<'_, '_>) -> Result<()> {
     let marked = read_json(&tick.dir, LIMITED, json!({}));
     let Some(marked) = marked.as_object().filter(|marked| !marked.is_empty()) else {
@@ -594,12 +650,19 @@ fn limited(tick: &mut Tick<'_, '_>) -> Result<()> {
     let asked = read_json(&tick.dir, HANDOVER, json!({}));
     for (session, entry) in marked {
         let repo = entry["repo"].as_str().unwrap_or("-").to_owned();
+        let standing = match asked.get(session).filter(|_| repo != "-") {
+            Some(entry) => match stands(tick, entry, session, &repo) {
+                Ok(standing) => standing,
+                Err(error) => {
+                    tick.note(&format!("hand-over of {session}"), &error);
+                    continue;
+                }
+            },
+            None => false,
+        };
         let done = if repo == "-" {
             Ok(false)
-        } else if asked
-            .get(session)
-            .is_some_and(|entry| stands(tick, entry, &repo))
-        {
+        } else if standing {
             tick.restart(&repo, session, "limit over the context threshold", None)
                 .map(|()| false)
         } else {
@@ -624,6 +687,11 @@ fn limited(tick: &mut Tick<'_, '_>) -> Result<()> {
 /// Resumes `session` of `repo` from its transcript, with the controller role's launch and so on
 /// its model, and writes `resumed`; answers whether it did. Nothing when there is nothing to
 /// resume (no measurement, or a live session).
+///
+/// A hand-over asked of the session and still kept is dated `resumed`, the instant the resume
+/// returned (`story:handover-restart-by-controller-id`): the session runs on under its id in a
+/// process started after the delivery, by the loop and not by hand, so [`superseded`] takes a
+/// start up to that instant as the loop's own.
 fn resume(tick: &mut Tick<'_, '_>, repo: &str, session: &str) -> Result<bool> {
     let resumed = crate::spawn::resume(
         tick.config,
@@ -633,6 +701,16 @@ fn resume(tick: &mut Tick<'_, '_>, repo: &str, session: &str) -> Result<bool> {
         tick.seams.providers,
     )?;
     if resumed.is_some() {
+        let mut asked = read_json(&tick.dir, HANDOVER, json!({}));
+        if let Some(entry) = asked.get_mut(session).and_then(Value::as_object_mut) {
+            entry.insert(
+                "resumed".to_owned(),
+                json!(nanos(SystemTime::now()).to_string()),
+            );
+            if let Err(error) = write_json(&tick.dir, HANDOVER, &asked) {
+                tick.note(HANDOVER, &error);
+            }
+        }
         let mut written = tick.line(DispatchLogEvent::Resumed, repo)?;
         written.session = Some(session.to_owned());
         tick.write(&written)?;
