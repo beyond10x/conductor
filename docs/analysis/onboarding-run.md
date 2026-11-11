@@ -259,3 +259,94 @@ Open, not fixed in this release:
   asks of both runs needs steps 9 and 10 run, which a run on a shared host does not do;
 - `conductor setup` prints doctor's rows without the box row, and its verdict does not name the
   box, while step 12 of `SETUP.md` says it prints doctor's rows. Step 13 runs doctor, which does.
+
+## v1.3.0
+
+**Full runs, on the release branch before its tag** (`release/1.3.0` at `e1c704a96` for the first
+round, at `4f48aab54`, the fix below, for the second), done as the v1.2.0 runs were: a fresh
+Claude Code session (`claude -p`, resumed for the answer) in a scratch home with no settings,
+plugins or forge logins, in a scratch repository whose `origin` names a repository that does not
+exist, on GitHub or on a self-hosted GitLab (`gitlab.example.com`), with a committed
+`aep.project/1` store, and a scratch temporary directory. No forge repository was created. The
+release archive exists only once the tag is pushed, so the binary built from the release branch
+(`cargo build --release -p conductor-cli`, from an empty build target) was put at
+`~/.local/bin/conductor`, and the prompt said to read the repository's files from the release
+branch. Both rounds ran the same binary: the fix between them changed `SETUP.md` and a test only.
+The person's answer: the migration approved, the login later, no daemon started on the host.
+
+The runs repeat because the release changes what onboarding runs: the forge route, written by
+`conductor setup --apply` from the origins of the checkouts under the checkouts root and read in
+a step of its own (`SETUP.md` steps 6 and 11), step 9's secret slot, setup ending with doctor's
+lines of the config file and its verdict (step 12), doctor's `forge route <instance>:` and
+`guard <role>:` lines, the same in the README and the getting-started page, and `conductor init`.
+
+| run | origin | `conductor setup` ended | `conductor doctor` ended |
+|---|---|---|---|
+| 1 | GitHub | not ready: `gh` not logged in to github.com, and `box widgets (placement.writable-root-missing)` | the same |
+| 2 | self-hosted GitLab | not ready: `glab` not logged in to gitlab.example.com, and `box widgets (placement.writable-root-missing)` | the same |
+
+Two rounds ran. In the second, each session read `SETUP.md` whole from the release branch,
+installed `aep` 0.79.1, `ess` 0.90.0, `worktree` 0.18.1, `substrate-daemon` 0.20.0 and
+`b10x-gates` from their release archives, each checked against its `SHA256SUMS`, and ran
+`conductor setup --apply` before it asked anything. Setup wrote the config file, the records, the
+trust and the worktree workspace with the profile it wrote, and the instance's route:
+
+- GitHub: `forge route widgets: direct, which --apply wrote: B10X_GATES_POLICY names no readable
+  policy file, and the bot route writes under a policy only`;
+- GitLab: `forge route widgets: direct, which --apply wrote: the origin is on gitlab.example.com,
+  and the bot route writes to github.com only`.
+
+Each asked only for the forge login and the migration, and named steps 9 and 10 as not started.
+After the answer each ran `aep plan store migrate git --verify` in its checkout and started
+nothing. The store is `aep.project/5`, left uncommitted in the scratch repository; the scratch
+home's worktree config holds the one profile `conductor-widgets`; no process of a run was left;
+the host's own conductor config, `worktree` config and Claude Code settings were not changed.
+
+What setup and doctor print, read in each scratch home after the sessions ended:
+
+- **The same verdict.** Setup's last line is doctor's verdict, the store's reason added while it
+  is old: `not ready: gh (not logged in to github.com), box widgets
+  (placement.writable-root-missing)` in the GitHub home, the same with `glab` and
+  gitlab.example.com in the GitLab one. Setup now prints the box row, which v1.2.0 left open.
+- **The route and the guard.** Both print `forge route widgets: direct`, then
+  `guard conductor: not checked (the origin of <records> names no repository)` and
+  `guard controller: allowed`. The records `conductor init` writes have no `origin`, so the
+  guard has no forge write of the conductor to judge; the line adds nothing to the verdict, and
+  no session asked about it.
+- **Another forge under the root**, read without a session in a scratch home whose checkouts
+  root holds a GitHub checkout and a GitLab one, with `B10X_GATES_POLICY` naming a readable file:
+  `conductor setup` in the GitHub checkout prints `forge route widgets: direct, which --apply
+  writes: checkouts under <root> not on github.com: gadgets on gitlab.example.com; the bot route
+  writes to github.com only`; with the GitLab checkout removed, `forge route widgets: gates,
+  policy <file>, which --apply writes: the origin is on github.com and B10X_GATES_POLICY names
+  this policy file`.
+
+Gaps found in the first round (fixed on the release branch, and both runs repeated):
+
+- **The migration ran in a worktree.** The GitLab session read conductor's own `AGENTS.md`,
+  took its rule for changes to conductor's repository, a managed worktree for each change, for
+  the repository it set up, and ran `aep plan store migrate git --verify` in a worktree it
+  created. The checkout stayed on `aep.project/1`, and setup in it ended on `store (old)` as
+  well. Step 5 now says the migration runs in the repository's own checkout, not in a worktree
+  of it, since doctor and setup read the store there.
+- **The steps that ask nothing waited for the answer.** The GitHub session asked for the
+  migration at step 5 and stopped, leaving steps 6 to 8 for the person's answer. Step 5 now says
+  that steps 6 to 8 need no migrated store and go on while the person decides. In the second
+  round both sessions ran `conductor setup --apply` before they asked.
+
+`tests/docs_setup.rs` holds both sentences of step 5.
+
+Not a gap: the GitHub session of the second round wrote its install script and downloads into
+a scratch directory above its run's own, outside the scratch home, while installing into the
+scratch home's `~/.local/bin`; the files were moved into the run's directory afterwards.
+
+Not run: steps 9 and 10, as in v1.2.0.
+
+Open, not fixed in this release:
+
+- `AGENTS.md`, Releases, step 3 still asks that both runs end `ready`. A run that starts no
+  daemon ends on the box row as well as the logins, in setup now as in doctor;
+- three of the four sessions installed `substrate-daemon` only once `conductor setup --apply`
+  printed its `to install:` line, not at step 4: doctor prints `substrate-daemon: not needed`
+  before any config names `placement: systemd`, and step 4's sentence to install it even then
+  was passed over. None asked about it, and each run ended with it installed.
