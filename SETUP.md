@@ -131,13 +131,16 @@ to fill in, and each step says where they come from. `<target>` is the build of 
    worktree workspace** of the checkouts root. `conductor setup --apply` activates it with a
    profile it writes (step 11 says how); it needs no profile of the person's and asks nothing,
    so run it here, before the steps that may wait for the person.
-   - Check: `conductor doctor`; it prints worktree workspace: <root> activated.
+   - Check: `conductor doctor`; it prints worktree workspace: <root> activated. Before step 9
+     it also prints a box <name>: row that names a refusal (a writable root that does not exist
+     yet, or placement.substrate-unreachable), ends with not ready: box <name> (<refusal>) and
+     exits 1: read the printed line here, not the exit status. Step 9 clears the row.
    - Fix: `conductor trust --instance <name>`, then `conductor setup --apply`
    - Hands: none.
 
 9. **Start the substrate daemon.** With `placement: systemd`, conductord runs the instance's
    runtime in a box it asks the local `substrate-daemon` for. Conductord does not start
-   `substrate-daemon`, and doctor checks only its version. It runs inside a delegated cgroup
+   `substrate-daemon`; doctor checks its version, and that it answers and serves the box (its box <name>: row). It runs inside a delegated cgroup
    subtree carrying cpu, memory and pids, passed as `--cgroup-root`
    (https://github.com/beyond10x/substrate#serving-exec), and serves the socket conductord opens,
    `$XDG_RUNTIME_DIR/substrate/daemon.sock`. `<state>` is the instance's `state` value in

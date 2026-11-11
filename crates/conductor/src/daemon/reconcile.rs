@@ -12,7 +12,12 @@
 //!   rollback put there ([`super::upgrade`]);
 //! - rolls an upgrading instance whose runtime stopped running back to its previous binary
 //!   ([`Daemon::settle`]) rather than starting it again on the new one;
-//! - leaves it alone when it matches, and records nothing.
+//! - leaves it alone when it matches, and records nothing;
+//! - does not start again at once a runtime that stopped running before it ran [`RAN_BOUND`]
+//!   (`story:box-crash-loop-reads-failed`): found stopped at a look less than [`START_BOUND`]
+//!   and one look after its start it is a failed start, recorded as a `Start` that was
+//!   `Refused` with what the runtime wrote to its log since that start; either way its instance
+//!   is `Unreachable` and its next start waits [`retry_after`] the failed starts in a row.
 //!
 //! and stops each runtime it started whose instance the config no longer names; then it keeps the
 //! host roles `globals.roles` lists running and stops one it no longer lists ([`host_roles`],
@@ -59,6 +64,219 @@ pub const BINARIES_FILE: &str = "binaries.json";
 /// The box of each instance the daemon started in a substrate box, beside [`RUNTIMES_FILE`]: one
 /// [`crate::placement::OpenedBox`] per instance, by name (`story:placement-substrate-local`).
 pub const BOXES_FILE: &str = "boxes.json";
+
+/// A runtime that no longer runs this long after its start did not start: a failed start
+/// (`story:box-crash-loop-reads-failed`). The daemon looks every tick, so the look that finds
+/// it is less than this and one tick after the start ([`start_window`]).
+pub const START_BOUND: Duration = Duration::from_secs(10);
+
+/// A runtime that ran this long ends the row of its failed starts: stopped later, it is started
+/// again at once; stopped sooner, its next start waits [`retry_after`] and the row goes on.
+pub const RAN_BOUND: Duration = Duration::from_secs(60);
+
+/// How long after a start a look that finds the runtime stopped finds a failed start:
+/// [`START_BOUND`] and the one tick the daemon looks at.
+fn start_window() -> Duration {
+    START_BOUND + super::TICK
+}
+
+/// How long after a start a look that finds the runtime stopped finds one that ran
+/// [`RAN_BOUND`]: that and the one tick the daemon looks at. A look sooner may find a runtime
+/// that stopped just short of it.
+fn ran_window() -> Duration {
+    RAN_BOUND + super::TICK
+}
+
+/// The longest wait before a runtime whose starts fail is started again ([`retry_after`]).
+pub const RETRY_CAP: Duration = Duration::from_secs(300);
+
+/// The most of a runtime's log a failed start's record carries: its last bytes and lines.
+const SAID_BYTES: u64 = 4096;
+const SAID_LINES: usize = 8;
+
+/// How long a runtime waits for its next start after `failures` failed starts in a row:
+/// [`START_BOUND`], twice as long after each further one, at most [`RETRY_CAP`].
+#[must_use]
+pub fn retry_after(failures: u32) -> Duration {
+    let doubled = 1_u32
+        .checked_shl(failures.saturating_sub(1))
+        .unwrap_or(u32::MAX);
+    START_BOUND.saturating_mul(doubled).min(RETRY_CAP)
+}
+
+/// The last start of one runtime by this process; a restarted daemon knows none, and starts a
+/// runtime it finds stopped at once.
+#[derive(Debug, Clone)]
+struct Attempt {
+    /// When it was started.
+    started: Instant,
+    /// How long its log was then: what follows is this start's.
+    log_from: u64,
+    /// The failed starts in a row, this one included once it failed.
+    failures: u32,
+    /// When it is started again, once it failed.
+    retry_at: Option<Instant>,
+}
+
+/// The log of `instance`'s runtime in a box ([`crate::placement::RUNTIME_LOG`]).
+fn runtime_log(instance: &Instance) -> PathBuf {
+    crate::placement::sessions_dir(Path::new(&instance.state)).join(crate::placement::RUNTIME_LOG)
+}
+
+/// A runtime's log as the daemon may read it.
+enum Log {
+    /// There is none.
+    Absent,
+    /// A regular file, open.
+    File(fs::File),
+    /// Something else is in its place: a link, a pipe, a directory, a link for its directory.
+    Irregular,
+}
+
+/// Opens `log` to read it. The box writes the directory it is in, and the daemon runs in no
+/// box: no link is followed, for the log or for its directory, nothing that is no regular file
+/// is read, and no open waits (a named pipe without a writer).
+fn open_log(log: &Path) -> Log {
+    use nix::errno::Errno;
+    use nix::fcntl::{OFlag, open, openat};
+    use nix::sys::stat::Mode;
+    let (Some(directory), Some(name)) = (log.parent(), log.file_name()) else {
+        return Log::Irregular;
+    };
+    let held = match open(
+        directory,
+        OFlag::O_RDONLY | OFlag::O_DIRECTORY | OFlag::O_NOFOLLOW | OFlag::O_CLOEXEC,
+        Mode::empty(),
+    ) {
+        Ok(held) => held,
+        Err(Errno::ENOENT) => return Log::Absent,
+        Err(_) => return Log::Irregular,
+    };
+    let opened = match openat(
+        &held,
+        name,
+        OFlag::O_RDONLY | OFlag::O_NOFOLLOW | OFlag::O_NONBLOCK | OFlag::O_CLOEXEC,
+        Mode::empty(),
+    ) {
+        Ok(opened) => fs::File::from(opened),
+        Err(Errno::ENOENT) => return Log::Absent,
+        Err(_) => return Log::Irregular,
+    };
+    match opened.metadata() {
+        Ok(metadata) if metadata.is_file() => Log::File(opened),
+        _ => Log::Irregular,
+    }
+}
+
+/// How long `log` is: where a start's own output begins. Nothing when it is no regular file.
+fn log_len(log: &Path) -> u64 {
+    match open_log(log) {
+        Log::File(file) => file.metadata().map_or(0, |metadata| metadata.len()),
+        Log::Absent | Log::Irregular => 0,
+    }
+}
+
+/// What a failed start's record says of `log` from the byte `from` on, as one line: its last
+/// [`SAID_LINES`] lines that are not empty, of its last [`SAID_BYTES`] bytes, joined by ` | `,
+/// each [`printable`]. A log shorter than `from` was replaced, so all of it counts. A log that
+/// is no regular file is named as that and none of it is read ([`open_log`]).
+fn runtime_said(log: &Path, from: u64) -> String {
+    use std::io::{Read as _, Seek as _, SeekFrom};
+    let nothing = || format!("{} holds nothing of this start", log.display());
+    let mut file = match open_log(log) {
+        Log::File(file) => file,
+        Log::Absent => return nothing(),
+        Log::Irregular => {
+            return format!(
+                "{} is no regular file, nothing of it is read",
+                log.display()
+            );
+        }
+    };
+    let mut bytes = Vec::new();
+    let read = file.metadata().and_then(|metadata| {
+        let len = metadata.len();
+        let from = if from > len { 0 } else { from };
+        file.seek(SeekFrom::Start(from.max(len.saturating_sub(SAID_BYTES))))?;
+        file.take(SAID_BYTES).read_to_end(&mut bytes)
+    });
+    if read.is_err() {
+        return nothing();
+    }
+    let text = String::from_utf8_lossy(&bytes);
+    let lines: Vec<String> = text
+        .lines()
+        .map(|line| printable(line.trim()))
+        .filter(|line| !line.is_empty())
+        .collect();
+    let kept = &lines[lines.len().saturating_sub(SAID_LINES)..];
+    if kept.is_empty() {
+        return nothing();
+    }
+    // A replaced byte is three in the record: the bound holds for what enters it.
+    let said = kept.join(" | ");
+    let mut from = said.len().saturating_sub(SAID_BYTES as usize);
+    while !said.is_char_boundary(from) {
+        from += 1;
+    }
+    said[from..].to_owned()
+}
+
+/// Whether `character` reorders or breaks the one line of a record where it is shown: a
+/// bidirectional mark, embedding, override or isolate, or the line or paragraph separator.
+fn reorders(character: char) -> bool {
+    matches!(
+        character,
+        '\u{61c}'
+            | '\u{200e}'
+            | '\u{200f}'
+            | '\u{2028}'
+            | '\u{2029}'
+            | '\u{202a}'..='\u{202e}'
+            | '\u{2066}'..='\u{2069}'
+    )
+}
+
+/// `line` with nothing a terminal acts on: each escape sequence (CSI to its final byte, OSC to
+/// its BEL or `ESC \`, else `ESC` and the character after it) and each other control character
+/// (C0 but the tab, DEL, C1) and each character that [`reorders`] is one U+FFFD. The text goes to the record and from there to
+/// conductord's output.
+fn printable(line: &str) -> String {
+    const REPLACED: char = char::REPLACEMENT_CHARACTER;
+    let mut out = String::with_capacity(line.len());
+    let mut rest = line.chars().peekable();
+    while let Some(character) = rest.next() {
+        if character == '\u{1b}' {
+            match rest.next() {
+                Some('[') => {
+                    for inner in rest.by_ref() {
+                        if ('\u{40}'..='\u{7e}').contains(&inner) {
+                            break;
+                        }
+                    }
+                }
+                Some(']') => {
+                    while let Some(inner) = rest.next() {
+                        if inner == '\u{7}' {
+                            break;
+                        }
+                        if inner == '\u{1b}' {
+                            rest.next_if_eq(&'\\');
+                            break;
+                        }
+                    }
+                }
+                _ => {}
+            }
+            out.push(REPLACED);
+        } else if (character.is_control() && character != '\t') || reorders(character) {
+            out.push(REPLACED);
+        } else {
+            out.push(character);
+        }
+    }
+    out
+}
 
 /// The unit [`Started`] names for a runtime in a substrate box: `substrate:<session>`.
 #[must_use]
@@ -208,6 +426,10 @@ pub struct Daemon<U: Units> {
     /// Each host role the daemon started, by role, and whether its unit ran at the last look
     /// (`story:host-roles-by-daemon`).
     hosts: BTreeMap<String, bool>,
+    /// The last start of each runtime this process started, by instance.
+    attempts: BTreeMap<String, Attempt>,
+    /// When the daemon last looked ([`Daemon::due`], [`Daemon::pass`]).
+    looked: Option<Instant>,
     last_pass: Option<Instant>,
 }
 
@@ -258,6 +480,8 @@ impl<U: Units> Daemon<U> {
             running: BTreeMap::new(),
             pins,
             hosts: BTreeMap::new(),
+            attempts: BTreeMap::new(),
+            looked: None,
             last_pass: None,
         })
     }
@@ -325,7 +549,8 @@ impl<U: Units> Daemon<U> {
     }
 
     /// Why a pass is due at `now`, if one is: the first tick; the config file's text changed;
-    /// a runtime the daemon started stopped running; or a cadence passed since the last pass.
+    /// a runtime the daemon started stopped running, or one whose start failed has waited its
+    /// time ([`retry_after`]); or a cadence passed since the last pass.
     /// It notes, for [`Daemon::rows`], which runtimes run.
     ///
     /// # Errors
@@ -333,13 +558,17 @@ impl<U: Units> Daemon<U> {
     /// The service manager cannot be asked.
     pub fn due(&mut self, now: Instant) -> Result<Option<ReconcileReason>> {
         let lost = self.observe()?;
+        self.looked = Some(now);
         let Some(last) = self.last_pass else {
             return Ok(Some(ReconcileReason::Cadence));
         };
         if fs::read_to_string(&self.config_file).ok().as_deref() != Some(self.text.as_str()) {
             return Ok(Some(ReconcileReason::ConfigChange));
         }
-        if lost {
+        let retry = self.attempts.iter().any(|(name, attempt)| {
+            attempt.retry_at.is_some_and(|at| now >= at) && self.started.contains_key(name)
+        });
+        if lost || retry {
             return Ok(Some(ReconcileReason::LostRuntime));
         }
         Ok((now.saturating_duration_since(last) >= self.cadence())
@@ -654,6 +883,7 @@ impl<U: Units> Daemon<U> {
         self.text = text;
         self.config = config;
         self.last_pass = Some(now);
+        self.looked = Some(now);
         let at = crate::records::now()?;
         self.pool()
             .prepare()
@@ -672,6 +902,7 @@ impl<U: Units> Daemon<U> {
                 token: None,
             };
             let held = self.started.get(&name).cloned();
+            let log_from = log_len(&runtime_log(instance));
             let running = match &held {
                 Some(held) => match self.look(&name, &held.unit)? {
                     Some(running) => running,
@@ -704,6 +935,14 @@ impl<U: Units> Daemon<U> {
                     (ReconcileAction::Restart, reason, outcome)
                 }
                 held => {
+                    // A start that failed is recorded once and waits; nothing starts meanwhile.
+                    if held.is_some()
+                        && let Some(failed) = self.failed_start(instance, reason, now, &at)?
+                    {
+                        done.extend(failed);
+                        self.running.insert(name, false);
+                        continue;
+                    }
                     let why = if held.is_some() {
                         ReconcileReason::LostRuntime
                     } else {
@@ -734,6 +973,22 @@ impl<U: Units> Daemon<U> {
             });
             let succeeded = outcome.is_ok();
             if succeeded {
+                let failures = match action {
+                    ReconcileAction::Start => self
+                        .attempts
+                        .get(&name)
+                        .map_or(0, |attempt| attempt.failures),
+                    _ => 0,
+                };
+                self.attempts.insert(
+                    name.clone(),
+                    Attempt {
+                        started: now,
+                        log_from,
+                        failures,
+                        retry_at: None,
+                    },
+                );
                 self.started.insert(name.clone(), wanted);
                 self.pins.entry(name.clone()).or_insert_with(|| Pinned {
                     desired,
@@ -742,6 +997,7 @@ impl<U: Units> Daemon<U> {
                 });
             } else {
                 self.started.remove(&name);
+                self.attempts.remove(&name);
             }
             self.running.insert(name.clone(), succeeded);
             done.push(self.record(&name, action, why, outcome, &at)?);
@@ -754,12 +1010,20 @@ impl<U: Units> Daemon<U> {
             .collect();
         self.pins
             .retain(|name, _| instances.iter().any(|instance| &instance.name.0 == name));
+        self.attempts
+            .retain(|name, _| instances.iter().any(|instance| &instance.name.0 == name));
         for name in gone {
             self.running.remove(&name);
             let Some(held) = self.started.remove(&name) else {
                 continue;
             };
-            if self.runs(&name, &held.unit)? {
+            // A runtime that stopped leaves its box open while it waits for its next start:
+            // closed here too, its leases, its `boxes.json` entry and its slot released.
+            let dead = self
+                .boxes
+                .get(&name)
+                .is_some_and(|opened| boxed_unit(opened) == held.unit);
+            if self.runs(&name, &held.unit)? || dead {
                 let outcome = self.stop_runtime(&name, &held.unit);
                 done.push(self.record(&name, ReconcileAction::Stop, reason, outcome, &at)?);
             }
@@ -767,6 +1031,90 @@ impl<U: Units> Daemon<U> {
         done.extend(self.keep_host_roles(reason)?);
         self.save()?;
         Ok(done)
+    }
+
+    /// Whether the runtime of `instance`, found stopped at `now`, is not to be started in this
+    /// pass (`story:box-crash-loop-reads-failed`). `None`: start it. `Some`: it waits; the
+    /// first pass that finds it records why and answers that.
+    ///
+    /// A start failed when the look that finds the runtime stopped is less than
+    /// [`start_window`] after it. It is recorded as a `Start` for `LostRuntime` that was
+    /// `Refused`, the detail what the runtime in a box wrote to its log since that start
+    /// ([`runtime_said`]); a runtime in a unit has no such log, its unit's journal holds what
+    /// it said. A runtime found stopped later that ran less than [`RAN_BOUND`] is recorded the
+    /// same way as one that stopped short of it. Both count in the row of failed starts: the
+    /// next start is [`retry_after`] that row away, and the instance reads `Unreachable` until
+    /// then. A pass for a changed config file or an operator's command ends the wait: the cause
+    /// may be gone. A runtime that ran [`RAN_BOUND`] ends the row and is started at once.
+    fn failed_start(
+        &mut self,
+        instance: &Instance,
+        reason: ReconcileReason,
+        now: Instant,
+        at: &conductor_model::primitives::Timestamp,
+    ) -> Result<Option<Option<Done>>> {
+        let name = &instance.name.0;
+        let asked = matches!(
+            reason,
+            ReconcileReason::ConfigChange | ReconcileReason::OperatorCommand
+        );
+        let Some(attempt) = self.attempts.get_mut(name) else {
+            return Ok(None);
+        };
+        if let Some(retry_at) = attempt.retry_at {
+            return Ok((now < retry_at && !asked).then_some(None));
+        }
+        let ran = now.saturating_duration_since(attempt.started);
+        if ran >= ran_window() {
+            attempt.failures = 0;
+            return Ok(None);
+        }
+        attempt.failures = attempt.failures.saturating_add(1);
+        let wait = if asked {
+            Duration::ZERO
+        } else {
+            retry_after(attempt.failures)
+        };
+        attempt.retry_at = Some(now + wait);
+        let (failures, from) = (attempt.failures, attempt.log_from);
+        let said =
+            crate::placement::boxed(instance).then(|| runtime_said(&runtime_log(instance), from));
+        let how = if ran < start_window() {
+            format!("exited within {} s of its start", START_BOUND.as_secs())
+        } else {
+            format!(
+                "was found stopped {} s after its start, not known to have run the {} s that end \
+                 a row of failed starts",
+                ran.as_secs(),
+                RAN_BOUND.as_secs()
+            )
+        };
+        let failed = anyhow!(
+            "the runtime of {name} {how} (failed start {failures} in a row, the next start in \
+             {} s){}",
+            wait.as_secs(),
+            said.map(|said| format!(": {said}")).unwrap_or_default()
+        );
+        self.record(
+            name,
+            ReconcileAction::Start,
+            ReconcileReason::LostRuntime,
+            Err(failed),
+            at,
+        )
+        .map(|done| Some(Some(done)))
+    }
+
+    /// Whether the newest start of `name` follows a failed one and was not yet seen to hold:
+    /// the daemon's last look was less than [`start_window`] after it.
+    fn unproven(&self, name: &str) -> bool {
+        self.attempts.get(name).is_some_and(|attempt| {
+            attempt.failures > 0
+                && attempt.retry_at.is_none()
+                && self.looked.is_none_or(|looked| {
+                    looked.saturating_duration_since(attempt.started) < start_window()
+                })
+        })
     }
 
     /// Whether the runtime of `name`, started as `unit`, runs: its session in its substrate box
@@ -1078,7 +1426,9 @@ impl<U: Units> Daemon<U> {
 
     /// The rows of `GET /v1/instances` (`conductor.instance.Instances`): every instance of the
     /// config with its placement and roles, and from what runs its state (`Running`, `Stopped`
-    /// when the daemon started none, `Unreachable` when the one it started stopped, `Upgrading`
+    /// when the daemon started none, `Unreachable` when the one it started stopped, so also
+    /// while one whose start failed waits for its next start and until the start after it held
+    /// the start bound ([`Daemon::unproven`]), `Upgrading`
     /// while an upgrade waits for its runtime to answer), the version of the binary its runtime
     /// runs, and when the daemon last saw it running.
     #[must_use]
@@ -1096,7 +1446,10 @@ impl<U: Units> Daemon<U> {
                 let state = match (started, self.running.get(name)) {
                     (None, _) => InstanceState::Stopped,
                     (Some(_), Some(false)) => InstanceState::Unreachable,
+                    // An upgrade under way reads as that until it settled, whatever came before.
                     (Some(_), _) if upgrading => InstanceState::Upgrading,
+                    // The start after a failed one has not held the start bound yet.
+                    (Some(_), _) if self.unproven(name) => InstanceState::Unreachable,
                     (Some(_), _) => InstanceState::Running,
                 };
                 json!({

@@ -629,3 +629,51 @@ fn instance_upgrade_of_one_instance_reports_it_upgraded() {
     assert_eq!(*posted.lock().expect("posted"), ["beta"]);
     assert!(stdout.contains("beta: upgraded to 1.1.0"), "{stdout}");
 }
+
+/// The second adversary pass on `story:box-crash-loop-reads-failed`: the `Unreachable` a start
+/// after a failed one reads for 12 s, against an upgrade asked for in those 12 s.
+mod adversary2 {
+    use super::*;
+
+    /// `conductor instance upgrade` waits while the row reads `Upgrading` and takes any other
+    /// state as the upgrade's end (`wait_upgraded`). An instance that upgrades reads `Upgrading`
+    /// also when the start before the upgrade followed a failed one.
+    #[test]
+    fn an_instance_upgraded_just_after_a_failed_start_reads_upgrading_until_it_settles() {
+        let case = Case::new("adv2-unproven");
+        case.config("{port: 7300}", &["alpha"]);
+        let mut daemon = case.daemon(Release::default());
+        let start = Instant::now();
+        let secs = Duration::from_secs;
+
+        // The first start fails; the next one, 10 s later, holds.
+        daemon.units.running.clear();
+        let done = daemon.tick(start + secs(2)).expect("tick");
+        assert_eq!(done.len(), 1, "{done:?}");
+        assert_eq!(done[0].result, ReconcileResult::Refused, "{done:?}");
+        let done = daemon.tick(start + secs(14)).expect("tick");
+        assert_eq!(done.len(), 1, "{done:?}");
+        assert_eq!(done[0].result, ReconcileResult::Succeeded, "{done:?}");
+        assert!(daemon.tick(start + secs(16)).expect("tick").is_empty());
+
+        // The upgraded runtime runs and does not answer yet: the upgrade has not settled.
+        daemon.units.mute.insert(unit_name("alpha"));
+        let upgraded = daemon
+            .upgrade("alpha", "v1.1.0", &operator(), SystemTime::now())
+            .expect("the upgrade");
+        assert_eq!(
+            upgraded,
+            Upgraded::Upgrading {
+                version: "1.1.0".to_owned()
+            }
+        );
+        assert!(daemon.tick(start + secs(18)).expect("tick").is_empty());
+        let rows = daemon.rows();
+        assert_eq!(row(&rows, "alpha")["binary_version"], "1.1.0");
+        assert_eq!(
+            row(&rows, "alpha")["state"],
+            "Upgrading",
+            "the upgrade has not settled, and its waiter reads any other state as its end"
+        );
+    }
+}

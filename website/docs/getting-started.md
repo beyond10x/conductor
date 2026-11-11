@@ -143,7 +143,11 @@ instances[0].state: ~/.b10x/conductor/home/state
 instances[0].cache: ~/.cache/b10x/conductor/home
 ```
 
-Run `conductor doctor` again: it now needs `substrate-daemon`, at its pin 0.20.0.
+Run `conductor doctor` again: it now needs `substrate-daemon`, at its pin 0.20.0. It also prints
+a `box <instance>:` row that names a refusal (a writable root that does not exist yet, or
+`placement.substrate-unreachable`), ends with `not ready: box <instance> (<refusal>)` and exits 1.
+That is expected here: step 4 writes the records directory and step 5 starts the substrate
+daemon, after which the row reads `served by the substrate daemon`.
 
 ## 4. Write the records and trust the checkouts
 
@@ -174,8 +178,8 @@ tar -xzf "$archive"
 install -m 755 "substrate-daemon-$v-$target/substrate-daemon" ~/.local/bin/
 ```
 
-conductord does not start `substrate-daemon`, and doctor checks only its version. You start it
-and keep it running:
+conductord does not start `substrate-daemon`. Doctor checks its version and, with a `box <instance>:` row,
+that it answers and serves the box. You start it and keep it running:
 
 - inside a delegated cgroup subtree carrying `cpu`, `memory` and `pids`, the subtree passed as
   `--cgroup-root`. The `systemd` adapter needs it, and substrate's

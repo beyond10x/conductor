@@ -378,6 +378,9 @@ fn a_runtime_that_stopped_answering_is_started_again() {
     daemon.pass(ReconcileReason::Cadence, now).expect("pass");
     assert_eq!(daemon.due(now).expect("due"), None);
     daemon.units.running.clear();
+    // It ran past the start bound: a lost runtime, no failed start
+    // (`story:box-crash-loop-reads-failed`).
+    let now = now + conductor_cli::daemon::reconcile::RAN_BOUND + std::time::Duration::from_secs(2);
     assert_eq!(
         daemon.due(now).expect("due"),
         Some(ReconcileReason::LostRuntime)
@@ -390,6 +393,7 @@ fn a_runtime_that_stopped_answering_is_started_again() {
         [("alpha".to_owned(), ReconcileAction::Start)]
     );
     assert_eq!(done[0].reason, ReconcileReason::LostRuntime);
+    assert_eq!(done[0].result, ReconcileResult::Succeeded, "{done:?}");
     assert_eq!(daemon.due(now).expect("due"), None);
 }
 
@@ -698,4 +702,63 @@ fn reconciliations_land_in_the_shared_database_under_the_daemons_tenant() {
         ReconciliationStorage::list(&runtime).is_empty(),
         "the daemon's records are in its own tenant, not the instance's"
     );
+}
+
+// ---------------------------------------------------------------------------------------------
+// Adversary pass 1 on story:box-crash-loop-reads-failed (uncommitted)
+// ---------------------------------------------------------------------------------------------
+
+mod adversary {
+    use super::*;
+
+    /// Mutant: the `boxed` branch of `failed_start` and the failed start of a runtime in a
+    /// unit, which no case of the unit holds: it is recorded as `Refused` without a log's
+    /// text, reads `Unreachable`, and is not started again before its wait is over.
+    #[test]
+    fn a_runtime_in_a_unit_that_stops_within_the_start_bound_is_a_failed_start() {
+        let case = Case::new("adv-unit-failed");
+        case.config("{port: 7300}", &[("alpha", "box-a")]);
+        let mut daemon = case.daemon(Fake::default());
+        let start = Instant::now();
+        daemon.pass(ReconcileReason::Cadence, start).expect("pass");
+        let starts = |daemon: &Daemon<Fake>| {
+            daemon
+                .units
+                .calls
+                .iter()
+                .filter(|call| call.starts_with("start "))
+                .count()
+        };
+        assert_eq!(starts(&daemon), 1);
+        daemon.units.running.clear();
+        let at = start + Duration::from_secs(2);
+        assert_eq!(
+            daemon.due(at).expect("due"),
+            Some(ReconcileReason::LostRuntime)
+        );
+        let done = daemon.pass(ReconcileReason::LostRuntime, at).expect("pass");
+        assert_eq!(done.len(), 1, "{done:?}");
+        assert_eq!(done[0].result, ReconcileResult::Refused, "{done:?}");
+        assert_eq!(
+            done[0].detail.as_deref(),
+            Some(
+                "the runtime of alpha exited within 10 s of its start (failed start 1 in a row, \
+                 the next start in 10 s)"
+            )
+        );
+        assert_eq!(starts(&daemon), 1, "nothing is started in the same pass");
+        assert_eq!(daemon.rows()[0]["state"], "Unreachable");
+        let waiting = start + Duration::from_secs(10);
+        assert_eq!(daemon.due(waiting).expect("due"), None);
+        let retry = start + Duration::from_secs(12);
+        assert_eq!(
+            daemon.due(retry).expect("due"),
+            Some(ReconcileReason::LostRuntime)
+        );
+        let done = daemon
+            .pass(ReconcileReason::LostRuntime, retry)
+            .expect("pass");
+        assert_eq!(done[0].result, ReconcileResult::Succeeded, "{done:?}");
+        assert_eq!(starts(&daemon), 2);
+    }
 }

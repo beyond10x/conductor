@@ -44,7 +44,8 @@ const SOCKET_PATH_MAX: usize = 107;
 pub const SOCKET_VARIABLE: &str = "CONDUCTOR_API_SOCKET";
 
 /// The variable the daemon names the runtime's log file in: a runtime in a substrate box writes
-/// what it says there, not to its session, which substrate ends at its output bound.
+/// what it says there, not to its session, which substrate ends at its output bound. The
+/// runtime turns to it before anything else, so an error that ends it at once is in the file.
 pub const LOG_VARIABLE: &str = "CONDUCTOR_API_LOG";
 
 /// The variable that, set to `off`, has the runtime serve the instance API without the loop: for
@@ -186,6 +187,11 @@ pub fn instance_serve(
     providers: &dyn crate::confine::Providers,
 ) -> Result<ExitCode> {
     const WHAT: &str = "instance serve";
+    // The log first: what fails from here on is said there too, where conductord reads why a
+    // runtime in a box did not start (`story:box-crash-loop-reads-failed`).
+    if let Some(log) = std::env::var_os(LOG_VARIABLE).filter(|log| !log.is_empty()) {
+        log_to(Path::new(&log)).context(WHAT)?;
+    }
     config::set_active(config_flag).context(WHAT)?;
     let active = config::active();
     let state = PathBuf::from(&active.instance.state);
@@ -197,9 +203,6 @@ pub fn instance_serve(
     let path = std::env::var_os(SOCKET_VARIABLE)
         .filter(|path| !path.is_empty())
         .map_or_else(|| socket(&state), PathBuf::from);
-    if let Some(log) = std::env::var_os(LOG_VARIABLE).filter(|log| !log.is_empty()) {
-        log_to(Path::new(&log)).context(WHAT)?;
-    }
     let listener = bind(&path).context(WHAT)?;
     let what = format!("conductor instance {}", active.instance.name.0);
     println!("{what}: serving /v1/ on {}", path.display());

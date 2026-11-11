@@ -139,6 +139,10 @@ const VERSION_BOUND: Duration = Duration::from_secs(10);
 /// How long `<forge CLI> auth status --hostname <host>` may take: it may ask the host.
 const AUTH_BOUND: Duration = Duration::from_secs(20);
 
+/// How long the dry run of a box waits for the local substrate daemon: the connection, the
+/// question and the answer together ([`box_lines`]).
+const SUBSTRATE_BOUND: Duration = Duration::from_secs(5);
+
 /// The host of a `github` source.
 pub const GITHUB_HOST: &str = "github.com";
 
@@ -1419,7 +1423,8 @@ pub fn check_in(
 /// verdict, `ready` or `not ready: ` with what failed ([`verdict_of`]). Exits 1 when the config
 /// does not load, a program is missing, older than its pin, or pinned with a pin or version that
 /// does not read, or a forge CLI is not logged in to a host of the config file's sources; 0
-/// otherwise. Writes nothing. The confinement providers' rows are gone with `confinement.*`
+/// otherwise; also when the box of an instance would be refused ([`box_lines`]), which only this
+/// command checks. Writes nothing. The confinement providers' rows are gone with `confinement.*`
 /// (design architecture-next § 11, `conductor.config.DoctorReport`).
 ///
 /// # Errors
@@ -1439,6 +1444,10 @@ pub fn doctor_with(flag: Option<&Path>) -> Result<ExitCode> {
     println!("{}", daemon_unit());
     let mut failures = doctor.failures();
     for (line, failure) in kind_lines(flag) {
+        println!("{line}");
+        failures.extend(failure);
+    }
+    for (line, failure) in box_lines(flag, &crate::placement::Sdk::default()) {
         println!("{line}");
         failures.extend(failure);
     }
@@ -1489,6 +1498,111 @@ fn kind_lines(flag: Option<&Path>) -> Vec<(String, Option<String>)> {
                     None => (format!("agent kind {name}: {binary} missing"), None),
                 }
             }
+        })
+        .collect()
+}
+
+/// One line per instance of the config file that runs in a substrate box, in the file's order
+/// (`story:box-crash-loop-reads-failed`): the dry run of its box. It builds the request
+/// conductord would send ([`config::box_requests`]) and runs what conductord and its box opener
+/// check before anything starts: conductord's own refusals
+/// ([`crate::placement::unmountable`]) and, for a box on the local daemon, each writable root a
+/// directory ([`crate::placement::roots_missing`]) and that `substrate` answers within
+/// [`SUBSTRATE_BOUND`], asked once for all of them, and its facts serve the box ([`crate::placement::Sdk::admits`]). A box
+/// on a remote daemon is checked as far as conductord's own refusals: its roots are
+/// directories of that daemon's host, which is not asked, and the line says so. The line is `box <instance>: <placement>, <n> writable roots served by the
+/// substrate daemon`, or `box <instance>: <refusal>: <detail>`, which adds `box <instance>
+/// (<refusal>)` to the verdict. It opens no box, starts nothing and writes nothing; only
+/// [`doctor_with`] calls it, never [`check_in`], which the dashboard's health thread repeats.
+/// A config that does not load, no config file, and a file that writes no `daemon.store`
+/// ([`config::writes_store`]: conductord starts on no such file, so nothing opens its boxes)
+/// name none.
+fn box_lines(
+    flag: Option<&Path>,
+    substrate: &crate::placement::Sdk,
+) -> Vec<(String, Option<String>)> {
+    let Ok(environment) = config::Environment::from_process() else {
+        return Vec::new();
+    };
+    let Some(loaded) = config::load(flag, &environment)
+        .ok()
+        .filter(|loaded| loaded.read)
+    else {
+        return Vec::new();
+    };
+    let file = environment.cwd.join(&loaded.path);
+    if !config::writes_store(&file) {
+        return Vec::new();
+    }
+    let requests = config::box_requests(&loaded.config, &file, &environment, None);
+    let is_remote = |index: usize| {
+        loaded
+            .config
+            .instances
+            .get(index)
+            .is_some_and(|instance| instance.remote.is_some())
+    };
+    // The roots of a box on a remote daemon are that host's: not looked for on this one.
+    let own: Vec<Option<crate::placement::Refused>> = requests
+        .iter()
+        .map(|(index, request)| {
+            request.refused.clone().or_else(|| {
+                (!is_remote(*index))
+                    .then(|| crate::placement::roots_missing(&request.writable_roots))
+                    .flatten()
+            })
+        })
+        .collect();
+    // The local daemon is asked once for every box it would open: one bound, however many.
+    let asked: Vec<usize> = (0..requests.len())
+        .filter(|at| own[*at].is_none() && !is_remote(requests[*at].0))
+        .collect();
+    let mut answers = if asked.is_empty() {
+        Vec::new()
+    } else {
+        let boxes: Vec<_> = asked.iter().map(|at| requests[*at].1.clone()).collect();
+        match substrate.admits(&boxes, SUBSTRATE_BOUND) {
+            Ok(answers) => answers,
+            Err(silent) => vec![Some(silent); asked.len()],
+        }
+    };
+    answers.resize(asked.len(), None);
+    requests
+        .into_iter()
+        .zip(own)
+        .enumerate()
+        .filter_map(|(at, ((index, request), own))| {
+            let instance = loaded.config.instances.get(index)?;
+            let name = &instance.name.0;
+            let remote = instance.remote.is_some();
+            let refused = own.or_else(|| {
+                let nth = asked.iter().position(|one| *one == at)?;
+                answers.get_mut(nth)?.take()
+            });
+            Some(match refused {
+                Some(refused) => (
+                    format!(
+                        "box {name}: {}: {}",
+                        refused.name,
+                        one_line(&refused.detail)
+                    ),
+                    Some(format!("box {name} ({})", refused.name)),
+                ),
+                None => (
+                    format!(
+                        "box {name}: {}, {} writable roots {}",
+                        request.placement.0,
+                        request.writable_roots.len(),
+                        if remote {
+                            "on the remote daemon's host (not checked here, that daemon is not \
+                             asked)"
+                        } else {
+                            "served by the substrate daemon"
+                        }
+                    ),
+                    None,
+                ),
+            })
         })
         .collect()
 }
