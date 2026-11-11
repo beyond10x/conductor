@@ -2,7 +2,7 @@
 format: aep.planning-md/3
 id: story:box-crash-loop-reads-failed
 kind: story
-status: active
+status: implemented
 title: A crash-looping boxed runtime reads as failed, and doctor checks a boxed placement
 scope:
 - confidence: cited
@@ -21,10 +21,11 @@ scope:
   path: crates/conductor/tests/placement.rs
 - confidence: cited
   path: website/docs/concepts/the-host.md
-revision: 21
+revision: 22
 transitions:
 - {from: "draft", to: "proposed", at: "2026-11-10T00:18:07Z", actor: "human:timo", revision: 7}
 - {from: "proposed", to: "active", at: "2026-11-10T00:18:08Z", actor: "human:timo", revision: 8}
+- {from: "active", to: "implemented", at: "2026-11-11T03:28:28Z", actor: "human:timo", revision: 22, decided_on: {"recorded":{"test_result":1,"review_outcome":2}}}
 ---
 ## Why
 

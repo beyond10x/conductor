@@ -2,7 +2,7 @@
 format: aep.planning-md/3
 id: story:gc-idle-targets
 kind: story
-status: active
+status: implemented
 title: conductor gc cleans idle cargo targets in trees and caches
 scope:
 - confidence: inferred
@@ -21,10 +21,11 @@ scope:
   path: crates/conductor/src/gc/trees.rs
 - confidence: inferred
   path: crates/conductor/src/host.rs
-revision: 6
+revision: 7
 transitions:
 - {from: "draft", to: "proposed", at: "2026-11-07T16:52:26Z", actor: "human:timo", revision: 3}
 - {from: "proposed", to: "active", at: "2026-11-07T16:52:26Z", actor: "human:timo", revision: 4}
+- {from: "active", to: "implemented", at: "2026-11-11T03:28:30Z", actor: "human:timo", revision: 7, decided_on: {"recorded":{"test_result":1,"review_outcome":2}}}
 ---
 ## Why
 

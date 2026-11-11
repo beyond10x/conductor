@@ -2,7 +2,7 @@
 format: aep.planning-md/3
 id: story:deliver-reaches-bg-session
 kind: story
-status: active
+status: implemented
 title: session deliver reaches a claude --bg session, and a refused delivery does not stop a live controller
 scope:
 - confidence: cited
@@ -11,10 +11,11 @@ scope:
   path: crates/conductor/src/session.rs
 - confidence: cited
   path: crates/conductor/src/spawn.rs
-revision: 6
+revision: 7
 transitions:
 - {from: "draft", to: "proposed", at: "2026-11-09T23:54:16Z", actor: "human:timo", revision: 3}
 - {from: "proposed", to: "active", at: "2026-11-09T23:54:16Z", actor: "human:timo", revision: 4}
+- {from: "active", to: "implemented", at: "2026-11-11T03:28:26Z", actor: "human:timo", revision: 7, decided_on: {"recorded":{"test_result":1,"review_outcome":3}}}
 ---
 ## Why
 

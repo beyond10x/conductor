@@ -2,17 +2,18 @@
 format: aep.planning-md/3
 id: story:getting-started-substrate-steps-portable
 kind: story
-status: active
+status: implemented
 title: getting-started's substrate steps run as written on Arch and Manjaro
 scope:
 - confidence: inferred
   path: SETUP.md
 - confidence: cited
   path: website/docs/getting-started.md
-revision: 9
+revision: 10
 transitions:
 - {from: "draft", to: "proposed", at: "2026-11-10T00:18:08Z", actor: "human:timo", revision: 4}
 - {from: "proposed", to: "active", at: "2026-11-10T00:18:08Z", actor: "human:timo", revision: 5}
+- {from: "active", to: "implemented", at: "2026-11-11T03:28:31Z", actor: "human:timo", revision: 10, decided_on: {"recorded":{"test_result":1,"review_outcome":1}}}
 ---
 ## Why
 

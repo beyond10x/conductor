@@ -2,7 +2,7 @@
 format: aep.planning-md/3
 id: story:checkout-name-differs-from-project
 kind: story
-status: active
+status: implemented
 title: A checkout named differently from its forge project is one repository under one name
 relations:
 - decomposes: epic:forge-neutral
@@ -41,10 +41,11 @@ scope:
   path: spec/domains/config.yaml
 - confidence: inferred
   path: website/docs/guides/gitlab.md
-revision: 32
+revision: 33
 transitions:
 - {from: "draft", to: "proposed", at: "2026-11-10T00:18:01Z", actor: "human:timo", revision: 8}
 - {from: "proposed", to: "active", at: "2026-11-10T00:18:01Z", actor: "human:timo", revision: 9}
+- {from: "active", to: "implemented", at: "2026-11-11T03:28:29Z", actor: "human:timo", revision: 33, decided_on: {"recorded":{"test_result":1,"review_outcome":1}}}
 ---
 ## Why
 

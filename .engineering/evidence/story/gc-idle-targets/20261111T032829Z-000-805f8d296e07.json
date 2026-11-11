@@ -1,0 +1,13 @@
+{
+  "at": "2026-11-11T03:28:29Z",
+  "actor": "human:timo",
+  "artifact": "story:gc-idle-targets",
+  "kind": "story",
+  "revision": 6,
+  "change": {
+    "change": "evidence",
+    "kind": "test_result",
+    "source": "wave/50 at 59c8f653f: cargo nextest run --no-fail-fast, 1911 run, 1909 passed, 2 failed; both failures are in files the wave does not touch: build_run::a_second_signal_ends_a_stopped_run_that_waits_for_the_ledger fails on the host, dashboard_fast::a_repeat_request_is_answered_from_memory_and_304_when_unchanged is a wall-clock bound under load; fmt, clippy and the docs check exit 0",
+    "reference": "59c8f653f"
+  }
+}

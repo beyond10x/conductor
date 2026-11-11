@@ -156,3 +156,43 @@ Gaps found in the first round (fixed on the release branch, and both runs repeat
 Not a gap: the sessions wrote their downloads and a clone of the repository into temporary
 directories, some outside the scratch home; the host's own conductor config, `worktree` config
 and Claude Code settings were not changed.
+
+## Wave 50 live run
+
+One live run of a boxed runtime on substrate-daemon 0.20.0, on 2026-11-11, with a conductord
+built from `wave/50` at `59c8f653f` (`story:box-runtime-starts`,
+`story:box-crash-loop-reads-failed`). A scratch home, one `local` source with one repository, one
+instance at `placement: systemd`, the store at `<home>/.b10x/conductor/store/conductor.sqlite`;
+the substrate daemon and conductord each in a transient user unit of their own, the substrate
+daemon with a delegated cgroup subtree, started as SETUP.md steps 6 to 10 write them. Two runs:
+in the first the state path was longer than a socket address holds, so the runtime's socket was
+`conductor-api-<hash>.sock` in the temporary directory; the second used a shorter home.
+
+What held:
+
+- **The box.** `conductor config validate` exits 0. Before the substrate daemon runs, doctor
+  prints `box h: placement.writable-root-missing: the writable root state-h is no directory`
+  and ends `not ready`; after the four roots exist and the daemon serves them it prints
+  `box h: systemd, 4 writable roots served by the substrate daemon`. The daemon's
+  `/v1/machine` answers. conductord records `h: Start (Cadence): Succeeded`.
+- **The mounts.** The runtime wrote `runtime.log` into `<state>/sessions`, and the sqlite store,
+  its lock and its write-ahead log were written in the store root.
+- **The failed start.** The runtime ended within 10 s of each start. conductord recorded
+  `Start (LostRuntime): Refused: the runtime of h exited within 10 s of its start (failed start
+  1 in a row, the next start in 10 s)` with the runtime's own error text, then failed starts 2
+  and 3 with waits of 20 s and 40 s: three starts in 45 s where the loop of v1.1.0 started one
+  every 2 s. `GET /v1/instances` answered `"state":"Unreachable"` at 10 s, 25 s and 45 s.
+
+What did not hold:
+
+- **The runtime does not serve its API in the box.** Its error is
+  `conductor: instance serve: bind <state>/api.sock: Permission denied (os error 13)`; in the
+  first run the same for the socket in the temporary directory. substrate-daemon 0.20.0 denies
+  Unix sockets in a box by its seccomp profile, and the daemon has no flag for it. The cases of
+  the story hold the box request against a fake substrate, which admits the bind.
+  `story:box-runtime-starts` stays active behind `decision-blocker:box-api-unix-socket-denied`;
+  the work is `story:box-runtime-api-without-unix-socket`.
+
+Not part of the result: doctor's `substrate-daemon` row read the host's own older
+`substrate-daemon` on `PATH`, not the 0.20.0 binary the run started by path, and the scratch
+home's checkouts root was not activated as a `worktree` workspace.
