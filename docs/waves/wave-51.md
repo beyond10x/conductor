@@ -18,10 +18,10 @@ repository under a lock. Free disk at the start: 104 GB.
 |---|---|---|---|---|
 | U1 | need-repository-from-tag | | `w51-u1` | merged (`900de5852`), two adversary passes |
 | U2 | handover-restart-by-controller-id | | `w51-u2` | correction 1 after adversary pass 1 |
-| U3 | doctor-checks-guard-forge-writes | | `w51-u3` | implementing |
-| U4 | box-reaches-forge-and-daemon | | `w51-u4` | correction 1; the egress half is blocked |
-| U5 | daemon-probes-and-metrics | | `w51-u5` | adversary pass 1 |
-| U6 | release-container-image | | `w51-u6` | correction 1 before its first commit |
+| U3 | doctor-checks-guard-forge-writes | | `w51-u3` | adversary pass 1, after correction 1 |
+| U4 | box-reaches-forge-and-daemon | | `w51-u4` | adversary pass 1; the egress half is blocked |
+| U5 | daemon-probes-and-metrics | | `w51-u5` | correction 1 after adversary pass 1 |
+| U6 | release-container-image | | `w51-u6` | correction 2 after adversary pass 1 |
 | U7 | container-start-without-prompt | U3, U4, U5, U6 | `w51-u7` | not started |
 
 Each unit works on branch `impl/<story>`; its scratch is the session scratch directory's
@@ -112,9 +112,26 @@ is read before the first of the two merges.
 - U5: only `/readyz` is in the HTTP binding, and its 503 is not: the binding format gives a view
   route one success status. `/healthz` reads no entity and `/metrics` is text; both are unbound
   rows of the parity baseline.
+- U3: after the first round a new instance left `conductor setup` on the `gates` route with no
+  `gates_policy`, and doctor then said `not ready`. Decided: setup chooses no route; it prints
+  the `forge route` line with its fix and writes `gates_policy` from the environment's policy
+  path into an instance it creates; SETUP.md gains a step where the person chooses the route;
+  every runnable example config names the direct route; a policy only the environment names
+  stays `not ready`, and the fix line carries the path. Still open after that round: setup's
+  closing verdict can say `ready` where doctor says `not ready`; it goes back with the
+  adversary's findings.
+- U5, adversary pass 1 (`review-result:w51-u5-adversary-1`): `/readyz` answered 200 for ever
+  after one failed write on the reconciler's store handle, and 200 before the first
+  publication; `/v1/instances` answered `200 []` while the store was down. All three go back.
 - U6: the commit gate refuses a home directory under `/home/` in the `Dockerfile`; the image's
   user gets `/var/lib/conductor`. Decided: the job that builds and pushes the image holds
   `packages: write` only, and a third job with `contents: write` only writes the Release notes.
+- U6, adversary pass 1 (`review-result:w51-u6-adversary-1`): the push step's test of the newest
+  release sat inside `[ … ]`, so an API error ended the step green with `latest` not moved;
+  four of the unit's cases held a substring of the workflow and no behaviour; the image's
+  extracted tools kept the archive's owner id; the notes script ended its section only at a
+  second-level heading. All go back; the adversary's cases run the step scripts against
+  stand-in programs.
 
 ## What each story's close needs
 
