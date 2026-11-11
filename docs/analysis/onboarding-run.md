@@ -196,3 +196,65 @@ What did not hold:
 Not part of the result: doctor's `substrate-daemon` row read the host's own older
 `substrate-daemon` on `PATH`, not the 0.20.0 binary the run started by path, and the scratch
 home's checkouts root was not activated as a `worktree` workspace.
+
+## v1.2.0
+
+**Full runs, on the release branch before its tag** (`release/1.2.0` at `d29b33e5d`), done as the
+v1.0.1 runs were: a fresh Claude Code session (`claude -p`, resumed for the answer) in a scratch
+home with no settings, plugins or forge logins, in a scratch repository whose `origin` names a
+repository that does not exist, on GitHub or on a self-hosted GitLab (`gitlab.example.com`), with
+a committed `aep.project/1` store. No forge repository was created. The release archive exists
+only once the tag is pushed, so the binary built from the release branch
+(`cargo build --release -p conductor-cli`) was put at `~/.local/bin/conductor`, and the prompt
+said to read the repository's files from the release branch. The person's answer: the migration
+approved, the login later, no daemon started on the host. Unlike v1.0.1 each session's temporary
+directory was a scratch one, so its downloads stayed in the run's own directory.
+
+The runs repeat because the release changes what onboarding runs: step 6's `daemon.store`, now
+in a directory of its own, step 8's Check and step 9's writable roots in `SETUP.md`, the same in
+the README and the getting-started page, doctor's `box <instance>:` row, and the store
+`conductor setup --apply` writes.
+
+| run | origin | `conductor setup` ended | `conductor doctor` ended |
+|---|---|---|---|
+| 1 | GitHub | not ready: `gh` not logged in to github.com | not ready: the same, and `box widgets (placement.writable-root-missing)` |
+| 2 | self-hosted GitLab | not ready: `glab` not logged in to gitlab.example.com | not ready: the same, and `box widgets (placement.writable-root-missing)` |
+
+One round ran. Each session downloaded the release branch and read `SETUP.md` whole, installed
+`aep` 0.79.1, `ess` 0.90.0, `worktree` 0.18.1, `substrate-daemon` 0.20.0 and `b10x-gates` from
+their release archives, each checked against its `SHA256SUMS`, and ran `conductor setup --apply`,
+which wrote the config file with `daemon.store: sqlite:~/.b10x/conductor/store/conductor.sqlite`
+(the GitLab source with its `host`), the records and the trust, and activated the worktree
+workspace with the profile it wrote. Each asked only for the forge login and the migration, and
+named steps 9 and 10 as not started. After the answer each ran
+`aep plan store migrate git --verify` and started nothing. The store is `aep.project/5`, left
+uncommitted in the scratch repository; the scratch home's worktree config holds the one profile
+`conductor-widgets`; no process of a run was left; the host's own conductor config, `worktree`
+config and Claude Code settings were not changed.
+
+`conductor setup` ends `not ready` on the forge login alone, as in v1.0.1, and that is the
+verdict both sessions reported. `conductor doctor` names a second reason, new in this release:
+`box widgets: placement.writable-root-missing: the writable root state-widgets is no directory`,
+the row step 8's Check describes and step 9 clears. The person's answer left step 9 undone, so
+the row stays. The two verdicts in the table were read in each scratch home after the sessions
+ended: neither session ran `conductor doctor` once the config file existed, since
+`conductor setup --apply` printed the rows step 8 checks for, so neither read the box row.
+
+Gaps found: none. No session asked, skipped or got wrong anything because of this release's
+documents or binary, so nothing was fixed and no second round ran.
+
+Not a gap: the GitHub session installed four programs at step 4 and `substrate-daemon` only
+once `conductor setup --apply` printed its `to install:` line. It asked nothing about it, and
+this release does not change step 4.
+
+Not run: steps 9 and 10, which start the substrate daemon and conductord host-wide. The roots
+step 9 now writes were read by both sessions and run by neither; the Wave 50 live run above
+started both daemons as steps 6 to 10 write them.
+
+Open, not fixed in this release:
+
+- a run that starts no daemon cannot end `conductor doctor` on the logins alone any more: the
+  box row needs the substrate daemon serving the instance's roots. The `ready` that `AGENTS.md`
+  asks of both runs needs steps 9 and 10 run, which a run on a shared host does not do;
+- `conductor setup` prints doctor's rows without the box row, and its verdict does not name the
+  box, while step 11 of `SETUP.md` says it prints doctor's rows. Step 12 runs doctor, which does.
