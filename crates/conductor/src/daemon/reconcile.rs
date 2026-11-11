@@ -80,6 +80,13 @@ fn start_window() -> Duration {
     START_BOUND + super::TICK
 }
 
+/// How long after a start a look that finds the runtime stopped finds one that ran
+/// [`RAN_BOUND`]: that and the one tick the daemon looks at. A look sooner may find a runtime
+/// that stopped just short of it.
+fn ran_window() -> Duration {
+    RAN_BOUND + super::TICK
+}
+
 /// The longest wait before a runtime whose starts fail is started again ([`retry_after`]).
 pub const RETRY_CAP: Duration = Duration::from_secs(300);
 
@@ -204,15 +211,35 @@ fn runtime_said(log: &Path, from: u64) -> String {
         .collect();
     let kept = &lines[lines.len().saturating_sub(SAID_LINES)..];
     if kept.is_empty() {
-        nothing()
-    } else {
-        kept.join(" | ")
+        return nothing();
     }
+    // A replaced byte is three in the record: the bound holds for what enters it.
+    let said = kept.join(" | ");
+    let mut from = said.len().saturating_sub(SAID_BYTES as usize);
+    while !said.is_char_boundary(from) {
+        from += 1;
+    }
+    said[from..].to_owned()
+}
+
+/// Whether `character` reorders or breaks the one line of a record where it is shown: a
+/// bidirectional mark, embedding, override or isolate, or the line or paragraph separator.
+fn reorders(character: char) -> bool {
+    matches!(
+        character,
+        '\u{61c}'
+            | '\u{200e}'
+            | '\u{200f}'
+            | '\u{2028}'
+            | '\u{2029}'
+            | '\u{202a}'..='\u{202e}'
+            | '\u{2066}'..='\u{2069}'
+    )
 }
 
 /// `line` with nothing a terminal acts on: each escape sequence (CSI to its final byte, OSC to
 /// its BEL or `ESC \`, else `ESC` and the character after it) and each other control character
-/// (C0 but the tab, DEL, C1) is one U+FFFD. The text goes to the record and from there to
+/// (C0 but the tab, DEL, C1) and each character that [`reorders`] is one U+FFFD. The text goes to the record and from there to
 /// conductord's output.
 fn printable(line: &str) -> String {
     const REPLACED: char = char::REPLACEMENT_CHARACTER;
@@ -242,7 +269,7 @@ fn printable(line: &str) -> String {
                 _ => {}
             }
             out.push(REPLACED);
-        } else if character.is_control() && character != '\t' {
+        } else if (character.is_control() && character != '\t') || reorders(character) {
             out.push(REPLACED);
         } else {
             out.push(character);
@@ -1038,7 +1065,7 @@ impl<U: Units> Daemon<U> {
             return Ok((now < retry_at && !asked).then_some(None));
         }
         let ran = now.saturating_duration_since(attempt.started);
-        if ran >= RAN_BOUND {
+        if ran >= ran_window() {
             attempt.failures = 0;
             return Ok(None);
         }
@@ -1056,7 +1083,8 @@ impl<U: Units> Daemon<U> {
             format!("exited within {} s of its start", START_BOUND.as_secs())
         } else {
             format!(
-                "stopped {} s after its start, short of the {} s that end a row of failed starts",
+                "was found stopped {} s after its start, not known to have run the {} s that end \
+                 a row of failed starts",
                 ran.as_secs(),
                 RAN_BOUND.as_secs()
             )
@@ -1418,9 +1446,10 @@ impl<U: Units> Daemon<U> {
                 let state = match (started, self.running.get(name)) {
                     (None, _) => InstanceState::Stopped,
                     (Some(_), Some(false)) => InstanceState::Unreachable,
+                    // An upgrade under way reads as that until it settled, whatever came before.
+                    (Some(_), _) if upgrading => InstanceState::Upgrading,
                     // The start after a failed one has not held the start bound yet.
                     (Some(_), _) if self.unproven(name) => InstanceState::Unreachable,
-                    (Some(_), _) if upgrading => InstanceState::Upgrading,
                     (Some(_), _) => InstanceState::Running,
                 };
                 json!({

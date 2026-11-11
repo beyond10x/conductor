@@ -1960,21 +1960,28 @@ impl Sdk {
         })
     }
 
-    /// Whether this daemon would take `request` as far as [`Substrate::open`] checks before it
-    /// asks for anything: the daemon answers, and its facts serve the box ([`Self::unserved`]).
-    /// It reads the daemon's machine and starts nothing: `conductor doctor`'s dry run. The
-    /// question, its connection included, ends within `bound`.
+    /// Whether this daemon would take each of `requests` as far as [`Substrate::open`] checks
+    /// before it asks for anything: the daemon answers, and its facts serve the box
+    /// ([`Self::unserved`]); the refusal of each, in their order. It asks the daemon for its
+    /// machine once, whatever the requests, and starts nothing: `conductor doctor`'s dry run.
+    /// The question, its connection included, ends within `bound`.
     ///
     /// # Errors
     ///
     /// [`UNREACHABLE`] when the daemon does not answer within `bound`, naming its socket and the
-    /// bound, else the refusal `open` would answer.
-    pub fn admits(&self, request: &BoxRequest, bound: Duration) -> Result<(), Refused> {
-        let request = request.clone();
+    /// bound.
+    pub fn admits(
+        &self,
+        requests: &[BoxRequest],
+        bound: Duration,
+    ) -> Result<Vec<Option<Refused>>, Refused> {
         self.block_within(Some(bound), async move |client| {
-            Ok(Self::unserved(&client.machine(), &request))
+            let machine = client.machine();
+            Ok(requests
+                .iter()
+                .map(|request| Self::unserved(&machine, request))
+                .collect())
         })
-        .and_then(|refused| refused.map_or(Ok(()), Err))
     }
 }
 

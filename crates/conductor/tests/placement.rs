@@ -1853,7 +1853,7 @@ fn conductord_starts_again_a_box_runtime_substrate_ended_at_its_output_bound() {
     // Substrate ends the session with `session.output-limit` (state Cancelled): it no longer
     // runs. It ran past the start bound, so this is no failed start.
     fake.log.lock().expect("the log").running.remove("ses_1");
-    let now = now + conductor_cli::daemon::reconcile::RAN_BOUND;
+    let now = now + conductor_cli::daemon::reconcile::RAN_BOUND + std::time::Duration::from_secs(2);
     assert_eq!(
         daemon.due(now).expect("due"),
         Some(conductor_model::instance::ReconcileReason::LostRuntime)
@@ -3088,9 +3088,10 @@ fn a_boxed_runtime_that_exits_within_the_start_bound_is_a_failed_start_with_its_
     );
     assert_eq!(daemon.rows()[0]["state"], "Running");
 
-    // A runtime lost after it ran 60 s is no failed start: it is started again at once.
+    // A runtime lost after it ran 60 s is no failed start: found at a look 62 s after its
+    // start, it is started again at once.
     fake.log.lock().expect("the log").running.clear();
-    let later = retry + Duration::from_secs(60);
+    let later = retry + Duration::from_secs(62);
     let done = daemon
         .pass(ReconcileReason::LostRuntime, later)
         .expect("a pass");
@@ -3144,9 +3145,10 @@ fn a_crash_looping_boxed_runtime_is_started_ever_less_often() {
     );
 }
 
-/// The rule of the three numbers: a runtime found stopped 12 s or more after its start that
-/// ran less than 60 s is not started at once; its start waits the row's backoff and counts in
-/// the row. One that ran 60 s ends the row and is started at once.
+/// The rule of the three numbers: a runtime found stopped 12 s or more and less than 62 s
+/// after its start may have run less than 60 s and is not started at once; its start waits
+/// the row's backoff and counts in the row. One found stopped 62 s after its start ran 60 s:
+/// it ends the row and is started at once.
 #[test]
 fn a_runtime_that_stops_before_it_ran_a_minute_waits_the_backoff_of_its_row() {
     use conductor_model::instance::ReconcileReason;
@@ -3182,8 +3184,9 @@ fn a_runtime_that_stops_before_it_ran_a_minute_waits_the_backoff_of_its_row() {
     let detail = done[0].detail.clone().unwrap_or_default();
     assert!(
         detail.contains(
-            "the runtime of alpha stopped 30 s after its start, short of the 60 s that end a row \
-             of failed starts (failed start 1 in a row, the next start in 10 s)"
+            "the runtime of alpha was found stopped 30 s after its start, not known to have run \
+             the 60 s that end a row of failed starts (failed start 1 in a row, the next start in \
+             10 s)"
         ),
         "{detail}"
     );
@@ -3199,35 +3202,36 @@ fn a_runtime_that_stops_before_it_ran_a_minute_waits_the_backoff_of_its_row() {
         .expect("a pass");
     assert_eq!(done[0].result, ReconcileResult::Succeeded, "{done:?}");
 
-    // The second start stops 58 s after it: the second of the row, 20 s.
+    // The second start is found stopped 60 s after it: it may have stopped just short of
+    // the 60 s, so it is the second of the row, 20 s.
     fake.log.lock().expect("the log").running.clear();
     let done = daemon
-        .pass(ReconcileReason::LostRuntime, start + secs(98))
+        .pass(ReconcileReason::LostRuntime, start + secs(100))
         .expect("a pass");
     let detail = done[0].detail.clone().unwrap_or_default();
     assert!(
-        detail.contains("stopped 58 s after its start")
+        detail.contains("was found stopped 60 s after its start")
             && detail.contains("failed start 2 in a row, the next start in 20 s"),
         "{detail}"
     );
     assert_eq!(fake.log.lock().expect("the log").opened.len(), 2);
     let done = daemon
-        .pass(ReconcileReason::LostRuntime, start + secs(118))
+        .pass(ReconcileReason::LostRuntime, start + secs(120))
         .expect("a pass");
     assert_eq!(done[0].result, ReconcileResult::Succeeded, "{done:?}");
 
-    // The third runs 60 s: the row ends, it is started at once, and the next failed start is
-    // the first of a row again.
+    // The third is found stopped 62 s after it: it ran 60 s, the row ends, it is started at
+    // once, and the next failed start is the first of a row again.
     fake.log.lock().expect("the log").running.clear();
     let done = daemon
-        .pass(ReconcileReason::LostRuntime, start + secs(178))
+        .pass(ReconcileReason::LostRuntime, start + secs(182))
         .expect("a pass");
     assert_eq!(done.len(), 1, "{done:?}");
     assert_eq!(done[0].result, ReconcileResult::Succeeded, "{done:?}");
     assert_eq!(fake.log.lock().expect("the log").opened.len(), 4);
     fake.log.lock().expect("the log").running.clear();
     let done = daemon
-        .pass(ReconcileReason::LostRuntime, start + secs(180))
+        .pass(ReconcileReason::LostRuntime, start + secs(184))
         .expect("a pass");
     let detail = done[0].detail.clone().unwrap_or_default();
     assert!(
@@ -3989,13 +3993,13 @@ mod adversary {
             .expect("a pass");
         fake.log.lock().expect("the log").running.clear();
         let done = daemon
-            .pass(ReconcileReason::LostRuntime, start + secs(94))
+            .pass(ReconcileReason::LostRuntime, start + secs(96))
             .expect("a pass");
         assert_eq!(done[0].result, ReconcileResult::Succeeded, "{done:?}");
         // The fourth fails: the first in a row again.
         fake.log.lock().expect("the log").running.clear();
         let done = daemon
-            .pass(ReconcileReason::LostRuntime, start + secs(96))
+            .pass(ReconcileReason::LostRuntime, start + secs(98))
             .expect("a pass");
         let detail = done[0].detail.clone().unwrap_or_default();
         assert!(
@@ -4283,10 +4287,18 @@ mod adversary2 {
         for (found, again) in [(2, Some(12)), (14, Some(34)), (36, None)] {
             fake.log.lock().expect("the log").running.clear();
             let done = daemon.tick(start + secs(found)).expect("a tick");
-            assert_eq!(done[0].result, ReconcileResult::Refused, "{found}: {done:?}");
+            assert_eq!(
+                done[0].result,
+                ReconcileResult::Refused,
+                "{found}: {done:?}"
+            );
             if let Some(again) = again {
                 let done = daemon.tick(start + secs(again)).expect("a tick");
-                assert_eq!(done[0].result, ReconcileResult::Succeeded, "{again}: {done:?}");
+                assert_eq!(
+                    done[0].result,
+                    ReconcileResult::Succeeded,
+                    "{again}: {done:?}"
+                );
             }
         }
         assert_eq!(fake.log.lock().expect("the log").opened.len(), 3);
@@ -4297,7 +4309,10 @@ mod adversary2 {
 
         case.config(&[("beta", "systemd")]);
         let done = daemon.tick(start + secs(38)).expect("a tick");
-        let stops: Vec<_> = done.iter().filter(|done| done.instance == "alpha").collect();
+        let stops: Vec<_> = done
+            .iter()
+            .filter(|done| done.instance == "alpha")
+            .collect();
         assert_eq!(stops.len(), 1, "{done:?}");
         assert_eq!(
             (stops[0].action, stops[0].result),
@@ -4311,7 +4326,10 @@ mod adversary2 {
 
         case.config(&[("alpha", "systemd"), ("beta", "systemd")]);
         let done = daemon.tick(start + secs(40)).expect("a tick");
-        let of_alpha: Vec<_> = done.iter().filter(|done| done.instance == "alpha").collect();
+        let of_alpha: Vec<_> = done
+            .iter()
+            .filter(|done| done.instance == "alpha")
+            .collect();
         assert_eq!(of_alpha.len(), 1, "{done:?}");
         assert_eq!(
             (of_alpha[0].action, of_alpha[0].result),
@@ -4391,10 +4409,7 @@ mod adversary2 {
             let _ = fs::OpenOptions::new().write(true).open(writer);
         });
         let ((first, took), second) = answered.unwrap_or_else(|_| {
-            panic!(
-                "the passes did not return within 30 s: {}",
-                pipe.display()
-            )
+            panic!("the passes did not return within 30 s: {}", pipe.display())
         });
         assert!(
             first.ends_with("the last line of a sparse log"),
@@ -4438,7 +4453,17 @@ mod adversary2 {
             .filter(|character| character.is_control())
             .collect();
         assert!(controls.is_empty(), "{controls:?} in {detail:?}");
-        for kept in ["one", "red", "two", "link three", "four", "five", "six", "eight", "nine"] {
+        for kept in [
+            "one",
+            "red",
+            "two",
+            "link three",
+            "four",
+            "five",
+            "six",
+            "eight",
+            "nine",
+        ] {
             assert!(said(&detail).contains(kept), "{kept}: {detail:?}");
         }
     }
@@ -4495,7 +4520,9 @@ mod adversary2 {
         drop(listener);
         let rows = lines(&output)
             .iter()
-            .filter(|line| line.starts_with("box ") && line.contains("placement.substrate-unreachable"))
+            .filter(|line| {
+                line.starts_with("box ") && line.contains("placement.substrate-unreachable")
+            })
             .count();
         assert_eq!(rows, 3, "{}", describe(&output));
         assert_eq!(output.status.code(), Some(1), "{}", describe(&output));

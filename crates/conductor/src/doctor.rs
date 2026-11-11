@@ -1508,7 +1508,7 @@ fn kind_lines(flag: Option<&Path>) -> Vec<(String, Option<String>)> {
 /// check before anything starts: conductord's own refusals
 /// ([`crate::placement::unmountable`]) and, for a box on the local daemon, each writable root a
 /// directory ([`crate::placement::roots_missing`]) and that `substrate` answers within
-/// [`SUBSTRATE_BOUND`] and its facts serve the box ([`crate::placement::Sdk::admits`]). A box
+/// [`SUBSTRATE_BOUND`], asked once for all of them, and its facts serve the box ([`crate::placement::Sdk::admits`]). A box
 /// on a remote daemon is checked as far as conductord's own refusals: its roots are
 /// directories of that daemon's host, which is not asked, and the line says so. The line is `box <instance>: <placement>, <n> writable roots served by the
 /// substrate daemon`, or `box <instance>: <refusal>: <detail>`, which adds `box <instance>
@@ -1534,19 +1534,50 @@ fn box_lines(
     if !config::writes_store(&file) {
         return Vec::new();
     }
-    config::box_requests(&loaded.config, &file, &environment, None)
+    let requests = config::box_requests(&loaded.config, &file, &environment, None);
+    let is_remote = |index: usize| {
+        loaded
+            .config
+            .instances
+            .get(index)
+            .is_some_and(|instance| instance.remote.is_some())
+    };
+    // The roots of a box on a remote daemon are that host's: not looked for on this one.
+    let own: Vec<Option<crate::placement::Refused>> = requests
+        .iter()
+        .map(|(index, request)| {
+            request.refused.clone().or_else(|| {
+                (!is_remote(*index))
+                    .then(|| crate::placement::roots_missing(&request.writable_roots))
+                    .flatten()
+            })
+        })
+        .collect();
+    // The local daemon is asked once for every box it would open: one bound, however many.
+    let asked: Vec<usize> = (0..requests.len())
+        .filter(|at| own[*at].is_none() && !is_remote(requests[*at].0))
+        .collect();
+    let mut answers = if asked.is_empty() {
+        Vec::new()
+    } else {
+        let boxes: Vec<_> = asked.iter().map(|at| requests[*at].1.clone()).collect();
+        match substrate.admits(&boxes, SUBSTRATE_BOUND) {
+            Ok(answers) => answers,
+            Err(silent) => vec![Some(silent); asked.len()],
+        }
+    };
+    answers.resize(asked.len(), None);
+    requests
         .into_iter()
-        .filter_map(|(index, request)| {
+        .zip(own)
+        .enumerate()
+        .filter_map(|(at, ((index, request), own))| {
             let instance = loaded.config.instances.get(index)?;
             let name = &instance.name.0;
             let remote = instance.remote.is_some();
-            // The roots of a box on a remote daemon are that host's: not looked for on this one.
-            let refused = request.refused.clone().or_else(|| {
-                if remote {
-                    return None;
-                }
-                crate::placement::roots_missing(&request.writable_roots)
-                    .or_else(|| substrate.admits(&request, SUBSTRATE_BOUND).err())
+            let refused = own.or_else(|| {
+                let nth = asked.iter().position(|one| *one == at)?;
+                answers.get_mut(nth)?.take()
             });
             Some(match refused {
                 Some(refused) => (
