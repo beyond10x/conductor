@@ -154,6 +154,10 @@ pub const AGENT_KIND: &str = "claude-code";
 /// The loopback port of the daemon's global API when `daemon.port` is absent (`Daemon`).
 pub const DAEMON_PORT: i64 = 7300;
 
+/// The address the daemon's listener on `daemon.port` binds when `daemon.address` is absent: the
+/// loopback address (`story:container-start-without-prompt`).
+pub const DAEMON_ADDRESS: &str = "127.0.0.1";
+
 /// Seconds between two reconcile passes of the daemon when `daemon.cadence.reconcile` is absent.
 pub const RECONCILE_EVERY: u64 = 60;
 
@@ -500,7 +504,7 @@ const REMOVED_KEYS: [(&str, &str); 3] = [
         "the store is the deployment's one database, at daemon.store",
     ),
 ];
-const DAEMON_KEYS: [&str; 11] = [
+const DAEMON_KEYS: [&str; 13] = [
     "port",
     "loopback",
     "tls",
@@ -512,10 +516,12 @@ const DAEMON_KEYS: [&str; 11] = [
     "upgrade_timeout",
     "timeout",
     "substrate_slots",
+    "unattended",
+    "address",
 ];
 const TLS_KEYS: [&str; 4] = ["listen", "cert", "key", "identity"];
 const DAEMON_CADENCE_KEYS: [&str; 1] = ["reconcile"];
-const SECRETS_KEYS: [&str; 3] = ["source", "namespace", "url"];
+const SECRETS_KEYS: [&str; 4] = ["source", "namespace", "url", "dir"];
 const OPERATOR_KEYS: [&str; 3] = ["name", "role", "grants"];
 /// The keys of `globals`. `placement` is not one of them, by decision: an instance's placement is
 /// where its box runs, and stays per instance (`instances[].placement`); `globals.placement` is
@@ -524,9 +530,10 @@ const GLOBALS_KEYS: [&str; 5] = ["roles", "cadence", "thresholds", "limits", "tu
 const TUNING_KEYS: [&str; 1] = ["keys"];
 const TUNABLE_KEYS: [&str; 3] = ["path", "min", "max"];
 /// How the file writes each `conductor.secret.Source`.
-const SECRET_SOURCES: [(&str, conductor_model::secret::Source); 2] = [
+const SECRET_SOURCES: [(&str, conductor_model::secret::Source); 3] = [
     ("keychain", conductor_model::secret::Source::Keychain),
     ("remote", conductor_model::secret::Source::Remote),
+    ("files", conductor_model::secret::Source::Files),
 ];
 /// How the file writes each `conductor.config.OperatorGrant`: in kebab case.
 const OPERATOR_GRANTS: [(&str, OperatorGrant); 7] = [
@@ -1878,12 +1885,15 @@ pub fn default_daemon(home: &Path) -> Daemon {
             source: conductor_model::secret::Source::Keychain,
             namespace: None,
             url: None,
+            dir: None,
         },
         dashboard: "/".to_owned(),
         operators: Vec::new(),
         upgrade_timeout: Duration(format!("PT{UPGRADE_TIMEOUT}S")),
         timeout: Duration(format!("PT{FEDERATED_TIMEOUT}S")),
         substrate_slots: 0,
+        unattended: false,
+        address: DAEMON_ADDRESS.to_owned(),
     }
 }
 
@@ -2670,6 +2680,32 @@ impl Reader<'_> {
             }
             None => Some(defaults.substrate_slots),
         };
+        // story:container-start-without-prompt: the unattended start, and the listener's address.
+        let unattended = match Self::get(map, "unattended") {
+            Some(value) => self.flag(value, &join(path, "unattended")),
+            None => Some(defaults.unattended),
+        };
+        let address = match Self::get(map, "address") {
+            Some(value) => {
+                let at = join(path, "address");
+                self.text(value, &at).and_then(|address| {
+                    if address.parse::<std::net::IpAddr>().is_ok() {
+                        Some(address)
+                    } else {
+                        self.problem(
+                            &at,
+                            format!(
+                                "{} is no IP address: write one such as 127.0.0.1, the default, \
+                                 or 0.0.0.0 for every address of the host",
+                                echo(value)
+                            ),
+                        );
+                        None
+                    }
+                })
+            }
+            None => Some(defaults.address.clone()),
+        };
         Some(Daemon {
             port: port?,
             loopback: loopback?,
@@ -2682,11 +2718,14 @@ impl Reader<'_> {
             upgrade_timeout: upgrade_timeout?,
             timeout: timeout?,
             substrate_slots: substrate_slots?,
+            unattended: unattended?,
+            address: address?,
         })
     }
 
     /// `daemon.secrets` (`conductor.config.SecretsSource`): its `source`, `keychain` when absent;
-    /// its `namespace`; its `url`, for `remote` only.
+    /// its `namespace`; its `url`, for `remote` only; its `dir`, for `files` only and required
+    /// there.
     fn secrets_source(&mut self, value: &Value, path: &str) -> Option<SecretsSource> {
         let map = self.mapping(value, path, &SECRETS_KEYS)?;
         let source = match Self::get(map, "source") {
@@ -2717,10 +2756,25 @@ impl Reader<'_> {
             }
             None => Some(None),
         };
-        if let (Some(conductor_model::secret::Source::Keychain), Some(Some(_))) = (&source, &url) {
+        use conductor_model::secret::Source;
+        if let (Some(Source::Keychain | Source::Files), Some(Some(_))) = (&source, &url) {
             self.problem(
                 &join(path, "url"),
                 "names the Secrets service, which only the remote source has: leave it out",
+            );
+            return None;
+        }
+        // story:container-start-without-prompt: the directory of the `files` source, which needs
+        // it; another source reads none.
+        let dir = match Self::get(map, "dir") {
+            Some(value) => self.path(value, &join(path, "dir")).map(Some),
+            None => Some(None),
+        };
+        if let (Some(Source::Files), Some(None)) = (&source, &dir) {
+            self.problem(
+                &join(path, "dir"),
+                "is required by the files source: write the directory its files are mounted in, \
+                 such as dir: /run/secrets/conductor",
             );
             return None;
         }
@@ -2728,6 +2782,7 @@ impl Reader<'_> {
             source: source?,
             namespace: namespace?,
             url: url?,
+            dir: dir?,
         })
     }
 
@@ -5198,6 +5253,7 @@ pub fn daemon_document(daemon: &Daemon) -> Yaml {
                 ("source", text(source(daemon.secrets.source))),
                 ("namespace", optional(daemon.secrets.namespace.as_ref())),
                 ("url", optional(daemon.secrets.url.as_ref())),
+                ("dir", optional(daemon.secrets.dir.as_ref())),
             ]),
         ),
         ("dashboard", text(&daemon.dashboard)),
@@ -5228,6 +5284,8 @@ pub fn daemon_document(daemon: &Daemon) -> Yaml {
             "substrate_slots",
             Yaml::Number(daemon.substrate_slots.into()),
         ),
+        ("unattended", Yaml::Bool(daemon.unattended)),
+        ("address", text(&daemon.address)),
     ])
 }
 

@@ -226,11 +226,19 @@ pub fn system_unit_text(
 ///
 /// Each condition that does not hold, by its YAML path or the file.
 pub fn remote_ready(file: &Path, daemon: &conductor_model::config::Daemon) -> Result<()> {
-    if daemon.secrets.source != conductor_model::secret::Source::Remote {
+    let what = match daemon.secrets.source {
+        conductor_model::secret::Source::Remote => None,
+        conductor_model::secret::Source::Keychain => {
+            Some("keychain, the OS keychain of a workstation")
+        }
+        conductor_model::secret::Source::Files => {
+            Some("files, a directory of mounted files conductor never writes")
+        }
+    };
+    if let Some(what) = what {
         bail!(
-            "daemon.secrets.source: is keychain, the OS keychain of a workstation; a box with no \
-             local operator reads its secrets from the Secrets service: write source: remote and \
-             its url"
+            "daemon.secrets.source: is {what}; a box with no local operator reads its secrets \
+             from the Secrets service: write source: remote and its url"
         );
     }
     if daemon.tls.is_none() {

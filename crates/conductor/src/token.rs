@@ -470,6 +470,12 @@ pub fn contribute(
         PutSecretOutcome::Exists { error } => {
             return Ok(Err(format!("SecretExists: {}", error.name.0)));
         }
+        PutSecretOutcome::ReadOnly { error } => {
+            return Ok(Err(format!(
+                "SourceReadOnly: the {} source is never written; nothing was written",
+                crate::secret::source_word(error.source)
+            )));
+        }
         PutSecretOutcome::NotHuman { error } => {
             return Ok(Err(format!(
                 "ActorNotHuman: {}",
@@ -651,6 +657,18 @@ fn quoted(text: &str) -> String {
 /// reveal`, with the config file `config` when there is one. Names the token, never its value.
 #[must_use]
 pub fn helper(program: &Path, config: Option<&str>, token_id: &TokenId) -> String {
+    reveal_words(program, config, "--token", &token_id.0.0)
+}
+
+/// The `apiKeyHelper` that hands the harness the `model_token` of `instance`
+/// (`story:container-start-without-prompt`): this binary's `token reveal --model-token`, with
+/// the config file `config` when there is one. Names the instance, never the value.
+#[must_use]
+pub fn model_helper(program: &Path, config: Option<&str>, instance: &InstanceName) -> String {
+    reveal_words(program, config, "--model-token", &instance.0)
+}
+
+fn reveal_words(program: &Path, config: Option<&str>, flag: &str, value: &str) -> String {
     let mut words = vec![quoted(&program.display().to_string())];
     if let Some(config) = config {
         words.extend(["--config".to_owned(), quoted(config)]);
@@ -658,8 +676,8 @@ pub fn helper(program: &Path, config: Option<&str>, token_id: &TokenId) -> Strin
     words.extend([
         "token".to_owned(),
         "reveal".to_owned(),
-        "--token".to_owned(),
-        quoted(&token_id.0.0),
+        flag.to_owned(),
+        quoted(value),
     ]);
     words.join(" ")
 }
@@ -673,6 +691,19 @@ pub fn helper(program: &Path, config: Option<&str>, token_id: &TokenId) -> Strin
 ///
 /// The settings are no JSON object, or the copy cannot be written.
 pub fn apply(launch: &mut Launch, lease: &Lease, remote_control: bool) -> Result<PathBuf> {
+    apply_helper(
+        launch,
+        |program, config| helper(program, config, &lease.token_id),
+        remote_control,
+    )
+}
+
+/// [`apply`] with the helper `helper` builds from this binary and the config file.
+fn apply_helper(
+    launch: &mut Launch,
+    helper: impl FnOnce(&Path, Option<&str>) -> String,
+    remote_control: bool,
+) -> Result<PathBuf> {
     let name = launch.request.session_name.0.clone();
     let config = launch
         .env
@@ -695,7 +726,7 @@ pub fn apply(launch: &mut Launch, lease: &Lease, remote_control: bool) -> Result
     };
     object.insert(
         HELPER_KEY.to_owned(),
-        Value::String(helper(&program, config.as_deref(), &lease.token_id)),
+        Value::String(helper(&program, config.as_deref())),
     );
     let dir = launch.state.join("sessions");
     fs::create_dir_all(&dir).with_context(|| format!("create {}", dir.display()))?;
@@ -717,7 +748,11 @@ pub fn apply(launch: &mut Launch, lease: &Lease, remote_control: bool) -> Result
 
 /// Leases a token for the launch of `role`'s agent and puts it into `launch` ([`apply`]); a role
 /// that names `token_owner` starts for Remote Control. Answers the lease, `None` with an empty
-/// pool (the launch is left as it is).
+/// pool. With an empty pool the launch is left as it is, but for an instance whose placement
+/// opens no box and that names a `model_token`, where the config file says `daemon.unattended`
+/// (`story:container-start-without-prompt`): its settings then name [`model_helper`], so the
+/// agent runs on that token. Without that key an empty pool leaves every launch as it is, so an
+/// agent on a workstation keeps the harness's own login.
 ///
 /// # Errors
 ///
@@ -730,6 +765,17 @@ pub fn lease_into(
 ) -> Result<Option<Lease>, String> {
     let name = launch.request.session_name.0.clone();
     let Some(lease) = lease_for_start(instance, role, &name, headroom)? else {
+        if instance.model_token.is_some()
+            && !crate::placement::boxed(instance)
+            && daemon_config().is_some_and(|daemon| daemon.unattended)
+        {
+            apply_helper(
+                launch,
+                |program, config| model_helper(program, config, &instance.name),
+                false,
+            )
+            .map_err(|error| format!("{error:#}"))?;
+        }
         return Ok(None);
     };
     if let Err(error) = apply(launch, &lease, role.token_owner.is_some()) {
@@ -1295,15 +1341,30 @@ pub fn leave(args: &LeaveArgs, daemon: Option<&str>) -> Result<ExitCode> {
 }
 
 /// `conductor token reveal --token <id>`: the value of a leased token on standard output, for
-/// the harness whose settings name it as their `apiKeyHelper`.
+/// the harness whose settings name it as their `apiKeyHelper`. With `--model-token <instance>`
+/// instead, the value of that instance's `model_token` (`story:container-start-without-prompt`),
+/// for an agent at a placement with no box that the pool leased no token ([`model_helper`]); an
+/// instance whose placement opens a box is refused, and nothing of its token is printed.
 ///
 /// # Errors
 ///
-/// No `--token`, the config does not load, or standard output cannot be written. A refusal is one
-/// line of standard error and exit 1, naming the specification's error.
+/// Neither or both of `--token` and `--model-token`, the config does not load, or standard
+/// output cannot be written. A refusal is one line of standard error and exit 1, naming the
+/// specification's error where one applies; the refusal of a boxed instance names its placement.
 pub fn token_reveal(config: Option<&Path>, args: &TokenRevealArgs) -> Result<ExitCode> {
     const WHAT: &str = "token reveal";
-    let id = required(args.token.as_ref(), WHAT, "token")?;
+    let model = args
+        .model_token
+        .as_deref()
+        .filter(|name| !name.trim().is_empty());
+    if model.is_some() && args.token.is_some() {
+        bail!("{WHAT}: give --token or --model-token, not both");
+    }
+    let id = match model {
+        Some(_) => "",
+        None => required(args.token.as_ref(), WHAT, "token")
+            .map_err(|_| anyhow!("{WHAT}: --token or --model-token is required"))?,
+    };
     let environment = crate::config::Environment::from_process().context(WHAT)?;
     let loaded = crate::config::load(config, &environment).context(WHAT)?;
     let daemon = &loaded.config.daemon;
@@ -1311,32 +1372,63 @@ pub fn token_reveal(config: Option<&Path>, args: &TokenRevealArgs) -> Result<Exi
         eprintln!("conductor: {WHAT}: {line}");
         Ok(ExitCode::FAILURE)
     };
-    let Some(store) = existing_store(&daemon.store.0) else {
-        return refuse(format!(
-            "TokenStateConflict: token {id}: no pool is on record"
-        ));
+    let (what, secret) = if let Some(name) = model {
+        let Some(instance) = loaded
+            .config
+            .instances
+            .iter()
+            .find(|instance| instance.name.0 == name)
+        else {
+            return refuse(format!(
+                "UnknownInstance: {name}: the config file names no such instance; nothing is \
+                 revealed"
+            ));
+        };
+        // A box receives its model token sealed through a slot of the daemon's pool; nothing
+        // prints it.
+        if crate::placement::boxed(instance) {
+            return refuse(format!(
+                "instance {name}: its placement {} opens a box, which receives its model_token \
+                 sealed through a slot; --model-token serves an instance whose placement opens \
+                 none, and nothing is revealed",
+                instance.placement.0
+            ));
+        }
+        let Some(secret) = instance.model_token.clone() else {
+            return refuse(format!(
+                "SecretMissing: instance {name} names no model_token; nothing is revealed"
+            ));
+        };
+        (format!("the model_token of instance {name}"), secret)
+    } else {
+        let Some(store) = existing_store(&daemon.store.0) else {
+            return refuse(format!(
+                "TokenStateConflict: token {id}: no pool is on record"
+            ));
+        };
+        let token_id = TokenId(Uuid(id.to_owned()));
+        let Some(token) = PoolTokenStorage::get(&store, &token_id) else {
+            return refuse(format!(
+                "TokenStateConflict: token {id}: it is not in the pool"
+            ));
+        };
+        if token.state != PoolTokenState::Leased {
+            return refuse(format!(
+                "TokenStateConflict: token {id}: it is {}, not Leased; nothing is revealed",
+                crate::store::token_state_name(token.state)
+            ));
+        }
+        (format!("token {id}"), token.data.secret)
     };
-    let token_id = TokenId(Uuid(id.to_owned()));
-    let Some(token) = PoolTokenStorage::get(&store, &token_id) else {
-        return refuse(format!(
-            "TokenStateConflict: token {id}: it is not in the pool"
-        ));
-    };
-    if token.state != PoolTokenState::Leased {
-        return refuse(format!(
-            "TokenStateConflict: token {id}: it is {}, not Leased; nothing is revealed",
-            crate::store::token_state_name(token.state)
-        ));
-    }
     let secrets = match crate::secret::open(&daemon.secrets) {
         Ok(secrets) => secrets,
         Err(unusable) => return refuse(unusable.to_string()),
     };
-    let value = match secrets.reveal(&token.data.secret) {
+    let value = match secrets.reveal(&secret) {
         Ok(Some(value)) => value,
         Ok(None) => {
             return refuse(format!(
-                "SecretMissing: token {id}: the secrets source holds no value for it"
+                "SecretMissing: {what}: the secrets source holds no value for it"
             ));
         }
         Err(error) => {

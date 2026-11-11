@@ -1,5 +1,5 @@
 // generated from conductor v1
-// contract digest a17ef5b4db86247df9a482c134e7a5bf24ccd55cdf64ac83672245e31b8c09c4
+// contract digest 2b03183365aedd50e23f3659c527d6ee72cb8b1ac517c9e046bb013284b8a454
 // do not edit: regenerate with `ess synthesize --layout crate`
 
 //! Secret — `conductor.secret`.
@@ -50,6 +50,8 @@ pub enum Source {
     Keychain,
     /// `Remote`.
     Remote,
+    /// `Files`.
+    Files,
 }
 
 /// WriteSecret — `conductor.secret.WriteSecret`.
@@ -230,6 +232,13 @@ pub enum PutSecretOutcome {
         /// Why it was refused: `conductor.operator.ActorNotHuman`.
         error: crate::operator::ActorNotHuman,
     },
+    /// `read-only` — externally decided (the daemon's secrets source is a directory of mounted files, which conductor never writes).
+    ///
+    /// Nothing was written to the directory and nothing recorded.
+    ReadOnly {
+        /// Why it was refused: `conductor.secret.SourceReadOnly`.
+        error: SourceReadOnly,
+    },
     /// `unreachable` — externally decided (the OS keychain does not answer).
     ///
     /// Nothing was written to the keychain and nothing recorded.
@@ -357,6 +366,15 @@ pub struct SecretMissing {
     pub names: Vec<SecretName>,
 }
 
+/// The declared error `conductor.secret.SourceReadOnly`.
+///
+/// The secrets source is a directory of mounted files, which conductor reads and never writes, so nothing was written; the value goes into the directory's file of that name, written by whoever mounts the directory.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SourceReadOnly {
+    /// `source` — `conductor.secret.Source`.
+    pub source: Source,
+}
+
 /// The declared error `conductor.secret.SourceUnreachable`.
 ///
 /// The secrets source (the OS keychain, or the Secrets service) did not answer, so nothing was read or written; the refusal names which source.
@@ -368,7 +386,7 @@ pub struct SourceUnreachable {
 
 /// The declared error `conductor.secret.SourceUnusable`.
 ///
-/// The secrets source `daemon.secrets` names cannot be used: `remote` writes no `url`, or the namespace is not one segment of lower-case letters, digits, `.`, `_` and `-`; the daemon does not start.
+/// The secrets source `daemon.secrets` names cannot be used: `remote` writes no `url`, `files` writes no `dir`, or the namespace is not one segment of lower-case letters, digits, `.`, `_` and `-`; the daemon does not start.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SourceUnusable {
     /// `source` — `conductor.secret.Source`.
@@ -404,7 +422,7 @@ pub mod obligations {
     ///
     /// Why it is not generated: kept an obligation by `creates:` leaving the required field `instances` of `conductor.secret.Secret` undetermined, in `stored`.
     ///
-    /// Contract: given `conductor.secret.PutSecret` input, decide and enact exactly one outcome. Declared outcomes (declaration order, not selection precedence): `not-human` when `actor.kind != Human`, error `conductor.operator.ActorNotHuman`; `unreachable` externally decided (the OS keychain does not answer), error `conductor.secret.SourceUnreachable`; `stored` for an identity no record carries, creates `conductor.secret.Secret`, emits `conductor.secret.SecretPut`; `exists` externally decided (the secrets source already holds a value under the name and replace is false), error `conductor.secret.SecretExists`; `replaced` otherwise, updates `conductor.secret.Secret`, emits `conductor.secret.SecretPut`.
+    /// Contract: given `conductor.secret.PutSecret` input, decide and enact exactly one outcome. Declared outcomes (declaration order, not selection precedence): `not-human` when `actor.kind != Human`, error `conductor.operator.ActorNotHuman`; `read-only` externally decided (the daemon's secrets source is a directory of mounted files, which conductor never writes), error `conductor.secret.SourceReadOnly`; `unreachable` externally decided (the OS keychain does not answer), error `conductor.secret.SourceUnreachable`; `stored` for an identity no record carries, creates `conductor.secret.Secret`, emits `conductor.secret.SecretPut`; `exists` externally decided (the secrets source already holds a value under the name and replace is false), error `conductor.secret.SecretExists`; `replaced` otherwise, updates `conductor.secret.Secret`, emits `conductor.secret.SecretPut`.
     pub trait PutSecretBehavior {
         /// Decides and enacts exactly one declared outcome of `conductor.secret.PutSecret`.
         ///

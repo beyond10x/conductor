@@ -1,5 +1,5 @@
 type: ess-http/1
-specification: {system: conductor, version: v1, source_digest: "sha256:9c40a7a8c7b96345bb58a96238921936fa25889c11f64ff3f0e3b216e50efc8e"}
+specification: {system: conductor, version: v1, source_digest: "sha256:8c4d7260c2cd89c19b538694951320f4049ae08dae675c93b6ecb0b961cf30f9"}
 routes:
   - command: conductor.config.PutConfig
     method: put

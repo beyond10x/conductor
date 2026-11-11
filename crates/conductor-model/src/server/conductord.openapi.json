@@ -8,7 +8,7 @@
     "x-ess-provenance": {
       "system": "conductor",
       "specification_version": "v1",
-      "contract_digest": "slice-sha256/2:19fa28207037fcd0aa4b9fa669425372a7d42a2b3d7c3e57aaf0c303f8a1c3a2"
+      "contract_digest": "slice-sha256/2:80c71f5cb17fc94858c558c22df87fd337233b9b98cba4d8e66e0311d93bd28f"
     },
     "x-ess-reached-by": "network"
   },
@@ -1154,18 +1154,22 @@
             }
           },
           "502": {
-            "description": "Outcomes `unreachable` and `exists`: something outside the request refused. The input was acceptable, so the caller has nothing to correct and a retry is meaningful.",
+            "description": "Outcomes `read-only`, `unreachable` and `exists`: something outside the request refused. The input was acceptable, so the caller has nothing to correct and a retry is meaningful.",
             "content": {
               "application/json": {
                 "schema": {
                   "discriminator": {
                     "mapping": {
                       "exists": "#/components/schemas/conductor.secret.PutSecret.exists.Response",
+                      "read-only": "#/components/schemas/conductor.secret.PutSecret.read-only.Response",
                       "unreachable": "#/components/schemas/conductor.secret.PutSecret.unreachable.Response"
                     },
                     "propertyName": "outcome"
                   },
                   "oneOf": [
+                    {
+                      "$ref": "#/components/schemas/conductor.secret.PutSecret.read-only.Response"
+                    },
                     {
                       "$ref": "#/components/schemas/conductor.secret.PutSecret.unreachable.Response"
                     },
@@ -6380,6 +6384,36 @@
         ],
         "type": "object"
       },
+      "conductor.secret.PutSecret.read-only.Response": {
+        "additionalProperties": false,
+        "description": "Nothing was written to the directory and nothing recorded. Decided outside the request: the daemon's secrets source is a directory of mounted files, which conductor never writes.",
+        "properties": {
+          "error": {
+            "const": "conductor.secret.SourceReadOnly",
+            "description": "The secrets source is a directory of mounted files, which conductor reads and never writes, so nothing was written; the value goes into the directory's file of that name, written by whoever mounts the directory.\n",
+            "type": "string"
+          },
+          "outcome": {
+            "const": "read-only",
+            "description": "Which declared outcome the command took."
+          },
+          "payload": {
+            "$ref": "#/components/schemas/conductor.secret.SourceReadOnly.Error"
+          },
+          "published": {
+            "description": "Every event this branch published, in publication order: its qualified name and its payload.",
+            "maxItems": 0,
+            "type": "array"
+          }
+        },
+        "required": [
+          "outcome",
+          "published",
+          "error",
+          "payload"
+        ],
+        "type": "object"
+      },
       "conductor.secret.PutSecret.replaced.Response": {
         "additionalProperties": false,
         "description": "The value under the name is written again; the record is unchanged. Taken when no other outcome's condition matched. A `conductor.secret.Secret` has changed, and its state is unchanged. The instance is the one `name` names. Emits `SecretPut`, published to consumers and listed under `published`.",
@@ -6822,8 +6856,25 @@
         "type": "string",
         "enum": [
           "Keychain",
-          "Remote"
+          "Remote",
+          "Files"
         ]
+      },
+      "conductor.secret.SourceReadOnly.Error": {
+        "title": "SourceReadOnly payload",
+        "description": "The secrets source is a directory of mounted files, which conductor reads and never writes, so nothing was written; the value goes into the directory's file of that name, written by whoever mounts the directory.\n",
+        "x-ess-name": "conductor.secret.SourceReadOnly",
+        "x-ess-kind": "error-payload",
+        "type": "object",
+        "properties": {
+          "source": {
+            "$ref": "#/components/schemas/conductor.secret.Source"
+          }
+        },
+        "required": [
+          "source"
+        ],
+        "additionalProperties": false
       },
       "conductor.secret.SourceUnreachable.Error": {
         "title": "SourceUnreachable payload",
@@ -9168,7 +9219,8 @@
       "type": "string",
       "enum": [
         "Keychain",
-        "Remote"
+        "Remote",
+        "Files"
       ]
     },
     "conductor.store.Backend": {

@@ -2,8 +2,8 @@
 //! the one daemon of the control host. It reads the config file the global `--config` or
 //! `CONDUCTOR_CONFIG` names (else `~/.b10x/conductor/conductor.yaml`), reconciles the instance
 //! runtimes from it ([`reconcile`]), records each action in its store, and serves its API ([`api`]):
-//! the dashboard app and `/v1/` on `127.0.0.1:<daemon.port>` and on the TLS listener `daemon.tls`
-//! names, the instances proxied (`story:instance-api`), and upgrades an instance on
+//! the dashboard app and `/v1/` on `<daemon.address>:<daemon.port>` (`127.0.0.1` unless the file
+//! names another address) and on the TLS listener `daemon.tls` names, the instances proxied (`story:instance-api`), and upgrades an instance on
 //! `POST /v1/instances/{name}/upgrade` ([`upgrade`]). Its directory is the global
 //! `--state-dir`, else `~/.b10x/conductor/daemon` ([`DIR`]): what it started. Its store is the
 //! deployment's one database, the URL `daemon.store` writes, opened under the tenant [`TENANT`];
@@ -11,6 +11,12 @@
 //! unit `conductord.service` ([`install`]). On a box with no local operator
 //! (`daemon.loopback: false`, `story:daemon-remote`) the loopback listener is off, the TLS
 //! listener is its only API, and `--install` writes the system unit instead.
+//!
+//! In a container (`story:container-start-without-prompt`) it starts with no terminal and no
+//! prompt: `daemon.unattended: true` seeds each instance's records, trust and `worktree`
+//! workspace where they are missing ([`unattended`]) while its listeners answer, `/readyz` `503`
+//! meanwhile and after a step that failed; and where no user service manager is, each runtime
+//! is a child process of the daemon ([`units::Children`]).
 //!
 //! It serves before its store answers (`story:daemon-probes-and-metrics`): the listeners take
 //! requests as soon as the config is read, `GET /healthz` answers `200` and `GET /readyz` `503`
@@ -31,6 +37,7 @@ pub mod host_roles;
 pub mod install;
 pub mod metrics;
 pub mod reconcile;
+pub mod unattended;
 pub mod units;
 pub mod upgrade;
 
@@ -147,11 +154,19 @@ pub fn daemon_serve(
     }
     let port = u16::try_from(written.daemon.port).context("daemon serve: daemon.port")?;
     // The loopback listener is off on a box with no local operator (`story:daemon-remote`); the
-    // TLS listener is then the daemon's only API.
+    // TLS listener is then the daemon's only API. It binds `daemon.address`, `127.0.0.1` unless
+    // the file names another; on one that is not loopback, as in a container whose port is
+    // published, it takes bearers as the TLS listener does ([`api::serve`]).
+    let address: std::net::IpAddr = written
+        .daemon
+        .address
+        .trim()
+        .parse()
+        .with_context(|| format!("{WHAT}: daemon.address: {}", written.daemon.address))?;
     let listener = if written.daemon.loopback {
         Some(
-            TcpListener::bind(("127.0.0.1", port))
-                .with_context(|| format!("daemon serve: listen on 127.0.0.1:{port}"))?,
+            TcpListener::bind((address, port))
+                .with_context(|| format!("daemon serve: listen on {address}:{port}"))?,
         )
     } else {
         None
@@ -189,8 +204,14 @@ pub fn daemon_serve(
         let served = Arc::clone(&api);
         thread::spawn(move || api::serve(&listener, &served));
         serving.push(format!(
-            "conductord: config {}, serving the dashboard and /v1/ on http://127.0.0.1:{port}/",
+            "conductord: config {}, serving the dashboard and /v1/ on http://{}/{}",
             file.display(),
+            std::net::SocketAddr::new(address, port),
+            if address.is_loopback() {
+                ""
+            } else {
+                " with bearers"
+            },
         ));
     } else {
         serving.push(format!(
@@ -210,6 +231,22 @@ pub fn daemon_serve(
     }
     let watched = Arc::clone(&api);
     thread::spawn(move || metrics::watch(&url, &watched, TICK));
+    // `daemon.unattended` (`story:container-start-without-prompt`): what `conductor setup
+    // --apply` does for each instance, each only where it is missing, before the first pass and
+    // while the listeners answer. `/readyz` is `503` meanwhile, and stays so for as long as the
+    // process runs once a step failed; the daemon then goes on as it would.
+    if written.daemon.unattended {
+        api.probes().seeding();
+        let seeded = unattended::seed(&file, &home);
+        api.probes().seeded(seeded);
+        if !seeded {
+            eprintln!(
+                "conductor: {WHAT}: the unattended start's seeding failed in the steps above; \
+                 the daemon serves and reconciles, and {} answers 503 until a start seeds them",
+                metrics::READINESS
+            );
+        }
+    }
     // The serving lines follow what the reconciler first publishes when the store answers at
     // once, as they always did. Where it does not answer, or not within the readiness bound,
     // they are printed now and the daemon waits for the store: it opens none, starts no runtime
@@ -226,8 +263,21 @@ pub fn daemon_serve(
             thread::sleep(TICK);
         }
     }
+    // Where no user service manager is, as in a container, each runtime is a child process of
+    // the daemon, and a signal that ends the daemon stops them first.
+    let manager = units::Manager::chosen(
+        std::env::var_os("XDG_RUNTIME_DIR").as_deref(),
+        std::env::var_os("PATH").as_deref(),
+    );
+    if let units::Manager::Children(children) = &manager {
+        println!(
+            "conductord: no user service manager here: each runtime runs as a child process of \
+             the daemon"
+        );
+        end_children_on_signal(children.clone()).context(WHAT)?;
+    }
     let mut daemon =
-        Daemon::open(file, home, dir, reconcile::probe(&program), Systemd).context(WHAT)?;
+        Daemon::open(file, home, dir, reconcile::probe(&program), manager).context(WHAT)?;
     let upgrades = upgrade::listen();
     publish(&api, &daemon);
     if at_once {
@@ -349,7 +399,7 @@ pub fn answer_upgrade<U: units::Units>(daemon: &mut Daemon<U>, request: upgrade:
 
 /// Publishes what `daemon` last saw to `api`: whether it holds a record the store refused, the
 /// instances' rows, the routes to their runtimes and the deployment's operators.
-fn publish(api: &api::Api, daemon: &Daemon<Systemd>) {
+fn publish<U: units::Units>(api: &api::Api, daemon: &Daemon<U>) {
     api.publish_unrecorded(daemon.holds_records());
     api.publish(
         daemon.rows(),
@@ -357,6 +407,37 @@ fn publish(api: &api::Api, daemon: &Daemon<Systemd>) {
         daemon.config().daemon.operators.clone(),
     );
     api.publish_host(host_roles::listed(daemon.config()), daemon.supervisor());
+}
+
+/// On `SIGTERM`, `SIGINT` or `SIGHUP`, stops `children`, then exits 0: a daemon whose runtimes
+/// are its children ([`units::Children`]) ends with none left.
+///
+/// # Errors
+///
+/// A handler cannot be registered.
+fn end_children_on_signal(children: units::Children) -> Result<()> {
+    use std::sync::atomic::{AtomicBool, Ordering};
+    let ended = Arc::new(AtomicBool::new(false));
+    for signal in [
+        signal_hook::consts::SIGTERM,
+        signal_hook::consts::SIGINT,
+        signal_hook::consts::SIGHUP,
+    ] {
+        signal_hook::flag::register(signal, Arc::clone(&ended))
+            .with_context(|| format!("handle the signal {signal}"))?;
+    }
+    thread::Builder::new()
+        .name("daemon-signals".to_owned())
+        .spawn(move || {
+            while !ended.load(Ordering::Relaxed) {
+                thread::sleep(Duration::from_millis(100));
+            }
+            println!("conductord: ending: stopping the runtimes it started");
+            children.stop_all();
+            std::process::exit(0);
+        })
+        .context("start the signal watch")?;
+    Ok(())
 }
 
 /// The TLS listener `daemon.tls` names, bound, with its rustls config and the Identity service

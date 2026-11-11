@@ -141,13 +141,20 @@ fn refuse(status: u16, reason: &'static str, why: impl Into<String>) -> Refused 
     }
 }
 
-/// Whether the request's headers, `header` reading one by name, come from the page served on
-/// `127.0.0.1:<port>`: its own `Origin`, or no `Origin` with `Sec-Fetch-Site: same-origin`. The
-/// daemon's loopback listener asks it of every write it forwards (`story:instance-api`).
-pub fn same_origin<'a>(header: impl Fn(&str) -> Option<&'a str>, port: u16) -> bool {
+/// Whether the request's headers, `header` reading one by name, come from the page served by the
+/// loopback listener bound to `bound`: its own `Origin` (`http://` on `127.0.0.1`, `localhost` or
+/// the address it is bound to, an IPv6 one in brackets, with its port), or no `Origin` with
+/// `Sec-Fetch-Site: same-origin`. The daemon's loopback listener asks it of every write it
+/// forwards (`story:instance-api`).
+pub fn same_origin<'a>(
+    header: impl Fn(&str) -> Option<&'a str>,
+    bound: std::net::SocketAddr,
+) -> bool {
+    let port = bound.port();
     let own = [
         format!("http://127.0.0.1:{port}"),
         format!("http://localhost:{port}"),
+        format!("http://{bound}"),
     ];
     match header("origin") {
         Some(origin) => own.iter().any(|own| own.eq_ignore_ascii_case(origin)),

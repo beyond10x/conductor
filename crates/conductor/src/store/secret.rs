@@ -69,6 +69,7 @@ pub const fn source_name(source: Source) -> &'static str {
     match source {
         Source::Keychain => "Keychain",
         Source::Remote => "Remote",
+        Source::Files => "Files",
     }
 }
 
@@ -95,6 +96,7 @@ fn decode(body: &Value) -> Result<SecretSnapshot, String> {
     let source = match text(body, "source")?.as_str() {
         "Keychain" => Source::Keychain,
         "Remote" => Source::Remote,
+        "Files" => Source::Files,
         other => return Err(format!("unknown Source {other:?}")),
     };
     let optional = |field: &str| body.get(field).and_then(Value::as_str).map(str::to_owned);

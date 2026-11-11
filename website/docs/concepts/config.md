@@ -3,7 +3,7 @@ title: Config
 sidebar_position: 3
 description: One conductor.config/2 file names the daemon, the global defaults and every instance; how a command finds the file and the instance, the three levels of a setting, how a key is changed or a /1 file migrated, and which part of conductor reads each key.
 lede: One file is the desired state of a deployment, and an instance is one organization in it, so one generic profile serves every organization.
-source: docs/design/architecture-next.md section 9; spec/domains/config.yaml; crates/conductor/src/config.rs, config/convert.rs, config/put.rs, config/effective.rs, daemon/api.rs, daemon/install.rs, build.rs, metric.rs, attach.rs, trust.rs; spec/domains/session.yaml; conductor config --help
+source: docs/design/architecture-next.md section 9; spec/domains/config.yaml; crates/conductor/src/config.rs, config/convert.rs, config/put.rs, config/effective.rs, daemon/api.rs, daemon/install.rs, daemon/unattended.rs, secret.rs, build.rs, metric.rs, attach.rs, trust.rs; spec/domains/session.yaml; conductor config --help
 ---
 
 ## One file
@@ -150,7 +150,7 @@ A key nothing reads yet is accepted, defaulted and shown: `repositories[].activi
 |---|---|
 | `daemon.*` | `conductor daemon serve`; `port` and `timeout` also by `conductor status` |
 | `globals.roles` | conductord (host roles), every role lookup |
-| `placement`, `remote.*`, `model_token` | conductord, opening the box |
+| `placement`, `remote.*`, `model_token` | conductord, opening the box; `model_token` also by `token reveal --model-token` at a placement that opens none |
 | `session_prefix` | `session start`, `session attach`, guard, sessions collector, `controller start-controller` |
 | `sources`, `checkouts.*` | collectors, watch, guard, dashboard, `resource usage`, `config workspace`, `conductor trust` |
 | `records`, `state`, `cache` | every store command, guard, watch, dashboard, collectors |
@@ -169,7 +169,11 @@ A key nothing reads yet is accepted, defaulted and shown: `repositories[].activi
 
 | key | behaviour |
 |---|---|
-| `daemon.loopback: false` | `daemon serve --install` writes `/etc/systemd/system/conductord.service`, running as the installing user with its home; refused while the config file lies in no git checkout or `daemon.secrets.source` is `keychain`. A workstation runs `conductor login --daemon <url>`, then `--daemon` or `CONDUCTOR_DAEMON` on `join`, `leave`, `config put` and `instance upgrade` |
+| `daemon.loopback: false` | `daemon serve --install` writes `/etc/systemd/system/conductord.service`, running as the installing user with its home; refused while the config file lies in no git checkout or `daemon.secrets.source` is not `remote`. A workstation runs `conductor login --daemon <url>`, then `--daemon` or `CONDUCTOR_DAEMON` on `join`, `leave`, `config put` and `instance upgrade` |
+| `daemon.address` | the listener on `daemon.port` binds it, `127.0.0.1` by default; on another loopback address it answers a `Host` naming that address (`[::1]` in brackets) beside `127.0.0.1` and `localhost`; on an address that is not loopback, as `0.0.0.0` in a container, the probes and the app's files answer without a bearer and every `/v1/` request needs one, as on `daemon.tls` ([run in a container](/docs/guides/run-in-a-container)) |
+| `daemon.unattended: true` | `daemon serve` does at its start what `setup --apply` does for each instance, each only where it is missing: records written and committed, checkouts and records trusted, the checkouts root activated as a `worktree` workspace. A second start writes nothing, but commits a skeleton whose repository has no commit yet as it lies. The listeners answer meanwhile, `/readyz` `503` while it seeds and for as long as the process runs once a step failed |
+| `daemon.secrets.source: files` | `dir` names a directory of mounted files, one per secret, its name the file's and its value the content less one line end; conductor never writes there and `secret put` refuses `SourceReadOnly` |
+| `model_token` at a placement that opens no box | where the file says `daemon.unattended: true`, an agent whose start leases no token from the pool runs on it: its settings name `conductor token reveal --model-token <instance>` as their `apiKeyHelper`; without that key an empty pool leaves the launch on the harness's own login. `token reveal --model-token` refuses an instance whose placement opens a box |
 | `daemon.tls` | the same app and `/v1/` as loopback, both at once; every request but the app's files, a CORS preflight and the probes (`/healthz`, `/readyz`, `/metrics`) carries a bearer; any origin may read with one. `identity` is `https://`, or `http://` on `127.0.0.1`, `localhost` or `*.svc.cluster.local`; a bearer resolves through `GET <identity>/v1/access-authority`, audience `conductor`; an operator is named by the principal's email, else its subject |
 | `daemon.operators` | a write needs its grant: `answer-decisions` for answers and the Plan page, `change-settings` for settings and `PUT /v1/config`, `upgrade-instances` for an upgrade; else `GrantMissing`. With none written, the Unix user holds every grant on loopback |
 | `roles[].settings` | a session started with `claude --bg` passes `--setting-sources user,project,local`, since Claude Code takes the bypass-permissions acceptance only from user or managed settings; the `--settings` file wins on every key it sets. A role's own file carries what its sessions need beyond the guard: `env` with absolute paths, `attribution`, `enabledPlugins`, `extraKnownMarketplaces`, `skipDangerousModePermissionPrompt`, `claudeMdExcludes`, and the shipped `hooks` with the matcher `*` ([sessions](/docs/security/sessions)) |

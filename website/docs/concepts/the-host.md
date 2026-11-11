@@ -52,7 +52,7 @@ Prometheus. The loopback listener still refuses a foreign `Host`.
 | Path | Answer |
 |---|---|
 | `/healthz` | `200 {"state":"serving"}` while the process serves, whatever the store does |
-| `/readyz` | `200 [{"reachable":true,"reason":null}]` once the config is read, the store answered a read within the last 10 s, the reconciler published once, and its last record did not fail; otherwise `503`, `reachable` false and a one-line `reason` |
+| `/readyz` | `200 [{"reachable":true,"reason":null}]` once the config is read, the store answered a read within the last 10 s, the reconciler published once, and its last record did not fail, and, with `daemon.unattended: true`, the start has seeded with no step failing ([run in a container](/docs/guides/run-in-a-container)); otherwise `503`, `reachable` false and a one-line `reason` |
 | `/metrics` | `200`, Prometheus text format |
 
 A daemon whose store does not answer keeps serving: `/healthz` is `200` and `/readyz` is `503`. It

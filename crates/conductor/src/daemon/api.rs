@@ -58,7 +58,7 @@
 use std::collections::BTreeMap;
 use std::fs;
 use std::io::{self, Read, Write};
-use std::net::{Shutdown, TcpListener, TcpStream};
+use std::net::{Shutdown, SocketAddr, TcpListener, TcpStream};
 use std::os::unix::net::UnixStream;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -512,15 +512,25 @@ const fn grant_name(grant: OperatorGrant) -> &'static str {
 /// Which listener a request came in on.
 #[derive(Debug, Clone, Copy)]
 enum Listener {
-    /// `127.0.0.1:<port>`.
-    Loopback(u16),
-    /// The TLS listener.
-    Tls,
+    /// The listener on `daemon.port` bound to a loopback address, `127.0.0.1` unless
+    /// `daemon.address` names another: the address it is bound to.
+    Loopback(SocketAddr),
+    /// A listener reached from elsewhere, which takes bearers: the TLS listener, or the one on
+    /// `daemon.port` bound to a `daemon.address` that is not loopback.
+    Bearers,
 }
 
-/// Serves the loopback `listener` until it fails, each connection on a thread of its own.
+/// Serves `listener`, on `daemon.port`, until it fails, each connection on a thread of its own:
+/// on a loopback address as the loopback listener, on any other (`daemon.address`, as in a
+/// container whose port is published) as the TLS listener is, a `/v1/` request taken with a
+/// bearer only and no token in the page (`story:container-start-without-prompt`).
 pub fn serve(listener: &TcpListener, api: &Arc<Api>) {
-    let port = listener.local_addr().map_or(0, |address| address.port());
+    // A listener whose address cannot be read is taken as reachable from elsewhere: it fails
+    // closed.
+    let kind = match listener.local_addr() {
+        Ok(address) if address.ip().is_loopback() => Listener::Loopback(address),
+        _ => Listener::Bearers,
+    };
     for stream in listener.incoming().flatten() {
         let api = Arc::clone(api);
         std::thread::spawn(move || {
@@ -529,7 +539,7 @@ pub fn serve(listener: &TcpListener, api: &Arc<Api>) {
                 return;
             }
             // A client that goes away mid-request costs only its own answer.
-            let _ = connection(&mut stream, Listener::Loopback(port), &api);
+            let _ = connection(&mut stream, kind, &api);
             let _ = stream.shutdown(Shutdown::Write);
             let _ = io::copy(&mut (&stream).take(MAX_FORWARD as u64), &mut io::sink());
         });
@@ -548,7 +558,7 @@ pub fn serve_tls(listener: &TcpListener, api: &Arc<Api>, config: &Arc<rustls::Se
                 return;
             };
             let mut tls = rustls::StreamOwned::new(server, stream);
-            if connection(&mut tls, Listener::Tls, &api).is_ok() {
+            if connection(&mut tls, Listener::Bearers, &api).is_ok() {
                 tls.conn.send_close_notify();
                 let _ = tls.flush();
             }
@@ -668,17 +678,17 @@ fn answer<S: Read + Write>(
     api: &Api,
 ) -> Vec<u8> {
     let path = request.path().to_owned();
-    if matches!(listener, Listener::Tls) && request.method == "OPTIONS" {
+    if matches!(listener, Listener::Bearers) && request.method == "OPTIONS" {
         return preflight();
     }
-    if matches!(listener, Listener::Tls)
+    if matches!(listener, Listener::Bearers)
         && request.method == "GET"
         && (path == super::browser::LOGIN || path == super::browser::CALLBACK)
     {
         return browser_login(request, &path, api);
     }
-    if let Listener::Loopback(port) = listener
-        && !own_host(request.header("host"), port)
+    if let Listener::Loopback(bound) = listener
+        && !own_host(request.header("host"), bound)
     {
         return reply(
             403,
@@ -723,7 +733,7 @@ fn answer<S: Read + Write>(
     }
     let who = match listener {
         Listener::Loopback(_) => Who::Local,
-        Listener::Tls => match bearer(request, api) {
+        Listener::Bearers => match bearer(request, api) {
             Ok(who) => who,
             // The refusal names the Identity service, where `conductor login` obtains a bearer
             // (`story:daemon-remote`).
@@ -924,18 +934,20 @@ fn pool<S: Read>(
     reply(code, reason, &answer, listener)
 }
 
-/// Whether `host` names the loopback listener on `port`, or is absent (a client that is no
-/// browser).
-fn own_host(host: Option<&str>, port: u16) -> bool {
+/// Whether `host` names the loopback listener bound to `bound`, or is absent (a client that is no
+/// browser): `127.0.0.1`, `localhost` or the address it is bound to (an IPv6 one in brackets,
+/// `[::1]`), each with the listener's port or none.
+fn own_host(host: Option<&str>, bound: SocketAddr) -> bool {
+    let port = bound.port();
+    let address = match bound {
+        SocketAddr::V4(bound) => bound.ip().to_string(),
+        SocketAddr::V6(bound) => format!("[{}]", bound.ip()),
+    };
     host.is_none_or(|host| {
-        [
-            format!("127.0.0.1:{port}"),
-            format!("localhost:{port}"),
-            "127.0.0.1".to_owned(),
-            "localhost".to_owned(),
-        ]
-        .iter()
-        .any(|own| own.eq_ignore_ascii_case(host))
+        ["127.0.0.1", "localhost", address.as_str()]
+            .iter()
+            .flat_map(|name| [(*name).to_owned(), format!("{name}:{port}")])
+            .any(|own| own.eq_ignore_ascii_case(host))
     })
 }
 
@@ -1018,7 +1030,7 @@ fn resolved(api: &Api, given: &str) -> Result<(String, bool)> {
 
 /// `GET /login` and `GET /login/callback` on the TLS listener ([`super::browser`]).
 fn browser_login(request: &Request, path: &str, api: &Api) -> Vec<u8> {
-    let listener = Listener::Tls;
+    let listener = Listener::Bearers;
     let Some(identity) = &api.identity else {
         return reply(
             503,
@@ -1081,10 +1093,10 @@ fn admit_write(
     route: &str,
     api: &Api,
 ) -> Result<String, Vec<u8>> {
-    if let Listener::Loopback(port) = listener {
+    if let Listener::Loopback(bound) = listener {
         let header = |name: &str| request.header(name);
         let token = request.header(dashboard::TOKEN_HEADER);
-        if !dashboard::same_origin(header, port)
+        if !dashboard::same_origin(header, bound)
             || !token.is_some_and(|given| dashboard::same_token(&api.token, given))
         {
             return Err(reply(
@@ -1349,7 +1361,7 @@ fn federated<S: Read + Write>(
     }
     let seen = |name: &str| api.seen(name);
     if route == "events" {
-        let cors = if matches!(listener, Listener::Tls) {
+        let cors = if matches!(listener, Listener::Bearers) {
             CORS
         } else {
             ""
@@ -1677,7 +1689,7 @@ const CORS: &str = "Access-Control-Allow-Origin: *\r\n\
 
 /// `bytes`, an instance's answer, with the CORS headers on the TLS listener.
 fn with_cors(bytes: Vec<u8>, listener: Listener) -> Vec<u8> {
-    if !matches!(listener, Listener::Tls) {
+    if !matches!(listener, Listener::Bearers) {
         return bytes;
     }
     match bytes.windows(2).position(|pair| pair == b"\r\n") {
@@ -1722,7 +1734,7 @@ fn response(
     extra: &str,
     listener: Listener,
 ) -> Vec<u8> {
-    let cors = if matches!(listener, Listener::Tls) {
+    let cors = if matches!(listener, Listener::Bearers) {
         CORS
     } else {
         ""

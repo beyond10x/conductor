@@ -1,5 +1,5 @@
 // generated from conductor v1
-// contract digest a17ef5b4db86247df9a482c134e7a5bf24ccd55cdf64ac83672245e31b8c09c4
+// contract digest 2b03183365aedd50e23f3659c527d6ee72cb8b1ac517c9e046bb013284b8a454
 // do not edit: regenerate with `ess synthesize --layout crate`
 
 //! Config — `conductor.config`.
@@ -316,6 +316,10 @@ pub struct Daemon {
     pub timeout: crate::primitives::Duration,
     /// `substrate_slots` — `Integer`.
     pub substrate_slots: i64,
+    /// `unattended` — `Boolean`.
+    pub unattended: bool,
+    /// `address` — `String`.
+    pub address: String,
 }
 
 /// DaemonCadence — `conductor.config.DaemonCadence`.
@@ -800,6 +804,8 @@ pub struct SecretsSource {
     pub namespace: Option<String>,
     /// `url` — `Optional<String>`.
     pub url: Option<String>,
+    /// `dir` — `Optional<String>`.
+    pub dir: Option<String>,
 }
 
 /// SessionName — `conductor.config.SessionName`: a distinct wrapper around `String`.

@@ -697,10 +697,12 @@ commands:
         source: {kind: option, long: instance}
   - path: [token, reveal]
     callable: token-reveal
-    about: "Print the value of a leased token of the instance's pool from the daemon's secrets source, for the claude-code kind's harness, whose settings name this command as their apiKeyHelper; refuse a token that is not leased; nothing else prints a value"
+    about: "Print the value of a leased token of the instance's pool from the daemon's secrets source, or with --model-token the model_token of an instance whose placement opens no box, for the claude-code kind's harness, whose settings name this command as their apiKeyHelper; refuse a token that is not leased; nothing else prints a value"
     arguments:
       - field: token
         source: {kind: option, long: token}
+      - field: model_token
+        source: {kind: option, long: model-token}
   - path: [login]
     callable: login
     about: Log in to the daemon --daemon or CONDUCTOR_DAEMON names through its Identity service, in a browser, and keep the Identity session in this client's keychain; each command against that daemon then presents a bearer minted from it
