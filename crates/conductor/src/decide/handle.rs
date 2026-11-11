@@ -1134,6 +1134,7 @@ fn adr_titles(checkout: &Path) -> Vec<String> {
             "json",
         ])
         .current_dir(checkout)
+        .env_remove(crate::instance::SLOTS_VARIABLE)
         .output()
     else {
         return Vec::new();

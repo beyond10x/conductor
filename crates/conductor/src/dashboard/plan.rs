@@ -102,6 +102,7 @@ fn aep(checkout: &Path, args: &[&str], stdin: Option<&str>) -> std::io::Result<O
     let store = checkout.join(STORE[0]).join(STORE[1]);
     let mut command = Command::new("aep");
     command
+        .env_remove(crate::instance::SLOTS_VARIABLE)
         .args(["plan", "artifact"])
         .args(args)
         .arg("--store")

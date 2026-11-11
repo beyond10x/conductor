@@ -230,6 +230,7 @@ fn git(dir: &Path, args: &[&str]) -> Result<(Option<i32>, Vec<u8>), String> {
         .env_remove("GIT_DIR")
         .env_remove("GIT_WORK_TREE")
         .env_remove("GIT_INDEX_FILE")
+        .env_remove(crate::instance::SLOTS_VARIABLE)
         .stdin(Stdio::null())
         .stderr(Stdio::null())
         .output()
@@ -406,7 +407,10 @@ fn worktree(args: &[OsString], dir: &Path) -> Result<Value, (Option<String>, Str
             .join(" ")
     );
     let mut command = Command::new("worktree");
-    command.args(args).stdin(Stdio::null());
+    command
+        .args(args)
+        .env_remove(crate::instance::SLOTS_VARIABLE)
+        .stdin(Stdio::null());
     if dir.is_dir() {
         command.current_dir(dir);
     }

@@ -64,7 +64,9 @@ rolls back to the previous binary unless the runtime answers within `daemon.upgr
 for the instance at its start. A runtime started as a unit reads it from `CONDUCTOR_API_TOKEN`. A
 runtime in a box of the local substrate daemon reads it from the sealed slot
 `api_token_<instance>`, which substrate hands it at a descriptor, where that daemon declares
-the slot: the box's environment carries no token. A runtime in a box whose local daemon does
+the slot: the box's environment carries no token. The runtime closes that descriptor once it
+has read the token, and no process it starts inherits the descriptor or `SUBSTRATE_SECRET_SLOTS`.
+A runtime in a box whose local daemon does
 not declare the slot, or in a box of a remote substrate daemon, is handed none and mints its
 own, so a write proxied to it is refused. conductord proxies `/v1/instances/<name>/<route>` to
 it.

@@ -135,6 +135,7 @@ impl Decider for ClaudePrint {
         let mut child = Command::new("claude")
             .args(self.arguments())
             .current_dir(Self::dir()?)
+            .env_remove(crate::instance::SLOTS_VARIABLE)
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
             .stderr(Stdio::piped())

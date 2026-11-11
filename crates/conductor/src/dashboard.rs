@@ -1620,7 +1620,11 @@ fn agents(command: &[OsString], errors: &mut Vec<String>) -> Vec<Value> {
         errors.push("no session-list command".to_owned());
         return Vec::new();
     };
-    let output = match Command::new(program).args(arguments).output() {
+    let output = match Command::new(program)
+        .args(arguments)
+        .env_remove(crate::instance::SLOTS_VARIABLE)
+        .output()
+    {
         Ok(output) => output,
         Err(error) => {
             errors.push(format!("`{shown}`: {error}"));

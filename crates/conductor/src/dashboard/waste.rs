@@ -876,6 +876,7 @@ fn run(command: &[OsString], timeout: Duration) -> Ran {
     };
     let mut child = match Command::new(program)
         .args(arguments)
+        .env_remove(crate::instance::SLOTS_VARIABLE)
         .stdin(Stdio::null())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())

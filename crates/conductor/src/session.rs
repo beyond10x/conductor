@@ -1941,6 +1941,7 @@ impl Deliverer for ShellDeliverer {
         command
             .args(["session", "deliver", "--name", name, "--text", "-"])
             .env(crate::actor::DAEMON_VARIABLE, "1")
+            .env_remove(crate::instance::SLOTS_VARIABLE)
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
             .stderr(Stdio::piped());

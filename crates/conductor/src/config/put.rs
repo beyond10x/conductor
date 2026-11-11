@@ -225,6 +225,7 @@ fn git(dir: &Path, args: &[&str]) -> Result<String> {
         .arg("-C")
         .arg(dir)
         .args(args)
+        .env_remove(crate::instance::SLOTS_VARIABLE)
         .output()
         .context("run git")?;
     if output.status.success() {

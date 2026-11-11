@@ -775,7 +775,10 @@ fn run(command: &[OsString], dir: Option<&Path>) -> Result<(), String> {
         return Err("no command".to_owned());
     };
     let mut process = Command::new(program);
-    process.args(arguments).stdin(Stdio::null());
+    process
+        .args(arguments)
+        .env_remove(crate::instance::SLOTS_VARIABLE)
+        .stdin(Stdio::null());
     if let Some(dir) = dir {
         process.current_dir(dir);
     }

@@ -414,6 +414,7 @@ pub fn ssh_command(given: Option<String>, dir: Option<&Path>) -> String {
         .args(["config", "--get", "core.sshCommand"])
         .env("GIT_TERMINAL_PROMPT", "0")
         .env(SSH_COMMAND, format!("ssh {SSH_OPTIONS}"))
+        .env_remove(crate::instance::SLOTS_VARIABLE)
         .stdin(Stdio::null())
         .stderr(Stdio::null());
     if let Some(dir) = dir {
@@ -497,7 +498,8 @@ pub fn is_over_budget(error: &anyhow::Error) -> bool {
 /// so no collector waits on a source for ever (`gh` on a network that does not answer). Every
 /// external command a collector runs goes through here. Within a collector's budget ([`within`]),
 /// a command is not started once the budget is spent, and one still running when it is spent is
-/// killed; either answers [`OverBudget`].
+/// killed; either answers [`OverBudget`]. No command run here is told of the sealed slots a
+/// runtime in a box was handed ([`crate::instance::SLOTS_VARIABLE`]).
 ///
 /// # Errors
 ///
@@ -510,6 +512,7 @@ pub fn run(command: &mut Command, bound: Duration) -> Result<Output> {
     // The command leads a process group of its own, so what it leaves running can be stopped
     // with it when the bound is spent.
     let mut child = command
+        .env_remove(crate::instance::SLOTS_VARIABLE)
         .stdin(Stdio::null())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())

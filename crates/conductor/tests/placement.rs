@@ -4037,6 +4037,301 @@ fn a_slot_file_that_cannot_be_written_refuses_the_box_before_substrate_is_asked(
     );
 }
 
+/// Doctor's dry run of a box whose daemon declares the slot of the daemon's token checks the
+/// slot's file as conductord does before it writes it, and writes nothing itself: the slot's
+/// directory and file, not there before doctor runs, are not there after, and the box, whose
+/// slot conductord can create, is no failure.
+#[test]
+fn doctor_checks_a_declared_api_token_slot_and_writes_no_slot() {
+    let case = Case::new("dsl");
+    let file = case.config(&[("alpha", "systemd")]);
+    case.directories("alpha");
+    let slots = case.home().join(".b10x/conductor/daemon/slots");
+    let sealed = slots.join("api_token_alpha");
+    assert!(
+        fs::symlink_metadata(&slots).is_err() && fs::symlink_metadata(&sealed).is_err(),
+        "no slot before doctor runs"
+    );
+    let socket = case.dir.join("s.sock");
+    let _fake = FakeLocal::opening(
+        &socket,
+        &systemd_families(),
+        &SYSTEMD_PROPERTIES,
+        &[
+            "state-alpha",
+            "records-alpha",
+            "cache-alpha",
+            "store",
+            "api_token_alpha",
+        ],
+    );
+    let output = case.doctor_on(&file, &socket);
+    let shown = lines(&output);
+    assert!(
+        shown.iter().any(
+            |line| line.starts_with("box alpha: systemd") && line.contains("4 writable roots")
+        ),
+        "{}",
+        describe(&output)
+    );
+    assert!(
+        !shown.last().is_some_and(|verdict| verdict.contains("box ")),
+        "a slot conductord can create is no failure: {}",
+        describe(&output)
+    );
+    assert!(
+        fs::symlink_metadata(&slots).is_err(),
+        "doctor creates no slot directory: {}",
+        slots.display()
+    );
+    assert!(
+        fs::symlink_metadata(&sealed).is_err(),
+        "doctor writes no slot file: {}",
+        sealed.display()
+    );
+}
+
+/// Where the slot's file would be there is a directory: conductord refuses the box
+/// `placement.api-token-unsealed` before substrate is asked, and doctor's dry run names the same
+/// refusal for the same reason, from the one check both ask.
+#[test]
+fn doctor_and_conductord_refuse_a_declared_slot_whose_file_is_a_directory() {
+    let case = Case::new("dsd");
+    let file = case.config(&[("alpha", "systemd")]);
+    case.directories("alpha");
+    for daemon in [
+        case.dir.join("daemon"),
+        case.home().join(".b10x/conductor/daemon"),
+    ] {
+        fs::create_dir_all(daemon.join("slots/api_token_alpha")).expect("a directory");
+    }
+
+    let fake = Fake::declaring("api_token_alpha");
+    let mut daemon = case.daemon(fake.clone());
+    let done = daemon
+        .pass(
+            conductor_model::instance::ReconcileReason::ConfigChange,
+            std::time::Instant::now(),
+        )
+        .expect("a pass");
+    assert_eq!(done[0].result, ReconcileResult::Refused, "{done:?}");
+    let detail = done[0].detail.clone().unwrap_or_default();
+    assert!(
+        detail.contains("placement.api-token-unsealed") && detail.contains("not a regular file"),
+        "conductord names the refusal and why: {detail}"
+    );
+    assert!(fake.log.lock().expect("the log").opened.is_empty());
+
+    let socket = case.dir.join("s.sock");
+    let _fake = FakeLocal::opening(
+        &socket,
+        &systemd_families(),
+        &SYSTEMD_PROPERTIES,
+        &[
+            "state-alpha",
+            "records-alpha",
+            "cache-alpha",
+            "store",
+            "api_token_alpha",
+        ],
+    );
+    let output = case.doctor_on(&file, &socket);
+    let shown = lines(&output);
+    assert!(
+        shown
+            .last()
+            .is_some_and(|verdict| verdict.contains("box alpha (placement.api-token-unsealed)")),
+        "{}",
+        describe(&output)
+    );
+    let row = shown
+        .iter()
+        .find(|line| line.starts_with("box alpha:"))
+        .cloned()
+        .unwrap_or_default();
+    assert!(
+        row.contains("not a regular file")
+            && row.contains(
+                &case
+                    .home()
+                    .join(".b10x/conductor/daemon/slots/api_token_alpha")
+                    .display()
+                    .to_string()
+            ),
+        "doctor's row says why and names the path: {row}"
+    );
+}
+
+/// Programs named `names` in `bin`, each of which writes what it saw into a file of its own
+/// under `seen` when it is started: its name and arguments, `SUBSTRATE_SECRET_SLOTS`, and what
+/// descriptor 4 reads (`closed` when it has none).
+fn witnesses(bin: &Path, seen: &Path, names: &[&str]) {
+    fs::create_dir_all(bin).expect("the programs' directory");
+    fs::create_dir_all(seen).expect("the records' directory");
+    let script = format!(
+        "#!/bin/sh\n{{\n  printf 'argv=%s %s\\n' \"${{0##*/}}\" \"$*\"\n  \
+         printf 'slots=%s\\n' \"${{SUBSTRATE_SECRET_SLOTS-unset}}\"\n  \
+         if [ -e /proc/self/fd/4 ] && read -r held </proc/self/fd/4; then \
+         printf 'fd4=%s\\n' \"$held\"; else printf 'fd4=closed\\n'; fi\n\
+         }} >\"{seen}/${{0##*/}}.$$\"\n",
+        seen = seen.display()
+    );
+    for name in names {
+        let path = bin.join(name);
+        fs::write(&path, &script).expect("write a witness");
+        fs::set_permissions(&path, fs::Permissions::from_mode(0o755)).expect("make it executable");
+    }
+}
+
+/// What the witnesses under `seen` wrote, once `enough` holds of it, within 60 s.
+fn witnessed(seen: &Path, enough: impl Fn(&[String]) -> bool) -> Vec<String> {
+    let until = std::time::Instant::now() + std::time::Duration::from_secs(60);
+    loop {
+        let mut records: Vec<String> = fs::read_dir(seen)
+            .map(|entries| {
+                entries
+                    .filter_map(|entry| fs::read_to_string(entry.ok()?.path()).ok())
+                    .filter(|record| record.contains("fd4="))
+                    .collect()
+            })
+            .unwrap_or_default();
+        records.sort();
+        if enough(&records) {
+            return records;
+        }
+        assert!(
+            std::time::Instant::now() < until,
+            "the runtime started too little: {records:?}"
+        );
+        std::thread::sleep(std::time::Duration::from_millis(200));
+    }
+}
+
+/// The runtime of the local box of `a` as substrate starts it: this build's conductor with the
+/// box request's environment and nothing else, the daemon's token sealed at descriptor 4 and
+/// named in `SUBSTRATE_SECRET_SLOTS`, the loop off, and `bin` first on its `PATH`. Answers the
+/// daemon, the runtime, its socket and the daemon's token once the runtime listens.
+fn boxed_runtime(case: &Case, bin: &Path) -> (Daemon<Units0>, Runtime, PathBuf, String) {
+    case.config(&[("a", "{daemon: local, adapter: linux}")]);
+    let fake = Fake::declaring("api_token_a");
+    let mut daemon = case.daemon(fake.clone());
+    let done = daemon
+        .pass(
+            conductor_model::instance::ReconcileReason::ConfigChange,
+            std::time::Instant::now(),
+        )
+        .expect("a pass");
+    assert_eq!(done[0].result, ReconcileResult::Succeeded, "{done:?}");
+    let request = fake.log.lock().expect("the log").opened[0].clone();
+    let route = daemon.routes()["a"].clone();
+    let sealed = case.dir.join("daemon/slots/api_token_a");
+    let path = request
+        .env
+        .iter()
+        .find(|(name, _)| name == "PATH")
+        .map_or_else(|| "/usr/bin:/bin".to_owned(), |(_, path)| path.clone());
+    let program = common::conductor(case.home()).get_program().to_owned();
+    let child = std::process::Command::new("/bin/sh")
+        .arg("-c")
+        .arg("slot=$1; shift; exec \"$@\" 4<\"$slot\"")
+        .arg("sh")
+        .arg(&sealed)
+        .arg(&program)
+        .args(&request.argv[1..])
+        .env_clear()
+        .envs(request.env.iter().map(|(name, value)| (name, value)))
+        .env("PATH", format!("{}:{path}", bin.display()))
+        .env("SUBSTRATE_SECRET_SLOTS", "api_token_a=4")
+        .env(conductor_cli::instance::LOOP_VARIABLE, "off")
+        .stdin(Stdio::null())
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .spawn()
+        .expect("the runtime starts");
+    let mut runtime = Runtime(child);
+    let log = runtime_log(case, "a");
+    let until = std::time::Instant::now() + std::time::Duration::from_secs(30);
+    while std::os::unix::net::UnixStream::connect(&route.socket).is_err() {
+        if let Ok(Some(status)) = runtime.0.try_wait() {
+            panic!(
+                "the runtime exited {status} before it listened: {}",
+                fs::read_to_string(&log).unwrap_or_default()
+            );
+        }
+        assert!(
+            std::time::Instant::now() < until,
+            "no socket at {}",
+            route.socket.display()
+        );
+        std::thread::sleep(std::time::Duration::from_millis(100));
+    }
+    (daemon, runtime, route.socket, route.token)
+}
+
+/// Whether `records` hold a start of `claude` with `args`, the runtime's session list (`agents
+/// --json`, a start of its own) or doctor's version check (`--version`, through the bounded
+/// runner the loop's steps take, `collect::run`).
+fn started(records: &[String], args: &str) -> bool {
+    records
+        .iter()
+        .any(|record| record.starts_with(&format!("argv=claude {args}\n")))
+}
+
+/// A process the runtime of a local box starts inherits neither the daemon's token nor its
+/// slot's name: the runtime closes the descriptor substrate sealed the token at once it has read
+/// it, and starts no process with `SUBSTRATE_SECRET_SLOTS`. What it starts at its own start
+/// stands for every start: the session list and doctor's version checks, one a start of its own,
+/// the other through the bounded runner the loop's steps, the session starts and the hooks'
+/// commands take.
+#[test]
+fn a_process_the_boxed_runtime_starts_sees_neither_its_token_slot_nor_the_variable() {
+    let case = Case::new("tch");
+    let (bin, seen) = (case.dir.join("wbin"), case.dir.join("seen"));
+    witnesses(&bin, &seen, &["claude", "aep", "gh", "worktree"]);
+    let (_daemon, _runtime, _socket, token) = boxed_runtime(&case, &bin);
+    let records = witnessed(&seen, |records| {
+        started(records, "agents --json") && started(records, "--version")
+    });
+    for record in &records {
+        assert!(
+            record.contains("\nslots=unset\n"),
+            "a process the runtime starts has no SUBSTRATE_SECRET_SLOTS: {record}"
+        );
+        assert!(
+            record.contains("\nfd4=closed\n") && !record.contains(&token),
+            "a process the runtime starts has no descriptor 4 to read the token from: {record}"
+        );
+    }
+}
+
+/// The runtime that closed the descriptor of its token slot and started processes keeps the
+/// token it read: a write carrying the daemon's token is taken after they ran, one carrying
+/// another token is refused.
+#[test]
+fn the_boxed_runtime_keeps_the_daemons_token_after_it_closed_the_slot() {
+    let case = Case::new("tkp");
+    let (bin, seen) = (case.dir.join("wbin"), case.dir.join("seen"));
+    witnesses(&bin, &seen, &["claude", "aep", "gh", "worktree"]);
+    let (_daemon, _runtime, socket, token) = boxed_runtime(&case, &bin);
+    let records = witnessed(&seen, |records| started(records, "agents --json"));
+    assert!(
+        records
+            .iter()
+            .all(|record| record.contains("\nfd4=closed\n")),
+        "{records:?}"
+    );
+    assert_eq!(
+        settings_write(&socket, &token),
+        200,
+        "a write with the daemon's token is taken"
+    );
+    assert_eq!(
+        settings_write(&socket, &"0".repeat(token.len())),
+        403,
+        "a write with another token is refused"
+    );
+}
+
 // ---------------------------------------------------------------------------------------------
 // Adversary pass 1 on story:box-crash-loop-reads-failed (uncommitted)
 // ---------------------------------------------------------------------------------------------
@@ -5071,7 +5366,11 @@ fn adv_box_token_a_restart_in_the_box_reseals_the_new_token() {
     let log = fake.log.lock().expect("the log");
     assert_eq!(log.restarted.len(), 1);
     assert_eq!(
-        log.restarted[0].1.api_token.as_ref().map(|slot| slot.name.as_str()),
+        log.restarted[0]
+            .1
+            .api_token
+            .as_ref()
+            .map(|slot| slot.name.as_str()),
         Some("api_token_alpha"),
         "the restarted runtime is started with the slot"
     );
@@ -5104,7 +5403,11 @@ fn adv_box_token_a_wider_slot_file_and_directory_are_made_owner_private() {
         fs::read_to_string(&sealed).ok().as_deref().map(str::trim),
         Some(token.as_str())
     );
-    let file_mode = fs::metadata(&sealed).expect("the file").permissions().mode() & 0o777;
+    let file_mode = fs::metadata(&sealed)
+        .expect("the file")
+        .permissions()
+        .mode()
+        & 0o777;
     let dir_mode = fs::metadata(&slots).expect("the dir").permissions().mode() & 0o777;
     assert_eq!(
         (file_mode, dir_mode),

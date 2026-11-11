@@ -6192,6 +6192,7 @@ fn has_origin(dir: &Path) -> bool {
         .arg("-C")
         .arg(dir)
         .args(["config", "--get", "remote.origin.url"])
+        .env_remove(crate::instance::SLOTS_VARIABLE)
         .stdin(Stdio::null())
         .stdout(Stdio::null())
         .stderr(Stdio::null())

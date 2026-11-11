@@ -251,6 +251,7 @@ fn file_at(records: &Path, revision: &str, file: &str) -> Result<String> {
             .arg("-C")
             .arg(records)
             .args(args)
+            .env_remove(crate::instance::SLOTS_VARIABLE)
             .stdin(Stdio::null())
             .output()
     };

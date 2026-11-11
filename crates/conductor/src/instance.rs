@@ -45,12 +45,17 @@ pub const SLOTS_VARIABLE: &str = "SUBSTRATE_SECRET_SLOTS";
 const SEALED_TOKEN_BOUND: u64 = 4096;
 
 /// The daemon's token as `slots`, the value of [`SLOTS_VARIABLE`], seals it: read from the
-/// descriptor of the slot that carries it, or `None` where no such slot is named.
+/// descriptor of the slot that carries it, or `None` where no such slot is named. The
+/// descriptor is closed once it is read, whatever it held: substrate hands it over without
+/// close-on-exec, so every process the runtime starts would inherit it and could read the token
+/// from it. Nothing reads it again: the runtime reads it once, at its start, and a restart in the
+/// same box is a new process substrate hands a slot of its own.
 ///
 /// # Errors
 ///
-/// The slot is named and its descriptor is not a number, cannot be read, or holds nothing: a
-/// runtime that minted its own token then would refuse every write the daemon proxies, silently.
+/// The slot is named and its descriptor is not a number, is a standard stream, cannot be read,
+/// or holds nothing: a runtime that minted its own token then would refuse every write the daemon
+/// proxies, silently.
 fn sealed_token(slots: &str) -> Result<Option<String>> {
     use std::io::Read as _;
     let Some((name, descriptor)) = slots
@@ -61,18 +66,31 @@ fn sealed_token(slots: &str) -> Result<Option<String>> {
     else {
         return Ok(None);
     };
-    let descriptor: u32 = descriptor.parse().with_context(|| {
-        format!("{SLOTS_VARIABLE} names the slot {name} at {descriptor:?}, which is no descriptor")
-    })?;
+    let descriptor: std::os::fd::RawFd = descriptor
+        .parse()
+        .ok()
+        .filter(|descriptor| *descriptor > 2)
+        .with_context(|| {
+            format!(
+                "{SLOTS_VARIABLE} names the slot {name} at {descriptor:?}, which is no descriptor \
+                 of a slot"
+            )
+        })?;
     // The descriptor is opened by its path: the crate forbids unsafe code, and a sealed slot
     // opened this way is read from its start whatever was read of it before.
-    let file = fs::File::open(format!("/proc/self/fd/{descriptor}"))
+    let read = fs::File::open(format!("/proc/self/fd/{descriptor}"))
         .or_else(|_| fs::File::open(format!("/dev/fd/{descriptor}")))
-        .with_context(|| format!("open the sealed slot {name} at descriptor {descriptor}"))?;
-    let mut token = String::new();
-    file.take(SEALED_TOKEN_BOUND)
-        .read_to_string(&mut token)
-        .with_context(|| format!("read the sealed slot {name} at descriptor {descriptor}"))?;
+        .with_context(|| format!("open the sealed slot {name} at descriptor {descriptor}"))
+        .and_then(|file| {
+            let mut token = String::new();
+            file.take(SEALED_TOKEN_BOUND)
+                .read_to_string(&mut token)
+                .with_context(|| format!("read the sealed slot {name} at descriptor {descriptor}"))
+                .map(|_| token)
+        });
+    // One the process does not hold is closed already: nothing to answer for.
+    let _ = nix::unistd::close(descriptor);
+    let token = read?;
     let token = token.trim();
     if token.is_empty() {
         bail!("the sealed slot {name} at descriptor {descriptor} holds no token");

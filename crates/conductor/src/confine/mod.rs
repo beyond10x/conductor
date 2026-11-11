@@ -950,6 +950,7 @@ fn run_launch(command: &mut Command) -> Result<Output> {
         let stderr = streams.pop().map(Stdio::from).unwrap_or_else(Stdio::null);
         let stdout = streams.pop().map(Stdio::from).unwrap_or_else(Stdio::null);
         let mut child = command
+            .env_remove(crate::instance::SLOTS_VARIABLE)
             .stdin(Stdio::null())
             .stdout(stdout)
             .stderr(stderr)
