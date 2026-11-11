@@ -4116,3 +4116,434 @@ mod adversary {
         assert_eq!(tree(&case.dir), before, "doctor writes nothing");
     }
 }
+
+/// The second adversary pass: what the corrections after the first one added.
+mod adversary2 {
+    use super::*;
+    use conductor_model::instance::ReconcileReason;
+    use std::time::{Duration, Instant};
+
+    fn secs(n: u64) -> Duration {
+        Duration::from_secs(n)
+    }
+
+    /// The sessions the fake opened for the instance `name`, by the state directory of each box.
+    fn sessions_of(fake: &Fake, name: &str) -> Vec<String> {
+        let log = fake.log.lock().expect("the log");
+        log.opened
+            .iter()
+            .enumerate()
+            .filter(|(_, request)| request.cwd.contains(&format!("/{name}/")))
+            .map(|(n, _)| format!("ses_{}", n + 1))
+            .collect()
+    }
+
+    /// Every runtime of `name` exits.
+    fn exits(fake: &Fake, name: &str) {
+        let sessions = sessions_of(fake, name);
+        let mut log = fake.log.lock().expect("the log");
+        for session in sessions {
+            log.running.remove(&session);
+        }
+    }
+
+    /// What the record says the runtime wrote: the text after the last `: `.
+    fn said(detail: &str) -> &str {
+        detail.rsplit(": ").next().unwrap_or_default()
+    }
+
+    /// The first failed start of a boxed `alpha` whose log holds `text` of that start: its
+    /// record's detail.
+    fn failed_with(case: &Case, text: &[u8]) -> String {
+        case.config(&[("alpha", "systemd")]);
+        let fake = Fake::default();
+        let mut daemon = case.daemon(fake.clone());
+        let start = Instant::now();
+        daemon
+            .pass(ReconcileReason::ConfigChange, start)
+            .expect("a pass");
+        let log = runtime_log(case, "alpha");
+        fs::create_dir_all(log.parent().expect("the sessions directory")).expect("create it");
+        fs::write(&log, text).expect("write the log");
+        fake.log.lock().expect("the log").running.clear();
+        let done = daemon
+            .pass(ReconcileReason::LostRuntime, start + secs(2))
+            .expect("a pass");
+        assert_eq!(done.len(), 1, "{done:?}");
+        assert_eq!(done[0].result, ReconcileResult::Refused, "{done:?}");
+        done[0].detail.clone().unwrap_or_default()
+    }
+
+    // ---- the row and its 60 s ---------------------------------------------------------------
+
+    /// The host page: "A runtime that stopped later and before it ran 60 s is recorded the same
+    /// way [...] A runtime that ran 60 s or longer ends the row." The daemon looks every 2 s: a
+    /// runtime that stops 59 s after its start is found at the look 60 s after it.
+    #[test]
+    fn a_runtime_that_stops_59_s_after_its_start_does_not_end_the_row() {
+        let case = Case::new("adv2-59");
+        case.config(&[("alpha", "systemd")]);
+        let fake = Fake::default();
+        let mut daemon = case.daemon(fake.clone());
+        let start = Instant::now();
+        for at in (0..=58).step_by(2) {
+            daemon.tick(start + secs(at)).expect("a tick");
+        }
+        assert_eq!(fake.log.lock().expect("the log").opened.len(), 1);
+        // It stops 59 s after its start; the next look is the one at 60 s.
+        fake.log.lock().expect("the log").running.clear();
+        let done = daemon.tick(start + secs(60)).expect("a tick");
+        assert_eq!(done.len(), 1, "{done:?}");
+        assert_eq!(
+            done[0].result,
+            ReconcileResult::Refused,
+            "a runtime that ran 59 s stopped short of the 60 s and waits: {done:?}"
+        );
+        assert_eq!(
+            fake.log.lock().expect("the log").opened.len(),
+            1,
+            "and it is not started again at once"
+        );
+    }
+
+    /// Two instances: `alpha` exits at once after every start, `beta` runs. Looked at after
+    /// every tick of 700 s, `alpha` never reads Running and `beta` always does; the row of
+    /// `alpha` is not `beta`'s, whose first failed start waits 10 s.
+    #[test]
+    fn two_instances_keep_rows_of_their_own_and_a_waiting_one_never_reads_running() {
+        let case = Case::new("adv2-two");
+        case.config(&[("alpha", "systemd"), ("beta", "systemd")]);
+        let fake = Fake::default();
+        let mut daemon = case.daemon(fake.clone());
+        let start = Instant::now();
+        let mut rows_of_alpha = Vec::new();
+        for at in (0..=700).step_by(2) {
+            let done = daemon.tick(start + secs(at)).expect("a tick");
+            if at == 0 {
+                assert_eq!(done.len(), 2, "{done:?}");
+            } else {
+                for done in &done {
+                    assert_eq!(done.instance, "alpha", "nothing is done to beta: {done:?}");
+                    if done.result == ReconcileResult::Refused {
+                        rows_of_alpha.push(done.detail.clone().unwrap_or_default());
+                    }
+                }
+            }
+            exits(&fake, "alpha");
+            if at > 0 {
+                let rows = daemon.rows();
+                assert_ne!(rows[0]["state"], "Running", "alpha at {at} s: {rows:?}");
+                assert_eq!(rows[1]["state"], "Running", "beta at {at} s: {rows:?}");
+            }
+        }
+        assert!(
+            rows_of_alpha
+                .last()
+                .is_some_and(|detail| detail.contains("the next start in 300 s")),
+            "{rows_of_alpha:?}"
+        );
+        assert_eq!(sessions_of(&fake, "beta").len(), 1);
+
+        // beta ran 700 s and stops: started at once. That start exits at once: the first of a
+        // row of its own.
+        exits(&fake, "beta");
+        let done = daemon.tick(start + secs(702)).expect("a tick");
+        let of_beta: Vec<_> = done.iter().filter(|done| done.instance == "beta").collect();
+        assert_eq!(of_beta.len(), 1, "{done:?}");
+        assert_eq!(of_beta[0].result, ReconcileResult::Succeeded, "{done:?}");
+        assert_eq!(sessions_of(&fake, "beta").len(), 2);
+        exits(&fake, "beta");
+        let done = daemon.tick(start + secs(704)).expect("a tick");
+        let of_beta: Vec<_> = done.iter().filter(|done| done.instance == "beta").collect();
+        assert_eq!(of_beta.len(), 1, "{done:?}");
+        let detail = of_beta[0].detail.clone().unwrap_or_default();
+        assert!(
+            detail.contains("failed start 1 in a row, the next start in 10 s"),
+            "{detail}"
+        );
+        assert_eq!(daemon.rows()[1]["state"], "Unreachable");
+    }
+
+    // ---- the removed instance ---------------------------------------------------------------
+
+    /// The pass that finds the instance gone records a `Stop` that succeeded and closes its
+    /// dead box once. Added again, it is started at once in a new box and its next failed
+    /// start is the first of a row.
+    #[test]
+    fn an_instance_removed_and_added_again_is_stopped_once_and_starts_a_new_row() {
+        let case = Case::new("adv2-again");
+        case.config(&[("alpha", "systemd")]);
+        let fake = Fake::default();
+        let mut daemon = case.daemon(fake.clone());
+        let start = Instant::now();
+        daemon
+            .pass(ReconcileReason::ConfigChange, start)
+            .expect("a pass");
+        // Three failed starts: the waits are 10 s and 20 s, the third is 40 s.
+        for (found, again) in [(2, Some(12)), (14, Some(34)), (36, None)] {
+            fake.log.lock().expect("the log").running.clear();
+            let done = daemon.tick(start + secs(found)).expect("a tick");
+            assert_eq!(done[0].result, ReconcileResult::Refused, "{found}: {done:?}");
+            if let Some(again) = again {
+                let done = daemon.tick(start + secs(again)).expect("a tick");
+                assert_eq!(done[0].result, ReconcileResult::Succeeded, "{again}: {done:?}");
+            }
+        }
+        assert_eq!(fake.log.lock().expect("the log").opened.len(), 3);
+        assert_eq!(
+            fake.log.lock().expect("the log").closed,
+            ["ws_1".to_owned(), "ws_2".to_owned()]
+        );
+
+        case.config(&[("beta", "systemd")]);
+        let done = daemon.tick(start + secs(38)).expect("a tick");
+        let stops: Vec<_> = done.iter().filter(|done| done.instance == "alpha").collect();
+        assert_eq!(stops.len(), 1, "{done:?}");
+        assert_eq!(
+            (stops[0].action, stops[0].result),
+            (ReconcileAction::Stop, ReconcileResult::Succeeded),
+            "{done:?}"
+        );
+        assert_eq!(
+            fake.log.lock().expect("the log").closed,
+            ["ws_1".to_owned(), "ws_2".to_owned(), "ws_3".to_owned()]
+        );
+
+        case.config(&[("alpha", "systemd"), ("beta", "systemd")]);
+        let done = daemon.tick(start + secs(40)).expect("a tick");
+        let of_alpha: Vec<_> = done.iter().filter(|done| done.instance == "alpha").collect();
+        assert_eq!(of_alpha.len(), 1, "{done:?}");
+        assert_eq!(
+            (of_alpha[0].action, of_alpha[0].result),
+            (ReconcileAction::Start, ReconcileResult::Succeeded),
+            "added again it is started at once, the 40 s of its old row do not hold it: {done:?}"
+        );
+        assert_eq!(sessions_of(&fake, "alpha").len(), 4);
+        exits(&fake, "alpha");
+        let done = daemon.tick(start + secs(42)).expect("a tick");
+        let detail = done
+            .iter()
+            .find(|done| done.instance == "alpha")
+            .and_then(|done| done.detail.clone())
+            .unwrap_or_default();
+        assert!(
+            detail.contains("failed start 1 in a row, the next start in 10 s"),
+            "{detail}"
+        );
+        assert_eq!(
+            fake.log.lock().expect("the log").closed.len(),
+            3,
+            "the box of the removed instance was closed once"
+        );
+    }
+
+    // ---- the log ----------------------------------------------------------------------------
+
+    /// A log of 3 GiB with nothing on the disk but its last line is read from its end, and a
+    /// named pipe in place of the `sessions` directory is not waited for.
+    #[test]
+    fn a_sparse_log_of_3_gib_and_a_pipe_for_its_directory_do_not_hold_the_pass() {
+        use std::io::{Seek as _, SeekFrom, Write as _};
+        let case = Case::new("adv2-sparse");
+        case.config(&[("alpha", "systemd")]);
+        let (sent, received) = std::sync::mpsc::channel();
+        let log = runtime_log(&case, "alpha");
+        let sessions = log.parent().expect("the sessions directory").to_path_buf();
+        let pipe = sessions.clone();
+        std::thread::spawn(move || {
+            let fake = Fake::default();
+            let mut daemon = case.daemon(fake.clone());
+            let start = Instant::now();
+            daemon
+                .pass(ReconcileReason::ConfigChange, start)
+                .expect("a pass");
+            fs::create_dir_all(&sessions).expect("create it");
+            let mut file = fs::File::create(&log).expect("create the log");
+            file.seek(SeekFrom::Start(3 << 30)).expect("seek");
+            file.write_all(b"\nthe last line of a sparse log\n")
+                .expect("write the tail");
+            drop(file);
+            fake.log.lock().expect("the log").running.clear();
+            let began = Instant::now();
+            let done = daemon
+                .pass(ReconcileReason::LostRuntime, start + secs(2))
+                .expect("a pass");
+            let first = (done[0].detail.clone().unwrap_or_default(), began.elapsed());
+
+            daemon
+                .pass(ReconcileReason::LostRuntime, start + secs(12))
+                .expect("a pass");
+            fs::remove_dir_all(&sessions).expect("remove the sessions directory");
+            let made = std::process::Command::new("mkfifo")
+                .arg(&sessions)
+                .status()
+                .expect("mkfifo runs");
+            assert!(made.success(), "mkfifo");
+            fake.log.lock().expect("the log").running.clear();
+            let done = daemon
+                .pass(ReconcileReason::LostRuntime, start + secs(14))
+                .expect("a pass");
+            let _ = sent.send((first, done[0].detail.clone().unwrap_or_default()));
+        });
+        let answered = received.recv_timeout(secs(30));
+        let writer = pipe.clone();
+        std::thread::spawn(move || {
+            let _ = fs::OpenOptions::new().write(true).open(writer);
+        });
+        let ((first, took), second) = answered.unwrap_or_else(|_| {
+            panic!(
+                "the passes did not return within 30 s: {}",
+                pipe.display()
+            )
+        });
+        assert!(
+            first.ends_with("the last line of a sparse log"),
+            "{}",
+            &first[first.len().saturating_sub(200)..]
+        );
+        assert!(took < secs(5), "the tail is read by a seek: {took:?}");
+        assert!(
+            second.contains("is no regular file, nothing of it is read"),
+            "{second}"
+        );
+    }
+
+    /// `SAID_BYTES`: "The most of a runtime's log a failed start's record carries: its last
+    /// bytes and lines", 4096. Each replaced byte becomes three in the record.
+    #[test]
+    fn the_record_of_a_failed_start_carries_no_more_than_the_4096_bytes_it_reads() {
+        let case = Case::new("adv2-grows");
+        let mut text = vec![1_u8; 4095];
+        text.push(b'\n');
+        let detail = failed_with(&case, &text);
+        let said = said(&detail);
+        assert!(
+            said.len() <= 4096,
+            "the record carries {} bytes of a log of 4096",
+            said.len()
+        );
+    }
+
+    /// Sequences with parameters and the C1 controls: none reaches the record, and the text
+    /// around them does.
+    #[test]
+    fn no_escape_sequence_with_parameters_and_no_c1_control_reaches_the_record() {
+        let case = Case::new("adv2-esc");
+        let text = "one\u{1b}[1;31mred\u{1b}[0m two\u{1b}]8;;http://example.invalid\u{1b}\\link \
+                    three\u{9b}2J four\u{85}five\u{7f}six\u{90}seven\u{9c} eight\u{1b}\n\
+                    nine\u{1b}]0;title\u{9c}ten\n";
+        let detail = failed_with(&case, text.as_bytes());
+        let controls: Vec<char> = detail
+            .chars()
+            .filter(|character| character.is_control())
+            .collect();
+        assert!(controls.is_empty(), "{controls:?} in {detail:?}");
+        for kept in ["one", "red", "two", "link three", "four", "five", "six", "eight", "nine"] {
+            assert!(said(&detail).contains(kept), "{kept}: {detail:?}");
+        }
+    }
+
+    /// `printable`: "`line` with nothing a terminal acts on." The bidirectional overrides and
+    /// isolates reorder what a terminal or a log viewer shows of the record's one line, and the
+    /// line and paragraph separators break it.
+    #[test]
+    fn no_character_that_reorders_or_breaks_the_line_reaches_the_record() {
+        let case = Case::new("adv2-bidi");
+        let text = "started \u{202e}desufer\u{202c} a\u{2066}b\u{2069} c\u{2028}d\u{2029}e \
+                    \u{200f}f\u{61c}g\n";
+        let detail = failed_with(&case, text.as_bytes());
+        let reached: Vec<String> = said(&detail)
+            .chars()
+            .filter(|character| {
+                matches!(
+                    character,
+                    '\u{202a}'..='\u{202e}'
+                        | '\u{2066}'..='\u{2069}'
+                        | '\u{2028}'
+                        | '\u{2029}'
+                        | '\u{200e}'
+                        | '\u{200f}'
+                        | '\u{61c}'
+                )
+            })
+            .map(|character| format!("U+{:04X}", character as u32))
+            .collect();
+        assert!(reached.is_empty(), "in the record: {reached:?}");
+    }
+
+    // ---- doctor -----------------------------------------------------------------------------
+
+    /// A substrate daemon that takes the connection and never answers, and three boxes on it:
+    /// the host page says doctor "asks the substrate daemon for its facts" and that a daemon
+    /// "that does not answer within 5 s" is a refusal. One daemon, one 5 s.
+    #[test]
+    fn doctor_waits_one_bound_for_a_silent_substrate_daemon_whatever_the_boxes() {
+        let case = Case::new("d3s");
+        let file = case.config(&[
+            ("alpha", "systemd"),
+            ("beta", "systemd"),
+            ("gamma", "systemd"),
+        ]);
+        for name in ["alpha", "beta", "gamma"] {
+            case.directories(name);
+        }
+        let socket = case.dir.join("m.sock");
+        let listener = std::os::unix::net::UnixListener::bind(&socket).expect("bind the socket");
+        let began = Instant::now();
+        let output = case.doctor_on(&file, &socket);
+        let took = began.elapsed();
+        drop(listener);
+        let rows = lines(&output)
+            .iter()
+            .filter(|line| line.starts_with("box ") && line.contains("placement.substrate-unreachable"))
+            .count();
+        assert_eq!(rows, 3, "{}", describe(&output));
+        assert_eq!(output.status.code(), Some(1), "{}", describe(&output));
+        assert!(
+            took < secs(10),
+            "doctor waited {took:?} for one silent daemon with three boxes"
+        );
+    }
+
+    /// A substrate daemon that answers one byte a second: the 5 s hold the connection, the
+    /// question and the answer together.
+    #[test]
+    fn doctor_ends_within_its_bound_on_a_socket_that_answers_a_byte_a_second() {
+        use std::io::Write as _;
+        let case = Case::new("ddrip");
+        let file = case.config(&[("alpha", "systemd")]);
+        case.directories("alpha");
+        let socket = case.dir.join("m.sock");
+        let listener = std::os::unix::net::UnixListener::bind(&socket).expect("bind the socket");
+        std::thread::spawn(move || {
+            for stream in listener.incoming() {
+                let Ok(mut stream) = stream else { break };
+                std::thread::spawn(move || {
+                    let answer = b"HTTP/1.1 200 OK\r\ncontent-type: application/json\r\n\
+                                   content-length: 4096\r\n\r\n{\"machine\": \"";
+                    for byte in answer.iter().chain(std::iter::repeat(&b'a')) {
+                        if stream.write_all(&[*byte]).is_err() {
+                            break;
+                        }
+                        std::thread::sleep(Duration::from_secs(1));
+                    }
+                });
+            }
+        });
+        let began = Instant::now();
+        let output = case.doctor_on(&file, &socket);
+        let took = began.elapsed();
+        let shown = lines(&output);
+        let row = shown
+            .iter()
+            .find(|line| line.starts_with("box alpha:"))
+            .cloned()
+            .unwrap_or_else(|| panic!("no box row: {}", describe(&output)));
+        assert!(
+            row.contains("placement.substrate-unreachable") && row.contains("within 5 s"),
+            "{row}"
+        );
+        assert_eq!(output.status.code(), Some(1), "{}", describe(&output));
+        assert!(took < secs(9), "doctor waited {took:?}");
+    }
+}
