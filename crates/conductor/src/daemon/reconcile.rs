@@ -1152,9 +1152,11 @@ impl<U: Units> Daemon<U> {
     /// whose placement is a substrate box ([`crate::placement::boxed`]) runs in a box opened for
     /// it ([`crate::placement::open_box`]), on the remote daemon its placement names when it
     /// names one, never through the service manager; a refusal is `PlacementRefused` with
-    /// substrate's name, and nothing falls back. The runtime's token is not handed into the box:
-    /// substrate seals only slots its daemon declares, and its model token goes through the
-    /// slot pool ([`crate::placement::SlotPool`]).
+    /// substrate's name, and nothing falls back. The runtime's token is not in the box's
+    /// environment: a local box whose daemon declares the instance's sealed slot takes it
+    /// through that slot ([`Daemon::box_request`], [`crate::placement::api_token_slot`]), any
+    /// other box not at all, and its model token goes through the slot pool
+    /// ([`crate::placement::SlotPool`]).
     fn start_runtime(&mut self, instance: &Instance, service: &Service) -> Result<String> {
         if !crate::placement::boxed(instance) {
             self.units.start(service)?;
@@ -1229,13 +1231,21 @@ impl<U: Units> Daemon<U> {
     /// The box `instance` asks for, its runtime started as `service` says, with no credential in
     /// its environment: substrate seals only slots its daemon declares. The token `service`
     /// carries for the runtime goes in through the instance's sealed slot instead
-    /// (`story:box-reaches-forge-and-daemon`): it is written into the slot's file under the
-    /// daemon's directory here, just before the box is asked for, and a file that cannot be
-    /// written refuses the box ([`crate::placement::seal_api_token`]). A box on a remote daemon
-    /// has no such slot, and its runtime mints a token of its own. A box inherits nothing, so
-    /// its `HOME` is set: the daemon's, which the config file's `~` stands for. The box writes
-    /// nothing of the daemon's own directory ([`crate::placement::Host::daemon`]).
-    fn box_request(&self, instance: &Instance, service: &Service) -> crate::placement::BoxRequest {
+    /// (`story:box-reaches-forge-and-daemon`), where the local substrate daemon declares that
+    /// slot ([`crate::placement::Substrate::declares`]): it is written into the slot's file
+    /// under the daemon's directory here, just before the box is asked for, and a file that
+    /// cannot be written refuses the box ([`crate::placement::seal_api_token`]). Where the
+    /// daemon does not declare the slot the request names none, nothing is written and nothing
+    /// is refused: the box is asked for as before there was a slot, and its runtime mints a
+    /// token of its own, as that of a box on a remote daemon does, which has no such slot. A
+    /// box inherits nothing, so its `HOME` is set: the daemon's, which the config file's `~`
+    /// stands for. The box writes nothing of the daemon's own directory
+    /// ([`crate::placement::Host::daemon`]).
+    fn box_request(
+        &mut self,
+        instance: &Instance,
+        service: &Service,
+    ) -> crate::placement::BoxRequest {
         let variable = format!("{}=", crate::instance::TOKEN_VARIABLE);
         let token = service
             .env
@@ -1257,10 +1267,18 @@ impl<U: Units> Daemon<U> {
         let mut request =
             crate::placement::request_on(instance, &self.config_file, &binary, env, &host);
         if request.refused.is_none()
-            && let (Some(slot), Some(token)) = (&request.api_token, token)
-            && let Err(refused) = crate::placement::seal_api_token(slot, token)
+            && let Some(slot) = request.api_token.take()
         {
-            request.refused = Some(refused);
+            // The slot is named only where the daemon declares it and there is a token to seal.
+            match token {
+                Some(token) if self.substrate.declares(&slot.name) => {
+                    if let Err(refused) = crate::placement::seal_api_token(&slot, token) {
+                        request.refused = Some(refused);
+                    }
+                    request.api_token = Some(slot);
+                }
+                _ => {}
+            }
         }
         request
     }

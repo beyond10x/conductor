@@ -152,16 +152,18 @@ to fill in, and each step says where they come from. `<target>` is the build of 
    and `<cache>` are the instance's `records` and `cache` values in `conductor config show`.
    With the file of step 6 the store directory is ~/.b10x/conductor/store. Create the cache and
    the store directory mode 700 too. Each root is one `--writable-root <root>` below.
-   The runtime takes the token conductord proxies writes with through a sealed slot, never in
-   its environment: `<slot>` below is `api_token_<name>=<file>`, `<name>` in lower case with `_`
-   for every character but a letter or a digit, and `<file>` is
-   ~/.b10x/conductor/daemon/slots/api_token_<name>. Create ~/.b10x/conductor/daemon/slots at
-   mode 700 and the file in it, not empty and at mode 600, before the daemon starts: it refuses
-   a slot whose file is missing, empty or readable by others. Conductord writes the token into
-   the file at each start of the runtime.
+   The sealed slot `--secret-slot <slot>` below is what makes a write conductord proxies to
+   the runtime work: the runtime takes the token conductord proxies writes with through it,
+   never in its environment. A box starts without the slot too; its runtime then refuses each
+   proxied write, and `conductor doctor` prints the flag in the row `box <name> token`.
+   `<slot>` is `api_token_<name>=<file>`, `<name>` in lower case with `_` for every character
+   but a letter or a digit, and `<file>` is ~/.b10x/conductor/daemon/slots/api_token_<name>.
+   Create ~/.b10x/conductor/daemon/slots at mode 700 and the file in it, not empty and at mode
+   600, before the daemon starts: it refuses a slot whose file is missing, empty or readable by
+   others. Conductord writes the token into the file at each start of the runtime.
    - Check: `curl --silent --unix-socket $XDG_RUNTIME_DIR/substrate/daemon.sock http://localhost/v1/machine`;
-     it answers, its exec.writable-roots.host fact lists each root by its name, and its
-     secrets.slots fact lists the slot by its name.
+     it answers, and its exec.writable-roots.host fact lists each root by its name; with the
+     slot declared, its secrets.slots fact lists the slot by its name.
    - Fix: `substrate-daemon --socket $XDG_RUNTIME_DIR/substrate/daemon.sock --state ~/.local/state/substrate/state.db --workspaces ~/.local/state/substrate/workspaces --deployment personal --allow-uid <uid> --cgroup-root <delegated cgroup root> --writable-root <root> --secret-slot <slot> --egress-aperture conductor=api.anthropic.com:443/tcp --ca-bundle $(readlink -f /etc/ssl/certs/ca-certificates.crt)`,
      run inside that subtree and kept running.
    - Hands: the delegated cgroup subtree, when the user's systemd does not delegate one.

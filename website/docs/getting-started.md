@@ -189,12 +189,14 @@ that it answers and serves the box. You start it and keep it running:
 - with a writable root for each directory the runtime writes: `state-<instance>` for the state
   directory, `records-<instance>` for the records, `cache-<instance>` for the cache and `store`
   for the directory of the sqlite store. Each must exist before the daemon starts;
-- with the secret slot `api_token_<instance>` on the file
-  `~/.b10x/conductor/daemon/slots/api_token_<instance>`, the instance's name in lower case with
-  `_` for every character but a letter or a digit. conductord writes the token it proxies writes
-  with into that file at each start of the runtime, and substrate hands it to the runtime sealed,
-  at a descriptor and never in its environment. The file must be there, not empty and mode 600,
-  before the daemon starts;
+- for writes conductord proxies to the runtime, with the secret slot `api_token_<instance>` on
+  the file `~/.b10x/conductor/daemon/slots/api_token_<instance>`, the instance's name in lower
+  case with `_` for every character but a letter or a digit. conductord writes the token it
+  proxies writes with into that file at each start of the runtime, and substrate hands it to the
+  runtime sealed, at a descriptor and never in its environment. The file must be there, not
+  empty and mode 600, before the daemon starts. A box starts without the slot too: its runtime
+  then refuses each proxied write, and `conductor doctor` says so in the row
+  `box <instance> token`, with the flag;
 - with the aperture `conductor`, which the runtime starts with.
 
 ```console
@@ -228,9 +230,9 @@ curl -s --unix-socket "$XDG_RUNTIME_DIR/substrate/daemon.sock" http://localhost/
 
 Each further instance with a box adds its own `state-<instance>`, `records-<instance>`,
 `cache-<instance>` and `api_token_<instance>`; `store` is declared once. Directories that lie
-inside one another are one root, the outer one. A box that names a root or a slot the daemon
-does not serve is refused, and the refusal prints the flag to add. The box writes nothing else
-of the host: not the config file,
+inside one another are one root, the outer one. A box that names a root the daemon does not
+serve is refused, and the refusal prints the flag to add. A slot the daemon does not declare
+refuses nothing. The box writes nothing else of the host: not the config file,
 and not `~/.b10x/conductor/daemon`. Besides its writable roots it gets conductord's `HOME` and,
 read-only, the config file, the directories of `conductor` and `claude`, the checkouts root,
 and the CLI and login of each forge among the sources. Where the records lie under the

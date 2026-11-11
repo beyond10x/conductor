@@ -90,7 +90,11 @@ refused at validate.
 The daemon proxies `/v1/instances/<name>/<route>` to the runtime's socket, `<state>/api.sock`,
 mode 0600, with the instance's token, which no browser holds. A runtime started as a unit gets
 it in `CONDUCTOR_API_TOKEN`; a runtime in a box of the local substrate daemon gets it through
-the sealed slot `api_token_<instance>` ([the host](/docs/concepts/the-host#placement)).
+the sealed slot `api_token_<instance>`, where that daemon declares the slot, and none
+otherwise ([the host](/docs/concepts/the-host#placement)). The token lies in two files of the
+daemon's directory: `runtimes.json` while the runtime runs, written at the mode the daemon's
+umask gives, and the slot's file `slots/api_token_<instance>`, mode 0600, which keeps the last
+one after the box closes, when no runtime takes it any more.
 
 ## conductor login
 

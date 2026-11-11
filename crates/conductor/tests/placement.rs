@@ -79,6 +79,8 @@ struct Log {
     /// For each box asked for, the mode of the sessions directory under its state directory at
     /// that moment; `None` when it was not there.
     sessions_at_open: Vec<Option<u32>>,
+    /// The secret slots the daemon declares, by name: none unless a case names one.
+    slots: Vec<String>,
 }
 
 /// A substrate daemon that opens every box it is asked for, unless told to refuse.
@@ -91,6 +93,17 @@ impl Fake {
     fn refusing(name: &str) -> Self {
         let fake = Self::default();
         fake.log.lock().expect("the log").refuse = Some(name.to_owned());
+        fake
+    }
+
+    /// A daemon that declares the secret slot `slot`.
+    fn declaring(slot: &str) -> Self {
+        let fake = Self::default();
+        fake.log
+            .lock()
+            .expect("the log")
+            .slots
+            .push(slot.to_owned());
         fake
     }
 }
@@ -156,6 +169,11 @@ impl Substrate for Fake {
             .closed
             .push(workspace.to_owned());
         Ok(())
+    }
+
+    fn declares(&mut self, slot: &str) -> bool {
+        let log = self.log.lock().expect("the log");
+        log.slots.iter().any(|declared| declared == slot)
     }
 
     fn renew(&mut self, workspace: &str, session: &str, _ttl: std::time::Duration) -> Result<()> {
@@ -3491,7 +3509,8 @@ fn doctor_dry_runs_a_box_against_the_substrate_daemon_and_starts_nothing() {
     fs::remove_file(&socket).expect("remove the socket");
 
     // It serves all four and declares no slot for the daemon's token
-    // (`story:box-reaches-forge-and-daemon`): refused as it would be, with the flag.
+    // (`story:box-reaches-forge-and-daemon`): the box starts as it did, so it is no failure,
+    // and one row says the token does not reach it, with the flag.
     let socket = case.dir.join("s.sock");
     let fake = FakeLocal::opening(
         &socket,
@@ -3500,9 +3519,11 @@ fn doctor_dry_runs_a_box_against_the_substrate_daemon_and_starts_nothing() {
         &["state-alpha", "records-alpha", "cache-alpha", "store"],
     );
     let output = case.doctor_on(&file, &socket);
-    let verdict = lines(&output).last().cloned().unwrap_or_default();
+    let shown = lines(&output);
     assert!(
-        verdict.contains("box alpha (exec.secret-slot-unknown)"),
+        shown.iter().any(
+            |line| line.starts_with("box alpha: systemd") && line.contains("4 writable roots")
+        ),
         "{}",
         describe(&output)
     );
@@ -3512,12 +3533,21 @@ fn doctor_dry_runs_a_box_against_the_substrate_daemon_and_starts_nothing() {
             .join(".b10x/conductor/daemon/slots/api_token_alpha")
             .display()
     );
+    let rows: Vec<&String> = shown
+        .iter()
+        .filter(|line| line.starts_with("box alpha token: "))
+        .collect();
+    assert_eq!(rows.len(), 1, "one row for it: {}", describe(&output));
     assert!(
-        String::from_utf8_lossy(&output.stdout).contains(&flag),
-        "the row says what to declare ({flag}): {}",
+        rows[0].contains("the daemon's token does not reach the box") && rows[0].contains(&flag),
+        "the row says so and what to declare ({flag}): {}",
+        rows[0]
+    );
+    assert!(
+        !shown.last().is_some_and(|verdict| verdict.contains("box ")),
+        "a box that starts without the slot is not `not ready`: {}",
         describe(&output)
     );
-    assert_eq!(output.status.code(), Some(1), "{}", describe(&output));
     assert!(fake.starts.lock().expect("the starts").is_empty());
     fs::remove_file(&socket).expect("remove the socket");
 
@@ -3553,6 +3583,11 @@ fn doctor_dry_runs_a_box_against_the_substrate_daemon_and_starts_nothing() {
     assert!(
         !shown.iter().any(|line| line.starts_with("box beta")),
         "an instance in no box has no box row: {}",
+        describe(&output)
+    );
+    assert!(
+        !shown.iter().any(|line| line.starts_with("box alpha token")),
+        "a declared slot has no row: {}",
         describe(&output)
     );
     let asked = fake.lines.lock().expect("the lines").clone();
@@ -3688,7 +3723,7 @@ fn settings_write(socket: &Path, token: &str) -> u16 {
 fn the_runtime_started_from_the_box_request_takes_a_write_with_the_daemons_token_only() {
     let case = Case::new("tok");
     case.config(&[("a", "{daemon: local, adapter: linux}")]);
-    let fake = Fake::default();
+    let fake = Fake::declaring("api_token_a");
     let mut daemon = case.daemon(fake.clone());
     let done = daemon
         .pass(
@@ -3822,11 +3857,11 @@ fn request_of_the_daemon(case: &Case) -> BoxRequest {
     )
 }
 
-/// The start of a local box's runtime names the token's slot at its descriptor; a daemon that
-/// does not declare the slot is refused by substrate's name before anything starts, with the
-/// flag that declares it.
+/// The start of a local box's runtime names the token's slot at its descriptor, and the SDK
+/// says whether its daemon declares a slot; the dry run refuses nothing for a slot the daemon
+/// does not declare and says what follows, with the flag that declares it.
 #[test]
-fn the_sdk_seals_the_api_token_slot_at_the_start_and_refuses_one_the_daemon_does_not_declare() {
+fn the_sdk_seals_the_api_token_slot_at_the_start_and_says_whether_the_daemon_declares_it() {
     let case = Case::new("slot");
     let socket = case.dir.join("s.sock");
     // As conductord asks for a local box of an instance without a model token: no pool slot.
@@ -3840,21 +3875,28 @@ fn the_sdk_seals_the_api_token_slot_at_the_start_and_refuses_one_the_daemon_does
         .collect();
     let properties = [Property::IpcSocketAllowlist, Property::IpcSignalsContained];
 
-    // Its roots and no slot: refused, nothing but the machine asked.
+    // Its roots and no slot: the daemon declares none, and the dry run refuses nothing for it.
     {
         let fake = FakeLocal::opening(&socket, &LINUX_FAMILIES, &properties, &served);
         let mut sdk = placement::Sdk::default();
         sdk.socket = socket.clone();
-        let refused = sdk
-            .open(&request)
-            .expect_err("a daemon that does not declare the slot opens no box");
-        assert_eq!(refused.name, "exec.secret-slot-unknown", "{refused:?}");
+        assert!(!sdk.declares(&slot.name), "no slot is declared");
+        let admitted = sdk
+            .admits(
+                std::slice::from_ref(&request),
+                std::time::Duration::from_secs(5),
+            )
+            .expect("the daemon answers");
+        assert_eq!(admitted.len(), 1);
+        assert_eq!(admitted[0].refused, None, "nothing is refused for the slot");
+        let unsealed = admitted[0].unsealed.clone().unwrap_or_default();
         assert!(
-            refused.detail.contains(&format!(
-                "--secret-slot api_token_a={}",
-                case.dir.join("daemon/slots/api_token_a").display()
-            )),
-            "{refused:?}"
+            unsealed.contains("the daemon's token does not reach the box")
+                && unsealed.contains(&format!(
+                    "--secret-slot api_token_a={}",
+                    case.dir.join("daemon/slots/api_token_a").display()
+                )),
+            "{unsealed}"
         );
         let lines = fake.lines.lock().expect("the lines").clone();
         assert!(
@@ -3866,11 +3908,20 @@ fn the_sdk_seals_the_api_token_slot_at_the_start_and_refuses_one_the_daemon_does
     }
     fs::remove_file(&socket).expect("remove the socket");
 
-    // Its roots and the slot: the start names the slot at its descriptor.
+    // Its roots and the slot: declared, and the start names the slot at its descriptor.
     served.push(&slot.name);
     let fake = FakeLocal::opening(&socket, &LINUX_FAMILIES, &properties, &served);
     let mut sdk = placement::Sdk::default();
     sdk.socket = socket.clone();
+    assert!(sdk.declares(&slot.name), "the slot is declared");
+    assert!(!sdk.declares("api_token_b"), "another is not");
+    let admitted = sdk
+        .admits(
+            std::slice::from_ref(&request),
+            std::time::Duration::from_secs(5),
+        )
+        .expect("the daemon answers");
+    assert_eq!(admitted, vec![placement::Admission::default()]);
     let refused = sdk
         .open(&request)
         .expect_err("the fake answers the session start 503");
@@ -3921,7 +3972,44 @@ fn a_box_on_a_remote_daemon_is_asked_for_without_an_api_token_slot() {
     );
 }
 
-/// A slot file conductord cannot write refuses the box by name before substrate is asked.
+/// A substrate daemon that does not declare the instance's slot opens the box as it did before
+/// there was one: the request names no slot, nothing is written for it and nothing is refused,
+/// whatever lies where the slot's file would be.
+#[test]
+fn a_box_whose_daemon_declares_no_api_token_slot_starts_without_it() {
+    let case = Case::new("noslot");
+    case.config(&[("a", "{daemon: local, adapter: linux}")]);
+    // Where the slots directory would be there is a file: no slot file could be written.
+    fs::create_dir_all(case.dir.join("daemon")).expect("the daemon's directory");
+    fs::write(case.dir.join("daemon/slots"), "").expect("a file");
+    let fake = Fake::default();
+    let mut daemon = case.daemon(fake.clone());
+    let done = daemon
+        .pass(
+            conductor_model::instance::ReconcileReason::ConfigChange,
+            std::time::Instant::now(),
+        )
+        .expect("a pass");
+    assert_eq!(done[0].result, ReconcileResult::Succeeded, "{done:?}");
+    let opened = fake.log.lock().expect("the log").opened[0].clone();
+    assert_eq!(opened.api_token, None, "the request names no slot");
+    let token = daemon.routes()["a"].token.clone();
+    assert!(
+        opened.env.iter().all(|(name, value)| {
+            name != conductor_cli::instance::TOKEN_VARIABLE && !value.contains(&token)
+        }),
+        "the token is not in the box's environment either: {:?}",
+        opened.env
+    );
+    assert_eq!(
+        fs::read_to_string(case.dir.join("daemon/slots")).ok(),
+        Some(String::new()),
+        "nothing is written for a slot the daemon does not declare"
+    );
+}
+
+/// A slot the daemon declares whose file conductord cannot write refuses the box by name
+/// before substrate is asked for it.
 #[test]
 fn a_slot_file_that_cannot_be_written_refuses_the_box_before_substrate_is_asked() {
     let case = Case::new("unsealed");
@@ -3929,7 +4017,7 @@ fn a_slot_file_that_cannot_be_written_refuses_the_box_before_substrate_is_asked(
     // The slots directory's place is taken by a file.
     fs::create_dir_all(case.dir.join("daemon")).expect("the daemon's directory");
     fs::write(case.dir.join("daemon/slots"), "").expect("a file");
-    let fake = Fake::default();
+    let fake = Fake::declaring("api_token_a");
     let mut daemon = case.daemon(fake.clone());
     let done = daemon
         .pass(
