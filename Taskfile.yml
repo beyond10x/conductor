@@ -202,6 +202,11 @@ tasks:
       - cargo test --release --locked -p conductor-cli --test guard_latency -- --ignored --nocapture
       - cargo test --release --locked -p conductor-cli --test dashboard_fast -- --ignored --nocapture
 
+  container-test:
+    desc: Build the container image from this tree's binary and start it with no terminal from a config file and a mounted secrets directory, then read /readyz and doctor's last line; the image is tagged CONDUCTOR_CONTAINER_TAG (else conductor:check) and removed afterwards; needs docker and the network
+    cmds:
+      - cargo test --locked -p conductor-cli --test container_start -- --ignored --nocapture the_image_starts_with_no_terminal_and_doctor_ends_ready
+
   ui:
     desc: Build the dashboard app (crates/conductor/dashboard, Vue 3 and Vite on the Node version of its .nvmrc) into crates/conductor/dashboard/dist/, which is committed and which the conductor binary embeds; installs the locked packages first (npm ci)
     dir: crates/conductor/dashboard

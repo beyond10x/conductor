@@ -2,8 +2,8 @@
   "provenance": {
     "system": "conductor",
     "specification_version": "v1",
-    "source_digest": "9c40a7a8c7b96345bb58a96238921936fa25889c11f64ff3f0e3b216e50efc8e",
-    "contract_digest": "a17ef5b4db86247df9a482c134e7a5bf24ccd55cdf64ac83672245e31b8c09c4"
+    "source_digest": "8c4d7260c2cd89c19b538694951320f4049ae08dae675c93b6ecb0b961cf30f9",
+    "contract_digest": "2b03183365aedd50e23f3659c527d6ee72cb8b1ac517c9e046bb013284b8a454"
   },
   "scope": {
     "profile": "component-skeletons",
@@ -4191,7 +4191,7 @@
           "class": "undetermined",
           "construct": "`creates:` leaving the required field `instances` of `conductor.secret.Secret` undetermined, in `stored`"
         },
-        "contract": "given `conductor.secret.PutSecret` input, decide and enact exactly one outcome. Declared outcomes (declaration order, not selection precedence): `not-human` when `actor.kind != Human`, error `conductor.operator.ActorNotHuman`; `unreachable` externally decided (the OS keychain does not answer), error `conductor.secret.SourceUnreachable`; `stored` for an identity no record carries, creates `conductor.secret.Secret`, emits `conductor.secret.SecretPut`; `exists` externally decided (the secrets source already holds a value under the name and replace is false), error `conductor.secret.SecretExists`; `replaced` otherwise, updates `conductor.secret.Secret`, emits `conductor.secret.SecretPut`"
+        "contract": "given `conductor.secret.PutSecret` input, decide and enact exactly one outcome. Declared outcomes (declaration order, not selection precedence): `not-human` when `actor.kind != Human`, error `conductor.operator.ActorNotHuman`; `read-only` externally decided (the daemon's secrets source is a directory of mounted files, which conductor never writes), error `conductor.secret.SourceReadOnly`; `unreachable` externally decided (the OS keychain does not answer), error `conductor.secret.SourceUnreachable`; `stored` for an identity no record carries, creates `conductor.secret.Secret`, emits `conductor.secret.SecretPut`; `exists` externally decided (the secrets source already holds a value under the name and replace is false), error `conductor.secret.SecretExists`; `replaced` otherwise, updates `conductor.secret.Secret`, emits `conductor.secret.SecretPut`"
       }
     },
     {
@@ -5752,6 +5752,13 @@
     {
       "kind": "error_type",
       "source": "conductor.secret.SecretMissing",
+      "disposition": {
+        "disposition": "generated"
+      }
+    },
+    {
+      "kind": "error_type",
+      "source": "conductor.secret.SourceReadOnly",
       "disposition": {
         "disposition": "generated"
       }

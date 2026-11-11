@@ -42,7 +42,7 @@ use conductor_model::primitives::Timestamp;
 use conductor_model::secret::{
     Namespace, PutSecret, PutSecretOutcome, ResolveSecretsOutcome, SecretData, SecretExists,
     SecretMissing, SecretName, SecretPut, SecretSnapshot, SecretState, SecretsResolved, Slot,
-    SlotName, Source, SourceUnreachable, SourceUnusable,
+    SlotName, Source, SourceReadOnly, SourceUnreachable, SourceUnusable,
 };
 use keyring_core::CredentialStore;
 use secrets_core::storage::{
@@ -79,6 +79,7 @@ pub const fn source_word(source: Source) -> &'static str {
     match source {
         Source::Keychain => "keychain",
         Source::Remote => "remote",
+        Source::Files => "files",
     }
 }
 
@@ -123,6 +124,53 @@ impl SecretStorage for Unreachable {
     }
     async fn list(&self, _: &Scope) -> Result<Vec<SecretMetadata>, StorageError> {
         Err(StorageError::Unavailable)
+    }
+}
+
+/// What the `files` source can do: read a value and say that it answers; it writes nothing.
+const FILES_CAN: [Capability; 2] = [Capability::Read, Capability::List];
+
+/// The `files` source (`story:container-start-without-prompt`): the directory `daemon.secrets.dir`
+/// names, mounted read-only, one file per secret, the file's name the secret's name. A value is
+/// the file's content with one trailing line end dropped; an empty file holds none. Nothing is
+/// written there: a write is `Unsupported` ([`FILES_CAN`]), and [`Secrets::put`] refuses before
+/// it. The source answers while the directory can be read.
+struct Files(std::path::PathBuf);
+
+#[async_trait]
+impl SecretStorage for Files {
+    fn capabilities(&self) -> &[Capability] {
+        &FILES_CAN
+    }
+    async fn read(&self, target: &Target) -> Result<Revealed, StorageError> {
+        // A secret name is `/`-separated segments that start with a letter or a digit, so it
+        // names a file under the directory and never one outside it.
+        let path = self.0.join(target.address.name.as_str());
+        let mut bytes = match fs::read(&path) {
+            Ok(bytes) => bytes,
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+                return Err(StorageError::NotFound);
+            }
+            Err(_) => return Err(StorageError::Unavailable),
+        };
+        if bytes.last() == Some(&b'\n') {
+            bytes.pop();
+            if bytes.last() == Some(&b'\r') {
+                bytes.pop();
+            }
+        }
+        if bytes.is_empty() {
+            return Err(StorageError::NotFound);
+        }
+        Ok(Revealed {
+            value: SecretValue::new(bytes)?,
+            version: None,
+        })
+    }
+    async fn list(&self, _: &Scope) -> Result<Vec<SecretMetadata>, StorageError> {
+        fs::read_dir(&self.0)
+            .map(|_| Vec::new())
+            .map_err(|_| StorageError::Unavailable)
     }
 }
 
@@ -232,11 +280,13 @@ impl Drop for Secrets {
 
 /// Opens the source `daemon.secrets` names: the keychain of this process (module
 /// documentation) for `keychain`; for `remote`, the Secrets service at `url`, which does not
-/// answer yet. A keychain that does not open is a source that does not answer.
+/// answer yet; for `files`, the directory `dir` ([`Files`]). A keychain that does not open is a
+/// source that does not answer.
 ///
 /// # Errors
 ///
-/// [`Unusable`]: `remote` writes no `url`, or the namespace is not one the crates accept.
+/// [`Unusable`]: `remote` writes no `url`, `files` no `dir`, or the namespace is not one the
+/// crates accept.
 pub fn open(config: &SecretsSource) -> Result<Secrets, Unusable> {
     let (backend, sample): (Arc<dyn SecretStorage>, _) = match config.source {
         Source::Keychain => match keychain() {
@@ -247,6 +297,12 @@ pub fn open(config: &SecretsSource) -> Result<Secrets, Unusable> {
             None => (Arc::new(Unreachable(BackendKind::Keychain)), None),
         },
         Source::Remote => (Arc::new(Unreachable(BackendKind::Remote)), None),
+        Source::Files => (
+            Arc::new(Files(std::path::PathBuf::from(
+                config.dir.clone().unwrap_or_default(),
+            ))),
+            None,
+        ),
     };
     with_backend(config, backend, sample)
 }
@@ -269,6 +325,13 @@ fn with_backend(
             "the remote source names no Secrets service: write url: <https address>",
         ));
     }
+    if config.source == Source::Files && config.dir.as_deref().is_none_or(str::is_empty) {
+        return Err(unusable(
+            "daemon.secrets.dir",
+            "the files source names no directory: write dir: <the directory its files are \
+             mounted in>",
+        ));
+    }
     let namespace = config
         .namespace
         .clone()
@@ -279,9 +342,11 @@ fn with_backend(
             "is not one segment of lower-case letters, digits, '.', '_' and '-'",
         ));
     };
+    // The crates name no kind for a directory of files; the mount is this namespace's one route,
+    // so the kind it carries routes nothing else.
     let mount = BackendRef {
         kind: match config.source {
-            Source::Keychain => BackendKind::Keychain,
+            Source::Keychain | Source::Files => BackendKind::Keychain,
             Source::Remote => BackendKind::Remote,
         },
         label: ScopeName::default_name(),
@@ -491,6 +556,14 @@ impl Secrets {
                 },
             });
         }
+        // The `files` source is a directory conductor never writes.
+        if self.source == Source::Files {
+            return Ok(PutSecretOutcome::ReadOnly {
+                error: SourceReadOnly {
+                    source: Source::Files,
+                },
+            });
+        }
         let Some(address) = self.address(&input.name) else {
             bail!(
                 "{:?} is not a secret name the secrets crates keep: '/'-separated segments of \
@@ -554,13 +627,14 @@ impl Secrets {
         Ok(PutSecretOutcome::Stored { secret_put })
     }
 
-    /// The line `conductor doctor` and the daemon's start print: the source, its namespace and
-    /// whether it answers.
+    /// The line `conductor doctor` and the daemon's start print: the source, the Secrets
+    /// service's URL or the files' directory, its namespace and whether it answers.
     #[must_use]
     pub fn line(&self, config: &SecretsSource) -> String {
         let at = config
             .url
             .as_deref()
+            .or(config.dir.as_deref())
             .map(|url| format!(" {url}"))
             .unwrap_or_default();
         let answer = match self.answers() {
@@ -607,6 +681,7 @@ pub fn client() -> Result<Secrets, Unusable> {
         source: Source::Keychain,
         namespace: Some(LOGIN_NAMESPACE.to_owned()),
         url: None,
+        dir: None,
     })
 }
 
@@ -632,13 +707,19 @@ pub fn doctor_line(config: &SecretsSource) -> String {
 pub fn at_start(config: &SecretsSource, text: &str) -> Result<Vec<String>, Unusable> {
     let secrets = open(config)?;
     let mut lines = vec![secrets.line(config)];
+    // Who writes a missing value: a person with `conductor secret put`, or, for the `files`
+    // source, whoever mounts its directory.
+    let writer = match (config.source, config.dir.as_deref()) {
+        (Source::Files, Some(dir)) => format!("{dir} holds a file of each name"),
+        _ => "conductor secret put writes them".to_owned(),
+    };
     for (instance, names) in referenced(text) {
         let names: Vec<SecretName> = names.into_iter().map(SecretName).collect();
         match secrets.missing(&names) {
             Ok(missing) if missing.is_empty() => {}
             Ok(missing) => lines.push(format!(
-                "secrets: {instance}: SecretMissing: {}; its box is refused until conductor \
-                 secret put writes them",
+                "secrets: {instance}: SecretMissing: {}; its box, and an agent on its \
+                 model_token, is refused until {writer}",
                 missing
                     .iter()
                     .map(|name| name.0.as_str())
@@ -829,6 +910,16 @@ pub fn secret_put(config: Option<&Path>, args: &SecretPutArgs) -> Result<ExitCod
         );
         return Ok(ExitCode::FAILURE);
     }
+    // The `files` source is refused before a value is read: none would be written.
+    if secrets.source() == Source::Files {
+        eprintln!(
+            "conductor: {WHAT}: SourceReadOnly: the files source {} is a directory conductor \
+             never writes: put the value into its file {name} where the directory is mounted \
+             from; nothing was written",
+            source.dir.as_deref().unwrap_or_default()
+        );
+        return Ok(ExitCode::FAILURE);
+    }
     let value = value_from_stdin(&name).context(WHAT)?;
     let url = &loaded.config.daemon.store.0;
     if let Ok(crate::store::Location::Sqlite(path)) = crate::store::Location::parse(url)
@@ -859,6 +950,10 @@ pub fn secret_put(config: Option<&Path>, args: &SecretPutArgs) -> Result<ExitCod
         PutSecretOutcome::NotHuman { error } => {
             format!("ActorNotHuman: {}", crate::actor::not_human(&error.actor))
         }
+        PutSecretOutcome::ReadOnly { error } => format!(
+            "SourceReadOnly: the {} source is never written; nothing was written",
+            source_word(error.source)
+        ),
         PutSecretOutcome::Unreachable { error } => format!(
             "SourceUnreachable: the {:?} source did not answer; nothing was written",
             error.source
@@ -884,6 +979,7 @@ mod tests {
             source: Source::Keychain,
             namespace: namespace.map(str::to_owned),
             url: None,
+            dir: None,
         };
         with_backend(
             &config,
@@ -963,6 +1059,7 @@ mod tests {
             source: Source::Remote,
             namespace: None,
             url: None,
+            dir: None,
         };
         let refused = open(&without).expect_err("a remote source without url opened");
         assert_eq!(refused.path, "daemon.secrets.url");
@@ -994,6 +1091,7 @@ mod tests {
             source: Source::Keychain,
             namespace: Some("Example Org".to_owned()),
             url: None,
+            dir: None,
         })
         .expect_err("a bad namespace opened");
         assert_eq!(refused.path, "daemon.secrets.namespace");

@@ -48,11 +48,14 @@ types:
       - {name: instance, type: Optional<conductor.config.InstanceName>}
 
   # The input of `conductor token reveal`: the token whose value the `claude-code` kind's harness
-  # asks for (its settings' `apiKeyHelper`), by id.
+  # asks for (its settings' `apiKeyHelper`), by id; or, with `model_token`, the `model_token` of
+  # that instance of the config file, the token an agent at a placement with no box runs on when
+  # the pool leases it none (story:container-start-without-prompt). One of the two is given.
   - name: conductor.token.RevealToken
     kind: struct
     fields:
       - {name: token, type: Optional<String>}
+      - {name: model_token, type: Optional<conductor.config.InstanceName>}
 
 entities:
   # The token pool of one instance (§ 5.3): a set of secrets in the instance's secrets namespace.

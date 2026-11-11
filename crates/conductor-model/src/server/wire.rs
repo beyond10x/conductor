@@ -1,5 +1,5 @@
 // generated from conductor v1
-// contract digest a17ef5b4db86247df9a482c134e7a5bf24ccd55cdf64ac83672245e31b8c09c4
+// contract digest 2b03183365aedd50e23f3659c527d6ee72cb8b1ac517c9e046bb013284b8a454
 // do not edit: regenerate with `ess synthesize --layout crate`
 //! Every generated declaration, as JSON, in the renderings the published wire contracts fix.
 //!
@@ -1233,6 +1233,10 @@ pub fn encode_conductor_config_daemon(value: &crate::config::Daemon, out: &mut S
     json::push_text(out, &value.timeout.0);
     json::member(out, "substrate_slots");
     json::push_integer(out, value.substrate_slots);
+    json::member(out, "unattended");
+    json::push_bool(out, value.unattended);
+    json::member(out, "address");
+    json::push_text(out, &value.address);
     out.push('}');
 }
 
@@ -1242,7 +1246,7 @@ pub fn encode_conductor_config_daemon(value: &crate::config::Daemon, out: &mut S
 ///
 /// [`json::DecodeError`] naming the path and what the declaration says belongs there.
 pub fn decode_conductor_config_daemon(value: &json::Value, at: &str) -> Result<crate::config::Daemon, json::DecodeError> {
-    json::closed_at(value, at, &["port", "loopback", "tls", "cadence", "store", "secrets", "dashboard", "operators", "upgrade_timeout", "timeout", "substrate_slots"])?;
+    json::closed_at(value, at, &["port", "loopback", "tls", "cadence", "store", "secrets", "dashboard", "operators", "upgrade_timeout", "timeout", "substrate_slots", "unattended", "address"])?;
     Ok(crate::config::Daemon {
         port: {
             let at0 = json::nested(at, "port");
@@ -1307,6 +1311,16 @@ pub fn decode_conductor_config_daemon(value: &json::Value, at: &str) -> Result<c
             let at10 = json::nested(at, "substrate_slots");
             let member10 = json::member_at(value, at, "substrate_slots")?;
             json::integer_at(member10, &at10, "an integer")?
+        },
+        unattended: {
+            let at11 = json::nested(at, "unattended");
+            let member11 = json::member_at(value, at, "unattended")?;
+            json::bool_at(member11, &at11, "a boolean")?
+        },
+        address: {
+            let at12 = json::nested(at, "address");
+            let member12 = json::member_at(value, at, "address")?;
+            json::text_at(member12, &at12, "a string")?.to_owned()
         },
     })
 }
@@ -3096,6 +3110,10 @@ pub fn encode_conductor_config_secrets_source(value: &crate::config::SecretsSour
         json::member(out, "url");
         json::push_text(out, &*held0);
     }
+    if let Some(held0) = &value.dir {
+        json::member(out, "dir");
+        json::push_text(out, &*held0);
+    }
     out.push('}');
 }
 
@@ -3105,7 +3123,7 @@ pub fn encode_conductor_config_secrets_source(value: &crate::config::SecretsSour
 ///
 /// [`json::DecodeError`] naming the path and what the declaration says belongs there.
 pub fn decode_conductor_config_secrets_source(value: &json::Value, at: &str) -> Result<crate::config::SecretsSource, json::DecodeError> {
-    json::closed_at(value, at, &["source", "namespace", "url"])?;
+    json::closed_at(value, at, &["source", "namespace", "url", "dir"])?;
     Ok(crate::config::SecretsSource {
         source: {
             let at0 = json::nested(at, "source");
@@ -3124,6 +3142,13 @@ pub fn decode_conductor_config_secrets_source(value: &json::Value, at: &str) -> 
             Some(member2) => {
                 let at2 = json::nested(at, "url");
                 Some(json::text_at(member2, &at2, "a string")?.to_owned())
+            }
+        },
+        dir: match value.member("dir") {
+            None | Some(json::Value::Null) => None,
+            Some(member3) => {
+                let at3 = json::nested(at, "dir");
+                Some(json::text_at(member3, &at3, "a string")?.to_owned())
             }
         },
     })
@@ -10267,6 +10292,7 @@ pub fn encode_conductor_secret_source(value: &crate::secret::Source, out: &mut S
     match value {
         crate::secret::Source::Keychain => json::push_text(out, "Keychain"),
         crate::secret::Source::Remote => json::push_text(out, "Remote"),
+        crate::secret::Source::Files => json::push_text(out, "Files"),
     }
 }
 
@@ -10276,10 +10302,11 @@ pub fn encode_conductor_secret_source(value: &crate::secret::Source, out: &mut S
 ///
 /// [`json::DecodeError`] naming the path and what the declaration says belongs there.
 pub fn decode_conductor_secret_source(value: &json::Value, at: &str) -> Result<crate::secret::Source, json::DecodeError> {
-    Ok(match json::text_at(value, at, "one of `Keychain`, `Remote`")? {
+    Ok(match json::text_at(value, at, "one of `Keychain`, `Remote`, `Files`")? {
         "Keychain" => crate::secret::Source::Keychain,
         "Remote" => crate::secret::Source::Remote,
-        other => return Err(json::DecodeError { at: at.to_owned(), expected: "one of `Keychain`, `Remote`".to_owned(), found: format!("`{other}`") }),
+        "Files" => crate::secret::Source::Files,
+        other => return Err(json::DecodeError { at: at.to_owned(), expected: "one of `Keychain`, `Remote`, `Files`".to_owned(), found: format!("`{other}`") }),
     })
 }
 
@@ -11462,6 +11489,10 @@ pub fn encode_conductor_token_reveal_token(value: &crate::token::RevealToken, ou
         json::member(out, "token");
         json::push_text(out, &*held0);
     }
+    if let Some(held0) = &value.model_token {
+        json::member(out, "model_token");
+        encode_conductor_config_instance_name(&*held0, out);
+    }
     out.push('}');
 }
 
@@ -11471,13 +11502,20 @@ pub fn encode_conductor_token_reveal_token(value: &crate::token::RevealToken, ou
 ///
 /// [`json::DecodeError`] naming the path and what the declaration says belongs there.
 pub fn decode_conductor_token_reveal_token(value: &json::Value, at: &str) -> Result<crate::token::RevealToken, json::DecodeError> {
-    json::closed_at(value, at, &["token"])?;
+    json::closed_at(value, at, &["token", "model_token"])?;
     Ok(crate::token::RevealToken {
         token: match value.member("token") {
             None | Some(json::Value::Null) => None,
             Some(member0) => {
                 let at0 = json::nested(at, "token");
                 Some(json::text_at(member0, &at0, "a string")?.to_owned())
+            }
+        },
+        model_token: match value.member("model_token") {
+            None | Some(json::Value::Null) => None,
+            Some(member1) => {
+                let at1 = json::nested(at, "model_token");
+                Some(decode_conductor_config_instance_name(member1, &at1)?)
             }
         },
     })
@@ -18024,6 +18062,14 @@ pub fn encode_error_conductor_secret_secret_missing(value: &crate::secret::Secre
         encode_conductor_secret_secret_name(&*item0, out);
     }
     out.push(']');
+    out.push('}');
+}
+
+/// Writes the declared error `conductor.secret.SourceReadOnly` as JSON.
+pub fn encode_error_conductor_secret_source_read_only(value: &crate::secret::SourceReadOnly, out: &mut String) {
+    out.push('{');
+    json::member(out, "source");
+    encode_conductor_secret_source(&value.source, out);
     out.push('}');
 }
 
@@ -31510,6 +31556,20 @@ pub fn encode_outcome_conductor_secret_put_secret(value: &crate::secret::PutSecr
             json::push_text(out, "conductor.operator.ActorNotHuman");
             json::member(out, "payload");
             encode_error_conductor_operator_actor_not_human(error, out);
+            out.push('}');
+        }
+        crate::secret::PutSecretOutcome::ReadOnly { error } => {
+            json::member(out, "outcome");
+            json::push_text(out, "read-only");
+            json::member(out, "published");
+            out.push('[');
+            out.push(']');
+            json::member(out, "refusal");
+            out.push('{');
+            json::member(out, "error");
+            json::push_text(out, "conductor.secret.SourceReadOnly");
+            json::member(out, "payload");
+            encode_error_conductor_secret_source_read_only(error, out);
             out.push('}');
         }
         crate::secret::PutSecretOutcome::Unreachable { error } => {

@@ -40,12 +40,15 @@ pub const TOKEN_VARIABLE: &str = "CONDUCTOR_API_TOKEN";
 /// the slot [`crate::placement::is_api_token_slot`] knows (`story:box-reaches-forge-and-daemon`).
 pub const SLOTS_VARIABLE: &str = "SUBSTRATE_SECRET_SLOTS";
 
-/// `program` to start, told of no sealed slot ([`SLOTS_VARIABLE`] removed): every process the
-/// runtime starts itself is built here, which `tests/placement.rs` holds for the crate's sources.
+/// `program` to start, told of no sealed slot ([`SLOTS_VARIABLE`] removed) and of no daemon it is
+/// to end with ([`PARENT_VARIABLE`] removed): every process the runtime starts itself is built
+/// here, which `tests/placement.rs` holds for the crate's sources.
 #[must_use]
 pub fn command(program: impl AsRef<std::ffi::OsStr>) -> std::process::Command {
     let mut command = std::process::Command::new(program);
-    command.env_remove(SLOTS_VARIABLE);
+    command
+        .env_remove(SLOTS_VARIABLE)
+        .env_remove(PARENT_VARIABLE);
     command
 }
 
@@ -126,6 +129,31 @@ pub const LOG_VARIABLE: &str = "CONDUCTOR_API_LOG";
 /// a case that tests the API alone, or an operator who runs `conductor run` by hand. The daemon
 /// never sets it.
 pub const LOOP_VARIABLE: &str = "CONDUCTOR_RUNTIME_LOOP";
+
+/// The variable the daemon names its own process in when it starts the runtime as a child
+/// process of its own, where no user service manager is
+/// (`crate::daemon::units::Children`, `story:container-start-without-prompt`): the runtime ends
+/// once its parent is no longer that process, so a daemon that was killed leaves no runtime.
+pub const PARENT_VARIABLE: &str = "CONDUCTOR_DAEMON_PID";
+
+/// How often a runtime started as a child looks whether its daemon still runs.
+const PARENT_TICK: std::time::Duration = std::time::Duration::from_secs(1);
+
+/// Ends this process once its parent is no longer `daemon` ([`PARENT_VARIABLE`]).
+fn end_with(daemon: u32) {
+    let _ = std::thread::Builder::new()
+        .name("instance-parent".to_owned())
+        .spawn(move || {
+            while std::os::unix::process::parent_id() == daemon {
+                std::thread::sleep(PARENT_TICK);
+            }
+            crate::run::say(
+                true,
+                &format!("conductor: instance serve: the daemon, process {daemon}, ended"),
+            );
+            std::process::exit(0);
+        });
+}
 
 /// The instance API's socket of the instance whose state directory is `state`: `<state>/api.sock`,
 /// or, where that is longer than a socket address holds, `conductor-api-<hash>.sock` in the
@@ -265,6 +293,12 @@ pub fn instance_serve(
     // runtime in a box did not start (`story:box-crash-loop-reads-failed`).
     if let Some(log) = std::env::var_os(LOG_VARIABLE).filter(|log| !log.is_empty()) {
         log_to(Path::new(&log)).context(WHAT)?;
+    }
+    if let Some(daemon) = std::env::var(PARENT_VARIABLE)
+        .ok()
+        .and_then(|pid| pid.trim().parse::<u32>().ok())
+    {
+        end_with(daemon);
     }
     config::set_active(config_flag).context(WHAT)?;
     let active = config::active();

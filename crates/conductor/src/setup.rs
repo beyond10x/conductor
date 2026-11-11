@@ -786,13 +786,23 @@ const ACTIVATE_BOUND: Duration = Duration::from_secs(20);
 ///
 /// The template cannot be written, or `worktree activate` does not run or refuses.
 fn activate(flag: Option<&Path>, environment: &Environment, repository: &Path) -> Result<()> {
-    const WHAT: &str = "activate the worktree workspace";
     let Ok(loaded) = config::load(flag, environment) else {
         return Ok(());
     };
     let Some(instance) = naming(&loaded, repository) else {
         return Ok(());
     };
+    activate_root(&loaded, instance)
+}
+
+/// [`activate`] for `instance` of `loaded`: its checkouts root, as `--apply` activates it, and
+/// as `daemon.unattended` does at the daemon's start (`story:container-start-without-prompt`).
+///
+/// # Errors
+///
+/// As [`activate`].
+pub(crate) fn activate_root(loaded: &Loaded, instance: &Instance) -> Result<()> {
+    const WHAT: &str = "activate the worktree workspace";
     let Some(program) = doctor::find("worktree") else {
         return Ok(());
     };

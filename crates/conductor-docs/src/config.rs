@@ -74,6 +74,7 @@ daemon:
     source: remote
     namespace: example
     url: https://secrets.example.com
+    dir: /run/secrets/example
   dashboard: /conductor
   operators:
     - name: example-operator
@@ -82,6 +83,8 @@ daemon:
   upgrade_timeout: 5m
   timeout: 10s
   substrate_slots: 4
+  unattended: true
+  address: 0.0.0.0
 globals:
   roles:
     - role: supervisor

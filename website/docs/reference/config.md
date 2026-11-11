@@ -28,7 +28,7 @@ The file, `conductor.config/2` (design architecture-next § 9). A key it does no
 
 ## Daemon
 
-The `daemon` section (design architecture-next § 4, § 5.2, § 8, § 9): `port`, the loopback port of the global API on 127.0.0.1, 1 to 65535, absent 7300; `tls`, the TLS listener, absent when none is configured; `cadence.reconcile`; `store`, the one URL of the deployment's shared database, which the daemon hands to every instance runtime it starts; `secrets`, the secrets source; `dashboard`, the path the daemon serves the dashboard app at, absent `/`; `operators`, the deployment's operators, at least the one the Unix user names on a single host; `upgrade_timeout`, how long an upgraded instance runtime has to answer before the daemon rolls it back to its previous binary, a duration, absent 120 s; `timeout`, how long an instance has to answer one federated read of the global API before it is a row with `state: unreachable`, a duration, absent 5 s. `loopback`, whether the daemon serves the loopback listener on `port`, absent true: a box with no local operator writes false, its API then the TLS listener alone, so false with no `tls` is refused at validate by the key's YAML path, and `daemon serve --install` writes a system unit for it rather than the user unit. `substrate_slots`, the size of the local substrate daemon's model-token slot pool, absent 0 (substrate 0.20.0, design 11: a slot is daemon configuration, never a per-request value): the operator declares `--secret-slot model_token_<i>=<daemon dir>/slots/model_token_<i>` for each `i` below it; before a box opens the daemon writes the instance's `model_token` into a free slot's file (mode 0600), names that slot in the start, and frees it when the box closes.
+The `daemon` section (design architecture-next § 4, § 5.2, § 8, § 9): `port`, the loopback port of the global API on 127.0.0.1, 1 to 65535, absent 7300; `tls`, the TLS listener, absent when none is configured; `cadence.reconcile`; `store`, the one URL of the deployment's shared database, which the daemon hands to every instance runtime it starts; `secrets`, the secrets source; `dashboard`, the path the daemon serves the dashboard app at, absent `/`; `operators`, the deployment's operators, at least the one the Unix user names on a single host; `upgrade_timeout`, how long an upgraded instance runtime has to answer before the daemon rolls it back to its previous binary, a duration, absent 120 s; `timeout`, how long an instance has to answer one federated read of the global API before it is a row with `state: unreachable`, a duration, absent 5 s. `loopback`, whether the daemon serves the loopback listener on `port`, absent true: a box with no local operator writes false, its API then the TLS listener alone, so false with no `tls` is refused at validate by the key's YAML path, and `daemon serve --install` writes a system unit for it rather than the user unit. `substrate_slots`, the size of the local substrate daemon's model-token slot pool, absent 0 (substrate 0.20.0, design 11: a slot is daemon configuration, never a per-request value): the operator declares `--secret-slot model_token_<i>=<daemon dir>/slots/model_token_<i>` for each `i` below it; before a box opens the daemon writes the instance's `model_token` into a free slot's file (mode 0600), names that slot in the start, and frees it when the box closes. `unattended`, whether `daemon serve` at its start does for each instance of the file what `conductor setup --apply` does, each only where it is missing: writes and commits its records skeleton, trusts its checkouts and records directory, and activates its checkouts root as a `worktree` workspace; absent false, and the start then creates none of them. `address`, the address the listener on `port` binds, an IP address, absent `127.0.0.1`: one that is not loopback lets a probe or a published port of a container reach the daemon, and every `/v1/` request on it then carries an Identity bearer, as on the TLS listener; the probes and the metrics answer without one.
 
 | Key | Type | Default | Rule |
 |---|---|---|---|
@@ -41,9 +41,10 @@ The `daemon` section (design architecture-next § 4, § 5.2, § 8, § 9): `port`
 | `daemon.tls.identity` | string | none |  |
 | `daemon.cadence.reconcile` | duration | `60s` |  |
 | `daemon.store` | [StoreUrl](#storeurl) | `sqlite:/sample-home/.b10x/conductor/conductor.sqlite` |  |
-| `daemon.secrets.source` | `keychain` \| `remote` | required |  |
+| `daemon.secrets.source` | `keychain` \| `remote` \| `files` | required |  |
 | `daemon.secrets.namespace` | string | none |  |
 | `daemon.secrets.url` | string | none |  |
+| `daemon.secrets.dir` | string | none |  |
 | `daemon.dashboard` | string | `/` |  |
 | `daemon.operators` | list of [DaemonOperator](#daemonoperator) | `[]` | `operator.name` distinct across `operators` |
 | `daemon.operators[].name` | [OperatorName](#operatorname) | required |  |
@@ -52,6 +53,8 @@ The `daemon` section (design architecture-next § 4, § 5.2, § 8, § 9): `port`
 | `daemon.upgrade_timeout` | duration | `120s` |  |
 | `daemon.timeout` | duration | `5s` |  |
 | `daemon.substrate_slots` | integer | `0` | `substrate_slots >= 0` |
+| `daemon.unattended` | boolean | `false` |  |
+| `daemon.address` | string | `127.0.0.1` |  |
 
 ## Globals
 
@@ -476,7 +479,7 @@ Keys: `listen`, `cert`, `key`, `identity`. Specified as `conductor.config.TlsLis
 
 Where the daemon resolves the `secret:<name>` values the file names (design architecture-next § 9, decision 6): `keychain`, the OS keychain on the control host (`secrets-keychain`), or `remote`, the Secrets service where conductord runs in a deployment (`secrets-remote`). `namespace` is the secrets namespace the names live in; `url` is the Secrets service's address, for `remote` only.
 
-Keys: `source`, `namespace`, `url`. Specified as `conductor.config.SecretsSource`.
+Keys: `source`, `namespace`, `url`, `dir`. Specified as `conductor.config.SecretsSource`.
 
 ### DaemonCadence
 
@@ -492,9 +495,9 @@ Written as string. Specified as `conductor.store.StoreUrl`.
 
 ### Source
 
-Where a secret's value is kept: `Keychain`, the `secrets-keychain` backend (the OS keychain: the Secret Service on Linux, the native keychain on macOS), on the control host; `Remote`, the `secrets-remote` backend (the Secrets service: encrypted, tenant-scoped custody), where conductord runs in a deployment. `secrets-federation` routes each namespace to one of them (§ 9).
+Where a secret's value is kept: `Keychain`, the `secrets-keychain` backend (the OS keychain: the Secret Service on Linux, the native keychain on macOS), on the control host; `Remote`, the `secrets-remote` backend (the Secrets service: encrypted, tenant-scoped custody), where conductord runs in a deployment. `secrets-federation` routes each namespace to one of them (§ 9). `Files`: a directory of mounted files, one file per secret, the file's name the secret's name, its content the value with one trailing line end dropped: the shape a cluster's secret volume has. Conductor reads it and never writes there; a put into it is refused with `SourceReadOnly`.
 
-One of `keychain` | `remote`. Specified as `conductor.secret.Source`.
+One of `keychain` | `remote` | `files`. Specified as `conductor.secret.Source`.
 
 ### OperatorName
 

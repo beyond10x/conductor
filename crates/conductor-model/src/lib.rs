@@ -1,5 +1,5 @@
 // generated from conductor v1
-// contract digest a17ef5b4db86247df9a482c134e7a5bf24ccd55cdf64ac83672245e31b8c09c4
+// contract digest 2b03183365aedd50e23f3659c527d6ee72cb8b1ac517c9e046bb013284b8a454
 // do not edit: regenerate with `ess synthesize --layout crate`
 
 //! Semantic types synthesised from the `conductor` specification, v1.

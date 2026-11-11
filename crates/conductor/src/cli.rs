@@ -1236,13 +1236,16 @@ pub struct TokenRevealArgs {
     /// The leased token's id
     #[arg(long, value_name = "ID")]
     pub token: Option<String>,
+    /// The instance whose model_token to print instead, for an agent at a placement with no box
+    #[arg(long, value_name = "INSTANCE")]
+    pub model_token: Option<String>,
 }
 
 // `conductor token`: the instance's token pool (`story:token-pool`).
 #[allow(missing_docs)]
 #[derive(Debug, Subcommand)]
 pub enum TokenCommand {
-    /// Print the value of a leased token of the instance's pool from the daemon's secrets source, for the claude-code kind's harness, whose settings name this command as their apiKeyHelper; refuse a token that is not leased; nothing else prints a value
+    /// Print the value of a leased token of the instance's pool from the daemon's secrets source, or with --model-token the model_token of an instance whose placement opens no box, for the claude-code kind's harness, whose settings name this command as their apiKeyHelper; refuse a token that is not leased; nothing else prints a value
     #[command(name = "reveal")]
     Reveal(TokenRevealArgs),
 }

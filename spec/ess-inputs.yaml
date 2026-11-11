@@ -64,6 +64,7 @@ scenarios:
   - scenarios/secret-put-secret.yaml
   - scenarios/secret-put-secret-not-human.yaml
   - scenarios/secret-put-secret-unreachable.yaml
+  - scenarios/secret-put-secret-read-only.yaml
   - scenarios/secret-resolve-secrets.yaml
   - scenarios/secret-resolve-secrets-missing.yaml
   - scenarios/secret-resolve-secrets-unreachable.yaml

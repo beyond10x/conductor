@@ -2,9 +2,16 @@
 //! the daemon against a fake and never against systemd. [`Systemd`] is the user manager: an
 //! instance runtime is a transient unit started through `systemd-run --user`
 //! ([`systemd::start_service`]); the daemon itself is the installed unit `conductord.service`,
-//! enabled and started with `systemctl --user enable --now`.
+//! enabled and started with `systemctl --user enable --now`. Where no user manager is, as in a
+//! container ([`has_user_manager`]), [`Children`] runs each runtime as a child process of the
+//! daemon ([`Manager`]).
 
-use std::process::Command;
+use std::collections::BTreeMap;
+use std::ffi::OsStr;
+use std::path::Path;
+use std::process::{Child, Command, Stdio};
+use std::sync::{Arc, Mutex};
+use std::time::{Duration, Instant};
 
 use anyhow::{Context as _, Result, bail};
 
@@ -90,6 +97,224 @@ pub trait Units {
     /// The manager refuses or cannot be reached; a manager with no system scope refuses.
     fn disable_system(&mut self, unit: &str) -> Result<()> {
         bail!("this service manager removes no system unit {unit}")
+    }
+}
+
+/// Whether a user systemd manager is there (`story:container-start-without-prompt`): its private
+/// socket `<runtime_dir>/systemd/private` is there (`$XDG_RUNTIME_DIR`), or `systemd-run` is in a
+/// directory of `search` (`$PATH`). A container with neither has none.
+#[must_use]
+pub fn has_user_manager(runtime_dir: Option<&OsStr>, search: Option<&OsStr>) -> bool {
+    let socket = runtime_dir
+        .filter(|dir| !dir.is_empty())
+        .is_some_and(|dir| {
+            Path::new(dir)
+                .join("systemd/private")
+                .symlink_metadata()
+                .is_ok()
+        });
+    socket
+        || search.is_some_and(|search| {
+            std::env::split_paths(search)
+                .filter(|dir| !dir.as_os_str().is_empty())
+                .any(|dir| dir.join("systemd-run").is_file())
+        })
+}
+
+/// The service manager the daemon starts runtimes with: the user's systemd manager where there
+/// is one ([`has_user_manager`]), else the daemon itself, each runtime a child process of it.
+#[derive(Debug, Clone)]
+pub enum Manager {
+    /// The user's systemd manager.
+    Systemd(Systemd),
+    /// Child processes of the daemon.
+    Children(Children),
+}
+
+impl Manager {
+    /// The manager of a host whose `$XDG_RUNTIME_DIR` is `runtime_dir` and whose `$PATH` is
+    /// `search`.
+    #[must_use]
+    pub fn chosen(runtime_dir: Option<&OsStr>, search: Option<&OsStr>) -> Self {
+        if has_user_manager(runtime_dir, search) {
+            Self::Systemd(Systemd)
+        } else {
+            Self::Children(Children::default())
+        }
+    }
+
+    fn units(&mut self) -> &mut dyn Units {
+        match self {
+            Self::Systemd(systemd) => systemd,
+            Self::Children(children) => children,
+        }
+    }
+}
+
+impl Units for Manager {
+    fn start(&mut self, service: &Service) -> Result<()> {
+        self.units().start(service)
+    }
+
+    fn stop(&mut self, unit: &str) -> Result<()> {
+        self.units().stop(unit)
+    }
+
+    fn active(&mut self, unit: &str) -> Result<bool> {
+        self.units().active(unit)
+    }
+
+    fn answers(&mut self, unit: &str) -> Result<bool> {
+        self.units().answers(unit)
+    }
+
+    fn enable(&mut self, unit: &str) -> Result<()> {
+        self.units().enable(unit)
+    }
+
+    fn disable(&mut self, unit: &str) -> Result<()> {
+        self.units().disable(unit)
+    }
+
+    fn start_host_role(&mut self, start: &HostStart) -> Result<()> {
+        self.units().start_host_role(start)
+    }
+
+    fn enable_system(&mut self, unit: &str) -> Result<()> {
+        self.units().enable_system(unit)
+    }
+
+    fn disable_system(&mut self, unit: &str) -> Result<()> {
+        self.units().disable_system(unit)
+    }
+}
+
+/// How long [`Children::stop`] waits for a child to end on `SIGTERM` before it kills it.
+const STOP_BOUND: Duration = Duration::from_secs(10);
+
+/// Runtimes as child processes of the daemon, where no user manager is
+/// (`story:container-start-without-prompt`). A child runs the service's command in its working
+/// directory with the daemon's environment and the service's variables, its standard input
+/// closed and its output the daemon's; [`crate::instance::PARENT_VARIABLE`] names the daemon's
+/// process, so the runtime ends once the daemon is gone, however it ended. The slice, its limits
+/// and the unit's properties are the user manager's and are not applied: a child that exits is
+/// started again by the reconciler (`LostRuntime`, under the failed-start rules), not by a
+/// restart property. A clone shares the children: the daemon's signal handler stops them
+/// ([`Children::stop_all`]).
+#[derive(Debug, Default, Clone)]
+pub struct Children {
+    running: Arc<Mutex<BTreeMap<String, Child>>>,
+}
+
+impl Children {
+    fn held(&self) -> Result<std::sync::MutexGuard<'_, BTreeMap<String, Child>>> {
+        self.running
+            .lock()
+            .map_err(|_| anyhow::anyhow!("the daemon's children are held by a thread that failed"))
+    }
+
+    /// Stops every child, as [`Units::stop`] does each.
+    pub fn stop_all(&self) {
+        let units: Vec<String> = self
+            .held()
+            .map(|held| held.keys().cloned().collect())
+            .unwrap_or_default();
+        for unit in units {
+            let _ = self.clone().stop(&unit);
+        }
+    }
+}
+
+/// Ends `child`: `SIGTERM`, then `SIGKILL` once [`STOP_BOUND`] passed.
+fn end(child: &mut Child) -> Result<()> {
+    if child.try_wait()?.is_some() {
+        return Ok(());
+    }
+    if let Ok(pid) = i32::try_from(child.id()) {
+        let _ = nix::sys::signal::kill(
+            nix::unistd::Pid::from_raw(pid),
+            nix::sys::signal::Signal::SIGTERM,
+        );
+    }
+    let asked = Instant::now();
+    while asked.elapsed() < STOP_BOUND {
+        if child.try_wait()?.is_some() {
+            return Ok(());
+        }
+        std::thread::sleep(Duration::from_millis(50));
+    }
+    child.kill()?;
+    child.wait()?;
+    Ok(())
+}
+
+impl Units for Children {
+    fn start(&mut self, service: &Service) -> Result<()> {
+        let mut held = self.held()?;
+        if let Some(child) = held.get_mut(&service.unit)
+            && child.try_wait()?.is_none()
+        {
+            bail!(
+                "the runtime {} runs already, as process {}",
+                service.unit,
+                child.id()
+            );
+        }
+        let Some((program, args)) = service.command.split_first() else {
+            bail!("the runtime {} has no command", service.unit);
+        };
+        let mut command = crate::instance::command(program);
+        command.args(args).current_dir(&service.cwd);
+        // `NAME` alone passes this process's value, which a child inherits.
+        for set in &service.env {
+            if let Some((name, value)) = set.split_once('=') {
+                command.env(name, value);
+            }
+        }
+        let child = command
+            .env(
+                crate::instance::PARENT_VARIABLE,
+                std::process::id().to_string(),
+            )
+            .stdin(Stdio::null())
+            .spawn()
+            .with_context(|| {
+                format!(
+                    "start the runtime {} as a child: {}",
+                    service.unit,
+                    service.command.join(" ")
+                )
+            })?;
+        held.insert(service.unit.clone(), child);
+        Ok(())
+    }
+
+    fn stop(&mut self, unit: &str) -> Result<()> {
+        let child = self.held()?.remove(unit);
+        match child {
+            Some(mut child) => end(&mut child)
+                .with_context(|| format!("stop the runtime {unit}, process {}", child.id())),
+            None => Ok(()),
+        }
+    }
+
+    fn active(&mut self, unit: &str) -> Result<bool> {
+        let mut held = self.held()?;
+        match held.get_mut(unit) {
+            Some(child) => Ok(child
+                .try_wait()
+                .with_context(|| format!("look at the runtime {unit}"))?
+                .is_none()),
+            None => Ok(false),
+        }
+    }
+
+    fn enable(&mut self, unit: &str) -> Result<()> {
+        bail!("no user service manager here enables the unit {unit}")
+    }
+
+    fn disable(&mut self, unit: &str) -> Result<()> {
+        bail!("no user service manager here disables the unit {unit}")
     }
 }
 

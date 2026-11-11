@@ -65,6 +65,17 @@ impl Json {
         value
     }
 
+    /// The value of `key` of an object, when there is one.
+    fn get(&self, key: &str) -> Option<&Self> {
+        let Self::Object(entries) = self else {
+            return None;
+        };
+        entries
+            .iter()
+            .find(|(name, _)| name == key)
+            .map(|(_, value)| value)
+    }
+
     /// Sets `key` to `value` in place, or adds it at the end.
     fn set(&mut self, key: &str, value: Self) {
         let Self::Object(entries) = self else {
@@ -209,6 +220,16 @@ impl Edit {
             read: Some(read),
             document,
         })
+    }
+
+    /// Whether `path` is marked trusted already: `projects[path].hasTrustDialogAccepted` is `true`.
+    #[must_use]
+    pub fn trusts(&self, path: &str) -> bool {
+        self.document
+            .get("projects")
+            .and_then(|projects| projects.get(path))
+            .and_then(|project| project.get(TRUSTED))
+            == Some(&Json::Bool(true))
     }
 
     /// Marks `path` trusted: `projects[path].hasTrustDialogAccepted = true`, every other field of

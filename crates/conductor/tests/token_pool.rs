@@ -605,6 +605,60 @@ fn with_no_token_in_the_pool_a_start_is_today_s() {
     );
 }
 
+/// `story:container-start-without-prompt`: an instance whose placement opens no box and whose
+/// pool leases no token runs its agents on its `model_token`: the settings name `conductor token
+/// reveal --model-token <instance>` as their `apiKeyHelper`, which prints the value from the
+/// daemon's secrets source, here a directory of mounted files; no argument, setting or output of
+/// the start carries the value.
+#[test]
+fn with_no_token_in_the_pool_an_agent_runs_on_its_instance_s_model_token() {
+    let case = Case::new("model-token", ROLES);
+    let secrets = case.dir.join("secrets");
+    fs::create_dir_all(&secrets).expect("the secrets directory");
+    fs::write(secrets.join("alpha-model"), format!("{VALUE}\n")).expect("mount the token");
+    let text = fs::read_to_string(case.file())
+        .expect("the config file")
+        .replace(
+            "secrets: {source: keychain}",
+            &format!("secrets: {{source: files, dir: {secrets:?}}}"),
+        )
+        .replace(
+            "\x20   session_prefix: alpha\n",
+            "\x20   session_prefix: alpha\n\x20   model_token: secret:alpha-model\n",
+        );
+    fs::write(case.file(), text).expect("write the config file");
+
+    let started = start(&case, "director");
+    assert_eq!(started.status.code(), Some(0), "{}", said(&started));
+    assert!(!said(&started).contains(VALUE), "{}", said(&started));
+    let settings = started_settings(&case);
+    let helper = helper_of(&settings);
+    assert!(
+        helper.ends_with("token reveal --model-token 'alpha'"),
+        "{helper}"
+    );
+    assert!(!helper.contains(VALUE), "{helper}");
+    let (_, rest) = helper
+        .strip_prefix('\'')
+        .and_then(|rest| rest.split_once("' "))
+        .unwrap_or_else(|| panic!("the helper starts with no quoted program: {helper}"));
+    let binary = common::conductor(case.home()).get_program().to_owned();
+    let revealed = Command::new("sh")
+        .arg("-c")
+        .arg(format!("'{}' {rest}", binary.to_string_lossy()))
+        .env_clear()
+        .env("HOME", case.home())
+        .env("USER", "operator")
+        .output()
+        .expect("run the helper");
+    assert_eq!(revealed.status.code(), Some(0), "{}", said(&revealed));
+    assert_eq!(
+        String::from_utf8_lossy(&revealed.stdout),
+        format!("{VALUE}\n")
+    );
+    case.assert_nowhere(VALUE);
+}
+
 #[test]
 fn token_owner_is_a_controller_s_key_only() {
     let case = Case::new(

@@ -214,7 +214,7 @@ Every command takes these, before or after its name.
 | [`conductor store`](#conductor-store) |  |
 | [`conductor store migrate`](#conductor-store-migrate) | Read the eventlog tree under the state directory once into the store's database, record the migration there, and print the counts read; refuse a tree read before (AlreadyMigrated) or none there (SourceMissing) |
 | [`conductor token`](#conductor-token) |  |
-| [`conductor token reveal`](#conductor-token-reveal) | Print the value of a leased token of the instance's pool from the daemon's secrets source, for the claude-code kind's harness, whose settings name this command as their apiKeyHelper; refuse a token that is not leased; nothing else prints a value |
+| [`conductor token reveal`](#conductor-token-reveal) | Print the value of a leased token of the instance's pool from the daemon's secrets source, or with --model-token the model_token of an instance whose placement opens no box, for the claude-code kind's harness, whose settings name this command as their apiKeyHelper; refuse a token that is not leased; nothing else prints a value |
 | [`conductor trust`](#conductor-trust) | Mark every git checkout under the instance's checkouts root, and its records directory, as trusted Claude Code workspaces in ~/.claude.json |
 | [`conductor tui`](#conductor-tui) | Open the terminal UI over the daemon's global API - the instances (state, open decisions, KPI flags), the sessions of the selected one (role, state, context, current work) and its settings, read-only; Enter attaches to the selected session, w watches it, l follows its terminal log, ctrl-] then d returns; the global --daemon names the daemon (default CONDUCTOR_DAEMON, else 127.0.0.1:daemon.port) |
 | [`conductor upgrade`](#conductor-upgrade) | Check for a newer release of the repository conductor was built from; without --check, download its archive for this target and SHA256SUMS, verify the sum, run the new binary's --version and replace this binary, keeping conductor.previous; --release installs a named release |
@@ -2779,7 +2779,7 @@ Usage: conductor token [OPTIONS] <COMMAND>
 
 ## `conductor token reveal`
 
-Print the value of a leased token of the instance's pool from the daemon's secrets source, for the claude-code kind's harness, whose settings name this command as their apiKeyHelper; refuse a token that is not leased; nothing else prints a value
+Print the value of a leased token of the instance's pool from the daemon's secrets source, or with --model-token the model_token of an instance whose placement opens no box, for the claude-code kind's harness, whose settings name this command as their apiKeyHelper; refuse a token that is not leased; nothing else prints a value
 
 ```text
 Usage: conductor token reveal [OPTIONS]
@@ -2788,6 +2788,7 @@ Usage: conductor token reveal [OPTIONS]
 | Argument | Required | Default | Meaning |
 |---|---|---|---|
 | `--token <ID>` | no | none | The leased token's id |
+| `--model-token <INSTANCE>` | no | none | The instance whose model_token to print instead, for an agent at a placement with no box |
 
 ## `conductor trust`
 
