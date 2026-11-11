@@ -16,12 +16,12 @@ repository under a lock. Free disk at the start: 104 GB.
 
 | unit | story | waits for | tree | stage |
 |---|---|---|---|---|
-| U1 | need-repository-from-tag | | `w51-u1` | not started |
-| U2 | handover-restart-by-controller-id | | `w51-u2` | not started |
-| U3 | doctor-checks-guard-forge-writes | | `w51-u3` | not started |
-| U4 | box-reaches-forge-and-daemon | | `w51-u4` | not started |
-| U5 | daemon-probes-and-metrics | | `w51-u5` | not started |
-| U6 | release-container-image | | `w51-u6` | not started |
+| U1 | need-repository-from-tag | | `w51-u1` | correction 1 after adversary pass 1 |
+| U2 | handover-restart-by-controller-id | | `w51-u2` | correction 1 after adversary pass 1 |
+| U3 | doctor-checks-guard-forge-writes | | `w51-u3` | implementing |
+| U4 | box-reaches-forge-and-daemon | | `w51-u4` | correction 1; the egress half is blocked |
+| U5 | daemon-probes-and-metrics | | `w51-u5` | adversary pass 1 |
+| U6 | release-container-image | | `w51-u6` | correction 1 before its first commit |
 | U7 | container-start-without-prompt | U3, U4, U5, U6 | `w51-u7` | not started |
 
 Each unit works on branch `impl/<story>`; its scratch is the session scratch directory's
@@ -81,6 +81,34 @@ is read before the first of the two merges.
 - U6: the image is `ghcr.io/beyond10x/conductor:<version>`, built from the release run's own
   binary, non-root; the workflow appends the image line to the Release body; the `docker run`
   line is on one new guide page.
+
+## What the units found
+
+- U1, adversary pass 1 (`review-result:w51-u1-adversary-1`): a NEED for conductor itself, a host
+  tool or a sibling with no checkout was answered "refused, not kept" to its sender, while the
+  role texts have the supervisor answer it from the mailbox. Decided: a NEED for the mailbox's own
+  recipient is left for the supervisor with no answer; any other field that names no repository
+  is not kept and its sender is told in one line that it is not relayed to a controller and stays
+  in the mailbox. A role line that teaches a NEED with one tag field was there before the wave
+  and goes to the backlog.
+- U2, adversary pass 1 (`review-result:w51-u2-adversary-1`): the usage-limit path restarted
+  through a kept entry without the start check; a session of the same name in another directory
+  dropped the request to the controller's own session; an entry written by 1.2.0 for the session
+  still running was dropped and the controller never asked again. All three go back to the
+  implementor, the first because acceptance line 2 needs it although the base has it.
+- U4: the pinned substrate SDK (0.20.0) sends one aperture per session and has no field for the
+  working directory, and the SDK on that repository's `main` does not either, so the box request
+  cannot name a forge host (`decision-blocker:substrate-sdk-single-aperture`). The unit built
+  the token half: the daemon's token reaches a local box through a sealed slot. Decided: a
+  substrate daemon that does not declare the slot does not refuse a box that started on 1.2.0;
+  the box starts without the slot and doctor names the flag. The story stays `active` at the
+  close.
+- U5: only `/readyz` is in the HTTP binding, and its 503 is not: the binding format gives a view
+  route one success status. `/healthz` reads no entity and `/metrics` is text; both are unbound
+  rows of the parity baseline.
+- U6: the commit gate refuses a home directory under `/home/` in the `Dockerfile`; the image's
+  user gets `/var/lib/conductor`. Decided: the job that builds and pushes the image holds
+  `packages: write` only, and a third job with `contents: write` only writes the Release notes.
 
 ## What each story's close needs
 
