@@ -375,10 +375,10 @@ fn typed_through_attach(case: &Case, first: &[String], id: &str, text: &str) -> 
             "--",
             "sh",
             "-c",
-            r#""$0" attach "$1"; : > "$2"; exec sleep 86400"#,
+            r#""$0" attach "$1"; rm -f "$2"; exec sleep 86400"#,
             "claude",
             id,
-            &dir.join(format!("{pane}.ended")).display().to_string(),
+            &dir.join(format!("{pane}.attached")).display().to_string(),
         ]),
         call(&["capture-pane", "-p", "-t", &target]),
     ];

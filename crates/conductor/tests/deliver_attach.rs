@@ -9,7 +9,8 @@
 //! `attach.pids`, prints one line and then, as `attach.mode` says, appends what it reads from
 //! its terminal to `received` at once (no mode), after three seconds (`slow`), or never
 //! (`never`), or ends, without reading, as soon as its terminal holds a line it could read
-//! (`dies`); `silent` prints nothing and never reads. No real session, harness or default tmux server is touched.
+//! (`dies`); `silent` prints nothing and never reads; `lingers` reads until its terminal
+//! closes and ends once the case wrote the file `go`. No real session, harness or default tmux server is touched.
 
 mod common;
 mod scratch;
@@ -35,7 +36,7 @@ struct Case {
 impl Drop for Case {
     fn drop(&mut self) {
         // Whatever a case left running ends with it.
-        for pid in self.attach_pids() {
+        for pid in self.attach_pids().into_iter().chain(self.shell_pids()) {
             let _ = Command::new("kill").args(["-9", &pid]).output();
         }
     }
@@ -82,6 +83,7 @@ impl Case {
                  \x20 never) exec sleep 600;;\n\
                  \x20 slow) sleep 3;;\n\
                  \x20 dies) until bash -c 'read -t 0'; do sleep 0.02; done; exit 0;;\n\
+                 \x20 lingers) cat >> \"$D/received\"; until [ -e \"$D/go\" ]; do sleep 0.05; done; exit 0;;\n\
                  \x20 esac\n\
                  \x20 exec cat >> \"$D/received\"\n\
                  fi\n\
@@ -149,6 +151,31 @@ impl Case {
     /// The process id of each `claude attach` a case started.
     fn attach_pids(&self) -> Vec<String> {
         fs::read_to_string(self.dir.join("attach.pids"))
+            .unwrap_or_default()
+            .lines()
+            .map(str::to_owned)
+            .collect()
+    }
+
+    /// Puts an `sh` first on `PATH` that ignores a hangup, and so does what it runs: the
+    /// shell of a delivery's pane, and its client, then outlive the pane's server, as they do
+    /// when the signal reaches them late. Each such shell's process id is in `shell.pids`.
+    fn shells_ignore_a_hangup(&self) {
+        let fake = self.dir.join("home/bin/sh");
+        fs::write(
+            &fake,
+            format!(
+                "#!/bin/bash\necho $$ >> '{}'\ntrap '' HUP\nexec /bin/sh \"$@\"\n",
+                self.dir.join("shell.pids").display()
+            ),
+        )
+        .expect("write the stand-in sh");
+        fs::set_permissions(&fake, fs::Permissions::from_mode(0o755)).expect("make it runnable");
+    }
+
+    /// The process id of each stand-in `sh` a case started.
+    fn shell_pids(&self) -> Vec<String> {
+        fs::read_to_string(self.dir.join("shell.pids"))
             .unwrap_or_default()
             .lines()
             .map(str::to_owned)
@@ -309,6 +336,41 @@ fn a_delivery_s_pane_is_never_listed_as_a_launcher() {
     );
     assert_eq!(case.launchers(), Vec::<String>::new());
     assert_eq!(case.panes(), Vec::<String>::new(), "no socket is left");
+}
+
+/// A pane whose shell and client outlive its server: the client ends only after the delivery
+/// ended the pane and returned (the case lets it), and the pane's shell goes on to its next
+/// steps only then, up to the `sleep` it ends in. Whatever the pane does after its delivery, the deliveries' directory holds nothing of
+/// that delivery.
+#[test]
+fn a_client_that_ends_after_its_delivery_returned_leaves_nothing_in_the_deliveries_directory() {
+    let case = Case::new("lingers", "lingers");
+    case.shells_ignore_a_hangup();
+    let text = "[REPORT cortex -] watch: CI red on main";
+    let output = case.deliver(text);
+    assert!(output.status.success(), "{}", describe(&output));
+    assert_eq!(case.received(), format!("{text}\n"), "the text, whole");
+    assert_eq!(case.shell_pids().len(), 1, "the pane ran the stand-in sh");
+    assert_eq!(case.attached().len(), 1, "the client outlives the delivery");
+    assert_eq!(case.panes(), Vec::<String>::new(), "nothing is left");
+    fs::write(case.dir.join("go"), "").expect("let the client end");
+    // The pane's shell has taken its steps after the client once it is the `sleep` it ends in.
+    let shell = Path::new("/proc").join(&case.shell_pids()[0]).join("comm");
+    let mut slept = false;
+    for _ in 0..300 {
+        slept = fs::read_to_string(&shell).is_ok_and(|name| name.trim() == "sleep");
+        if slept {
+            break;
+        }
+        thread::sleep(Duration::from_millis(100));
+    }
+    assert!(slept, "the pane's shell went on after its client");
+    assert_eq!(case.attached(), Vec::<String>::new(), "the client ended");
+    assert_eq!(
+        case.panes(),
+        Vec::<String>::new(),
+        "nothing of the delivery is there after its client ended"
+    );
 }
 
 /// A delivery that was killed before it ended its pane leaves a tmux server with a `claude
