@@ -17,7 +17,7 @@ repository under a lock. Free disk at the start: 104 GB.
 | unit | story | waits for | tree | stage |
 |---|---|---|---|---|
 | U1 | need-repository-from-tag | | `w51-u1` | merged (`900de5852`), two adversary passes |
-| U2 | handover-restart-by-controller-id | | `w51-u2` | adversary pass 2, after correction 1 |
+| U2 | handover-restart-by-controller-id | | `w51-u2` | merged (`10542e8b1`), two adversary passes |
 | U3 | doctor-checks-guard-forge-writes | | `w51-u3` | adversary pass 1, after correction 1 |
 | U4 | box-reaches-forge-and-daemon | | `w51-u4` | correction 2 after adversary pass 1; the egress half is blocked |
 | U5 | daemon-probes-and-metrics | | `w51-u5` | adversary pass 2, after correction 1 |
@@ -125,6 +125,12 @@ is read before the first of the two merges.
   in its line. Decided: the loop's own resume of a session keeps the request, and the entry is
   stamped at that resume; a session resumed by hand after the delivery loses its request. Found
   beside the findings: a resume on another token dropped the entry of a session that runs on.
+- U2, adversary pass 2 (`review-result:w51-u2-adversary-2`): nothing red against the correction;
+  three cases added, one of them failing under a change the suite let through. One note stays
+  open and goes to the backlog: the stamp of the loop's resume is the instant the resume
+  command returned, and the tree does not show whether the harness dates a resumed session
+  before or after it. Package run on the unit's head: 1848 run, 1847 passed, the one failure
+  the ledger case that fails under host load.
 - U4, adversary pass 1 (`review-result:w51-u4-adversary-1`): the token path held. Doctor's dry
   run of a box did not know the daemon's new refusal for a slot file it cannot write, and the
   slot's descriptor and variable were inherited by every process the boxed runtime starts.
