@@ -432,11 +432,16 @@ const DELIVERY_MARGIN: Duration = Duration::from_secs(15);
 const DELIVERY_PANES: &str = "deliveries";
 
 /// What a delivery's pane runs, given the harness's program as `$0`, the session's id and the
-/// path of the pane's mark: `claude attach <id>`, then, once that client ended, the mark, and
-/// then nothing that reads the terminal. The pane, and with it its terminal, therefore outlives
-/// its client until the delivery ends it, so the delivery can still look at what a client that
-/// ended left unread: a pane that ended with its client would take that answer with it.
-const ATTACH_PANE: &str = r#""$0" attach "$1"; : > "$2"; exec sleep 86400"#;
+/// path of the pane's mark: `claude attach <id>`, then, once that client ended, the mark's
+/// removal, and then nothing that reads the terminal. The pane, and with it its terminal,
+/// therefore outlives its client until the delivery ends it, so the delivery can still look at
+/// what a client that ended left unread: a pane that ended with its client would take that
+/// answer with it.
+///
+/// The mark is a file the delivery writes and the pane removes, not one the pane writes: a
+/// pane's shell may outlive its server and take this step after its delivery removed what it
+/// left, and a removal then leaves nothing, where a file written then would stay.
+const ATTACH_PANE: &str = r#""$0" attach "$1"; rm -f "$2"; exec sleep 86400"#;
 
 /// Counts the delivery panes this process made, so two deliveries from one process (the agent
 /// API's) name two.
@@ -608,8 +613,8 @@ fn reach(sessions: &Path, name: &SessionName, typed: &str) -> Reach {
 ///
 /// The server's socket is the delivery's own: `<sessions>/deliveries/<process id>-<count>.tmux`,
 /// whose length does not grow with the session's name; the name is that of the server's one
-/// tmux session. Beside it, `<process id>-<count>.ended` is the mark the pane writes once its
-/// client ended. Two deliveries to one session at once therefore share nothing, none touches
+/// tmux session. Beside it, `<process id>-<count>.attached` is the mark the delivery writes and
+/// the pane removes once its client ended. Two deliveries to one session at once therefore share nothing, none touches
 /// the session's launcher socket path `<sessions>/<name>.tmux` (a file found there is not this
 /// delivery's, and stays), and no reader of launcher sockets lists a delivery's pane as a
 /// session. Before it makes its own, a delivery ends each pane a delivery left whose process is
@@ -639,7 +644,10 @@ fn type_through_attach(
         std::process::id(),
         DELIVERY_PANE.fetch_add(1, Ordering::Relaxed)
     );
-    let ended = panes.join(format!("{pane}.ended"));
+    let attached = panes.join(format!("{pane}.attached"));
+    fs::write(&attached, "")
+        .with_context(|| format!("write {}", attached.display()))
+        .map_err(Untaken::NotTyped)?;
     let asked = Asked::watch();
     let taken = systemd::tmux_on(
         &panes,
@@ -661,11 +669,11 @@ fn type_through_attach(
             ATTACH_PANE,
             confine::CLAUDE,
             id,
-            &ended.display().to_string(),
+            &attached.display().to_string(),
         ],
     )
     .map_err(Untaken::NotTyped)
-    .and_then(|_| type_once_drawn(&panes, &pane, name, typed, &ended, &asked));
+    .and_then(|_| type_once_drawn(&panes, &pane, name, typed, &attached, &asked));
     end_pane(&panes, &pane);
     let signal = asked.arrived();
     drop(asked);
@@ -681,7 +689,7 @@ fn type_through_attach(
 fn end_pane(panes: &Path, pane: &str) {
     let _ = systemd::tmux_on(panes, pane, &["kill-server"]);
     let _ = fs::remove_file(panes.join(format!("{pane}.tmux")));
-    let _ = fs::remove_file(panes.join(format!("{pane}.ended")));
+    let _ = fs::remove_file(panes.join(format!("{pane}.attached")));
 }
 
 /// Ends each delivery pane in `panes` whose delivery is gone: a socket
@@ -711,7 +719,8 @@ fn end_left_panes(panes: &Path) {
 }
 
 /// [`type_through_attach`]'s typing, into the pane of the tmux session `name` on
-/// `<panes>/<pane>.tmux`, whose client's end the file `ended` marks: waits until the pane shows
+/// `<panes>/<pane>.tmux`, whose client runs while the file `attached` is there: waits until the
+/// pane shows
 /// anything (within [`ATTACH_DRAWS`]), then [`ATTACH_SETTLE`], the text, and until the client
 /// is seen to have read it ([`seen_read`]). A client that ended before the typing is given
 /// nothing.
@@ -720,7 +729,7 @@ fn type_once_drawn(
     pane: &str,
     name: &SessionName,
     typed: &str,
-    ended: &Path,
+    attached: &Path,
     asked: &Asked,
 ) -> Result<(), Untaken> {
     let gone = || {
@@ -735,7 +744,7 @@ fn type_once_drawn(
         .trim()
         .is_empty()
     {
-        if ended.exists() {
+        if !attached.exists() {
             return Err(gone());
         }
         if started.elapsed() >= ATTACH_DRAWS {
@@ -749,11 +758,11 @@ fn type_once_drawn(
             .map_err(Untaken::NotTyped)?;
     }
     asked.pause(ATTACH_SETTLE).map_err(Untaken::NotTyped)?;
-    if ended.exists() {
+    if !attached.exists() {
         return Err(gone());
     }
     systemd::type_into(panes, pane, name, typed).map_err(Untaken::NotTyped)?;
-    seen_read(panes, pane, &target, ended, asked).map_err(Untaken::Unread)
+    seen_read(panes, pane, &target, attached, asked).map_err(Untaken::Unread)
 }
 
 /// What one look at a delivery pane's terminal showed ([`look`]).
@@ -811,7 +820,8 @@ fn look(panes: &Path, pane: &str, target: &str) -> Seen {
 /// the client took only after a look that showed it unread is given [`ATTACH_SETTLE`] more to
 /// pass on.
 ///
-/// The pane outlives its client ([`ATTACH_PANE`]), and `ended` marks the client's end, so a
+/// The pane outlives its client ([`ATTACH_PANE`]), which removes `attached` at the client's
+/// end, so a
 /// client that ended is looked at like one that runs: one that read the text and ended left
 /// nothing unread, and one that ended without reading left the text, which nobody reads any
 /// more. No look, or none that late, is never taken as read.
@@ -824,13 +834,13 @@ fn look(panes: &Path, pane: &str, target: &str) -> Seen {
 ///
 /// The text was still unread after [`ATTACH_READS`] or when the client had ended, the terminal
 /// closed before a look showed it read, or the delivery was asked to end first.
-fn seen_read(panes: &Path, pane: &str, target: &str, ended: &Path, asked: &Asked) -> Result<()> {
+fn seen_read(panes: &Path, pane: &str, target: &str, attached: &Path, asked: &Asked) -> Result<()> {
     let started = Instant::now();
     let mut waited = false;
     loop {
         asked.check()?;
         // Read before the look, so the look is one taken after the client's end.
-        let over = ended.exists();
+        let over = !attached.exists();
         match look(panes, pane, target) {
             Seen::Unobservable => return asked.pause(ATTACH_SETTLE),
             Seen::Closed => bail!("its terminal closed before it was seen to read the text"),
