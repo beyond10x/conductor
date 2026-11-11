@@ -9,9 +9,11 @@
 # the Gates CLI from its newest release, each by the command `conductor doctor` prints as
 # `install:` with `/usr/local/bin` in place of `~/.local/bin`. `gh` and `glab` come from their
 # own releases, checked against the release's checksums; `git` and `jq` from the distribution;
-# the harness from its installer, as the image's user. Every `tar` here runs as root and takes
-# root's owner and the umask, not the archive's, so no other uid can replace a program.
-# `crates/conductor/tests/release_image.rs` holds this file to that.
+# the harness from its installer, as the image's user. Every `tar` here runs as root and gives
+# each file root as its owner, so no other uid can replace a program; a file's mode is the
+# archive's mode with the umask's bits removed. A program the image's user cannot execute
+# passes this build, which runs as root, and fails the workflow's smoke run, which starts every
+# program as that user. `crates/conductor/tests/release_image.rs` holds this file to that.
 FROM debian:13-slim
 
 ARG AEP_VERSION=0.79.1

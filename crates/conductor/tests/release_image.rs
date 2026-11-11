@@ -867,8 +867,8 @@ fn the_dockerfile_holds_every_program_doctor_checks_for_a_forge_source() {
                 holds,
                 "{DOCKERFILE}: {name}={version} is not at the pin {pin} of b10x.toml"
             );
-            // As root, with root's owner and umask for what it unpacks
-            // (`every_archive_of_the_image_is_unpacked_as_roots_own`).
+            // As root, with root as the owner of what it unpacks and the archive's mode less
+            // the umask (`every_archive_of_the_image_is_unpacked_as_roots_own`).
             let command = doctor::install_command_for(program, Some(&version), None, TARGET)
                 .expect("doctor knows the install")
                 .replace(&version, &format!("${{{name}}}"))
@@ -1431,8 +1431,10 @@ fn every_script_of_the_image_jobs_stops_at_a_failed_command() {
 }
 
 /// Every `tar` of the `Dockerfile` runs as root, which keeps the owner and the mode an archive
-/// names: a file of another uid in `/usr/local/bin`, which that uid can replace. Each takes
-/// root's owner and the umask instead.
+/// names: a file of another uid in `/usr/local/bin`, which that uid can replace. Each gives
+/// every file root as its owner, and its mode is the archive's mode with the umask's bits
+/// removed. A program the image's user cannot execute is caught by the workflow's smoke run,
+/// which starts every program as that user, not by this case.
 #[test]
 fn every_archive_of_the_image_is_unpacked_as_roots_own() {
     let dockerfile = dockerfile();
@@ -1555,6 +1557,71 @@ fn the_notes_section_ends_at_any_heading_and_a_fenced_block_stays_whole() {
             1 + kept.matches(SECTION).count(),
             "{what}"
         );
+    }
+}
+
+/// A fence the body never closes is closed before the section, with the fence's own characters,
+/// so the section stands outside it; an HTML comment is text as a fenced block is, and a `<!--`
+/// that no `-->` closes opens no comment. Each body keeps one section after any re-run.
+#[test]
+fn the_notes_section_closes_an_open_fence_and_keeps_an_html_comment_whole() {
+    let workflow = workflow();
+    let run = script(job(&workflow, "image-notes"), "Write the section");
+    let digests = ["a", "b", "c"].map(|letter| format!("sha256:{}", letter.repeat(64)));
+    let case = scratch::Scratch::new("release-image-notes-fences-and-comments");
+
+    for (what, body, kept) in [
+        (
+            "a fence that is never closed",
+            "- a story\n\n```\nunclosed\n".to_owned(),
+            "- a story\n\n```\nunclosed\n```\n".to_owned(),
+        ),
+        (
+            "a longer fence that is never closed and quotes the heading",
+            format!("- a story\n\n````markdown\n{SECTION}\n\ncode\n"),
+            format!("- a story\n\n````markdown\n{SECTION}\n\ncode\n````\n"),
+        ),
+        (
+            "a tilde fence that is never closed and ends in blank lines",
+            "- a story\n\n~~~\ncode\n\n\n".to_owned(),
+            "- a story\n\n~~~\ncode\n\n\n~~~\n".to_owned(),
+        ),
+        (
+            "a fence that is never closed inside the section",
+            format!("- a story\n\n{SECTION}\n\n```\nold\n"),
+            "- a story\n".to_owned(),
+        ),
+        (
+            "a comment over several lines that quotes the heading",
+            format!("- a story\n\n<!--\n{SECTION}\n\n## Other\n-->\n\nvisible\n"),
+            format!("- a story\n\n<!--\n{SECTION}\n\n## Other\n-->\n\nvisible\n"),
+        ),
+        (
+            "a comment opened and closed on one line before the section",
+            format!("<!-- a note -->\n\n{SECTION}\n\nold\n\n## Notes\n\nn\n"),
+            "<!-- a note -->\n\n## Notes\n\nn\n".to_owned(),
+        ),
+        (
+            "a comment that holds a heading inside the section",
+            format!("- a story\n\n{SECTION}\n\n<!--\n## Notes\n-->\nold\n\n## Upgrade\n\nu\n"),
+            "- a story\n\n## Upgrade\n\nu\n".to_owned(),
+        ),
+        (
+            "a comment that is never closed",
+            "- a story\n\n<!--\nhidden\n".to_owned(),
+            "- a story\n\n<!--\nhidden\n".to_owned(),
+        ),
+    ] {
+        fs::write(case.path().join("body"), &body).expect("the written body");
+        for digest in &digests {
+            let body = noted(case.path(), run, "1.4.0", digest);
+            assert_eq!(body, format!("{kept}\n{}", notes_section(digest)), "{what}");
+            assert_eq!(
+                body.matches(SECTION).count(),
+                1 + kept.matches(SECTION).count(),
+                "{what}"
+            );
+        }
     }
 }
 
