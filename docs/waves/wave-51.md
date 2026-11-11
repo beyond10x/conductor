@@ -18,7 +18,7 @@ repository under a lock. Free disk at the start: 104 GB.
 |---|---|---|---|---|
 | U1 | need-repository-from-tag | | `w51-u1` | merged (`900de5852`), two adversary passes |
 | U2 | handover-restart-by-controller-id | | `w51-u2` | merged (`10542e8b1`), two adversary passes |
-| U3 | doctor-checks-guard-forge-writes | | `w51-u3` | adversary pass 2, after correction 2 |
+| U3 | doctor-checks-guard-forge-writes | | `w51-u3` | correction 3 after adversary pass 2 |
 | U4 | box-reaches-forge-and-daemon | | `w51-u4` | correction 3 after adversary pass 2; the egress half is blocked |
 | U5 | daemon-probes-and-metrics | | `w51-u5` | merged (`654a1c993`), two adversary passes |
 | U6 | release-container-image | | `w51-u6` | merged (`61eb01e39`), two adversary passes |
@@ -144,6 +144,15 @@ is read before the first of the two merges.
   route; `setup --apply` derives it for an instance it creates from the kind of the
   repository's origin (GitLab or no forge: direct; GitHub with a readable policy in the
   environment: the bot route; GitHub without one: direct).
+- U3, adversary pass 2 (`review-result:w51-u3-adversary-2`): the changed fixtures, the count of
+  checkouts and the plan line held. Four cases were red: setup derived the bot route from the
+  one repository's origin while doctor checks every checkout under the root setup writes, so a
+  clone of another forge beside the repository left a fresh install `not ready`; an origin on
+  `ssh.github.com` was read as another host; setup read a GitHub host name case-sensitively;
+  setup's verdict named one refused box twice. Two pages quoted a verdict or an order the code
+  no longer gives. All go back. Decided: setup changes and doctor does not; setup derives the
+  route from every checkout under the root it writes, and one of another forge gives `direct`
+  with that checkout named.
 - U4, adversary pass 2 (`review-result:w51-u4-adversary-2`): the closed descriptor and the
   spawn sites held. Three cases were red: doctor checked the slot under the default daemon
   directory while a daemon installed with its own state directory writes there, so the two
