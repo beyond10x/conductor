@@ -341,3 +341,229 @@ fn readiness_is_not_200_before_the_reconciler_published() {
     assert_eq!(get(port, "/readyz").0, 200);
     assert!(get(port, "/v1/instances").1.contains("example-one"));
 }
+
+// Wave 51 pass 2: the held records and the pass run again after a refused record. These cases
+// run the reconciler in process against a service manager of their own ([`Manager`]); none
+// reaches systemd, and the store refuses writes through the store's own test switch.
+
+/// The service manager of an in-process case: what runs, and every unit it was asked to start.
+#[derive(Debug, Default)]
+struct Manager {
+    running: std::collections::BTreeSet<String>,
+    starts: Vec<String>,
+}
+
+impl conductor_cli::daemon::units::Units for Manager {
+    fn start(&mut self, service: &conductor_cli::systemd::Service) -> anyhow::Result<()> {
+        self.starts.push(service.unit.clone());
+        self.running.insert(service.unit.clone());
+        Ok(())
+    }
+
+    fn stop(&mut self, unit: &str) -> anyhow::Result<()> {
+        self.running.remove(unit);
+        Ok(())
+    }
+
+    fn active(&mut self, unit: &str) -> anyhow::Result<bool> {
+        Ok(self.running.contains(unit))
+    }
+
+    fn enable(&mut self, _unit: &str) -> anyhow::Result<()> {
+        Ok(())
+    }
+
+    fn disable(&mut self, _unit: &str) -> anyhow::Result<()> {
+        Ok(())
+    }
+}
+
+impl Case {
+    /// The case's store: a SQLite file in its directory.
+    fn url(&self) -> String {
+        format!("sqlite:{}", self.dir.join("shared.sqlite").display())
+    }
+
+    /// Writes the config file: the daemon on port 7300 with [`Case::url`] as its store, and one
+    /// instance per `(name, placement)`.
+    fn instances(&self, instances: &[(&str, &str)]) {
+        let mut text = format!(
+            "version: conductor.config/2\ndaemon: {{port: 7300, store: {:?}}}\ninstances:\n",
+            self.url()
+        );
+        for (name, placement) in instances {
+            let root = self.dir.join(name);
+            text.push_str(&format!(
+                "  - name: {name}\n    placement: {placement}\n    session_prefix: {name}\n    \
+                 sources: [{{github: example-org}}]\n    \
+                 checkouts: {{root: {checkouts:?}, trees: {trees:?}}}\n    \
+                 records: {records:?}\n    state: {state:?}\n    cache: {cache:?}\n",
+                checkouts = root.join("checkouts"),
+                trees = root.join("trees"),
+                records = root.join("records"),
+                state = root.join("state"),
+                cache = root.join("cache"),
+            ));
+        }
+        fs::write(self.file(), text).expect("write the config file");
+    }
+
+    /// The case's reconciler, in process, on `manager`.
+    fn reconciler(&self, manager: Manager) -> conductor_cli::daemon::reconcile::Daemon<Manager> {
+        conductor_cli::daemon::reconcile::Daemon::open(
+            self.file(),
+            self.home(),
+            self.dir.join("daemon"),
+            conductor_cli::daemon::reconcile::Binary {
+                path: PathBuf::from("/opt/conductor/bin/conductor"),
+                version: "1.0.0".to_owned(),
+            },
+            manager,
+        )
+        .expect("open the reconciler")
+    }
+}
+
+/// One tick of `daemon serve` after the store refused a record, as its loop runs it: the held
+/// records first, then the pass that is due, if one is. What was due.
+fn tick(
+    daemon: &mut conductor_cli::daemon::reconcile::Daemon<Manager>,
+    at: Instant,
+) -> Option<conductor_model::instance::ReconcileReason> {
+    daemon.record_held().expect("the held records are written");
+    let due = daemon.due(at).expect("ask what is due");
+    if let Some(reason) = due {
+        daemon.pass(reason, at).expect("the pass that is due");
+    }
+    due
+}
+
+/// A pass the store refused a record of half-way is not done: the next tick runs it again and
+/// reaches the instances it did not reach, and does again nothing the refused pass did. The
+/// first instance's start is recorded once from what was held, it is not started a second time,
+/// and the second instance, which the refused pass never reached, is started at the next tick.
+#[test]
+fn adversary2_a_pass_refused_half_way_reaches_the_rest_at_the_next_tick_and_does_nothing_twice() {
+    use conductor_cli::daemon::reconcile::unit_name;
+    use conductor_model::instance::ReconcileReason;
+    let case = Case::new("rerun");
+    case.instances(&[("alpha", "box-a"), ("beta", "box-b")]);
+    let mut daemon = case.reconciler(Manager::default());
+    let start = Instant::now();
+
+    store::refuse_writes(true);
+    let refused = daemon.pass(ReconcileReason::Cadence, start);
+    store::refuse_writes(false);
+    assert!(refused.is_err(), "the store took the record: {refused:?}");
+    assert!(daemon.holds_records(), "the refused record is not held");
+    assert_eq!(
+        daemon.units.starts,
+        [unit_name("alpha")],
+        "the refused pass"
+    );
+
+    let due = tick(&mut daemon, start + Duration::from_secs(2));
+    assert!(due.is_some(), "no pass was due at the next tick");
+    assert!(!daemon.holds_records());
+    assert_eq!(
+        daemon.units.starts,
+        [unit_name("alpha"), unit_name("beta")],
+        "the pass run again for {due:?} started what the refused pass started, or not what it \
+         never reached"
+    );
+    assert_eq!(
+        recorded(&case.url()),
+        2,
+        "one record for each start, the held one written once"
+    );
+}
+
+/// A config change ends the wait of a runtime whose start failed: the cause may be gone
+/// (`story:box-crash-loop-reads-failed`). When the store refuses a record of that pass before
+/// it reached the waiting instance, the pass run again at the next tick is still the pass for
+/// the config change, so the waiting runtime is started then, not after its back-off.
+#[test]
+fn adversary2_a_config_change_pass_refused_half_way_ends_the_wait_when_it_runs_again() {
+    use conductor_cli::daemon::reconcile::unit_name;
+    use conductor_model::instance::ReconcileReason;
+    let case = Case::new("rerun-reason");
+    case.instances(&[("alpha", "box-a"), ("beta", "box-b")]);
+    let mut daemon = case.reconciler(Manager::default());
+    let start = Instant::now();
+    daemon
+        .pass(ReconcileReason::Cadence, start)
+        .expect("the first pass");
+
+    // beta's runtime exits a second after its start: a failed start, its next start waits.
+    daemon.units.running.remove(&unit_name("beta"));
+    let at = start + Duration::from_secs(1);
+    assert_eq!(
+        daemon.due(at).expect("due"),
+        Some(ReconcileReason::LostRuntime)
+    );
+    daemon
+        .pass(ReconcileReason::LostRuntime, at)
+        .expect("the pass that finds beta stopped");
+    assert!(
+        !daemon.units.running.contains(&unit_name("beta")),
+        "beta was started at once: {:?}",
+        daemon.units.starts
+    );
+
+    // An operator moves alpha. The pass for the change restarts alpha, and the store refuses its
+    // record before the pass reaches beta.
+    case.instances(&[("alpha", "box-c"), ("beta", "box-b")]);
+    let at = start + Duration::from_secs(2);
+    assert_eq!(
+        daemon.due(at).expect("due"),
+        Some(ReconcileReason::ConfigChange)
+    );
+    store::refuse_writes(true);
+    let refused = daemon.pass(ReconcileReason::ConfigChange, at);
+    store::refuse_writes(false);
+    assert!(refused.is_err(), "the store took the record: {refused:?}");
+    assert!(daemon.holds_records(), "the refused record is not held");
+
+    // The store takes writes again at the next tick.
+    let due = tick(&mut daemon, start + Duration::from_secs(4));
+    assert!(
+        daemon.units.running.contains(&unit_name("beta")),
+        "the pass run again was a pass for {due:?}, not for the config change: beta still waits \
+         out its back-off (starts {:?})",
+        daemon.units.starts
+    );
+}
+
+/// A start whose record the store refused is held in the daemon's memory, and the pass stopped
+/// before it wrote the runtimes file. A daemon that stops before the store takes writes again
+/// (a restart of its unit, a reboot) knows nothing of the runtime it started: the start is never
+/// recorded, and the next daemon starts the runtime a second time.
+#[test]
+fn adversary2_a_daemon_stopped_while_it_holds_a_start_does_not_start_that_runtime_again() {
+    use conductor_cli::daemon::reconcile::unit_name;
+    use conductor_model::instance::ReconcileReason;
+    let case = Case::new("held-restart");
+    case.instances(&[("alpha", "box-a")]);
+    let mut daemon = case.reconciler(Manager::default());
+    let start = Instant::now();
+    store::refuse_writes(true);
+    let refused = daemon.pass(ReconcileReason::Cadence, start);
+    store::refuse_writes(false);
+    assert!(refused.is_err(), "the store took the record: {refused:?}");
+    assert!(daemon.holds_records(), "the refused record is not held");
+
+    // The daemon stops while it holds the record; the runtime it started runs on.
+    let manager = std::mem::take(&mut daemon.units);
+    drop(daemon);
+    assert!(manager.running.contains(&unit_name("alpha")));
+    let mut daemon = case.reconciler(manager);
+    daemon
+        .pass(ReconcileReason::Cadence, Instant::now())
+        .expect("the first pass of the next daemon");
+    assert_eq!(
+        daemon.units.starts,
+        [unit_name("alpha")],
+        "the next daemon started a runtime that ran; the store holds {} reconciliation(s)",
+        recorded(&case.url())
+    );
+}
