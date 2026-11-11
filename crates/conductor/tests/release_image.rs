@@ -448,10 +448,8 @@ fn the_image_is_pushed_under_the_version_and_latest() {
     ] {
         assert!(push.contains(line), "{WORKFLOW}: the push runs `{line}`");
     }
-    assert!(
-        push.contains("releases/latest"),
-        "{WORKFLOW}: `latest` moves only for the newest release, so a backfill leaves it"
-    );
+    // That `latest` moves for the newest release only is held by running the step:
+    // `adversary_the_push_step_moves_latest_for_the_newest_release_only`.
     assert!(
         push.contains("digest=") && push.contains("sha256:[0-9a-f]{64}"),
         "{WORKFLOW}: the push step hands on the digest the registry answered"
@@ -508,10 +506,9 @@ fn the_image_is_run_before_the_push_and_pulled_without_a_login_after_it() {
         smoke.contains("conductor --version") && smoke.contains("\"conductor $VERSION\""),
         "{WORKFLOW}: the image's `conductor --version` is held to the release's version"
     );
-    assert!(
-        smoke.contains("id -u"),
-        "{WORKFLOW}: the image's user is held to one that is not root"
-    );
+    // That the smoke run refuses root, and the pull a package that is not public, is held by
+    // running the steps: `adversary_the_smoke_run_refuses_root_and_another_version` and
+    // `adversary_the_pull_step_fails_while_the_package_is_not_public`.
     let words: Vec<&str> = smoke.split_whitespace().collect();
     for program in programs() {
         assert!(
@@ -519,12 +516,6 @@ fn the_image_is_run_before_the_push_and_pulled_without_a_login_after_it() {
             "{WORKFLOW}: the smoke run starts `{program}` in the image"
         );
     }
-
-    let pull = script(image, "Pull the image without a login");
-    assert!(
-        pull.contains("docker pull \"$IMAGE@$DIGEST\""),
-        "{WORKFLOW}: the pushed digest is pulled once the job has logged out"
-    );
 }
 
 /// A `gh` that answers `gh release view <tag> --json body --jq .body` and
@@ -876,10 +867,13 @@ fn the_dockerfile_holds_every_program_doctor_checks_for_a_forge_source() {
                 holds,
                 "{DOCKERFILE}: {name}={version} is not at the pin {pin} of b10x.toml"
             );
+            // As root, with root's owner and umask for what it unpacks
+            // (`every_archive_of_the_image_is_unpacked_as_roots_own`).
             let command = doctor::install_command_for(program, Some(&version), None, TARGET)
                 .expect("doctor knows the install")
                 .replace(&version, &format!("${{{name}}}"))
-                .replace("~/.local/bin", "/usr/local/bin");
+                .replace("~/.local/bin", "/usr/local/bin")
+                .replace("tar -xzf", "tar --no-same-owner --no-same-permissions -xzf");
             assert!(
                 dockerfile.contains(&command),
                 "{DOCKERFILE}: `{program}` is not installed by doctor's command:\n{command}"
@@ -1060,6 +1054,27 @@ struct Ran {
 /// `extra` added to the job's environment; `prepare` may write into the step's working
 /// directory first.
 fn image_step(name: &str, run: &str, extra: &[(&str, &str)], prepare: impl FnOnce(&Path)) -> Ran {
+    image_step_with(
+        name,
+        run,
+        extra,
+        prepare,
+        &[
+            ("docker", ADVERSARY_DOCKER),
+            ("gh", ADVERSARY_GH),
+            ("tar", ADVERSARY_TAR),
+        ],
+    )
+}
+
+/// [`image_step`] with `programs` as the stand-ins.
+fn image_step_with(
+    name: &str,
+    run: &str,
+    extra: &[(&str, &str)],
+    prepare: impl FnOnce(&Path),
+    programs: &[(&str, &str)],
+) -> Ran {
     // The script is in the name, so a case and its mutant, run at once, never share a directory.
     let script = run.bytes().fold(0u64, |hash, byte| {
         hash.wrapping_mul(31).wrapping_add(u64::from(byte))
@@ -1089,16 +1104,7 @@ fn image_step(name: &str, run: &str, extra: &[(&str, &str)], prepare: impl FnOnc
         variables.retain(|(known, _)| known != key);
         variables.push((*key, (*value).to_owned()));
     }
-    let output = step_run(
-        case.path(),
-        run,
-        &[
-            ("docker", ADVERSARY_DOCKER),
-            ("gh", ADVERSARY_GH),
-            ("tar", ADVERSARY_TAR),
-        ],
-        &variables,
-    );
+    let output = step_run(case.path(), run, programs, &variables);
     Ran {
         success: output.status.success(),
         stderr: String::from_utf8_lossy(&output.stderr).into_owned(),
@@ -1312,4 +1318,242 @@ fn adversary_the_build_step_says_built_when_the_tag_holds_a_dockerfile() {
         job(&workflow, "image"),
         "Build the image from the packaged binary",
     ));
+}
+
+/// A `gh` that answers `gh api repos/$GH_REPO/releases/latest` with `$ANSWER` and exit 0, as the
+/// API and `--jq` do for an answer that names no tag.
+const ANSWERING_GH: &str = "#!/bin/sh\n\
+    [ \"$1 $2\" = \"api repos/$GH_REPO/releases/latest\" ] || { echo \"unexpected: gh $*\" >&2; exit 2; }\n\
+    echo \"$ANSWER\"\n";
+
+/// The push step asks which Release is the newest before it logs in: when the API cannot say,
+/// it fails naming why and has pushed nothing, so a re-run of the job, once the API answers,
+/// pushes the version and moves `latest` like a first run.
+#[test]
+fn the_push_step_reads_the_newest_release_before_it_pushes_anything() {
+    let workflow = workflow();
+    let push = script(job(&workflow, "image"), "Push the image");
+
+    let failed = image_step(
+        "release-image-newest-unread",
+        push,
+        &[("NEWEST", "")],
+        |_| {},
+    );
+    assert!(!failed.success, "the push step passed: {:?}", failed.calls);
+    assert!(
+        failed.stderr.contains("::error::") && failed.stderr.contains("newest Release"),
+        "the push step names why it failed: {}",
+        failed.stderr
+    );
+    assert!(
+        failed.calls.is_empty(),
+        "the push step called docker before it knew the newest Release: {:?}",
+        failed.calls
+    );
+    assert_eq!(failed.outputs, "", "the push step handed on an image");
+
+    // An answer that names no release tag is no answer either.
+    for answer in ["", "null"] {
+        let odd = image_step_with(
+            "release-image-newest-odd",
+            push,
+            &[("ANSWER", answer)],
+            |_| {},
+            &[("docker", ADVERSARY_DOCKER), ("gh", ANSWERING_GH)],
+        );
+        assert!(
+            !odd.success,
+            "the API named {answer:?} as the newest Release, and the push step passed: {:?}",
+            odd.calls
+        );
+        assert!(
+            odd.stderr.contains("::error::"),
+            "the push step names why it failed: {}",
+            odd.stderr
+        );
+        assert!(odd.calls.is_empty(), "docker calls: {:?}", odd.calls);
+    }
+
+    let rerun = image_step(
+        "release-image-newest-rerun",
+        push,
+        &[("NEWEST", "v1.4.0")],
+        |_| {},
+    );
+    assert!(rerun.success, "the re-run failed: {}", rerun.stderr);
+    assert!(
+        rerun
+            .calls
+            .iter()
+            .any(|call| call == "push ghcr.io/example-org/conductor:1.4.0")
+            && pushed_latest(&rerun),
+        "the re-run pushes the version and moves `latest`: {:?}",
+        rerun.calls
+    );
+}
+
+/// Every step script of the two image jobs stops at a failed command: it starts with
+/// `set -euo pipefail`, and it takes a command's output only by an assignment of its own line,
+/// `name=$(…)`, whose failure `set -e` sees. Inside `[ … ]`, `if`, an argument or a second
+/// substitution a failure passes unseen.
+#[test]
+fn every_script_of_the_image_jobs_stops_at_a_failed_command() {
+    let workflow = workflow();
+    let mut count = 0;
+    for name in ["image", "image-notes"] {
+        for run in scripts(job(&workflow, name)) {
+            count += 1;
+            assert_eq!(
+                run.lines().next(),
+                Some("set -euo pipefail"),
+                "{WORKFLOW}: a script of the job `{name}` does not start with `set -euo pipefail`"
+            );
+            for line in run.lines().map(str::trim_start) {
+                let Some(at) = line.find("$(") else {
+                    continue;
+                };
+                let assigned = line[..at].strip_suffix('=').is_some_and(|variable| {
+                    !variable.is_empty()
+                        && variable
+                            .chars()
+                            .all(|c| c.is_ascii_alphanumeric() || c == '_')
+                });
+                assert!(
+                    assigned && !line[at + 2..].contains("$("),
+                    "{WORKFLOW}: job `{name}`: `{line}` takes a command's output where its \
+                     failure passes: assign it first, on a line of its own"
+                );
+            }
+        }
+    }
+    assert_eq!(count, 5, "{WORKFLOW}: the image jobs' scripts read");
+}
+
+/// Every `tar` of the `Dockerfile` runs as root, which keeps the owner and the mode an archive
+/// names: a file of another uid in `/usr/local/bin`, which that uid can replace. Each takes
+/// root's owner and the umask instead.
+#[test]
+fn every_archive_of_the_image_is_unpacked_as_roots_own() {
+    let dockerfile = dockerfile();
+    let mut count = 0;
+    for run in instructions(&dockerfile, "RUN") {
+        for command in run.split(['&', '|', ';']) {
+            let words: Vec<&str> = command.split_whitespace().collect();
+            let Some(program) = words.first() else {
+                continue;
+            };
+            if *program != "tar" && !program.ends_with("/tar") {
+                continue;
+            }
+            count += 1;
+            for flag in ["--no-same-owner", "--no-same-permissions"] {
+                assert!(
+                    words.contains(&flag),
+                    "{DOCKERFILE}: `{}` unpacks without {flag}",
+                    command.trim()
+                );
+            }
+        }
+    }
+    assert!(count >= 5, "{DOCKERFILE}: {count} tar commands read");
+}
+
+/// The section the notes job writes for `digest` of `ghcr.io/example-org/conductor:1.4.0`.
+fn notes_section(digest: &str) -> String {
+    format!(
+        "{SECTION}\n\n`ghcr.io/example-org/conductor:1.4.0` at digest `{digest}`\n\n\
+         ```console\ndocker run --rm ghcr.io/example-org/conductor:1.4.0 conductor --version\n```\n"
+    )
+}
+
+/// The section the notes job owns ends at the next heading of any level, ATX or setext, outside
+/// a fenced block, or at the end of the body; a heading inside a fenced block is text, so a block
+/// that quotes the section's heading stays whole wherever it stands.
+#[test]
+fn the_notes_section_ends_at_any_heading_and_a_fenced_block_stays_whole() {
+    let workflow = workflow();
+    let run = script(job(&workflow, "image-notes"), "Write the section");
+    let first = format!("sha256:{}", "a".repeat(64));
+    let second = format!("sha256:{}", "b".repeat(64));
+    let case = scratch::Scratch::new("release-image-notes-boundaries");
+    let rewrite = |body: &str, digest: &str| {
+        fs::write(case.path().join("body"), body).expect("the written body");
+        noted(case.path(), run, "1.4.0", digest)
+    };
+
+    for (what, body, kept) in [
+        (
+            "a level-one heading after the section",
+            format!("- a story\n\n{SECTION}\n\nold\n\n# Appendix\n\ntext\n"),
+            "- a story\n\n# Appendix\n\ntext\n".to_owned(),
+        ),
+        (
+            "a level-six heading after the section",
+            format!("- a story\n\n{SECTION}\n\nold\n###### Small print\ntext\n"),
+            "- a story\n\n###### Small print\ntext\n".to_owned(),
+        ),
+        (
+            "a setext heading of one paragraph of two lines after the section",
+            format!("- a story\n\n{SECTION}\n\nold\n\nUpgrade\nnotes\n-------\n\nread these\n"),
+            "- a story\n\nUpgrade\nnotes\n-------\n\nread these\n".to_owned(),
+        ),
+        (
+            "a setext level-one heading after the section",
+            format!("- a story\n\n{SECTION}\n\nold\n\nAppendix\n========\ntext\n"),
+            "- a story\n\nAppendix\n========\ntext\n".to_owned(),
+        ),
+        (
+            "a fenced block that quotes the heading, and no section",
+            format!("- a story\n\n```markdown\n{SECTION}\n\nquoted\n\n## Other\n```\n\nafter\n"),
+            format!("- a story\n\n```markdown\n{SECTION}\n\nquoted\n\n## Other\n```\n\nafter\n"),
+        ),
+        (
+            "a fenced block that quotes the heading before the section",
+            format!("~~~\n{SECTION}\n~~~\n\n{SECTION}\n\nold\n\n## Notes\n\nn\n"),
+            "~~~\n## Container image\n~~~\n\n## Notes\n\nn\n".to_owned(),
+        ),
+        (
+            "a fenced block that quotes the heading and a shorter fence after the section",
+            format!(
+                "- a story\n\n{SECTION}\n\nold\n\n## Notes\n\n````\n```\n{SECTION}\n```\n# not a heading\n````\n"
+            ),
+            format!("- a story\n\n## Notes\n\n````\n```\n{SECTION}\n```\n# not a heading\n````\n"),
+        ),
+        (
+            "a fenced block that holds a heading inside the section",
+            format!("- a story\n\n{SECTION}\n\n```console\n# a comment\n```\n\n## Notes\n\nn\n"),
+            "- a story\n\n## Notes\n\nn\n".to_owned(),
+        ),
+        (
+            "a body with no trailing newline",
+            "- a story".to_owned(),
+            "- a story\n".to_owned(),
+        ),
+        (
+            "a body whose section is the last part and has no trailing newline",
+            format!("- a story\n\n{SECTION}\n\nold"),
+            "- a story\n".to_owned(),
+        ),
+        (
+            "a line that only looks like a heading inside the section",
+            format!("- a story\n\n{SECTION}\n\n#hashtag\n####### seven\n"),
+            "- a story\n".to_owned(),
+        ),
+    ] {
+        let body = rewrite(&body, &first);
+        assert_eq!(body, format!("{kept}\n{}", notes_section(&first)), "{what}");
+        // A re-run replaces the section and keeps the rest as it is.
+        let body = rewrite(&body, &second);
+        assert_eq!(
+            body,
+            format!("{kept}\n{}", notes_section(&second)),
+            "{what}, re-run"
+        );
+        assert_eq!(
+            body.matches(SECTION).count(),
+            1 + kept.matches(SECTION).count(),
+            "{what}"
+        );
+    }
 }

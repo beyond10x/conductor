@@ -9,8 +9,9 @@
 # the Gates CLI from its newest release, each by the command `conductor doctor` prints as
 # `install:` with `/usr/local/bin` in place of `~/.local/bin`. `gh` and `glab` come from their
 # own releases, checked against the release's checksums; `git` and `jq` from the distribution;
-# the harness from its installer, as the image's user. `crates/conductor/tests/release_image.rs`
-# holds this file to that.
+# the harness from its installer, as the image's user. Every `tar` here runs as root and takes
+# root's owner and the umask, not the archive's, so no other uid can replace a program.
+# `crates/conductor/tests/release_image.rs` holds this file to that.
 FROM debian:13-slim
 
 ARG AEP_VERSION=0.79.1
@@ -35,7 +36,7 @@ RUN mkdir /fetch && cd /fetch \
  && curl -fsSLO https://github.com/beyond10x/aep/releases/download/${AEP_VERSION}/aep-${AEP_VERSION}-x86_64-unknown-linux-gnu.tar.gz \
  && curl -fsSLO https://github.com/beyond10x/aep/releases/download/${AEP_VERSION}/SHA256SUMS \
  && sha256sum --check --ignore-missing SHA256SUMS \
- && tar -xzf aep-${AEP_VERSION}-x86_64-unknown-linux-gnu.tar.gz -C /usr/local/bin --strip-components=1 aep-${AEP_VERSION}-x86_64-unknown-linux-gnu/aep \
+ && tar --no-same-owner --no-same-permissions -xzf aep-${AEP_VERSION}-x86_64-unknown-linux-gnu.tar.gz -C /usr/local/bin --strip-components=1 aep-${AEP_VERSION}-x86_64-unknown-linux-gnu/aep \
  && cd / && rm -r /fetch \
  && aep --version
 
@@ -43,7 +44,7 @@ RUN mkdir /fetch && cd /fetch \
  && curl -fsSLO https://github.com/beyond10x/ess/releases/download/${ESS_VERSION}/ess-${ESS_VERSION}-x86_64-unknown-linux-gnu.tar.gz \
  && curl -fsSLO https://github.com/beyond10x/ess/releases/download/${ESS_VERSION}/SHA256SUMS \
  && sha256sum --check --ignore-missing SHA256SUMS \
- && tar -xzf ess-${ESS_VERSION}-x86_64-unknown-linux-gnu.tar.gz -C /usr/local/bin --strip-components=1 ess-${ESS_VERSION}-x86_64-unknown-linux-gnu/ess \
+ && tar --no-same-owner --no-same-permissions -xzf ess-${ESS_VERSION}-x86_64-unknown-linux-gnu.tar.gz -C /usr/local/bin --strip-components=1 ess-${ESS_VERSION}-x86_64-unknown-linux-gnu/ess \
  && cd / && rm -r /fetch \
  && ess --version
 
@@ -51,7 +52,7 @@ RUN mkdir /fetch && cd /fetch \
  && curl -fsSLO https://github.com/beyond10x/worktree/releases/download/${WORKTREE_VERSION}/worktree-${WORKTREE_VERSION}-x86_64-unknown-linux-gnu.tar.gz \
  && curl -fsSLO https://github.com/beyond10x/worktree/releases/download/${WORKTREE_VERSION}/SHA256SUMS \
  && sha256sum --check --ignore-missing SHA256SUMS \
- && tar -xzf worktree-${WORKTREE_VERSION}-x86_64-unknown-linux-gnu.tar.gz -C /usr/local/bin --strip-components=1 worktree-${WORKTREE_VERSION}-x86_64-unknown-linux-gnu/worktree \
+ && tar --no-same-owner --no-same-permissions -xzf worktree-${WORKTREE_VERSION}-x86_64-unknown-linux-gnu.tar.gz -C /usr/local/bin --strip-components=1 worktree-${WORKTREE_VERSION}-x86_64-unknown-linux-gnu/worktree \
  && cd / && rm -r /fetch \
  && worktree --version
 
@@ -67,7 +68,7 @@ RUN mkdir /fetch && cd /fetch \
  && curl -fsSLO https://github.com/cli/cli/releases/download/v${GH_VERSION}/gh_${GH_VERSION}_linux_amd64.tar.gz \
  && curl -fsSLO https://github.com/cli/cli/releases/download/v${GH_VERSION}/gh_${GH_VERSION}_checksums.txt \
  && sha256sum --check --ignore-missing gh_${GH_VERSION}_checksums.txt \
- && tar -xzf gh_${GH_VERSION}_linux_amd64.tar.gz -C /usr/local/bin --strip-components=2 gh_${GH_VERSION}_linux_amd64/bin/gh \
+ && tar --no-same-owner --no-same-permissions -xzf gh_${GH_VERSION}_linux_amd64.tar.gz -C /usr/local/bin --strip-components=2 gh_${GH_VERSION}_linux_amd64/bin/gh \
  && cd / && rm -r /fetch \
  && gh --version
 
@@ -75,7 +76,7 @@ RUN mkdir /fetch && cd /fetch \
  && curl -fsSLO https://gitlab.com/gitlab-org/cli/-/releases/v${GLAB_VERSION}/downloads/glab_${GLAB_VERSION}_linux_amd64.tar.gz \
  && curl -fsSLO https://gitlab.com/gitlab-org/cli/-/releases/v${GLAB_VERSION}/downloads/checksums.txt \
  && sha256sum --check --ignore-missing checksums.txt \
- && tar -xzf glab_${GLAB_VERSION}_linux_amd64.tar.gz -C /usr/local/bin --strip-components=1 bin/glab \
+ && tar --no-same-owner --no-same-permissions -xzf glab_${GLAB_VERSION}_linux_amd64.tar.gz -C /usr/local/bin --strip-components=1 bin/glab \
  && cd / && rm -r /fetch \
  && glab --version
 
