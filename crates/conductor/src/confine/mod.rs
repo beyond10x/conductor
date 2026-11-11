@@ -877,6 +877,33 @@ pub fn live_session(name: &str) -> Result<Option<String>> {
 ///
 /// The list cannot be run or read, within `bound`.
 pub fn live_session_within(name: &str, bound: Duration) -> Result<Option<String>> {
+    Ok(listed_within(name, bound)?
+        .into_iter()
+        .find(|entry| !entry["pid"].is_null())
+        .map(|entry| {
+            entry["id"]
+                .as_str()
+                .or_else(|| entry["sessionId"].as_str())
+                .unwrap_or("with no id")
+                .to_owned()
+        }))
+}
+
+/// Every entry the Claude session list names `name`, in the list's order and as the list prints
+/// it: its `sessionId` and `id`; a `pid` when the session is live; `startedAt`, the instant it
+/// started at in milliseconds since the epoch, where the harness lists one
+/// (`story:handover-restart-by-controller-id`). The list is not bound to a directory: a name
+/// may be held by more than one session.
+///
+/// # Errors
+///
+/// The list cannot be run or read.
+pub fn listed(name: &str) -> Result<Vec<Value>> {
+    listed_within(name, BOUND)
+}
+
+/// [`listed`], with the list given `bound`.
+fn listed_within(name: &str, bound: Duration) -> Result<Vec<Value>> {
     let shown = format!("{CLAUDE} agents --json");
     let output = collect::run(Command::new(CLAUDE).args(["agents", "--json"]), bound)
         .with_context(|| format!("read the Claude session list `{shown}`"))?;
@@ -889,15 +916,9 @@ pub fn live_session_within(name: &str, bound: Duration) -> Result<Option<String>
         bail!("`{shown}` printed no JSON array");
     };
     Ok(entries
-        .iter()
-        .find(|entry| !entry["pid"].is_null() && entry["name"].as_str() == Some(name))
-        .map(|entry| {
-            entry["id"]
-                .as_str()
-                .or_else(|| entry["sessionId"].as_str())
-                .unwrap_or("with no id")
-                .to_owned()
-        }))
+        .into_iter()
+        .filter(|entry| entry["name"].as_str() == Some(name))
+        .collect())
 }
 
 /// The harness's own state of each live session it lists, by session name: true where it reports

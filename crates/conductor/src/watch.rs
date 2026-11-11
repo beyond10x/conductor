@@ -295,9 +295,6 @@ pub const RESUME_MESSAGE: &str =
 /// How long a pane is given to take what was typed before the next key.
 const PANE_SETTLE: Duration = Duration::from_millis(500);
 
-/// The tmux buffer the watch types through.
-const PANE_BUFFER: &str = "conductor-resume";
-
 /// The escalated requests the watch has printed, one per line: `<request-id>\t<instant of the
 /// pass that printed its escalation, RFC 3339>\t<1 once its unanswered line was printed, else 0>`
 /// (`story:decisions-notify`)`\t<1 once its line at the deadline was printed, else 0>`
@@ -529,16 +526,19 @@ impl Panes {
         .map(|screen| stopped(&screen))
     }
 
-    /// Pastes `text` into the pane of the session `name`, bracketed when `bracketed`. A paste,
-    /// not `send-keys`, which tmux refuses while a read-only client is attached.
+    /// Pastes `text` into the pane of the session `name`, bracketed when `bracketed`, through a
+    /// buffer of the paste's own ([`crate::systemd::own_buffer`]), as a launcher's typing into
+    /// the same server has one. A paste, not `send-keys`, which tmux refuses while a read-only
+    /// client is attached.
     fn paste(&self, name: &str, text: &str, bracketed: bool, bound: Duration) -> Result<()> {
         let pane = format!("={name}:");
-        self.call(name, &["set-buffer", "-b", PANE_BUFFER, "--", text], bound)?;
+        let buffer = crate::systemd::own_buffer();
+        self.call(name, &["set-buffer", "-b", &buffer, "--", text], bound)?;
         let mut paste = vec!["paste-buffer", "-d"];
         if bracketed {
             paste.push("-p");
         }
-        paste.extend(["-b", PANE_BUFFER, "-t", &pane]);
+        paste.extend(["-b", &buffer, "-t", &pane]);
         self.call(name, &paste, bound)?;
         Ok(())
     }

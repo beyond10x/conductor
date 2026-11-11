@@ -400,6 +400,64 @@ fn watch_shows_the_session_and_types_nothing() {
     case.kill_outer();
 }
 
+/// `story:handover-restart-by-controller-id`, acceptance 3: two launches type into one session's
+/// server at once, as the loop's spawn and one by hand did. Each call loads and pastes a buffer
+/// of its own name from a paste file of its own, so neither consumes the other's: both answer
+/// without an error, round after round, and every text reaches the harness.
+#[test]
+fn two_calls_typing_into_one_server_at_once_do_not_consume_each_others_buffer() {
+    const ROUNDS: usize = 4;
+    let mut case = Case::new("two-typists");
+    case.start_session(
+        "ex-gamma",
+        r#"echo ready; while read x; do echo "got $x"; done"#,
+    );
+    let sessions = case.sessions();
+    let name = SessionName("ex-gamma".to_owned());
+    for round in 0..ROUNDS {
+        let start = std::sync::Barrier::new(2);
+        let typed: Vec<Result<(), String>> = std::thread::scope(|scope| {
+            let typists: Vec<_> = ["left", "right"]
+                .into_iter()
+                .map(|side| {
+                    let (start, sessions, name) = (&start, &sessions, &name);
+                    scope.spawn(move || {
+                        start.wait();
+                        systemd::type_text(sessions, name, &format!("{side}{round}."))
+                            .map_err(|error| format!("{side}{round}: {error:#}"))
+                    })
+                })
+                .collect();
+            typists
+                .into_iter()
+                .map(|typist| typist.join().expect("a typist"))
+                .collect()
+        });
+        assert_eq!(typed, [Ok(()), Ok(())], "round {round}");
+    }
+    // Two pastes at once may share a line; every text is in what the harness read.
+    wait_for("every text in the harness", || {
+        let screen = case.session_screen("ex-gamma").replace('\n', "");
+        (0..ROUNDS).all(|round| {
+            ["left", "right"]
+                .iter()
+                .all(|side| screen.contains(&format!("{side}{round}.")))
+        })
+    });
+    let left: Vec<String> = fs::read_dir(&sessions)
+        .expect("read the sessions directory")
+        .map(|entry| {
+            entry
+                .expect("an entry")
+                .file_name()
+                .to_string_lossy()
+                .into_owned()
+        })
+        .filter(|file| file.ends_with(".paste"))
+        .collect();
+    assert_eq!(left, Vec::<String>::new(), "no paste file is left");
+}
+
 /// Inside a session (`CONDUCTOR_SESSION` set, whatever the harness) attach exits 1 naming
 /// `inside-session`, before it looks at any session.
 #[test]
