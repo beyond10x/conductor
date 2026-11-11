@@ -16,7 +16,7 @@ repository under a lock. Free disk at the start: 104 GB.
 
 | unit | story | waits for | tree | stage |
 |---|---|---|---|---|
-| U1 | need-repository-from-tag | | `w51-u1` | correction 1 after adversary pass 1 |
+| U1 | need-repository-from-tag | | `w51-u1` | merged (`900de5852`), two adversary passes |
 | U2 | handover-restart-by-controller-id | | `w51-u2` | correction 1 after adversary pass 1 |
 | U3 | doctor-checks-guard-forge-writes | | `w51-u3` | implementing |
 | U4 | box-reaches-forge-and-daemon | | `w51-u4` | correction 1; the egress half is blocked |
@@ -91,6 +91,12 @@ is read before the first of the two merges.
   is not kept and its sender is told in one line that it is not relayed to a controller and stays
   in the mailbox. A role line that teaches a NEED with one tag field was there before the wave
   and goes to the backlog.
+- U1, adversary pass 2 (`review-result:w51-u1-adversary-2`): nothing red against the correction;
+  three cases added, each failing under a change the suite let through. One judgement left as
+  it was before the wave: where the instance has a checkout that is really named `conductor`, a
+  NEED for `conductor` is relayed to or kept for that repository, and the file stays in the
+  mailbox for the supervisor too. Package run on the unit's head: 1837 run, 1836 passed, the
+  one failure the ledger case that fails under host load.
 - U2, adversary pass 1 (`review-result:w51-u2-adversary-1`): the usage-limit path restarted
   through a kept entry without the start check; a session of the same name in another directory
   dropped the request to the controller's own session; an entry written by 1.2.0 for the session
