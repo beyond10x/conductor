@@ -5026,3 +5026,123 @@ mod adversary2 {
         assert!(took < secs(9), "doctor waited {took:?}");
     }
 }
+
+// ---------------------------------------------------------------------------------------------
+// Adversary pass 1 on story:box-reaches-forge-and-daemon (uncommitted)
+// ---------------------------------------------------------------------------------------------
+
+/// A restart in the same box before the run bound mints a new token: the slot's file holds that
+/// token when substrate is asked for the restarted runtime, and the restart names the slot, so
+/// the restarted runtime takes the token conductord now proxies writes with.
+#[test]
+fn adv_box_token_a_restart_in_the_box_reseals_the_new_token() {
+    let case = Case::new("adv-tok-restart");
+    case.config(&[("alpha", "linux")]);
+    let fake = Fake::declaring("api_token_alpha");
+    let mut daemon = case.daemon(fake.clone());
+    let done = daemon
+        .pass(
+            conductor_model::instance::ReconcileReason::ConfigChange,
+            std::time::Instant::now(),
+        )
+        .expect("a pass");
+    assert_eq!(done[0].result, ReconcileResult::Succeeded, "{done:?}");
+    let sealed = case.dir.join("daemon/slots/api_token_alpha");
+    let first = daemon.routes()["alpha"].token.clone();
+    assert_eq!(
+        fs::read_to_string(&sealed).ok().as_deref().map(str::trim),
+        Some(first.as_str())
+    );
+
+    let start = std::time::SystemTime::now();
+    let hour = std::time::Duration::from_secs(3600);
+    let done = daemon
+        .keep_boxes(start + 23 * hour + hour / 2)
+        .expect("keep the boxes");
+    assert_eq!(done.len(), 1, "{done:?}");
+    assert_eq!(done[0].result, ReconcileResult::Succeeded, "{done:?}");
+    let second = daemon.routes()["alpha"].token.clone();
+    assert_ne!(second, first, "a restart mints a new token");
+    assert_eq!(
+        fs::read_to_string(&sealed).ok().as_deref().map(str::trim),
+        Some(second.as_str()),
+        "the slot holds the token the daemon proxies with after the restart"
+    );
+    let log = fake.log.lock().expect("the log");
+    assert_eq!(log.restarted.len(), 1);
+    assert_eq!(
+        log.restarted[0].1.api_token.as_ref().map(|slot| slot.name.as_str()),
+        Some("api_token_alpha"),
+        "the restarted runtime is started with the slot"
+    );
+}
+
+/// A slot's file the operator created as the guides say, but at the umask's mode, in a
+/// directory at the umask's mode: conductord leaves both owner-private, which substrate's
+/// `read_declared` requires (`mode & 0o077 == 0`) at each start.
+#[test]
+fn adv_box_token_a_wider_slot_file_and_directory_are_made_owner_private() {
+    let case = Case::new("adv-tok-mode");
+    case.config(&[("a", "{daemon: local, adapter: linux}")]);
+    let slots = case.dir.join("daemon/slots");
+    fs::create_dir_all(&slots).expect("the slots directory");
+    fs::set_permissions(&slots, fs::Permissions::from_mode(0o755)).expect("mode 755");
+    let sealed = slots.join("api_token_a");
+    fs::write(&sealed, "free\n").expect("the operator's file");
+    fs::set_permissions(&sealed, fs::Permissions::from_mode(0o644)).expect("mode 644");
+    let fake = Fake::declaring("api_token_a");
+    let mut daemon = case.daemon(fake);
+    let done = daemon
+        .pass(
+            conductor_model::instance::ReconcileReason::ConfigChange,
+            std::time::Instant::now(),
+        )
+        .expect("a pass");
+    assert_eq!(done[0].result, ReconcileResult::Succeeded, "{done:?}");
+    let token = daemon.routes()["a"].token.clone();
+    assert_eq!(
+        fs::read_to_string(&sealed).ok().as_deref().map(str::trim),
+        Some(token.as_str())
+    );
+    let file_mode = fs::metadata(&sealed).expect("the file").permissions().mode() & 0o777;
+    let dir_mode = fs::metadata(&slots).expect("the dir").permissions().mode() & 0o777;
+    assert_eq!(
+        (file_mode, dir_mode),
+        (0o600, 0o700),
+        "the slot's file and its directory are the owner's"
+    );
+}
+
+/// `conductor doctor` dry-runs what conductord checks before it asks substrate. A daemon that
+/// declares the slot, and a slot file conductord cannot write, is a box conductord refuses
+/// `placement.api-token-unsealed` before substrate is asked: doctor's verdict names it.
+#[test]
+fn adv_box_token_doctor_names_a_box_whose_declared_slot_conductord_cannot_seal() {
+    let case = Case::new("atd");
+    let file = case.config(&[("alpha", "systemd")]);
+    case.directories("alpha");
+    // Where the slots directory would be there is a file: conductord's seal fails.
+    let daemon_dir = case.home().join(".b10x/conductor/daemon");
+    fs::create_dir_all(&daemon_dir).expect("the daemon's directory");
+    fs::write(daemon_dir.join("slots"), "").expect("a file");
+    let socket = case.dir.join("s.sock");
+    let _fake = FakeLocal::opening(
+        &socket,
+        &systemd_families(),
+        &SYSTEMD_PROPERTIES,
+        &[
+            "state-alpha",
+            "records-alpha",
+            "cache-alpha",
+            "store",
+            "api_token_alpha",
+        ],
+    );
+    let output = case.doctor_on(&file, &socket);
+    let verdict = lines(&output).last().cloned().unwrap_or_default();
+    assert!(
+        verdict.contains("box alpha (placement.api-token-unsealed)"),
+        "conductord would refuse the box; doctor says: {}",
+        describe(&output)
+    );
+}
