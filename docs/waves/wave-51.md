@@ -21,7 +21,7 @@ repository under a lock. Free disk at the start: 104 GB.
 | U3 | doctor-checks-guard-forge-writes | | `w51-u3` | correction 2 after adversary pass 1 |
 | U4 | box-reaches-forge-and-daemon | | `w51-u4` | correction 2 after adversary pass 1; the egress half is blocked |
 | U5 | daemon-probes-and-metrics | | `w51-u5` | adversary pass 2, after correction 1 |
-| U6 | release-container-image | | `w51-u6` | correction 3 after adversary pass 2 |
+| U6 | release-container-image | | `w51-u6` | merged (`61eb01e39`), two adversary passes |
 | U7 | container-start-without-prompt | U3, U4, U5, U6 | `w51-u7` | not started |
 
 Each unit works on branch `impl/<story>`; its scratch is the session scratch directory's
@@ -156,6 +156,11 @@ is read before the first of the two merges.
   extracted tools kept the archive's owner id; the notes script ended its section only at a
   second-level heading. All go back; the adversary's cases run the step scripts against
   stand-in programs.
+
+- U6, adversary pass 2 (`review-result:w51-u6-adversary-2`): the push step, the rule for
+  `latest` and the image's owners held. Two cases were red on Release bodies nobody is shown
+  to write: a fence never closed, after which a re-run left two sections, and a heading quoted
+  in an HTML comment. Both corrected in a last round; the lane is 29 run, 29 passed.
 
 ## What each story's close needs
 
