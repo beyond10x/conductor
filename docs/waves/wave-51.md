@@ -17,9 +17,9 @@ repository under a lock. Free disk at the start: 104 GB.
 | unit | story | waits for | tree | stage |
 |---|---|---|---|---|
 | U1 | need-repository-from-tag | | `w51-u1` | merged (`900de5852`), two adversary passes |
-| U2 | handover-restart-by-controller-id | | `w51-u2` | correction 1 after adversary pass 1 |
+| U2 | handover-restart-by-controller-id | | `w51-u2` | adversary pass 2, after correction 1 |
 | U3 | doctor-checks-guard-forge-writes | | `w51-u3` | adversary pass 1, after correction 1 |
-| U4 | box-reaches-forge-and-daemon | | `w51-u4` | adversary pass 1; the egress half is blocked |
+| U4 | box-reaches-forge-and-daemon | | `w51-u4` | correction 2 after adversary pass 1; the egress half is blocked |
 | U5 | daemon-probes-and-metrics | | `w51-u5` | correction 1 after adversary pass 1 |
 | U6 | release-container-image | | `w51-u6` | correction 2 after adversary pass 1 |
 | U7 | container-start-without-prompt | U3, U4, U5, U6 | `w51-u7` | not started |
@@ -120,6 +120,16 @@ is read before the first of the two merges.
   stays `not ready`, and the fix line carries the path. Still open after that round: setup's
   closing verdict can say `ready` where doctor says `not ready`; it goes back with the
   adversary's findings.
+- U2, correction 1: the usage-limit path and the hand-over path share one rule; the session
+  list is read for every session of a name; an entry of 1.2.0 is tied to its session by the id
+  in its line. Decided: the loop's own resume of a session keeps the request, and the entry is
+  stamped at that resume; a session resumed by hand after the delivery loses its request. Found
+  beside the findings: a resume on another token dropped the entry of a session that runs on.
+- U4, adversary pass 1 (`review-result:w51-u4-adversary-1`): the token path held. Doctor's dry
+  run of a box did not know the daemon's new refusal for a slot file it cannot write, and the
+  slot's descriptor and variable were inherited by every process the boxed runtime starts.
+  Both go back. The file `runtimes.json`, which holds the same token at the umask mode, was
+  there before the wave and goes to the backlog.
 - U5, adversary pass 1 (`review-result:w51-u5-adversary-1`): `/readyz` answered 200 for ever
   after one failed write on the reconciler's store handle, and 200 before the first
   publication; `/v1/instances` answered `200 []` while the store was down. All three go back.
