@@ -63,6 +63,13 @@ pub const TEST_KEYCHAIN_VARIABLE: &str = "CONDUCTOR_TEST_KEYCHAIN_FILE";
 /// The name of the one slot an agent's box receives: the model token (design § 9).
 pub const MODEL_TOKEN_SLOT: &str = "model_token";
 
+/// What the name of the sealed slot of an instance's API token begins with
+/// (`story:box-reaches-forge-and-daemon`): the token conductord minted for the runtime and
+/// proxies writes with, which a runtime in a box of the local substrate daemon reads from the
+/// slot [`crate::placement::api_token_slot`] names, never from its environment. It is no secret
+/// of the source: conductord writes it into the slot's file itself.
+pub const API_TOKEN_SLOT: &str = "api_token";
+
 /// The namespace `daemon.secrets` names when it writes none: local mode's.
 const DEFAULT_NAMESPACE: &str = ScopeName::DEFAULT;
 

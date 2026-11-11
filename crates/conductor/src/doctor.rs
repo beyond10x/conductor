@@ -48,7 +48,7 @@ use std::ffi::OsStr;
 use std::fs;
 use std::os::unix::fs::PermissionsExt as _;
 use std::path::{Path, PathBuf};
-use std::process::{Command, ExitCode};
+use std::process::ExitCode;
 use std::time::Duration;
 
 use anyhow::{Context as _, Result, bail};
@@ -163,7 +163,8 @@ fn uname(flag: &str) -> String {
             .filter(|path| path.is_file()),
     );
     for path in candidates {
-        let Ok(output) = collect::run(Command::new(&path).arg(flag), VERSION_BOUND) else {
+        let Ok(output) = collect::run(crate::instance::command(&path).arg(flag), VERSION_BOUND)
+        else {
             continue;
         };
         let text = String::from_utf8_lossy(&output.stdout).trim().to_owned();
@@ -249,7 +250,7 @@ pub fn account_of(text: &str, host: &str) -> Option<String> {
 /// `auth status --hostname <host>` exits 0; and the account it names there ([`account_of`]).
 fn login(program: &str, path: &Path, host: &str) -> ForgeLogin {
     let answered = collect::run(
-        Command::new(path).args(["auth", "status", "--hostname", host]),
+        crate::instance::command(path).args(["auth", "status", "--hostname", host]),
         AUTH_BOUND,
     );
     let (state, account) = match answered {
@@ -545,8 +546,11 @@ pub fn require(programs: &[&str], what: &str) -> Result<()> {
 /// The first line `program --version` prints, on standard output or else standard error, empty
 /// lines aside; why there is none when the run fails or prints nothing.
 fn version_line(program: &Path) -> Result<String, String> {
-    let output = collect::run(Command::new(program).arg("--version"), VERSION_BOUND)
-        .map_err(|error| format!("{error:#}"))?;
+    let output = collect::run(
+        crate::instance::command(program).arg("--version"),
+        VERSION_BOUND,
+    )
+    .map_err(|error| format!("{error:#}"))?;
     let first = |bytes: &[u8]| {
         String::from_utf8_lossy(bytes)
             .lines()
@@ -951,7 +955,7 @@ pub fn activation(program: &Path, root: &Path) -> (Activation, Option<PathBuf>) 
         );
     };
     let answered = collect::run(
-        Command::new(program)
+        crate::instance::command(program)
             .args(["inspect", "--json", "--repo"])
             .arg(&checkout)
             .args(["--id", PROBE_ID]),
@@ -989,7 +993,7 @@ fn watcher(program: Option<&Path>, unit: String) -> Watcher {
         };
     };
     let answered = collect::run(
-        Command::new(program).args(["--user", "is-active", &unit]),
+        crate::instance::command(program).args(["--user", "is-active", &unit]),
         WATCHER_BOUND,
     );
     let not_running = match answered {
@@ -1512,7 +1516,12 @@ fn kind_lines(flag: Option<&Path>) -> Vec<(String, Option<String>)> {
 /// on a remote daemon is checked as far as conductord's own refusals: its roots are
 /// directories of that daemon's host, which is not asked, and the line says so. The line is `box <instance>: <placement>, <n> writable roots served by the
 /// substrate daemon`, or `box <instance>: <refusal>: <detail>`, which adds `box <instance>
-/// (<refusal>)` to the verdict. It opens no box, starts nothing and writes nothing; only
+/// (<refusal>)` to the verdict. Under the line of a box the local daemon would open without
+/// the sealed slot of the daemon's token (`story:box-reaches-forge-and-daemon`,
+/// [`crate::placement::slot_undeclared`]) a second line, `box <instance> token: `, says the
+/// token does not reach the box and prints the `--secret-slot` flag that declares the slot;
+/// it is reported, not a failure, as a usage watcher not running is: the box starts and runs
+/// without it. It opens no box, starts nothing and writes nothing; only
 /// [`doctor_with`] calls it, never [`check_in`], which the dashboard's health thread repeats.
 /// A config that does not load, no config file, and a file that writes no `daemon.store`
 /// ([`config::writes_store`]: conductord starts on no such file, so nothing opens its boxes)
@@ -1563,23 +1572,34 @@ fn box_lines(
         let boxes: Vec<_> = asked.iter().map(|at| requests[*at].1.clone()).collect();
         match substrate.admits(&boxes, SUBSTRATE_BOUND) {
             Ok(answers) => answers,
-            Err(silent) => vec![Some(silent); asked.len()],
+            Err(silent) => vec![
+                crate::placement::Admission {
+                    refused: Some(silent),
+                    unsealed: None,
+                };
+                asked.len()
+            ],
         }
     };
-    answers.resize(asked.len(), None);
+    answers.resize(asked.len(), crate::placement::Admission::default());
     requests
         .into_iter()
         .zip(own)
         .enumerate()
-        .filter_map(|(at, ((index, request), own))| {
-            let instance = loaded.config.instances.get(index)?;
+        .flat_map(|(at, ((index, request), own))| {
+            let Some(instance) = loaded.config.instances.get(index) else {
+                return Vec::new();
+            };
             let name = &instance.name.0;
             let remote = instance.remote.is_some();
-            let refused = own.or_else(|| {
-                let nth = asked.iter().position(|one| *one == at)?;
-                answers.get_mut(nth)?.take()
-            });
-            Some(match refused {
+            let answer = asked
+                .iter()
+                .position(|one| *one == at)
+                .and_then(|nth| answers.get_mut(nth))
+                .map(std::mem::take)
+                .unwrap_or_default();
+            let refused = own.or(answer.refused);
+            let mut rows = vec![match &refused {
                 Some(refused) => (
                     format!(
                         "box {name}: {}: {}",
@@ -1602,7 +1622,12 @@ fn box_lines(
                     ),
                     None,
                 ),
-            })
+            }];
+            // Reported, not a failure: the box starts without the slot.
+            if let (None, Some(unsealed)) = (&refused, &answer.unsealed) {
+                rows.push((format!("box {name} token: {}", one_line(unsealed)), None));
+            }
+            rows
         })
         .collect()
 }

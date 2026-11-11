@@ -187,7 +187,9 @@ catalog; the [config reference](https://beyond10x.github.io/conductor/docs/refer
    subtree, on `$XDG_RUNTIME_DIR/substrate/daemon.sock`, and declares a writable root for
    what the runtime writes (`state-<instance>=<state>`, `records-<instance>=<records>`,
    `cache-<instance>=<cache>`, `store=<the store's directory>`) and the egress aperture
-   `conductor`. The store is in a directory of its own: a box writes that whole directory, and
+   `conductor`. Declaring the secret slot `api_token_<instance>` too is what lets a write
+   conductord proxies reach the runtime; a box starts without it. The store is in a directory of
+   its own: a box writes that whole directory, and
    never the config file or `~/.b10x/conductor/daemon`
    ([getting started](https://beyond10x.github.io/conductor/docs/getting-started#5-start-the-substrate-daemon)).
 6. `conductor daemon serve --install` installs conductord as the user unit `conductord.service`. It

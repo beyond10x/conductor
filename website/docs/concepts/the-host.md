@@ -97,8 +97,15 @@ rolls back to the previous binary unless the runtime answers within `daemon.upgr
 `conductor instance serve` serves the dashboard's routes under `/v1/` on `<state>/api.sock`, mode
 0600. Where that path is too long for a socket address, the socket is
 `conductor-api-<hash>.sock` in the temporary directory. A write takes the token the daemon minted
-for the instance at its start, in `CONDUCTOR_API_TOKEN`. conductord proxies
-`/v1/instances/<name>/<route>` to it.
+for the instance at its start. A runtime started as a unit reads it from `CONDUCTOR_API_TOKEN`. A
+runtime in a box of the local substrate daemon reads it from the sealed slot
+`api_token_<instance>`, which substrate hands it at a descriptor, where that daemon declares
+the slot: the box's environment carries no token. The runtime closes that descriptor once it
+has read the token, and no process it starts inherits the descriptor or `SUBSTRATE_SECRET_SLOTS`.
+A runtime in a box whose local daemon does
+not declare the slot, or in a box of a remote substrate daemon, is handed none and mints its
+own, so a write proxied to it is refused. conductord proxies `/v1/instances/<name>/<route>` to
+it.
 
 The runtime also runs the instance's loop, in its main thread, under the loop's lock.
 
@@ -135,6 +142,9 @@ daemon publishes. A miss is refused with substrate's name, `confinement.family-u
 | nothing else written | a root is a whole directory: a box whose state, records, cache or store directory holds the config file or lies with `~/.b10x/conductor/daemon` is refused `placement.writable-root-shared` before substrate is asked, so a sqlite store is in a directory of its own |
 | the runtime's output | `<state>/sessions/runtime.log` |
 | the model token | a slot of `daemon.substrate_slots`, which the daemon fills from the instance's `model_token` before the box opens |
+| the daemon's token for the runtime's API | the operator declares `substrate-daemon --secret-slot api_token_<instance>=<file>`, the file `slots/api_token_<instance>` in conductord's directory (`~/.b10x/conductor/daemon`, or the `--state-dir` it runs on), there and not empty before that daemon starts; conductord writes the token into it before each start of the runtime, and the runtime reads it at the descriptor substrate names in `SUBSTRATE_SECRET_SLOTS`. The slot is optional: where the daemon does not declare it, the box starts without it, nothing is refused, the runtime refuses each proxied write, and `conductor doctor` prints the row `box <instance> token` with the flag, which changes no verdict. A declared slot whose file conductord cannot write refuses the box, `placement.api-token-unsealed`; `conductor doctor` checks that file in the directory the installed unit `conductord.service` names, else in `~/.b10x/conductor/daemon`, also for a daemon started by hand on a directory of its own. The file, mode 0600, keeps the last token after the box closes, when no runtime takes it any more. While the runtime runs, `runtimes.json` in the daemon's directory holds the same token, at the mode the daemon's umask gives |
+| the network | the one egress aperture `conductor`, which is one destination: the model host, as the [getting-started guide](../getting-started.md#5-start-the-substrate-daemon) declares it. The start names no other aperture, so the runtime in a box reaches no forge on substrate 0.20.0 |
+| the working directory | substrate's: the start carries none, so the runtime starts in the box's workspace, not in the state directory a unit starts in |
 | a remote daemon | `placement` also writes `bearer: secret:<name>`, `trust_roots` and `server_identity`; one `conductor instance relay` pipe session carries each API request; an unanswering daemon shows the instance `Unreachable` |
 
 For a config file that writes `daemon.store`, the only kind conductord starts on, `conductor doctor` dry-runs the box of each instance on the local daemon: it builds the request conductord would send, checks conductord's own refusals and that each writable root is a directory, and asks the substrate daemon for its facts, once for all boxes, as conductord does before anything starts. It prints one `box <instance>:` row, starts no box and writes nothing. A box that would be refused makes the verdict `not ready: box <instance> (<refusal>)`. A substrate daemon that does not answer within 5 s is one such refusal, `placement.substrate-unreachable`; the row names its socket and the 5 s. A box on a remote daemon is checked up to conductord's own refusals: its writable roots are directories of the remote daemon's host, so doctor does not look for them on this one, does not ask that daemon, and the row says so.

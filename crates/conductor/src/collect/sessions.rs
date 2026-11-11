@@ -57,7 +57,6 @@ use std::ffi::OsString;
 use std::fs::{self, File};
 use std::io::{BufRead as _, BufReader, ErrorKind, Read as _};
 use std::path::{Component, Path, PathBuf};
-use std::process::Command;
 use std::time::{Duration, SystemTime};
 
 use anyhow::{Context as _, Result, anyhow, bail};
@@ -402,8 +401,11 @@ fn claude(sources: &Sources) -> Result<Vec<Live>> {
         .agents
         .split_first()
         .context("no session-list command is given")?;
-    let output = run(Command::new(program).args(arguments), sources.bound)
-        .with_context(|| format!("read the Claude session list `{shown}`"))?;
+    let output = run(
+        crate::instance::command(program).args(arguments),
+        sources.bound,
+    )
+    .with_context(|| format!("read the Claude session list `{shown}`"))?;
     match output.status.code() {
         Some(0) => {}
         Some(code) => bail!("`{shown}` exited {code}"),

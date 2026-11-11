@@ -1930,8 +1930,8 @@ impl ShellDeliverer {
 
 impl Deliverer for ShellDeliverer {
     fn deliver(&self, name: &str, text: &str) -> Result<Delivery> {
-        use std::process::{Command, Stdio};
-        let mut command = Command::new(&self.program);
+        use std::process::Stdio;
+        let mut command = crate::instance::command(&self.program);
         if let Some(config) = &self.config {
             command.arg("--config").arg(config);
         }

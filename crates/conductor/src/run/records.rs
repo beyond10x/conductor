@@ -24,7 +24,7 @@
 
 use std::fs;
 use std::path::{Path, PathBuf};
-use std::process::{Command, Output};
+use std::process::Output;
 use std::time::Duration;
 
 use anyhow::Result;
@@ -280,7 +280,7 @@ fn utc_day(at: &str) -> Option<String> {
 
 /// `records check`, as step 1 says: what it printed when it does not pass.
 fn check(route: &Route) -> std::result::Result<(), String> {
-    let mut command = Command::new(&route.program);
+    let mut command = crate::instance::command(&route.program);
     if let Some(config) = &route.config {
         command.arg("--config").arg(config);
     }
@@ -369,7 +369,7 @@ fn message_file(route: &Route, message: &str) -> Result<PathBuf> {
 
 /// `git <args>` in `records`: its output when it succeeds, else the last line it printed.
 fn git(records: &Path, args: &[&str]) -> std::result::Result<Output, String> {
-    let mut command = Command::new("git");
+    let mut command = crate::instance::command("git");
     command.args(args).current_dir(records);
     succeeded(crate::collect::run(&mut command, BOUND), "git")
 }
@@ -382,7 +382,7 @@ fn bot(records: &Path, route: &Route, words: &[String]) -> std::result::Result<O
         let words: Vec<&str> = words.iter().map(String::as_str).collect();
         return git(records, &words);
     };
-    let mut command = Command::new(gates);
+    let mut command = crate::instance::command(gates);
     command.args(["bot", "--"]).args(words).current_dir(records);
     succeeded(
         crate::collect::run(&mut command, BOUND),

@@ -31,6 +31,16 @@
 //! closes. A box keeps its lease past one 24-hour lease by renewing it, and its runtime past
 //! substrate's hard deadline of one run by a restart in the same box ([`RUN_BOUND`]).
 //!
+//! The token conductord proxies writes with reaches the runtime in a local box through a sealed
+//! slot of its own (`story:box-reaches-forge-and-daemon`, [`HostSlot`], [`api_token_slot`]),
+//! never through the box's environment: conductord writes it into the slot's file under its
+//! own directory before each start ([`seal_api_token`]) where the local daemon declares the
+//! slot ([`Substrate::declares`]), which the operator does. The slot is optional: a box whose
+//! daemon does not declare it is asked for without it, as before there was one, and nothing is
+//! refused; its runtime mints a token of its own, and `conductor doctor` says so with the flag
+//! ([`slot_undeclared`]). The runtime reads the token at the descriptor substrate names
+//! ([`crate::instance::SLOTS_VARIABLE`]). A box on a remote daemon gets no such slot.
+//!
 //! What the box sees of the host is one list ([`mounts`], `story:box-runtime-starts`): what the
 //! runtime and the loop write (the state directory, the records, the cache, the directory of a
 //! sqlite store) and what they read (the binary's and the harness's directories, the checkouts root,
@@ -89,12 +99,17 @@ pub const MODEL_HOST: &str = "api.anthropic.com";
 pub const SOCKET_VARIABLE: &str = "CONDUCTOR_SUBSTRATE_SOCKET";
 
 /// The egress aperture a box's sessions are started with. Substrate 0.20.0 declares apertures on
-/// the daemon (`--egress-aperture`), not per request: the operator declares this one with the
-/// forge and model hosts of [`BoxRequest::egress`].
+/// the daemon (`--egress-aperture <name>=<host>:<port>/tcp`), not per request, and one aperture
+/// is one destination. The SDK of 0.20.0 names one aperture in a start (its builders keep one
+/// name and send no list), so the box reaches the one destination the operator declares this
+/// aperture with, the model host, and none of the forges of [`BoxRequest::egress`].
 pub const EGRESS_APERTURE: &str = "conductor";
 
 /// The descriptor the model token's sealed slot arrives at inside the box.
 pub const SLOT_FD: u32 = 3;
+
+/// The descriptor the sealed slot of the daemon's token ([`HostSlot`]) arrives at inside the box.
+pub const API_TOKEN_FD: u32 = 4;
 
 /// The name of the refusal when the daemon cannot be reached at all: conductor's, not
 /// substrate's, since substrate said nothing.
@@ -519,7 +534,9 @@ pub struct BoxRequest {
     pub placement: PlacementName,
     /// `conductor --config <file> instance serve`.
     pub argv: Vec<String>,
-    /// The instance's state directory, where the runtime starts.
+    /// The instance's state directory, where a runtime started as a unit starts. No start
+    /// carries it: the SDK of 0.20.0 has no working directory to set (its builders send none),
+    /// so substrate starts the runtime in the box's workspace.
     pub cwd: String,
     /// Variables set for the runtime; never a credential.
     pub env: Vec<(String, String)>,
@@ -532,12 +549,20 @@ pub struct BoxRequest {
     pub places: Vec<String>,
     /// The instance's limits.
     pub limits: Limits,
-    /// The only hosts the box may reach: the forges of its sources and [`MODEL_HOST`].
+    /// The hosts the runtime asks for: the forges of its sources and [`MODEL_HOST`]. No start
+    /// carries them ([`EGRESS_APERTURE`]).
     pub egress: Vec<String>,
     /// The sealed slots the box receives: the model token (`story:secrets-source`). [`request`]
     /// names [`crate::secret::MODEL_TOKEN_SLOT`]; for a local daemon the reconciler replaces it
     /// with the pool slot it wrote the token into ([`SlotPool`]), or with none.
     pub secret_slots: Vec<String>,
+    /// The sealed slot the runtime takes the daemon's token through
+    /// (`story:box-reaches-forge-and-daemon`): the token conductord proxies writes with, never
+    /// in [`Self::env`]. `None` for a box on a remote daemon, whose slots are files of that
+    /// host, and where conductord's directory is not known ([`Host::daemon`]). [`request_on`]
+    /// names the slot the instance would take; the reconciler keeps it only where the local
+    /// daemon declares it ([`Substrate::declares`]), so a start never names one it does not.
+    pub api_token: Option<HostSlot>,
     /// The confinement facts the box requires ([`requires`]).
     pub requires: Requirement,
     /// The host directories the box must write outside its workspace: the writable roots of
@@ -661,6 +686,251 @@ pub fn roots_missing(roots: &[HostRoot]) -> Option<Refused> {
                 root.name, root.path
             ),
         })
+}
+
+/// A sealed slot of the local substrate daemon on a file of conductord's (substrate's ADR
+/// 0012): a start names the slot and a descriptor, never the file or its content, so the
+/// operator declares it, `substrate-daemon --secret-slot <name>=<file>`, and substrate hands
+/// the runtime what the file holds at the start, sealed, at [`Self::fd`].
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct HostSlot {
+    /// The name the daemon declares ([`api_token_slot`]).
+    pub name: String,
+    /// The file on the daemon's host that conductord writes.
+    pub file: String,
+    /// The descriptor the slot arrives at inside the box.
+    pub fd: u32,
+}
+
+/// The most bytes a slot name holds (substrate-wire's slot-name rule, `[a-z][a-z0-9_]{0,63}`).
+const SLOT_NAME_BOUND: usize = 64;
+
+/// The name of the sealed slot `instance` takes the daemon's token through:
+/// [`crate::secret::API_TOKEN_SLOT`], `_`, and the instance in lower case with each byte outside
+/// letters and digits written `_`, cut at substrate's bound, so it is in substrate's slot-name
+/// set. Two instances whose names differ only in such bytes share the slot: conductord writes
+/// the file just before each start, and substrate reads it at that start.
+#[must_use]
+pub fn api_token_slot(instance: &str) -> String {
+    let mut name = format!("{}_", crate::secret::API_TOKEN_SLOT);
+    name.extend(instance.chars().map(|c| {
+        if c.is_ascii_alphanumeric() {
+            c.to_ascii_lowercase()
+        } else {
+            '_'
+        }
+    }));
+    name.truncate(SLOT_NAME_BOUND);
+    name
+}
+
+/// Whether `name` is the sealed slot of a daemon's token ([`api_token_slot`]).
+#[must_use]
+pub fn is_api_token_slot(name: &str) -> bool {
+    name.strip_prefix(crate::secret::API_TOKEN_SLOT)
+        .is_some_and(|rest| rest.starts_with('_'))
+}
+
+/// What follows for a box when the daemon does not declare `slot`, `served` its `secrets.slots`
+/// fact (`None` when it publishes none), with the flag that declares it; `None` when the daemon
+/// declares it or the box has none. It is no refusal: the box is asked for without the slot.
+#[must_use]
+pub fn slot_undeclared(slot: Option<&HostSlot>, served: Option<&[String]>) -> Option<String> {
+    let slot = slot?;
+    if declared(served, &slot.name) {
+        return None;
+    }
+    Some(format!(
+        "the daemon's token does not reach the box, so its runtime refuses each write \
+         conductord proxies to it: the substrate daemon declares no secret slot {}; declare it \
+         with substrate-daemon --secret-slot {}={}, the file there, not empty and mode 600, \
+         before that daemon starts",
+        slot.name, slot.name, slot.file
+    ))
+}
+
+/// What a daemon's facts say of one box before anything is asked for ([`Sdk::admits`]).
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct Admission {
+    /// Why the daemon would refuse the box; `None` when its facts serve it.
+    pub refused: Option<Refused>,
+    /// Why the daemon's token would not reach the runtime of a box the daemon would open
+    /// ([`slot_undeclared`]); `None` when it would, and for a box it would refuse.
+    pub unsealed: Option<String>,
+}
+
+/// Conductor's name for a daemon's token that could not be written into its slot's file.
+pub const TOKEN_UNSEALED: &str = "placement.api-token-unsealed";
+
+/// Whether `served`, a daemon's `secrets.slots` fact (`None` when it publishes none), declares
+/// the slot `name`: what conductord asks before it names the slot in a start
+/// ([`Substrate::declares`]) and what doctor's dry run asks ([`Sdk::admits`]).
+fn declared(served: Option<&[String]>, name: &str) -> bool {
+    served.is_some_and(|served| served.iter().any(|one| one == name))
+}
+
+/// What keeps conductord from writing the slot file `file` as [`seal_api_token`] writes it,
+/// found without writing anything: an ancestor of the file that is there and is no directory;
+/// where the slot's directory is not there, the nearest ancestor that is not writable by this
+/// user; a slot directory that is not this user's (it is made 0700) or, for a file not there
+/// yet, not writable once it is 0700; a dangling link whose end cannot be created; a file there
+/// that is no regular file (a directory and a socket fail the write, a pipe holds it), is not
+/// this user's (it is made 0600) or is not writable. It refuses nothing the write would succeed
+/// on but a device of this user's. [`seal_api_token`] asks it before it writes and `conductor
+/// doctor`'s dry run asks it ([`api_token_unsealable`]), so the two refuse a box alike; what only
+/// a write meets, a full disk, only conductord sees.
+fn slot_unwritable(file: &Path) -> Result<()> {
+    use nix::unistd::{AccessFlags, access};
+    use std::os::unix::fs::MetadataExt as _;
+    let Some(dir) = file.parent() else {
+        return Ok(());
+    };
+    // The owner of `/proc/self` is the effective user of this process; root restricts any file.
+    let me = std::fs::metadata("/proc/self")
+        .map(|own| own.uid())
+        .ok()
+        .filter(|uid| *uid != 0);
+    let mine = |path: &Path, meta: &std::fs::Metadata| match me {
+        Some(me) if meta.uid() != me => Err(anyhow!("{} is not this user's", path.display())),
+        _ => Ok(()),
+    };
+    let writable = |path: &Path, flags: AccessFlags| {
+        access(path, flags).map_err(|errno| anyhow!("{} is not writable: {errno}", path.display()))
+    };
+    // The nearest of the directory and its ancestors that is there, followed as `create` does.
+    let mut there = dir;
+    while std::fs::symlink_metadata(there).is_err() {
+        match there.parent() {
+            Some(up) => there = up,
+            None => return Ok(()),
+        }
+    }
+    let Some(meta) = std::fs::metadata(there)
+        .ok()
+        .filter(std::fs::Metadata::is_dir)
+    else {
+        return Err(anyhow!(
+            "create {}: {} is not a directory",
+            dir.display(),
+            there.display()
+        ));
+    };
+    if there != dir {
+        return writable(there, AccessFlags::W_OK | AccessFlags::X_OK)
+            .map_err(|error| anyhow!("create {}: {error:#}", dir.display()));
+    }
+    mine(dir, &meta).map_err(|error| anyhow!("restrict {}: {error:#}", dir.display()))?;
+    // A file `at` is created in its directory: the slot's directory, which the write makes 0700
+    // first, so what its mode bits deny this user is no refusal there (a read-only file system or
+    // an immutable directory is); or the directory a dangling link ends in, which it leaves as
+    // it is.
+    let creatable = |at: &Path| {
+        let up = at.parent().unwrap_or(dir);
+        let restricted = std::fs::canonicalize(up).ok() == std::fs::canonicalize(dir).ok();
+        match access(up, AccessFlags::W_OK | AccessFlags::X_OK) {
+            Err(nix::errno::Errno::EACCES) if restricted => Ok(()),
+            answered => answered.map_err(|errno| {
+                anyhow!(
+                    "create the slot file {}: {} is not writable: {errno}",
+                    at.display(),
+                    up.display()
+                )
+            }),
+        }
+    };
+    if std::fs::symlink_metadata(file).is_err() {
+        return creatable(file);
+    }
+    let meta = match std::fs::metadata(file) {
+        // A dangling link: the write creates the file it ends at, as `open` follows it.
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+            let mut end = file.to_path_buf();
+            for _ in 0..40 {
+                let Ok(next) = std::fs::read_link(&end) else {
+                    break;
+                };
+                end = end
+                    .parent()
+                    .map_or_else(|| next.clone(), |up| up.join(&next));
+            }
+            return creatable(&end);
+        }
+        answered => {
+            answered.map_err(|error| anyhow!("open the slot file {}: {error}", file.display()))?
+        }
+    };
+    if !meta.is_file() {
+        return Err(anyhow!(
+            "open the slot file {}: it is not a regular file",
+            file.display()
+        ));
+    }
+    mine(file, &meta)
+        .and_then(|()| writable(file, AccessFlags::W_OK))
+        .map_err(|error| anyhow!("open the slot file {}: {error:#}", file.display()))
+}
+
+/// The refusal of a box whose daemon's token is not in its slot `slot`, for `error`.
+fn unsealed(slot: &HostSlot, error: &anyhow::Error) -> Refused {
+    Refused {
+        name: TOKEN_UNSEALED.to_owned(),
+        detail: format!(
+            "the daemon's token for the runtime is not in its slot {}: {error:#}",
+            slot.name
+        ),
+    }
+}
+
+/// The refusal [`seal_api_token`] would answer for `slot` before it writes anything
+/// ([`slot_unwritable`]), found without writing: `conductor doctor`'s dry run of a box whose
+/// daemon declares the slot.
+fn api_token_unsealable(slot: &HostSlot) -> Option<Refused> {
+    slot_unwritable(Path::new(&slot.file))
+        .err()
+        .map(|error| unsealed(slot, &error))
+}
+
+/// Writes `token` into the file of `slot` (mode 0600, its directory 0700), which substrate
+/// reads when the runtime's run acquires the slot, once [`slot_unwritable`] finds nothing in its
+/// way.
+///
+/// # Errors
+///
+/// [`TOKEN_UNSEALED`] when the directory or the file cannot be written.
+pub fn seal_api_token(slot: &HostSlot, token: &str) -> Result<(), Refused> {
+    use std::os::unix::fs::{DirBuilderExt as _, PermissionsExt as _};
+    let file = Path::new(&slot.file);
+    let written = slot_unwritable(file)
+        .and_then(|()| match file.parent() {
+            Some(dir) => std::fs::DirBuilder::new()
+                .recursive(true)
+                .mode(0o700)
+                .create(dir)
+                .and_then(|()| {
+                    std::fs::set_permissions(dir, std::fs::Permissions::from_mode(0o700))
+                })
+                .map_err(|error| anyhow!("create {}: {error}", dir.display())),
+            None => Ok(()),
+        })
+        .and_then(|()| write_slot_file(file, format!("{token}\n").as_bytes()));
+    written.map_err(|error| unsealed(slot, &error))
+}
+
+/// Writes `bytes` as all the slot file `file` holds, mode 0600.
+fn write_slot_file(file: &Path, bytes: &[u8]) -> Result<()> {
+    use std::io::Write as _;
+    use std::os::unix::fs::{OpenOptionsExt as _, PermissionsExt as _};
+    let mut out = std::fs::OpenOptions::new()
+        .write(true)
+        .create(true)
+        .truncate(true)
+        .mode(0o600)
+        .open(file)
+        .map_err(|error| anyhow!("open the slot file {}: {error}", file.display()))?;
+    out.set_permissions(std::fs::Permissions::from_mode(0o600))
+        .map_err(|error| anyhow!("restrict the slot file {}: {error}", file.display()))?;
+    out.write_all(bytes)
+        .map_err(|error| anyhow!("write the slot file {}: {error}", file.display()))
 }
 
 /// How the box sees one host path of [`mounts`].
@@ -1212,6 +1482,18 @@ pub fn request_on(
         }
     }
     egress.push(MODEL_HOST.to_owned());
+    // The daemon's token: a slot of the local daemon on a file of conductord's own directory.
+    let api_token = match (&host.daemon, &instance.remote) {
+        (Some(dir), None) => {
+            let name = api_token_slot(&instance.name.0);
+            Some(HostSlot {
+                file: text(&dir.join(SLOTS_DIR).join(&name)),
+                name,
+                fd: API_TOKEN_FD,
+            })
+        }
+        _ => None,
+    };
     BoxRequest {
         instance: instance.name.clone(),
         placement: PlacementName(instance.placement.0.clone()),
@@ -1230,6 +1512,7 @@ pub fn request_on(
         limits: instance.limits.clone(),
         egress,
         secret_slots: vec![crate::secret::MODEL_TOKEN_SLOT.to_owned()],
+        api_token,
         requires: resolve(&instance.placement.0)
             .map(|resolved| requires(resolved.adapter))
             .unwrap_or_default(),
@@ -1318,19 +1601,7 @@ impl SlotPool {
     }
 
     fn write(&self, file: &Path, bytes: &[u8]) -> Result<()> {
-        use std::io::Write as _;
-        use std::os::unix::fs::{OpenOptionsExt as _, PermissionsExt as _};
-        let mut out = std::fs::OpenOptions::new()
-            .write(true)
-            .create(true)
-            .truncate(true)
-            .mode(0o600)
-            .open(file)
-            .map_err(|error| anyhow!("open the slot file {}: {error}", file.display()))?;
-        out.set_permissions(std::fs::Permissions::from_mode(0o600))
-            .map_err(|error| anyhow!("restrict the slot file {}: {error}", file.display()))?;
-        out.write_all(bytes)
-            .map_err(|error| anyhow!("write the slot file {}: {error}", file.display()))
+        write_slot_file(file, bytes)
     }
 
     /// Writes `value` into the first slot not in `held` and answers its name.
@@ -1443,6 +1714,15 @@ pub trait Substrate {
     ///
     /// The daemon refused or cannot be asked.
     fn close(&mut self, workspace: &str) -> Result<()>;
+
+    /// Whether the daemon declares the secret slot `slot` (its `secrets.slots` fact): conductord
+    /// asks before it names the slot of the daemon's token in a box request
+    /// (`story:box-reaches-forge-and-daemon`). A daemon that cannot be asked, and a box opener
+    /// that does not say, declares none, so the box is asked for without the slot.
+    fn declares(&mut self, slot: &str) -> bool {
+        let _ = slot;
+        false
+    }
 
     /// Renews the leases of the workspace `workspace` and of its runtime's session `session` by
     /// `ttl` (substrate 0.20.0's `renew_lease`).
@@ -1708,6 +1988,9 @@ impl<T: Substrate + ?Sized> Substrate for &mut T {
     fn close(&mut self, workspace: &str) -> Result<()> {
         (**self).close(workspace)
     }
+    fn declares(&mut self, slot: &str) -> bool {
+        (**self).declares(slot)
+    }
     fn renew(&mut self, workspace: &str, session: &str, ttl: Duration) -> Result<()> {
         (**self).renew(workspace, session, ttl)
     }
@@ -1937,6 +2220,12 @@ impl Sdk {
                 fd: SLOT_FD,
             });
         }
+        if let Some(slot) = &request.api_token {
+            session = session.secret_slot(substrate_sdk::SecretSlotRequest {
+                slot: slot.name.clone(),
+                fd: slot.fd,
+            });
+        }
         let started = session.start().await?;
         Ok(started.id().to_owned())
     }
@@ -1945,7 +2234,8 @@ impl Sdk {
 impl Sdk {
     /// The refusal `request` earns against the facts `machine` publishes, before anything
     /// starts: a family or a property it requires and the daemon does not serve ([`unmet`]),
-    /// then a writable root the daemon does not list ([`roots_unserved`]).
+    /// then a writable root the daemon does not list ([`roots_unserved`]). The slot of the
+    /// daemon's token is not among them: one the daemon does not declare refuses nothing.
     fn unserved(machine: &substrate_sdk::Machine, request: &BoxRequest) -> Option<Refused> {
         unmet(
             &request.requires,
@@ -1962,9 +2252,13 @@ impl Sdk {
 
     /// Whether this daemon would take each of `requests` as far as [`Substrate::open`] checks
     /// before it asks for anything: the daemon answers, and its facts serve the box
-    /// ([`Self::unserved`]); the refusal of each, in their order. It asks the daemon for its
-    /// machine once, whatever the requests, and starts nothing: `conductor doctor`'s dry run.
-    /// The question, its connection included, ends within `bound`.
+    /// ([`Self::unserved`]); the refusal of each, in their order. For a box its facts serve,
+    /// the slot of the daemon's token as conductord takes it: declared, the refusal conductord
+    /// would answer before it writes the slot's file ([`api_token_unsealable`], the check
+    /// [`seal_api_token`] asks, so nothing is written here), else what follows from its not
+    /// being declared ([`slot_undeclared`]). It asks the daemon for its machine once, whatever
+    /// the requests, and starts nothing: `conductor doctor`'s dry run. The question, its
+    /// connection included, ends within `bound`.
     ///
     /// # Errors
     ///
@@ -1974,12 +2268,28 @@ impl Sdk {
         &self,
         requests: &[BoxRequest],
         bound: Duration,
-    ) -> Result<Vec<Option<Refused>>, Refused> {
+    ) -> Result<Vec<Admission>, Refused> {
         self.block_within(Some(bound), async move |client| {
             let machine = client.machine();
+            let served = machine.facts.secrets_slots.as_deref();
             Ok(requests
                 .iter()
-                .map(|request| Self::unserved(&machine, request))
+                .map(|request| match Self::unserved(&machine, request) {
+                    Some(refused) => Admission {
+                        refused: Some(refused),
+                        unsealed: None,
+                    },
+                    None => match &request.api_token {
+                        Some(slot) if declared(served, &slot.name) => Admission {
+                            refused: api_token_unsealable(slot),
+                            unsealed: None,
+                        },
+                        slot => Admission {
+                            refused: None,
+                            unsealed: slot_undeclared(slot.as_ref(), served),
+                        },
+                    },
+                })
                 .collect())
         })
     }
@@ -2007,6 +2317,17 @@ impl Substrate for Sdk {
             }))
         })
         .and_then(|opened| opened)
+    }
+
+    fn declares(&mut self, slot: &str) -> bool {
+        let slot = slot.to_owned();
+        self.block_on(async move |client| {
+            Ok(declared(
+                client.machine().facts.secrets_slots.as_deref(),
+                &slot,
+            ))
+        })
+        .unwrap_or(false)
     }
 
     fn renew(&mut self, workspace: &str, session: &str, ttl: Duration) -> Result<()> {

@@ -50,7 +50,7 @@ pub use records::{Committed, Route, commit_records};
 use std::fs::{self, File, OpenOptions};
 use std::io::{self, Write as _};
 use std::path::{Path, PathBuf};
-use std::process::{Command, ExitCode};
+use std::process::ExitCode;
 use std::thread;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
@@ -120,7 +120,7 @@ impl Headroom for Ais {
     fn headroom(&self) -> Result<bool> {
         let shown = "ais status --json --provider claude";
         let output = collect::run(
-            Command::new("ais").args(["status", "--json", "--provider", "claude"]),
+            crate::instance::command("ais").args(["status", "--json", "--provider", "claude"]),
             AIS_BOUND,
         )
         .with_context(|| format!("run `{shown}`"))?;

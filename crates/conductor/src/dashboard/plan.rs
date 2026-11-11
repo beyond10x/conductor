@@ -18,7 +18,7 @@
 use std::fs;
 use std::io::Write as _;
 use std::path::{Path, PathBuf};
-use std::process::{Command, Output, Stdio};
+use std::process::{Output, Stdio};
 
 use conductor_model::decision::DecisionClass;
 use conductor_model::direction::{PlanAction, PlanColumn, PlanWriteRefusal};
@@ -100,7 +100,7 @@ pub fn repositories(checkouts: &Path) -> Vec<(String, PathBuf)> {
 /// One run of `aep plan artifact <args> --store <store> --format json` in `checkout`.
 fn aep(checkout: &Path, args: &[&str], stdin: Option<&str>) -> std::io::Result<Output> {
     let store = checkout.join(STORE[0]).join(STORE[1]);
-    let mut command = Command::new("aep");
+    let mut command = crate::instance::command("aep");
     command
         .args(["plan", "artifact"])
         .args(args)

@@ -6,8 +6,10 @@
 //!
 //! The instance is the one the global `--config` and `CONDUCTOR_INSTANCE` name, as for every
 //! instance command. A write is taken with the token the daemon minted for the instance at its
-//! start, [`TOKEN_VARIABLE`]; started by hand without it, the runtime mints its own, and no client
-//! but one that reads its environment can write. The socket is created mode 0600, after a stale
+//! start: in [`TOKEN_VARIABLE`] for a runtime the daemon starts as a unit, in the sealed slot
+//! [`SLOTS_VARIABLE`] names for one it starts in a box on the local substrate daemon, whose
+//! environment carries no credential. Started without either, the runtime mints its own, and
+//! no client can write. The socket is created mode 0600, after a stale
 //! one is removed; a socket another runtime answers on is refused.
 //!
 //! The runtime also runs the instance's loop (design architecture-next § 2: "the loop
@@ -32,6 +34,78 @@ use crate::{config, dashboard};
 /// The variable the daemon hands the runtime the instance's token in: a write on the instance API
 /// carries it in `X-Conductor-Token`.
 pub const TOKEN_VARIABLE: &str = "CONDUCTOR_API_TOKEN";
+
+/// The variable substrate tells a boxed process its sealed secret slots in, `name=fd` pairs
+/// separated by commas. A runtime in a box has no [`TOKEN_VARIABLE`]: the daemon's token is in
+/// the slot [`crate::placement::is_api_token_slot`] knows (`story:box-reaches-forge-and-daemon`).
+pub const SLOTS_VARIABLE: &str = "SUBSTRATE_SECRET_SLOTS";
+
+/// `program` to start, told of no sealed slot ([`SLOTS_VARIABLE`] removed): every process the
+/// runtime starts itself is built here, which `tests/placement.rs` holds for the crate's sources.
+#[must_use]
+pub fn command(program: impl AsRef<std::ffi::OsStr>) -> std::process::Command {
+    let mut command = std::process::Command::new(program);
+    command.env_remove(SLOTS_VARIABLE);
+    command
+}
+
+/// The most a sealed token is read to: a token is far shorter, and a slot is not read whole on
+/// trust.
+const SEALED_TOKEN_BOUND: u64 = 4096;
+
+/// The daemon's token as `slots`, the value of [`SLOTS_VARIABLE`], seals it: read from the
+/// descriptor of the slot that carries it, or `None` where no such slot is named. The
+/// descriptor is closed once it is read, whatever it held: substrate hands it over without
+/// close-on-exec, so every process the runtime starts would inherit it and could read the token
+/// from it. Nothing reads it again: the runtime reads it once, at its start, and a restart in the
+/// same box is a new process substrate hands a slot of its own.
+///
+/// # Errors
+///
+/// The slot is named and its descriptor is not a number, is a standard stream, cannot be read,
+/// or holds nothing: a runtime that minted its own token then would refuse every write the daemon
+/// proxies, silently.
+fn sealed_token(slots: &str) -> Result<Option<String>> {
+    use std::io::Read as _;
+    let Some((name, descriptor)) = slots
+        .split(',')
+        .filter_map(|pair| pair.split_once('='))
+        .map(|(name, descriptor)| (name.trim(), descriptor.trim()))
+        .find(|(name, _)| crate::placement::is_api_token_slot(name))
+    else {
+        return Ok(None);
+    };
+    let descriptor: std::os::fd::RawFd = descriptor
+        .parse()
+        .ok()
+        .filter(|descriptor| *descriptor > 2)
+        .with_context(|| {
+            format!(
+                "{SLOTS_VARIABLE} names the slot {name} at {descriptor:?}, which is no descriptor \
+                 of a slot"
+            )
+        })?;
+    // The descriptor is opened by its path: the crate forbids unsafe code, and a sealed slot
+    // opened this way is read from its start whatever was read of it before.
+    let read = fs::File::open(format!("/proc/self/fd/{descriptor}"))
+        .or_else(|_| fs::File::open(format!("/dev/fd/{descriptor}")))
+        .with_context(|| format!("open the sealed slot {name} at descriptor {descriptor}"))
+        .and_then(|file| {
+            let mut token = String::new();
+            file.take(SEALED_TOKEN_BOUND)
+                .read_to_string(&mut token)
+                .with_context(|| format!("read the sealed slot {name} at descriptor {descriptor}"))
+                .map(|_| token)
+        });
+    // One the process does not hold is closed already: nothing to answer for.
+    let _ = nix::unistd::close(descriptor);
+    let token = read?;
+    let token = token.trim();
+    if token.is_empty() {
+        bail!("the sealed slot {name} at descriptor {descriptor} holds no token");
+    }
+    Ok(Some(token.to_owned()))
+}
 
 /// The socket's file name in the instance's state directory.
 pub const SOCKET: &str = "api.sock";
@@ -196,8 +270,13 @@ pub fn instance_serve(
     let active = config::active();
     let state = PathBuf::from(&active.instance.state);
     let sources = dashboard::Sources::active(None).context(WHAT)?;
-    let token = match std::env::var(TOKEN_VARIABLE) {
-        Ok(token) if !token.trim().is_empty() => token.trim().to_owned(),
+    let sealed = match std::env::var(SLOTS_VARIABLE) {
+        Ok(slots) => sealed_token(&slots).context("instance serve: the daemon's token")?,
+        Err(_) => None,
+    };
+    let token = match (std::env::var(TOKEN_VARIABLE), sealed) {
+        (Ok(token), _) if !token.trim().is_empty() => token.trim().to_owned(),
+        (_, Some(token)) => token,
         _ => dashboard::mint().context("instance serve: mint the instance's token")?,
     };
     let path = std::env::var_os(SOCKET_VARIABLE)

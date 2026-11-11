@@ -85,7 +85,7 @@ use std::ffi::OsString;
 use std::fs;
 use std::io::{self, Write as _};
 use std::path::{Path, PathBuf};
-use std::process::{Command, ExitCode, Stdio};
+use std::process::{ExitCode, Stdio};
 use std::time::Duration;
 
 use anyhow::{Result, anyhow, bail};
@@ -774,7 +774,7 @@ fn run(command: &[OsString], dir: Option<&Path>) -> Result<(), String> {
     let Some((program, arguments)) = command.split_first() else {
         return Err("no command".to_owned());
     };
-    let mut process = Command::new(program);
+    let mut process = crate::instance::command(program);
     process.args(arguments).stdin(Stdio::null());
     if let Some(dir) = dir {
         process.current_dir(dir);

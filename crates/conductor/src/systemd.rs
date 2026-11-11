@@ -10,7 +10,6 @@
 
 use std::fs;
 use std::path::{Path, PathBuf};
-use std::process::Command;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::thread;
 use std::time::{Duration, Instant};
@@ -120,7 +119,7 @@ pub fn session_slice(role: &str, prefix: Option<&str>) -> String {
 /// answers its standard output.
 fn call(program: &str, args: &[String]) -> Result<String> {
     let shown = format!("{program} {}", args.join(" "));
-    let output = collect::run(Command::new(program).args(args), BOUND)
+    let output = collect::run(crate::instance::command(program).args(args), BOUND)
         .with_context(|| format!("run `{shown}`"))?;
     if !output.status.success() {
         bail!("`{shown}` {}", exited(&output));
@@ -304,7 +303,7 @@ pub fn tmux_on(dir: &Path, socket: &str, args: &[&str]) -> Result<String> {
     let socket = format!("{socket}.tmux");
     let shown = format!("{TMUX} -S {socket} {}", args.join(" "));
     let output = collect::run(
-        Command::new(TMUX)
+        crate::instance::command(TMUX)
             .current_dir(dir)
             .args(["-S", &socket])
             .args(args)

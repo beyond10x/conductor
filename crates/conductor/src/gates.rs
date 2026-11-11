@@ -10,7 +10,6 @@
 //! installs the hooks afresh.
 
 use std::path::{Path, PathBuf};
-use std::process::Command;
 use std::time::Duration;
 
 use anyhow::Result;
@@ -62,7 +61,7 @@ pub fn version(command: &[String], bound: Duration) -> Result<Option<String>> {
     let Some((program, arguments)) = command.split_first() else {
         return Ok(None);
     };
-    let output = match collect::run(Command::new(program).args(arguments), bound) {
+    let output = match collect::run(crate::instance::command(program).args(arguments), bound) {
         Ok(output) => output,
         Err(error) if collect::is_over_budget(&error) => return Err(error),
         Err(_) => return Ok(None),

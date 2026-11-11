@@ -21,7 +21,7 @@
 use std::collections::BTreeMap;
 use std::io::{self, Write as _};
 use std::path::Path;
-use std::process::{Command, ExitCode};
+use std::process::ExitCode;
 
 use anyhow::{Context as _, Result, anyhow, bail};
 use clap::ValueEnum as _;
@@ -645,7 +645,7 @@ const ABSENT: &str = "absent";
 /// Runs `b10x-gates install` in the checkout `dir` of `row` with `policy`, and records on `row`
 /// the hook's version after it and whether it is `current` now.
 fn install(dir: &Path, policy: &str, current: &str, row: &mut HooksRow) -> Result<()> {
-    let mut command = Command::new(gates::PROGRAM);
+    let mut command = crate::instance::command(gates::PROGRAM);
     command
         .arg("install")
         .arg("--repo")

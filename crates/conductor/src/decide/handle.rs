@@ -51,7 +51,7 @@
 use std::fs;
 use std::io::Write as _;
 use std::path::{Path, PathBuf};
-use std::process::{Command, ExitCode};
+use std::process::ExitCode;
 
 use anyhow::{Context as _, Result, anyhow, bail};
 use conductor_model::decision::{
@@ -1121,7 +1121,7 @@ fn adr_titles(checkout: &Path) -> Vec<String> {
     if !checkout.join(".engineering").join("planning").is_dir() {
         return Vec::new();
     }
-    let Ok(output) = Command::new("aep")
+    let Ok(output) = crate::instance::command("aep")
         .args([
             "plan",
             "artifact",

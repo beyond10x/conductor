@@ -16,9 +16,14 @@ Read the [security overview](../security/overview.md) first.
 | an instance's runtime, `conductor instance serve` | a substrate box when `placement` names an adapter (`linux`, `systemd`), else a user unit with no box |
 | every session: the maintainer, a controller, a host role | unboxed, as your user, with `--permission-mode bypassPermissions` |
 
-A runtime's box mounts the binary's and the harness's directories read-only, writes its substrate
-workspace and `<state>/sessions`, and reaches only the forges of its sources and
-`api.anthropic.com` ([the host](../concepts/the-host.md)). The runtime starts no session yet.
+A runtime's box reads the config file, the directories of `conductor` and the harness, the
+checkouts root and each forge's CLI and login, and writes the instance's state, records and
+cache and the directory of a sqlite store. Its network is the one egress aperture `conductor`,
+one destination, which you declare on `substrate-daemon` as `api.anthropic.com`: on substrate
+0.20.0 the box reaches no forge. The token the daemon proxies writes with reaches the runtime
+through a sealed slot, not through the box's environment, where you declare that slot on
+`substrate-daemon`; without it the box starts and its runtime refuses each proxied write
+([the host](../concepts/the-host.md#placement)). The runtime starts no session yet.
 
 A session is narrowed by [the guard](../security/the-guard.md) only, which narrows writes and not
 reads, the shell or the network ([known limits](../security/limits.md)). What the account can

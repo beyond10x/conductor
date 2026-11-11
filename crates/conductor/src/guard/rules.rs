@@ -66,7 +66,6 @@ use std::collections::VecDeque;
 use std::ffi::OsString;
 use std::fs;
 use std::path::{Component, Path, PathBuf};
-use std::process::Command;
 use std::time::Duration;
 
 use crate::config::BuiltInRole;
@@ -3999,8 +3998,11 @@ fn live_sessions(sessions: &SessionList) -> Result<Vec<Live>> {
         .command
         .split_first()
         .context("no session-list command is given")?;
-    let output = collect::run(Command::new(program).args(arguments), sessions.bound)
-        .with_context(|| format!("run `{shown}`"))?;
+    let output = collect::run(
+        crate::instance::command(program).args(arguments),
+        sessions.bound,
+    )
+    .with_context(|| format!("run `{shown}`"))?;
     match output.status.code() {
         Some(0) => {}
         Some(code) => bail!("`{shown}` exited {code}"),

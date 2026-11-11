@@ -28,6 +28,58 @@ pub fn unit_file(home: &Path, xdg_config_home: Option<&Path>) -> PathBuf {
         .join(UNIT)
 }
 
+/// conductord's directory on this host as its installed user unit ([`unit_file`] of `home` and
+/// `xdg_config_home`) names it: the `--state-dir` of the unit's `ExecStart`, as [`unit_text`]
+/// writes it, else `home`/[`super::DIR`], the one conductord runs on without the flag. A daemon
+/// started by hand on a directory of its own is not known here.
+#[must_use]
+pub fn daemon_dir(home: &Path, xdg_config_home: Option<&Path>) -> PathBuf {
+    fs::read_to_string(unit_file(home, xdg_config_home))
+        .ok()
+        .and_then(|text| {
+            let exec = text
+                .lines()
+                .find_map(|line| line.trim().strip_prefix("ExecStart="))?;
+            let words = words(exec);
+            let at = words.iter().position(|word| word == "--state-dir")?;
+            words.get(at + 1).map(PathBuf::from)
+        })
+        .filter(|dir| dir.is_absolute())
+        .unwrap_or_else(|| home.join(super::DIR))
+}
+
+/// The words of an `ExecStart` value: each in double quotes as [`quoted`] writes it, or bare.
+fn words(line: &str) -> Vec<String> {
+    let mut words = Vec::new();
+    let mut chars = line.chars().peekable();
+    loop {
+        while chars.next_if(|c| c.is_whitespace()).is_some() {}
+        let Some(first) = chars.next() else {
+            return words;
+        };
+        let mut word = String::new();
+        if first == '"' {
+            while let Some(c) = chars.next() {
+                match c {
+                    '"' => break,
+                    '\\' => word.extend(chars.next()),
+                    '%' => {
+                        chars.next_if_eq(&'%');
+                        word.push('%');
+                    }
+                    c => word.push(c),
+                }
+            }
+        } else {
+            word.push(first);
+            while let Some(c) = chars.next_if(|c| !c.is_whitespace()) {
+                word.push(c);
+            }
+        }
+        words.push(word);
+    }
+}
+
 /// One word of `ExecStart`, quoted as systemd reads it: in double quotes, with `\`, `"` written
 /// escaped and `%` doubled.
 fn quoted(word: &str) -> String {
@@ -240,4 +292,33 @@ pub fn uninstall_system(units: &mut dyn Units, file: &Path) -> Result<String> {
     units.disable_system(UNIT)?;
     fs::remove_file(file).with_context(|| format!("remove {}", file.display()))?;
     Ok(format!("stopped and removed the system unit {UNIT}"))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn the_state_directory_of_a_unit_is_read_back_as_it_was_written() {
+        let dir = Path::new("/srv/a \"b\" 100%\\c d");
+        let text = unit_text(
+            Path::new("/opt/conductor/bin/conductor"),
+            None,
+            Some(dir),
+            None,
+        );
+        let exec = text
+            .lines()
+            .find_map(|line| line.strip_prefix("ExecStart="))
+            .expect("an ExecStart");
+        let words = words(exec);
+        let at = words.iter().position(|word| word == "--state-dir");
+        assert_eq!(
+            at.and_then(|at| words.get(at + 1))
+                .map(PathBuf::from)
+                .as_deref(),
+            Some(dir)
+        );
+        assert_eq!(words[words.len() - 2..], ["daemon", "serve"]);
+    }
 }

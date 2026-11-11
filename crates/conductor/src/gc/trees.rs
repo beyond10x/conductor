@@ -25,7 +25,7 @@ use std::collections::HashSet;
 use std::ffi::OsString;
 use std::fs;
 use std::path::{Component, Path, PathBuf};
-use std::process::{Command, Stdio};
+use std::process::Stdio;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use serde_json::Value;
@@ -221,7 +221,7 @@ fn judge(path: &Path, last_seen: Option<SystemTime>, now: SystemTime, stale: Dur
 
 /// Runs git in `dir` without taking a lock: its exit code and standard output.
 fn git(dir: &Path, args: &[&str]) -> Result<(Option<i32>, Vec<u8>), String> {
-    let output = Command::new("git")
+    let output = crate::instance::command("git")
         .arg("-C")
         .arg(dir)
         .args(args)
@@ -405,7 +405,7 @@ fn worktree(args: &[OsString], dir: &Path) -> Result<Value, (Option<String>, Str
             .collect::<Vec<_>>()
             .join(" ")
     );
-    let mut command = Command::new("worktree");
+    let mut command = crate::instance::command("worktree");
     command.args(args).stdin(Stdio::null());
     if dir.is_dir() {
         command.current_dir(dir);

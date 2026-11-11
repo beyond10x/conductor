@@ -59,7 +59,7 @@ use std::fs;
 use std::io::{self, Write as _};
 use std::os::unix::fs::MetadataExt as _;
 use std::path::{Path, PathBuf};
-use std::process::{Command, ExitCode, Stdio};
+use std::process::{ExitCode, Stdio};
 use std::time::{Duration, Instant, SystemTime};
 
 use anyhow::{Context as _, Result, anyhow, bail};
@@ -796,7 +796,7 @@ pub(super) fn holder_links() -> Result<Vec<(u32, PathBuf)>, String> {
 /// stash, or a commit on no remote; or git could not tell. None when it holds none.
 fn uncommitted(repository: &Path) -> Option<String> {
     let git = |args: &[&str]| {
-        Command::new("git")
+        crate::instance::command("git")
             .arg("-C")
             .arg(repository)
             .args(args)
