@@ -13,6 +13,7 @@ mod common;
 mod fake_provider;
 
 use std::fs;
+use std::io::Write as _;
 use std::os::unix::fs::PermissionsExt as _;
 use std::path::{Path, PathBuf};
 use std::process::{Output, Stdio};
@@ -131,8 +132,19 @@ impl Case {
     }
 
     /// A config file of one instance `alpha` whose `sources` are `sources` (a YAML flow
-    /// sequence), with its checkouts, trees and records in the case's directory.
+    /// sequence), with its checkouts, trees and records in the case's directory, on the default
+    /// route, `gates`, with a `gates_policy` (`story:doctor-checks-guard-forge-writes`).
     fn config(&self, sources: &str) -> PathBuf {
+        let policy = format!(
+            "\x20   gates_policy: {}\n",
+            self.dir.join("gates-policy.json").display()
+        );
+        self.config_of(sources, &policy)
+    }
+
+    /// [`Case::config`] without a `gates_policy`, the instance ending with `rest`: whole lines
+    /// of the instance, each indented four spaces.
+    fn config_of(&self, sources: &str, rest: &str) -> PathBuf {
         let file = self.dir.join("conductor.yaml");
         fs::write(
             &file,
@@ -144,7 +156,8 @@ impl Case {
                  \x20   checkouts:\n\
                  \x20     root: {root}\n\
                  \x20     trees: {trees}\n\
-                 \x20   records: {records}\n",
+                 \x20   records: {records}\n\
+                 {rest}",
                 root = self.dir.join("checkouts").display(),
                 trees = self.dir.join("trees").display(),
                 records = self.dir.join("records").display(),
@@ -338,6 +351,9 @@ fn doctor_reads_no_pins_from_home_or_above() {
 /// The GitLab CLI, with the version line its fake prints.
 const GLAB: (&str, &str) = ("glab", "glab 1.46.0 (2024-09-01)");
 
+/// The line of an instance that puts it on the direct route ([`Case::config_of`]).
+const DIRECT: &str = "\x20   forge: {route: direct}\n";
+
 /// An instance whose only source is on GitLab needs no `gh`: without it on `PATH` doctor prints
 /// `gh: not needed` and exits 0 when every other program is there.
 #[test]
@@ -345,7 +361,12 @@ fn doctor_needs_no_gh_for_a_gitlab_only_instance() {
     let case = Case::new("gitlab-only");
     case.programs_but(&["gh"]);
     case.program(GLAB.0, GLAB.1, 0);
-    let config = case.config("[{gitlab: example-group, host: gitlab.example.com}]");
+    // The bot route carries no write to a GitLab host, so a GitLab instance that is ready takes
+    // the direct route (`story:doctor-checks-guard-forge-writes`).
+    let config = case.config_of(
+        "[{gitlab: example-group, host: gitlab.example.com}]",
+        DIRECT,
+    );
     let output = case.doctor_for(&config);
     assert_eq!(output.status.code(), Some(0), "{}", shown(&output));
     let lines = stdout(&output);
@@ -694,8 +715,12 @@ fn doctor_names_each_forge_login_and_never_a_token_or_an_e_mail() {
         ],
         1,
     );
-    let config =
-        case.config("[{github: example-org}, {gitlab: example-group, host: gitlab.example.com}]");
+    // On the direct route, so the login is the one thing not ready: the bot route carries no
+    // write to the GitLab host (`story:doctor-checks-guard-forge-writes`).
+    let config = case.config_of(
+        "[{github: example-org}, {gitlab: example-group, host: gitlab.example.com}]",
+        DIRECT,
+    );
     let output = case.doctor_for(&config);
     assert_eq!(output.status.code(), Some(1), "{}", shown(&output));
     let lines = stdout(&output);
@@ -1209,5 +1234,398 @@ fn doctor_prints_no_provider_row() {
             shown(&output)
         );
     }
+    assert_eq!(last(&output), "ready", "{}", shown(&output));
+}
+
+// ---------------------------------------------------------------------------------------------
+// story:doctor-checks-guard-forge-writes: the route each instance's forge writes take, and the
+// guard's answer to one forge write of each role it decides.
+// ---------------------------------------------------------------------------------------------
+
+/// The sources of the cases below, and the `origin` of the checkout `alpha` on each.
+const GITHUB_SOURCE: &str = "[{github: example-org}]";
+const GITHUB_ORIGIN: &str = "https://github.com/example-org/alpha.git";
+const GITLAB_SOURCE: &str = "[{gitlab: example-group, host: gitlab.example.com}]";
+const GITLAB_ORIGIN: &str = "https://gitlab.example.com/example-group/alpha.git";
+
+impl Case {
+    /// A git checkout at `dir` whose `origin` is `url`: the `.git/config` the guard reads it
+    /// from. No git runs.
+    fn origin(&self, dir: &Path, url: &str) {
+        fs::create_dir_all(dir.join(".git")).expect("create the checkout");
+        fs::write(
+            dir.join(".git/config"),
+            format!("[core]\n\tbare = false\n[remote \"origin\"]\n\turl = {url}\n"),
+        )
+        .expect("write the checkout's git config");
+    }
+
+    /// The checkout `alpha` under the checkouts root, its `origin` `url`.
+    fn checkout(&self, url: &str) -> PathBuf {
+        let dir = self.checkouts().join("alpha");
+        self.origin(&dir, url);
+        dir
+    }
+
+    /// The guard's PreToolUse hook under `config`, asked about the Bash `command` of a session
+    /// whose working directory is `cwd`.
+    fn hook(&self, config: &Path, cwd: &Path, command: &str) -> Output {
+        let payload = serde_json::json!({
+            "session_id": "example-session",
+            "hook_event_name": "PreToolUse",
+            "tool_name": "Bash",
+            "cwd": cwd,
+            "tool_input": {"command": command},
+        });
+        let mut child = common::conductor(self.home())
+            .args(["guard", "record-guard-decision", "--from-pre-tool-use"])
+            .current_dir(self.work())
+            .env_clear()
+            .env("HOME", self.home())
+            .env("PATH", self.bin())
+            .env("CONDUCTOR_CONFIG", config)
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .spawn()
+            .expect("the hook starts");
+        child
+            .stdin
+            .take()
+            .expect("the hook's standard input")
+            .write_all(payload.to_string().as_bytes())
+            .expect("write the payload");
+        child.wait_with_output().expect("the hook ends")
+    }
+}
+
+/// Every file and directory under `dir`, sorted: a run that writes nothing leaves it as it was.
+fn tree(dir: &Path) -> Vec<PathBuf> {
+    let mut found = Vec::new();
+    let mut left = vec![dir.to_path_buf()];
+    while let Some(dir) = left.pop() {
+        for entry in fs::read_dir(&dir).into_iter().flatten().flatten() {
+            let path = entry.path();
+            if path.is_dir() && !path.is_symlink() {
+                left.push(path.clone());
+            }
+            found.push(path);
+        }
+    }
+    found.sort();
+    found
+}
+
+/// The one line of `lines` that starts with `start`.
+fn the_line<'l>(lines: &'l [String], start: &str, output: &Output) -> &'l str {
+    let found: Vec<&String> = lines
+        .iter()
+        .filter(|line| line.starts_with(start))
+        .collect();
+    assert_eq!(
+        found.len(),
+        1,
+        "one line starts with {start:?}: {}",
+        shown(output)
+    );
+    found[0]
+}
+
+/// A config whose guard denies the controller's forge writes: a GitLab instance on the default
+/// route, `gates`, where the guard lets `glab` only read and the bot route carries nothing to
+/// the host (the report of 2026-11-07). Doctor asks the guard about a merge request create in
+/// the controller's own checkout, prints one line for the role with the guard's reason, ends
+/// `not ready` naming the role, and records nothing.
+#[test]
+fn doctor_is_not_ready_when_the_guard_denies_the_controller_s_forge_write() {
+    let case = Case::new("guard-denied");
+    case.programs_but(&["gh"]);
+    case.program(GLAB.0, GLAB.1, 0);
+    case.checkout(GITLAB_ORIGIN);
+    let config = case.config(GITLAB_SOURCE);
+    let before = tree(&case.dir);
+    let output = case.doctor_for(&config);
+    assert_eq!(output.status.code(), Some(1), "{}", shown(&output));
+    let lines = stdout(&output);
+    let line = the_line(&lines, "guard controller: ", &output);
+    assert!(
+        line.starts_with("guard controller: denied by `glab mr create` is a GitLab write")
+            && line.ends_with("writes go through the bot route"),
+        "the line carries the guard's reason: {}",
+        shown(&output)
+    );
+    assert_eq!(
+        last(&output),
+        "not ready: forge route alpha (no bot route for gitlab.example.com), guard controller \
+         (denied)",
+        "{}",
+        shown(&output)
+    );
+    assert_eq!(
+        tree(&case.dir),
+        before,
+        "doctor records no denial and writes no file: {}",
+        shown(&output)
+    );
+}
+
+/// Each role the guard decides gets one line: `allowed` for a pull request create in its own
+/// repository, the controller's in its checkout and conductor's in its records, on the direct
+/// route (`gh pr create -R <origin>`) and on the bot route alike. Doctor is ready and writes
+/// nothing.
+#[test]
+fn doctor_prints_allowed_for_each_role_whose_forge_write_the_guard_allows() {
+    let case = Case::new("guard-allowed");
+    case.programs_but(&[]);
+    case.checkout(GITHUB_ORIGIN);
+    case.origin(
+        &case.dir.join("records"),
+        "https://github.com/example-org/records.git",
+    );
+    let policy = case.dir.join("gates-policy.json");
+    for direct in [true, false] {
+        // Both configs are one file: each is written when its turn comes.
+        let (config, route) = if direct {
+            (
+                case.config_of(GITHUB_SOURCE, DIRECT),
+                "forge route alpha: direct".to_owned(),
+            )
+        } else {
+            (
+                case.config(GITHUB_SOURCE),
+                format!("forge route alpha: gates, policy {}", policy.display()),
+            )
+        };
+        let before = tree(&case.dir);
+        let output = case.doctor_for(&config);
+        assert_eq!(output.status.code(), Some(0), "{}", shown(&output));
+        let lines = stdout(&output);
+        for line in [
+            route.as_str(),
+            "guard conductor: allowed",
+            "guard controller: allowed",
+        ] {
+            assert!(
+                lines.contains(&line.to_owned()),
+                "doctor prints {line:?}: {}",
+                shown(&output)
+            );
+        }
+        assert_eq!(last(&output), "ready", "{}", shown(&output));
+        assert_eq!(
+            tree(&case.dir),
+            before,
+            "doctor writes no file: {}",
+            shown(&output)
+        );
+    }
+}
+
+/// A role with no repository on a forge has no forge write to ask the guard about: no checkout
+/// under the checkouts root, a checkout whose git config names no origin, records that are no
+/// checkout. Doctor says so on the role's line and stays ready.
+#[test]
+fn doctor_asks_the_guard_nothing_for_a_role_without_a_repository_on_a_forge() {
+    let case = Case::new("guard-not-checked");
+    case.programs_but(&[]);
+    let root = case.dir.join("checkouts");
+    let records = case.dir.join("records");
+    let config = case.config_of(GITHUB_SOURCE, DIRECT);
+
+    let output = case.doctor_for(&config);
+    assert_eq!(output.status.code(), Some(0), "{}", shown(&output));
+    let lines = stdout(&output);
+    for line in [
+        format!(
+            "guard conductor: not checked (the origin of {} names no repository)",
+            records.display()
+        ),
+        format!(
+            "guard controller: not checked (no git checkout under {})",
+            root.display()
+        ),
+    ] {
+        assert!(
+            lines.contains(&line),
+            "doctor prints {line:?}: {}",
+            shown(&output)
+        );
+    }
+    assert_eq!(last(&output), "ready", "{}", shown(&output));
+
+    case.checkouts();
+    let output = case.doctor_for(&config);
+    assert_eq!(output.status.code(), Some(0), "{}", shown(&output));
+    let line = format!(
+        "guard controller: not checked (no checkout under {} has an origin that names a \
+         repository)",
+        root.display()
+    );
+    assert!(
+        stdout(&output).contains(&line),
+        "doctor prints {line:?}: {}",
+        shown(&output)
+    );
+    assert_eq!(last(&output), "ready", "{}", shown(&output));
+}
+
+/// Doctor decides with the function the hook decides with: to the sample call doctor builds for
+/// the controller, the PreToolUse hook answers the same verdict, and a denial with the reason
+/// doctor printed.
+#[test]
+fn doctor_and_the_hook_answer_the_sample_forge_write_alike() {
+    let case = Case::new("guard-as-the-hook");
+    case.programs_but(&["gh"]);
+    case.program(GLAB.0, GLAB.1, 0);
+    let checkout = case.checkout(GITLAB_ORIGIN);
+    let sample = "glab mr create -R example-group/alpha --fill";
+
+    let config = case.config(GITLAB_SOURCE);
+    let output = case.doctor_for(&config);
+    let lines = stdout(&output);
+    let line = the_line(&lines, "guard controller: ", &output);
+    let reason = line
+        .strip_prefix("guard controller: denied by ")
+        .unwrap_or_else(|| panic!("the guard denies the sample: {}", shown(&output)));
+    let hook = case.hook(&config, &checkout, sample);
+    assert_eq!(hook.status.code(), Some(2), "{}", shown(&hook));
+    assert!(
+        String::from_utf8_lossy(&hook.stderr)
+            .lines()
+            .any(|answered| answered == format!("conductor guard: denied: {reason}")),
+        "the hook denies it with the reason doctor printed, {reason:?}: {}",
+        shown(&hook)
+    );
+
+    let config = case.config_of(GITLAB_SOURCE, DIRECT);
+    let output = case.doctor_for(&config);
+    assert!(
+        stdout(&output).contains(&"guard controller: allowed".to_owned()),
+        "{}",
+        shown(&output)
+    );
+    let hook = case.hook(&config, &checkout, sample);
+    assert_eq!(hook.status.code(), Some(0), "{}", shown(&hook));
+}
+
+/// With several instances in the file, each role's line names its instance.
+#[test]
+fn doctor_names_the_instance_of_each_role_when_the_file_has_several() {
+    let case = Case::new("guard-instances");
+    case.programs_but(&[]);
+    case.program(GLAB.0, GLAB.1, 0);
+    case.checkout(GITHUB_ORIGIN);
+    let other = case.dir.join("beta");
+    case.origin(&other.join("checkouts/widget"), GITLAB_ORIGIN);
+    let config = case.config_of(GITHUB_SOURCE, DIRECT);
+    let text = fs::read_to_string(&config).expect("the config file");
+    fs::write(
+        &config,
+        format!(
+            "{text}\
+             \x20 - name: beta\n\
+             \x20   session_prefix: beta\n\
+             \x20   sources: {GITLAB_SOURCE}\n\
+             \x20   checkouts:\n\
+             \x20     root: {root}\n\
+             \x20     trees: {trees}\n\
+             \x20   records: {records}\n\
+             \x20   gates_policy: {policy}\n",
+            root = other.join("checkouts").display(),
+            trees = other.join("trees").display(),
+            records = other.join("records").display(),
+            policy = case.dir.join("gates-policy.json").display(),
+        ),
+    )
+    .expect("write the config file");
+    let output = case.doctor_for(&config);
+    assert_eq!(output.status.code(), Some(1), "{}", shown(&output));
+    let lines = stdout(&output);
+    assert!(
+        lines.contains(&"guard controller of alpha: allowed".to_owned()),
+        "{}",
+        shown(&output)
+    );
+    assert!(
+        the_line(&lines, "guard controller of beta: ", &output)
+            .starts_with("guard controller of beta: denied by "),
+        "{}",
+        shown(&output)
+    );
+    assert_eq!(
+        last(&output),
+        "not ready: forge route beta (no bot route for gitlab.example.com), guard controller of \
+         beta (denied)",
+        "{}",
+        shown(&output)
+    );
+}
+
+/// An instance on the default route, `gates`, that names no `gates_policy`: the bot route has no
+/// policy to write under. Doctor names the two fixes on its line, a `gates_policy` or
+/// `forge.route: direct`, by their YAML path, and is not ready.
+#[test]
+fn doctor_is_not_ready_on_the_gates_route_without_a_gates_policy() {
+    let case = Case::new("route-no-policy");
+    case.programs_but(&[]);
+    let config = case.config_of(GITHUB_SOURCE, "");
+    let output = case.doctor_for(&config);
+    assert_eq!(output.status.code(), Some(1), "{}", shown(&output));
+    let lines = stdout(&output);
+    let line = the_line(&lines, "forge route alpha: ", &output);
+    for fix in ["instances[0].gates_policy", "forge.route: direct"] {
+        assert!(
+            line.contains(fix),
+            "the line names the fix {fix:?}: {}",
+            shown(&output)
+        );
+    }
+    assert_eq!(
+        last(&output),
+        "not ready: forge route alpha (no gates_policy)",
+        "{}",
+        shown(&output)
+    );
+}
+
+/// An instance on the route `gates` with a source on a host the bot route has no route for, a
+/// GitLab host: doctor names the host and the two fixes on its line, `forge.route: direct` or
+/// the bot's route for that host, and is not ready. On the direct route the same instance is
+/// ready.
+#[test]
+fn doctor_is_not_ready_when_the_bot_route_has_no_route_for_a_source_s_host() {
+    let case = Case::new("route-no-host");
+    case.programs_but(&["gh"]);
+    case.program(GLAB.0, GLAB.1, 0);
+    let config = case.config(GITLAB_SOURCE);
+    let output = case.doctor_for(&config);
+    assert_eq!(output.status.code(), Some(1), "{}", shown(&output));
+    let lines = stdout(&output);
+    let line = the_line(&lines, "forge route alpha: ", &output);
+    for fix in [
+        "instances[0].forge.route: direct",
+        "a route for gitlab.example.com",
+    ] {
+        assert!(
+            line.contains(fix),
+            "the line names the fix {fix:?}: {}",
+            shown(&output)
+        );
+    }
+    assert_eq!(
+        last(&output),
+        "not ready: forge route alpha (no bot route for gitlab.example.com)",
+        "{}",
+        shown(&output)
+    );
+
+    let config = case.config_of(GITLAB_SOURCE, DIRECT);
+    let output = case.doctor_for(&config);
+    assert_eq!(output.status.code(), Some(0), "{}", shown(&output));
+    assert!(
+        stdout(&output).contains(&"forge route alpha: direct".to_owned()),
+        "{}",
+        shown(&output)
+    );
     assert_eq!(last(&output), "ready", "{}", shown(&output));
 }

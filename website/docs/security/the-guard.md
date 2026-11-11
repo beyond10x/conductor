@@ -3,7 +3,7 @@ title: The guard
 sidebar_position: 2
 description: The PreToolUse hook on every tool call of a guarded session; places, tool table, rules per role, the lease, failure and records.
 lede: One hook reads each tool call, finds the place the session runs in, applies that place's rule and answers with an exit code.
-source: crates/conductor/src/guard.rs, crates/conductor/src/guard/rules.rs, crates/conductor/src/guard/shell.rs, crates/conductor/src/session.rs, crates/conductor/src/cli.rs; crates/conductor/kinds/claude-code/; crates/conductor/tests/guard_rules.rs, guard_hook.rs, adv_guard.rs
+source: crates/conductor/src/guard.rs, crates/conductor/src/guard/rules.rs, crates/conductor/src/guard/shell.rs, crates/conductor/src/session.rs, crates/conductor/src/cli.rs, crates/conductor/src/doctor.rs; crates/conductor/kinds/claude-code/; crates/conductor/tests/guard_rules.rs, guard_hook.rs, adv_guard.rs
 ---
 
 The guard is a Claude Code PreToolUse hook on the matcher `*`, wired by the two settings files the
@@ -159,6 +159,19 @@ A credential write is class H under every route: `gh secret`, `auth`, `ssh-key`,
 `glab variable`, `auth`, `ssh-key`, `gpg-key`, `deploy-key`, `token`, `config`, `securefile`.
 The denial hands the operator the command, prefixed with `!`. A call inside `python -c "…"` or
 `node -e "…"` is not caught: the parser follows `sh -c` only.
+
+`conductor doctor` asks this table, with the function the hook decides every call with, about
+one forge write of each role it decides: a pull request create in the role's own repository, the
+controller's in a checkout of the instance and conductor's in its records. Under
+`forge.route: direct` that is `gh pr create -R <own>`, under `gates` the bot route's
+`b10x-gates api`; for a repository on any other host than `github.com` it is
+`glab mr create -R <own>` under either route, since the bot route writes to GitHub only. Doctor
+prints `guard <role>: allowed` or `guard <role>: denied by <the guard's reason>`, runs nothing and
+records no denial. A denied role makes its verdict `not ready: guard <role> (denied)`. A role
+with no checkout whose `origin` names a repository reads `not checked`. Before those rows, a
+`forge route <instance>:` row names each instance's route. An instance on `gates` without a
+`gates_policy`, or with a `gitlab` source, makes the verdict `not ready`, and its row names the
+fix.
 
 ### Dashboard answers
 

@@ -39,6 +39,12 @@
 //! last line, so `conductor setup` prints the same rows and adds its own failures to the same
 //! verdict (`story:setup-command`).
 //!
+//! `conductor doctor` alone ([`doctor_with`]) then prints, for each instance of the config file,
+//! the route its forge writes take ([`route_lines_of`]) and the guard's answer to one forge write
+//! of each role the guard decides ([`guard_lines`], `story:doctor-checks-guard-forge-writes`). An
+//! instance on `forge.route: gates` without a `gates_policy`, or with a source on a host the bot
+//! route does not write to, and a role whose write the guard denies, make the run not ready.
+//!
 //! [`find`] is the one check of whether a program is there: `conductor snapshot start-snapshot`
 //! runs it on the programs its collectors start ([`crate::collect::programs`]) and refuses at
 //! start, naming each one missing, rather than failing inside a collector.
@@ -56,6 +62,7 @@ use conductor_model::config::{
     Config, DoctorReport, ForgeLogin, ForgeLoginState, ForgeRoute, Instance, Machine, Prerequisite,
     PrerequisiteState, Source,
 };
+use conductor_model::dispatch::Verdict;
 
 use crate::collect;
 use crate::config;
@@ -1423,8 +1430,10 @@ pub fn check_in(
 /// verdict, `ready` or `not ready: ` with what failed ([`verdict_of`]). Exits 1 when the config
 /// does not load, a program is missing, older than its pin, or pinned with a pin or version that
 /// does not read, or a forge CLI is not logged in to a host of the config file's sources; 0
-/// otherwise; also when the box of an instance would be refused ([`box_lines`]), which only this
-/// command checks. Writes nothing. The confinement providers' rows are gone with `confinement.*`
+/// otherwise; also when the box of an instance would be refused ([`box_lines`]), when an
+/// instance's forge route writes nothing ([`route_lines`]) or when the guard denies a role the
+/// forge write it makes by design ([`guard_lines`]), which only this command checks. Writes
+/// nothing. The confinement providers' rows are gone with `confinement.*`
 /// (design architecture-next § 11, `conductor.config.DoctorReport`).
 ///
 /// # Errors
@@ -1448,6 +1457,10 @@ pub fn doctor_with(flag: Option<&Path>) -> Result<ExitCode> {
         failures.extend(failure);
     }
     for (line, failure) in box_lines(flag, &crate::placement::Sdk::default()) {
+        println!("{line}");
+        failures.extend(failure);
+    }
+    for (line, failure) in route_lines(flag).into_iter().chain(guard_lines(flag)) {
         println!("{line}");
         failures.extend(failure);
     }
@@ -1605,6 +1618,270 @@ fn box_lines(
             })
         })
         .collect()
+}
+
+/// The hosts the bot route writes to (`story:doctor-checks-guard-forge-writes`): the `bot`, `gh`
+/// and `api` commands of `b10x-gates` are GitHub's, and the guard's rule table reads no bot route
+/// to any other host ([`crate::guard`]).
+const BOT_ROUTE_HOSTS: [&str; 1] = [GITHUB_HOST];
+
+/// The lines of the forge route of `instance`, the instance `index` of the config file
+/// (`story:doctor-checks-guard-forge-writes`), each with the failure it adds to the verdict:
+/// `forge route <instance>: direct`; on the route `gates`, `… gates, policy <gates_policy>`, or
+/// one line per problem, naming its fixes by their YAML path. No `gates_policy`, the policy the
+/// instance's writes on that route pass, adds `forge route <instance> (no gates_policy)`; each
+/// host of its sources the bot route has no route for ([`BOT_ROUTE_HOSTS`]: every `gitlab`
+/// source's host) adds `forge route <instance> (no bot route for <host>)`.
+fn route_lines_of(index: usize, instance: &Instance) -> Vec<(String, Option<String>)> {
+    let name = &instance.name.0;
+    if instance.forge.route == ForgeRoute::Direct {
+        return vec![(format!("forge route {name}: direct"), None)];
+    }
+    let mut out = Vec::new();
+    if instance.gates_policy.is_none() {
+        out.push((
+            format!(
+                "forge route {name}: gates without a gates_policy: set \
+                 instances[{index}].gates_policy, or instances[{index}].forge.route: direct"
+            ),
+            Some(format!("forge route {name} (no gates_policy)")),
+        ));
+    }
+    let mut hosts: Vec<&str> = Vec::new();
+    for source in &instance.sources {
+        if let Source::GitLab(gitlab) = source
+            && !BOT_ROUTE_HOSTS.contains(&gitlab.host.as_str())
+            && !hosts.contains(&gitlab.host.as_str())
+        {
+            hosts.push(&gitlab.host);
+        }
+    }
+    for host in hosts {
+        out.push((
+            format!(
+                "forge route {name}: gates, and the bot route has no route for {host}: set \
+                 instances[{index}].forge.route: direct, or give the bot a route for {host}"
+            ),
+            Some(format!("forge route {name} (no bot route for {host})")),
+        ));
+    }
+    if let (true, Some(policy)) = (out.is_empty(), &instance.gates_policy) {
+        out.push((format!("forge route {name}: gates, policy {policy}"), None));
+    }
+    out
+}
+
+/// [`route_lines_of`] for each instance of the config file, in the file's order. A config that
+/// does not load and no config file name none. Reads the config and nothing else; only
+/// [`doctor_with`] calls it.
+fn route_lines(flag: Option<&Path>) -> Vec<(String, Option<String>)> {
+    let Ok(environment) = config::Environment::from_process() else {
+        return Vec::new();
+    };
+    let Some(loaded) = config::load(flag, &environment)
+        .ok()
+        .filter(|loaded| loaded.read)
+    else {
+        return Vec::new();
+    };
+    loaded
+        .config
+        .instances
+        .iter()
+        .enumerate()
+        .flat_map(|(index, instance)| route_lines_of(index, instance))
+        .collect()
+}
+
+/// A forge write doctor asks the guard about (`story:doctor-checks-guard-forge-writes`): the
+/// Bash command and the working directory of the session that would run it. Doctor never runs it.
+struct Sample {
+    cwd: PathBuf,
+    command: String,
+}
+
+impl Sample {
+    /// The pull request create of the repository checked out at `checkout`, as a session there
+    /// writes it under `route`; none when the checkout's `origin` names no repository
+    /// ([`collect::gitlab::origin`], which the guard reads it with). For an origin on GitHub:
+    /// `gh pr create -R <owner>/<name>` under `direct`, the bot route's `b10x-gates api` under
+    /// `gates`. For any other host, a merge request create, `glab mr create -R <path>`, under
+    /// either route: the bot route carries nothing to it ([`BOT_ROUTE_HOSTS`]).
+    fn of(checkout: &Path, route: ForgeRoute) -> Option<Self> {
+        let (host, own) = collect::gitlab::origin(checkout)?;
+        let github = BOT_ROUTE_HOSTS
+            .iter()
+            .any(|routed| host.eq_ignore_ascii_case(routed));
+        let command = match (github, route) {
+            (true, ForgeRoute::Gates) => format!(
+                "{GATES} api --method POST --path /repos/{own}/pulls --input pull.json --output \
+                 pull.out"
+            ),
+            (true, ForgeRoute::Direct) => format!("gh pr create -R {own} --fill"),
+            (false, _) => format!("glab mr create -R {own} --fill"),
+        };
+        Some(Self {
+            cwd: checkout.to_path_buf(),
+            command,
+        })
+    }
+
+    /// The PreToolUse payload of the call, as the harness sends the guard's hook one.
+    fn payload(&self) -> serde_json::Value {
+        serde_json::json!({
+            "session_id": "conductor-doctor",
+            "hook_event_name": "PreToolUse",
+            "tool_name": "Bash",
+            "cwd": self.cwd.to_string_lossy(),
+            "tool_input": {"command": self.command},
+        })
+    }
+}
+
+/// The checkouts of `instance` under its checkouts root `root`, in name order: each directory
+/// holding `.git` directly under it, or directly under a group directory there, but those a
+/// source of the instance excludes, whose sessions run under no rule set.
+fn checkouts_under(instance: &Instance, root: &Path) -> Vec<PathBuf> {
+    let listed = |dir: &Path| -> Vec<PathBuf> {
+        let mut found: Vec<PathBuf> = fs::read_dir(dir)
+            .map(|entries| {
+                entries
+                    .filter_map(Result::ok)
+                    .map(|entry| entry.path())
+                    .filter(|path| path.is_dir())
+                    .collect()
+            })
+            .unwrap_or_default();
+        found.sort();
+        found
+    };
+    let mut checkouts = Vec::new();
+    for first in listed(root) {
+        if first.join(".git").exists() {
+            checkouts.push(first);
+        } else {
+            checkouts.extend(
+                listed(&first)
+                    .into_iter()
+                    .filter(|second| second.join(".git").exists()),
+            );
+        }
+    }
+    let exclude = collect::excluded_under(instance, root);
+    checkouts.retain(|checkout| {
+        let steps: Vec<String> = checkout
+            .strip_prefix(root)
+            .map(|rest| {
+                rest.components()
+                    .map(|step| step.as_os_str().to_string_lossy().into_owned())
+                    .collect()
+            })
+            .unwrap_or_default();
+        !collect::is_excluded(&steps, &exclude)
+    });
+    checkouts
+}
+
+/// The sample forge write of a repository controller of `instance`: [`Sample::of`] the first of
+/// its checkouts ([`checkouts_under`]) whose `origin` names a repository; why there is none
+/// otherwise.
+fn lead_sample(instance: &Instance) -> Result<Sample, String> {
+    let root = Path::new(&instance.checkouts.root);
+    let checkouts = checkouts_under(instance, root);
+    if checkouts.is_empty() {
+        return Err(format!("no git checkout under {}", root.display()));
+    }
+    checkouts
+        .iter()
+        .find_map(|checkout| Sample::of(checkout, instance.forge.route))
+        .ok_or_else(|| {
+            format!(
+                "no checkout under {} has an origin that names a repository",
+                root.display()
+            )
+        })
+}
+
+/// The sample forge write of the director of `instance`: [`Sample::of`] its records, the
+/// repository the guard's rule for it names its own; why there is none otherwise.
+fn director_sample(instance: &Instance) -> Result<Sample, String> {
+    let records = Path::new(&instance.records);
+    Sample::of(records, instance.forge.route)
+        .ok_or_else(|| format!("the origin of {} names no repository", records.display()))
+}
+
+/// One line per role the guard decides, the director and the lead under the name the instance
+/// gives each, for each instance of the config file, in the file's order
+/// (`story:doctor-checks-guard-forge-writes`): the guard's answer to one forge write the role
+/// makes by design, a pull request create in its own repository on the instance's `forge.route`
+/// ([`Sample::of`]): the lead's in a checkout of the instance, the director's in its records. The
+/// answer is [`crate::guard::asked`]'s, the rule table the PreToolUse hook decides every call
+/// with, in the places the hook builds for that instance. The line is `guard <role>: allowed`,
+/// or `guard <role>: denied by <the guard's reason>`, which adds `guard <role> (denied)` to the
+/// verdict, or `guard <role>: not checked (<why>)` for a role with no repository on a forge,
+/// which adds nothing; `<role>` is `<role> of <instance>` when the file has several instances.
+/// It runs no command, records no denial, opens no store and writes nothing; only
+/// [`doctor_with`] calls it, never [`check_in`], which the dashboard's health thread repeats. A
+/// config that does not load, no config file, and a home directory that is no absolute path
+/// name none.
+fn guard_lines(flag: Option<&Path>) -> Vec<(String, Option<String>)> {
+    let Ok(environment) = config::Environment::from_process() else {
+        return Vec::new();
+    };
+    let Some(loaded) = config::load(flag, &environment)
+        .ok()
+        .filter(|loaded| loaded.read)
+    else {
+        return Vec::new();
+    };
+    let Some(home) = environment.home.clone().filter(|home| home.is_absolute()) else {
+        return Vec::new();
+    };
+    let file = environment.cwd.join(&loaded.path);
+    let instances = &loaded.config.instances;
+    let mut out = Vec::new();
+    for instance in instances {
+        let active = config::Active {
+            instance: instance.clone(),
+            from_file: true,
+            others: instances
+                .iter()
+                .filter(|other| other.name != instance.name)
+                .cloned()
+                .collect(),
+            default: loaded.config.default.clone(),
+            daemon_port: loaded.config.daemon.port,
+        };
+        for role in &instance.roles {
+            let sample = match config::role_name(&role.role) {
+                Some(config::BuiltInRole::Director) => director_sample(instance),
+                Some(config::BuiltInRole::Lead) => lead_sample(instance),
+                Some(config::BuiltInRole::Maintainer) | None => continue,
+            };
+            let who = if instances.len() > 1 {
+                format!("{} of {}", role.role, instance.name.0)
+            } else {
+                role.role.clone()
+            };
+            out.push(match sample {
+                Err(why) => (format!("guard {who}: not checked ({why})"), None),
+                Ok(sample) => {
+                    let decision = crate::guard::asked(&sample.payload(), &home, &active, &file);
+                    match decision.verdict {
+                        Verdict::Allow => (format!("guard {who}: allowed"), None),
+                        Verdict::Deny => (
+                            format!(
+                                "guard {who}: denied by {}",
+                                crate::guard::one_line(&decision.reason)
+                            ),
+                            Some(format!("guard {who} (denied)")),
+                        ),
+                    }
+                }
+            });
+        }
+    }
+    out
 }
 
 /// The daemon's secrets source (`story:secrets-source`): its kind, namespace and whether it

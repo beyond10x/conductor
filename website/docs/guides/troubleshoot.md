@@ -29,9 +29,14 @@ exits 1:
 | `<program> (not logged in to <host>)` | `gh auth login --hostname github.com`, or `glab auth login --hostname <host>` |
 | `worktree workspace (not activated: <root>)` | run the `activate:` line under the root's row, `conductor setup --apply` for a checkout under it, which writes the profile and activates the root |
 | `agent kind <kind> (not implemented)` | set the role's `kind` to `claude-code`, the only kind |
+| `forge route <instance> (no gates_policy)` | the instance is on `forge.route: gates`, the default, and names no `gates_policy`: write its `gates_policy`, or `forge: {route: direct}` |
+| `forge route <instance> (no bot route for <host>)` | the bot route writes to GitHub only: write `forge: {route: direct}` on the instance whose `gitlab` source is on `<host>` |
+| `guard <role> (denied)` | the guard denies that role the pull or merge request create it makes by design. Its `guard <role>:` line carries the guard's reason; on the route `gates` with a `gitlab` source, the instance's `forge route` line names the fix. With several instances in the file the role reads `<role> of <instance>` |
 
 `substrate-daemon` is needed only for a `placement` that opens a box, a forge's CLI only for a
-source on that forge. The `secrets:`, `store:` and `daemon unit:` lines change no verdict.
+source on that forge. The `secrets:`, `store:` and `daemon unit:` lines change no verdict, nor
+does a `guard <role>: not checked (…)` line: that role has no checkout whose `origin` names a
+repository to ask the guard about.
 
 ## The daemon does not start
 

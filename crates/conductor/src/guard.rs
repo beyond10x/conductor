@@ -240,6 +240,29 @@ pub fn decide_in(payload: &Value, places: &Places, sessions: &SessionList) -> De
     decided(payload, places, sessions).decision
 }
 
+/// The places the hook decides in: those of `active`, the config file `file`, and the temporary
+/// directory `$TMPDIR` names to this process.
+fn places_of(home: &Path, active: &config::Active, file: &Path) -> Places {
+    Places::active(home, active)
+        .with_config_file(file)
+        .with_tmp(std::env::var_os("TMPDIR").map(PathBuf::from).as_deref())
+}
+
+/// What the rule table answers to `payload` for a session of the instance `active`, whose config
+/// file is `file` (`story:doctor-checks-guard-forge-writes`): [`decided`], which the hook decides
+/// every call with, in the places the hook builds ([`places_of`]). It only asks: it records no
+/// denial, opens no store, writes no file and does not read the conductor lease, which the hook
+/// checks after the rule table allows a conductor's write.
+#[must_use]
+pub fn asked(payload: &Value, home: &Path, active: &config::Active, file: &Path) -> Decision {
+    decided(
+        payload,
+        &places_of(home, active, file),
+        &SessionList::default(),
+    )
+    .decision
+}
+
 /// What the rule table decided of one call, and whether it is a write the conductor lease decides
 /// further ([`leased`]).
 struct Decided {
@@ -463,9 +486,7 @@ fn hook(state: Option<&Path>, pid: Option<i64>, unloaded: Option<&str>) -> ExitC
         };
         match std::env::var_os("HOME").map(PathBuf::from) {
             Some(home) if home.is_absolute() => {
-                let places = Places::active(&home, crate::config::active())
-                    .with_config_file(&config_file(&home))
-                    .with_tmp(std::env::var_os("TMPDIR").map(PathBuf::from).as_deref());
+                let places = places_of(&home, crate::config::active(), &config_file(&home));
                 let Decided {
                     decision,
                     conductor_write,
@@ -796,7 +817,7 @@ impl TryContext for Ports {
 }
 
 /// `text` on one line: every line break a space.
-fn one_line(text: &str) -> String {
+pub(crate) fn one_line(text: &str) -> String {
     text.split(['\n', '\r'])
         .filter(|line| !line.is_empty())
         .collect::<Vec<_>>()

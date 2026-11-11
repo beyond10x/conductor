@@ -188,7 +188,9 @@ to fill in, and each step says where they come from. `<target>` is the build of 
     - Fix: go back to the step for each program the not-ready line names: gh or glab to step 2,
       aep, ess, worktree, substrate-daemon or b10x-gates missing or too old to step 4, a worktree
       workspace not activated to step 11. Install any other missing program (git, claude, jq)
-      with the system's package manager, then check again.
+      with the system's package manager, then check again. For a forge route reason,
+      the forge route line of that instance names the change to its config file; for a guard
+      reason, the guard line of that role carries the guard's own reason.
     - Hands: what the step it goes back to needs.
     - Next: once doctor is ready, [one task in an existing repository](https://beyond10x.github.io/conductor/docs/guides/first-task-existing-repo)
       takes the person from here to a first merged pull request.

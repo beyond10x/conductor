@@ -157,8 +157,8 @@ A key nothing reads yet is accepted, defaulted and shown: `repositories[].activi
 | `retention.snapshots` | store |
 | `usage.probe`, `usage.watcher`, `usage.rotate` | usage collector, watch, `conductor status`; `conductor doctor`; the watch's resume of a pane on `Usage limit reached` |
 | `catalog`, `secret_syncs` | repositories and secrets collectors, board |
-| `gates_policy` | `conductor repository refresh-hooks --apply` |
-| `forge.route` | guard, `conductor run`, broker `commit`, `conductor status` |
+| `gates_policy` | `conductor repository refresh-hooks --apply`, `conductor doctor` |
+| `forge.route` | guard, `conductor run`, broker `commit`, `conductor status`, `conductor doctor` |
 | `repositories[].no_releases` | `metric compute` |
 
 ## What the reference does not say
