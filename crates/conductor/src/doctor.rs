@@ -1614,13 +1614,17 @@ fn box_lines(
         .collect()
 }
 
-/// The hosts the bot route writes to (`story:doctor-checks-guard-forge-writes`): the `bot`, `gh`
-/// and `api` commands of `b10x-gates` are GitHub's, and the guard's rule table reads no bot route
-/// to any other host ([`crate::guard`]).
-const BOT_ROUTE_HOSTS: [&str; 1] = [GITHUB_HOST];
+/// The hosts the bot route writes to (`story:doctor-checks-guard-forge-writes`), GitHub's: its
+/// own and `ssh.github.com`, its SSH over the HTTPS port. The `bot`, `gh` and `api` commands of
+/// `b10x-gates` are GitHub's, and the guard's rule table reads no bot route to any other host
+/// ([`crate::guard`]).
+const BOT_ROUTE_HOSTS: [&str; 2] = [GITHUB_HOST, "ssh.github.com"];
 
-/// Whether the bot route writes to `host` ([`BOT_ROUTE_HOSTS`]), in any case.
-fn bot_route_writes_to(host: &str) -> bool {
+/// Whether an origin on `host`, a host name without its port, is on GitHub, to which the bot
+/// route writes ([`BOT_ROUTE_HOSTS`]), in any case: the one answer doctor's route and guard lines
+/// and setup's [`crate::setup::origin_of`] take.
+#[must_use]
+pub fn on_github(host: &str) -> bool {
     BOT_ROUTE_HOSTS
         .iter()
         .any(|routed| host.eq_ignore_ascii_case(routed))
@@ -1650,14 +1654,29 @@ pub fn environment_policy(cwd: &Path) -> Option<PathBuf> {
 /// (`<host>`, `<owner>/<name>`), read once ([`collect::gitlab::origin`], which the guard reads
 /// it with); none when it names none.
 pub(crate) struct Checkout {
-    path: PathBuf,
-    origin: Option<(String, String)>,
+    pub(crate) path: PathBuf,
+    pub(crate) origin: Option<(String, String)>,
 }
 
 /// The checkouts of `instance` ([`checkouts_under`] its checkouts root), each with its `origin`
 /// read once: the route lines and the guard lines of the instance both read them from here.
 pub(crate) fn checkouts_of(instance: &Instance) -> Vec<Checkout> {
-    checkouts_under(instance, Path::new(&instance.checkouts.root))
+    with_origins(checkouts_under(
+        instance,
+        Path::new(&instance.checkouts.root),
+    ))
+}
+
+/// The checkouts an instance whose checkouts root is `root` and whose sources exclude nothing
+/// has ([`git_dirs_under`]), each with its `origin` read as [`checkouts_of`] reads it: what
+/// `conductor setup --apply` derives the route of the instance it writes from.
+pub(crate) fn checkouts_at(root: &Path) -> Vec<Checkout> {
+    with_origins(git_dirs_under(root))
+}
+
+/// Each of `paths` with its `origin`, read once.
+fn with_origins(paths: Vec<PathBuf>) -> Vec<Checkout> {
+    paths
         .into_iter()
         .map(|path| {
             let origin = collect::gitlab::origin(&path);
@@ -1732,7 +1751,7 @@ pub(crate) fn route_lines_of(
         .filter_map(|checkout| checkout.origin.as_ref().map(|(host, _)| host.as_str()));
     let mut hosts: Vec<&str> = Vec::new();
     for host in sources.chain(origins) {
-        if !bot_route_writes_to(host) && !hosts.iter().any(|one| one.eq_ignore_ascii_case(host)) {
+        if !on_github(host) && !hosts.iter().any(|one| one.eq_ignore_ascii_case(host)) {
             hosts.push(host);
         }
     }
@@ -1769,7 +1788,7 @@ impl Sample {
     /// carries nothing to it ([`BOT_ROUTE_HOSTS`]).
     fn of(checkout: &Path, origin: &(String, String), route: ForgeRoute) -> Self {
         let (host, own) = origin;
-        let command = match (bot_route_writes_to(host), route) {
+        let command = match (on_github(host), route) {
             (true, ForgeRoute::Gates) => format!(
                 "{GATES} api --method POST --path /repos/{own}/pulls --input pull.json --output \
                  pull.out"
@@ -1795,10 +1814,28 @@ impl Sample {
     }
 }
 
-/// The checkouts of `instance` under its checkouts root `root`, in name order: each directory
-/// holding `.git` directly under it, or directly under a group directory there, but those a
+/// The checkouts of `instance` under its checkouts root `root` ([`git_dirs_under`]), but those a
 /// source of the instance excludes, whose sessions run under no rule set.
 fn checkouts_under(instance: &Instance, root: &Path) -> Vec<PathBuf> {
+    let mut checkouts = git_dirs_under(root);
+    let exclude = collect::excluded_under(instance, root);
+    checkouts.retain(|checkout| {
+        let steps: Vec<String> = checkout
+            .strip_prefix(root)
+            .map(|rest| {
+                rest.components()
+                    .map(|step| step.as_os_str().to_string_lossy().into_owned())
+                    .collect()
+            })
+            .unwrap_or_default();
+        !collect::is_excluded(&steps, &exclude)
+    });
+    checkouts
+}
+
+/// The checkouts under `root`, in name order: each directory holding `.git` directly under it,
+/// or directly under a group directory there.
+fn git_dirs_under(root: &Path) -> Vec<PathBuf> {
     let listed = |dir: &Path| -> Vec<PathBuf> {
         let mut found: Vec<PathBuf> = fs::read_dir(dir)
             .map(|entries| {
@@ -1824,18 +1861,6 @@ fn checkouts_under(instance: &Instance, root: &Path) -> Vec<PathBuf> {
             );
         }
     }
-    let exclude = collect::excluded_under(instance, root);
-    checkouts.retain(|checkout| {
-        let steps: Vec<String> = checkout
-            .strip_prefix(root)
-            .map(|rest| {
-                rest.components()
-                    .map(|step| step.as_os_str().to_string_lossy().into_owned())
-                    .collect()
-            })
-            .unwrap_or_default();
-        !collect::is_excluded(&steps, &exclude)
-    });
     checkouts
 }
 

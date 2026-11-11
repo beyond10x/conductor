@@ -114,8 +114,9 @@ to fill in, and each step says where they come from. `<target>` is the build of 
    For GitLab the source is `gitlab: <group>` with `host: <host>` under it; with no forge it is
    `local: <directory holding the repository>`. A file that is there already gets the instance
    under its `instances:`, with a `session_prefix` no other instance has. The last line is the
-   forge route `conductor setup --apply` writes: for a GitHub origin while `B10X_GATES_POLICY`
-   names a readable policy file it is `gates_policy: <that file's absolute path>` instead; step
+   forge route `conductor setup --apply` writes: when the repository's origin and that of every
+   other checkout under the checkouts root that has one are on GitHub and `B10X_GATES_POLICY`
+   names a readable policy file, it is `gates_policy: <that file's absolute path>` instead; step
    11 says why.
    - Check: `conductor config show`; one instance's checkouts root is the directory that holds
      the repository.
@@ -171,14 +172,16 @@ to fill in, and each step says where they come from. `<target>` is the build of 
     - Hands: none.
 
 11. **Read the forge route setup wrote.** The route is how a controller writes its pull or merge
-    requests. `conductor setup --apply` (step 8) wrote it into the instance it created, from the
-    repository's origin, and printed it with why; it asks nothing. A GitLab origin, a repository
-    with no forge origin, or a GitHub origin while `B10X_GATES_POLICY` names no readable policy
-    file gets `forge: {route: direct}`: controllers write with the person's own forge login, the
-    one of step 2, since the bot route writes to GitHub only and under a policy only. A GitHub
-    origin while `B10X_GATES_POLICY` names a readable policy file gets that file's absolute path
-    as its `gates_policy`, on the default route, gates: controllers write through the bot route,
-    `b10x-gates`, under that policy. Setup changes the route of no instance that is there. To
+    requests. `conductor setup --apply` (step 8) wrote it into the instance it created and
+    printed it with why; it asks nothing. The instance gets the bot route only when the
+    repository's origin and that of every other checkout under its checkouts root that has one
+    are on GitHub and `B10X_GATES_POLICY` names a readable policy file: that file's absolute path
+    as its `gates_policy`, on the default route, gates, and controllers write through the bot
+    route, `b10x-gates`, under that policy. Anything else, a GitLab origin, a repository with no
+    forge origin, no readable policy file, or a checkout there on another host, which the route
+    line names, gets `forge: {route: direct}`: controllers write with the person's own forge
+    login, the one of step 2, since the bot route writes to GitHub only and under a policy only.
+    Setup changes the route of no instance that is there. To
     take the bot route later, write `gates_policy: <path>` under the instance, a policy file
     https://github.com/beyond10x/gates#readme says how to write, and remove its `forge.route` or
     set it to gates.

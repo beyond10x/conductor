@@ -874,12 +874,30 @@ fn setup_apply_keeps_a_store_that_is_there_and_a_daemon_store_that_is_written() 
             "{}",
             shown(&output)
         );
+        // The verdict names the refused box once, as doctor's does, and the pages quote it.
         let verdict = said.lines().last().unwrap_or_default();
-        assert!(
-            verdict.starts_with("not ready: ") && verdict.contains("box (refused)"),
+        assert_eq!(
+            verdict,
+            "not ready: box theta (placement.writable-root-shared)",
             "{}",
             shown(&output)
         );
+        for (page, name) in [
+            ("website/docs/getting-started.md", "<instance>"),
+            ("website/docs/guides/first-task-existing-repo.md", "alpha"),
+        ] {
+            let text = fs::read_to_string(
+                Path::new(env!("CARGO_MANIFEST_DIR"))
+                    .join("../..")
+                    .join(page),
+            )
+            .expect("the page");
+            let quoted = format!("`{}`", verdict.replace("theta", name));
+            assert!(
+                text.contains(&quoted),
+                "{page} does not quote the verdict {quoted}"
+            );
+        }
         assert_eq!(
             fs::read_to_string(case.config_file()).expect("the config file"),
             config,
@@ -1185,6 +1203,49 @@ fn setup_apply_writes_the_bot_route_for_a_github_origin_and_a_policy() {
         "gates, policy <policy>",
         "the origin is on github.com and B10X_GATES_POLICY names this policy file",
     );
+}
+
+/// The route reads every checkout under the checkouts root setup writes, as doctor does: beside a
+/// second GitHub checkout and one with no origin, which changes nothing, a GitHub origin with a
+/// policy still gets the bot route, and doctor and setup end `ready`.
+#[test]
+fn setup_apply_writes_the_bot_route_beside_other_github_checkouts() {
+    let case = Case::new("route-beside-github");
+    case.worktree(0);
+    case.claude_json();
+    let repository = case.repository(
+        "nu",
+        Some("https://github.com/example-org/nu.git"),
+        Some(CURRENT_STORE),
+    );
+    case.repository("xi", Some("git@github.com:example-org/xi.git"), None);
+    case.repository("omicron", None, None);
+    let policy = case.dir.join("gates-policy.json");
+    fs::write(&policy, "{}\n").expect("write the policy");
+    case.serve_boxes("nu");
+    let applied = case.run(&repository, "setup", &["--apply"], Some(policy.as_path()));
+    let config = fs::read_to_string(case.config_file()).unwrap_or_else(|error| {
+        panic!(
+            "--apply wrote no config file ({error}): {}",
+            shown(&applied)
+        )
+    });
+    assert!(
+        config.contains(&format!("    gates_policy: \"{}\"\n", policy.display())),
+        "the instance names the bot route:\n{config}\n{}",
+        shown(&applied)
+    );
+    holds(
+        &applied,
+        &[format!(
+            "forge route nu: gates, policy {}, which --apply wrote: the origin is on github.com \
+             and {POLICY_VARIABLE} names this policy file",
+            policy.display()
+        )],
+    );
+    assert_eq!(last(&applied), "ready", "{}", shown(&applied));
+    let doctor = case.run(&repository, "doctor", &[], Some(policy.as_path()));
+    assert_eq!(last(&doctor), "ready", "{}", shown(&doctor));
 }
 
 /// A GitHub origin and no policy in the environment: `forge: {route: direct}`, since the bot

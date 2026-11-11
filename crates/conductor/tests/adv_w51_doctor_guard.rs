@@ -609,9 +609,10 @@ fn adv2_setup_run(case: &SetupCase, cwd: &Path, args: &[&str], policy: Option<&P
 /// `SETUP.md` from step 6: `conductor setup --apply` in a GitHub repository with
 /// `B10X_GATES_POLICY` naming a readable policy writes the bot route, and the checkouts root it
 /// writes is the directory holding the repository, here beside a clone of a GitLab repository.
-/// Setup derives the route from the one repository's origin; doctor checks it against every
-/// checkout under that root. The route setup writes for a fresh install must not be one doctor,
-/// and setup's own verdict, then refuses with no hand edit made (the operator's decision).
+/// Doctor checks the route against every checkout under that root. The route setup writes for a
+/// fresh install must not be one doctor, and setup's own verdict, then refuses with no hand edit
+/// made (the operator's decision): setup reads those checkouts as doctor does, writes `direct`
+/// and names the clone and its host as the reason.
 #[test]
 fn adv2_the_bot_route_setup_writes_is_not_refused_for_a_clone_beside_it() {
     let case = SetupCase::new("adv2-route-beside");
@@ -631,8 +632,17 @@ fn adv2_the_bot_route_setup_writes_is_not_refused_for_a_clone_beside_it() {
     let config = fs::read_to_string(case.home().join(".b10x/conductor/conductor.yaml"))
         .unwrap_or_else(|error| panic!("setup wrote no config ({error}): {}", shown(&setup)));
     assert!(
-        config.contains("gates_policy"),
-        "setup writes the bot route for a GitHub origin with a policy:\n{config}\n{}",
+        config.contains("forge: {route: direct}") && !config.contains("gates_policy"),
+        "setup writes the direct route beside a checkout on another forge:\n{config}\n{}",
+        shown(&setup)
+    );
+    assert!(
+        stdout(&setup).iter().any(|line| {
+            line.starts_with("forge route zeta: direct, which --apply wrote: ")
+                && line.contains("notes")
+                && line.contains("gitlab.example.com")
+        }),
+        "setup names the checkout and its host as the reason: {}",
         shown(&setup)
     );
     let doctor = adv2_setup_run(&case, &repository, &["doctor"], Some(policy.as_path()));

@@ -30,7 +30,8 @@
 //!
 //! With `--apply` a fifth row follows when conductord would refuse the box of an instance of
 //! the file `--apply` wrote or found, by the check `conductor config validate` runs
-//! ([`box_check`]): `box`, with the refusal, and the verdict names `box (refused)`. Where
+//! ([`box_check`]): `box`, with the refusal, which the verdict names as doctor's does,
+//! `box <instance> (<refusal>)`. Where
 //! another `daemon.store` lifts the refusal it prints that value as a `to write: ` line and
 //! says that it moves no store.
 //!
@@ -40,9 +41,10 @@
 //! its rows ([`doctor::verdict_over`]): setup is not ready wherever doctor on the same file is.
 //!
 //! The instance `--apply` creates names the forge route [`route_for`] derives from the
-//! repository's `origin`, asking the person nothing: `forge: {route: direct}` for a GitLab origin
-//! or none on a forge, and for a GitHub origin while `B10X_GATES_POLICY` names no readable policy
-//! file; with one, that file's absolute path as its `gates_policy`, on the default route `gates`.
+//! repository's `origin` and those of the checkouts under the root it writes, asking the person
+//! nothing: the bot route only when every origin there is on GitHub and `B10X_GATES_POLICY` names
+//! a readable policy file, that file's absolute path as its `gates_policy`, on the default route
+//! `gates`; `forge: {route: direct}` otherwise.
 //! The plan and the closing output print that route and why ([`route_line`]). It changes the
 //! route of no instance that is there.
 
@@ -129,7 +131,7 @@ pub fn origin_of(url: &str) -> Origin {
     if host.is_empty() || parts.len() < 2 {
         return Origin::None;
     }
-    if host == doctor::GITHUB_HOST {
+    if doctor::on_github(host.split(':').next().unwrap_or(host)) {
         Origin::GitHub {
             owner: parts[0].to_owned(),
         }
@@ -256,16 +258,47 @@ impl Route {
 
 /// The route of the instance `--apply` creates for a repository whose `origin` is `origin`, and
 /// the one clause that says why, with `policy` the Gates policy its environment names
-/// ([`doctor::environment_policy`]): it asks the person nothing.
+/// ([`doctor::environment_policy`]) and `checkouts` those under the checkouts root `root` it
+/// writes, read as doctor reads them ([`doctor::checkouts_at`]): it asks the person nothing.
 /// - A GitLab origin, or none on a forge: [`Route::Direct`], since the bot route writes to
 ///   GitHub only.
-/// - A GitHub origin and a policy: [`Route::Gates`] under it, the default route.
+/// - A GitHub origin and a policy: [`Route::Gates`] under it, the default route, when every
+///   checkout with an origin is on GitHub ([`doctor::on_github`]); otherwise [`Route::Direct`],
+///   naming the first checkout that is not, its host, and how many more, as doctor counts them.
 /// - A GitHub origin and none: [`Route::Direct`], since the bot route writes under a policy only.
 #[must_use]
-pub fn route_for(origin: &Origin, policy: Option<&Path>) -> (Route, String) {
+pub(crate) fn route_for(
+    origin: &Origin,
+    policy: Option<&Path>,
+    root: &Path,
+    checkouts: &[doctor::Checkout],
+) -> (Route, String) {
     let variable = crate::broker::POLICY_VARIABLE;
     let github = doctor::GITHUB_HOST;
+    let elsewhere: Vec<(String, &str)> = checkouts
+        .iter()
+        .filter_map(|checkout| {
+            let (host, _) = checkout.origin.as_ref()?;
+            let name = checkout.path.strip_prefix(root).unwrap_or(&checkout.path);
+            (!doctor::on_github(host)).then(|| (name.display().to_string(), host.as_str()))
+        })
+        .collect();
     match (origin, policy) {
+        (Origin::GitHub { .. }, Some(_)) if !elsewhere.is_empty() => {
+            let (name, host) = &elsewhere[0];
+            let more = match elsewhere.len() - 1 {
+                0 => String::new(),
+                more => format!(" and {more} more"),
+            };
+            (
+                Route::Direct,
+                format!(
+                    "checkouts under {} not on {github}: {name} on {host}{more}; the bot route \
+                     writes to {github} only",
+                    root.display()
+                ),
+            )
+        }
         (Origin::GitHub { .. }, Some(policy)) => (
             Route::Gates(policy.to_path_buf()),
             format!("the origin is on {github} and {variable} names this policy file"),
@@ -308,9 +341,17 @@ fn planned(flag: Option<&Path>, environment: &Environment, repository: &Path) ->
     if naming(&loaded, repository).is_some() {
         return None;
     }
-    let policy = doctor::environment_policy(&environment.cwd);
-    let (route, why) = route_for(&origin(repository), policy.as_deref());
+    let (route, why) = derived(environment, &origin(repository), repository);
     Some(route_line(&new_name(repository), &route, &why, false))
+}
+
+/// [`route_for`] the instance `--apply` writes for `repository`, whose `origin` is `origin`: under
+/// the policy of `environment`, over the checkouts under the directory that holds it, the
+/// checkouts root that instance names.
+fn derived(environment: &Environment, origin: &Origin, repository: &Path) -> (Route, String) {
+    let root = repository.parent().unwrap_or(repository);
+    let policy = doctor::environment_policy(&environment.cwd);
+    route_for(origin, policy.as_deref(), root, &doctor::checkouts_at(root))
 }
 
 /// The name of the instance `--apply` writes for `repository`: [`instance_name`] of its
@@ -548,7 +589,8 @@ pub fn check_line(check: &RepositoryCheck) -> String {
 }
 
 /// The failure a row that is not ready adds to the verdict: `store (old)`, `instance (none)`,
-/// `records (missing)` or `trust (not trusted)`.
+/// `records (missing)` or `trust (not trusted)`. The `box` row adds none: doctor's box line of the
+/// same box names it, `box <instance> (<refusal>)` ([`doctor::config_lines`]).
 fn failure(check: &RepositoryCheck) -> Option<String> {
     if check.ready {
         return None;
@@ -558,7 +600,7 @@ fn failure(check: &RepositoryCheck) -> Option<String> {
         "instance" => "none",
         "records" => "missing",
         "trust" => "not trusted",
-        "box" => "refused",
+        "box" => return None,
         _ => "not ready",
     };
     Some(format!("{} ({what})", check.check))
@@ -676,8 +718,7 @@ fn apply(
             let parent = repository.parent().unwrap_or(repository);
             let name = new_name(repository);
             let origin = origin(repository);
-            let policy = doctor::environment_policy(&environment.cwd);
-            let (route, why) = route_for(&origin, policy.as_deref());
+            let (route, why) = derived(environment, &origin, repository);
             if file.exists() {
                 println!(
                     "to write: {} names no instance holding {}; add this instance under its \
@@ -898,6 +939,8 @@ mod tests {
             "https://github.com/example-org/alpha.git",
             "git@github.com:example-org/alpha.git",
             "ssh://git@github.com/example-org/alpha",
+            "https://GitHub.com/example-org/alpha.git",
+            "ssh://git@ssh.github.com:443/example-org/alpha.git",
         ] {
             assert_eq!(origin_of(url), github, "{url}");
         }
@@ -934,8 +977,18 @@ mod tests {
             host: "gitlab.example.com".to_owned(),
             group: "example-group".to_owned(),
         };
+        let root = Path::new("/srv/home/src");
+        let checkout = |name: &str, host: Option<&str>| doctor::Checkout {
+            path: root.join(name),
+            origin: host.map(|host| (host.to_owned(), format!("example-org/{name}"))),
+        };
+        let beside = [
+            checkout("alpha", Some("github.com")),
+            checkout("beta", Some("ssh.github.com")),
+            checkout("gamma", None),
+        ];
         assert_eq!(
-            route_for(&github, Some(policy)).0,
+            route_for(&github, Some(policy), root, &beside).0,
             Route::Gates(policy.to_path_buf())
         );
         for (origin, policy) in [
@@ -945,8 +998,27 @@ mod tests {
             (&Origin::None, Some(policy)),
             (&Origin::None, None),
         ] {
-            assert_eq!(route_for(origin, policy).0, Route::Direct, "{origin:?}");
+            assert_eq!(
+                route_for(origin, policy, root, &beside).0,
+                Route::Direct,
+                "{origin:?}"
+            );
         }
+        // A checkout under the root on another forge: the first by name, then how many more.
+        let elsewhere = [
+            checkout("alpha", Some("github.com")),
+            checkout("notes", Some("gitlab.example.com")),
+            checkout("wiki", Some("codeberg.org")),
+        ];
+        assert_eq!(
+            route_for(&github, Some(policy), root, &elsewhere),
+            (
+                Route::Direct,
+                "checkouts under /srv/home/src not on github.com: notes on gitlab.example.com \
+                 and 1 more; the bot route writes to github.com only"
+                    .to_owned()
+            )
+        );
     }
 
     #[test]
