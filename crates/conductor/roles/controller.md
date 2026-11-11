@@ -65,7 +65,7 @@ after a `rules.md` change, run it again for each running worker's items.
   session reaches nobody, and a turn that ends on a report ends with that call. First lines:
   - `[REPORT <repo> <dispatch-id|->] <started|progress|blocked|unblocked|done|failed> <one line>`
   - `[DECISION-REQUEST <repo> <request-id>] <question>`, then options, costs, recommendation
-  - `[NEED <repo> <request-id>] <other-repo> <what>`
+  - `[NEED <repo> <request-id>] <other-repo> <what>`; answered `not relayed`: the supervisor has it
 - Bodies at most 20 lines, a `[REPORT]` first line at most 300 characters (detail in a file);
   `progress` at wave boundaries, when a pull request opens, when its CI turns red, and on merge.
 - Decide what the charter, `AGENTS.md`, `rules.md` or a logged decision answers; ask the rest,

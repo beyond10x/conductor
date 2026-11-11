@@ -2280,12 +2280,14 @@ fn a_mailbox_need_names_its_repository_without_trailing_punctuation() {
 }
 
 /// `story:need-repository-from-tag`: a `[NEED]` whose `<other-repo>` field names no repository
-/// the instance knows (a word of prose, a repository with no checkout) is refused to its sender
-/// in one line that names the word read, and is not kept: `pending.json` holds nothing for it,
-/// and the next tick does not answer it again. One whose own tag names no known repository
-/// either is answered by no one, and nothing is kept for it.
+/// the instance knows (a word of prose, a repository with no checkout) is not relayed and not
+/// kept: `pending.json` holds nothing for it, its file stays in the mailbox, and its sender is
+/// told so in one line that names the word read and says neither `refused` nor that the need is
+/// gone; the next tick does not answer it again. One whose own tag names no known repository
+/// either is answered by no one, and one for the mailbox's own recipient, `conductor`, is the
+/// supervisor's: its sender is told nothing. Nothing is kept for either.
 #[test]
-fn a_mailbox_need_for_no_known_repository_is_refused_in_one_line_and_not_kept() {
+fn a_mailbox_need_for_no_known_repository_is_answered_in_one_line_and_not_kept() {
     let case = Case::new("mail-need-unknown");
     case.spawn("alpha", FIRST);
     let prose = "[NEED alpha N-20261017-01] please: export the store id from beta";
@@ -2293,6 +2295,10 @@ fn a_mailbox_need_for_no_known_repository_is_refused_in_one_line_and_not_kept() 
     case.mail("0001", &format!("{prose}\n\nalpha reads it on start.\n"));
     case.mail("0002", &format!("{absent}\n"));
     case.mail("0003", "[NEED nowhere: N-20261017-03] please export it\n");
+    case.mail(
+        "0004",
+        "[NEED alpha N-20261017-04] conductor: activate the workspace\n",
+    );
     let (tick, said) = case.tick_said(&[]);
 
     let deliveries = case.deliveries();
@@ -2304,10 +2310,20 @@ fn a_mailbox_need_for_no_known_repository_is_refused_in_one_line_and_not_kept() 
         assert_eq!(to, "ex-alpha");
         let first = text.lines().next().unwrap_or_default();
         assert!(
-            first.starts_with("[REPORT alpha -] refused: ") && first.contains(word),
+            first.starts_with("[REPORT alpha -] not relayed: ") && first.contains(word),
             "one line names the word read, {word}: {text}"
         );
-        for held in [message, "[NEED alpha <request-id>] <other-repo> <what>"] {
+        assert!(
+            first.ends_with("it stays in conductor's mailbox, where the supervisor reads it"),
+            "the line says where the need is: {text}"
+        );
+        for gone in ["refused", "not kept", "dropped"] {
+            assert!(!text.contains(gone), "does not say {gone:?}: {text}");
+        }
+        for held in [
+            &format!("Your message: {message}"),
+            "The form: [NEED alpha <request-id>] <other-repo> <what>",
+        ] {
             assert!(text.contains(held), "names {held}: {text}");
         }
     }
@@ -2318,9 +2334,15 @@ fn a_mailbox_need_for_no_known_repository_is_refused_in_one_line_and_not_kept() 
             "the journal names {file}: {said:?}"
         );
     }
+    for file in ["0001.md", "0002.md", "0003.md", "0004.md"] {
+        assert!(
+            case.state().join("mailbox/conductor").join(file).is_file(),
+            "{file} stays in the mailbox"
+        );
+    }
 
     case.tick(&[]);
-    assert_eq!(case.deliveries().len(), 2, "each refused once");
+    assert_eq!(case.deliveries().len(), 2, "each answered once");
     assert_eq!(kept(&case), Vec::<Value>::new());
 }
 

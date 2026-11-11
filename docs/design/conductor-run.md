@@ -33,7 +33,7 @@ of tokens and the least amount of actual LLM inference calls".
 | resume after a usage limit | the session lists and respawns by prompt | the handler marks the sessions and respawns when headroom returns | no |
 | a stalled or silent controller | the session reads transcripts and nudges | one check-in delivered; a second stall respawns | no |
 | a controller's report | `SendMessage` to the conductor session, recorded by it | `conductor message send` writes the mailbox; the daemon moves the dispatch (`report-to-state`) | no |
-| a `[NEED]` | routed by the session | recorded; delivered to the other repository's live controller, else queued for its next start | no |
+| a `[NEED]` | routed by the session | recorded; delivered to the other repository's live controller, else queued for its next start. One whose `<other-repo>` is no repository of the instance is not relayed and not queued: it stays in the mailbox for the supervisor, and its sender is told so in one message, `[REPORT <repo> -] not relayed: <reason>`, but for a need for `conductor` itself, which is answered by no one | no |
 | dispatch | the session writes a charter and spawns | v1: a repository that is Active, has a charter and no live controller is spawned, up to `controllers.max_working`; v2: the charter is generated | no |
 | a decision request | the session classifies, decides or escalates | class by rules in code; class C answered by one bounded model call through the `Decider` adapter and recorded; class O and H go to the Decisions page; the answer is delivered by the daemon | one, bounded, class C only |
 | the operator's answer on the Decisions page | the session relays it | the handler delivers it | no |
@@ -95,7 +95,8 @@ dispatch (a controller restarted after a hand-over) is recorded `unblocked`; `[N
 decide; `[RESOURCE]` is answered "use conductor build run"; `[HANDOVER]` from a controller
 (`blocked handover <path>`) is a report. A message the daemon refuses is answered to the
 controller of the repository it names, as one message: `[REPORT <repo> -] refused: <reason>`, the
-message and the form its kind expects (`relayed`). Delivery to a session is `conductor session deliver --name
+message and the form its kind expects (`relayed`); a message whose own tag names no repository of
+the instance is answered to no one, and the journal carries the reason. Delivery to a session is `conductor session deliver --name
 <session> --text <file|->`, which types the text into the session through the tmux launcher
 (`type_text`) and records `delivered`. A session started with `claude --bg` has no launcher: when
 the session list names it live, the text is typed the same way into a pane made for that one
