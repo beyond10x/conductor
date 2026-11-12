@@ -265,7 +265,7 @@ fn commit(file: &Path, subject: &str, body: &str) -> Result<Option<String>> {
 /// # Errors
 ///
 /// The lock file cannot be opened or locked.
-fn lock(file: &Path) -> Result<fs::File> {
+pub(crate) fn lock(file: &Path) -> Result<fs::File> {
     let dir = file.parent().unwrap_or_else(|| Path::new("."));
     let name = file
         .file_name()

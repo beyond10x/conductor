@@ -3578,3 +3578,361 @@ fn the_stall_and_queue_thresholds_default_show_as_written_and_are_refused_by_the
         assert!(problems.contains(path), "{name}: {problems}");
     }
 }
+
+/// The directory a pod-run instance's volume claim is mounted on in its pod
+/// (`conductor_cli::config::pod::DATA_MOUNT`), written out: the binary's word for it.
+const DATA_MOUNT: &str = "/var/lib/conductor/data";
+
+/// A `conductor.config/2` file of a daemon that runs its instances as pods (`daemon.kubernetes`)
+/// and admits a control plane (`daemon.control_token`), with `instances` as its last lines.
+fn pods(instances: &str) -> String {
+    format!(
+        "version: conductor.config/2\n\
+         daemon:\n\
+         \x20 store: \"sqlite:/srv/conductor.sqlite\"\n\
+         \x20 control_token: secret:control-plane\n\
+         \x20 kubernetes:\n\
+         \x20   namespace: conductor-instances\n\
+         \x20   image: registry.example.com/conductor:1.0.0\n\
+         \x20   owner: example-org\n\
+         \x20   api_port: 7310\n\
+         \x20   volume: {{size: 20G, storage_class: standard}}\n\
+         \x20   resources:\n\
+         \x20     requests: {{cpu: 500m, memory: 1Gi}}\n\
+         \x20     limits: {{cpu: 2, memory: 4Gi}}\n\
+         \x20   env:\n\
+         \x20     - {{name: GH_TOKEN, secret: secret:forge-token}}\n\
+         \x20     - {{name: GIT_AUTHOR_NAME, value: conductor}}\n\
+         {instances}"
+    )
+}
+
+/// One instance `alpha` of a [`pods`] file, its paths left out, with `extra` lines appended.
+fn pod_instance(extra: &str) -> String {
+    format!(
+        "instances:\n\
+         \x20 - name: alpha\n\
+         \x20   placement: none\n\
+         \x20   session_prefix: alpha\n\
+         \x20   sources: [{{github: example-org}}]\n\
+         {extra}"
+    )
+}
+
+/// `daemon.kubernetes` (design: instance pods): a file of the daemon section alone, with no
+/// instance, validates where it names the instance pods, and is refused by the path `instances`
+/// where it does not.
+#[test]
+fn a_daemon_only_file_with_kubernetes_validates() {
+    let case = Case::new("kubernetes-daemon-only");
+    let file = case.write("pods.yaml", &pods("instances: []\n"));
+    let output = case.with_file(&file, &["config", "validate"]);
+    assert_eq!(output.status.code(), Some(0), "{}", describe(&output));
+    assert!(
+        String::from_utf8_lossy(&output.stdout).contains("valid, 0 instance(s)"),
+        "{}",
+        describe(&output)
+    );
+
+    let plain = case.write(
+        "plain.yaml",
+        "version: conductor.config/2\n\
+         daemon: {store: \"sqlite:/srv/conductor.sqlite\"}\n\
+         instances: []\n",
+    );
+    let problems = refused(&case, &plain);
+    assert!(problems.contains(": instances: "), "{problems}");
+}
+
+/// A pod-run instance may leave out every path; one it writes under its data mount is kept; and
+/// `config show` writes `daemon.kubernetes` and `daemon.control_token` as the file writes them.
+#[test]
+fn a_pod_run_instance_validates_and_show_writes_the_kubernetes_keys() {
+    let case = Case::new("kubernetes-instance");
+    let file = case.write("bare.yaml", &pods(&pod_instance("")));
+    let output = case.with_file(&file, &["config", "validate"]);
+    assert_eq!(output.status.code(), Some(0), "{}", describe(&output));
+
+    let written = case.write(
+        "written.yaml",
+        &pods(&pod_instance(&format!(
+            "\x20   checkouts: {{root: {DATA_MOUNT}/repositories, trees: {DATA_MOUNT}/trees}}\n\
+             \x20   records: {DATA_MOUNT}/records\n\
+             \x20   state: {DATA_MOUNT}/state\n\
+             \x20   cache: {DATA_MOUNT}/cache\n"
+        ))),
+    );
+    let shown = case.show(&written, &[]);
+    assert_eq!(
+        shown["instances"][0]["checkouts"]["root"],
+        format!("{DATA_MOUNT}/repositories"),
+        "{shown:#}"
+    );
+    assert_eq!(
+        shown["instances"][0]["records"],
+        format!("{DATA_MOUNT}/records")
+    );
+    let daemon = &shown["daemon"];
+    assert_eq!(
+        daemon["control_token"], "secret:control-plane",
+        "{daemon:#}"
+    );
+    let kubernetes = &daemon["kubernetes"];
+    assert_eq!(kubernetes["namespace"], "conductor-instances", "{daemon:#}");
+    assert_eq!(kubernetes["image"], "registry.example.com/conductor:1.0.0");
+    assert_eq!(kubernetes["owner"], "example-org");
+    assert_eq!(kubernetes["api_port"], 7310);
+    assert_eq!(kubernetes["volume"]["size"], "20G");
+    assert_eq!(kubernetes["volume"]["storage_class"], "standard");
+    assert_eq!(kubernetes["resources"]["requests"]["cpu"], "500m");
+    assert_eq!(kubernetes["resources"]["limits"]["cpu"], "2");
+    assert_eq!(kubernetes["resources"]["limits"]["memory"], "4Gi");
+    assert_eq!(
+        kubernetes["env"],
+        serde_json::json!([
+            {"name": "GH_TOKEN", "value": null, "secret": "secret:forge-token"},
+            {"name": "GIT_AUTHOR_NAME", "value": "conductor", "secret": null},
+        ])
+    );
+
+    // What `config show` writes reads back as the same file.
+    let mut again = shown.clone();
+    again.as_object_mut().map(|map| map.remove("host"));
+    let again = case.write("again.yaml", &again.to_string());
+    assert_eq!(case.show(&again, &[]), shown);
+}
+
+/// Every refusal of `daemon.kubernetes` and of a pod-run instance names its YAML path: a key the
+/// pod needs left out, a namespace or an owner that is no DNS label, a port out of range, an `env`
+/// entry with both or neither of `value` and `secret`, twice the same name or a name conductor
+/// sets itself; and of an instance, a placement that opens a box, a name that is no DNS label or
+/// too long for `conductor-instance-<name>-data`, and a path outside its data mount (decision D8).
+#[test]
+fn the_kubernetes_refusals_name_their_yaml_path() {
+    let case = Case::new("kubernetes-refusals");
+    let base = pods(&pod_instance(""));
+    let long = "a".repeat(64);
+    let forty = "a".repeat(40);
+    let cases: Vec<(&str, String, &str)> = vec![
+        (
+            "namespace-missing",
+            base.replace("\x20   namespace: conductor-instances\n", ""),
+            "daemon.kubernetes.namespace",
+        ),
+        (
+            "image-missing",
+            base.replace("\x20   image: registry.example.com/conductor:1.0.0\n", ""),
+            "daemon.kubernetes.image",
+        ),
+        (
+            "owner-missing",
+            base.replace("\x20   owner: example-org\n", ""),
+            "daemon.kubernetes.owner",
+        ),
+        (
+            "port-missing",
+            base.replace("\x20   api_port: 7310\n", ""),
+            "daemon.kubernetes.api_port",
+        ),
+        (
+            "size-missing",
+            base.replace("size: 20G, ", ""),
+            "daemon.kubernetes.volume.size",
+        ),
+        (
+            "namespace-upper",
+            base.replace("namespace: conductor-instances", "namespace: Conductor"),
+            "daemon.kubernetes.namespace",
+        ),
+        (
+            "namespace-long",
+            base.replace(
+                "namespace: conductor-instances",
+                &format!("namespace: {long}"),
+            ),
+            "daemon.kubernetes.namespace",
+        ),
+        (
+            "owner-dash",
+            base.replace("owner: example-org", "owner: example-"),
+            "daemon.kubernetes.owner",
+        ),
+        (
+            "owner-underscore",
+            base.replace("owner: example-org", "owner: example_org"),
+            "daemon.kubernetes.owner",
+        ),
+        (
+            "port-zero",
+            base.replace("api_port: 7310", "api_port: 0"),
+            "daemon.kubernetes.api_port",
+        ),
+        (
+            "port-high",
+            base.replace("api_port: 7310", "api_port: 65536"),
+            "daemon.kubernetes.api_port",
+        ),
+        (
+            "env-both",
+            base.replace(
+                "{name: GIT_AUTHOR_NAME, value: conductor}",
+                "{name: GIT_AUTHOR_NAME, value: conductor, secret: secret:author}",
+            ),
+            "daemon.kubernetes.env[1]",
+        ),
+        (
+            "env-neither",
+            base.replace(
+                "{name: GIT_AUTHOR_NAME, value: conductor}",
+                "{name: GIT_AUTHOR_NAME}",
+            ),
+            "daemon.kubernetes.env[1]",
+        ),
+        (
+            "env-twice",
+            base.replace("name: GIT_AUTHOR_NAME", "name: GH_TOKEN"),
+            "daemon.kubernetes.env[1].name",
+        ),
+        (
+            "env-home",
+            base.replace("name: GIT_AUTHOR_NAME", "name: HOME"),
+            "daemon.kubernetes.env[1].name",
+        ),
+        (
+            "env-path",
+            base.replace("name: GIT_AUTHOR_NAME", "name: PATH"),
+            "daemon.kubernetes.env[1].name",
+        ),
+        (
+            "env-conductor",
+            base.replace("name: GIT_AUTHOR_NAME", "name: CONDUCTOR_API_LISTEN"),
+            "daemon.kubernetes.env[1].name",
+        ),
+        (
+            "env-lower",
+            base.replace("name: GIT_AUTHOR_NAME", "name: git_author"),
+            "daemon.kubernetes.env[1].name",
+        ),
+        (
+            "unknown-key",
+            base.replace("\x20   api_port: 7310\n", "\x20   api_port: 7310\n\x20   replicas: 2\n"),
+            "daemon.kubernetes.replicas",
+        ),
+        (
+            "placement-box",
+            base.replace("placement: none", "placement: systemd"),
+            "instances[0].placement",
+        ),
+        (
+            "placement-remote-box",
+            base.replace(
+                "placement: none",
+                "placement: {daemon: \"https://substrate.example.com\", adapter: oci, bearer: \"secret:substrate\", trust_roots: /etc/substrate/roots.pem}",
+            ),
+            "instances[0].placement",
+        ),
+        (
+            "name-upper",
+            base.replace("name: alpha", "name: Alpha"),
+            "instances[0].name",
+        ),
+        (
+            "name-dot",
+            base.replace("name: alpha", "name: al.pha"),
+            "instances[0].name",
+        ),
+        (
+            "name-long",
+            base.replace("name: alpha", &format!("name: {forty}")),
+            "instances[0].name",
+        ),
+        (
+            "records-outside",
+            pods(&pod_instance("\x20   records: ~/records\n")),
+            "instances[0].records",
+        ),
+        (
+            "state-outside",
+            pods(&pod_instance("\x20   state: /srv/state\n")),
+            "instances[0].state",
+        ),
+        (
+            "cache-outside",
+            pods(&pod_instance("\x20   cache: /var/lib/conductor/cache\n")),
+            "instances[0].cache",
+        ),
+        (
+            "root-outside",
+            pods(&pod_instance(&format!(
+                "\x20   checkouts: {{root: ~/alpha, trees: {DATA_MOUNT}/trees}}\n"
+            ))),
+            "instances[0].checkouts.root",
+        ),
+        (
+            "trees-escape",
+            pods(&pod_instance(&format!(
+                "\x20   checkouts: {{root: {DATA_MOUNT}/alpha, trees: {DATA_MOUNT}/../trees}}\n"
+            ))),
+            "instances[0].checkouts.trees",
+        ),
+        (
+            "mount-prefix",
+            pods(&pod_instance(&format!("\x20   records: {DATA_MOUNT}-records\n"))),
+            "instances[0].records",
+        ),
+    ];
+    for (name, text, path) in &cases {
+        let file = case.write(&format!("{name}.yaml"), text);
+        let problems = refused(&case, &file);
+        assert!(
+            problems.contains(&format!(": {path}: ")),
+            "{name}: no problem at {path}: {problems}"
+        );
+    }
+
+    // At the bounds: a name of 39 characters, a namespace of 63, ports 1 and 65535.
+    let thirty_nine = "a".repeat(39);
+    let sixty_three = "a".repeat(63);
+    for (name, text) in [
+        (
+            "name-39",
+            base.replace("name: alpha", &format!("name: {thirty_nine}")),
+        ),
+        (
+            "namespace-63",
+            base.replace(
+                "namespace: conductor-instances",
+                &format!("namespace: {sixty_three}"),
+            ),
+        ),
+        ("port-1", base.replace("api_port: 7310", "api_port: 1")),
+        (
+            "port-65535",
+            base.replace("api_port: 7310", "api_port: 65535"),
+        ),
+    ] {
+        let file = case.write(&format!("{name}.yaml"), &text);
+        let output = case.with_file(&file, &["config", "validate"]);
+        assert_eq!(
+            output.status.code(),
+            Some(0),
+            "{name}: {}",
+            describe(&output)
+        );
+    }
+
+    // Without `daemon.kubernetes` none of the instance's rules applies: a name with a dot and a
+    // path anywhere validate as before.
+    let plain = base
+        .split("\x20 kubernetes:\n")
+        .next()
+        .expect("the daemon's first keys")
+        .to_owned()
+        + &pod_instance(
+            "\x20   checkouts: {root: ~/alpha, trees: ~/trees}\n\x20   records: ~/records\n",
+        )
+        .replace("name: alpha", "name: al.pha");
+    let file = case.write("plain.yaml", &plain);
+    let output = case.with_file(&file, &["config", "validate"]);
+    assert_eq!(output.status.code(), Some(0), "{}", describe(&output));
+}

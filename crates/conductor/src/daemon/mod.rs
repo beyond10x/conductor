@@ -18,6 +18,10 @@
 //! meanwhile and after a step that failed; and where no user service manager is, each runtime
 //! is a child process of the daemon ([`units::Children`]).
 //!
+//! In a cluster (design: instance pods) `--daemon-config` names a file that holds only `version`
+//! and `daemon`, such as a mounted ConfigMap: at every start, before the config file is read,
+//! [`seed::merge`] writes the config file from it, keeping the file's instances.
+//!
 //! It serves before its store answers (`story:daemon-probes-and-metrics`): the listeners take
 //! requests as soon as the config is read, `GET /healthz` answers `200` and `GET /readyz` `503`
 //! with the reason ([`metrics`]). While the store does not answer the daemon opens no store,
@@ -37,6 +41,7 @@ pub mod host_roles;
 pub mod install;
 pub mod metrics;
 pub mod reconcile;
+pub mod seed;
 pub mod unattended;
 pub mod units;
 pub mod upgrade;
@@ -83,16 +88,28 @@ pub fn daemon_serve(
     if args.install == Some(true) && args.uninstall == Some(true) {
         bail!("{WHAT}: --install and --uninstall are given; give at most one");
     }
-    // `conductor.instance.ServeDaemon.daemon_config` is declared and not served yet: the daemon
-    // seeds its config file from it once that is written.
-    if args.daemon_config.is_some() {
-        return crate::not_implemented("daemon serve --daemon-config");
+    // Design: instance pods. The daemon-config file seeds the config file at every start of the
+    // daemon, which a unit's start does not do.
+    if args.daemon_config.is_some() && (args.install == Some(true) || args.uninstall == Some(true))
+    {
+        bail!("{WHAT}: --daemon-config is not taken with --install or --uninstall");
     }
     let environment = Environment::from_process().context(WHAT)?;
     let home = environment.home().context(WHAT)?.to_owned();
     let (file, _) = config::locate(config_flag, &environment).context(WHAT)?;
     let file = environment.cwd.join(file);
     let state = state.map(|state| environment.cwd.join(state));
+    // Before anything reads the config file, it is written anew from the daemon-config file.
+    if let Some(daemon_config) = &args.daemon_config {
+        let daemon_config = environment.cwd.join(daemon_config);
+        if seed::merge(&daemon_config, &file, &home).context(WHAT)? {
+            println!(
+                "conductord: wrote the config file {} from {}",
+                file.display(),
+                daemon_config.display()
+            );
+        }
+    }
     let xdg = std::env::var_os("XDG_CONFIG_HOME").map(std::path::PathBuf::from);
     let unit_file = install::unit_file(&home, xdg.as_deref());
     // A box with no local operator (`daemon.loopback: false`) installs the system unit
