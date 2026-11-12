@@ -182,6 +182,35 @@ record      ─► one Reconciliation per action in the daemon's own store
   default the local socket. The loopback listener is off on a box that has no local operator. The
   secrets source on a box is the Secrets service (§9); the OS keychain is for a workstation.
 
+### 4.1 Where the daemon runs its instances as pods
+
+With `daemon.kubernetes` set (guide: run in Kubernetes) the daemon is a StatefulSet of one and each
+instance's runtime is a pod the daemon creates through the Kubernetes API. This is a third way to
+run a runtime, beside the unit and the child process. It is not a placement: substrate's `pod`
+adapter (§6) is not used, and the instance writes `placement: none`. Where this page describes a
+workstation or a remote box, the following differs for such a daemon:
+
+- **The config file** is on the daemon's volume, not in a git repository: a change records a config
+  revision in the store, and the `commit` of its answer is empty. The `daemon` section comes from a
+  second file (`--daemon-config`, a ConfigMap) written into the config file at every start.
+- **An instance's data** (checkouts, trees, records, state and cache) is on a volume claim of its
+  own. Where `daemon.store` is a `postgres://` URL the instance uses that database; otherwise its
+  store is a sqlite file on the same claim, not the daemon's file (§8). Removing the instance deletes its pod and its Secret and keeps the claim; the daemon holds no
+  right to delete a claim.
+- **The instance API** (§5.1) is served on a TCP port inside the cluster, not on a Unix socket.
+  Every request but `GET /healthz` carries the token the daemon minted for the instance, reads
+  included.
+- **The daemon's instance routes** (§5.2) are `POST /v1/instances`, `GET`, `PUT` and `DELETE
+  /v1/instances/{name}` and `POST /v1/instances/{name}/restart`. A change validates the whole
+  resulting config first. `upgrade` answers `409`: a pod's binary is the image of
+  `daemon.kubernetes.image`, and changing that key replaces each pod once.
+- **A machine caller**: a bearer equal to the secret `daemon.control_token` names is the principal
+  `control-plane`, admitted for the reads and those five routes and refused on every other write.
+  The daemon's own secrets reach no instance pod.
+- **Nothing a caller sends shapes a pod**: its image, command, volumes, env sources, namespace,
+  service account, security context and labels come from `daemon.kubernetes`, the instance's name
+  and the rendered config file.
+
 ## 5. APIs and federation
 
 ### 5.1 Instance API
