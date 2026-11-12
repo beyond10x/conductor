@@ -6,7 +6,28 @@ status: draft
 title: The daemon's version in one JSON answer
 relations:
 - decomposes: epic:deployable-in-kubernetes
-revision: 1
+scope:
+- confidence: cited
+  path: crates/conductor-model
+- confidence: cited
+  path: crates/conductor/http.yaml
+- confidence: cited
+  path: crates/conductor/src/daemon/api.rs
+- confidence: cited
+  path: crates/conductor/src/spec_api.rs
+- confidence: cited
+  path: crates/conductor/tests/api_parity.rs
+- confidence: cited
+  path: crates/conductor/tests/daemon_version.rs
+- confidence: cited
+  path: crates/conductor/tests/fixtures/api_parity.md
+- confidence: cited
+  path: spec/domains/store.yaml
+- confidence: cited
+  path: website/docs/concepts/the-host.md
+- confidence: cited
+  path: website/docs/guides/run-in-kubernetes.md
+revision: 2
 ---
 ## Why
 

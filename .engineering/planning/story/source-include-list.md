@@ -6,7 +6,58 @@ status: draft
 title: A forge source names the repositories it stands for
 relations:
 - decomposes: epic:deployable-in-kubernetes
-revision: 1
+scope:
+- confidence: cited
+  path: crates/conductor-docs/src/config.rs
+- confidence: cited
+  path: crates/conductor-model
+- confidence: cited
+  path: crates/conductor/http.yaml
+- confidence: cited
+  path: crates/conductor/src/collect/github.rs
+- confidence: cited
+  path: crates/conductor/src/collect/gitlab.rs
+- confidence: cited
+  path: crates/conductor/src/collect/mod.rs
+- confidence: cited
+  path: crates/conductor/src/collect/repositories.rs
+- confidence: cited
+  path: crates/conductor/src/collect/sessions.rs
+- confidence: cited
+  path: crates/conductor/src/collect/specifications.rs
+- confidence: cited
+  path: crates/conductor/src/config.rs
+- confidence: cited
+  path: crates/conductor/src/doctor.rs
+- confidence: cited
+  path: crates/conductor/src/guard/rules.rs
+- confidence: cited
+  path: crates/conductor/src/spawn.rs
+- confidence: cited
+  path: crates/conductor/tests/collect_gitlab.rs
+- confidence: cited
+  path: crates/conductor/tests/config_workspace.rs
+- confidence: cited
+  path: crates/conductor/tests/fixtures/instance/pair.repositories.json
+- confidence: cited
+  path: crates/conductor/tests/grouped_instance.rs
+- confidence: cited
+  path: crates/conductor/tests/instance_routes.rs
+- confidence: cited
+  path: crates/conductor/tests/instance_sources.rs
+- confidence: cited
+  path: crates/conductor/tests/review_p2_collector.rs
+- confidence: cited
+  path: crates/conductor/tests/spawn.rs
+- confidence: cited
+  path: crates/conductor/tests/watch.rs
+- confidence: cited
+  path: spec/domains/config.yaml
+- confidence: cited
+  path: website/docs/guides/gitlab.md
+- confidence: cited
+  path: website/docs/reference/config.md
+revision: 2
 ---
 ## Why
 

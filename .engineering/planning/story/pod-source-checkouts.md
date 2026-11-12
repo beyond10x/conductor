@@ -8,7 +8,24 @@ relations:
 - decomposes: epic:deployable-in-kubernetes
 - depends_on: story:source-include-list
 - depends_on: story:pod-git-reaches-forge
-revision: 2
+scope:
+- confidence: cited
+  path: crates/conductor/src/collect/checkouts.rs
+- confidence: cited
+  path: crates/conductor/src/collect/mod.rs
+- confidence: cited
+  path: crates/conductor/src/collect/repositories.rs
+- confidence: cited
+  path: crates/conductor/src/doctor.rs
+- confidence: cited
+  path: crates/conductor/src/instance.rs
+- confidence: cited
+  path: crates/conductor/tests/kubernetes_guide.rs
+- confidence: cited
+  path: crates/conductor/tests/pod_checkouts.rs
+- confidence: cited
+  path: website/docs/guides/run-in-kubernetes.md
+revision: 3
 ---
 ## Why
 
