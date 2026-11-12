@@ -60,7 +60,7 @@ The release archive of [getting started](../getting-started.md#1-install) needs 
 To build a release from source instead, or on a target the release carries no archive for:
 
 ```console
-cargo install --git https://github.com/beyond10x/conductor --tag v1.4.0 --locked conductor-cli
+cargo install --git https://github.com/beyond10x/conductor --tag v1.5.0 --locked conductor-cli
 ```
 
 From a checkout, `task install` runs `cargo install --path crates/conductor --locked`. The binary
