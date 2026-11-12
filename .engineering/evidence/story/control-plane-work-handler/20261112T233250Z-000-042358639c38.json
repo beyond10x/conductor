@@ -1,0 +1,15 @@
+{
+  "at": "2026-11-12T23:32:50Z",
+  "actor": "human:timo",
+  "artifact": "story:control-plane-work-handler",
+  "kind": "story",
+  "revision": 27,
+  "change": {
+    "change": "evidence",
+    "kind": "review_outcome",
+    "source": "review-result:work-call-security-round-2",
+    "reference": "story:report-is-tied-to-its-session",
+    "review": "review-result:work-call-security-round-2",
+    "outcome": "escalated"
+  }
+}

@@ -1,0 +1,15 @@
+{
+  "at": "2026-11-12T22:22:12Z",
+  "actor": "human:timo",
+  "artifact": "review-result:work-call-security-round-1",
+  "kind": "review-result",
+  "revision": 3,
+  "change": {
+    "change": "redaction",
+    "literal_sha256": "af4fd504b889688776840ed52995ff5036a87d47ccbfb930585ce35d51d4a551",
+    "literal_chars": 15,
+    "replacement": "<the id of alpha's dispatch>",
+    "count": 1,
+    "reason": "a dispatch id of a test run, which the repository's public-text rule keeps out of the planning store"
+  }
+}
