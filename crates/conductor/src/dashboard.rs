@@ -102,8 +102,8 @@ pub use health::{HealthSources, failure_class};
 use std::ffi::OsString;
 use std::fs;
 use std::hash::{Hash as _, Hasher as _};
-use std::io::{self, ErrorKind, Read, Write as _};
-use std::net::Shutdown;
+use std::io::{self, ErrorKind, Read, Write};
+use std::net::{Shutdown, TcpListener, TcpStream};
 use std::os::unix::net::{UnixListener, UnixStream};
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex, PoisonError};
@@ -952,8 +952,25 @@ pub fn serve_unix_tuned(
     );
 }
 
+/// Answers every connection `listener`, the TCP listener of a runtime alone in a pod
+/// ([`crate::instance::LISTEN_VARIABLE`]), accepts, as [`serve_unix`] does, but for its gate: a
+/// request carries `token` in `X-Conductor-Token`, reads too, or is answered `401` and reaches
+/// no route; `GET` [`crate::daemon::metrics::LIVENESS`], the pod's probe, is answered
+/// `200 {"state":"serving"}` without one, as conductord answers it.
+pub fn serve_tcp(listener: TcpListener, sources: Sources, state: Option<PathBuf>, token: String) {
+    let server = Arc::new(Server::new(sources, state, cache::Tuning::default(), token));
+    start(&server);
+    accept(listener.incoming(), &server, true);
+}
+
 /// Serves `server` on `listener`, as [`serve_unix`] says.
 fn run(listener: UnixListener, server: Arc<Server>) {
+    start(&server);
+    accept(listener.incoming(), &server, false);
+}
+
+/// Starts what `server` measures and computes off the request path.
+fn start(server: &Arc<Server>) {
     server.waste.refresh(&server.sources);
     server.usage.refresh(&server.sources);
     // The session list is read at start and every `SESSIONS_EVERY` after, off the request path;
@@ -962,7 +979,7 @@ fn run(listener: UnixListener, server: Arc<Server>) {
     server
         .sessions
         .start(server.sources.agents.clone(), cache::SESSIONS_EVERY);
-    let warmer = Arc::clone(&server);
+    let warmer = Arc::clone(server);
     std::thread::spawn(move || {
         warmer.warm(true);
         loop {
@@ -980,7 +997,16 @@ fn run(listener: UnixListener, server: Arc<Server>) {
             std::thread::sleep(health::TICK);
         }
     });
-    for stream in listener.incoming() {
+}
+
+/// Answers each connection of `incoming` on a thread of its own, each request through the token
+/// gate ([`gate`]) when `tokened`.
+fn accept<S: Stream>(
+    incoming: impl Iterator<Item = io::Result<S>>,
+    server: &Arc<Server>,
+    tokened: bool,
+) {
+    for stream in incoming {
         let stream = match stream {
             Ok(stream) => stream,
             Err(error) => {
@@ -989,12 +1015,42 @@ fn run(listener: UnixListener, server: Arc<Server>) {
                 continue;
             }
         };
-        let server = Arc::clone(&server);
+        let server = Arc::clone(server);
         std::thread::spawn(move || {
-            if let Err(error) = connection(stream, &server) {
+            if let Err(error) = connection(stream, &server, tokened) {
                 eprintln!("conductor instance serve: {error}");
             }
         });
+    }
+}
+
+/// A connection the instance API answers: on the runtime's socket or on its TCP listener.
+trait Stream: Read + Write + Send + 'static {
+    /// Bounds each read and each write by `timeout`.
+    fn bound(&self, timeout: Duration) -> io::Result<()>;
+    /// Ends the sending side.
+    fn end_writes(&self) -> io::Result<()>;
+}
+
+impl Stream for UnixStream {
+    fn bound(&self, timeout: Duration) -> io::Result<()> {
+        self.set_read_timeout(Some(timeout))?;
+        self.set_write_timeout(Some(timeout))
+    }
+
+    fn end_writes(&self) -> io::Result<()> {
+        self.shutdown(Shutdown::Write)
+    }
+}
+
+impl Stream for TcpStream {
+    fn bound(&self, timeout: Duration) -> io::Result<()> {
+        self.set_read_timeout(Some(timeout))?;
+        self.set_write_timeout(Some(timeout))
+    }
+
+    fn end_writes(&self) -> io::Result<()> {
+        self.shutdown(Shutdown::Write)
     }
 }
 
@@ -1003,22 +1059,63 @@ fn run(listener: UnixListener, server: Arc<Server>) {
 const DRAIN: u64 = (MAX_HEAD + 4 * answers::MAX_BODY) as u64;
 
 /// Reads one request head, answers it (reading a body only where the answer takes one) and closes
-/// the connection.
-fn connection(mut stream: UnixStream, server: &Arc<Server>) -> io::Result<()> {
-    stream.set_read_timeout(Some(IO_TIMEOUT))?;
-    stream.set_write_timeout(Some(IO_TIMEOUT))?;
+/// the connection; when `tokened`, a request the gate answers ([`gate`]) reaches no route.
+fn connection<S: Stream>(mut stream: S, server: &Arc<Server>, tokened: bool) -> io::Result<()> {
+    stream.bound(IO_TIMEOUT)?;
     let (head, early) = read_head(&mut stream)?;
-    let reply = {
-        let mut body = |length: usize| read_body(&mut stream, &early, length);
-        answer(head.as_deref(), server, &mut body)
+    let gated = if tokened {
+        gate(head.as_deref(), &server.token)
+    } else {
+        None
+    };
+    let reply = match gated {
+        Some(reply) => reply,
+        None => {
+            let mut body = |length: usize| read_body(&mut stream, &early, length);
+            answer(head.as_deref(), server, &mut body)
+        }
     };
     stream.write_all(&reply)?;
     stream.flush()?;
     // Take what the client still sends before closing: closing with unread bytes resets the
     // connection, and the client may lose the answer.
-    stream.shutdown(Shutdown::Write)?;
-    let _ = io::copy(&mut (&stream).take(DRAIN), &mut io::sink());
+    stream.end_writes()?;
+    let _ = io::copy(&mut (&mut stream).take(DRAIN), &mut io::sink());
     Ok(())
+}
+
+/// The answer the TCP listener's gate gives `head` before any route: `200` to the liveness probe
+/// `GET` [`crate::daemon::metrics::LIVENESS`], `401` to a request that carries no `token` or
+/// another; none for one that carries it, or whose head does not read, which its route, or the
+/// `400` of [`answer`], answers.
+fn gate(head: Option<&str>, token: &answers::Token) -> Option<Vec<u8>> {
+    let mut lines = head?.split("\r\n");
+    let mut words = lines.next().unwrap_or_default().split(' ');
+    let (method, target) = (words.next()?, words.next()?);
+    let path = target.split_once('?').map_or(target, |(path, _)| path);
+    if method == "GET" && path == crate::daemon::metrics::LIVENESS {
+        return Some(response(
+            200,
+            "OK",
+            "application/json",
+            json!({"state": "serving"}).to_string().as_bytes(),
+            "",
+        ));
+    }
+    let given = lines
+        .filter_map(|line| line.split_once(':'))
+        .find(|(name, _)| name.trim().eq_ignore_ascii_case(TOKEN_HEADER))
+        .map(|(_, value)| value.trim());
+    if given.is_some_and(|given| token.admits(given)) {
+        return None;
+    }
+    Some(response(
+        401,
+        "Unauthorized",
+        "text/plain; charset=utf-8",
+        b"the request carries no token, or not the one this runtime was given\n",
+        "",
+    ))
 }
 
 /// The body of `length` bytes: what was read with the head, `early`, then the rest from `stream`.

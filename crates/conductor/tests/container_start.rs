@@ -479,6 +479,131 @@ fn an_unattended_start_seeds_each_instance_and_a_second_start_overwrites_nothing
     }
 }
 
+/// A runtime alone in a pod (`CONDUCTOR_API_LISTEN` set: no daemon beside it to seed for it)
+/// starts `instance serve` of its one instance and runs no daemon.
+fn alone(case: &Case) -> Served {
+    let mut command = case.conductor(true);
+    command
+        .current_dir(&case.dir)
+        .args(["instance", "serve"])
+        .env("CONDUCTOR_INSTANCE", "alpha")
+        .env("CONDUCTOR_API_LISTEN", "127.0.0.1:0")
+        .env("CONDUCTOR_API_TOKEN", "3".repeat(64))
+        .env("CONDUCTOR_RUNTIME_LOOP", "off")
+        .env_remove("CONDUCTOR_CONFIG_SOURCE")
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped());
+    let mut child = command.spawn().expect("run instance serve");
+    let printed = Arc::new(Mutex::new(String::new()));
+    for mut pipe in [
+        Box::new(child.stdout.take().expect("stdout")) as Box<dyn Read + Send>,
+        Box::new(child.stderr.take().expect("stderr")),
+    ] {
+        let printed = Arc::clone(&printed);
+        thread::spawn(move || {
+            let mut chunk = [0_u8; 1024];
+            while let Ok(read @ 1..) = pipe.read(&mut chunk) {
+                if let Ok(mut printed) = printed.lock() {
+                    printed.push_str(&String::from_utf8_lossy(&chunk[..read]));
+                }
+            }
+        });
+    }
+    let mut served = Served { child, printed };
+    served.until("the seeding's last line", |served| {
+        let printed = served.printed();
+        printed.contains("seeded its instance") || printed.contains("seeding failed")
+    });
+    served
+}
+
+/// A runtime alone in a pod, with no `daemon.unattended`, seeds its own instance at its start as
+/// the unattended daemon seeds each one: the records skeleton written and committed, the
+/// checkouts root's checkout and the records trusted, the root activated as a `worktree`
+/// workspace. A second start writes none of it again and keeps what was changed since.
+#[test]
+fn a_runtime_alone_in_a_pod_seeds_its_instance_and_a_second_start_overwrites_nothing() {
+    let case = Case::new("pod-seed");
+    let checkout = case.checkout("widget");
+    fs::write(
+        case.secrets().join("alpha-model"),
+        format!("{MODEL_VALUE}\n"),
+    )
+    .expect("mount the model token");
+    case.config(free_port(), "", "none");
+
+    let served = alone(&case);
+    let printed = served.printed();
+    assert!(printed.contains("seeded its instance"), "{printed}");
+    let records = case
+        .records()
+        .canonicalize()
+        .expect("the records were created");
+    for file in ["NORTHSTAR.md", "rules.md", "README.md"] {
+        assert!(records.join(file).is_file(), "no {file}: {printed}");
+    }
+    assert_eq!(records_head(&case), "1", "the skeleton is committed once");
+    let trusted = case.trusted();
+    for path in [&checkout, &records] {
+        let path = path.display().to_string();
+        assert!(
+            trusted.contains(&path),
+            "{path} not trusted: {trusted:?}\n{printed}"
+        );
+    }
+    let profile = case.dir.join("worktree/alpha.toml");
+    assert!(profile.is_file(), "no profile template: {printed}");
+    assert_eq!(
+        case.worktree_log().matches("activate --profile").count(),
+        1,
+        "{}\n{printed}",
+        case.worktree_log()
+    );
+    drop(served);
+
+    let rules = records.join("rules.md");
+    let mut edited = fs::read_to_string(&rules).expect("rules.md");
+    edited.push_str("\nAn example-org rule, kept across starts.\n");
+    fs::write(&rules, &edited).expect("edit rules.md");
+    let before: Vec<(PathBuf, Vec<u8>)> = [
+        rules.clone(),
+        records.join("NORTHSTAR.md"),
+        case.home().join(".claude.json"),
+        profile.clone(),
+    ]
+    .into_iter()
+    .map(|path| {
+        let bytes = read_bytes(&path);
+        (path, bytes)
+    })
+    .collect();
+
+    let served = alone(&case);
+    let printed = served.printed();
+    assert!(printed.contains("seeded its instance"), "{printed}");
+    for (path, bytes) in &before {
+        assert_eq!(
+            &read_bytes(path),
+            bytes,
+            "{} was written again: {printed}",
+            path.display()
+        );
+    }
+    assert_eq!(records_head(&case), "1", "a second commit: {printed}");
+    assert_eq!(
+        case.worktree_log().matches("activate --profile").count(),
+        1,
+        "activated again: {}\n{printed}",
+        case.worktree_log()
+    );
+    for word in ["wrote:", "trusted:", "ran:", "created:"] {
+        assert!(
+            !printed.contains(word),
+            "{word} on a second start: {printed}"
+        );
+    }
+}
+
 #[test]
 fn without_unattended_the_start_creates_no_record_trust_or_workspace() {
     let case = Case::new("plain");

@@ -6,8 +6,9 @@
 //!   `index.html` carries the daemon's token in `<meta name="conductor-token">`, the one token a
 //!   browser holds; on the TLS listener it carries none, and the API takes bearers only;
 //! - `GET /v1/instances`: the rows the reconciler last published ([`Api::publish`]);
-//! - `/v1/instances/{name}/<route>`: the instance's `/v1/<route>`, proxied to its runtime's socket
-//!   ([`Route`]) with the instance's token, which no browser holds; only its writing routes
+//! - `/v1/instances/{name}/<route>`: the instance's `/v1/<route>`, proxied to its runtime's socket,
+//!   or to the TCP address of a runtime alone in a pod with the token on every request
+//!   ([`Route`]), with the instance's token, which no browser holds; only its writing routes
 //!   ([`WRITES`]) are admitted as writes, any other method is forwarded bare and the instance
 //!   answers it 405. `start`, `stop`, `restart` and `upgrade` are the daemon's own routes and are
 //!   not proxied; `POST /v1/instances/{name}/upgrade` hands an upgrade to the loop
@@ -111,6 +112,129 @@ pub struct Route {
     /// For a runtime in a box on a remote substrate daemon, the relay session its exchanges run
     /// as there instead of the socket (`story:placement-substrate-remote`).
     pub remote: Option<crate::placement::RemoteRoute>,
+    /// For a runtime alone in a pod, the address of its TCP listener instead of the socket
+    /// ([`crate::instance::LISTEN_VARIABLE`]): every request sent there carries [`Self::token`],
+    /// reads too ([`Route::tcp()`]).
+    pub tcp: Option<SocketAddr>,
+}
+
+impl Route {
+    /// The route to a runtime alone in a pod that serves its API on TCP at `address` and takes
+    /// every request with `token`, the value its [`crate::instance::TOKEN_VARIABLE`] holds.
+    #[must_use]
+    pub fn tcp(address: SocketAddr, token: String) -> Self {
+        Self {
+            socket: PathBuf::new(),
+            token,
+            remote: None,
+            tcp: Some(address),
+        }
+    }
+
+    /// A connection to the runtime: to its TCP address within `within`, else to its socket.
+    ///
+    /// # Errors
+    ///
+    /// It does not connect.
+    pub(crate) fn connect(&self, within: Duration) -> Result<Link> {
+        match self.tcp {
+            Some(address) => TcpStream::connect_timeout(&address, within)
+                .map(Link::Tcp)
+                .with_context(|| format!("connect to {address}")),
+            None => UnixStream::connect(&self.socket)
+                .map(Link::Unix)
+                .with_context(|| format!("connect to {}", self.socket.display())),
+        }
+    }
+
+    /// `request`, one whole HTTP request, as it is sent on this route: to a TCP address with the
+    /// token in `X-Conductor-Token` after its request line, where its head carries none; as it
+    /// is to a socket.
+    pub(crate) fn carrying<'a>(&self, request: &'a [u8]) -> std::borrow::Cow<'a, [u8]> {
+        use std::borrow::Cow;
+        if self.tcp.is_none() {
+            return Cow::Borrowed(request);
+        }
+        let end = request
+            .windows(4)
+            .position(|window| window == b"\r\n\r\n")
+            .unwrap_or(request.len());
+        let head = String::from_utf8_lossy(&request[..end]);
+        let carries = head
+            .split("\r\n")
+            .skip(1)
+            .filter_map(|line| line.split_once(':'))
+            .any(|(name, _)| name.trim().eq_ignore_ascii_case(dashboard::TOKEN_HEADER));
+        let Some(line) = request.windows(2).position(|pair| pair == b"\r\n") else {
+            return Cow::Borrowed(request);
+        };
+        if carries {
+            return Cow::Borrowed(request);
+        }
+        let header = format!("{}: {}\r\n", dashboard::TOKEN_HEADER, self.token);
+        let mut out = Vec::with_capacity(request.len() + header.len());
+        out.extend_from_slice(&request[..line + 2]);
+        out.extend_from_slice(header.as_bytes());
+        out.extend_from_slice(&request[line + 2..]);
+        Cow::Owned(out)
+    }
+}
+
+/// A connection to one runtime ([`Route::connect`]): its socket or its TCP listener.
+pub(crate) enum Link {
+    Unix(UnixStream),
+    Tcp(TcpStream),
+}
+
+impl Link {
+    /// Bounds each read by `timeout`.
+    pub(crate) fn set_read_timeout(&self, timeout: Option<Duration>) -> io::Result<()> {
+        match self {
+            Self::Unix(stream) => stream.set_read_timeout(timeout),
+            Self::Tcp(stream) => stream.set_read_timeout(timeout),
+        }
+    }
+
+    /// Bounds each write by `timeout`.
+    pub(crate) fn set_write_timeout(&self, timeout: Option<Duration>) -> io::Result<()> {
+        match self {
+            Self::Unix(stream) => stream.set_write_timeout(timeout),
+            Self::Tcp(stream) => stream.set_write_timeout(timeout),
+        }
+    }
+
+    /// Ends the sending side.
+    pub(crate) fn end_writes(&self) -> io::Result<()> {
+        match self {
+            Self::Unix(stream) => stream.shutdown(Shutdown::Write),
+            Self::Tcp(stream) => stream.shutdown(Shutdown::Write),
+        }
+    }
+}
+
+impl Read for Link {
+    fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
+        match self {
+            Self::Unix(stream) => stream.read(buf),
+            Self::Tcp(stream) => stream.read(buf),
+        }
+    }
+}
+
+impl Write for Link {
+    fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
+        match self {
+            Self::Unix(stream) => stream.write(buf),
+            Self::Tcp(stream) => stream.write(buf),
+        }
+    }
+
+    fn flush(&mut self) -> io::Result<()> {
+        match self {
+            Self::Unix(stream) => stream.flush(),
+            Self::Tcp(stream) => stream.flush(),
+        }
+    }
 }
 
 /// What the reconciler publishes after each tick.
@@ -1657,7 +1781,8 @@ fn proxy(
 }
 
 /// Sends `request`, one whole HTTP request, to the instance at `target` and answers what it
-/// answered, byte for byte: over its socket, or, for a runtime in a box on a remote substrate
+/// answered, byte for byte: over its socket; for a runtime alone in a pod, to its TCP address
+/// with its token, reads too ([`Route::tcp`]); or, for a runtime in a box on a remote substrate
 /// daemon, through one relay session in its box (`story:placement-substrate-remote`,
 /// [`crate::placement::RemoteRoute`]).
 ///
@@ -1668,13 +1793,12 @@ pub fn send(target: &Route, request: &[u8]) -> Result<Vec<u8>> {
     if let Some(remote) = &target.remote {
         return remote.send(request);
     }
-    let mut stream = UnixStream::connect(&target.socket)
-        .with_context(|| format!("connect to {}", target.socket.display()))?;
+    let mut stream = target.connect(IO_TIMEOUT)?;
     stream.set_read_timeout(Some(PROXY_TIMEOUT))?;
     stream.set_write_timeout(Some(IO_TIMEOUT))?;
-    stream.write_all(request)?;
+    stream.write_all(&target.carrying(request))?;
     stream.flush()?;
-    stream.shutdown(Shutdown::Write)?;
+    stream.end_writes()?;
     let mut answer = Vec::new();
     stream.read_to_end(&mut answer)?;
     if answer.is_empty() {
