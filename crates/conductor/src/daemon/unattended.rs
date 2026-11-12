@@ -18,7 +18,9 @@
 //!
 //! A runtime alone in a pod of its own ([`crate::instance::LISTEN_VARIABLE`]) has no daemon beside
 //! it to seed for it: it takes the same steps for its own instance at its start
-//! ([`seed_instance`]), each only where missing, whether or not `daemon.unattended` is set.
+//! ([`seed_instance`]), each only where missing, whether or not `daemon.unattended` is set. The
+//! daemon that runs its instances as pods (`daemon.kubernetes`) seeds none of them itself
+//! ([`seeds_here`]).
 
 use std::fs;
 use std::path::Path;
@@ -47,10 +49,21 @@ pub fn seed(file: &Path, home: &Path) -> bool {
         }
     };
     let mut seeded = true;
+    if !seeds_here(&loaded.config) {
+        return seeded;
+    }
     for index in 0..loaded.config.instances.len() {
         seeded &= seed_instance(&loaded, index, home, WHAT);
     }
     seeded
+}
+
+/// Whether the daemon of `config` seeds its instances itself: not where it runs them as pods
+/// (`daemon.kubernetes`, design: instance pods), whose runtimes seed themselves at their start in
+/// their own pod ([`seed_instance`] there).
+#[must_use]
+pub const fn seeds_here(config: &conductor_model::config::Config) -> bool {
+    config.daemon.kubernetes.is_none()
 }
 
 /// Seeds the instance at `index` of `loaded`, with `home` the home directory whose

@@ -2098,7 +2098,92 @@ pub fn config_lines(flag: Option<&Path>) -> Vec<(String, Option<String>)> {
     let mut lines = kind_lines(flag);
     lines.extend(box_lines(flag, &crate::placement::Sdk::default()));
     lines.extend(forge_lines(flag));
+    lines.extend(pod_lines(flag));
     lines
+}
+
+/// Each right a daemon that runs its instances as pods needs in their namespace, as a verb and a
+/// resource: create, get, list and delete on pods, volume claims and Secrets, and get on a
+/// pod's log (design: instance pods).
+pub const POD_RIGHTS: [(&str, &str); 13] = [
+    ("create", "pods"),
+    ("get", "pods"),
+    ("list", "pods"),
+    ("delete", "pods"),
+    ("create", "persistentvolumeclaims"),
+    ("get", "persistentvolumeclaims"),
+    ("list", "persistentvolumeclaims"),
+    ("delete", "persistentvolumeclaims"),
+    ("create", "secrets"),
+    ("get", "secrets"),
+    ("list", "secrets"),
+    ("delete", "secrets"),
+    ("get", "pods/log"),
+];
+
+/// The rows of a daemon that runs its instances as pods (`daemon.kubernetes`, design: instance
+/// pods), each with the failure it adds to the verdict: one per right of [`POD_RIGHTS`] in
+/// `kubernetes.namespace`, asked of the API by `client` ([`crate::kube::Client::may`]),
+/// `kubernetes <namespace>: <verb> <resource> allowed` or `… not allowed`; out of a cluster, or
+/// where the client cannot be made, the one row `kubernetes <namespace>: <why>`, which fails.
+#[must_use]
+pub fn kubernetes_lines(
+    kubernetes: &conductor_model::config::Kubernetes,
+    client: Result<&crate::kube::Client, &crate::kube::Error>,
+) -> Vec<(String, Option<String>)> {
+    let namespace = &kubernetes.namespace.0;
+    let client = match client {
+        Ok(client) => client,
+        Err(error) => {
+            let what = match error {
+                crate::kube::Error::NotInCluster { .. } => "not in a cluster",
+                _ => "no client of the cluster",
+            };
+            return vec![(
+                format!(
+                    "kubernetes {namespace}: {error}; the daemon's rights there are not checked"
+                ),
+                Some(format!("kubernetes {namespace} ({what})")),
+            )];
+        }
+    };
+    POD_RIGHTS
+        .iter()
+        .map(
+            |(verb, resource)| match client.may(namespace, verb, resource) {
+                Ok(true) => (
+                    format!("kubernetes {namespace}: {verb} {resource} allowed"),
+                    None,
+                ),
+                Ok(false) => (
+                    format!("kubernetes {namespace}: {verb} {resource} not allowed"),
+                    Some(format!(
+                        "kubernetes {namespace} ({verb} {resource} not allowed)"
+                    )),
+                ),
+                Err(error) => (
+                    format!("kubernetes {namespace}: {verb} {resource} not checked: {error}"),
+                    Some(format!(
+                        "kubernetes {namespace} ({verb} {resource} not checked)"
+                    )),
+                ),
+            },
+        )
+        .collect()
+}
+
+/// [`kubernetes_lines`] for the config `flag`, where it sets `daemon.kubernetes`, through the
+/// service account of the pod doctor runs in; none otherwise.
+fn pod_lines(flag: Option<&Path>) -> Vec<(String, Option<String>)> {
+    let Some(kubernetes) = config::Environment::from_process()
+        .and_then(|environment| config::load(flag, &environment))
+        .ok()
+        .and_then(|loaded| loaded.config.daemon.kubernetes)
+    else {
+        return Vec::new();
+    };
+    let client = crate::kube::Client::in_cluster();
+    kubernetes_lines(&kubernetes, client.as_ref())
 }
 
 /// The one verdict of `conductor doctor` and `conductor setup` ([`verdict_of`]): over `doctor`'s

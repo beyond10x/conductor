@@ -20,7 +20,8 @@
 //!
 //! In a cluster (design: instance pods) `--daemon-config` names a file that holds only `version`
 //! and `daemon`, such as a mounted ConfigMap: at every start, before the config file is read,
-//! [`seed::merge`] writes the config file from it, keeping the file's instances.
+//! [`seed::merge`] writes the config file from it, keeping the file's instances. Where
+//! `daemon.kubernetes` is set, each runtime is a pod of its own in that namespace ([`pods`]).
 //!
 //! It serves before its store answers (`story:daemon-probes-and-metrics`): the listeners take
 //! requests as soon as the config is read, `GET /healthz` answers `200` and `GET /readyz` `503`
@@ -40,6 +41,7 @@ pub mod federate;
 pub mod host_roles;
 pub mod install;
 pub mod metrics;
+pub mod pods;
 pub mod reconcile;
 pub mod seed;
 pub mod unattended;
@@ -285,12 +287,29 @@ pub fn daemon_serve(
             thread::sleep(TICK);
         }
     }
-    // Where no user service manager is, as in a container, each runtime is a child process of
-    // the daemon, and a signal that ends the daemon stops them first.
-    let manager = units::Manager::chosen(
-        std::env::var_os("XDG_RUNTIME_DIR").as_deref(),
-        std::env::var_os("PATH").as_deref(),
-    );
+    // Where `daemon.kubernetes` is set (design: instance pods), each runtime is a pod in its
+    // namespace, through the service account of the pod the daemon runs in; out of a cluster the
+    // daemon does not start. Where no user service manager is, as in a container, each runtime is
+    // a child process of the daemon, and a signal that ends the daemon stops them first.
+    let manager = match &written.daemon.kubernetes {
+        Some(kubernetes) => {
+            let client = crate::kube::Client::in_cluster().map_err(|error| {
+                anyhow::anyhow!(
+                    "{WHAT}: daemon.kubernetes: {error}; the daemon runs its instances as pods \
+                     only from a pod of the cluster"
+                )
+            })?;
+            println!(
+                "conductord: each runtime runs as a pod in the namespace {}",
+                kubernetes.namespace.0
+            );
+            units::Manager::Pods(Box::new(pods::Pods::new(client)))
+        }
+        None => units::Manager::chosen(
+            std::env::var_os("XDG_RUNTIME_DIR").as_deref(),
+            std::env::var_os("PATH").as_deref(),
+        ),
+    };
     if let units::Manager::Children(children) = &manager {
         println!(
             "conductord: no user service manager here: each runtime runs as a child process of \
@@ -406,9 +425,28 @@ pub fn start_role(
 
 /// Answers `request`, an upgrade asked through `POST /v1/instances/{name}/upgrade`: while
 /// `daemon` holds a record the store refused ([`Daemon::record_held`]), `503` with the readiness
-/// reason [`metrics::UNRECORDED`] and nothing done, since nothing would be recorded; otherwise
-/// the upgrade ([`Daemon::answer`]).
+/// reason [`metrics::UNRECORDED`] and nothing done, since nothing would be recorded; `409` for an
+/// instance the daemon runs as a pod, whose version the image `daemon.kubernetes.image` names
+/// (design: instance pods); otherwise the upgrade ([`Daemon::answer`]).
 pub fn answer_upgrade<U: units::Units>(daemon: &mut Daemon<U>, request: upgrade::Request) {
+    let pod_run = daemon.units.pods().is_some()
+        && daemon.config().daemon.kubernetes.is_some()
+        && daemon
+            .config()
+            .instances
+            .iter()
+            .any(|instance| instance.name.0 == request.name);
+    if pod_run {
+        let _ = request.reply.send((
+            "409 Conflict",
+            serde_json::json!({"error": format!(
+                "InstanceStateConflict: {} runs as a pod, on the image daemon.kubernetes.image \
+                 names: a new image upgrades it",
+                request.name
+            )}),
+        ));
+        return;
+    }
     if daemon.holds_records() {
         let _ = request.reply.send((
             "503 Service Unavailable",
