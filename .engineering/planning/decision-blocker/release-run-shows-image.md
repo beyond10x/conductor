@@ -2,12 +2,14 @@
 format: aep.planning-md/3
 id: decision-blocker:release-run-shows-image
 kind: decision-blocker
-status: open
+status: cleared
 title: 'No release has run since the image jobs merged: the push and the Release notes are unobserved'
 relations:
 - blocks: story:release-container-image
 withholds: test_result
-revision: 1
+revision: 2
+transitions:
+- {from: "open", to: "cleared", at: "2026-11-12T00:10:56Z", actor: "human:timo", revision: 2}
 ---
 ## What is blocked
 
