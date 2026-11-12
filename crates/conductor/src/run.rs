@@ -379,8 +379,8 @@ pub fn run_with(
             ExitCode::SUCCESS
         });
     }
-    let never = run_locked(config_flag, state, &dir, seams)?;
-    match never {}
+    let Err(error) = run_locked(config_flag, state, &dir, seams);
+    Err(error)
 }
 
 /// The loop of [`run_with`] and [`in_runtime`], its lock in `dir` held by the caller: the ticks,
@@ -950,7 +950,7 @@ impl<'s, 'a> Tick<'s, 'a> {
                 )
         });
         if let Some(held) = held {
-            crate::controller::stop_controller(
+            let _ = crate::controller::stop_controller(
                 self.state,
                 StopControllerArgs {
                     actor: None,

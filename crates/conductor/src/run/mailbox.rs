@@ -246,7 +246,7 @@ fn report(tick: &mut Tick<'_, '_>, repo: &str, dispatch: &str, rest: &str) -> Re
     let id = Some(dispatch.clone());
     let held = state_of(tick, &dispatch)?;
     if matches!(verb, "blocked" | "done" | "failed") && held == Some(DispatchState::Sent) {
-        crate::dispatch::report_started(
+        let _ = crate::dispatch::report_started(
             state,
             ReportStartedArgs {
                 actor: None,
@@ -260,7 +260,7 @@ fn report(tick: &mut Tick<'_, '_>, repo: &str, dispatch: &str, rest: &str) -> Re
         // A controller restarted after a hand-over reports `started` on its blocked dispatch: it
         // works it again.
         "started" if held == Some(DispatchState::Blocked) => {
-            crate::dispatch::report_unblocked(
+            let _ = crate::dispatch::report_unblocked(
                 state,
                 ReportUnblockedArgs {
                     actor: None,
@@ -271,7 +271,7 @@ fn report(tick: &mut Tick<'_, '_>, repo: &str, dispatch: &str, rest: &str) -> Re
             DispatchLogEvent::Unblocked
         }
         "started" => {
-            crate::dispatch::report_started(
+            let _ = crate::dispatch::report_started(
                 state,
                 ReportStartedArgs {
                     actor: None,
@@ -282,7 +282,7 @@ fn report(tick: &mut Tick<'_, '_>, repo: &str, dispatch: &str, rest: &str) -> Re
             DispatchLogEvent::Started
         }
         "blocked" => {
-            crate::dispatch::report_blocked(
+            let _ = crate::dispatch::report_blocked(
                 state,
                 ReportBlockedArgs {
                     actor: None,
@@ -294,7 +294,7 @@ fn report(tick: &mut Tick<'_, '_>, repo: &str, dispatch: &str, rest: &str) -> Re
             DispatchLogEvent::Blocked
         }
         "unblocked" => {
-            crate::dispatch::report_unblocked(
+            let _ = crate::dispatch::report_unblocked(
                 state,
                 ReportUnblockedArgs {
                     actor: None,
@@ -305,7 +305,7 @@ fn report(tick: &mut Tick<'_, '_>, repo: &str, dispatch: &str, rest: &str) -> Re
             DispatchLogEvent::Unblocked
         }
         "done" => {
-            crate::dispatch::report_done(
+            let _ = crate::dispatch::report_done(
                 state,
                 ReportDoneArgs {
                     actor: None,
@@ -317,7 +317,7 @@ fn report(tick: &mut Tick<'_, '_>, repo: &str, dispatch: &str, rest: &str) -> Re
             DispatchLogEvent::Done
         }
         "failed" => {
-            crate::dispatch::report_failed(
+            let _ = crate::dispatch::report_failed(
                 state,
                 ReportFailedArgs {
                     actor: None,
@@ -500,7 +500,7 @@ fn decision_request(
         .or_else(|| letters.first().copied())
         .map(str::to_owned);
     let now = OffsetDateTime::now_utc();
-    crate::decide::raise_decision_request(
+    let _ = crate::decide::raise_decision_request(
         tick.state,
         RaiseDecisionRequestArgs {
             actor: None,
@@ -532,7 +532,7 @@ fn decision_request(
     let Some(recommended) = recommended else {
         bail!("request {request} lists no lettered option, so it is raised and not escalated");
     };
-    crate::decide::escalate_request(
+    let _ = crate::decide::escalate_request(
         tick.state,
         EscalateRequestArgs {
             actor: None,
@@ -572,7 +572,7 @@ fn mark_handled(tick: &Tick<'_, '_>, file: &Path) -> Result<()> {
     });
     drop(store);
     if let Some(message) = message {
-        crate::message::handle_message(
+        let _ = crate::message::handle_message(
             tick.state,
             HandleMessageArgs {
                 actor: None,

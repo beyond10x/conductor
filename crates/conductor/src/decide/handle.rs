@@ -1273,7 +1273,7 @@ pub fn handle_request(state: Option<&Path>, text: &str, decider: &dyn Decider) -
     } = classify(text);
     let now = OffsetDateTime::now_utc();
     let at = now.format(&Rfc3339).context("format the time")?;
-    super::raise_decision_request(
+    let _ = super::raise_decision_request(
         state,
         RaiseDecisionRequestArgs {
             actor: None,
@@ -1343,7 +1343,7 @@ pub fn handle_request(state: Option<&Path>, text: &str, decider: &dyn Decider) -
             bail!("{COMMAND}: decision {:?} already exists", decision_id.0)
         }
     };
-    super::answer_request(
+    let _ = super::answer_request(
         state,
         AnswerRequestArgs {
             actor: None,
@@ -1436,7 +1436,7 @@ fn escalate(
         .format(&Rfc3339)
         .context("format the deadline")?;
     let options = Value::Array(request.options.iter().map(option_value).collect()).to_string();
-    super::escalate_request(
+    let _ = super::escalate_request(
         state,
         EscalateRequestArgs {
             actor: None,

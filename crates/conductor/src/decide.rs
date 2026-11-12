@@ -993,7 +993,7 @@ pub fn answer_as_operator(
     })();
     match moved {
         Ok(true) => {
-            request_logged(
+            let _ = request_logged(
                 COMMAND,
                 &generated.ports,
                 &request,
@@ -1056,7 +1056,7 @@ fn withdraw_decision(
         .map_err(|unmet| anyhow!("{command}: {unmet}"))?;
     kept(command, &fresh.ports.store)?;
     if let ReverseOperatorDecisionOutcome::Reversed { .. } = reversed {
-        decision_logged(
+        let _ = decision_logged(
             command,
             &fresh.ports,
             decision_id,

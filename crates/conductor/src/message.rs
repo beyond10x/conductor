@@ -330,7 +330,7 @@ pub fn receive_message(state: Option<&Path>, args: ReceiveMessageArgs) -> Result
             print(COMMAND, &format!("{}\n", message_received.message_id.0.0))
         }
         ReceiveMessageOutcome::Unparsed { message_received } => {
-            print(COMMAND, FORMAT)?;
+            let _ = print(COMMAND, FORMAT)?;
             bail!(
                 "{COMMAND}: the first line does not parse, so message {} is recorded as rejected; \
                  the format for its sender is on standard output",
@@ -569,7 +569,7 @@ pub fn send(state: Option<&Path>, args: &SendArgs) -> Result<ExitCode> {
     let first = first_line(&text).to_owned();
     let reading = read(&first);
     let Some(kind) = reading.kind.filter(|_| reading.parsed) else {
-        print(COMMAND, FORMAT)?;
+        let _ = print(COMMAND, FORMAT)?;
         return mailbox_refused(&MailboxSendRefused {
             from: input.from,
             to: input.to,

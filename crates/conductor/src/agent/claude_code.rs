@@ -232,7 +232,7 @@ impl Kind for ClaudeCode {
     }
 
     fn start(&self, context: &Context<'_>, slot: &Slot) -> Result<Handle, Refused> {
-        start_role(context, &slot.role)?;
+        let _ = start_role(context, &slot.role)?;
         Ok(Handle {
             name: slot.name.clone(),
             kind: self.name(),
@@ -241,7 +241,7 @@ impl Kind for ClaudeCode {
     }
 
     fn deliver(&self, context: &Context<'_>, handle: &Handle, text: &str) -> Result<(), Refused> {
-        session::deliver_text(context.state, &handle.name.0, text, None)?;
+        let _ = session::deliver_text(context.state, &handle.name.0, text, None)?;
         Ok(())
     }
 
@@ -282,7 +282,7 @@ impl Kind for ClaudeCode {
                 handle.name.0
             )));
         };
-        stop_role(context, &role)?;
+        let _ = stop_role(context, &role)?;
         Ok(())
     }
 }

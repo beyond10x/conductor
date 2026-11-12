@@ -1666,7 +1666,7 @@ pub fn escalate(host: &Path, state: &Path, shortfall: &Shortfall<'_>) -> Result<
         options.join("; ")
     };
     let recommendation = person_command(shortfall, &left);
-    crate::decide::raise_decision_request(
+    let _ = crate::decide::raise_decision_request(
         Some(state),
         RaiseDecisionRequestArgs {
             actor: None,
@@ -1690,7 +1690,7 @@ pub fn escalate(host: &Path, state: &Path, shortfall: &Shortfall<'_>) -> Result<
         gib(shortfall.bytes),
         left_measured(shortfall, &left)
     );
-    crate::decide::escalate_request_measured(
+    let _ = crate::decide::escalate_request_measured(
         Some(state),
         EscalateRequestArgs {
             actor: None,
@@ -1905,7 +1905,7 @@ impl Ledger {
                     )
                 });
         if open {
-            crate::decide::withdraw_request(
+            let _ = crate::decide::withdraw_request(
                 Some(state),
                 WithdrawRequestArgs {
                     actor: None,

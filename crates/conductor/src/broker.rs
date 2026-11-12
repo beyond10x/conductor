@@ -248,7 +248,7 @@ impl StoreMessages {
         let state = Some(self.state.as_path());
         let id = Some(dispatch.to_owned());
         let text = Some(line.to_owned());
-        match status {
+        let _ = match status {
             ReportStatus::Progress => return Ok(false),
             ReportStatus::Started => crate::dispatch::report_started(
                 state,
