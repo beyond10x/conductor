@@ -333,7 +333,7 @@ pub fn collect_from(sources: &Sources, record: &mut Recorder<'_>) -> Result<()> 
     collect_with(
         sources,
         None,
-        std::slice::from_ref(&sources.organization),
+        &Origins::owner(&sources.organization),
         record,
     )
 }
@@ -352,7 +352,7 @@ pub fn collect_all_from(
     collect_with(
         sources,
         Some(shipments),
-        std::slice::from_ref(&sources.organization),
+        &Origins::owner(&sources.organization),
         record,
     )
 }
@@ -369,29 +369,31 @@ pub fn collect_over(
     origins: &Origins,
     record: &mut Recorder<'_>,
 ) -> Result<()> {
-    collect_with(sources, Some(shipments), &origins.owners, record)
+    collect_with(sources, Some(shipments), origins, record)
 }
 
-/// The repositories each of `owners` lists, each read whole (with `shipments` when given) and its
-/// runs compared with the newest complete snapshot's before anything is recorded.
+/// The repositories each owner of `origins` lists, but those its `include` leaves out
+/// (`story:source-include-list`), each read whole (with `shipments` when given) and its runs
+/// compared with the newest complete snapshot's before anything is recorded.
 fn collect_with(
     sources: &Sources,
     shipments: Option<&Shipments>,
-    owners: &[String],
+    origins: &Origins,
     record: &mut Recorder<'_>,
 ) -> Result<()> {
     let shipments = shipments.map(|shipments| (shipments, Window::of(shipments)));
     // Each repository as `(name, owner)`, by name.
     let mut repositories: Vec<(String, String)> = Vec::new();
-    for owner in owners {
+    for owner in &origins.owners {
         let what = format!("organization {owner}");
         let command = filled(&sources.repository_list, &[("organization", owner)]);
         let listed: Vec<Listed> = json(&what, &command, None, sources.bound)?;
-        let mut names = listed
+        let names = listed
             .into_iter()
             .filter(|listed| !listed.is_archived)
             .map(|listed| checked(&what, listed.name))
             .collect::<Result<Vec<_>>>()?;
+        let (mut names, _) = origins.included(owner, names);
         names.sort();
         names.dedup();
         repositories.extend(names.into_iter().map(|name| (name, owner.clone())));

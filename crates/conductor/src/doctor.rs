@@ -1840,10 +1840,11 @@ impl Sample {
 }
 
 /// The checkouts of `instance` under its checkouts root `root` ([`git_dirs_under`]), but those a
-/// source of the instance excludes, whose sessions run under no rule set.
+/// source of the instance excludes or leaves outside its `include` ([`collect::LeftOut`]), whose
+/// sessions run under no rule set.
 fn checkouts_under(instance: &Instance, root: &Path) -> Vec<PathBuf> {
     let mut checkouts = git_dirs_under(root);
-    let exclude = collect::excluded_under(instance, root);
+    let left_out = collect::LeftOut::under(instance, root);
     checkouts.retain(|checkout| {
         let steps: Vec<String> = checkout
             .strip_prefix(root)
@@ -1853,7 +1854,7 @@ fn checkouts_under(instance: &Instance, root: &Path) -> Vec<PathBuf> {
                     .collect()
             })
             .unwrap_or_default();
-        !collect::is_excluded(&steps, &exclude)
+        !left_out.leaves_out(&steps)
     });
     checkouts
 }

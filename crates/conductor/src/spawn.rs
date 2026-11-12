@@ -39,7 +39,8 @@
 //!
 //! In order, it refuses, recording and launching nothing: a repository that names no git
 //! checkout directly, or one group down, under the checkouts root, one whose physical path lies
-//! outside the root's physical path, or one an `exclude` entry of the instance's sources leaves out
+//! outside the root's physical path, or one an `exclude` entry of the instance's sources leaves out,
+//! or no `include` entry names (`story:source-include-list`)
 //! (`NoCheckout`); a checkout that is the instance's records directory, lies in it or holds it,
 //! where the guard takes a session for conductor's (`RecordsCheckout`); a role that is missing (`NoControllerRole`), runs
 //! on another harness (`NotClaude`), or names a profile or settings file that is not a file
@@ -691,7 +692,8 @@ pub(crate) fn name_character(c: char) -> bool {
 /// The physical path of `repository`'s checkout under `instance`'s checkouts root: `<repo>` or
 /// `<group>/<repo>`, each step a plain name starting with a letter or digit, the directory holding
 /// `.git` that the sessions collector reads as that repository ([`collect::repository_of`]), and
-/// no `exclude` entry of the instance's sources leaving it out.
+/// no `exclude` entry of the instance's sources, nor their `include` ([`collect::LeftOut`]),
+/// leaving it out.
 pub(crate) fn checkout(instance: &Instance, repository: &str) -> Result<PathBuf, String> {
     let steps: Vec<&str> = repository.split('/').collect();
     let plain = |step: &&str| {
@@ -719,7 +721,14 @@ pub(crate) fn checkout(instance: &Instance, repository: &str) -> Result<PathBuf,
             dir.display()
         ));
     }
-    if collect::is_excluded(&steps, &collect::excluded_under(instance, root)) {
+    let left_out = collect::LeftOut::under(instance, root);
+    if left_out.outside_include(&steps) {
+        return Err(
+            "no include entry of the instance's sources names the repository, which leaves it out"
+                .to_owned(),
+        );
+    }
+    if left_out.leaves_out(&steps) {
         return Err(
             "an exclude entry of the instance's sources leaves the repository out".to_owned(),
         );

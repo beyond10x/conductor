@@ -1322,6 +1322,7 @@ impl Case {
             host: "gitlab.example.com".to_owned(),
             group: "example-org".to_owned(),
             exclude: Vec::new(),
+            include: None,
             checkouts: self.dir.join("checkouts"),
             bound: Duration::from_secs(10),
         }

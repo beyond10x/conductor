@@ -763,6 +763,34 @@ fn spawn_refuses_a_repository_that_is_no_checkout_under_the_root() {
     assert!(!case.recorded(), "nothing is recorded");
 }
 
+/// `story:source-include-list`: a checkout no `include` entry names is refused as one an
+/// `exclude` entry names is, before anything is launched or recorded.
+#[test]
+fn spawn_refuses_a_repository_the_sources_leave_out() {
+    let case = Case::new("left-out");
+    let text = fs::read_to_string(case.config()).expect("read the config file");
+    for sources in [
+        "[{gitlab: example-org, exclude: [alpha]}]",
+        "[{github: example-org, include: [beta]}]",
+    ] {
+        write(
+            &case.config(),
+            &text.replace("[{github: example-org}]", sources),
+        );
+        let output = case.spawn();
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        assert!(
+            output.status.code() == Some(1)
+                && stderr.contains("refused: NoCheckout:")
+                && stderr.contains("leave"),
+            "{sources}: {}",
+            describe(&output)
+        );
+    }
+    assert_eq!(case.launches(), 0, "nothing is launched");
+    assert!(!case.recorded(), "nothing is recorded");
+}
+
 #[test]
 fn a_launch_that_fails_is_refused_and_the_controller_recorded_stopped() {
     let case = Case::new("launch-fails");

@@ -69,9 +69,11 @@ fn watch_uses_each_repositories_github_owner() {
     instance.sources = vec![
         Source::GitHub(GitHubSource {
             owner: "example-first".into(),
+            include: None,
         }),
         Source::GitHub(GitHubSource {
             owner: "example-second".into(),
+            include: None,
         }),
     ];
     let active = config::Active {

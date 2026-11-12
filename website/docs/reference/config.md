@@ -155,6 +155,7 @@ A key path written `a[].b` is the key `b` of each element of the list `a`. A def
 | `sources[].github` | string | one of `github`, `local`, `gitlab` |  |
 | `sources[].local` | string | one of `github`, `local`, `gitlab` |  |
 | `sources[].gitlab` | string | one of `github`, `local`, `gitlab` |  |
+| `sources[].include` | list of string | none | only beside `github` or `gitlab` |
 | `sources[].exclude` | list of string | `[]` | only beside `local` or `gitlab` |
 | `sources[].host` | string | `gitlab.com` | only beside `gitlab` |
 | `checkouts.root` | string | required |  |
@@ -284,17 +285,19 @@ Written as string. Specified as `conductor.config.TimeOfDay`.
 
 ### Source
 
-Where an instance's repositories come from. The file writes `{github: <owner>}`, `{local: <path>}` or `{gitlab: <group or root>}`; a `local` or `gitlab` source may add `exclude: [<path under the root>]`, and a `gitlab` source `host: <host name>`.
+Where an instance's repositories come from. The file writes `{github: <owner>}`, `{local: <path>}` or `{gitlab: <group or root>}`; a `local` or `gitlab` source may add `exclude: [<path under the root>]`, a `github` or `gitlab` source `include: [<path under the owner or group>]`, and a `gitlab` source `host: <host name>`.
 
 A repository is the directory that holds `.git` at depth 1 or 2 under a root (`<root>/<repo>` or `<root>/<group>/<repo>`), named by its path under the root (`<group>/<repo>`); the root is a `local` source's path, and for the checkouts of the other sources `checkouts.root`. A repository whose name is an `exclude` entry, or lies under one, is not listed and not placed. Absent, `exclude` is empty. A `github` source takes no `exclude`: GitHub lists its owner's repositories, and the collectors that read that list do not filter it.
+
+`include` is `exclude` inverted: a repository of the source that no `include` entry names or holds is left out as an excluded one is, from every collected fact, the guard, spawn, the sessions, doctor and the workspace file, and a project the group gains later is left out until an entry covers it. An entry is a path under the owner or group as the forge names it: a GitHub repository's name, one step, or a GitLab project's path with the group taken off (`alpha`, `sub/gamma`), so an entry may name a subgroup; it is matched as an `exclude` entry is, by leading steps, without a wildcard, and written as one is. A GitLab checkout is covered when its project's path or its own path under `checkouts.root` is. Absent, the source stands for every repository of its owner or group, as before. A source does not validate with both `include` and `exclude`, with an empty `include`, or with a `github` entry of more than one step; a `local` source takes none. Where the guard, spawn, the sessions and doctor read a repository by its path under `checkouts.root` alone, `include` leaves it out only when every source on that root names an `include`. An entry no repository of the forge's listing answers to fails nothing: the `repositories` collector records it once a snapshot as a member failure (`conductor.observation.RecordMemberFailure`), the entry as written as its member.
 
 One of the forms the keys table lists. Specified as `conductor.config.Source`.
 
 ### GitHubSource
 
-An owner on GitHub, whose repositories are the instance's.
+An owner on GitHub, whose repositories are the instance's, or those of them `include` names.
 
-Keys: `owner`. Specified as `conductor.config.GitHubSource`.
+Keys: `owner`, `include`. Specified as `conductor.config.GitHubSource`.
 
 ### LocalSource
 
@@ -306,7 +309,7 @@ Keys: `path`, `exclude`. Specified as `conductor.config.LocalSource`.
 
 A group (or the root) on a GitLab forge, whose repositories are the instance's. `host` is the forge's host name, without a scheme or a path, such as `gitlab.example.com` for a self-hosted GitLab; absent, it is `gitlab.com`. The collectors read that forge with `glab api --hostname <host>`: one repository row and one specification row per checkout of a project of the group and its subgroups, and one per project without a checkout, archived ones included. A project's checkout is each git checkout under `checkouts.root` whose `origin` remote is on the host and names the project, read from its git config with no network read. A checkout is the repository, named as every repository is, by its path under `checkouts.root`, whatever its project is called: the workspace file, the snapshots, `repository activity`, the charters and the dispatches name it so, and the project's id and path are used only where the forge is called. Two checkouts of one project are two repositories. A project without a checkout is named by its path under the group, the path its checkout would have under the root; one whose name a checkout of another project holds fails the snapshot, which names both. A project two `gitlab` sources list, as sources whose groups nest do, is one repository, which the source written first records. A checkout under a directory that is no repository name is not recorded and stops no snapshot; the collecting command names it on standard error. An `exclude` entry names a checked-out project in either form: by its checkout's path under the root, which leaves that checkout out, its project then not listed under its own name either; or by the project's path under the group, which leaves the project out with every checkout of it.
 
-Keys: `group`, `host`, `exclude`. Specified as `conductor.config.GitLabSource`.
+Keys: `group`, `host`, `exclude`, `include`. Specified as `conductor.config.GitLabSource`.
 
 ### Checkouts
 

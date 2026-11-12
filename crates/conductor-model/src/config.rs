@@ -1,5 +1,5 @@
 // generated from conductor v1
-// contract digest 9cebcb2ee988c714aa43682a8c5db29c9591548ea4b93f681fc596db3bbe6f02
+// contract digest 1f04a7d0d2bb5b91ad54e66b6f1ac741da244950e54533796fb9f94fa55b33df
 // do not edit: regenerate with `ess synthesize --layout crate`
 
 //! Config — `conductor.config`.
@@ -440,6 +440,8 @@ pub struct Gibibytes(pub i64);
 pub struct GitHubSource {
     /// `owner` — `String`.
     pub owner: String,
+    /// `include` — `Optional<List<String>>`.
+    pub include: Option<Vec<String>>,
 }
 
 /// GitLabSource — `conductor.config.GitLabSource`.
@@ -451,6 +453,8 @@ pub struct GitLabSource {
     pub host: String,
     /// `exclude` — `List<String>`.
     pub exclude: Vec<String>,
+    /// `include` — `Optional<List<String>>`.
+    pub include: Option<Vec<String>>,
 }
 
 /// Globals — `conductor.config.Globals`.

@@ -8,7 +8,10 @@
 //!
 //! - A source's projects ([`Forge::projects`]) are `groups/<group>/projects` with its subgroups,
 //!   projects shared into the group aside, archived ones included, but a project with no commit
-//!   yet (no default branch), which has nothing to read.
+//!   yet (no default branch), which has nothing to read. With `include`
+//!   (`story:source-include-list`) only the projects and checkouts its entries cover are the
+//!   source's, every collector reading that one list, so a project the group gains later is
+//!   none of them until an entry covers it.
 //! - A project's checkout ([`checkouts`]) is each git checkout under the checkouts root, at depth
 //!   1 or 2 (`<root>/<repo>` or `<root>/<group>/<repo>`) and not under one of the source's
 //!   `exclude` entries, whose `origin` remote, read from its git config with no network read and
@@ -471,6 +474,10 @@ pub struct Forge {
     /// The source's `exclude` entries: paths under the checkouts root, each a checkout's path
     /// or a project's path under the group, checked out or not.
     pub exclude: Vec<String>,
+    /// The source's `include` entries (`story:source-include-list`), each a project's path under
+    /// the group or a checkout's path under the checkouts root: the only repositories of the
+    /// group that are the instance's. `None` when the source names none.
+    pub include: Option<Vec<String>>,
     /// The checkouts root, whose checkouts name the projects they hold ([`Forge::projects`]).
     pub checkouts: PathBuf,
     /// How long one command may run before it is stopped.
@@ -487,6 +494,7 @@ impl Forge {
             host: source.host.clone(),
             group: source.group.clone(),
             exclude: source.exclude.clone(),
+            include: source.include.clone(),
             checkouts: checkouts.to_owned(),
             bound: collect::BOUND,
         }
@@ -567,7 +575,10 @@ impl Forge {
     /// `exclude` entry names a checked-out project by either: by its checkout's path under the
     /// root, which leaves that checkout out and does not list its project under its own name
     /// beside it, or by the project's path under the group, which leaves the project out with
-    /// every checkout of it. A checkout whose directory is no repository name (`checks copy`)
+    /// every checkout of it. An `include` entry (`story:source-include-list`) names them the same
+    /// two ways, inverted: a project whose path an entry covers is listed with every checkout of
+    /// it, one whose path none covers only by each checkout an entry covers, and without such a
+    /// checkout not at all. A checkout whose directory is no repository name (`checks copy`)
     /// is no repository: it is named once on standard error ([`unnamed`]) and stops nothing.
     ///
     /// # Errors
@@ -603,6 +614,9 @@ impl Forge {
             if collect::is_excluded(steps.as_slice(), &self.exclude) {
                 continue;
             }
+            // With `include`, a project an entry covers by its path is the instance's with every
+            // checkout of it; one it does not cover is only by a checkout an entry covers.
+            let project_in = self.covered(steps.as_slice());
             let Some(default_branch) = project
                 .default_branch
                 .filter(|branch| !branch.is_empty() && !project.empty_repo)
@@ -643,12 +657,16 @@ impl Forge {
                 })
                 .peekable();
             if held.peek().is_none() {
-                projects.push(listed);
+                if project_in {
+                    projects.push(listed);
+                }
                 continue;
             }
             for checkout in held {
                 let steps: Vec<&str> = checkout.path.split('/').collect();
-                if collect::is_excluded(steps.as_slice(), &self.exclude) {
+                if collect::is_excluded(steps.as_slice(), &self.exclude)
+                    || !(project_in || self.covered(steps.as_slice()))
+                {
                     continue;
                 }
                 projects.push(Project {
@@ -681,6 +699,38 @@ impl Forge {
         Ok(projects)
     }
 
+    /// Whether the steps `steps`, a project's path under the group or a checkout's under the
+    /// checkouts root, are the instance's by the source's `include`: an entry covers them, or the
+    /// source names none.
+    fn covered(&self, steps: &[&str]) -> bool {
+        self.include
+            .as_deref()
+            .is_none_or(|include| collect::covers(include, steps))
+    }
+
+    /// Each `include` entry of the source that no repository of `projects`, its
+    /// [`Forge::projects`], answers to: none covers the project's path, or the path of the
+    /// checkout it is. Empty when the source names no `include`.
+    #[must_use]
+    pub fn unanswered(&self, projects: &[Project]) -> Vec<String> {
+        let Some(include) = &self.include else {
+            return Vec::new();
+        };
+        include
+            .iter()
+            .filter(|entry| {
+                let entry = std::slice::from_ref(*entry);
+                !projects.iter().any(|project| {
+                    let path: Vec<&str> = project.path.split('/').collect();
+                    let name: Vec<&str> = project.name.split('/').collect();
+                    collect::covers(entry, &path)
+                        || (project.checkout.is_some() && collect::covers(entry, &name))
+                })
+            })
+            .cloned()
+            .collect()
+    }
+
     /// The source's repositories ([`Forge::projects`]), each with its forge.
     ///
     /// # Errors
@@ -708,21 +758,57 @@ impl Forge {
     ///
     /// What [`Forge::projects`] answers.
     pub fn every(forges: &[Self]) -> Result<Vec<Mapped>> {
+        Ok(Self::listing(forges)?.mapped)
+    }
+
+    /// What [`Forge::every`] answers, and each `include` entry of each of `forges` that no
+    /// repository of that forge's own listing answers to ([`Forge::unanswered`]), with the
+    /// source as an error names it (`story:source-include-list`).
+    ///
+    /// # Errors
+    ///
+    /// What [`Forge::projects`] answers.
+    pub fn listing(forges: &[Self]) -> Result<Listing> {
         let mut listed = std::collections::BTreeSet::new();
         let mut every = Vec::new();
+        let mut unanswered = Vec::new();
         for forge in forges {
             let host = host_name(&forge.host);
-            let mapped = forge.mapped()?;
-            let own: Vec<u64> = mapped.iter().map(|mapped| mapped.project.id).collect();
-            every.extend(
-                mapped
+            let projects = forge.projects()?;
+            unanswered.extend(
+                forge
+                    .unanswered(&projects)
                     .into_iter()
-                    .filter(|mapped| !listed.contains(&(host.clone(), mapped.project.id))),
+                    .map(|entry| (forge.named(), entry)),
+            );
+            let own: Vec<u64> = projects.iter().map(|project| project.id).collect();
+            every.extend(
+                projects
+                    .into_iter()
+                    .filter(|project| !listed.contains(&(host.clone(), project.id)))
+                    .map(|project| Mapped {
+                        forge: forge.clone(),
+                        checkout: project.checkout.clone(),
+                        project,
+                    }),
             );
             listed.extend(own.into_iter().map(|id| (host.clone(), id)));
         }
-        Ok(every)
+        Ok(Listing {
+            mapped: every,
+            unanswered,
+        })
     }
+}
+
+/// What [`Forge::listing`] answers (`story:source-include-list`).
+#[derive(Debug, Clone)]
+pub struct Listing {
+    /// The repositories of the forges, as [`Forge::every`] answers them.
+    pub mapped: Vec<Mapped>,
+    /// Each `include` entry no repository of its forge's own listing answers to, as `(source,
+    /// entry)`: the source as [`Forge::named`] names it, the entry as written.
+    pub unanswered: Vec<(String, String)>,
 }
 
 /// Names on standard error, once per process, the checkout `checkout` of a project of the source
@@ -1043,18 +1129,29 @@ pub struct Checkout {
 /// The git checkouts under `root` whose `origin` remote is on `host` and names a project under
 /// `group`, by their path under `root`: each directory at depth 1 holding `.git`, and each at
 /// depth 2 holding one in a directory at depth 1 that holds none, but those an entry of `exclude`
-/// names or holds, by the checkout's path or by its project's path under the group. The `origin`
+/// names or holds, by the checkout's path or by its project's path under the group, and, when
+/// `include` names entries (`story:source-include-list`), those none of them names or holds by
+/// either path. The `origin`
 /// is read from each checkout's git config with no network read and
 /// no git command ([`origin`]); hosts are compared without their port and without regard to case.
 /// A directory that cannot be read, or whose name is not UTF-8, holds none.
 #[must_use]
-pub fn checkouts(root: &Path, host: &str, group: &str, exclude: &[String]) -> Vec<Checkout> {
+pub fn checkouts(
+    root: &Path,
+    host: &str,
+    group: &str,
+    exclude: &[String],
+    include: Option<&[String]>,
+) -> Vec<Checkout> {
     let mut found = found(root, host, group);
     found.retain(|checkout| {
         let steps: Vec<&str> = checkout.path.split('/').collect();
         let project: Vec<&str> = checkout.project.split('/').collect();
         !collect::is_excluded(steps.as_slice(), exclude)
             && !collect::is_excluded(project.as_slice(), exclude)
+            && include.is_none_or(|include| {
+                collect::covers(include, &steps) || collect::covers(include, &project)
+            })
     });
     found
 }

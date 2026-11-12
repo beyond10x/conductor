@@ -190,6 +190,7 @@ instances:
     session_prefix: example
     sources:
       - github: example-org
+        include: [example-repository]
       - local: ~/alpha
         exclude: [archive]
       - gitlab: example-group

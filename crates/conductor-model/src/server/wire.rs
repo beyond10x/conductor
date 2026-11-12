@@ -1,5 +1,5 @@
 // generated from conductor v1
-// contract digest 9cebcb2ee988c714aa43682a8c5db29c9591548ea4b93f681fc596db3bbe6f02
+// contract digest 1f04a7d0d2bb5b91ad54e66b6f1ac741da244950e54533796fb9f94fa55b33df
 // do not edit: regenerate with `ess synthesize --layout crate`
 //! Every generated declaration, as JSON, in the renderings the published wire contracts fix.
 //!
@@ -1722,6 +1722,17 @@ pub fn encode_conductor_config_git_hub_source(value: &crate::config::GitHubSourc
     out.push('{');
     json::member(out, "owner");
     json::push_text(out, &value.owner);
+    if let Some(held0) = &value.include {
+        json::member(out, "include");
+        out.push('[');
+        for (index1, item1) in (*held0).iter().enumerate() {
+            if index1 > 0 {
+                out.push(',');
+            }
+            json::push_text(out, &*item1);
+        }
+        out.push(']');
+    }
     out.push('}');
 }
 
@@ -1731,12 +1742,26 @@ pub fn encode_conductor_config_git_hub_source(value: &crate::config::GitHubSourc
 ///
 /// [`json::DecodeError`] naming the path and what the declaration says belongs there.
 pub fn decode_conductor_config_git_hub_source(value: &json::Value, at: &str) -> Result<crate::config::GitHubSource, json::DecodeError> {
-    json::closed_at(value, at, &["owner"])?;
+    json::closed_at(value, at, &["owner", "include"])?;
     Ok(crate::config::GitHubSource {
         owner: {
             let at0 = json::nested(at, "owner");
             let member0 = json::member_at(value, at, "owner")?;
             json::text_at(member0, &at0, "a string")?.to_owned()
+        },
+        include: match value.member("include") {
+            None | Some(json::Value::Null) => None,
+            Some(member1) => {
+                let at1 = json::nested(at, "include");
+                Some({
+                let mut items1 = Vec::new();
+                for (index1, element1) in json::items_at(member1, &at1, "an array")?.iter().enumerate() {
+                    let nested1 = json::nested(&at1, &index1.to_string());
+                    items1.push(json::text_at(element1, &nested1, "a string")?.to_owned());
+                }
+                items1
+            })
+            }
         },
     })
 }
@@ -1757,6 +1782,17 @@ pub fn encode_conductor_config_git_lab_source(value: &crate::config::GitLabSourc
         json::push_text(out, &*item0);
     }
     out.push(']');
+    if let Some(held0) = &value.include {
+        json::member(out, "include");
+        out.push('[');
+        for (index1, item1) in (*held0).iter().enumerate() {
+            if index1 > 0 {
+                out.push(',');
+            }
+            json::push_text(out, &*item1);
+        }
+        out.push(']');
+    }
     out.push('}');
 }
 
@@ -1766,7 +1802,7 @@ pub fn encode_conductor_config_git_lab_source(value: &crate::config::GitLabSourc
 ///
 /// [`json::DecodeError`] naming the path and what the declaration says belongs there.
 pub fn decode_conductor_config_git_lab_source(value: &json::Value, at: &str) -> Result<crate::config::GitLabSource, json::DecodeError> {
-    json::closed_at(value, at, &["group", "host", "exclude"])?;
+    json::closed_at(value, at, &["group", "host", "exclude", "include"])?;
     Ok(crate::config::GitLabSource {
         group: {
             let at0 = json::nested(at, "group");
@@ -1788,6 +1824,20 @@ pub fn decode_conductor_config_git_lab_source(value: &json::Value, at: &str) -> 
                     items2.push(json::text_at(element2, &nested2, "a string")?.to_owned());
                 }
                 items2
+            }
+        },
+        include: match value.member("include") {
+            None | Some(json::Value::Null) => None,
+            Some(member3) => {
+                let at3 = json::nested(at, "include");
+                Some({
+                let mut items3 = Vec::new();
+                for (index3, element3) in json::items_at(member3, &at3, "an array")?.iter().enumerate() {
+                    let nested3 = json::nested(&at3, &index3.to_string());
+                    items3.push(json::text_at(element3, &nested3, "a string")?.to_owned());
+                }
+                items3
+            })
             }
         },
     })

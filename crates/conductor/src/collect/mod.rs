@@ -15,6 +15,7 @@
 //! a file that instance is the built-in one, whose values are today's.
 
 use std::cell::Cell;
+use std::collections::BTreeMap;
 use std::fmt;
 use std::io::Read;
 use std::os::unix::process::CommandExt as _;
@@ -156,6 +157,10 @@ pub struct Origins {
     pub owners: Vec<String>,
     /// Each `local:` source's directory, in the instance's order, each once.
     pub local: Vec<PathBuf>,
+    /// The `include` entries of each owner every `github:` source of which names one
+    /// (`story:source-include-list`), by owner: the only repositories of its list that are the
+    /// instance's. An owner not here stands for every repository it lists.
+    pub include: BTreeMap<String, Vec<String>>,
 }
 
 impl Origins {
@@ -165,9 +170,26 @@ impl Origins {
         let mut origins = Self::default();
         for source in &instance.sources {
             match source {
-                Source::GitHub(GitHubSource { owner }) => {
-                    if !origins.owners.contains(owner) {
+                Source::GitHub(GitHubSource { owner, include }) => {
+                    let seen = origins.owners.contains(owner);
+                    if !seen {
                         origins.owners.push(owner.clone());
+                    }
+                    // Two sources of one owner stand for what either names; one without an
+                    // `include` stands for every repository of it.
+                    match include {
+                        Some(include) if !seen || origins.include.contains_key(owner) => {
+                            let entries = origins.include.entry(owner.clone()).or_default();
+                            for entry in include {
+                                if !entries.contains(entry) {
+                                    entries.push(entry.clone());
+                                }
+                            }
+                        }
+                        Some(_) => {}
+                        None => {
+                            origins.include.remove(owner);
+                        }
                     }
                 }
                 // A GitLab group is read through its forge, not listed here
@@ -190,7 +212,32 @@ impl Origins {
         Self {
             owners: vec![owner.to_owned()],
             local: Vec::new(),
+            include: BTreeMap::new(),
         }
+    }
+
+    /// The repositories of `listed`, `owner`'s list, that are the instance's: those its
+    /// `include` entries name, or all of them when it names none; and each entry no repository
+    /// of the list answers to.
+    #[must_use]
+    pub fn included(&self, owner: &str, listed: Vec<String>) -> (Vec<String>, Vec<String>) {
+        let Some(include) = self.include.get(owner) else {
+            return (listed, Vec::new());
+        };
+        let unanswered = include
+            .iter()
+            .filter(|entry| {
+                !listed
+                    .iter()
+                    .any(|name| covers(std::slice::from_ref(*entry), &[name]))
+            })
+            .cloned()
+            .collect();
+        let kept = listed
+            .into_iter()
+            .filter(|name| covers(include, &[name]))
+            .collect();
+        (kept, unanswered)
     }
 
     /// The built-in instance's origins ([`config::built_in`]), which do not depend on the home or
@@ -266,10 +313,18 @@ fn is_group(dir: &Path) -> bool {
 }
 
 /// Whether the steps `steps` under a root are excluded by `exclude`, a source's `exclude`
-/// entries under that root: an entry's steps begin them.
+/// entries under that root: an entry's steps begin them ([`covers`]).
 #[must_use]
 pub fn is_excluded<S: AsRef<str>>(steps: &[S], exclude: &[String]) -> bool {
-    exclude.iter().any(|entry| {
+    covers(exclude, steps)
+}
+
+/// Whether an entry of `entries`, each a path of steps joined by `/`, names the steps `steps` or
+/// holds them: the entry's steps begin them, compared as written, without a wildcard. The one
+/// match an `exclude` and an `include` entry are read by (`story:source-include-list`).
+#[must_use]
+pub fn covers<S: AsRef<str>>(entries: &[String], steps: &[S]) -> bool {
+    entries.iter().any(|entry| {
         let entry: Vec<&str> = entry.split('/').collect();
         !entry.is_empty()
             && steps.len() >= entry.len()
@@ -278,6 +333,88 @@ pub fn is_excluded<S: AsRef<str>>(steps: &[S], exclude: &[String]) -> bool {
                 .zip(&entry)
                 .all(|(step, part)| step.as_ref() == *part)
     })
+}
+
+/// What the sources of an instance leave out of the repositories under one root, each read by
+/// its path under that root alone ([`LeftOut::under`]): the guard, spawn, the sessions collector
+/// and doctor read it.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct LeftOut {
+    /// The `exclude` entries of the sources on the root ([`excluded_under`]).
+    pub exclude: Vec<String>,
+    /// The `include` entries of the sources on the root when every one of them names an
+    /// `include` (`story:source-include-list`): a repository no entry covers is left out. `None`
+    /// when a source on the root names none, which stands for every repository under it.
+    pub include: Option<Vec<String>>,
+}
+
+impl LeftOut {
+    /// What `instance`'s sources whose root is `root` leave out: a `local` source's path, or,
+    /// for a `github` and a `gitlab` source, the checkouts root.
+    #[must_use]
+    pub fn under(instance: &Instance, root: &Path) -> Self {
+        let checkouts = Path::new(&instance.checkouts.root);
+        let mut include: Option<Vec<String>> = None;
+        let mut every = true;
+        for source in &instance.sources {
+            let (source_root, entries) = match source {
+                Source::GitHub(github) => (checkouts, github.include.as_deref()),
+                Source::Local(local) => (Path::new(&local.path), None),
+                Source::GitLab(gitlab) => (checkouts, gitlab.include.as_deref()),
+            };
+            if source_root != root {
+                continue;
+            }
+            match entries {
+                Some(entries) => {
+                    let held = include.get_or_insert_with(Vec::new);
+                    for entry in entries {
+                        if !held.contains(entry) {
+                            held.push(entry.clone());
+                        }
+                    }
+                }
+                None => every = false,
+            }
+        }
+        Self {
+            exclude: excluded_under(instance, root),
+            include: include.filter(|_| every),
+        }
+    }
+
+    /// Only the `exclude` entries `exclude`.
+    #[must_use]
+    pub fn excluding(exclude: Vec<String>) -> Self {
+        Self {
+            exclude,
+            include: None,
+        }
+    }
+
+    /// Whether nothing is left out.
+    #[must_use]
+    pub fn is_empty(&self) -> bool {
+        self.exclude.is_empty() && self.include.is_none()
+    }
+
+    /// Whether the repository at the steps `steps` under the root is left out: an `exclude`
+    /// entry covers it, or no `include` entry does. No step, the root itself, is not.
+    #[must_use]
+    pub fn leaves_out<S: AsRef<str>>(&self, steps: &[S]) -> bool {
+        !steps.is_empty()
+            && (covers(&self.exclude, steps)
+                || self
+                    .include
+                    .as_ref()
+                    .is_some_and(|include| !covers(include, steps)))
+    }
+
+    /// Whether only `include` leaves the repository at `steps` out, no `exclude` entry.
+    #[must_use]
+    pub fn outside_include<S: AsRef<str>>(&self, steps: &[S]) -> bool {
+        self.leaves_out(steps) && !covers(&self.exclude, steps)
+    }
 }
 
 /// The instance a session belongs to, by its name and its working directory together

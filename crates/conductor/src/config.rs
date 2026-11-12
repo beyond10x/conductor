@@ -22,8 +22,11 @@
 //!   `conductor.config/1`, no two instances share a name, and `default` names an instance;
 //! - a source is one of `github`, `local` and `gitlab`; a `local` or `gitlab` source may carry
 //!   `exclude`, each entry a relative path under its root without `.` or `..` steps, and a
-//!   `github` source carries none; only a `gitlab` source carries a `host`, a host name without
-//!   a scheme or a path, `gitlab.com` when absent (`story:gitlab-source-host`);
+//!   `github` source carries none; a `github` or `gitlab` source may carry `include` instead of
+//!   `exclude` (`story:source-include-list`), a list of at least one entry written as an
+//!   `exclude` entry is, one step each on a `github` source, and a `local` source carries none;
+//!   only a `gitlab` source carries a `host`, a host name without a scheme or a path,
+//!   `gitlab.com` when absent (`story:gitlab-source-host`);
 //! - a duration is a whole number above 0 with `s`, `m`, `h` or `d` (held as the ISO 8601
 //!   duration the generated `Duration` carries), a size a whole number with `G` (GiB), a count of
 //!   tokens a whole number or thousands with `k`, a time of day `HH:MM`;
@@ -481,7 +484,7 @@ const INSTANCE_KEYS: [&str; 30] = [
 const CONDUCTOR_KEYS: [&str; 2] = ["served_by", "session_name"];
 /// The keys that name a source's kind; a source names exactly one.
 const SOURCE_KINDS: [&str; 3] = ["github", "local", "gitlab"];
-const SOURCE_KEYS: [&str; 5] = ["github", "local", "gitlab", "exclude", "host"];
+const SOURCE_KEYS: [&str; 6] = ["github", "local", "gitlab", "exclude", "include", "host"];
 const CHECKOUT_KEYS: [&str; 2] = ["root", "trees"];
 /// The variable an instance pod carries its `forge_token` in (story:instance-forge-token), by the
 /// kind of source that names its forge: the one `gh` reads for `github`, the one `glab` reads for
@@ -1665,6 +1668,7 @@ pub fn built_in(home: &Path, cwd: &Path) -> Instance {
         session_prefix: None,
         sources: vec![Source::GitHub(GitHubSource {
             owner: ORGANIZATION.to_owned(),
+            include: None,
         })],
         checkouts: Checkouts {
             root: text_of(&home.join(ORGANIZATION)),
@@ -4272,8 +4276,9 @@ impl Reader<'_> {
     }
 
     /// One source: exactly one of `github`, `local` and `gitlab`, and for a `local` or `gitlab`
-    /// source its `exclude`, empty when absent; for a `gitlab` source its `host`, [`GITLAB_HOST`]
-    /// when absent (`story:gitlab-source-host`).
+    /// source its `exclude`, empty when absent; for a `github` or `gitlab` source its `include`,
+    /// none when absent (`story:source-include-list`); for a `gitlab` source its `host`,
+    /// [`GITLAB_HOST`] when absent (`story:gitlab-source-host`).
     fn source(&mut self, value: &Value, path: &str) -> Option<Source> {
         let map = self.mapping(value, path, &SOURCE_KEYS)?;
         let kinds: Vec<(&str, &Value)> = SOURCE_KINDS
@@ -4281,11 +4286,28 @@ impl Reader<'_> {
             .filter_map(|kind| Self::get(map, kind).map(|value| (*kind, value)))
             .collect();
         let exclude = Self::get(map, "exclude");
+        let include = Self::get(map, "include");
         let host = Self::get(map, "host");
         if host.is_some() && !matches!(kinds.as_slice(), [("gitlab", _)] | []) {
             self.problem(
                 &join(path, "host"),
                 "only a gitlab source takes a host: it names the GitLab forge the group is on",
+            );
+            return None;
+        }
+        if include.is_some() && matches!(kinds.as_slice(), [("local", _)]) {
+            self.problem(
+                &join(path, "include"),
+                "a local source takes no include: it stands for the repositories under its \
+                 path, and exclude leaves one out",
+            );
+            return None;
+        }
+        if include.is_some() && exclude.is_some() && !kinds.is_empty() {
+            self.problem(
+                &join(path, "include"),
+                "a source takes include or exclude, not both: include names the repositories \
+                 the source stands for, and every other one is left out",
             );
             return None;
         }
@@ -4298,11 +4320,15 @@ impl Reader<'_> {
                          repositories, and the collectors that read that list do not filter it",
                     );
                 }
-                let owner = self.text(owner, &join(path, "github"))?;
+                let owner = self.text(owner, &join(path, "github"));
+                let include = self.include(include, &join(path, "include"), true);
                 if exclude.is_some() {
                     return None;
                 }
-                Some(Source::GitHub(GitHubSource { owner }))
+                Some(Source::GitHub(GitHubSource {
+                    owner: owner?,
+                    include: include?,
+                }))
             }
             [("local", directory)] => {
                 let directory = self.path(directory, &join(path, "local"));
@@ -4316,10 +4342,12 @@ impl Reader<'_> {
                 let group = self.text(group, &join(path, "gitlab"));
                 let host = self.host(host, &join(path, "host"));
                 let exclude = self.exclude(exclude, &join(path, "exclude"));
+                let include = self.include(include, &join(path, "include"), false);
                 Some(Source::GitLab(GitLabSource {
                     group: group?,
                     host: host?,
                     exclude: exclude?,
+                    include: include?,
                 }))
             }
             [] => {
@@ -4391,6 +4419,50 @@ impl Reader<'_> {
                  group/repository, without `.` or `..`",
             )
         })
+    }
+
+    /// A source's `include` (`story:source-include-list`): `Some` list of at least one path
+    /// under the owner or group, each written as an [`Reader::exclude`] entry is, and of one step
+    /// on a `github` source (`one_step`), whose repositories have no group. Absent, it is `None`.
+    /// The outer `None` is a problem named.
+    fn include(
+        &mut self,
+        value: Option<&Value>,
+        path: &str,
+        one_step: bool,
+    ) -> Option<Option<Vec<String>>> {
+        let Some(value) = value else {
+            return Some(None);
+        };
+        let entries = self.list(value, path, |reader, value, at| {
+            let entry = reader.relative(
+                value,
+                at,
+                "is not a path under the owner or group: write it relative, such as \
+                 repository or subgroup/repository, without `.` or `..`",
+            )?;
+            if one_step && entry.contains('/') {
+                reader.problem(
+                    at,
+                    format!(
+                        "{} is not a repository of the owner: a github entry is one \
+                         repository's name, without a `/`",
+                        echo(value)
+                    ),
+                );
+                return None;
+            }
+            Some(entry)
+        })?;
+        if entries.is_empty() {
+            self.problem(
+                path,
+                "is empty: name at least one repository the source stands for, or leave \
+                 include out",
+            );
+            return None;
+        }
+        Some(Some(entries))
     }
 
     /// A relative path: text that does not start with `/`, its steps neither empty nor `.` nor
@@ -5558,6 +5630,19 @@ fn shown_instance(instance: &Instance, legacy: &Legacy) -> Yaml {
         }
         source
     }
+    /// A source's mapping with its `include`, written only when the source names one
+    /// (`story:source-include-list`).
+    fn including(mut source: Yaml, include: Option<&[String]>) -> Yaml {
+        if let Yaml::Mapping(map) = &mut source
+            && let Some(include) = include
+        {
+            map.insert(
+                Yaml::from("include"),
+                Yaml::Sequence(include.iter().map(|entry| text(entry)).collect()),
+            );
+        }
+        source
+    }
     let decider = |decider: Decider| match decider {
         Decider::Conductor => "conductor",
         Decider::Operator => "operator",
@@ -5566,7 +5651,10 @@ fn shown_instance(instance: &Instance, legacy: &Legacy) -> Yaml {
         .sources
         .iter()
         .map(|source| match source {
-            Source::GitHub(github) => mapping([("github", text(&github.owner))]),
+            Source::GitHub(github) => including(
+                mapping([("github", text(&github.owner))]),
+                github.include.as_deref(),
+            ),
             Source::Local(local) => {
                 excluding(mapping([("local", text(&local.path))]), &local.exclude)
             }
@@ -5575,7 +5663,10 @@ fn shown_instance(instance: &Instance, legacy: &Legacy) -> Yaml {
                     ("gitlab", text(&gitlab.group)),
                     ("host", text(&gitlab.host)),
                 ]);
-                excluding(source, &gitlab.exclude)
+                including(
+                    excluding(source, &gitlab.exclude),
+                    gitlab.include.as_deref(),
+                )
             }
         })
         .collect();
@@ -7082,10 +7173,11 @@ pub fn workspace_member_name(name: &str) -> Option<String> {
 }
 
 /// The members of `instance`'s workspace, by name, with no network read: each git checkout
-/// directly under `checkouts.root` for a `github` source; each one directly under its `path`,
-/// but those its `exclude` names, for a `local` source; for a `gitlab` source, each one under
-/// `checkouts.root` whose `origin` remote is on its host and under its group, but those its
-/// `exclude` names or holds, named by its path under the root (`story:gitlab-workspace`), the
+/// directly under `checkouts.root` for a `github` source, but those its `include` does not name;
+/// each one directly under its `path`, but those its `exclude` names, for a `local` source; for a
+/// `gitlab` source, each one under `checkouts.root` whose `origin` remote is on its host and under
+/// its group, but those its `exclude` names or holds and those its `include` does not cover,
+/// named by its path under the root (`story:gitlab-workspace`), the
 /// checkouts the collectors read its projects in ([`crate::collect::gitlab::checkouts`]); and the
 /// records directory. Each `source` is relative to
 /// `<records>/.engineering/`. `index` is the instance's place in the config file, for the YAML
@@ -7137,10 +7229,11 @@ pub fn instance_checkouts(instance: &Instance, index: usize) -> Result<Vec<PathB
 /// Calls `add` with the directory name (for a `gitlab` source, the path under the checkouts
 /// root), the directory and the YAML path of the source of each checkout of `instance`, the
 /// instance at `index` of its config file: each git checkout with an `origin` directly under
-/// `checkouts.root` for a `github` source; each one directly under its `path`, but its `exclude`
-/// entries, for a `local` source; and each one under `checkouts.root` whose `origin` is on a
-/// `gitlab` source's host and under its group, but its `exclude` entries. A checkout two sources
-/// name is given twice.
+/// `checkouts.root` for a `github` source, but those its `include` does not name; each one
+/// directly under its `path`, but its `exclude` entries, for a `local` source; and each one under
+/// `checkouts.root` whose `origin` is on a `gitlab` source's host and under its group, but its
+/// `exclude` entries and those its `include` does not cover (`story:source-include-list`). A
+/// checkout two sources name is given twice.
 fn each_checkout(
     instance: &Instance,
     index: usize,
@@ -7150,10 +7243,16 @@ fn each_checkout(
     for (place, source) in instance.sources.iter().enumerate() {
         let yaml = format!("instances[{index}].sources[{place}]");
         match source {
-            Source::GitHub(_) => {
+            Source::GitHub(github) => {
                 let at = format!("instances[{index}].checkouts.root");
                 for name in checkouts_under(root, &at)? {
-                    add(&name, &root.join(&name), &yaml)?;
+                    let included = github
+                        .include
+                        .as_deref()
+                        .is_none_or(|include| crate::collect::covers(include, &[&name]));
+                    if included {
+                        add(&name, &root.join(&name), &yaml)?;
+                    }
                 }
             }
             Source::Local(local) => {
@@ -7174,6 +7273,7 @@ fn each_checkout(
                     &gitlab.host,
                     &gitlab.group,
                     &gitlab.exclude,
+                    gitlab.include.as_deref(),
                 ) {
                     add(&checkout.path, &checkout.dir, &yaml)?;
                 }

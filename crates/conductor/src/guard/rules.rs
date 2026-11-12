@@ -140,9 +140,9 @@ pub struct Places {
     /// The config file the process resolves ([`config::locate`]); [`config::DEFAULT_FILE`] under
     /// the home directory until [`Places::with_config_file`] names another.
     config: PathBuf,
-    /// The `exclude` entries of the instance's sources under the checkouts root
-    /// ([`collect::excluded_under`]): a session in one of them is in no repository.
-    exclude: Vec<String>,
+    /// What the instance's sources leave out under the checkouts root, by an `exclude` entry or
+    /// outside every `include` ([`collect::LeftOut::under`]): a session there is in no repository.
+    left_out: collect::LeftOut,
     /// The session's temporary directory, `$TMPDIR` of the hook's process where it lands
     /// ([`real`]); `None` until [`Places::with_tmp`] names one.
     tmp: Option<PathBuf>,
@@ -232,7 +232,7 @@ impl Places {
             state: from_file.then(|| PathBuf::from(&instance.state)),
             cache: PathBuf::from(&instance.cache),
             config: home.join(config::DEFAULT_FILE),
-            exclude: collect::excluded_under(instance, Path::new(&instance.checkouts.root)),
+            left_out: collect::LeftOut::under(instance, Path::new(&instance.checkouts.root)),
             tmp: None,
             settings: instance
                 .roles
@@ -430,7 +430,7 @@ impl Places {
                 .or_else(|| outside.then(|| self.linked_repository(cwd)).flatten())
                 .filter(|repository| {
                     let steps: Vec<&str> = repository.split('/').collect();
-                    !collect::is_excluded(&steps, &self.exclude)
+                    !self.left_out.leaves_out(&steps)
                 })
                 .map(|repository| (repository, Rules::Controller));
         }

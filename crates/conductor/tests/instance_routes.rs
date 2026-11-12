@@ -1138,3 +1138,114 @@ fn a_mapping_naming_a_secret_of_the_daemons_own_is_refused_by_its_path() {
         "{said}"
     );
 }
+
+/// `story:source-include-list`: a mapping whose sources carry `include` is created and replaced,
+/// and `GET` echoes the list on the source that names it and on no other; `include` beside
+/// `exclude`, on a `local` source, empty, or a `github` entry of two steps is 422 at its YAML
+/// path, the file unchanged.
+#[test]
+fn the_instance_routes_take_and_echo_an_include_list() {
+    let case = Case::new("include");
+    let api = Arc::new(controlled(&case, None, Some(CONTROL)));
+    let listener = TcpListener::bind(("127.0.0.1", 0)).expect("bind loopback");
+    let port = listener.local_addr().expect("address").port();
+    thread::spawn(move || api::serve(&listener, &api));
+    let token = bearer(CONTROL);
+    let token = [(token.0, token.1.as_str())];
+
+    let mut mapping = case.mapping("beta", "beta");
+    mapping["sources"] = json!([
+        {"github": "example-org", "include": ["one"]},
+        {"gitlab": "example-group", "host": "gitlab.example.com", "include": ["alpha", "sub/gamma"]},
+    ]);
+    let created = plain(
+        port,
+        "POST",
+        "/v1/instances",
+        &token,
+        Some(&json!({"mapping": mapping, "reason": "a tenant of three repositories"})),
+    );
+    assert_eq!(created.status, 201, "{created:?}");
+    case.assert_valid();
+    let read = plain(port, "GET", "/v1/instances/beta", &token, None);
+    assert_eq!(read.status, 200, "{read:?}");
+    assert_eq!(
+        read.json()["sources"],
+        json!([
+            {"kind": "GitHub", "value": {"owner": "example-org", "include": ["one"]}},
+            {"kind": "GitLab", "value": {"group": "example-group", "host": "gitlab.example.com",
+                "exclude": [], "include": ["alpha", "sub/gamma"]}},
+        ]),
+        "{read:?}"
+    );
+
+    let mut replaced = case.mapping("beta", "beta");
+    replaced["sources"] = json!([{"github": "example-org", "include": ["two"]}]);
+    let put = plain(
+        port,
+        "PUT",
+        "/v1/instances/beta",
+        &token,
+        Some(&json!({"mapping": replaced, "reason": "another repository"})),
+    );
+    assert_eq!(put.status, 200, "{put:?}");
+    case.assert_valid();
+    let read = plain(port, "GET", "/v1/instances/beta", &token, None);
+    assert_eq!(
+        read.json()["sources"],
+        json!([{"kind": "GitHub", "value": {"owner": "example-org", "include": ["two"]}}]),
+        "{read:?}"
+    );
+    let put = plain(
+        port,
+        "PUT",
+        "/v1/instances/beta",
+        &token,
+        Some(&json!({"mapping": case.mapping("beta", "beta"), "reason": "every repository"})),
+    );
+    assert_eq!(put.status, 200, "{put:?}");
+    let read = plain(port, "GET", "/v1/instances/beta", &token, None);
+    assert_eq!(
+        read.json()["sources"],
+        json!([{"kind": "GitHub", "value": {"owner": "example-org"}}]),
+        "without include the source is echoed as before: {read:?}"
+    );
+
+    let before = case.text();
+    for (sources, path) in [
+        (
+            json!([{"gitlab": "example-group", "include": ["a"], "exclude": ["b"]}]),
+            "instances[1].sources[0].include",
+        ),
+        (
+            json!([{"local": "/srv/example-org", "include": ["a"]}]),
+            "instances[1].sources[0].include",
+        ),
+        (
+            json!([{"gitlab": "example-group", "include": []}]),
+            "instances[1].sources[0].include",
+        ),
+        (
+            json!([{"github": "example-org", "include": ["one/two"]}]),
+            "instances[1].sources[0].include[0]",
+        ),
+    ] {
+        let mut mapping = case.mapping("beta", "beta");
+        mapping["sources"] = sources;
+        let refused = plain(
+            port,
+            "PUT",
+            "/v1/instances/beta",
+            &token,
+            Some(&json!({"mapping": mapping, "reason": "a refused list"})),
+        );
+        assert_eq!(refused.status, 422, "{path}: {refused:?}");
+        let answer = refused.json();
+        assert_eq!(
+            answer["error"], "conductor.config.ConfigInvalid",
+            "{answer}"
+        );
+        assert_eq!(answer["path"], path, "{answer}");
+        assert_eq!(case.text(), before, "{path}: the file changed");
+    }
+}

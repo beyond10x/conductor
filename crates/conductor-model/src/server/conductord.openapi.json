@@ -8,7 +8,7 @@
     "x-ess-provenance": {
       "system": "conductor",
       "specification_version": "v1",
-      "contract_digest": "slice-sha256/2:6950e5ee4389dd8c41b8dbfbe5c9f4de541fd1a0b3505d65a418314fb45eb33c"
+      "contract_digest": "slice-sha256/2:a32d4f01bca421fd7ade0340306c5b74827c2053bb72007a4c9e21a48951c16e"
     },
     "x-ess-reached-by": "network"
   },
@@ -3689,6 +3689,12 @@
         "properties": {
           "owner": {
             "type": "string"
+          },
+          "include": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
           }
         },
         "required": [
@@ -3709,6 +3715,12 @@
             "type": "string"
           },
           "exclude": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "include": {
             "type": "array",
             "items": {
               "type": "string"
@@ -9650,6 +9662,12 @@
       "properties": {
         "owner": {
           "type": "string"
+        },
+        "include": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
         }
       },
       "required": [
@@ -9670,6 +9688,12 @@
           "type": "string"
         },
         "exclude": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "include": {
           "type": "array",
           "items": {
             "type": "string"

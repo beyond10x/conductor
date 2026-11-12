@@ -58,7 +58,7 @@
 //! and recorded with presence `NotInWorkspace`, nothing read (`story:snapshot-unlisted-repository`);
 //! a local source's repository needs no member.
 
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 use std::ffi::{OsStr, OsString};
 use std::fs;
 use std::path::{Component, Path, PathBuf};
@@ -110,6 +110,9 @@ pub struct Sources {
     /// The owners whose repositories are listed, each once through [`Sources::repositories`], in
     /// this order.
     pub owners: Vec<String>,
+    /// The `include` entries of each owner that names them ([`Origins::include`],
+    /// `story:source-include-list`): only those of its repositories are listed.
+    pub include: BTreeMap<String, Vec<String>>,
     /// Each `local:` source's directory, with the `exclude` entries of the instance under it,
     /// whose repositories are listed as [`repositories::local_names`] lists them and read at
     /// `HEAD`.
@@ -154,6 +157,7 @@ impl Sources {
         let instance = &active.instance;
         let origins = Origins::of(instance);
         let mut sources = Self::over(blockers::Sources::of(active, state)?, origins.owners, state);
+        sources.include = origins.include;
         sources.local = origins
             .local
             .into_iter()
@@ -190,6 +194,7 @@ impl Sources {
                 "name,isArchived",
             ]),
             owners,
+            include: BTreeMap::new(),
             ess: blockers::words(&["ess"]),
             specs: state.join("specs"),
             bound: collect::BOUND,
@@ -342,11 +347,13 @@ impl Origin {
     }
 }
 
-/// The repositories of `sources`, by name: each its owners list as not archived, and each under
-/// one of its local directories but those its `exclude` entries name.
+/// The repositories of `sources`, by name: each its owners list as not archived, but those an
+/// owner's `include` leaves out, and each under one of its local directories but those its
+/// `exclude` entries name.
 fn enumerated(sources: &Sources) -> Result<Vec<(String, Origin)>> {
     let mut listed: Vec<(String, Origin)> = Vec::new();
     for owner in &sources.owners {
+        let include = sources.include.get(owner);
         let command = filled(&sources.repositories, owner);
         let answered = blockers::twice(|| {
             let stdout = blockers::succeed(&command, None, sources.bound)?;
@@ -357,6 +364,7 @@ fn enumerated(sources: &Sources) -> Result<Vec<(String, Origin)>> {
         listed.extend(
             not_archived(&answered)?
                 .into_iter()
+                .filter(|name| include.is_none_or(|include| collect::covers(include, &[name])))
                 .map(|name| (name, Origin::Owner(owner.clone()))),
         );
     }

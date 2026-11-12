@@ -18,7 +18,10 @@
 //! root, as every other repository is by its directory
 //! (`story:checkout-name-differs-from-project`), with what only a checkout shows read from it,
 //! with no fetch; a project without a checkout is named by its path under the group
-//! ([`Forge::projects`]). A name two origins list is one checkout and one
+//! ([`Forge::projects`]). An owner's or a `gitlab:` source's `include` leaves out every
+//! repository its entries do not cover, and an entry no repository of the source's listing
+//! answers to is one member failure of this collector, named as written
+//! (`story:source-include-list`). A name two origins list is one checkout and one
 //! recorded repository, so the collector fails naming it and both origins. The specifications collector lists a local
 //! source's repositories through this collector's own listing ([`local_names`]). Each field has
 //! one source:
@@ -96,7 +99,7 @@ use time::format_description::well_known::Rfc3339;
 use time::{OffsetDateTime, UtcOffset};
 
 use crate::collect::gitlab::{self, Forge, Mapped};
-use crate::collect::{self, Origins};
+use crate::collect::{self, Origins, blockers};
 use crate::config;
 use crate::gates;
 use crate::snapshot::Recorder;
@@ -366,7 +369,7 @@ pub fn collect_with_gitlab(
     record: &mut Recorder<'_>,
 ) -> Result<()> {
     let since = instant((sources.now - WINDOW).replace_nanosecond(0)?)?;
-    let listed = listed(sources, origins, exclude, forges)?;
+    let (listed, failures) = listed(sources, origins, exclude, forges)?;
     let read = each(&listed, sources.width, |listed| {
         read(sources, listed, &since)
     })?;
@@ -409,7 +412,23 @@ pub fn collect_with_gitlab(
             wave_reason: wave.reason,
         })?;
     }
-    Ok(())
+    blockers::record_failures(record, COLLECTOR, &failures)
+}
+
+/// This collector's name, as a member failure it records names it.
+const COLLECTOR: &str = "repositories";
+
+/// The member failure of the `include` entry `entry` of the source `source` (as an error names
+/// it) that no repository of the source's listing answers to (`story:source-include-list`): the
+/// entry as written is the member.
+fn unanswered(source: &str, entry: &str) -> blockers::Failure {
+    blockers::Failure {
+        repository: entry.to_owned(),
+        error_line: format!(
+            "{source}: no repository answers to the entry {entry} of its include; the source \
+             stands for its other entries"
+        ),
+    }
 }
 
 /// One repository of the instance, as its origin lists it.
@@ -474,22 +493,46 @@ struct ListedEntry {
 }
 
 /// The repositories of `origins` and `forges`, by name: each owner's, each local directory's and
-/// each forge's projects.
+/// each forge's projects, but those an owner's or a forge's `include` leaves out; and the
+/// member failure of each `include` entry no repository of its source's listing answers to
+/// (`story:source-include-list`).
 fn listed(
     sources: &Sources,
     origins: &Origins,
     exclude: &HashMap<PathBuf, Vec<String>>,
     forges: &[Forge],
-) -> Result<Vec<Listed>> {
+) -> Result<(Vec<Listed>, Vec<blockers::Failure>)> {
     let mut listed = Vec::new();
+    let mut failures = Vec::new();
     for owner in &origins.owners {
-        listed.extend(owned(sources, owner)?);
+        let every = owned(sources, owner)?;
+        let names = every.iter().map(|listed| listed.name.clone()).collect();
+        let (kept, not_answered) = origins.included(owner, names);
+        failures.extend(
+            not_answered
+                .iter()
+                .map(|entry| unanswered(&format!("owner {owner}"), entry)),
+        );
+        listed.extend(
+            every
+                .into_iter()
+                .filter(|listed| kept.contains(&listed.name)),
+        );
     }
     for dir in &origins.local {
         let exclude = exclude.get(dir).map_or(&[][..], Vec::as_slice);
         listed.extend(local_repositories(dir, exclude)?);
     }
-    listed.extend(Forge::every(forges)?.into_iter().map(|mapped| Listed {
+    let gitlab::Listing {
+        mapped,
+        unanswered: not_answered,
+    } = Forge::listing(forges)?;
+    failures.extend(
+        not_answered
+            .iter()
+            .map(|(source, entry)| unanswered(source, entry)),
+    );
+    listed.extend(mapped.into_iter().map(|mapped| Listed {
         name: mapped.project.name.clone(),
         visibility: mapped.project.visibility,
         archived: mapped.project.archived,
@@ -498,10 +541,10 @@ fn listed(
     }));
     listed.sort_by(|one, other| one.name.cmp(&other.name));
     one_of_each(&listed, |listed| &listed.name, Listed::origin_named)?;
-    Ok(listed)
+    Ok((listed, failures))
 }
 
-/// `owner`'s repositories, by name.
+/// `owner`'s repositories, by name: its whole list, archived ones included.
 fn owned(sources: &Sources, owner: &str) -> Result<Vec<Listed>> {
     let what = format!("organization {owner}");
     let command = filled(&sources.repository_list, &[("organization", owner)]);

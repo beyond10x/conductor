@@ -51,7 +51,23 @@ $ conductor config show --format json | jq -c '.instances[0].sources'
 
 A `gitlab` source may also carry `exclude`, as a `local` source does. An entry names a project
 that is checked out by its checkout's path under `checkouts.root` (`checks`) or by the project's
-path under the group (`example-checks`); either leaves it out. Every key is in the
+path under the group (`example-checks`); either leaves it out.
+
+A source may instead name the projects it stands for with `include`: each entry is a project's
+path under the group (`alpha`), or a subgroup's (`sub`), which takes every project under it. Every
+other project of the group is left out as an excluded one is, a project the group gains later
+included, until an entry names it:
+
+```yaml
+sources:
+  - gitlab: example-group
+    host: gitlab.example.com
+    include: [alpha, sub]
+```
+
+`include` and `exclude` do not go on one source, and an empty `include` does not validate. An
+entry no project of the group answers to does not stop a snapshot: it is listed under
+`conductor snapshot member-failures`, the entry as its member. Every key is in the
 [config reference](../reference/config.md).
 
 ## 2. Log glab in to the host
@@ -93,8 +109,9 @@ $ conductor config workspace
 
 For a `gitlab` source, the workspace file has one member per git checkout under `checkouts.root`
 whose `origin` remote is on the source's host and under its group, except those its `exclude`
-lists. It reads the checkouts only, not the forge. The repository's name is the checkout's path
-under `checkouts.root`, not the project's name: a checkout `checks` of the project
+lists, or with `include` those it does not list. It reads the checkouts only, not the forge. The
+repository's name is the checkout's path under `checkouts.root`, not the project's name: a
+checkout `checks` of the project
 `example-checks` is `checks` in the workspace file, the snapshots, `conductor repository activity`,
 its charter `charters/checks.md` and its dispatches. A checkout of the same group path on another
 host, or of another group on this host, is not a member. The records directory is a member too

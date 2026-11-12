@@ -49,8 +49,9 @@ types:
 
   # Where an instance's repositories come from. The file writes `{github: <owner>}`,
   # `{local: <path>}` or `{gitlab: <group or root>}`; a `local` or `gitlab` source may add
-  # `exclude: [<path under the root>]` (story:grouped-instance), and a `gitlab` source
-  # `host: <host name>` (story:gitlab-source-host).
+  # `exclude: [<path under the root>]` (story:grouped-instance), a `github` or `gitlab` source
+  # `include: [<path under the owner or group>]` (story:source-include-list), and a `gitlab`
+  # source `host: <host name>` (story:gitlab-source-host).
   #
   # A repository is the directory that holds `.git` at depth 1 or 2 under a root (`<root>/<repo>`
   # or `<root>/<group>/<repo>`), named by its path under the root (`<group>/<repo>`); the root is
@@ -58,6 +59,22 @@ types:
   # repository whose name is an `exclude` entry, or lies under one, is not listed and not placed.
   # Absent, `exclude` is empty. A `github` source takes no `exclude`: GitHub lists its owner's
   # repositories, and the collectors that read that list do not filter it.
+  #
+  # `include` is `exclude` inverted: a repository of the source that no `include` entry names or
+  # holds is left out as an excluded one is, from every collected fact, the guard, spawn, the
+  # sessions, doctor and the workspace file, and a project the group gains later is left out until
+  # an entry covers it. An entry is a path under the owner or group as the forge names it: a GitHub
+  # repository's name, one step, or a GitLab project's path with the group taken off (`alpha`,
+  # `sub/gamma`), so an entry may name a subgroup; it is matched as an `exclude` entry is, by
+  # leading steps, without a wildcard, and written as one is. A GitLab checkout is covered when
+  # its project's path or its own path under `checkouts.root` is. Absent, the source stands for
+  # every repository of its owner or group, as before. A source does not validate with both
+  # `include` and `exclude`, with an empty `include`, or with a `github` entry of more than one
+  # step; a `local` source takes none. Where the guard, spawn, the sessions and doctor read a
+  # repository by its path under `checkouts.root` alone, `include` leaves it out only when every
+  # source on that root names an `include`. An entry no repository of the forge's listing answers
+  # to fails nothing: the `repositories` collector records it once a snapshot as a member failure
+  # (`conductor.observation.RecordMemberFailure`), the entry as written as its member.
   - name: conductor.config.Source
     kind: union
     tag: kind
@@ -66,11 +83,12 @@ types:
       Local: conductor.config.LocalSource
       GitLab: conductor.config.GitLabSource
 
-  # An owner on GitHub, whose repositories are the instance's.
+  # An owner on GitHub, whose repositories are the instance's, or those of them `include` names.
   - name: conductor.config.GitHubSource
     kind: struct
     fields:
       - {name: owner, type: String}
+      - {name: include, type: Optional<List<String>>}
 
   # A directory whose repositories are the instance's.
   - name: conductor.config.LocalSource
@@ -106,6 +124,7 @@ types:
       - {name: group, type: String}
       - {name: host, type: String}
       - {name: exclude, type: List<String>}
+      - {name: include, type: Optional<List<String>>}
 
   # The directory holding the instance's checkouts, and the one holding their managed worktrees.
   - name: conductor.config.Checkouts

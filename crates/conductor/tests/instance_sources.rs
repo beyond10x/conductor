@@ -619,6 +619,7 @@ fn each_owner_is_listed_and_its_repositories_are_read_under_it() {
         Origins {
             owners: vec!["acme".to_owned(), "other".to_owned()],
             local: Vec::new(),
+            include: std::collections::BTreeMap::new(),
         }
     );
     let log = case.log("gh");
@@ -959,6 +960,7 @@ fn a_local_sources_checkouts_are_read_as_they_are() {
         Origins {
             owners: Vec::new(),
             local: vec![local.clone()],
+            include: std::collections::BTreeMap::new(),
         }
     );
     let log = case.log("gh");
@@ -1565,5 +1567,161 @@ fn adv_w03_u1_the_bare_instance_s_own_controller_is_not_redacted_by_another_pref
             Some("b-tools"),
             "Idle"
         )]
+    );
+}
+
+// ---------------------------------------------------------------------------------------------
+// story:source-include-list
+// ---------------------------------------------------------------------------------------------
+
+/// The owner `pair` lists `alpha` and `beta`; with `include: [alpha]` the repositories collector
+/// records `alpha` only and asks nothing of `beta`, the github collector reads no pull request or
+/// run of `beta`, and the specifications collector records no row of it.
+#[test]
+fn an_owners_include_list_reads_only_the_repositories_it_names() {
+    let case = Case::new("owner-include");
+    let instance = case.instance("[{github: pair, include: [alpha]}]");
+    let log = case.log("gh");
+
+    let origins = Origins::of(&instance);
+    let mut sources = repositories::Sources::of(&instance, now());
+    sources.repository_list = logged(
+        &sources.repository_list,
+        &log,
+        "{organization}.repositories.json",
+    );
+    sources.open_issues = logged(&sources.open_issues, &log, "empty.json");
+    sources.latest_release = logged(&sources.latest_release, &log, "empty.json");
+    sources.main_commit = logged(&sources.main_commit, &log, "{repository}.main.json");
+    sources.main_commits = logged(&sources.main_commits, &log, "empty.json");
+    sources.commit = logged(&sources.commit, &log, "empty.json");
+    let taken = case.take("repositories", move |record| {
+        repositories::collect_over(&sources, &origins, record)
+    });
+    complete(&taken);
+    assert_eq!(names(&case.repositories(&taken)), ["alpha"]);
+
+    let origins = Origins::of(&instance);
+    let mut sources = github::Sources::of(&instance);
+    sources.repository_list = logged(
+        &sources.repository_list,
+        &log,
+        "{organization}.repositories.json",
+    );
+    sources.pull_requests = logged(&sources.pull_requests, &log, "empty.json");
+    sources.workflow_runs = logged(&sources.workflow_runs, &log, "empty.json");
+    let mut shipments = github::Shipments::live(now());
+    shipments.releases = logged(&shipments.releases, &log, "{repository}.releases.json");
+    shipments.merged_pull_requests = logged(&shipments.merged_pull_requests, &log, "empty.json");
+    shipments.tags = logged(&shipments.tags, &log, "empty.json");
+    let taken = case.take("github", move |record| {
+        github::collect_over(&sources, &shipments, &origins, record)
+    });
+    complete(&taken);
+
+    let active = Active {
+        instance,
+        from_file: true,
+        others: Vec::new(),
+        default: None,
+        daemon_port: conductor_cli::config::DAEMON_PORT,
+    };
+    let mut sources =
+        specifications::Sources::of(&active, &case.state()).expect("the instance's sources");
+    sources.repositories = logged_os(&sources.repositories, &log, "pair.repositories.json");
+    sources.workspace.members = shell("printf '%s' '{\"members\": []}'");
+    sources.workspace.list = shell("printf '%s' '{\"artifacts\": []}'");
+    let taken = case.take("specifications", move |record| {
+        specifications::collect_from(&sources, record)
+    });
+    complete(&taken);
+    let specified: Vec<String> = case
+        .generated()
+        .specifications()
+        .expect("the specifications view answers")
+        .into_iter()
+        .filter(|row| row.snapshot_id == taken.snapshot_id)
+        .map(|row| row.repository.0)
+        .collect();
+    assert_eq!(specified, ["alpha"]);
+
+    let lines = case.lines("gh");
+    assert!(
+        lines.iter().any(|line| line.contains("pair/alpha")),
+        "{lines:#?}"
+    );
+    assert!(
+        !lines.iter().any(|line| line.contains("beta")),
+        "nothing is asked of beta: {lines:#?}"
+    );
+}
+
+/// An entry no repository of the owner's list answers to does not fail the source: the other
+/// entries' rows are recorded, and the entry is one member failure of the `repositories`
+/// collector, named as written, its line naming the owner.
+#[test]
+fn an_owners_include_entry_no_repository_answers_to_is_a_member_failure() {
+    use conductor_model::observation::obligations::MemberFailuresQuery;
+    let case = Case::new("owner-include-unanswered");
+    let instance = case.instance("[{github: pair, include: [alpha, gone]}]");
+    let log = case.log("gh");
+    let origins = Origins::of(&instance);
+    let mut sources = repositories::Sources::of(&instance, now());
+    sources.repository_list = logged(
+        &sources.repository_list,
+        &log,
+        "{organization}.repositories.json",
+    );
+    sources.open_issues = logged(&sources.open_issues, &log, "empty.json");
+    sources.latest_release = logged(&sources.latest_release, &log, "empty.json");
+    sources.main_commit = logged(&sources.main_commit, &log, "{repository}.main.json");
+    sources.main_commits = logged(&sources.main_commits, &log, "empty.json");
+    sources.commit = logged(&sources.commit, &log, "empty.json");
+    let taken = case.take("repositories", move |record| {
+        repositories::collect_over(&sources, &origins, record)
+    });
+    complete(&taken);
+    assert_eq!(names(&case.repositories(&taken)), ["alpha"]);
+    let failures: Vec<(String, String, String)> = case
+        .generated()
+        .member_failures()
+        .expect("the member failures view answers")
+        .into_iter()
+        .map(|row| (row.member.0, row.collector, row.error_line))
+        .collect();
+    assert_eq!(failures.len(), 1, "{failures:#?}");
+    let (member, collector, line) = &failures[0];
+    assert_eq!(member, "gone");
+    assert_eq!(collector, "repositories");
+    assert!(
+        line.contains("owner pair") && line.contains("no repository answers to the entry gone"),
+        "{line}"
+    );
+}
+
+/// A session under a repository no `include` entry covers is kept to its harness and activity,
+/// as one under an `exclude` entry is; one under a repository an entry covers, and one at the
+/// checkouts root itself, are placed as before.
+#[test]
+fn a_session_outside_the_include_list_stays_redacted() {
+    let case = Case::new("session-include");
+    case.programs(&json!([
+        {"id": "s-outside", "pid": 101, "status": "busy",
+         "cwd": text(&case.root().join("x/y"))},
+        {"id": "s-inside", "pid": 102, "status": "idle",
+         "cwd": text(&case.root().join("z"))},
+        {"id": "s-top", "pid": 103, "status": "waiting", "cwd": text(&case.root())},
+    ]));
+    case.program("glab", "printf '%s' '[]'");
+    let config = case.config("[{gitlab: acme-group, include: [z]}]");
+    let output = case.start_snapshot(&config);
+    assert_eq!(output.status.code(), Some(0), "{}", describe(&output));
+    assert_eq!(
+        case.rows(&config, "sessions"),
+        [
+            session("", None, "", None, "Busy"),
+            session("s-inside", None, "~/src/z", Some("z"), "Idle"),
+            session("s-top", None, "~/src", None, "Waiting"),
+        ]
     );
 }

@@ -792,3 +792,198 @@ fn an_exclude_is_a_path_under_the_root_of_a_local_or_gitlab_source() {
         );
     }
 }
+
+// ---------------------------------------------------------------------------------------------
+// story:source-include-list: a `github` or `gitlab` source names the repositories it stands for.
+// ---------------------------------------------------------------------------------------------
+
+/// `include` is a list of paths under the owner or group on a `github` or `gitlab` source, absent
+/// unless written; beside `exclude`, on a `local` source, empty, or a `github` entry of two steps
+/// it is refused at its YAML path, and an entry is written as an `exclude` entry is.
+#[test]
+fn an_include_names_paths_under_the_owner_or_group_of_a_github_or_gitlab_source() {
+    let home = Path::new("/fixture-home");
+    let file = |sources: &str| {
+        format!(
+            "version: conductor.config/1\ninstances:\n  - name: acme\n    sources: {sources}\n    \
+             checkouts: {{root: /fixture-home/acme, trees: /fixture-home/trees}}\n"
+        )
+    };
+    // Each source as the library holds it, through its `Debug` form, so that the case reads the
+    // field by its name.
+    let parsed = |sources: &str| -> Vec<String> {
+        config::parse(&file(sources), home)
+            .unwrap_or_else(|problems| panic!("{sources}: {problems:?}"))
+            .instances[0]
+            .sources
+            .iter()
+            .map(|source| format!("{source:?}"))
+            .collect()
+    };
+    let sources = parsed(
+        "[{github: acme, include: [one]}, {gitlab: acme-group, include: [alpha, sub/gamma]}]",
+    );
+    assert!(
+        sources[0].contains(r#"include: Some(["one"])"#),
+        "{sources:?}"
+    );
+    assert!(
+        sources[1].contains(r#"include: Some(["alpha", "sub/gamma"])"#),
+        "{sources:?}"
+    );
+    let sources = parsed("[{github: acme}, {gitlab: acme-group}]");
+    assert!(
+        sources
+            .iter()
+            .all(|source| source.contains("include: None")),
+        "absent, a source names no include: {sources:?}"
+    );
+    for (sources, path) in [
+        (
+            "[{gitlab: acme-group, include: [a], exclude: [b]}]",
+            "instances[0].sources[0].include",
+        ),
+        (
+            "[{local: /fixture-home/acme, include: [a]}]",
+            "instances[0].sources[0].include",
+        ),
+        (
+            "[{gitlab: acme-group, include: []}]",
+            "instances[0].sources[0].include",
+        ),
+        (
+            "[{github: acme, include: []}]",
+            "instances[0].sources[0].include",
+        ),
+        (
+            "[{github: acme, include: [one/two]}]",
+            "instances[0].sources[0].include[0]",
+        ),
+        (
+            "[{gitlab: acme-group, include: [/x]}]",
+            "instances[0].sources[0].include[0]",
+        ),
+        (
+            "[{gitlab: acme-group, include: [../x]}]",
+            "instances[0].sources[0].include[0]",
+        ),
+        (
+            "[{gitlab: acme-group, include: [g/./r]}]",
+            "instances[0].sources[0].include[0]",
+        ),
+        (
+            "[{github: acme, include: [\"\"]}]",
+            "instances[0].sources[0].include[0]",
+        ),
+        (
+            "[{gitlab: acme-group, include: x}]",
+            "instances[0].sources[0].include",
+        ),
+        ("[{include: [x]}]", "instances[0].sources[0]"),
+    ] {
+        let problems = config::parse(&file(sources), home).expect_err(sources);
+        assert!(
+            problems.iter().any(|problem| problem.path == path),
+            "{sources}: {problems:?}"
+        );
+    }
+}
+
+/// A repository no `include` entry covers is not placed, as an excluded one is not: the guard
+/// denies a session there, and stays a controller's own elsewhere. Where a source on the root
+/// names no `include`, the root's repositories stay placed.
+#[test]
+fn a_repository_outside_the_include_list_is_no_controller_s() {
+    let case = Case::new("guard-include");
+    grouped(&case);
+    let root = case.root();
+    let places = case.places(&case.config("[{gitlab: acme-group, include: [g, s]}]"));
+    let here = root.join("g/r");
+    let decision = write(&places, &here, &here.join("x"));
+    assert_eq!(decision.verdict, Verdict::Allow, "{decision:?}");
+    assert_eq!(decision.repository, "g/r");
+    let outside = root.join("x/y");
+    let decision = write(&places, &outside, &outside.join("x"));
+    assert_eq!(decision.verdict, Verdict::Deny, "{decision:?}");
+    assert_eq!(decision.repository, "", "{decision:?}");
+    let decision = bash(&places, &root.join("s"), &format!("cd {}", text(&outside)));
+    assert_eq!(decision.verdict, Verdict::Deny, "{decision:?}");
+
+    let places = case.places(&case.config("[{gitlab: acme-group, include: [g]}, {github: acme}]"));
+    let decision = write(&places, &outside, &outside.join("x"));
+    assert_eq!(decision.verdict, Verdict::Allow, "{decision:?}");
+    assert_eq!(decision.repository, "x/y", "{decision:?}");
+}
+
+/// Sessions are placed only in the repositories `include` covers; `config show` prints the list,
+/// and the shown file reads back the same. An entry no project of the group answers to fails
+/// nothing: it is one member failure of the `repositories` collector, named as written.
+#[test]
+fn an_include_list_places_only_its_repositories_and_config_show_prints_it() {
+    let case = Case::new("gitlab-include");
+    grouped(&case);
+    let root = case.root();
+    case.programs(&json!([
+        live("s-gr", &root.join("g/r")),
+        live("s-s", &root.join("s/src")),
+        live("s-x", &root.join("x/y")),
+    ]));
+    case.program("glab", "printf '%s' '[]'");
+    let config = case.config("[{gitlab: acme-group, include: [g, s]}]");
+    let output = case.start_snapshot(&config);
+    assert_eq!(output.status.code(), Some(0), "{}", describe(&output));
+    assert_eq!(
+        case.rows(&config, "sessions"),
+        [
+            placed("s-gr", &root.join("g/r"), Some("g/r")),
+            placed("s-s", &root.join("s/src"), Some("s")),
+            unplaced(),
+        ]
+    );
+    let failures: Vec<(Value, Value)> = case
+        .rows(&config, "member-failures")
+        .into_iter()
+        .map(|row| {
+            let line = row["error_line"].as_str().unwrap_or_default();
+            assert!(
+                line.contains("acme-group") && line.contains("no repository answers"),
+                "{row}"
+            );
+            (row["member"].clone(), row["collector"].clone())
+        })
+        .collect();
+    assert_eq!(
+        failures,
+        [
+            (json!("g"), json!("repositories")),
+            (json!("s"), json!("repositories")),
+        ]
+    );
+
+    let shown = case.conductor(&config, &["config", "show", "--format", "json"]);
+    assert_eq!(shown.status.code(), Some(0), "{}", describe(&shown));
+    let shown: Value = serde_json::from_slice(&shown.stdout).expect("JSON");
+    assert_eq!(
+        shown["instances"][0]["sources"],
+        json!([{"gitlab": "acme-group", "host": "gitlab.com", "include": ["g", "s"]}]),
+        "{shown:#}"
+    );
+    let yaml = case.conductor(&config, &["config", "show", "--format", "yaml"]);
+    let written = case.write("shown.yaml", &String::from_utf8_lossy(&yaml.stdout));
+    let reread = case.conductor(&written, &["config", "show", "--format", "json"]);
+    assert_eq!(
+        serde_json::from_slice::<Value>(&reread.stdout).expect("JSON"),
+        shown,
+        "the shown file reads back the same"
+    );
+
+    let github = case.config("[{github: acme, include: [one]}]");
+    let shown = case.conductor(&github, &["config", "show", "--format", "json"]);
+    assert_eq!(shown.status.code(), Some(0), "{}", describe(&shown));
+    let shown: Value = serde_json::from_slice(&shown.stdout).expect("JSON");
+    assert_eq!(
+        shown["instances"][0]["sources"],
+        json!([{"github": "acme", "include": ["one"]}]),
+        "{shown:#}"
+    );
+}

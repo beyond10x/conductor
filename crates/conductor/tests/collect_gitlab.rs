@@ -1113,3 +1113,139 @@ fn an_exclude_entry_naming_the_project_leaves_its_checkout_out_of_the_workspace_
     assert!(workspace.contains("  - name: alpha\n"), "{workspace}");
     assert!(!workspace.contains("checks"), "{workspace}");
 }
+
+// ---------------------------------------------------------------------------------------------
+// story:source-include-list
+// ---------------------------------------------------------------------------------------------
+
+impl Case {
+    /// The repositories of every row a view holds, each once, in name order.
+    fn every_name(&self, config: &Path, view: &str) -> Vec<String> {
+        let mut names = self.names(config, view);
+        names.sort();
+        names.dedup();
+        names
+    }
+}
+
+/// A source with `include: [alpha]` yields `alpha` and no other project of the group: no row,
+/// merge request, pipeline, release or specification of `gamma` (or the archived `beta`), and
+/// the forge is asked nothing of `gamma`. A project the group gains after a snapshot is not
+/// yielded by the next one either.
+#[test]
+fn an_include_list_yields_its_projects_and_no_other_projects_facts() {
+    let case = Case::new("include");
+    case.alpha();
+    let config = case.config_of(&format!(
+        "{{gitlab: example-org, host: {HOST}, include: [alpha]}}"
+    ));
+    case.snapshot(&config);
+    fs::copy(
+        case.answers().join("projects-with-gamma.json"),
+        case.answers().join("projects.json"),
+    )
+    .expect("the group gains gamma");
+    case.snapshot(&config);
+
+    for view in [
+        "repositories",
+        "specifications",
+        "pull-requests",
+        "merged-pull-requests",
+        "releases",
+        "workflow-runs",
+    ] {
+        assert_eq!(case.every_name(&config, view), ["alpha"], "{view}");
+    }
+    assert!(
+        case.rows(&config, "member-failures").is_empty(),
+        "every entry answers"
+    );
+    let asked = case.lines("glab");
+    assert!(
+        !asked
+            .iter()
+            .any(|line| line.contains("projects/103/") || line.contains("projects/102/")),
+        "{asked:#?}"
+    );
+}
+
+/// An entry may name a subgroup: `include: [sub]` yields each project under `sub`, named by its
+/// path under the group, and not `alpha`.
+#[test]
+fn an_include_entry_naming_a_subgroup_yields_its_projects() {
+    let case = Case::new("include-subgroup");
+    case.projects(
+        "projects.json",
+        &[
+            (101, "example-org/alpha", "main"),
+            (104, "example-org/sub/gamma", "main"),
+            (105, "example-org/sub/delta", "main"),
+        ],
+    );
+    case.answer_as(101, 104);
+    case.answer_as(101, 105);
+    let config = case.config_of(&format!(
+        "{{gitlab: example-org, host: {HOST}, include: [sub]}}"
+    ));
+    case.snapshot(&config);
+
+    assert_eq!(
+        case.names(&config, "repositories"),
+        ["sub/delta", "sub/gamma"]
+    );
+    assert_eq!(
+        case.names(&config, "workflow-runs"),
+        ["sub/delta", "sub/gamma"]
+    );
+}
+
+/// An entry no project of the group answers to does not fail the source: the snapshot completes
+/// with the other entries' rows, and the entry is one member failure of the `repositories`
+/// collector, named as written, its line naming the group.
+#[test]
+fn an_include_entry_no_project_answers_to_is_a_member_failure() {
+    let case = Case::new("include-unanswered");
+    case.alpha();
+    let config = case.config_of(&format!(
+        "{{gitlab: example-org, host: {HOST}, include: [alpha, missing]}}"
+    ));
+    case.snapshot(&config);
+
+    assert_eq!(case.names(&config, "repositories"), ["alpha"]);
+    assert_eq!(case.names(&config, "workflow-runs"), ["alpha"]);
+    let failures = case.rows(&config, "member-failures");
+    assert_eq!(failures.len(), 1, "{failures:#?}");
+    assert_eq!(failures[0]["member"], json!("missing"), "{failures:#?}");
+    assert_eq!(
+        failures[0]["collector"],
+        json!("repositories"),
+        "{failures:#?}"
+    );
+    let line = failures[0]["error_line"].as_str().unwrap_or_default();
+    assert!(
+        line.contains("the gitlab group example-org on gitlab.example.com")
+            && line.contains("no repository answers to the entry missing"),
+        "{line}"
+    );
+}
+
+/// A checkout outside `include` is no member of the workspace file; one whose project an entry
+/// names is, under its own directory's name.
+#[test]
+fn a_checkout_outside_the_include_list_is_not_in_the_workspace_file() {
+    let case = Case::new("include-workspace");
+    case.checkout("checks", "example-org/example-checks");
+    case.checkout("tools", "example-org/tools");
+    case.alpha();
+    let config = case.config_of(&format!(
+        "{{gitlab: example-org, host: {HOST}, include: [alpha, example-checks]}}"
+    ));
+    let output = case.conductor(&config, &["config", "workspace"]);
+    assert_eq!(output.status.code(), Some(0), "{}", describe(&output));
+    let workspace = fs::read_to_string(case.dir.join("records/.engineering/workspace.yaml"))
+        .expect("the workspace file");
+    assert!(workspace.contains("  - name: alpha\n"), "{workspace}");
+    assert!(workspace.contains("  - name: checks\n"), "{workspace}");
+    assert!(!workspace.contains("tools"), "{workspace}");
+}

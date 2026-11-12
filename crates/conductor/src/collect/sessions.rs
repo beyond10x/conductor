@@ -22,7 +22,8 @@
 //! `repository` is absent unless the records directory lies in a checkout too; every other
 //! session's `role` is absent. A records directory that is the home directory or above it places
 //! no session, nor does the built-in instance's, which is only the process's working directory. A session whose working directory lies in none of the three, or
-//! under an `exclude` entry of the instance's sources under the checkouts root, keeps its harness
+//! under an `exclude` entry of the instance's sources under the checkouts root, or in a repository
+//! no `include` entry covers ([`collect::LeftOut`], `story:source-include-list`), keeps its harness
 //! and activity only: its `session_ref` and `cwd` are recorded empty and its `name` absent,
 //! because they may name the operator's employer or its customers. Such a redacted row is by
 //! design, not a defect. No error names any of them: an error names the command, an entry's
@@ -125,7 +126,7 @@ pub fn collect(record: &mut Recorder<'_>) -> Result<()> {
         .context("HOME is not an absolute path; a recorded working directory writes it `~`")?;
     let active = config::active();
     let instance = &active.instance;
-    let exclude = collect::excluded_under(instance, Path::new(&instance.checkouts.root));
+    let left_out = collect::LeftOut::under(instance, Path::new(&instance.checkouts.root));
     // Without a config file the records directory is the process's working directory, which says
     // nothing about where conductor's session runs.
     let records = active.from_file.then(|| Path::new(&instance.records));
@@ -137,7 +138,7 @@ pub fn collect(record: &mut Recorder<'_>) -> Result<()> {
         &Sources::new(home),
         &instance.checkouts,
         records,
-        &exclude,
+        &left_out,
         &names,
         record,
     )
@@ -187,7 +188,7 @@ pub fn collect_excluding(
         sources,
         checkouts,
         records,
-        exclude,
+        &collect::LeftOut::excluding(exclude.to_vec()),
         &Names::default(),
         record,
     )
@@ -240,7 +241,7 @@ fn collect_named(
     sources: &Sources,
     checkouts: &Checkouts,
     records: Option<&Path>,
-    exclude: &[String],
+    left_out: &collect::LeftOut,
     names: &Names<'_>,
     record: &mut Recorder<'_>,
 ) -> Result<()> {
@@ -256,7 +257,7 @@ fn collect_named(
     let state = record.state().ok().map(Path::to_owned);
     let mut observations = Vec::with_capacity(sessions.len());
     for session in sessions {
-        let mut observation = session.observation(snapshot.clone(), &places, exclude, names);
+        let mut observation = session.observation(snapshot.clone(), &places, left_out, names);
         if let Some(state) = &state {
             measured(state, &mut observation)?;
         }
@@ -327,17 +328,17 @@ impl Live {
         self,
         snapshot: SnapshotId,
         places: &Places<'_>,
-        exclude: &[String],
+        left_out: &collect::LeftOut,
         names: &Names<'_>,
     ) -> RecordSession {
         let by_directory =
-            || place(&self.cwd, places).filter(|_| !excluded(&self.cwd, places, exclude));
+            || place(&self.cwd, places).filter(|_| !excluded(&self.cwd, places, left_out));
         let placed = match names.owner(self.name.as_deref(), &self.cwd) {
             Owner::Other => None,
             Owner::Unknown => by_directory(),
             // Under an excluded repository it stays redacted whatever its name says: the
             // exclusion keeps that repository out of the instance's records.
-            Owner::Own if excluded(&self.cwd, places, exclude) => None,
+            Owner::Own if excluded(&self.cwd, places, left_out) => None,
             Owner::Own => by_directory().or_else(|| {
                 let cwd = Path::new(&self.cwd);
                 is_plain(cwd)
@@ -627,13 +628,15 @@ fn conductors(cwd: &Path, places: &Places<'_>) -> bool {
         })
 }
 
-/// Whether the working directory `cwd` lies under one of the `exclude` entries, each a path
-/// under the checkouts root: a repository it names is under it there and in the managed trees.
-fn excluded(cwd: &str, places: &Places<'_>, exclude: &[String]) -> bool {
-    !exclude.is_empty()
+/// Whether the working directory `cwd` lies in a repository `left_out` leaves out: under one of
+/// the `exclude` entries, each a path under the checkouts root, or outside every `include` entry
+/// (`story:source-include-list`); a repository is the same under the root and in the managed
+/// trees.
+fn excluded(cwd: &str, places: &Places<'_>, left_out: &collect::LeftOut) -> bool {
+    !left_out.is_empty()
         && root_of(Path::new(cwd), places)
             .and_then(|(_, rest)| steps(rest))
-            .is_some_and(|steps| collect::is_excluded(&steps, exclude))
+            .is_some_and(|steps| left_out.leaves_out(&steps))
 }
 
 /// The steps of `path` past its root, or `None` when one is not UTF-8.

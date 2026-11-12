@@ -351,6 +351,32 @@ fn a_gitlab_source_writes_each_checkout_on_its_host_and_group_but_its_exclude() 
     }
 }
 
+/// `story:source-include-list`: a checkout under the checkouts root that no `include` entry of a
+/// `github` source names is no member; the local source's members are as before.
+#[test]
+fn a_github_source_with_include_writes_only_the_checkouts_it_names() {
+    let case = Case::new("github-include");
+    case.three_checkouts();
+    let config = case.config(&[
+        "github: example-org\n        include: [alpha-api]".to_owned(),
+        format!(
+            "local: {}\n        exclude: [archive]",
+            case.dir.join("local").display()
+        ),
+    ]);
+
+    let output = case.conductor(&config, &["config", "workspace"]);
+    assert_eq!(output.status.code(), Some(0), "{}", shown(&output));
+    assert_eq!(
+        members(&case.workspace()),
+        pairs(&[
+            ("alpha-api", "../../checkouts/alpha-api"),
+            ("gamma-tools", "../../local/gamma-tools"),
+            ("records", "../../records"),
+        ])
+    );
+}
+
 #[test]
 fn config_workspace_replaces_the_file() {
     let case = Case::new("replaces");
