@@ -350,3 +350,86 @@ Open, not fixed in this release:
   printed its `to install:` line, not at step 4: doctor prints `substrate-daemon: not needed`
   before any config names `placement: systemd`, and step 4's sentence to install it even then
   was passed over. None asked about it, and each run ended with it installed.
+
+## v1.4.0
+
+**Full runs, on the release branch before its tag** (`release/1.4.0` at `1f968c4c1` for the first
+round, at `712ceae50`, the fix below, for the second), done as the v1.3.0 runs were: a fresh
+Claude Code session (`claude -p`, resumed for the answer) in a scratch home with no settings,
+plugins or forge logins, in a scratch repository whose `origin` names a repository that does not
+exist, on GitHub or on a self-hosted GitLab (`gitlab.example.com`), with a committed
+`aep.project/1` store, and a scratch temporary directory. No forge repository was created. The
+release archive exists only once the tag is pushed, so the binary built from the release branch
+(`cargo build --release -p conductor-cli`, on a cold build target) was put at
+`~/.local/bin/conductor`, and the prompt said to read the repository's files from the release
+branch. Both rounds ran the same binary: the fix between them changed `SETUP.md` and a test only.
+The person's answer: the migration approved, the login later, no daemon started on the host.
+
+The runs repeat because the release changes the prerequisites: `b10x.toml` and the README's
+table pin `ess` 0.93 (was 0.90), so step 4 installs `ess` 0.93.0. Doctor also gained the rows of
+a daemon that runs its instances as pods (`kubernetes <namespace>:`), printed only where the
+config holds `daemon.kubernetes`, which no run writes. `SETUP.md` and `conductor setup` did not
+change.
+
+| run | origin | `conductor setup` ended | `conductor doctor` ended |
+|---|---|---|---|
+| 1 | GitHub | not ready: `gh` not logged in to github.com, and `box widgets (placement.writable-root-missing)` | the same |
+| 2 | self-hosted GitLab | not ready: `glab` not logged in to gitlab.example.com, and `box widgets (placement.writable-root-missing)` | the same |
+
+Two rounds ran. In the second, each session read `SETUP.md` whole from the release branch, the
+GitHub one from a clone, the GitLab one with `curl`, installed `aep` 0.79.1, `ess` 0.93.0,
+`worktree` 0.18.1, `substrate-daemon` 0.20.0 and `b10x-gates` 0.1.27 from their release archives,
+each checked against its `SHA256SUMS`, and ran `conductor setup --apply` before it asked
+anything. Setup wrote the config file, the records, the trust, the worktree workspace with the
+profile it wrote, and the route `direct`, for the same reasons as in v1.3.0. Each asked only for
+the forge login and the migration, and named steps 9 and 10 as not started. After the answer
+each ran `aep plan store migrate git --verify` in its checkout and started nothing. The store is
+`aep.project/5`, left uncommitted in the scratch repository; the scratch home's worktree config
+holds the one profile `conductor-widgets`; no process of a run was left; no session pushed or
+wrote to a forge; the host's own conductor config, `worktree` config and Claude Code settings
+were not changed.
+
+What setup and doctor print, read in each scratch home after the sessions ended: the verdict of
+v1.3.0, `not ready: gh (not logged in to github.com), box widgets
+(placement.writable-root-missing)` in the GitHub home, the same with `glab` and
+gitlab.example.com in the GitLab one; `ess: 0.93.0 meets the build's pin 0.93`; the route and
+guard lines of v1.3.0; and no `kubernetes` row, since the config setup writes holds no
+`daemon.kubernetes`. The runs end where the v1.3.0 runs ended.
+
+Gaps found in the first round (fixed on the release branch, and both runs repeated):
+
+- **`SETUP.md` was read as a summary.** The GitHub session read the README and `SETUP.md`
+  through a web fetch tool, which returned a summary of each. The README's summary dropped its
+  `curl`, the fix v1.0.0 made for the same failure, and the summary of `SETUP.md` dropped the
+  rules of steps 4, 5 and 8. The session said so and followed doctor's and setup's lines instead:
+  it installed four programs without `substrate-daemon`, asked for the migration and left
+  `conductor setup --apply` for the answer, asked as well to confirm the source and the route,
+  then migrated the store in a worktree, committed it and fast-forwarded the checkout to it. It
+  ended `not ready: substrate-daemon (missing), gh (…), box widgets (…)`. `SETUP.md` now opens,
+  before its steps, with the `curl` of its raw URL, why a summary is not enough and what one
+  drops, so that a summary of the file carries that first. `tests/docs_setup.rs` holds the first
+  paragraph to it. The GitLab session of the first round read `SETUP.md` with `curl` and ended
+  as in v1.3.0.
+
+In the second round neither session used a web fetch tool, so the new paragraph was not tried
+against a summary.
+
+Not a gap:
+
+- the GitLab session of the second round said at its first answer that it would migrate in a
+  worktree, then ran the migration in the checkout, citing step 5;
+- the GitLab session of the first round read `glab auth status`, which found no token, as a
+  login to gitlab.com that failed; the scratch home held no login;
+- as in v1.3.0, the sessions wrote their install scripts and downloads into scratch directories
+  above their run's own while installing into the scratch home's `~/.local/bin`; the files were
+  moved into each run's directory afterwards.
+
+Not run: steps 9 and 10, as in v1.2.0.
+
+Open, not fixed in this release:
+
+- `AGENTS.md`, Releases, step 3 still asks that both runs end `ready`. A run that starts no
+  daemon ends on the box row as well as the login (`story:setup-prints-box-row`);
+- in the second round the GitHub session again installed `substrate-daemon` only once
+  `conductor setup --apply` printed its `to install:` line, not at step 4; the GitLab session
+  installed it at step 4. None asked about it, and each run ended with it installed.
