@@ -67,10 +67,11 @@ the config change when the file changed since. A daemon stopped meanwhile loses 
 but not what it did: the failed pass wrote `runtimes.json`, so the next daemon starts no runtime
 that runs and stops one whose instance left the file; the store misses those records.
 
-`/metrics` holds five gauges:
+`/metrics` holds six gauges:
 
 | Metric | Value |
 |---|---|
+| `conductor_build_info{version,config}` | `1`; `version` is the binary's version and `config` the config protocol it reads, such as `conductor.config/2`, in every answer, also while the store does not answer |
 | `conductor_instances{state}` | instances by the state the daemon last saw, every state named |
 | `conductor_sessions{instance,state}` | sessions by instance and state |
 | `conductor_snapshot_age_seconds{instance}` | age of the instance's newest complete snapshot |

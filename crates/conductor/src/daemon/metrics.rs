@@ -11,7 +11,10 @@
 //!   the reconciler published once, and its last record did not fail without one written since,
 //!   and, with `daemon.unattended`, the start has seeded with no step failing; `503` with the
 //!   one-line reason otherwise ([`readiness`]).
-//! - [`METRICS`], `/metrics`: Prometheus text format ([`render`]). `conductor_instances` by
+//! - [`METRICS`], `/metrics`: Prometheus text format ([`render`]). `conductor_build_info`, one
+//!   sample `1` whose `version` and `config` labels are the binary's version and the config
+//!   protocol it reads ([`Build`]), in every answer from the first, whatever the store does;
+//!   `conductor_instances` by
 //!   `state`, as the reconciler last saw them; `conductor_sessions` by `instance` and `state` and
 //!   `conductor_snapshot_age_seconds` by `instance`, read from each instance's `/v1/data.json`
 //!   at the scrape, all of them within [`BOUND`] (`daemon.timeout` when that is shorter);
@@ -301,6 +304,7 @@ fn scrape(api: &Api) -> String {
             .as_ref()
             .map(|(_, members)| readings(members, BOUND.min(api.timeout()))),
         queue: api.host_dir().and_then(|host| crate::store::queued(&host)),
+        build: Some(Build::this()),
     });
     *kept = Some((Instant::now(), text.clone()));
     text
@@ -316,6 +320,29 @@ pub struct Scrape {
     pub readings: Option<Vec<Option<Reading>>>,
     /// The disk requests waiting in the host's build ledger; none when it does not read.
     pub queue: Option<usize>,
+    /// What the binary was built as; every scrape of the daemon holds it.
+    pub build: Option<Build>,
+}
+
+/// What `conductor_build_info` names of the binary.
+#[derive(Debug, Default, Clone, PartialEq, Eq)]
+pub struct Build {
+    /// The binary's version.
+    pub version: String,
+    /// The config protocol the binary reads, which is the file's whenever the daemon serves: a
+    /// file that writes `daemon.store` is a [`crate::config::VERSION_2`] file.
+    pub config: String,
+}
+
+impl Build {
+    /// This binary.
+    #[must_use]
+    pub fn this() -> Self {
+        Self {
+            version: env!("CARGO_PKG_VERSION").to_owned(),
+            config: crate::config::VERSION_2.to_owned(),
+        }
+    }
 }
 
 /// What one instance answered a scrape.
@@ -424,6 +451,19 @@ pub fn label(state: &str) -> String {
 #[must_use]
 pub fn render(scrape: &Scrape) -> String {
     let mut text = String::new();
+    if let Some(build) = &scrape.build {
+        head(
+            &mut text,
+            "conductor_build_info",
+            "The binary's version and the config protocol it reads.",
+        );
+        let _ = writeln!(
+            text,
+            "conductor_build_info{{version=\"{}\",config=\"{}\"}} 1",
+            escape(&build.version),
+            escape(&build.config)
+        );
+    }
     if let Some(instances) = &scrape.instances {
         head(
             &mut text,
@@ -490,6 +530,15 @@ pub fn render(scrape: &Scrape) -> String {
         let _ = writeln!(text, "conductor_build_queue_length {queue}");
     }
     text
+}
+
+/// `value` as a label's value of the text format: a backslash, a double quote and a line feed
+/// each escaped by a backslash.
+fn escape(value: &str) -> String {
+    value
+        .replace('\\', "\\\\")
+        .replace('"', "\\\"")
+        .replace('\n', "\\n")
 }
 
 /// The `HELP` and `TYPE` lines of the gauge `name`.

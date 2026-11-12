@@ -335,6 +335,46 @@ fn a_database_server_that_takes_no_connection_is_503_and_the_daemon_lives() {
     assert!(served.runs(), "the daemon exited: {}", served.printed());
 }
 
+/// The build's one sample, as a started daemon answers it: this binary's version and the config
+/// protocol it reads.
+fn build_info() -> String {
+    format!(
+        r#"conductor_build_info{{version="{}",config="conductor.config/2"}} 1"#,
+        env!("CARGO_PKG_VERSION")
+    )
+}
+
+/// A started daemon names its version and the config protocol in its first `/metrics` answer,
+/// while its store does not answer and before its reconciler published: one sample, described.
+#[test]
+fn the_first_metrics_answer_names_the_version_while_the_store_does_not_answer() {
+    let case = Case::new("build-info");
+    let port = free_port();
+    let blocked = case.dir.join("blocked");
+    fs::write(&blocked, "").expect("write the file in the store's way");
+    case.config(
+        port,
+        &format!("sqlite:{}", blocked.join("shared.sqlite").display()),
+    );
+    let mut served = Served::start(&case, port);
+    let (status, _, body) = get(port, "/metrics");
+    assert_eq!(status, 200, "{body}");
+    assert_eq!(get(port, "/readyz").0, 503, "the store answered");
+    let built: Vec<&str> = samples(&body)
+        .into_iter()
+        .filter(|sample| sample.starts_with("conductor_build_info"))
+        .collect();
+    assert_eq!(built, [build_info().as_str()], "{body}");
+    assert!(
+        body.contains(
+            "# HELP conductor_build_info The binary's version and the config protocol it reads.\n\
+             # TYPE conductor_build_info gauge\n"
+        ),
+        "{body}"
+    );
+    assert!(served.runs(), "the daemon exited: {}", served.printed());
+}
+
 /// The reason of a `503` the daemon answers a read of its reconciler's publication with.
 fn unpublished(body: &str) -> String {
     let body: Value = serde_json::from_str(body).expect("a JSON refusal");
@@ -739,7 +779,11 @@ fn metrics_hold_what_was_read_and_leave_out_what_was_not_within_the_bound() {
     let (_, unpublished) = serving(fresh());
     let (status, _, body) = get(unpublished, "/metrics");
     assert_eq!(status, 200, "{body}");
-    assert_eq!(samples(&body), ["conductor_build_queue_length 2"], "{body}");
+    assert_eq!(
+        samples(&body),
+        [build_info().as_str(), "conductor_build_queue_length 2"],
+        "{body}"
+    );
 
     let (daemon, port) = serving(fresh());
     daemon.publish(
@@ -773,6 +817,7 @@ fn metrics_hold_what_was_read_and_leave_out_what_was_not_within_the_bound() {
     assert_eq!(
         samples(&body),
         [
+            build_info().as_str(),
             r#"conductor_instances{state="purged"} 0"#,
             r#"conductor_instances{state="running"} 2"#,
             r#"conductor_instances{state="starting"} 0"#,
@@ -833,6 +878,7 @@ fn a_scrape_renders_only_what_it_holds() {
             Some(metrics::Reading::default()),
         ]),
         queue: None,
+        build: None,
     });
     assert_eq!(
         samples(&text),
@@ -847,6 +893,32 @@ fn a_scrape_renders_only_what_it_holds() {
     assert_eq!(metrics::label("a/b\"c\n{d}"), "a_b_c__d_");
     assert_eq!(metrics::label(""), "unknown");
     assert_eq!(metrics::label(&"x".repeat(200)).len(), 40);
+}
+
+/// The build's label values are escaped as the text format asks: a backslash, a double quote
+/// and a line feed each by a backslash.
+#[test]
+fn the_build_s_label_values_are_escaped() {
+    let text = metrics::render(&metrics::Scrape {
+        build: Some(metrics::Build {
+            version: "1.0.0-a\"b\\c\nd".to_owned(),
+            config: "conductor.config/2".to_owned(),
+        }),
+        ..metrics::Scrape::default()
+    });
+    assert_eq!(
+        samples(&text),
+        [r#"conductor_build_info{version="1.0.0-a\"b\\c\nd",config="conductor.config/2"} 1"#],
+        "{text}"
+    );
+    assert_eq!(text.lines().count(), 3, "{text}");
+    assert_eq!(
+        metrics::Build::this(),
+        metrics::Build {
+            version: env!("CARGO_PKG_VERSION").to_owned(),
+            config: "conductor.config/2".to_owned(),
+        }
+    );
 }
 
 #[test]
