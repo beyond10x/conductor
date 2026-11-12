@@ -185,7 +185,7 @@ Every command takes these, before or after its name.
 | [`conductor config validate`](#conductor-config-validate) | Check the config file and the host file host.yaml; exit 1 naming each problem by its YAML path |
 | [`conductor config workspace`](#conductor-config-workspace) | Write the instance's workspace file from its config; --check names each difference |
 | [`conductor daemon`](#conductor-daemon) |  |
-| [`conductor daemon serve`](#conductor-daemon-serve) | Run conductord, the daemon of the control host, reconciling the instance runtimes from the config file - start what is absent, stop what is gone, restart what changed placement or binary - on a config change, a lost runtime and every daemon.cadence.reconcile, recording one Reconciliation per action, and serving GET 127.0.0.1:&lt;daemon.port>/v1/instances. --install writes, enables and starts the user unit conductord.service, or the system unit when daemon.loopback is false (a box with no local operator, its config file in a git checkout, its secrets on the Secrets service); --uninstall stops and removes it |
+| [`conductor daemon serve`](#conductor-daemon-serve) | Run conductord, the daemon of the control host, reconciling the instance runtimes from the config file - start what is absent, stop what is gone, restart what changed placement or binary - on a config change, a lost runtime and every daemon.cadence.reconcile, recording one Reconciliation per action, and serving GET 127.0.0.1:&lt;daemon.port>/v1/instances. --install writes, enables and starts the user unit conductord.service, or the system unit when daemon.loopback is false (a box with no local operator, its config file in a git checkout, its secrets on the Secrets service); --uninstall stops and removes it. --daemon-config names a file holding only version and daemon, such as a mounted ConfigMap - at every start the daemon writes the config file from it, keeping the file's globals and instances |
 | [`conductor daemon start-role`](#conductor-daemon-start-role) | Ask the daemon of the config file to start a host role now (POST /v1/roles/\{role}/start) - supervisor or teacher, one globals.roles lists; the daemon starts it through conductor session start --role &lt;role> at the host placement, its session in conductor_host.slice, and keeps it running; a role the file does not list is refused naming globals.roles |
 | [`conductor doctor`](#conductor-doctor) | Report the machine, each program conductor starts as present, with its version, or missing, each one older than its pin in the nearest b10x.toml, or else in the pins conductor was built with, and the account each forge CLI is logged in as on each host of the config file's sources |
 | [`conductor gc`](#conductor-gc) | Remove what the dashboard's disk panel marks reclaimable, and no tree a live session works in; print the bytes freed |
@@ -2481,7 +2481,7 @@ Usage: conductor daemon [OPTIONS] <COMMAND>
 
 ## `conductor daemon serve`
 
-Run conductord, the daemon of the control host, reconciling the instance runtimes from the config file - start what is absent, stop what is gone, restart what changed placement or binary - on a config change, a lost runtime and every daemon.cadence.reconcile, recording one Reconciliation per action, and serving GET 127.0.0.1:&lt;daemon.port>/v1/instances. --install writes, enables and starts the user unit conductord.service, or the system unit when daemon.loopback is false (a box with no local operator, its config file in a git checkout, its secrets on the Secrets service); --uninstall stops and removes it
+Run conductord, the daemon of the control host, reconciling the instance runtimes from the config file - start what is absent, stop what is gone, restart what changed placement or binary - on a config change, a lost runtime and every daemon.cadence.reconcile, recording one Reconciliation per action, and serving GET 127.0.0.1:&lt;daemon.port>/v1/instances. --install writes, enables and starts the user unit conductord.service, or the system unit when daemon.loopback is false (a box with no local operator, its config file in a git checkout, its secrets on the Secrets service); --uninstall stops and removes it. --daemon-config names a file holding only version and daemon, such as a mounted ConfigMap - at every start the daemon writes the config file from it, keeping the file's globals and instances
 
 ```text
 Usage: conductor daemon serve [OPTIONS]
@@ -2491,6 +2491,7 @@ Usage: conductor daemon serve [OPTIONS]
 |---|---|---|---|
 | `--install <BOOL>` | no | none | Write the user unit conductord.service running this command, then enable and start it. `--install` alone is `--install true` One of `true`, `false`. |
 | `--uninstall <BOOL>` | no | none | Disable and stop the user unit conductord.service and remove its file. `--uninstall` alone is `--uninstall true` One of `true`, `false`. |
+| `--daemon-config <FILE>` | no | none | A file holding only `version` and `daemon`, such as a mounted ConfigMap: at every start the daemon writes the config file from it, keeping the file's globals and instances |
 
 ## `conductor daemon start-role`
 

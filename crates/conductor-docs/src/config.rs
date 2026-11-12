@@ -54,6 +54,16 @@ const DERIVED_SECTIONS: [&str; 2] = ["conductor", "remote"];
 /// read with `dependent` left out too, else the refusal would make `key` read `required`.
 const DEPENDENT: [(&str, &str); 1] = [("usage.probe", "usage.rotate")];
 
+/// The keys `(<list>[], [<a>, <b>])` of which each element of the list writes exactly one
+/// (`conductor.config.KubernetesEnv`'s `value` and `secret`): leaving one of them out of every
+/// element leaves an element with neither, so their default is written as the pair.
+const ONE_OF: [(&str, [&str; 2]); 1] = [("daemon.kubernetes.env[]", ["value", "secret"])];
+
+/// The section whose keys make an instance run as a pod (`conductor.config.Kubernetes`, decision
+/// D8): [`SAMPLE`] sets it, and an instance key's default is read without it, so it is the default
+/// of an instance of a daemon that runs no pod.
+const PODS: [&str; 2] = ["daemon", "kubernetes"];
+
 /// A config file that sets every key of the specification but [`DERIVED`] to a value that differs
 /// from its default, so that leaving one out shows the default the library fills. Generation fails
 /// when a key of the specification is missing here.
@@ -85,6 +95,27 @@ daemon:
   substrate_slots: 4
   unattended: true
   address: 0.0.0.0
+  kubernetes:
+    namespace: example-instances
+    image: registry.example.com/conductor:1.0.0
+    owner: example-org
+    api_port: 7310
+    volume:
+      size: 20G
+      storage_class: example-class
+    resources:
+      requests:
+        cpu: 500m
+        memory: 1Gi
+      limits:
+        cpu: '2'
+        memory: 4Gi
+    env:
+      - name: GH_TOKEN
+        secret: secret:example-forge-token
+      - name: GIT_AUTHOR_NAME
+        value: conductor
+  control_token: secret:example-control-token
 globals:
   roles:
     - role: supervisor
@@ -159,11 +190,11 @@ instances:
         host: gitlab.example.com
         exclude: [legacy]
     checkouts:
-      root: ~/example-org
-      trees: ~/trees/example-org
-    records: ~/example-org/records
-    state: ~/example-org/state
-    cache: ~/example-org/cache
+      root: /var/lib/conductor/data/example-org
+      trees: /var/lib/conductor/data/trees/example-org
+    records: /var/lib/conductor/data/records
+    state: /var/lib/conductor/data/state
+    cache: /var/lib/conductor/data/cache
     roles:
       - role: controller
         kind: claude-code
@@ -594,6 +625,7 @@ fn probe(sample: &Value, path: &[Step], top: bool) -> Result<Found> {
     } else {
         let removed = remove(&mut file["instances"][0], path);
         remove(&mut file["globals"], path);
+        remove(&mut file, &PODS.map(|key| Step::Key(key.to_owned())));
         for (key, dependent) in DEPENDENT {
             if written(path) == key {
                 let dependent: Vec<Step> = dependent
@@ -779,8 +811,13 @@ fn rows(
         let kind = spec.kind(base);
         let required_struct = kind == Some("struct") && matches!(shape(expr), Shape::Plain(_));
         if !required_struct {
+            let pair = ONE_OF
+                .iter()
+                .find(|(list, pair)| written(prefix) == *list && pair.contains(&key));
             let default = if derived(prefix, key) {
                 "derived".to_owned()
+            } else if let Some((_, [a, b])) = pair {
+                format!("one of `{a}`, `{b}`")
             } else {
                 default_cell(&probe(sample, &path, top)?, expr)
             };

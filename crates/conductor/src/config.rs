@@ -67,7 +67,18 @@
 //!   not empty, `usage.rotate` only beside a `usage.probe`, and `usage.watcher` a systemd unit
 //!   name ([`unit_name`]);
 //! - the file holds no secret: a value that looks like a token (a word starting `ghp_`,
-//!   `github_pat_`, `glpat-` or `xox<letter>-`) is refused by its path, and never printed.
+//!   `github_pat_`, `glpat-` or `xox<letter>-`) is refused by its path, and never printed;
+//! - `daemon.kubernetes` (design: instance pods, `conductor.config.Kubernetes`): its `namespace`
+//!   and `owner` are DNS labels ([`dns_label`]), its `api_port` a port, its `volume.size` a size,
+//!   each required with its `image`; each `env` entry a variable name conductor does not set for
+//!   the pod itself (`HOME`, `PATH`, `CONDUCTOR_*`) and no other entry names, with exactly one of
+//!   `value` and `secret`. Where it is set, `instances` may be empty, and each instance runs as a
+//!   pod (decision D8): its name is a DNS label of at most [`POD_INSTANCE_NAME_MAX`] characters,
+//!   its placement opens no box, and each of its paths (`checkouts.root`, `checkouts.trees`,
+//!   `records`, `state`, `cache`) it writes lies under its data mount ([`pod::DATA_MOUNT`]); one
+//!   it leaves out, `checkouts` included, its pod's file fills in there ([`pod::render`]).
+//!   `daemon.control_token` is `secret:<name>`. A daemon-config file holds `version` and `daemon`
+//!   only ([`parse_daemon_config`]).
 //!
 //! An instance may leave out every key but `name`, `sources` and `checkouts`. Absent, `records`,
 //! `state` and `cache` are `~/.b10x/conductor/<name>/records`, `~/.b10x/conductor/<name>/state`
@@ -109,17 +120,20 @@ use anyhow::{Context as _, Result, anyhow, bail};
 use conductor_model::agent::AgentKindName;
 use conductor_model::config::{
     Authority, Cadence, Catalog, CatalogNames, Checkouts, CommandWord, ConductorSession, Config,
-    Controllers, Daemon, DaemonCadence, DaemonOperator, Forge, ForgeRoute, ForgeSecret, Gibibytes,
-    GitHubSource, GitLabSource, Globals, Harness, Instance, InstanceName, Limits, LocalSource,
-    Network, OperatorGrant, OperatorRole, PlacementName, RepoCache, Report, RepositoryRule,
-    Retention, Role, SecretSource, SecretSync, SecretsSource, SessionName, SessionPrefix, Source,
-    SuggestedPrefix, Thresholds, TimeOfDay, TlsListener, Tokens, Usage, WorkspaceMember, Writable,
+    Controllers, Daemon, DaemonCadence, DaemonConfig, DaemonOperator, Forge, ForgeRoute,
+    ForgeSecret, Gibibytes, GitHubSource, GitLabSource, Globals, Harness, Instance, InstanceName,
+    Kubernetes, KubernetesEnv, KubernetesName, KubernetesQuantities, KubernetesResources,
+    KubernetesVolume, Limits, LocalSource, Network, OperatorGrant, OperatorRole, PlacementName,
+    RepoCache, Report, RepositoryRule, Retention, Role, SecretSource, SecretSync, SecretsSource,
+    SessionName, SessionPrefix, Source, SuggestedPrefix, Thresholds, TimeOfDay, TlsListener,
+    Tokens, Usage, WorkspaceMember, Writable,
 };
 use conductor_model::decision::Decider;
 use conductor_model::direction::Activity;
 use conductor_model::improvement::{TunableKey, TuningGrant};
 use conductor_model::operator::OperatorName;
 use conductor_model::primitives::{Decimal, Duration};
+use conductor_model::secret::SecretName;
 use conductor_model::store::StoreUrl;
 use conductor_model::tool::{RoleGrant, Verb};
 use serde_json::{Map, Value};
@@ -131,6 +145,7 @@ use crate::cli::{
 
 pub mod convert;
 pub mod effective;
+pub mod pod;
 pub mod put;
 
 /// The placeholder GitHub owner of the built-in instance, which applies without a config file,
@@ -521,6 +536,31 @@ const DAEMON_KEYS: [&str; 15] = [
     "kubernetes",
     "control_token",
 ];
+/// The keys of `daemon.kubernetes` (`conductor.config.Kubernetes`) and of its mappings.
+const KUBERNETES_KEYS: [&str; 7] = [
+    "namespace",
+    "image",
+    "owner",
+    "api_port",
+    "volume",
+    "resources",
+    "env",
+];
+const KUBERNETES_VOLUME_KEYS: [&str; 2] = ["size", "storage_class"];
+const KUBERNETES_RESOURCES_KEYS: [&str; 2] = ["requests", "limits"];
+const KUBERNETES_QUANTITY_KEYS: [&str; 2] = ["cpu", "memory"];
+const KUBERNETES_ENV_KEYS: [&str; 3] = ["name", "value", "secret"];
+/// The longest Kubernetes name, a DNS label (RFC 1123).
+const KUBERNETES_NAME_MAX: usize = 63;
+/// The longest name of an instance the daemon runs as a pod: its volume claim
+/// `conductor-instance-<name>-data` is a Kubernetes name, and its affixes take 24 characters.
+pub const POD_INSTANCE_NAME_MAX: usize = 39;
+/// The environment variables of an instance pod that conductor sets itself, beside every name
+/// that starts with [`CONDUCTOR_ENV_PREFIX`]: `daemon.kubernetes.env` names none of them.
+const POD_OWN_ENV: [&str; 2] = ["HOME", "PATH"];
+const CONDUCTOR_ENV_PREFIX: &str = "CONDUCTOR_";
+/// The keys of a daemon-config file (`conductor.config.DaemonConfig`).
+const DAEMON_CONFIG_KEYS: [&str; 2] = ["version", "daemon"];
 const TLS_KEYS: [&str; 4] = ["listen", "cert", "key", "identity"];
 const DAEMON_CADENCE_KEYS: [&str; 1] = ["reconcile"];
 const SECRETS_KEYS: [&str; 4] = ["source", "namespace", "url", "dir"];
@@ -1944,6 +1984,7 @@ fn converted(text: &str, home: &Path, held: bool) -> Result<Config, Vec<Problem>
         second: false,
         legacy: Vec::new(),
         global: None,
+        pods: false,
     };
     reader.secrets(&value, "");
     let config = reader.config(&value);
@@ -1956,6 +1997,61 @@ fn converted(text: &str, home: &Path, held: bool) -> Result<Config, Vec<Problem>
             }
             Ok(config)
         }
+        _ => Err(reader.problems),
+    }
+}
+
+/// Converts a daemon-config file's text (`conductor.config.DaemonConfig`, the file
+/// `conductor daemon serve --daemon-config` names) into the generated type, `~` expanded against
+/// `home`: a `conductor.config/2` file that holds `version` and `daemon` and nothing else, its
+/// `daemon` section read as a config file's is.
+///
+/// # Errors
+///
+/// Every problem the file has, each named by its YAML path: a key other than `version` and
+/// `daemon` among them.
+pub fn parse_daemon_config(text: &str, home: &Path) -> Result<DaemonConfig, Vec<Problem>> {
+    let value = yaml_value(text)?;
+    let mut reader = Reader {
+        home,
+        problems: Vec::new(),
+        second: true,
+        legacy: Vec::new(),
+        global: None,
+        pods: false,
+    };
+    reader.secrets(&value, "");
+    let empty = Value::Object(Map::new());
+    let value = if value.is_null() { &empty } else { &value };
+    let Value::Object(map) = value else {
+        reader.problem(
+            "",
+            format!("{} is not a mapping of version, daemon", echo(value)),
+        );
+        return Err(reader.problems);
+    };
+    for key in map.keys() {
+        if !DAEMON_CONFIG_KEYS.contains(&key.as_str()) {
+            reader.problem(
+                &join("", key),
+                "is no key of a daemon-config file, which holds version and daemon only: the \
+                 config file keeps it",
+            );
+        }
+    }
+    let version = reader.required(map, "", "version").and_then(|value| {
+        let version = reader.text(value, "version")?;
+        if version != VERSION_2 {
+            reader.problem("version", format!("{} is not {VERSION_2}", echo(value)));
+            return None;
+        }
+        Some(version)
+    });
+    let daemon = reader
+        .required(map, "", "daemon")
+        .and_then(|value| reader.daemon(value, "daemon"));
+    match (version, daemon, reader.problems.is_empty()) {
+        (Some(version), Some(daemon), true) => Ok(DaemonConfig { version, daemon }),
         _ => Err(reader.problems),
     }
 }
@@ -2064,6 +2160,23 @@ fn shown_remote_placement(placement: &Value, remote: Option<&Value>) -> Option<V
     Some(Value::Object(map))
 }
 
+/// Whether `text` is a DNS label (RFC 1123) of at most `max` characters, as Kubernetes names a
+/// namespace, an object and a label's value: lower-case letters, digits and `-`, starting and
+/// ending with a letter or a digit (`conductor.config.KubernetesName`).
+#[must_use]
+pub fn dns_label(text: &str, max: usize) -> bool {
+    let bytes = text.as_bytes();
+    let edge =
+        |byte: Option<&u8>| byte.is_some_and(|b| b.is_ascii_lowercase() || b.is_ascii_digit());
+    !text.is_empty()
+        && text.len() <= max
+        && edge(bytes.first())
+        && edge(bytes.last())
+        && bytes
+            .iter()
+            .all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || *b == b'-')
+}
+
 /// The YAML path of `key` under `parent`.
 fn join(parent: &str, key: &str) -> String {
     let key = if looks_like_token(key) {
@@ -2141,6 +2254,9 @@ struct Reader<'h> {
     /// The `globals` of a `conductor.config/2` file as it writes them and as they read, once
     /// they read without a problem: what each instance starts from (`story:config-globals`).
     global: Option<(Value, Globals)>,
+    /// Whether the file's daemon runs its instances as pods: it writes `daemon.kubernetes`
+    /// (`conductor.config.Kubernetes`, decision D8), so each instance is read as a pod's.
+    pods: bool,
 }
 
 impl Reader<'_> {
@@ -2316,6 +2432,26 @@ impl Reader<'_> {
         None
     }
 
+    /// A path of an instance that runs as a pod (decision D8): a [`Reader::path`] under the
+    /// instance's data mount ([`pod::within`]), where its pod keeps everything it writes.
+    fn pod_path(&mut self, value: &Value, path: &str) -> Option<String> {
+        let written = self.path(value, path)?;
+        if pod::within(&written) {
+            return Some(written);
+        }
+        self.problem(
+            path,
+            format!(
+                "{} lies outside the instance's data mount {}: an instance of a daemon that runs \
+                 its instances as pods (daemon.kubernetes) keeps its paths on its volume; write \
+                 one under it, or leave the key out and the daemon fills it in there",
+                echo(value),
+                pod::DATA_MOUNT
+            ),
+        );
+        None
+    }
+
     /// `text` as a `conductor.config.CommandWord`: every character one of [`COMMAND_WORD`]. The
     /// refusal names the first other character and never the value, which may look like a token.
     fn command_word(&mut self, text: String, path: &str) -> Option<CommandWord> {
@@ -2461,6 +2597,13 @@ impl Reader<'_> {
             Some(value) if self.second => self.daemon(value, "daemon"),
             _ => Some(default_daemon(self.home)),
         };
+        // Where the daemon runs its instances as pods, each is read as a pod's, whether or not
+        // the section reads without a problem.
+        self.pods = self.second
+            && Self::get(map, "daemon")
+                .and_then(Value::as_object)
+                .and_then(|daemon| Self::get(daemon, "kubernetes"))
+                .is_some();
         let globals = match Self::get(map, "globals") {
             Some(value) if self.second => {
                 let globals = self.globals(value, "globals");
@@ -2474,8 +2617,14 @@ impl Reader<'_> {
         let instances = self.required(map, "", "instances").and_then(|value| {
             let instances = self.list(value, "instances", Self::instance);
             if let Value::Array(items) = value {
-                if items.is_empty() {
-                    self.problem("instances", "names no instance");
+                // A daemon that runs its instances as pods starts with none: each arrives
+                // through `AddInstance`.
+                if items.is_empty() && !self.pods {
+                    self.problem(
+                        "instances",
+                        "names no instance; only a daemon that runs its instances as pods \
+                         (daemon.kubernetes) starts with none",
+                    );
                 }
                 self.distinct_names(items);
                 self.distinct_prefixes(items);
@@ -2710,13 +2859,21 @@ impl Reader<'_> {
             }
             None => Some(defaults.address.clone()),
         };
-        // `daemon.kubernetes` and `daemon.control_token` are declared and not served yet: absent
-        // or null they read as absent, set they are refused by their path.
-        for key in ["kubernetes", "control_token"] {
-            if Self::get(map, key).is_some() {
-                self.problem(&join(path, key), "declared, and not served yet");
-            }
-        }
+        // Design: instance pods. The instance pods, absent none.
+        let kubernetes = match Self::get(map, "kubernetes") {
+            Some(value) => self.kubernetes(value, &join(path, "kubernetes")).map(Some),
+            None => Some(None),
+        };
+        // The control token (decision D2), `secret:<name>`: anything else is the generic
+        // secret-bearing check's problem at the same path, since the key ends in `token`.
+        let control_token = match Self::get(map, "control_token") {
+            Some(Value::String(text)) if secret_name(text) => Some(
+                text.strip_prefix("secret:")
+                    .map(|name| SecretName(name.to_owned())),
+            ),
+            Some(_) => None,
+            None => Some(None),
+        };
         Some(Daemon {
             port: port?,
             loopback: loopback?,
@@ -2731,8 +2888,213 @@ impl Reader<'_> {
             substrate_slots: substrate_slots?,
             unattended: unattended?,
             address: address?,
-            kubernetes: None,
-            control_token: None,
+            kubernetes: kubernetes?,
+            control_token: control_token?,
+        })
+    }
+
+    /// `daemon.kubernetes` (`conductor.config.Kubernetes`): `namespace` and `owner` each a
+    /// [`Reader::kubernetes_name`], `image` text, `api_port` a port, `volume.size` a size of 1G or
+    /// more, each required; `volume.storage_class` and each quantity of `resources` text, absent
+    /// none; and `env`, empty when absent, each entry a name ([`Reader::variable_name`]) that
+    /// conductor does not set for the pod itself ([`POD_OWN_ENV`], [`CONDUCTOR_ENV_PREFIX`]) and
+    /// no other entry names, with exactly one of `value` and `secret`.
+    fn kubernetes(&mut self, value: &Value, path: &str) -> Option<Kubernetes> {
+        let map = self.mapping(value, path, &KUBERNETES_KEYS)?;
+        let namespace = self.required(map, path, "namespace").and_then(|value| {
+            self.kubernetes_name(value, &join(path, "namespace"), KUBERNETES_NAME_MAX)
+        });
+        let image = self
+            .required(map, path, "image")
+            .and_then(|value| self.text(value, &join(path, "image")));
+        let owner = self.required(map, path, "owner").and_then(|value| {
+            self.kubernetes_name(value, &join(path, "owner"), KUBERNETES_NAME_MAX)
+        });
+        let api_port = self
+            .required(map, path, "api_port")
+            .and_then(|value| self.port(value, &join(path, "api_port")));
+        let volume = self.required(map, path, "volume").and_then(|value| {
+            let at = join(path, "volume");
+            let volume = self.mapping(value, &at, &KUBERNETES_VOLUME_KEYS)?;
+            let size = self.required(volume, &at, "size").and_then(|value| {
+                let size = self.size(value, &join(&at, "size"))?;
+                if size.0 < 1 {
+                    self.problem(&join(&at, "size"), "is no volume: write 1G or more");
+                    return None;
+                }
+                Some(size)
+            });
+            let storage_class = match Self::get(volume, "storage_class") {
+                Some(value) => self.text(value, &join(&at, "storage_class")).map(Some),
+                None => Some(None),
+            };
+            Some(KubernetesVolume {
+                size: size?,
+                storage_class: storage_class?,
+            })
+        });
+        let resources = match Self::get(map, "resources") {
+            Some(value) => {
+                let at = join(path, "resources");
+                self.mapping(value, &at, &KUBERNETES_RESOURCES_KEYS)
+                    .and_then(|resources| {
+                        let requests = self
+                            .quantities(Self::get(resources, "requests"), &join(&at, "requests"));
+                        let limits =
+                            self.quantities(Self::get(resources, "limits"), &join(&at, "limits"));
+                        Some(KubernetesResources {
+                            requests: requests?,
+                            limits: limits?,
+                        })
+                    })
+            }
+            None => Some(KubernetesResources {
+                requests: KubernetesQuantities {
+                    cpu: None,
+                    memory: None,
+                },
+                limits: KubernetesQuantities {
+                    cpu: None,
+                    memory: None,
+                },
+            }),
+        };
+        let env = match Self::get(map, "env") {
+            Some(value) => {
+                let at = join(path, "env");
+                let env = self.list(value, &at, Self::kubernetes_env);
+                if let Some(env) = &env {
+                    for (index, variable) in env.iter().enumerate() {
+                        if env[..index]
+                            .iter()
+                            .any(|earlier| earlier.name == variable.name)
+                        {
+                            self.problem(
+                                &format!("{at}[{index}].name"),
+                                format!(
+                                    "{:?} is named by an earlier entry already: name each \
+                                     variable once",
+                                    variable.name
+                                ),
+                            );
+                        }
+                    }
+                }
+                env
+            }
+            None => Some(Vec::new()),
+        };
+        Some(Kubernetes {
+            namespace: namespace?,
+            image: image?,
+            owner: owner?,
+            api_port: api_port?,
+            volume: volume?,
+            resources: resources?,
+            env: env?,
+        })
+    }
+
+    /// A `conductor.config.KubernetesName` of at most `max` characters: a DNS label (RFC 1123),
+    /// lower-case letters, digits and `-`, starting and ending with a letter or a digit.
+    fn kubernetes_name(&mut self, value: &Value, path: &str, max: usize) -> Option<KubernetesName> {
+        let text = self.text(value, path)?;
+        if dns_label(&text, max) {
+            return Some(KubernetesName(text));
+        }
+        self.problem(
+            path,
+            format!(
+                "{} is no Kubernetes name: at most {max} lower-case letters, digits and '-', \
+                 starting and ending with a letter or a digit",
+                echo(value)
+            ),
+        );
+        None
+    }
+
+    /// One list of `daemon.kubernetes.resources` (`conductor.config.KubernetesQuantities`): its
+    /// `cpu` and its `memory`, each a quantity as Kubernetes writes one, passed through.
+    fn quantities(&mut self, value: Option<&Value>, path: &str) -> Option<KubernetesQuantities> {
+        let Some(value) = value else {
+            return Some(KubernetesQuantities {
+                cpu: None,
+                memory: None,
+            });
+        };
+        let map = self.mapping(value, path, &KUBERNETES_QUANTITY_KEYS)?;
+        let mut quantity = |key: &str| match Self::get(map, key) {
+            // A quantity such as `cpu: 2` reads as a number; it is written as text.
+            Some(Value::Number(number)) => Some(Some(number.to_string())),
+            Some(value) => self.text(value, &join(path, key)).map(Some),
+            None => Some(None),
+        };
+        let (cpu, memory) = (quantity("cpu"), quantity("memory"));
+        Some(KubernetesQuantities {
+            cpu: cpu?,
+            memory: memory?,
+        })
+    }
+
+    /// One entry of `daemon.kubernetes.env` (`conductor.config.KubernetesEnv`).
+    fn kubernetes_env(&mut self, value: &Value, path: &str) -> Option<KubernetesEnv> {
+        let map = self.mapping(value, path, &KUBERNETES_ENV_KEYS)?;
+        let name = self.required(map, path, "name").and_then(|value| {
+            let at = join(path, "name");
+            let name = self.variable_name(value, &at)?;
+            if POD_OWN_ENV.contains(&name.as_str()) || name.starts_with(CONDUCTOR_ENV_PREFIX) {
+                self.problem(
+                    &at,
+                    format!(
+                        "{name:?} is a variable conductor sets for the pod itself (HOME, PATH and \
+                         every name starting {CONDUCTOR_ENV_PREFIX}): name another"
+                    ),
+                );
+                return None;
+            }
+            Some(name)
+        });
+        let value_of = match Self::get(map, "value") {
+            Some(value) => self.text(value, &join(path, "value")).map(Some),
+            None => Some(None),
+        };
+        // `secret:<name>`: anything else is the generic secret-bearing check's problem at the
+        // same path, since the key ends in `secret`.
+        let secret = match Self::get(map, "secret") {
+            Some(Value::String(text)) if secret_name(text) => Some(
+                text.strip_prefix("secret:")
+                    .map(|name| SecretName(name.to_owned())),
+            ),
+            Some(_) => None,
+            None => Some(None),
+        };
+        let written = (
+            Self::get(map, "value").is_some(),
+            Self::get(map, "secret").is_some(),
+        );
+        match written {
+            (true, true) => {
+                self.problem(
+                    path,
+                    "writes both value and secret: write the text itself as value, or the name \
+                     of a secret of the daemon's secrets source as secret, not both",
+                );
+                return None;
+            }
+            (false, false) => {
+                self.problem(
+                    path,
+                    "writes neither value nor secret: write the text itself as value, or the name \
+                     of a secret of the daemon's secrets source as secret: secret:<name>",
+                );
+                return None;
+            }
+            _ => {}
+        }
+        Some(KubernetesEnv {
+            name: name?,
+            value: value_of?,
+            secret: secret?,
         })
     }
 
@@ -3376,6 +3738,21 @@ impl Reader<'_> {
                 );
                 return None;
             }
+            // Its pod and Secret are `conductor-instance-<name>`, its claim
+            // `conductor-instance-<name>-data`: a Kubernetes name of at most 63 characters.
+            if self.pods && !dns_label(&name, POD_INSTANCE_NAME_MAX) {
+                self.problem(
+                    &at,
+                    format!(
+                        "{} is no name of an instance pod: at most {POD_INSTANCE_NAME_MAX} \
+                         lower-case letters, digits and '-', starting and ending with a letter or \
+                         a digit, since its volume claim is conductor-instance-<name>-data \
+                         (daemon.kubernetes)",
+                        echo(value)
+                    ),
+                );
+                return None;
+            }
             Some(name)
         });
         let sources = self.required(map, path, "sources").and_then(|value| {
@@ -3386,9 +3763,31 @@ impl Reader<'_> {
             }
             Some(sources)
         });
-        let checkouts = self
-            .required(map, path, "checkouts")
-            .and_then(|value| self.checkouts(value, &join(path, "checkouts")));
+        let home = self.home;
+        // A pod-run instance may leave out its checkouts, as each of its paths (decision D8):
+        // the rendering of its pod's file fills them in under its data mount ([`pod::render`]).
+        let checkouts = if self.pods {
+            let empty = Value::Object(Map::new());
+            let at = join(path, "checkouts");
+            let value = Self::get(map, "checkouts").unwrap_or(&empty);
+            self.mapping(value, &at, &CHECKOUT_KEYS)
+                .and_then(|checkouts| {
+                    let mut place = |key: &str, default: &str| match Self::get(checkouts, key) {
+                        Some(value) => self.pod_path(value, &join(&at, key)),
+                        None => name.as_deref().map(|name| {
+                            text_of(&home.join(".b10x/conductor").join(name).join(default))
+                        }),
+                    };
+                    let (root, trees) = (place("root", "checkouts"), place("trees", "trees"));
+                    Some(Checkouts {
+                        root: root?,
+                        trees: trees?,
+                    })
+                })
+        } else {
+            self.required(map, path, "checkouts")
+                .and_then(|value| self.checkouts(value, &join(path, "checkouts")))
+        };
         let session_prefix = match Self::get(map, "session_prefix") {
             Some(value) => self
                 .session_prefix(value, &join(path, "session_prefix"))
@@ -3408,11 +3807,11 @@ impl Reader<'_> {
             Some(value) if !self.second => self.port(value, &join(path, "dashboard_port")),
             _ => Some(dashboard_port(0)),
         };
-        let home = self.home;
         let place =
             |reader: &mut Self, key: &str, default: &dyn Fn(&str) -> PathBuf| match Self::get(
                 map, key,
             ) {
+                Some(value) if reader.pods => reader.pod_path(value, &join(path, key)),
                 Some(value) => reader.path(value, &join(path, key)),
                 None => name.as_deref().map(|name| text_of(&default(name))),
             };
@@ -3479,6 +3878,21 @@ impl Reader<'_> {
                 })
                 .map(|(word, _)| (*word).to_owned())
         };
+        // A pod is a runtime supervisor, not a placement and not a sandbox: an instance of a
+        // daemon that runs its instances as pods opens no box.
+        if self.pods
+            && let Some(placement) = &placement
+            && crate::placement::resolve(placement).is_some()
+        {
+            self.problem(
+                &join(path, "placement"),
+                format!(
+                    "{placement:?} opens a box, and an instance of a daemon that runs its \
+                     instances as pods (daemon.kubernetes) runs in its pod, which is no box: \
+                     write a placement that names no adapter, such as none"
+                ),
+            );
+        }
         // `remote` is derived from the placement, as `config show` writes it: a file may write
         // it null or as derived, so that the shown YAML reads back (`story:placement-substrate-remote`).
         if let Some(written) = Self::get(map, "remote") {
@@ -4885,12 +5299,11 @@ mod shown {
     }
 }
 
-/// `instance` as a config file of one instance, which is its `default`, its keys in the
-/// specification's order.
-#[must_use]
-pub fn document(instance: &Instance) -> Yaml {
+/// `instance` as one entry of a config file's `instances`, its keys in the specification's order,
+/// written as a file of the version `legacy` says (a `conductor.config/1` file's keys where
+/// `legacy.shown`).
+fn shown_instance(instance: &Instance, legacy: &Legacy) -> Yaml {
     use shown::{limits, mapping, optional, text};
-    let legacy = legacy(instance);
     /// A source's mapping with its `exclude`, written only when it holds an entry.
     fn excluding(mut source: Yaml, exclude: &[String]) -> Yaml {
         if let Yaml::Mapping(map) = &mut source
@@ -5153,13 +5566,25 @@ pub fn document(instance: &Instance) -> Yaml {
             }
         }
     }
+    shown
+}
+
+/// `instance` as a config file of one instance, which is its `default`, its keys in the
+/// specification's order.
+#[must_use]
+pub fn document(instance: &Instance) -> Yaml {
+    use shown::{mapping, text};
+    let legacy = legacy(instance);
     mapping([
         (
             "version",
             text(if legacy.shown { VERSION } else { VERSION_2 }),
         ),
         ("default", text(&instance.name.0)),
-        ("instances", Yaml::Sequence(vec![shown])),
+        (
+            "instances",
+            Yaml::Sequence(vec![shown_instance(instance, &legacy)]),
+        ),
     ])
 }
 
@@ -5299,9 +5724,83 @@ pub fn daemon_document(daemon: &Daemon) -> Yaml {
         ),
         ("unattended", Yaml::Bool(daemon.unattended)),
         ("address", text(&daemon.address)),
-        // Declared, and not served yet: never set on a file that validates.
-        ("kubernetes", Yaml::Null),
-        ("control_token", Yaml::Null),
+        (
+            "kubernetes",
+            daemon
+                .kubernetes
+                .as_ref()
+                .map_or(Yaml::Null, kubernetes_document),
+        ),
+        (
+            "control_token",
+            optional(
+                daemon
+                    .control_token
+                    .as_ref()
+                    .map(|name| format!("secret:{}", name.0))
+                    .as_ref(),
+            ),
+        ),
+    ])
+}
+
+/// `daemon.kubernetes` as `config show` writes it (`conductor.config.Kubernetes`): each key, an
+/// absent one null.
+fn kubernetes_document(kubernetes: &Kubernetes) -> Yaml {
+    use shown::{mapping, number, optional, text};
+    let quantities = |quantities: &KubernetesQuantities| {
+        mapping([
+            ("cpu", optional(quantities.cpu.as_ref())),
+            ("memory", optional(quantities.memory.as_ref())),
+        ])
+    };
+    mapping([
+        ("namespace", text(&kubernetes.namespace.0)),
+        ("image", text(&kubernetes.image)),
+        ("owner", text(&kubernetes.owner.0)),
+        ("api_port", number(kubernetes.api_port)),
+        (
+            "volume",
+            mapping([
+                ("size", text(&format!("{}G", kubernetes.volume.size.0))),
+                (
+                    "storage_class",
+                    optional(kubernetes.volume.storage_class.as_ref()),
+                ),
+            ]),
+        ),
+        (
+            "resources",
+            mapping([
+                ("requests", quantities(&kubernetes.resources.requests)),
+                ("limits", quantities(&kubernetes.resources.limits)),
+            ]),
+        ),
+        (
+            "env",
+            Yaml::Sequence(
+                kubernetes
+                    .env
+                    .iter()
+                    .map(|variable| {
+                        mapping([
+                            ("name", text(&variable.name)),
+                            ("value", optional(variable.value.as_ref())),
+                            (
+                                "secret",
+                                optional(
+                                    variable
+                                        .secret
+                                        .as_ref()
+                                        .map(|name| format!("secret:{}", name.0))
+                                        .as_ref(),
+                                ),
+                            ),
+                        ])
+                    })
+                    .collect(),
+            ),
+        ),
     ])
 }
 
