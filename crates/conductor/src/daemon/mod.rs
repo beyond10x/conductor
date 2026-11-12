@@ -41,6 +41,7 @@ pub mod host_roles;
 pub mod install;
 pub mod metrics;
 pub mod reconcile;
+pub mod restart;
 pub mod seed;
 pub mod unattended;
 pub mod units;
@@ -217,6 +218,11 @@ pub fn daemon_serve(
             config::seconds(&written.daemon.timeout).unwrap_or(config::FEDERATED_TIMEOUT),
         ))
         .with_secrets(written.daemon.secrets.source)
+        .with_control_token(
+            written.daemon.secrets.clone(),
+            written.daemon.control_token.clone(),
+        )
+        .with_pods(written.daemon.kubernetes.is_some())
         .starting(written.daemon.operators.clone()),
     );
     // The listeners take requests before the store answers: the probes answer whatever it does,
@@ -301,6 +307,7 @@ pub fn daemon_serve(
     let mut daemon =
         Daemon::open(file, home, dir, reconcile::probe(&program), manager).context(WHAT)?;
     let upgrades = upgrade::listen();
+    let restarts = restart::listen();
     publish(&api, &daemon);
     if at_once {
         serving.iter().for_each(|line| println!("{line}"));
@@ -314,6 +321,9 @@ pub fn daemon_serve(
             .context("record the reconciliations the store refused");
         while let Ok(request) = upgrades.try_recv() {
             answer_upgrade(&mut daemon, request);
+        }
+        while let Ok(request) = restarts.try_recv() {
+            daemon.answer_restart(request);
         }
         let now = Instant::now();
         // An upgrade that answered or is to roll back is settled first, so a runtime lost while

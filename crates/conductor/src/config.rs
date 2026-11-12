@@ -145,6 +145,7 @@ use crate::cli::{
 
 pub mod convert;
 pub mod effective;
+pub mod instance;
 pub mod pod;
 pub mod put;
 

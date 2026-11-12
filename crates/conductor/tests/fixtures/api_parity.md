@@ -16,16 +16,16 @@ Probes: 2 match, 27 differ, 13 unbound; 30 routes spec-only.
 | `PUT /v1/config` | conductor.config.PutConfig | spec level-scope-mismatch | `400 {error}` | `422 {error,outcome,payload,published}` | differs (status, body) |
 | `POST /v1/instances/{name}/upgrade` | conductor.instance.UpgradeInstance | client | `503 {error}` | `400 {refused}` | differs (status, body) |
 | `POST /v1/instances/{name}/upgrade` | conductor.instance.UpgradeInstance | spec | `400 {error}` | `404 {error,outcome,payload,published}` | differs (status, body) |
-| `GET /v1/instances/{name}` | conductor.instance.InstanceByName | read | `404 {error}` | `501 {committed,refused}` | differs (status, body) |
-| `POST /v1/instances` | conductor.config.AddInstance | spec | `405 {error}` | `403 {actor,refused}` | differs (status, body) |
-| `PUT /v1/instances/{name}` | conductor.config.PutInstance | spec | `404 {error}` | `403 {actor,refused}` | differs (status, body) |
-| `DELETE /v1/instances/{name}` | conductor.config.RemoveInstance | spec | `404 {error}` | `403 {actor,refused}` | differs (status, body) |
+| `GET /v1/instances/{name}` | conductor.instance.InstanceByName | read | `200 {name,state}` | `404 empty` | differs (status, body) |
+| `POST /v1/instances` | conductor.config.AddInstance | spec | `422 {detail,error,path}` | `501 {committed,refused}` | differs (status, body) |
+| `PUT /v1/instances/{name}` | conductor.config.PutInstance | spec | `422 {detail,error,path}` | `501 {committed,refused}` | differs (status, body) |
+| `DELETE /v1/instances/{name}` | conductor.config.RemoveInstance | spec | `404 {error,name}` | `501 {committed,refused}` | differs (status, body) |
 | `POST /v1/instances/{name}/start` | conductor.instance.StartInstance | client | `404 {error}` | `400 {refused}` | differs (status, body) |
 | `POST /v1/instances/{name}/start` | conductor.instance.StartInstance | spec | `404 {error}` | `501 {committed,refused}` | differs (status, body) |
 | `POST /v1/instances/{name}/stop` | conductor.instance.StopInstance | client | `404 {error}` | `400 {refused}` | differs (status, body) |
 | `POST /v1/instances/{name}/stop` | conductor.instance.StopInstance | spec | `404 {error}` | `404 {error,outcome,payload,published}` | differs (body) |
-| `POST /v1/instances/{name}/restart` | conductor.instance.RestartInstance | client | `404 {error}` | `400 {refused}` | differs (status, body) |
-| `POST /v1/instances/{name}/restart` | conductor.instance.RestartInstance | spec | `404 {error}` | `404 {error,outcome,payload,published}` | differs (body) |
+| `POST /v1/instances/{name}/restart` | conductor.instance.RestartInstance | client | `503 {error}` | `400 {refused}` | differs (status, body) |
+| `POST /v1/instances/{name}/restart` | conductor.instance.RestartInstance | spec | `503 {error}` | `404 {error,outcome,payload,published}` | differs (status, body) |
 | `POST /v1/agents/{name}/deliver` | conductor.agent.DeliverToAgent | client | `404 {detail,error}` | `400 {refused}` | differs (status, body) |
 | `POST /v1/agents/{name}/deliver` | conductor.agent.DeliverToAgent | spec | `400 {error}` | `501 {committed,refused}` | differs (status, body) |
 | `POST /v1/agents/{name}/restart` | conductor.agent.RestartAgent | client | `404 {detail,error}` | `400 {refused}` | differs (status, body) |
