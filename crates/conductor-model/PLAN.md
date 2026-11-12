@@ -1,13 +1,13 @@
 <!--
   generated from conductor v1
-  contract digest e2ec07cfcbdedb3f66deb98b800a9ec8bb9ee2f47b9c2aa2880ecc31913fd7d6
+  contract digest 067700d83eba091eafe51c3cef5aa8464f79f5ebb92b96270439abfa631129f3
   do not edit: regenerate with `ess synthesize --layout crate`
 -->
 # Synthesis plan — conductor v1
 
 Scope: `component-skeletons`, laid out as `crate`, planned by `ess-synth`. Regenerate with `ess synthesize --layout crate`.
 
-1018 capabilities: **1001 generated**, **17 obligations**, **0 refused**. An obligation is yours to implement against its contract; a refusal is a fact about this synthesis scope, not about the specification.
+1022 capabilities: **1005 generated**, **17 obligations**, **0 refused**. An obligation is yours to implement against its contract; a refusal is a fact about this synthesis scope, not about the specification.
 
 ## Generated
 
@@ -799,9 +799,11 @@ Scope: `component-skeletons`, laid out as `crate`, planned by `ess-synth`. Regen
 | error type | `conductor.dispatch.GoalNotFound` |
 | error type | `conductor.dispatch.GoalOrReferenceMissing` |
 | error type | `conductor.dispatch.InvalidAmount` |
+| error type | `conductor.dispatch.InvalidBrief` |
 | error type | `conductor.dispatch.InvalidLink` |
 | error type | `conductor.dispatch.InvalidPriority` |
 | error type | `conductor.dispatch.InvalidReference` |
+| error type | `conductor.dispatch.InvalidWorkRequest` |
 | error type | `conductor.dispatch.MailboxBodyMissing` |
 | error type | `conductor.dispatch.MessageNotFound` |
 | error type | `conductor.dispatch.MessageStateConflict` |
@@ -811,7 +813,9 @@ Scope: `component-skeletons`, laid out as `crate`, planned by `ess-synth`. Regen
 | error type | `conductor.dispatch.RepositoryBusy` |
 | error type | `conductor.dispatch.ResourceRequestNotFound` |
 | error type | `conductor.dispatch.ResourceRequestStateConflict` |
+| error type | `conductor.dispatch.UnknownRepository` |
 | error type | `conductor.dispatch.WaitsOnItself` |
+| error type | `conductor.dispatch.WorkNotFound` |
 | error type | `conductor.host.DiskThroughReservation` |
 | error type | `conductor.host.HostGrantNotFound` |
 | error type | `conductor.host.HostGrantStateConflict` |

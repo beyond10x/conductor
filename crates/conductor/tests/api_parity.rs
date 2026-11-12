@@ -713,6 +713,21 @@ fn probes() -> Vec<Probe> {
             instance("answers"),
             json!({}),
         ),
+        // The work call (story:control-plane-work-handler): a hand-written route of the runtime,
+        // as the plan's write is; `SendDispatch` belongs to the command line's component.
+        write(
+            "POST /v1/instances/{name}/work",
+            Binding::Unbound("proxied to the instance runtime; a unit of work sent as a dispatch"),
+            "client",
+            "POST",
+            instance("work"),
+            json!({}),
+        ),
+        read(
+            "GET /v1/instances/{name}/work/{reference}",
+            Binding::Unbound("proxied to the instance runtime; the state of a unit of work"),
+            instance("work/WI-1"),
+        ),
         read(
             "GET /healthz",
             Binding::Unbound("the liveness probe reads no entity; a view has a source"),

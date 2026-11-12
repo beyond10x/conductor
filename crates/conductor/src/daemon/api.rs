@@ -28,6 +28,12 @@
 //!   a host role `globals.roles` lists asked for now ([`super::host_roles`]); `GET /v1/secrets`: the secrets' names, sources and instances, never a value
 //!   ([`crate::secret::view`]);
 //! - an instance's `agents/{name}/deliver` and `restart` are proxied as writes, `attach` bare.
+//! - the work call of a consumer control plane (`story:control-plane-work-handler`,
+//!   [`crate::dashboard::work`]): `POST /v1/instances/{name}/work` is proxied as a write with a
+//!   body of up to 1 MiB, `GET /v1/instances/{name}/work/{reference}` as a read; a reference that
+//!   is no reference (`conductor.dispatch.InvalidReference`) is `422` here, before its path
+//!   reaches the runtime. For an instance that is not running both answer as every proxied route
+//!   does: `404` naming no running instance, `503` before the reconciler published.
 //! - `GET /healthz`, `/readyz` and `/metrics`: the probes and the metrics, answered without a
 //!   bearer on both listeners, ahead of the app ([`super::metrics`],
 //!   `story:daemon-probes-and-metrics`). While the reconciler has published nothing, an answer
@@ -46,8 +52,11 @@
 //! (`daemon.control_token: secret:<name>`), a request on either listener whose bearer equals its
 //! value is the machine principal `control-plane`. It reads every `GET` under `/v1/` a person's
 //! bearer reads but `GET /v1/secrets`, and writes `POST /v1/instances`, `PUT` and `DELETE
-//! /v1/instances/{name}` and `POST /v1/instances/{name}/restart`, recorded as its own; every other
-//! write and `GET /v1/secrets` refuse it as an agent is refused (`ActorNotHuman`). Any other bearer
+//! /v1/instances/{name}`, `POST /v1/instances/{name}/restart` and `POST
+//! /v1/instances/{name}/work`, recorded as its own: the work call is forwarded with
+//! `X-Conductor-Actor-Kind: control-plane`, which the daemon sets only for it. Every other write,
+//! the proxied `answers`, `settings`, `plan` and an agent's `deliver` and `restart` among them, and
+//! `GET /v1/secrets` refuse it as an agent is refused (`ActorNotHuman`). Any other bearer
 //! is the Identity service's to admit on the bearer listener and nobody's on loopback, and is
 //! answered one `401` that says nothing of the kind expected. While the file names none, both
 //! listeners answer as they did before it.
@@ -75,7 +84,8 @@
 //! ([`grant_for`]) `conductor.operator.GrantMissing`, each `403` with a JSON body naming the
 //! error. A loopback operator holds every grant while `daemon.operators` is empty: one operator is
 //! implied by the Unix user on a single host. The write is forwarded with the operator in
-//! `X-Conductor-Operator`, and the instance records it as that operator's.
+//! `X-Conductor-Operator`, and the instance records it as that operator's; a caller's own
+//! `X-Conductor-Operator` or `X-Conductor-Actor-Kind` is never forwarded.
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::fs;
@@ -889,9 +899,11 @@ enum Who {
 
 /// The routes besides the reads `control-plane` is admitted for, by the route word
 /// [`admit_instance`] is asked for: `POST /v1/instances`, `PUT` and `DELETE /v1/instances/{name}`
-/// (`instances`) and `POST /v1/instances/{name}/restart` (`restart`). Every other write refuses it
-/// as it refuses an agent, and so does `GET /v1/secrets`.
-const CONTROL_PLANE_ROUTES: [&str; 2] = ["instances", "restart"];
+/// (`instances`), `POST /v1/instances/{name}/restart` (`restart`) and the work call `POST
+/// /v1/instances/{name}/work` (`work`, story:control-plane-work-handler). Every other write,
+/// the proxied `answers`, `settings`, `plan` and an agent's `deliver` and `restart` included,
+/// refuses it as it refuses an agent, and so does `GET /v1/secrets`.
+const CONTROL_PLANE_ROUTES: [&str; 3] = ["instances", "restart", WORK];
 
 /// What a request's bearer is to the control token ([`Api::with_control_token`]).
 enum Control {
@@ -1200,26 +1212,57 @@ fn answer<S: Read + Write>(
             listener,
         );
     };
+    // story:control-plane-work-handler: the reference is checked before it reaches the runtime's
+    // path, so no `/`, `?` or `%` form is split there.
+    if let Some(reference) = route.strip_prefix(WORK_PREFIX)
+        && !crate::dispatch::valid_reference(reference)
+    {
+        return reply(
+            422,
+            "Unprocessable Content",
+            &json!({
+                "error": "conductor.dispatch.InvalidReference",
+                "reference": reference,
+                "detail": format!(
+                    "a reference is 1 to {} characters of A-Z a-z 0-9 . _ - led by a letter or \
+                     a digit",
+                    crate::dispatch::REFERENCE_MOST
+                ),
+            }),
+            listener,
+        );
+    }
     // Only an instance's writing routes are admitted and carry its token; any other method is
-    // forwarded bare, and the instance answers it 405.
+    // forwarded bare, and the instance answers it 405. The work call admits the control plane
+    // ([`CONTROL_PLANE_ROUTES`]) and takes a larger body.
     let write = writes(route, &request.method);
-    let operator = if write {
-        match admit_write(request, listener, &who, route, api) {
-            Ok(operator) => Some(operator),
+    let actor = if !write {
+        None
+    } else if route == WORK {
+        match admit_instance(request, listener, &who, route, api) {
+            Ok(actor) => Some(actor),
             Err(refusal) => return refusal,
         }
     } else {
-        None
+        match admit_write(request, listener, &who, route, api) {
+            Ok(operator) => Some(crate::actor::operator(&operator)),
+            Err(refusal) => return refusal,
+        }
     };
-    let body = if write {
-        match read_body(request, stream) {
+    let body = if !write {
+        Vec::new()
+    } else if route == WORK {
+        match read_body_within::<{ dashboard::work::MAX_BODY }, S>(request, stream) {
             Ok(body) => body,
             Err(refusal) => return refusal(listener),
         }
     } else {
-        Vec::new()
+        match read_body(request, stream) {
+            Ok(body) => body,
+            Err(refusal) => return refusal(listener),
+        }
     };
-    match proxy(&target, request, route, &body, operator.as_deref()) {
+    match proxy(&target, request, route, &body, actor.as_ref()) {
         Ok(bytes) => with_cors(bytes, listener),
         Err(error) => reply(
             502,
@@ -2356,8 +2399,18 @@ fn status_parts(status: &'static str) -> (u16, &'static str) {
 /// A refusal answered on the listener it is given.
 type Refusal = fn(Listener) -> Vec<u8>;
 
-/// The body of a write: what was read with the head, then the rest up to its `Content-Length`.
+/// The body of a write: what was read with the head, then the rest up to its `Content-Length`,
+/// at most [`MAX_FORWARD`].
 fn read_body<S: Read>(request: &Request, stream: &mut S) -> Result<Vec<u8>, Refusal> {
+    read_body_within::<MAX_FORWARD, S>(request, stream)
+}
+
+/// [`read_body`] of at most `MOST` bytes, refused `413` from its `Content-Length` before it is
+/// read.
+fn read_body_within<const MOST: usize, S: Read>(
+    request: &Request,
+    stream: &mut S,
+) -> Result<Vec<u8>, Refusal> {
     if request.header("transfer-encoding").is_some() {
         return Err(|listener| {
             reply(
@@ -2381,12 +2434,12 @@ fn read_body<S: Read>(request: &Request, stream: &mut S) -> Result<Vec<u8>, Refu
             )
         });
     };
-    if length > MAX_FORWARD {
+    if length > MOST {
         return Err(|listener| {
             reply(
                 413,
                 "Content Too Large",
-                &json!({"error": format!("a body is at most {MAX_FORWARD} bytes")}),
+                &json!({"error": format!("a body is at most {MOST} bytes")}),
                 listener,
             )
         });
@@ -2409,9 +2462,22 @@ fn read_body<S: Read>(request: &Request, stream: &mut S) -> Result<Vec<u8>, Refu
     Ok(body)
 }
 
-/// The instance routes that write, each with its method: the answers, the settings and the Plan
-/// page's moves.
-const WRITES: [(&str, &str); 3] = [("answers", "POST"), ("settings", "PUT"), ("plan", "POST")];
+/// The instance routes that write, each with its method: the answers, the settings, the Plan
+/// page's moves and the work call (story:control-plane-work-handler).
+const WRITES: [(&str, &str); 4] = [
+    ("answers", "POST"),
+    ("settings", "PUT"),
+    ("plan", "POST"),
+    (WORK, "POST"),
+];
+
+/// The route word of the work call: `POST /v1/instances/{name}/work`, and `GET .../work/
+/// {reference}` under [`WORK_PREFIX`], forwarded to the runtime's `/v1/work`
+/// ([`crate::dashboard::work`]).
+const WORK: &str = "work";
+
+/// The prefix of the work call's read.
+const WORK_PREFIX: &str = "work/";
 
 /// Whether `method` on the instance route `route` writes: one of [`WRITES`], or `POST` on an
 /// agent's `deliver` or `restart` (`agents/{name}/deliver`, `story:agent-kinds`).
@@ -2430,13 +2496,16 @@ fn writes(route: &str, method: &str) -> bool {
 const FORWARDED: [&str; 3] = ["if-none-match", "content-type", "accept"];
 
 /// Sends `request` to the instance at `target` as `/v1/<route>`, a write with the instance's token
-/// and `operator`, and answers what the instance answered, byte for byte ([`send`]).
+/// and its `actor`, and answers what the instance answered, byte for byte ([`send`]). The actor is
+/// an operator, named in `X-Conductor-Operator`, or the control plane, named by
+/// `X-Conductor-Actor-Kind: control-plane` ([`dashboard::work::ACTOR_KIND_HEADER`]); a caller's
+/// own header of either name is never forwarded ([`FORWARDED`]).
 fn proxy(
     target: &Route,
     request: &Request,
     route: &str,
     body: &[u8],
-    operator: Option<&str>,
+    actor: Option<&Actor>,
 ) -> Result<Vec<u8>> {
     let query = request
         .query()
@@ -2451,12 +2520,20 @@ fn proxy(
             head.push_str(&format!("{name}: {value}\r\n"));
         }
     }
-    if let Some(operator) = operator {
+    if let Some(actor) = actor {
+        let who = match (actor.kind, &actor.operator) {
+            (conductor_model::operator::ActorKind::ControlPlane, _) => format!(
+                "{}: {}",
+                dashboard::work::ACTOR_KIND_HEADER,
+                dashboard::work::CONTROL_PLANE
+            ),
+            (_, Some(operator)) => format!("{}: {}", dashboard::OPERATOR_HEADER, operator.0),
+            (_, None) => bail!("a write is forwarded as an operator or the control plane"),
+        };
         head.push_str(&format!(
-            "{}: {}\r\n{}: {operator}\r\nContent-Length: {}\r\n",
+            "{}: {}\r\n{who}\r\nContent-Length: {}\r\n",
             dashboard::TOKEN_HEADER,
             target.token,
-            dashboard::OPERATOR_HEADER,
             body.len()
         ));
     }

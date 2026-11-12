@@ -1511,6 +1511,7 @@ Usage: conductor message handle-message [OPTIONS]
 | Argument | Required | Default | Meaning |
 |---|---|---|---|
 | `--message-id <MESSAGE_ID>` | no | none | MessageId |
+| `--dispatch-id <DISPATCH_ID>` | no | none | DispatchId, starting with `DSP-`, optional |
 | `--actor <ACTOR>` | no | none | Actor, one JSON object: who issues the command, `{"kind": "Human", "operator": "<name>"}`, `{"kind": "Agent", "agent": {"instance", "role", "name", "kind"}}` or `{"kind": "Daemon"}`; default: the calling session as an agent where `CONDUCTOR_SESSION` names one, else the operator |
 | `--input-json <INPUT_JSON>` | no | none | Read the input fields from standard input, as one JSON object One of `-`. |
 

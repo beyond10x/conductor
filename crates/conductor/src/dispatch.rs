@@ -145,8 +145,190 @@ pub fn send(state: Option<&Path>, args: SendDispatchArgs) -> Result<String> {
     send_to(state, args, false)
 }
 
+/// What a send answered ([`send_as`]): the dispatch it created, the one that holds the reference,
+/// or the specification's refusal.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Sent {
+    /// A dispatch was created: its id.
+    Created(String),
+    /// A dispatch already holds the reference (`ReferenceHeld`): its id; nothing was created.
+    Held(String),
+    /// The specification refused it: the error's name in `conductor.dispatch`, its one line, and
+    /// for `RepositoryBusy` the open dispatches of the repository.
+    Refused {
+        error: &'static str,
+        detail: String,
+        open: Vec<String>,
+    },
+}
+
 /// [`send`]; with `known_only`, a repository nothing names is refused first ([`named`]).
 fn send_to(state: Option<&Path>, args: SendDispatchArgs, known_only: bool) -> Result<String> {
+    match send_as(state, args, known_only, crate::actor::chosen())? {
+        Sent::Created(id) | Sent::Held(id) => Ok(id),
+        Sent::Refused { error, detail, .. } => refused("dispatch send-dispatch", error, &detail),
+    }
+}
+
+/// One unit of work a work source hands the instance (`conductor.dispatch.WorkRequest`), sent as
+/// `dispatch send-dispatch --reference` sends it, as `actor`: no goal, the priority the command
+/// defaults to, sent now. The repository is not checked here: the work call refuses one the
+/// instance does not name before it sends ([`named_repositories`]).
+///
+/// # Errors
+///
+/// As [`send`].
+pub fn send_work(
+    state: Option<&Path>,
+    work: &conductor_model::dispatch::WorkRequest,
+    actor: conductor_model::operator::Actor,
+) -> Result<Sent> {
+    let args = SendDispatchArgs {
+        dispatch_id: None,
+        repository: Some(work.repository.0.clone()),
+        goal_id: None,
+        brief: Some(work.brief.clone()),
+        sent_at: Some(records::now()?.0),
+        priority: None,
+        waits_on: None,
+        reference: Some(work.reference.clone()),
+        start_ref: work.start_ref.clone(),
+        issue: work.issue.clone(),
+        actor: None,
+        input_json: None,
+    };
+    send_as(state, args, false, actor)
+}
+
+/// The dispatch that holds `reference`, if any: its id.
+///
+/// # Errors
+///
+/// The store does not open or a dispatch does not read.
+pub fn held_by(state: Option<&Path>, reference: &str) -> Result<Option<String>> {
+    let store = crate::state::open(state)?;
+    let held = DispatchStorage::list(&store)
+        .into_iter()
+        .find(|held| held.data.reference.as_deref() == Some(reference))
+        .map(|held| held.data.dispatch_id.0);
+    kept("the dispatch of a reference", &store)?;
+    Ok(held)
+}
+
+/// The state of the unit of work `reference` names (`conductor.dispatch.WorkState`), or none when
+/// no dispatch holds it or there is no store. The dispatch gives its own fields; the records'
+/// dispatch log under `records` its times and its detail, read only in the month files from the
+/// month of its `sent_at` on and only from lines of its id and its repository; and the latest
+/// `[REPORT]` message handled for it ([`MessageStorage`]) its last report.
+///
+/// # Errors
+///
+/// The store does not open or read, or the log's directory does not read.
+pub fn work_state(
+    state: Option<&Path>,
+    records: &Path,
+    reference: &str,
+) -> Result<Option<conductor_model::dispatch::WorkState>> {
+    use conductor_model::behaviour::MessageStorage;
+    use conductor_model::dispatch::{MessageKind, MessageState, WorkState};
+
+    let dir = crate::state::dir(state)?;
+    // A view creates nothing: with no store, no dispatch holds the reference.
+    if !crate::store::present(&dir) {
+        return Ok(None);
+    }
+    let store = crate::store::open_reader(&dir)?;
+    let Some(held) = DispatchStorage::list(&store)
+        .into_iter()
+        .find(|held| held.data.reference.as_deref() == Some(reference))
+    else {
+        kept("the work call", &store)?;
+        return Ok(None);
+    };
+    let id = held.data.dispatch_id.clone();
+    let last_report = MessageStorage::list(&store)
+        .into_iter()
+        .filter(|message| {
+            message.state == MessageState::Handled
+                && message.data.kind == MessageKind::Report
+                && message.data.dispatch_id.as_ref() == Some(&id)
+        })
+        .max_by(|a, b| a.data.received_at.cmp(&b.data.received_at))
+        .map(|message| message.data.first_line);
+    kept("the work call", &store)?;
+
+    let (mut started_at, mut ended_at, mut reason) = (None, None, None);
+    for line in dispatch_lines(records, &held.data.sent_at)? {
+        if line["id"] != id.0.as_str() || line["repo"] != held.data.repository.0.as_str() {
+            continue;
+        }
+        let at = line["at"].as_str().map(|at| Timestamp(at.to_owned()));
+        match line["event"].as_str() {
+            Some("started") if started_at.is_none() => started_at = at,
+            Some("done" | "cancelled") => ended_at = at,
+            Some("failed") => {
+                ended_at = at;
+                reason = line["reason"].as_str().map(str::to_owned);
+            }
+            Some("blocked") => reason = line["reason"].as_str().map(str::to_owned),
+            _ => {}
+        }
+    }
+    let detail = matches!(held.state, DispatchState::Blocked | DispatchState::Failed)
+        .then_some(reason)
+        .flatten();
+    Ok(Some(WorkState {
+        reference: reference.to_owned(),
+        dispatch_id: id,
+        repository: held.data.repository,
+        state: held.state,
+        sent_at: held.data.sent_at,
+        started_at,
+        ended_at,
+        last_report,
+        detail,
+        links: held.data.links,
+    }))
+}
+
+/// The lines of the records' dispatch log under `records` in its month files from the month of
+/// `since` on, in file and line order; a line that is no JSON object is passed over.
+fn dispatch_lines(records: &Path, since: &Timestamp) -> Result<Vec<Value>> {
+    let dir = records.join(records::DISPATCHES);
+    let first = since.0.get(..7).unwrap_or_default();
+    let Ok(entries) = std::fs::read_dir(&dir) else {
+        return Ok(Vec::new());
+    };
+    let mut names: Vec<String> = entries
+        .filter_map(Result::ok)
+        .filter_map(|entry| entry.file_name().into_string().ok())
+        .filter(|name| {
+            name.strip_suffix(".jsonl")
+                .is_some_and(|month| month.len() == 7 && month >= first)
+        })
+        .collect();
+    names.sort();
+    let mut lines = Vec::new();
+    for name in names {
+        let path = dir.join(&name);
+        let text = std::fs::read_to_string(&path)
+            .with_context(|| format!("read the dispatch log {}", path.display()))?;
+        lines.extend(
+            text.lines()
+                .filter_map(|line| serde_json::from_str::<Value>(line).ok())
+                .filter(Value::is_object),
+        );
+    }
+    Ok(lines)
+}
+
+/// [`send_to`] as `actor`, its refusals answered as [`Sent::Refused`].
+fn send_as(
+    state: Option<&Path>,
+    args: SendDispatchArgs,
+    known_only: bool,
+    actor: conductor_model::operator::Actor,
+) -> Result<Sent> {
     const COMMAND: &str = "dispatch send-dispatch";
     flags_only(args.input_json, "dispatch send-dispatch --input-json")?;
     let repository = RepositoryName(flag(COMMAND, "--repository", args.repository)?);
@@ -160,7 +342,7 @@ fn send_to(state: Option<&Path>, args: SendDispatchArgs, known_only: bool) -> Re
     // A flag check, so it opens no store; the behaviour refuses the same input when another caller
     // sends it.
     if goal_id.is_none() && reference.is_none() {
-        return neither(COMMAND, &repository);
+        return Ok(neither(&repository));
     }
     let day = utc_day(&sent_at).with_context(|| format!("{COMMAND}: --sent-at {sent_at:?}"))?;
     if let Some(given) = &args.dispatch_id {
@@ -198,7 +380,7 @@ fn send_to(state: Option<&Path>, args: SendDispatchArgs, known_only: bool) -> Re
         let mut generated = Generated::new(store);
         let outcome = generated
             .send_dispatch(SendDispatch {
-                actor: crate::actor::chosen(),
+                actor: actor.clone(),
                 dispatch_id: dispatch_id.clone(),
                 repository: repository.clone(),
                 goal_id: goal_id.clone(),
@@ -248,68 +430,66 @@ fn send_to(state: Option<&Path>, args: SendDispatchArgs, known_only: bool) -> Re
                 records::append_dispatch(&line).with_context(|| {
                     format!("{COMMAND}: dispatch {}", dispatch_sent.dispatch_id.0)
                 })?;
-                Ok(dispatch_sent.dispatch_id.0)
+                Ok(Sent::Created(dispatch_sent.dispatch_id.0))
             }
-            SendDispatchOutcome::ReferenceHeld { error } => {
-                holder(COMMAND, &generated.ports, &error.reference)
-            }
-            SendDispatchOutcome::AlreadySent { error } => exists(COMMAND, &error.dispatch_id),
-            SendDispatchOutcome::NegativePriority { error } => refused(
+            SendDispatchOutcome::ReferenceHeld { error } => Ok(Sent::Held(holder(
                 COMMAND,
+                &generated.ports,
+                &error.reference,
+            )?)),
+            SendDispatchOutcome::AlreadySent { error } => exists(COMMAND, &error.dispatch_id),
+            SendDispatchOutcome::NegativePriority { error } => Ok(refusal(
                 "InvalidPriority",
-                &format!(
+                format!(
                     "the priority {} is negative, so nothing was sent",
                     error.priority
                 ),
-            ),
-            SendDispatchOutcome::WaitsOnItself { error } => refused(
-                COMMAND,
+            )),
+            SendDispatchOutcome::WaitsOnItself { error } => Ok(refusal(
                 "WaitsOnItself",
-                &format!(
+                format!(
                     "dispatch {} names itself in --waits-on, so it could never start; nothing \
                      was sent",
                     error.dispatch_id.0
                 ),
-            ),
-            SendDispatchOutcome::InvalidReference { error } => refused(
-                COMMAND,
+            )),
+            SendDispatchOutcome::InvalidReference { error } => Ok(refusal(
                 "InvalidReference",
-                &format!(
+                format!(
                     "--reference {:?} is not 1 to {REFERENCE_MOST} characters of A-Z a-z 0-9 . _ - \
                      led by a letter or a digit, so nothing was sent",
                     error.reference
                 ),
-            ),
-            SendDispatchOutcome::GoalOrReferenceMissing { error } => {
-                neither(COMMAND, &error.repository)
-            }
-            SendDispatchOutcome::NoSuchGoal { error } => refused(
-                COMMAND,
+            )),
+            SendDispatchOutcome::GoalOrReferenceMissing { error } => Ok(neither(&error.repository)),
+            SendDispatchOutcome::NoSuchGoal { error } => Ok(refusal(
                 "GoalNotFound",
-                &format!(
+                format!(
                     "no goal has the id {:?}, and a dispatch that names a goal serves one; \
                      nothing was sent",
                     error.goal_id.0
                 ),
-            ),
-            SendDispatchOutcome::GoalClosed { error } => refused(
-                COMMAND,
+            )),
+            SendDispatchOutcome::GoalClosed { error } => Ok(refusal(
                 "GoalClosed",
-                &format!(
+                format!(
                     "goal {:?} is met or dropped, so nothing was sent",
                     error.goal_id.0
                 ),
-            ),
-            SendDispatchOutcome::RepositoryBusy { error } => refused(
-                COMMAND,
-                "RepositoryBusy",
-                &format!(
-                    "{} has the open dispatch {}, and a dispatch with a reference waits until it \
-                     ends; nothing was sent",
-                    error.repository.0,
-                    open_ids(COMMAND, &generated.ports, &error.repository)?.join(", ")
-                ),
-            ),
+            )),
+            SendDispatchOutcome::RepositoryBusy { error } => {
+                let open = open_ids(COMMAND, &generated.ports, &error.repository)?;
+                Ok(Sent::Refused {
+                    error: "RepositoryBusy",
+                    detail: format!(
+                        "{} has the open dispatch {}, and a dispatch with a reference waits \
+                         until it ends; nothing was sent",
+                        error.repository.0,
+                        open.join(", ")
+                    ),
+                    open,
+                })
+            }
         };
     }
     bail!(
@@ -318,12 +498,20 @@ fn send_to(state: Option<&Path>, args: SendDispatchArgs, known_only: bool) -> Re
     )
 }
 
+/// The refusal `error` with its one line, `detail`.
+const fn refusal(error: &'static str, detail: String) -> Sent {
+    Sent::Refused {
+        error,
+        detail,
+        open: Vec::new(),
+    }
+}
+
 /// The `GoalOrReferenceMissing` refusal of a dispatch to `repository`.
-fn neither<T>(command: &str, repository: &RepositoryName) -> Result<T> {
-    refused(
-        command,
+fn neither(repository: &RepositoryName) -> Sent {
+    refusal(
         "GoalOrReferenceMissing",
-        &format!(
+        format!(
             "the dispatch to {} names neither --goal-id nor --reference, and a dispatch serves a \
              goal or carries a work source's reference; nothing was sent",
             repository.0
@@ -728,6 +916,25 @@ fn state_name(state: DispatchState) -> &'static str {
 /// without a complete snapshot and no workspace file) there is nothing to hold the name
 /// against, and it is accepted.
 fn named(command: &str, state: Option<&Path>, repository: &str) -> Result<()> {
+    let known = named_repositories(state).with_context(|| command.to_owned())?;
+    if known.is_empty() || known.contains(repository) {
+        return Ok(());
+    }
+    bail!(
+        "{command}: --repository {repository}: neither the newest complete snapshot nor the \
+         workspace names it; they name {}; nothing was sent",
+        known.into_iter().collect::<Vec<_>>().join(", ")
+    )
+}
+
+/// The repositories the instance names: those the newest complete snapshot observed, and the
+/// members of the records' workspace file (read only with a config file, as the records' logs
+/// are).
+///
+/// # Errors
+///
+/// The store does not open or read, or the workspace file does not read.
+pub fn named_repositories(state: Option<&Path>) -> Result<BTreeSet<String>> {
     let mut known = BTreeSet::new();
     let store = crate::state::open(state)?;
     if let Some(newest) = crate::repository::newest_complete(SnapshotStorage::list(&store)) {
@@ -738,24 +945,14 @@ fn named(command: &str, state: Option<&Path>, repository: &str) -> Result<()> {
                 .map(|observation| observation.data.repository.0),
         );
     }
-    store
-        .check()
-        .with_context(|| format!("{command}: read the newest complete snapshot"))?;
+    store.check().context("read the newest complete snapshot")?;
     let active = crate::config::active();
     if active.from_file {
         let file = Path::new(&active.instance.records).join(crate::config::WORKSPACE_FILE);
-        let (_, members) = crate::config::written_members(&file)
-            .with_context(|| format!("{command}: read the workspace"))?;
+        let (_, members) = crate::config::written_members(&file).context("read the workspace")?;
         known.extend(members.into_keys());
     }
-    if known.is_empty() || known.contains(repository) {
-        return Ok(());
-    }
-    bail!(
-        "{command}: --repository {repository}: neither the newest complete snapshot nor the \
-         workspace names it; they name {}; nothing was sent",
-        known.into_iter().collect::<Vec<_>>().join(", ")
-    )
+    Ok(known)
 }
 
 /// The highest number `store` holds under `prefix`, `DSP-<day>-` ([`highest`]). Every dispatch is

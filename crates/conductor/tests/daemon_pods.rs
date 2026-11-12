@@ -2582,5 +2582,13 @@ fn a_proxied_read_reaches_the_pod_run_runtime_over_tcp() {
     assert_eq!(status, 200, "{body}");
     let settings: Value = serde_json::from_str(&body).expect("JSON");
     assert_eq!(settings["instance"], "alpha", "{body}");
+    // The work call's read reaches it too (story:control-plane-work-handler).
+    let (status, body) = http(daemon_port, "/v1/instances/alpha/work/WI-1");
+    assert_eq!(status, 404, "{body}");
+    let refused: Value = serde_json::from_str(&body).expect("JSON");
+    assert_eq!(
+        refused["error"], "conductor.dispatch.WorkNotFound",
+        "{body}"
+    );
     drop(runtime);
 }

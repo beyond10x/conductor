@@ -26,6 +26,11 @@
 //! (`story:dashboard-plan-board`, [`plan`]). `/v1/plan` and `/v1/plan/story` answer the board
 //! and one story.
 //!
+//! The work call of a consumer control plane ([`work`], `story:control-plane-work-handler`): `POST
+//! /v1/work` sends one unit of work as a dispatch with the caller's reference, under the same
+//! token and one write at a time, with a body of up to [`work::MAX_BODY`]; `GET
+//! /v1/work/{reference}` answers its state.
+//!
 //! The overview's endpoints (`story:dashboard-overview`, [`overview`]): `/v1/board`,
 //! `/v1/repositories`, `/v1/pull-requests`, `/v1/workflow-runs`, `/v1/releases` and
 //! `/v1/reviews` (what waits for review, `story:review-limit`) answer
@@ -91,6 +96,7 @@ pub mod series;
 mod sessions;
 mod usage;
 pub(crate) mod waste;
+pub mod work;
 
 pub use answers::{
     ANSWERS_PATH, MAX_BODY, OPERATOR_HEADER, TOKEN_HEADER, mint, page_with, same as same_token,
@@ -1252,6 +1258,10 @@ fn answer(
     // The agents of the instance (`story:agent-kinds`, design § 5.1).
     if let Some(rest) = path.strip_prefix(agents::PREFIX) {
         return agents::answer(method, rest, &header, server, body);
+    }
+    // The work call of a consumer control plane (story:control-plane-work-handler).
+    if path == work::PATH || path.starts_with(work::PREFIX) {
+        return work::answer(method, path, &header, server, body);
     }
     if path == answers::ANSWERS_PATH {
         if *method != "POST" {

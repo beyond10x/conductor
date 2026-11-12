@@ -1,5 +1,5 @@
 // generated from conductor v1
-// contract digest e2ec07cfcbdedb3f66deb98b800a9ec8bb9ee2f47b9c2aa2880ecc31913fd7d6
+// contract digest 067700d83eba091eafe51c3cef5aa8464f79f5ebb92b96270439abfa631129f3
 // do not edit: regenerate with `ess synthesize --layout crate`
 
 //! Dispatch — `conductor.dispatch`.
@@ -1743,6 +1743,8 @@ pub struct HandleMessage {
     pub actor: crate::operator::Actor,
     /// `message_id` — `conductor.dispatch.MessageId`.
     pub message_id: MessageId,
+    /// `dispatch_id` — `Optional<conductor.dispatch.DispatchId>`.
+    pub dispatch_id: Option<DispatchId>,
 }
 
 /// Everything `conductor.dispatch.HandleMessage` can result in — one variant per declared outcome.
@@ -3004,6 +3006,15 @@ pub struct InvalidAmount {
     pub amount: i64,
 }
 
+/// The declared error `conductor.dispatch.InvalidBrief`.
+///
+/// A brief is 1 to 65536 bytes, and this one is not, so nothing was sent.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct InvalidBrief {
+    /// `reference` — `String`.
+    pub reference: String,
+}
+
 /// The declared error `conductor.dispatch.InvalidLink`.
 ///
 /// A link is an `http://` or `https://` URL of at most 2048 characters with no space, and this one is not, so nothing was recorded.
@@ -3029,6 +3040,15 @@ pub struct InvalidPriority {
 pub struct InvalidReference {
     /// `reference` — `String`.
     pub reference: String,
+}
+
+/// The declared error `conductor.dispatch.InvalidWorkRequest`.
+///
+/// The body of the work call is no `WorkRequest`: no JSON object, a member it does not declare, or one it declares missing or of another type; nothing was sent.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct InvalidWorkRequest {
+    /// `detail` — `String`.
+    pub detail: String,
 }
 
 /// The declared error `conductor.dispatch.MailboxBodyMissing`.
@@ -3114,6 +3134,15 @@ pub struct ResourceRequestStateConflict {
     pub resource_request_id: ResourceRequestId,
 }
 
+/// The declared error `conductor.dispatch.UnknownRepository`.
+///
+/// Neither the newest complete snapshot nor the workspace file names the repository, so no controller would start for it and nothing was sent.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct UnknownRepository {
+    /// `repository` — `conductor.observation.RepositoryName`.
+    pub repository: crate::observation::RepositoryName,
+}
+
 /// The declared error `conductor.dispatch.WaitsOnItself`.
 ///
 /// The dispatch names itself as the dispatch it waits on.
@@ -3121,6 +3150,15 @@ pub struct ResourceRequestStateConflict {
 pub struct WaitsOnItself {
     /// `dispatch_id` — `conductor.dispatch.DispatchId`.
     pub dispatch_id: DispatchId,
+}
+
+/// The declared error `conductor.dispatch.WorkNotFound`.
+///
+/// No dispatch of the instance holds this reference.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct WorkNotFound {
+    /// `reference` — `String`.
+    pub reference: String,
 }
 
 /// All controllers — one row of the view `conductor.dispatch.Controllers`.

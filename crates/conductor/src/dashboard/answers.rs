@@ -170,6 +170,16 @@ pub(super) fn admitted<'a>(
     header: impl Fn(&str) -> Option<&'a str>,
     token: &Token,
 ) -> Result<usize, Refused> {
+    admitted_within(header, token, MAX_BODY)
+}
+
+/// [`admitted`] for a body of at most `most` bytes, refused `413` from its `Content-Length`
+/// before it is read.
+pub(super) fn admitted_within<'a>(
+    header: impl Fn(&str) -> Option<&'a str>,
+    token: &Token,
+    most: usize,
+) -> Result<usize, Refused> {
     if !header(TOKEN_HEADER).is_some_and(|given| token.admits(given)) {
         return Err(refuse(
             403,
@@ -202,11 +212,11 @@ pub(super) fn admitted<'a>(
             "send the answers with a Content-Length\n",
         ));
     };
-    if length > MAX_BODY {
+    if length > most {
         return Err(refuse(
             413,
             "Content Too Large",
-            format!("a batch is at most {MAX_BODY} bytes\n"),
+            format!("a body is at most {most} bytes\n"),
         ));
     }
     Ok(length)

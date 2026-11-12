@@ -1,5 +1,5 @@
 // generated from conductor v1
-// contract digest e2ec07cfcbdedb3f66deb98b800a9ec8bb9ee2f47b9c2aa2880ecc31913fd7d6
+// contract digest 067700d83eba091eafe51c3cef5aa8464f79f5ebb92b96270439abfa631129f3
 // do not edit: regenerate with `ess synthesize --layout crate`
 
 //! What the specification fully determines, generated: the behaviour of every command the plan
@@ -2276,7 +2276,8 @@ where
             crate::dispatch::AnyMessage::Received(instance) => crate::dispatch::AnyMessage::Handled(instance.handle()),
             _ => return Ok(crate::dispatch::HandleMessageOutcome::WrongState { error: crate::dispatch::MessageStateConflict { message_id: input.message_id.clone() } }),
         };
-        let next = moved.snapshot();
+        let mut next = moved.snapshot();
+        next.data.dispatch_id = input.dispatch_id.clone();
         let answer = crate::dispatch::HandleMessageOutcome::Handled { message_handled: crate::dispatch::MessageHandled { actor: input.actor.clone(), message_id: input.message_id.clone() } };
         MessageStorage::put(&mut self.ports, next);
         return Ok(answer);

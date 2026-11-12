@@ -116,18 +116,25 @@ fn act(tick: &mut Tick<'_, '_>, file: &Path) -> Result<bool> {
     };
     let fields: Vec<&str> = inside.split_whitespace().collect();
     let rest = rest.trim();
+    // The dispatch a `[REPORT]` was handled for, which its message then holds
+    // (story:control-plane-work-handler): the work call reads a dispatch's last report from it.
+    let mut reported = None;
     let acted = match fields.as_slice() {
-        ["REPORT", repo, dispatch] => report(tick, repo, dispatch, rest)?,
+        ["REPORT", repo, dispatch] => {
+            let (acted, moved) = report(tick, repo, dispatch, rest)?;
+            reported = moved;
+            acted
+        }
         ["HANDOVER", repo, ..] => {
             let dispatch = open_dispatch(tick, repo)?;
-            report(tick, repo, &dispatch, &format!("blocked handover: {rest}"))?
+            report(tick, repo, &dispatch, &format!("blocked handover: {rest}"))?.0
         }
         ["NEED", _repo, _request] => need(tick, &text, first, rest)?,
         ["DECISION-REQUEST", repo, request] => decision_request(tick, repo, request, rest, &text)?,
         ["RESOURCE", repo] => resource(tick, repo, first)?,
         _ => false,
     };
-    mark_handled(tick, file)?;
+    mark_handled(tick, file, reported)?;
     Ok(acted)
 }
 
@@ -230,10 +237,17 @@ fn open_dispatch(tick: &Tick<'_, '_>, repo: &str) -> Result<String> {
 /// (`story:report-on-sent-dispatch`). With `-` for the dispatch
 /// and no dispatch of the repository open, the report moves nothing and is not refused: a
 /// controller started with no dispatch reports so (`story:spawn-without-dispatch-reports`).
-fn report(tick: &mut Tick<'_, '_>, repo: &str, dispatch: &str, rest: &str) -> Result<bool> {
+/// Answers whether it acted, and the dispatch the report was for: its own id, or the open one `-`
+/// named; none when `-` named none.
+fn report(
+    tick: &mut Tick<'_, '_>,
+    repo: &str,
+    dispatch: &str,
+    rest: &str,
+) -> Result<(bool, Option<String>)> {
     let dispatch = if dispatch == "-" {
         if crate::dispatch::open_of(tick.state, repo)? == Open::None {
-            return Ok(true);
+            return Ok((true, None));
         }
         open_dispatch(tick, repo)?
     } else {
@@ -244,6 +258,7 @@ fn report(tick: &mut Tick<'_, '_>, repo: &str, dispatch: &str, rest: &str) -> Re
     let said = Some(said.trim().to_owned()).filter(|said| !said.is_empty());
     let state = tick.state;
     let id = Some(dispatch.clone());
+    let reported = Some(dispatch.clone());
     let held = state_of(tick, &dispatch)?;
     if matches!(verb, "blocked" | "done" | "failed") && held == Some(DispatchState::Sent) {
         let _ = crate::dispatch::report_started(
@@ -328,11 +343,11 @@ fn report(tick: &mut Tick<'_, '_>, repo: &str, dispatch: &str, rest: &str) -> Re
             )?;
             DispatchLogEvent::Failed
         }
-        "progress" | "ready" => return Ok(true),
+        "progress" | "ready" => return Ok((true, reported)),
         other => bail!("{other:?} is no report verb"),
     };
     tick.wrote(event);
-    Ok(true)
+    Ok((true, reported))
 }
 
 /// The state the store holds the dispatch `id` in; `None` when it holds no such dispatch.
@@ -561,12 +576,18 @@ fn decision_request(
 }
 
 /// Marks handled the message the store recorded with `file` as its body, while it is
-/// `Received` and no `[NEED]`.
-fn mark_handled(tick: &Tick<'_, '_>, file: &Path) -> Result<()> {
+/// `Received` and no `[NEED]`, with `dispatch`, the dispatch a `[REPORT]` was handled for. A
+/// body path is kept relative to the state directory (`conductor message send`) or whole; either
+/// names the file.
+fn mark_handled(tick: &Tick<'_, '_>, file: &Path, dispatch: Option<String>) -> Result<()> {
+    let dir = crate::state::dir(tick.state)?;
     let store = crate::state::open(tick.state)?;
     let path = file.display().to_string();
     let message = MessageStorage::list(&store).into_iter().find(|held| {
-        held.data.body_path.as_deref() == Some(path.as_str())
+        held.data
+            .body_path
+            .as_deref()
+            .is_some_and(|body| body == path || dir.join(body) == file)
             && held.state == MessageState::Received
             && held.data.kind != MessageKind::Need
     });
@@ -577,6 +598,7 @@ fn mark_handled(tick: &Tick<'_, '_>, file: &Path) -> Result<()> {
             HandleMessageArgs {
                 actor: None,
                 message_id: Some(message.data.message_id.0.0),
+                dispatch_id: dispatch,
                 input_json: None,
             },
         )

@@ -1,5 +1,5 @@
 // generated from conductor v1
-// contract digest e2ec07cfcbdedb3f66deb98b800a9ec8bb9ee2f47b9c2aa2880ecc31913fd7d6
+// contract digest 067700d83eba091eafe51c3cef5aa8464f79f5ebb92b96270439abfa631129f3
 // do not edit: regenerate with `ess synthesize --layout crate`
 //! Every generated declaration, as JSON, in the renderings the published wire contracts fix.
 //!
@@ -18581,6 +18581,14 @@ pub fn encode_error_conductor_dispatch_invalid_amount(value: &crate::dispatch::I
     out.push('}');
 }
 
+/// Writes the declared error `conductor.dispatch.InvalidBrief` as JSON.
+pub fn encode_error_conductor_dispatch_invalid_brief(value: &crate::dispatch::InvalidBrief, out: &mut String) {
+    out.push('{');
+    json::member(out, "reference");
+    json::push_text(out, &value.reference);
+    out.push('}');
+}
+
 /// Writes the declared error `conductor.dispatch.InvalidLink` as JSON.
 pub fn encode_error_conductor_dispatch_invalid_link(value: &crate::dispatch::InvalidLink, out: &mut String) {
     out.push('{');
@@ -18602,6 +18610,14 @@ pub fn encode_error_conductor_dispatch_invalid_reference(value: &crate::dispatch
     out.push('{');
     json::member(out, "reference");
     json::push_text(out, &value.reference);
+    out.push('}');
+}
+
+/// Writes the declared error `conductor.dispatch.InvalidWorkRequest` as JSON.
+pub fn encode_error_conductor_dispatch_invalid_work_request(value: &crate::dispatch::InvalidWorkRequest, out: &mut String) {
+    out.push('{');
+    json::member(out, "detail");
+    json::push_text(out, &value.detail);
     out.push('}');
 }
 
@@ -18679,11 +18695,27 @@ pub fn encode_error_conductor_dispatch_resource_request_state_conflict(value: &c
     out.push('}');
 }
 
+/// Writes the declared error `conductor.dispatch.UnknownRepository` as JSON.
+pub fn encode_error_conductor_dispatch_unknown_repository(value: &crate::dispatch::UnknownRepository, out: &mut String) {
+    out.push('{');
+    json::member(out, "repository");
+    encode_conductor_observation_repository_name(&value.repository, out);
+    out.push('}');
+}
+
 /// Writes the declared error `conductor.dispatch.WaitsOnItself` as JSON.
 pub fn encode_error_conductor_dispatch_waits_on_itself(value: &crate::dispatch::WaitsOnItself, out: &mut String) {
     out.push('{');
     json::member(out, "dispatch_id");
     encode_conductor_dispatch_dispatch_id(&value.dispatch_id, out);
+    out.push('}');
+}
+
+/// Writes the declared error `conductor.dispatch.WorkNotFound` as JSON.
+pub fn encode_error_conductor_dispatch_work_not_found(value: &crate::dispatch::WorkNotFound, out: &mut String) {
+    out.push('{');
+    json::member(out, "reference");
+    json::push_text(out, &value.reference);
     out.push('}');
 }
 
@@ -25077,6 +25109,10 @@ pub fn encode_command_conductor_dispatch_handle_message(value: &crate::dispatch:
     encode_conductor_operator_actor(&value.actor, out);
     json::member(out, "message_id");
     encode_conductor_dispatch_message_id(&value.message_id, out);
+    if let Some(held0) = &value.dispatch_id {
+        json::member(out, "dispatch_id");
+        encode_conductor_dispatch_dispatch_id(&*held0, out);
+    }
     out.push('}');
 }
 
@@ -25086,7 +25122,7 @@ pub fn encode_command_conductor_dispatch_handle_message(value: &crate::dispatch:
 ///
 /// [`json::DecodeError`] naming the path and what the declaration says belongs there.
 pub fn decode_command_conductor_dispatch_handle_message(value: &json::Value, at: &str) -> Result<crate::dispatch::HandleMessage, json::DecodeError> {
-    json::closed_at(value, at, &["actor", "message_id"])?;
+    json::closed_at(value, at, &["actor", "message_id", "dispatch_id"])?;
     Ok(crate::dispatch::HandleMessage {
         actor: {
             let at0 = json::nested(at, "actor");
@@ -25097,6 +25133,13 @@ pub fn decode_command_conductor_dispatch_handle_message(value: &json::Value, at:
             let at1 = json::nested(at, "message_id");
             let member1 = json::member_at(value, at, "message_id")?;
             decode_conductor_dispatch_message_id(member1, &at1)?
+        },
+        dispatch_id: match value.member("dispatch_id") {
+            None | Some(json::Value::Null) => None,
+            Some(member2) => {
+                let at2 = json::nested(at, "dispatch_id");
+                Some(decode_conductor_dispatch_dispatch_id(member2, &at2)?)
+            }
         },
     })
 }

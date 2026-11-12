@@ -4565,6 +4565,9 @@ pub struct HandleMessageArgs {
     /// MessageId
     #[arg(long, value_parser = uuid)]
     pub message_id: Option<String>,
+    /// DispatchId, starting with `DSP-`, optional
+    #[arg(long, value_parser = prefixed("DSP-"))]
+    pub dispatch_id: Option<String>,
     /// Actor, one JSON object: who issues the command, `{"kind": "Human", "operator": "<name>"}`,
     /// `{"kind": "Agent", "agent": {"instance", "role", "name", "kind"}}` or `{"kind": "Daemon"}`;
     /// default: the calling session as an agent where `CONDUCTOR_SESSION` names one, else the

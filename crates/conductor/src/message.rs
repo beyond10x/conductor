@@ -401,6 +401,7 @@ pub fn handle_message(state: Option<&Path>, args: HandleMessageArgs) -> Result<E
     let input = HandleMessage {
         actor: crate::actor::chosen(),
         message_id: message_id(COMMAND, args.message_id)?,
+        dispatch_id: args.dispatch_id.map(DispatchId),
     };
     match run(state, COMMAND, |generated| generated.handle_message(input))? {
         HandleMessageOutcome::Handled { .. } => Ok(ExitCode::SUCCESS),

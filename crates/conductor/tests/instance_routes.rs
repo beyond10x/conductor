@@ -8,6 +8,7 @@
 
 mod active;
 mod common;
+mod scratch;
 
 use std::collections::BTreeMap;
 use std::fs;
@@ -752,6 +753,288 @@ fn the_control_token_is_refused_on_every_other_write_and_the_secrets() {
         let answer = plain(port, "GET", target, &token, None);
         assert_eq!(answer.status, 200, "{target}: {answer:?}");
     }
+}
+
+/// A fake instance runtime on a socket of its own: it keeps each request it is sent, its head and
+/// its body, and answers each `201` with a row.
+struct FakeRuntime {
+    /// The directory of the socket, removed when the case ends.
+    _dir: scratch::Scratch,
+    socket: PathBuf,
+    seen: Arc<std::sync::Mutex<Vec<(String, String)>>>,
+}
+
+impl FakeRuntime {
+    fn start() -> Self {
+        use std::os::unix::net::UnixListener;
+        // Short, so it fits a socket address; this test's process is the case's alone.
+        let dir = scratch::Scratch::new(format!("ir-{}", std::process::id()));
+        let socket = dir.path().join("rt.sock");
+        let listener = UnixListener::bind(&socket).expect("bind the fake runtime's socket");
+        let seen = Arc::new(std::sync::Mutex::new(Vec::new()));
+        let kept = Arc::clone(&seen);
+        thread::spawn(move || {
+            for stream in listener.incoming() {
+                let Ok(mut stream) = stream else { continue };
+                let mut bytes = Vec::new();
+                let mut chunk = [0_u8; 4096];
+                let head_end = loop {
+                    if let Some(end) = bytes.windows(4).position(|window| window == b"\r\n\r\n") {
+                        break end;
+                    }
+                    match stream.read(&mut chunk) {
+                        Ok(0) | Err(_) => break bytes.len(),
+                        Ok(read) => bytes.extend_from_slice(&chunk[..read]),
+                    }
+                };
+                let head = String::from_utf8_lossy(&bytes[..head_end]).into_owned();
+                let length = head
+                    .lines()
+                    .filter_map(|line| line.split_once(':'))
+                    .find(|(name, _)| name.trim().eq_ignore_ascii_case("content-length"))
+                    .and_then(|(_, value)| value.trim().parse::<usize>().ok())
+                    .unwrap_or(0);
+                let mut body = bytes[(head_end + 4).min(bytes.len())..].to_vec();
+                while body.len() < length {
+                    match stream.read(&mut chunk) {
+                        Ok(0) | Err(_) => break,
+                        Ok(read) => body.extend_from_slice(&chunk[..read]),
+                    }
+                }
+                kept.lock()
+                    .expect("the requests seen")
+                    .push((head, String::from_utf8_lossy(&body).into_owned()));
+                let answer = "{\"reference\":\"WI-1\",\"state\":\"Sent\"}\n";
+                let _ = write!(
+                    stream,
+                    "HTTP/1.1 201 Created\r\nContent-Type: application/json\r\nContent-Length: {}\r\n\
+                     Connection: close\r\n\r\n{answer}",
+                    answer.len()
+                );
+            }
+        });
+        Self {
+            _dir: dir,
+            socket,
+            seen,
+        }
+    }
+
+    /// The requests sent so far, `(head, body)`, and none kept after.
+    fn taken(&self) -> Vec<(String, String)> {
+        std::mem::take(&mut *self.seen.lock().expect("the requests seen"))
+    }
+}
+
+/// The daemon's API of `case` with the control token, no operators (a loopback operator holds
+/// every grant), and `alpha`'s runtime the fake at `socket`.
+fn work_api(case: &Case, socket: &std::path::Path) -> Api {
+    let api = Api::new(
+        "4444444444444444444444444444444444444444444444444444444444444444".to_owned(),
+        "operator".to_owned(),
+        None,
+    )
+    .with_config(case.file(), case.home(), case.store())
+    .with_control_token(
+        case.secrets(Some(CONTROL)),
+        Some(SecretName("control".to_owned())),
+    );
+    api.publish(
+        vec![json!({"name": "alpha", "state": "Running"})],
+        [(
+            "alpha".to_owned(),
+            api::Route {
+                socket: socket.to_owned(),
+                token: "5".repeat(64),
+                remote: None,
+                tcp: None,
+            },
+        )]
+        .into_iter()
+        .collect(),
+        Vec::new(),
+    );
+    api.publish_host(Vec::new(), None);
+    api
+}
+
+/// The header `name` of the request head `head`, by its name in any case.
+fn header_of<'a>(head: &'a str, name: &str) -> Vec<&'a str> {
+    head.lines()
+        .filter_map(|line| line.split_once(':'))
+        .filter(|(key, _)| key.trim().eq_ignore_ascii_case(name))
+        .map(|(_, value)| value.trim())
+        .collect()
+}
+
+/// The work call (story:control-plane-work-handler): the control token is admitted for `POST
+/// /v1/instances/{name}/work` and `GET .../work/{reference}`, forwarded to the runtime as
+/// `/v1/work`, the write with `X-Conductor-Actor-Kind: control-plane` and never the caller's own
+/// actor headers; the same token is still refused on every other proxied write; an operator's
+/// own actor-kind header is not forwarded; a reference that is no reference is `422` at the
+/// daemon; and without a bearer the bearer listener answers `401`.
+#[test]
+fn the_control_token_hands_work_to_an_instance_and_writes_nothing_else_it_proxies() {
+    let case = Case::new("work");
+    let runtime = FakeRuntime::start();
+    let api = Arc::new(work_api(&case, &runtime.socket));
+    let serve = |address: &str| {
+        let listener = TcpListener::bind((address, 0)).expect("bind the listener");
+        let port = listener.local_addr().expect("address").port();
+        let served = Arc::clone(&api);
+        thread::spawn(move || api::serve(&listener, &served));
+        port
+    };
+    let (loopback, everywhere) = (serve("127.0.0.1"), serve("0.0.0.0"));
+    let control = bearer(CONTROL);
+    let body = json!({"repository": "alpha", "brief": "b", "reference": "WI-1"});
+
+    for port in [loopback, everywhere] {
+        let sent = plain(
+            port,
+            "POST",
+            "/v1/instances/alpha/work",
+            &[
+                (control.0, &control.1),
+                ("X-Conductor-Actor-Kind", "human"),
+                ("X-Conductor-Operator", "mallory@example-org.test"),
+            ],
+            Some(&body),
+        );
+        assert_eq!(sent.status, 201, "{port}: {sent:?}");
+        let read = plain(
+            port,
+            "GET",
+            "/v1/instances/alpha/work/WI-1",
+            &[(control.0, &control.1)],
+            None,
+        );
+        assert_eq!(
+            read.status, 201,
+            "the runtime's answer, as it gave it: {read:?}"
+        );
+        let seen = runtime.taken();
+        assert_eq!(seen.len(), 2, "{seen:#?}");
+        let (write, written) = &seen[0];
+        assert!(write.starts_with("POST /v1/work HTTP/1.1\r\n"), "{write}");
+        assert_eq!(
+            header_of(write, "x-conductor-actor-kind"),
+            ["control-plane"],
+            "{write}"
+        );
+        assert!(
+            header_of(write, "x-conductor-operator").is_empty(),
+            "{write}"
+        );
+        assert_eq!(
+            header_of(write, "x-conductor-token"),
+            ["5".repeat(64)],
+            "{write}"
+        );
+        assert_eq!(
+            serde_json::from_str::<Value>(written).ok(),
+            Some(body.clone())
+        );
+        let (read, _) = &seen[1];
+        assert!(read.starts_with("GET /v1/work/WI-1 HTTP/1.1\r\n"), "{read}");
+        assert!(
+            header_of(read, "x-conductor-actor-kind").is_empty(),
+            "{read}"
+        );
+    }
+
+    // Every other proxied write refuses the control token, and reaches no runtime.
+    for (method, route) in [
+        ("POST", "answers"),
+        ("PUT", "settings"),
+        ("POST", "plan"),
+        ("POST", "agents/alpha-planner/deliver"),
+        ("POST", "agents/alpha-planner/restart"),
+    ] {
+        let answer = plain(
+            loopback,
+            method,
+            &format!("/v1/instances/alpha/{route}"),
+            &[(control.0, &control.1)],
+            Some(&json!({})),
+        );
+        assert_eq!(answer.status, 403, "{method} {route}: {answer:?}");
+        assert_eq!(
+            answer.json()["error"],
+            "conductor.operator.ActorNotHuman",
+            "{answer:?}"
+        );
+    }
+    assert!(
+        runtime.taken().is_empty(),
+        "a refused write reached the runtime"
+    );
+
+    // The loopback operator: forwarded as the operator, its own actor-kind header dropped.
+    let host = format!("127.0.0.1:{loopback}");
+    let origin = format!("http://{host}");
+    let operator = plain(
+        loopback,
+        "POST",
+        "/v1/instances/alpha/work",
+        &[
+            ("Origin", &origin),
+            (
+                "X-Conductor-Token",
+                "4444444444444444444444444444444444444444444444444444444444444444",
+            ),
+            ("X-Conductor-Actor-Kind", "control-plane"),
+        ],
+        Some(&body),
+    );
+    assert_eq!(operator.status, 201, "{operator:?}");
+    let seen = runtime.taken();
+    assert_eq!(seen.len(), 1, "{seen:#?}");
+    assert!(
+        header_of(&seen[0].0, "x-conductor-actor-kind").is_empty(),
+        "{}",
+        seen[0].0
+    );
+    assert_eq!(
+        header_of(&seen[0].0, "x-conductor-operator"),
+        ["operator"],
+        "{}",
+        seen[0].0
+    );
+
+    // A reference that is no reference never reaches the runtime's path.
+    let long = format!("/v1/instances/alpha/work/{}", "r".repeat(65));
+    for target in [
+        "/v1/instances/alpha/work/a%2Fb",
+        "/v1/instances/alpha/work/..",
+        "/v1/instances/alpha/work/a/b",
+        long.as_str(),
+    ] {
+        let answer = plain(loopback, "GET", target, &[(control.0, &control.1)], None);
+        assert_eq!(answer.status, 422, "{target}: {answer:?}");
+        assert_eq!(
+            answer.json()["error"],
+            "conductor.dispatch.InvalidReference",
+            "{answer:?}"
+        );
+    }
+    assert!(
+        runtime.taken().is_empty(),
+        "an invalid reference reached the runtime"
+    );
+
+    // No bearer on the bearer listener.
+    for (method, target, body) in [
+        ("POST", "/v1/instances/alpha/work", Some(&body)),
+        ("GET", "/v1/instances/alpha/work/WI-1", None),
+    ] {
+        let answer = plain(everywhere, method, target, &[], body);
+        assert_eq!(answer.status, 401, "{method} {target}: {answer:?}");
+    }
+    assert!(
+        runtime.taken().is_empty(),
+        "an unadmitted call reached the runtime"
+    );
 }
 
 /// A bearer that is not the control token is `401`, the same answer whatever it is, naming no

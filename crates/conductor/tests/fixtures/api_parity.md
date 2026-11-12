@@ -2,7 +2,7 @@
 
 Written by `tests/api_parity.rs` (`CONDUCTOR_API_PARITY_BLESS=1`); compared line for line.
 
-Probes: 4 match, 29 differ, 13 unbound; 30 routes spec-only.
+Probes: 4 match, 29 differ, 15 unbound; 30 routes spec-only.
 
 | route | binding | probe | hand-written | generated | verdict |
 |---|---|---|---|---|---|
@@ -43,6 +43,8 @@ Probes: 4 match, 29 differ, 13 unbound; 30 routes spec-only.
 | `POST /v1/instances/{name}/leave` | unbound: LeaveInstance's instance is a member of `key`, which no path segment carries | client | `200 {instance,operator,resume,withdrawn}` | `404 {refused}` | unbound |
 | `GET /v1/instances/{name}/<route>` | unbound: proxied to the instance runtime; no operation | read | `200 {errors,history,open}` | `404 {refused}` | unbound |
 | `POST /v1/instances/{name}/answers` | unbound: proxied to the instance runtime; a batch of decisions | client | `400 text` | `404 {refused}` | unbound |
+| `POST /v1/instances/{name}/work` | unbound: proxied to the instance runtime; a unit of work sent as a dispatch | client | `422 {detail,error}` | `404 {refused}` | unbound |
+| `GET /v1/instances/{name}/work/{reference}` | unbound: proxied to the instance runtime; the state of a unit of work | read | `404 {detail,error,reference}` | `404 {refused}` | unbound |
 | `GET /healthz` | unbound: the liveness probe reads no entity; a view has a source | read | `200 {state}` | `404 {refused}` | unbound |
 | `GET /metrics` | unbound: Prometheus text; a view answers JSON rows | read | `200 text` | `404 {refused}` | unbound |
 | `GET /v1/instances` | conductor.instance.Instances | read after the writes | `200 [1]` | `200 [0]` | differs (body) |

@@ -324,7 +324,11 @@ types:
   # unique among the instance's dispatches, and optionally the git ref the work starts from and
   # the issue it belongs to. It becomes one dispatch with that reference and no goal
   # (`SendDispatch`); a reference a dispatch already holds answers that dispatch and creates
-  # nothing. Declared for the work call of a later unit, which no route binds yet.
+  # nothing. The body of the instance runtime's `POST /v1/work`, which conductord forwards as
+  # `POST /v1/instances/{name}/work`: a hand-written route, as `POST /v1/plan` is, which the
+  # binding does not bind (`SendDispatch` belongs to the command line's component). A request the
+  # route does not take answers `InvalidWorkRequest`, `InvalidBrief` (a brief of 1 to 65536
+  # bytes is taken), `UnknownRepository` or `InvalidReference`.
   - name: conductor.dispatch.WorkRequest
     kind: struct
     fields:
@@ -342,6 +346,12 @@ types:
   # `at` and `reason` of its `started`, `done`, `failed`, `cancelled` and `blocked` lines in the
   # records' dispatch log, and `last_report` a message's first line, which no field of the
   # dispatch holds; so this is a struct the work call fills, not a view over the dispatch.
+  # `started_at` is the first `started` line's, `ended_at` the `done`, `failed` or `cancelled`
+  # line's, `detail` the reason of the last `blocked` or `failed` line while the state is Blocked
+  # or Failed, and `last_report` the first line of the latest `[REPORT]` message handled for the
+  # dispatch (`HandleMessage` with its `dispatch_id`). Only lines of the dispatch's id and its
+  # repository are read, in the log's month files from the month of `sent_at` on. `GET
+  # /v1/work/{reference}` answers it, `WorkNotFound` for a reference no dispatch holds.
   - name: conductor.dispatch.WorkState
     kind: struct
     fields:
@@ -529,7 +539,9 @@ entities:
         type: Timestamp
       - name: body_path
         type: Optional<String>
-      # The dispatch a `[NEED]` message opened when conductor routed it (design § 3).
+      # The dispatch a `[NEED]` message opened when conductor routed it (design § 3), or the one
+      # a `[REPORT]` message was handled for, its own id or the open dispatch `-` named
+      # (`HandleMessage`, story:control-plane-work-handler); none on a report handled before.
       - name: dispatch_id
         type: Optional<conductor.dispatch.DispatchId>
     relations:
@@ -742,6 +754,34 @@ errors:
     summary: >
       The repository has an open dispatch (sent, started or blocked) of another reference or of
       none, so a dispatch with a reference was not sent.
+    fields:
+      - name: repository
+        type: conductor.observation.RepositoryName
+
+  - name: conductor.dispatch.WorkNotFound
+    summary: No dispatch of the instance holds this reference.
+    fields:
+      - name: reference
+        type: String
+
+  - name: conductor.dispatch.InvalidWorkRequest
+    summary: >
+      The body of the work call is no `WorkRequest`: no JSON object, a member it does not
+      declare, or one it declares missing or of another type; nothing was sent.
+    fields:
+      - name: detail
+        type: String
+
+  - name: conductor.dispatch.InvalidBrief
+    summary: A brief is 1 to 65536 bytes, and this one is not, so nothing was sent.
+    fields:
+      - name: reference
+        type: String
+
+  - name: conductor.dispatch.UnknownRepository
+    summary: >
+      Neither the newest complete snapshot nor the workspace file names the repository, so no
+      controller would start for it and nothing was sent.
     fields:
       - name: repository
         type: conductor.observation.RepositoryName
@@ -1664,6 +1704,8 @@ commands:
             kind: input.kind
         summary: The message is recorded with its parsed first line.
 
+  # A `[REPORT]` is handled with the dispatch it moved (`dispatch_id`), which the message then
+  # holds: the work call reads the last report of a dispatch from it.
   - name: conductor.dispatch.HandleMessage
     naming:
       wire: handle-message
@@ -1672,6 +1714,9 @@ commands:
       - {name: actor, type: conductor.operator.Actor}
       - name: message_id
         type: conductor.dispatch.MessageId
+      - name: dispatch_id
+        type: Optional<conductor.dispatch.DispatchId>
+        example: "DSP-0"
     outcomes:
       - name: need-unrouted
         when_subject:
@@ -1687,6 +1732,8 @@ commands:
       - name: handled
         moves: conductor.dispatch.Message.handle
         instance: message_id
+        sets:
+          dispatch_id: input.dispatch_id
         emits:
           - conductor.dispatch.MessageHandled
         payload:
