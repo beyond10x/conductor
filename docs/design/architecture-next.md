@@ -152,7 +152,9 @@ commands and views, projected to OpenAPI by `ess`.
 ## 4. conductord: reconciling instances
 
 The daemon is `conductor daemon serve`, installed as the user unit `conductord.service` (or a system
-unit on a server). It owns the config file. Its loop:
+unit on a server), or as a StatefulSet of one in a Kubernetes namespace, where `daemon.kubernetes`
+makes it run each instance's runtime as a pod of its own, beside the unit and the child process
+and not as a placement (guide: run in Kubernetes). It owns the config file. Its loop:
 
 ```text
 read config ─► desired instances (name, placement, store, roles, settings)

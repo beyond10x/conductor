@@ -862,6 +862,62 @@ fn the_doctor_names_each_right_and_fails_on_a_missing_one() {
     assert!(lines[0].1.is_some(), "it fails the verdict: {lines:?}");
 }
 
+/// An instance pod's git has no identity: the image has no git config and the pod's home is not
+/// kept. So the pod carries conductor's own for the records' commits, `GIT_AUTHOR_NAME`,
+/// `GIT_AUTHOR_EMAIL`, `GIT_COMMITTER_NAME` and `GIT_COMMITTER_EMAIL`, each where
+/// `daemon.kubernetes.env` does not name it; a variable env names keeps env's value, once.
+#[test]
+fn an_instance_pod_commits_as_conductor_where_env_names_no_identity() {
+    let case = Case::new("identity");
+    let text = fs::read_to_string(case.file())
+        .expect("the config file")
+        .replace(
+            "{name: GIT_AUTHOR_NAME, value: conductor}",
+            "{name: GIT_AUTHOR_NAME, value: Example Org}",
+        );
+    let config = conductor_cli::config::parse(&text, &case.home()).expect("a valid file");
+    let kubernetes = config.daemon.kubernetes.clone().expect("daemon.kubernetes");
+    let made = pods::manifests(&kubernetes, &config, &config.instances[0]);
+    let env = made.pod["spec"]["containers"][0]["env"]
+        .as_array()
+        .expect("env")
+        .clone();
+    let values = |name: &str| -> Vec<Value> {
+        env.iter()
+            .filter(|variable| variable["name"] == name)
+            .map(|variable| variable["value"].clone())
+            .collect()
+    };
+    assert_eq!(values("GIT_AUTHOR_NAME"), [json!("Example Org")], "{env:?}");
+    assert_eq!(
+        values("GIT_COMMITTER_NAME"),
+        [json!("conductor")],
+        "{env:?}"
+    );
+    for email in ["GIT_AUTHOR_EMAIL", "GIT_COMMITTER_EMAIL"] {
+        assert_eq!(values(email), [json!("conductor@localhost")], "{env:?}");
+    }
+}
+
+/// The runtime is not the first process of its pod: the pod shares one process namespace, so its
+/// pause process is, reaps what the agents leave behind, and a `SIGTERM` ends the runtime at once
+/// rather than being ignored as the first process's would be until the grace period kills it.
+/// That is what `docker run --init` gives the container.
+#[test]
+fn the_runtime_is_not_the_first_process_of_its_pod() {
+    let case = Case::new("first-process");
+    let text = fs::read_to_string(case.file()).expect("the config file");
+    let config = conductor_cli::config::parse(&text, &case.home()).expect("a valid file");
+    let kubernetes = config.daemon.kubernetes.clone().expect("daemon.kubernetes");
+    let made = pods::manifests(&kubernetes, &config, &config.instances[0]);
+    assert_eq!(
+        made.pod["spec"]["shareProcessNamespace"],
+        json!(true),
+        "{}",
+        made.pod
+    );
+}
+
 /// The daemon's own seeding skips an instance that runs as a pod: its runtime seeds itself. (The
 /// seeding itself is not run here: it reads the process's home.)
 #[test]

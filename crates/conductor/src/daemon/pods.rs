@@ -81,6 +81,16 @@ const GRACE_SECONDS: i64 = 10;
 /// The lines of a pod's log a failure's detail carries, when its container says nothing.
 const LOG_LINES: u32 = 8;
 
+/// The git identity of an instance pod's commits, each variable where `daemon.kubernetes.env`
+/// names it not: the image has no git config and the pod's home is not kept, so without one the
+/// records' first commit fails `Author identity unknown`.
+pub const GIT_IDENTITY: [(&str, &str); 4] = [
+    ("GIT_AUTHOR_NAME", "conductor"),
+    ("GIT_AUTHOR_EMAIL", "conductor@localhost"),
+    ("GIT_COMMITTER_NAME", "conductor"),
+    ("GIT_COMMITTER_EMAIL", "conductor@localhost"),
+];
+
 /// The waiting reasons that hold a pod Pending until something changes: its row says so.
 pub const STUCK: [&str; 6] = [
     "ImagePullBackOff",
@@ -225,6 +235,11 @@ pub fn manifests(kubernetes: &Kubernetes, config: &Config, instance: &Instance) 
             (None, None) => {}
         }
     }
+    for (variable, value) in GIT_IDENTITY {
+        if !kubernetes.env.iter().any(|named| named.name == variable) {
+            env.push(json!({"name": variable, "value": value}));
+        }
+    }
     let mut resources = Map::new();
     for (key, set) in [
         ("requests", &kubernetes.resources.requests),
@@ -273,6 +288,9 @@ pub fn manifests(kubernetes: &Kubernetes, config: &Config, instance: &Instance) 
         "restartPolicy": "Never",
         "automountServiceAccountToken": false,
         "enableServiceLinks": false,
+        // The pause process is the pod's first: it reaps what the agents leave behind, and the
+        // runtime ends on `SIGTERM`, which the first process of a pod would ignore.
+        "shareProcessNamespace": true,
         "terminationGracePeriodSeconds": GRACE_SECONDS,
         "securityContext": {
             "runAsNonRoot": true,

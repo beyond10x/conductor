@@ -54,6 +54,7 @@ const sidebars: SidebarsConfig = {
         'guides/troubleshoot',
         'guides/run-isolated',
         'guides/run-in-a-container',
+        'guides/run-in-kubernetes',
       ],
     },
     {
