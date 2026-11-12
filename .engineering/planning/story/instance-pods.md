@@ -6,7 +6,7 @@ status: draft
 title: The daemon runs each instance as a pod, and a control plane manages instances over its API
 relations:
 - decomposes: epic:deployable-in-kubernetes
-revision: 1
+revision: 2
 ---
 ## Why
 
@@ -44,3 +44,16 @@ Where `daemon.kubernetes` is set, conductord creates, observes and deletes one p
 - A second sandbox layer inside the instance pod, or the pod boundary alone (built: the pod boundary alone).
 - Which forge token an instance pod gets.
 - One namespace for the daemon and its instance pods, or two (built: `daemon.kubernetes.namespace` names it; the guide asks for two).
+
+## Since v1.4.0 (2026-11-12)
+
+- "An API caller cannot shape the pod" gained three stated ways an instance mapping reaches its
+  pod's environment, none of them a variable's name or a value's text: the one variable its
+  `forge_token` fills (`story:instance-forge-token`); and through the kinds and `gitlab` hosts of
+  its sources, which of the daemon's forge token entries the pod carries and which
+  `credential.https://<host>.helper` keys git gets (`story:pod-git-reaches-forge`). The design's
+  section 4.1 says the same.
+- "Which forge token an instance pod gets" is answered by the operator: one per daemon or one per
+  instance, both allowed (`story:instance-forge-token`).
+- "Every other secret of the daemon's source can be named into an instance pod" is held by
+  `story:control-plane-nameable-secrets`.
