@@ -508,6 +508,17 @@ nor the pod, and the next pass tries again. The row's `detail` does not change; 
 curl -H "Authorization: Bearer $TOKEN" $D/v1/instances/beta/health
 ```
 
+A pod takes its first collect pass at its start, after its clones and its seeding, whenever its
+last cycle ran. Until that pass has ended the health answers the snapshot of the pod before;
+once it has, its `snapshot` started after the pod did, and it lists each clone that failed at
+this start, not the failures of the pod before. A failed clone is tried again at each collect
+pass, every `cadence.cycle` (2 hours by default), and at every start of the pod. After a token
+was corrected, `POST /v1/instances/{name}/restart` tries at once:
+
+```console
+curl -X POST -H "Authorization: Bearer $TOKEN" $D/v1/instances/beta/restart
+```
+
 In the pod, `conductor doctor` says how many of the included repositories have no checkout.
 
 Which rights of the token are used, read from the calls conductor makes and not tested against

@@ -1757,7 +1757,7 @@ pub(crate) fn checked(what: &str, name: String) -> Result<String> {
 /// naming `what` (the repository or the organization), the command and what it printed on
 /// standard error. Git takes no optional locks, so reading a checkout never rewrites its index,
 /// and never prompts, neither for a login nor through ssh ([`collect::git_environment`],
-/// `story:fetch-without-prompts`).
+/// `story:fetch-without-prompts`); `glab` sends no usage data ([`gitlab::TELEMETRY_VARIABLE`]).
 pub(crate) fn answer(
     what: &str,
     command: &[String],
@@ -1770,7 +1770,13 @@ pub(crate) fn answer(
     };
     let attempt = || {
         let mut command = crate::instance::command(program);
-        collect::git_environment(command.args(arguments).env("GIT_OPTIONAL_LOCKS", "0"), dir);
+        collect::git_environment(
+            command
+                .args(arguments)
+                .env("GIT_OPTIONAL_LOCKS", "0")
+                .env(gitlab::TELEMETRY_VARIABLE, "false"),
+            dir,
+        );
         if let Some(dir) = dir {
             command.current_dir(dir);
         }

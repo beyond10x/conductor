@@ -28,7 +28,8 @@
 //! token handed to it. It then seeds its own instance as the unattended daemon seeds each one
 //! ([`crate::daemon::unattended::seed_instance`]), each step only where missing, while the API
 //! answers and before the loop starts; before the seeding it clones each repository its sources
-//! include that has no checkout ([`crate::collect::checkouts::at_start`]).
+//! include that has no checkout ([`crate::collect::checkouts::at_start`]), and after it it takes
+//! its first snapshot, whatever `cycle.last` says ([`first_snapshot`]).
 //! [`CONFIG_SOURCE_VARIABLE`] names a file it copies over its
 //! `--config` file at every start, before it reads it: how a config mounted read-only reaches a
 //! place the runtime writes beside.
@@ -351,9 +352,14 @@ fn copy_config_source(config_flag: Option<&Path>) -> Result<()> {
         })
 }
 
+/// How long the snapshot a runtime alone in a pod takes at its start may run, as long as a step
+/// of the cycle.
+const START_SNAPSHOT_BOUND: std::time::Duration = std::time::Duration::from_secs(3600);
+
 /// A runtime alone in a pod seeds its own instance, the active one of the config file, as the
-/// unattended daemon seeds each one; what failed is said, and the runtime goes on.
-fn seed_alone(config_flag: Option<&Path>, what: &str) {
+/// unattended daemon seeds each one, then takes its first snapshot ([`first_snapshot`]); what
+/// failed is said, and the runtime goes on.
+fn seed_alone(config_flag: Option<&Path>, state_flag: Option<&Path>, what: &str) {
     const SEEDING: &str = "conductor: instance serve: seeding";
     let loaded = config::Environment::from_process().and_then(|environment| {
         let loaded = config::load(config_flag, &environment)?;
@@ -392,6 +398,7 @@ fn seed_alone(config_flag: Option<&Path>, what: &str) {
             ),
         );
     }
+    first_snapshot(config_flag, state_flag, what);
     if seeded {
         crate::run::say(false, &format!("{what}: seeded its instance"));
     } else {
@@ -403,6 +410,51 @@ fn seed_alone(config_flag: Option<&Path>, what: &str) {
             ),
         );
     }
+}
+
+/// The first collect pass of a runtime alone in a pod, at its start, after its clones and its
+/// seeding (`story:pod-source-checkouts`): `snapshot start-snapshot`, a run of this binary with
+/// the runtime's `--config` and `--state-dir`, as the cycle's first step runs it, whatever
+/// `cycle.last` says, so health answers a snapshot newer than the start and lists each clone
+/// that failed at it, which this pass tries again. It is no cycle: `cycle.last` keeps its stamp,
+/// and nothing else of a cycle runs (the board, `records check`, dispatch v1). How it ended is
+/// said, and the start goes on.
+fn first_snapshot(config_flag: Option<&Path>, state_flag: Option<&Path>, what: &str) {
+    let program = match std::env::current_exe() {
+        Ok(program) => program,
+        Err(error) => {
+            crate::run::say(
+                true,
+                &format!("{what}: no snapshot at its start: read this binary's path: {error}"),
+            );
+            return;
+        }
+    };
+    let mut command = command(&program);
+    if let Some(config) = config_flag {
+        command.arg("--config").arg(config);
+    }
+    if let Some(state) = state_flag {
+        command.arg("--state-dir").arg(state);
+    }
+    command
+        .args(["snapshot", "start-snapshot"])
+        .env(crate::actor::DAEMON_VARIABLE, "1");
+    let said = match crate::collect::run(&mut command, START_SNAPSHOT_BOUND) {
+        Ok(output) if output.status.success() => {
+            crate::run::say(false, &format!("{what}: took a snapshot at its start"));
+            return;
+        }
+        Ok(output) => crate::confine::exited(&output),
+        Err(error) => crate::collect::checkouts::redacted(&format!("{error:#}")),
+    };
+    crate::run::say(
+        true,
+        &format!(
+            "{what}: the snapshot at its start {said}; health answers the newest snapshot until \
+             the next cycle"
+        ),
+    );
 }
 
 /// Where the instance API is served: the socket, or TCP for a runtime alone in a pod.
@@ -501,7 +553,7 @@ pub fn instance_serve(
         })
         .context("instance serve: start the instance API")?;
     if listen.is_some() {
-        seed_alone(config_flag, &what);
+        seed_alone(config_flag, state_flag, &what);
     }
     if std::env::var(LOOP_VARIABLE).is_ok_and(|value| value.trim() == "off") {
         crate::run::say(

@@ -417,6 +417,15 @@ impl Case {
     /// The runtime of the pod started over `config` with `env`, until it says its seeding ended;
     /// what it printed.
     fn start(&self, config: &Path, env: &[(&str, String)]) -> String {
+        let mut runtime = self.runtime(config, env);
+        runtime.until(|printed| {
+            printed.contains("seeded its instance") || printed.contains("the seeding failed")
+        })
+    }
+
+    /// The runtime of the pod, `instance serve` over `config` with its loop off, `env` added,
+    /// still running.
+    fn runtime(&self, config: &Path, env: &[(&str, String)]) -> Runtime {
         let mut command = common::conductor(self.home());
         self.environment(config, &mut command);
         command
@@ -429,10 +438,23 @@ impl Case {
             .stdin(Stdio::null())
             .stdout(Stdio::piped())
             .stderr(Stdio::piped());
-        let mut runtime = Runtime::spawn(command);
-        runtime.until(|printed| {
-            printed.contains("seeded its instance") || printed.contains("the seeding failed")
-        })
+        Runtime::spawn(command)
+    }
+
+    /// `<state>/run/cycle.last`, the stamp of the loop's last cycle.
+    fn cycle_last(&self) -> PathBuf {
+        self.dir.join("state/run/cycle.last")
+    }
+
+    /// A `cycle.last` stamp `ago` before now, as the loop writes it; its text.
+    fn stamp_cycle(&self, ago: time::Duration) -> String {
+        let at = (time::OffsetDateTime::now_utc() - ago)
+            .format(&time::format_description::well_known::Rfc3339)
+            .expect("format the clock");
+        let text = format!("{at}\n");
+        fs::create_dir_all(self.dir.join("state/run")).expect("create the loop's directory");
+        fs::write(self.cycle_last(), &text).expect("write cycle.last");
+        text
     }
 }
 
@@ -468,6 +490,40 @@ impl Runtime {
             .lock()
             .map(|printed| printed.clone())
             .unwrap_or_default()
+    }
+
+    /// `GET <target>` on the TCP address the runtime said it serves on, with its token; the
+    /// answer's status, head and body.
+    fn get(&self, target: &str) -> (u16, String, String) {
+        let printed = self.printed();
+        let address = printed
+            .lines()
+            .find_map(|line| line.split_once("serving /v1/ on ").map(|(_, at)| at.trim()))
+            .unwrap_or_else(|| panic!("no address: {printed}"))
+            .to_owned();
+        let mut stream = std::net::TcpStream::connect(&address).expect("connect to the runtime");
+        stream
+            .set_read_timeout(Some(Duration::from_secs(30)))
+            .expect("a read timeout");
+        std::io::Write::write_all(
+            &mut stream,
+            format!(
+                "GET {target} HTTP/1.1\r\nConnection: close\r\nX-Conductor-Token: \
+                 instance-token\r\n\r\n"
+            )
+            .as_bytes(),
+        )
+        .expect("send");
+        let mut bytes = Vec::new();
+        stream.read_to_end(&mut bytes).expect("read");
+        let text = String::from_utf8_lossy(&bytes).into_owned();
+        let (head, body) = text.split_once("\r\n\r\n").unwrap_or((&text, ""));
+        let status = head
+            .split(' ')
+            .nth(1)
+            .and_then(|code| code.parse().ok())
+            .unwrap_or_else(|| panic!("no status line: {head}"));
+        (status, head.to_owned(), body.to_owned())
     }
 
     /// Waits up to 60 s for what it printed to hold `holds`, while it runs; what it printed.
@@ -1176,8 +1232,9 @@ fn a_pass_trusts_only_the_checkouts_an_include_entry_covers() {
     }
 }
 
-/// A start begins no clone once its bound has passed: with the bound at 0 seconds it clones
-/// nothing, says how many it left, and the next pass clones them.
+/// A start begins no clone once its bound has passed: with the bound at 0 seconds its clones
+/// begin none and it says how many it left; the collect pass it takes at its start clones them,
+/// and the next pass finds no failure.
 #[test]
 fn a_start_past_its_bound_leaves_the_rest_to_the_pass() {
     let case = Case::new("start-bound", false);
@@ -1198,20 +1255,164 @@ fn a_start_past_its_bound_leaves_the_rest_to_the_pass() {
             .contains("2 included repositories without a checkout are left to the collect passes"),
         "{printed}"
     );
-    assert!(!case.root().join("alpha").exists(), "{printed}");
-    assert!(!case.root().join("sub/gamma").exists(), "{printed}");
+    assert!(!printed.contains("cloned https://"), "{printed}");
     assert!(
-        !case
-            .lines("git")
-            .iter()
-            .any(|line| line.starts_with("clone")),
-        "{:#?}",
-        case.lines("git")
+        printed.contains("took a snapshot at its start"),
+        "{printed}"
     );
+    for name in ["alpha", "sub/gamma"] {
+        assert!(
+            case.root().join(name).join(".git").is_dir(),
+            "{name}: {printed}"
+        );
+    }
 
     let snapshot = case.pass(&config, &pod());
     for name in ["alpha", "sub/gamma"] {
         assert!(case.root().join(name).join(".git").is_dir(), "{name}");
     }
     assert!(case.failures(&config, &snapshot).is_empty());
+}
+
+/// A runtime alone in a pod takes a snapshot at its start, after its clones and its seeding,
+/// whatever `cycle.last` says (one minute old here, its cycle two hours) and with its loop off:
+/// its health answers that snapshot, which lists the clone that failed at this start and no
+/// longer the failure of the snapshot before it, whose repository this start cloned. The cycle
+/// keeps its stamp.
+#[test]
+fn a_pod_takes_a_snapshot_at_its_start_and_its_health_lists_the_starts_failed_clone() {
+    let case = Case::new("start-snapshot", true);
+    case.projects(&[
+        (101, "example-org/alpha", false),
+        (102, "example-org/beta", false),
+    ]);
+    case.bare("gitlab", "example-org/alpha");
+    let config = case.config(&gitlab("alpha, beta"));
+    let before = case.pass(&config, &pod());
+    let members: Vec<String> = case
+        .failures(&config, &before)
+        .into_iter()
+        .map(|(member, _, _)| member)
+        .collect();
+    assert_eq!(members, ["beta"]);
+
+    case.projects(&[
+        (101, "example-org/alpha", false),
+        (102, "example-org/beta", false),
+        (103, "example-org/delta", false),
+    ]);
+    case.bare("gitlab", "example-org/beta");
+    let config = case.config(&gitlab("alpha, beta, delta"));
+    let stamp = case.stamp_cycle(time::Duration::minutes(1));
+    let mut runtime = case.runtime(&config, &pod()[1..]);
+    // The case's records skeleton is there, so the seeding's `init` writes nothing and says so.
+    let printed = runtime.until(|printed| {
+        printed.contains("seeded its instance") || printed.contains("the seeding failed")
+    });
+    assert!(case.root().join("beta/.git").is_dir(), "{printed}");
+
+    // An answer computed before a write is sent once more, marked stale (`X-Conductor-Age`),
+    // while the server computes it again: read until it is fresh.
+    let deadline = Instant::now() + Duration::from_secs(30);
+    let (status, body) = loop {
+        let (status, head, body) = runtime.get("/v1/health");
+        if status != 503 && !head.to_ascii_lowercase().contains("x-conductor-age") {
+            break (status, body);
+        }
+        assert!(Instant::now() < deadline, "health stays stale: {head}");
+        std::thread::sleep(Duration::from_millis(100));
+    };
+    assert_eq!(status, 200, "{body}");
+    let health: Value = serde_json::from_str(&body).expect("the health answer's JSON");
+    assert_ne!(
+        health["snapshot"]["snapshot_id"],
+        json!(before),
+        "health answers the snapshot before the start: {printed}"
+    );
+    let members: Vec<&str> = health["member_failures"]
+        .as_array()
+        .expect("member_failures")
+        .iter()
+        .filter_map(|failure| failure["member"].as_str())
+        .collect();
+    assert_eq!(members, ["delta"], "{health:#}");
+    assert_eq!(
+        fs::read_to_string(case.cycle_last()).expect("cycle.last"),
+        stamp,
+        "the start's snapshot is no cycle"
+    );
+}
+
+/// The same start outside a pod (no `CONDUCTOR_API_LISTEN`, its API on a socket) clones nothing
+/// and takes no snapshot while `cycle.last` is younger than the cycle.
+#[test]
+fn a_start_outside_a_pod_takes_no_snapshot_before_the_cycle_is_due() {
+    let case = Case::new("out", true);
+    case.projects(&[(101, "example-org/alpha", false)]);
+    case.bare("gitlab", "example-org/alpha");
+    let config = case.config(&gitlab("alpha"));
+    case.stamp_cycle(time::Duration::minutes(1));
+    let mut command = common::conductor(case.home());
+    case.environment(&config, &mut command);
+    command
+        .current_dir(case.dir.join("work"))
+        .args(["instance", "serve"])
+        .env(conductor_cli::instance::LOOP_VARIABLE, "off")
+        .env(conductor_cli::instance::SOCKET_VARIABLE, case.dir.join("s"))
+        .envs(
+            pod()[1..]
+                .iter()
+                .map(|(name, value)| (*name, value.as_str())),
+        )
+        .stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped());
+    let mut runtime = Runtime::spawn(command);
+    let printed = runtime.until(|printed| printed.contains("the loop is off"));
+    assert!(!printed.contains("seeded"), "{printed}");
+    assert!(!case.root().join("alpha").exists(), "{printed}");
+    let output = case.conductor(
+        &config,
+        &[],
+        &["snapshot", "repositories", "--format", "jsonl"],
+    );
+    assert!(
+        !output.status.success() || output.stdout.is_empty(),
+        "a snapshot was taken: {}",
+        describe(&output)
+    );
+}
+
+/// The collector's `glab` calls run with `GLAB_SEND_TELEMETRY=false`, which `glab config --help`
+/// names as the variable that turns its usage data off.
+#[test]
+fn the_collectors_glab_calls_send_no_usage_data() {
+    let case = Case::new("telemetry", true);
+    case.projects(&[(101, "example-org/alpha", false)]);
+    case.bare("gitlab", "example-org/alpha");
+    let seen = case.dir.join("glab-env.log");
+    case.script(
+        "glab",
+        &GLAB
+            .replace("{log}", &text(&case.log("glab")))
+            .replace("{answers}", &text(&case.answers()))
+            .replacen(
+                "#!/bin/sh\n",
+                &format!(
+                    "#!/bin/sh\nprintf '%s\\n' \"${{GLAB_SEND_TELEMETRY-unset}}\" >> '{}'\n",
+                    text(&seen)
+                ),
+                1,
+            ),
+    );
+    let config = case.config(&gitlab("alpha"));
+
+    case.pass(&config, &pod());
+    let values: Vec<String> = fs::read_to_string(&seen)
+        .expect("glab ran")
+        .lines()
+        .map(str::to_owned)
+        .collect();
+    assert!(!values.is_empty());
+    assert!(values.iter().all(|value| value == "false"), "{values:?}");
 }

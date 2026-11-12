@@ -677,6 +677,10 @@ fn the_calls_section_says_where_a_checkout_must_be_and_what_a_pod_clones() {
         "whose content may run in the pod with the pod's tokens",
         "the only limit of what a pod clones",
         "at most 20 minutes for clones",
+        "takes its first collect pass at its start",
+        "every `cadence.cycle` (2 hours by default)",
+        "and at every start of the pod",
+        "`POST /v1/instances/{name}/restart` tries at once",
     ] {
         assert!(text.contains(words), "the section says {words:?}:\n{text}");
     }

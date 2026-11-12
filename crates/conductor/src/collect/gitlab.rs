@@ -461,6 +461,11 @@ pub const PER_PAGE: usize = 100;
 /// collector rather than being read for ever.
 pub const PAGES: usize = 100;
 
+/// The variable `glab config --help` names as the override of its `telemetry` key: set to
+/// `false`, `glab` sends no usage data to the forge. Every command the collectors run carries it
+/// ([`super::repositories::answer`]); without it, one pass sent the forge an event per call.
+pub const TELEMETRY_VARIABLE: &str = "GLAB_SEND_TELEMETRY";
+
 /// One `gitlab` source, as the collectors read it: its forge, its group and its `exclude`
 /// entries, and the program that reads the forge.
 #[derive(Debug, Clone, PartialEq, Eq)]
