@@ -433,3 +433,62 @@ Open, not fixed in this release:
 - in the second round the GitHub session again installed `substrate-daemon` only once
   `conductor setup --apply` printed its `to install:` line, not at step 4; the GitLab session
   installed it at step 4. None asked about it, and each run ended with it installed.
+
+## v1.5.0
+
+**Full runs, on the release branch before its tag** (`release/1.5.0` at `4a297e228`), done as the
+v1.4.0 runs were: a fresh Claude Code session (`claude -p`, resumed for the answer) in a scratch
+home with no settings, plugins or forge logins, in a scratch repository whose `origin` names a
+repository that does not exist, on GitHub or on a self-hosted GitLab (`gitlab.example.com`), with
+a committed `aep.project/1` store, and a scratch temporary directory. No forge repository was
+created. The release archive exists only once the tag is pushed, so the binary built from the
+release branch (`cargo build --release -p conductor-cli`) was put at `~/.local/bin/conductor`,
+and the prompt said to read the repository's files from the release branch. The person's answer:
+the migration approved, the login later, no daemon started on the host.
+
+The runs repeat because the release changes `conductor doctor`: its lines of the config file now
+end with how many included repositories have no checkout, printed inside an instance pod only,
+and the checkouts it judges under a root leave out those outside a source's `include`. `SETUP.md`,
+`conductor setup` and the prerequisites did not change; the README and the getting-started page
+changed only the version in their install lines.
+
+| run | origin | `conductor setup` ended | `conductor doctor` ended |
+|---|---|---|---|
+| 1 | GitHub | not ready: `gh` not logged in to github.com, and `box widgets (placement.writable-root-missing)` | the same |
+| 2 | self-hosted GitLab | not ready: `glab` not logged in to gitlab.example.com, and `box widgets (placement.writable-root-missing)` | the same |
+
+One round ran. Each session read `SETUP.md` whole with `curl` from the release branch, installed
+`aep` 0.79.1, `ess` 0.93.0, `worktree` 0.18.1, `substrate-daemon` 0.20.0 and `b10x-gates` 0.1.27
+from their release archives at step 4, each checked against its `SHA256SUMS`, and ran
+`conductor setup --apply` before it asked anything. The rest is as in v1.4.0: setup wrote the
+config file, the records, the trust, the worktree workspace with the profile it wrote and the
+route `direct`; each session asked only for the forge login and the migration, named steps 9
+and 10 as not started, and after the answer ran `aep plan store migrate git --verify` in its
+checkout and started nothing. The store is `aep.project/5`, left uncommitted; no process of a run
+was left; no session pushed or wrote to a forge; the host's own conductor config, `worktree`
+config and Claude Code settings were not changed.
+
+What setup and doctor print, read in each scratch home after the sessions ended: the verdicts in
+the table, and the route and guard lines of v1.3.0. Neither prints a line on checkouts of included
+repositories, since no run is inside an instance pod. The runs end where the v1.4.0 runs ended.
+
+Gaps found: none. No session asked, skipped or got wrong anything because of this release's
+documents or binary, so nothing was fixed and no second round ran.
+
+Not a gap:
+
+- neither session used a web fetch tool, so the opening paragraph of `SETUP.md` from v1.4.0 was
+  again not tried against a summary;
+- the GitLab session, on finding steps 9 and 10 not started, asked whether to start the daemons;
+  step 9 says starting it may need the person;
+- as in v1.4.0, the GitHub session wrote its downloads into a scratch directory above its run's
+  own; they were moved into the run's directory afterwards.
+
+Not run: steps 9 and 10, as in v1.2.0.
+
+Open, not fixed in this release:
+
+- `AGENTS.md`, Releases, step 3 still asks that both runs end `ready`. A run that starts no
+  daemon ends on the box row as well as the login (`story:setup-prints-box-row`);
+- the late install of `substrate-daemon` of v1.3.0 and v1.4.0 did not recur: both sessions
+  installed it at step 4. Step 4 did not change, so one round does not close it.
