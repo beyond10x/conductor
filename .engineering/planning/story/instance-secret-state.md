@@ -6,7 +6,32 @@ status: draft
 title: A control plane reads whether an instance's secrets are set
 relations:
 - decomposes: epic:deployable-in-kubernetes
-revision: 1
+scope:
+- confidence: cited
+  path: crates/conductor-model
+- confidence: cited
+  path: crates/conductor/http.yaml
+- confidence: cited
+  path: crates/conductor/src/config.rs
+- confidence: cited
+  path: crates/conductor/src/daemon/api.rs
+- confidence: cited
+  path: crates/conductor/src/daemon/mod.rs
+- confidence: cited
+  path: crates/conductor/src/secret.rs
+- confidence: cited
+  path: crates/conductor/src/spec_api.rs
+- confidence: cited
+  path: crates/conductor/tests/api_parity.rs
+- confidence: cited
+  path: crates/conductor/tests/fixtures/api_parity.md
+- confidence: cited
+  path: crates/conductor/tests/instance_secrets.rs
+- confidence: cited
+  path: spec/domains/secret.yaml
+- confidence: cited
+  path: website/docs/guides/run-in-kubernetes.md
+revision: 2
 ---
 ## Why
 
