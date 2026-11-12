@@ -233,10 +233,10 @@ a day, without asking: several waves may go into one release.
    `SHA256SUMS` and its `conductor --help` exits 0, and `cargo install` from the tag with `--root
    <scratch dir>` succeeds and `cargo install --list --root <scratch dir>` names `conductor-cli
    v<version>`.
-7. Announce: every release is announced, once step 6 holds, to the organization-memory session
-   of the host (the operator names it; `ListAgents` lists it when it runs): the Release's URL,
-   the tag and its commit, the assets, and the Release body's story list. When that session does
-   not run, say so in the release report instead of skipping the step silently.
+7. Announce: every release is announced, once step 6 holds, through the operator's announcement
+   route (the operator names it): the Release's URL, the tag and its commit, the assets, and the
+   Release body's story list. When that route cannot be reached, say so in the release report
+   instead of skipping the step silently.
 
 ## Sessions
 
