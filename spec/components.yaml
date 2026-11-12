@@ -71,6 +71,7 @@ components:
         - conductor.dispatch.ReportDone
         - conductor.dispatch.ReportFailed
         - conductor.dispatch.CancelDispatch
+        - conductor.dispatch.RecordDispatchLink
         - conductor.dispatch.ReceiveMessage
         - conductor.dispatch.HandleMessage
         - conductor.dispatch.RejectMessage
@@ -145,6 +146,7 @@ components:
         - conductor.dispatch.DispatchDone
         - conductor.dispatch.DispatchFailed
         - conductor.dispatch.DispatchCancelled
+        - conductor.dispatch.DispatchLinked
         - conductor.dispatch.MessageReceived
         - conductor.dispatch.MessageHandled
         - conductor.dispatch.MessageRejected
@@ -278,6 +280,7 @@ components:
             - conductor.dispatch.ReportDone
             - conductor.dispatch.ReportFailed
             - conductor.dispatch.CancelDispatch
+            - conductor.dispatch.RecordDispatchLink
           views:
             - conductor.dispatch.Dispatches
         - name: message

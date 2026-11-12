@@ -56,9 +56,11 @@ const TARGET_TMP: &str = concat!("CARGO_TARGET", "_TMPDIR");
 
 /// Files that name a module whose code reads the instance of the process, and reach no reader
 /// of it: the guard decides through `guard::decide` and `guard::decide_in` over the places a case
-/// gives it, and reads the instance only in the hook the binary runs.
-const REACHES_NO_READER: [&str; 4] = [
+/// gives it, and reads the instance only in the hook the binary runs; `SendDispatch` decides
+/// through `dispatch::behaviour` over the ports a case gives it, which reads no instance.
+const REACHES_NO_READER: [&str; 5] = [
     "adv_decision_authority.rs",
+    "adv_goal_id_unguarded.rs",
     "adv_guard.rs",
     "grouped_instance.rs",
     "guard_rules.rs",

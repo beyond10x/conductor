@@ -98,11 +98,15 @@ fn encode_dispatch(dispatch: &DispatchSnapshot) -> Value {
         "state": dispatch_state_name(dispatch.state),
         "dispatch_id": data.dispatch_id.0,
         "repository": data.repository.0,
-        "goal_id": data.goal_id.0,
+        "goal_id": data.goal_id.as_ref().map(|goal| &goal.0),
         "brief": data.brief,
         "sent_at": data.sent_at.0,
         "priority": data.priority,
         "waits_on": data.waits_on.as_ref().map(|waits_on| &waits_on.0),
+        "reference": data.reference,
+        "start_ref": data.start_ref,
+        "issue": data.issue,
+        "links": data.links,
     })
 }
 
@@ -115,7 +119,7 @@ fn decode_dispatch(body: &Value) -> Result<DispatchSnapshot, String> {
             actor: crate::actor::stored(body)?,
             dispatch_id: DispatchId(text(body, "dispatch_id")?),
             repository: RepositoryName(text(body, "repository")?),
-            goal_id: GoalId(text(body, "goal_id")?),
+            goal_id: optional_text(body, "goal_id")?.map(GoalId),
             brief: text(body, "brief")?,
             sent_at: Timestamp(text(body, "sent_at")?),
             priority: body
@@ -123,6 +127,10 @@ fn decode_dispatch(body: &Value) -> Result<DispatchSnapshot, String> {
                 .and_then(Value::as_i64)
                 .ok_or_else(|| "no integer field \"priority\"".to_owned())?,
             waits_on: optional_text(body, "waits_on")?.map(DispatchId),
+            reference: added_text(body, "reference")?,
+            start_ref: added_text(body, "start_ref")?,
+            issue: added_text(body, "issue")?,
+            links: added_texts(body, "links")?,
         },
     })
 }
@@ -289,5 +297,32 @@ fn optional_text(body: &Value, field: &str) -> Result<Option<String>, String> {
         Some(Value::Null) => Ok(None),
         Some(Value::String(value)) => Ok(Some(value.clone())),
         _ => Err(format!("no optional text field {field:?}")),
+    }
+}
+
+/// The text of an optional field a dispatch kept before the field was declared does not hold
+/// (`story:control-plane-work-handler`): missing or `null` is absent.
+fn added_text(body: &Value, field: &str) -> Result<Option<String>, String> {
+    match body.get(field) {
+        None | Some(Value::Null) => Ok(None),
+        Some(Value::String(value)) => Ok(Some(value.clone())),
+        Some(_) => Err(format!("field {field:?} is not text")),
+    }
+}
+
+/// A list of texts a dispatch kept before the field was declared does not hold: missing is the
+/// empty list.
+fn added_texts(body: &Value, field: &str) -> Result<Vec<String>, String> {
+    match body.get(field) {
+        None => Ok(Vec::new()),
+        Some(Value::Array(items)) => items
+            .iter()
+            .map(|item| {
+                item.as_str()
+                    .map(str::to_owned)
+                    .ok_or_else(|| format!("field {field:?} holds an element that is not text"))
+            })
+            .collect(),
+        Some(_) => Err(format!("field {field:?} is not a list")),
     }
 }

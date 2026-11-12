@@ -29,6 +29,7 @@
 //! [`crate::store::show`].
 
 use std::collections::BTreeSet;
+use std::fs::{File, OpenOptions};
 use std::io::Write as _;
 use std::path::Path;
 use std::process::ExitCode;
@@ -39,14 +40,16 @@ use conductor_model::behaviour::{
 };
 use conductor_model::direction::GoalId;
 use conductor_model::dispatch::obligations::{
-    CancelDispatchBehavior, DispatchesQuery, ReportBlockedBehavior, ReportDoneBehavior,
-    ReportFailedBehavior, ReportStartedBehavior, ReportUnblockedBehavior, SendDispatchBehavior,
+    CancelDispatchBehavior, DispatchesQuery, RecordDispatchLinkBehavior, ReportBlockedBehavior,
+    ReportDoneBehavior, ReportFailedBehavior, ReportStartedBehavior, ReportUnblockedBehavior,
+    SendDispatchBehavior,
 };
 use conductor_model::dispatch::{
     CancelDispatch, CancelDispatchOutcome, DispatchId, DispatchLogEvent, DispatchLogLine,
-    DispatchState, ReportBlocked, ReportBlockedOutcome, ReportDone, ReportDoneOutcome,
-    ReportFailed, ReportFailedOutcome, ReportStarted, ReportStartedOutcome, ReportUnblocked,
-    ReportUnblockedOutcome, SendDispatch, SendDispatchOutcome,
+    DispatchState, RecordDispatchLink, RecordDispatchLinkOutcome, ReportBlocked,
+    ReportBlockedOutcome, ReportDone, ReportDoneOutcome, ReportFailed, ReportFailedOutcome,
+    ReportStarted, ReportStartedOutcome, ReportUnblocked, ReportUnblockedOutcome, SendDispatch,
+    SendDispatchOutcome,
 };
 use conductor_model::obligation::UnmetObligation;
 use conductor_model::observation::RepositoryName;
@@ -54,13 +57,17 @@ use conductor_model::primitives::Timestamp;
 use serde_json::Value;
 
 use crate::cli::{
-    CancelDispatchArgs, JsonInput, ReportBlockedArgs, ReportDoneArgs, ReportFailedArgs,
-    ReportStartedArgs, ReportUnblockedArgs, SendDispatchArgs, ViewArgs,
+    CancelDispatchArgs, JsonInput, RecordDispatchLinkArgs, ReportBlockedArgs, ReportDoneArgs,
+    ReportFailedArgs, ReportStartedArgs, ReportUnblockedArgs, SendDispatchArgs, ViewArgs,
 };
 use crate::decide::{ATTEMPTS, highest, in_allocator_form, next_id, utc_day};
 use crate::not_implemented;
 use crate::records;
 use crate::store::{Store, StoreError};
+
+pub mod behaviour;
+
+pub use behaviour::{LINK_MOST, LINKS_MOST, REFERENCE_MOST, valid_link, valid_reference};
 
 /// The prefix `conductor.dispatch.DispatchId` declares (`spec/domains/dispatch.yaml`).
 const DISPATCH_PREFIX: &str = "DSP-";
@@ -143,12 +150,18 @@ fn send_to(state: Option<&Path>, args: SendDispatchArgs, known_only: bool) -> Re
     const COMMAND: &str = "dispatch send-dispatch";
     flags_only(args.input_json, "dispatch send-dispatch --input-json")?;
     let repository = RepositoryName(flag(COMMAND, "--repository", args.repository)?);
-    let goal_id = GoalId(flag(COMMAND, "--goal-id", args.goal_id)?);
+    let goal_id = args.goal_id.map(GoalId);
     let brief = flag(COMMAND, "--brief", args.brief)?;
     let sent_at = flag(COMMAND, "--sent-at", args.sent_at)?;
     // Lower runs first; a dispatch sent without one runs first (design § 3).
     let priority = args.priority.unwrap_or(0);
     let waits_on = args.waits_on.map(DispatchId);
+    let (reference, start_ref, issue) = (args.reference, args.start_ref, args.issue);
+    // A flag check, so it opens no store; the behaviour refuses the same input when another caller
+    // sends it.
+    if goal_id.is_none() && reference.is_none() {
+        return neither(COMMAND, &repository);
+    }
     let day = utc_day(&sent_at).with_context(|| format!("{COMMAND}: --sent-at {sent_at:?}"))?;
     if let Some(given) = &args.dispatch_id {
         in_allocator_form(COMMAND, "--dispatch-id", DISPATCH_PREFIX, given)?;
@@ -158,6 +171,9 @@ fn send_to(state: Option<&Path>, args: SendDispatchArgs, known_only: bool) -> Re
     if known_only {
         named(COMMAND, state, &repository.0)?;
     }
+    // A reference is held by one dispatch, and a repository with an open dispatch takes none with
+    // a reference: the check and the send are one step under the lock, however many sends race.
+    let _lock = lock(state)?;
 
     let mut before = None;
     for _ in 0..ATTEMPTS {
@@ -190,6 +206,9 @@ fn send_to(state: Option<&Path>, args: SendDispatchArgs, known_only: bool) -> Re
                 sent_at: Timestamp(sent_at.clone()),
                 priority,
                 waits_on: waits_on.clone(),
+                reference: reference.clone(),
+                start_ref: start_ref.clone(),
+                issue: issue.clone(),
             })
             .map_err(|unmet| anyhow!("{COMMAND}: {unmet}"))?;
         let held = match generated.ports.check() {
@@ -212,20 +231,27 @@ fn send_to(state: Option<&Path>, args: SendDispatchArgs, known_only: bool) -> Re
             }
         }
         return match outcome {
-            SendDispatchOutcome::Sent { dispatch_sent } => {
+            SendDispatchOutcome::Sent { dispatch_sent }
+            | SendDispatchOutcome::SentForReference { dispatch_sent } => {
                 let mut line = records::dispatch_line(DispatchLogEvent::Sent, &repository.0)?;
                 line.id = Some(dispatch_sent.dispatch_id.0.clone());
                 line.to = Some(
                     crate::config::session_name(&crate::config::active().instance, &repository.0).0,
                 );
-                line.goal = Some(goal_id.0.clone());
+                line.goal = goal_id.as_ref().map(|goal| goal.0.clone());
                 line.brief = Some(brief.clone());
                 line.priority = Some(priority);
                 line.waits_on = waits_on.as_ref().map(|waits_on| waits_on.0.clone());
+                line.reference.clone_from(&reference);
+                line.start_ref.clone_from(&start_ref);
+                line.issue.clone_from(&issue);
                 records::append_dispatch(&line).with_context(|| {
                     format!("{COMMAND}: dispatch {}", dispatch_sent.dispatch_id.0)
                 })?;
                 Ok(dispatch_sent.dispatch_id.0)
+            }
+            SendDispatchOutcome::ReferenceHeld { error } => {
+                holder(COMMAND, &generated.ports, &error.reference)
             }
             SendDispatchOutcome::AlreadySent { error } => exists(COMMAND, &error.dispatch_id),
             SendDispatchOutcome::NegativePriority { error } => refused(
@@ -245,11 +271,24 @@ fn send_to(state: Option<&Path>, args: SendDispatchArgs, known_only: bool) -> Re
                     error.dispatch_id.0
                 ),
             ),
+            SendDispatchOutcome::InvalidReference { error } => refused(
+                COMMAND,
+                "InvalidReference",
+                &format!(
+                    "--reference {:?} is not 1 to {REFERENCE_MOST} characters of A-Z a-z 0-9 . _ - \
+                     led by a letter or a digit, so nothing was sent",
+                    error.reference
+                ),
+            ),
+            SendDispatchOutcome::GoalOrReferenceMissing { error } => {
+                neither(COMMAND, &error.repository)
+            }
             SendDispatchOutcome::NoSuchGoal { error } => refused(
                 COMMAND,
                 "GoalNotFound",
                 &format!(
-                    "no goal has the id {:?}, and every dispatch serves a goal; nothing was sent",
+                    "no goal has the id {:?}, and a dispatch that names a goal serves one; \
+                     nothing was sent",
                     error.goal_id.0
                 ),
             ),
@@ -261,12 +300,142 @@ fn send_to(state: Option<&Path>, args: SendDispatchArgs, known_only: bool) -> Re
                     error.goal_id.0
                 ),
             ),
+            SendDispatchOutcome::RepositoryBusy { error } => refused(
+                COMMAND,
+                "RepositoryBusy",
+                &format!(
+                    "{} has the open dispatch {}, and a dispatch with a reference waits until it \
+                     ends; nothing was sent",
+                    error.repository.0,
+                    open_ids(COMMAND, &generated.ports, &error.repository)?.join(", ")
+                ),
+            ),
         };
     }
     bail!(
         "{COMMAND}: another writer took each of the {ATTEMPTS} ids allocated for {day}; nothing \
          was sent"
     )
+}
+
+/// The `GoalOrReferenceMissing` refusal of a dispatch to `repository`.
+fn neither<T>(command: &str, repository: &RepositoryName) -> Result<T> {
+    refused(
+        command,
+        "GoalOrReferenceMissing",
+        &format!(
+            "the dispatch to {} names neither --goal-id nor --reference, and a dispatch serves a \
+             goal or carries a work source's reference; nothing was sent",
+            repository.0
+        ),
+    )
+}
+
+/// The lock in the state directory `send-dispatch` holds from before it reads the dispatches
+/// until its dispatch is kept: the check that no dispatch holds the reference, or keeps the
+/// repository busy, and the send that records one are then one step. The store's own writer lock
+/// is taken by each commit and cannot be held across one, so this lock, as the controllers'
+/// (`controllers.lock`), is held instead.
+const LOCK: &str = "dispatches.lock";
+
+/// Opens the store, creating it when it is not there, then takes the dispatches' lock ([`LOCK`]),
+/// held until the answer is dropped.
+fn lock(state: Option<&Path>) -> Result<File> {
+    let dir = crate::state::dir(state)?;
+    // The store is opened first, so a state directory it refuses (one `conductor store migrate`
+    // is to move) is left as it was, and the directory the lock is made in exists.
+    drop(crate::store::open(&dir)?);
+    let path = dir.join(LOCK);
+    let lock = OpenOptions::new()
+        .create(true)
+        .truncate(false)
+        .write(true)
+        .open(&path)
+        .with_context(|| format!("open the dispatches' lock {}", path.display()))?;
+    lock.lock()
+        .with_context(|| format!("lock the dispatches {}", path.display()))?;
+    Ok(lock)
+}
+
+/// The id of the dispatch that holds `reference` (`ReferenceHeld`): what `send-dispatch` answers
+/// when the reference is sent again.
+fn holder(command: &str, store: &Store, reference: &str) -> Result<String> {
+    let held = DispatchStorage::list(store)
+        .into_iter()
+        .find(|held| held.data.reference.as_deref() == Some(reference))
+        .map(|held| held.data.dispatch_id.0);
+    kept(command, store)?;
+    held.ok_or_else(|| {
+        anyhow!("{command}: --reference {reference}: held by a dispatch, yet none reads back")
+    })
+}
+
+/// The ids of the open dispatches of `repository`, for a `RepositoryBusy` refusal.
+fn open_ids(command: &str, store: &Store, repository: &RepositoryName) -> Result<Vec<String>> {
+    let ids = DispatchStorage::list(store)
+        .into_iter()
+        .filter(|held| {
+            held.data.repository == *repository
+                && matches!(
+                    held.state,
+                    DispatchState::Sent | DispatchState::Started | DispatchState::Blocked
+                )
+        })
+        .map(|held| held.data.dispatch_id.0)
+        .collect();
+    kept(command, store)?;
+    Ok(ids)
+}
+
+/// `conductor dispatch record-link`: the command `conductor.dispatch.RecordDispatchLink`. A link
+/// the dispatch holds already changes nothing and writes no line.
+///
+/// # Errors
+///
+/// A flag is missing, `--input-json` is given ([`NotImplemented`](crate::NotImplemented)), the
+/// store does not open or keep the link, or the specification refuses it: `InvalidLink`,
+/// `DispatchNotFound`, `DispatchLinksFull`.
+pub fn record_link(state: Option<&Path>, args: RecordDispatchLinkArgs) -> Result<ExitCode> {
+    const COMMAND: &str = "dispatch record-link";
+    flags_only(args.input_json, "dispatch record-link --input-json")?;
+    let input = RecordDispatchLink {
+        actor: crate::actor::chosen(),
+        dispatch_id: dispatch_id(COMMAND, args.dispatch_id)?,
+        link: flag(COMMAND, "--link", args.link)?,
+    };
+    let (outcome, store) = run(state, COMMAND, |generated| {
+        generated.record_dispatch_link(input)
+    })?;
+    match outcome {
+        RecordDispatchLinkOutcome::Linked { dispatch_linked } => logged(
+            COMMAND,
+            &store,
+            &dispatch_linked.dispatch_id,
+            DispatchLogEvent::Linked,
+            |line| line.link = Some(dispatch_linked.link.clone()),
+        ),
+        RecordDispatchLinkOutcome::AlreadyLinked => Ok(ExitCode::SUCCESS),
+        RecordDispatchLinkOutcome::InvalidLink { error } => refused(
+            COMMAND,
+            "InvalidLink",
+            &format!(
+                "--link {:?} is not an http:// or https:// URL of at most {LINK_MOST} characters \
+                 without a space, so nothing was recorded",
+                error.link
+            ),
+        ),
+        RecordDispatchLinkOutcome::NoSuchDispatch { error } => {
+            no_dispatch(COMMAND, &error.dispatch_id)
+        }
+        RecordDispatchLinkOutcome::LinksFull { error } => refused(
+            COMMAND,
+            "DispatchLinksFull",
+            &format!(
+                "dispatch {} holds {LINKS_MOST} links, the most it holds, so nothing was recorded",
+                error.dispatch_id.0
+            ),
+        ),
+    }
 }
 
 /// `conductor dispatch report-started`: the command `conductor.dispatch.ReportStarted`.
@@ -491,7 +660,7 @@ pub fn cancel_dispatch(state: Option<&Path>, args: CancelDispatchArgs) -> Result
 /// output.
 pub fn dispatches(state: Option<&Path>, view: ViewArgs) -> Result<ExitCode> {
     /// The view's fields, in the specification's order (`spec/domains/dispatch.yaml`).
-    const COLUMNS: [&str; 9] = [
+    const COLUMNS: [&str; 13] = [
         "dispatch_id",
         "state",
         "repository",
@@ -501,6 +670,10 @@ pub fn dispatches(state: Option<&Path>, view: ViewArgs) -> Result<ExitCode> {
         "priority",
         "waits_on",
         "actor",
+        "reference",
+        "start_ref",
+        "issue",
+        "links",
     ];
 
     let generated = Generated::new(crate::state::open_reader(state)?);
@@ -514,12 +687,16 @@ pub fn dispatches(state: Option<&Path>, view: ViewArgs) -> Result<ExitCode> {
                 Value::from(row.dispatch_id.0),
                 Value::from(state_name(row.state)),
                 Value::from(row.repository.0),
-                Value::from(row.goal_id.0),
+                Value::from(row.goal_id.map(|goal| goal.0)),
                 Value::from(row.brief),
                 Value::from(row.sent_at.0),
                 Value::from(row.priority),
                 Value::from(row.waits_on.map(|waits_on| waits_on.0)),
                 Value::from(crate::actor::written(&row.actor)),
+                Value::from(row.reference),
+                Value::from(row.start_ref),
+                Value::from(row.issue),
+                Value::from(row.links),
             ]
         })
         .collect();

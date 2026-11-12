@@ -3,7 +3,8 @@
 //! `SendDispatch`, run against the real store.
 //!
 //! Both read the goal row through `GoalStorage::get` with the unchecked `input.goal_id`
-//! (`crates/conductor-model/src/behaviour.rs` `add_serving` and `send_dispatch`). No stream can
+//! (`crates/conductor-model/src/behaviour.rs` `add_serving`, and `send_dispatch` in
+//! `crates/conductor/src/dispatch/behaviour.rs`, where the plan owes it). No stream can
 //! carry some ids, so no goal is stored under one, and `story:store-hardening` (row "Added
 //! 2026-10-06") wants such a `get` to answer absent without latching the handle: the command
 //! answers `no-such-goal`, and a later write on the same handle is kept. Until wave 05 the store
@@ -33,6 +34,7 @@ use conductor_model::dispatch::{
     DispatchId, DispatchSnapshot, GuardDecisionId, MessageId, ResourceRequestId, SendDispatch,
     SendDispatchOutcome,
 };
+use conductor_model::obligation::UnmetObligation;
 use conductor_model::observation::{BoardId, ObservationId, RepositoryName, SnapshotId};
 use conductor_model::primitives::{Timestamp, Uuid};
 use eventlog_core::EventLogError;
@@ -102,6 +104,16 @@ impl DispatchStorage for Ports {
     }
     fn list(&self) -> Vec<DispatchSnapshot> {
         self.dispatches.clone()
+    }
+}
+
+/// `SendDispatch` is an obligation of the plan: conductor's own decision, over these ports.
+impl SendDispatchBehavior for Ports {
+    fn send_dispatch(
+        &mut self,
+        input: SendDispatch,
+    ) -> Result<SendDispatchOutcome, UnmetObligation> {
+        conductor_cli::dispatch::behaviour::send_dispatch(self, input)
     }
 }
 
@@ -311,11 +323,14 @@ fn adv_send_dispatch_with_an_unkeepable_goal_id_answers_no_such_goal_and_keeps_t
                 actor: conductor_cli::actor::daemon(),
                 dispatch_id: DispatchId("D1".to_owned()),
                 repository: RepositoryName("conductor".to_owned()),
-                goal_id: GoalId(goal.clone()),
+                goal_id: Some(GoalId(goal.clone())),
                 brief: "brief".to_owned(),
                 sent_at: Timestamp("2026-10-06T09:00:00Z".to_owned()),
                 priority: 0,
                 waits_on: None,
+                reference: None,
+                start_ref: None,
+                issue: None,
             })
             .expect("SendDispatch decides an outcome");
         assert!(

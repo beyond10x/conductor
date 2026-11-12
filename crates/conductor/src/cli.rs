@@ -399,6 +399,7 @@ impl Cli {
                 DispatchCommand::ReportDone(args) => dispatch::report_done(state, args),
                 DispatchCommand::ReportFailed(args) => dispatch::report_failed(state, args),
                 DispatchCommand::CancelDispatch(args) => dispatch::cancel_dispatch(state, args),
+                DispatchCommand::RecordDispatchLink(args) => dispatch::record_link(state, args),
                 DispatchCommand::Dispatches(view) => dispatch::dispatches(state, view),
             },
             Group::Message(command) => match command {
@@ -932,6 +933,7 @@ pub const LEAVES: &[(&[&str], Access)] = &[
     (&["controller", "all-controllers"], Access::Reads),
     (&["controller", "controllers"], Access::Reads),
     (&["dispatch", "cancel-dispatch"], Access::Writes),
+    (&["dispatch", "record-link"], Access::Writes),
     (&["dispatch", "report-blocked"], Access::Writes),
     (&["dispatch", "report-done"], Access::Writes),
     (&["dispatch", "report-failed"], Access::Writes),
@@ -1600,6 +1602,10 @@ pub enum DispatchCommand {
     /// Cancel a dispatch
     #[command(name = "cancel-dispatch")]
     CancelDispatch(CancelDispatchArgs),
+
+    /// Record a link on a dispatch
+    #[command(name = "record-link")]
+    RecordDispatchLink(RecordDispatchLinkArgs),
 
     /// Report a dispatch blocked
     #[command(name = "report-blocked")]
@@ -4346,7 +4352,7 @@ pub struct SendDispatchArgs {
     /// RepositoryName
     #[arg(long)]
     pub repository: Option<String>,
-    /// GoalId
+    /// GoalId, optional
     #[arg(long)]
     pub goal_id: Option<String>,
     /// string
@@ -4361,6 +4367,15 @@ pub struct SendDispatchArgs {
     /// DispatchId, starting with `DSP-`, optional
     #[arg(long, value_parser = prefixed("DSP-"))]
     pub waits_on: Option<String>,
+    /// string, optional
+    #[arg(long)]
+    pub reference: Option<String>,
+    /// string, optional
+    #[arg(long)]
+    pub start_ref: Option<String>,
+    /// string, optional
+    #[arg(long)]
+    pub issue: Option<String>,
     /// Actor, one JSON object: who issues the command, `{"kind": "Human", "operator": "<name>"}`,
     /// `{"kind": "Agent", "agent": {"instance", "role", "name", "kind"}}` or `{"kind": "Daemon"}`;
     /// default: the calling session as an agent where `CONDUCTOR_SESSION` names one, else the
@@ -4475,6 +4490,26 @@ pub struct CancelDispatchArgs {
     /// string
     #[arg(long)]
     pub reason: Option<String>,
+    /// Actor, one JSON object: who issues the command, `{"kind": "Human", "operator": "<name>"}`,
+    /// `{"kind": "Agent", "agent": {"instance", "role", "name", "kind"}}` or `{"kind": "Daemon"}`;
+    /// default: the calling session as an agent where `CONDUCTOR_SESSION` names one, else the
+    /// operator
+    #[arg(long, value_parser = actor)]
+    pub actor: Option<String>,
+    /// Read the input fields from standard input, as one JSON object
+    #[arg(long, value_enum)]
+    pub input_json: Option<JsonInput>,
+}
+
+/// The input of `conductor.dispatch.RecordDispatchLink`.
+#[derive(Debug, Clone, Args)]
+pub struct RecordDispatchLinkArgs {
+    /// DispatchId, starting with `DSP-`
+    #[arg(long, value_parser = prefixed("DSP-"))]
+    pub dispatch_id: Option<String>,
+    /// string
+    #[arg(long)]
+    pub link: Option<String>,
     /// Actor, one JSON object: who issues the command, `{"kind": "Human", "operator": "<name>"}`,
     /// `{"kind": "Agent", "agent": {"instance", "role", "name", "kind"}}` or `{"kind": "Daemon"}`;
     /// default: the calling session as an agent where `CONDUCTOR_SESSION` names one, else the

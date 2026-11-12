@@ -1,5 +1,5 @@
 // generated from conductor v1
-// contract digest 3ecaf75891d0174f1aadd06ecb145177f190b67bde1ebf99b046b751e53c6775
+// contract digest e2ec07cfcbdedb3f66deb98b800a9ec8bb9ee2f47b9c2aa2880ecc31913fd7d6
 // do not edit: regenerate with `ess synthesize --layout crate`
 
 //! Ephemeral stores for the generated network entry points; no durability.
@@ -216,9 +216,9 @@ fn list(&self) -> Vec<crate::dispatch::ResourceRequestSnapshot> { crate::behavio
 #[derive(Clone, Default)]
 pub struct MemoryHostGrantStorage(std::rc::Rc<std::cell::RefCell<Vec<crate::host::HostGrantSnapshot>>>);
 impl crate::behaviour::HostGrantStorage for MemoryHostGrantStorage {
-fn get(&self, identity: &crate::host::GrantId) -> Option<crate::host::HostGrantSnapshot> { let key = memory_key_175(identity); self.0.borrow().iter().find(|row| memory_key_175(&row.data.grant_id) == key).cloned() }
-fn put(&mut self, snapshot: crate::host::HostGrantSnapshot) { self.delete(&snapshot.data.grant_id); let mut rows = self.0.borrow_mut(); rows.push(snapshot); rows.sort_by(|row, other| memory_key_175(&row.data.grant_id).cmp(&memory_key_175(&other.data.grant_id))); }
-fn delete(&mut self, identity: &crate::host::GrantId) { let key = memory_key_175(identity); self.0.borrow_mut().retain(|row| memory_key_175(&row.data.grant_id) != key); }
+fn get(&self, identity: &crate::host::GrantId) -> Option<crate::host::HostGrantSnapshot> { let key = memory_key_177(identity); self.0.borrow().iter().find(|row| memory_key_177(&row.data.grant_id) == key).cloned() }
+fn put(&mut self, snapshot: crate::host::HostGrantSnapshot) { self.delete(&snapshot.data.grant_id); let mut rows = self.0.borrow_mut(); rows.push(snapshot); rows.sort_by(|row, other| memory_key_177(&row.data.grant_id).cmp(&memory_key_177(&other.data.grant_id))); }
+fn delete(&mut self, identity: &crate::host::GrantId) { let key = memory_key_177(identity); self.0.borrow_mut().retain(|row| memory_key_177(&row.data.grant_id) != key); }
 fn list(&self) -> Vec<crate::host::HostGrantSnapshot> { self.0.borrow().clone() }
 }
 impl crate::behaviour::HostGrantStorage for MemoryPorts {
@@ -232,9 +232,9 @@ fn list(&self) -> Vec<crate::host::HostGrantSnapshot> { crate::behaviour::HostGr
 #[derive(Clone, Default)]
 pub struct MemoryReclaimRunStorage(std::rc::Rc<std::cell::RefCell<Vec<crate::host::ReclaimRunSnapshot>>>);
 impl crate::behaviour::ReclaimRunStorage for MemoryReclaimRunStorage {
-fn get(&self, identity: &crate::host::ReclaimRunId) -> Option<crate::host::ReclaimRunSnapshot> { let key = memory_key_184(identity); self.0.borrow().iter().find(|row| memory_key_184(&row.data.reclaim_run_id) == key).cloned() }
-fn put(&mut self, snapshot: crate::host::ReclaimRunSnapshot) { self.delete(&snapshot.data.reclaim_run_id); let mut rows = self.0.borrow_mut(); rows.push(snapshot); rows.sort_by(|row, other| memory_key_184(&row.data.reclaim_run_id).cmp(&memory_key_184(&other.data.reclaim_run_id))); }
-fn delete(&mut self, identity: &crate::host::ReclaimRunId) { let key = memory_key_184(identity); self.0.borrow_mut().retain(|row| memory_key_184(&row.data.reclaim_run_id) != key); }
+fn get(&self, identity: &crate::host::ReclaimRunId) -> Option<crate::host::ReclaimRunSnapshot> { let key = memory_key_186(identity); self.0.borrow().iter().find(|row| memory_key_186(&row.data.reclaim_run_id) == key).cloned() }
+fn put(&mut self, snapshot: crate::host::ReclaimRunSnapshot) { self.delete(&snapshot.data.reclaim_run_id); let mut rows = self.0.borrow_mut(); rows.push(snapshot); rows.sort_by(|row, other| memory_key_186(&row.data.reclaim_run_id).cmp(&memory_key_186(&other.data.reclaim_run_id))); }
+fn delete(&mut self, identity: &crate::host::ReclaimRunId) { let key = memory_key_186(identity); self.0.borrow_mut().retain(|row| memory_key_186(&row.data.reclaim_run_id) != key); }
 fn list(&self) -> Vec<crate::host::ReclaimRunSnapshot> { self.0.borrow().clone() }
 }
 impl crate::behaviour::ReclaimRunStorage for MemoryPorts {
@@ -248,9 +248,9 @@ fn list(&self) -> Vec<crate::host::ReclaimRunSnapshot> { crate::behaviour::Recla
 #[derive(Clone, Default)]
 pub struct MemoryFrictionFindingStorage(std::rc::Rc<std::cell::RefCell<Vec<crate::improvement::FrictionFindingSnapshot>>>);
 impl crate::behaviour::FrictionFindingStorage for MemoryFrictionFindingStorage {
-fn get(&self, identity: &crate::improvement::FindingId) -> Option<crate::improvement::FrictionFindingSnapshot> { let key = memory_key_189(identity); self.0.borrow().iter().find(|row| memory_key_189(&row.data.finding_id) == key).cloned() }
-fn put(&mut self, snapshot: crate::improvement::FrictionFindingSnapshot) { self.delete(&snapshot.data.finding_id); let mut rows = self.0.borrow_mut(); rows.push(snapshot); rows.sort_by(|row, other| memory_key_189(&row.data.finding_id).cmp(&memory_key_189(&other.data.finding_id))); }
-fn delete(&mut self, identity: &crate::improvement::FindingId) { let key = memory_key_189(identity); self.0.borrow_mut().retain(|row| memory_key_189(&row.data.finding_id) != key); }
+fn get(&self, identity: &crate::improvement::FindingId) -> Option<crate::improvement::FrictionFindingSnapshot> { let key = memory_key_191(identity); self.0.borrow().iter().find(|row| memory_key_191(&row.data.finding_id) == key).cloned() }
+fn put(&mut self, snapshot: crate::improvement::FrictionFindingSnapshot) { self.delete(&snapshot.data.finding_id); let mut rows = self.0.borrow_mut(); rows.push(snapshot); rows.sort_by(|row, other| memory_key_191(&row.data.finding_id).cmp(&memory_key_191(&other.data.finding_id))); }
+fn delete(&mut self, identity: &crate::improvement::FindingId) { let key = memory_key_191(identity); self.0.borrow_mut().retain(|row| memory_key_191(&row.data.finding_id) != key); }
 fn list(&self) -> Vec<crate::improvement::FrictionFindingSnapshot> { self.0.borrow().clone() }
 }
 impl crate::behaviour::FrictionFindingStorage for MemoryPorts {
@@ -264,9 +264,9 @@ fn list(&self) -> Vec<crate::improvement::FrictionFindingSnapshot> { crate::beha
 #[derive(Clone, Default)]
 pub struct MemoryMetricStorage(std::rc::Rc<std::cell::RefCell<Vec<crate::improvement::MetricSnapshot>>>);
 impl crate::behaviour::MetricStorage for MemoryMetricStorage {
-fn get(&self, identity: &crate::improvement::MetricId) -> Option<crate::improvement::MetricSnapshot> { let key = memory_key_192(identity); self.0.borrow().iter().find(|row| memory_key_192(&row.data.metric_id) == key).cloned() }
-fn put(&mut self, snapshot: crate::improvement::MetricSnapshot) { self.delete(&snapshot.data.metric_id); let mut rows = self.0.borrow_mut(); rows.push(snapshot); rows.sort_by(|row, other| memory_key_192(&row.data.metric_id).cmp(&memory_key_192(&other.data.metric_id))); }
-fn delete(&mut self, identity: &crate::improvement::MetricId) { let key = memory_key_192(identity); self.0.borrow_mut().retain(|row| memory_key_192(&row.data.metric_id) != key); }
+fn get(&self, identity: &crate::improvement::MetricId) -> Option<crate::improvement::MetricSnapshot> { let key = memory_key_194(identity); self.0.borrow().iter().find(|row| memory_key_194(&row.data.metric_id) == key).cloned() }
+fn put(&mut self, snapshot: crate::improvement::MetricSnapshot) { self.delete(&snapshot.data.metric_id); let mut rows = self.0.borrow_mut(); rows.push(snapshot); rows.sort_by(|row, other| memory_key_194(&row.data.metric_id).cmp(&memory_key_194(&other.data.metric_id))); }
+fn delete(&mut self, identity: &crate::improvement::MetricId) { let key = memory_key_194(identity); self.0.borrow_mut().retain(|row| memory_key_194(&row.data.metric_id) != key); }
 fn list(&self) -> Vec<crate::improvement::MetricSnapshot> { self.0.borrow().clone() }
 }
 impl crate::behaviour::MetricStorage for MemoryPorts {
@@ -280,9 +280,9 @@ fn list(&self) -> Vec<crate::improvement::MetricSnapshot> { crate::behaviour::Me
 #[derive(Clone, Default)]
 pub struct MemoryMetricReadingStorage(std::rc::Rc<std::cell::RefCell<Vec<crate::improvement::MetricReadingSnapshot>>>);
 impl crate::behaviour::MetricReadingStorage for MemoryMetricReadingStorage {
-fn get(&self, identity: &crate::improvement::MetricReadingId) -> Option<crate::improvement::MetricReadingSnapshot> { let key = memory_key_194(identity); self.0.borrow().iter().find(|row| memory_key_194(&row.data.reading_id) == key).cloned() }
-fn put(&mut self, snapshot: crate::improvement::MetricReadingSnapshot) { self.delete(&snapshot.data.reading_id); let mut rows = self.0.borrow_mut(); rows.push(snapshot); rows.sort_by(|row, other| memory_key_194(&row.data.reading_id).cmp(&memory_key_194(&other.data.reading_id))); }
-fn delete(&mut self, identity: &crate::improvement::MetricReadingId) { let key = memory_key_194(identity); self.0.borrow_mut().retain(|row| memory_key_194(&row.data.reading_id) != key); }
+fn get(&self, identity: &crate::improvement::MetricReadingId) -> Option<crate::improvement::MetricReadingSnapshot> { let key = memory_key_196(identity); self.0.borrow().iter().find(|row| memory_key_196(&row.data.reading_id) == key).cloned() }
+fn put(&mut self, snapshot: crate::improvement::MetricReadingSnapshot) { self.delete(&snapshot.data.reading_id); let mut rows = self.0.borrow_mut(); rows.push(snapshot); rows.sort_by(|row, other| memory_key_196(&row.data.reading_id).cmp(&memory_key_196(&other.data.reading_id))); }
+fn delete(&mut self, identity: &crate::improvement::MetricReadingId) { let key = memory_key_196(identity); self.0.borrow_mut().retain(|row| memory_key_196(&row.data.reading_id) != key); }
 fn list(&self) -> Vec<crate::improvement::MetricReadingSnapshot> { self.0.borrow().clone() }
 }
 impl crate::behaviour::MetricReadingStorage for MemoryPorts {
@@ -296,9 +296,9 @@ fn list(&self) -> Vec<crate::improvement::MetricReadingSnapshot> { crate::behavi
 #[derive(Clone, Default)]
 pub struct MemorySettingsProposalStorage(std::rc::Rc<std::cell::RefCell<Vec<crate::improvement::SettingsProposalSnapshot>>>);
 impl crate::behaviour::SettingsProposalStorage for MemorySettingsProposalStorage {
-fn get(&self, identity: &crate::improvement::ProposalId) -> Option<crate::improvement::SettingsProposalSnapshot> { let key = memory_key_195(identity); self.0.borrow().iter().find(|row| memory_key_195(&row.data.proposal_id) == key).cloned() }
-fn put(&mut self, snapshot: crate::improvement::SettingsProposalSnapshot) { self.delete(&snapshot.data.proposal_id); let mut rows = self.0.borrow_mut(); rows.push(snapshot); rows.sort_by(|row, other| memory_key_195(&row.data.proposal_id).cmp(&memory_key_195(&other.data.proposal_id))); }
-fn delete(&mut self, identity: &crate::improvement::ProposalId) { let key = memory_key_195(identity); self.0.borrow_mut().retain(|row| memory_key_195(&row.data.proposal_id) != key); }
+fn get(&self, identity: &crate::improvement::ProposalId) -> Option<crate::improvement::SettingsProposalSnapshot> { let key = memory_key_197(identity); self.0.borrow().iter().find(|row| memory_key_197(&row.data.proposal_id) == key).cloned() }
+fn put(&mut self, snapshot: crate::improvement::SettingsProposalSnapshot) { self.delete(&snapshot.data.proposal_id); let mut rows = self.0.borrow_mut(); rows.push(snapshot); rows.sort_by(|row, other| memory_key_197(&row.data.proposal_id).cmp(&memory_key_197(&other.data.proposal_id))); }
+fn delete(&mut self, identity: &crate::improvement::ProposalId) { let key = memory_key_197(identity); self.0.borrow_mut().retain(|row| memory_key_197(&row.data.proposal_id) != key); }
 fn list(&self) -> Vec<crate::improvement::SettingsProposalSnapshot> { self.0.borrow().clone() }
 }
 impl crate::behaviour::SettingsProposalStorage for MemoryPorts {
@@ -328,9 +328,9 @@ fn list(&self) -> Vec<crate::instance::InstanceSnapshot> { crate::behaviour::Ins
 #[derive(Clone, Default)]
 pub struct MemoryReconciliationStorage(std::rc::Rc<std::cell::RefCell<Vec<crate::instance::ReconciliationSnapshot>>>);
 impl crate::behaviour::ReconciliationStorage for MemoryReconciliationStorage {
-fn get(&self, identity: &crate::instance::ReconciliationId) -> Option<crate::instance::ReconciliationSnapshot> { let key = memory_key_205(identity); self.0.borrow().iter().find(|row| memory_key_205(&row.data.reconciliation_id) == key).cloned() }
-fn put(&mut self, snapshot: crate::instance::ReconciliationSnapshot) { self.delete(&snapshot.data.reconciliation_id); let mut rows = self.0.borrow_mut(); rows.push(snapshot); rows.sort_by(|row, other| memory_key_205(&row.data.reconciliation_id).cmp(&memory_key_205(&other.data.reconciliation_id))); }
-fn delete(&mut self, identity: &crate::instance::ReconciliationId) { let key = memory_key_205(identity); self.0.borrow_mut().retain(|row| memory_key_205(&row.data.reconciliation_id) != key); }
+fn get(&self, identity: &crate::instance::ReconciliationId) -> Option<crate::instance::ReconciliationSnapshot> { let key = memory_key_207(identity); self.0.borrow().iter().find(|row| memory_key_207(&row.data.reconciliation_id) == key).cloned() }
+fn put(&mut self, snapshot: crate::instance::ReconciliationSnapshot) { self.delete(&snapshot.data.reconciliation_id); let mut rows = self.0.borrow_mut(); rows.push(snapshot); rows.sort_by(|row, other| memory_key_207(&row.data.reconciliation_id).cmp(&memory_key_207(&other.data.reconciliation_id))); }
+fn delete(&mut self, identity: &crate::instance::ReconciliationId) { let key = memory_key_207(identity); self.0.borrow_mut().retain(|row| memory_key_207(&row.data.reconciliation_id) != key); }
 fn list(&self) -> Vec<crate::instance::ReconciliationSnapshot> { self.0.borrow().clone() }
 }
 impl crate::behaviour::ReconciliationStorage for MemoryPorts {
@@ -344,9 +344,9 @@ fn list(&self) -> Vec<crate::instance::ReconciliationSnapshot> { crate::behaviou
 #[derive(Clone, Default)]
 pub struct MemoryBlockerObservationStorage(std::rc::Rc<std::cell::RefCell<Vec<crate::observation::BlockerObservationSnapshot>>>);
 impl crate::behaviour::BlockerObservationStorage for MemoryBlockerObservationStorage {
-fn get(&self, identity: &crate::observation::ObservationId) -> Option<crate::observation::BlockerObservationSnapshot> { let key = memory_key_229(identity); self.0.borrow().iter().find(|row| memory_key_229(&row.data.observation_id) == key).cloned() }
-fn put(&mut self, snapshot: crate::observation::BlockerObservationSnapshot) { self.delete(&snapshot.data.observation_id); let mut rows = self.0.borrow_mut(); rows.push(snapshot); rows.sort_by(|row, other| memory_key_229(&row.data.observation_id).cmp(&memory_key_229(&other.data.observation_id))); }
-fn delete(&mut self, identity: &crate::observation::ObservationId) { let key = memory_key_229(identity); self.0.borrow_mut().retain(|row| memory_key_229(&row.data.observation_id) != key); }
+fn get(&self, identity: &crate::observation::ObservationId) -> Option<crate::observation::BlockerObservationSnapshot> { let key = memory_key_231(identity); self.0.borrow().iter().find(|row| memory_key_231(&row.data.observation_id) == key).cloned() }
+fn put(&mut self, snapshot: crate::observation::BlockerObservationSnapshot) { self.delete(&snapshot.data.observation_id); let mut rows = self.0.borrow_mut(); rows.push(snapshot); rows.sort_by(|row, other| memory_key_231(&row.data.observation_id).cmp(&memory_key_231(&other.data.observation_id))); }
+fn delete(&mut self, identity: &crate::observation::ObservationId) { let key = memory_key_231(identity); self.0.borrow_mut().retain(|row| memory_key_231(&row.data.observation_id) != key); }
 fn list(&self) -> Vec<crate::observation::BlockerObservationSnapshot> { self.0.borrow().clone() }
 }
 impl crate::behaviour::BlockerObservationStorage for MemoryPorts {
@@ -360,9 +360,9 @@ fn list(&self) -> Vec<crate::observation::BlockerObservationSnapshot> { crate::b
 #[derive(Clone, Default)]
 pub struct MemoryBoardStorage(std::rc::Rc<std::cell::RefCell<Vec<crate::observation::BoardSnapshot>>>);
 impl crate::behaviour::BoardStorage for MemoryBoardStorage {
-fn get(&self, identity: &crate::observation::BoardId) -> Option<crate::observation::BoardSnapshot> { let key = memory_key_211(identity); self.0.borrow().iter().find(|row| memory_key_211(&row.data.board_id) == key).cloned() }
-fn put(&mut self, snapshot: crate::observation::BoardSnapshot) { self.delete(&snapshot.data.board_id); let mut rows = self.0.borrow_mut(); rows.push(snapshot); rows.sort_by(|row, other| memory_key_211(&row.data.board_id).cmp(&memory_key_211(&other.data.board_id))); }
-fn delete(&mut self, identity: &crate::observation::BoardId) { let key = memory_key_211(identity); self.0.borrow_mut().retain(|row| memory_key_211(&row.data.board_id) != key); }
+fn get(&self, identity: &crate::observation::BoardId) -> Option<crate::observation::BoardSnapshot> { let key = memory_key_213(identity); self.0.borrow().iter().find(|row| memory_key_213(&row.data.board_id) == key).cloned() }
+fn put(&mut self, snapshot: crate::observation::BoardSnapshot) { self.delete(&snapshot.data.board_id); let mut rows = self.0.borrow_mut(); rows.push(snapshot); rows.sort_by(|row, other| memory_key_213(&row.data.board_id).cmp(&memory_key_213(&other.data.board_id))); }
+fn delete(&mut self, identity: &crate::observation::BoardId) { let key = memory_key_213(identity); self.0.borrow_mut().retain(|row| memory_key_213(&row.data.board_id) != key); }
 fn list(&self) -> Vec<crate::observation::BoardSnapshot> { self.0.borrow().clone() }
 }
 impl crate::behaviour::BoardStorage for MemoryPorts {
@@ -376,9 +376,9 @@ fn list(&self) -> Vec<crate::observation::BoardSnapshot> { crate::behaviour::Boa
 #[derive(Clone, Default)]
 pub struct MemoryCollectorRunObservationStorage(std::rc::Rc<std::cell::RefCell<Vec<crate::observation::CollectorRunObservationSnapshot>>>);
 impl crate::behaviour::CollectorRunObservationStorage for MemoryCollectorRunObservationStorage {
-fn get(&self, identity: &crate::observation::ObservationId) -> Option<crate::observation::CollectorRunObservationSnapshot> { let key = memory_key_229(identity); self.0.borrow().iter().find(|row| memory_key_229(&row.data.observation_id) == key).cloned() }
-fn put(&mut self, snapshot: crate::observation::CollectorRunObservationSnapshot) { self.delete(&snapshot.data.observation_id); let mut rows = self.0.borrow_mut(); rows.push(snapshot); rows.sort_by(|row, other| memory_key_229(&row.data.observation_id).cmp(&memory_key_229(&other.data.observation_id))); }
-fn delete(&mut self, identity: &crate::observation::ObservationId) { let key = memory_key_229(identity); self.0.borrow_mut().retain(|row| memory_key_229(&row.data.observation_id) != key); }
+fn get(&self, identity: &crate::observation::ObservationId) -> Option<crate::observation::CollectorRunObservationSnapshot> { let key = memory_key_231(identity); self.0.borrow().iter().find(|row| memory_key_231(&row.data.observation_id) == key).cloned() }
+fn put(&mut self, snapshot: crate::observation::CollectorRunObservationSnapshot) { self.delete(&snapshot.data.observation_id); let mut rows = self.0.borrow_mut(); rows.push(snapshot); rows.sort_by(|row, other| memory_key_231(&row.data.observation_id).cmp(&memory_key_231(&other.data.observation_id))); }
+fn delete(&mut self, identity: &crate::observation::ObservationId) { let key = memory_key_231(identity); self.0.borrow_mut().retain(|row| memory_key_231(&row.data.observation_id) != key); }
 fn list(&self) -> Vec<crate::observation::CollectorRunObservationSnapshot> { self.0.borrow().clone() }
 }
 impl crate::behaviour::CollectorRunObservationStorage for MemoryPorts {
@@ -392,9 +392,9 @@ fn list(&self) -> Vec<crate::observation::CollectorRunObservationSnapshot> { cra
 #[derive(Clone, Default)]
 pub struct MemoryDailySeriesStorage(std::rc::Rc<std::cell::RefCell<Vec<crate::observation::DailySeriesSnapshot>>>);
 impl crate::behaviour::DailySeriesStorage for MemoryDailySeriesStorage {
-fn get(&self, identity: &crate::observation::DailySeriesId) -> Option<crate::observation::DailySeriesSnapshot> { let key = memory_key_217(identity); self.0.borrow().iter().find(|row| memory_key_217(&row.data.daily_series_id) == key).cloned() }
-fn put(&mut self, snapshot: crate::observation::DailySeriesSnapshot) { self.delete(&snapshot.data.daily_series_id); let mut rows = self.0.borrow_mut(); rows.push(snapshot); rows.sort_by(|row, other| memory_key_217(&row.data.daily_series_id).cmp(&memory_key_217(&other.data.daily_series_id))); }
-fn delete(&mut self, identity: &crate::observation::DailySeriesId) { let key = memory_key_217(identity); self.0.borrow_mut().retain(|row| memory_key_217(&row.data.daily_series_id) != key); }
+fn get(&self, identity: &crate::observation::DailySeriesId) -> Option<crate::observation::DailySeriesSnapshot> { let key = memory_key_219(identity); self.0.borrow().iter().find(|row| memory_key_219(&row.data.daily_series_id) == key).cloned() }
+fn put(&mut self, snapshot: crate::observation::DailySeriesSnapshot) { self.delete(&snapshot.data.daily_series_id); let mut rows = self.0.borrow_mut(); rows.push(snapshot); rows.sort_by(|row, other| memory_key_219(&row.data.daily_series_id).cmp(&memory_key_219(&other.data.daily_series_id))); }
+fn delete(&mut self, identity: &crate::observation::DailySeriesId) { let key = memory_key_219(identity); self.0.borrow_mut().retain(|row| memory_key_219(&row.data.daily_series_id) != key); }
 }
 impl crate::behaviour::DailySeriesStorage for MemoryPorts {
 fn get(&self, identity: &crate::observation::DailySeriesId) -> Option<crate::observation::DailySeriesSnapshot> { crate::behaviour::DailySeriesStorage::get(&self.daily_series_storage, identity) }
@@ -406,9 +406,9 @@ fn delete(&mut self, identity: &crate::observation::DailySeriesId) { crate::beha
 #[derive(Clone, Default)]
 pub struct MemoryMemberFailureObservationStorage(std::rc::Rc<std::cell::RefCell<Vec<crate::observation::MemberFailureObservationSnapshot>>>);
 impl crate::behaviour::MemberFailureObservationStorage for MemoryMemberFailureObservationStorage {
-fn get(&self, identity: &crate::observation::ObservationId) -> Option<crate::observation::MemberFailureObservationSnapshot> { let key = memory_key_229(identity); self.0.borrow().iter().find(|row| memory_key_229(&row.data.observation_id) == key).cloned() }
-fn put(&mut self, snapshot: crate::observation::MemberFailureObservationSnapshot) { self.delete(&snapshot.data.observation_id); let mut rows = self.0.borrow_mut(); rows.push(snapshot); rows.sort_by(|row, other| memory_key_229(&row.data.observation_id).cmp(&memory_key_229(&other.data.observation_id))); }
-fn delete(&mut self, identity: &crate::observation::ObservationId) { let key = memory_key_229(identity); self.0.borrow_mut().retain(|row| memory_key_229(&row.data.observation_id) != key); }
+fn get(&self, identity: &crate::observation::ObservationId) -> Option<crate::observation::MemberFailureObservationSnapshot> { let key = memory_key_231(identity); self.0.borrow().iter().find(|row| memory_key_231(&row.data.observation_id) == key).cloned() }
+fn put(&mut self, snapshot: crate::observation::MemberFailureObservationSnapshot) { self.delete(&snapshot.data.observation_id); let mut rows = self.0.borrow_mut(); rows.push(snapshot); rows.sort_by(|row, other| memory_key_231(&row.data.observation_id).cmp(&memory_key_231(&other.data.observation_id))); }
+fn delete(&mut self, identity: &crate::observation::ObservationId) { let key = memory_key_231(identity); self.0.borrow_mut().retain(|row| memory_key_231(&row.data.observation_id) != key); }
 fn list(&self) -> Vec<crate::observation::MemberFailureObservationSnapshot> { self.0.borrow().clone() }
 }
 impl crate::behaviour::MemberFailureObservationStorage for MemoryPorts {
@@ -422,9 +422,9 @@ fn list(&self) -> Vec<crate::observation::MemberFailureObservationSnapshot> { cr
 #[derive(Clone, Default)]
 pub struct MemoryMergedPullRequestObservationStorage(std::rc::Rc<std::cell::RefCell<Vec<crate::observation::MergedPullRequestObservationSnapshot>>>);
 impl crate::behaviour::MergedPullRequestObservationStorage for MemoryMergedPullRequestObservationStorage {
-fn get(&self, identity: &crate::observation::ObservationId) -> Option<crate::observation::MergedPullRequestObservationSnapshot> { let key = memory_key_229(identity); self.0.borrow().iter().find(|row| memory_key_229(&row.data.observation_id) == key).cloned() }
-fn put(&mut self, snapshot: crate::observation::MergedPullRequestObservationSnapshot) { self.delete(&snapshot.data.observation_id); let mut rows = self.0.borrow_mut(); rows.push(snapshot); rows.sort_by(|row, other| memory_key_229(&row.data.observation_id).cmp(&memory_key_229(&other.data.observation_id))); }
-fn delete(&mut self, identity: &crate::observation::ObservationId) { let key = memory_key_229(identity); self.0.borrow_mut().retain(|row| memory_key_229(&row.data.observation_id) != key); }
+fn get(&self, identity: &crate::observation::ObservationId) -> Option<crate::observation::MergedPullRequestObservationSnapshot> { let key = memory_key_231(identity); self.0.borrow().iter().find(|row| memory_key_231(&row.data.observation_id) == key).cloned() }
+fn put(&mut self, snapshot: crate::observation::MergedPullRequestObservationSnapshot) { self.delete(&snapshot.data.observation_id); let mut rows = self.0.borrow_mut(); rows.push(snapshot); rows.sort_by(|row, other| memory_key_231(&row.data.observation_id).cmp(&memory_key_231(&other.data.observation_id))); }
+fn delete(&mut self, identity: &crate::observation::ObservationId) { let key = memory_key_231(identity); self.0.borrow_mut().retain(|row| memory_key_231(&row.data.observation_id) != key); }
 fn list(&self) -> Vec<crate::observation::MergedPullRequestObservationSnapshot> { self.0.borrow().clone() }
 }
 impl crate::behaviour::MergedPullRequestObservationStorage for MemoryPorts {
@@ -438,9 +438,9 @@ fn list(&self) -> Vec<crate::observation::MergedPullRequestObservationSnapshot> 
 #[derive(Clone, Default)]
 pub struct MemoryPullRequestObservationStorage(std::rc::Rc<std::cell::RefCell<Vec<crate::observation::PullRequestObservationSnapshot>>>);
 impl crate::behaviour::PullRequestObservationStorage for MemoryPullRequestObservationStorage {
-fn get(&self, identity: &crate::observation::ObservationId) -> Option<crate::observation::PullRequestObservationSnapshot> { let key = memory_key_229(identity); self.0.borrow().iter().find(|row| memory_key_229(&row.data.observation_id) == key).cloned() }
-fn put(&mut self, snapshot: crate::observation::PullRequestObservationSnapshot) { self.delete(&snapshot.data.observation_id); let mut rows = self.0.borrow_mut(); rows.push(snapshot); rows.sort_by(|row, other| memory_key_229(&row.data.observation_id).cmp(&memory_key_229(&other.data.observation_id))); }
-fn delete(&mut self, identity: &crate::observation::ObservationId) { let key = memory_key_229(identity); self.0.borrow_mut().retain(|row| memory_key_229(&row.data.observation_id) != key); }
+fn get(&self, identity: &crate::observation::ObservationId) -> Option<crate::observation::PullRequestObservationSnapshot> { let key = memory_key_231(identity); self.0.borrow().iter().find(|row| memory_key_231(&row.data.observation_id) == key).cloned() }
+fn put(&mut self, snapshot: crate::observation::PullRequestObservationSnapshot) { self.delete(&snapshot.data.observation_id); let mut rows = self.0.borrow_mut(); rows.push(snapshot); rows.sort_by(|row, other| memory_key_231(&row.data.observation_id).cmp(&memory_key_231(&other.data.observation_id))); }
+fn delete(&mut self, identity: &crate::observation::ObservationId) { let key = memory_key_231(identity); self.0.borrow_mut().retain(|row| memory_key_231(&row.data.observation_id) != key); }
 fn list(&self) -> Vec<crate::observation::PullRequestObservationSnapshot> { self.0.borrow().clone() }
 }
 impl crate::behaviour::PullRequestObservationStorage for MemoryPorts {
@@ -454,9 +454,9 @@ fn list(&self) -> Vec<crate::observation::PullRequestObservationSnapshot> { crat
 #[derive(Clone, Default)]
 pub struct MemoryReleaseObservationStorage(std::rc::Rc<std::cell::RefCell<Vec<crate::observation::ReleaseObservationSnapshot>>>);
 impl crate::behaviour::ReleaseObservationStorage for MemoryReleaseObservationStorage {
-fn get(&self, identity: &crate::observation::ObservationId) -> Option<crate::observation::ReleaseObservationSnapshot> { let key = memory_key_229(identity); self.0.borrow().iter().find(|row| memory_key_229(&row.data.observation_id) == key).cloned() }
-fn put(&mut self, snapshot: crate::observation::ReleaseObservationSnapshot) { self.delete(&snapshot.data.observation_id); let mut rows = self.0.borrow_mut(); rows.push(snapshot); rows.sort_by(|row, other| memory_key_229(&row.data.observation_id).cmp(&memory_key_229(&other.data.observation_id))); }
-fn delete(&mut self, identity: &crate::observation::ObservationId) { let key = memory_key_229(identity); self.0.borrow_mut().retain(|row| memory_key_229(&row.data.observation_id) != key); }
+fn get(&self, identity: &crate::observation::ObservationId) -> Option<crate::observation::ReleaseObservationSnapshot> { let key = memory_key_231(identity); self.0.borrow().iter().find(|row| memory_key_231(&row.data.observation_id) == key).cloned() }
+fn put(&mut self, snapshot: crate::observation::ReleaseObservationSnapshot) { self.delete(&snapshot.data.observation_id); let mut rows = self.0.borrow_mut(); rows.push(snapshot); rows.sort_by(|row, other| memory_key_231(&row.data.observation_id).cmp(&memory_key_231(&other.data.observation_id))); }
+fn delete(&mut self, identity: &crate::observation::ObservationId) { let key = memory_key_231(identity); self.0.borrow_mut().retain(|row| memory_key_231(&row.data.observation_id) != key); }
 fn list(&self) -> Vec<crate::observation::ReleaseObservationSnapshot> { self.0.borrow().clone() }
 }
 impl crate::behaviour::ReleaseObservationStorage for MemoryPorts {
@@ -470,9 +470,9 @@ fn list(&self) -> Vec<crate::observation::ReleaseObservationSnapshot> { crate::b
 #[derive(Clone, Default)]
 pub struct MemoryRepositoryObservationStorage(std::rc::Rc<std::cell::RefCell<Vec<crate::observation::RepositoryObservationSnapshot>>>);
 impl crate::behaviour::RepositoryObservationStorage for MemoryRepositoryObservationStorage {
-fn get(&self, identity: &crate::observation::ObservationId) -> Option<crate::observation::RepositoryObservationSnapshot> { let key = memory_key_229(identity); self.0.borrow().iter().find(|row| memory_key_229(&row.data.observation_id) == key).cloned() }
-fn put(&mut self, snapshot: crate::observation::RepositoryObservationSnapshot) { self.delete(&snapshot.data.observation_id); let mut rows = self.0.borrow_mut(); rows.push(snapshot); rows.sort_by(|row, other| memory_key_229(&row.data.observation_id).cmp(&memory_key_229(&other.data.observation_id))); }
-fn delete(&mut self, identity: &crate::observation::ObservationId) { let key = memory_key_229(identity); self.0.borrow_mut().retain(|row| memory_key_229(&row.data.observation_id) != key); }
+fn get(&self, identity: &crate::observation::ObservationId) -> Option<crate::observation::RepositoryObservationSnapshot> { let key = memory_key_231(identity); self.0.borrow().iter().find(|row| memory_key_231(&row.data.observation_id) == key).cloned() }
+fn put(&mut self, snapshot: crate::observation::RepositoryObservationSnapshot) { self.delete(&snapshot.data.observation_id); let mut rows = self.0.borrow_mut(); rows.push(snapshot); rows.sort_by(|row, other| memory_key_231(&row.data.observation_id).cmp(&memory_key_231(&other.data.observation_id))); }
+fn delete(&mut self, identity: &crate::observation::ObservationId) { let key = memory_key_231(identity); self.0.borrow_mut().retain(|row| memory_key_231(&row.data.observation_id) != key); }
 fn list(&self) -> Vec<crate::observation::RepositoryObservationSnapshot> { self.0.borrow().clone() }
 }
 impl crate::behaviour::RepositoryObservationStorage for MemoryPorts {
@@ -486,9 +486,9 @@ fn list(&self) -> Vec<crate::observation::RepositoryObservationSnapshot> { crate
 #[derive(Clone, Default)]
 pub struct MemorySecretSyncObservationStorage(std::rc::Rc<std::cell::RefCell<Vec<crate::observation::SecretSyncObservationSnapshot>>>);
 impl crate::behaviour::SecretSyncObservationStorage for MemorySecretSyncObservationStorage {
-fn get(&self, identity: &crate::observation::ObservationId) -> Option<crate::observation::SecretSyncObservationSnapshot> { let key = memory_key_229(identity); self.0.borrow().iter().find(|row| memory_key_229(&row.data.observation_id) == key).cloned() }
-fn put(&mut self, snapshot: crate::observation::SecretSyncObservationSnapshot) { self.delete(&snapshot.data.observation_id); let mut rows = self.0.borrow_mut(); rows.push(snapshot); rows.sort_by(|row, other| memory_key_229(&row.data.observation_id).cmp(&memory_key_229(&other.data.observation_id))); }
-fn delete(&mut self, identity: &crate::observation::ObservationId) { let key = memory_key_229(identity); self.0.borrow_mut().retain(|row| memory_key_229(&row.data.observation_id) != key); }
+fn get(&self, identity: &crate::observation::ObservationId) -> Option<crate::observation::SecretSyncObservationSnapshot> { let key = memory_key_231(identity); self.0.borrow().iter().find(|row| memory_key_231(&row.data.observation_id) == key).cloned() }
+fn put(&mut self, snapshot: crate::observation::SecretSyncObservationSnapshot) { self.delete(&snapshot.data.observation_id); let mut rows = self.0.borrow_mut(); rows.push(snapshot); rows.sort_by(|row, other| memory_key_231(&row.data.observation_id).cmp(&memory_key_231(&other.data.observation_id))); }
+fn delete(&mut self, identity: &crate::observation::ObservationId) { let key = memory_key_231(identity); self.0.borrow_mut().retain(|row| memory_key_231(&row.data.observation_id) != key); }
 fn list(&self) -> Vec<crate::observation::SecretSyncObservationSnapshot> { self.0.borrow().clone() }
 }
 impl crate::behaviour::SecretSyncObservationStorage for MemoryPorts {
@@ -502,9 +502,9 @@ fn list(&self) -> Vec<crate::observation::SecretSyncObservationSnapshot> { crate
 #[derive(Clone, Default)]
 pub struct MemorySessionObservationStorage(std::rc::Rc<std::cell::RefCell<Vec<crate::observation::SessionObservationSnapshot>>>);
 impl crate::behaviour::SessionObservationStorage for MemorySessionObservationStorage {
-fn get(&self, identity: &crate::observation::ObservationId) -> Option<crate::observation::SessionObservationSnapshot> { let key = memory_key_229(identity); self.0.borrow().iter().find(|row| memory_key_229(&row.data.observation_id) == key).cloned() }
-fn put(&mut self, snapshot: crate::observation::SessionObservationSnapshot) { self.delete(&snapshot.data.observation_id); let mut rows = self.0.borrow_mut(); rows.push(snapshot); rows.sort_by(|row, other| memory_key_229(&row.data.observation_id).cmp(&memory_key_229(&other.data.observation_id))); }
-fn delete(&mut self, identity: &crate::observation::ObservationId) { let key = memory_key_229(identity); self.0.borrow_mut().retain(|row| memory_key_229(&row.data.observation_id) != key); }
+fn get(&self, identity: &crate::observation::ObservationId) -> Option<crate::observation::SessionObservationSnapshot> { let key = memory_key_231(identity); self.0.borrow().iter().find(|row| memory_key_231(&row.data.observation_id) == key).cloned() }
+fn put(&mut self, snapshot: crate::observation::SessionObservationSnapshot) { self.delete(&snapshot.data.observation_id); let mut rows = self.0.borrow_mut(); rows.push(snapshot); rows.sort_by(|row, other| memory_key_231(&row.data.observation_id).cmp(&memory_key_231(&other.data.observation_id))); }
+fn delete(&mut self, identity: &crate::observation::ObservationId) { let key = memory_key_231(identity); self.0.borrow_mut().retain(|row| memory_key_231(&row.data.observation_id) != key); }
 fn list(&self) -> Vec<crate::observation::SessionObservationSnapshot> { self.0.borrow().clone() }
 }
 impl crate::behaviour::SessionObservationStorage for MemoryPorts {
@@ -518,9 +518,9 @@ fn list(&self) -> Vec<crate::observation::SessionObservationSnapshot> { crate::b
 #[derive(Clone, Default)]
 pub struct MemorySnapshotStorage(std::rc::Rc<std::cell::RefCell<Vec<crate::observation::SnapshotSnapshot>>>);
 impl crate::behaviour::SnapshotStorage for MemorySnapshotStorage {
-fn get(&self, identity: &crate::observation::SnapshotId) -> Option<crate::observation::SnapshotSnapshot> { let key = memory_key_243(identity); self.0.borrow().iter().find(|row| memory_key_243(&row.data.snapshot_id) == key).cloned() }
-fn put(&mut self, snapshot: crate::observation::SnapshotSnapshot) { self.delete(&snapshot.data.snapshot_id); let mut rows = self.0.borrow_mut(); rows.push(snapshot); rows.sort_by(|row, other| memory_key_243(&row.data.snapshot_id).cmp(&memory_key_243(&other.data.snapshot_id))); }
-fn delete(&mut self, identity: &crate::observation::SnapshotId) { let key = memory_key_243(identity); self.0.borrow_mut().retain(|row| memory_key_243(&row.data.snapshot_id) != key); }
+fn get(&self, identity: &crate::observation::SnapshotId) -> Option<crate::observation::SnapshotSnapshot> { let key = memory_key_245(identity); self.0.borrow().iter().find(|row| memory_key_245(&row.data.snapshot_id) == key).cloned() }
+fn put(&mut self, snapshot: crate::observation::SnapshotSnapshot) { self.delete(&snapshot.data.snapshot_id); let mut rows = self.0.borrow_mut(); rows.push(snapshot); rows.sort_by(|row, other| memory_key_245(&row.data.snapshot_id).cmp(&memory_key_245(&other.data.snapshot_id))); }
+fn delete(&mut self, identity: &crate::observation::SnapshotId) { let key = memory_key_245(identity); self.0.borrow_mut().retain(|row| memory_key_245(&row.data.snapshot_id) != key); }
 fn list(&self) -> Vec<crate::observation::SnapshotSnapshot> { self.0.borrow().clone() }
 }
 impl crate::behaviour::SnapshotStorage for MemoryPorts {
@@ -534,9 +534,9 @@ fn list(&self) -> Vec<crate::observation::SnapshotSnapshot> { crate::behaviour::
 #[derive(Clone, Default)]
 pub struct MemorySpecificationObservationStorage(std::rc::Rc<std::cell::RefCell<Vec<crate::observation::SpecificationObservationSnapshot>>>);
 impl crate::behaviour::SpecificationObservationStorage for MemorySpecificationObservationStorage {
-fn get(&self, identity: &crate::observation::ObservationId) -> Option<crate::observation::SpecificationObservationSnapshot> { let key = memory_key_229(identity); self.0.borrow().iter().find(|row| memory_key_229(&row.data.observation_id) == key).cloned() }
-fn put(&mut self, snapshot: crate::observation::SpecificationObservationSnapshot) { self.delete(&snapshot.data.observation_id); let mut rows = self.0.borrow_mut(); rows.push(snapshot); rows.sort_by(|row, other| memory_key_229(&row.data.observation_id).cmp(&memory_key_229(&other.data.observation_id))); }
-fn delete(&mut self, identity: &crate::observation::ObservationId) { let key = memory_key_229(identity); self.0.borrow_mut().retain(|row| memory_key_229(&row.data.observation_id) != key); }
+fn get(&self, identity: &crate::observation::ObservationId) -> Option<crate::observation::SpecificationObservationSnapshot> { let key = memory_key_231(identity); self.0.borrow().iter().find(|row| memory_key_231(&row.data.observation_id) == key).cloned() }
+fn put(&mut self, snapshot: crate::observation::SpecificationObservationSnapshot) { self.delete(&snapshot.data.observation_id); let mut rows = self.0.borrow_mut(); rows.push(snapshot); rows.sort_by(|row, other| memory_key_231(&row.data.observation_id).cmp(&memory_key_231(&other.data.observation_id))); }
+fn delete(&mut self, identity: &crate::observation::ObservationId) { let key = memory_key_231(identity); self.0.borrow_mut().retain(|row| memory_key_231(&row.data.observation_id) != key); }
 fn list(&self) -> Vec<crate::observation::SpecificationObservationSnapshot> { self.0.borrow().clone() }
 }
 impl crate::behaviour::SpecificationObservationStorage for MemoryPorts {
@@ -550,9 +550,9 @@ fn list(&self) -> Vec<crate::observation::SpecificationObservationSnapshot> { cr
 #[derive(Clone, Default)]
 pub struct MemoryUsageObservationStorage(std::rc::Rc<std::cell::RefCell<Vec<crate::observation::UsageObservationSnapshot>>>);
 impl crate::behaviour::UsageObservationStorage for MemoryUsageObservationStorage {
-fn get(&self, identity: &crate::observation::ObservationId) -> Option<crate::observation::UsageObservationSnapshot> { let key = memory_key_229(identity); self.0.borrow().iter().find(|row| memory_key_229(&row.data.observation_id) == key).cloned() }
-fn put(&mut self, snapshot: crate::observation::UsageObservationSnapshot) { self.delete(&snapshot.data.observation_id); let mut rows = self.0.borrow_mut(); rows.push(snapshot); rows.sort_by(|row, other| memory_key_229(&row.data.observation_id).cmp(&memory_key_229(&other.data.observation_id))); }
-fn delete(&mut self, identity: &crate::observation::ObservationId) { let key = memory_key_229(identity); self.0.borrow_mut().retain(|row| memory_key_229(&row.data.observation_id) != key); }
+fn get(&self, identity: &crate::observation::ObservationId) -> Option<crate::observation::UsageObservationSnapshot> { let key = memory_key_231(identity); self.0.borrow().iter().find(|row| memory_key_231(&row.data.observation_id) == key).cloned() }
+fn put(&mut self, snapshot: crate::observation::UsageObservationSnapshot) { self.delete(&snapshot.data.observation_id); let mut rows = self.0.borrow_mut(); rows.push(snapshot); rows.sort_by(|row, other| memory_key_231(&row.data.observation_id).cmp(&memory_key_231(&other.data.observation_id))); }
+fn delete(&mut self, identity: &crate::observation::ObservationId) { let key = memory_key_231(identity); self.0.borrow_mut().retain(|row| memory_key_231(&row.data.observation_id) != key); }
 fn list(&self) -> Vec<crate::observation::UsageObservationSnapshot> { self.0.borrow().clone() }
 }
 impl crate::behaviour::UsageObservationStorage for MemoryPorts {
@@ -566,9 +566,9 @@ fn list(&self) -> Vec<crate::observation::UsageObservationSnapshot> { crate::beh
 #[derive(Clone, Default)]
 pub struct MemoryWorkflowRunObservationStorage(std::rc::Rc<std::cell::RefCell<Vec<crate::observation::WorkflowRunObservationSnapshot>>>);
 impl crate::behaviour::WorkflowRunObservationStorage for MemoryWorkflowRunObservationStorage {
-fn get(&self, identity: &crate::observation::ObservationId) -> Option<crate::observation::WorkflowRunObservationSnapshot> { let key = memory_key_229(identity); self.0.borrow().iter().find(|row| memory_key_229(&row.data.observation_id) == key).cloned() }
-fn put(&mut self, snapshot: crate::observation::WorkflowRunObservationSnapshot) { self.delete(&snapshot.data.observation_id); let mut rows = self.0.borrow_mut(); rows.push(snapshot); rows.sort_by(|row, other| memory_key_229(&row.data.observation_id).cmp(&memory_key_229(&other.data.observation_id))); }
-fn delete(&mut self, identity: &crate::observation::ObservationId) { let key = memory_key_229(identity); self.0.borrow_mut().retain(|row| memory_key_229(&row.data.observation_id) != key); }
+fn get(&self, identity: &crate::observation::ObservationId) -> Option<crate::observation::WorkflowRunObservationSnapshot> { let key = memory_key_231(identity); self.0.borrow().iter().find(|row| memory_key_231(&row.data.observation_id) == key).cloned() }
+fn put(&mut self, snapshot: crate::observation::WorkflowRunObservationSnapshot) { self.delete(&snapshot.data.observation_id); let mut rows = self.0.borrow_mut(); rows.push(snapshot); rows.sort_by(|row, other| memory_key_231(&row.data.observation_id).cmp(&memory_key_231(&other.data.observation_id))); }
+fn delete(&mut self, identity: &crate::observation::ObservationId) { let key = memory_key_231(identity); self.0.borrow_mut().retain(|row| memory_key_231(&row.data.observation_id) != key); }
 fn list(&self) -> Vec<crate::observation::WorkflowRunObservationSnapshot> { self.0.borrow().clone() }
 }
 impl crate::behaviour::WorkflowRunObservationStorage for MemoryPorts {
@@ -582,9 +582,9 @@ fn list(&self) -> Vec<crate::observation::WorkflowRunObservationSnapshot> { crat
 #[derive(Clone, Default)]
 pub struct MemoryOperatorStorage(std::rc::Rc<std::cell::RefCell<Vec<crate::operator::OperatorSnapshot>>>);
 impl crate::behaviour::OperatorStorage for MemoryOperatorStorage {
-fn get(&self, identity: &crate::operator::OperatorKey) -> Option<crate::operator::OperatorSnapshot> { let key = memory_key_263(identity); self.0.borrow().iter().find(|row| memory_key_263(&row.data.key) == key).cloned() }
-fn put(&mut self, snapshot: crate::operator::OperatorSnapshot) { self.delete(&snapshot.data.key); let mut rows = self.0.borrow_mut(); rows.push(snapshot); rows.sort_by(|row, other| memory_key_263(&row.data.key).cmp(&memory_key_263(&other.data.key))); }
-fn delete(&mut self, identity: &crate::operator::OperatorKey) { let key = memory_key_263(identity); self.0.borrow_mut().retain(|row| memory_key_263(&row.data.key) != key); }
+fn get(&self, identity: &crate::operator::OperatorKey) -> Option<crate::operator::OperatorSnapshot> { let key = memory_key_265(identity); self.0.borrow().iter().find(|row| memory_key_265(&row.data.key) == key).cloned() }
+fn put(&mut self, snapshot: crate::operator::OperatorSnapshot) { self.delete(&snapshot.data.key); let mut rows = self.0.borrow_mut(); rows.push(snapshot); rows.sort_by(|row, other| memory_key_265(&row.data.key).cmp(&memory_key_265(&other.data.key))); }
+fn delete(&mut self, identity: &crate::operator::OperatorKey) { let key = memory_key_265(identity); self.0.borrow_mut().retain(|row| memory_key_265(&row.data.key) != key); }
 fn list(&self) -> Vec<crate::operator::OperatorSnapshot> { self.0.borrow().clone() }
 }
 impl crate::behaviour::OperatorStorage for MemoryPorts {
@@ -598,9 +598,9 @@ fn list(&self) -> Vec<crate::operator::OperatorSnapshot> { crate::behaviour::Ope
 #[derive(Clone, Default)]
 pub struct MemoryBoxStorage(std::rc::Rc<std::cell::RefCell<Vec<crate::placement::BoxSnapshot>>>);
 impl crate::behaviour::BoxStorage for MemoryBoxStorage {
-fn get(&self, identity: &crate::placement::BoxId) -> Option<crate::placement::BoxSnapshot> { let key = memory_key_267(identity); self.0.borrow().iter().find(|row| memory_key_267(&row.data.box_id) == key).cloned() }
-fn put(&mut self, snapshot: crate::placement::BoxSnapshot) { self.delete(&snapshot.data.box_id); let mut rows = self.0.borrow_mut(); rows.push(snapshot); rows.sort_by(|row, other| memory_key_267(&row.data.box_id).cmp(&memory_key_267(&other.data.box_id))); }
-fn delete(&mut self, identity: &crate::placement::BoxId) { let key = memory_key_267(identity); self.0.borrow_mut().retain(|row| memory_key_267(&row.data.box_id) != key); }
+fn get(&self, identity: &crate::placement::BoxId) -> Option<crate::placement::BoxSnapshot> { let key = memory_key_269(identity); self.0.borrow().iter().find(|row| memory_key_269(&row.data.box_id) == key).cloned() }
+fn put(&mut self, snapshot: crate::placement::BoxSnapshot) { self.delete(&snapshot.data.box_id); let mut rows = self.0.borrow_mut(); rows.push(snapshot); rows.sort_by(|row, other| memory_key_269(&row.data.box_id).cmp(&memory_key_269(&other.data.box_id))); }
+fn delete(&mut self, identity: &crate::placement::BoxId) { let key = memory_key_269(identity); self.0.borrow_mut().retain(|row| memory_key_269(&row.data.box_id) != key); }
 fn list(&self) -> Vec<crate::placement::BoxSnapshot> { self.0.borrow().clone() }
 }
 impl crate::behaviour::BoxStorage for MemoryPorts {
@@ -614,9 +614,9 @@ fn list(&self) -> Vec<crate::placement::BoxSnapshot> { crate::behaviour::BoxStor
 #[derive(Clone, Default)]
 pub struct MemoryBoxRefusalStorage(std::rc::Rc<std::cell::RefCell<Vec<crate::placement::BoxRefusalSnapshot>>>);
 impl crate::behaviour::BoxRefusalStorage for MemoryBoxRefusalStorage {
-fn get(&self, identity: &crate::placement::BoxId) -> Option<crate::placement::BoxRefusalSnapshot> { let key = memory_key_267(identity); self.0.borrow().iter().find(|row| memory_key_267(&row.data.box_id) == key).cloned() }
-fn put(&mut self, snapshot: crate::placement::BoxRefusalSnapshot) { self.delete(&snapshot.data.box_id); let mut rows = self.0.borrow_mut(); rows.push(snapshot); rows.sort_by(|row, other| memory_key_267(&row.data.box_id).cmp(&memory_key_267(&other.data.box_id))); }
-fn delete(&mut self, identity: &crate::placement::BoxId) { let key = memory_key_267(identity); self.0.borrow_mut().retain(|row| memory_key_267(&row.data.box_id) != key); }
+fn get(&self, identity: &crate::placement::BoxId) -> Option<crate::placement::BoxRefusalSnapshot> { let key = memory_key_269(identity); self.0.borrow().iter().find(|row| memory_key_269(&row.data.box_id) == key).cloned() }
+fn put(&mut self, snapshot: crate::placement::BoxRefusalSnapshot) { self.delete(&snapshot.data.box_id); let mut rows = self.0.borrow_mut(); rows.push(snapshot); rows.sort_by(|row, other| memory_key_269(&row.data.box_id).cmp(&memory_key_269(&other.data.box_id))); }
+fn delete(&mut self, identity: &crate::placement::BoxId) { let key = memory_key_269(identity); self.0.borrow_mut().retain(|row| memory_key_269(&row.data.box_id) != key); }
 fn list(&self) -> Vec<crate::placement::BoxRefusalSnapshot> { self.0.borrow().clone() }
 }
 impl crate::behaviour::BoxRefusalStorage for MemoryPorts {
@@ -630,9 +630,9 @@ fn list(&self) -> Vec<crate::placement::BoxRefusalSnapshot> { crate::behaviour::
 #[derive(Clone, Default)]
 pub struct MemoryPlacementStorage(std::rc::Rc<std::cell::RefCell<Vec<crate::placement::PlacementSnapshot>>>);
 impl crate::behaviour::PlacementStorage for MemoryPlacementStorage {
-fn get(&self, identity: &crate::placement::PlacementName) -> Option<crate::placement::PlacementSnapshot> { let key = memory_key_275(identity); self.0.borrow().iter().find(|row| memory_key_275(&row.data.name) == key).cloned() }
-fn put(&mut self, snapshot: crate::placement::PlacementSnapshot) { self.delete(&snapshot.data.name); let mut rows = self.0.borrow_mut(); rows.push(snapshot); rows.sort_by(|row, other| memory_key_275(&row.data.name).cmp(&memory_key_275(&other.data.name))); }
-fn delete(&mut self, identity: &crate::placement::PlacementName) { let key = memory_key_275(identity); self.0.borrow_mut().retain(|row| memory_key_275(&row.data.name) != key); }
+fn get(&self, identity: &crate::placement::PlacementName) -> Option<crate::placement::PlacementSnapshot> { let key = memory_key_277(identity); self.0.borrow().iter().find(|row| memory_key_277(&row.data.name) == key).cloned() }
+fn put(&mut self, snapshot: crate::placement::PlacementSnapshot) { self.delete(&snapshot.data.name); let mut rows = self.0.borrow_mut(); rows.push(snapshot); rows.sort_by(|row, other| memory_key_277(&row.data.name).cmp(&memory_key_277(&other.data.name))); }
+fn delete(&mut self, identity: &crate::placement::PlacementName) { let key = memory_key_277(identity); self.0.borrow_mut().retain(|row| memory_key_277(&row.data.name) != key); }
 fn list(&self) -> Vec<crate::placement::PlacementSnapshot> { self.0.borrow().clone() }
 }
 impl crate::behaviour::PlacementStorage for MemoryPorts {
@@ -646,9 +646,9 @@ fn list(&self) -> Vec<crate::placement::PlacementSnapshot> { crate::behaviour::P
 #[derive(Clone, Default)]
 pub struct MemorySecretStorage(std::rc::Rc<std::cell::RefCell<Vec<crate::secret::SecretSnapshot>>>);
 impl crate::behaviour::SecretStorage for MemorySecretStorage {
-fn get(&self, identity: &crate::secret::SecretName) -> Option<crate::secret::SecretSnapshot> { let key = memory_key_282(identity); self.0.borrow().iter().find(|row| memory_key_282(&row.data.name) == key).cloned() }
-fn put(&mut self, snapshot: crate::secret::SecretSnapshot) { self.delete(&snapshot.data.name); let mut rows = self.0.borrow_mut(); rows.push(snapshot); rows.sort_by(|row, other| memory_key_282(&row.data.name).cmp(&memory_key_282(&other.data.name))); }
-fn delete(&mut self, identity: &crate::secret::SecretName) { let key = memory_key_282(identity); self.0.borrow_mut().retain(|row| memory_key_282(&row.data.name) != key); }
+fn get(&self, identity: &crate::secret::SecretName) -> Option<crate::secret::SecretSnapshot> { let key = memory_key_284(identity); self.0.borrow().iter().find(|row| memory_key_284(&row.data.name) == key).cloned() }
+fn put(&mut self, snapshot: crate::secret::SecretSnapshot) { self.delete(&snapshot.data.name); let mut rows = self.0.borrow_mut(); rows.push(snapshot); rows.sort_by(|row, other| memory_key_284(&row.data.name).cmp(&memory_key_284(&other.data.name))); }
+fn delete(&mut self, identity: &crate::secret::SecretName) { let key = memory_key_284(identity); self.0.borrow_mut().retain(|row| memory_key_284(&row.data.name) != key); }
 fn list(&self) -> Vec<crate::secret::SecretSnapshot> { self.0.borrow().clone() }
 }
 impl crate::behaviour::SecretStorage for MemoryPorts {
@@ -662,9 +662,9 @@ fn list(&self) -> Vec<crate::secret::SecretSnapshot> { crate::behaviour::SecretS
 #[derive(Clone, Default)]
 pub struct MemoryDeliveryStorage(std::rc::Rc<std::cell::RefCell<Vec<crate::session::DeliverySnapshot>>>);
 impl crate::behaviour::DeliveryStorage for MemoryDeliveryStorage {
-fn get(&self, identity: &crate::session::DeliveryId) -> Option<crate::session::DeliverySnapshot> { let key = memory_key_292(identity); self.0.borrow().iter().find(|row| memory_key_292(&row.data.delivery_id) == key).cloned() }
-fn put(&mut self, snapshot: crate::session::DeliverySnapshot) { self.delete(&snapshot.data.delivery_id); let mut rows = self.0.borrow_mut(); rows.push(snapshot); rows.sort_by(|row, other| memory_key_292(&row.data.delivery_id).cmp(&memory_key_292(&other.data.delivery_id))); }
-fn delete(&mut self, identity: &crate::session::DeliveryId) { let key = memory_key_292(identity); self.0.borrow_mut().retain(|row| memory_key_292(&row.data.delivery_id) != key); }
+fn get(&self, identity: &crate::session::DeliveryId) -> Option<crate::session::DeliverySnapshot> { let key = memory_key_294(identity); self.0.borrow().iter().find(|row| memory_key_294(&row.data.delivery_id) == key).cloned() }
+fn put(&mut self, snapshot: crate::session::DeliverySnapshot) { self.delete(&snapshot.data.delivery_id); let mut rows = self.0.borrow_mut(); rows.push(snapshot); rows.sort_by(|row, other| memory_key_294(&row.data.delivery_id).cmp(&memory_key_294(&other.data.delivery_id))); }
+fn delete(&mut self, identity: &crate::session::DeliveryId) { let key = memory_key_294(identity); self.0.borrow_mut().retain(|row| memory_key_294(&row.data.delivery_id) != key); }
 fn list(&self) -> Vec<crate::session::DeliverySnapshot> { self.0.borrow().clone() }
 }
 impl crate::behaviour::DeliveryStorage for MemoryPorts {
@@ -694,9 +694,9 @@ fn list(&self) -> Vec<crate::session::LeaseSnapshot> { crate::behaviour::LeaseSt
 #[derive(Clone, Default)]
 pub struct MemoryRunTickStorage(std::rc::Rc<std::cell::RefCell<Vec<crate::session::RunTickSnapshot>>>);
 impl crate::behaviour::RunTickStorage for MemoryRunTickStorage {
-fn get(&self, identity: &crate::session::TickId) -> Option<crate::session::RunTickSnapshot> { let key = memory_key_310(identity); self.0.borrow().iter().find(|row| memory_key_310(&row.data.tick_id) == key).cloned() }
-fn put(&mut self, snapshot: crate::session::RunTickSnapshot) { self.delete(&snapshot.data.tick_id); let mut rows = self.0.borrow_mut(); rows.push(snapshot); rows.sort_by(|row, other| memory_key_310(&row.data.tick_id).cmp(&memory_key_310(&other.data.tick_id))); }
-fn delete(&mut self, identity: &crate::session::TickId) { let key = memory_key_310(identity); self.0.borrow_mut().retain(|row| memory_key_310(&row.data.tick_id) != key); }
+fn get(&self, identity: &crate::session::TickId) -> Option<crate::session::RunTickSnapshot> { let key = memory_key_312(identity); self.0.borrow().iter().find(|row| memory_key_312(&row.data.tick_id) == key).cloned() }
+fn put(&mut self, snapshot: crate::session::RunTickSnapshot) { self.delete(&snapshot.data.tick_id); let mut rows = self.0.borrow_mut(); rows.push(snapshot); rows.sort_by(|row, other| memory_key_312(&row.data.tick_id).cmp(&memory_key_312(&other.data.tick_id))); }
+fn delete(&mut self, identity: &crate::session::TickId) { let key = memory_key_312(identity); self.0.borrow_mut().retain(|row| memory_key_312(&row.data.tick_id) != key); }
 fn list(&self) -> Vec<crate::session::RunTickSnapshot> { self.0.borrow().clone() }
 }
 impl crate::behaviour::RunTickStorage for MemoryPorts {
@@ -710,9 +710,9 @@ fn list(&self) -> Vec<crate::session::RunTickSnapshot> { crate::behaviour::RunTi
 #[derive(Clone, Default)]
 pub struct MemoryBuildStorage(std::rc::Rc<std::cell::RefCell<Vec<crate::store::BuildSnapshot>>>);
 impl crate::behaviour::BuildStorage for MemoryBuildStorage {
-fn get(&self, identity: &crate::store::BinaryVersion) -> Option<crate::store::BuildSnapshot> { let key = memory_key_313(identity); self.0.borrow().iter().find(|row| memory_key_313(&row.data.version) == key).cloned() }
-fn put(&mut self, snapshot: crate::store::BuildSnapshot) { self.delete(&snapshot.data.version); let mut rows = self.0.borrow_mut(); rows.push(snapshot); rows.sort_by(|row, other| memory_key_313(&row.data.version).cmp(&memory_key_313(&other.data.version))); }
-fn delete(&mut self, identity: &crate::store::BinaryVersion) { let key = memory_key_313(identity); self.0.borrow_mut().retain(|row| memory_key_313(&row.data.version) != key); }
+fn get(&self, identity: &crate::store::BinaryVersion) -> Option<crate::store::BuildSnapshot> { let key = memory_key_315(identity); self.0.borrow().iter().find(|row| memory_key_315(&row.data.version) == key).cloned() }
+fn put(&mut self, snapshot: crate::store::BuildSnapshot) { self.delete(&snapshot.data.version); let mut rows = self.0.borrow_mut(); rows.push(snapshot); rows.sort_by(|row, other| memory_key_315(&row.data.version).cmp(&memory_key_315(&other.data.version))); }
+fn delete(&mut self, identity: &crate::store::BinaryVersion) { let key = memory_key_315(identity); self.0.borrow_mut().retain(|row| memory_key_315(&row.data.version) != key); }
 fn list(&self) -> Vec<crate::store::BuildSnapshot> { self.0.borrow().clone() }
 }
 impl crate::behaviour::BuildStorage for MemoryPorts {
@@ -742,9 +742,9 @@ fn list(&self) -> Vec<crate::store::MigrationSnapshot> { crate::behaviour::Migra
 #[derive(Clone, Default)]
 pub struct MemoryStoreStorage(std::rc::Rc<std::cell::RefCell<Vec<crate::store::StoreSnapshot>>>);
 impl crate::behaviour::StoreStorage for MemoryStoreStorage {
-fn get(&self, identity: &crate::store::StoreUrl) -> Option<crate::store::StoreSnapshot> { let key = memory_key_317(identity); self.0.borrow().iter().find(|row| memory_key_317(&row.data.url) == key).cloned() }
-fn put(&mut self, snapshot: crate::store::StoreSnapshot) { self.delete(&snapshot.data.url); let mut rows = self.0.borrow_mut(); rows.push(snapshot); rows.sort_by(|row, other| memory_key_317(&row.data.url).cmp(&memory_key_317(&other.data.url))); }
-fn delete(&mut self, identity: &crate::store::StoreUrl) { let key = memory_key_317(identity); self.0.borrow_mut().retain(|row| memory_key_317(&row.data.url) != key); }
+fn get(&self, identity: &crate::store::StoreUrl) -> Option<crate::store::StoreSnapshot> { let key = memory_key_319(identity); self.0.borrow().iter().find(|row| memory_key_319(&row.data.url) == key).cloned() }
+fn put(&mut self, snapshot: crate::store::StoreSnapshot) { self.delete(&snapshot.data.url); let mut rows = self.0.borrow_mut(); rows.push(snapshot); rows.sort_by(|row, other| memory_key_319(&row.data.url).cmp(&memory_key_319(&other.data.url))); }
+fn delete(&mut self, identity: &crate::store::StoreUrl) { let key = memory_key_319(identity); self.0.borrow_mut().retain(|row| memory_key_319(&row.data.url) != key); }
 fn list(&self) -> Vec<crate::store::StoreSnapshot> { self.0.borrow().clone() }
 }
 impl crate::behaviour::StoreStorage for MemoryPorts {
@@ -758,9 +758,9 @@ fn list(&self) -> Vec<crate::store::StoreSnapshot> { crate::behaviour::StoreStor
 #[derive(Clone, Default)]
 pub struct MemoryPoolTokenStorage(std::rc::Rc<std::cell::RefCell<Vec<crate::token::PoolTokenSnapshot>>>);
 impl crate::behaviour::PoolTokenStorage for MemoryPoolTokenStorage {
-fn get(&self, identity: &crate::token::TokenId) -> Option<crate::token::PoolTokenSnapshot> { let key = memory_key_323(identity); self.0.borrow().iter().find(|row| memory_key_323(&row.data.token_id) == key).cloned() }
-fn put(&mut self, snapshot: crate::token::PoolTokenSnapshot) { self.delete(&snapshot.data.token_id); let mut rows = self.0.borrow_mut(); rows.push(snapshot); rows.sort_by(|row, other| memory_key_323(&row.data.token_id).cmp(&memory_key_323(&other.data.token_id))); }
-fn delete(&mut self, identity: &crate::token::TokenId) { let key = memory_key_323(identity); self.0.borrow_mut().retain(|row| memory_key_323(&row.data.token_id) != key); }
+fn get(&self, identity: &crate::token::TokenId) -> Option<crate::token::PoolTokenSnapshot> { let key = memory_key_325(identity); self.0.borrow().iter().find(|row| memory_key_325(&row.data.token_id) == key).cloned() }
+fn put(&mut self, snapshot: crate::token::PoolTokenSnapshot) { self.delete(&snapshot.data.token_id); let mut rows = self.0.borrow_mut(); rows.push(snapshot); rows.sort_by(|row, other| memory_key_325(&row.data.token_id).cmp(&memory_key_325(&other.data.token_id))); }
+fn delete(&mut self, identity: &crate::token::TokenId) { let key = memory_key_325(identity); self.0.borrow_mut().retain(|row| memory_key_325(&row.data.token_id) != key); }
 }
 impl crate::behaviour::PoolTokenStorage for MemoryPorts {
 fn get(&self, identity: &crate::token::TokenId) -> Option<crate::token::PoolTokenSnapshot> { crate::behaviour::PoolTokenStorage::get(&self.pool_token_storage, identity) }
@@ -772,9 +772,9 @@ fn delete(&mut self, identity: &crate::token::TokenId) { crate::behaviour::PoolT
 #[derive(Clone, Default)]
 pub struct MemoryToolCallStorage(std::rc::Rc<std::cell::RefCell<Vec<crate::tool::ToolCallSnapshot>>>);
 impl crate::behaviour::ToolCallStorage for MemoryToolCallStorage {
-fn get(&self, identity: &crate::tool::ToolCallId) -> Option<crate::tool::ToolCallSnapshot> { let key = memory_key_346(identity); self.0.borrow().iter().find(|row| memory_key_346(&row.data.tool_call_id) == key).cloned() }
-fn put(&mut self, snapshot: crate::tool::ToolCallSnapshot) { self.delete(&snapshot.data.tool_call_id); let mut rows = self.0.borrow_mut(); rows.push(snapshot); rows.sort_by(|row, other| memory_key_346(&row.data.tool_call_id).cmp(&memory_key_346(&other.data.tool_call_id))); }
-fn delete(&mut self, identity: &crate::tool::ToolCallId) { let key = memory_key_346(identity); self.0.borrow_mut().retain(|row| memory_key_346(&row.data.tool_call_id) != key); }
+fn get(&self, identity: &crate::tool::ToolCallId) -> Option<crate::tool::ToolCallSnapshot> { let key = memory_key_348(identity); self.0.borrow().iter().find(|row| memory_key_348(&row.data.tool_call_id) == key).cloned() }
+fn put(&mut self, snapshot: crate::tool::ToolCallSnapshot) { self.delete(&snapshot.data.tool_call_id); let mut rows = self.0.borrow_mut(); rows.push(snapshot); rows.sort_by(|row, other| memory_key_348(&row.data.tool_call_id).cmp(&memory_key_348(&other.data.tool_call_id))); }
+fn delete(&mut self, identity: &crate::tool::ToolCallId) { let key = memory_key_348(identity); self.0.borrow_mut().retain(|row| memory_key_348(&row.data.tool_call_id) != key); }
 fn list(&self) -> Vec<crate::tool::ToolCallSnapshot> { self.0.borrow().clone() }
 }
 impl crate::behaviour::ToolCallStorage for MemoryPorts {
@@ -937,49 +937,49 @@ fn memory_key_158(value: &crate::dispatch::MessageId) -> MemoryKey { let _ = val
 
 fn memory_key_164(value: &crate::dispatch::ResourceRequestId) -> MemoryKey { let _ = value; MemoryKey::Text((&value.0).0.clone()) }
 
-fn memory_key_175(value: &crate::host::GrantId) -> MemoryKey { let _ = value; MemoryKey::Text((&value.0).clone()) }
+fn memory_key_177(value: &crate::host::GrantId) -> MemoryKey { let _ = value; MemoryKey::Text((&value.0).clone()) }
 
-fn memory_key_184(value: &crate::host::ReclaimRunId) -> MemoryKey { let _ = value; MemoryKey::Text((&value.0).clone()) }
+fn memory_key_186(value: &crate::host::ReclaimRunId) -> MemoryKey { let _ = value; MemoryKey::Text((&value.0).clone()) }
 
-fn memory_key_189(value: &crate::improvement::FindingId) -> MemoryKey { let _ = value; MemoryKey::Text((&value.0).clone()) }
+fn memory_key_191(value: &crate::improvement::FindingId) -> MemoryKey { let _ = value; MemoryKey::Text((&value.0).clone()) }
 
-fn memory_key_192(value: &crate::improvement::MetricId) -> MemoryKey { let _ = value; MemoryKey::Text((&value.0).clone()) }
+fn memory_key_194(value: &crate::improvement::MetricId) -> MemoryKey { let _ = value; MemoryKey::Text((&value.0).clone()) }
 
-fn memory_key_194(value: &crate::improvement::MetricReadingId) -> MemoryKey { let _ = value; MemoryKey::Text((&value.0).clone()) }
+fn memory_key_196(value: &crate::improvement::MetricReadingId) -> MemoryKey { let _ = value; MemoryKey::Text((&value.0).clone()) }
 
-fn memory_key_195(value: &crate::improvement::ProposalId) -> MemoryKey { let _ = value; MemoryKey::Text((&value.0).clone()) }
+fn memory_key_197(value: &crate::improvement::ProposalId) -> MemoryKey { let _ = value; MemoryKey::Text((&value.0).clone()) }
 
-fn memory_key_205(value: &crate::instance::ReconciliationId) -> MemoryKey { let _ = value; MemoryKey::Text((&value.0).0.clone()) }
+fn memory_key_207(value: &crate::instance::ReconciliationId) -> MemoryKey { let _ = value; MemoryKey::Text((&value.0).0.clone()) }
 
-fn memory_key_211(value: &crate::observation::BoardId) -> MemoryKey { let _ = value; MemoryKey::Text((&value.0).0.clone()) }
+fn memory_key_213(value: &crate::observation::BoardId) -> MemoryKey { let _ = value; MemoryKey::Text((&value.0).0.clone()) }
 
-fn memory_key_217(value: &crate::observation::DailySeriesId) -> MemoryKey { let _ = value; MemoryKey::Text((&value.0).clone()) }
+fn memory_key_219(value: &crate::observation::DailySeriesId) -> MemoryKey { let _ = value; MemoryKey::Text((&value.0).clone()) }
 
-fn memory_key_229(value: &crate::observation::ObservationId) -> MemoryKey { let _ = value; MemoryKey::Text((&value.0).0.clone()) }
+fn memory_key_231(value: &crate::observation::ObservationId) -> MemoryKey { let _ = value; MemoryKey::Text((&value.0).0.clone()) }
 
-fn memory_key_243(value: &crate::observation::SnapshotId) -> MemoryKey { let _ = value; MemoryKey::Text((&value.0).0.clone()) }
+fn memory_key_245(value: &crate::observation::SnapshotId) -> MemoryKey { let _ = value; MemoryKey::Text((&value.0).0.clone()) }
 
-fn memory_key_263(value: &crate::operator::OperatorKey) -> MemoryKey { let _ = value; MemoryKey::List(vec![memory_key_264(&value.operator), memory_key_49(&value.instance)]) }
+fn memory_key_265(value: &crate::operator::OperatorKey) -> MemoryKey { let _ = value; MemoryKey::List(vec![memory_key_266(&value.operator), memory_key_49(&value.instance)]) }
 
-fn memory_key_264(value: &crate::operator::OperatorName) -> MemoryKey { let _ = value; MemoryKey::Text((&value.0).clone()) }
+fn memory_key_266(value: &crate::operator::OperatorName) -> MemoryKey { let _ = value; MemoryKey::Text((&value.0).clone()) }
 
-fn memory_key_267(value: &crate::placement::BoxId) -> MemoryKey { let _ = value; MemoryKey::Text((&value.0).0.clone()) }
+fn memory_key_269(value: &crate::placement::BoxId) -> MemoryKey { let _ = value; MemoryKey::Text((&value.0).0.clone()) }
 
-fn memory_key_275(value: &crate::placement::PlacementName) -> MemoryKey { let _ = value; MemoryKey::Text((&value.0).clone()) }
+fn memory_key_277(value: &crate::placement::PlacementName) -> MemoryKey { let _ = value; MemoryKey::Text((&value.0).clone()) }
 
-fn memory_key_282(value: &crate::secret::SecretName) -> MemoryKey { let _ = value; MemoryKey::Text((&value.0).clone()) }
+fn memory_key_284(value: &crate::secret::SecretName) -> MemoryKey { let _ = value; MemoryKey::Text((&value.0).clone()) }
 
-fn memory_key_292(value: &crate::session::DeliveryId) -> MemoryKey { let _ = value; MemoryKey::Text((&value.0).0.clone()) }
+fn memory_key_294(value: &crate::session::DeliveryId) -> MemoryKey { let _ = value; MemoryKey::Text((&value.0).0.clone()) }
 
-fn memory_key_310(value: &crate::session::TickId) -> MemoryKey { let _ = value; MemoryKey::Text((&value.0).0.clone()) }
+fn memory_key_312(value: &crate::session::TickId) -> MemoryKey { let _ = value; MemoryKey::Text((&value.0).0.clone()) }
 
-fn memory_key_313(value: &crate::store::BinaryVersion) -> MemoryKey { let _ = value; MemoryKey::Text((&value.0).clone()) }
+fn memory_key_315(value: &crate::store::BinaryVersion) -> MemoryKey { let _ = value; MemoryKey::Text((&value.0).clone()) }
 
-fn memory_key_317(value: &crate::store::StoreUrl) -> MemoryKey { let _ = value; MemoryKey::Text((&value.0).clone()) }
+fn memory_key_319(value: &crate::store::StoreUrl) -> MemoryKey { let _ = value; MemoryKey::Text((&value.0).clone()) }
 
-fn memory_key_323(value: &crate::token::TokenId) -> MemoryKey { let _ = value; MemoryKey::Text((&value.0).0.clone()) }
+fn memory_key_325(value: &crate::token::TokenId) -> MemoryKey { let _ = value; MemoryKey::Text((&value.0).0.clone()) }
 
-fn memory_key_346(value: &crate::tool::ToolCallId) -> MemoryKey { let _ = value; MemoryKey::Text((&value.0).0.clone()) }
+fn memory_key_348(value: &crate::tool::ToolCallId) -> MemoryKey { let _ = value; MemoryKey::Text((&value.0).0.clone()) }
 
 // A common structural order; individual specifications use only a subset of the variants.
 #[allow(dead_code)]
@@ -1007,6 +1007,12 @@ fn start_agent(&mut self, input: crate::agent::StartAgent) -> Result<crate::agen
 }
 impl crate::decision::obligations::RecordOperatorDecisionForRequestBehavior for MemoryPorts {
 fn record_operator_decision_for_request(&mut self, input: crate::decision::RecordOperatorDecisionForRequest) -> Result<crate::decision::RecordOperatorDecisionForRequestOutcome, crate::obligation::UnmetObligation> { crate::decision::obligations::RecordOperatorDecisionForRequestBehavior::record_operator_decision_for_request(&mut crate::decision::obligations::Unimplemented, input) }
+}
+impl crate::dispatch::obligations::RecordDispatchLinkBehavior for MemoryPorts {
+fn record_dispatch_link(&mut self, input: crate::dispatch::RecordDispatchLink) -> Result<crate::dispatch::RecordDispatchLinkOutcome, crate::obligation::UnmetObligation> { crate::dispatch::obligations::RecordDispatchLinkBehavior::record_dispatch_link(&mut crate::dispatch::obligations::Unimplemented, input) }
+}
+impl crate::dispatch::obligations::SendDispatchBehavior for MemoryPorts {
+fn send_dispatch(&mut self, input: crate::dispatch::SendDispatch) -> Result<crate::dispatch::SendDispatchOutcome, crate::obligation::UnmetObligation> { crate::dispatch::obligations::SendDispatchBehavior::send_dispatch(&mut crate::dispatch::obligations::Unimplemented, input) }
 }
 impl crate::dispatch::obligations::StartControllerBehavior for MemoryPorts {
 fn start_controller(&mut self, input: crate::dispatch::StartController) -> Result<crate::dispatch::StartControllerOutcome, crate::obligation::UnmetObligation> { crate::dispatch::obligations::StartControllerBehavior::start_controller(&mut crate::dispatch::obligations::Unimplemented, input) }

@@ -1,0 +1,57 @@
+type: ess-scenario/1
+domain: conductor.dispatch
+scenario: record-dispatch-link-twice
+summary: >
+  A dispatch a work source handed in holds a link once: recorded again it is unchanged, and a text
+  that is no http or https URL is refused.
+
+timeline:
+  - at: 2026-11-12T09:00:00Z
+    command: conductor.dispatch.SendDispatch
+    actor: conductor.dispatch.Conductor
+    input:
+      actor: {kind: ControlPlane}
+      dispatch_id: DSP-linked
+      repository: cortex
+      brief: Fix the login redirect
+      sent_at: 2026-11-12T09:00:00Z
+      priority: 0
+      reference: WI-1042
+    outcome: sent-for-reference
+
+  - at: 2026-11-12T09:00:01Z
+    command: conductor.dispatch.RecordDispatchLink
+    actor: conductor.dispatch.Conductor
+    input:
+      actor: {kind: Daemon}
+      dispatch_id: DSP-linked
+      link: https://forge.example.org/example-org/cortex/pull/12
+    outcome: linked
+
+  - at: 2026-11-12T09:00:02Z
+    command: conductor.dispatch.RecordDispatchLink
+    actor: conductor.dispatch.Conductor
+    input:
+      actor: {kind: Daemon}
+      dispatch_id: DSP-linked
+      link: https://forge.example.org/example-org/cortex/pull/12
+    outcome: already-linked
+
+  - at: 2026-11-12T09:00:03Z
+    command: conductor.dispatch.RecordDispatchLink
+    actor: conductor.dispatch.Conductor
+    input:
+      actor: {kind: Daemon}
+      dispatch_id: DSP-linked
+      link: ftp://forge.example.org/example-org/cortex/pull/13
+    outcome: invalid-link
+    error:
+      name: conductor.dispatch.InvalidLink
+
+assert:
+  - view: conductor.dispatch.Dispatches
+    contains:
+      dispatch_id: DSP-linked
+      state: Sent
+      reference: WI-1042
+      links: [https://forge.example.org/example-org/cortex/pull/12]

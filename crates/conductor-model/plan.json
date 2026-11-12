@@ -2,8 +2,8 @@
   "provenance": {
     "system": "conductor",
     "specification_version": "v1",
-    "source_digest": "1a2eae4d2a40e1389b5885650173f9608c79ba878ae64aad96e08144f86aa4cc",
-    "contract_digest": "3ecaf75891d0174f1aadd06ecb145177f190b67bde1ebf99b046b751e53c6775"
+    "source_digest": "4204ab9434ab858c9c8590e38dbfa1087ca0103563cd04be75458b830776b10a",
+    "contract_digest": "e2ec07cfcbdedb3f66deb98b800a9ec8bb9ee2f47b9c2aa2880ecc31913fd7d6"
   },
   "scope": {
     "profile": "component-skeletons",
@@ -1203,6 +1203,20 @@
     {
       "kind": "domain_type",
       "source": "conductor.dispatch.Verdict",
+      "disposition": {
+        "disposition": "generated"
+      }
+    },
+    {
+      "kind": "domain_type",
+      "source": "conductor.dispatch.WorkRequest",
+      "disposition": {
+        "disposition": "generated"
+      }
+    },
+    {
+      "kind": "domain_type",
+      "source": "conductor.dispatch.WorkState",
       "disposition": {
         "disposition": "generated"
       }
@@ -3385,6 +3399,25 @@
     },
     {
       "kind": "command_contract",
+      "source": "conductor.dispatch.RecordDispatchLink",
+      "disposition": {
+        "disposition": "generated"
+      }
+    },
+    {
+      "kind": "command_behavior",
+      "source": "conductor.dispatch.RecordDispatchLink",
+      "disposition": {
+        "disposition": "obligation",
+        "reason": {
+          "class": "undetermined",
+          "construct": "the guard path `link.count`, in `invalid-link`"
+        },
+        "contract": "given `conductor.dispatch.RecordDispatchLink` input, decide and enact exactly one outcome. Declared outcomes (declaration order, not selection precedence): `invalid-link` when `(link.count > 2048 or (not (link starts_with \"http://\") and not (link starts_with \"https://\")) or link == http:// or link == https:// or link contains \" \" or link contains \"\\t\" or link contains \"\\n\" or link contains \"\\r\")`, error `conductor.dispatch.InvalidLink`; `no-such-dispatch` for an identity no record carries, error `conductor.dispatch.DispatchNotFound`; `already-linked` when the existing subject's stored fields satisfy `exists held in links: (held == input.link)`, preserves `conductor.dispatch.Dispatch`; `links-full` when the existing subject's stored fields satisfy `links.count >= 32`, error `conductor.dispatch.DispatchLinksFull`; `linked` otherwise, updates `conductor.dispatch.Dispatch`, emits `conductor.dispatch.DispatchLinked`"
+      }
+    },
+    {
+      "kind": "command_contract",
       "source": "conductor.dispatch.RecordGuardDecision",
       "disposition": {
         "disposition": "generated"
@@ -3576,7 +3609,12 @@
       "kind": "command_behavior",
       "source": "conductor.dispatch.SendDispatch",
       "disposition": {
-        "disposition": "generated"
+        "disposition": "obligation",
+        "reason": {
+          "class": "undetermined",
+          "construct": "the guard path `reference.count`, in `invalid-reference`"
+        },
+        "contract": "given `conductor.dispatch.SendDispatch` input, decide and enact exactly one outcome. Declared outcomes (declaration order, not selection precedence): `negative-priority` when `priority < 0`, error `conductor.dispatch.InvalidPriority`; `waits-on-itself` when `(defined(waits_on) and waits_on == {fact: dispatch_id})`, error `conductor.dispatch.WaitsOnItself`; `invalid-reference` when `(defined(reference) and (reference.count < 1 or reference.count > 64 or {utf8_bytes: reference} != reference.count or reference starts_with \".\" or reference starts_with \"_\" or reference starts_with \"-\" or reference contains \" \" or reference contains \"!\" or reference contains \"\\\"\" or reference contains \"#\" or reference contains \"$\" or reference contains \"%\" or reference contains \"&\" or reference contains \"'\" or reference contains \"(\" or reference contains \")\" or reference contains \"*\" or reference contains \"+\" or reference contains \",\" or reference contains \"/\" or reference contains \":\" or reference contains \";\" or reference contains \"<\" or reference contains \"=\" or reference contains \">\" or reference contains \"?\" or reference contains \"@\" or reference contains \"[\" or reference contains \"\\\\\" or reference contains \"]\" or reference contains \"^\" or reference contains \"`\" or reference contains \"{\" or reference contains \"|\" or reference contains \"}\" or reference contains \"~\" or reference contains \"\\u{7f}\" or reference contains \"\\0\" or reference contains \"\\u{1}\" or reference contains \"\\u{2}\" or reference contains \"\\u{3}\" or reference contains \"\\u{4}\" or reference contains \"\\u{5}\" or reference contains \"\\u{6}\" or reference contains \"\\u{7}\" or reference contains \"\\u{8}\" or reference contains \"\\t\" or reference contains \"\\n\" or reference contains \"\\u{b}\" or reference contains \"\\u{c}\" or reference contains \"\\r\" or reference contains \"\\u{e}\" or reference contains \"\\u{f}\" or reference contains \"\\u{10}\" or reference contains \"\\u{11}\" or reference contains \"\\u{12}\" or reference contains \"\\u{13}\" or reference contains \"\\u{14}\" or reference contains \"\\u{15}\" or reference contains \"\\u{16}\" or reference contains \"\\u{17}\" or reference contains \"\\u{18}\" or reference contains \"\\u{19}\" or reference contains \"\\u{1a}\" or reference contains \"\\u{1b}\" or reference contains \"\\u{1c}\" or reference contains \"\\u{1d}\" or reference contains \"\\u{1e}\" or reference contains \"\\u{1f}\"))`, error `conductor.dispatch.InvalidReference`; `goal-or-reference-missing` when `(not (defined(goal_id)) and not (defined(reference)))`, error `conductor.dispatch.GoalOrReferenceMissing`; `reference-held` when, of the `conductor.dispatch.Dispatch` rows satisfying `(defined(reference) and reference == input.reference)`, at least 1 rows are selected and `defined(reference)`, error `conductor.dispatch.ReferenceHeld`; `no-such-goal` when, of the `conductor.direction.Goal` rows satisfying `goal_id == input.goal_id`, no row is selected and `defined(goal_id)`, error `conductor.dispatch.GoalNotFound`; `goal-closed` when, of the `conductor.direction.Goal` rows satisfying `(goal_id == input.goal_id and state in [Met, Dropped])`, at least one row is selected and `defined(goal_id)`, error `conductor.dispatch.GoalClosed`; `repository-busy` when, of the `conductor.dispatch.Dispatch` rows satisfying `(repository == input.repository and state in [Sent, Started, Blocked])`, at least 1 rows are selected and `defined(reference)`, error `conductor.dispatch.RepositoryBusy`; `sent-for-reference` when `not (defined(goal_id))`, creates `conductor.dispatch.Dispatch`, emits `conductor.dispatch.DispatchSent`; `sent` otherwise, creates `conductor.dispatch.Dispatch`, emits `conductor.dispatch.DispatchSent`; `already-sent` for an identity a record already carries, error `conductor.dispatch.DispatchExists`"
       }
     },
     {
@@ -4736,6 +4774,13 @@
     },
     {
       "kind": "event_type",
+      "source": "conductor.dispatch.DispatchLinked",
+      "disposition": {
+        "disposition": "generated"
+      }
+    },
+    {
+      "kind": "event_type",
       "source": "conductor.dispatch.DispatchSent",
       "disposition": {
         "disposition": "generated"
@@ -5576,6 +5621,13 @@
     },
     {
       "kind": "error_type",
+      "source": "conductor.dispatch.DispatchLinksFull",
+      "disposition": {
+        "disposition": "generated"
+      }
+    },
+    {
+      "kind": "error_type",
       "source": "conductor.dispatch.DispatchNotFound",
       "disposition": {
         "disposition": "generated"
@@ -5604,6 +5656,13 @@
     },
     {
       "kind": "error_type",
+      "source": "conductor.dispatch.GoalOrReferenceMissing",
+      "disposition": {
+        "disposition": "generated"
+      }
+    },
+    {
+      "kind": "error_type",
       "source": "conductor.dispatch.InvalidAmount",
       "disposition": {
         "disposition": "generated"
@@ -5611,7 +5670,21 @@
     },
     {
       "kind": "error_type",
+      "source": "conductor.dispatch.InvalidLink",
+      "disposition": {
+        "disposition": "generated"
+      }
+    },
+    {
+      "kind": "error_type",
       "source": "conductor.dispatch.InvalidPriority",
+      "disposition": {
+        "disposition": "generated"
+      }
+    },
+    {
+      "kind": "error_type",
+      "source": "conductor.dispatch.InvalidReference",
       "disposition": {
         "disposition": "generated"
       }
@@ -5647,6 +5720,20 @@
     {
       "kind": "error_type",
       "source": "conductor.dispatch.NotANeed",
+      "disposition": {
+        "disposition": "generated"
+      }
+    },
+    {
+      "kind": "error_type",
+      "source": "conductor.dispatch.ReferenceHeld",
+      "disposition": {
+        "disposition": "generated"
+      }
+    },
+    {
+      "kind": "error_type",
+      "source": "conductor.dispatch.RepositoryBusy",
       "disposition": {
         "disposition": "generated"
       }

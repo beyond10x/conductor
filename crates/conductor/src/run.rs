@@ -898,6 +898,9 @@ impl<'s, 'a> Tick<'s, 'a> {
                 sent_at: Some(sent_at),
                 priority: None,
                 waits_on: None,
+                reference: None,
+                start_ref: None,
+                issue: None,
                 input_json: None,
             },
         )?;

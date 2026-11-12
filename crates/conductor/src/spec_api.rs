@@ -17,8 +17,9 @@
 //!   [`MemoryPorts`]': a UUID for an identity, and a refusal naming what is owed for a string, a
 //!   host grant's or reclaim run's id, a refusal reason and every `external:` branch;
 //! - the obligations the plan owes ([`OWED`]) are [`MemoryPorts`]' refusals, but
-//!   `conductor.token.Tokens`, answered from the store, and `conductor.instance.InstanceByName`,
-//!   answered from the ephemeral store's instances.
+//!   `conductor.token.Tokens`, `conductor.dispatch.SendDispatch` and
+//!   `conductor.dispatch.RecordDispatchLink`, answered from the store, and
+//!   `conductor.instance.InstanceByName`, answered from the ephemeral store's instances.
 //!
 //! A request is admitted as the loopback listener admits a write ([`caller`]): with the daemon's
 //! token in `X-Conductor-Token`, and then as the operator actor of the route's domain.
@@ -103,7 +104,7 @@ pub const MEMORY_BACKED: [&str; 19] = [
 /// The behaviours and queries the plan owes rather than generates, and who answers each here:
 /// `store` where this module answers it from the store, `memory` where [`MemoryPorts`] refuses it
 /// as unmet or, for `InstanceByName`, where this module answers it from [`MemoryPorts`]' instances.
-pub const OWED: [(&str, &str); 15] = [
+pub const OWED: [(&str, &str); 17] = [
     ("conductor.agent.AttachAgent", "memory"),
     ("conductor.agent.DeliverToAgent", "memory"),
     ("conductor.agent.StartAgent", "memory"),
@@ -111,6 +112,8 @@ pub const OWED: [(&str, &str); 15] = [
         "conductor.decision.RecordOperatorDecisionForRequest",
         "memory",
     ),
+    ("conductor.dispatch.RecordDispatchLink", "store"),
+    ("conductor.dispatch.SendDispatch", "store"),
     ("conductor.dispatch.StartController", "memory"),
     ("conductor.improvement.SetMetricTarget", "memory"),
     ("conductor.instance.StartInstance", "memory"),
@@ -336,6 +339,28 @@ owed! {
     secret::ResolveSecretsBehavior::resolve_secrets(ResolveSecrets) -> ResolveSecretsOutcome;
     session::ClaimLeaseBehavior::claim_lease(ClaimLease) -> ClaimLeaseOutcome;
     store::MigrateStoreBehavior::migrate_store(MigrateStore) -> MigrateStoreOutcome;
+}
+
+/// `conductor.dispatch.SendDispatch`, decided over the store as `conductor dispatch send-dispatch`
+/// decides it ([`crate::dispatch::behaviour`]).
+impl m::dispatch::obligations::SendDispatchBehavior for StorePorts {
+    fn send_dispatch(
+        &mut self,
+        input: m::dispatch::SendDispatch,
+    ) -> Result<m::dispatch::SendDispatchOutcome, UnmetObligation> {
+        crate::dispatch::behaviour::send_dispatch(&mut *self.store.borrow_mut(), input)
+    }
+}
+
+/// `conductor.dispatch.RecordDispatchLink`, decided over the store as `conductor dispatch
+/// record-link` decides it ([`crate::dispatch::behaviour`]).
+impl m::dispatch::obligations::RecordDispatchLinkBehavior for StorePorts {
+    fn record_dispatch_link(
+        &mut self,
+        input: m::dispatch::RecordDispatchLink,
+    ) -> Result<m::dispatch::RecordDispatchLinkOutcome, UnmetObligation> {
+        crate::dispatch::behaviour::record_dispatch_link(&mut *self.store.borrow_mut(), input)
+    }
 }
 
 impl m::config::obligations::EffectiveSettingsQuery for StorePorts {

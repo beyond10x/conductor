@@ -1,5 +1,5 @@
 // generated from conductor v1
-// contract digest 3ecaf75891d0174f1aadd06ecb145177f190b67bde1ebf99b046b751e53c6775
+// contract digest e2ec07cfcbdedb3f66deb98b800a9ec8bb9ee2f47b9c2aa2880ecc31913fd7d6
 // do not edit: regenerate with `ess synthesize --layout crate`
 
 //! Observation — `conductor.observation`.

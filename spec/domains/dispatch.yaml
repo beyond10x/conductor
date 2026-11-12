@@ -3,7 +3,8 @@ domain: conductor.dispatch
 summary: >
   How conductor directs the repository controllers. A controller is one session bound to one
   repository checkout, and at most one runs per repository. A dispatch is one brief to one
-  controller in service of one goal, and it moves as the controller reports. Every message between
+  controller in service of one goal, or of one unit of work a work source handed in under its own
+  `reference`, and it moves as the controller reports. Every message between
   conductor and a controller is recorded with its parsed first line, whichever harness and
   transport carried it. A resource request asks conductor for a build slot, disk or usage before a
   controller spends it. Design: docs/design/conductor.md § 3, § 6, § 7.
@@ -185,8 +186,9 @@ types:
   # by hand. The line's `event` is the variant in lower case, words joined by `-`: `sent` (`conductor
   # spawn` and `SendDispatch`), `started`, `blocked`, `unblocked`, `done`, `failed` (the `Report*`
   # commands), `cancelled` (`CancelDispatch`), `message-received` (`ReceiveMessage`),
-  # `resource-granted`, `resource-refused` (`GrantResource`, `RefuseResource`) and
-  # `charter-revised` (`ReviseCharter`).
+  # `resource-granted`, `resource-refused` (`GrantResource`, `RefuseResource`),
+  # `charter-revised` (`ReviseCharter`) and `linked` (`RecordDispatchLink`, a link the dispatch did
+  # not hold).
   # The run daemon writes the rest (story:run-daemon, docs/design/conductor-run.md § 3), one per
   # action its handlers take, and `conductor session deliver` writes `delivered`
   # (`conductor.session.DeliverMessage`): `handover-sent`, a `[HANDOVER]` delivered to a session
@@ -218,6 +220,7 @@ types:
       - Done
       - Failed
       - Cancelled
+      - Linked
       - MessageReceived
       - ResourceGranted
       - ResourceRefused
@@ -242,8 +245,9 @@ types:
   # `repository`) and the fields its event declares, and no key that is absent. `id` is the id of
   # the record the event moved: the dispatch, the message or the resource request. The fields of
   # each event:
-  # - `sent` by `SendDispatch`: `id`, `to` (the repository's session name), `goal`, `brief`,
-  #   `priority`, and `waits_on` when given;
+  # - `sent` by `SendDispatch`: `id`, `to` (the repository's session name), `brief`, `priority`,
+  #   and each of `goal`, `reference`, `start_ref`, `issue` and `waits_on` that was given;
+  # - `linked` by `RecordDispatchLink`: `id` and `link`, the link appended;
   # - `sent` by `conductor spawn`: `controller_id`, `to`, `session_id` (what `claude --bg`
   #   printed) and `charter_revision`;
   # - `started`, `unblocked`: `id`; `blocked`, `failed`, `cancelled`: `id`, `reason`; `done`:
@@ -310,6 +314,47 @@ types:
       - {name: line, type: Optional<String>}
       - {name: tick_id, type: Optional<String>}
       - {name: commit, type: Optional<String>}
+      - {name: reference, type: Optional<String>}
+      - {name: start_ref, type: Optional<String>}
+      - {name: issue, type: Optional<String>}
+      - {name: link, type: Optional<String>}
+
+  # A unit of work a work source hands one instance (story:control-plane-work-handler): the
+  # repository as the instance's rows name it, the brief, the caller's `reference` for the unit,
+  # unique among the instance's dispatches, and optionally the git ref the work starts from and
+  # the issue it belongs to. It becomes one dispatch with that reference and no goal
+  # (`SendDispatch`); a reference a dispatch already holds answers that dispatch and creates
+  # nothing. Declared for the work call of a later unit, which no route binds yet.
+  - name: conductor.dispatch.WorkRequest
+    kind: struct
+    fields:
+      - {name: repository, type: conductor.observation.RepositoryName}
+      - {name: brief, type: String}
+      - {name: reference, type: String}
+      - {name: start_ref, type: Optional<String>}
+      - {name: issue, type: Optional<String>}
+
+  # What the work call answers for a reference: the dispatch that holds it, its repository, its
+  # state by the lifecycle's own names, when it was sent, when it started and when it ended, the
+  # text of the last report, a `detail` where it is Blocked or Failed (the reason), and the links
+  # recorded on it (`RecordDispatchLink`). `reference`, `dispatch_id`, `repository`, `state`,
+  # `sent_at` and `links` are the dispatch's own; `started_at`, `ended_at` and `detail` are the
+  # `at` and `reason` of its `started`, `done`, `failed`, `cancelled` and `blocked` lines in the
+  # records' dispatch log, and `last_report` a message's first line, which no field of the
+  # dispatch holds; so this is a struct the work call fills, not a view over the dispatch.
+  - name: conductor.dispatch.WorkState
+    kind: struct
+    fields:
+      - {name: reference, type: String}
+      - {name: dispatch_id, type: conductor.dispatch.DispatchId}
+      - {name: repository, type: conductor.observation.RepositoryName}
+      - {name: state, type: conductor.dispatch.Dispatch.State}
+      - {name: sent_at, type: Timestamp}
+      - {name: started_at, type: Optional<Timestamp>}
+      - {name: ended_at, type: Optional<Timestamp>}
+      - {name: last_report, type: Optional<String>}
+      - {name: detail, type: Optional<String>}
+      - {name: links, type: List<String>}
 
   # The input of `conductor records check` (story:records-from-commands), a view over the records'
   # two logs and the store: it reads `<records>/dispatches/*.jsonl` and
@@ -394,8 +439,10 @@ entities:
         type: conductor.operator.Actor
       - name: repository
         type: conductor.observation.RepositoryName
+      # The goal the dispatch serves; none on a dispatch a work source handed in, which carries
+      # its `reference` instead (story:control-plane-work-handler).
       - name: goal_id
-        type: conductor.direction.GoalId
+        type: Optional<conductor.direction.GoalId>
       - name: brief
         type: String
       - name: sent_at
@@ -406,6 +453,20 @@ entities:
       # The dispatch this one waits for, when one repository waits for another (design § 5).
       - name: waits_on
         type: Optional<conductor.dispatch.DispatchId>
+      # The work source's id for the unit of work: 1 to 64 characters of `A-Z a-z 0-9 . _ -`,
+      # the first a letter or a digit, and held by one dispatch of the instance at most.
+      - name: reference
+        type: Optional<String>
+      # The git ref the work starts from and the issue it belongs to, as the work source named
+      # them; carried and shown, read by nothing yet.
+      - name: start_ref
+        type: Optional<String>
+      - name: issue
+        type: Optional<String>
+      # The merge or pull requests recorded on the dispatch (`RecordDispatchLink`), in the order
+      # they were recorded, each once, at most 32.
+      - name: links
+        type: List<String>
     relations:
       - name: goal
         kind: references
@@ -567,6 +628,7 @@ actors:
       - conductor.dispatch.ReportDone
       - conductor.dispatch.ReportFailed
       - conductor.dispatch.CancelDispatch
+      - conductor.dispatch.RecordDispatchLink
       - conductor.dispatch.ReceiveMessage
       - conductor.dispatch.HandleMessage
       - conductor.dispatch.RejectMessage
@@ -649,6 +711,51 @@ errors:
 
   - name: conductor.dispatch.DispatchStateConflict
     summary: The dispatch is not in a state this command acts from, so nothing moved.
+    fields:
+      - name: dispatch_id
+        type: conductor.dispatch.DispatchId
+
+  - name: conductor.dispatch.GoalOrReferenceMissing
+    summary: >
+      A dispatch serves a goal or carries a work source's reference, and this one names neither,
+      so nothing was sent.
+    fields:
+      - name: repository
+        type: conductor.observation.RepositoryName
+
+  - name: conductor.dispatch.InvalidReference
+    summary: >
+      A reference is 1 to 64 characters of `A-Z a-z 0-9 . _ -` and starts with a letter or a
+      digit, and this one is not, so nothing was sent.
+    fields:
+      - name: reference
+        type: String
+
+  - name: conductor.dispatch.ReferenceHeld
+    summary: >
+      A dispatch already holds this reference: the held dispatch answers, and nothing was sent.
+    fields:
+      - name: reference
+        type: String
+
+  - name: conductor.dispatch.RepositoryBusy
+    summary: >
+      The repository has an open dispatch (sent, started or blocked) of another reference or of
+      none, so a dispatch with a reference was not sent.
+    fields:
+      - name: repository
+        type: conductor.observation.RepositoryName
+
+  - name: conductor.dispatch.InvalidLink
+    summary: >
+      A link is an `http://` or `https://` URL of at most 2048 characters with no space, and this
+      one is not, so nothing was recorded.
+    fields:
+      - name: link
+        type: String
+
+  - name: conductor.dispatch.DispatchLinksFull
+    summary: The dispatch holds 32 links, the most it holds, so the link was not recorded.
     fields:
       - name: dispatch_id
         type: conductor.dispatch.DispatchId
@@ -915,8 +1022,14 @@ commands:
             controller_id: input.controller_id
         summary: A stopped controller takes no charter.
 
-  # Records line (`DispatchLogLine`): `sent`, with `id`, `to`, `goal`, `brief`, `priority`, and
-  # `waits_on` when given.
+  # Records line (`DispatchLogLine`): `sent`, with `id`, `to`, `brief`, `priority`, and each of
+  # `goal`, `reference`, `start_ref`, `issue` and `waits_on` that was given.
+  # A dispatch serves a goal (`goal_id`), or carries the `reference` a work source handed it in
+  # under (story:control-plane-work-handler), or both; one with neither is refused. A reference is
+  # held by one dispatch of the instance: sent again, it creates nothing and answers the dispatch
+  # that holds it, in whatever state (`reference-held`). A dispatch with a reference is refused
+  # for a repository with an open dispatch of another reference or of none (`repository-busy`); a
+  # dispatch without one is sent as before.
   - name: conductor.dispatch.SendDispatch
     naming:
       wire: send-dispatch
@@ -928,7 +1041,7 @@ commands:
       - name: repository
         type: conductor.observation.RepositoryName
       - name: goal_id
-        type: conductor.direction.GoalId
+        type: Optional<conductor.direction.GoalId>
       - name: brief
         type: String
       - name: sent_at
@@ -939,6 +1052,13 @@ commands:
       - name: waits_on
         type: Optional<conductor.dispatch.DispatchId>
         example: "DSP-0"
+      - name: reference
+        type: Optional<String>
+        example: "WI-1042"
+      - name: start_ref
+        type: Optional<String>
+      - name: issue
+        type: Optional<String>
     outcomes:
       - name: negative-priority
         when: priority < 0
@@ -957,20 +1077,182 @@ commands:
           conductor.dispatch.WaitsOnItself:
             dispatch_id: input.dispatch_id
         summary: A dispatch that waits on itself could never start; nothing was sent.
+      # A reference outside its characters: the empty text, more than 64 characters, a character
+      # past ASCII (its byte length differs from its length), one of the ASCII characters outside
+      # `A-Z a-z 0-9 . _ -`, each named once, or a first character that is no letter or digit.
+      - name: invalid-reference
+        when:
+          all:
+            - defined(reference)
+            - any:
+                - reference.count < 1
+                - reference.count > 64
+                - reference.utf8_bytes != reference.count
+                - reference: {starts_with: "."}
+                - reference: {starts_with: "_"}
+                - reference: {starts_with: "-"}
+                - reference: {contains: " "}
+                - reference: {contains: "!"}
+                - reference: {contains: "\""}
+                - reference: {contains: "#"}
+                - reference: {contains: "$"}
+                - reference: {contains: "%"}
+                - reference: {contains: "&"}
+                - reference: {contains: "'"}
+                - reference: {contains: "("}
+                - reference: {contains: ")"}
+                - reference: {contains: "*"}
+                - reference: {contains: "+"}
+                - reference: {contains: ","}
+                - reference: {contains: "/"}
+                - reference: {contains: ":"}
+                - reference: {contains: ";"}
+                - reference: {contains: "<"}
+                - reference: {contains: "="}
+                - reference: {contains: ">"}
+                - reference: {contains: "?"}
+                - reference: {contains: "@"}
+                - reference: {contains: "["}
+                - reference: {contains: "\\"}
+                - reference: {contains: "]"}
+                - reference: {contains: "^"}
+                - reference: {contains: "`"}
+                - reference: {contains: "{"}
+                - reference: {contains: "|"}
+                - reference: {contains: "}"}
+                - reference: {contains: "~"}
+                - reference: {contains: "\x7f"}
+                - reference: {contains: "\x00"}
+                - reference: {contains: "\x01"}
+                - reference: {contains: "\x02"}
+                - reference: {contains: "\x03"}
+                - reference: {contains: "\x04"}
+                - reference: {contains: "\x05"}
+                - reference: {contains: "\x06"}
+                - reference: {contains: "\x07"}
+                - reference: {contains: "\x08"}
+                - reference: {contains: "\x09"}
+                - reference: {contains: "\x0a"}
+                - reference: {contains: "\x0b"}
+                - reference: {contains: "\x0c"}
+                - reference: {contains: "\x0d"}
+                - reference: {contains: "\x0e"}
+                - reference: {contains: "\x0f"}
+                - reference: {contains: "\x10"}
+                - reference: {contains: "\x11"}
+                - reference: {contains: "\x12"}
+                - reference: {contains: "\x13"}
+                - reference: {contains: "\x14"}
+                - reference: {contains: "\x15"}
+                - reference: {contains: "\x16"}
+                - reference: {contains: "\x17"}
+                - reference: {contains: "\x18"}
+                - reference: {contains: "\x19"}
+                - reference: {contains: "\x1a"}
+                - reference: {contains: "\x1b"}
+                - reference: {contains: "\x1c"}
+                - reference: {contains: "\x1d"}
+                - reference: {contains: "\x1e"}
+                - reference: {contains: "\x1f"}
+        error: conductor.dispatch.InvalidReference
+        payload:
+          conductor.dispatch.InvalidReference:
+            reference: input.reference
+        summary: A reference is 1 to 64 of `A-Z a-z 0-9 . _ -`, led by a letter or digit; nothing was sent.
+      - name: goal-or-reference-missing
+        when:
+          all:
+            - missing(goal_id)
+            - missing(reference)
+        error: conductor.dispatch.GoalOrReferenceMissing
+        payload:
+          conductor.dispatch.GoalOrReferenceMissing:
+            repository: input.repository
+        summary: A dispatch serves a goal or carries a work source's reference; nothing was sent.
+      # The rows the command reads are row sets, each beside an input guard, so their refusals
+      # answer in the order they are declared: a held reference first, whatever goal is named.
+      - name: reference-held
+        when: defined(reference)
+        when_related:
+          entity: conductor.dispatch.Dispatch
+          where:
+            all:
+              - defined(reference)
+              - reference == input.reference
+          count: {gte: 1}
+        error: conductor.dispatch.ReferenceHeld
+        payload:
+          conductor.dispatch.ReferenceHeld:
+            reference: input.reference
+        summary: The dispatch that holds the reference answers, in whatever state; nothing was sent.
       - name: no-such-goal
-        when_related: {via: input.goal_id, exists: false}
+        when: defined(goal_id)
+        when_related:
+          entity: conductor.direction.Goal
+          where: goal_id == input.goal_id
+          exists: false
         error: conductor.dispatch.GoalNotFound
         payload:
           conductor.dispatch.GoalNotFound:
             goal_id: input.goal_id
-        summary: Every dispatch serves a goal (design § 4); nothing was sent.
+        summary: A dispatch that names a goal serves a goal that exists (design § 4); nothing was sent.
       - name: goal-closed
-        when_related: {via: input.goal_id, predicate: {state: [Met, Dropped]}}
+        when: defined(goal_id)
+        when_related:
+          entity: conductor.direction.Goal
+          where:
+            all:
+              - goal_id == input.goal_id
+              - state: [Met, Dropped]
+          exists: true
         error: conductor.dispatch.GoalClosed
         payload:
           conductor.dispatch.GoalClosed:
             goal_id: input.goal_id
         summary: The goal is met or dropped; nothing was sent.
+      - name: repository-busy
+        when: defined(reference)
+        when_related:
+          entity: conductor.dispatch.Dispatch
+          where:
+            all:
+              - repository == input.repository
+              - state: [Sent, Started, Blocked]
+          count: {gte: 1}
+        error: conductor.dispatch.RepositoryBusy
+        payload:
+          conductor.dispatch.RepositoryBusy:
+            repository: input.repository
+        summary: The repository works another dispatch; one with a reference waits until it ends.
+      # A dispatch without a goal is sent by a branch of its own, the same creation as `sent`:
+      # the suite arranges a dispatch for the other commands through it, where `sent` needs a
+      # goal row the arrangement of a row set does not make.
+      - name: sent-for-reference
+        when: missing(goal_id)
+        creates: conductor.dispatch.Dispatch
+        instance: dispatch_id
+        sets:
+          actor: input.actor
+          repository: input.repository
+          goal_id: input.goal_id
+          brief: input.brief
+          sent_at: input.sent_at
+          priority: input.priority
+          waits_on: input.waits_on
+          reference: input.reference
+          start_ref: input.start_ref
+          issue: input.issue
+          links: []
+        emits:
+          - conductor.dispatch.DispatchSent
+        payload:
+          conductor.dispatch.DispatchSent:
+            actor: input.actor
+            dispatch_id: input.dispatch_id
+            repository: input.repository
+            goal_id: input.goal_id
+            reference: input.reference
+        summary: The controller has the brief a work source handed in.
       - name: sent
         creates: conductor.dispatch.Dispatch
         instance: dispatch_id
@@ -982,6 +1264,10 @@ commands:
           sent_at: input.sent_at
           priority: input.priority
           waits_on: input.waits_on
+          reference: input.reference
+          start_ref: input.start_ref
+          issue: input.issue
+          links: []
         emits:
           - conductor.dispatch.DispatchSent
         payload:
@@ -990,6 +1276,7 @@ commands:
             dispatch_id: input.dispatch_id
             repository: input.repository
             goal_id: input.goal_id
+            reference: input.reference
         summary: The controller has the brief.
       - name: already-sent
         existing_instance: true
@@ -1214,6 +1501,78 @@ commands:
           conductor.dispatch.DispatchStateConflict:
             dispatch_id: input.dispatch_id
         summary: The dispatch already ended.
+
+  # Records line (`DispatchLogLine`): `linked`, with `id` and `link`, when the link was appended.
+  # A link is a merge or pull request the dispatch's work opened, as the session reported it
+  # (story:control-plane-work-handler); it is recorded in any state of the dispatch, each link
+  # once, at most 32 per dispatch.
+  - name: conductor.dispatch.RecordDispatchLink
+    naming:
+      wire: record-link
+      display: Record a link on a dispatch
+    input:
+      - {name: actor, type: conductor.operator.Actor}
+      - name: dispatch_id
+        type: conductor.dispatch.DispatchId
+      - name: link
+        type: String
+        example: "https://forge.example.org/example-org/alpha/pull/12"
+    outcomes:
+      - name: invalid-link
+        when:
+          any:
+            - link.count > 2048
+            - all:
+                - not: {link: {starts_with: "http://"}}
+                - not: {link: {starts_with: "https://"}}
+            - {link: "http://"}
+            - {link: "https://"}
+            - link: {contains: " "}
+            - link: {contains: "\t"}
+            - link: {contains: "\n"}
+            - link: {contains: "\r"}
+        error: conductor.dispatch.InvalidLink
+        payload:
+          conductor.dispatch.InvalidLink:
+            link: input.link
+        summary: A link is an `http://` or `https://` URL of at most 2048 characters; nothing was recorded.
+      - name: no-such-dispatch
+        unknown_instance: true
+        error: conductor.dispatch.DispatchNotFound
+        payload:
+          conductor.dispatch.DispatchNotFound:
+            dispatch_id: input.dispatch_id
+      - name: already-linked
+        when_subject:
+          predicate:
+            exists:
+              in: links
+              as: held
+              that: held == input.link
+        preserves: conductor.dispatch.Dispatch
+        instance: dispatch_id
+        summary: The dispatch holds the link already; it is unchanged.
+      - name: links-full
+        when_subject:
+          predicate: links.count >= 32
+        error: conductor.dispatch.DispatchLinksFull
+        payload:
+          conductor.dispatch.DispatchLinksFull:
+            dispatch_id: input.dispatch_id
+        summary: A dispatch holds at most 32 links; nothing was recorded.
+      - name: linked
+        updates: conductor.dispatch.Dispatch
+        instance: dispatch_id
+        sets:
+          links: {append: input.link}
+        emits:
+          - conductor.dispatch.DispatchLinked
+        payload:
+          conductor.dispatch.DispatchLinked:
+            actor: input.actor
+            dispatch_id: input.dispatch_id
+            link: input.link
+        summary: The link is the dispatch's last.
 
   # Records line (`DispatchLogLine`): `message-received`, with `id`, `from`, `to`, `kind` and
   # `first_line`, whether the message is received or rejected at receipt.
@@ -1717,7 +2076,18 @@ events:
       - name: repository
         type: conductor.observation.RepositoryName
       - name: goal_id
-        type: conductor.direction.GoalId
+        type: Optional<conductor.direction.GoalId>
+      - name: reference
+        type: Optional<String>
+
+  - name: conductor.dispatch.DispatchLinked
+    fields:
+      - name: actor
+        type: conductor.operator.Actor
+      - name: dispatch_id
+        type: conductor.dispatch.DispatchId
+      - name: link
+        type: String
 
   - name: conductor.dispatch.DispatchStarted
     fields:
@@ -1894,7 +2264,7 @@ views:
       - name: repository
         type: conductor.observation.RepositoryName
       - name: goal_id
-        type: conductor.direction.GoalId
+        type: Optional<conductor.direction.GoalId>
       - name: brief
         type: String
       - name: sent_at
@@ -1905,6 +2275,14 @@ views:
         type: Optional<conductor.dispatch.DispatchId>
       - name: actor
         type: conductor.operator.Actor
+      - name: reference
+        type: Optional<String>
+      - name: start_ref
+        type: Optional<String>
+      - name: issue
+        type: Optional<String>
+      - name: links
+        type: List<String>
     naming:
       wire: dispatches
       display: Dispatches

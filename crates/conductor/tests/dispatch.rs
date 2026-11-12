@@ -276,6 +276,10 @@ fn a_dispatch_against_g9_moves_sent_started_blocked_started_done_and_another_is_
             "sent_at": SENT_AT,
             "priority": 1,
             "waits_on": null,
+            "reference": null,
+            "start_ref": null,
+            "issue": null,
+            "links": [],
         })
     );
 

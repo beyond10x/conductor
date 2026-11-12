@@ -1,5 +1,5 @@
 // generated from conductor v1
-// contract digest 3ecaf75891d0174f1aadd06ecb145177f190b67bde1ebf99b046b751e53c6775
+// contract digest e2ec07cfcbdedb3f66deb98b800a9ec8bb9ee2f47b9c2aa2880ecc31913fd7d6
 // do not edit: regenerate with `ess synthesize --layout crate`
 
 //! What the specification fully determines, generated: the behaviour of every command the plan
@@ -2364,6 +2364,12 @@ where
     }
 }
 
+impl<P: crate::dispatch::obligations::RecordDispatchLinkBehavior> crate::dispatch::obligations::RecordDispatchLinkBehavior for Generated<P> {
+    fn record_dispatch_link(&mut self, input: crate::dispatch::RecordDispatchLink) -> Result<crate::dispatch::RecordDispatchLinkOutcome, UnmetObligation> {
+        crate::dispatch::obligations::RecordDispatchLinkBehavior::record_dispatch_link(&mut self.ports, input)
+    }
+}
+
 /// `conductor.dispatch.RecordGuardDecision`, generated: every outcome is one the specification fully determines.
 impl<P> crate::dispatch::obligations::RecordGuardDecisionBehavior for Generated<P>
 where
@@ -2791,63 +2797,9 @@ where
     }
 }
 
-/// `conductor.dispatch.SendDispatch`, generated: every outcome is one the specification fully determines.
-impl<P> crate::dispatch::obligations::SendDispatchBehavior for Generated<P>
-where
-    P: GoalStorage + DispatchStorage,
-{
+impl<P: crate::dispatch::obligations::SendDispatchBehavior> crate::dispatch::obligations::SendDispatchBehavior for Generated<P> {
     fn send_dispatch(&mut self, input: crate::dispatch::SendDispatch) -> Result<crate::dispatch::SendDispatchOutcome, UnmetObligation> {
-        let _ = &input;
-        // `negative-priority`: an input-guarded refusal, before the addressed subject is loaded.
-        if decided(compare_numbers(Some(&input.priority).map(|value| value.to_string()), Some("0".to_owned()), core::cmp::Ordering::is_lt), "conductor.dispatch.SendDispatch")? {
-            return Ok(crate::dispatch::SendDispatchOutcome::NegativePriority { error: crate::dispatch::InvalidPriority { priority: input.priority.clone() } });
-        }
-        // `waits-on-itself`: an input-guarded refusal, before the addressed subject is loaded.
-        if decided(all(&[Some(Some(&input.waits_on).and_then(|value| value.as_ref()).map(|value| &value.0).is_some()), equal(Some(&input.waits_on).and_then(|value| value.as_ref()).map(|value| &value.0).map(|value| value.clone()), Some(&input.dispatch_id).map(|value| &value.0).map(|value| value.clone()))]), "conductor.dispatch.SendDispatch")? {
-            return Ok(crate::dispatch::SendDispatchOutcome::WaitsOnItself { error: crate::dispatch::WaitsOnItself { dispatch_id: input.dispatch_id.clone() } });
-        }
-        // `already-sent`: an identity a record already carries, before any branch is taken.
-        if DispatchStorage::get(&self.ports, &input.dispatch_id).is_some() {
-            return Ok(crate::dispatch::SendDispatchOutcome::AlreadySent { error: crate::dispatch::DispatchExists { dispatch_id: input.dispatch_id.clone() } });
-        }
-        // `when_related:` reads the `conductor.direction.Goal` row `input.goal_id` names, through its storage port; an absent
-        // reference reads no row and selects no related branch.
-        let reference = Some(&input.goal_id);
-        let related = reference.and_then(|identity| GoalStorage::get(&self.ports, identity));
-        let _ = &related;
-        // The addressed row's existence and held state, for the branch the request selects
-        // before any present related row's refusal.
-        {
-        }
-        // `no-such-goal`: the reference names an identity no row carries.
-        if reference.is_some() && related.is_none() {
-            return Ok(crate::dispatch::SendDispatchOutcome::NoSuchGoal { error: crate::dispatch::GoalNotFound { goal_id: input.goal_id.clone() } });
-        }
-        // `goal-closed`: a present related row's refusal, before every accepting branch.
-        if let Some(related) = &related {
-        if decided(any(&[equal(Some(&related.state).map(|value| match value { crate::direction::GoalState::Confirmed => "Confirmed", crate::direction::GoalState::Draft => "Draft", crate::direction::GoalState::Dropped => "Dropped", crate::direction::GoalState::Met => "Met" }.to_owned()), Some("Met".to_owned())), equal(Some(&related.state).map(|value| match value { crate::direction::GoalState::Confirmed => "Confirmed", crate::direction::GoalState::Draft => "Draft", crate::direction::GoalState::Dropped => "Dropped", crate::direction::GoalState::Met => "Met" }.to_owned()), Some("Dropped".to_owned()))]), "conductor.dispatch.SendDispatch")? {
-            return Ok(crate::dispatch::SendDispatchOutcome::GoalClosed { error: crate::dispatch::GoalClosed { goal_id: input.goal_id.clone() } });
-        }
-        }
-        // `sent`: the default.
-        let identity: crate::dispatch::DispatchId = input.dispatch_id.clone();
-        let data = crate::dispatch::DispatchData {
-            dispatch_id: identity.clone(),
-            actor: input.actor.clone(),
-            repository: input.repository.clone(),
-            goal_id: input.goal_id.clone(),
-            brief: input.brief.clone(),
-            sent_at: input.sent_at.clone(),
-            priority: input.priority.clone(),
-            waits_on: input.waits_on.clone(),
-        };
-        if let Some(broken) = data.broken_invariant() {
-            let capability = "entity invariant";
-            return Err(UnmetObligation { capability, source: broken });
-        }
-        let answer = crate::dispatch::SendDispatchOutcome::Sent { dispatch_sent: crate::dispatch::DispatchSent { actor: input.actor.clone(), dispatch_id: identity.clone(), repository: input.repository.clone(), goal_id: input.goal_id.clone() } };
-        DispatchStorage::put(&mut self.ports, crate::dispatch::AnyDispatch::Sent(crate::dispatch::Dispatch::new(data)).snapshot());
-        return Ok(answer);
+        crate::dispatch::obligations::SendDispatchBehavior::send_dispatch(&mut self.ports, input)
     }
 }
 
@@ -5456,6 +5408,10 @@ where
                 priority: held.data.priority,
                 waits_on: held.data.waits_on,
                 actor: held.data.actor,
+                reference: held.data.reference,
+                start_ref: held.data.start_ref,
+                issue: held.data.issue,
+                links: held.data.links,
             })
             .collect())
     }

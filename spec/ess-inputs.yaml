@@ -38,6 +38,7 @@ scenarios:
   - scenarios/record-decision-twice.yaml
   - scenarios/raise-request-twice.yaml
   - scenarios/send-dispatch-twice.yaml
+  - scenarios/record-dispatch-link-twice.yaml
   - scenarios/receive-message-unknown-kind.yaml
   - scenarios/claim-lease.yaml
   - scenarios/escalate-o-with-options.yaml

@@ -1,13 +1,13 @@
 <!--
   generated from conductor v1
-  contract digest 3ecaf75891d0174f1aadd06ecb145177f190b67bde1ebf99b046b751e53c6775
+  contract digest e2ec07cfcbdedb3f66deb98b800a9ec8bb9ee2f47b9c2aa2880ecc31913fd7d6
   do not edit: regenerate with `ess synthesize --layout crate`
 -->
 # Synthesis plan — conductor v1
 
 Scope: `component-skeletons`, laid out as `crate`, planned by `ess-synth`. Regenerate with `ess synthesize --layout crate`.
 
-1007 capabilities: **992 generated**, **15 obligations**, **0 refused**. An obligation is yours to implement against its contract; a refusal is a fact about this synthesis scope, not about the specification.
+1018 capabilities: **1001 generated**, **17 obligations**, **0 refused**. An obligation is yours to implement against its contract; a refusal is a fact about this synthesis scope, not about the specification.
 
 ## Generated
 
@@ -184,6 +184,8 @@ Scope: `component-skeletons`, laid out as `crate`, planned by `ess-synth`. Regen
 | domain type | `conductor.dispatch.SpawnRefused` |
 | domain type | `conductor.dispatch.Transport` |
 | domain type | `conductor.dispatch.Verdict` |
+| domain type | `conductor.dispatch.WorkRequest` |
+| domain type | `conductor.dispatch.WorkState` |
 | domain type | `conductor.host.BuildLane` |
 | domain type | `conductor.host.BuildRun` |
 | domain type | `conductor.host.BuildRunRefused` |
@@ -488,6 +490,7 @@ Scope: `component-skeletons`, laid out as `crate`, planned by `ess-synth`. Regen
 | command behaviour | `conductor.dispatch.PauseController` |
 | command contract | `conductor.dispatch.ReceiveMessage` |
 | command behaviour | `conductor.dispatch.ReceiveMessage` |
+| command contract | `conductor.dispatch.RecordDispatchLink` |
 | command contract | `conductor.dispatch.RecordGuardDecision` |
 | command behaviour | `conductor.dispatch.RecordGuardDecision` |
 | command contract | `conductor.dispatch.RefuseResource` |
@@ -515,7 +518,6 @@ Scope: `component-skeletons`, laid out as `crate`, planned by `ess-synth`. Regen
 | command contract | `conductor.dispatch.RouteNeed` |
 | command behaviour | `conductor.dispatch.RouteNeed` |
 | command contract | `conductor.dispatch.SendDispatch` |
-| command behaviour | `conductor.dispatch.SendDispatch` |
 | command contract | `conductor.dispatch.StartController` |
 | command contract | `conductor.dispatch.StopController` |
 | command behaviour | `conductor.dispatch.StopController` |
@@ -669,6 +671,7 @@ Scope: `component-skeletons`, laid out as `crate`, planned by `ess-synth`. Regen
 | event type | `conductor.dispatch.DispatchCancelled` |
 | event type | `conductor.dispatch.DispatchDone` |
 | event type | `conductor.dispatch.DispatchFailed` |
+| event type | `conductor.dispatch.DispatchLinked` |
 | event type | `conductor.dispatch.DispatchSent` |
 | event type | `conductor.dispatch.DispatchStarted` |
 | event type | `conductor.dispatch.DispatchUnblocked` |
@@ -789,17 +792,23 @@ Scope: `component-skeletons`, laid out as `crate`, planned by `ess-synth`. Regen
 | error type | `conductor.dispatch.ControllerStateConflict` |
 | error type | `conductor.dispatch.DiskBelowFloor` |
 | error type | `conductor.dispatch.DispatchExists` |
+| error type | `conductor.dispatch.DispatchLinksFull` |
 | error type | `conductor.dispatch.DispatchNotFound` |
 | error type | `conductor.dispatch.DispatchStateConflict` |
 | error type | `conductor.dispatch.GoalClosed` |
 | error type | `conductor.dispatch.GoalNotFound` |
+| error type | `conductor.dispatch.GoalOrReferenceMissing` |
 | error type | `conductor.dispatch.InvalidAmount` |
+| error type | `conductor.dispatch.InvalidLink` |
 | error type | `conductor.dispatch.InvalidPriority` |
+| error type | `conductor.dispatch.InvalidReference` |
 | error type | `conductor.dispatch.MailboxBodyMissing` |
 | error type | `conductor.dispatch.MessageNotFound` |
 | error type | `conductor.dispatch.MessageStateConflict` |
 | error type | `conductor.dispatch.NeedNotRouted` |
 | error type | `conductor.dispatch.NotANeed` |
+| error type | `conductor.dispatch.ReferenceHeld` |
+| error type | `conductor.dispatch.RepositoryBusy` |
 | error type | `conductor.dispatch.ResourceRequestNotFound` |
 | error type | `conductor.dispatch.ResourceRequestStateConflict` |
 | error type | `conductor.dispatch.WaitsOnItself` |
@@ -1023,6 +1032,8 @@ What the specification fully determines is generated; what it cannot determine i
 | command behaviour | `conductor.agent.DeliverToAgent` | kept an obligation by the guard `exists c in capabilities: (c == Interactive)`, in `not-interactive` | given `conductor.agent.DeliverToAgent` input, decide and enact exactly one outcome. Declared outcomes (declaration order, not selection precedence): `not-interactive` when the existing subject's stored fields satisfy `not (exists c in capabilities: (c == Interactive))`, error `conductor.agent.CapabilityMissing`; `not-running` when the existing subject's stored fields satisfy `state == Stopped`, error `conductor.agent.AgentNotRunning`; `unreachable` externally decided (the agent's PTY does not answer), error `conductor.agent.AgentNotReachable`; `delivered` otherwise, preserves `conductor.agent.Agent`; `no-such-agent` for an identity no record carries, error `conductor.agent.AgentNotFound` |
 | command behaviour | `conductor.agent.StartAgent` | kept an obligation by `external:` beside `when_related:` in one command | given `conductor.agent.StartAgent` input, decide and enact exactly one outcome. Selection precedence: on commands with `when_related:`, check `existing_instance` then `exists: false` before input-guarded refusals; choose the first declared input refusal whose guard holds; then check addressed-row existence (`unknown_instance`, and `existing_instance` on commands without `when_related:`); then the held state (`when_subject_state` and `when_subject`), with `wrong_state` only if the selected branch moves from a state the row does not hold; then accepting and external branches in declaration order. An accepting branch that moves nothing answers in every state. Related-presence predicates do not precede input-guarded refusals. Declared outcomes (declaration order, not selection precedence): `unknown-kind` when no `conductor.agent.AgentKind` carries the identity `input.kind` names, error `conductor.agent.UnknownAgentKind`; `launch-failed` externally decided (the kind's start in the box failed, or its first prompt could not be delivered), error `conductor.agent.AgentLaunchFailed`; `started` otherwise, creates `conductor.agent.Agent`, emits `conductor.agent.AgentStarted`; `exists` for an identity a record already carries, error `conductor.agent.AgentExists` |
 | command behaviour | `conductor.decision.RecordOperatorDecisionForRequest` | kept an obligation by a guard over the rows a selector selects (`when_related: {entity, where, exists | count | forall}`), in `no-such-request` | given `conductor.decision.RecordOperatorDecisionForRequest` input, decide and enact exactly one outcome. Declared outcomes (declaration order, not selection precedence): `agent-actor` when `actor.kind != Human`, error `conductor.operator.ActorNotHuman`; `no-such-request` when, of the `conductor.decision.DecisionRequest` rows satisfying `request_id == input.request_id`, no row is selected, error `conductor.decision.RequestNotFound`; `not-escalated` when, of the `conductor.decision.DecisionRequest` rows satisfying `(request_id == input.request_id and state != Escalated)`, at least one row is selected, error `conductor.decision.RequestStateConflict`; `recorded` otherwise, creates `conductor.decision.Decision`, emits `conductor.decision.DecisionRecorded`; `already-recorded` for an identity a record already carries, error `conductor.decision.DecisionExists` |
+| command behaviour | `conductor.dispatch.RecordDispatchLink` | kept an obligation by the guard path `link.count`, in `invalid-link` | given `conductor.dispatch.RecordDispatchLink` input, decide and enact exactly one outcome. Declared outcomes (declaration order, not selection precedence): `invalid-link` when `(link.count > 2048 or (not (link starts_with "http://") and not (link starts_with "https://")) or link == http:// or link == https:// or link contains " " or link contains "\t" or link contains "\n" or link contains "\r")`, error `conductor.dispatch.InvalidLink`; `no-such-dispatch` for an identity no record carries, error `conductor.dispatch.DispatchNotFound`; `already-linked` when the existing subject's stored fields satisfy `exists held in links: (held == input.link)`, preserves `conductor.dispatch.Dispatch`; `links-full` when the existing subject's stored fields satisfy `links.count >= 32`, error `conductor.dispatch.DispatchLinksFull`; `linked` otherwise, updates `conductor.dispatch.Dispatch`, emits `conductor.dispatch.DispatchLinked` |
+| command behaviour | `conductor.dispatch.SendDispatch` | kept an obligation by the guard path `reference.count`, in `invalid-reference` | given `conductor.dispatch.SendDispatch` input, decide and enact exactly one outcome. Declared outcomes (declaration order, not selection precedence): `negative-priority` when `priority < 0`, error `conductor.dispatch.InvalidPriority`; `waits-on-itself` when `(defined(waits_on) and waits_on == {fact: dispatch_id})`, error `conductor.dispatch.WaitsOnItself`; `invalid-reference` when `(defined(reference) and (reference.count < 1 or reference.count > 64 or {utf8_bytes: reference} != reference.count or reference starts_with "." or reference starts_with "_" or reference starts_with "-" or reference contains " " or reference contains "!" or reference contains "\"" or reference contains "#" or reference contains "$" or reference contains "%" or reference contains "&" or reference contains "'" or reference contains "(" or reference contains ")" or reference contains "*" or reference contains "+" or reference contains "," or reference contains "/" or reference contains ":" or reference contains ";" or reference contains "<" or reference contains "=" or reference contains ">" or reference contains "?" or reference contains "@" or reference contains "[" or reference contains "\\" or reference contains "]" or reference contains "^" or reference contains "`" or reference contains "{" or reference contains "|" or reference contains "}" or reference contains "~" or reference contains "\u{7f}" or reference contains "\0" or reference contains "\u{1}" or reference contains "\u{2}" or reference contains "\u{3}" or reference contains "\u{4}" or reference contains "\u{5}" or reference contains "\u{6}" or reference contains "\u{7}" or reference contains "\u{8}" or reference contains "\t" or reference contains "\n" or reference contains "\u{b}" or reference contains "\u{c}" or reference contains "\r" or reference contains "\u{e}" or reference contains "\u{f}" or reference contains "\u{10}" or reference contains "\u{11}" or reference contains "\u{12}" or reference contains "\u{13}" or reference contains "\u{14}" or reference contains "\u{15}" or reference contains "\u{16}" or reference contains "\u{17}" or reference contains "\u{18}" or reference contains "\u{19}" or reference contains "\u{1a}" or reference contains "\u{1b}" or reference contains "\u{1c}" or reference contains "\u{1d}" or reference contains "\u{1e}" or reference contains "\u{1f}"))`, error `conductor.dispatch.InvalidReference`; `goal-or-reference-missing` when `(not (defined(goal_id)) and not (defined(reference)))`, error `conductor.dispatch.GoalOrReferenceMissing`; `reference-held` when, of the `conductor.dispatch.Dispatch` rows satisfying `(defined(reference) and reference == input.reference)`, at least 1 rows are selected and `defined(reference)`, error `conductor.dispatch.ReferenceHeld`; `no-such-goal` when, of the `conductor.direction.Goal` rows satisfying `goal_id == input.goal_id`, no row is selected and `defined(goal_id)`, error `conductor.dispatch.GoalNotFound`; `goal-closed` when, of the `conductor.direction.Goal` rows satisfying `(goal_id == input.goal_id and state in [Met, Dropped])`, at least one row is selected and `defined(goal_id)`, error `conductor.dispatch.GoalClosed`; `repository-busy` when, of the `conductor.dispatch.Dispatch` rows satisfying `(repository == input.repository and state in [Sent, Started, Blocked])`, at least 1 rows are selected and `defined(reference)`, error `conductor.dispatch.RepositoryBusy`; `sent-for-reference` when `not (defined(goal_id))`, creates `conductor.dispatch.Dispatch`, emits `conductor.dispatch.DispatchSent`; `sent` otherwise, creates `conductor.dispatch.Dispatch`, emits `conductor.dispatch.DispatchSent`; `already-sent` for an identity a record already carries, error `conductor.dispatch.DispatchExists` |
 | command behaviour | `conductor.dispatch.StartController` | kept an obligation by a guard over the rows a selector selects (`when_related: {entity, where, exists | count | forall}`), in `already-running` | given `conductor.dispatch.StartController` input, decide and enact exactly one outcome. Declared outcomes (declaration order, not selection precedence): `already-running` when, of the `conductor.dispatch.Controller` rows satisfying `(repository == input.repository and state in [Running, Paused])`, at least 1 rows are selected, error `conductor.dispatch.ControllerAlreadyRunning`; `started` otherwise, creates `conductor.dispatch.Controller`, emits `conductor.dispatch.ControllerStarted` |
 | command behaviour | `conductor.improvement.SetMetricTarget` | kept an obligation by a subject predicate choosing between a move and an update | given `conductor.improvement.SetMetricTarget` input, decide and enact exactly one outcome. Declared outcomes (declaration order, not selection precedence): `actor-not-human` when `actor.kind != Human`, error `conductor.operator.ActorNotHuman`; `targeted` when the existing subject is in Untargeted, takes `target` of `conductor.improvement.Metric`, emits `conductor.improvement.MetricTargetSet`; `retargeted` when the existing subject is in Targeted, updates `conductor.improvement.Metric`, emits `conductor.improvement.MetricTargetSet`; `no-such-metric` for an identity no record carries, error `conductor.improvement.MetricNotFound` |
 | command behaviour | `conductor.instance.StartInstance` | kept an obligation by `when_subject_state:` beside `external:` in one command | given `conductor.instance.StartInstance` input, decide and enact exactly one outcome. Declared outcomes (declaration order, not selection precedence): `created` for an identity no record carries, creates `conductor.instance.Instance`, emits `conductor.instance.InstanceStarted`; `started` when the existing subject is in Stopped, takes `start` of `conductor.instance.Instance`, emits `conductor.instance.InstanceStarted`; `already-started` when the existing subject is in Running or Starting or Upgrading, preserves `conductor.instance.Instance`; `not-in-config` externally decided (the config names no instance of this name), error `conductor.instance.UnknownInstance`; `placement-refused` externally decided (substrate refused the box the placement asks for), error `conductor.instance.PlacementRefused`; `not-startable` otherwise, error `conductor.instance.InstanceStateConflict` |

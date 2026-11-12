@@ -60,7 +60,7 @@ pub const DECISIONS: &str = "decisions";
 
 /// The keys a line of the dispatch log may hold: the fields of `conductor.dispatch.DispatchLogLine`
 /// (`spec/domains/dispatch.yaml`), in its order.
-pub const DISPATCH_KEYS: [&str; 26] = [
+pub const DISPATCH_KEYS: [&str; 30] = [
     "at",
     "event",
     "repo",
@@ -87,6 +87,10 @@ pub const DISPATCH_KEYS: [&str; 26] = [
     "line",
     "tick_id",
     "commit",
+    "reference",
+    "start_ref",
+    "issue",
+    "link",
 ];
 
 /// The keys every line of the dispatch log holds.
@@ -132,6 +136,7 @@ pub const fn dispatch_event(event: DispatchLogEvent) -> &'static str {
         DispatchLogEvent::Done => "done",
         DispatchLogEvent::Failed => "failed",
         DispatchLogEvent::Cancelled => "cancelled",
+        DispatchLogEvent::Linked => "linked",
         DispatchLogEvent::MessageReceived => "message-received",
         DispatchLogEvent::ResourceGranted => "resource-granted",
         DispatchLogEvent::ResourceRefused => "resource-refused",
@@ -154,7 +159,7 @@ pub const fn dispatch_event(event: DispatchLogEvent) -> &'static str {
 }
 
 /// Every event of the dispatch log, in the specification's order.
-pub const DISPATCH_EVENTS: [DispatchLogEvent; 25] = [
+pub const DISPATCH_EVENTS: [DispatchLogEvent; 26] = [
     DispatchLogEvent::Sent,
     DispatchLogEvent::Started,
     DispatchLogEvent::Blocked,
@@ -162,6 +167,7 @@ pub const DISPATCH_EVENTS: [DispatchLogEvent; 25] = [
     DispatchLogEvent::Done,
     DispatchLogEvent::Failed,
     DispatchLogEvent::Cancelled,
+    DispatchLogEvent::Linked,
     DispatchLogEvent::MessageReceived,
     DispatchLogEvent::ResourceGranted,
     DispatchLogEvent::ResourceRefused,
@@ -260,6 +266,10 @@ pub fn dispatch_line(event: DispatchLogEvent, repo: &str) -> Result<DispatchLogL
         line: None,
         tick_id: None,
         commit: None,
+        reference: None,
+        start_ref: None,
+        issue: None,
+        link: None,
     })
 }
 
@@ -334,6 +344,10 @@ pub fn dispatch_object(line: &DispatchLogLine) -> Map<String, Value> {
     put(&mut object, "line", line.line.clone());
     put(&mut object, "tick_id", line.tick_id.clone());
     put(&mut object, "commit", line.commit.clone());
+    put(&mut object, "reference", line.reference.clone());
+    put(&mut object, "start_ref", line.start_ref.clone());
+    put(&mut object, "issue", line.issue.clone());
+    put(&mut object, "link", line.link.clone());
     object
 }
 

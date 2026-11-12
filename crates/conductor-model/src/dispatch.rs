@@ -1,10 +1,10 @@
 // generated from conductor v1
-// contract digest 3ecaf75891d0174f1aadd06ecb145177f190b67bde1ebf99b046b751e53c6775
+// contract digest e2ec07cfcbdedb3f66deb98b800a9ec8bb9ee2f47b9c2aa2880ecc31913fd7d6
 // do not edit: regenerate with `ess synthesize --layout crate`
 
 //! Dispatch — `conductor.dispatch`.
 //!
-//! How conductor directs the repository controllers. A controller is one session bound to one repository checkout, and at most one runs per repository. A dispatch is one brief to one controller in service of one goal, and it moves as the controller reports. Every message between conductor and a controller is recorded with its parsed first line, whichever harness and transport carried it. A resource request asks conductor for a build slot, disk or usage before a controller spends it. Design: docs/design/conductor.md § 3, § 6, § 7.
+//! How conductor directs the repository controllers. A controller is one session bound to one repository checkout, and at most one runs per repository. A dispatch is one brief to one controller in service of one goal, or of one unit of work a work source handed in under its own `reference`, and it moves as the controller reports. Every message between conductor and a controller is recorded with its parsed first line, whichever harness and transport carried it. A resource request asks conductor for a build slot, disk or usage before a controller spends it. Design: docs/design/conductor.md § 3, § 6, § 7.
 //!
 //! Everything this bounded context declares that the synthesis plan marks generated.
 
@@ -92,6 +92,8 @@ pub enum DispatchLogEvent {
     Failed,
     /// `Cancelled`.
     Cancelled,
+    /// `Linked`.
+    Linked,
     /// `MessageReceived`.
     MessageReceived,
     /// `ResourceGranted`.
@@ -185,6 +187,14 @@ pub struct DispatchLogLine {
     pub tick_id: Option<String>,
     /// `commit` — `Optional<String>`.
     pub commit: Option<String>,
+    /// `reference` — `Optional<String>`.
+    pub reference: Option<String>,
+    /// `start_ref` — `Optional<String>`.
+    pub start_ref: Option<String>,
+    /// `issue` — `Optional<String>`.
+    pub issue: Option<String>,
+    /// `link` — `Optional<String>`.
+    pub link: Option<String>,
 }
 
 /// The states of `conductor.dispatch.GuardDecision`, as runtime values.
@@ -412,6 +422,46 @@ pub enum Verdict {
     Allow,
     /// `Deny`.
     Deny,
+}
+
+/// WorkRequest — `conductor.dispatch.WorkRequest`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct WorkRequest {
+    /// `repository` — `conductor.observation.RepositoryName`.
+    pub repository: crate::observation::RepositoryName,
+    /// `brief` — `String`.
+    pub brief: String,
+    /// `reference` — `String`.
+    pub reference: String,
+    /// `start_ref` — `Optional<String>`.
+    pub start_ref: Option<String>,
+    /// `issue` — `Optional<String>`.
+    pub issue: Option<String>,
+}
+
+/// WorkState — `conductor.dispatch.WorkState`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct WorkState {
+    /// `reference` — `String`.
+    pub reference: String,
+    /// `dispatch_id` — `conductor.dispatch.DispatchId`.
+    pub dispatch_id: DispatchId,
+    /// `repository` — `conductor.observation.RepositoryName`.
+    pub repository: crate::observation::RepositoryName,
+    /// `state` — `conductor.dispatch.Dispatch.State`.
+    pub state: DispatchState,
+    /// `sent_at` — `Timestamp`.
+    pub sent_at: crate::primitives::Timestamp,
+    /// `started_at` — `Optional<Timestamp>`.
+    pub started_at: Option<crate::primitives::Timestamp>,
+    /// `ended_at` — `Optional<Timestamp>`.
+    pub ended_at: Option<crate::primitives::Timestamp>,
+    /// `last_report` — `Optional<String>`.
+    pub last_report: Option<String>,
+    /// `detail` — `Optional<String>`.
+    pub detail: Option<String>,
+    /// `links` — `List<String>`.
+    pub links: Vec<String>,
 }
 
 /// What Controller — `conductor.dispatch.Controller` — holds, apart from where it is in its lifecycle.
@@ -656,10 +706,10 @@ pub struct DispatchData {
     pub actor: crate::operator::Actor,
     /// `repository` — `conductor.observation.RepositoryName`.
     pub repository: crate::observation::RepositoryName,
-    /// `goal_id` — `conductor.direction.GoalId`.
+    /// `goal_id` — `Optional<conductor.direction.GoalId>`.
     ///
     /// Carries `goal`: `conductor.dispatch.Dispatch` references one `conductor.direction.Goal`.
-    pub goal_id: crate::direction::GoalId,
+    pub goal_id: Option<crate::direction::GoalId>,
     /// `brief` — `String`.
     pub brief: String,
     /// `sent_at` — `Timestamp`.
@@ -670,6 +720,14 @@ pub struct DispatchData {
     ///
     /// Carries `awaited_dispatch`: `conductor.dispatch.Dispatch` references one `conductor.dispatch.Dispatch`.
     pub waits_on: Option<DispatchId>,
+    /// `reference` — `Optional<String>`.
+    pub reference: Option<String>,
+    /// `start_ref` — `Optional<String>`.
+    pub start_ref: Option<String>,
+    /// `issue` — `Optional<String>`.
+    pub issue: Option<String>,
+    /// `links` — `List<String>`.
+    pub links: Vec<String>,
 }
 
 impl DispatchData {
@@ -1816,6 +1874,58 @@ pub enum ReceiveMessageOutcome {
     },
 }
 
+/// Record a link on a dispatch — the input of `conductor.dispatch.RecordDispatchLink`.
+///
+/// Everything it can result in is [`RecordDispatchLinkOutcome`].
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RecordDispatchLink {
+    /// `actor` — `conductor.operator.Actor`.
+    pub actor: crate::operator::Actor,
+    /// `dispatch_id` — `conductor.dispatch.DispatchId`.
+    pub dispatch_id: DispatchId,
+    /// `link` — `String`.
+    pub link: String,
+}
+
+/// Everything `conductor.dispatch.RecordDispatchLink` can result in — one variant per declared outcome.
+///
+/// An infrastructure failure is deliberately not in here: a refusal is a fact about the domain,
+/// a transport fault is a fact about the run, and conflating the two is what the declared
+/// outcomes exist to prevent.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum RecordDispatchLinkOutcome {
+    /// `invalid-link` — when `(link.count > 2048 or (not (link starts_with "http://") and not (link starts_with "https://")) or link == http:// or link == https:// or link contains " " or link contains "\t" or link contains "\n" or link contains "\r")`.
+    ///
+    /// A link is an `http://` or `https://` URL of at most 2048 characters; nothing was recorded.
+    InvalidLink {
+        /// Why it was refused: `conductor.dispatch.InvalidLink`.
+        error: InvalidLink,
+    },
+    /// `no-such-dispatch` — for an identity no record carries.
+    NoSuchDispatch {
+        /// Why it was refused: `conductor.dispatch.DispatchNotFound`.
+        error: DispatchNotFound,
+    },
+    /// `already-linked` — when the existing subject's stored fields satisfy `exists held in links: (held == input.link)`.
+    ///
+    /// The dispatch holds the link already; it is unchanged.
+    AlreadyLinked,
+    /// `links-full` — when the existing subject's stored fields satisfy `links.count >= 32`.
+    ///
+    /// A dispatch holds at most 32 links; nothing was recorded.
+    LinksFull {
+        /// Why it was refused: `conductor.dispatch.DispatchLinksFull`.
+        error: DispatchLinksFull,
+    },
+    /// `linked` — otherwise.
+    ///
+    /// The link is the dispatch's last.
+    Linked {
+        /// The `conductor.dispatch.DispatchLinked` this outcome publishes.
+        dispatch_linked: DispatchLinked,
+    },
+}
+
 /// Record a guard decision — the input of `conductor.dispatch.RecordGuardDecision`.
 ///
 /// Everything it can result in is [`RecordGuardDecisionOutcome`].
@@ -2361,8 +2471,8 @@ pub struct SendDispatch {
     pub dispatch_id: DispatchId,
     /// `repository` — `conductor.observation.RepositoryName`.
     pub repository: crate::observation::RepositoryName,
-    /// `goal_id` — `conductor.direction.GoalId`.
-    pub goal_id: crate::direction::GoalId,
+    /// `goal_id` — `Optional<conductor.direction.GoalId>`.
+    pub goal_id: Option<crate::direction::GoalId>,
     /// `brief` — `String`.
     pub brief: String,
     /// `sent_at` — `Timestamp`.
@@ -2371,6 +2481,12 @@ pub struct SendDispatch {
     pub priority: i64,
     /// `waits_on` — `Optional<conductor.dispatch.DispatchId>`.
     pub waits_on: Option<DispatchId>,
+    /// `reference` — `Optional<String>`.
+    pub reference: Option<String>,
+    /// `start_ref` — `Optional<String>`.
+    pub start_ref: Option<String>,
+    /// `issue` — `Optional<String>`.
+    pub issue: Option<String>,
 }
 
 /// Everything `conductor.dispatch.SendDispatch` can result in — one variant per declared outcome.
@@ -2394,19 +2510,54 @@ pub enum SendDispatchOutcome {
         /// Why it was refused: `conductor.dispatch.WaitsOnItself`.
         error: WaitsOnItself,
     },
-    /// `no-such-goal` — when no `conductor.direction.Goal` carries the identity `input.goal_id` names.
+    /// `invalid-reference` — when `(defined(reference) and (reference.count < 1 or reference.count > 64 or {utf8_bytes: reference} != reference.count or reference starts_with "." or reference starts_with "_" or reference starts_with "-" or reference contains " " or reference contains "!" or reference contains "\"" or reference contains "#" or reference contains "$" or reference contains "%" or reference contains "&" or reference contains "'" or reference contains "(" or reference contains ")" or reference contains "*" or reference contains "+" or reference contains "," or reference contains "/" or reference contains ":" or reference contains ";" or reference contains "<" or reference contains "=" or reference contains ">" or reference contains "?" or reference contains "@" or reference contains "[" or reference contains "\\" or reference contains "]" or reference contains "^" or reference contains "`" or reference contains "{" or reference contains "|" or reference contains "}" or reference contains "~" or reference contains "\u{7f}" or reference contains "\0" or reference contains "\u{1}" or reference contains "\u{2}" or reference contains "\u{3}" or reference contains "\u{4}" or reference contains "\u{5}" or reference contains "\u{6}" or reference contains "\u{7}" or reference contains "\u{8}" or reference contains "\t" or reference contains "\n" or reference contains "\u{b}" or reference contains "\u{c}" or reference contains "\r" or reference contains "\u{e}" or reference contains "\u{f}" or reference contains "\u{10}" or reference contains "\u{11}" or reference contains "\u{12}" or reference contains "\u{13}" or reference contains "\u{14}" or reference contains "\u{15}" or reference contains "\u{16}" or reference contains "\u{17}" or reference contains "\u{18}" or reference contains "\u{19}" or reference contains "\u{1a}" or reference contains "\u{1b}" or reference contains "\u{1c}" or reference contains "\u{1d}" or reference contains "\u{1e}" or reference contains "\u{1f}"))`.
     ///
-    /// Every dispatch serves a goal (design § 4); nothing was sent.
+    /// A reference is 1 to 64 of `A-Z a-z 0-9 . _ -`, led by a letter or digit; nothing was sent.
+    InvalidReference {
+        /// Why it was refused: `conductor.dispatch.InvalidReference`.
+        error: InvalidReference,
+    },
+    /// `goal-or-reference-missing` — when `(not (defined(goal_id)) and not (defined(reference)))`.
+    ///
+    /// A dispatch serves a goal or carries a work source's reference; nothing was sent.
+    GoalOrReferenceMissing {
+        /// Why it was refused: `conductor.dispatch.GoalOrReferenceMissing`.
+        error: GoalOrReferenceMissing,
+    },
+    /// `reference-held` — when, of the `conductor.dispatch.Dispatch` rows satisfying `(defined(reference) and reference == input.reference)`, at least 1 rows are selected and `defined(reference)`.
+    ///
+    /// The dispatch that holds the reference answers, in whatever state; nothing was sent.
+    ReferenceHeld {
+        /// Why it was refused: `conductor.dispatch.ReferenceHeld`.
+        error: ReferenceHeld,
+    },
+    /// `no-such-goal` — when, of the `conductor.direction.Goal` rows satisfying `goal_id == input.goal_id`, no row is selected and `defined(goal_id)`.
+    ///
+    /// A dispatch that names a goal serves a goal that exists (design § 4); nothing was sent.
     NoSuchGoal {
         /// Why it was refused: `conductor.dispatch.GoalNotFound`.
         error: GoalNotFound,
     },
-    /// `goal-closed` — when the `conductor.direction.Goal` that `input.goal_id` names satisfies `state in [Met, Dropped]`.
+    /// `goal-closed` — when, of the `conductor.direction.Goal` rows satisfying `(goal_id == input.goal_id and state in [Met, Dropped])`, at least one row is selected and `defined(goal_id)`.
     ///
     /// The goal is met or dropped; nothing was sent.
     GoalClosed {
         /// Why it was refused: `conductor.dispatch.GoalClosed`.
         error: GoalClosed,
+    },
+    /// `repository-busy` — when, of the `conductor.dispatch.Dispatch` rows satisfying `(repository == input.repository and state in [Sent, Started, Blocked])`, at least 1 rows are selected and `defined(reference)`.
+    ///
+    /// The repository works another dispatch; one with a reference waits until it ends.
+    RepositoryBusy {
+        /// Why it was refused: `conductor.dispatch.RepositoryBusy`.
+        error: RepositoryBusy,
+    },
+    /// `sent-for-reference` — when `not (defined(goal_id))`.
+    ///
+    /// The controller has the brief a work source handed in.
+    SentForReference {
+        /// The `conductor.dispatch.DispatchSent` this outcome publishes.
+        dispatch_sent: DispatchSent,
     },
     /// `sent` — otherwise.
     ///
@@ -2598,6 +2749,17 @@ pub struct DispatchFailed {
     pub reason: String,
 }
 
+/// DispatchLinked — the event `conductor.dispatch.DispatchLinked`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct DispatchLinked {
+    /// `actor` — `conductor.operator.Actor`.
+    pub actor: crate::operator::Actor,
+    /// `dispatch_id` — `conductor.dispatch.DispatchId`.
+    pub dispatch_id: DispatchId,
+    /// `link` — `String`.
+    pub link: String,
+}
+
 /// DispatchSent — the event `conductor.dispatch.DispatchSent`.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct DispatchSent {
@@ -2607,8 +2769,10 @@ pub struct DispatchSent {
     pub dispatch_id: DispatchId,
     /// `repository` — `conductor.observation.RepositoryName`.
     pub repository: crate::observation::RepositoryName,
-    /// `goal_id` — `conductor.direction.GoalId`.
-    pub goal_id: crate::direction::GoalId,
+    /// `goal_id` — `Optional<conductor.direction.GoalId>`.
+    pub goal_id: Option<crate::direction::GoalId>,
+    /// `reference` — `Optional<String>`.
+    pub reference: Option<String>,
 }
 
 /// DispatchStarted — the event `conductor.dispatch.DispatchStarted`.
@@ -2777,6 +2941,15 @@ pub struct DispatchExists {
     pub dispatch_id: DispatchId,
 }
 
+/// The declared error `conductor.dispatch.DispatchLinksFull`.
+///
+/// The dispatch holds 32 links, the most it holds, so the link was not recorded.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct DispatchLinksFull {
+    /// `dispatch_id` — `conductor.dispatch.DispatchId`.
+    pub dispatch_id: DispatchId,
+}
+
 /// The declared error `conductor.dispatch.DispatchNotFound`.
 ///
 /// No dispatch has this id.
@@ -2813,6 +2986,15 @@ pub struct GoalNotFound {
     pub goal_id: crate::direction::GoalId,
 }
 
+/// The declared error `conductor.dispatch.GoalOrReferenceMissing`.
+///
+/// A dispatch serves a goal or carries a work source's reference, and this one names neither, so nothing was sent.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct GoalOrReferenceMissing {
+    /// `repository` — `conductor.observation.RepositoryName`.
+    pub repository: crate::observation::RepositoryName,
+}
+
 /// The declared error `conductor.dispatch.InvalidAmount`.
 ///
 /// A resource amount is a positive number.
@@ -2822,6 +3004,15 @@ pub struct InvalidAmount {
     pub amount: i64,
 }
 
+/// The declared error `conductor.dispatch.InvalidLink`.
+///
+/// A link is an `http://` or `https://` URL of at most 2048 characters with no space, and this one is not, so nothing was recorded.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct InvalidLink {
+    /// `link` — `String`.
+    pub link: String,
+}
+
 /// The declared error `conductor.dispatch.InvalidPriority`.
 ///
 /// A dispatch priority is never negative.
@@ -2829,6 +3020,15 @@ pub struct InvalidAmount {
 pub struct InvalidPriority {
     /// `priority` — `Integer`.
     pub priority: i64,
+}
+
+/// The declared error `conductor.dispatch.InvalidReference`.
+///
+/// A reference is 1 to 64 characters of `A-Z a-z 0-9 . _ -` and starts with a letter or a digit, and this one is not, so nothing was sent.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct InvalidReference {
+    /// `reference` — `String`.
+    pub reference: String,
 }
 
 /// The declared error `conductor.dispatch.MailboxBodyMissing`.
@@ -2876,6 +3076,24 @@ pub struct NeedNotRouted {
 pub struct NotANeed {
     /// `message_id` — `conductor.dispatch.MessageId`.
     pub message_id: MessageId,
+}
+
+/// The declared error `conductor.dispatch.ReferenceHeld`.
+///
+/// A dispatch already holds this reference: the held dispatch answers, and nothing was sent.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ReferenceHeld {
+    /// `reference` — `String`.
+    pub reference: String,
+}
+
+/// The declared error `conductor.dispatch.RepositoryBusy`.
+///
+/// The repository has an open dispatch (sent, started or blocked) of another reference or of none, so a dispatch with a reference was not sent.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RepositoryBusy {
+    /// `repository` — `conductor.observation.RepositoryName`.
+    pub repository: crate::observation::RepositoryName,
 }
 
 /// The declared error `conductor.dispatch.ResourceRequestNotFound`.
@@ -2941,8 +3159,8 @@ pub struct Dispatches {
     pub state: DispatchState,
     /// `repository` — `conductor.observation.RepositoryName`.
     pub repository: crate::observation::RepositoryName,
-    /// `goal_id` — `conductor.direction.GoalId`.
-    pub goal_id: crate::direction::GoalId,
+    /// `goal_id` — `Optional<conductor.direction.GoalId>`.
+    pub goal_id: Option<crate::direction::GoalId>,
     /// `brief` — `String`.
     pub brief: String,
     /// `sent_at` — `Timestamp`.
@@ -2953,6 +3171,14 @@ pub struct Dispatches {
     pub waits_on: Option<DispatchId>,
     /// `actor` — `conductor.operator.Actor`.
     pub actor: crate::operator::Actor,
+    /// `reference` — `Optional<String>`.
+    pub reference: Option<String>,
+    /// `start_ref` — `Optional<String>`.
+    pub start_ref: Option<String>,
+    /// `issue` — `Optional<String>`.
+    pub issue: Option<String>,
+    /// `links` — `List<String>`.
+    pub links: Vec<String>,
 }
 
 /// Guard decisions — one row of the view `conductor.dispatch.GuardDecisions`.
@@ -3095,6 +3321,19 @@ pub mod obligations {
         ///
         /// `Err` is the typed refusal of a request the model declares no outcome for.
         fn receive_message(&mut self, input: super::ReceiveMessage) -> Result<super::ReceiveMessageOutcome, crate::obligation::UnmetObligation>;
+    }
+
+    /// The behaviour `conductor.dispatch.RecordDispatchLink` — an implementation obligation.
+    ///
+    /// Why it is not generated: kept an obligation by the guard path `link.count`, in `invalid-link`.
+    ///
+    /// Contract: given `conductor.dispatch.RecordDispatchLink` input, decide and enact exactly one outcome. Declared outcomes (declaration order, not selection precedence): `invalid-link` when `(link.count > 2048 or (not (link starts_with "http://") and not (link starts_with "https://")) or link == http:// or link == https:// or link contains " " or link contains "\t" or link contains "\n" or link contains "\r")`, error `conductor.dispatch.InvalidLink`; `no-such-dispatch` for an identity no record carries, error `conductor.dispatch.DispatchNotFound`; `already-linked` when the existing subject's stored fields satisfy `exists held in links: (held == input.link)`, preserves `conductor.dispatch.Dispatch`; `links-full` when the existing subject's stored fields satisfy `links.count >= 32`, error `conductor.dispatch.DispatchLinksFull`; `linked` otherwise, updates `conductor.dispatch.Dispatch`, emits `conductor.dispatch.DispatchLinked`.
+    pub trait RecordDispatchLinkBehavior {
+        /// Decides and enacts exactly one declared outcome of `conductor.dispatch.RecordDispatchLink`.
+        ///
+        /// `Err` is the typed refusal of an obligation nothing has satisfied; a satisfying
+        /// implementation never returns it.
+        fn record_dispatch_link(&mut self, input: super::RecordDispatchLink) -> Result<super::RecordDispatchLinkOutcome, crate::obligation::UnmetObligation>;
     }
 
     /// The behaviour `conductor.dispatch.RecordGuardDecision` — generated.
@@ -3240,14 +3479,16 @@ pub mod obligations {
         fn route_need(&mut self, input: super::RouteNeed) -> Result<super::RouteNeedOutcome, crate::obligation::UnmetObligation>;
     }
 
-    /// The behaviour `conductor.dispatch.SendDispatch` — generated.
+    /// The behaviour `conductor.dispatch.SendDispatch` — an implementation obligation.
     ///
-    /// The specification fully determines it: [`crate::behaviour::Generated`] implements it
-    /// over the storage and context ports. Implement it yourself to replace that behaviour.
+    /// Why it is not generated: kept an obligation by the guard path `reference.count`, in `invalid-reference`.
+    ///
+    /// Contract: given `conductor.dispatch.SendDispatch` input, decide and enact exactly one outcome. Declared outcomes (declaration order, not selection precedence): `negative-priority` when `priority < 0`, error `conductor.dispatch.InvalidPriority`; `waits-on-itself` when `(defined(waits_on) and waits_on == {fact: dispatch_id})`, error `conductor.dispatch.WaitsOnItself`; `invalid-reference` when `(defined(reference) and (reference.count < 1 or reference.count > 64 or {utf8_bytes: reference} != reference.count or reference starts_with "." or reference starts_with "_" or reference starts_with "-" or reference contains " " or reference contains "!" or reference contains "\"" or reference contains "#" or reference contains "$" or reference contains "%" or reference contains "&" or reference contains "'" or reference contains "(" or reference contains ")" or reference contains "*" or reference contains "+" or reference contains "," or reference contains "/" or reference contains ":" or reference contains ";" or reference contains "<" or reference contains "=" or reference contains ">" or reference contains "?" or reference contains "@" or reference contains "[" or reference contains "\\" or reference contains "]" or reference contains "^" or reference contains "`" or reference contains "{" or reference contains "|" or reference contains "}" or reference contains "~" or reference contains "\u{7f}" or reference contains "\0" or reference contains "\u{1}" or reference contains "\u{2}" or reference contains "\u{3}" or reference contains "\u{4}" or reference contains "\u{5}" or reference contains "\u{6}" or reference contains "\u{7}" or reference contains "\u{8}" or reference contains "\t" or reference contains "\n" or reference contains "\u{b}" or reference contains "\u{c}" or reference contains "\r" or reference contains "\u{e}" or reference contains "\u{f}" or reference contains "\u{10}" or reference contains "\u{11}" or reference contains "\u{12}" or reference contains "\u{13}" or reference contains "\u{14}" or reference contains "\u{15}" or reference contains "\u{16}" or reference contains "\u{17}" or reference contains "\u{18}" or reference contains "\u{19}" or reference contains "\u{1a}" or reference contains "\u{1b}" or reference contains "\u{1c}" or reference contains "\u{1d}" or reference contains "\u{1e}" or reference contains "\u{1f}"))`, error `conductor.dispatch.InvalidReference`; `goal-or-reference-missing` when `(not (defined(goal_id)) and not (defined(reference)))`, error `conductor.dispatch.GoalOrReferenceMissing`; `reference-held` when, of the `conductor.dispatch.Dispatch` rows satisfying `(defined(reference) and reference == input.reference)`, at least 1 rows are selected and `defined(reference)`, error `conductor.dispatch.ReferenceHeld`; `no-such-goal` when, of the `conductor.direction.Goal` rows satisfying `goal_id == input.goal_id`, no row is selected and `defined(goal_id)`, error `conductor.dispatch.GoalNotFound`; `goal-closed` when, of the `conductor.direction.Goal` rows satisfying `(goal_id == input.goal_id and state in [Met, Dropped])`, at least one row is selected and `defined(goal_id)`, error `conductor.dispatch.GoalClosed`; `repository-busy` when, of the `conductor.dispatch.Dispatch` rows satisfying `(repository == input.repository and state in [Sent, Started, Blocked])`, at least 1 rows are selected and `defined(reference)`, error `conductor.dispatch.RepositoryBusy`; `sent-for-reference` when `not (defined(goal_id))`, creates `conductor.dispatch.Dispatch`, emits `conductor.dispatch.DispatchSent`; `sent` otherwise, creates `conductor.dispatch.Dispatch`, emits `conductor.dispatch.DispatchSent`; `already-sent` for an identity a record already carries, error `conductor.dispatch.DispatchExists`.
     pub trait SendDispatchBehavior {
         /// Decides and enacts exactly one declared outcome of `conductor.dispatch.SendDispatch`.
         ///
-        /// `Err` is the typed refusal of a request the model declares no outcome for.
+        /// `Err` is the typed refusal of an obligation nothing has satisfied; a satisfying
+        /// implementation never returns it.
         fn send_dispatch(&mut self, input: super::SendDispatch) -> Result<super::SendDispatchOutcome, crate::obligation::UnmetObligation>;
     }
 
@@ -3335,6 +3576,18 @@ pub mod obligations {
     /// Each method returns the typed refusal naming what is owed — never a panic, never a guessed
     /// value — so a workspace built on this stub compiles and reports its own gaps.
     pub struct Unimplemented;
+
+    impl RecordDispatchLinkBehavior for Unimplemented {
+        fn record_dispatch_link(&mut self, _input: super::RecordDispatchLink) -> Result<super::RecordDispatchLinkOutcome, crate::obligation::UnmetObligation> {
+            Err(crate::obligation::UnmetObligation { capability: "command behaviour", source: "conductor.dispatch.RecordDispatchLink" })
+        }
+    }
+
+    impl SendDispatchBehavior for Unimplemented {
+        fn send_dispatch(&mut self, _input: super::SendDispatch) -> Result<super::SendDispatchOutcome, crate::obligation::UnmetObligation> {
+            Err(crate::obligation::UnmetObligation { capability: "command behaviour", source: "conductor.dispatch.SendDispatch" })
+        }
+    }
 
     impl StartControllerBehavior for Unimplemented {
         fn start_controller(&mut self, _input: super::StartController) -> Result<super::StartControllerOutcome, crate::obligation::UnmetObligation> {

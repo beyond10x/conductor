@@ -42,6 +42,9 @@
 //! `story:conductor-context-budget` placed the controllers view at `controller all-controllers`,
 //! `controller controllers` now listing the live controllers one line each: its answer is
 //! `controller-all-controllers.json`, the earlier `controller-controllers.json` unchanged.
+//! `story:control-plane-work-handler` added the dispatches view's `reference`, `start_ref`, `issue`
+//! and `links` columns, last in each row: `dispatch-dispatches.json` holds them as `null` and `[]`,
+//! which is what this build reads from a dispatch sent without them.
 //!
 //! The organization in its repositories' URLs and working directories was then renamed
 //! `example-org`, in the store and in the views. The store is chained by hash, so it was not

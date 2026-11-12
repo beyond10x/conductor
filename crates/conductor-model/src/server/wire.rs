@@ -1,5 +1,5 @@
 // generated from conductor v1
-// contract digest 3ecaf75891d0174f1aadd06ecb145177f190b67bde1ebf99b046b751e53c6775
+// contract digest e2ec07cfcbdedb3f66deb98b800a9ec8bb9ee2f47b9c2aa2880ecc31913fd7d6
 // do not edit: regenerate with `ess synthesize --layout crate`
 //! Every generated declaration, as JSON, in the renderings the published wire contracts fix.
 //!
@@ -6271,6 +6271,7 @@ pub fn encode_conductor_dispatch_dispatch_log_event(value: &crate::dispatch::Dis
         crate::dispatch::DispatchLogEvent::Done => json::push_text(out, "Done"),
         crate::dispatch::DispatchLogEvent::Failed => json::push_text(out, "Failed"),
         crate::dispatch::DispatchLogEvent::Cancelled => json::push_text(out, "Cancelled"),
+        crate::dispatch::DispatchLogEvent::Linked => json::push_text(out, "Linked"),
         crate::dispatch::DispatchLogEvent::MessageReceived => json::push_text(out, "MessageReceived"),
         crate::dispatch::DispatchLogEvent::ResourceGranted => json::push_text(out, "ResourceGranted"),
         crate::dispatch::DispatchLogEvent::ResourceRefused => json::push_text(out, "ResourceRefused"),
@@ -6298,7 +6299,7 @@ pub fn encode_conductor_dispatch_dispatch_log_event(value: &crate::dispatch::Dis
 ///
 /// [`json::DecodeError`] naming the path and what the declaration says belongs there.
 pub fn decode_conductor_dispatch_dispatch_log_event(value: &json::Value, at: &str) -> Result<crate::dispatch::DispatchLogEvent, json::DecodeError> {
-    Ok(match json::text_at(value, at, "one of `Sent`, `Started`, `Blocked`, `Unblocked`, `Done`, `Failed`, `Cancelled`, `MessageReceived`, `ResourceGranted`, `ResourceRefused`, `CharterRevised`, `Delivered`, `HandoverSent`, `Handover`, `ControllerRestarted`, `UsageLimit`, `Resumed`, `Relayed`, `RedCi`, `Stalled`, `Cleanup`, `DecisionSent`, `Cycle`, `RecordsCommitted`, `RecordsCommitRefused`")? {
+    Ok(match json::text_at(value, at, "one of `Sent`, `Started`, `Blocked`, `Unblocked`, `Done`, `Failed`, `Cancelled`, `Linked`, `MessageReceived`, `ResourceGranted`, `ResourceRefused`, `CharterRevised`, `Delivered`, `HandoverSent`, `Handover`, `ControllerRestarted`, `UsageLimit`, `Resumed`, `Relayed`, `RedCi`, `Stalled`, `Cleanup`, `DecisionSent`, `Cycle`, `RecordsCommitted`, `RecordsCommitRefused`")? {
         "Sent" => crate::dispatch::DispatchLogEvent::Sent,
         "Started" => crate::dispatch::DispatchLogEvent::Started,
         "Blocked" => crate::dispatch::DispatchLogEvent::Blocked,
@@ -6306,6 +6307,7 @@ pub fn decode_conductor_dispatch_dispatch_log_event(value: &json::Value, at: &st
         "Done" => crate::dispatch::DispatchLogEvent::Done,
         "Failed" => crate::dispatch::DispatchLogEvent::Failed,
         "Cancelled" => crate::dispatch::DispatchLogEvent::Cancelled,
+        "Linked" => crate::dispatch::DispatchLogEvent::Linked,
         "MessageReceived" => crate::dispatch::DispatchLogEvent::MessageReceived,
         "ResourceGranted" => crate::dispatch::DispatchLogEvent::ResourceGranted,
         "ResourceRefused" => crate::dispatch::DispatchLogEvent::ResourceRefused,
@@ -6324,7 +6326,7 @@ pub fn decode_conductor_dispatch_dispatch_log_event(value: &json::Value, at: &st
         "Cycle" => crate::dispatch::DispatchLogEvent::Cycle,
         "RecordsCommitted" => crate::dispatch::DispatchLogEvent::RecordsCommitted,
         "RecordsCommitRefused" => crate::dispatch::DispatchLogEvent::RecordsCommitRefused,
-        other => return Err(json::DecodeError { at: at.to_owned(), expected: "one of `Sent`, `Started`, `Blocked`, `Unblocked`, `Done`, `Failed`, `Cancelled`, `MessageReceived`, `ResourceGranted`, `ResourceRefused`, `CharterRevised`, `Delivered`, `HandoverSent`, `Handover`, `ControllerRestarted`, `UsageLimit`, `Resumed`, `Relayed`, `RedCi`, `Stalled`, `Cleanup`, `DecisionSent`, `Cycle`, `RecordsCommitted`, `RecordsCommitRefused`".to_owned(), found: format!("`{other}`") }),
+        other => return Err(json::DecodeError { at: at.to_owned(), expected: "one of `Sent`, `Started`, `Blocked`, `Unblocked`, `Done`, `Failed`, `Cancelled`, `Linked`, `MessageReceived`, `ResourceGranted`, `ResourceRefused`, `CharterRevised`, `Delivered`, `HandoverSent`, `Handover`, `ControllerRestarted`, `UsageLimit`, `Resumed`, `Relayed`, `RedCi`, `Stalled`, `Cleanup`, `DecisionSent`, `Cycle`, `RecordsCommitted`, `RecordsCommitRefused`".to_owned(), found: format!("`{other}`") }),
     })
 }
 
@@ -6429,6 +6431,22 @@ pub fn encode_conductor_dispatch_dispatch_log_line(value: &crate::dispatch::Disp
         json::member(out, "commit");
         json::push_text(out, &*held0);
     }
+    if let Some(held0) = &value.reference {
+        json::member(out, "reference");
+        json::push_text(out, &*held0);
+    }
+    if let Some(held0) = &value.start_ref {
+        json::member(out, "start_ref");
+        json::push_text(out, &*held0);
+    }
+    if let Some(held0) = &value.issue {
+        json::member(out, "issue");
+        json::push_text(out, &*held0);
+    }
+    if let Some(held0) = &value.link {
+        json::member(out, "link");
+        json::push_text(out, &*held0);
+    }
     out.push('}');
 }
 
@@ -6438,7 +6456,7 @@ pub fn encode_conductor_dispatch_dispatch_log_line(value: &crate::dispatch::Disp
 ///
 /// [`json::DecodeError`] naming the path and what the declaration says belongs there.
 pub fn decode_conductor_dispatch_dispatch_log_line(value: &json::Value, at: &str) -> Result<crate::dispatch::DispatchLogLine, json::DecodeError> {
-    json::closed_at(value, at, &["at", "event", "repo", "id", "to", "goal", "brief", "priority", "waits_on", "reason", "evidence", "controller_id", "session_id", "charter_revision", "from", "kind", "first_line", "resource", "amount", "body_path", "session", "grant", "path", "line", "tick_id", "commit"])?;
+    json::closed_at(value, at, &["at", "event", "repo", "id", "to", "goal", "brief", "priority", "waits_on", "reason", "evidence", "controller_id", "session_id", "charter_revision", "from", "kind", "first_line", "resource", "amount", "body_path", "session", "grant", "path", "line", "tick_id", "commit", "reference", "start_ref", "issue", "link"])?;
     Ok(crate::dispatch::DispatchLogLine {
         at: {
             let at0 = json::nested(at, "at");
@@ -6614,6 +6632,34 @@ pub fn decode_conductor_dispatch_dispatch_log_line(value: &json::Value, at: &str
             Some(member25) => {
                 let at25 = json::nested(at, "commit");
                 Some(json::text_at(member25, &at25, "a string")?.to_owned())
+            }
+        },
+        reference: match value.member("reference") {
+            None | Some(json::Value::Null) => None,
+            Some(member26) => {
+                let at26 = json::nested(at, "reference");
+                Some(json::text_at(member26, &at26, "a string")?.to_owned())
+            }
+        },
+        start_ref: match value.member("start_ref") {
+            None | Some(json::Value::Null) => None,
+            Some(member27) => {
+                let at27 = json::nested(at, "start_ref");
+                Some(json::text_at(member27, &at27, "a string")?.to_owned())
+            }
+        },
+        issue: match value.member("issue") {
+            None | Some(json::Value::Null) => None,
+            Some(member28) => {
+                let at28 = json::nested(at, "issue");
+                Some(json::text_at(member28, &at28, "a string")?.to_owned())
+            }
+        },
+        link: match value.member("link") {
+            None | Some(json::Value::Null) => None,
+            Some(member29) => {
+                let at29 = json::nested(at, "link");
+                Some(json::text_at(member29, &at29, "a string")?.to_owned())
             }
         },
     })
@@ -7153,6 +7199,183 @@ pub fn decode_conductor_dispatch_verdict(value: &json::Value, at: &str) -> Resul
         "Allow" => crate::dispatch::Verdict::Allow,
         "Deny" => crate::dispatch::Verdict::Deny,
         other => return Err(json::DecodeError { at: at.to_owned(), expected: "one of `Allow`, `Deny`".to_owned(), found: format!("`{other}`") }),
+    })
+}
+
+/// Writes `conductor.dispatch.WorkRequest` as JSON.
+pub fn encode_conductor_dispatch_work_request(value: &crate::dispatch::WorkRequest, out: &mut String) {
+    out.push('{');
+    json::member(out, "repository");
+    encode_conductor_observation_repository_name(&value.repository, out);
+    json::member(out, "brief");
+    json::push_text(out, &value.brief);
+    json::member(out, "reference");
+    json::push_text(out, &value.reference);
+    if let Some(held0) = &value.start_ref {
+        json::member(out, "start_ref");
+        json::push_text(out, &*held0);
+    }
+    if let Some(held0) = &value.issue {
+        json::member(out, "issue");
+        json::push_text(out, &*held0);
+    }
+    out.push('}');
+}
+
+/// Reads `conductor.dispatch.WorkRequest` from JSON.
+///
+/// # Errors
+///
+/// [`json::DecodeError`] naming the path and what the declaration says belongs there.
+pub fn decode_conductor_dispatch_work_request(value: &json::Value, at: &str) -> Result<crate::dispatch::WorkRequest, json::DecodeError> {
+    json::closed_at(value, at, &["repository", "brief", "reference", "start_ref", "issue"])?;
+    Ok(crate::dispatch::WorkRequest {
+        repository: {
+            let at0 = json::nested(at, "repository");
+            let member0 = json::member_at(value, at, "repository")?;
+            decode_conductor_observation_repository_name(member0, &at0)?
+        },
+        brief: {
+            let at1 = json::nested(at, "brief");
+            let member1 = json::member_at(value, at, "brief")?;
+            json::text_at(member1, &at1, "a string")?.to_owned()
+        },
+        reference: {
+            let at2 = json::nested(at, "reference");
+            let member2 = json::member_at(value, at, "reference")?;
+            json::text_at(member2, &at2, "a string")?.to_owned()
+        },
+        start_ref: match value.member("start_ref") {
+            None | Some(json::Value::Null) => None,
+            Some(member3) => {
+                let at3 = json::nested(at, "start_ref");
+                Some(json::text_at(member3, &at3, "a string")?.to_owned())
+            }
+        },
+        issue: match value.member("issue") {
+            None | Some(json::Value::Null) => None,
+            Some(member4) => {
+                let at4 = json::nested(at, "issue");
+                Some(json::text_at(member4, &at4, "a string")?.to_owned())
+            }
+        },
+    })
+}
+
+/// Writes `conductor.dispatch.WorkState` as JSON.
+pub fn encode_conductor_dispatch_work_state(value: &crate::dispatch::WorkState, out: &mut String) {
+    out.push('{');
+    json::member(out, "reference");
+    json::push_text(out, &value.reference);
+    json::member(out, "dispatch_id");
+    encode_conductor_dispatch_dispatch_id(&value.dispatch_id, out);
+    json::member(out, "repository");
+    encode_conductor_observation_repository_name(&value.repository, out);
+    json::member(out, "state");
+    encode_conductor_dispatch_dispatch_state(&value.state, out);
+    json::member(out, "sent_at");
+    json::push_text(out, &value.sent_at.0);
+    if let Some(held0) = &value.started_at {
+        json::member(out, "started_at");
+        json::push_text(out, &(*held0).0);
+    }
+    if let Some(held0) = &value.ended_at {
+        json::member(out, "ended_at");
+        json::push_text(out, &(*held0).0);
+    }
+    if let Some(held0) = &value.last_report {
+        json::member(out, "last_report");
+        json::push_text(out, &*held0);
+    }
+    if let Some(held0) = &value.detail {
+        json::member(out, "detail");
+        json::push_text(out, &*held0);
+    }
+    json::member(out, "links");
+    out.push('[');
+    for (index0, item0) in value.links.iter().enumerate() {
+        if index0 > 0 {
+            out.push(',');
+        }
+        json::push_text(out, &*item0);
+    }
+    out.push(']');
+    out.push('}');
+}
+
+/// Reads `conductor.dispatch.WorkState` from JSON.
+///
+/// # Errors
+///
+/// [`json::DecodeError`] naming the path and what the declaration says belongs there.
+pub fn decode_conductor_dispatch_work_state(value: &json::Value, at: &str) -> Result<crate::dispatch::WorkState, json::DecodeError> {
+    json::closed_at(value, at, &["reference", "dispatch_id", "repository", "state", "sent_at", "started_at", "ended_at", "last_report", "detail", "links"])?;
+    Ok(crate::dispatch::WorkState {
+        reference: {
+            let at0 = json::nested(at, "reference");
+            let member0 = json::member_at(value, at, "reference")?;
+            json::text_at(member0, &at0, "a string")?.to_owned()
+        },
+        dispatch_id: {
+            let at1 = json::nested(at, "dispatch_id");
+            let member1 = json::member_at(value, at, "dispatch_id")?;
+            decode_conductor_dispatch_dispatch_id(member1, &at1)?
+        },
+        repository: {
+            let at2 = json::nested(at, "repository");
+            let member2 = json::member_at(value, at, "repository")?;
+            decode_conductor_observation_repository_name(member2, &at2)?
+        },
+        state: {
+            let at3 = json::nested(at, "state");
+            let member3 = json::member_at(value, at, "state")?;
+            decode_conductor_dispatch_dispatch_state(member3, &at3)?
+        },
+        sent_at: {
+            let at4 = json::nested(at, "sent_at");
+            let member4 = json::member_at(value, at, "sent_at")?;
+            crate::primitives::Timestamp(json::timestamp_at(member4, &at4, "an RFC 3339 instant")?.to_owned())
+        },
+        started_at: match value.member("started_at") {
+            None | Some(json::Value::Null) => None,
+            Some(member5) => {
+                let at5 = json::nested(at, "started_at");
+                Some(crate::primitives::Timestamp(json::timestamp_at(member5, &at5, "an RFC 3339 instant")?.to_owned()))
+            }
+        },
+        ended_at: match value.member("ended_at") {
+            None | Some(json::Value::Null) => None,
+            Some(member6) => {
+                let at6 = json::nested(at, "ended_at");
+                Some(crate::primitives::Timestamp(json::timestamp_at(member6, &at6, "an RFC 3339 instant")?.to_owned()))
+            }
+        },
+        last_report: match value.member("last_report") {
+            None | Some(json::Value::Null) => None,
+            Some(member7) => {
+                let at7 = json::nested(at, "last_report");
+                Some(json::text_at(member7, &at7, "a string")?.to_owned())
+            }
+        },
+        detail: match value.member("detail") {
+            None | Some(json::Value::Null) => None,
+            Some(member8) => {
+                let at8 = json::nested(at, "detail");
+                Some(json::text_at(member8, &at8, "a string")?.to_owned())
+            }
+        },
+        links: {
+            let at9 = json::nested(at, "links");
+            let member9 = json::member_at(value, at, "links")?;
+            {
+                let mut items9 = Vec::new();
+                for (index9, element9) in json::items_at(member9, &at9, "an array")?.iter().enumerate() {
+                    let nested9 = json::nested(&at9, &index9.to_string());
+                    items9.push(json::text_at(element9, &nested9, "a string")?.to_owned());
+                }
+                items9
+            }
+        },
     })
 }
 
@@ -14222,6 +14445,43 @@ pub fn decode_event_conductor_dispatch_dispatch_failed(value: &json::Value, at: 
     })
 }
 
+/// Writes the event `conductor.dispatch.DispatchLinked` as JSON.
+pub fn encode_event_conductor_dispatch_dispatch_linked(value: &crate::dispatch::DispatchLinked, out: &mut String) {
+    out.push('{');
+    json::member(out, "actor");
+    encode_conductor_operator_actor(&value.actor, out);
+    json::member(out, "dispatch_id");
+    encode_conductor_dispatch_dispatch_id(&value.dispatch_id, out);
+    json::member(out, "link");
+    json::push_text(out, &value.link);
+    out.push('}');
+}
+
+/// Reads the event `conductor.dispatch.DispatchLinked` from JSON, the payload [`encode_event_conductor_dispatch_dispatch_linked`] writes.
+///
+/// # Errors
+///
+/// [`json::DecodeError`] naming the path and what the declaration says belongs there.
+pub fn decode_event_conductor_dispatch_dispatch_linked(value: &json::Value, at: &str) -> Result<crate::dispatch::DispatchLinked, json::DecodeError> {
+    Ok(crate::dispatch::DispatchLinked {
+        actor: {
+            let at0 = json::nested(at, "actor");
+            let member0 = json::member_at(value, at, "actor")?;
+            decode_conductor_operator_actor(member0, &at0)?
+        },
+        dispatch_id: {
+            let at1 = json::nested(at, "dispatch_id");
+            let member1 = json::member_at(value, at, "dispatch_id")?;
+            decode_conductor_dispatch_dispatch_id(member1, &at1)?
+        },
+        link: {
+            let at2 = json::nested(at, "link");
+            let member2 = json::member_at(value, at, "link")?;
+            json::text_at(member2, &at2, "a string")?.to_owned()
+        },
+    })
+}
+
 /// Writes the event `conductor.dispatch.DispatchSent` as JSON.
 pub fn encode_event_conductor_dispatch_dispatch_sent(value: &crate::dispatch::DispatchSent, out: &mut String) {
     out.push('{');
@@ -14231,8 +14491,14 @@ pub fn encode_event_conductor_dispatch_dispatch_sent(value: &crate::dispatch::Di
     encode_conductor_dispatch_dispatch_id(&value.dispatch_id, out);
     json::member(out, "repository");
     encode_conductor_observation_repository_name(&value.repository, out);
-    json::member(out, "goal_id");
-    encode_conductor_direction_goal_id(&value.goal_id, out);
+    if let Some(held0) = &value.goal_id {
+        json::member(out, "goal_id");
+        encode_conductor_direction_goal_id(&*held0, out);
+    }
+    if let Some(held0) = &value.reference {
+        json::member(out, "reference");
+        json::push_text(out, &*held0);
+    }
     out.push('}');
 }
 
@@ -14258,10 +14524,19 @@ pub fn decode_event_conductor_dispatch_dispatch_sent(value: &json::Value, at: &s
             let member2 = json::member_at(value, at, "repository")?;
             decode_conductor_observation_repository_name(member2, &at2)?
         },
-        goal_id: {
-            let at3 = json::nested(at, "goal_id");
-            let member3 = json::member_at(value, at, "goal_id")?;
-            decode_conductor_direction_goal_id(member3, &at3)?
+        goal_id: match value.member("goal_id") {
+            None | Some(json::Value::Null) => None,
+            Some(member3) => {
+                let at3 = json::nested(at, "goal_id");
+                Some(decode_conductor_direction_goal_id(member3, &at3)?)
+            }
+        },
+        reference: match value.member("reference") {
+            None | Some(json::Value::Null) => None,
+            Some(member4) => {
+                let at4 = json::nested(at, "reference");
+                Some(json::text_at(member4, &at4, "a string")?.to_owned())
+            }
         },
     })
 }
@@ -18250,6 +18525,14 @@ pub fn encode_error_conductor_dispatch_dispatch_exists(value: &crate::dispatch::
     out.push('}');
 }
 
+/// Writes the declared error `conductor.dispatch.DispatchLinksFull` as JSON.
+pub fn encode_error_conductor_dispatch_dispatch_links_full(value: &crate::dispatch::DispatchLinksFull, out: &mut String) {
+    out.push('{');
+    json::member(out, "dispatch_id");
+    encode_conductor_dispatch_dispatch_id(&value.dispatch_id, out);
+    out.push('}');
+}
+
 /// Writes the declared error `conductor.dispatch.DispatchNotFound` as JSON.
 pub fn encode_error_conductor_dispatch_dispatch_not_found(value: &crate::dispatch::DispatchNotFound, out: &mut String) {
     out.push('{');
@@ -18282,6 +18565,14 @@ pub fn encode_error_conductor_dispatch_goal_not_found(value: &crate::dispatch::G
     out.push('}');
 }
 
+/// Writes the declared error `conductor.dispatch.GoalOrReferenceMissing` as JSON.
+pub fn encode_error_conductor_dispatch_goal_or_reference_missing(value: &crate::dispatch::GoalOrReferenceMissing, out: &mut String) {
+    out.push('{');
+    json::member(out, "repository");
+    encode_conductor_observation_repository_name(&value.repository, out);
+    out.push('}');
+}
+
 /// Writes the declared error `conductor.dispatch.InvalidAmount` as JSON.
 pub fn encode_error_conductor_dispatch_invalid_amount(value: &crate::dispatch::InvalidAmount, out: &mut String) {
     out.push('{');
@@ -18290,11 +18581,27 @@ pub fn encode_error_conductor_dispatch_invalid_amount(value: &crate::dispatch::I
     out.push('}');
 }
 
+/// Writes the declared error `conductor.dispatch.InvalidLink` as JSON.
+pub fn encode_error_conductor_dispatch_invalid_link(value: &crate::dispatch::InvalidLink, out: &mut String) {
+    out.push('{');
+    json::member(out, "link");
+    json::push_text(out, &value.link);
+    out.push('}');
+}
+
 /// Writes the declared error `conductor.dispatch.InvalidPriority` as JSON.
 pub fn encode_error_conductor_dispatch_invalid_priority(value: &crate::dispatch::InvalidPriority, out: &mut String) {
     out.push('{');
     json::member(out, "priority");
     json::push_integer(out, value.priority);
+    out.push('}');
+}
+
+/// Writes the declared error `conductor.dispatch.InvalidReference` as JSON.
+pub fn encode_error_conductor_dispatch_invalid_reference(value: &crate::dispatch::InvalidReference, out: &mut String) {
+    out.push('{');
+    json::member(out, "reference");
+    json::push_text(out, &value.reference);
     out.push('}');
 }
 
@@ -18337,6 +18644,22 @@ pub fn encode_error_conductor_dispatch_not_a_need(value: &crate::dispatch::NotAN
     out.push('{');
     json::member(out, "message_id");
     encode_conductor_dispatch_message_id(&value.message_id, out);
+    out.push('}');
+}
+
+/// Writes the declared error `conductor.dispatch.ReferenceHeld` as JSON.
+pub fn encode_error_conductor_dispatch_reference_held(value: &crate::dispatch::ReferenceHeld, out: &mut String) {
+    out.push('{');
+    json::member(out, "reference");
+    json::push_text(out, &value.reference);
+    out.push('}');
+}
+
+/// Writes the declared error `conductor.dispatch.RepositoryBusy` as JSON.
+pub fn encode_error_conductor_dispatch_repository_busy(value: &crate::dispatch::RepositoryBusy, out: &mut String) {
+    out.push('{');
+    json::member(out, "repository");
+    encode_conductor_observation_repository_name(&value.repository, out);
     out.push('}');
 }
 
@@ -19238,8 +19561,10 @@ pub fn encode_view_conductor_dispatch_dispatches(value: &crate::dispatch::Dispat
     encode_conductor_dispatch_dispatch_state(&value.state, out);
     json::member(out, "repository");
     encode_conductor_observation_repository_name(&value.repository, out);
-    json::member(out, "goal_id");
-    encode_conductor_direction_goal_id(&value.goal_id, out);
+    if let Some(held0) = &value.goal_id {
+        json::member(out, "goal_id");
+        encode_conductor_direction_goal_id(&*held0, out);
+    }
     json::member(out, "brief");
     json::push_text(out, &value.brief);
     json::member(out, "sent_at");
@@ -19252,6 +19577,27 @@ pub fn encode_view_conductor_dispatch_dispatches(value: &crate::dispatch::Dispat
     }
     json::member(out, "actor");
     encode_conductor_operator_actor(&value.actor, out);
+    if let Some(held0) = &value.reference {
+        json::member(out, "reference");
+        json::push_text(out, &*held0);
+    }
+    if let Some(held0) = &value.start_ref {
+        json::member(out, "start_ref");
+        json::push_text(out, &*held0);
+    }
+    if let Some(held0) = &value.issue {
+        json::member(out, "issue");
+        json::push_text(out, &*held0);
+    }
+    json::member(out, "links");
+    out.push('[');
+    for (index0, item0) in value.links.iter().enumerate() {
+        if index0 > 0 {
+            out.push(',');
+        }
+        json::push_text(out, &*item0);
+    }
+    out.push(']');
     out.push('}');
 }
 
@@ -25033,6 +25379,115 @@ pub fn encode_outcome_conductor_dispatch_receive_message(value: &crate::dispatch
     out.push('}');
 }
 
+/// Writes the input of `conductor.dispatch.RecordDispatchLink` as JSON.
+pub fn encode_command_conductor_dispatch_record_dispatch_link(value: &crate::dispatch::RecordDispatchLink, out: &mut String) {
+    out.push('{');
+    json::member(out, "actor");
+    encode_conductor_operator_actor(&value.actor, out);
+    json::member(out, "dispatch_id");
+    encode_conductor_dispatch_dispatch_id(&value.dispatch_id, out);
+    json::member(out, "link");
+    json::push_text(out, &value.link);
+    out.push('}');
+}
+
+/// Reads the input of `conductor.dispatch.RecordDispatchLink` from JSON.
+///
+/// # Errors
+///
+/// [`json::DecodeError`] naming the path and what the declaration says belongs there.
+pub fn decode_command_conductor_dispatch_record_dispatch_link(value: &json::Value, at: &str) -> Result<crate::dispatch::RecordDispatchLink, json::DecodeError> {
+    json::closed_at(value, at, &["actor", "dispatch_id", "link"])?;
+    Ok(crate::dispatch::RecordDispatchLink {
+        actor: {
+            let at0 = json::nested(at, "actor");
+            let member0 = json::member_at(value, at, "actor")?;
+            decode_conductor_operator_actor(member0, &at0)?
+        },
+        dispatch_id: {
+            let at1 = json::nested(at, "dispatch_id");
+            let member1 = json::member_at(value, at, "dispatch_id")?;
+            decode_conductor_dispatch_dispatch_id(member1, &at1)?
+        },
+        link: {
+            let at2 = json::nested(at, "link");
+            let member2 = json::member_at(value, at, "link")?;
+            json::text_at(member2, &at2, "a string")?.to_owned()
+        },
+    })
+}
+
+/// Writes the outcome of `conductor.dispatch.RecordDispatchLink` as JSON: the branch taken, what it published, and the declared
+/// refusal it carries where it carries one.
+pub fn encode_outcome_conductor_dispatch_record_dispatch_link(value: &crate::dispatch::RecordDispatchLinkOutcome, out: &mut String) {
+    out.push('{');
+    match value {
+        crate::dispatch::RecordDispatchLinkOutcome::InvalidLink { error } => {
+            json::member(out, "outcome");
+            json::push_text(out, "invalid-link");
+            json::member(out, "published");
+            out.push('[');
+            out.push(']');
+            json::member(out, "refusal");
+            out.push('{');
+            json::member(out, "error");
+            json::push_text(out, "conductor.dispatch.InvalidLink");
+            json::member(out, "payload");
+            encode_error_conductor_dispatch_invalid_link(error, out);
+            out.push('}');
+        }
+        crate::dispatch::RecordDispatchLinkOutcome::NoSuchDispatch { error } => {
+            json::member(out, "outcome");
+            json::push_text(out, "no-such-dispatch");
+            json::member(out, "published");
+            out.push('[');
+            out.push(']');
+            json::member(out, "refusal");
+            out.push('{');
+            json::member(out, "error");
+            json::push_text(out, "conductor.dispatch.DispatchNotFound");
+            json::member(out, "payload");
+            encode_error_conductor_dispatch_dispatch_not_found(error, out);
+            out.push('}');
+        }
+        crate::dispatch::RecordDispatchLinkOutcome::AlreadyLinked => {
+            json::member(out, "outcome");
+            json::push_text(out, "already-linked");
+            json::member(out, "published");
+            out.push('[');
+            out.push(']');
+        }
+        crate::dispatch::RecordDispatchLinkOutcome::LinksFull { error } => {
+            json::member(out, "outcome");
+            json::push_text(out, "links-full");
+            json::member(out, "published");
+            out.push('[');
+            out.push(']');
+            json::member(out, "refusal");
+            out.push('{');
+            json::member(out, "error");
+            json::push_text(out, "conductor.dispatch.DispatchLinksFull");
+            json::member(out, "payload");
+            encode_error_conductor_dispatch_dispatch_links_full(error, out);
+            out.push('}');
+        }
+        crate::dispatch::RecordDispatchLinkOutcome::Linked { dispatch_linked } => {
+            json::member(out, "outcome");
+            json::push_text(out, "linked");
+            json::member(out, "published");
+            out.push('[');
+            out.push('{');
+            json::member(out, "event");
+            json::push_text(out, "conductor.dispatch.DispatchLinked");
+            json::member(out, "payload");
+            encode_event_conductor_dispatch_dispatch_linked(dispatch_linked, out);
+            out.push('}');
+            out.push(']');
+        }
+    }
+    out.push('}');
+}
+
 /// Writes the input of `conductor.dispatch.RecordGuardDecision` as JSON.
 pub fn encode_command_conductor_dispatch_record_guard_decision(value: &crate::dispatch::RecordGuardDecision, out: &mut String) {
     out.push('{');
@@ -26185,8 +26640,10 @@ pub fn encode_command_conductor_dispatch_send_dispatch(value: &crate::dispatch::
     encode_conductor_dispatch_dispatch_id(&value.dispatch_id, out);
     json::member(out, "repository");
     encode_conductor_observation_repository_name(&value.repository, out);
-    json::member(out, "goal_id");
-    encode_conductor_direction_goal_id(&value.goal_id, out);
+    if let Some(held0) = &value.goal_id {
+        json::member(out, "goal_id");
+        encode_conductor_direction_goal_id(&*held0, out);
+    }
     json::member(out, "brief");
     json::push_text(out, &value.brief);
     json::member(out, "sent_at");
@@ -26197,6 +26654,18 @@ pub fn encode_command_conductor_dispatch_send_dispatch(value: &crate::dispatch::
         json::member(out, "waits_on");
         encode_conductor_dispatch_dispatch_id(&*held0, out);
     }
+    if let Some(held0) = &value.reference {
+        json::member(out, "reference");
+        json::push_text(out, &*held0);
+    }
+    if let Some(held0) = &value.start_ref {
+        json::member(out, "start_ref");
+        json::push_text(out, &*held0);
+    }
+    if let Some(held0) = &value.issue {
+        json::member(out, "issue");
+        json::push_text(out, &*held0);
+    }
     out.push('}');
 }
 
@@ -26206,7 +26675,7 @@ pub fn encode_command_conductor_dispatch_send_dispatch(value: &crate::dispatch::
 ///
 /// [`json::DecodeError`] naming the path and what the declaration says belongs there.
 pub fn decode_command_conductor_dispatch_send_dispatch(value: &json::Value, at: &str) -> Result<crate::dispatch::SendDispatch, json::DecodeError> {
-    json::closed_at(value, at, &["actor", "dispatch_id", "repository", "goal_id", "brief", "sent_at", "priority", "waits_on"])?;
+    json::closed_at(value, at, &["actor", "dispatch_id", "repository", "goal_id", "brief", "sent_at", "priority", "waits_on", "reference", "start_ref", "issue"])?;
     Ok(crate::dispatch::SendDispatch {
         actor: {
             let at0 = json::nested(at, "actor");
@@ -26223,10 +26692,12 @@ pub fn decode_command_conductor_dispatch_send_dispatch(value: &json::Value, at: 
             let member2 = json::member_at(value, at, "repository")?;
             decode_conductor_observation_repository_name(member2, &at2)?
         },
-        goal_id: {
-            let at3 = json::nested(at, "goal_id");
-            let member3 = json::member_at(value, at, "goal_id")?;
-            decode_conductor_direction_goal_id(member3, &at3)?
+        goal_id: match value.member("goal_id") {
+            None | Some(json::Value::Null) => None,
+            Some(member3) => {
+                let at3 = json::nested(at, "goal_id");
+                Some(decode_conductor_direction_goal_id(member3, &at3)?)
+            }
         },
         brief: {
             let at4 = json::nested(at, "brief");
@@ -26248,6 +26719,27 @@ pub fn decode_command_conductor_dispatch_send_dispatch(value: &json::Value, at: 
             Some(member7) => {
                 let at7 = json::nested(at, "waits_on");
                 Some(decode_conductor_dispatch_dispatch_id(member7, &at7)?)
+            }
+        },
+        reference: match value.member("reference") {
+            None | Some(json::Value::Null) => None,
+            Some(member8) => {
+                let at8 = json::nested(at, "reference");
+                Some(json::text_at(member8, &at8, "a string")?.to_owned())
+            }
+        },
+        start_ref: match value.member("start_ref") {
+            None | Some(json::Value::Null) => None,
+            Some(member9) => {
+                let at9 = json::nested(at, "start_ref");
+                Some(json::text_at(member9, &at9, "a string")?.to_owned())
+            }
+        },
+        issue: match value.member("issue") {
+            None | Some(json::Value::Null) => None,
+            Some(member10) => {
+                let at10 = json::nested(at, "issue");
+                Some(json::text_at(member10, &at10, "a string")?.to_owned())
             }
         },
     })
@@ -26286,6 +26778,48 @@ pub fn encode_outcome_conductor_dispatch_send_dispatch(value: &crate::dispatch::
             encode_error_conductor_dispatch_waits_on_itself(error, out);
             out.push('}');
         }
+        crate::dispatch::SendDispatchOutcome::InvalidReference { error } => {
+            json::member(out, "outcome");
+            json::push_text(out, "invalid-reference");
+            json::member(out, "published");
+            out.push('[');
+            out.push(']');
+            json::member(out, "refusal");
+            out.push('{');
+            json::member(out, "error");
+            json::push_text(out, "conductor.dispatch.InvalidReference");
+            json::member(out, "payload");
+            encode_error_conductor_dispatch_invalid_reference(error, out);
+            out.push('}');
+        }
+        crate::dispatch::SendDispatchOutcome::GoalOrReferenceMissing { error } => {
+            json::member(out, "outcome");
+            json::push_text(out, "goal-or-reference-missing");
+            json::member(out, "published");
+            out.push('[');
+            out.push(']');
+            json::member(out, "refusal");
+            out.push('{');
+            json::member(out, "error");
+            json::push_text(out, "conductor.dispatch.GoalOrReferenceMissing");
+            json::member(out, "payload");
+            encode_error_conductor_dispatch_goal_or_reference_missing(error, out);
+            out.push('}');
+        }
+        crate::dispatch::SendDispatchOutcome::ReferenceHeld { error } => {
+            json::member(out, "outcome");
+            json::push_text(out, "reference-held");
+            json::member(out, "published");
+            out.push('[');
+            out.push(']');
+            json::member(out, "refusal");
+            out.push('{');
+            json::member(out, "error");
+            json::push_text(out, "conductor.dispatch.ReferenceHeld");
+            json::member(out, "payload");
+            encode_error_conductor_dispatch_reference_held(error, out);
+            out.push('}');
+        }
         crate::dispatch::SendDispatchOutcome::NoSuchGoal { error } => {
             json::member(out, "outcome");
             json::push_text(out, "no-such-goal");
@@ -26313,6 +26847,33 @@ pub fn encode_outcome_conductor_dispatch_send_dispatch(value: &crate::dispatch::
             json::member(out, "payload");
             encode_error_conductor_dispatch_goal_closed(error, out);
             out.push('}');
+        }
+        crate::dispatch::SendDispatchOutcome::RepositoryBusy { error } => {
+            json::member(out, "outcome");
+            json::push_text(out, "repository-busy");
+            json::member(out, "published");
+            out.push('[');
+            out.push(']');
+            json::member(out, "refusal");
+            out.push('{');
+            json::member(out, "error");
+            json::push_text(out, "conductor.dispatch.RepositoryBusy");
+            json::member(out, "payload");
+            encode_error_conductor_dispatch_repository_busy(error, out);
+            out.push('}');
+        }
+        crate::dispatch::SendDispatchOutcome::SentForReference { dispatch_sent } => {
+            json::member(out, "outcome");
+            json::push_text(out, "sent-for-reference");
+            json::member(out, "published");
+            out.push('[');
+            out.push('{');
+            json::member(out, "event");
+            json::push_text(out, "conductor.dispatch.DispatchSent");
+            json::member(out, "payload");
+            encode_event_conductor_dispatch_dispatch_sent(dispatch_sent, out);
+            out.push('}');
+            out.push(']');
         }
         crate::dispatch::SendDispatchOutcome::Sent { dispatch_sent } => {
             json::member(out, "outcome");
@@ -33995,6 +34556,7 @@ pub fn encode_system_event(value: &crate::system::SystemEvent) -> String {
         crate::system::SystemEvent::DispatchCancelled(event) => encode_event_conductor_dispatch_dispatch_cancelled(event, &mut out),
         crate::system::SystemEvent::DispatchDone(event) => encode_event_conductor_dispatch_dispatch_done(event, &mut out),
         crate::system::SystemEvent::DispatchFailed(event) => encode_event_conductor_dispatch_dispatch_failed(event, &mut out),
+        crate::system::SystemEvent::DispatchLinked(event) => encode_event_conductor_dispatch_dispatch_linked(event, &mut out),
         crate::system::SystemEvent::DispatchSent(event) => encode_event_conductor_dispatch_dispatch_sent(event, &mut out),
         crate::system::SystemEvent::DispatchStarted(event) => encode_event_conductor_dispatch_dispatch_started(event, &mut out),
         crate::system::SystemEvent::DispatchUnblocked(event) => encode_event_conductor_dispatch_dispatch_unblocked(event, &mut out),
@@ -34124,6 +34686,7 @@ pub fn decode_system_event(value: &json::Value) -> Result<crate::system::SystemE
         "conductor.dispatch.DispatchCancelled" => crate::system::SystemEvent::DispatchCancelled(decode_event_conductor_dispatch_dispatch_cancelled(json::member_at(value, "", "payload")?, "payload")?),
         "conductor.dispatch.DispatchDone" => crate::system::SystemEvent::DispatchDone(decode_event_conductor_dispatch_dispatch_done(json::member_at(value, "", "payload")?, "payload")?),
         "conductor.dispatch.DispatchFailed" => crate::system::SystemEvent::DispatchFailed(decode_event_conductor_dispatch_dispatch_failed(json::member_at(value, "", "payload")?, "payload")?),
+        "conductor.dispatch.DispatchLinked" => crate::system::SystemEvent::DispatchLinked(decode_event_conductor_dispatch_dispatch_linked(json::member_at(value, "", "payload")?, "payload")?),
         "conductor.dispatch.DispatchSent" => crate::system::SystemEvent::DispatchSent(decode_event_conductor_dispatch_dispatch_sent(json::member_at(value, "", "payload")?, "payload")?),
         "conductor.dispatch.DispatchStarted" => crate::system::SystemEvent::DispatchStarted(decode_event_conductor_dispatch_dispatch_started(json::member_at(value, "", "payload")?, "payload")?),
         "conductor.dispatch.DispatchUnblocked" => crate::system::SystemEvent::DispatchUnblocked(decode_event_conductor_dispatch_dispatch_unblocked(json::member_at(value, "", "payload")?, "payload")?),
@@ -34204,7 +34767,7 @@ pub fn decode_system_event(value: &json::Value) -> Result<crate::system::SystemE
         "conductor.token.TokenWithdrawn" => crate::system::SystemEvent::TokenWithdrawn(decode_event_conductor_token_token_withdrawn(json::member_at(value, "", "payload")?, "payload")?),
         "conductor.tool.ToolCallRecorded" => crate::system::SystemEvent::ToolCallRecorded(decode_event_conductor_tool_tool_call_recorded(json::member_at(value, "", "payload")?, "payload")?),
         other => {
-            return Err(json::DecodeError { at: "event".to_owned(), expected: "one of `conductor.agent.AgentKindDeclared`, `conductor.agent.AgentReported`, `conductor.agent.AgentStarted`, `conductor.agent.AgentStopped`, `conductor.config.ConfigChanged`, `conductor.config.InstanceAdded`, `conductor.config.InstanceRemoved`, `conductor.config.InstanceReplaced`, `conductor.decision.DecisionRecorded`, `conductor.decision.DecisionRequested`, `conductor.decision.DecisionReversedEvent`, `conductor.decision.RequestAmended`, `conductor.decision.RequestAnswered`, `conductor.decision.RequestEscalated`, `conductor.decision.RequestWithdrawn`, `conductor.direction.GoalConfirmed`, `conductor.direction.GoalDropped`, `conductor.direction.GoalMet`, `conductor.direction.GoalProposed`, `conductor.direction.RepositoryActivated`, `conductor.direction.RepositoryDeactivated`, `conductor.direction.RepositoryMarked`, `conductor.direction.ServingAdded`, `conductor.direction.ServingRemoved`, `conductor.dispatch.CharterRevised`, `conductor.dispatch.ControllerPaused`, `conductor.dispatch.ControllerResumed`, `conductor.dispatch.ControllerStarted`, `conductor.dispatch.ControllerStopped`, `conductor.dispatch.DispatchBlocked`, `conductor.dispatch.DispatchCancelled`, `conductor.dispatch.DispatchDone`, `conductor.dispatch.DispatchFailed`, `conductor.dispatch.DispatchSent`, `conductor.dispatch.DispatchStarted`, `conductor.dispatch.DispatchUnblocked`, `conductor.dispatch.GuardDecisionRecorded`, `conductor.dispatch.MessageHandled`, `conductor.dispatch.MessageReceived`, `conductor.dispatch.MessageRejected`, `conductor.dispatch.NeedRouted`, `conductor.dispatch.ResourceGranted`, `conductor.dispatch.ResourceRefused`, `conductor.dispatch.ResourceReleased`, `conductor.dispatch.ResourceRequested`, `conductor.host.DiskReclaimed`, `conductor.host.DiskRequestWithdrawn`, `conductor.host.DiskRequested`, `conductor.host.DiskReservationRefused`, `conductor.host.DiskReserved`, `conductor.host.HostGrantReleased`, `conductor.host.HostGrantTaken`, `conductor.host.PeakRecorded`, `conductor.host.ReclaimFloorNotReached`, `conductor.host.RunStarted`, `conductor.improvement.FindingClosed`, `conductor.improvement.FindingFiled`, `conductor.improvement.FindingRaised`, `conductor.improvement.FindingVerified`, `conductor.improvement.MetricDefined`, `conductor.improvement.MetricReadingJudged`, `conductor.improvement.MetricReadingRecorded`, `conductor.improvement.MetricReadingSuperseded`, `conductor.improvement.MetricTargetSet`, `conductor.improvement.ProposalApplied`, `conductor.improvement.ProposalKept`, `conductor.improvement.ProposalRefused`, `conductor.improvement.ProposalReverted`, `conductor.improvement.SettingProposed`, `conductor.instance.InstanceAnswered`, `conductor.instance.InstancePurged`, `conductor.instance.InstanceReconciled`, `conductor.instance.InstanceRestarted`, `conductor.instance.InstanceRolledBack`, `conductor.instance.InstanceStarted`, `conductor.instance.InstanceStopped`, `conductor.instance.InstanceUnreachable`, `conductor.instance.InstanceUpgrading`, `conductor.observation.BlockerRecorded`, `conductor.observation.BoardPublished`, `conductor.observation.CollectorRunRecorded`, `conductor.observation.MemberFailureRecorded`, `conductor.observation.MergedPullRequestRecorded`, `conductor.observation.PullRequestRecorded`, `conductor.observation.ReleaseRecorded`, `conductor.observation.RepositoryRecorded`, `conductor.observation.SecretSyncRecorded`, `conductor.observation.SessionRecorded`, `conductor.observation.SnapshotCompleted`, `conductor.observation.SnapshotFailed`, `conductor.observation.SnapshotStarted`, `conductor.observation.SpecificationRecorded`, `conductor.observation.UsageRecorded`, `conductor.observation.WorkflowRunRecorded`, `conductor.operator.OperatorJoined`, `conductor.operator.OperatorLeft`, `conductor.placement.BoxClosed`, `conductor.placement.BoxOpened`, `conductor.placement.BoxRefused`, `conductor.secret.SecretPut`, `conductor.secret.SecretsResolved`, `conductor.session.LeaseTaken`, `conductor.session.LeaseTakenOver`, `conductor.session.MessageDelivered`, `conductor.session.RunTickRecorded`, `conductor.store.StoreMigrated`, `conductor.token.TokenContributed`, `conductor.token.TokenLeased`, `conductor.token.TokenLimited`, `conductor.token.TokenReleased`, `conductor.token.TokenWithdrawn`, `conductor.tool.ToolCallRecorded`".to_owned(), found: format!("`{other}`") })
+            return Err(json::DecodeError { at: "event".to_owned(), expected: "one of `conductor.agent.AgentKindDeclared`, `conductor.agent.AgentReported`, `conductor.agent.AgentStarted`, `conductor.agent.AgentStopped`, `conductor.config.ConfigChanged`, `conductor.config.InstanceAdded`, `conductor.config.InstanceRemoved`, `conductor.config.InstanceReplaced`, `conductor.decision.DecisionRecorded`, `conductor.decision.DecisionRequested`, `conductor.decision.DecisionReversedEvent`, `conductor.decision.RequestAmended`, `conductor.decision.RequestAnswered`, `conductor.decision.RequestEscalated`, `conductor.decision.RequestWithdrawn`, `conductor.direction.GoalConfirmed`, `conductor.direction.GoalDropped`, `conductor.direction.GoalMet`, `conductor.direction.GoalProposed`, `conductor.direction.RepositoryActivated`, `conductor.direction.RepositoryDeactivated`, `conductor.direction.RepositoryMarked`, `conductor.direction.ServingAdded`, `conductor.direction.ServingRemoved`, `conductor.dispatch.CharterRevised`, `conductor.dispatch.ControllerPaused`, `conductor.dispatch.ControllerResumed`, `conductor.dispatch.ControllerStarted`, `conductor.dispatch.ControllerStopped`, `conductor.dispatch.DispatchBlocked`, `conductor.dispatch.DispatchCancelled`, `conductor.dispatch.DispatchDone`, `conductor.dispatch.DispatchFailed`, `conductor.dispatch.DispatchLinked`, `conductor.dispatch.DispatchSent`, `conductor.dispatch.DispatchStarted`, `conductor.dispatch.DispatchUnblocked`, `conductor.dispatch.GuardDecisionRecorded`, `conductor.dispatch.MessageHandled`, `conductor.dispatch.MessageReceived`, `conductor.dispatch.MessageRejected`, `conductor.dispatch.NeedRouted`, `conductor.dispatch.ResourceGranted`, `conductor.dispatch.ResourceRefused`, `conductor.dispatch.ResourceReleased`, `conductor.dispatch.ResourceRequested`, `conductor.host.DiskReclaimed`, `conductor.host.DiskRequestWithdrawn`, `conductor.host.DiskRequested`, `conductor.host.DiskReservationRefused`, `conductor.host.DiskReserved`, `conductor.host.HostGrantReleased`, `conductor.host.HostGrantTaken`, `conductor.host.PeakRecorded`, `conductor.host.ReclaimFloorNotReached`, `conductor.host.RunStarted`, `conductor.improvement.FindingClosed`, `conductor.improvement.FindingFiled`, `conductor.improvement.FindingRaised`, `conductor.improvement.FindingVerified`, `conductor.improvement.MetricDefined`, `conductor.improvement.MetricReadingJudged`, `conductor.improvement.MetricReadingRecorded`, `conductor.improvement.MetricReadingSuperseded`, `conductor.improvement.MetricTargetSet`, `conductor.improvement.ProposalApplied`, `conductor.improvement.ProposalKept`, `conductor.improvement.ProposalRefused`, `conductor.improvement.ProposalReverted`, `conductor.improvement.SettingProposed`, `conductor.instance.InstanceAnswered`, `conductor.instance.InstancePurged`, `conductor.instance.InstanceReconciled`, `conductor.instance.InstanceRestarted`, `conductor.instance.InstanceRolledBack`, `conductor.instance.InstanceStarted`, `conductor.instance.InstanceStopped`, `conductor.instance.InstanceUnreachable`, `conductor.instance.InstanceUpgrading`, `conductor.observation.BlockerRecorded`, `conductor.observation.BoardPublished`, `conductor.observation.CollectorRunRecorded`, `conductor.observation.MemberFailureRecorded`, `conductor.observation.MergedPullRequestRecorded`, `conductor.observation.PullRequestRecorded`, `conductor.observation.ReleaseRecorded`, `conductor.observation.RepositoryRecorded`, `conductor.observation.SecretSyncRecorded`, `conductor.observation.SessionRecorded`, `conductor.observation.SnapshotCompleted`, `conductor.observation.SnapshotFailed`, `conductor.observation.SnapshotStarted`, `conductor.observation.SpecificationRecorded`, `conductor.observation.UsageRecorded`, `conductor.observation.WorkflowRunRecorded`, `conductor.operator.OperatorJoined`, `conductor.operator.OperatorLeft`, `conductor.placement.BoxClosed`, `conductor.placement.BoxOpened`, `conductor.placement.BoxRefused`, `conductor.secret.SecretPut`, `conductor.secret.SecretsResolved`, `conductor.session.LeaseTaken`, `conductor.session.LeaseTakenOver`, `conductor.session.MessageDelivered`, `conductor.session.RunTickRecorded`, `conductor.store.StoreMigrated`, `conductor.token.TokenContributed`, `conductor.token.TokenLeased`, `conductor.token.TokenLimited`, `conductor.token.TokenReleased`, `conductor.token.TokenWithdrawn`, `conductor.tool.ToolCallRecorded`".to_owned(), found: format!("`{other}`") })
         }
     })
 }

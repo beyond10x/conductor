@@ -103,6 +103,7 @@ Every command takes these, before or after its name.
 | [`conductor controller controllers`](#conductor-controller-controllers) | Print one line per Running or Paused controller, its repository, state, session name and id; --all prints the table of every controller, --format renders every one as text, json, jsonl or markdown; create nothing |
 | [`conductor dispatch`](#conductor-dispatch) | Briefs to controllers and their reports |
 | [`conductor dispatch cancel-dispatch`](#conductor-dispatch-cancel-dispatch) | Cancel a dispatch |
+| [`conductor dispatch record-link`](#conductor-dispatch-record-link) | Record a link on a dispatch |
 | [`conductor dispatch report-blocked`](#conductor-dispatch-report-blocked) | Report a dispatch blocked |
 | [`conductor dispatch report-done`](#conductor-dispatch-report-done) | Report a dispatch done |
 | [`conductor dispatch report-failed`](#conductor-dispatch-report-failed) | Report a dispatch failed |
@@ -1368,6 +1369,21 @@ Usage: conductor dispatch cancel-dispatch [OPTIONS]
 | `--actor <ACTOR>` | no | none | Actor, one JSON object: who issues the command, `{"kind": "Human", "operator": "<name>"}`, `{"kind": "Agent", "agent": {"instance", "role", "name", "kind"}}` or `{"kind": "Daemon"}`; default: the calling session as an agent where `CONDUCTOR_SESSION` names one, else the operator |
 | `--input-json <INPUT_JSON>` | no | none | Read the input fields from standard input, as one JSON object One of `-`. |
 
+## `conductor dispatch record-link`
+
+Record a link on a dispatch
+
+```text
+Usage: conductor dispatch record-link [OPTIONS]
+```
+
+| Argument | Required | Default | Meaning |
+|---|---|---|---|
+| `--dispatch-id <DISPATCH_ID>` | no | none | DispatchId, starting with `DSP-` |
+| `--link <LINK>` | no | none | string |
+| `--actor <ACTOR>` | no | none | Actor, one JSON object: who issues the command, `{"kind": "Human", "operator": "<name>"}`, `{"kind": "Agent", "agent": {"instance", "role", "name", "kind"}}` or `{"kind": "Daemon"}`; default: the calling session as an agent where `CONDUCTOR_SESSION` names one, else the operator |
+| `--input-json <INPUT_JSON>` | no | none | Read the input fields from standard input, as one JSON object One of `-`. |
+
 ## `conductor dispatch report-blocked`
 
 Report a dispatch blocked
@@ -1453,11 +1469,14 @@ Usage: conductor dispatch send-dispatch [OPTIONS]
 |---|---|---|---|
 | `--dispatch-id <DISPATCH_ID>` | no | none | DispatchId, starting with `DSP-` |
 | `--repository <REPOSITORY>` | no | none | RepositoryName |
-| `--goal-id <GOAL_ID>` | no | none | GoalId |
+| `--goal-id <GOAL_ID>` | no | none | GoalId, optional |
 | `--brief <BRIEF>` | no | none | string |
 | `--sent-at <SENT_AT>` | no | none | timestamp, RFC 3339 |
 | `--priority <PRIORITY>` | no | none | integer |
 | `--waits-on <WAITS_ON>` | no | none | DispatchId, starting with `DSP-`, optional |
+| `--reference <REFERENCE>` | no | none | string, optional |
+| `--start-ref <START_REF>` | no | none | string, optional |
+| `--issue <ISSUE>` | no | none | string, optional |
 | `--actor <ACTOR>` | no | none | Actor, one JSON object: who issues the command, `{"kind": "Human", "operator": "<name>"}`, `{"kind": "Agent", "agent": {"instance", "role", "name", "kind"}}` or `{"kind": "Daemon"}`; default: the calling session as an agent where `CONDUCTOR_SESSION` names one, else the operator |
 | `--input-json <INPUT_JSON>` | no | none | Read the input fields from standard input, as one JSON object One of `-`. |
 
