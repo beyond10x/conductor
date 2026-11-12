@@ -77,8 +77,10 @@
 //!   its placement opens no box, and each of its paths (`checkouts.root`, `checkouts.trees`,
 //!   `records`, `state`, `cache`) it writes lies under its data mount ([`pod::DATA_MOUNT`]); one
 //!   it leaves out, `checkouts` included, its pod's file fills in there ([`pod::render`]).
-//!   `daemon.control_token` is `secret:<name>`. A daemon-config file holds `version` and `daemon`
-//!   only ([`parse_daemon_config`]);
+//!   An instance's `forge_token` (story:instance-forge-token) is `secret:<name>`, written only
+//!   where `daemon.kubernetes` is, and only by an instance whose sources name exactly one forge
+//!   ([`forge_token_variables`]). `daemon.control_token` is `secret:<name>`. A daemon-config
+//!   file holds `version` and `daemon` only ([`parse_daemon_config`]);
 //! - the daemon's own secrets ([`crate::secret::daemons_own`]: the control token, the store's
 //!   password) are no instance's and no pod's: a `secret:<name>` naming one under `globals` or
 //!   an instance, or as a `daemon.kubernetes.env` secret, is refused by its path.
@@ -438,7 +440,7 @@ pub const TREE_STALE_HOURS: u64 = 48;
 
 /// The keys of each mapping the file holds, in the order `config show` writes them.
 const CONFIG_KEYS: [&str; 5] = ["version", "daemon", "globals", "default", "instances"];
-const INSTANCE_KEYS: [&str; 29] = [
+const INSTANCE_KEYS: [&str; 30] = [
     "name",
     "placement",
     "remote",
@@ -466,6 +468,7 @@ const INSTANCE_KEYS: [&str; 29] = [
     "secret_syncs",
     "gates_policy",
     "model_token",
+    "forge_token",
     "forge",
     "conductor",
 ];
@@ -474,6 +477,29 @@ const CONDUCTOR_KEYS: [&str; 2] = ["served_by", "session_name"];
 const SOURCE_KINDS: [&str; 3] = ["github", "local", "gitlab"];
 const SOURCE_KEYS: [&str; 5] = ["github", "local", "gitlab", "exclude", "host"];
 const CHECKOUT_KEYS: [&str; 2] = ["root", "trees"];
+/// The variable an instance pod carries its `forge_token` in (story:instance-forge-token), by the
+/// kind of source that names its forge: the one `gh` reads for `github`, the one `glab` reads for
+/// `gitlab`.
+pub const FORGE_TOKEN_VARIABLES: [(&str, &str); 2] =
+    [("github", "GH_TOKEN"), ("gitlab", "GITLAB_TOKEN")];
+
+/// The variable of each forge `sources` name, once each, in the order of
+/// [`FORGE_TOKEN_VARIABLES`]: none for local sources only, two for sources on both forges.
+#[must_use]
+pub fn forge_token_variables(sources: &[Source]) -> Vec<&'static str> {
+    FORGE_TOKEN_VARIABLES
+        .iter()
+        .filter(|(kind, _)| {
+            sources.iter().any(|source| match source {
+                Source::GitHub(_) => *kind == "github",
+                Source::GitLab(_) => *kind == "gitlab",
+                Source::Local(_) => false,
+            })
+        })
+        .map(|(_, variable)| *variable)
+        .collect()
+}
+
 const ROLE_KEYS: [&str; 15] = [
     "role",
     "kind",
@@ -1605,6 +1631,8 @@ pub fn built_in(home: &Path, cwd: &Path) -> Instance {
         gates_policy: None,
         // A model token is named only by a user.
         model_token: None,
+        // So is a forge token, and only where the daemon runs its instances as pods.
+        forge_token: None,
         // Forge writes take the bot route unless a user names another (story:forge-route).
         forge: default_forge(),
         // Its own conductor, the built-in director role's session, under the role's old name for
@@ -4055,6 +4083,42 @@ impl Reader<'_> {
             Some(_) => None,
             None => Some(None),
         };
+        // The instance's own forge token, `secret:<name>` as the model token is
+        // (story:instance-forge-token). Only the pod supervisor reads it, into the variable of the
+        // one forge the instance's sources name.
+        let forge_token = match Self::get(map, "forge_token") {
+            Some(Value::String(text)) if secret_name(text) => {
+                let at = join(path, "forge_token");
+                let forges = sources.as_deref().map(forge_token_variables);
+                if !self.pods {
+                    self.problem(
+                        &at,
+                        "only a daemon that runs its instances as pods (daemon.kubernetes) reads \
+                         forge_token, into the instance's pod; this file's daemon runs none: leave \
+                         it out",
+                    );
+                } else if forges.as_ref().is_some_and(Vec::is_empty) {
+                    self.problem(
+                        &at,
+                        "no source on a forge: forge_token fills GH_TOKEN for a github source or \
+                         GITLAB_TOKEN for a gitlab source, and every source of the instance is \
+                         local: leave it out",
+                    );
+                } else if forges.as_ref().is_some_and(|forges| forges.len() > 1) {
+                    self.problem(
+                        &at,
+                        "sources on two forges, github and gitlab: forge_token fills the variable \
+                         of one forge; name the token of each in daemon.kubernetes.env instead",
+                    );
+                }
+                Some(
+                    text.strip_prefix("secret:")
+                        .map(|name| conductor_model::secret::SecretName(name.to_owned())),
+                )
+            }
+            Some(_) => None,
+            None => Some(None),
+        };
         let forge = match Self::get(map, "forge") {
             Some(value) => self.forge(value, &join(path, "forge")),
             None => Some(default_forge()),
@@ -4091,6 +4155,7 @@ impl Reader<'_> {
             secret_syncs: secret_syncs?,
             gates_policy: gates_policy?,
             model_token: model_token?,
+            forge_token: forge_token?,
             forge: forge?,
         })
     }
@@ -5595,6 +5660,16 @@ fn shown_instance(instance: &Instance, legacy: &Legacy) -> Yaml {
             optional(
                 instance
                     .model_token
+                    .as_ref()
+                    .map(|name| format!("secret:{}", name.0))
+                    .as_ref(),
+            ),
+        ),
+        (
+            "forge_token",
+            optional(
+                instance
+                    .forge_token
                     .as_ref()
                     .map(|name| format!("secret:{}", name.0))
                     .as_ref(),

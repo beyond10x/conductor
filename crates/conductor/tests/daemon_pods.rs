@@ -995,6 +995,352 @@ fn the_daemons_seeding_skips_pod_run_instances() {
     assert!(conductor_cli::daemon::unattended::seeds_here(&unit_run));
 }
 
+/// The pod of an instance that names no `forge_token` (story:instance-forge-token) is the pod the
+/// supervisor made before the key existed, byte for byte: its spec, its claim, its rendered file,
+/// the secrets its Secret holds and its digest, held to `tests/fixtures/k8s/pod-alpha.json`, which
+/// was written from the supervisor of v1.4.0 for this case's file.
+#[test]
+fn the_pod_of_an_instance_without_a_forge_token_is_the_one_made_before_the_key() {
+    let case = Case::new("before-the-key");
+    let text = fs::read_to_string(case.file()).expect("the config file");
+    let config = conductor_cli::config::parse(&text, &case.home()).expect("a valid file");
+    let kubernetes = config.daemon.kubernetes.clone().expect("daemon.kubernetes");
+    let made = pods::manifests(&kubernetes, &config, &config.instances[0]);
+    let made = json!({
+        "pod": made.pod,
+        "claim": made.claim,
+        "rendered": made.rendered,
+        "secrets": made.secrets,
+        "digest": made.digest,
+    });
+    let made = format!(
+        "{}\n",
+        serde_json::to_string_pretty(&made).expect("the objects as JSON")
+    );
+    let fixture =
+        PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/k8s/pod-alpha.json");
+    let before = fs::read_to_string(&fixture).unwrap_or_default();
+    if made != before {
+        let now = case.dir.join("pod-alpha.json");
+        fs::write(&now, &made).expect("write what is made now");
+        panic!(
+            "the pod of an instance without forge_token differs from {}; what is made now is {}",
+            fixture.display(),
+            now.display()
+        );
+    }
+}
+
+/// The instance `name` of a case's file: no paths, the source `source`, `extra` lines appended.
+fn instance(name: &str, source: &str, extra: &str) -> String {
+    format!(
+        "  - name: {name}\n\
+         \x20   placement: none\n\
+         \x20   session_prefix: {name}\n\
+         \x20   sources: [{source}]\n\
+         {extra}"
+    )
+}
+
+/// The `env` entries of `made`'s pod named `variable`.
+fn variables(made: &pods::Manifests, variable: &str) -> Vec<Value> {
+    made.pod["spec"]["containers"][0]["env"]
+        .as_array()
+        .expect("env")
+        .iter()
+        .filter(|entry| entry["name"] == variable)
+        .cloned()
+        .collect()
+}
+
+/// The `env` entry `variable` read from the key `key` of `instance`'s Secret.
+fn from_secret(variable: &str, instance: &str, key: &str) -> Value {
+    json!({
+        "name": variable,
+        "valueFrom": {"secretKeyRef": {"name": format!("conductor-instance-{instance}"), "key": key}},
+    })
+}
+
+/// The values of the forge tokens each instance of the forge-token cases names.
+const ALPHA_FORGE: &str = "alpha-forge-value-2222";
+const GAMMA_FORGE: &str = "gamma-forge-value-3333";
+
+/// An instance's `forge_token` (story:instance-forge-token): its pod reads the variable of its
+/// forge, `GH_TOKEN` for a `github` source and `GITLAB_TOKEN` for a `gitlab` one, from the key of
+/// that secret in its own Secret, once, in place of the `daemon.kubernetes.env` entry of that
+/// variable; every other entry stays, and its Secret holds the instance's token and not the
+/// daemon-wide one. An instance that names none keeps the daemon-wide entry and holds no other
+/// instance's token. The rendered file leaves the key out and validates in the pod, where no
+/// `daemon.kubernetes` is set.
+#[test]
+fn an_instances_forge_token_replaces_the_daemons_variable_in_its_own_pod_only() {
+    let case = Case::new("forge-token");
+    fs::write(case.dir.join("secrets/alpha-forge"), ALPHA_FORGE).expect("write a secret");
+    fs::write(case.dir.join("secrets/gamma-forge"), GAMMA_FORGE).expect("write a secret");
+    case.config(
+        IMAGE,
+        &[
+            alpha("    forge_token: secret:alpha-forge\n"),
+            instance("beta", "{github: example-org}", ""),
+            instance(
+                "gamma",
+                "{gitlab: example-org}",
+                "    forge_token: secret:gamma-forge\n",
+            ),
+        ],
+    );
+    let text = fs::read_to_string(case.file()).expect("the config file");
+    let config = conductor_cli::config::parse(&text, &case.home())
+        .unwrap_or_else(|problems| panic!("the file does not validate: {problems:?}\n{text}"));
+    let kubernetes = config.daemon.kubernetes.clone().expect("daemon.kubernetes");
+    let made = |name: &str| {
+        let instance = config
+            .instances
+            .iter()
+            .find(|instance| instance.name.0 == name)
+            .unwrap_or_else(|| panic!("the instance {name}"));
+        pods::manifests(&kubernetes, &config, instance)
+    };
+
+    let alpha = made("alpha");
+    assert_eq!(
+        variables(&alpha, "GH_TOKEN"),
+        [from_secret("GH_TOKEN", "alpha", "alpha-forge")],
+        "{}",
+        alpha.pod
+    );
+    assert_eq!(
+        variables(&alpha, "GIT_AUTHOR_NAME"),
+        [json!({"name": "GIT_AUTHOR_NAME", "value": "conductor"})],
+        "every other entry of daemon.kubernetes.env stays: {}",
+        alpha.pod
+    );
+    assert!(
+        variables(&alpha, "GITLAB_TOKEN").is_empty(),
+        "{}",
+        alpha.pod
+    );
+    assert!(alpha.secrets.contains("alpha-forge"), "{:?}", alpha.secrets);
+    assert!(
+        !alpha.secrets.contains("forge-token"),
+        "{:?}",
+        alpha.secrets
+    );
+    assert!(
+        !alpha.rendered.contains("forge_token:") && !alpha.rendered.contains("alpha-forge"),
+        "{}",
+        alpha.rendered
+    );
+    conductor_cli::config::parse(&alpha.rendered, &case.home()).unwrap_or_else(|problems| {
+        panic!(
+            "the rendered file does not validate: {problems:?}\n{}",
+            alpha.rendered
+        )
+    });
+
+    let beta = made("beta");
+    assert_eq!(
+        variables(&beta, "GH_TOKEN"),
+        [from_secret("GH_TOKEN", "beta", "forge-token")],
+        "{}",
+        beta.pod
+    );
+    assert!(beta.secrets.contains("forge-token"), "{:?}", beta.secrets);
+    for other in ["alpha-forge", "gamma-forge"] {
+        assert!(!beta.secrets.contains(other), "{:?}", beta.secrets);
+    }
+
+    let gamma = made("gamma");
+    assert_eq!(
+        variables(&gamma, "GITLAB_TOKEN"),
+        [from_secret("GITLAB_TOKEN", "gamma", "gamma-forge")],
+        "{}",
+        gamma.pod
+    );
+    assert_eq!(
+        variables(&gamma, "GH_TOKEN"),
+        [from_secret("GH_TOKEN", "gamma", "forge-token")],
+        "an entry of another variable stays: {}",
+        gamma.pod
+    );
+
+    // One pass: each Secret holds its own instance's token, from the daemon's secrets source.
+    let mut daemon = case.daemon();
+    let done = daemon
+        .pass(ReconcileReason::Cadence, Instant::now())
+        .expect("a pass");
+    assert!(
+        done.iter()
+            .all(|row| row.result == ReconcileResult::Succeeded),
+        "{done:?}"
+    );
+    let secret = |name: &str| {
+        case.object("secrets", &format!("conductor-instance-{name}"))
+            .unwrap_or_else(|| panic!("the Secret of {name}"))
+    };
+    let keys = |secret: &Value| -> Vec<String> {
+        secret["data"]
+            .as_object()
+            .map(|data| data.keys().cloned().collect())
+            .unwrap_or_default()
+    };
+    let (alpha, beta, gamma) = (secret("alpha"), secret("beta"), secret("gamma"));
+    assert_eq!(secret_value(&alpha, "alpha-forge"), ALPHA_FORGE);
+    assert!(
+        !keys(&alpha).contains(&"forge-token".to_owned()),
+        "{:?}",
+        keys(&alpha)
+    );
+    assert_eq!(secret_value(&beta, "forge-token"), FORGE_TOKEN);
+    assert!(
+        !keys(&beta).contains(&"alpha-forge".to_owned()),
+        "{:?}",
+        keys(&beta)
+    );
+    assert_eq!(secret_value(&gamma, "gamma-forge"), GAMMA_FORGE);
+    assert_eq!(secret_value(&gamma, "forge-token"), FORGE_TOKEN);
+}
+
+/// The control token of the forge-token route case: the value of the secret `control`.
+const CONTROL: &str = "control-token-0123456789abcdef0123456789abcdef";
+
+/// `PUT /v1/instances/{name}` with the control token on `port`: the status and the body.
+fn put(port: u16, name: &str, mapping: &Value) -> (u16, String) {
+    let body = json!({"mapping": mapping, "reason": "a forge token of its own"}).to_string();
+    let mut stream = TcpStream::connect(("127.0.0.1", port)).expect("connect");
+    stream
+        .set_read_timeout(Some(Duration::from_secs(60)))
+        .expect("a read timeout");
+    write!(
+        stream,
+        "PUT /v1/instances/{name} HTTP/1.1\r\nHost: 127.0.0.1:{port}\r\nConnection: close\r\n\
+         Authorization: Bearer {CONTROL}\r\nContent-Type: application/json\r\n\
+         Content-Length: {}\r\n\r\n{body}",
+        body.len()
+    )
+    .expect("send");
+    let mut bytes = Vec::new();
+    stream.read_to_end(&mut bytes).expect("read");
+    let text = String::from_utf8_lossy(&bytes).into_owned();
+    let status = text
+        .split(' ')
+        .nth(1)
+        .and_then(|code| code.parse().ok())
+        .unwrap_or(0);
+    let body = text
+        .split_once("\r\n\r\n")
+        .map(|(_, body)| body.to_owned())
+        .unwrap_or_default();
+    (status, body)
+}
+
+/// `PUT /v1/instances/{name}` that adds or changes the instance's `forge_token` replaces its pod
+/// once, on a new digest, its variable from the newly named key; the same body again replaces
+/// nothing and leaves the digest as it is.
+#[test]
+fn a_put_that_changes_the_forge_token_replaces_the_pod_once_and_the_same_body_nothing() {
+    let case = Case::new("forge-token-put");
+    for (name, value) in [
+        ("control", CONTROL),
+        ("alpha-forge", ALPHA_FORGE),
+        ("alpha-forge-two", GAMMA_FORGE),
+    ] {
+        fs::write(case.dir.join("secrets").join(name), value).expect("write a secret");
+    }
+    let mut daemon = case.daemon();
+    let start = Instant::now();
+    daemon
+        .pass(ReconcileReason::Cadence, start)
+        .expect("a pass");
+    case.set_running();
+
+    let api = Api::new("3".repeat(64), "operator".to_owned(), None)
+        .with_config(
+            case.file(),
+            case.home(),
+            format!("sqlite:{}", case.dir.join("shared.sqlite").display()),
+        )
+        .with_control_token(
+            conductor_model::config::SecretsSource {
+                source: conductor_model::secret::Source::Files,
+                namespace: None,
+                url: None,
+                dir: Some(case.dir.join("secrets").display().to_string()),
+            },
+            Some(conductor_model::secret::SecretName("control".to_owned())),
+        )
+        .with_pods(true);
+    api.publish(daemon.rows(), daemon.routes(), Vec::new());
+    api.publish_host(Vec::new(), None);
+    let listener = TcpListener::bind(("127.0.0.1", 0)).expect("bind");
+    let port = listener.local_addr().expect("address").port();
+    let api = Arc::new(api);
+    std::thread::spawn(move || api::serve(&listener, &api));
+
+    let mapping = |forge: &str| {
+        json!({
+            "name": "alpha",
+            "placement": "none",
+            "session_prefix": "alpha",
+            "sources": [{"github": "example-org"}],
+            "model_token": "secret:alpha-model",
+            "forge_token": format!("secret:{forge}"),
+        })
+    };
+    let digest = || case.pod()["metadata"]["annotations"]["conductor/digest"].clone();
+    let mut at = 2;
+    let mut pass = |daemon: &mut Daemon<Manager>| {
+        at += 2;
+        daemon
+            .pass(
+                ReconcileReason::ConfigChange,
+                start + Duration::from_secs(at),
+            )
+            .expect("a pass")
+    };
+
+    let mut before = digest();
+    for forge in ["alpha-forge", "alpha-forge-two"] {
+        let (status, body) = put(port, "alpha", &mapping(forge));
+        assert_eq!(status, 200, "{forge}: {body}");
+        let done = pass(&mut daemon);
+        assert_eq!(done.len(), 1, "{forge}: {done:?}");
+        assert_eq!(
+            done[0].action,
+            ReconcileAction::Restart,
+            "{forge}: {done:?}"
+        );
+        assert_eq!(
+            done[0].result,
+            ReconcileResult::Succeeded,
+            "{forge}: {done:?}"
+        );
+        assert_ne!(digest(), before, "{forge}: the digest");
+        let made = case.pod();
+        let env = made["spec"]["containers"][0]["env"]
+            .as_array()
+            .expect("env")
+            .clone();
+        let named: Vec<&Value> = env
+            .iter()
+            .filter(|entry| entry["name"] == "GH_TOKEN")
+            .collect();
+        assert_eq!(
+            named,
+            [&from_secret("GH_TOKEN", "alpha", forge)],
+            "{forge}: {made}"
+        );
+        case.set_running();
+        before = digest();
+
+        let (status, body) = put(port, "alpha", &mapping(forge));
+        assert_eq!(status, 200, "{forge} again: {body}");
+        let done = pass(&mut daemon);
+        assert!(done.is_empty(), "{forge} again: {done:?}");
+        assert_eq!(digest(), before, "{forge} again: the digest");
+    }
+}
+
 /// A free loopback port.
 fn free_port() -> u16 {
     TcpListener::bind(("127.0.0.1", 0))

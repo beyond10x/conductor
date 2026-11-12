@@ -1,5 +1,5 @@
 // generated from conductor v1
-// contract digest 33c96138ad3173997519bd2cc8cd9c77cc04d0021627fb06de8e7bab55e87239
+// contract digest 9cebcb2ee988c714aa43682a8c5db29c9591548ea4b93f681fc596db3bbe6f02
 // do not edit: regenerate with `ess synthesize --layout crate`
 
 //! Config — `conductor.config`.
@@ -537,6 +537,8 @@ pub struct Instance {
     pub gates_policy: Option<String>,
     /// `model_token` — `Optional<conductor.secret.SecretName>`.
     pub model_token: Option<crate::secret::SecretName>,
+    /// `forge_token` — `Optional<conductor.secret.SecretName>`.
+    pub forge_token: Option<crate::secret::SecretName>,
     /// `forge` — `conductor.config.Forge`.
     pub forge: Forge,
     /// `conductor` — `conductor.config.ConductorSession`.

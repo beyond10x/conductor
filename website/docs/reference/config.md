@@ -247,6 +247,7 @@ A key path written `a[].b` is the key `b` of each element of the list `a`. A def
 | `secret_syncs[].dry_run` | string | none |  |
 | `gates_policy` | string | none |  |
 | `model_token` | [SecretName](#secretname) | none |  |
+| `forge_token` | [SecretName](#secretname) | none |  |
 | `forge.route` | `gates` \| `direct` | `gates` |  |
 | `conductor.served_by` | [InstanceName](#instancename) | derived |  |
 | `conductor.session_name` | [SessionName](#sessionname) | derived |  |
@@ -529,7 +530,7 @@ Keys: `requests`, `limits`. Specified as `conductor.config.KubernetesResources`.
 
 ### KubernetesEnv
 
-One environment variable of each instance pod's container: `name`, capital letters, digits and `_`, not starting with a digit; and either `value`, the text itself, or `secret`, written `secret:<name>`, a secret the daemon resolves from its secrets source (`daemon.secrets`), never from the file. Exactly one of the two is written. The daemon writes each value into the instance's Secret (`conductor-instance-<name>`) and the container reads it by `secretKeyRef`, so no value stands in the pod's spec. It carries what an instance pod needs from outside, such as `GH_TOKEN` or `GITLAB_TOKEN` for the forge's CLI, the `GIT_AUTHOR_*` and `GIT_COMMITTER_*` identity, or `GIT_CONFIG_COUNT`, `GIT_CONFIG_KEY_<n>` and `GIT_CONFIG_VALUE_<n>`; which forge token a pod gets is the operator's decision, not conductor's. A name conductor sets for the pod itself is refused at validate, naming its YAML path (`daemon.kubernetes.env[<i>].name`): `HOME`, `PATH`, and every name that starts with `CONDUCTOR_` (among them `CONDUCTOR_CONFIG`, `CONDUCTOR_INSTANCE`, `CONDUCTOR_STORE`, `CONDUCTOR_API_TOKEN`, `CONDUCTOR_API_LISTEN` and `CONDUCTOR_CONFIG_SOURCE`); the invariants of `Kubernetes` say so.
+One environment variable of each instance pod's container: `name`, capital letters, digits and `_`, not starting with a digit; and either `value`, the text itself, or `secret`, written `secret:<name>`, a secret the daemon resolves from its secrets source (`daemon.secrets`), never from the file. Exactly one of the two is written. The daemon writes each value into the instance's Secret (`conductor-instance-<name>`) and the container reads it by `secretKeyRef`, so no value stands in the pod's spec. It carries what an instance pod needs from outside, such as `GH_TOKEN` or `GITLAB_TOKEN` for the forge's CLI, the `GIT_AUTHOR_*` and `GIT_COMMITTER_*` identity, or `GIT_CONFIG_COUNT`, `GIT_CONFIG_KEY_<n>` and `GIT_CONFIG_VALUE_<n>`; which forge token a pod gets is the operator's decision, not conductor's, and an instance's `forge_token` takes the place of the entry of its forge's variable in its own pod. A name conductor sets for the pod itself is refused at validate, naming its YAML path (`daemon.kubernetes.env[<i>].name`): `HOME`, `PATH`, and every name that starts with `CONDUCTOR_` (among them `CONDUCTOR_CONFIG`, `CONDUCTOR_INSTANCE`, `CONDUCTOR_STORE`, `CONDUCTOR_API_TOKEN`, `CONDUCTOR_API_LISTEN` and `CONDUCTOR_CONFIG_SOURCE`); the invariants of `Kubernetes` say so.
 
 Keys: `name`, `value`, `secret`. Specified as `conductor.config.KubernetesEnv`.
 

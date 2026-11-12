@@ -1,5 +1,5 @@
 // generated from conductor v1
-// contract digest 33c96138ad3173997519bd2cc8cd9c77cc04d0021627fb06de8e7bab55e87239
+// contract digest 9cebcb2ee988c714aa43682a8c5db29c9591548ea4b93f681fc596db3bbe6f02
 // do not edit: regenerate with `ess synthesize --layout crate`
 //! Every generated declaration, as JSON, in the renderings the published wire contracts fix.
 //!
@@ -2006,6 +2006,10 @@ pub fn encode_conductor_config_instance(value: &crate::config::Instance, out: &m
         json::member(out, "model_token");
         encode_conductor_secret_secret_name(&*held0, out);
     }
+    if let Some(held0) = &value.forge_token {
+        json::member(out, "forge_token");
+        encode_conductor_secret_secret_name(&*held0, out);
+    }
     json::member(out, "forge");
     encode_conductor_config_forge(&value.forge, out);
     json::member(out, "conductor");
@@ -2019,7 +2023,7 @@ pub fn encode_conductor_config_instance(value: &crate::config::Instance, out: &m
 ///
 /// [`json::DecodeError`] naming the path and what the declaration says belongs there.
 pub fn decode_conductor_config_instance(value: &json::Value, at: &str) -> Result<crate::config::Instance, json::DecodeError> {
-    json::closed_at(value, at, &["name", "placement", "remote", "session_prefix", "sources", "checkouts", "records", "state", "cache", "roles", "limits", "controllers", "repositories", "cadence", "thresholds", "retention", "reports", "authority", "usage", "operator", "catalog", "secret_syncs", "gates_policy", "model_token", "forge", "conductor"])?;
+    json::closed_at(value, at, &["name", "placement", "remote", "session_prefix", "sources", "checkouts", "records", "state", "cache", "roles", "limits", "controllers", "repositories", "cadence", "thresholds", "retention", "reports", "authority", "usage", "operator", "catalog", "secret_syncs", "gates_policy", "model_token", "forge_token", "forge", "conductor"])?;
     Ok(crate::config::Instance {
         name: {
             let at0 = json::nested(at, "name");
@@ -2188,15 +2192,22 @@ pub fn decode_conductor_config_instance(value: &json::Value, at: &str) -> Result
                 Some(decode_conductor_secret_secret_name(member23, &at23)?)
             }
         },
+        forge_token: match value.member("forge_token") {
+            None | Some(json::Value::Null) => None,
+            Some(member24) => {
+                let at24 = json::nested(at, "forge_token");
+                Some(decode_conductor_secret_secret_name(member24, &at24)?)
+            }
+        },
         forge: {
-            let at24 = json::nested(at, "forge");
-            let member24 = json::member_at(value, at, "forge")?;
-            decode_conductor_config_forge(member24, &at24)?
+            let at25 = json::nested(at, "forge");
+            let member25 = json::member_at(value, at, "forge")?;
+            decode_conductor_config_forge(member25, &at25)?
         },
         conductor: {
-            let at25 = json::nested(at, "conductor");
-            let member25 = json::member_at(value, at, "conductor")?;
-            decode_conductor_config_conductor_session(member25, &at25)?
+            let at26 = json::nested(at, "conductor");
+            let member26 = json::member_at(value, at, "conductor")?;
+            decode_conductor_config_conductor_session(member26, &at26)?
         },
     })
 }

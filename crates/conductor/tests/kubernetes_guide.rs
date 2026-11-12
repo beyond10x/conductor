@@ -315,6 +315,107 @@ fn the_network_policy_admits_the_daemon_to_the_instance_pods_only() {
     );
 }
 
+/// The text of the guide's section `title`, from its heading to the next one.
+fn section(title: &str) -> String {
+    let guide = read(GUIDE);
+    let heading = format!("\n## {title}\n");
+    let start = guide
+        .find(&heading)
+        .unwrap_or_else(|| panic!("{GUIDE} has a section {title:?}"));
+    let rest = &guide[start + heading.len()..];
+    rest[..rest.find("\n## ").unwrap_or(rest.len())].to_owned()
+}
+
+/// The guide's section "Forge credentials" says both setups (story:instance-forge-token), each
+/// with one example that the daemon reads as the section says: the `daemon.kubernetes.env` entry
+/// of its YAML block, added to the ConfigMap's `daemon.yaml`, gives `GH_TOKEN` to an instance
+/// that names no `forge_token`; the mapping of its `PUT` names one, and its pod reads `GH_TOKEN`
+/// from that key of its own Secret instead.
+#[test]
+fn the_forge_credentials_section_holds_both_setups_as_the_daemon_reads_them() {
+    active::isolate();
+    let text = section("Forge credentials");
+    for words in [
+        "one token per daemon",
+        "one token per instance",
+        "forge_token",
+    ] {
+        assert!(text.contains(words), "the section says {words:?}:\n{text}");
+    }
+    let block = text
+        .split_once("```yaml\n")
+        .and_then(|(_, rest)| rest.split_once("```"))
+        .map(|(block, _)| block)
+        .expect("the section's YAML block");
+    let fragment: Value = serde_yaml::from_str(block).expect("the YAML block");
+    let env = fragment["daemon"]["kubernetes"]["env"].clone();
+    assert!(
+        env.is_sequence(),
+        "the block's daemon.kubernetes.env: {block}"
+    );
+    let mapping = text
+        .split_once("-d '")
+        .and_then(|(_, rest)| rest.split_once('\''))
+        .map(|(body, _)| body)
+        .expect("the section's request body");
+    let body: serde_json::Value = serde_json::from_str(mapping).expect("the body's JSON");
+    let instance = body["mapping"].clone();
+    let forge = instance["forge_token"]
+        .as_str()
+        .and_then(|value| value.strip_prefix("secret:"))
+        .expect("the mapping's forge_token")
+        .to_owned();
+
+    let map = one("ConfigMap");
+    let mut daemon: Value =
+        serde_yaml::from_str(text_of(&map["data"]["daemon.yaml"])).expect("daemon.yaml");
+    daemon["daemon"]["kubernetes"]["env"] = env;
+    let mut without = instance.clone();
+    without
+        .as_object_mut()
+        .expect("the mapping")
+        .remove("forge_token");
+    let mut file = daemon.clone();
+    file["instances"] = serde_yaml::to_value([instance, without_name(without)]).expect("YAML");
+    let file = serde_yaml::to_string(&file).expect("the file");
+    let config = conductor_cli::config::parse(&file, Path::new("/var/lib/conductor"))
+        .unwrap_or_else(|problems| panic!("the file does not validate: {problems:?}\n{file}"));
+    let kubernetes = config.daemon.kubernetes.clone().expect("daemon.kubernetes");
+    let token = |index: usize| -> Vec<serde_json::Value> {
+        let made = pods::manifests(&kubernetes, &config, &config.instances[index]);
+        made.pod["spec"]["containers"][0]["env"]
+            .as_array()
+            .expect("env")
+            .iter()
+            .filter(|entry| entry["name"] == "GH_TOKEN")
+            .map(|entry| entry["valueFrom"]["secretKeyRef"]["key"].clone())
+            .collect()
+    };
+    assert_eq!(token(0), [serde_json::json!(forge)], "{file}");
+    let daemon_wide = config.daemon.kubernetes.as_ref().and_then(|kubernetes| {
+        kubernetes
+            .env
+            .iter()
+            .find(|entry| entry.name == "GH_TOKEN")
+            .and_then(|entry| entry.secret.clone())
+    });
+    let daemon_wide = daemon_wide.expect("the block's GH_TOKEN secret").0;
+    assert_ne!(daemon_wide, forge, "{file}");
+    assert_eq!(token(1), [serde_json::json!(daemon_wide)], "{file}");
+}
+
+/// A YAML string as text.
+fn text_of(value: &Value) -> &str {
+    text(value, "a YAML string")
+}
+
+/// The mapping `mapping` (JSON) renamed `beta`, its session prefix `beta`: a second instance.
+fn without_name(mut mapping: serde_json::Value) -> serde_json::Value {
+    mapping["name"] = serde_json::json!("beta");
+    mapping["session_prefix"] = serde_json::json!("beta");
+    mapping
+}
+
 #[test]
 fn the_sidebar_lists_the_guide_beside_the_container_guide() {
     let sidebar = read("website/sidebars.ts");

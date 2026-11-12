@@ -713,7 +713,8 @@ types:
   # so no value stands in the pod's spec. It carries what an instance pod needs from outside, such
   # as `GH_TOKEN` or `GITLAB_TOKEN` for the forge's CLI, the `GIT_AUTHOR_*` and `GIT_COMMITTER_*`
   # identity, or `GIT_CONFIG_COUNT`, `GIT_CONFIG_KEY_<n>` and `GIT_CONFIG_VALUE_<n>`; which forge
-  # token a pod gets is the operator's decision, not conductor's. A name conductor sets for the
+  # token a pod gets is the operator's decision, not conductor's, and an instance's `forge_token`
+  # takes the place of the entry of its forge's variable in its own pod. A name conductor sets for the
   # pod itself is refused at validate, naming its YAML path (`daemon.kubernetes.env[<i>].name`):
   # `HOME`, `PATH`, and every name that starts with `CONDUCTOR_` (among them `CONDUCTOR_CONFIG`,
   # `CONDUCTOR_INSTANCE`, `CONDUCTOR_STORE`, `CONDUCTOR_API_TOKEN`, `CONDUCTOR_API_LISTEN` and
@@ -934,6 +935,15 @@ types:
       # runs on it instead: its settings name `conductor token reveal --model-token <instance>`
       # as their `apiKeyHelper`. Without that key an empty pool leaves the launch as it is.
       - {name: model_token, type: Optional<conductor.secret.SecretName>}
+      # The instance's own forge token, written `secret:<name>` (story:instance-forge-token), read
+      # only by the pod supervisor: where `daemon.kubernetes` is set, the instance's pod reads the
+      # secret's value from its own Secret in the variable of the forge its sources name,
+      # `GH_TOKEN` for a `github` source and `GITLAB_TOKEN` for a `gitlab` one, in place of a
+      # `daemon.kubernetes.env` entry of that variable; no other pod carries it, and the file the
+      # pod runs on does not write it. Set on an instance whose sources name no forge or two, or
+      # in a file without `daemon.kubernetes`, it is refused at validate by its YAML path, saying
+      # which. Absent, the pod carries what `daemon.kubernetes.env` gives every pod.
+      - {name: forge_token, type: Optional<conductor.secret.SecretName>}
       # The route of the instance's forge writes (story:forge-route); absent, `gates`.
       - {name: forge, type: conductor.config.Forge}
       - {name: conductor, type: conductor.config.ConductorSession}

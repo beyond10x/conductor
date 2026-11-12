@@ -64,9 +64,15 @@ const ONE_OF: [(&str, [&str; 2]); 1] = [("daemon.kubernetes.env[]", ["value", "s
 /// of an instance of a daemon that runs no pod.
 const PODS: [&str; 2] = ["daemon", "kubernetes"];
 
-/// A config file that sets every key of the specification but [`DERIVED`] to a value that differs
-/// from its default, so that leaving one out shows the default the library fills. Generation fails
-/// when a key of the specification is missing here.
+/// The instance keys only a daemon that runs its instances as pods reads, and only for an
+/// instance whose sources name one forge (`forge_token`, story:instance-forge-token): [`SAMPLE`],
+/// whose instance has sources on both forges and whose instance keys are read without [`PODS`],
+/// does not set them, and their default is written `none`.
+const POD_ONLY: [&str; 1] = ["forge_token"];
+
+/// A config file that sets every key of the specification but [`DERIVED`] and [`POD_ONLY`] to a
+/// value that differs from its default, so that leaving one out shows the default the library
+/// fills. Generation fails when a key of the specification is missing here.
 const SAMPLE: &str = "\
 version: conductor.config/2
 daemon:
@@ -816,6 +822,8 @@ fn rows(
                 .find(|(list, pair)| written(prefix) == *list && pair.contains(&key));
             let default = if derived(prefix, key) {
                 "derived".to_owned()
+            } else if !top && prefix.is_empty() && POD_ONLY.contains(&key) {
+                "none".to_owned()
             } else if let Some((_, [a, b])) = pair {
                 format!("one of `{a}`, `{b}`")
             } else {

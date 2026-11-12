@@ -569,6 +569,7 @@ fn show_without_a_file_prints_todays_constants() {
         "confinement",
         "controllers",
         "forge",
+        "forge_token",
         "gates_policy",
         "model_token",
         "name",
@@ -3684,6 +3685,100 @@ fn a_secret_of_the_daemons_own_is_no_instances_and_no_pods() {
             describe(&output)
         );
     }
+}
+
+/// An instance's `forge_token` (story:instance-forge-token) is `secret:<name>`, read where the
+/// daemon runs its instances as pods: with a `github` or a `gitlab` source it validates and
+/// `config show` writes it as written; an instance whose sources name no forge or two forges, a
+/// file without `daemon.kubernetes`, and a value that is no secret's name are each refused at
+/// `instances[0].forge_token`, saying why, the value not echoed.
+#[test]
+fn an_instances_forge_token_names_its_forge_through_its_sources_where_pods_run() {
+    let case = Case::new("forge-token");
+    let forge = "\x20   forge_token: secret:alpha-forge\n";
+    for (name, sources) in [
+        ("github", "[{github: example-org}]"),
+        (
+            "gitlab",
+            "[{gitlab: example-org, host: gitlab.example.com}]",
+        ),
+    ] {
+        let text = pods(&pod_instance(forge)).replace("[{github: example-org}]", sources);
+        let file = case.write(&format!("{name}.yaml"), &text);
+        let output = case.with_file(&file, &["config", "validate"]);
+        assert_eq!(
+            output.status.code(),
+            Some(0),
+            "{name}: {}",
+            describe(&output)
+        );
+        let shown = case.show(&file, &[]);
+        assert_eq!(
+            shown["instances"][0]["forge_token"], "secret:alpha-forge",
+            "{name}: {shown:#}"
+        );
+    }
+    let without = case.show(&case.write("without.yaml", &pods(&pod_instance(""))), &[]);
+    assert_eq!(
+        without["instances"][0]["forge_token"],
+        Value::Null,
+        "{without:#}"
+    );
+
+    let plain = format!(
+        "version: conductor.config/2\n\
+         daemon: {{store: \"sqlite:/srv/conductor.sqlite\"}}\n\
+         instances:\n\
+         \x20 - name: alpha\n\
+         \x20   placement: none\n\
+         \x20   session_prefix: alpha\n\
+         \x20   sources: [{{github: example-org}}]\n\
+         \x20   checkouts: {{root: ~/alpha, trees: ~/alpha-trees}}\n\
+         {forge}"
+    );
+    for (name, text, says) in [
+        (
+            "local-only",
+            pods(&pod_instance(forge)).replace(
+                "[{github: example-org}]",
+                &format!("[{{local: {DATA_MOUNT}/checkouts}}]"),
+            ),
+            "no source on a forge",
+        ),
+        (
+            "two-forges",
+            pods(&pod_instance(forge)).replace(
+                "[{github: example-org}]",
+                "[{github: example-org}, {gitlab: example-org}]",
+            ),
+            "sources on two forges",
+        ),
+        (
+            "no-kubernetes",
+            plain,
+            "only a daemon that runs its instances as pods",
+        ),
+    ] {
+        let file = case.write(&format!("{name}.yaml"), &text);
+        let problems = refused(&case, &file);
+        assert!(
+            problems.contains(&format!("instances[0].forge_token: {says}")),
+            "{name}: {problems}"
+        );
+    }
+
+    // In two pieces, so that no scanner of this file reads a token.
+    let value = ["gl", "pat-0123456789abcdefghij"].concat();
+    let file = case.write(
+        "value.yaml",
+        &pods(&pod_instance(&format!("\x20   forge_token: {value}\n"))),
+    );
+    let problems = refused(&case, &file);
+    assert!(
+        problems.contains("instances[0].forge_token: "),
+        "{problems}"
+    );
+    assert!(!problems.contains(&value), "{problems}");
 }
 
 /// `daemon.kubernetes` (design: instance pods): a file of the daemon section alone, with no

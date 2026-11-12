@@ -267,7 +267,7 @@ instances live on the volume and arrive over HTTP. A file with no instance is al
 | `daemon.kubernetes.api_port` | `7301` | the port the runtime serves its API on in its pod |
 | `daemon.kubernetes.volume.size` | `10G` | the size of each instance's claim, a whole number of GiB written with `G`, 1G or more (`Gi`, `Mi` and other suffixes are refused); `volume.storage_class` names its class, absent the cluster's default |
 | `daemon.kubernetes.resources` | none | `requests` and `limits` of `cpu` and `memory` for each instance pod |
-| `daemon.kubernetes.env` | none | variables of each instance pod, each a `value` or a `secret`, such as `GH_TOKEN` for an instance with a GitHub source |
+| `daemon.kubernetes.env` | none | variables of each instance pod, each a `value` or a `secret`, such as `GH_TOKEN` for an instance with a GitHub source; an instance's `forge_token` takes the place of the entry of its forge's variable in its own pod, see [forge credentials](#forge-credentials) |
 
 The [config reference](../reference/config.md) has each key's rules.
 
@@ -429,7 +429,7 @@ For an instance `alpha`, in `daemon.kubernetes.namespace`:
 
 | object | name | holds |
 |---|---|---|
-| Secret | `conductor-instance-alpha` | `conductor.yaml`, the instance's config file as the daemon renders it; `api_token`, the runtime's API token, new at every start; one key per secret the mapping or `daemon.kubernetes.env` names, such as `model-token`, its value from the daemon's secrets source |
+| Secret | `conductor-instance-alpha` | `conductor.yaml`, the instance's config file as the daemon renders it; `api_token`, the runtime's API token, new at every start; one key per secret the mapping or `daemon.kubernetes.env` names, such as `model-token`, its value from the daemon's secrets source, but none for the `env` entry whose variable the instance's `forge_token` fills |
 | volume claim | `conductor-instance-alpha-data` | `ReadWriteOnce`, of `daemon.kubernetes.volume`: the instance's checkouts, records, state, cache and its own sqlite store |
 | pod | `conductor-instance-alpha` | one container, `runtime`, running `conductor --config /var/lib/conductor/data/conductor.yaml instance serve` from `daemon.kubernetes.image` |
 
@@ -450,7 +450,7 @@ The pod:
 - the annotation `conductor/digest`, a digest of the pod's spec and the rendered file with no
   secret value in it: a pod whose digest is not the one the daemon would create now is replaced;
 - `requests` and `limits` from `daemon.kubernetes.resources`, and the variables of
-  `daemon.kubernetes.env`, each value through the Secret;
+  `daemon.kubernetes.env` and the instance's forge token, each value through the Secret;
 - the git identity of the records' commits, `GIT_AUTHOR_NAME` and `GIT_COMMITTER_NAME`
   `conductor`, `GIT_AUTHOR_EMAIL` and `GIT_COMMITTER_EMAIL` `conductor@localhost`, each where
   `daemon.kubernetes.env` does not name the variable.
@@ -528,6 +528,50 @@ instance pod's API port and another instance pod's request to it was refused; th
 probes still passed. The policy restricts ingress only: an instance pod reaches its forge and the
 model's API, so restrict egress to those hosts in a policy of your own if your cluster needs it.
 
+## Forge credentials
+
+An instance with a source on a forge needs the forge's token in its pod: `GH_TOKEN` for a
+`github` source, `GITLAB_TOKEN` for a `gitlab` source, the variables `gh` and `glab` read. One
+daemon can use both setups:
+
+| setup | where the token is named | which pods carry it |
+|---|---|---|
+| one token per daemon | an entry of `daemon.kubernetes.env`, as a `secret` | every instance pod |
+| one token per instance | the instance's `forge_token: secret:<name>` | that instance's pod, in place of the daemon's entry of the same variable |
+
+One token per daemon: put the token into the Secret `conductor-secrets` under `forge-token`, and
+add the entry to `daemon.yaml` in the ConfigMap:
+
+```yaml
+daemon:
+  kubernetes:
+    env:
+      - {name: GH_TOKEN, secret: secret:forge-token}
+```
+
+One token per instance: put the token into the Secret `conductor-secrets` under a name of its
+own, and name it in the instance's mapping:
+
+```console
+curl -X PUT -H "Authorization: Bearer $TOKEN" -H 'content-type: application/json' \
+  -d '{"mapping":{"name":"alpha","placement":"none","session_prefix":"alpha","sources":[{"github":"example-org"}],"forge":{"route":"direct"},"model_token":"secret:model-token","forge_token":"secret:alpha-forge-token"},"reason":"a forge token of its own"}' \
+  $D/v1/instances/alpha
+```
+
+The daemon takes the variable from the instance's sources; a mapping names a secret, never a
+variable. A mapping that names a `forge_token` is refused `422` at
+`instances[<i>].forge_token` when its sources are all `local` or on both forges, and when it names
+a secret of the `daemon` section. An instance that names none keeps what `daemon.kubernetes.env`
+gives every pod.
+
+The daemon writes a token's value into the instance's Secret when it starts the pod, and a
+running pod keeps the value it started with. To rotate a token, change its value in the Secret
+`conductor-secrets`, and once the kubelet has updated the mounted file, restart each instance
+that uses it with `POST /v1/instances/{name}/restart`.
+
+The image configures no git credential helper, so `git` over HTTPS does not read these
+variables; `gh` and `glab` do.
+
 ## Limits
 
 - **One daemon per owner in a namespace.** A daemon deletes every pod and Secret with its
@@ -545,6 +589,3 @@ model's API, so restrict egress to those hosts in a policy of your own if your c
   above and no other write, and `PUT /v1/config` answers it `403`. Change its value in the
   Secret to rotate it; the daemon reads the value at every request, once the kubelet has updated
   the mounted file.
-- **Forge credentials.** An instance with a source on a forge needs the forge's token in its pod,
-  through `daemon.kubernetes.env` (`GH_TOKEN` or `GITLAB_TOKEN`, as a `secret`). Which token an
-  instance gets is the operator's decision.

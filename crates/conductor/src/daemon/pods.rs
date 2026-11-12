@@ -7,9 +7,10 @@
 //! the label set [`labels`] and no owner reference:
 //! - the Secret [`pod_name`]: the instance's config file as [`pod::render`] writes it (key
 //!   [`pod::CONFIG_FILE`]), the runtime's token (key [`TOKEN_KEY`]), and each secret the rendered
-//!   file or a `daemon.kubernetes.env` entry names, resolved from the daemon's secrets source and
-//!   never from a Kubernetes Secret by name; one the source lacks refuses the start, and nothing
-//!   is created;
+//!   file, the instance's `forge_token` or a `daemon.kubernetes.env` entry names (but the entry
+//!   of the variable the forge token fills, which it replaces in the pod), resolved from the
+//!   daemon's secrets source and never from a Kubernetes Secret by name; one the source lacks
+//!   refuses the start, and nothing is created;
 //! - the volume claim [`claim_name`], of `daemon.kubernetes.volume`, created once and never
 //!   deleted by the supervisor;
 //! - the pod [`pod_name`] ([`manifests`]): the image `daemon.kubernetes.image` running
@@ -22,12 +23,13 @@
 //!   (a new image, a changed rendering) is restarted.
 //!
 //! Every field comes from `daemon.kubernetes`, the instance's name and the rendering (decision
-//! D8). The supervisor lists its pods once per tick by the first three labels ([`Pods::refresh`]):
-//! the reconciler reads each instance's state, address and failure from that list
-//! ([`Pods::seen`], [`Pods::detail`]). A restarted daemon adopts the pods it finds there, the
-//! token read back from the instance's Secret ([`Pods::token`]); a pod or Secret of its owner
-//! whose instance the config no longer holds is deleted ([`Pods::sweep`]). Objects of another
-//! owner are never named.
+//! D8), and the key of one `env` entry from the instance's `forge_token`, whose variable its
+//! sources name and no caller does. The supervisor lists its pods once per tick by the first
+//! three labels ([`Pods::refresh`]): the reconciler reads each instance's state, address and
+//! failure from that list ([`Pods::seen`], [`Pods::detail`]). A restarted daemon adopts the pods
+//! it finds there, the token read back from the instance's Secret ([`Pods::token`]); a pod or
+//! Secret of its owner whose instance the config no longer holds is deleted ([`Pods::sweep`]).
+//! Objects of another owner are never named.
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::net::IpAddr;
@@ -199,7 +201,7 @@ fn quantities(quantities: &KubernetesQuantities) -> Map<String, Value> {
 
 /// The objects of `instance`'s pod in the daemon of `config`, whose `daemon.kubernetes` is
 /// `kubernetes`, as the module documentation says. Nothing in them but from `kubernetes`, the
-/// instance's name and the rendering (decision D8).
+/// instance's name, its `forge_token` and the rendering (decision D8).
 #[must_use]
 pub fn manifests(kubernetes: &Kubernetes, config: &Config, instance: &Instance) -> Manifests {
     let name = &instance.name.0;
@@ -222,7 +224,22 @@ pub fn manifests(kubernetes: &Kubernetes, config: &Config, instance: &Instance) 
             "valueFrom": {"secretKeyRef": {"name": pod_name, "key": TOKEN_KEY}},
         }),
     ];
+    // The instance's own forge token (story:instance-forge-token): the variable of the one forge
+    // its sources name, read from its own Secret, in place of an `env` entry of that variable.
+    let forge =
+        instance.forge_token.as_ref().and_then(
+            |secret| match crate::config::forge_token_variables(&instance.sources).as_slice() {
+                [variable] => Some((*variable, secret.0.clone())),
+                _ => None,
+            },
+        );
     for variable in &kubernetes.env {
+        if forge
+            .as_ref()
+            .is_some_and(|(name, _)| variable.name == *name)
+        {
+            continue;
+        }
         match (&variable.value, &variable.secret) {
             (_, Some(secret)) => {
                 secrets.insert(secret.0.clone());
@@ -234,6 +251,13 @@ pub fn manifests(kubernetes: &Kubernetes, config: &Config, instance: &Instance) 
             (Some(value), None) => env.push(json!({"name": variable.name, "value": value})),
             (None, None) => {}
         }
+    }
+    if let Some((variable, secret)) = forge {
+        secrets.insert(secret.clone());
+        env.push(json!({
+            "name": variable,
+            "valueFrom": {"secretKeyRef": {"name": pod_name, "key": secret}},
+        }));
     }
     for (variable, value) in GIT_IDENTITY {
         if !kubernetes.env.iter().any(|named| named.name == variable) {

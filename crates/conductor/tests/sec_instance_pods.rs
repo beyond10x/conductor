@@ -267,9 +267,88 @@ fn the_daemons_control_token_reaches_no_instance_pod() {
     }
 }
 
+/// An instance's `forge_token` (story:instance-forge-token) that names one of the daemon's own
+/// secrets reaches no pod: a file that writes it does not validate, its YAML path named with "a
+/// secret of the daemon's own" and not the daemon's key; a mapping that sends it is refused `422`
+/// at that path, the file unchanged; and a config read before that rule gets the pod supervisor
+/// to refuse the start before any secret is resolved, nothing created.
+#[test]
+fn a_forge_token_naming_a_secret_of_the_daemons_own_reaches_no_pod() {
+    let case = Case::new("forge-token-own");
+    let beta = |forge: &str| {
+        format!(
+            "\n  - name: beta\n    placement: none\n    session_prefix: beta\n    \
+             sources: [{{github: example-org}}]\n    forge_token: secret:{forge}"
+        )
+    };
+    let problems = conductor_cli::config::parse(&case.daemon_text(&beta("control")), &case.home())
+        .expect_err("a forge_token naming the control token does not validate");
+    let said: Vec<String> = problems.iter().map(ToString::to_string).collect();
+    assert!(
+        problems
+            .iter()
+            .any(|problem| problem.path == "instances[0].forge_token"
+                && problem.message.contains("a secret of the daemon's own")),
+        "{said:?}"
+    );
+    assert!(
+        !said.iter().any(|line| line.contains("control_token")),
+        "{said:?}"
+    );
+
+    case.write(" []");
+    let before = case.text();
+    let port = case.serve();
+    let sent = mapping("beta", &json!({"forge_token": "secret:control"}));
+    let (status, body) = exchange(
+        port,
+        &request(
+            port,
+            "POST",
+            "/v1/instances",
+            Some(&json!({"mapping": sent, "reason": "a tenant"})),
+        ),
+    );
+    assert_eq!(status, 422, "{body}");
+    let answer: Value = serde_json::from_str(&body).expect("a JSON body");
+    assert_eq!(answer["path"], "instances[0].forge_token", "{answer}");
+    assert_eq!(case.text(), before, "the file changed");
+
+    let fake = FakeKube::start(&case.dir);
+    let text = case.daemon_text(&beta("beta-forge"));
+    let valid = conductor_cli::config::parse(&text, &case.home())
+        .unwrap_or_else(|problems| panic!("the file does not validate: {problems:?}\n{text}"));
+    let mut config = valid.clone();
+    config.daemon.control_token = Some(SecretName("beta-forge".to_owned()));
+    let kubernetes = config.daemon.kubernetes.clone().expect("daemon.kubernetes");
+    let mut pods = Pods::new(fake.client());
+    let asked = std::cell::RefCell::new(Vec::new());
+    let error = pods
+        .start(
+            &kubernetes,
+            &config,
+            &config.instances[0],
+            "an-instance-token",
+            &|name: &SecretName| {
+                asked.borrow_mut().push(name.0.clone());
+                None
+            },
+        )
+        .expect_err("refused");
+    let error = format!("{error:#}");
+    assert!(
+        error.contains("a secret of the daemon's own") && error.contains("nothing is created"),
+        "{error}"
+    );
+    assert!(asked.borrow().is_empty(), "resolved {:?}", asked.borrow());
+    assert!(fake.requests().is_empty(), "{:?}", fake.requests());
+}
+
 /// Decision D8: nothing of a mapping but the instance's name reaches the pod or the claim. Two
 /// mappings of one name that differ in every other key the instance pod takes make the same pod
-/// and the same claim, but for the digest annotation of the rendered file.
+/// and the same claim, but for the digest annotation of the rendered file. The one exception is
+/// `forge_token` (story:instance-forge-token), which names the key one `env` entry reads, never
+/// its variable: `tests/daemon_pods.rs` holds it.
 #[test]
 fn the_pod_and_the_claim_are_the_same_whatever_the_mapping_says_beside_the_name() {
     let case = Case::new("d8-property");
