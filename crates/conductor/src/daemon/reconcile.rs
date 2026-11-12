@@ -40,7 +40,7 @@ use std::time::{Duration, Instant};
 
 use anyhow::{Context as _, Result, anyhow};
 use conductor_model::behaviour::ReconciliationStorage;
-use conductor_model::config::{Config, Instance, InstanceName, SessionName};
+use conductor_model::config::{Config, Instance, InstanceName, Kubernetes, SessionName};
 use conductor_model::instance::{
     AnyReconciliation, InstanceState, ReconcileAction, ReconcileReason, ReconcileResult,
     Reconciliation, ReconciliationData, ReconciliationId, ReconciliationSnapshot,
@@ -498,6 +498,14 @@ impl<U: Units> Daemon<U> {
     /// The binary `name`'s runtime is to run: its desired one, else the daemon's own
     /// ([`Self::own_copy`]).
     fn desired(&self, name: &str) -> Binary {
+        // A pod runs the image `daemon.kubernetes.image` names, the version its tag
+        // (design: instance pods): no binary is copied, and none is pinned by an upgrade.
+        if let Some(kubernetes) = self.pod_run() {
+            return Binary {
+                path: PathBuf::from(&kubernetes.image),
+                version: super::pods::version_of(&kubernetes.image),
+            };
+        }
         self.pins
             .get(name)
             .map_or_else(|| self.own_copy(), |pinned| pinned.desired.clone())
@@ -534,6 +542,72 @@ impl<U: Units> Daemon<U> {
     #[must_use]
     pub const fn config(&self) -> &Config {
         &self.config
+    }
+
+    /// `daemon.kubernetes`, where the daemon runs its instances as pods (design: instance pods):
+    /// its manager is the pod supervisor ([`super::units::Units::pods`]) and the config sets it.
+    fn pod_run(&self) -> Option<Kubernetes> {
+        self.units
+            .pods()
+            .and_then(|_| self.config.daemon.kubernetes.clone())
+    }
+
+    /// Lists the pods once ([`super::pods::Pods::refresh`]) and adopts each one of an instance of
+    /// the config the daemon keeps no token for, a daemon that started again among them: its
+    /// token is read back from its Secret, and nothing is recorded or restarted. A pod whose
+    /// Secret holds no token is not adopted; it is started anew.
+    fn refresh_pods(&mut self) -> Result<()> {
+        let Some(kubernetes) = self.pod_run() else {
+            return Ok(());
+        };
+        let at = crate::records::now()?;
+        let Some(pods) = self.units.pods_mut() else {
+            return Ok(());
+        };
+        pods.refresh(&kubernetes);
+        for instance in &self.config.instances {
+            let name = &instance.name.0;
+            let known = self
+                .started
+                .get(name)
+                .is_some_and(|started| started.token.is_some());
+            let running = matches!(
+                pods.seen(name),
+                super::pods::Seen::Pending { .. } | super::pods::Seen::Running { .. }
+            );
+            if known || !running {
+                continue;
+            }
+            let Ok(Some(token)) = pods.token(&kubernetes, name) else {
+                continue;
+            };
+            let image = pods.image(name).unwrap_or_else(|| kubernetes.image.clone());
+            self.started.insert(
+                name.clone(),
+                Started {
+                    unit: super::pods::pod_name(name),
+                    placement: instance.placement.0.clone(),
+                    version: super::pods::version_of(&image),
+                    binary: image,
+                    last_seen: Some(at.0.clone()),
+                    token: Some(token),
+                },
+            );
+            self.running.insert(name.clone(), true);
+        }
+        Ok(())
+    }
+
+    /// Whether the pod of `instance` is the one the daemon would create now: its digest
+    /// ([`super::pods::DIGEST_ANNOTATION`]) is that of its spec and rendering. Always, for a
+    /// runtime that is no pod.
+    fn pod_current(&self, instance: &Instance) -> bool {
+        let (Some(kubernetes), Some(pods)) = (self.pod_run(), self.units.pods()) else {
+            return true;
+        };
+        let wanted = super::pods::manifests(&kubernetes, &self.config, instance).digest;
+        pods.digest(&instance.name.0)
+            .is_none_or(|digest| digest == wanted)
     }
 
     /// The store the reconciliations are recorded in.
@@ -732,6 +806,8 @@ impl<U: Units> Daemon<U> {
 
     /// Which started runtimes run, and whether one that ran at the last look no longer does.
     fn observe(&mut self) -> Result<bool> {
+        // One list of the pods per tick, where the runtimes are pods.
+        self.refresh_pods()?;
         let at = crate::records::now()?;
         let mut lost = false;
         let names: Vec<String> = self.started.keys().cloned().collect();
@@ -916,11 +992,17 @@ impl<U: Units> Daemon<U> {
     /// [`Daemon::pass`] up to its first failure.
     fn pass_once(&mut self, reason: ReconcileReason, now: Instant) -> Result<Vec<Done>> {
         let (text, config) = read_config(&self.config_file, &self.home)?;
+        // The pods are listed once per tick: here unless [`Daemon::due`] listed them at `now`
+        // over the same config.
+        let listed = self.looked == Some(now) && self.text == text;
         self.text = text;
         self.config = config;
         self.last_pass = Some(now);
         self.rerun = None;
         self.looked = Some(now);
+        if !listed {
+            self.refresh_pods()?;
+        }
         let at = crate::records::now()?;
         self.pool()
             .prepare()
@@ -953,9 +1035,11 @@ impl<U: Units> Daemon<U> {
             };
             let (action, why, outcome) = match held {
                 Some(held) if running => {
+                    // A pod also restarts on a changed spec or rendering (its digest).
                     let same = held.placement == wanted.placement
                         && held.binary == wanted.binary
-                        && held.version == wanted.version;
+                        && held.version == wanted.version
+                        && self.pod_current(instance);
                     if same {
                         if let Some(kept) = self.started.get_mut(&name) {
                             kept.last_seen = wanted.last_seen.clone();
@@ -1060,8 +1144,24 @@ impl<U: Units> Daemon<U> {
                 .boxes
                 .get(&name)
                 .is_some_and(|opened| boxed_unit(opened) == held.unit);
-            if self.runs(&name, &held.unit)? || dead {
+            // A pod's Secret goes with its instance, whether its pod still runs or not.
+            if self.pod_run().is_some() || self.runs(&name, &held.unit)? || dead {
                 let outcome = self.stop_runtime(&name, &held.unit);
+                done.push(self.record(&name, ReconcileAction::Stop, reason, outcome, &at)?);
+            }
+        }
+        // A pod or Secret of this owner whose instance the config does not hold, which no
+        // runtime the daemon kept names, goes too; its claim stays.
+        if let Some(kubernetes) = self.pod_run() {
+            let keep: BTreeSet<String> = instances
+                .iter()
+                .map(|instance| instance.name.0.clone())
+                .collect();
+            let swept = match self.units.pods_mut() {
+                Some(pods) => pods.sweep(&kubernetes, &keep)?,
+                None => Vec::new(),
+            };
+            for (name, outcome) in swept {
                 done.push(self.record(&name, ReconcileAction::Stop, reason, outcome, &at)?);
             }
         }
@@ -1114,8 +1214,12 @@ impl<U: Units> Daemon<U> {
         };
         attempt.retry_at = Some(now + wait);
         let (failures, from) = (attempt.failures, attempt.log_from);
-        let said =
-            crate::placement::boxed(instance).then(|| runtime_said(&runtime_log(instance), from));
+        // A pod's is what its container said of its end, else its log's last lines.
+        let said = match (self.pod_run(), self.units.pods_mut()) {
+            (Some(kubernetes), Some(pods)) => Some(pods.said(&kubernetes, name)),
+            _ => crate::placement::boxed(instance)
+                .then(|| runtime_said(&runtime_log(instance), from)),
+        };
         let how = if ran < start_window() {
             format!("exited within {} s of its start", START_BOUND.as_secs())
         } else {
@@ -1165,6 +1269,16 @@ impl<U: Units> Daemon<U> {
     /// that does not answer (`story:placement-substrate-remote`): its instance is `Unreachable`,
     /// a row and never an error, and nothing is started in its place.
     fn look(&mut self, name: &str, unit: &str) -> Result<Option<bool>> {
+        // A pod, from the tick's one list: Pending or Running runs, absent or ended does not, and
+        // a list that failed is `None`, as a silent remote daemon: nothing starts in its place.
+        if let (Some(_), Some(pods)) = (self.pod_run(), self.units.pods()) {
+            use super::pods::Seen;
+            return Ok(match pods.seen(name) {
+                Seen::Unlisted(_) => None,
+                Seen::Pending { .. } | Seen::Running { .. } => Some(true),
+                Seen::Absent | Seen::Deleting | Seen::Ended => Some(false),
+            });
+        }
         match self.boxes.get(name).cloned() {
             Some(opened) if boxed_unit(&opened) == unit => {
                 let remote = opened.remote.is_some();
@@ -1194,11 +1308,33 @@ impl<U: Units> Daemon<U> {
     /// through that slot ([`Daemon::box_request`], [`crate::placement::api_token_slot`]), any
     /// other box not at all, and its model token goes through the slot pool
     /// ([`crate::placement::SlotPool`]).
+    ///
+    /// Where the daemon runs its instances as pods, the runtime is the instance's pod
+    /// ([`super::pods::Pods::start`]): its Secret, its claim and the pod made from the config and
+    /// the instance, the token `service` carries in the Secret, each secret it needs from the
+    /// daemon's secrets source; the unit it answers is the pod's name. A pod of the name that is
+    /// still there is deleted and waited for first, so a restart ([`Daemon::stop_runtime`], then
+    /// this) creates the pod again.
     pub(super) fn start_runtime(
         &mut self,
         instance: &Instance,
         service: &Service,
     ) -> Result<String> {
+        if let Some(kubernetes) = self.pod_run() {
+            let variable = format!("{}=", crate::instance::TOKEN_VARIABLE);
+            let token = service
+                .env
+                .iter()
+                .find_map(|pair| pair.strip_prefix(&variable))
+                .ok_or_else(|| anyhow!("the runtime of {} was given no token", instance.name.0))?
+                .to_owned();
+            let (tokens, secrets) = (self.tokens.clone(), self.config.daemon.secrets.clone());
+            let resolve = move |name: &conductor_model::secret::SecretName| tokens(&secrets, name);
+            let Some(pods) = self.units.pods_mut() else {
+                return Err(anyhow!("no pod supervisor"));
+            };
+            return pods.start(&kubernetes, &self.config, instance, &token, &resolve);
+        }
         if !crate::placement::boxed(instance) {
             self.units.start(service)?;
             return Ok(service.unit.clone());
@@ -1343,7 +1479,15 @@ impl<U: Units> Daemon<U> {
 
     /// Stops the runtime of `name`, started as `unit`: closes its box when it runs in one, on the
     /// daemon it was opened on ([`crate::placement::close_box`]), else stops its unit.
+    /// Where the daemon runs its instances as pods, deletes the instance's pod, waits until it is
+    /// gone, and deletes its Secret; its claim stays ([`super::pods::Pods::stop`]).
     pub(super) fn stop_runtime(&mut self, name: &str, unit: &str) -> Result<()> {
+        if let Some(kubernetes) = self.pod_run() {
+            return match self.units.pods_mut() {
+                Some(pods) => pods.stop(&kubernetes, name),
+                None => Err(anyhow!("no pod supervisor stops {unit}")),
+            };
+        }
         match self.boxes.get(name).cloned() {
             Some(opened) if boxed_unit(&opened) == unit => {
                 let mut substrate = substrate_of(
@@ -1385,6 +1529,19 @@ impl<U: Units> Daemon<U> {
         ];
         if let Some(path) = std::env::var_os("PATH") {
             env.push(format!("PATH={}", path.to_string_lossy()));
+        }
+        // A pod's runtime keeps its directories on its own volume: nothing is made here, and its
+        // unit is its pod ([`Daemon::start_runtime`] takes the token from this service).
+        if self.pod_run().is_some() {
+            return Service {
+                unit: super::pods::pod_name(name),
+                slice: String::new(),
+                limits: instance.limits.clone(),
+                cwd: PathBuf::from(crate::config::pod::DATA_MOUNT),
+                properties: Vec::new(),
+                env,
+                command: Vec::new(),
+            };
         }
         // The runtime starts in its state directory, which a first start creates; a directory
         // that cannot be made fails the start, which names it.
@@ -1539,9 +1696,17 @@ impl<U: Units> Daemon<U> {
     /// while one whose start failed waits for its next start and until the start after it held
     /// the start bound ([`Daemon::unproven`]), `Upgrading`
     /// while an upgrade waits for its runtime to answer), the version of the binary its runtime
-    /// runs, and when the daemon last saw it running.
+    /// runs, and when the daemon last saw it running; its sources, and the `detail` of what
+    /// keeps it from running, where the daemon knows one.
+    ///
+    /// A pod-run instance (design: instance pods) reads its state from the tick's list of pods
+    /// ([`super::pods::Pods::seen`]): Pending, or Running with its container not ready yet,
+    /// `Starting`; Running and ready, `Running`; held Pending by its image, its config or its
+    /// scheduling, ended, gone or not listed, `Unreachable` with why as its detail
+    /// ([`super::pods::Pods::detail`]); `Stopped` with why its start was refused.
     #[must_use]
     pub fn rows(&self) -> Vec<Value> {
+        let pods = self.pod_run().and(self.units.pods());
         self.config
             .instances
             .iter()
@@ -1552,23 +1717,32 @@ impl<U: Units> Daemon<U> {
                     .pins
                     .get(name)
                     .is_some_and(|pinned| pinned.upgrading.is_some());
-                let state = match (started, self.running.get(name)) {
-                    (None, _) => InstanceState::Stopped,
-                    (Some(_), Some(false)) => InstanceState::Unreachable,
-                    // An upgrade under way reads as that until it settled, whatever came before.
-                    (Some(_), _) if upgrading => InstanceState::Upgrading,
-                    // The start after a failed one has not held the start bound yet.
-                    (Some(_), _) if self.unproven(name) => InstanceState::Unreachable,
-                    (Some(_), _) => InstanceState::Running,
+                let (state, detail) = match pods {
+                    Some(pods) => pod_state(pods, name, started.is_some(), self.running.get(name)),
+                    None => (
+                        match (started, self.running.get(name)) {
+                            (None, _) => InstanceState::Stopped,
+                            (Some(_), Some(false)) => InstanceState::Unreachable,
+                            // An upgrade under way reads as that until it settled, whatever came
+                            // before.
+                            (Some(_), _) if upgrading => InstanceState::Upgrading,
+                            // The start after a failed one has not held the start bound yet.
+                            (Some(_), _) if self.unproven(name) => InstanceState::Unreachable,
+                            (Some(_), _) => InstanceState::Running,
+                        },
+                        None,
+                    ),
                 };
                 json!({
                     "name": name,
                     "state": state_name(state),
                     "placement": instance.placement.0,
                     "roles": instance.roles.iter().map(|role| role.role.clone()).collect::<Vec<_>>(),
+                    "sources": instance.sources.iter().map(source_json).collect::<Vec<_>>(),
                     "binary_version": started.map(|started| started.version.clone()),
                     "last_seen": started.and_then(|started| started.last_seen.clone()),
                     "box_id": Value::Null,
+                    "detail": detail,
                     "changed_by": crate::actor::to_json(&crate::actor::daemon()),
                 })
             })
@@ -1591,6 +1765,17 @@ impl<U: Units> Daemon<U> {
                 }
                 let started = self.started.get(name)?;
                 let token = started.token.clone()?;
+                // A pod-run runtime: its pod's address at the API port, while it runs.
+                if let (Some(kubernetes), Some(pods)) = (self.pod_run(), self.units.pods()) {
+                    let super::pods::Seen::Running { ip: Some(ip), .. } = pods.seen(name) else {
+                        return None;
+                    };
+                    let port = u16::try_from(kubernetes.api_port).ok()?;
+                    return Some((
+                        name.clone(),
+                        Route::tcp(std::net::SocketAddr::new(ip, port), token),
+                    ));
+                }
                 let socket = crate::instance::socket(Path::new(&instance.state));
                 let remote = self.boxes.get(name).and_then(|opened| {
                     let at = opened.remote.clone()?;
@@ -1623,6 +1808,42 @@ impl<U: Units> Daemon<U> {
             })
             .collect()
     }
+}
+
+/// The state and the detail of the row of the pod-run instance `name` ([`Daemon::rows`]): whether
+/// the daemon started its runtime, and whether that ran at the last look.
+fn pod_state(
+    pods: &super::pods::Pods,
+    name: &str,
+    started: bool,
+    running: Option<&bool>,
+) -> (InstanceState, Option<String>) {
+    use super::pods::Seen;
+    if !started {
+        return (InstanceState::Stopped, pods.refused(name));
+    }
+    if running == Some(&false) {
+        return (InstanceState::Unreachable, pods.detail(name));
+    }
+    match pods.seen(name) {
+        Seen::Pending { stuck: None } | Seen::Running { ready: false, .. } => {
+            (InstanceState::Starting, None)
+        }
+        Seen::Running { ready: true, .. } => (InstanceState::Running, None),
+        Seen::Pending { stuck: Some(_) }
+        | Seen::Unlisted(_)
+        | Seen::Absent
+        | Seen::Deleting
+        | Seen::Ended => (InstanceState::Unreachable, pods.detail(name)),
+    }
+}
+
+/// `source` as the specification's wire writes it (`conductor.config.Source`):
+/// `{"kind": "GitHub", "value": {"owner": …}}`.
+pub(crate) fn source_json(source: &conductor_model::config::Source) -> Value {
+    let mut out = String::new();
+    conductor_model::server::wire::encode_conductor_config_source(source, &mut out);
+    serde_json::from_str(&out).unwrap_or(Value::Null)
 }
 
 /// One action on the host role `role`, as a [`Done`] whose instance is `host:<role>`; it is not

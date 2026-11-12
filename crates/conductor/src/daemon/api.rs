@@ -1931,9 +1931,15 @@ fn instance_row(api: &Api, name: &str) -> (u16, &'static str, Value) {
             "state": "Stopped",
             "placement": instance.placement.0,
             "roles": instance.roles.iter().map(|role| role.role.clone()).collect::<Vec<_>>(),
+            "sources": instance
+                .sources
+                .iter()
+                .map(super::reconcile::source_json)
+                .collect::<Vec<_>>(),
             "binary_version": Value::Null,
             "last_seen": Value::Null,
             "box_id": Value::Null,
+            "detail": Value::Null,
             "changed_by": crate::actor::to_json(&crate::actor::daemon()),
         })
     });

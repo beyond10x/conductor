@@ -98,6 +98,19 @@ pub trait Units {
     fn disable_system(&mut self, unit: &str) -> Result<()> {
         bail!("this service manager removes no system unit {unit}")
     }
+
+    /// The pod supervisor, where this manager is one (design: instance pods): the reconciler
+    /// starts, stops, observes and routes to each runtime through it instead of through the
+    /// calls above, since a pod is made from its instance and has an address and a state a unit
+    /// lacks ([`super::pods`]). None for every other manager.
+    fn pods(&self) -> Option<&super::pods::Pods> {
+        None
+    }
+
+    /// [`Units::pods`], to change.
+    fn pods_mut(&mut self) -> Option<&mut super::pods::Pods> {
+        None
+    }
 }
 
 /// Whether a user systemd manager is there (`story:container-start-without-prompt`): its private
@@ -129,6 +142,9 @@ pub enum Manager {
     Systemd(Systemd),
     /// Child processes of the daemon.
     Children(Children),
+    /// One pod per instance in a cluster, where `daemon.kubernetes` is set (design: instance
+    /// pods, [`super::pods`]).
+    Pods(Box<super::pods::Pods>),
 }
 
 impl Manager {
@@ -147,6 +163,7 @@ impl Manager {
         match self {
             Self::Systemd(systemd) => systemd,
             Self::Children(children) => children,
+            Self::Pods(pods) => pods.as_mut(),
         }
     }
 }
@@ -186,6 +203,20 @@ impl Units for Manager {
 
     fn disable_system(&mut self, unit: &str) -> Result<()> {
         self.units().disable_system(unit)
+    }
+
+    fn pods(&self) -> Option<&super::pods::Pods> {
+        match self {
+            Self::Pods(pods) => Some(pods.as_ref()),
+            Self::Systemd(_) | Self::Children(_) => None,
+        }
+    }
+
+    fn pods_mut(&mut self) -> Option<&mut super::pods::Pods> {
+        match self {
+            Self::Pods(pods) => Some(pods.as_mut()),
+            Self::Systemd(_) | Self::Children(_) => None,
+        }
     }
 }
 

@@ -5,10 +5,13 @@
 //! no instance where there was no config file yet. A daemon-config file that does not validate
 //! stops the start in one line naming the file and the path.
 //!
-//! No case reaches the host's service manager: a daemon started here runs on a `PATH` of the
-//! case's own, which holds stand-ins that know and start no unit.
+//! No case reaches the host's service manager or a cluster: a daemon started here runs on a
+//! `PATH` of the case's own, which holds stand-ins that know and start no unit, and reaches the
+//! fake API server of `tests/fake_kube/` as its cluster through `KUBERNETES_SERVICE_HOST`,
+//! `KUBERNETES_SERVICE_PORT` and `CONDUCTOR_SERVICE_ACCOUNT_DIR`.
 
 mod common;
+mod fake_kube;
 
 use std::fs;
 use std::io::{Read as _, Write as _};
@@ -19,11 +22,16 @@ use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::{Duration, Instant};
 
+use fake_kube::FakeKube;
 use serde_yaml::Value;
 
-/// A case's directory, removed after a passing run.
+/// The instance namespace of the daemon-config file.
+const NAMESPACE: &str = "conductor-instances";
+
+/// A case's directory, removed after a passing run, and its fake API server.
 struct Case {
     dir: PathBuf,
+    fake: FakeKube,
 }
 
 impl Drop for Case {
@@ -42,7 +50,8 @@ impl Case {
         let _ = fs::remove_dir_all(&dir);
         fs::create_dir_all(dir.join("home")).expect("create the case's home");
         fs::create_dir_all(dir.join("secrets")).expect("create the secrets directory");
-        Self { dir }
+        let fake = FakeKube::start(&dir);
+        Self { dir, fake }
     }
 
     fn home(&self) -> PathBuf {
@@ -69,7 +78,7 @@ impl Case {
              \x20 store: \"sqlite:{store}\"\n\
              \x20 secrets: {{source: files, dir: {secrets:?}}}\n\
              \x20 kubernetes:\n\
-             \x20   namespace: conductor-instances\n\
+             \x20   namespace: {NAMESPACE}\n\
              \x20   image: registry.example.com/conductor:1.0.0\n\
              \x20   owner: {owner}\n\
              \x20   api_port: 7310\n\
@@ -95,21 +104,27 @@ impl Case {
         serde_yaml::from_str(&text).expect("the daemon-config file is YAML")
     }
 
+    /// Where the `systemd-run` stand-in records each call.
+    fn unit_starts(&self) -> PathBuf {
+        self.dir.join("systemd-run.calls")
+    }
+
     /// The `PATH` of a daemon of the case: a `systemctl` that knows no unit and a `systemd-run`
-    /// that starts none.
+    /// that starts none and records its call.
     fn programs(&self) -> PathBuf {
         use std::os::unix::fs::PermissionsExt as _;
         let programs = self.dir.join("programs");
         fs::create_dir_all(&programs).expect("create the PATH directory");
+        let unit_starts = format!(
+            "#!/bin/sh\necho \"$*\" >> '{}'\necho 'this case starts no unit' >&2\nexit 1\n",
+            self.unit_starts().display()
+        );
         for (name, script) in [
             (
                 "systemctl",
                 "#!/bin/sh\necho LoadState=not-found\necho ActiveState=inactive\n",
             ),
-            (
-                "systemd-run",
-                "#!/bin/sh\necho 'this case starts no unit' >&2\nexit 1\n",
-            ),
+            ("systemd-run", unit_starts.as_str()),
         ] {
             let program = programs.join(name);
             fs::write(&program, script).expect("write the stand-in");
@@ -126,6 +141,9 @@ impl Case {
             .arg("--config")
             .arg(self.file())
             .env("PATH", self.programs())
+            .env("KUBERNETES_SERVICE_HOST", "127.0.0.1")
+            .env("KUBERNETES_SERVICE_PORT", self.fake.port().to_string())
+            .env("CONDUCTOR_SERVICE_ACCOUNT_DIR", self.fake.dir())
             .env_remove("XDG_RUNTIME_DIR")
             .env_remove("DBUS_SESSION_BUS_ADDRESS")
             .args(["daemon", "serve", "--state-dir"])
@@ -216,6 +234,26 @@ impl Served {
             );
             thread::sleep(Duration::from_millis(100));
         }
+    }
+
+    /// The command lines of the daemon's own `instance serve` children: a runtime it started on
+    /// this host.
+    fn runtimes(&self) -> Vec<String> {
+        let daemon = self.child.id();
+        let Ok(entries) = fs::read_dir("/proc") else {
+            return Vec::new();
+        };
+        entries
+            .flatten()
+            .filter_map(|entry| {
+                let stat = fs::read_to_string(entry.path().join("stat")).ok()?;
+                let parent: u32 = stat.rsplit_once(") ")?.1.split(' ').nth(1)?.parse().ok()?;
+                let line = fs::read(entry.path().join("cmdline")).ok()?;
+                let line = String::from_utf8_lossy(&line).replace('\0', " ");
+                (parent == daemon && line.contains("instance") && line.contains("serve"))
+                    .then_some(line)
+            })
+            .collect()
     }
 
     fn printed(&self) -> String {
@@ -347,4 +385,114 @@ fn a_daemon_config_file_that_does_not_validate_stops_the_start_by_its_path() {
         "{stderr}"
     );
     assert!(!case.file().exists());
+}
+
+/// The daemon process, its cluster the fake API server: an instance of the config file gets its
+/// Secret, its volume claim and its pod, each named after it and carrying the four labels, and
+/// its row reads the pod as the fake reports it (Pending is `Starting`). No runtime of the
+/// instance is started on this host: no `instance serve` child, no unit.
+#[test]
+fn a_daemon_process_runs_its_instance_as_a_pod_of_the_cluster_and_starts_no_runtime_here() {
+    let case = Case::new("pod");
+    fs::create_dir_all(case.file().parent().expect("a parent")).expect("create the volume");
+    fs::write(
+        case.file(),
+        "version: conductor.config/2\n\
+         daemon: {port: 1, store: \"sqlite:/nowhere/conductor.sqlite\"}\n\
+         instances:\n\
+         \x20 - name: alpha\n\
+         \x20   placement: none\n\
+         \x20   session_prefix: alpha\n\
+         \x20   sources: [{github: example-org}]\n",
+    )
+    .expect("write the config file");
+    let port = free_port();
+    case.write_daemon_config(port, "example-org", "");
+
+    let served = Served::start(&case, port);
+    let objects = [
+        ("secrets", "conductor-instance-alpha"),
+        ("persistentvolumeclaims", "conductor-instance-alpha-data"),
+        ("pods", "conductor-instance-alpha"),
+    ];
+    let deadline = Instant::now() + Duration::from_secs(30);
+    while objects
+        .iter()
+        .any(|(resource, name)| case.fake.object(NAMESPACE, resource, name).is_none())
+    {
+        assert!(
+            Instant::now() < deadline,
+            "the three objects never reached the fake: {:?}\n{}",
+            ["secrets", "persistentvolumeclaims", "pods"]
+                .map(|resource| case.fake.names(NAMESPACE, resource)),
+            served.printed()
+        );
+        assert_eq!(served.runtimes(), Vec::<String>::new());
+        thread::sleep(Duration::from_millis(100));
+    }
+    for (resource, name) in objects {
+        let object = case
+            .fake
+            .object(NAMESPACE, resource, name)
+            .expect("the object");
+        assert_eq!(case.fake.names(NAMESPACE, resource), [name], "{resource}");
+        let labels = &object["metadata"]["labels"];
+        for (key, value) in [
+            ("app.kubernetes.io/managed-by", "conductord"),
+            ("app.kubernetes.io/component", "instance-runtime"),
+            ("conductor/daemon", "example-org"),
+            ("conductor/instance", "alpha"),
+        ] {
+            assert_eq!(labels[key], value, "{resource} {name}: {labels}");
+        }
+        assert_eq!(
+            labels.as_object().map(serde_json::Map::len),
+            Some(4),
+            "{labels}"
+        );
+    }
+
+    let mut pod = case
+        .fake
+        .object(NAMESPACE, "pods", "conductor-instance-alpha")
+        .expect("the pod");
+    pod["status"] = serde_json::json!({"phase": "Pending"});
+    case.fake.put(NAMESPACE, "pods", pod);
+    let deadline = Instant::now() + Duration::from_secs(30);
+    loop {
+        let row = get(port, "/v1/instances").and_then(|(status, body)| {
+            let rows: serde_json::Value = serde_json::from_str(&body).ok()?;
+            (status == 200).then(|| {
+                rows.as_array()
+                    .and_then(|rows| rows.iter().find(|row| row["name"] == "alpha"))
+                    .cloned()
+            })?
+        });
+        if row.as_ref().is_some_and(|row| row["state"] == "Starting") {
+            break;
+        }
+        assert!(
+            Instant::now() < deadline,
+            "the row never read Starting: {row:?}\n{}",
+            served.printed()
+        );
+        thread::sleep(Duration::from_millis(100));
+    }
+
+    assert_eq!(served.runtimes(), Vec::<String>::new());
+    assert!(
+        !case.unit_starts().exists(),
+        "a unit was started: {:?}",
+        fs::read_to_string(case.unit_starts())
+    );
+    let pods = case
+        .fake
+        .requests()
+        .iter()
+        .filter(|request| {
+            request.method == "POST"
+                && request.path == format!("/api/v1/namespaces/{NAMESPACE}/pods")
+        })
+        .count();
+    assert_eq!(pods, 1, "one pod created");
 }

@@ -106,6 +106,86 @@ fn out_of_a_cluster_construction_names_what_is_missing() {
     assert_eq!(missing.len(), 3, "{missing:?}");
 }
 
+/// `CONDUCTOR_SERVICE_ACCOUNT_DIR` names the directory in place of the kubelet's; unset, the
+/// kubelet's is read; set empty or relative, it is refused. The directory's `ca.crt` stays the
+/// only root and its token is read again on every call.
+#[test]
+fn the_service_account_directory_variable_names_the_directory_and_nothing_else() {
+    let (_scratch, fake) = case("dir-variable");
+    let port = fake.port().to_string();
+    let dir = fake.dir().display().to_string();
+    let with = |value: Option<&str>| {
+        let value = value.map(str::to_owned);
+        let port = port.clone();
+        move |name: &str| match name {
+            "KUBERNETES_SERVICE_HOST" => Some("127.0.0.1".to_owned()),
+            "KUBERNETES_SERVICE_PORT" => Some(port.clone()),
+            "CONDUCTOR_SERVICE_ACCOUNT_DIR" => value.clone(),
+            _ => None,
+        }
+    };
+    assert_eq!(
+        conductor_cli::kube::DIR_VARIABLE,
+        "CONDUCTOR_SERVICE_ACCOUNT_DIR"
+    );
+
+    let config = Config::from_variables(with(Some(dir.as_str()))).expect("the named directory");
+    assert_eq!(config.dir, fake.dir());
+    let client = conductor_cli::kube::Client::new(config).expect("a client");
+    client
+        .list(INSTANCES, Kind::Pod, SELECTOR)
+        .expect("a list with the named directory's token");
+    fake.rotate("second-token");
+    client
+        .list(INSTANCES, Kind::Pod, SELECTOR)
+        .expect("the rotated token is read again");
+
+    let error = Config::from_variables(with(None)).expect_err("the kubelet's directory");
+    let Error::NotInCluster { missing } = &error else {
+        panic!("not a typed not-in-a-cluster error: {error:?}");
+    };
+    assert!(
+        missing
+            .iter()
+            .all(|m| m.starts_with(conductor_cli::kube::SERVICE_ACCOUNT_DIR)),
+        "{missing:?}"
+    );
+
+    for empty in ["", "  "] {
+        let error = Config::from_variables(with(Some(empty))).expect_err("set empty");
+        assert_eq!(
+            error,
+            Error::NotInCluster {
+                missing: vec!["CONDUCTOR_SERVICE_ACCOUNT_DIR (set empty)".to_owned()]
+            }
+        );
+    }
+    let error = Config::from_variables(with(Some("serviceaccount"))).expect_err("relative");
+    assert!(
+        matches!(&error, Error::Config(text) if text.contains("CONDUCTOR_SERVICE_ACCOUNT_DIR")),
+        "{error:?}"
+    );
+
+    // A directory whose `ca.crt` did not sign the server is refused as before.
+    let scratch = Scratch::new("kube_client/dir-variable-untrusted");
+    let untrusted = FakeKube::start_untrusted(scratch.path());
+    let port = untrusted.port().to_string();
+    let dir = untrusted.dir().display().to_string();
+    let config = Config::from_variables(|name| match name {
+        "KUBERNETES_SERVICE_HOST" => Some("127.0.0.1".to_owned()),
+        "KUBERNETES_SERVICE_PORT" => Some(port.clone()),
+        "CONDUCTOR_SERVICE_ACCOUNT_DIR" => Some(dir.clone()),
+        _ => None,
+    })
+    .expect("the named directory");
+    let error = conductor_cli::kube::Client::new(config)
+        .expect("a client")
+        .list(INSTANCES, Kind::Pod, SELECTOR)
+        .expect_err("refused");
+    assert!(matches!(error, Error::Tls(_)), "a TLS error: {error:?}");
+    assert!(untrusted.requests().is_empty(), "no request was sent");
+}
+
 #[test]
 fn the_token_is_read_again_on_every_call() {
     let (_scratch, fake) = case("token");

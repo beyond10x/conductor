@@ -3,8 +3,11 @@
 //!
 //! - **Where the API is.** [`Config::in_cluster`] reads the API server's address from
 //!   `KUBERNETES_SERVICE_HOST` and `KUBERNETES_SERVICE_PORT`, and the service account the kubelet
-//!   mounts at [`SERVICE_ACCOUNT_DIR`]: `ca.crt`, `token`, `namespace`. Out of a cluster it
-//!   answers [`Error::NotInCluster`], naming each variable and file that is missing.
+//!   mounts at [`SERVICE_ACCOUNT_DIR`]: `ca.crt`, `token`, `namespace`.
+//!   `CONDUCTOR_SERVICE_ACCOUNT_DIR` ([`DIR_VARIABLE`]) names another directory of those three
+//!   files, as a test of the daemon's process does; set empty, or to a relative path, it is
+//!   refused. Out of a cluster it answers [`Error::NotInCluster`], naming each variable and file
+//!   that is missing.
 //! - **Trust.** The cluster's `ca.crt` is the only root: a server another authority signed is
 //!   refused ([`Error::Tls`]). The token is read again on every call, since the kubelet rotates it.
 //! - **Calls.** Create, get, list by label selector and delete of pods, persistent volume claims
@@ -34,6 +37,9 @@ use serde_json::{Value, json};
 
 /// Where the kubelet mounts a pod's service account: `ca.crt`, `token` and `namespace`.
 pub const SERVICE_ACCOUNT_DIR: &str = "/var/run/secrets/kubernetes.io/serviceaccount";
+
+/// The variable that names the service account directory in place of [`SERVICE_ACCOUNT_DIR`].
+pub const DIR_VARIABLE: &str = "CONDUCTOR_SERVICE_ACCOUNT_DIR";
 
 /// The variable that names the API server's address in a pod.
 pub const HOST_VARIABLE: &str = "KUBERNETES_SERVICE_HOST";
@@ -65,16 +71,42 @@ pub struct Config {
 
 impl Config {
     /// The config of the pod this process runs in: the process's variables and
-    /// [`SERVICE_ACCOUNT_DIR`].
+    /// [`SERVICE_ACCOUNT_DIR`], or the directory [`DIR_VARIABLE`] names.
     ///
     /// # Errors
     ///
-    /// [`Error::NotInCluster`] naming each variable and file that is missing; [`Error::Config`]
-    /// when the host is no IP address or the port no port.
+    /// As [`Config::from_variables`].
     pub fn in_cluster() -> Result<Self, Error> {
-        Self::from_env(Path::new(SERVICE_ACCOUNT_DIR), |name| {
-            std::env::var(name).ok()
-        })
+        Self::from_variables(|name| std::env::var(name).ok())
+    }
+
+    /// The config from the variables `var` answers: the service account directory is
+    /// [`DIR_VARIABLE`]'s, else [`SERVICE_ACCOUNT_DIR`].
+    ///
+    /// # Errors
+    ///
+    /// [`Error::NotInCluster`] naming [`DIR_VARIABLE`] when it is set empty, and as
+    /// [`Config::from_env`]; [`Error::Config`] when it names a relative path.
+    pub fn from_variables(var: impl Fn(&str) -> Option<String>) -> Result<Self, Error> {
+        let dir = match var(DIR_VARIABLE) {
+            None => PathBuf::from(SERVICE_ACCOUNT_DIR),
+            Some(value) if value.trim().is_empty() => {
+                return Err(Error::NotInCluster {
+                    missing: vec![format!("{DIR_VARIABLE} (set empty)")],
+                });
+            }
+            Some(value) => {
+                let dir = PathBuf::from(value);
+                if !dir.is_absolute() {
+                    return Err(Error::Config(format!(
+                        "{DIR_VARIABLE} {:?} is no absolute path",
+                        dir.display()
+                    )));
+                }
+                dir
+            }
+        };
+        Self::from_env(&dir, var)
     }
 
     /// The config from the service account directory `dir` and the variables `var` answers.
