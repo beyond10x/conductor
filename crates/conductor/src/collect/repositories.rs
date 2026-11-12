@@ -633,7 +633,8 @@ struct ListedEntry {
 /// The repositories of `origins` and `forges`, by name: each owner's, each local directory's and
 /// each forge's projects, but those an owner's or a forge's `include` leaves out; and the
 /// member failure of each `include` entry no repository of its source's listing answers to
-/// (`story:source-include-list`).
+/// (`story:source-include-list`), and of each listed project whose path holds a step that names
+/// no checkout ([`checkouts::names_no_checkout`]), which is left out.
 fn listed(
     sources: &Sources,
     origins: &Origins,
@@ -664,11 +665,20 @@ fn listed(
     let gitlab::Listing {
         mapped,
         unanswered: not_answered,
+        refused,
     } = Forge::listing(forges)?;
     failures.extend(
         not_answered
             .iter()
             .map(|(source, entry)| unanswered(source, entry)),
+    );
+    failures.extend(
+        refused
+            .into_iter()
+            .map(|(repository, error_line)| blockers::Failure {
+                repository,
+                error_line,
+            }),
     );
     listed.extend(mapped.into_iter().map(|mapped| Listed {
         name: mapped.project.name.clone(),
@@ -717,7 +727,8 @@ fn owned(sources: &Sources, owner: &str) -> Result<Vec<Listed>> {
 /// The repositories of the local source `dir`, but those `exclude` names or holds: each
 /// directory that holds a `.git` directly under it, named as the directory, or one level down in
 /// a group, a directory under it that holds no `.git`, named `<group>/<directory>`
-/// (`story:grouped-instance`). No host publishes them, so each is `Private`, not archived, and
+/// (`story:grouped-instance`); a directory whose name names no checkout
+/// ([`checkouts::names_no_checkout`]) is none. No host publishes them, so each is `Private`, not archived, and
 /// has issues turned off. A checkout with no commit yet ([`born`]) is no repository yet: it has
 /// no `HEAD` to read, and one such checkout failed a whole snapshot (2026-10-08).
 fn local_repositories(dir: &Path, exclude: &[String]) -> Result<Vec<Listed>> {
@@ -733,7 +744,9 @@ fn local_repositories(dir: &Path, exclude: &[String]) -> Result<Vec<Listed>> {
     };
     for path in directories(dir, &what)? {
         let name = path.file_name().and_then(OsStr::to_str);
-        if name.is_some_and(|name| collect::is_excluded(&[name], exclude)) {
+        if name.is_some_and(|name| {
+            checkouts::names_no_checkout(name) || collect::is_excluded(&[name], exclude)
+        }) {
             continue;
         }
         if path.join(".git").exists() {
@@ -748,7 +761,9 @@ fn local_repositories(dir: &Path, exclude: &[String]) -> Result<Vec<Listed>> {
             }
             let group = step(&what, &path)?;
             let repository = step(&what, &inner)?;
-            if collect::is_excluded(&[group, repository], exclude) {
+            if checkouts::names_no_checkout(repository)
+                || collect::is_excluded(&[group, repository], exclude)
+            {
                 continue;
             }
             let group = checked(&what, group.to_owned())?;

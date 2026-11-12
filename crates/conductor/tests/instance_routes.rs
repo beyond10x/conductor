@@ -1249,3 +1249,70 @@ fn the_instance_routes_take_and_echo_an_include_list() {
         assert_eq!(case.text(), before, "{path}: the file changed");
     }
 }
+
+/// An `include` or `exclude` entry with a step that names no checkout (`.git` in any case, or one
+/// that starts with the temporary clone prefix of a pod's clone) is 422 at its YAML path, over
+/// `POST` and over `PUT`, the file unchanged.
+#[test]
+fn an_entry_with_a_step_that_names_no_checkout_is_422_over_the_instance_routes() {
+    let case = Case::new("include-no-checkout");
+    let api = Arc::new(controlled(&case, None, Some(CONTROL)));
+    let listener = TcpListener::bind(("127.0.0.1", 0)).expect("bind loopback");
+    let port = listener.local_addr().expect("address").port();
+    thread::spawn(move || api::serve(&listener, &api));
+    let token = bearer(CONTROL);
+    let token = [(token.0, token.1.as_str())];
+    let created = plain(
+        port,
+        "POST",
+        "/v1/instances",
+        &token,
+        Some(&json!({"mapping": case.mapping("beta", "beta"), "reason": "a tenant"})),
+    );
+    assert_eq!(created.status, 201, "{created:?}");
+
+    let partial = format!("{}alpha", conductor_cli::collect::checkouts::PARTIAL);
+    let before = case.text();
+    for (sources, at) in [
+        (
+            json!([{"github": "example-org", "include": [".git"]}]),
+            "include[0]",
+        ),
+        (
+            json!([{"gitlab": "example-group", "include": ["alpha", "sub/.GIT"]}]),
+            "include[1]",
+        ),
+        (
+            json!([{"gitlab": "example-group", "exclude": [partial]}]),
+            "exclude[0]",
+        ),
+    ] {
+        for (method, route, name) in [
+            ("POST", "/v1/instances", "gamma"),
+            ("PUT", "/v1/instances/beta", "beta"),
+        ] {
+            let mut mapping = case.mapping(name, name);
+            mapping["sources"] = sources.clone();
+            let refused = plain(
+                port,
+                method,
+                route,
+                &token,
+                Some(&json!({"mapping": mapping, "reason": "a refused entry"})),
+            );
+            let path = format!(
+                "instances[{}].sources[0].{at}",
+                if method == "POST" { 2 } else { 1 }
+            );
+            assert_eq!(refused.status, 422, "{method} {path}: {refused:?}");
+            let answer = refused.json();
+            assert_eq!(
+                answer["error"], "conductor.config.ConfigInvalid",
+                "{answer}"
+            );
+            assert_eq!(answer["path"], path, "{answer}");
+            assert!(answer.to_string().contains("names no checkout"), "{answer}");
+            assert_eq!(case.text(), before, "{method} {path}: the file changed");
+        }
+    }
+}

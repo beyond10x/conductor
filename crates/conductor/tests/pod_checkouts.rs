@@ -988,3 +988,230 @@ fn doctor_in_a_pod_counts_the_included_repositories_without_a_checkout() {
         describe(&outside)
     );
 }
+
+/// The variable that bounds how long a pod's start begins clones, in seconds.
+const START_BOUND: &str = "CONDUCTOR_START_CLONE_BOUND";
+
+/// `conductor config validate` on the config file of `sources` with a session prefix, which
+/// [`Case::config`] leaves out and validation asks for.
+fn validated(case: &Case, sources: &str) -> Output {
+    let config = case.config(sources);
+    let text = fs::read_to_string(&config).expect("read the config file");
+    let text = text.replacen(
+        "- name: acme\n",
+        "- name: acme\n    session_prefix: acme\n",
+        1,
+    );
+    fs::write(&config, text).expect("write the config file");
+    case.conductor(&config, &[], &["config", "validate"])
+}
+
+/// An `include` or `exclude` entry with a step `.git`, in any case, or one that starts with the
+/// temporary clone prefix names no checkout: `config validate` refuses it at the entry's YAML
+/// path.
+#[test]
+fn an_entry_with_a_step_that_names_no_checkout_is_refused_at_validation() {
+    let case = Case::new("entry-refused", true);
+    let partial = conductor_cli::collect::checkouts::PARTIAL;
+    let valid = validated(&case, &gitlab("alpha, sub/gamma"));
+    assert_eq!(valid.status.code(), Some(0), "{}", describe(&valid));
+    for (sources, path) in [
+        (
+            "{github: example-org, include: [.git]}".to_owned(),
+            "instances[0].sources[0].include[0]",
+        ),
+        (
+            format!("{{gitlab: example-org, host: {HOST}, include: [alpha, sub/.GIT]}}"),
+            "instances[0].sources[0].include[1]",
+        ),
+        (
+            format!("{{gitlab: example-org, host: {HOST}, exclude: [{partial}alpha]}}"),
+            "instances[0].sources[0].exclude[0]",
+        ),
+        (
+            format!("{{local: {}, exclude: [.Git]}}", quoted(&case.root())),
+            "instances[0].sources[0].exclude[0]",
+        ),
+    ] {
+        let output = validated(&case, &sources);
+        assert_eq!(
+            output.status.code(),
+            Some(1),
+            "{sources}: {}",
+            describe(&output)
+        );
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        assert!(
+            stderr.contains(path) && stderr.contains("names no checkout"),
+            "{sources}: {}",
+            describe(&output)
+        );
+    }
+}
+
+/// A listed project whose path holds a step `.git` (any case) or one that starts with the
+/// temporary clone prefix is left out of the pass: one member failure each, nothing under the
+/// checkouts root, no clone of it; the other included projects are cloned and read.
+#[test]
+fn a_listed_project_with_a_step_that_names_no_checkout_is_a_member_failure_and_not_cloned() {
+    let case = Case::new("listed-refused", true);
+    let partial = conductor_cli::collect::checkouts::PARTIAL;
+    let shadow = format!("example-org/{partial}alpha");
+    case.projects(&[
+        (101, "example-org/alpha", false),
+        (102, "example-org/.git", false),
+        (103, "example-org/sub/.Git", false),
+        (104, "example-org/sub/gamma", false),
+        (105, &shadow, false),
+    ]);
+    for path in [
+        "example-org/alpha",
+        "example-org/.git",
+        "example-org/sub/.Git",
+        "example-org/sub/gamma",
+        &shadow,
+    ] {
+        case.bare("gitlab", path);
+    }
+    let refused = validated(&case, &gitlab(&format!("alpha, sub, \"{partial}alpha\"")));
+    assert_eq!(refused.status.code(), Some(1), "{}", describe(&refused));
+    assert!(
+        String::from_utf8_lossy(&refused.stderr).contains("include[2]"),
+        "{}",
+        describe(&refused)
+    );
+    let config = case.config(&gitlab("alpha, sub"));
+
+    let snapshot = case.pass(&config, &pod());
+    let mut failures = case.failures(&config, &snapshot);
+    failures.sort();
+    let members: Vec<&str> = failures
+        .iter()
+        .map(|(member, _, _)| member.as_str())
+        .collect();
+    assert_eq!(
+        members,
+        [&format!("{partial}alpha"), ".git", "sub/.Git"],
+        "{failures:#?}"
+    );
+    for (_, collector, line) in &failures {
+        assert_eq!(collector, "repositories");
+        assert!(line.contains("names no checkout"), "{line}");
+    }
+    for path in [".git", "sub/.Git", &format!("{partial}alpha")] {
+        assert!(
+            !case.root().join(path).exists(),
+            "{path} is under the checkouts root"
+        );
+    }
+    let clones: Vec<String> = case
+        .lines("git")
+        .into_iter()
+        .filter(|line| line.starts_with("clone"))
+        .collect();
+    assert_eq!(clones.len(), 2, "{clones:#?}");
+    for name in ["alpha", "sub/gamma"] {
+        assert!(case.root().join(name).join(".git").is_dir(), "{name}");
+        assert_eq!(
+            case.row(&config, &snapshot, name)["local_checkout"],
+            json!(true),
+            "{name}"
+        );
+    }
+    let names: Vec<Value> = case
+        .rows(&config, "repositories", &snapshot)
+        .into_iter()
+        .map(|row| row["repository"].clone())
+        .collect();
+    assert_eq!(names, [json!("alpha"), json!("sub/gamma")]);
+}
+
+/// The paths the trust names after a clone at a pass are the checkouts an `include` entry
+/// covers: a git directory under the root that no entry covers, with an `origin` of the group or
+/// with none, is not trusted.
+#[test]
+fn a_pass_trusts_only_the_checkouts_an_include_entry_covers() {
+    let case = Case::new("trust-included", true);
+    case.projects(&[
+        (101, "example-org/alpha", false),
+        (102, "example-org/beta", false),
+    ]);
+    case.bare("gitlab", "example-org/alpha");
+    let beta = case.bare("gitlab", "example-org/beta");
+    git(
+        &case.root(),
+        &[
+            "clone",
+            "--quiet",
+            &format!("file://{}", text(&beta)),
+            "beta",
+        ],
+    );
+    let url = format!("https://{HOST}/example-org/beta.git");
+    git(
+        &case.root().join("beta"),
+        &["remote", "set-url", "origin", &url],
+    );
+    fs::create_dir_all(case.root().join("stray")).expect("create a directory");
+    git(&case.root().join("stray"), &["init", "--quiet"]);
+    let config = case.config(&gitlab("alpha"));
+
+    case.pass(&config, &pod());
+    assert!(case.root().join("alpha/.git").is_dir());
+    let file = case.home().join(conductor_cli::trust::CLAUDE_JSON);
+    let document: Value = serde_json::from_str(
+        &fs::read_to_string(&file).expect("the pass trusted the new checkout"),
+    )
+    .expect("JSON");
+    let trusted: Vec<String> = document["projects"]
+        .as_object()
+        .map(|projects| projects.keys().cloned().collect())
+        .unwrap_or_default();
+    let physical = |name: &str| {
+        text(&fs::canonicalize(case.root().join(name)).expect("the directory is there"))
+    };
+    assert!(trusted.contains(&physical("alpha")), "{trusted:#?}");
+    for name in ["beta", "stray"] {
+        assert!(!trusted.contains(&physical(name)), "{name}: {trusted:#?}");
+    }
+}
+
+/// A start begins no clone once its bound has passed: with the bound at 0 seconds it clones
+/// nothing, says how many it left, and the next pass clones them.
+#[test]
+fn a_start_past_its_bound_leaves_the_rest_to_the_pass() {
+    let case = Case::new("start-bound", false);
+    case.projects(&[
+        (101, "example-org/alpha", false),
+        (104, "example-org/sub/gamma", false),
+    ]);
+    case.bare("gitlab", "example-org/alpha");
+    case.bare("gitlab", "example-org/sub/gamma");
+    let config = case.config(&gitlab("alpha, sub/gamma"));
+
+    let mut env = pod()[1..].to_vec();
+    env.push((START_BOUND, "0".to_owned()));
+    let printed = case.start(&config, &env);
+    assert!(printed.contains("seeded its instance"), "{printed}");
+    assert!(
+        printed
+            .contains("2 included repositories without a checkout are left to the collect passes"),
+        "{printed}"
+    );
+    assert!(!case.root().join("alpha").exists(), "{printed}");
+    assert!(!case.root().join("sub/gamma").exists(), "{printed}");
+    assert!(
+        !case
+            .lines("git")
+            .iter()
+            .any(|line| line.starts_with("clone")),
+        "{:#?}",
+        case.lines("git")
+    );
+
+    let snapshot = case.pass(&config, &pod());
+    for name in ["alpha", "sub/gamma"] {
+        assert!(case.root().join(name).join(".git").is_dir(), "{name}");
+    }
+    assert!(case.failures(&config, &snapshot).is_empty());
+}

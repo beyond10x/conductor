@@ -4406,19 +4406,37 @@ impl Reader<'_> {
     }
 
     /// A source's `exclude`: a list of paths under its root, each relative, its steps neither
-    /// empty nor `.` nor `..`. Absent, it is empty.
+    /// empty nor `.` nor `..`, and none a step that names no checkout ([`Reader::naming_checkouts`]).
+    /// Absent, it is empty.
     fn exclude(&mut self, value: Option<&Value>, path: &str) -> Option<Vec<String>> {
         let Some(value) = value else {
             return Some(Vec::new());
         };
         self.list(value, path, |reader, value, at| {
-            reader.relative(
+            let entry = reader.relative(
                 value,
                 at,
                 "is not a path under the root: write it relative, such as group or \
                  group/repository, without `.` or `..`",
-            )
+            )?;
+            reader.naming_checkouts(entry, value, at)
         })
+    }
+
+    /// `entry`, an `include` or `exclude` entry at `path`, when no step of it names no checkout
+    /// ([`crate::collect::checkouts::names_no_checkout`]); otherwise the problem that says so.
+    fn naming_checkouts(&mut self, entry: String, value: &Value, path: &str) -> Option<String> {
+        let Some(step) = crate::collect::checkouts::step_naming_no_checkout(&entry) else {
+            return Some(entry);
+        };
+        let problem = format!(
+            "{} names no checkout: its step {step:?} is `.git` or starts with `{}`, which no \
+             repository's path under the root holds",
+            echo(value),
+            crate::collect::checkouts::PARTIAL
+        );
+        self.problem(path, problem);
+        None
     }
 
     /// A source's `include` (`story:source-include-list`): `Some` list of at least one path
@@ -4452,7 +4470,7 @@ impl Reader<'_> {
                 );
                 return None;
             }
-            Some(entry)
+            reader.naming_checkouts(entry, value, at)
         })?;
         if entries.is_empty() {
             self.problem(

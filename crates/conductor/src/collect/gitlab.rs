@@ -73,7 +73,7 @@ use super::github::WINDOW;
 use super::repositories::{
     self, Commit, Read, Release, WIDTH, checked, each, json, maintenance, one_of_each, utc, words,
 };
-use crate::collect;
+use crate::collect::{self, checkouts};
 use crate::config;
 use crate::snapshot::Recorder;
 
@@ -587,7 +587,20 @@ impl Forge {
     /// path is no repository name, or a project without a checkout has the name of another
     /// project's checkout.
     pub fn projects(&self) -> Result<Vec<Project>> {
+        Ok(self.projects_and_refused()?.0)
+    }
+
+    /// [`Forge::projects`], and each project of the list it leaves out because a step of its
+    /// path names no checkout ([`checkouts::names_no_checkout`]), as `(its path under the group,
+    /// the line a member failure records)`; one an `exclude` entry covers is left out without
+    /// one.
+    ///
+    /// # Errors
+    ///
+    /// What [`Forge::projects`] answers.
+    pub fn projects_and_refused(&self) -> Result<(Vec<Project>, Vec<Refused>)> {
         let what = self.named();
+        let mut refused = Vec::new();
         let listed: Vec<ApiProject> = self.pages(
             &what,
             &format!(
@@ -612,6 +625,19 @@ impl Forge {
             // An entry written as the project's path leaves the project out, checked out under
             // another name or not.
             if collect::is_excluded(steps.as_slice(), &self.exclude) {
+                continue;
+            }
+            // A step `.git` or one a clone in progress is made under names no checkout: the
+            // project is no repository of the instance, and is reported.
+            if let Some(step) = steps.iter().find(|step| checkouts::names_no_checkout(step)) {
+                refused.push((
+                    path.clone(),
+                    format!(
+                        "{what}: the project {} is left out: its path holds the step {step:?}, \
+                         which names no checkout",
+                        project.path_with_namespace
+                    ),
+                ));
                 continue;
             }
             // With `include`, a project an entry covers by its path is the instance's with every
@@ -696,7 +722,7 @@ impl Forge {
                 bare.path
             );
         }
-        Ok(projects)
+        Ok((projects, refused))
     }
 
     /// Whether the steps `steps`, a project's path under the group or a checkout's under the
@@ -772,9 +798,11 @@ impl Forge {
         let mut listed = std::collections::BTreeSet::new();
         let mut every = Vec::new();
         let mut unanswered = Vec::new();
+        let mut refused = Vec::new();
         for forge in forges {
             let host = host_name(&forge.host);
-            let projects = forge.projects()?;
+            let (projects, left_out) = forge.projects_and_refused()?;
+            refused.extend(left_out);
             unanswered.extend(
                 forge
                     .unanswered(&projects)
@@ -797,6 +825,7 @@ impl Forge {
         Ok(Listing {
             mapped: every,
             unanswered,
+            refused,
         })
     }
 }
@@ -809,7 +838,14 @@ pub struct Listing {
     /// Each `include` entry no repository of its forge's own listing answers to, as `(source,
     /// entry)`: the source as [`Forge::named`] names it, the entry as written.
     pub unanswered: Vec<(String, String)>,
+    /// Each project of the forges left out because a step of its path names no checkout, as
+    /// [`Forge::projects_and_refused`] answers it.
+    pub refused: Vec<Refused>,
 }
+
+/// A listed project left out because a step of its path names no checkout: its path under the
+/// group, and the line its member failure records ([`Forge::projects_and_refused`]).
+pub type Refused = (String, String);
 
 /// Names on standard error, once per process, the checkout `checkout` of a project of the source
 /// `what` whose directory is no repository name: it is no repository, and stops no snapshot.
@@ -1134,7 +1170,9 @@ pub struct Checkout {
 /// either path. The `origin`
 /// is read from each checkout's git config with no network read and
 /// no git command ([`origin`]); hosts are compared without their port and without regard to case.
-/// A directory that cannot be read, or whose name is not UTF-8, holds none.
+/// A directory that cannot be read, or whose name is not UTF-8, holds none; a directory whose
+/// name names no checkout ([`checkouts::names_no_checkout`]) is none and holds none, and one
+/// whose `.git` holds a `.git` of its own is none ([`checkouts::is_checkout`]).
 #[must_use]
 pub fn checkouts(
     root: &Path,
@@ -1177,21 +1215,32 @@ fn found(root: &Path, host: &str, group: &str) -> Vec<Checkout> {
             });
         }
     };
+    // A directory whose name names no checkout (`.git`, a clone in progress) is neither a
+    // checkout nor a group, and a `.git` that holds a `.git` of its own is no git directory
+    // (`checkouts::is_checkout`).
     for first in directories(root) {
         let Some(one) = first.file_name().and_then(|name| name.to_str()) else {
             continue;
         };
+        if checkouts::names_no_checkout(one) {
+            continue;
+        }
         let one = one.to_owned();
         if first.join(".git").exists() {
-            consider(first, &[one.as_str()][..]);
+            if checkouts::is_checkout(&first) {
+                consider(first, &[one.as_str()][..]);
+            }
             continue;
         }
         for second in directories(&first) {
             let Some(two) = second.file_name().and_then(|name| name.to_str()) else {
                 continue;
             };
+            if checkouts::names_no_checkout(two) {
+                continue;
+            }
             let two = two.to_owned();
-            if second.join(".git").exists() {
+            if checkouts::is_checkout(&second) {
                 consider(second, &[one.as_str(), two.as_str()][..]);
             }
         }

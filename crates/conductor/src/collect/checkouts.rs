@@ -7,8 +7,18 @@
 //!   workspace file, the trust and the activation the seeding derives see the checkouts; and at
 //!   each pass of the `repositories` collector, for each included repository that still has
 //!   none, each checkout of one fetched with `git fetch --quiet origin` under the collector's
-//!   bound. A clone at a pass brings the workspace file and the trust up to date ([`refresh`]);
-//!   the activation is the checkouts root's, which a new checkout under it needs nothing of.
+//!   bound. The start clones [`repositories::WIDTH`] repositories at once and begins no clone
+//!   once [`CLONE_BOUND`] ([`START_BOUND_VARIABLE`] seconds, where set) has passed since it
+//!   began: it says how many it left, and the passes clone them. A clone at a pass brings the
+//!   workspace file and the trust up to date ([`refresh`]): it trusts only the checkouts an
+//!   `include` entry covers. The activation is the checkouts root's, which a new checkout under
+//!   it needs nothing of.
+//! - **Names no checkout.** A path step `.git`, in any case, or one that starts with [`PARTIAL`]
+//!   ([`names_no_checkout`]): an `include` or `exclude` entry with one is refused, a listed
+//!   GitLab project with one is left out of every collector as one member failure, [`bring`]
+//!   refuses one, and a directory of that name under the root or a group is read as no checkout.
+//!   A `.git` that holds a `.git` of its own is the work tree of a clone at a `.git` path, not a
+//!   git directory: the directory that holds it is no checkout ([`is_checkout`]).
 //! - **Where.** The path the collector reads the checkout at: `<checkouts root>/<name>` for a
 //!   `github` repository, `<checkouts root>/<project path under the group>` for a `gitlab` one. A
 //!   path more than two steps deep, or under a directory that is a checkout itself, is not one the
@@ -31,9 +41,9 @@
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::Output;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
-use anyhow::Result;
+use anyhow::{Context as _, Result, anyhow};
 use conductor_model::config::{Instance, Source};
 
 use crate::collect::{self, blockers, gitlab, repositories};
@@ -47,6 +57,36 @@ pub const PARTIAL: &str = ".conductor-clone-";
 /// How long one clone may run before it is stopped: the collector's [`collect::BOUND`] is too
 /// short for a large repository.
 pub const CLONE_BOUND: Duration = Duration::from_secs(20 * 60);
+
+/// The variable that, set to a whole number of seconds, is the start's bound on beginning clones
+/// ([`at_start`]) in place of [`CLONE_BOUND`].
+pub const START_BOUND_VARIABLE: &str = "CONDUCTOR_START_CLONE_BOUND";
+
+/// Whether the path step `step` names no checkout: `.git` in any case, which a checkout's own git
+/// directory is called, or a name that starts with [`PARTIAL`], in any case, where a clone is
+/// made.
+#[must_use]
+pub fn names_no_checkout(step: &str) -> bool {
+    step.eq_ignore_ascii_case(".git")
+        || step
+            .get(..PARTIAL.len())
+            .is_some_and(|start| start.eq_ignore_ascii_case(PARTIAL))
+}
+
+/// The first step of the `/`-separated path `path` that names no checkout
+/// ([`names_no_checkout`]).
+#[must_use]
+pub fn step_naming_no_checkout(path: &str) -> Option<&str> {
+    path.split('/').find(|step| names_no_checkout(step))
+}
+
+/// Whether `dir` is a checkout: it holds `.git`, and that `.git` holds no `.git` of its own, as
+/// the work tree of a clone made at a `.git` path would.
+#[must_use]
+pub fn is_checkout(dir: &Path) -> bool {
+    let git = dir.join(".git");
+    git.exists() && git.join(".git").symlink_metadata().is_err()
+}
 
 /// What stands for a credential in a message.
 const HIDDEN: &str = "[hidden]";
@@ -103,7 +143,7 @@ impl Wanted {
             url: format!("https://{}/{owner}/{name}.git", crate::doctor::GITHUB_HOST),
             forge: "github",
             host: crate::doctor::GITHUB_HOST.to_owned(),
-            checkout: dir.join(".git").exists().then_some(dir),
+            checkout: is_checkout(&dir).then_some(dir),
             archived,
         }
     }
@@ -157,14 +197,33 @@ pub enum Brought {
 /// `fetch`, when that is given and it has one; else cloned, as the module documentation says.
 #[must_use]
 pub fn bring(root: &Path, wanted: &Wanted, fetch: Option<Duration>) -> Brought {
+    let url = &wanted.url;
+    if let Some(step) =
+        step_naming_no_checkout(&wanted.path).or_else(|| step_naming_no_checkout(&wanted.name))
+    {
+        return Brought::Failed(format!(
+            "{url} is not cloned or fetched: its path {} holds the step {step:?}, which names no \
+             checkout",
+            wanted.path
+        ));
+    }
     if let Some(dir) = &wanted.checkout {
         return fetch.map_or(Brought::Left, |bound| fetched(dir, bound));
     }
     let target = root.join(&wanted.path);
-    if target.join(".git").exists() || wanted.archived {
+    if wanted.archived {
         return Brought::Left;
     }
-    let url = &wanted.url;
+    if target.join(".git").exists() {
+        if is_checkout(&target) {
+            return Brought::Left;
+        }
+        return Brought::Failed(format!(
+            "{url} is not cloned: {} holds a .git of its own, so it is no git directory; it is \
+             left as it is",
+            target.join(".git").display()
+        ));
+    }
     let steps: Vec<&str> = wanted.path.split('/').collect();
     if steps.len() > 2 {
         return Brought::Failed(format!(
@@ -389,9 +448,12 @@ pub fn includes(instance: &Instance) -> bool {
 }
 
 /// At the start of a runtime alone in a pod, before it seeds `instance`: each repository its
-/// sources include that has no checkout is cloned; what failed is said, and the start goes on.
-/// `what` names the runtime in what it says. Answers how many were cloned.
+/// sources include that has no checkout is cloned, [`repositories::WIDTH`] at once, but none is
+/// begun once the start's bound ([`start_bound`]) has passed since it began; what failed is
+/// said, and how many were left to the passes, and the start goes on. `what` names the runtime
+/// in what it says. Answers how many were cloned.
 pub fn at_start(instance: &Instance, what: &str) -> usize {
+    let began = Instant::now();
     if !includes(instance) {
         return 0;
     }
@@ -420,29 +482,74 @@ pub fn at_start(instance: &Instance, what: &str) -> usize {
         );
         return 0;
     }
+    let bound = start_bound(what);
+    let wanted: Vec<Wanted> = wanted
+        .into_iter()
+        .filter(|wanted| wanted.checkout.is_none() && !wanted.archived)
+        .collect();
+    let brought = repositories::each(&wanted, repositories::WIDTH, |wanted| {
+        Ok((began.elapsed() < bound).then(|| bring(root, wanted, None)))
+    })
+    .unwrap_or_default();
     let mut cloned = 0;
-    for wanted in &wanted {
-        match bring(root, wanted, None) {
-            Brought::Cloned(dir) => {
+    let mut left = 0;
+    for (wanted, brought) in wanted.iter().zip(brought) {
+        match brought {
+            Some(Brought::Cloned(dir)) => {
                 cloned += 1;
                 crate::run::say(
                     false,
                     &format!("{what}: cloned {} into {}", wanted.url, dir.display()),
                 );
             }
-            Brought::Failed(line) => crate::run::say(
+            Some(Brought::Failed(line)) => crate::run::say(
                 true,
                 &format!("{what}: {}: {line}; the next pass tries again", wanted.name),
             ),
-            Brought::Left | Brought::Fetched | Brought::Stopped => {}
+            Some(Brought::Left | Brought::Fetched | Brought::Stopped) => {}
+            None => left += 1,
         }
+    }
+    if left > 0 {
+        crate::run::say(
+            true,
+            &format!(
+                "{what}: the start begins no clone after {} s; {left} included repositories \
+                 without a checkout are left to the collect passes",
+                bound.as_secs()
+            ),
+        );
     }
     cloned
 }
 
+/// The start's bound on beginning clones: [`START_BOUND_VARIABLE`] seconds where it is set to a
+/// whole number, else [`CLONE_BOUND`]; a value that is none is said, under `what`.
+fn start_bound(what: &str) -> Duration {
+    let Some(value) = std::env::var_os(START_BOUND_VARIABLE) else {
+        return CLONE_BOUND;
+    };
+    if let Some(seconds) = value
+        .to_str()
+        .and_then(|text| text.trim().parse::<u64>().ok())
+    {
+        return Duration::from_secs(seconds);
+    }
+    crate::run::say(
+        true,
+        &format!(
+            "{what}: {START_BOUND_VARIABLE} {value:?} is not a whole number of seconds; the start \
+             begins clones for {} s",
+            CLONE_BOUND.as_secs()
+        ),
+    );
+    CLONE_BOUND
+}
+
 /// What the start derives from the set of `instance`'s checkouts, brought up to date after a
 /// clone: the workspace file under its records, where the records directory is there (the
-/// seeding writes it otherwise), and the trust of each checkout. The activation is the checkouts
+/// seeding writes it otherwise), and the trust of each checkout an `include` entry covers
+/// ([`included_checkouts`]), no other directory under the root. The activation is the checkouts
 /// root's, which a new checkout under it needs nothing of. Writes nothing on standard output.
 ///
 /// # Errors
@@ -473,7 +580,7 @@ pub fn refresh(instance: &Instance) -> Result<()> {
         fs::write(&file, text)?;
     }
     let mut edit = trust::Edit::read(&environment.home()?.join(trust::CLAUDE_JSON))?;
-    let missing: Vec<String> = trust::paths(instance, index)?
+    let missing: Vec<String> = included_checkouts(instance, index)?
         .into_iter()
         .filter(|path| !edit.trusts(path))
         .collect();
@@ -484,6 +591,35 @@ pub fn refresh(instance: &Instance) -> Result<()> {
         edit.write()?;
     }
     Ok(())
+}
+
+/// The physical path of each checkout of `instance` (the one at `index` of its config file) an
+/// `include` entry of one of its `github` or `gitlab` sources covers, as
+/// [`config::instance_checkouts`] lists a source's checkouts, each one [`is_checkout`]. A
+/// directory under the root that no entry covers is none of them.
+///
+/// # Errors
+///
+/// A directory cannot be read, or a path cannot be resolved or is not UTF-8.
+fn included_checkouts(instance: &Instance, index: usize) -> Result<Vec<String>> {
+    let mut included = instance.clone();
+    included.sources.retain(|source| match source {
+        Source::GitHub(github) => github.include.is_some(),
+        Source::GitLab(gitlab) => gitlab.include.is_some(),
+        Source::Local(_) => false,
+    });
+    config::instance_checkouts(&included, index)?
+        .into_iter()
+        .filter(|dir| is_checkout(dir))
+        .map(|dir| {
+            let physical =
+                fs::canonicalize(&dir).with_context(|| format!("resolve {}", dir.display()))?;
+            physical
+                .to_str()
+                .map(str::to_owned)
+                .ok_or_else(|| anyhow!("{} is not UTF-8", physical.display()))
+        })
+        .collect()
 }
 
 /// `conductor doctor`'s rows of the checkouts, in a pod only ([`in_pod`]): for each instance of
@@ -516,8 +652,7 @@ pub fn doctor_lines(flag: Option<&Path>) -> Vec<(String, Option<String>)> {
                     let missing = wanted
                         .iter()
                         .filter(|wanted| {
-                            wanted.checkout.is_none()
-                                && !root.join(&wanted.path).join(".git").exists()
+                            wanted.checkout.is_none() && !is_checkout(&root.join(&wanted.path))
                         })
                         .count();
                     format!(

@@ -486,7 +486,18 @@ clone.
 The pod never touches what is there: a path that holds `.git` is left as it is, with its commits
 and its `origin`; a path that holds anything else is left alone and reported. A project whose
 path under the group has more than two steps, or lies under a directory that is a checkout
-itself, is not where the collector reads a checkout: it is not cloned, and is reported.
+itself, is not where the collector reads a checkout: it is not cloned, and is reported. A path
+step `.git`, in any case, or one that starts with `.conductor-clone-`, where the pod makes its
+clones, names no checkout: an `include` or `exclude` entry with one is refused, and a listed
+project with one is not cloned, is left out of every collector, and is reported.
+
+A repository an `include` entry covers is cloned and then trusted for the harness, so its
+project settings and hooks apply to sessions started in it. Name in `include` only hosts and
+repositories whose content may run in the pod with the pod's tokens.
+
+The size of the instance's volume claim is the only limit of what a pod clones. Its start waits
+at most 20 minutes for clones: it begins no clone after that, says how many it left, and the
+collect passes clone them.
 
 A repository the pod could not clone or fetch is one entry of `member_failures` in the
 instance's health, collector `repositories`, member the repository's name, with the reason and
