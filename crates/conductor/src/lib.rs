@@ -33,6 +33,7 @@ pub mod guard;
 pub mod host;
 pub mod init;
 pub mod instance;
+pub mod kube;
 pub mod login;
 pub mod message;
 pub mod metric;
