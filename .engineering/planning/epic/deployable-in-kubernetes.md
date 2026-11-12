@@ -8,7 +8,7 @@ relations:
 - decomposes: initiative:adoption
 - informed_by: story:placement-substrate-remote
 - informed_by: story:store-shared
-revision: 4
+revision: 5
 ---
 ## Why
 
@@ -33,6 +33,12 @@ Conductor's daemon, dashboard and instance runtimes run as workloads in a Kubern
 - Where an agent's worktree lives in a cluster (a volume per instance, or a clone per pod).
 
 Decomposed on 2026-11-10 from the consumer's answers into five draft stories: story:release-container-image, story:daemon-probes-and-metrics, story:container-start-without-prompt (the three it asked for first), story:cluster-install (blocked on the placement decision) and story:control-plane-work-handler (not ready: its contract is not modelled here). The plan-critic panel has not read them.
+
+## Direction of 2026-11-11
+
+Operator, 2026-11-11: the daemon runs in a namespace and is the control layer a consumer control plane talks to over HTTP (create, modify, list instances); an instance is a pod of its own; conductor ships no chart and names its image, and the consumer writes its own chart around it. How the daemon creates an instance and keeps a route to it is conductor's concern.
+
+That answers three of the questions above: the instance runtimes run in pods the daemon creates (story:instance-pods), the install format is no chart of conductor's (the guide `website/docs/guides/run-in-kubernetes.md` holds manifests a reader adapts; story:cluster-install), and an instance's worktrees live on a volume claim per instance. The Outcome and the Acceptance below still read as written on 2026-11-10 (postgres, the `pod` adapter, one install command, a CI job): whether they change with the direction is the operator's to say.
 
 ## Acceptance
 
