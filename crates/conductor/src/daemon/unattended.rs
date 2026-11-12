@@ -15,6 +15,10 @@
 //! fails is said in one line naming the instance, and the daemon starts anyway, serving and
 //! reconciling as it would; its `/readyz` stays `503` ([`super::metrics::SEEDING_FAILED`]) for as
 //! long as the process runs, and doctor names what is left. The next start tries each step again.
+//!
+//! A runtime alone in a pod of its own ([`crate::instance::LISTEN_VARIABLE`]) has no daemon beside
+//! it to seed for it: it takes the same steps for its own instance at its start
+//! ([`seed_instance`]), each only where missing, whether or not `daemon.unattended` is set.
 
 use std::fs;
 use std::path::Path;
@@ -23,7 +27,7 @@ use anyhow::{Context as _, Result};
 use conductor_model::config::Instance;
 
 use crate::cli::InitArgs;
-use crate::config::{self, Environment};
+use crate::config::{self, Environment, Loaded};
 use crate::trust::{self, CLAUDE_JSON};
 
 /// What a refusal of a step starts with.
@@ -43,18 +47,31 @@ pub fn seed(file: &Path, home: &Path) -> bool {
         }
     };
     let mut seeded = true;
-    for (index, instance) in loaded.config.instances.iter().enumerate() {
-        let name = &instance.name.0;
-        let steps = [
-            records(file, instance),
-            root(instance),
-            trusted(home, instance, index),
-            crate::setup::activate_root(&loaded, instance),
-        ];
-        for error in steps.into_iter().filter_map(Result::err) {
-            eprintln!("{WHAT}: {name}: {}", one_line(&error));
-            seeded = false;
-        }
+    for index in 0..loaded.config.instances.len() {
+        seeded &= seed_instance(&loaded, index, home, WHAT);
+    }
+    seeded
+}
+
+/// Seeds the instance at `index` of `loaded`, with `home` the home directory whose
+/// `~/.claude.json` holds the trust, each step only where what it makes is missing. Answers
+/// whether every step succeeded; each one that failed is one line of standard error starting
+/// with `what` and the instance's name.
+pub fn seed_instance(loaded: &Loaded, index: usize, home: &Path, what: &str) -> bool {
+    let Some(instance) = loaded.config.instances.get(index) else {
+        return true;
+    };
+    let name = &instance.name.0;
+    let steps = [
+        records(&loaded.path, instance),
+        root(instance),
+        trusted(home, instance, index),
+        crate::setup::activate_root(loaded, instance),
+    ];
+    let mut seeded = true;
+    for error in steps.into_iter().filter_map(Result::err) {
+        eprintln!("{what}: {name}: {}", one_line(&error));
+        seeded = false;
     }
     seeded
 }

@@ -909,6 +909,7 @@ impl Instance {
                     socket,
                     token: INSTANCE_TOKEN.to_owned(),
                     remote: None,
+                    tcp: None,
                 },
             )]
             .into_iter()

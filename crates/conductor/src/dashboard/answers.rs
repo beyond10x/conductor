@@ -104,7 +104,7 @@ impl Token {
     }
 
     /// Whether `given` is the token.
-    fn admits(&self, given: &str) -> bool {
+    pub(super) fn admits(&self, given: &str) -> bool {
         same(&self.0, given)
     }
 }

@@ -17,7 +17,6 @@
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::io::{Read as _, Write};
-use std::os::unix::net::UnixStream;
 use std::time::{Duration, Instant};
 
 use anyhow::{Context as _, Result, bail};
@@ -96,15 +95,16 @@ pub fn fetch(route: &Route, target: &str, timeout: Duration) -> Result<Value> {
         return serde_json::from_slice(&body).context("its answer is no JSON");
     }
     let deadline = Instant::now() + timeout;
-    let mut stream = UnixStream::connect(&route.socket)
-        .with_context(|| format!("connect to {}", route.socket.display()))?;
+    let mut stream = route.connect(timeout)?;
     stream.set_write_timeout(Some(timeout))?;
     stream.write_all(
-        format!(
-            "GET {target} HTTP/1.1\r\nHost: localhost\r\nAccept: application/json\r\n\
-             Connection: close\r\n\r\n"
-        )
-        .as_bytes(),
+        &route.carrying(
+            format!(
+                "GET {target} HTTP/1.1\r\nHost: localhost\r\nAccept: application/json\r\n\
+                 Connection: close\r\n\r\n"
+            )
+            .as_bytes(),
+        ),
     )?;
     let mut bytes = Vec::new();
     let mut chunk = [0_u8; 8192];

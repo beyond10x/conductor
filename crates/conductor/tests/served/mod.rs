@@ -66,6 +66,7 @@ pub fn serve_tuned(
                 socket: path,
                 token,
                 remote: None,
+                tcp: None,
             },
         )]
         .into_iter()

@@ -1613,6 +1613,7 @@ impl<U: Units> Daemon<U> {
                         socket,
                         token,
                         remote,
+                        tcp: None,
                     },
                 ))
             })

@@ -16,13 +16,13 @@ mod common;
 
 use std::ffi::OsString;
 use std::fs;
-use std::io::{ErrorKind, Read as _, Write as _};
-use std::net::{TcpListener, TcpStream};
+use std::io::{ErrorKind, Read, Write as _};
+use std::net::{SocketAddr, TcpListener, TcpStream};
 use std::os::unix::fs::PermissionsExt as _;
 use std::os::unix::net::{UnixListener, UnixStream};
 use std::path::{Path, PathBuf};
-use std::process::{Child, Stdio};
-use std::sync::Arc;
+use std::process::{Child, ExitStatus, Stdio};
+use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 use conductor_cli::daemon::api::{self, Api, Identity, Route};
@@ -153,6 +153,7 @@ impl Case {
                     socket: self.socket(),
                     token: INSTANCE_TOKEN.to_owned(),
                     remote: None,
+                    tcp: None,
                 },
             )]
             .into_iter()
@@ -1017,4 +1018,367 @@ fn an_upgrade_needs_an_operator_holding_upgrade_instances() {
         ),
     );
     assert_eq!(unsent.status, 403, "{}", unsent.body);
+}
+
+/// The variable a runtime alone in a pod is asked for a TCP listener in, by name: the pod
+/// supervisor sets it.
+const LISTEN: &str = "CONDUCTOR_API_LISTEN";
+
+/// The variable naming the mounted config file a runtime copies over its `--config` file, by name.
+const CONFIG_SOURCE: &str = "CONDUCTOR_CONFIG_SOURCE";
+
+/// `conductor instance serve` of a case with the loop off, killed when dropped, with what it
+/// printed.
+struct Runtime {
+    child: Child,
+    printed: Arc<Mutex<String>>,
+}
+
+impl Runtime {
+    /// Starts the runtime of `case`'s instance over the config file `config`, with `token` as its
+    /// token when one is given and `env` added.
+    fn start(case: &Case, config: &Path, token: Option<&str>, env: &[(&str, &str)]) -> Self {
+        let mut command = common::conductor(case.home());
+        command
+            .current_dir(case.state())
+            .arg("--config")
+            .arg(config)
+            .args(["instance", "serve"])
+            .env(conductor_cli::instance::LOOP_VARIABLE, "off")
+            .env(conductor_cli::config::INSTANCE_VARIABLE, "example-org")
+            .env_remove(conductor_cli::instance::TOKEN_VARIABLE)
+            .env_remove(LISTEN)
+            .env_remove(CONFIG_SOURCE)
+            .stdin(Stdio::null())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped());
+        if let Some(token) = token {
+            command.env(conductor_cli::instance::TOKEN_VARIABLE, token);
+        }
+        for (name, value) in env {
+            command.env(name, value);
+        }
+        let mut child = command.spawn().expect("instance serve starts");
+        let printed = Arc::new(Mutex::new(String::new()));
+        for mut pipe in [
+            Box::new(child.stdout.take().expect("stdout")) as Box<dyn Read + Send>,
+            Box::new(child.stderr.take().expect("stderr")),
+        ] {
+            let printed = Arc::clone(&printed);
+            std::thread::spawn(move || {
+                let mut chunk = [0_u8; 1024];
+                while let Ok(read @ 1..) = pipe.read(&mut chunk) {
+                    if let Ok(mut printed) = printed.lock() {
+                        printed.push_str(&String::from_utf8_lossy(&chunk[..read]));
+                    }
+                }
+            });
+        }
+        Self { child, printed }
+    }
+
+    fn printed(&self) -> String {
+        self.printed
+            .lock()
+            .map(|printed| printed.clone())
+            .unwrap_or_default()
+    }
+
+    /// Waits up to 30 s for what it printed to hold `holds`, while it runs.
+    fn until(&mut self, what: &str, holds: impl Fn(&str) -> bool) {
+        let deadline = Instant::now() + Duration::from_secs(30);
+        loop {
+            let printed = self.printed();
+            if holds(&printed) {
+                return;
+            }
+            if let Ok(Some(status)) = self.child.try_wait() {
+                panic!("instance serve exited {status} before {what}: {printed}");
+            }
+            assert!(Instant::now() < deadline, "never held: {what}: {printed}");
+            std::thread::sleep(Duration::from_millis(50));
+        }
+    }
+
+    /// What its serving line names, once it printed it.
+    fn served(&mut self) -> String {
+        self.until("its serving line", |printed| {
+            printed.contains("serving /v1/ on ")
+        });
+        let printed = self.printed();
+        printed
+            .lines()
+            .find_map(|line| line.split_once("serving /v1/ on "))
+            .map(|(_, at)| at.trim().to_owned())
+            .unwrap_or_default()
+    }
+
+    /// The TCP address it serves `/v1/` on, from its serving line.
+    fn address(&mut self) -> SocketAddr {
+        let served = self.served();
+        served.parse().unwrap_or_else(|_| {
+            panic!(
+                "the runtime serves /v1/ on {served}, no TCP address: {}",
+                self.printed()
+            )
+        })
+    }
+
+    /// How it ended, within 30 s.
+    fn ended(&mut self) -> ExitStatus {
+        let deadline = Instant::now() + Duration::from_secs(30);
+        loop {
+            if let Ok(Some(status)) = self.child.try_wait() {
+                return status;
+            }
+            assert!(
+                Instant::now() < deadline,
+                "instance serve still runs: {}",
+                self.printed()
+            );
+            std::thread::sleep(Duration::from_millis(50));
+        }
+    }
+}
+
+impl Drop for Runtime {
+    fn drop(&mut self) {
+        let _ = self.child.kill();
+        let _ = self.child.wait();
+    }
+}
+
+fn over_address(address: SocketAddr, request: &[u8]) -> Answer {
+    let mut stream = TcpStream::connect(address).expect("connect to the runtime");
+    stream
+        .set_read_timeout(Some(Duration::from_secs(30)))
+        .expect("a read timeout");
+    stream.write_all(request).expect("send");
+    let mut bytes = Vec::new();
+    stream.read_to_end(&mut bytes).expect("read");
+    parse(&bytes)
+}
+
+/// A runtime alone in a pod (`CONDUCTOR_API_LISTEN`) serves its API on TCP and takes every
+/// request with its token, reads too: without it, or with another, the answer is `401` and no
+/// route answers (a write too, which on the socket its route refuses `403`). `GET /healthz`, the
+/// probe, answers without one; `/v1/health`, the health view's data, is a route like the others.
+/// It binds no socket.
+#[test]
+fn instance_serve_on_tcp_takes_every_request_with_its_token_and_its_probe_without() {
+    let case = Case::new("tcp");
+    let mut runtime = Runtime::start(
+        &case,
+        &case.file(),
+        Some(INSTANCE_TOKEN),
+        &[(LISTEN, "127.0.0.1:0")],
+    );
+    let address = runtime.address();
+    let read = |target: &str, headers: &[(&str, &str)]| {
+        over_address(address, &raw("GET", target, headers, None))
+    };
+
+    let bare = read("/v1/settings", &[]);
+    assert_eq!(bare.status, 401, "a read without the token: {}", bare.body);
+    let other = read("/v1/settings", &[("X-Conductor-Token", DAEMON_TOKEN)]);
+    assert_eq!(
+        other.status, 401,
+        "a read with another token: {}",
+        other.body
+    );
+    let tokened = read("/v1/settings", &[("X-Conductor-Token", INSTANCE_TOKEN)]);
+    assert_eq!(tokened.status, 200, "{}", tokened.body);
+    assert_eq!(tokened.json()["instance"], "example-org");
+    let unsent = over_address(
+        address,
+        &raw("PUT", "/v1/settings", &[], Some(&disk_low(true))),
+    );
+    assert_eq!(unsent.status, 401, "{}", unsent.body);
+    let view = read("/v1/health", &[]);
+    assert_eq!(view.status, 401, "{}", view.body);
+
+    let probe = read("/healthz", &[]);
+    assert_eq!(probe.status, 200, "{}", probe.body);
+    assert_eq!(probe.json(), json!({"state": "serving"}));
+    assert!(
+        !case.socket().exists(),
+        "a runtime on TCP binds no socket: {}",
+        runtime.printed()
+    );
+}
+
+/// A runtime asked for a TCP listener without a token refuses to start: one it minted itself
+/// would refuse every request, the daemon's reads too.
+#[test]
+fn instance_serve_on_tcp_without_a_token_refuses_to_start() {
+    let case = Case::new("tcp-untokened");
+    let mut runtime = Runtime::start(&case, &case.file(), None, &[(LISTEN, "127.0.0.1:0")]);
+    let status = runtime.ended();
+    let printed = runtime.printed();
+    assert_eq!(status.code(), Some(1), "{printed}");
+    assert!(
+        printed.contains(LISTEN) && printed.contains(conductor_cli::instance::TOKEN_VARIABLE),
+        "the refusal names both variables: {printed}"
+    );
+}
+
+/// A runtime handed a config source (`CONDUCTOR_CONFIG_SOURCE`, a mounted file it may not write)
+/// copies it over its `--config` file at every start before it reads it, creating the file's
+/// directory; the copy is its own to write, and a source changed between starts is what the next
+/// start reads.
+#[test]
+fn instance_serve_copies_its_config_source_over_its_config_file_at_every_start() {
+    let case = Case::new("source");
+    let mounted = case.dir.join("m");
+    fs::create_dir_all(&mounted).expect("create the mount");
+    let source = mounted.join("conductor.yaml");
+    let file = case.dir.join("v").join("conductor.yaml");
+    let mount = |low: &str| {
+        let text = case.text().replace(
+            "    state: ",
+            &format!("    thresholds: {{disk_low: {low}}}\n    state: "),
+        );
+        if source.exists() {
+            fs::set_permissions(&source, fs::Permissions::from_mode(0o644))
+                .expect("make the source writable");
+        }
+        fs::write(&source, text).expect("write the source");
+        fs::set_permissions(&source, fs::Permissions::from_mode(0o444))
+            .expect("make the source read-only");
+    };
+    let shown = |runtime: &mut Runtime| -> String {
+        let served = runtime.served();
+        let settings = over_socket(Path::new(&served), &raw("GET", "/v1/settings", &[], None));
+        assert_eq!(settings.status, 200, "{}", settings.body);
+        let field = settings.json()["fields"]
+            .as_array()
+            .expect("the settings' fields")
+            .iter()
+            .find(|field| field["path"] == "thresholds.disk_low")
+            .cloned()
+            .unwrap_or_else(|| panic!("no thresholds.disk_low: {}", settings.body));
+        field["value"].to_string()
+    };
+    let source_text = source.to_str().expect("a path in UTF-8").to_owned();
+
+    mount("111G");
+    let mut runtime = Runtime::start(
+        &case,
+        &file,
+        Some(INSTANCE_TOKEN),
+        &[(CONFIG_SOURCE, &source_text)],
+    );
+    let first = shown(&mut runtime);
+    assert!(first.contains("111G"), "the source's value: {first}");
+    assert_eq!(
+        fs::read(&file).expect("the config file was written"),
+        fs::read(&source).expect("the source")
+    );
+    let mode = fs::metadata(&file).expect("the file").permissions().mode();
+    assert_ne!(
+        mode & 0o200,
+        0,
+        "the copy is its owner's to write: {mode:o}"
+    );
+    drop(runtime);
+
+    mount("222G");
+    let mut runtime = Runtime::start(
+        &case,
+        &file,
+        Some(INSTANCE_TOKEN),
+        &[(CONFIG_SOURCE, &source_text)],
+    );
+    let second = shown(&mut runtime);
+    assert!(
+        second.contains("222G"),
+        "the changed source's value: {second}"
+    );
+    assert_eq!(
+        fs::read(&file).expect("the config file"),
+        fs::read(&source).expect("the source")
+    );
+}
+
+/// The daemon's API over the one instance `example-org` behind `route`, on a loopback port of
+/// its own; answers the port.
+fn daemon_over(route: Route) -> u16 {
+    let api = Arc::new(Api::new(DAEMON_TOKEN.to_owned(), "owner".to_owned(), None));
+    api.publish(
+        vec![json!({"name": "example-org", "state": "Running"})],
+        [("example-org".to_owned(), route)].into_iter().collect(),
+        Vec::new(),
+    );
+    let listener = TcpListener::bind(("127.0.0.1", 0)).expect("bind");
+    let port = listener.local_addr().expect("address").port();
+    std::thread::spawn(move || api::serve(&listener, &api));
+    port
+}
+
+/// The daemon's link to a runtime alone in a pod: a route to its TCP address
+/// ([`Route::tcp`], what the pod supervisor builds) carries the instance's token on every
+/// request, reads included. A proxied read, a federated read and a proxied write answer through
+/// it; a route holding another token reads the runtime's `401`.
+#[test]
+fn the_daemon_reads_and_writes_through_a_tcp_route_with_the_token_on_every_request() {
+    let case = Case::new("tcp-proxy");
+    let mut runtime = Runtime::start(
+        &case,
+        &case.file(),
+        Some(INSTANCE_TOKEN),
+        &[(LISTEN, "127.0.0.1:0")],
+    );
+    let address = runtime.address();
+    let port = daemon_over(Route::tcp(address, INSTANCE_TOKEN.to_owned()));
+    let host = format!("127.0.0.1:{port}");
+    let origin = format!("http://127.0.0.1:{port}");
+    let get =
+        |port: u16, target: &str| over_tcp(port, &raw("GET", target, &[("Host", &host)], None));
+
+    let proxied = get(port, "/v1/instances/example-org/settings");
+    assert_eq!(proxied.status, 200, "{}", proxied.body);
+    assert_eq!(proxied.json()["instance"], "example-org");
+
+    let until = Instant::now() + Duration::from_secs(30);
+    let row = loop {
+        let federated = get(port, "/v1/unanswered");
+        assert_eq!(federated.status, 200, "{}", federated.body);
+        let row = federated.json()["rows"][0].clone();
+        if row["state"] != "unreachable" || Instant::now() > until {
+            break row;
+        }
+        std::thread::sleep(Duration::from_millis(100));
+    };
+    assert_eq!(row["instance"], "example-org", "{row}");
+    assert_ne!(
+        row["state"], "unreachable",
+        "a federated read over TCP: {row}"
+    );
+
+    let written = over_tcp(
+        port,
+        &raw(
+            "PUT",
+            "/v1/instances/example-org/settings",
+            &[
+                ("Host", &host),
+                ("Origin", &origin),
+                ("X-Conductor-Token", DAEMON_TOKEN),
+            ],
+            Some(&disk_low(false)),
+        ),
+    );
+    assert_eq!(written.status, 200, "{}", written.body);
+
+    let other = daemon_over(Route::tcp(address, DAEMON_TOKEN.to_owned()));
+    let refused = over_tcp(
+        other,
+        &raw(
+            "GET",
+            "/v1/instances/example-org/settings",
+            &[("Host", &format!("127.0.0.1:{other}"))],
+            None,
+        ),
+    );
+    assert_eq!(refused.status, 401, "{}", refused.body);
 }

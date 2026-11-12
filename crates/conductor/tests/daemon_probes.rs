@@ -702,6 +702,7 @@ fn metrics_hold_what_was_read_and_leave_out_what_was_not_within_the_bound() {
         socket: socket.to_owned(),
         token: INSTANCE_TOKEN.to_owned(),
         remote: None,
+        tcp: None,
     };
     // Two disk requests wait in the host's build ledger, beside the config file.
     let host = conductor_cli::config::host_of(&case.file());
@@ -918,6 +919,7 @@ fn two_scrapes_inside_the_keep_ask_the_instances_once() {
                 socket,
                 token: INSTANCE_TOKEN.to_owned(),
                 remote: None,
+                tcp: None,
             },
         )]
         .into_iter()
@@ -963,6 +965,7 @@ fn a_scrape_after_the_keep_asks_the_instances_again() {
                 socket,
                 token: INSTANCE_TOKEN.to_owned(),
                 remote: None,
+                tcp: None,
             },
         )]
         .into_iter()

@@ -20,8 +20,19 @@
 //! that held the lock first keeps the loop, and the runtime takes it once that one ends. The API
 //! serves in its own thread; should it end, the process exits 1, so the service manager restarts
 //! the runtime as a whole. [`LOOP_VARIABLE`] set to `off` serves the API alone.
+//!
+//! A runtime alone in a pod of its own, with no daemon process beside it and no directory it
+//! shares, is told so by [`LISTEN_VARIABLE`], an address and port: it serves the instance API on
+//! TCP there instead of the socket ([`crate::dashboard::serve_tcp`]), where every request carries
+//! its token, reads too, but the liveness probe `GET /healthz`; it refuses to start without a
+//! token handed to it. It then seeds its own instance as the unattended daemon seeds each one
+//! ([`crate::daemon::unattended::seed_instance`]), each step only where missing, while the API
+//! answers and before the loop starts. [`CONFIG_SOURCE_VARIABLE`] names a file it copies over its
+//! `--config` file at every start, before it reads it: how a config mounted read-only reaches a
+//! place the runtime writes beside.
 
 use std::fs;
+use std::net::TcpListener;
 use std::os::unix::fs::PermissionsExt as _;
 use std::os::unix::net::{UnixListener, UnixStream};
 use std::path::{Path, PathBuf};
@@ -119,6 +130,17 @@ const SOCKET_PATH_MAX: usize = 107;
 /// The variable the daemon hands the runtime its socket's path in, so both name the same one
 /// whatever temporary directory each sees.
 pub const SOCKET_VARIABLE: &str = "CONDUCTOR_API_SOCKET";
+
+/// The variable that asks the runtime for its API on TCP at an address and port
+/// (`0.0.0.0:<port>`), instead of the socket: a runtime alone in a pod of its own, which the
+/// daemon reaches over the network ([`crate::daemon::api::Route::tcp`]). Its presence is also
+/// what tells the runtime it runs alone and seeds its own instance.
+pub const LISTEN_VARIABLE: &str = "CONDUCTOR_API_LISTEN";
+
+/// The variable that names a config file the runtime copies over its `--config` file at every
+/// start, before it reads it, creating the file's directory: a config mounted read-only reaches a
+/// place the runtime may write, and what it writes beside the file has somewhere to go.
+pub const CONFIG_SOURCE_VARIABLE: &str = "CONDUCTOR_CONFIG_SOURCE";
 
 /// The variable the daemon names the runtime's log file in: a runtime in a substrate box writes
 /// what it says there, not to its session, which substrate ends at its output bound. The
@@ -277,12 +299,106 @@ fn log_to(log: &Path) -> Result<()> {
         .with_context(|| format!("write the output to {}", log.display()))
 }
 
+/// Copies the file [`CONFIG_SOURCE_VARIABLE`] names, where it names one, over the config file
+/// the runtime reads (`config_flag`, else `CONDUCTOR_CONFIG`, else the default file), creating
+/// its directory. The copy is written mode 0600 beside the file and renamed over it, so a file
+/// the runtime or a person changed since is replaced whole, whatever its mode.
+///
+/// # Errors
+///
+/// The source does not read, or the file or its directory cannot be written.
+fn copy_config_source(config_flag: Option<&Path>) -> Result<()> {
+    use std::io::Write as _;
+    use std::os::unix::fs::OpenOptionsExt as _;
+    let Some(source) = std::env::var_os(CONFIG_SOURCE_VARIABLE).filter(|source| !source.is_empty())
+    else {
+        return Ok(());
+    };
+    let source = PathBuf::from(source);
+    let environment = config::Environment::from_process()?;
+    let file = environment
+        .cwd
+        .join(config::locate(config_flag, &environment)?.0);
+    let text = fs::read(&source).with_context(|| {
+        format!(
+            "read the config source {} ({CONFIG_SOURCE_VARIABLE})",
+            source.display()
+        )
+    })?;
+    let dir = file.parent().unwrap_or_else(|| Path::new("/"));
+    fs::create_dir_all(dir).with_context(|| format!("create {}", dir.display()))?;
+    let name = file
+        .file_name()
+        .map(|name| name.to_string_lossy().into_owned())
+        .unwrap_or_default();
+    let partial = dir.join(format!(".{name}.source"));
+    let _ = fs::remove_file(&partial);
+    fs::OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .mode(0o600)
+        .open(&partial)
+        .and_then(|mut out| out.write_all(&text).and_then(|()| out.sync_all()))
+        .and_then(|()| fs::rename(&partial, &file))
+        .with_context(|| {
+            format!(
+                "copy the config source {} over {}",
+                source.display(),
+                file.display()
+            )
+        })
+}
+
+/// A runtime alone in a pod seeds its own instance, the active one of the config file, as the
+/// unattended daemon seeds each one; what failed is said, and the runtime goes on.
+fn seed_alone(config_flag: Option<&Path>, what: &str) {
+    const SEEDING: &str = "conductor: instance serve: seeding";
+    let loaded = config::Environment::from_process().and_then(|environment| {
+        let loaded = config::load(config_flag, &environment)?;
+        Ok((loaded, environment.home()?.to_owned()))
+    });
+    let (loaded, home) = match loaded {
+        Ok(loaded) => loaded,
+        Err(error) => {
+            crate::run::say(true, &format!("{SEEDING}: {error:#}"));
+            return;
+        }
+    };
+    let name = &config::active().instance.name;
+    let Some(index) = loaded
+        .config
+        .instances
+        .iter()
+        .position(|instance| &instance.name == name)
+    else {
+        return;
+    };
+    if crate::daemon::unattended::seed_instance(&loaded, index, &home, SEEDING) {
+        crate::run::say(false, &format!("{what}: seeded its instance"));
+    } else {
+        crate::run::say(
+            true,
+            &format!(
+                "{what}: the seeding failed in the steps above; the runtime serves and runs its \
+                 loop, and its next start tries each step again"
+            ),
+        );
+    }
+}
+
+/// Where the instance API is served: the socket, or TCP for a runtime alone in a pod.
+enum Listener {
+    Unix(UnixListener),
+    Tcp(TcpListener),
+}
+
 /// `conductor instance serve`, as the module documentation says.
 ///
 /// # Errors
 ///
-/// The config file does not load, the home directory is not absolute, the token cannot be
-/// minted, the socket cannot be bound, or the loop cannot start ([`crate::run::in_runtime`]).
+/// The config source does not copy, the config file does not load, the home directory is not
+/// absolute, the token cannot be minted or is not handed to a runtime on TCP, the socket or the
+/// TCP address cannot be bound, or the loop cannot start ([`crate::run::in_runtime`]).
 pub fn instance_serve(
     config_flag: Option<&Path>,
     state_flag: Option<&Path>,
@@ -300,6 +416,7 @@ pub fn instance_serve(
     {
         end_with(daemon);
     }
+    copy_config_source(config_flag).context(WHAT)?;
     config::set_active(config_flag).context(WHAT)?;
     let active = config::active();
     let state = PathBuf::from(&active.instance.state);
@@ -308,17 +425,39 @@ pub fn instance_serve(
         Ok(slots) => sealed_token(&slots).context("instance serve: the daemon's token")?,
         Err(_) => None,
     };
-    let token = match (std::env::var(TOKEN_VARIABLE), sealed) {
-        (Ok(token), _) if !token.trim().is_empty() => token.trim().to_owned(),
-        (_, Some(token)) => token,
-        _ => dashboard::mint().context("instance serve: mint the instance's token")?,
+    let given = match (std::env::var(TOKEN_VARIABLE), sealed) {
+        (Ok(token), _) if !token.trim().is_empty() => Some(token.trim().to_owned()),
+        (_, sealed) => sealed,
     };
-    let path = std::env::var_os(SOCKET_VARIABLE)
-        .filter(|path| !path.is_empty())
-        .map_or_else(|| socket(&state), PathBuf::from);
-    let listener = bind(&path).context(WHAT)?;
+    let listen = std::env::var(LISTEN_VARIABLE)
+        .ok()
+        .map(|address| address.trim().to_owned())
+        .filter(|address| !address.is_empty());
+    let token = match (given, &listen) {
+        (Some(token), _) => token,
+        (None, Some(_)) => bail!(
+            "{WHAT}: {LISTEN_VARIABLE} asks for the API on TCP, and {TOKEN_VARIABLE} hands it no \
+             token: every request on TCP carries one"
+        ),
+        (None, None) => dashboard::mint().context("instance serve: mint the instance's token")?,
+    };
     let what = format!("conductor instance {}", active.instance.name.0);
-    println!("{what}: serving /v1/ on {}", path.display());
+    let listener = if let Some(address) = &listen {
+        let listener = TcpListener::bind(address.as_str())
+            .with_context(|| format!("{WHAT}: bind {address} ({LISTEN_VARIABLE})"))?;
+        let at = listener
+            .local_addr()
+            .map_or_else(|_| address.clone(), |at| at.to_string());
+        println!("{what}: serving /v1/ on {at}");
+        Listener::Tcp(listener)
+    } else {
+        let path = std::env::var_os(SOCKET_VARIABLE)
+            .filter(|path| !path.is_empty())
+            .map_or_else(|| socket(&state), PathBuf::from);
+        let listener = bind(&path).context(WHAT)?;
+        println!("{what}: serving /v1/ on {}", path.display());
+        Listener::Unix(listener)
+    };
     let api = std::thread::Builder::new()
         .name("instance-api".to_owned())
         .spawn(move || {
@@ -332,9 +471,19 @@ pub fn instance_serve(
                 }
             }
             let _ended = Ended;
-            dashboard::serve_unix(listener, sources, Some(state), token);
+            match listener {
+                Listener::Unix(listener) => {
+                    dashboard::serve_unix(listener, sources, Some(state), token);
+                }
+                Listener::Tcp(listener) => {
+                    dashboard::serve_tcp(listener, sources, Some(state), token);
+                }
+            }
         })
         .context("instance serve: start the instance API")?;
+    if listen.is_some() {
+        seed_alone(config_flag, &what);
+    }
     if std::env::var(LOOP_VARIABLE).is_ok_and(|value| value.trim() == "off") {
         crate::run::say(
             false,
