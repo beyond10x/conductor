@@ -1,0 +1,13 @@
+{
+  "at": "2026-11-12T00:13:00Z",
+  "actor": "human:timo",
+  "artifact": "story:release-container-image",
+  "kind": "story",
+  "revision": 13,
+  "change": {
+    "change": "evidence",
+    "kind": "test_result",
+    "source": "Release workflow on tag v1.3.0: the image job pushed ghcr.io/beyond10x/conductor:1.3.0, the notes job named it with its digest, and the guide's docker run of that image with no registry login printed conductor 1.3.0",
+    "reference": "https://github.com/beyond10x/conductor/actions/runs/43123385617"
+  }
+}
