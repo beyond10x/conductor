@@ -1,5 +1,5 @@
 // generated from conductor v1
-// contract digest 1f04a7d0d2bb5b91ad54e66b6f1ac741da244950e54533796fb9f94fa55b33df
+// contract digest b817c831ddcdf9949972f6a946145799d67909f4f14e497f4a16667b7861cfad
 // do not edit: regenerate with `ess synthesize --layout crate`
 
 //! Store — `conductor.store`.
@@ -16,6 +16,20 @@ pub enum Backend {
     Sqlite,
     /// `Postgres`.
     Postgres,
+}
+
+/// BinaryVersion — `conductor.store.BinaryVersion`: a distinct wrapper around `String`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct BinaryVersion(pub String);
+
+/// The states of `conductor.store.Build`, as runtime values.
+///
+/// Synthesised from the lifecycle, so the two cannot disagree. Which *moves* are legal is not
+/// carried here — it is carried by `Build<S>`, where an undeclared move does not compile.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum BuildState {
+    /// `Built`.
+    Built,
 }
 
 /// The states of `conductor.store.Migration`, as runtime values.
@@ -41,6 +55,134 @@ pub enum StoreState {
 /// StoreUrl — `conductor.store.StoreUrl`: a distinct wrapper around `String`.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct StoreUrl(pub String);
+
+/// What Build — `conductor.store.Build` — holds, apart from where it is in its lifecycle.
+///
+/// The identity and every declared field. The state is deliberately not one: inside the domain it
+/// is carried by the type parameter of [`Build<S>`], and at a boundary by [`BuildSnapshot::state`].
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct BuildData {
+    /// The identity: `version` — `conductor.store.BinaryVersion`.
+    pub version: BinaryVersion,
+    /// `config` — `String`.
+    pub config: String,
+}
+
+/// The states of `conductor.store.Build`, at the type level.
+///
+/// One marker type per declared state, sealed: a state the lifecycle does not declare cannot
+/// implement [`Marker`](build_state::Marker), so [`Build<S>`](Build) can only ever rest in a real state.
+pub mod build_state {
+    /// Closes [`Marker`] over the declared states.
+    mod sealed {
+        /// Implemented only by the marker types beside this module.
+        pub trait Sealed {}
+        impl Sealed for super::Built {}
+    }
+
+    /// A declared state of `Build`, as a type.
+    pub trait Marker: sealed::Sealed {
+        /// The same state, as the runtime value.
+        const STATE: super::BuildState;
+    }
+
+    /// `Built`. Where a new instance starts.
+    pub struct Built;
+
+    impl Marker for Built {
+        const STATE: super::BuildState = super::BuildState::Built;
+    }
+}
+
+/// Build — `conductor.store.Build` — with its lifecycle state carried by the type.
+///
+/// The one constructor rests in `Built`, and the only way to change `S` is a method generated from
+/// a declared transition. A move the specification does not declare is therefore not an error
+/// case: it does not compile. Where the state is data — wire, storage — use [`BuildSnapshot`]
+/// and [`BuildSnapshot::refine`].
+pub struct Build<S: build_state::Marker> {
+    data: BuildData,
+    state: core::marker::PhantomData<S>,
+}
+
+impl<S: build_state::Marker> Build<S> {
+    /// The state this instance rests in, as the runtime value.
+    pub fn state(&self) -> BuildState {
+        S::STATE
+    }
+
+    /// What it holds.
+    pub fn data(&self) -> &BuildData {
+        &self.data
+    }
+
+    /// Hands the data back, giving up the typed state.
+    pub fn into_data(self) -> BuildData {
+        self.data
+    }
+}
+
+impl Build<build_state::Built> {
+    /// A new instance, resting in `Built` — the only state the lifecycle starts one in.
+    pub fn new(data: BuildData) -> Self {
+        Self {
+            data,
+            state: core::marker::PhantomData,
+        }
+    }
+}
+
+/// `conductor.store.Build` as it crosses a boundary: the state as a value beside the data.
+///
+/// Wire and storage know states only at runtime; [`BuildSnapshot::refine`] is the one door back
+/// into the typed lifecycle.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct BuildSnapshot {
+    /// Where the instance is in its lifecycle.
+    pub state: BuildState,
+    /// What it holds.
+    pub data: BuildData,
+}
+
+/// An `Build` in whichever declared state it was found.
+pub enum AnyBuild {
+    /// Resting in `Built`.
+    Built(Build<build_state::Built>),
+}
+
+impl BuildSnapshot {
+    /// Refines the runtime state into the typed one.
+    ///
+    /// Total: every declared state has an arm, and an undeclared state cannot reach here because
+    /// `BuildState` cannot spell one.
+    pub fn refine(self) -> AnyBuild {
+        match self.state {
+            BuildState::Built => AnyBuild::Built(Build {
+                data: self.data,
+                state: core::marker::PhantomData,
+            }),
+        }
+    }
+}
+
+impl AnyBuild {
+    /// The state, as the runtime value.
+    pub fn state(&self) -> BuildState {
+        match self {
+            Self::Built(_) => BuildState::Built,
+        }
+    }
+
+    /// Back to the boundary shape.
+    pub fn snapshot(self) -> BuildSnapshot {
+        match self {
+            Self::Built(instance) => BuildSnapshot {
+                state: BuildState::Built,
+                data: instance.into_data(),
+            },
+        }
+    }
+}
 
 /// What Migration — `conductor.store.Migration` — holds, apart from where it is in its lifecycle.
 ///
@@ -520,6 +662,19 @@ pub struct StoreStatus {
     pub instance_last_event_ids: std::collections::BTreeMap<String, i64>,
 }
 
+/// Version — one row of the view `conductor.store.Version`.
+///
+/// Projects `conductor.store.Build` at `read_your_writes` consistency.
+/// The specification fully determines every row, so its query is generated over the storage port —
+/// see the plan.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Version {
+    /// `version` — `conductor.store.BinaryVersion`.
+    pub version: BinaryVersion,
+    /// `config` — `String`.
+    pub config: String,
+}
+
 /// What this bounded context owes its implementor, and the seams of what is generated.
 ///
 /// One trait per obligation in the synthesis plan, each carrying the plan's own contract, and one
@@ -570,6 +725,17 @@ pub mod obligations {
         ///
         /// `Err` is the typed refusal of a row whose declared type cannot hold its value.
         fn store_status(&self) -> Result<Vec<super::StoreStatus>, crate::obligation::UnmetObligation>;
+    }
+
+    /// The query `conductor.store.Version` — generated.
+    ///
+    /// The specification fully determines it: [`crate::behaviour::Generated`] implements it
+    /// over the storage port. Implement it yourself to replace that query.
+    pub trait VersionQuery {
+        /// Serves `conductor.store.Version` rows at the view's declared consistency.
+        ///
+        /// `Err` is the typed refusal of a row whose declared type cannot hold its value.
+        fn version(&self) -> Result<Vec<super::Version>, crate::obligation::UnmetObligation>;
     }
 
     /// Every obligation of this bounded context, refused in the type system.

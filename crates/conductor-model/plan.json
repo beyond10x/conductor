@@ -2,8 +2,8 @@
   "provenance": {
     "system": "conductor",
     "specification_version": "v1",
-    "source_digest": "f9a0f77fd4ce44476192c1e2bb47a9bf82d99074cc8351c1b8560835b3add4e6",
-    "contract_digest": "1f04a7d0d2bb5b91ad54e66b6f1ac741da244950e54533796fb9f94fa55b33df"
+    "source_digest": "52a7f6c4e804b2f46668a26ed995e45421b9e4b09d0f3f227625ffe57e7a79cb",
+    "contract_digest": "b817c831ddcdf9949972f6a946145799d67909f4f14e497f4a16667b7861cfad"
   },
   "scope": {
     "profile": "component-skeletons",
@@ -2189,6 +2189,20 @@
     },
     {
       "kind": "domain_type",
+      "source": "conductor.store.BinaryVersion",
+      "disposition": {
+        "disposition": "generated"
+      }
+    },
+    {
+      "kind": "domain_type",
+      "source": "conductor.store.Build.State",
+      "disposition": {
+        "disposition": "generated"
+      }
+    },
+    {
+      "kind": "domain_type",
       "source": "conductor.store.Migration.State",
       "disposition": {
         "disposition": "generated"
@@ -2736,6 +2750,13 @@
     {
       "kind": "entity_lifecycle",
       "source": "conductor.session.RunTick",
+      "disposition": {
+        "disposition": "generated"
+      }
+    },
+    {
+      "kind": "entity_lifecycle",
+      "source": "conductor.store.Build",
       "disposition": {
         "disposition": "generated"
       }
@@ -6742,6 +6763,20 @@
     {
       "kind": "view_query",
       "source": "conductor.store.StoreStatus",
+      "disposition": {
+        "disposition": "generated"
+      }
+    },
+    {
+      "kind": "view_type",
+      "source": "conductor.store.Version",
+      "disposition": {
+        "disposition": "generated"
+      }
+    },
+    {
+      "kind": "view_query",
+      "source": "conductor.store.Version",
       "disposition": {
         "disposition": "generated"
       }

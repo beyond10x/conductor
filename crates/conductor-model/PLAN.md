@@ -1,13 +1,13 @@
 <!--
   generated from conductor v1
-  contract digest 1f04a7d0d2bb5b91ad54e66b6f1ac741da244950e54533796fb9f94fa55b33df
+  contract digest b817c831ddcdf9949972f6a946145799d67909f4f14e497f4a16667b7861cfad
   do not edit: regenerate with `ess synthesize --layout crate`
 -->
 # Synthesis plan — conductor v1
 
 Scope: `component-skeletons`, laid out as `crate`, planned by `ess-synth`. Regenerate with `ess synthesize --layout crate`.
 
-997 capabilities: **983 generated**, **14 obligations**, **0 refused**. An obligation is yours to implement against its contract; a refusal is a fact about this synthesis scope, not about the specification.
+1002 capabilities: **988 generated**, **14 obligations**, **0 refused**. An obligation is yours to implement against its contract; a refusal is a fact about this synthesis scope, not about the specification.
 
 ## Generated
 
@@ -324,6 +324,8 @@ Scope: `component-skeletons`, laid out as `crate`, planned by `ess-synth`. Regen
 | domain type | `conductor.session.TickId` |
 | domain type | `conductor.session.TickKind` |
 | domain type | `conductor.store.Backend` |
+| domain type | `conductor.store.BinaryVersion` |
+| domain type | `conductor.store.Build.State` |
 | domain type | `conductor.store.Migration.State` |
 | domain type | `conductor.store.Store.State` |
 | domain type | `conductor.store.StoreUrl` |
@@ -403,6 +405,7 @@ Scope: `component-skeletons`, laid out as `crate`, planned by `ess-synth`. Regen
 | entity lifecycle | `conductor.session.Delivery` |
 | entity lifecycle | `conductor.session.Lease` |
 | entity lifecycle | `conductor.session.RunTick` |
+| entity lifecycle | `conductor.store.Build` |
 | entity lifecycle | `conductor.store.Migration` |
 | entity lifecycle | `conductor.store.Store` |
 | entity lifecycle | `conductor.token.PoolToken` |
@@ -953,6 +956,8 @@ Scope: `component-skeletons`, laid out as `crate`, planned by `ess-synth`. Regen
 | view query | `conductor.store.Readiness` |
 | view type | `conductor.store.StoreStatus` |
 | view query | `conductor.store.StoreStatus` |
+| view type | `conductor.store.Version` |
+| view query | `conductor.store.Version` |
 | view type | `conductor.token.Tokens` |
 | view type | `conductor.tool.ToolCalls` |
 | view query | `conductor.tool.ToolCalls` |

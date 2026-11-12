@@ -28,6 +28,11 @@ types:
     kind: newtype
     of: String
 
+  # The version a binary of conductor was built as, `CARGO_PKG_VERSION`: `1.4.0`.
+  - name: conductor.store.BinaryVersion
+    kind: newtype
+    of: String
+
 entities:
   # The one store of the deployment (§ 8): the database `daemon.store` names, which the daemon
   # and every instance runtime open and every UI reads through the daemon's API. Each event
@@ -66,6 +71,23 @@ entities:
       initial: Opened
       states: [Opened]
       terminal: [Opened]
+
+  # What the binary that serves the daemon was built as (`story:daemon-version-json`): its
+  # version and the config format it reads, the two label values of `conductor_build_info` on
+  # `/metrics`. One row, the binary's own, fixed when the binary is built: no command writes it
+  # and the daemon reads it from no store, so it answers before the first reconcile published.
+  - name: conductor.store.Build
+    identity:
+      name: version
+      type: conductor.store.BinaryVersion
+    fields:
+      # The config format the binary reads: `conductor.config/2`.
+      - name: config
+        type: String
+    lifecycle:
+      initial: Built
+      states: [Built]
+      terminal: [Built]
 
   # One instance's eventlog tree, read once into the store by `conductor store migrate` (§ 8):
   # the tree it was read from, how many events were copied, when, and who ran it. Keyed by the
@@ -264,6 +286,22 @@ views:
     naming:
       wire: readiness
       display: Readiness
+
+  # The daemon's version (`GET /v1/version`, `story:daemon-version-json`): the one
+  # `conductor.store.Build` of the binary that serves, so a control plane reads which daemon it
+  # talks to from one JSON object instead of the metrics text. A read under `/v1` like any other,
+  # admitted as `GET /v1/instances` is, the control token included.
+  - name: conductor.store.Version
+    source: conductor.store.Build
+    consistency: read_your_writes
+    fields:
+      - name: version
+        type: conductor.store.BinaryVersion
+      - name: config
+        type: String
+    naming:
+      wire: version
+      display: Version
 
   - name: conductor.store.Migrations
     source: conductor.store.Migration

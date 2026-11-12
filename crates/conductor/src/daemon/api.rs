@@ -87,6 +87,7 @@ use anyhow::{Context as _, Result, anyhow, bail};
 use conductor_model::config::{DaemonOperator, OperatorGrant, SecretsSource};
 use conductor_model::operator::Actor;
 use conductor_model::secret::{SecretName, Source};
+use conductor_model::store::{BinaryVersion, Version};
 use rustls::pki_types::pem::PemObject as _;
 use rustls::pki_types::{CertificateDer, PrivateKeyDer, ServerName};
 use serde::Deserialize;
@@ -1950,7 +1951,14 @@ fn instance_row(api: &Api, name: &str) -> (u16, &'static str, Value) {
 /// ([`crate::secret::view`]), never a value.
 pub const SECRETS: &str = "/v1/secrets";
 
-/// The answer of the global API's federated routes, `ask` and `secrets`
+/// The route of the daemon's version (`story:daemon-version-json`, `conductor.store.Version`):
+/// `GET` answers its one row, `version` and `config`, the label values of
+/// `conductor_build_info` on `/metrics` ([`super::metrics::Build::this`]). It reads no
+/// publication, so it answers before the first reconcile, and admits whoever `GET`
+/// [`INSTANCES`] admits, `control-plane` included.
+pub const VERSION: &str = "/v1/version";
+
+/// The answer of the global API's federated routes, `ask`, `secrets` and `version`
 /// (`story:federated-views`, [`federate`]), or none for another path. The events stream is
 /// written to `stream` here and answers nothing more.
 fn federated<S: Read + Write>(
@@ -1979,6 +1987,18 @@ fn federated<S: Read + Write>(
         }
         let (code, reason, answer) = secrets(api);
         return Some(reply(code, reason, &answer, listener));
+    }
+    if path == VERSION {
+        if request.method != "GET" {
+            return Some(only("GET"));
+        }
+        let build = super::metrics::Build::this();
+        let row = Version {
+            version: BinaryVersion(build.version),
+            config: build.config,
+        };
+        let answer = json!([{"version": row.version.0, "config": row.config}]);
+        return Some(reply(200, "OK", &answer, listener));
     }
     if path == federate::ASK {
         if request.method != "POST" {

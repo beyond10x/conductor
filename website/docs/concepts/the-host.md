@@ -59,13 +59,16 @@ A daemon whose store does not answer keeps serving: `/healthz` is `200` and `/re
 starts no runtime and records nothing until the store answers, then takes up its work without a
 restart. Until the reconciler has published once, `GET /v1/instances`, the federated reads, a
 proxied instance route, `POST /v1/ask` and `POST /v1/roles/{role}/start` answer `503` with the
-readiness reason. A record the store refuses is held in the daemon's memory and written when the
-store takes writes again; until then the reconciler acts on nothing, an upgrade asked through
-`POST /v1/instances/{name}/upgrade` answers `503` with the readiness reason and does nothing, and
-`/readyz` is `503`. The pass that failed on the record then runs again for its own reason, or for
-the config change when the file changed since. A daemon stopped meanwhile loses the held records
-but not what it did: the failed pass wrote `runtimes.json`, so the next daemon starts no runtime
-that runs and stops one whose instance left the file; the store misses those records.
+readiness reason. `GET /v1/version` does not wait for it: to any caller a `/v1/` read admits it
+answers `200` and `[{"config":"conductor.config/2","version":"<version>"}]`, one row of the
+label values of `conductor_build_info`. A record the store refuses is held in the daemon's memory and written
+when the store takes writes again; until then the reconciler acts on nothing, an upgrade asked
+through `POST /v1/instances/{name}/upgrade` answers `503` with the readiness reason and does
+nothing, and `/readyz` is `503`. The pass that failed on the record then runs again for its own
+reason, or for the config change when the file changed since. A daemon stopped meanwhile loses
+the held records but not what it did: the failed pass wrote `runtimes.json`, so the next daemon
+starts no runtime that runs and stops one whose instance left the file; the store misses those
+records.
 
 `/metrics` holds six gauges:
 

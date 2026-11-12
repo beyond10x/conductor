@@ -463,6 +463,11 @@ fn probes() -> Vec<Probe> {
                 Binding::Bound("conductor.store.Readiness"),
                 "/readyz".to_owned(),
             ),
+            read(
+                "GET /v1/version",
+                Binding::Bound("conductor.store.Version"),
+                "/v1/version".to_owned(),
+            ),
         ]
     };
     let mut all = reads();

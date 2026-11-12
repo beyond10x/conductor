@@ -1,5 +1,5 @@
 // generated from conductor v1
-// contract digest 1f04a7d0d2bb5b91ad54e66b6f1ac741da244950e54533796fb9f94fa55b33df
+// contract digest b817c831ddcdf9949972f6a946145799d67909f4f14e497f4a16667b7861cfad
 // do not edit: regenerate with `ess synthesize --layout crate`
 
 //! What the specification fully determines, generated: the behaviour of every command the plan
@@ -805,6 +805,24 @@ pub trait RunTickStorage {
     /// Every stored instance, in the order the store keeps them: the order a generated query
     /// answers an unordered view in.
     fn list(&self) -> Vec<crate::session::RunTickSnapshot>;
+}
+
+/// Where `conductor.store.Build` is stored — a port the implementor provides.
+///
+/// Keyed by the identity `version`. Generated network entries supply an ephemeral implementation; durable storage remains a port.
+pub trait BuildStorage {
+    /// The instance with this identity, or `None` where none is stored.
+    fn get(&self, identity: &crate::store::BinaryVersion) -> Option<crate::store::BuildSnapshot>;
+
+    /// Stores this instance under its identity, replacing what was held.
+    fn put(&mut self, snapshot: crate::store::BuildSnapshot);
+
+    /// Removes the instance with this identity.
+    fn delete(&mut self, identity: &crate::store::BinaryVersion);
+
+    /// Every stored instance, in the order the store keeps them: the order a generated query
+    /// answers an unordered view in.
+    fn list(&self) -> Vec<crate::store::BuildSnapshot>;
 }
 
 /// Where `conductor.store.Migration` is stored — a port the implementor provides.
@@ -6376,6 +6394,23 @@ where
                 reachable: held.data.reachable,
                 last_event_id: held.data.last_event_id,
                 instance_last_event_ids: held.data.instance_last_event_ids,
+            })
+            .collect())
+    }
+}
+
+/// `conductor.store.Version`, generated: every row is one the specification fully determines from the stored `conductor.store.Build`s.
+impl<P> crate::store::obligations::VersionQuery for Generated<P>
+where
+    P: BuildStorage,
+{
+    fn version(&self) -> Result<Vec<crate::store::Version>, UnmetObligation> {
+        let admitted = BuildStorage::list(&self.ports);
+        Ok(admitted
+            .into_iter()
+            .map(|held| crate::store::Version {
+                version: held.data.version,
+                config: held.data.config,
             })
             .collect())
     }

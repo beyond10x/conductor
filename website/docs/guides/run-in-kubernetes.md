@@ -327,6 +327,15 @@ D=http://conductor.conductor.svc:7300
 From outside the cluster, `kubectl -n conductor port-forward svc/conductor 7300:7300` and
 `D=http://127.0.0.1:7300`.
 
+Read which daemon answers: one row, its version and the config format it reads, the values
+`conductor_build_info` carries on `/metrics`. It answers as soon as the daemon serves, before
+its first pass published, while `GET /v1/instances` still answers `503`:
+
+```console
+curl -H "Authorization: Bearer $TOKEN" $D/v1/version
+[{"config":"conductor.config/2","version":"<version>"}]
+```
+
 List the instances. A new daemon answers an empty list:
 
 ```console
@@ -372,6 +381,7 @@ What each call answered on a cluster:
 
 | call | status | body |
 |---|---|---|
+| `GET /v1/version` | `200` | `[{"config":"conductor.config/2","version":"<version>"}]`, one row, also before the first pass published |
 | `GET /v1/instances` | `200` | a list of rows, `[]` before the first add |
 | `POST /v1/instances` | `201` | `{"actor":"control-plane","commit":"","name":"alpha","revision":"<id>"}` |
 | `GET /v1/instances/alpha` | `200` | one row, below |

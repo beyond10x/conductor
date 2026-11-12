@@ -78,7 +78,7 @@ pub const STORE_BACKED: [&str; 30] = [
 
 /// The storage ports the store does not implement: the generated [`MemoryPorts`] answer them,
 /// and what a behaviour writes there lasts as long as the process.
-pub const MEMORY_BACKED: [&str; 18] = [
+pub const MEMORY_BACKED: [&str; 19] = [
     "conductor.agent.Agent",
     "conductor.agent.AgentKind",
     "conductor.instance.Instance",
@@ -96,6 +96,7 @@ pub const MEMORY_BACKED: [&str; 18] = [
     "conductor.observation.UsageObservation",
     "conductor.observation.WorkflowRunObservation",
     "conductor.placement.Placement",
+    "conductor.store.Build",
     "conductor.store.Store",
 ];
 
@@ -132,12 +133,26 @@ pub struct StorePorts {
 }
 
 impl StorePorts {
-    /// The ports over `store`, with an empty ephemeral store beside it.
+    /// The ports over `store`, with an ephemeral store beside it that holds one record: the
+    /// `conductor.store.Build` of this binary ([`crate::daemon::metrics::Build::this`]), which no
+    /// command writes, as `GET /v1/version` reads it.
     #[must_use]
     pub fn new(store: Store) -> Self {
+        let mut memory = MemoryPorts::default();
+        let build = crate::daemon::metrics::Build::this();
+        port::BuildStorage::put(
+            &mut memory,
+            m::store::BuildSnapshot {
+                state: m::store::BuildState::Built,
+                data: m::store::BuildData {
+                    version: m::store::BinaryVersion(build.version),
+                    config: build.config,
+                },
+            },
+        );
         Self {
             store: Rc::new(RefCell::new(store)),
-            memory: MemoryPorts::default(),
+            memory,
         }
     }
 
@@ -252,6 +267,7 @@ backed! { memory:
     UsageObservationStorage: m::observation::ObservationId => m::observation::UsageObservationSnapshot;
     WorkflowRunObservationStorage: m::observation::ObservationId => m::observation::WorkflowRunObservationSnapshot;
     PlacementStorage: m::placement::PlacementName => m::placement::PlacementSnapshot;
+    BuildStorage: m::store::BinaryVersion => m::store::BuildSnapshot;
     StoreStorage: m::store::StoreUrl => m::store::StoreSnapshot;
 }
 

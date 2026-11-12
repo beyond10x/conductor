@@ -2,7 +2,7 @@
 
 Written by `tests/api_parity.rs` (`CONDUCTOR_API_PARITY_BLESS=1`); compared line for line.
 
-Probes: 2 match, 27 differ, 13 unbound; 30 routes spec-only.
+Probes: 4 match, 27 differ, 13 unbound; 30 routes spec-only.
 
 | route | binding | probe | hand-written | generated | verdict |
 |---|---|---|---|---|---|
@@ -11,6 +11,7 @@ Probes: 2 match, 27 differ, 13 unbound; 30 routes spec-only.
 | `GET /v1/instances/{name}/tokens` | conductor.token.Tokens | read | `200 [1]` | `200 [1]` | differs (body) |
 | `GET /v1/instances/{name}/settings` | conductor.config.EffectiveSettings | read | `200 {errors,fields,file,index,instance,instances,repositories,writable}` | `501 {committed,refused}` | differs (status, body) |
 | `GET /readyz` | conductor.store.Readiness | read | `200 [1]` | `200 [0]` | differs (body) |
+| `GET /v1/version` | conductor.store.Version | read | `200 [1]` | `200 [1]` | match |
 | `PUT /v1/config` | conductor.config.PutConfig | client | `200 {actor,commit,instance,level,path,reason,revision_id,role,value}` | `400 {refused}` | differs (status, body, store) |
 | `PUT /v1/config` | conductor.config.PutConfig | spec | `400 {error}` | `501 {committed,refused}` | differs (status, body) |
 | `PUT /v1/config` | conductor.config.PutConfig | spec level-scope-mismatch | `400 {error}` | `422 {error,outcome,payload,published}` | differs (status, body) |
@@ -48,6 +49,7 @@ Probes: 2 match, 27 differ, 13 unbound; 30 routes spec-only.
 | `GET /v1/instances/{name}/tokens` | conductor.token.Tokens | read after the writes | `200 [1]` | `200 [1]` | differs (body) |
 | `GET /v1/instances/{name}/settings` | conductor.config.EffectiveSettings | read after the writes | `200 {errors,fields,file,index,instance,instances,repositories,writable}` | `501 {committed,refused}` | differs (status, body) |
 | `GET /readyz` | conductor.store.Readiness | read after the writes | `200 [1]` | `200 [0]` | differs (body) |
+| `GET /v1/version` | conductor.store.Version | read after the writes | `200 [1]` | `200 [1]` | match |
 | `GET /config/views/config-revisions` | derived (conductord); no hand-written route | - | `-` | `-` | spec-only |
 | `POST /instance/commands/observe` | derived (conductord); no hand-written route | - | `-` | `-` | spec-only |
 | `POST /instance/commands/purge` | derived (conductord); no hand-written route | - | `-` | `-` | spec-only |

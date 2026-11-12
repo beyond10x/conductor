@@ -8,7 +8,7 @@
     "x-ess-provenance": {
       "system": "conductor",
       "specification_version": "v1",
-      "contract_digest": "slice-sha256/2:a32d4f01bca421fd7ade0340306c5b74827c2053bb72007a4c9e21a48951c16e"
+      "contract_digest": "slice-sha256/2:e9a0424974df4b52c595bc23ac30c18a11b39b788a406f2deacf23dfda02da0f"
     },
     "x-ess-reached-by": "network"
   },
@@ -3294,6 +3294,32 @@
                 "schema": {
                   "items": {
                     "$ref": "#/components/schemas/conductor.secret.Secrets.Row"
+                  },
+                  "type": "array"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/version": {
+      "get": {
+        "operationId": "conductor.store.Version",
+        "x-ess-route-source": "binding",
+        "summary": "Version",
+        "tags": [
+          "store"
+        ],
+        "x-ess-consistency": "read_your_writes",
+        "responses": {
+          "200": {
+            "description": "Every row of `conductor.store.Version`, a projection of `conductor.store.Build`, as a bare JSON array, as the `ess-http/1` binding declares (`body: array`): no object around it.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/conductor.store.Version.Row"
                   },
                   "type": "array"
                 }
@@ -8199,6 +8225,12 @@
           "Postgres"
         ]
       },
+      "conductor.store.BinaryVersion": {
+        "title": "BinaryVersion",
+        "x-ess-name": "conductor.store.BinaryVersion",
+        "x-ess-kind": "newtype",
+        "type": "string"
+      },
       "conductor.store.InvalidEventCount.Error": {
         "title": "InvalidEventCount payload",
         "description": "A count of events copied is never negative, so no migration was recorded.",
@@ -8625,6 +8657,25 @@
         "x-ess-name": "conductor.store.StoreUrl",
         "x-ess-kind": "newtype",
         "type": "string"
+      },
+      "conductor.store.Version.Row": {
+        "title": "Version row",
+        "x-ess-name": "conductor.store.Version",
+        "x-ess-kind": "view-row",
+        "type": "object",
+        "properties": {
+          "version": {
+            "$ref": "#/components/schemas/conductor.store.BinaryVersion"
+          },
+          "config": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "version",
+          "config"
+        ],
+        "additionalProperties": false
       },
       "conductor.token.ContributeToken.Input": {
         "title": "Contribute a token to the pool input",
@@ -10660,6 +10711,44 @@
       "enum": [
         "Sqlite",
         "Postgres"
+      ]
+    },
+    "conductor.store.BinaryVersion": {
+      "title": "BinaryVersion",
+      "x-ess-name": "conductor.store.BinaryVersion",
+      "x-ess-kind": "newtype",
+      "type": "string"
+    },
+    "conductor.store.Build": {
+      "title": "Build",
+      "x-ess-name": "conductor.store.Build",
+      "x-ess-kind": "entity",
+      "type": "object",
+      "properties": {
+        "version": {
+          "$ref": "#/x-ess-entities/conductor.store.BinaryVersion"
+        },
+        "config": {
+          "type": "string"
+        },
+        "state": {
+          "$ref": "#/x-ess-entities/conductor.store.Build.State"
+        }
+      },
+      "required": [
+        "version",
+        "config",
+        "state"
+      ],
+      "additionalProperties": false
+    },
+    "conductor.store.Build.State": {
+      "title": "State",
+      "x-ess-name": "conductor.store.Build.State",
+      "x-ess-kind": "enum",
+      "type": "string",
+      "enum": [
+        "Built"
       ]
     },
     "conductor.store.Migration": {

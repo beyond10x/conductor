@@ -1,5 +1,5 @@
 // generated from conductor v1
-// contract digest 1f04a7d0d2bb5b91ad54e66b6f1ac741da244950e54533796fb9f94fa55b33df
+// contract digest b817c831ddcdf9949972f6a946145799d67909f4f14e497f4a16667b7861cfad
 // do not edit: regenerate with `ess synthesize --layout crate`
 //! Every generated declaration, as JSON, in the renderings the published wire contracts fix.
 //!
@@ -11714,6 +11714,39 @@ pub fn decode_conductor_store_backend(value: &json::Value, at: &str) -> Result<c
     })
 }
 
+/// Writes `conductor.store.BinaryVersion` as JSON.
+pub fn encode_conductor_store_binary_version(value: &crate::store::BinaryVersion, out: &mut String) {
+    json::push_text(out, &value.0);
+}
+
+/// Reads `conductor.store.BinaryVersion` from JSON.
+///
+/// # Errors
+///
+/// [`json::DecodeError`] naming the path and what the declaration says belongs there.
+pub fn decode_conductor_store_binary_version(value: &json::Value, at: &str) -> Result<crate::store::BinaryVersion, json::DecodeError> {
+    Ok(crate::store::BinaryVersion(json::text_at(value, at, "a string")?.to_owned()))
+}
+
+/// Writes `conductor.store.Build.State` as JSON.
+pub fn encode_conductor_store_build_state(value: &crate::store::BuildState, out: &mut String) {
+    match value {
+        crate::store::BuildState::Built => json::push_text(out, "Built"),
+    }
+}
+
+/// Reads `conductor.store.Build.State` from JSON.
+///
+/// # Errors
+///
+/// [`json::DecodeError`] naming the path and what the declaration says belongs there.
+pub fn decode_conductor_store_build_state(value: &json::Value, at: &str) -> Result<crate::store::BuildState, json::DecodeError> {
+    Ok(match json::text_at(value, at, "one of `Built`")? {
+        "Built" => crate::store::BuildState::Built,
+        other => return Err(json::DecodeError { at: at.to_owned(), expected: "one of `Built`".to_owned(), found: format!("`{other}`") }),
+    })
+}
+
 /// Writes `conductor.store.Migration.State` as JSON.
 pub fn encode_conductor_store_migration_state(value: &crate::store::MigrationState, out: &mut String) {
     match value {
@@ -20445,6 +20478,16 @@ pub fn encode_view_conductor_store_store_status(value: &crate::store::StoreStatu
         json::push_integer(out, *item0);
     }
     out.push('}');
+    out.push('}');
+}
+
+/// Writes one row of the view `conductor.store.Version` as JSON.
+pub fn encode_view_conductor_store_version(value: &crate::store::Version, out: &mut String) {
+    out.push('{');
+    json::member(out, "version");
+    encode_conductor_store_binary_version(&value.version, out);
+    json::member(out, "config");
+    json::push_text(out, &value.config);
     out.push('}');
 }
 
