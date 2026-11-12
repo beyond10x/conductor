@@ -1,5 +1,5 @@
 // generated from conductor v1
-// contract digest b817c831ddcdf9949972f6a946145799d67909f4f14e497f4a16667b7861cfad
+// contract digest 3ecaf75891d0174f1aadd06ecb145177f190b67bde1ebf99b046b751e53c6775
 // do not edit: regenerate with `ess synthesize --layout crate`
 //! Every generated declaration, as JSON, in the renderings the published wire contracts fix.
 //!
@@ -10557,6 +10557,39 @@ pub fn decode_conductor_placement_remote_daemon(value: &json::Value, at: &str) -
     })
 }
 
+/// Writes `conductor.secret.InstanceSecret.State` as JSON.
+pub fn encode_conductor_secret_instance_secret_state(value: &crate::secret::InstanceSecretState, out: &mut String) {
+    match value {
+        crate::secret::InstanceSecretState::Derived => json::push_text(out, "Derived"),
+    }
+}
+
+/// Reads `conductor.secret.InstanceSecret.State` from JSON.
+///
+/// # Errors
+///
+/// [`json::DecodeError`] naming the path and what the declaration says belongs there.
+pub fn decode_conductor_secret_instance_secret_state(value: &json::Value, at: &str) -> Result<crate::secret::InstanceSecretState, json::DecodeError> {
+    Ok(match json::text_at(value, at, "one of `Derived`")? {
+        "Derived" => crate::secret::InstanceSecretState::Derived,
+        other => return Err(json::DecodeError { at: at.to_owned(), expected: "one of `Derived`".to_owned(), found: format!("`{other}`") }),
+    })
+}
+
+/// Writes `conductor.secret.InstanceSecretKey` as JSON.
+pub fn encode_conductor_secret_instance_secret_key(value: &crate::secret::InstanceSecretKey, out: &mut String) {
+    json::push_text(out, &value.0);
+}
+
+/// Reads `conductor.secret.InstanceSecretKey` from JSON.
+///
+/// # Errors
+///
+/// [`json::DecodeError`] naming the path and what the declaration says belongs there.
+pub fn decode_conductor_secret_instance_secret_key(value: &json::Value, at: &str) -> Result<crate::secret::InstanceSecretKey, json::DecodeError> {
+    Ok(crate::secret::InstanceSecretKey(json::text_at(value, at, "a string")?.to_owned()))
+}
+
 /// Writes `conductor.secret.Namespace` as JSON.
 pub fn encode_conductor_secret_namespace(value: &crate::secret::Namespace, out: &mut String) {
     json::push_text(out, &value.0);
@@ -20329,6 +20362,39 @@ pub fn encode_view_conductor_placement_placements(value: &crate::placement::Plac
     json::member(out, "profile");
     encode_conductor_placement_box_profile(&value.profile, out);
     out.push('}');
+}
+
+/// Writes one row of the view `conductor.secret.InstanceSecrets` as JSON.
+pub fn encode_view_conductor_secret_instance_secrets(value: &crate::secret::InstanceSecrets, out: &mut String) {
+    out.push('{');
+    json::member(out, "instance");
+    encode_conductor_config_instance_name(&value.instance, out);
+    json::member(out, "key");
+    json::push_text(out, &value.key);
+    json::member(out, "secret");
+    encode_conductor_secret_secret_name(&value.secret, out);
+    json::member(out, "set");
+    json::push_bool(out, value.set);
+    if let Some(held0) = &value.modified_at {
+        json::member(out, "modified_at");
+        json::push_text(out, &(*held0).0);
+    }
+    out.push('}');
+}
+
+/// Reads the parameters of `conductor.secret.InstanceSecrets` from an object keyed by their wire names.
+///
+/// # Errors
+///
+/// [`json::DecodeError`] naming the parameter and what the declaration says belongs there.
+pub fn decode_params_conductor_secret_instance_secrets(value: &json::Value, at: &str) -> Result<(crate::config::InstanceName,), json::DecodeError> {
+    Ok((
+        {
+            let at0 = json::nested(at, "instance");
+            let member0 = json::member_at(value, at, "instance")?;
+            decode_conductor_config_instance_name(member0, &at0)?
+        },
+    ))
 }
 
 /// Writes one row of the view `conductor.secret.Secrets` as JSON.

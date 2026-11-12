@@ -2,8 +2,8 @@
   "provenance": {
     "system": "conductor",
     "specification_version": "v1",
-    "source_digest": "52a7f6c4e804b2f46668a26ed995e45421b9e4b09d0f3f227625ffe57e7a79cb",
-    "contract_digest": "b817c831ddcdf9949972f6a946145799d67909f4f14e497f4a16667b7861cfad"
+    "source_digest": "1a2eae4d2a40e1389b5885650173f9608c79ba878ae64aad96e08144f86aa4cc",
+    "contract_digest": "3ecaf75891d0174f1aadd06ecb145177f190b67bde1ebf99b046b751e53c6775"
   },
   "scope": {
     "profile": "component-skeletons",
@@ -1958,6 +1958,20 @@
     },
     {
       "kind": "domain_type",
+      "source": "conductor.secret.InstanceSecret.State",
+      "disposition": {
+        "disposition": "generated"
+      }
+    },
+    {
+      "kind": "domain_type",
+      "source": "conductor.secret.InstanceSecretKey",
+      "disposition": {
+        "disposition": "generated"
+      }
+    },
+    {
+      "kind": "domain_type",
       "source": "conductor.secret.Namespace",
       "disposition": {
         "disposition": "generated"
@@ -2722,6 +2736,13 @@
     {
       "kind": "entity_lifecycle",
       "source": "conductor.placement.Placement",
+      "disposition": {
+        "disposition": "generated"
+      }
+    },
+    {
+      "kind": "entity_lifecycle",
+      "source": "conductor.secret.InstanceSecret",
       "disposition": {
         "disposition": "generated"
       }
@@ -6667,6 +6688,25 @@
       "source": "conductor.placement.Placements",
       "disposition": {
         "disposition": "generated"
+      }
+    },
+    {
+      "kind": "view_type",
+      "source": "conductor.secret.InstanceSecrets",
+      "disposition": {
+        "disposition": "generated"
+      }
+    },
+    {
+      "kind": "view_query",
+      "source": "conductor.secret.InstanceSecrets",
+      "disposition": {
+        "disposition": "obligation",
+        "reason": {
+          "class": "undetermined",
+          "construct": "a view parameter (`params:`), which a generated query does not apply"
+        },
+        "contract": "a query answering `conductor.secret.InstanceSecrets` with rows projected from `conductor.secret.InstanceSecret` at `read_your_writes` consistency, containing instances where `instance == param.instance`"
       }
     },
     {

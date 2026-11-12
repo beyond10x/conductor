@@ -219,7 +219,7 @@ pub fn daemon_serve(
         .with_timeout(Duration::from_secs(
             config::seconds(&written.daemon.timeout).unwrap_or(config::FEDERATED_TIMEOUT),
         ))
-        .with_secrets(written.daemon.secrets.source)
+        .with_secrets(&written.daemon)
         .with_control_token(
             written.daemon.secrets.clone(),
             written.daemon.control_token.clone(),

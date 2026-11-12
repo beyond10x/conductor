@@ -1,5 +1,5 @@
 // generated from conductor v1
-// contract digest b817c831ddcdf9949972f6a946145799d67909f4f14e497f4a16667b7861cfad
+// contract digest 3ecaf75891d0174f1aadd06ecb145177f190b67bde1ebf99b046b751e53c6775
 // do not edit: regenerate with `ess synthesize --layout crate`
 
 //! The transport-free entry point's refusals.

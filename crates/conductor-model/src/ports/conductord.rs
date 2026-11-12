@@ -1,5 +1,5 @@
 // generated from conductor v1
-// contract digest b817c831ddcdf9949972f6a946145799d67909f4f14e497f4a16667b7861cfad
+// contract digest 3ecaf75891d0174f1aadd06ecb145177f190b67bde1ebf99b046b751e53c6775
 // do not edit: regenerate with `ess synthesize --layout crate`
 
 //! conductord — the `conductord` component of `conductor` v1.
@@ -101,7 +101,7 @@ impl<B> Conductord<B> {
 
 impl<B> Conductord<B>
 where
-    B: crate::config::obligations::AddInstanceBehavior + crate::config::obligations::PutConfigBehavior + crate::config::obligations::PutInstanceBehavior + crate::config::obligations::RemoveInstanceBehavior + crate::instance::obligations::ObserveInstanceBehavior + crate::instance::obligations::PurgeInstanceBehavior + crate::instance::obligations::ReconcileBehavior + crate::instance::obligations::RestartInstanceBehavior + crate::instance::obligations::StartInstanceBehavior + crate::instance::obligations::StopInstanceBehavior + crate::instance::obligations::UpgradeInstanceBehavior + crate::operator::obligations::JoinInstanceBehavior + crate::operator::obligations::LeaveInstanceBehavior + crate::placement::obligations::CloseBoxBehavior + crate::placement::obligations::OpenBoxBehavior + crate::secret::obligations::PutSecretBehavior + crate::secret::obligations::ResolveSecretsBehavior + crate::store::obligations::MigrateStoreBehavior + crate::token::obligations::ContributeTokenBehavior + crate::token::obligations::LeaseTokenBehavior + crate::token::obligations::MarkTokenLimitedBehavior + crate::token::obligations::ReleaseTokenBehavior + crate::token::obligations::WithdrawTokenBehavior + crate::config::obligations::ConfigRevisionsQuery + crate::config::obligations::EffectiveSettingsQuery + crate::instance::obligations::InstanceByNameQuery + crate::instance::obligations::InstancesQuery + crate::instance::obligations::ReconciliationsQuery + crate::operator::obligations::OperatorsQuery + crate::placement::obligations::BoxRefusalsQuery + crate::placement::obligations::BoxesQuery + crate::placement::obligations::PlacementsQuery + crate::secret::obligations::SecretsQuery + crate::store::obligations::MigrationsQuery + crate::store::obligations::ReadinessQuery + crate::store::obligations::StoreStatusQuery + crate::store::obligations::VersionQuery + crate::token::obligations::TokensQuery,
+    B: crate::config::obligations::AddInstanceBehavior + crate::config::obligations::PutConfigBehavior + crate::config::obligations::PutInstanceBehavior + crate::config::obligations::RemoveInstanceBehavior + crate::instance::obligations::ObserveInstanceBehavior + crate::instance::obligations::PurgeInstanceBehavior + crate::instance::obligations::ReconcileBehavior + crate::instance::obligations::RestartInstanceBehavior + crate::instance::obligations::StartInstanceBehavior + crate::instance::obligations::StopInstanceBehavior + crate::instance::obligations::UpgradeInstanceBehavior + crate::operator::obligations::JoinInstanceBehavior + crate::operator::obligations::LeaveInstanceBehavior + crate::placement::obligations::CloseBoxBehavior + crate::placement::obligations::OpenBoxBehavior + crate::secret::obligations::PutSecretBehavior + crate::secret::obligations::ResolveSecretsBehavior + crate::store::obligations::MigrateStoreBehavior + crate::token::obligations::ContributeTokenBehavior + crate::token::obligations::LeaseTokenBehavior + crate::token::obligations::MarkTokenLimitedBehavior + crate::token::obligations::ReleaseTokenBehavior + crate::token::obligations::WithdrawTokenBehavior + crate::config::obligations::ConfigRevisionsQuery + crate::config::obligations::EffectiveSettingsQuery + crate::instance::obligations::InstanceByNameQuery + crate::instance::obligations::InstancesQuery + crate::instance::obligations::ReconciliationsQuery + crate::operator::obligations::OperatorsQuery + crate::placement::obligations::BoxRefusalsQuery + crate::placement::obligations::BoxesQuery + crate::placement::obligations::PlacementsQuery + crate::secret::obligations::InstanceSecretsQuery + crate::secret::obligations::SecretsQuery + crate::store::obligations::MigrationsQuery + crate::store::obligations::ReadinessQuery + crate::store::obligations::StoreStatusQuery + crate::store::obligations::VersionQuery + crate::token::obligations::TokensQuery,
 {
     /// Accepts `conductor.config.AddInstance`: runs the behaviour obligation, then publishes the declared events
     /// the outcome carries.
@@ -570,6 +570,11 @@ where
     /// Serves `conductor.placement.Placements` at `read_your_writes` consistency, from the owed projection.
     pub fn placements(&self) -> Result<Vec<crate::placement::Placements>, crate::obligation::UnmetObligation> {
         self.behaviors.placements()
+    }
+
+    /// Serves `conductor.secret.InstanceSecrets` at `read_your_writes` consistency, from the owed projection.
+    pub fn instance_secrets(&self, instance: crate::config::InstanceName) -> Result<Vec<crate::secret::InstanceSecrets>, crate::obligation::UnmetObligation> {
+        self.behaviors.instance_secrets(instance)
     }
 
     /// Serves `conductor.secret.Secrets` at `read_your_writes` consistency, from the owed projection.

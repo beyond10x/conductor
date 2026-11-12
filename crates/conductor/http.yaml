@@ -1,5 +1,5 @@
 type: ess-http/1
-specification: {system: conductor, version: v1, source_digest: "sha256:52a7f6c4e804b2f46668a26ed995e45421b9e4b09d0f3f227625ffe57e7a79cb"}
+specification: {system: conductor, version: v1, source_digest: "sha256:1a2eae4d2a40e1389b5885650173f9608c79ba878ae64aad96e08144f86aa4cc"}
 routes:
   - command: conductor.config.PutConfig
     method: put
@@ -72,6 +72,11 @@ routes:
   - view: conductor.token.Tokens
     method: get
     path: /v1/instances/{instance}/tokens
+    parameters: {instance: param.instance}
+    body: array
+  - view: conductor.secret.InstanceSecrets
+    method: get
+    path: /v1/instances/{instance}/secrets
     parameters: {instance: param.instance}
     body: array
   - view: conductor.config.EffectiveSettings

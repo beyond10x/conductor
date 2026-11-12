@@ -37,6 +37,10 @@
 //!   pool, the daemon's own routes ([`crate::token`], `story:token-pool`); a join or a leave is a
 //!   write of the `Join` grant, refused `409` for a daemon that runs its instances as pods
 //!   ([`Api::with_pods`]).
+//! - `GET /v1/instances/{name}/secrets`: for each key of the instance's mapping that names a
+//!   secret, whether the daemon's secrets source holds it, never a value; the daemon's own route,
+//!   read from its config file and its source at each call ([`crate::secret::instance_view`],
+//!   `story:instance-secret-state`).
 //!
 //! The control token (decision D2, [`Api::with_control_token`]): while the file names one
 //! (`daemon.control_token: secret:<name>`), a request on either listener whose bearer equals its
@@ -73,7 +77,7 @@
 //! implied by the Unix user on a single host. The write is forwarded with the operator in
 //! `X-Conductor-Operator`, and the instance records it as that operator's.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::fs;
 use std::io::{self, Read, Write};
 use std::net::{Shutdown, SocketAddr, TcpListener, TcpStream};
@@ -289,8 +293,12 @@ pub struct Api {
     timeout: Duration,
     /// When each instance last answered a federated read, RFC 3339.
     answered: Mutex<BTreeMap<String, String>>,
-    /// The secrets source a name only the config writes is listed with.
-    secrets: Source,
+    /// The secrets source `daemon.secrets` names: `GET /v1/secrets` lists a name only the config
+    /// writes with its kind, and `GET /v1/instances/{name}/secrets` reads it at each call.
+    secrets: SecretsSource,
+    /// The names no instance's `GET /v1/instances/{name}/secrets` lists
+    /// ([`crate::secret::withheld`]).
+    withheld: BTreeSet<String>,
     /// The host roles `globals.roles` lists, and the supervisor's session while it runs
     /// (`story:host-roles-by-daemon`); none before the reconciler published them.
     hosts: Mutex<Option<(Vec<String>, Option<Supervisor>)>>,
@@ -333,7 +341,13 @@ impl Api {
             config: None,
             timeout: Duration::from_secs(crate::config::FEDERATED_TIMEOUT),
             answered: Mutex::new(BTreeMap::new()),
-            secrets: Source::Keychain,
+            secrets: SecretsSource {
+                source: Source::Keychain,
+                namespace: None,
+                url: None,
+                dir: None,
+            },
+            withheld: BTreeSet::new(),
             hosts: Mutex::new(None),
             deliver: Arc::new(super::host_roles::deliver),
             probes: super::metrics::Probes::default(),
@@ -550,11 +564,14 @@ impl Api {
         self
     }
 
-    /// The API with `source`, the secrets source `GET /v1/secrets` names for a name only the
-    /// config writes (`daemon.secrets.source`).
+    /// The API with the secrets source of `daemon`, the section the daemon started with
+    /// (`daemon.secrets`): `GET /v1/secrets` names its kind for a name only the config writes,
+    /// and `GET /v1/instances/{name}/secrets` reads it, listing none of the names
+    /// [`crate::secret::withheld`] gives for the section.
     #[must_use]
-    pub const fn with_secrets(mut self, source: Source) -> Self {
-        self.secrets = source;
+    pub fn with_secrets(mut self, daemon: &conductor_model::config::Daemon) -> Self {
+        self.secrets = daemon.secrets.clone();
+        self.withheld = crate::secret::withheld(daemon);
         self
     }
 
@@ -1103,6 +1120,20 @@ fn answer<S: Read + Write>(
             listener,
         );
     };
+    // story:instance-secret-state: whether the secrets the instance names are set is read from
+    // the daemon's own config file and its own source, never from the runtime's copy of them.
+    if route == INSTANCE_SECRETS {
+        if request.method != "GET" {
+            return reply(
+                405,
+                "Method Not Allowed",
+                &json!({"error": format!("{path} answers GET only")}),
+                listener,
+            );
+        }
+        let (code, reason, answer) = instance_secrets(api, name);
+        return reply(code, reason, &answer, listener);
+    }
     // story:token-pool: the instance's token pool is the daemon's own.
     if TOKEN_ROUTES.contains(&route) {
         return pool(request, stream, listener, &who, api, name, route);
@@ -1198,6 +1229,62 @@ fn answer<S: Read + Write>(
                 "state": "Unreachable",
             }),
             listener,
+        ),
+    }
+}
+
+/// The route word of `GET /v1/instances/{name}/secrets` (`story:instance-secret-state`,
+/// `conductor.secret.InstanceSecrets`).
+const INSTANCE_SECRETS: &str = "secrets";
+
+/// `GET /v1/instances/{name}/secrets`: the rows of [`crate::secret::instance_view`] over the
+/// daemon's config file, read at this call, and the secrets source it started with, never a
+/// value. Admitted as `GET /v1/instances/{name}` is, the control token included. `404`
+/// `conductor.instance.UnknownInstance` for a name the file does not hold, `503`
+/// `conductor.secret.SourceUnreachable` while the source does not answer, and `503` when the
+/// daemon was given no config file.
+fn instance_secrets(api: &Api, name: &str) -> (u16, &'static str, Value) {
+    use crate::secret::Unanswered;
+    let Some(target) = &api.config else {
+        return (
+            503,
+            "Service Unavailable",
+            json!({"error": "this daemon was given no config file to read"}),
+        );
+    };
+    let text = match fs::read_to_string(&target.file) {
+        Ok(text) => text,
+        Err(error) => {
+            return (
+                500,
+                "Internal Server Error",
+                json!({"error": format!("read {}: {error}", target.file.display())}),
+            );
+        }
+    };
+    match crate::secret::instance_view(&api.secrets, &text, name, &api.withheld) {
+        Ok(Some(rows)) => (200, "OK", serde_json::to_value(rows).unwrap_or_default()),
+        Ok(None) => (
+            404,
+            "Not Found",
+            json!({"error": "conductor.instance.UnknownInstance", "name": name}),
+        ),
+        Err(Unanswered::Unreachable(error)) => (
+            503,
+            "Service Unavailable",
+            json!({
+                "error": "conductor.secret.SourceUnreachable",
+                "source": format!("{:?}", error.source),
+            }),
+        ),
+        Err(Unanswered::Unusable(unusable)) => (
+            503,
+            "Service Unavailable",
+            json!({
+                "error": "conductor.secret.SourceUnusable",
+                "source": format!("{:?}", unusable.error.source),
+                "detail": unusable.to_string(),
+            }),
         ),
     }
 }
@@ -2103,7 +2190,7 @@ fn secrets(api: &Api) -> (u16, &'static str, Value) {
         Ok(store) => store,
         Err(error) => return failed(error),
     };
-    let rows = crate::secret::view(&store, &text, api.secrets);
+    let rows = crate::secret::view(&store, &text, api.secrets.source);
     (200, "OK", serde_json::to_value(rows).unwrap_or_default())
 }
 

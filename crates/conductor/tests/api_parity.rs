@@ -459,6 +459,11 @@ fn probes() -> Vec<Probe> {
                 instance("settings"),
             ),
             read(
+                "GET /v1/instances/{name}/secrets",
+                Binding::Bound("conductor.secret.InstanceSecrets"),
+                instance("secrets"),
+            ),
+            read(
                 "GET /readyz",
                 Binding::Bound("conductor.store.Readiness"),
                 "/readyz".to_owned(),

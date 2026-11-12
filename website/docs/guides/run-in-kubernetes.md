@@ -365,6 +365,23 @@ curl -X PUT -H "Authorization: Bearer $TOKEN" -H 'content-type: application/json
   $D/v1/instances/alpha
 ```
 
+Read whether the secrets one names are set:
+
+```console
+curl -H "Authorization: Bearer $TOKEN" $D/v1/instances/alpha/secrets
+[{"instance":"alpha","key":"model_token","modified_at":"2026-11-12T03:29:10Z","secret":"model-token","set":true}]
+```
+
+One row per key of the mapping that names a `secret:<name>`, and per key under `globals` that
+does: `key` is the key's YAML path, relative to the instance's entry or starting with `globals.`,
+`secret` the name, and `set` whether the daemon's secrets source holds a value under it as the
+instance's start reads it, so an empty file reads `false`. Two keys that name one secret are two
+rows. `modified_at` is the file's modification time, for a set secret of a `files` source only.
+No row carries a value, a length or a digest. The rows list what the mapping names, not the
+daemon's own secrets and not the secrets of the `daemon.kubernetes.env` entries, which the daemon
+gives to pods itself. The daemon reads its source at each call: a key added to its mounted
+Secret reads `set: true` once the kubelet has updated the mount, without a restart.
+
 Restart one:
 
 ```console
@@ -386,6 +403,7 @@ What each call answered on a cluster:
 | `POST /v1/instances` | `201` | `{"actor":"control-plane","commit":"","name":"alpha","revision":"<id>"}` |
 | `GET /v1/instances/alpha` | `200` | one row, below |
 | `PUT /v1/instances/alpha` | `200` | as for `POST` |
+| `GET /v1/instances/alpha/secrets` | `200` | one row per key that names a secret, above; `404` `conductor.instance.UnknownInstance` for a name the daemon's file does not hold, `503` `conductor.secret.SourceUnreachable` while the source does not answer |
 | `POST /v1/instances/alpha/restart` | `202` | `{"action":"Restart","actor":"control-plane","name":"alpha","result":"Succeeded"}` |
 | `DELETE /v1/instances/alpha` | `200` | as for `POST` |
 

@@ -8,7 +8,7 @@
     "x-ess-provenance": {
       "system": "conductor",
       "specification_version": "v1",
-      "contract_digest": "slice-sha256/2:e9a0424974df4b52c595bc23ac30c18a11b39b788a406f2deacf23dfda02da0f"
+      "contract_digest": "slice-sha256/2:8d73e108483917c190ebe9c6e0bb975998e3aa8880064cc621ee57a41850b67d"
     },
     "x-ess-reached-by": "network"
   },
@@ -2301,6 +2301,43 @@
               }
             },
             "x-ess-outcomes": []
+          }
+        }
+      }
+    },
+    "/v1/instances/{instance}/secrets": {
+      "get": {
+        "operationId": "conductor.secret.InstanceSecrets",
+        "x-ess-route-source": "binding",
+        "summary": "Instance secrets",
+        "tags": [
+          "secret"
+        ],
+        "x-ess-consistency": "read_your_writes",
+        "parameters": [
+          {
+            "name": "instance",
+            "in": "path",
+            "description": "Read by the view's filter as `param.instance`; carried in the path rather than the query.",
+            "required": true,
+            "schema": {
+              "$ref": "#/components/schemas/conductor.config.InstanceName"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Every row of `conductor.secret.InstanceSecrets`, a projection of `conductor.secret.InstanceSecret`, as a bare JSON array, as the `ess-http/1` binding declares (`body: array`): no object around it.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/conductor.secret.InstanceSecrets.Row"
+                  },
+                  "type": "array"
+                }
+              }
+            }
           }
         }
       }
@@ -7603,6 +7640,37 @@
         ],
         "additionalProperties": false
       },
+      "conductor.secret.InstanceSecrets.Row": {
+        "title": "Instance secrets row",
+        "x-ess-name": "conductor.secret.InstanceSecrets",
+        "x-ess-kind": "view-row",
+        "type": "object",
+        "properties": {
+          "instance": {
+            "$ref": "#/components/schemas/conductor.config.InstanceName"
+          },
+          "key": {
+            "type": "string"
+          },
+          "secret": {
+            "$ref": "#/components/schemas/conductor.secret.SecretName"
+          },
+          "set": {
+            "type": "boolean"
+          },
+          "modified_at": {
+            "type": "string",
+            "format": "date-time"
+          }
+        },
+        "required": [
+          "instance",
+          "key",
+          "secret",
+          "set"
+        ],
+        "additionalProperties": false
+      },
       "conductor.secret.PutSecret.Input": {
         "title": "Put a secret into the keychain input",
         "x-ess-name": "conductor.secret.PutSecret",
@@ -10615,6 +10683,60 @@
         "server_identity"
       ],
       "additionalProperties": false
+    },
+    "conductor.secret.InstanceSecret": {
+      "title": "InstanceSecret",
+      "x-ess-name": "conductor.secret.InstanceSecret",
+      "x-ess-kind": "entity",
+      "type": "object",
+      "properties": {
+        "secret_key": {
+          "$ref": "#/x-ess-entities/conductor.secret.InstanceSecretKey"
+        },
+        "instance": {
+          "$ref": "#/x-ess-entities/conductor.config.InstanceName"
+        },
+        "key": {
+          "type": "string"
+        },
+        "secret": {
+          "$ref": "#/x-ess-entities/conductor.secret.SecretName"
+        },
+        "set": {
+          "type": "boolean"
+        },
+        "modified_at": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "state": {
+          "$ref": "#/x-ess-entities/conductor.secret.InstanceSecret.State"
+        }
+      },
+      "required": [
+        "secret_key",
+        "instance",
+        "key",
+        "secret",
+        "set",
+        "state"
+      ],
+      "additionalProperties": false
+    },
+    "conductor.secret.InstanceSecret.State": {
+      "title": "State",
+      "x-ess-name": "conductor.secret.InstanceSecret.State",
+      "x-ess-kind": "enum",
+      "type": "string",
+      "enum": [
+        "Derived"
+      ]
+    },
+    "conductor.secret.InstanceSecretKey": {
+      "title": "InstanceSecretKey",
+      "x-ess-name": "conductor.secret.InstanceSecretKey",
+      "x-ess-kind": "newtype",
+      "type": "string"
     },
     "conductor.secret.Namespace": {
       "title": "Namespace",

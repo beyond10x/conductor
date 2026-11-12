@@ -259,6 +259,8 @@ pub struct Secrets {
     storage: FederatedStorage,
     scope: Scope,
     sample: Option<Arc<keyring_core::sample::Store>>,
+    /// The directory of the `files` source, which a file's modification time is read in.
+    dir: Option<std::path::PathBuf>,
 }
 
 impl fmt::Debug for Secrets {
@@ -374,6 +376,8 @@ fn with_backend(
             user: ScopeName::default_name(),
         },
         sample,
+        dir: (config.source == Source::Files)
+            .then(|| std::path::PathBuf::from(config.dir.clone().unwrap_or_default())),
     })
 }
 
@@ -467,6 +471,20 @@ impl Secrets {
             }
         }
         Ok(missing)
+    }
+
+    /// When the file of `name` last changed, RFC 3339, for the `files` source; none for another
+    /// source or a file whose time cannot be read. The time is the file's a link names, as a
+    /// mounted Kubernetes Secret's keys are links into its `..data` directory.
+    #[must_use]
+    pub fn modified_at(&self, name: &SecretName) -> Option<String> {
+        let dir = self.dir.as_ref()?;
+        // A name the crates accept is `/`-separated segments under the directory.
+        StoredName::parse(&name.0).ok()?;
+        let modified = fs::metadata(dir.join(&name.0)).ok()?.modified().ok()?;
+        time::OffsetDateTime::from(modified)
+            .format(&time::format_description::well_known::Rfc3339)
+            .ok()
     }
 
     /// `conductor.secret.ResolveSecrets` (module documentation). No value leaves this function
@@ -739,16 +757,46 @@ fn named(text: &str) -> Option<&str> {
         .flatten()
 }
 
-fn collect(value: &Yaml, into: &mut BTreeSet<String>) {
+/// One key of an instance's effective config that names a secret ([`keyed`]): the key's YAML
+/// path, as validation writes one, and the name it writes after `secret:`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Named {
+    /// The key's YAML path, relative to the instance's entry (`model_token`,
+    /// `roles[0].model_token`), or starting with `globals.` for a key under `globals`. A key that
+    /// looks like a token is not written into it.
+    pub key: String,
+    /// The secret's name.
+    pub secret: String,
+}
+
+/// Each `secret:<name>` under `value`, at `path`, into `into`, in the order the file writes them.
+fn collect(value: &Yaml, path: &str, into: &mut Vec<Named>) {
     match value {
         Yaml::String(text) => {
             if let Some(name) = named(text) {
-                into.insert(name.to_owned());
+                into.push(Named {
+                    key: path.to_owned(),
+                    secret: name.to_owned(),
+                });
             }
         }
-        Yaml::Sequence(items) => items.iter().for_each(|item| collect(item, into)),
-        Yaml::Mapping(map) => map.values().for_each(|item| collect(item, into)),
-        Yaml::Tagged(tagged) => collect(&tagged.value, into),
+        Yaml::Sequence(items) => {
+            for (index, item) in items.iter().enumerate() {
+                collect(item, &format!("{path}[{index}]"), into);
+            }
+        }
+        Yaml::Mapping(map) => {
+            for (key, item) in map {
+                let key = match key {
+                    Yaml::String(key) => key.clone(),
+                    Yaml::Number(key) => key.to_string(),
+                    Yaml::Bool(key) => key.to_string(),
+                    _ => "?".to_owned(),
+                };
+                collect(item, &crate::config::join(path, &key), into);
+            }
+        }
+        Yaml::Tagged(tagged) => collect(&tagged.value, path, into),
         _ => {}
     }
 }
@@ -789,16 +837,28 @@ pub fn daemons_forge(daemon: &conductor_model::config::Daemon) -> BTreeSet<Strin
 }
 
 /// Every `secret:<name>` each instance's effective config writes, by instance: the names under
-/// `globals` and under the instance's own entry. The daemon's own (`daemon.*`) are no
-/// instance's. A text that is no YAML names none.
+/// `globals` and under the instance's own entry ([`keyed`]). The daemon's own (`daemon.*`) are
+/// no instance's. A text that is no YAML names none.
 #[must_use]
 pub fn referenced(text: &str) -> BTreeMap<String, BTreeSet<String>> {
+    keyed(text)
+        .into_iter()
+        .map(|(instance, keys)| (instance, keys.into_iter().map(|key| key.secret).collect()))
+        .collect()
+}
+
+/// Every key of each instance's effective config that names a secret, by instance, with its
+/// YAML path: the keys of the instance's own entry, then those under `globals`, each in the
+/// order the file writes them. Their names are [`referenced`]'s. A text that is no YAML names
+/// none.
+#[must_use]
+pub fn keyed(text: &str) -> BTreeMap<String, Vec<Named>> {
     let Ok(file) = serde_yaml::from_str::<Yaml>(text) else {
         return BTreeMap::new();
     };
-    let mut global = BTreeSet::new();
+    let mut global = Vec::new();
     if let Some(globals) = file.get("globals") {
-        collect(globals, &mut global);
+        collect(globals, "globals", &mut global);
     }
     let mut by_instance = BTreeMap::new();
     for instance in file
@@ -810,11 +870,102 @@ pub fn referenced(text: &str) -> BTreeMap<String, BTreeSet<String>> {
         let Some(name) = instance.get("name").and_then(Yaml::as_str) else {
             continue;
         };
-        let mut names = global.clone();
-        collect(instance, &mut names);
-        by_instance.insert(name.to_owned(), names);
+        let mut keys = Vec::new();
+        collect(instance, "", &mut keys);
+        keys.extend(global.iter().cloned());
+        by_instance.insert(name.to_owned(), keys);
     }
     by_instance
+}
+
+/// The names no instance's row lists ([`instance_view`]): the daemon's own ([`daemons_own`])
+/// and those of its forge tokens ([`daemons_forge`]). Validation refuses an instance or
+/// `globals` that names one; a file written before that rule still lists none of them.
+#[must_use]
+pub fn withheld(daemon: &conductor_model::config::Daemon) -> BTreeSet<String> {
+    let mut names = daemons_own(daemon);
+    names.extend(daemons_forge(daemon));
+    names
+}
+
+/// One row of `GET /v1/instances/{instance}/secrets` (`conductor.secret.InstanceSecrets`,
+/// [`instance_view`]): one key of the instance's effective config that names a secret, the
+/// secret's name, whether the source holds a value under it, and when its file last changed.
+/// Never a value, a length or a digest.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct InstanceSecretRow {
+    /// The instance.
+    pub instance: String,
+    /// The key's YAML path ([`Named::key`]).
+    pub key: String,
+    /// The name the key writes after `secret:`.
+    pub secret: String,
+    /// Whether the source holds a value under the name, as an instance's start reads it
+    /// ([`Secrets::missing`]): an empty file of the `files` source holds none.
+    pub set: bool,
+    /// For the `files` source and a set secret, when its file last changed, RFC 3339; absent
+    /// otherwise.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub modified_at: Option<String>,
+}
+
+/// Why [`instance_view`] answers no rows.
+#[derive(Debug)]
+pub enum Unanswered {
+    /// The source `daemon.secrets` names cannot be used at all.
+    Unusable(Unusable),
+    /// The source did not answer.
+    Unreachable(SourceUnreachable),
+}
+
+/// The rows of `GET /v1/instances/{instance}/secrets` (`story:instance-secret-state`): each key
+/// of `instance`'s effective config in the config file's `text` that names a secret ([`keyed`]),
+/// but a name of `withheld` ([`withheld`]), read from the source `config` names at this call.
+/// `None` when the text holds no instance of that name. A config that names no secret for the
+/// instance opens no source.
+///
+/// # Errors
+///
+/// [`Unanswered`]: the source cannot be used, or does not answer; no row reads `set: false` for
+/// a source that does not answer.
+pub fn instance_view(
+    config: &SecretsSource,
+    text: &str,
+    instance: &str,
+    withheld: &BTreeSet<String>,
+) -> Result<Option<Vec<InstanceSecretRow>>, Unanswered> {
+    let Some(keys) = keyed(text).remove(instance) else {
+        return Ok(None);
+    };
+    let keys: Vec<Named> = keys
+        .into_iter()
+        .filter(|named| !withheld.contains(&named.secret))
+        .collect();
+    if keys.is_empty() {
+        return Ok(Some(Vec::new()));
+    }
+    let secrets = open(config).map_err(Unanswered::Unusable)?;
+    let mut rows = Vec::with_capacity(keys.len());
+    for named in keys {
+        let name = SecretName(named.secret);
+        let set = secrets
+            .missing(std::slice::from_ref(&name))
+            .map_err(Unanswered::Unreachable)?
+            .is_empty();
+        let modified_at = if set {
+            secrets.modified_at(&name)
+        } else {
+            None
+        };
+        rows.push(InstanceSecretRow {
+            instance: instance.to_owned(),
+            key: named.key,
+            secret: name.0,
+            set,
+            modified_at,
+        });
+    }
+    Ok(Some(rows))
 }
 
 /// One row of `GET /v1/secrets`: a secret's name, its source as the config writes it, the
@@ -1145,5 +1296,61 @@ mod tests {
         let beta: Vec<&str> = found["beta"].iter().map(String::as_str).collect();
         assert_eq!(alpha, ["alpha-forge", "shared-model"]);
         assert_eq!(beta, ["shared-model"]);
+    }
+
+    #[test]
+    fn the_walk_keeps_each_keys_path_as_validation_writes_it() {
+        let text = "version: conductor.config/2\n\
+                    daemon: {control_token: secret:control}\n\
+                    globals: {roles: [{role: controller, model_token: secret:shared-model}]}\n\
+                    instances:\n\
+                    \x20 - name: alpha\n    model_token: secret:alpha-model\n    \
+                    forge_token: secret:alpha-forge\n    \
+                    roles: [{role: planner, model_token: secret:alpha-model}]\n    \
+                    placement: {bearer: secret:alpha-bearer, note: not-a-secret}\n\
+                    \x20 - name: beta\n";
+        let found = keyed(text);
+        let alpha: Vec<(&str, &str)> = found["alpha"]
+            .iter()
+            .map(|named| (named.key.as_str(), named.secret.as_str()))
+            .collect();
+        assert_eq!(
+            alpha,
+            [
+                ("model_token", "alpha-model"),
+                ("forge_token", "alpha-forge"),
+                ("roles[0].model_token", "alpha-model"),
+                ("placement.bearer", "alpha-bearer"),
+                ("globals.roles[0].model_token", "shared-model"),
+            ]
+        );
+        let beta: Vec<(&str, &str)> = found["beta"]
+            .iter()
+            .map(|named| (named.key.as_str(), named.secret.as_str()))
+            .collect();
+        assert_eq!(beta, [("globals.roles[0].model_token", "shared-model")]);
+        // The same names `referenced` gives a start, by instance.
+        let names = referenced(text);
+        for (instance, named) in &found {
+            let walked: BTreeSet<String> = named.iter().map(|named| named.secret.clone()).collect();
+            assert_eq!(&walked, &names[instance], "{instance}");
+        }
+        assert_eq!(found.len(), names.len());
+    }
+
+    #[test]
+    fn a_key_that_looks_like_a_token_is_not_written_into_the_path() {
+        let token_like = ["gh", "p_0123456789abcdef"].concat();
+        let text = format!(
+            "instances:\n  - name: alpha\n    extra: {{{token_like}: secret:alpha-extra}}\n"
+        );
+        let found = keyed(&text);
+        assert_eq!(found["alpha"].len(), 1);
+        assert!(
+            !found["alpha"][0].key.contains(&token_like),
+            "{}",
+            found["alpha"][0].key
+        );
+        assert_eq!(found["alpha"][0].secret, "alpha-extra");
     }
 }

@@ -103,7 +103,7 @@ pub const MEMORY_BACKED: [&str; 19] = [
 /// The behaviours and queries the plan owes rather than generates, and who answers each here:
 /// `store` where this module answers it from the store, `memory` where [`MemoryPorts`] refuses it
 /// as unmet or, for `InstanceByName`, where this module answers it from [`MemoryPorts`]' instances.
-pub const OWED: [(&str, &str); 14] = [
+pub const OWED: [(&str, &str); 15] = [
     ("conductor.agent.AttachAgent", "memory"),
     ("conductor.agent.DeliverToAgent", "memory"),
     ("conductor.agent.StartAgent", "memory"),
@@ -120,6 +120,7 @@ pub const OWED: [(&str, &str); 14] = [
     ("conductor.store.MigrateStore", "memory"),
     ("conductor.config.EffectiveSettings", "memory"),
     ("conductor.instance.InstanceByName", "memory"),
+    ("conductor.secret.InstanceSecrets", "memory"),
     ("conductor.token.Tokens", "store"),
 ];
 
@@ -343,6 +344,18 @@ impl m::config::obligations::EffectiveSettingsQuery for StorePorts {
         instance: m::config::InstanceName,
     ) -> Result<Vec<m::config::EffectiveSettings>, UnmetObligation> {
         m::config::obligations::EffectiveSettingsQuery::effective_settings(&self.memory, instance)
+    }
+}
+
+/// `conductor.secret.InstanceSecrets`, `GET /v1/instances/{instance}/secrets`: refused as unmet by
+/// [`MemoryPorts`]. The hand-written route derives its rows from the daemon's config file and its
+/// secrets source at each read, neither of which the generated surface reads.
+impl m::secret::obligations::InstanceSecretsQuery for StorePorts {
+    fn instance_secrets(
+        &self,
+        instance: m::config::InstanceName,
+    ) -> Result<Vec<m::secret::InstanceSecrets>, UnmetObligation> {
+        m::secret::obligations::InstanceSecretsQuery::instance_secrets(&self.memory, instance)
     }
 }
 

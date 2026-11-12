@@ -1,5 +1,5 @@
 // generated from conductor v1
-// contract digest b817c831ddcdf9949972f6a946145799d67909f4f14e497f4a16667b7861cfad
+// contract digest 3ecaf75891d0174f1aadd06ecb145177f190b67bde1ebf99b046b751e53c6775
 // do not edit: regenerate with `ess synthesize --layout crate`
 
 //! Secret — `conductor.secret`.
@@ -7,6 +7,20 @@
 //! The config names secrets and never holds them (design docs/design/architecture-next.md § 9, decision 6): a `secret:<name>` is resolved by the daemon through the `secrets` crates, the OS keychain on a workstation and the Secrets service where conductord is deployed, and handed to a box as a sealed slot at box open (§ 6). The API lists names and sources, never values. The specification holds no secret value anywhere: no type, field, input, event, error or view below carries one.
 //!
 //! Everything this bounded context declares that the synthesis plan marks generated.
+
+/// The states of `conductor.secret.InstanceSecret`, as runtime values.
+///
+/// Synthesised from the lifecycle, so the two cannot disagree. Which *moves* are legal is not
+/// carried here — it is carried by `InstanceSecret<S>`, where an undeclared move does not compile.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum InstanceSecretState {
+    /// `Derived`.
+    Derived,
+}
+
+/// InstanceSecretKey — `conductor.secret.InstanceSecretKey`: a distinct wrapper around `String`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct InstanceSecretKey(pub String);
 
 /// Namespace — `conductor.secret.Namespace`: a distinct wrapper around `String`.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -61,6 +75,142 @@ pub struct WriteSecret {
     pub name: Option<SecretName>,
     /// `replace` — `Optional<Boolean>`.
     pub replace: Option<bool>,
+}
+
+/// What InstanceSecret — `conductor.secret.InstanceSecret` — holds, apart from where it is in its lifecycle.
+///
+/// The identity and every declared field. The state is deliberately not one: inside the domain it
+/// is carried by the type parameter of [`InstanceSecret<S>`], and at a boundary by [`InstanceSecretSnapshot::state`].
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct InstanceSecretData {
+    /// The identity: `secret_key` — `conductor.secret.InstanceSecretKey`.
+    pub secret_key: InstanceSecretKey,
+    /// `instance` — `conductor.config.InstanceName`.
+    pub instance: crate::config::InstanceName,
+    /// `key` — `String`.
+    pub key: String,
+    /// `secret` — `conductor.secret.SecretName`.
+    pub secret: SecretName,
+    /// `set` — `Boolean`.
+    pub set: bool,
+    /// `modified_at` — `Optional<Timestamp>`.
+    pub modified_at: Option<crate::primitives::Timestamp>,
+}
+
+/// The states of `conductor.secret.InstanceSecret`, at the type level.
+///
+/// One marker type per declared state, sealed: a state the lifecycle does not declare cannot
+/// implement [`Marker`](instance_secret_state::Marker), so [`InstanceSecret<S>`](InstanceSecret) can only ever rest in a real state.
+pub mod instance_secret_state {
+    /// Closes [`Marker`] over the declared states.
+    mod sealed {
+        /// Implemented only by the marker types beside this module.
+        pub trait Sealed {}
+        impl Sealed for super::Derived {}
+    }
+
+    /// A declared state of `InstanceSecret`, as a type.
+    pub trait Marker: sealed::Sealed {
+        /// The same state, as the runtime value.
+        const STATE: super::InstanceSecretState;
+    }
+
+    /// `Derived`. Where a new instance starts.
+    pub struct Derived;
+
+    impl Marker for Derived {
+        const STATE: super::InstanceSecretState = super::InstanceSecretState::Derived;
+    }
+}
+
+/// InstanceSecret — `conductor.secret.InstanceSecret` — with its lifecycle state carried by the type.
+///
+/// The one constructor rests in `Derived`, and the only way to change `S` is a method generated from
+/// a declared transition. A move the specification does not declare is therefore not an error
+/// case: it does not compile. Where the state is data — wire, storage — use [`InstanceSecretSnapshot`]
+/// and [`InstanceSecretSnapshot::refine`].
+pub struct InstanceSecret<S: instance_secret_state::Marker> {
+    data: InstanceSecretData,
+    state: core::marker::PhantomData<S>,
+}
+
+impl<S: instance_secret_state::Marker> InstanceSecret<S> {
+    /// The state this instance rests in, as the runtime value.
+    pub fn state(&self) -> InstanceSecretState {
+        S::STATE
+    }
+
+    /// What it holds.
+    pub fn data(&self) -> &InstanceSecretData {
+        &self.data
+    }
+
+    /// Hands the data back, giving up the typed state.
+    pub fn into_data(self) -> InstanceSecretData {
+        self.data
+    }
+}
+
+impl InstanceSecret<instance_secret_state::Derived> {
+    /// A new instance, resting in `Derived` — the only state the lifecycle starts one in.
+    pub fn new(data: InstanceSecretData) -> Self {
+        Self {
+            data,
+            state: core::marker::PhantomData,
+        }
+    }
+}
+
+/// `conductor.secret.InstanceSecret` as it crosses a boundary: the state as a value beside the data.
+///
+/// Wire and storage know states only at runtime; [`InstanceSecretSnapshot::refine`] is the one door back
+/// into the typed lifecycle.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct InstanceSecretSnapshot {
+    /// Where the instance is in its lifecycle.
+    pub state: InstanceSecretState,
+    /// What it holds.
+    pub data: InstanceSecretData,
+}
+
+/// An `InstanceSecret` in whichever declared state it was found.
+pub enum AnyInstanceSecret {
+    /// Resting in `Derived`.
+    Derived(InstanceSecret<instance_secret_state::Derived>),
+}
+
+impl InstanceSecretSnapshot {
+    /// Refines the runtime state into the typed one.
+    ///
+    /// Total: every declared state has an arm, and an undeclared state cannot reach here because
+    /// `InstanceSecretState` cannot spell one.
+    pub fn refine(self) -> AnyInstanceSecret {
+        match self.state {
+            InstanceSecretState::Derived => AnyInstanceSecret::Derived(InstanceSecret {
+                data: self.data,
+                state: core::marker::PhantomData,
+            }),
+        }
+    }
+}
+
+impl AnyInstanceSecret {
+    /// The state, as the runtime value.
+    pub fn state(&self) -> InstanceSecretState {
+        match self {
+            Self::Derived(_) => InstanceSecretState::Derived,
+        }
+    }
+
+    /// Back to the boundary shape.
+    pub fn snapshot(self) -> InstanceSecretSnapshot {
+        match self {
+            Self::Derived(instance) => InstanceSecretSnapshot {
+                state: InstanceSecretState::Derived,
+                data: instance.into_data(),
+            },
+        }
+    }
 }
 
 /// What Secret — `conductor.secret.Secret` — holds, apart from where it is in its lifecycle.
@@ -393,6 +543,25 @@ pub struct SourceUnusable {
     pub source: Source,
 }
 
+/// Instance secrets — one row of the view `conductor.secret.InstanceSecrets`.
+///
+/// Projects `conductor.secret.InstanceSecret` at `read_your_writes` consistency, containing instances where `instance == param.instance`.
+/// Serving it is an implementation obligation — see the plan — because how a projection is kept
+/// current is a storage decision the specification does not take.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct InstanceSecrets {
+    /// `instance` — `conductor.config.InstanceName`.
+    pub instance: crate::config::InstanceName,
+    /// `key` — `String`.
+    pub key: String,
+    /// `secret` — `conductor.secret.SecretName`.
+    pub secret: SecretName,
+    /// `set` — `Boolean`.
+    pub set: bool,
+    /// `modified_at` — `Optional<Timestamp>`.
+    pub modified_at: Option<crate::primitives::Timestamp>,
+}
+
 /// Secrets — one row of the view `conductor.secret.Secrets`.
 ///
 /// Projects `conductor.secret.Secret` at `read_your_writes` consistency.
@@ -444,6 +613,19 @@ pub mod obligations {
         fn resolve_secrets(&mut self, input: super::ResolveSecrets) -> Result<super::ResolveSecretsOutcome, crate::obligation::UnmetObligation>;
     }
 
+    /// The query `conductor.secret.InstanceSecrets` — an implementation obligation.
+    ///
+    /// Why it is not generated: kept an obligation by a view parameter (`params:`), which a generated query does not apply.
+    ///
+    /// Contract: a query answering `conductor.secret.InstanceSecrets` with rows projected from `conductor.secret.InstanceSecret` at `read_your_writes` consistency, containing instances where `instance == param.instance`.
+    pub trait InstanceSecretsQuery {
+        /// Serves `conductor.secret.InstanceSecrets` rows at the view's declared consistency.
+        ///
+        /// `Err` is the typed refusal of an obligation nothing has satisfied; a satisfying
+        /// implementation never returns it.
+        fn instance_secrets(&self, instance: crate::config::InstanceName) -> Result<Vec<super::InstanceSecrets>, crate::obligation::UnmetObligation>;
+    }
+
     /// The query `conductor.secret.Secrets` — generated.
     ///
     /// The specification fully determines it: [`crate::behaviour::Generated`] implements it
@@ -470,6 +652,12 @@ pub mod obligations {
     impl ResolveSecretsBehavior for Unimplemented {
         fn resolve_secrets(&mut self, _input: super::ResolveSecrets) -> Result<super::ResolveSecretsOutcome, crate::obligation::UnmetObligation> {
             Err(crate::obligation::UnmetObligation { capability: "command behaviour", source: "conductor.secret.ResolveSecrets" })
+        }
+    }
+
+    impl InstanceSecretsQuery for Unimplemented {
+        fn instance_secrets(&self, _instance: crate::config::InstanceName) -> Result<Vec<super::InstanceSecrets>, crate::obligation::UnmetObligation> {
+            Err(crate::obligation::UnmetObligation { capability: "view query", source: "conductor.secret.InstanceSecrets" })
         }
     }
 }

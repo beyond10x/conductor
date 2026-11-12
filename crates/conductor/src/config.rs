@@ -2285,7 +2285,7 @@ pub fn dns_label(text: &str, max: usize) -> bool {
 }
 
 /// The YAML path of `key` under `parent`.
-fn join(parent: &str, key: &str) -> String {
+pub(crate) fn join(parent: &str, key: &str) -> String {
     let key = if looks_like_token(key) {
         "<a key that looks like a token>"
     } else {

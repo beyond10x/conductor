@@ -1,13 +1,13 @@
 <!--
   generated from conductor v1
-  contract digest b817c831ddcdf9949972f6a946145799d67909f4f14e497f4a16667b7861cfad
+  contract digest 3ecaf75891d0174f1aadd06ecb145177f190b67bde1ebf99b046b751e53c6775
   do not edit: regenerate with `ess synthesize --layout crate`
 -->
 # Synthesis plan — conductor v1
 
 Scope: `component-skeletons`, laid out as `crate`, planned by `ess-synth`. Regenerate with `ess synthesize --layout crate`.
 
-1002 capabilities: **988 generated**, **14 obligations**, **0 refused**. An obligation is yours to implement against its contract; a refusal is a fact about this synthesis scope, not about the specification.
+1007 capabilities: **992 generated**, **15 obligations**, **0 refused**. An obligation is yours to implement against its contract; a refusal is a fact about this synthesis scope, not about the specification.
 
 ## Generated
 
@@ -291,6 +291,8 @@ Scope: `component-skeletons`, laid out as `crate`, planned by `ess-synth`. Regen
 | domain type | `conductor.placement.PlacementName` |
 | domain type | `conductor.placement.RefusalReason` |
 | domain type | `conductor.placement.RemoteDaemon` |
+| domain type | `conductor.secret.InstanceSecret.State` |
+| domain type | `conductor.secret.InstanceSecretKey` |
 | domain type | `conductor.secret.Namespace` |
 | domain type | `conductor.secret.Secret.State` |
 | domain type | `conductor.secret.SecretName` |
@@ -401,6 +403,7 @@ Scope: `component-skeletons`, laid out as `crate`, planned by `ess-synth`. Regen
 | entity lifecycle | `conductor.placement.Box` |
 | entity lifecycle | `conductor.placement.BoxRefusal` |
 | entity lifecycle | `conductor.placement.Placement` |
+| entity lifecycle | `conductor.secret.InstanceSecret` |
 | entity lifecycle | `conductor.secret.Secret` |
 | entity lifecycle | `conductor.session.Delivery` |
 | entity lifecycle | `conductor.session.Lease` |
@@ -942,6 +945,7 @@ Scope: `component-skeletons`, laid out as `crate`, planned by `ess-synth`. Regen
 | view query | `conductor.placement.Boxes` |
 | view type | `conductor.placement.Placements` |
 | view query | `conductor.placement.Placements` |
+| view type | `conductor.secret.InstanceSecrets` |
 | view type | `conductor.secret.Secrets` |
 | view query | `conductor.secret.Secrets` |
 | view type | `conductor.session.Deliveries` |
@@ -1028,6 +1032,7 @@ What the specification fully determines is generated; what it cannot determine i
 | command behaviour | `conductor.store.MigrateStore` | kept an obligation by a guard over the rows a selector selects (`when_related: {entity, where, exists | count | forall}`), in `already-migrated` | given `conductor.store.MigrateStore` input, decide and enact exactly one outcome. Declared outcomes (declaration order, not selection precedence): `not-human` when `actor.kind != Human`, error `conductor.operator.ActorNotHuman`; `negative-count` when `events_copied < 0`, error `conductor.store.InvalidEventCount`; `already-migrated` when, of the `conductor.store.Migration` rows satisfying `instance == input.instance`, at least one row is selected, error `conductor.store.AlreadyMigrated`; `source-missing` externally decided (no eventlog tree is at the source path), error `conductor.store.SourceMissing`; `migrated` otherwise, creates `conductor.store.Migration`, emits `conductor.store.StoreMigrated` |
 | view query | `conductor.config.EffectiveSettings` | kept an obligation by a view parameter (`params:`), which a generated query does not apply | a query answering `conductor.config.EffectiveSettings` with rows projected from `conductor.config.EffectiveSetting` at `eventual` consistency, containing instances where `instance == param.instance` |
 | view query | `conductor.instance.InstanceByName` | kept an obligation by a view parameter (`params:`), which a generated query does not apply | a query answering `conductor.instance.InstanceByName` with rows projected from `conductor.instance.Instance` at `read_your_writes` consistency, containing instances where `name == param.name` |
+| view query | `conductor.secret.InstanceSecrets` | kept an obligation by a view parameter (`params:`), which a generated query does not apply | a query answering `conductor.secret.InstanceSecrets` with rows projected from `conductor.secret.InstanceSecret` at `read_your_writes` consistency, containing instances where `instance == param.instance` |
 | view query | `conductor.token.Tokens` | kept an obligation by a view parameter (`params:`), which a generated query does not apply | a query answering `conductor.token.Tokens` with rows projected from `conductor.token.PoolToken` at `read_your_writes` consistency, containing instances where `instance == param.instance` |
 
 ## Refused — not represented by this synthesis
