@@ -1,5 +1,11 @@
 # Set conductor up in a repository
 
+Read this file whole, not a summary of it: download it with
+`curl -fsSL https://raw.githubusercontent.com/beyond10x/conductor/main/SETUP.md` and read what
+that prints. A web fetch tool returns a summary, which drops the commands and the rules of steps
+4, 5 and 8: what to install without asking, where the store is migrated, and what runs before the
+person answers. When what you read is a summary, download the file before step 1.
+
 The steps an agent follows when a person asks it to set conductor up in the repository it works
 in. Run them in order, from the repository's top directory. Each step says three things:
 

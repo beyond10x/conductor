@@ -706,6 +706,36 @@ fn the_readme_tells_an_agent_to_download_setup_md_whole_with_curl() {
     );
 }
 
+/// An agent that reads `SETUP.md` through a fetch tool gets a summary of it, and of the README
+/// before it, without the README's `curl`: a v1.4.0 onboarding run skipped `substrate-daemon`,
+/// migrated the store in a worktree and left steps 6 to 8 for the person's answer. `SETUP.md`
+/// itself opens, before its steps, with the download of the whole file and why a summary is not
+/// enough, so that a summary of it carries that first.
+#[test]
+fn setup_md_opens_by_telling_an_agent_to_download_it_whole_with_curl() {
+    let text = read("SETUP.md");
+    let opening: Vec<&str> = text
+        .lines()
+        .skip(1)
+        .take_while(|line| !line.starts_with('#') && !starts_step(line))
+        .collect();
+    let first = opening
+        .split(|line| line.trim().is_empty())
+        .map(|lines| lines.join(" "))
+        .find(|paragraph| !paragraph.is_empty())
+        .unwrap_or_default();
+    let curl = spans(&first).into_iter().any(|span| {
+        span.split_whitespace().next() == Some("curl")
+            && span.contains(RAW_HOST)
+            && span.ends_with(RAW_END)
+    });
+    assert!(
+        curl && first.contains("whole") && first.contains("summary"),
+        "the first paragraph of SETUP.md does not tell an agent to download the file whole with \
+         `curl`, and that a summary of it is not enough:\n{first}"
+    );
+}
+
 #[test]
 fn the_checks_of_this_test_find_what_they_look_for() {
     let text = "# Setup\n\n1. **One.**\n   - Check: `git remote get-url origin`\n   - Fix: none\n\
