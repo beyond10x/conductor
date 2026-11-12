@@ -911,3 +911,120 @@ fn a_start_trusts_a_checkout_under_a_local_source() {
         "the start did not trust {hand}: {trusted:#?}\n{printed}"
     );
 }
+
+// ---------------------------------------------------------------------------------------------
+// Round 3: a process a timed-out command left behind, inside a snapshot that ends normally
+// ---------------------------------------------------------------------------------------------
+
+/// Round 3, claim B: a clone that exits at once and leaves a process of its own on its pipes is
+/// stopped at the collector's budget, and that process does not run on after the snapshot ended
+/// normally. Before the snapshot kept its commands in its own group, the clone's own group was
+/// stopped at the budget, and the process with it.
+#[test]
+fn a_helper_left_on_a_timed_out_clones_pipes_does_not_outlive_the_snapshot() {
+    let case = Case::new("helper-on-pipes");
+    case.projects(&[(101, "example-org/alpha")]);
+    case.bare("example-org/alpha", &[("README", "x\n".to_owned(), false)]);
+    let pid_file = case.dir.join("helper.pid");
+    case.git_wrapper(&format!(
+        "if [ \"$1\" = clone ]; then '{}' 300 & printf '%s' $! > '{}'; exit 0; fi",
+        text(&which("sleep")),
+        text(&pid_file)
+    ));
+    let config = case.config("alpha");
+
+    let output = case.pass(&config, &["--budget", "3"]);
+    let Some(helper) = written_pid(&pid_file) else {
+        panic!("no clone began: {}", describe(&output));
+    };
+    std::thread::sleep(Duration::from_millis(500));
+    let running = alive(helper);
+    let _ = nix::sys::signal::kill(
+        nix::unistd::Pid::from_raw(helper),
+        nix::sys::signal::Signal::SIGKILL,
+    );
+    assert!(
+        !running,
+        "a process the clone left on its pipes (process {helper}) still ran after the snapshot \
+         ended: {}",
+        describe(&output)
+    );
+}
+
+/// Round 3, the other path: a clone that starts a process which leaves it (its parent exits, so
+/// it is re-parented, and it holds none of the clone's pipes) and then runs past the collector's
+/// budget. Stopping the clone and the processes under it misses that process; it does not run on
+/// after the snapshot ended normally.
+#[test]
+fn a_helper_a_timed_out_clone_detached_does_not_outlive_the_snapshot() {
+    let case = Case::new("helper-detached");
+    case.projects(&[(101, "example-org/alpha")]);
+    case.bare("example-org/alpha", &[("README", "x\n".to_owned(), false)]);
+    let pid_file = case.dir.join("helper.pid");
+    let sleep = text(&which("sleep"));
+    case.git_wrapper(&format!(
+        "if [ \"$1\" = clone ]; then ( '{sleep}' 300 </dev/null >/dev/null 2>&1 & printf '%s' $! > \
+         '{}' ); exec '{sleep}' 30; fi",
+        text(&pid_file)
+    ));
+    let config = case.config("alpha");
+
+    let output = case.pass(&config, &["--budget", "3"]);
+    let Some(helper) = written_pid(&pid_file) else {
+        panic!("no clone began: {}", describe(&output));
+    };
+    std::thread::sleep(Duration::from_millis(500));
+    let running = alive(helper);
+    let _ = nix::sys::signal::kill(
+        nix::unistd::Pid::from_raw(helper),
+        nix::sys::signal::Signal::SIGKILL,
+    );
+    assert!(
+        !running,
+        "a process the clone detached (process {helper}) still ran after the snapshot ended: {}",
+        describe(&output)
+    );
+}
+
+/// Round 3 re-check, claim E: a process a `git fetch` of the pass detaches for work it leaves to
+/// run on (git's own `git maintenance run --auto --detach` after a fetch: a fork whose parent
+/// exits, in a session of its own) is not stopped when the snapshot ends. The wrapper starts it
+/// as git's daemonize does, through `setsid -f`, its standard streams on `/dev/null`.
+#[test]
+fn a_process_a_fetch_detaches_is_not_stopped_when_the_snapshot_ends() {
+    let case = Case::new("fetch-detached");
+    case.projects(&[(101, "example-org/alpha")]);
+    case.bare("example-org/alpha", &[("README", "x\n".to_owned(), false)]);
+    let config = case.config("alpha");
+    case.pass(&config, &[]);
+    assert!(
+        case.root().join("alpha/.git").is_dir(),
+        "the first pass cloned alpha"
+    );
+
+    let pid_file = case.dir.join("maintenance.pid");
+    case.git_wrapper(&format!(
+        "if [ \"$1\" = fetch ]; then '{setsid}' -f '{sh}' -c 'printf %s $$ > \"$0\"; exec \"$1\" 120' \
+         '{pid}' '{sleep}' </dev/null >/dev/null 2>&1; fi",
+        setsid = text(&which("setsid")),
+        sh = text(&which("sh")),
+        pid = text(&pid_file),
+        sleep = text(&which("sleep")),
+    ));
+    let output = case.pass(&config, &[]);
+    let Some(detached) = written_pid(&pid_file) else {
+        panic!("no fetch detached a process: {}", describe(&output));
+    };
+    std::thread::sleep(Duration::from_millis(500));
+    let running = alive(detached);
+    let _ = nix::sys::signal::kill(
+        nix::unistd::Pid::from_raw(detached),
+        nix::sys::signal::Signal::SIGKILL,
+    );
+    assert!(
+        running,
+        "the process the fetch detached (process {detached}) was stopped when the snapshot \
+         ended: {}",
+        describe(&output)
+    );
+}

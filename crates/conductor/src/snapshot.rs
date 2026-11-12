@@ -975,7 +975,8 @@ pub(crate) fn record(
 ///
 /// Every command its collectors run stays in its process group ([`collect::in_group`]): the
 /// cycle's step and a pod's start stop that group at their bound, and none of its `git`, `gh`
-/// or `glab` runs on after it.
+/// or `glab` runs on after it. A process a command left behind in that group, one its bound did
+/// not reach, is stopped when the snapshot ends ([`collect::Leftovers`]).
 ///
 /// # Errors
 ///
@@ -983,7 +984,7 @@ pub(crate) fn record(
 /// collectors start is missing (named), or what [`take`] answers.
 pub fn start_snapshot(state: Option<&Path>, args: StartSnapshotArgs) -> Result<ExitCode> {
     const COMMAND: &str = "snapshot start-snapshot";
-    collect::in_group();
+    let _leftovers = collect::in_group();
     no_input_json(args.input_json, "snapshot start-snapshot --input-json")?;
     let taken = run(COMMAND, || {
         let started_at = match args.started_at {

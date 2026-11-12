@@ -640,7 +640,8 @@ pub fn is_over_budget(error: &anyhow::Error) -> bool {
 ///
 /// A command leads a process group of its own, which its bound stops; in a process that keeps
 /// its commands in its own group ([`in_group`]) it does not, and its bound stops it and each
-/// process under it ([`stop_tree`]).
+/// process under it ([`stop_tree`]); what it left behind is stopped when that process's
+/// [`Leftovers`] is dropped.
 ///
 /// # Errors
 ///
@@ -668,7 +669,7 @@ pub fn run(command: &mut Command, bound: Duration) -> Result<Output> {
     let stderr = child.stderr.take().map(drain);
     let started = Instant::now();
     // `reaped`: the command's status was read, so its process id may name another process now;
-    // what it left in this process's group ends with that group.
+    // what it left in this process's group ends with that group, or with its [`Leftovers`].
     let expired = |child: &mut Child, reaped: bool| {
         match (group, pid) {
             (Some(group), _) => {
@@ -725,8 +726,62 @@ static IN_GROUP: AtomicBool = AtomicBool::new(false);
 /// `snapshot start-snapshot` calls it at its start: the cycle's step and a pod's start run the
 /// snapshot as the leader of a group of its own, through [`run`], and stop that group at their
 /// bound, so no `git`, `gh` or `glab` of a collector outlives a stopped snapshot.
-pub fn in_group() {
+///
+/// A command's bound stops the command and the processes under it ([`stop_tree`]), not one it
+/// left behind: one whose parent exited first, or one still holding the pipes of a command that
+/// already exited. On Linux this process becomes their parent (a child subreaper), and the
+/// answered [`Leftovers`] stops each process still under it in this process's group when it is
+/// dropped, at the end of the snapshot.
+#[must_use = "dropping it stops what the commands left running"]
+pub fn in_group() -> Leftovers {
     IN_GROUP.store(true, Ordering::Relaxed);
+    #[cfg(target_os = "linux")]
+    let _ = nix::sys::prctl::set_child_subreaper(true);
+    Leftovers
+}
+
+/// What [`in_group`] answers: when dropped, every process still under this one in this process's
+/// group, a command a collector left running or one re-parented to this process, is stopped with
+/// what is under it in that group ([`stop_in_group`]).
+///
+/// A process that left the group (`setsid`, `setpgid`) is left running, and so is everything
+/// under it: that is the reach a command's bound had while each command led a group of its own.
+/// It is what a `git fetch` detaches on purpose: `git maintenance run --auto --detach` daemonizes
+/// into a session of its own, is re-parented to this process, and runs to its end.
+#[derive(Debug)]
+pub struct Leftovers;
+
+impl Drop for Leftovers {
+    fn drop(&mut self) {
+        if let Ok(this) = i32::try_from(std::process::id()) {
+            stop_in_group(children(this), nix::unistd::getpgrp());
+        }
+    }
+}
+
+/// Stops each of `roots` that is in the process group `group`, and each process under it in that
+/// group: each one's group is read before it is stopped (`SIGSTOP`) and again after, so one that
+/// left the group meanwhile is let go on (`SIGCONT`); then each stopped one is killed. A process in
+/// another group is not signalled, and its children are not read.
+fn stop_in_group(roots: Vec<i32>, group: Pid) {
+    let in_group = |at: i32| nix::unistd::getpgid(Some(Pid::from_raw(at))) == Ok(group);
+    let mut found = Vec::new();
+    let mut queue = roots;
+    while let Some(at) = queue.pop() {
+        if found.contains(&at) || !in_group(at) {
+            continue;
+        }
+        let _ = kill(Pid::from_raw(at), Signal::SIGSTOP);
+        if !in_group(at) {
+            let _ = kill(Pid::from_raw(at), Signal::SIGCONT);
+            continue;
+        }
+        found.push(at);
+        queue.extend(children(at));
+    }
+    for at in found {
+        let _ = kill(Pid::from_raw(at), Signal::SIGKILL);
+    }
 }
 
 /// Stops the process `pid` and each process under it: each is stopped (`SIGSTOP`) before its
