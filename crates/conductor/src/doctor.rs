@@ -2091,7 +2091,9 @@ fn forge_lines(flag: Option<&Path>) -> Vec<(String, Option<String>)> {
 /// The lines `conductor doctor` prints after its rows that only the config file decides, in this
 /// order, each with the failure it adds to the verdict: the agent kinds ([`kind_lines`]), the
 /// box dry runs ([`box_lines`], which ask the local substrate daemon), the forge routes and the
-/// guard's answers ([`forge_lines`]). `conductor setup` prints them too and takes their failures
+/// guard's answers ([`forge_lines`]), the rights of a daemon that runs pods ([`pod_lines`]),
+/// and, in an instance pod, how many included repositories have no checkout
+/// ([`collect::checkouts::doctor_lines`]). `conductor setup` prints them too and takes their failures
 /// into its verdict ([`verdict_over`]), so it is not ready wherever doctor on the same file is.
 /// Only those two commands call it, never [`check_in`].
 #[must_use]
@@ -2100,6 +2102,7 @@ pub fn config_lines(flag: Option<&Path>) -> Vec<(String, Option<String>)> {
     lines.extend(box_lines(flag, &crate::placement::Sdk::default()));
     lines.extend(forge_lines(flag));
     lines.extend(pod_lines(flag));
+    lines.extend(collect::checkouts::doctor_lines(flag));
     lines
 }
 

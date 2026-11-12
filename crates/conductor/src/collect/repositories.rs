@@ -72,6 +72,16 @@
 //! pins, release chores, retrofit, publish); or every path it touches is a docs, CI, planning,
 //! markdown or lockfile path. A commit on several branches counts once.
 //!
+//! # In an instance pod
+//!
+//! In a runtime alone in a pod ([`checkouts::in_pod`], `story:pod-source-checkouts`), [`collect`]
+//! first brings each repository a source includes to its checkout ([`checkouts::bring`]): it
+//! clones each one with no checkout that is not archived, and fetches each one with a checkout,
+//! which is then read without a fetch of its own. Each repository that could not be cloned or
+//! fetched is one member failure of this collector, named as its row is, and the others are read
+//! and recorded as they are. Nothing of this runs outside a pod or for a source without
+//! `include`.
+//!
 //! # Failures
 //!
 //! Every command runs through [`crate::collect::run`] under [`Sources::bound`]. One that exits
@@ -99,7 +109,7 @@ use time::format_description::well_known::Rfc3339;
 use time::{OffsetDateTime, UtcOffset};
 
 use crate::collect::gitlab::{self, Forge, Mapped};
-use crate::collect::{self, Origins, blockers};
+use crate::collect::{self, Origins, blockers, checkouts};
 use crate::config;
 use crate::gates;
 use crate::snapshot::Recorder;
@@ -309,11 +319,12 @@ pub fn collect(record: &mut Recorder<'_>) -> Result<()> {
         .iter()
         .map(|dir| (dir.clone(), collect::excluded_under(instance, dir)))
         .collect();
-    collect_with_gitlab(
+    pass(
         &Sources::of(instance, OffsetDateTime::now_utc()),
         &origins,
         &exclude,
         &Forge::all(instance),
+        checkouts::in_pod().then_some(instance),
         record,
     )
 }
@@ -368,8 +379,25 @@ pub fn collect_with_gitlab(
     forges: &[Forge],
     record: &mut Recorder<'_>,
 ) -> Result<()> {
+    pass(sources, origins, exclude, forges, None, record)
+}
+
+/// [`collect_with_gitlab`], and, for the instance `pod` of a runtime alone in a pod
+/// ([`checkouts::in_pod`], `story:pod-source-checkouts`), each repository a source includes
+/// brought to its checkout first ([`bring_checkouts`]).
+fn pass(
+    sources: &Sources,
+    origins: &Origins,
+    exclude: &HashMap<PathBuf, Vec<String>>,
+    forges: &[Forge],
+    pod: Option<&Instance>,
+    record: &mut Recorder<'_>,
+) -> Result<()> {
     let since = instant((sources.now - WINDOW).replace_nanosecond(0)?)?;
-    let (listed, failures) = listed(sources, origins, exclude, forges)?;
+    let (mut listed, mut failures) = listed(sources, origins, exclude, forges)?;
+    if let Some(instance) = pod {
+        failures.extend(bring_checkouts(sources, origins, instance, &mut listed));
+    }
     let read = each(&listed, sources.width, |listed| {
         read(sources, listed, &since)
     })?;
@@ -431,6 +459,113 @@ fn unanswered(source: &str, entry: &str) -> blockers::Failure {
     }
 }
 
+/// The repositories of `listed` a source of `instance` includes, each brought to its checkout
+/// ([`checkouts::bring`]): cloned where it has none, fetched where it has one, and each that
+/// could not be one member failure. A checkout this fetched, or tried to, is not fetched again
+/// when it is read; one cloned is read as a checkout. After a clone, what the start derives
+/// from the checkouts is brought up to date ([`checkouts::refresh`]).
+fn bring_checkouts(
+    sources: &Sources,
+    origins: &Origins,
+    instance: &Instance,
+    listed: &mut [Listed],
+) -> Vec<blockers::Failure> {
+    let root = &sources.workspace;
+    let wanted: Vec<(usize, checkouts::Wanted)> = listed
+        .iter()
+        .enumerate()
+        .filter_map(|(index, item)| Some((index, wanted(sources, origins, item)?)))
+        .collect();
+    let brought = each(&wanted, sources.width, |(_, wanted)| {
+        Ok(checkouts::bring(root, wanted, Some(sources.bound)))
+    })
+    .unwrap_or_default();
+    let mut failures = Vec::new();
+    let mut cloned = false;
+    for ((index, wanted), brought) in wanted.iter().zip(brought) {
+        let item = &mut listed[*index];
+        if wanted.checkout.is_some() {
+            item.fetched = true;
+        }
+        match brought {
+            checkouts::Brought::Cloned(dir) => {
+                cloned = true;
+                item.fetched = true;
+                if let Origin::GitLab(mapped) = &mut item.origin {
+                    mapped.checkout = Some(dir);
+                }
+            }
+            checkouts::Brought::Failed(line) => failures.push(blockers::Failure {
+                repository: item.name.clone(),
+                error_line: line,
+            }),
+            checkouts::Brought::Left
+            | checkouts::Brought::Fetched
+            | checkouts::Brought::Stopped => {}
+        }
+    }
+    if cloned && let Err(error) = checkouts::refresh(instance) {
+        eprintln!(
+            "{COLLECTOR}: the workspace file and the trust of the new checkouts: {}",
+            checkouts::redacted(&format!("{error:#}"))
+        );
+    }
+    failures
+}
+
+/// `listed` as a pod brings its checkout, when a source includes it: an owner's repository
+/// whose every source names `include`, or a project of a `gitlab` source that names one.
+fn wanted(sources: &Sources, origins: &Origins, listed: &Listed) -> Option<checkouts::Wanted> {
+    match &listed.origin {
+        Origin::Owner(owner) if origins.include.contains_key(owner) => Some(
+            checkouts::Wanted::github(owner, &listed.name, &sources.workspace, listed.archived),
+        ),
+        Origin::GitLab(mapped) if mapped.forge.include.is_some() => {
+            Some(checkouts::Wanted::gitlab(
+                &mapped.forge.host,
+                &mapped.forge.group,
+                &mapped.project.path,
+                &listed.name,
+                mapped.checkout.clone(),
+                listed.archived,
+            ))
+        }
+        Origin::Owner(_) | Origin::Local(_) | Origin::GitLab(_) => None,
+    }
+}
+
+/// Every repository the `github` and `gitlab` sources of `instance` include, as a pod brings its
+/// checkout (`story:pod-source-checkouts`): listed as a pass lists them, through `gh` and
+/// `glab`, but only for an owner whose every source names `include` and a `gitlab` source that
+/// names one. None for an instance whose sources name no `include`.
+///
+/// # Errors
+///
+/// A listing did not answer, or answered what this collector cannot read.
+pub(crate) fn included(instance: &Instance) -> Result<Vec<checkouts::Wanted>> {
+    let sources = Sources::of(instance, OffsetDateTime::now_utc());
+    let every = Origins::of(instance);
+    let origins = Origins {
+        owners: every
+            .owners
+            .iter()
+            .filter(|owner| every.include.contains_key(*owner))
+            .cloned()
+            .collect(),
+        local: Vec::new(),
+        include: every.include.clone(),
+    };
+    let forges: Vec<Forge> = Forge::all(instance)
+        .into_iter()
+        .filter(|forge| forge.include.is_some())
+        .collect();
+    let (listed, _) = listed(&sources, &origins, &HashMap::new(), &forges)?;
+    Ok(listed
+        .iter()
+        .filter_map(|item| wanted(&sources, &origins, item))
+        .collect())
+}
+
 /// One repository of the instance, as its origin lists it.
 struct Listed {
     name: String,
@@ -438,6 +573,9 @@ struct Listed {
     archived: bool,
     issues: bool,
     origin: Origin,
+    /// Whether a pod fetched its checkout already in this pass, or tried to
+    /// ([`bring_checkouts`]): it is read without a fetch of its own.
+    fetched: bool,
 }
 
 /// Where a listed repository comes from.
@@ -538,6 +676,7 @@ fn listed(
         archived: mapped.project.archived,
         issues: false,
         origin: Origin::GitLab(Box::new(mapped)),
+        fetched: false,
     }));
     listed.sort_by(|one, other| one.name.cmp(&other.name));
     one_of_each(&listed, |listed| &listed.name, Listed::origin_named)?;
@@ -566,6 +705,7 @@ fn owned(sources: &Sources, owner: &str) -> Result<Vec<Listed>> {
                 archived: entry.is_archived,
                 issues: entry.has_issues_enabled,
                 origin: Origin::Owner(owner.to_owned()),
+                fetched: false,
             })
         })
         .collect::<Result<Vec<_>>>()?;
@@ -589,6 +729,7 @@ fn local_repositories(dir: &Path, exclude: &[String]) -> Result<Vec<Listed>> {
         archived: false,
         issues: false,
         origin: Origin::Local(dir.to_owned()),
+        fetched: false,
     };
     for path in directories(dir, &what)? {
         let name = path.file_name().and_then(OsStr::to_str);
@@ -802,7 +943,7 @@ fn local(
     let what = checkout.what;
     let main = reading.main();
     let after = format!("--since={since}");
-    if matches!(reading, Reading::Fetched) {
+    if matches!(reading, Reading::Fetched) && !listed.fetched {
         checkout.git(&["fetch", "--quiet", "origin"])?;
     }
     let head = checkout.git(&["log", "-1", "--format=%H%x09%cI", main])?;

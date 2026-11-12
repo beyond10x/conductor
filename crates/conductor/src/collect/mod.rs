@@ -34,6 +34,7 @@ use crate::config;
 use crate::snapshot::Recorder;
 
 pub mod blockers;
+pub mod checkouts;
 pub mod github;
 pub mod gitlab;
 pub mod repositories;

@@ -27,7 +27,9 @@
 //! its token, reads too, but the liveness probe `GET /healthz`; it refuses to start without a
 //! token handed to it. It then seeds its own instance as the unattended daemon seeds each one
 //! ([`crate::daemon::unattended::seed_instance`]), each step only where missing, while the API
-//! answers and before the loop starts. [`CONFIG_SOURCE_VARIABLE`] names a file it copies over its
+//! answers and before the loop starts; before the seeding it clones each repository its sources
+//! include that has no checkout ([`crate::collect::checkouts::at_start`]).
+//! [`CONFIG_SOURCE_VARIABLE`] names a file it copies over its
 //! `--config` file at every start, before it reads it: how a config mounted read-only reaches a
 //! place the runtime writes beside.
 
@@ -373,7 +375,24 @@ fn seed_alone(config_flag: Option<&Path>, what: &str) {
     else {
         return;
     };
-    if crate::daemon::unattended::seed_instance(&loaded, index, &home, SEEDING) {
+    // The repositories its sources include are cloned before the seeding, so the workspace
+    // file, the trust and the activation it derives see them (`story:pod-source-checkouts`).
+    let instance = &loaded.config.instances[index];
+    let cloned = crate::collect::checkouts::at_start(instance, what);
+    let seeded = crate::daemon::unattended::seed_instance(&loaded, index, &home, SEEDING);
+    // A seeding that found its records written writes no workspace file of its own.
+    if cloned > 0
+        && let Err(error) = crate::collect::checkouts::refresh(instance)
+    {
+        crate::run::say(
+            true,
+            &format!(
+                "{SEEDING}: the workspace file and the trust of the new checkouts: {}",
+                crate::collect::checkouts::redacted(&format!("{error:#}"))
+            ),
+        );
+    }
+    if seeded {
         crate::run::say(false, &format!("{what}: seeded its instance"));
     } else {
         crate::run::say(

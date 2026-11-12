@@ -645,3 +645,69 @@ fn the_sidebar_lists_the_guide_beside_the_container_guide() {
         "website/sidebars.ts"
     );
 }
+
+/// The section "The calls" says where a checkout must be and what a pod clones
+/// (story:pod-source-checkouts): only what `include` names, at the collector's path with the
+/// HTTPS `origin` its table gives; how a failed clone is read, through the instance's health;
+/// which variables a self-hosted GitLab needs or the instance's `forge_token`; and which rights of
+/// a token conductor's calls use, with GitLab's names for them as read, not tested. The mapping
+/// of its example validates in the ConfigMap's daemon file, and its `gitlab` source is the one
+/// forge the collectors read, with the host and the `include` the table's checkouts come from.
+#[test]
+fn the_calls_section_says_where_a_checkout_must_be_and_what_a_pod_clones() {
+    active::isolate();
+    let text = section("The calls");
+    for words in [
+        "include",
+        "and nothing\nelse",
+        "/var/lib/conductor/data/checkouts",
+        "member_failures",
+        "$D/v1/instances/beta/health",
+        "`detail` does not change",
+        "`GITLAB_TOKEN` as a `secret`",
+        "`GITLAB_HOST` as a `value`",
+        "forge_token",
+        "only read",
+        "`read_api`",
+        "`api`",
+        "`write_repository`",
+        "not tested against\nevery forge version",
+    ] {
+        assert!(text.contains(words), "the section says {words:?}:\n{text}");
+    }
+    let body = text
+        .split("-d '")
+        .skip(1)
+        .filter_map(|rest| rest.split_once('\'').map(|(body, _)| body))
+        .find(|body| body.contains("\"include\""))
+        .expect("the section's request body with an include");
+    let body: serde_json::Value = serde_json::from_str(body).expect("the body's JSON");
+    let map = one("ConfigMap");
+    let mut daemon: Value =
+        serde_yaml::from_str(text_of(&map["data"]["daemon.yaml"])).expect("daemon.yaml");
+    daemon["instances"] = serde_yaml::to_value([body["mapping"].clone()]).expect("YAML");
+    let file = serde_yaml::to_string(&daemon).expect("the file");
+    let config = conductor_cli::config::parse(&file, Path::new("/var/lib/conductor"))
+        .unwrap_or_else(|problems| panic!("the file does not validate: {problems:?}\n{file}"));
+    let forges = conductor_cli::collect::gitlab::Forge::all(&config.instances[0]);
+    assert_eq!(forges.len(), 1, "{forges:?}");
+    let forge = &forges[0];
+    assert_eq!(forge.host, "gitlab.example.com");
+    let include = forge.include.clone().expect("the source's include");
+    assert_eq!(include, ["alpha", "sub/gamma"]);
+    for path in &include {
+        let wanted = conductor_cli::collect::checkouts::Wanted::gitlab(
+            &forge.host,
+            &forge.group,
+            path,
+            path,
+            None,
+            false,
+        );
+        let row = format!("| `<checkouts>/{}` | `{}` |", wanted.path, wanted.url);
+        assert!(
+            text.contains(&row),
+            "the section's table holds {row:?}:\n{text}"
+        );
+    }
+}

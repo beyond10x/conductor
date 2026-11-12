@@ -433,6 +433,61 @@ the pass that acts on it. A pass that stops or replaces a pod waits for that pod
 after a `DELETE` the instance stays listed until its pod is gone, about 4 s on a cluster, and a
 new one may read `Starting` or `Stopped` before its pod is Ready.
 
+### Where a checkout must be
+
+An agent starts only in a checkout under the instance's checkouts root,
+`/var/lib/conductor/data/checkouts` unless the mapping names another `checkouts.root`. A pod
+clones the repositories its `github` and `gitlab` sources name under `include`, and nothing
+else: a source without `include` gets no checkout from the pod, and outside a pod nothing is
+cloned. The pod clones each such repository that has no checkout when it starts, before it seeds
+its instance, and again at every collect pass while one still has none; it fetches each of those
+checkouts at every pass. An archived repository is not cloned. A checkout is where the collector
+reads it, with `origin` the forge's HTTPS URL:
+
+| source | repository | checkout | `origin` |
+|---|---|---|---|
+| `{github: example-org, include: [one]}` | `one` | `<checkouts>/one` | `https://github.com/example-org/one.git` |
+| `{gitlab: example-group, host: gitlab.example.com, include: [alpha, sub]}` | the project `example-group/alpha` | `<checkouts>/alpha` | `https://gitlab.example.com/example-group/alpha.git` |
+| the same | the project `example-group/sub/gamma`, in the subgroup `sub` | `<checkouts>/sub/gamma` | `https://gitlab.example.com/example-group/sub/gamma.git` |
+
+An instance on a self-hosted GitLab, with two projects of its group:
+
+```console
+curl -X POST -H "Authorization: Bearer $TOKEN" -H 'content-type: application/json' \
+  -d '{"mapping":{"name":"beta","placement":"none","session_prefix":"beta","sources":[{"gitlab":"example-group","host":"gitlab.example.com","include":["alpha","sub/gamma"]}],"forge":{"route":"direct"},"model_token":"secret:model-token","forge_token":"secret:beta-forge-token"},"reason":"two projects of a group"}' \
+  $D/v1/instances
+```
+
+The pod clones with git and the token it carries, through git's credential helper
+([forge credentials](#forge-credentials)): no URL, `.git/config`, argument or message holds the
+token. A self-hosted GitLab needs the token and its host: either `GITLAB_TOKEN` as a `secret` and
+`GITLAB_HOST` as a `value` in `daemon.kubernetes.env`, for every instance on that host, or the
+instance's own `forge_token`, as above. A pod that carries no token of a source's forge tries no
+clone.
+
+The pod never touches what is there: a path that holds `.git` is left as it is, with its commits
+and its `origin`; a path that holds anything else is left alone and reported. A project whose
+path under the group has more than two steps, or lies under a directory that is a checkout
+itself, is not where the collector reads a checkout: it is not cloned, and is reported.
+
+A repository the pod could not clone or fetch is one entry of `member_failures` in the
+instance's health, collector `repositories`, member the repository's name, with the reason and
+git's last error line, every credential taken out. A failed clone stops neither the other clones
+nor the pod, and the next pass tries again. The row's `detail` does not change; read the health:
+
+```console
+curl -H "Authorization: Bearer $TOKEN" $D/v1/instances/beta/health
+```
+
+In the pod, `conductor doctor` says how many of the included repositories have no checkout.
+
+Which rights of the token are used, read from the calls conductor makes and not tested against
+every forge version: conductor's own calls only read, the forge's API (listing the repositories,
+their merge or pull requests, pipelines and releases) and the repositories (`git clone`,
+`git fetch`). A session's merge request needs the right to write through the API, and a push the
+right to write the repository. On GitLab those rights are called `read_api` and `read_repository`
+for reading, `api` for writing through the API, and `write_repository` for a push.
+
 ## What the daemon creates for each instance
 
 For an instance `alpha`, in `daemon.kubernetes.namespace`:
