@@ -663,6 +663,120 @@ types:
     fields:
       - {name: reconcile, type: Duration}
 
+  # A name Kubernetes takes as a DNS label (RFC 1123) and as a label value: lower-case letters,
+  # digits and `-`, starting and ending with a letter or a digit, at most 63 characters. A
+  # namespace and the owner of `daemon.kubernetes` are written so. So is the name of an instance
+  # the daemon runs in a pod, since its pod and its Secret are named `conductor-instance-<name>`
+  # and its volume claim `conductor-instance-<name>-data`: the longest affix is 24 characters, so
+  # such an instance's name is at most 39 (the invariant of `Config`). `config validate` refuses
+  # a name that breaks either rule, naming its YAML path.
+  - name: conductor.config.KubernetesName
+    kind: newtype
+    of: String
+    alphabet: "abcdefghijklmnopqrstuvwxyz0123456789-"
+
+  # The volume claim of each instance pod (`conductor-instance-<name>-data`), which holds its
+  # checkouts, worktrees, records, state, cache and its own sqlite store: `size`, its request, written as a
+  # size, `20G`, and required; `storage_class`, the storage class it names, absent the
+  # namespace's default class. A retired instance's claim is kept.
+  - name: conductor.config.KubernetesVolume
+    kind: struct
+    fields:
+      - {name: size, type: conductor.config.Gibibytes}
+      - {name: storage_class, type: Optional<String>}
+    invariants:
+      - size >= 1
+
+  # Quantities of one resource list of a pod's container, each written as Kubernetes writes a
+  # quantity (`500m`, `2`, `512Mi`, `4Gi`) and passed through unchanged; absent, the list sets
+  # none, and the namespace's LimitRange applies.
+  - name: conductor.config.KubernetesQuantities
+    kind: struct
+    fields:
+      - {name: cpu, type: Optional<String>}
+      - {name: memory, type: Optional<String>}
+
+  # The requests and the limits of each instance pod's container. Absent, both are empty. They
+  # are not `limits` of the instance (`conductor.config.Limits`, a box's cgroup), which a pod-run
+  # instance does not read.
+  - name: conductor.config.KubernetesResources
+    kind: struct
+    fields:
+      - {name: requests, type: conductor.config.KubernetesQuantities}
+      - {name: limits, type: conductor.config.KubernetesQuantities}
+
+  # One environment variable of each instance pod's container: `name`, capital letters, digits
+  # and `_`, not starting with a digit; and either `value`, the text itself, or `secret`, written
+  # `secret:<name>`, a secret the daemon resolves from its secrets source (`daemon.secrets`),
+  # never from the file. Exactly one of the two is written. The daemon writes each value into the
+  # instance's Secret (`conductor-instance-<name>`) and the container reads it by `secretKeyRef`,
+  # so no value stands in the pod's spec. It carries what an instance pod needs from outside, such
+  # as `GH_TOKEN` or `GITLAB_TOKEN` for the forge's CLI, the `GIT_AUTHOR_*` and `GIT_COMMITTER_*`
+  # identity, or `GIT_CONFIG_COUNT`, `GIT_CONFIG_KEY_<n>` and `GIT_CONFIG_VALUE_<n>`; which forge
+  # token a pod gets is the operator's decision, not conductor's. A name conductor sets for the
+  # pod itself is refused at validate, naming its YAML path (`daemon.kubernetes.env[<i>].name`):
+  # `HOME`, `PATH`, and every name that starts with `CONDUCTOR_` (among them `CONDUCTOR_CONFIG`,
+  # `CONDUCTOR_INSTANCE`, `CONDUCTOR_STORE`, `CONDUCTOR_API_TOKEN`, `CONDUCTOR_API_LISTEN` and
+  # `CONDUCTOR_CONFIG_SOURCE`); the invariants of `Kubernetes` say so.
+  - name: conductor.config.KubernetesEnv
+    kind: struct
+    fields:
+      - {name: name, type: String}
+      - {name: value, type: Optional<String>}
+      - {name: secret, type: Optional<conductor.secret.SecretName>}
+    invariants:
+      - any:
+          - defined(value)
+          - defined(secret)
+      - any:
+          - not defined(value)
+          - not defined(secret)
+
+  # The daemon runs each instance's runtime as its own pod (design: instance pods, the direct
+  # route), beside the systemd unit and the child process; it is a supervisor, not a placement
+  # and not a sandbox, so `placement` stays what it is and a placement that opens a box is
+  # refused at validate beside this key, naming its YAML path. The daemon reaches the Kubernetes
+  # API with its mounted service account and creates, per instance, a Secret
+  # `conductor-instance-<name>` (the instance's config file as the daemon renders it, the
+  # runtime's API token, the model token and every `env` value), a volume claim
+  # `conductor-instance-<name>-data`, and a pod `conductor-instance-<name>` that runs `image` with
+  # `conductor --config <data>/conductor.yaml instance serve`, restart
+  # policy `Never` (the daemon restarts it), the `restricted` pod security fields, and no service
+  # account token. Each of the three carries the labels `app.kubernetes.io/managed-by=conductord`,
+  # `app.kubernetes.io/component=instance-runtime`, `conductor/daemon=<owner>` and
+  # `conductor/instance=<name>`; the daemon adopts and cleans up by the first three. The daemon
+  # builds the pod, its Secret and its claim from this key and the instance's name alone: nothing
+  # an instance's mapping holds reaches the image, the command, a volume, an env source, a service
+  # account, a host path, the namespace, a label or an annotation, and a `secret:<name>` in a
+  # mapping resolves against the daemon's secrets source only, never a Kubernetes Secret by name.
+  # `namespace`: the namespace of the instance pods, the daemon's own or another one.
+  # `image`: the image every instance pod runs, `<repository>:<tag>`; a changed image restarts
+  # each instance pod on it. `owner`: the value of `conductor/daemon`, which tells one daemon's
+  # pods from another's in one namespace. `api_port`: the TCP port the runtime serves its API on
+  # in its pod, which the daemon proxies `/v1/instances/{name}/…` to, 1 to 65535. `volume`,
+  # `resources` and `env` as their types say. Absent, the daemon runs no pod: every runtime is a
+  # systemd unit or a child process, as before.
+  # Where this key is set, the file may hold no instance (`instances: []`): every instance arrives
+  # through `AddInstance`. Without it, a file with no instance is refused by its path
+  # `instances`. `namespace`, `image`, `owner`, `api_port` and `volume.size` are required and have
+  # no default.
+  - name: conductor.config.Kubernetes
+    kind: struct
+    fields:
+      - {name: namespace, type: conductor.config.KubernetesName}
+      - {name: image, type: String}
+      - {name: owner, type: conductor.config.KubernetesName}
+      - {name: api_port, type: Integer}
+      - {name: volume, type: conductor.config.KubernetesVolume}
+      - {name: resources, type: conductor.config.KubernetesResources}
+      - {name: env, type: List<conductor.config.KubernetesEnv>}
+    invariants:
+      - api_port >= 1
+      - api_port <= 65535
+      - distinct: {in: env, as: variable, by: variable.name}
+      - forall: {in: env, as: variable, that: {not: {variable.name: {starts_with: "CONDUCTOR_"}}}}
+      - forall: {in: env, as: variable, that: {variable.name: {not_in: [HOME, PATH]}}}
+
   # The `daemon` section (design architecture-next § 4, § 5.2, § 8, § 9): `port`, the loopback
   # port of the global API on 127.0.0.1, 1 to 65535, absent 7300; `tls`, the TLS listener, absent
   # when none is configured; `cadence.reconcile`; `store`, the one URL of the deployment's shared
@@ -693,6 +807,14 @@ types:
   # that address beside `127.0.0.1` and `localhost`; one that is not loopback lets a probe or a
   # published port of a container reach the daemon, and every `/v1/` request on it then carries
   # an Identity bearer, as on the TLS listener; the probes and the metrics answer without one.
+  # `kubernetes`, the instance pods (`conductor.config.Kubernetes`), absent none.
+  # `control_token`, written `secret:<name>`, names the control token: a request on either
+  # listener whose bearer equals that secret's value, read from the secrets source and never from
+  # the file, is admitted as the machine principal `control-plane`
+  # (`conductor.operator.ActorKind` `ControlPlane`), with or without `tls`, for the reads of
+  # `/v1/` a person may make and for `POST /v1/instances`, `PUT` and `DELETE
+  # /v1/instances/{name}` and `POST /v1/instances/{name}/restart`, and nothing else. Absent, no
+  # request is admitted so, and the daemon answers as it did before the key existed.
   # UNMAPPED: "the dashboard's served path" may be the URL path the app is served under (`/`, as
   # § 5.3 says) or the directory of the built app the daemon serves; read here as the URL path.
   # Open question.
@@ -712,6 +834,8 @@ types:
       - {name: substrate_slots, type: Integer}
       - {name: unattended, type: Boolean}
       - {name: address, type: String}
+      - {name: kubernetes, type: Optional<conductor.config.Kubernetes>}
+      - {name: control_token, type: Optional<conductor.secret.SecretName>}
     invariants:
       - port >= 1
       - port <= 65535
@@ -825,7 +949,11 @@ types:
   # file. No two instances share a `session_prefix`, and at most one has none
   # (story:instance-session-names); no two share a `state` or a `records`
   # directory (story:instance-names-unique). The host registry that checked this across config
-  # files is gone (§ 11): one daemon reads one file.
+  # files is gone (§ 11): one daemon reads one file. `instances` holds at least one instance,
+  # unless `daemon.kubernetes` is set: a daemon that runs its instances as pods starts with none,
+  # and a consumer control plane adds each (`AddInstance`). Where it is set, every instance's name
+  # is a `KubernetesName` of at most 39 characters, so that `conductor-instance-<name>-data` is
+  # at most 63.
   - name: conductor.config.Config
     kind: struct
     fields:
@@ -836,6 +964,12 @@ types:
       - {name: instances, type: List<conductor.config.Instance>}
     invariants:
       - version == "conductor.config/2"
+      - any:
+          - defined(daemon.kubernetes)
+          - instances.count >= 1
+      - any:
+          - not defined(daemon.kubernetes)
+          - forall: {in: instances, as: instance, that: "instance.name.count <= 39"}
       - distinct: {in: instances, as: instance, by: instance.name}
       - distinct: {in: instances, as: instance, by: instance.session_prefix}
       - distinct: {in: instances, as: instance, by: instance.state}
@@ -843,6 +977,18 @@ types:
       - any:
           - not defined(default)
           - exists: {in: instances, as: instance, that: instance.name == default}
+
+  # The file `conductor daemon serve --daemon-config <file>` reads (`conductor.instance.ServeDaemon`),
+  # such as a ConfigMap mounted read-only into the daemon's pod: a `conductor.config/2` file that
+  # holds `version` and `daemon` and nothing else; a `globals`, `default` or `instances` key in it
+  # is refused by its YAML path.
+  - name: conductor.config.DaemonConfig
+    kind: struct
+    fields:
+      - {name: version, type: String}
+      - {name: daemon, type: conductor.config.Daemon}
+    invariants:
+      - version == "conductor.config/2"
 
   # The input of `conductor config validate`: the instance to resolve, else the
   # `conductor-instance` setting, else none. It writes nothing; the host registry it wrote before
@@ -1320,6 +1466,15 @@ errors:
       - name: path
         type: String
 
+  # An instance is added under a name the config file already holds (`AddInstance`); the whole
+  # instance is replaced with `PutInstance`.
+  - name: conductor.config.InstanceExists
+    summary: >
+      The config already names an instance of this name; nothing was written.
+    fields:
+      - name: name
+        type: conductor.config.InstanceName
+
   # The level and the instance or role a change names do not fit together.
   - name: conductor.config.LevelScopeMismatch
     summary: >
@@ -1398,8 +1553,22 @@ actors:
   - name: conductor.config.Operator
     may:
       - conductor.config.PutConfig
+      - conductor.config.AddInstance
+      - conductor.config.PutInstance
+      - conductor.config.RemoveInstance
     naming:
       display: Operator
+
+  # A consumer control plane, a program: the machine principal `control-plane`
+  # (`conductor.operator.ActorKind` `ControlPlane`, `daemon.control_token`). It adds, replaces
+  # and removes whole instances and changes no single key.
+  - name: conductor.config.ControlPlane
+    may:
+      - conductor.config.AddInstance
+      - conductor.config.PutInstance
+      - conductor.config.RemoveInstance
+    naming:
+      display: Control plane
 
   # The tuner, an agent: proposes settings and applies one only inside the tuning grant (design
   # architecture-next § 9, § 13 row 7; `conductor.improvement.TuningGrant`).
@@ -1507,6 +1676,245 @@ commands:
           The key is written at its level and committed with the actor and the reason; the daemon
           reconciles the instances the change touches.
 
+  # `POST /v1/instances` (design: instance pods, the instance API): one whole instance added to
+  # the config file's `instances`, after the last one. `mapping` is the instance as the file
+  # writes it, YAML text (JSON is YAML too), every key an `instances[]` entry takes; it may leave
+  # out `name`, which is `name`, and one that writes another name is invalid by its path `name`.
+  # The config with the instance added is validated as `conductor config validate` validates it,
+  # written by a rename beside the file, committed with the actor and the reason where the file
+  # lies in a git checkout, recorded as one `ConfigRevision` at the level `Instance` with the path
+  # `.` and the mapping as its value, and reconciled: the daemon starts the new instance's
+  # runtime. A person or the machine principal `control-plane` adds one; every other actor is
+  # refused by name. Adding, replacing and removing are three commands because each HTTP route
+  # binds one operation (`ess-http/1`, ESS-HTTP-005).
+  # Where `daemon.kubernetes` is set the instance runs as a pod, and a mapping cannot shape it
+  # (`conductor.config.Kubernetes`). Then, besides every rule of `config validate`, these are
+  # `invalid`, each naming its YAML path: a `name` that is no `KubernetesName` of at most 39
+  # characters (`name`); a path (`checkouts.root`, `checkouts.trees`, `records`, `state`,
+  # `cache`) that lies outside the instance's data mount, the volume claim's mount in the pod. A
+  # path the mapping leaves out the daemon fills in under the data mount. A `secret:<name>` the
+  # mapping writes resolves against the daemon's secrets source only.
+  - name: conductor.config.AddInstance
+    naming:
+      wire: add-instance
+      display: Add an instance
+    input:
+      - name: actor
+        type: conductor.operator.Actor
+      - name: name
+        type: conductor.config.InstanceName
+        example: "example-org-two"
+      - name: mapping
+        type: String
+        example: "{sources: [{github: example-org}], checkouts: {root: /srv/example-org, trees: /srv/trees}}"
+      - name: reason
+        type: String
+        example: "a new tenant"
+      - name: changed_at
+        type: Timestamp
+        example: "2026-11-12T09:00:00Z"
+    outcomes:
+      - name: actor-not-human
+        when:
+          all:
+            - actor.kind != Human
+            - actor.kind != ControlPlane
+        error: conductor.operator.ActorNotHuman
+        payload:
+          conductor.operator.ActorNotHuman:
+            actor: input.actor
+        summary: Only a person or the control plane adds an instance; an agent or the daemon is refused by name and nothing was written.
+      - name: exists
+        external: the config already names an instance of this name
+        error: conductor.config.InstanceExists
+        payload:
+          conductor.config.InstanceExists:
+            name: input.name
+        summary: The config holds an instance of this name; nothing was written.
+      - name: invalid
+        external: the config with the instance added does not validate
+        error: conductor.config.ConfigInvalid
+        payload:
+          conductor.config.ConfigInvalid:
+            path: {generated: true}
+        summary: The config with the instance added does not validate, the problem named by its YAML path; nothing was written.
+      - name: changed
+        creates: conductor.config.ConfigRevision
+        instance: revision_id
+        sets:
+          actor: input.actor
+          level: Instance
+          instance: input.name
+          role: {cleared: true}
+          path: "."
+          value: input.mapping
+          reason: input.reason
+          commit: {generated: true}
+          changed_at: input.changed_at
+        emits:
+          - conductor.config.InstanceAdded
+        payload:
+          conductor.config.InstanceAdded:
+            revision_id: {generated: true}
+            actor: input.actor
+            name: input.name
+            mapping: input.mapping
+            reason: input.reason
+        summary: >
+          The instance is written into the config file and committed with the actor and the
+          reason; the daemon starts its runtime.
+
+  # `PUT /v1/instances/{name}`: one whole instance of the config file replaced by `mapping`, in
+  # its place, as `AddInstance` writes one; the instance keeps its name. Recorded as one
+  # `ConfigRevision` at the level `Instance` with the path `.` and the mapping as its value, and
+  # reconciled: the daemon restarts the runtime where the change touches it. To change one key,
+  # `PutConfig` at the level `Instance`. A person or the machine principal `control-plane`
+  # replaces one; every other actor is refused by name. A mapping of a pod-run instance is
+  # `invalid` by the same rules as in `AddInstance`, each naming its YAML path.
+  - name: conductor.config.PutInstance
+    naming:
+      wire: put-instance
+      display: Replace an instance
+    input:
+      - name: actor
+        type: conductor.operator.Actor
+      - name: name
+        type: conductor.config.InstanceName
+        example: "example-org"
+      - name: mapping
+        type: String
+        example: "{sources: [{github: example-org}], checkouts: {root: /srv/example-org, trees: /srv/trees}}"
+      - name: reason
+        type: String
+        example: "read the forge, not a directory"
+      - name: changed_at
+        type: Timestamp
+        example: "2026-11-12T11:00:00Z"
+    outcomes:
+      - name: actor-not-human
+        when:
+          all:
+            - actor.kind != Human
+            - actor.kind != ControlPlane
+        error: conductor.operator.ActorNotHuman
+        payload:
+          conductor.operator.ActorNotHuman:
+            actor: input.actor
+        summary: Only a person or the control plane replaces an instance; an agent or the daemon is refused by name and nothing was written.
+      - name: unknown
+        external: the config names no instance of this name
+        error: conductor.instance.UnknownInstance
+        payload:
+          conductor.instance.UnknownInstance:
+            name: input.name
+        summary: The config names no instance of this name; nothing was written.
+      - name: invalid
+        external: the config with the instance replaced does not validate
+        error: conductor.config.ConfigInvalid
+        payload:
+          conductor.config.ConfigInvalid:
+            path: {generated: true}
+        summary: The config with the instance replaced does not validate, the problem named by its YAML path; nothing was written.
+      - name: changed
+        creates: conductor.config.ConfigRevision
+        instance: revision_id
+        sets:
+          actor: input.actor
+          level: Instance
+          instance: input.name
+          role: {cleared: true}
+          path: "."
+          value: input.mapping
+          reason: input.reason
+          commit: {generated: true}
+          changed_at: input.changed_at
+        emits:
+          - conductor.config.InstanceReplaced
+        payload:
+          conductor.config.InstanceReplaced:
+            revision_id: {generated: true}
+            actor: input.actor
+            name: input.name
+            mapping: input.mapping
+            reason: input.reason
+        summary: >
+          The instance's mapping is replaced in the config file and committed with the actor and
+          the reason; the daemon reconciles it.
+
+  # `DELETE /v1/instances/{name}`: one instance removed from the config file's `instances`, which
+  # retires it: the daemon stops its runtime (for a pod-run instance, deletes its pod and its
+  # Secret and keeps its volume claim) and keeps its records. Recorded as one `ConfigRevision` at
+  # the level `Instance` with the path `.` and no value; the row leaves `GET /v1/instances` once
+  # the daemon reconciled. The file may be left with no instance only where `daemon.kubernetes`
+  # is set; elsewhere the removal of the last one, or of the one `default` names, is invalid by
+  # that path. A person or the machine principal `control-plane` removes one; every other actor
+  # is refused by name. The data is deleted only by `conductor.instance.PurgeInstance`.
+  - name: conductor.config.RemoveInstance
+    naming:
+      wire: remove-instance
+      display: Remove an instance
+    input:
+      - name: actor
+        type: conductor.operator.Actor
+      - name: name
+        type: conductor.config.InstanceName
+        example: "example-org"
+      - name: reason
+        type: String
+        example: "the tenant left"
+      - name: changed_at
+        type: Timestamp
+        example: "2026-11-12T13:00:00Z"
+    outcomes:
+      - name: actor-not-human
+        when:
+          all:
+            - actor.kind != Human
+            - actor.kind != ControlPlane
+        error: conductor.operator.ActorNotHuman
+        payload:
+          conductor.operator.ActorNotHuman:
+            actor: input.actor
+        summary: Only a person or the control plane removes an instance; an agent or the daemon is refused by name and nothing was written.
+      - name: unknown
+        external: the config names no instance of this name
+        error: conductor.instance.UnknownInstance
+        payload:
+          conductor.instance.UnknownInstance:
+            name: input.name
+        summary: The config names no instance of this name; nothing was written.
+      - name: invalid
+        external: the config without the instance does not validate
+        error: conductor.config.ConfigInvalid
+        payload:
+          conductor.config.ConfigInvalid:
+            path: {generated: true}
+        summary: The config without the instance does not validate, the problem named by its YAML path; nothing was written.
+      - name: changed
+        creates: conductor.config.ConfigRevision
+        instance: revision_id
+        sets:
+          actor: input.actor
+          level: Instance
+          instance: input.name
+          role: {cleared: true}
+          path: "."
+          value: {cleared: true}
+          reason: input.reason
+          commit: {generated: true}
+          changed_at: input.changed_at
+        emits:
+          - conductor.config.InstanceRemoved
+        payload:
+          conductor.config.InstanceRemoved:
+            revision_id: {generated: true}
+            actor: input.actor
+            name: input.name
+            reason: input.reason
+        summary: >
+          The instance is removed from the config file and the removal committed with the actor
+          and the reason; the daemon stops its runtime and keeps its data.
+
 events:
   # The instance is `instance_name` here, not `instance`: ess 0.90.0's caller-swapped rerun
   # (`rename` in ess-conformance `synthesize/caller.rs`) suffixes every JSON string under a key
@@ -1531,6 +1939,33 @@ events:
         type: Optional<String>
       - name: reason
         type: String
+
+  # An instance added to the config file (`AddInstance`), with its mapping as the request wrote
+  # it.
+  - name: conductor.config.InstanceAdded
+    fields:
+      - {name: revision_id, type: conductor.config.RevisionId}
+      - {name: actor, type: conductor.operator.Actor}
+      - {name: name, type: conductor.config.InstanceName}
+      - {name: mapping, type: String}
+      - {name: reason, type: String}
+
+  # An instance of the config file replaced whole (`PutInstance`), with its new mapping.
+  - name: conductor.config.InstanceReplaced
+    fields:
+      - {name: revision_id, type: conductor.config.RevisionId}
+      - {name: actor, type: conductor.operator.Actor}
+      - {name: name, type: conductor.config.InstanceName}
+      - {name: mapping, type: String}
+      - {name: reason, type: String}
+
+  # An instance removed from the config file (`RemoveInstance`), which retires it.
+  - name: conductor.config.InstanceRemoved
+    fields:
+      - {name: revision_id, type: conductor.config.RevisionId}
+      - {name: actor, type: conductor.operator.Actor}
+      - {name: name, type: conductor.config.InstanceName}
+      - {name: reason, type: String}
 
 views:
   # Every accepted config change, with who made it and why (design architecture-next § 5.2, the

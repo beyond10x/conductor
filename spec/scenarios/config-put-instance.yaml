@@ -1,0 +1,52 @@
+# An operator replaces one whole instance of the config file: the new mapping takes the old one's
+# place, validated, committed and recorded at the instance level with the path `.`. A replace of
+# a name the config does not hold is refused, naming it.
+type: ess-scenario/1
+domain: conductor.config
+scenario: config-put-instance
+summary: An operator's replace of an instance is committed and recorded; a replace of an unknown name is refused as UnknownInstance.
+
+timeline:
+  - at: 2026-11-12T11:00:00Z
+    command: conductor.config.PutInstance
+    actor: conductor.config.Operator
+    input:
+      actor: {kind: Human, operator: example-operator}
+      name: example-org
+      mapping: "{sources: [{github: example-org}], checkouts: {root: /srv/example-org, trees: /srv/trees}}"
+      reason: read the forge, not a directory
+      changed_at: 2026-11-12T11:00:00Z
+    outcome: changed
+    events:
+      - event: conductor.config.InstanceReplaced
+        payload:
+          actor: {kind: Human, operator: example-operator}
+          name: example-org
+          mapping: "{sources: [{github: example-org}], checkouts: {root: /srv/example-org, trees: /srv/trees}}"
+          reason: read the forge, not a directory
+
+  - at: 2026-11-12T11:05:00Z
+    command: conductor.config.PutInstance
+    actor: conductor.config.Operator
+    input:
+      actor: {kind: Human, operator: example-operator}
+      name: example-org-unknown
+      mapping: "{sources: [{github: example-org}], checkouts: {root: /srv/example-org, trees: /srv/trees}}"
+      reason: no such tenant
+      changed_at: 2026-11-12T11:05:00Z
+    outcome: unknown
+    error:
+      name: conductor.instance.UnknownInstance
+
+assert:
+  - view: conductor.config.ConfigRevisions
+    contains:
+      state: Committed
+      actor: {kind: Human, operator: example-operator}
+      level: Instance
+      instance: example-org
+      path: "."
+      reason: read the forge, not a directory
+  - view: conductor.config.ConfigRevisions
+    excludes:
+      reason: no such tenant

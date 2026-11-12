@@ -101,7 +101,7 @@ pub const MEMORY_BACKED: [&str; 18] = [
 /// The behaviours and queries the plan owes rather than generates, and who answers each here:
 /// `store` where this module answers it from the store, `memory` where [`MemoryPorts`] refuses it
 /// as unmet.
-pub const OWED: [(&str, &str); 13] = [
+pub const OWED: [(&str, &str); 14] = [
     ("conductor.agent.AttachAgent", "memory"),
     ("conductor.agent.DeliverToAgent", "memory"),
     ("conductor.agent.StartAgent", "memory"),
@@ -117,6 +117,7 @@ pub const OWED: [(&str, &str); 13] = [
     ("conductor.session.ClaimLease", "memory"),
     ("conductor.store.MigrateStore", "memory"),
     ("conductor.config.EffectiveSettings", "memory"),
+    ("conductor.instance.InstanceByName", "memory"),
     ("conductor.token.Tokens", "store"),
 ];
 
@@ -325,6 +326,17 @@ impl m::config::obligations::EffectiveSettingsQuery for StorePorts {
         instance: m::config::InstanceName,
     ) -> Result<Vec<m::config::EffectiveSettings>, UnmetObligation> {
         m::config::obligations::EffectiveSettingsQuery::effective_settings(&self.memory, instance)
+    }
+}
+
+/// `conductor.instance.InstanceByName`, `GET /v1/instances/{name}`: declared and not served yet,
+/// so the generated refusal of an unmet obligation answers it, as for `EffectiveSettings`.
+impl m::instance::obligations::InstanceByNameQuery for StorePorts {
+    fn instance_by_name(
+        &self,
+        name: m::config::InstanceName,
+    ) -> Result<Vec<m::instance::InstanceByName>, UnmetObligation> {
+        m::instance::obligations::InstanceByNameQuery::instance_by_name(&self.memory, name)
     }
 }
 

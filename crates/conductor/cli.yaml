@@ -615,12 +615,14 @@ commands:
         source: {kind: option, long: commit-records}
   - path: [daemon, serve]
     callable: daemon-serve
-    about: Run conductord, the daemon of the control host, reconciling the instance runtimes from the config file - start what is absent, stop what is gone, restart what changed placement or binary - on a config change, a lost runtime and every daemon.cadence.reconcile, recording one Reconciliation per action, and serving GET 127.0.0.1:<daemon.port>/v1/instances. --install writes, enables and starts the user unit conductord.service, or the system unit when daemon.loopback is false (a box with no local operator, its config file in a git checkout, its secrets on the Secrets service); --uninstall stops and removes it
+    about: Run conductord, the daemon of the control host, reconciling the instance runtimes from the config file - start what is absent, stop what is gone, restart what changed placement or binary - on a config change, a lost runtime and every daemon.cadence.reconcile, recording one Reconciliation per action, and serving GET 127.0.0.1:<daemon.port>/v1/instances. --install writes, enables and starts the user unit conductord.service, or the system unit when daemon.loopback is false (a box with no local operator, its config file in a git checkout, its secrets on the Secrets service); --uninstall stops and removes it. --daemon-config names a file holding only version and daemon, such as a mounted ConfigMap - at every start the daemon writes the config file from it, keeping the file's globals and instances
     arguments:
       - field: install
         source: {kind: option, long: install}
       - field: uninstall
         source: {kind: option, long: uninstall}
+      - field: daemon_config
+        source: {kind: option, long: daemon-config}
   - path: [daemon, start-role]
     callable: daemon-start-role
     about: Ask the daemon of the config file to start a host role now (POST /v1/roles/{role}/start) - supervisor or teacher, one globals.roles lists; the daemon starts it through conductor session start --role <role> at the host placement, its session in conductor_host.slice, and keeps it running; a role the file does not list is refused naming globals.roles

@@ -1,5 +1,5 @@
 // generated from conductor v1
-// contract digest 2b03183365aedd50e23f3659c527d6ee72cb8b1ac517c9e046bb013284b8a454
+// contract digest 7a2d2151a617b034e5a12bae1525027cb9f09b0dd4f8f5435a8d7b89308daeba
 // do not edit: regenerate with `ess synthesize --layout crate`
 
 //! What the specification fully determines, generated: the behaviour of every command the plan
@@ -882,8 +882,14 @@ pub trait ToolCallStorage {
 pub enum ExternalCommand<'a> {
     /// The executing `conductor.agent.RestartAgent` input.
     ConductorAgentRestartAgent(&'a crate::agent::RestartAgent),
+    /// The executing `conductor.config.AddInstance` input.
+    ConductorConfigAddInstance(&'a crate::config::AddInstance),
     /// The executing `conductor.config.PutConfig` input.
     ConductorConfigPutConfig(&'a crate::config::PutConfig),
+    /// The executing `conductor.config.PutInstance` input.
+    ConductorConfigPutInstance(&'a crate::config::PutInstance),
+    /// The executing `conductor.config.RemoveInstance` input.
+    ConductorConfigRemoveInstance(&'a crate::config::RemoveInstance),
     /// The executing `conductor.instance.RestartInstance` input.
     ConductorInstanceRestartInstance(&'a crate::instance::RestartInstance),
     /// The executing `conductor.placement.OpenBox` input.
@@ -901,7 +907,10 @@ impl ExternalCommand<'_> {
     pub fn name(&self) -> &'static str {
         match self {
             Self::ConductorAgentRestartAgent(_) => "conductor.agent.RestartAgent",
+            Self::ConductorConfigAddInstance(_) => "conductor.config.AddInstance",
             Self::ConductorConfigPutConfig(_) => "conductor.config.PutConfig",
+            Self::ConductorConfigPutInstance(_) => "conductor.config.PutInstance",
+            Self::ConductorConfigRemoveInstance(_) => "conductor.config.RemoveInstance",
             Self::ConductorInstanceRestartInstance(_) => "conductor.instance.RestartInstance",
             Self::ConductorPlacementOpenBox(_) => "conductor.placement.OpenBox",
             Self::ConductorSessionDeliverMessage(_) => "conductor.session.DeliverMessage",
@@ -1266,6 +1275,45 @@ where
     }
 }
 
+/// `conductor.config.AddInstance`, generated: every outcome is one the specification fully determines.
+impl<P> crate::config::obligations::AddInstanceBehavior for Generated<P>
+where
+    P: TryContext + ConfigRevisionStorage,
+{
+    fn add_instance(&mut self, input: crate::config::AddInstance) -> Result<crate::config::AddInstanceOutcome, UnmetObligation> {
+        let _ = &input;
+        // `actor-not-human`: an input-guarded refusal, before the addressed subject is loaded.
+        if decided(all(&[equal(Some(&input.actor).map(|value| &value.kind).map(|value| match value { crate::operator::ActorKind::Human => "Human", crate::operator::ActorKind::Agent => "Agent", crate::operator::ActorKind::Daemon => "Daemon", crate::operator::ActorKind::ControlPlane => "ControlPlane" }.to_owned()), Some("Human".to_owned())).map(|value| !value), equal(Some(&input.actor).map(|value| &value.kind).map(|value| match value { crate::operator::ActorKind::Human => "Human", crate::operator::ActorKind::Agent => "Agent", crate::operator::ActorKind::Daemon => "Daemon", crate::operator::ActorKind::ControlPlane => "ControlPlane" }.to_owned()), Some("ControlPlane".to_owned())).map(|value| !value)]), "conductor.config.AddInstance")? {
+            return Ok(crate::config::AddInstanceOutcome::ActorNotHuman { error: crate::operator::ActorNotHuman { actor: input.actor.clone() } });
+        }
+        // `exists`: an external branch, where the context takes it.
+        if self.ports.try_external(ExternalCommand::ConductorConfigAddInstance(&input), "exists")? {
+            return Ok(crate::config::AddInstanceOutcome::Exists { error: crate::config::InstanceExists { name: input.name.clone() } });
+        }
+        // `invalid`: an external branch, where the context takes it.
+        if self.ports.try_external(ExternalCommand::ConductorConfigAddInstance(&input), "invalid")? {
+            return Ok(crate::config::AddInstanceOutcome::Invalid { error: crate::config::ConfigInvalid { path: self.ports.try_generate_string()? } });
+        }
+        // `changed`: the default.
+        let identity: crate::config::RevisionId = self.ports.try_generate_conductor_config_revision_id()?;
+        let data = crate::config::ConfigRevisionData {
+            revision_id: identity.clone(),
+            actor: input.actor.clone(),
+            level: crate::config::Level::Instance,
+            instance: Some(input.name.clone()),
+            role: None,
+            path: ".".to_owned(),
+            value: Some(input.mapping.clone()),
+            reason: input.reason.clone(),
+            commit: self.ports.try_generate_string()?,
+            changed_at: input.changed_at.clone(),
+        };
+        let answer = crate::config::AddInstanceOutcome::Changed { instance_added: crate::config::InstanceAdded { revision_id: identity.clone(), actor: input.actor.clone(), name: input.name.clone(), mapping: input.mapping.clone(), reason: input.reason.clone() } };
+        ConfigRevisionStorage::put(&mut self.ports, crate::config::AnyConfigRevision::Committed(crate::config::ConfigRevision::new(data)).snapshot());
+        return Ok(answer);
+    }
+}
+
 /// `conductor.config.PutConfig`, generated: every outcome is one the specification fully determines.
 impl<P> crate::config::obligations::PutConfigBehavior for Generated<P>
 where
@@ -1278,7 +1326,7 @@ where
             return Ok(crate::config::PutConfigOutcome::LevelScopeMismatch { error: crate::config::LevelScopeMismatch { level: input.level.clone() } });
         }
         // `actor-not-human`: an external branch, where the context takes it and its input is eligible.
-        if self.ports.try_external(ExternalCommand::ConductorConfigPutConfig(&input), "actor-not-human")? && decided(equal(Some(&input.actor).map(|value| &value.kind).map(|value| match value { crate::operator::ActorKind::Human => "Human", crate::operator::ActorKind::Agent => "Agent", crate::operator::ActorKind::Daemon => "Daemon" }.to_owned()), Some("Human".to_owned())).map(|value| !value), "conductor.config.PutConfig")? {
+        if self.ports.try_external(ExternalCommand::ConductorConfigPutConfig(&input), "actor-not-human")? && decided(equal(Some(&input.actor).map(|value| &value.kind).map(|value| match value { crate::operator::ActorKind::Human => "Human", crate::operator::ActorKind::Agent => "Agent", crate::operator::ActorKind::Daemon => "Daemon", crate::operator::ActorKind::ControlPlane => "ControlPlane" }.to_owned()), Some("Human".to_owned())).map(|value| !value), "conductor.config.PutConfig")? {
             return Ok(crate::config::PutConfigOutcome::ActorNotHuman { error: crate::operator::ActorNotHuman { actor: input.actor.clone() } });
         }
         // `invalid`: an external branch, where the context takes it.
@@ -1300,6 +1348,84 @@ where
             changed_at: input.changed_at.clone(),
         };
         let answer = crate::config::PutConfigOutcome::Changed { config_changed: crate::config::ConfigChanged { revision_id: identity.clone(), actor: input.actor.clone(), level: input.level.clone(), instance_name: input.instance.clone(), role: input.role.clone(), path: input.path.clone(), value: input.value.clone(), reason: input.reason.clone() } };
+        ConfigRevisionStorage::put(&mut self.ports, crate::config::AnyConfigRevision::Committed(crate::config::ConfigRevision::new(data)).snapshot());
+        return Ok(answer);
+    }
+}
+
+/// `conductor.config.PutInstance`, generated: every outcome is one the specification fully determines.
+impl<P> crate::config::obligations::PutInstanceBehavior for Generated<P>
+where
+    P: TryContext + ConfigRevisionStorage,
+{
+    fn put_instance(&mut self, input: crate::config::PutInstance) -> Result<crate::config::PutInstanceOutcome, UnmetObligation> {
+        let _ = &input;
+        // `actor-not-human`: an input-guarded refusal, before the addressed subject is loaded.
+        if decided(all(&[equal(Some(&input.actor).map(|value| &value.kind).map(|value| match value { crate::operator::ActorKind::Human => "Human", crate::operator::ActorKind::Agent => "Agent", crate::operator::ActorKind::Daemon => "Daemon", crate::operator::ActorKind::ControlPlane => "ControlPlane" }.to_owned()), Some("Human".to_owned())).map(|value| !value), equal(Some(&input.actor).map(|value| &value.kind).map(|value| match value { crate::operator::ActorKind::Human => "Human", crate::operator::ActorKind::Agent => "Agent", crate::operator::ActorKind::Daemon => "Daemon", crate::operator::ActorKind::ControlPlane => "ControlPlane" }.to_owned()), Some("ControlPlane".to_owned())).map(|value| !value)]), "conductor.config.PutInstance")? {
+            return Ok(crate::config::PutInstanceOutcome::ActorNotHuman { error: crate::operator::ActorNotHuman { actor: input.actor.clone() } });
+        }
+        // `unknown`: an external branch, where the context takes it.
+        if self.ports.try_external(ExternalCommand::ConductorConfigPutInstance(&input), "unknown")? {
+            return Ok(crate::config::PutInstanceOutcome::Unknown { error: crate::instance::UnknownInstance { name: input.name.clone() } });
+        }
+        // `invalid`: an external branch, where the context takes it.
+        if self.ports.try_external(ExternalCommand::ConductorConfigPutInstance(&input), "invalid")? {
+            return Ok(crate::config::PutInstanceOutcome::Invalid { error: crate::config::ConfigInvalid { path: self.ports.try_generate_string()? } });
+        }
+        // `changed`: the default.
+        let identity: crate::config::RevisionId = self.ports.try_generate_conductor_config_revision_id()?;
+        let data = crate::config::ConfigRevisionData {
+            revision_id: identity.clone(),
+            actor: input.actor.clone(),
+            level: crate::config::Level::Instance,
+            instance: Some(input.name.clone()),
+            role: None,
+            path: ".".to_owned(),
+            value: Some(input.mapping.clone()),
+            reason: input.reason.clone(),
+            commit: self.ports.try_generate_string()?,
+            changed_at: input.changed_at.clone(),
+        };
+        let answer = crate::config::PutInstanceOutcome::Changed { instance_replaced: crate::config::InstanceReplaced { revision_id: identity.clone(), actor: input.actor.clone(), name: input.name.clone(), mapping: input.mapping.clone(), reason: input.reason.clone() } };
+        ConfigRevisionStorage::put(&mut self.ports, crate::config::AnyConfigRevision::Committed(crate::config::ConfigRevision::new(data)).snapshot());
+        return Ok(answer);
+    }
+}
+
+/// `conductor.config.RemoveInstance`, generated: every outcome is one the specification fully determines.
+impl<P> crate::config::obligations::RemoveInstanceBehavior for Generated<P>
+where
+    P: TryContext + ConfigRevisionStorage,
+{
+    fn remove_instance(&mut self, input: crate::config::RemoveInstance) -> Result<crate::config::RemoveInstanceOutcome, UnmetObligation> {
+        let _ = &input;
+        // `actor-not-human`: an input-guarded refusal, before the addressed subject is loaded.
+        if decided(all(&[equal(Some(&input.actor).map(|value| &value.kind).map(|value| match value { crate::operator::ActorKind::Human => "Human", crate::operator::ActorKind::Agent => "Agent", crate::operator::ActorKind::Daemon => "Daemon", crate::operator::ActorKind::ControlPlane => "ControlPlane" }.to_owned()), Some("Human".to_owned())).map(|value| !value), equal(Some(&input.actor).map(|value| &value.kind).map(|value| match value { crate::operator::ActorKind::Human => "Human", crate::operator::ActorKind::Agent => "Agent", crate::operator::ActorKind::Daemon => "Daemon", crate::operator::ActorKind::ControlPlane => "ControlPlane" }.to_owned()), Some("ControlPlane".to_owned())).map(|value| !value)]), "conductor.config.RemoveInstance")? {
+            return Ok(crate::config::RemoveInstanceOutcome::ActorNotHuman { error: crate::operator::ActorNotHuman { actor: input.actor.clone() } });
+        }
+        // `unknown`: an external branch, where the context takes it.
+        if self.ports.try_external(ExternalCommand::ConductorConfigRemoveInstance(&input), "unknown")? {
+            return Ok(crate::config::RemoveInstanceOutcome::Unknown { error: crate::instance::UnknownInstance { name: input.name.clone() } });
+        }
+        // `invalid`: an external branch, where the context takes it.
+        if self.ports.try_external(ExternalCommand::ConductorConfigRemoveInstance(&input), "invalid")? {
+            return Ok(crate::config::RemoveInstanceOutcome::Invalid { error: crate::config::ConfigInvalid { path: self.ports.try_generate_string()? } });
+        }
+        // `changed`: the default.
+        let identity: crate::config::RevisionId = self.ports.try_generate_conductor_config_revision_id()?;
+        let data = crate::config::ConfigRevisionData {
+            revision_id: identity.clone(),
+            actor: input.actor.clone(),
+            level: crate::config::Level::Instance,
+            instance: Some(input.name.clone()),
+            role: None,
+            path: ".".to_owned(),
+            value: None,
+            reason: input.reason.clone(),
+            commit: self.ports.try_generate_string()?,
+            changed_at: input.changed_at.clone(),
+        };
+        let answer = crate::config::RemoveInstanceOutcome::Changed { instance_removed: crate::config::InstanceRemoved { revision_id: identity.clone(), actor: input.actor.clone(), name: input.name.clone(), reason: input.reason.clone() } };
         ConfigRevisionStorage::put(&mut self.ports, crate::config::AnyConfigRevision::Committed(crate::config::ConfigRevision::new(data)).snapshot());
         return Ok(answer);
     }
@@ -1351,7 +1477,7 @@ where
     fn answer_escalated_request(&mut self, input: crate::decision::AnswerEscalatedRequest) -> Result<crate::decision::AnswerEscalatedRequestOutcome, UnmetObligation> {
         let _ = &input;
         // `agent-actor`: an input-guarded refusal, before the addressed subject is loaded.
-        if decided(equal(Some(&input.actor).map(|value| &value.kind).map(|value| match value { crate::operator::ActorKind::Human => "Human", crate::operator::ActorKind::Agent => "Agent", crate::operator::ActorKind::Daemon => "Daemon" }.to_owned()), Some("Human".to_owned())).map(|value| !value), "conductor.decision.AnswerEscalatedRequest")? {
+        if decided(equal(Some(&input.actor).map(|value| &value.kind).map(|value| match value { crate::operator::ActorKind::Human => "Human", crate::operator::ActorKind::Agent => "Agent", crate::operator::ActorKind::Daemon => "Daemon", crate::operator::ActorKind::ControlPlane => "ControlPlane" }.to_owned()), Some("Human".to_owned())).map(|value| !value), "conductor.decision.AnswerEscalatedRequest")? {
             return Ok(crate::decision::AnswerEscalatedRequestOutcome::AgentActor { error: crate::operator::ActorNotHuman { actor: input.actor.clone() } });
         }
         // `when_related:` reads the `conductor.decision.Decision` row `input.decision_id` names, through its storage port; an absent
@@ -1430,7 +1556,7 @@ where
         }
         // `agent-actor`: a present related row's refusal, before every accepting branch.
         if let Some(related) = &related {
-        if decided(all(&[all(&[equal(Some(&related.data.decision_class).map(|value| match value { crate::decision::DecisionClass::C => "C", crate::decision::DecisionClass::O => "O", crate::decision::DecisionClass::H => "H" }.to_owned()), Some("H".to_owned())), equal(Some(&related.state).map(|value| match value { crate::decision::DecisionState::InForce => "InForce", crate::decision::DecisionState::Reversed => "Reversed" }.to_owned()), Some("InForce".to_owned()))]), equal(Some(&input.actor).map(|value| &value.kind).map(|value| match value { crate::operator::ActorKind::Human => "Human", crate::operator::ActorKind::Agent => "Agent", crate::operator::ActorKind::Daemon => "Daemon" }.to_owned()), Some("Human".to_owned())).map(|value| !value)]), "conductor.decision.AnswerRequest")? {
+        if decided(all(&[all(&[equal(Some(&related.data.decision_class).map(|value| match value { crate::decision::DecisionClass::C => "C", crate::decision::DecisionClass::O => "O", crate::decision::DecisionClass::H => "H" }.to_owned()), Some("H".to_owned())), equal(Some(&related.state).map(|value| match value { crate::decision::DecisionState::InForce => "InForce", crate::decision::DecisionState::Reversed => "Reversed" }.to_owned()), Some("InForce".to_owned()))]), equal(Some(&input.actor).map(|value| &value.kind).map(|value| match value { crate::operator::ActorKind::Human => "Human", crate::operator::ActorKind::Agent => "Agent", crate::operator::ActorKind::Daemon => "Daemon", crate::operator::ActorKind::ControlPlane => "ControlPlane" }.to_owned()), Some("Human".to_owned())).map(|value| !value)]), "conductor.decision.AnswerRequest")? {
             return Ok(crate::decision::AnswerRequestOutcome::AgentActor { error: crate::operator::ActorNotHuman { actor: input.actor.clone() } });
         }
         }
@@ -1593,7 +1719,7 @@ where
     fn record_operator_decision(&mut self, input: crate::decision::RecordOperatorDecision) -> Result<crate::decision::RecordOperatorDecisionOutcome, UnmetObligation> {
         let _ = &input;
         // `agent-actor`: an input-guarded refusal, before the addressed subject is loaded.
-        if decided(equal(Some(&input.actor).map(|value| &value.kind).map(|value| match value { crate::operator::ActorKind::Human => "Human", crate::operator::ActorKind::Agent => "Agent", crate::operator::ActorKind::Daemon => "Daemon" }.to_owned()), Some("Human".to_owned())).map(|value| !value), "conductor.decision.RecordOperatorDecision")? {
+        if decided(equal(Some(&input.actor).map(|value| &value.kind).map(|value| match value { crate::operator::ActorKind::Human => "Human", crate::operator::ActorKind::Agent => "Agent", crate::operator::ActorKind::Daemon => "Daemon", crate::operator::ActorKind::ControlPlane => "ControlPlane" }.to_owned()), Some("Human".to_owned())).map(|value| !value), "conductor.decision.RecordOperatorDecision")? {
             return Ok(crate::decision::RecordOperatorDecisionOutcome::AgentActor { error: crate::operator::ActorNotHuman { actor: input.actor.clone() } });
         }
         // `already-recorded`: an identity a record already carries, before any branch is taken.
@@ -1675,7 +1801,7 @@ where
     fn reverse_operator_decision(&mut self, input: crate::decision::ReverseOperatorDecision) -> Result<crate::decision::ReverseOperatorDecisionOutcome, UnmetObligation> {
         let _ = &input;
         // `agent-actor`: an input-guarded refusal, before the addressed subject is loaded.
-        if decided(equal(Some(&input.actor).map(|value| &value.kind).map(|value| match value { crate::operator::ActorKind::Human => "Human", crate::operator::ActorKind::Agent => "Agent", crate::operator::ActorKind::Daemon => "Daemon" }.to_owned()), Some("Human".to_owned())).map(|value| !value), "conductor.decision.ReverseOperatorDecision")? {
+        if decided(equal(Some(&input.actor).map(|value| &value.kind).map(|value| match value { crate::operator::ActorKind::Human => "Human", crate::operator::ActorKind::Agent => "Agent", crate::operator::ActorKind::Daemon => "Daemon", crate::operator::ActorKind::ControlPlane => "ControlPlane" }.to_owned()), Some("Human".to_owned())).map(|value| !value), "conductor.decision.ReverseOperatorDecision")? {
             return Ok(crate::decision::ReverseOperatorDecisionOutcome::AgentActor { error: crate::operator::ActorNotHuman { actor: input.actor.clone() } });
         }
         // The addressed row's existence, at step 2 of the one precedence rule.
@@ -1805,7 +1931,7 @@ where
     fn confirm_goal(&mut self, input: crate::direction::ConfirmGoal) -> Result<crate::direction::ConfirmGoalOutcome, UnmetObligation> {
         let _ = &input;
         // `agent-actor`: an input-guarded refusal, before the addressed subject is loaded.
-        if decided(equal(Some(&input.actor).map(|value| &value.kind).map(|value| match value { crate::operator::ActorKind::Human => "Human", crate::operator::ActorKind::Agent => "Agent", crate::operator::ActorKind::Daemon => "Daemon" }.to_owned()), Some("Human".to_owned())).map(|value| !value), "conductor.direction.ConfirmGoal")? {
+        if decided(equal(Some(&input.actor).map(|value| &value.kind).map(|value| match value { crate::operator::ActorKind::Human => "Human", crate::operator::ActorKind::Agent => "Agent", crate::operator::ActorKind::Daemon => "Daemon", crate::operator::ActorKind::ControlPlane => "ControlPlane" }.to_owned()), Some("Human".to_owned())).map(|value| !value), "conductor.direction.ConfirmGoal")? {
             return Ok(crate::direction::ConfirmGoalOutcome::AgentActor { error: crate::operator::ActorNotHuman { actor: input.actor.clone() } });
         }
         // `invalid-goal-id`: an input-guarded refusal, before the addressed subject is loaded.
@@ -1871,7 +1997,7 @@ where
     fn drop_goal(&mut self, input: crate::direction::DropGoal) -> Result<crate::direction::DropGoalOutcome, UnmetObligation> {
         let _ = &input;
         // `agent-actor`: an input-guarded refusal, before the addressed subject is loaded.
-        if decided(equal(Some(&input.actor).map(|value| &value.kind).map(|value| match value { crate::operator::ActorKind::Human => "Human", crate::operator::ActorKind::Agent => "Agent", crate::operator::ActorKind::Daemon => "Daemon" }.to_owned()), Some("Human".to_owned())).map(|value| !value), "conductor.direction.DropGoal")? {
+        if decided(equal(Some(&input.actor).map(|value| &value.kind).map(|value| match value { crate::operator::ActorKind::Human => "Human", crate::operator::ActorKind::Agent => "Agent", crate::operator::ActorKind::Daemon => "Daemon", crate::operator::ActorKind::ControlPlane => "ControlPlane" }.to_owned()), Some("Human".to_owned())).map(|value| !value), "conductor.direction.DropGoal")? {
             return Ok(crate::direction::DropGoalOutcome::AgentActor { error: crate::operator::ActorNotHuman { actor: input.actor.clone() } });
         }
         // `invalid-goal-id`: an input-guarded refusal, before the addressed subject is loaded.
@@ -3551,6 +3677,7 @@ where
             let mut next = moved.snapshot();
             next.data.binary_version = input.binary_version.clone();
             next.data.last_seen = Some(input.at.clone());
+            next.data.detail = None;
             next.data.changed_by = input.actor.clone();
             let answer = crate::instance::ObserveInstanceOutcome::Answering { instance_answered: crate::instance::InstanceAnswered { actor: input.actor.clone(), name: input.name.clone(), binary_version: input.binary_version.clone(), at: input.at.clone() } };
             InstanceStorage::put(&mut self.ports, next);
@@ -3569,6 +3696,7 @@ where
             _ => return Ok(crate::instance::ObserveInstanceOutcome::NotRunning { error: crate::instance::InstanceStateConflict { name: input.name.clone() } }),
         };
         let mut next = moved.snapshot();
+        next.data.detail = input.detail.clone();
         next.data.changed_by = input.actor.clone();
         let answer = crate::instance::ObserveInstanceOutcome::NotAnswering { instance_unreachable: crate::instance::InstanceUnreachable { actor: input.actor.clone(), name: input.name.clone(), at: input.at.clone() } };
         InstanceStorage::put(&mut self.ports, next);
@@ -3584,7 +3712,7 @@ where
     fn purge_instance(&mut self, input: crate::instance::PurgeInstance) -> Result<crate::instance::PurgeInstanceOutcome, UnmetObligation> {
         let _ = &input;
         // `actor-not-human`: an input-guarded refusal, before the addressed subject is loaded.
-        if decided(equal(Some(&input.actor).map(|value| &value.kind).map(|value| match value { crate::operator::ActorKind::Human => "Human", crate::operator::ActorKind::Agent => "Agent", crate::operator::ActorKind::Daemon => "Daemon" }.to_owned()), Some("Human".to_owned())).map(|value| !value), "conductor.instance.PurgeInstance")? {
+        if decided(equal(Some(&input.actor).map(|value| &value.kind).map(|value| match value { crate::operator::ActorKind::Human => "Human", crate::operator::ActorKind::Agent => "Agent", crate::operator::ActorKind::Daemon => "Daemon", crate::operator::ActorKind::ControlPlane => "ControlPlane" }.to_owned()), Some("Human".to_owned())).map(|value| !value), "conductor.instance.PurgeInstance")? {
             return Ok(crate::instance::PurgeInstanceOutcome::ActorNotHuman { error: crate::operator::ActorNotHuman { actor: input.actor.clone() } });
         }
         // The addressed row's existence, at step 2 of the one precedence rule.
@@ -3662,6 +3790,7 @@ where
         next.data.placement = input.placement.clone();
         next.data.roles = input.roles.clone();
         next.data.box_id = Some(input.box_id.clone());
+        next.data.sources = input.sources.clone();
         next.data.changed_by = input.actor.clone();
         let answer = crate::instance::RestartInstanceOutcome::Restarted { instance_restarted: crate::instance::InstanceRestarted { actor: input.actor.clone(), name: input.name.clone(), placement: input.placement.clone(), box_id: input.box_id.clone(), at: input.at.clone() } };
         InstanceStorage::put(&mut self.ports, next);
@@ -4604,7 +4733,7 @@ where
     fn join_instance(&mut self, input: crate::operator::JoinInstance) -> Result<crate::operator::JoinInstanceOutcome, UnmetObligation> {
         let _ = &input;
         // `actor-not-human`: an input-guarded refusal, before the addressed subject is loaded.
-        if decided(equal(Some(&input.actor).map(|value| &value.kind).map(|value| match value { crate::operator::ActorKind::Human => "Human", crate::operator::ActorKind::Agent => "Agent", crate::operator::ActorKind::Daemon => "Daemon" }.to_owned()), Some("Human".to_owned())).map(|value| !value), "conductor.operator.JoinInstance")? {
+        if decided(equal(Some(&input.actor).map(|value| &value.kind).map(|value| match value { crate::operator::ActorKind::Human => "Human", crate::operator::ActorKind::Agent => "Agent", crate::operator::ActorKind::Daemon => "Daemon", crate::operator::ActorKind::ControlPlane => "ControlPlane" }.to_owned()), Some("Human".to_owned())).map(|value| !value), "conductor.operator.JoinInstance")? {
             return Ok(crate::operator::JoinInstanceOutcome::ActorNotHuman { error: crate::operator::ActorNotHuman { actor: input.actor.clone() } });
         }
         // `rejoined`: the default.
@@ -4647,7 +4776,7 @@ where
     fn leave_instance(&mut self, input: crate::operator::LeaveInstance) -> Result<crate::operator::LeaveInstanceOutcome, UnmetObligation> {
         let _ = &input;
         // `actor-not-human`: an input-guarded refusal, before the addressed subject is loaded.
-        if decided(equal(Some(&input.actor).map(|value| &value.kind).map(|value| match value { crate::operator::ActorKind::Human => "Human", crate::operator::ActorKind::Agent => "Agent", crate::operator::ActorKind::Daemon => "Daemon" }.to_owned()), Some("Human".to_owned())).map(|value| !value), "conductor.operator.LeaveInstance")? {
+        if decided(equal(Some(&input.actor).map(|value| &value.kind).map(|value| match value { crate::operator::ActorKind::Human => "Human", crate::operator::ActorKind::Agent => "Agent", crate::operator::ActorKind::Daemon => "Daemon", crate::operator::ActorKind::ControlPlane => "ControlPlane" }.to_owned()), Some("Human".to_owned())).map(|value| !value), "conductor.operator.LeaveInstance")? {
             return Ok(crate::operator::LeaveInstanceOutcome::ActorNotHuman { error: crate::operator::ActorNotHuman { actor: input.actor.clone() } });
         }
         // The addressed row's existence, at step 2 of the one precedence rule.
@@ -4849,7 +4978,7 @@ where
     fn contribute_token(&mut self, input: crate::token::ContributeToken) -> Result<crate::token::ContributeTokenOutcome, UnmetObligation> {
         let _ = &input;
         // `actor-not-human`: an input-guarded refusal, before the addressed subject is loaded.
-        if decided(equal(Some(&input.actor).map(|value| &value.kind).map(|value| match value { crate::operator::ActorKind::Human => "Human", crate::operator::ActorKind::Agent => "Agent", crate::operator::ActorKind::Daemon => "Daemon" }.to_owned()), Some("Human".to_owned())).map(|value| !value), "conductor.token.ContributeToken")? {
+        if decided(equal(Some(&input.actor).map(|value| &value.kind).map(|value| match value { crate::operator::ActorKind::Human => "Human", crate::operator::ActorKind::Agent => "Agent", crate::operator::ActorKind::Daemon => "Daemon", crate::operator::ActorKind::ControlPlane => "ControlPlane" }.to_owned()), Some("Human".to_owned())).map(|value| !value), "conductor.token.ContributeToken")? {
             return Ok(crate::token::ContributeTokenOutcome::ActorNotHuman { error: crate::operator::ActorNotHuman { actor: input.actor.clone() } });
         }
         // `contributed`: the default.
@@ -4967,7 +5096,7 @@ where
     fn withdraw_token(&mut self, input: crate::token::WithdrawToken) -> Result<crate::token::WithdrawTokenOutcome, UnmetObligation> {
         let _ = &input;
         // `actor-not-human`: an input-guarded refusal, before the addressed subject is loaded.
-        if decided(equal(Some(&input.actor).map(|value| &value.kind).map(|value| match value { crate::operator::ActorKind::Human => "Human", crate::operator::ActorKind::Agent => "Agent", crate::operator::ActorKind::Daemon => "Daemon" }.to_owned()), Some("Human".to_owned())).map(|value| !value), "conductor.token.WithdrawToken")? {
+        if decided(equal(Some(&input.actor).map(|value| &value.kind).map(|value| match value { crate::operator::ActorKind::Human => "Human", crate::operator::ActorKind::Agent => "Agent", crate::operator::ActorKind::Daemon => "Daemon", crate::operator::ActorKind::ControlPlane => "ControlPlane" }.to_owned()), Some("Human".to_owned())).map(|value| !value), "conductor.token.WithdrawToken")? {
             return Ok(crate::token::WithdrawTokenOutcome::ActorNotHuman { error: crate::operator::ActorNotHuman { actor: input.actor.clone() } });
         }
         // `not-owner`: an external branch, where the context takes it.
@@ -5608,6 +5737,12 @@ where
     }
 }
 
+impl<P: crate::instance::obligations::InstanceByNameQuery> crate::instance::obligations::InstanceByNameQuery for Generated<P> {
+    fn instance_by_name(&self, name: crate::config::InstanceName) -> Result<Vec<crate::instance::InstanceByName>, UnmetObligation> {
+        crate::instance::obligations::InstanceByNameQuery::instance_by_name(&self.ports, name)
+    }
+}
+
 /// `conductor.instance.Instances`, generated: every row is one the specification fully determines from the stored `conductor.instance.Instance`s.
 impl<P> crate::instance::obligations::InstancesQuery for Generated<P>
 where
@@ -5625,6 +5760,8 @@ where
                 binary_version: held.data.binary_version,
                 last_seen: held.data.last_seen,
                 box_id: held.data.box_id,
+                sources: held.data.sources,
+                detail: held.data.detail,
                 changed_by: held.data.changed_by,
             })
             .collect())

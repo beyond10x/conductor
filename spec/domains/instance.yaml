@@ -53,11 +53,21 @@ types:
   # home; it is refused while the config file lies in no git checkout (every `PutConfig` commits
   # there) or while `daemon.secrets` names the OS keychain rather than the Secrets service, each
   # naming its YAML path or the file, before the service manager is reached.
+  # `daemon_config` (design: instance pods) names a second file, a `conductor.config/2` file that
+  # holds only `version` and `daemon` (`conductor.config.DaemonConfig`), such as a ConfigMap
+  # mounted read-only into the daemon's pod. At every start, before anything else reads the
+  # config, the daemon writes the config file `--config` names (on its volume) from the two: its
+  # `version` and `daemon` from this file, its `globals`, `default` and `instances` kept from the
+  # config file as it is, and with no instance when there is no config file yet. It writes by a
+  # rename beside the file, and only when the bytes differ. Every instance then arrives through
+  # `AddInstance` and lives in the config file; a changed `daemon_config` takes effect when the
+  # daemon starts again. Not with `install` or `uninstall`: refused by name.
   - name: conductor.instance.ServeDaemon
     kind: struct
     fields:
       - {name: install, type: Optional<Boolean>}
       - {name: uninstall, type: Optional<Boolean>}
+      - {name: daemon_config, type: Optional<String>}
 
   # The input of `conductor instance upgrade` (story:instance-upgrade): the client of
   # `POST /v1/instances/{name}/upgrade` on the daemon of the config file. `instance` names one
@@ -123,6 +133,17 @@ entities:
       # The box the instance runs in at its placement; absent while none is open.
       - name: box_id
         type: Optional<conductor.placement.BoxId>
+      # The sources the config gives the instance (`instances[].sources`, § 9), read from the
+      # config as `placement` and `roles` are: where its repositories come from, the repository
+      # group a consumer control plane shows.
+      - name: sources
+        type: List<conductor.config.Source>
+      # Why the runtime does not answer, as one text, when the daemon knows: for a pod, its
+      # container's terminated or waiting message (`OOMKilled`, `ErrImagePull: …`), else the tail
+      # of its log; for a unit or a child, its failed start. Absent while the runtime answers, and
+      # before the daemon observed it fail.
+      - name: detail
+        type: Optional<String>
       - name: changed_by
         type: conductor.operator.Actor
     relations:
@@ -137,8 +158,11 @@ entities:
         cardinality: one
         via: box_id
     # States are what the daemon observes (§ 4 "observe", § 5.2 `state: unreachable`): `Stopped`,
-    # no runtime runs (absent from the config, or stopped by the operator); `Starting`, a box is
-    # open and the runtime started, and it has not answered yet; `Running`, the runtime answers;
+    # no runtime runs (absent from the config, or stopped by the operator); `Starting`, the daemon
+    # asked for the runtime (a box opened and its session started, a unit or a child started, a
+    # pod created and still `Pending`) and it does not run or has not answered yet; the daemon's
+    # rows read it until the runtime first answers, and again after each start or restart;
+    # `Running`, the runtime answers;
     # `Unreachable`, the runtime stopped answering (a row, never an error, § 5.2); `Upgrading`, a
     # new binary is installed and its runtime has not answered yet (§ 10); `Purged`, its records
     # are deleted (§ 4 `conductor instance purge`, class H), terminal.
@@ -225,10 +249,36 @@ views:
       - {name: binary_version, type: Optional<String>}
       - {name: last_seen, type: Optional<Timestamp>}
       - {name: box_id, type: Optional<conductor.placement.BoxId>}
+      - {name: sources, type: List<conductor.config.Source>}
+      - {name: detail, type: Optional<String>}
       - {name: changed_by, type: conductor.operator.Actor}
     naming:
       wire: instances
       display: Instances
+
+  # `GET /v1/instances/{name}`: the one row of `Instances` whose name is `name`; an instance the
+  # daemon's rows do not hold answers `404` (a retired one, once the daemon reconciled).
+  - name: conductor.instance.InstanceByName
+    source: conductor.instance.Instance
+    consistency: read_your_writes
+    params:
+      - name: name
+        type: conductor.config.InstanceName
+    filter: name == param.name
+    fields:
+      - {name: name, type: conductor.config.InstanceName}
+      - {name: state, type: conductor.instance.Instance.State}
+      - {name: placement, type: conductor.placement.PlacementName}
+      - {name: roles, type: List<conductor.config.RoleName>}
+      - {name: binary_version, type: Optional<String>}
+      - {name: last_seen, type: Optional<Timestamp>}
+      - {name: box_id, type: Optional<conductor.placement.BoxId>}
+      - {name: sources, type: List<conductor.config.Source>}
+      - {name: detail, type: Optional<String>}
+      - {name: changed_by, type: conductor.operator.Actor}
+    naming:
+      wire: instance
+      display: One instance
 
   # § 5.2 `reconciliations`.
   - name: conductor.instance.Reconciliations
@@ -281,6 +331,16 @@ actors:
       - conductor.instance.PurgeInstance
     naming:
       display: Operator
+
+  # A consumer control plane, the machine principal `control-plane`
+  # (`conductor.operator.ActorKind` `ControlPlane`, `daemon.control_token`): it restarts an
+  # instance through `POST /v1/instances/{name}/restart`, and starts, stops, upgrades and purges
+  # none.
+  - name: conductor.instance.ControlPlane
+    may:
+      - conductor.instance.RestartInstance
+    naming:
+      display: Control plane
 
 errors:
   - name: conductor.instance.UnknownInstance
@@ -378,6 +438,9 @@ commands:
       - {name: name, type: conductor.config.InstanceName}
       - {name: answering, type: Boolean}
       - {name: binary_version, type: Optional<String>}
+      # Why the runtime does not answer, when the daemon knows (`Instance.detail`); read only when
+      # it does not answer.
+      - {name: detail, type: Optional<String>}
       - {name: at, type: Timestamp}
     outcomes:
       - name: unknown
@@ -394,6 +457,7 @@ commands:
         sets:
           binary_version: input.binary_version
           last_seen: input.at
+          detail: {cleared: true}
           changed_by: input.actor
         emits:
           - conductor.instance.InstanceAnswered
@@ -408,6 +472,7 @@ commands:
         moves: conductor.instance.Instance.lose
         instance: name
         sets:
+          detail: input.detail
           changed_by: input.actor
         emits:
           - conductor.instance.InstanceUnreachable
@@ -440,6 +505,7 @@ commands:
       - {name: name, type: conductor.config.InstanceName}
       - {name: placement, type: conductor.placement.PlacementName}
       - {name: roles, type: List<conductor.config.RoleName>}
+      - {name: sources, type: List<conductor.config.Source>}
       - {name: box_id, type: conductor.placement.BoxId}
       - {name: at, type: Timestamp}
     outcomes:
@@ -450,9 +516,11 @@ commands:
         sets:
           placement: input.placement
           roles: input.roles
+          sources: input.sources
           box_id: input.box_id
           binary_version: {cleared: true}
           last_seen: {cleared: true}
+          detail: {cleared: true}
           changed_by: input.actor
         emits:
           - conductor.instance.InstanceStarted
@@ -471,6 +539,7 @@ commands:
         sets:
           placement: input.placement
           roles: input.roles
+          sources: input.sources
           box_id: input.box_id
           changed_by: input.actor
         emits:
@@ -567,6 +636,7 @@ commands:
       - {name: name, type: conductor.config.InstanceName}
       - {name: placement, type: conductor.placement.PlacementName}
       - {name: roles, type: List<conductor.config.RoleName>}
+      - {name: sources, type: List<conductor.config.Source>}
       - {name: box_id, type: conductor.placement.BoxId}
       - {name: at, type: Timestamp}
     outcomes:
@@ -591,6 +661,7 @@ commands:
         sets:
           placement: input.placement
           roles: input.roles
+          sources: input.sources
           box_id: input.box_id
           changed_by: input.actor
         emits:

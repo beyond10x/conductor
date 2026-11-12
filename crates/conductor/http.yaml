@@ -1,5 +1,5 @@
 type: ess-http/1
-specification: {system: conductor, version: v1, source_digest: "sha256:8c4d7260c2cd89c19b538694951320f4049ae08dae675c93b6ecb0b961cf30f9"}
+specification: {system: conductor, version: v1, source_digest: "sha256:5be39bf390f47990c7635b76e3a4dc5212bf98cdc98f6ae7e900881e50c4b8df"}
 routes:
   - command: conductor.config.PutConfig
     method: put
@@ -12,6 +12,38 @@ routes:
     method: get
     path: /v1/instances
     body: array
+  - view: conductor.instance.InstanceByName
+    method: get
+    path: /v1/instances/{name}
+    parameters: {name: param.name}
+    body: single
+    empty: {status: 404}
+  - command: conductor.config.AddInstance
+    method: post
+    path: /v1/instances
+    outcomes:
+      changed: {status: 201}
+      actor-not-human: {status: 403}
+      exists: {status: 409}
+      invalid: {status: 422}
+  - command: conductor.config.PutInstance
+    method: put
+    path: /v1/instances/{name}
+    parameters: {name: input.name}
+    outcomes:
+      changed: {status: 200}
+      actor-not-human: {status: 403}
+      unknown: {status: 404}
+      invalid: {status: 422}
+  - command: conductor.config.RemoveInstance
+    method: delete
+    path: /v1/instances/{name}
+    parameters: {name: input.name}
+    outcomes:
+      changed: {status: 200}
+      actor-not-human: {status: 403}
+      unknown: {status: 404}
+      invalid: {status: 422}
   - view: conductor.secret.Secrets
     method: get
     path: /v1/secrets

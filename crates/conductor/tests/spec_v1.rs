@@ -1,7 +1,8 @@
 //! The v1 specification is the generated model (`story:spec-v1`): the seven domains design
 //! `docs/design/architecture-next.md` § 3 adds are inputs of the specification and modules of
 //! `crates/conductor-model`, every command input carries the actor that issued it, and an actor
-//! is a kind (`Human`, `Agent`, `Daemon`) with the fields of that kind (§ 3 "Actors", decision 14).
+//! is a kind (`Human`, `Agent`, `Daemon`, `ControlPlane`) with the fields of that kind (§ 3
+//! "Actors", decision 14).
 //!
 //! No case here runs the binary or reads the instance of the process: each reads files of this
 //! repository, or names a generated type.
@@ -85,6 +86,7 @@ fn kind_name(kind: ActorKind) -> &'static str {
         ActorKind::Human => "Human",
         ActorKind::Agent => "Agent",
         ActorKind::Daemon => "Daemon",
+        ActorKind::ControlPlane => "ControlPlane",
     }
 }
 
@@ -123,10 +125,15 @@ fn a_command_of_an_existing_domain_carries_its_actor() {
 }
 
 #[test]
-fn an_actor_is_a_kind_human_agent_or_daemon() {
-    let kinds = [ActorKind::Human, ActorKind::Agent, ActorKind::Daemon];
+fn an_actor_is_a_kind_human_agent_daemon_or_control_plane() {
+    let kinds = [
+        ActorKind::Human,
+        ActorKind::Agent,
+        ActorKind::Daemon,
+        ActorKind::ControlPlane,
+    ];
     let names: Vec<&str> = kinds.into_iter().map(kind_name).collect();
-    assert_eq!(names, ["Human", "Agent", "Daemon"]);
+    assert_eq!(names, ["Human", "Agent", "Daemon", "ControlPlane"]);
     let operator = Actor {
         kind: ActorKind::Human,
         operator: Some(OperatorName("example-operator".to_owned())),

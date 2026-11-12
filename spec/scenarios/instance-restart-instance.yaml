@@ -13,6 +13,7 @@ timeline:
       name: example-org
       placement: local
       roles: [Director]
+      sources: [{kind: GitHub, value: {owner: example-org}}]
       box_id: 6f1c1d2e-0000-4000-8000-000000000001
       at: 2026-11-08T09:00:00Z
     outcome: created
@@ -36,6 +37,7 @@ timeline:
       name: example-org
       placement: remote-one
       roles: [Director]
+      sources: [{kind: GitHub, value: {owner: example-org}}]
       box_id: 6f1c1d2e-0000-4000-8000-000000000002
       at: 2026-11-08T11:00:00Z
     outcome: restarted

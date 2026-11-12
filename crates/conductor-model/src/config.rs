@@ -1,5 +1,5 @@
 // generated from conductor v1
-// contract digest 2b03183365aedd50e23f3659c527d6ee72cb8b1ac517c9e046bb013284b8a454
+// contract digest 7a2d2151a617b034e5a12bae1525027cb9f09b0dd4f8f5435a8d7b89308daeba
 // do not edit: regenerate with `ess synthesize --layout crate`
 
 //! Config — `conductor.config`.
@@ -121,6 +121,8 @@ pub struct ConductorSession {
 /// Config — `conductor.config.Config`.
 ///
 /// Every value satisfies `version == "conductor.config/2"` — declared here, enforced by whatever behaviour constructs one.
+/// Every value satisfies `(defined(daemon.kubernetes) or instances.count >= 1)` — declared here, enforced by whatever behaviour constructs one.
+/// Every value satisfies `(not (defined(daemon.kubernetes)) or forall instance in instances: (instance.name.count <= 39))` — declared here, enforced by whatever behaviour constructs one.
 /// Every value satisfies `distinct instance in instances by instance.name` — declared here, enforced by whatever behaviour constructs one.
 /// Every value satisfies `distinct instance in instances by instance.session_prefix` — declared here, enforced by whatever behaviour constructs one.
 /// Every value satisfies `distinct instance in instances by instance.state` — declared here, enforced by whatever behaviour constructs one.
@@ -320,6 +322,10 @@ pub struct Daemon {
     pub unattended: bool,
     /// `address` — `String`.
     pub address: String,
+    /// `kubernetes` — `Optional<conductor.config.Kubernetes>`.
+    pub kubernetes: Option<Kubernetes>,
+    /// `control_token` — `Optional<conductor.secret.SecretName>`.
+    pub control_token: Option<crate::secret::SecretName>,
 }
 
 /// DaemonCadence — `conductor.config.DaemonCadence`.
@@ -327,6 +333,17 @@ pub struct Daemon {
 pub struct DaemonCadence {
     /// `reconcile` — `Duration`.
     pub reconcile: crate::primitives::Duration,
+}
+
+/// DaemonConfig — `conductor.config.DaemonConfig`.
+///
+/// Every value satisfies `version == "conductor.config/2"` — declared here, enforced by whatever behaviour constructs one.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct DaemonConfig {
+    /// `version` — `String`.
+    pub version: String,
+    /// `daemon` — `conductor.config.Daemon`.
+    pub daemon: Daemon,
 }
 
 /// DaemonOperator — `conductor.config.DaemonOperator`.
@@ -548,6 +565,96 @@ pub struct InstanceRefused {
     pub refusal: InstanceRefusal,
     /// `detail` — `String`.
     pub detail: String,
+}
+
+/// Kubernetes — `conductor.config.Kubernetes`.
+///
+/// Every value satisfies `api_port >= 1` — declared here, enforced by whatever behaviour constructs one.
+/// Every value satisfies `api_port <= 65535` — declared here, enforced by whatever behaviour constructs one.
+/// Every value satisfies `distinct variable in env by variable.name` — declared here, enforced by whatever behaviour constructs one.
+/// Every value satisfies `forall variable in env: (not (variable.name starts_with "CONDUCTOR_"))` — declared here, enforced by whatever behaviour constructs one.
+/// Every value satisfies `forall variable in env: (variable.name not in [HOME, PATH])` — declared here, enforced by whatever behaviour constructs one.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Kubernetes {
+    /// `namespace` — `conductor.config.KubernetesName`.
+    pub namespace: KubernetesName,
+    /// `image` — `String`.
+    pub image: String,
+    /// `owner` — `conductor.config.KubernetesName`.
+    pub owner: KubernetesName,
+    /// `api_port` — `Integer`.
+    pub api_port: i64,
+    /// `volume` — `conductor.config.KubernetesVolume`.
+    pub volume: KubernetesVolume,
+    /// `resources` — `conductor.config.KubernetesResources`.
+    pub resources: KubernetesResources,
+    /// `env` — `List<conductor.config.KubernetesEnv>`.
+    pub env: Vec<KubernetesEnv>,
+}
+
+/// KubernetesEnv — `conductor.config.KubernetesEnv`.
+///
+/// Every value satisfies `(defined(value) or defined(secret))` — declared here, enforced by whatever behaviour constructs one.
+/// Every value satisfies `(not (defined(value)) or not (defined(secret)))` — declared here, enforced by whatever behaviour constructs one.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct KubernetesEnv {
+    /// `name` — `String`.
+    pub name: String,
+    /// `value` — `Optional<String>`.
+    pub value: Option<String>,
+    /// `secret` — `Optional<conductor.secret.SecretName>`.
+    pub secret: Option<crate::secret::SecretName>,
+}
+
+/// KubernetesName — `conductor.config.KubernetesName`: a distinct wrapper around `String`.
+///
+/// Every character is one of `abcdefghijklmnopqrstuvwxyz0123456789-`.
+///
+/// Checked by [`KubernetesName::broken_constraint`]; the generated decoder refuses a value that breaks one.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct KubernetesName(pub String);
+
+impl KubernetesName {
+    /// The first constraint `conductor.config.KubernetesName` declares that this value breaks — its alphabet, its prefix,
+    /// then each invariant — as what a decoder expected instead, or `None` when it breaks none.
+    ///
+    /// An invariant is broken only when it is false of this value, as the conformance
+    /// interpreter reads it. A wrapped newtype's own constraints are its own to check.
+    pub fn broken_constraint(&self) -> Option<&'static str> {
+        if !self.0.chars().all(|c| "abcdefghijklmnopqrstuvwxyz0123456789-".contains(c)) {
+            return Some("a value whose every character is one of `abcdefghijklmnopqrstuvwxyz0123456789-`");
+        }
+        None
+    }
+}
+
+/// KubernetesQuantities — `conductor.config.KubernetesQuantities`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct KubernetesQuantities {
+    /// `cpu` — `Optional<String>`.
+    pub cpu: Option<String>,
+    /// `memory` — `Optional<String>`.
+    pub memory: Option<String>,
+}
+
+/// KubernetesResources — `conductor.config.KubernetesResources`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct KubernetesResources {
+    /// `requests` — `conductor.config.KubernetesQuantities`.
+    pub requests: KubernetesQuantities,
+    /// `limits` — `conductor.config.KubernetesQuantities`.
+    pub limits: KubernetesQuantities,
+}
+
+/// KubernetesVolume — `conductor.config.KubernetesVolume`.
+///
+/// Every value satisfies `size >= 1` — declared here, enforced by whatever behaviour constructs one.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct KubernetesVolume {
+    /// `size` — `conductor.config.Gibibytes`.
+    pub size: Gibibytes,
+    /// `storage_class` — `Optional<String>`.
+    pub storage_class: Option<String>,
 }
 
 /// Level — `conductor.config.Level`: one of a closed set of names.
@@ -1367,6 +1474,60 @@ impl AnyEffectiveSetting {
     }
 }
 
+/// Add an instance — the input of `conductor.config.AddInstance`.
+///
+/// Everything it can result in is [`AddInstanceOutcome`].
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct AddInstance {
+    /// `actor` — `conductor.operator.Actor`.
+    pub actor: crate::operator::Actor,
+    /// `name` — `conductor.config.InstanceName`.
+    pub name: InstanceName,
+    /// `mapping` — `String`.
+    pub mapping: String,
+    /// `reason` — `String`.
+    pub reason: String,
+    /// `changed_at` — `Timestamp`.
+    pub changed_at: crate::primitives::Timestamp,
+}
+
+/// Everything `conductor.config.AddInstance` can result in — one variant per declared outcome.
+///
+/// An infrastructure failure is deliberately not in here: a refusal is a fact about the domain,
+/// a transport fault is a fact about the run, and conflating the two is what the declared
+/// outcomes exist to prevent.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum AddInstanceOutcome {
+    /// `actor-not-human` — when `(actor.kind != Human and actor.kind != ControlPlane)`.
+    ///
+    /// Only a person or the control plane adds an instance; an agent or the daemon is refused by name and nothing was written.
+    ActorNotHuman {
+        /// Why it was refused: `conductor.operator.ActorNotHuman`.
+        error: crate::operator::ActorNotHuman,
+    },
+    /// `exists` — externally decided (the config already names an instance of this name).
+    ///
+    /// The config holds an instance of this name; nothing was written.
+    Exists {
+        /// Why it was refused: `conductor.config.InstanceExists`.
+        error: InstanceExists,
+    },
+    /// `invalid` — externally decided (the config with the instance added does not validate).
+    ///
+    /// The config with the instance added does not validate, the problem named by its YAML path; nothing was written.
+    Invalid {
+        /// Why it was refused: `conductor.config.ConfigInvalid`.
+        error: ConfigInvalid,
+    },
+    /// `changed` — otherwise.
+    ///
+    /// The instance is written into the config file and committed with the actor and the reason; the daemon starts its runtime.
+    Changed {
+        /// The `conductor.config.InstanceAdded` this outcome publishes.
+        instance_added: InstanceAdded,
+    },
+}
+
 /// Change the config — the input of `conductor.config.PutConfig`.
 ///
 /// Everything it can result in is [`PutConfigOutcome`].
@@ -1427,6 +1588,112 @@ pub enum PutConfigOutcome {
     },
 }
 
+/// Replace an instance — the input of `conductor.config.PutInstance`.
+///
+/// Everything it can result in is [`PutInstanceOutcome`].
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PutInstance {
+    /// `actor` — `conductor.operator.Actor`.
+    pub actor: crate::operator::Actor,
+    /// `name` — `conductor.config.InstanceName`.
+    pub name: InstanceName,
+    /// `mapping` — `String`.
+    pub mapping: String,
+    /// `reason` — `String`.
+    pub reason: String,
+    /// `changed_at` — `Timestamp`.
+    pub changed_at: crate::primitives::Timestamp,
+}
+
+/// Everything `conductor.config.PutInstance` can result in — one variant per declared outcome.
+///
+/// An infrastructure failure is deliberately not in here: a refusal is a fact about the domain,
+/// a transport fault is a fact about the run, and conflating the two is what the declared
+/// outcomes exist to prevent.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum PutInstanceOutcome {
+    /// `actor-not-human` — when `(actor.kind != Human and actor.kind != ControlPlane)`.
+    ///
+    /// Only a person or the control plane replaces an instance; an agent or the daemon is refused by name and nothing was written.
+    ActorNotHuman {
+        /// Why it was refused: `conductor.operator.ActorNotHuman`.
+        error: crate::operator::ActorNotHuman,
+    },
+    /// `unknown` — externally decided (the config names no instance of this name).
+    ///
+    /// The config names no instance of this name; nothing was written.
+    Unknown {
+        /// Why it was refused: `conductor.instance.UnknownInstance`.
+        error: crate::instance::UnknownInstance,
+    },
+    /// `invalid` — externally decided (the config with the instance replaced does not validate).
+    ///
+    /// The config with the instance replaced does not validate, the problem named by its YAML path; nothing was written.
+    Invalid {
+        /// Why it was refused: `conductor.config.ConfigInvalid`.
+        error: ConfigInvalid,
+    },
+    /// `changed` — otherwise.
+    ///
+    /// The instance's mapping is replaced in the config file and committed with the actor and the reason; the daemon reconciles it.
+    Changed {
+        /// The `conductor.config.InstanceReplaced` this outcome publishes.
+        instance_replaced: InstanceReplaced,
+    },
+}
+
+/// Remove an instance — the input of `conductor.config.RemoveInstance`.
+///
+/// Everything it can result in is [`RemoveInstanceOutcome`].
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RemoveInstance {
+    /// `actor` — `conductor.operator.Actor`.
+    pub actor: crate::operator::Actor,
+    /// `name` — `conductor.config.InstanceName`.
+    pub name: InstanceName,
+    /// `reason` — `String`.
+    pub reason: String,
+    /// `changed_at` — `Timestamp`.
+    pub changed_at: crate::primitives::Timestamp,
+}
+
+/// Everything `conductor.config.RemoveInstance` can result in — one variant per declared outcome.
+///
+/// An infrastructure failure is deliberately not in here: a refusal is a fact about the domain,
+/// a transport fault is a fact about the run, and conflating the two is what the declared
+/// outcomes exist to prevent.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum RemoveInstanceOutcome {
+    /// `actor-not-human` — when `(actor.kind != Human and actor.kind != ControlPlane)`.
+    ///
+    /// Only a person or the control plane removes an instance; an agent or the daemon is refused by name and nothing was written.
+    ActorNotHuman {
+        /// Why it was refused: `conductor.operator.ActorNotHuman`.
+        error: crate::operator::ActorNotHuman,
+    },
+    /// `unknown` — externally decided (the config names no instance of this name).
+    ///
+    /// The config names no instance of this name; nothing was written.
+    Unknown {
+        /// Why it was refused: `conductor.instance.UnknownInstance`.
+        error: crate::instance::UnknownInstance,
+    },
+    /// `invalid` — externally decided (the config without the instance does not validate).
+    ///
+    /// The config without the instance does not validate, the problem named by its YAML path; nothing was written.
+    Invalid {
+        /// Why it was refused: `conductor.config.ConfigInvalid`.
+        error: ConfigInvalid,
+    },
+    /// `changed` — otherwise.
+    ///
+    /// The instance is removed from the config file and the removal committed with the actor and the reason; the daemon stops its runtime and keeps its data.
+    Changed {
+        /// The `conductor.config.InstanceRemoved` this outcome publishes.
+        instance_removed: InstanceRemoved,
+    },
+}
+
 /// ConfigChanged — the event `conductor.config.ConfigChanged`.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ConfigChanged {
@@ -1448,6 +1715,49 @@ pub struct ConfigChanged {
     pub reason: String,
 }
 
+/// InstanceAdded — the event `conductor.config.InstanceAdded`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct InstanceAdded {
+    /// `revision_id` — `conductor.config.RevisionId`.
+    pub revision_id: RevisionId,
+    /// `actor` — `conductor.operator.Actor`.
+    pub actor: crate::operator::Actor,
+    /// `name` — `conductor.config.InstanceName`.
+    pub name: InstanceName,
+    /// `mapping` — `String`.
+    pub mapping: String,
+    /// `reason` — `String`.
+    pub reason: String,
+}
+
+/// InstanceRemoved — the event `conductor.config.InstanceRemoved`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct InstanceRemoved {
+    /// `revision_id` — `conductor.config.RevisionId`.
+    pub revision_id: RevisionId,
+    /// `actor` — `conductor.operator.Actor`.
+    pub actor: crate::operator::Actor,
+    /// `name` — `conductor.config.InstanceName`.
+    pub name: InstanceName,
+    /// `reason` — `String`.
+    pub reason: String,
+}
+
+/// InstanceReplaced — the event `conductor.config.InstanceReplaced`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct InstanceReplaced {
+    /// `revision_id` — `conductor.config.RevisionId`.
+    pub revision_id: RevisionId,
+    /// `actor` — `conductor.operator.Actor`.
+    pub actor: crate::operator::Actor,
+    /// `name` — `conductor.config.InstanceName`.
+    pub name: InstanceName,
+    /// `mapping` — `String`.
+    pub mapping: String,
+    /// `reason` — `String`.
+    pub reason: String,
+}
+
 /// The declared error `conductor.config.ConfigInvalid`.
 ///
 /// The config with this change does not validate; nothing was written, committed or reconciled, and the problem is named by its YAML path.
@@ -1455,6 +1765,15 @@ pub struct ConfigChanged {
 pub struct ConfigInvalid {
     /// `path` — `String`.
     pub path: String,
+}
+
+/// The declared error `conductor.config.InstanceExists`.
+///
+/// The config already names an instance of this name; nothing was written.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct InstanceExists {
+    /// `name` — `conductor.config.InstanceName`.
+    pub name: InstanceName,
 }
 
 /// The declared error `conductor.config.LevelScopeMismatch`.
@@ -1539,6 +1858,17 @@ pub struct EffectiveSettings {
 /// per generated behaviour, which [`Generated`](crate::behaviour::Generated) implements.
 /// [`Unimplemented`](obligations::Unimplemented) satisfies every owed trait by refusing in the type system.
 pub mod obligations {
+    /// The behaviour `conductor.config.AddInstance` — generated.
+    ///
+    /// The specification fully determines it: [`crate::behaviour::Generated`] implements it
+    /// over the storage and context ports. Implement it yourself to replace that behaviour.
+    pub trait AddInstanceBehavior {
+        /// Decides and enacts exactly one declared outcome of `conductor.config.AddInstance`.
+        ///
+        /// `Err` is the typed refusal of a request the model declares no outcome for.
+        fn add_instance(&mut self, input: super::AddInstance) -> Result<super::AddInstanceOutcome, crate::obligation::UnmetObligation>;
+    }
+
     /// The behaviour `conductor.config.PutConfig` — generated.
     ///
     /// The specification fully determines it: [`crate::behaviour::Generated`] implements it
@@ -1548,6 +1878,28 @@ pub mod obligations {
         ///
         /// `Err` is the typed refusal of a request the model declares no outcome for.
         fn put_config(&mut self, input: super::PutConfig) -> Result<super::PutConfigOutcome, crate::obligation::UnmetObligation>;
+    }
+
+    /// The behaviour `conductor.config.PutInstance` — generated.
+    ///
+    /// The specification fully determines it: [`crate::behaviour::Generated`] implements it
+    /// over the storage and context ports. Implement it yourself to replace that behaviour.
+    pub trait PutInstanceBehavior {
+        /// Decides and enacts exactly one declared outcome of `conductor.config.PutInstance`.
+        ///
+        /// `Err` is the typed refusal of a request the model declares no outcome for.
+        fn put_instance(&mut self, input: super::PutInstance) -> Result<super::PutInstanceOutcome, crate::obligation::UnmetObligation>;
+    }
+
+    /// The behaviour `conductor.config.RemoveInstance` — generated.
+    ///
+    /// The specification fully determines it: [`crate::behaviour::Generated`] implements it
+    /// over the storage and context ports. Implement it yourself to replace that behaviour.
+    pub trait RemoveInstanceBehavior {
+        /// Decides and enacts exactly one declared outcome of `conductor.config.RemoveInstance`.
+        ///
+        /// `Err` is the typed refusal of a request the model declares no outcome for.
+        fn remove_instance(&mut self, input: super::RemoveInstance) -> Result<super::RemoveInstanceOutcome, crate::obligation::UnmetObligation>;
     }
 
     /// The query `conductor.config.ConfigRevisions` — generated.

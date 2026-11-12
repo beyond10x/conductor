@@ -3,12 +3,12 @@
   "info": {
     "title": "conductord",
     "summary": "The daemon of the control host. It reconciles every instance of the config file against what runs at its placement, opens and closes each instance's box, resolves the secrets the config names, records who operates each instance and the tokens they contribute, writes the config on an accepted change, and serves the global API.\n",
-    "description": "The HTTP surface of `conductord`, one of the components of `conductor` v1.\n\nEvery path here is one semantic command, so the method is always POST and the path is the command's wire name under its domain's: a command is not a resource, and this document does not invent one. A status code is the outcome the specification declares — 202 for a branch that was taken, 422 for a refusal the input decides, 502 for a refusal decided outside the request — and the `outcome` property of every response body names the branch. This component publishes `ConfigChanged`, `InstanceAnswered`, `InstancePurged`, `InstanceReconciled`, `InstanceRestarted`, `InstanceRolledBack`, `InstanceStarted`, `InstanceStopped`, `InstanceUnreachable`, `InstanceUpgrading`, `OperatorJoined`, `OperatorLeft`, `BoxClosed`, `BoxOpened`, `BoxRefused`, `SecretPut`, `SecretsResolved`, `StoreMigrated`, `TokenContributed`, `TokenLeased`, `TokenLimited`, `TokenReleased` and `TokenWithdrawn` to consumers through the event transport; an event a branch emits that is not among them stays inside the component. The `published` property of every response body lists every event its branch emitted, in the order it emits them, published or not.\n\nThe specification declares who may invoke what (`x-ess-may-invoke` on each operation), so every command is sent as a declared actor. How a request proves which actor it is belongs to the realization, which authenticates it and hands the surface the caller; nothing in the request itself names one. The grant is checked before the command runs, and a request authenticated as no actor, or as one without the grant, is answered 403 with one standard refusal, the same for every command: `{\"refused\": \"not granted\", \"actor\": <name or null>}`. A 403 a declared branch answers carries `outcome` and the declared `error` instead, so a client tells the two apart by the members present. A command no declared actor may invoke is refused to every caller. A view an actor's grant names is read-checked the same way (`x-ess-may-read` on its operation): a request authenticated as no actor, or as one the grant does not name, is answered 403 with the same standard refusal before the view is read. A view no grant names is open, and any caller may read what it publishes.\n\nThis component declares `reached_by: network`, so its callers are not deployed with it and this contract is the surface they reach it through. That declaration is also why the views its domains declare have paths here: a GET under `views` per projection, answering every row it holds. There is no page size, no cursor, no ordering and no filter parameter, because the specification states none — a view's filter is part of the projection, not of the request. A view that declares `params:` is the exception: each is a query parameter, described on its operation, and a view that declares `paging:` takes its page and size there.\n\nAn `ess-http/1` binding declares the method and path of every operation marked `x-ess-route-source: binding`, so those are the protocol's and not derived from wire names. Each variable of such a path is a required path parameter carrying the input field or view parameter the binding maps to it, and a field carried in the path is not in the request body. Every other operation keeps the method and path described above.\n\nThe binding also declares how some of those operations are encoded and answered: a request body that is form-encoded, or input carried in the query string; the status, body and headers of an outcome; a redirect; a view that answers its one row; or a standard refusal's answer. Such an operation is described as the binding declares it, and each response of such a command lists the outcomes it answers under `x-ess-outcomes`, because a bare body carries no `outcome` naming the branch and no `published` list. A `WWW-Authenticate` challenge is a response header: the specification states what a refusal answers, not how a caller proves who it is, so no security scheme is declared.",
+    "description": "The HTTP surface of `conductord`, one of the components of `conductor` v1.\n\nEvery path here is one semantic command, so the method is always POST and the path is the command's wire name under its domain's: a command is not a resource, and this document does not invent one. A status code is the outcome the specification declares — 202 for a branch that was taken, 422 for a refusal the input decides, 502 for a refusal decided outside the request — and the `outcome` property of every response body names the branch. This component publishes `ConfigChanged`, `InstanceAdded`, `InstanceRemoved`, `InstanceReplaced`, `InstanceAnswered`, `InstancePurged`, `InstanceReconciled`, `InstanceRestarted`, `InstanceRolledBack`, `InstanceStarted`, `InstanceStopped`, `InstanceUnreachable`, `InstanceUpgrading`, `OperatorJoined`, `OperatorLeft`, `BoxClosed`, `BoxOpened`, `BoxRefused`, `SecretPut`, `SecretsResolved`, `StoreMigrated`, `TokenContributed`, `TokenLeased`, `TokenLimited`, `TokenReleased` and `TokenWithdrawn` to consumers through the event transport; an event a branch emits that is not among them stays inside the component. The `published` property of every response body lists every event its branch emitted, in the order it emits them, published or not.\n\nThe specification declares who may invoke what (`x-ess-may-invoke` on each operation), so every command is sent as a declared actor. How a request proves which actor it is belongs to the realization, which authenticates it and hands the surface the caller; nothing in the request itself names one. The grant is checked before the command runs, and a request authenticated as no actor, or as one without the grant, is answered 403 with one standard refusal, the same for every command: `{\"refused\": \"not granted\", \"actor\": <name or null>}`. A 403 a declared branch answers carries `outcome` and the declared `error` instead, so a client tells the two apart by the members present. A command no declared actor may invoke is refused to every caller. A view an actor's grant names is read-checked the same way (`x-ess-may-read` on its operation): a request authenticated as no actor, or as one the grant does not name, is answered 403 with the same standard refusal before the view is read. A view no grant names is open, and any caller may read what it publishes.\n\nThis component declares `reached_by: network`, so its callers are not deployed with it and this contract is the surface they reach it through. That declaration is also why the views its domains declare have paths here: a GET under `views` per projection, answering every row it holds. There is no page size, no cursor, no ordering and no filter parameter, because the specification states none — a view's filter is part of the projection, not of the request. A view that declares `params:` is the exception: each is a query parameter, described on its operation, and a view that declares `paging:` takes its page and size there.\n\nAn `ess-http/1` binding declares the method and path of every operation marked `x-ess-route-source: binding`, so those are the protocol's and not derived from wire names. Each variable of such a path is a required path parameter carrying the input field or view parameter the binding maps to it, and a field carried in the path is not in the request body. Every other operation keeps the method and path described above.\n\nThe binding also declares how some of those operations are encoded and answered: a request body that is form-encoded, or input carried in the query string; the status, body and headers of an outcome; a redirect; a view that answers its one row; or a standard refusal's answer. Such an operation is described as the binding declares it, and each response of such a command lists the outcomes it answers under `x-ess-outcomes`, because a bare body carries no `outcome` naming the branch and no `published` list. A `WWW-Authenticate` challenge is a response header: the specification states what a refusal answers, not how a caller proves who it is, so no security scheme is declared.",
     "version": "v1",
     "x-ess-provenance": {
       "system": "conductor",
       "specification_version": "v1",
-      "contract_digest": "slice-sha256/2:80c71f5cb17fc94858c558c22df87fd337233b9b98cba4d8e66e0311d93bd28f"
+      "contract_digest": "slice-sha256/2:199d12f3b2bf757a5b183f397c7ebdaa717c04eee001018febeb12543e917cf8"
     },
     "x-ess-reached-by": "network"
   },
@@ -2172,6 +2172,137 @@
             }
           }
         }
+      },
+      "post": {
+        "operationId": "conductor.config.AddInstance",
+        "x-ess-route-source": "binding",
+        "summary": "Add an instance",
+        "tags": [
+          "config"
+        ],
+        "x-ess-may-invoke": [
+          "conductor.config.ControlPlane",
+          "conductor.config.Operator"
+        ],
+        "requestBody": {
+          "description": "The input `conductor.config.AddInstance` declares.",
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/conductor.config.AddInstance.Input"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Outcome `changed`, answered 201 as the `ess-http/1` binding declares, with ESS's own body: `outcome` names the branch and `published` lists what it published.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/conductor.config.AddInstance.changed.Response"
+                }
+              }
+            },
+            "x-ess-outcomes": [
+              "changed"
+            ]
+          },
+          "403": {
+            "description": "Outcome `actor-not-human`, answered 403 as the `ess-http/1` binding declares, with ESS's own body: `outcome` names the branch and `published` lists what it published. No declared outcome: the standard refusal for an actor no grant admits: the request was authenticated as no actor, or as one `x-ess-may-invoke` does not list. It is checked before the command runs, so nothing was read, written or published, and the same request from a granted actor is decided by the command. Its body carries `refused` and `actor`, never the `outcome` and `error` a declared branch carries.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "oneOf": [
+                    {
+                      "$ref": "#/components/schemas/conductor.config.AddInstance.actor-not-human.Response"
+                    },
+                    {
+                      "additionalProperties": false,
+                      "properties": {
+                        "actor": {
+                          "description": "The qualified name of the actor the request was authenticated as, or null where it was authenticated as none.",
+                          "type": [
+                            "string",
+                            "null"
+                          ]
+                        },
+                        "refused": {
+                          "description": "The standard refusal for an actor no grant admits.",
+                          "enum": [
+                            "not granted"
+                          ],
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "refused",
+                        "actor"
+                      ],
+                      "type": "object"
+                    }
+                  ]
+                }
+              }
+            },
+            "x-ess-outcomes": [
+              "actor-not-human"
+            ]
+          },
+          "409": {
+            "description": "Outcome `exists`, answered 409 as the `ess-http/1` binding declares, with ESS's own body: `outcome` names the branch and `published` lists what it published.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/conductor.config.AddInstance.exists.Response"
+                }
+              }
+            },
+            "x-ess-outcomes": [
+              "exists"
+            ]
+          },
+          "422": {
+            "description": "Outcome `invalid`, answered 422 as the `ess-http/1` binding declares, with ESS's own body: `outcome` names the branch and `published` lists what it published.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/conductor.config.AddInstance.invalid.Response"
+                }
+              }
+            },
+            "x-ess-outcomes": [
+              "invalid"
+            ]
+          },
+          "501": {
+            "description": "No declared outcome: the realization is unfinished. Either a port this command runs reported an unmet obligation, and nothing was written: `committed` is `false`. Or the command's effect was committed and delivering what this command published to a binding failed: `committed` is `true`, the effect and its events stand, and each binding whose delivery failed keeps its event and is attempted again on a later delivery, while no other binding receives it twice. Do not retry: after a failed delivery a retry performs the command a second time.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "committed": {
+                      "description": "`true` when the command's effect and events were committed and delivering what it published failed; `false` when an unmet obligation stopped the command before anything was written.",
+                      "type": "boolean"
+                    },
+                    "refused": {
+                      "description": "What was left unfinished, in words.",
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "refused",
+                    "committed"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "x-ess-outcomes": []
+          }
+        }
       }
     },
     "/v1/instances/{instance}/settings": {
@@ -2248,6 +2379,327 @@
         }
       }
     },
+    "/v1/instances/{name}": {
+      "get": {
+        "operationId": "conductor.instance.InstanceByName",
+        "x-ess-route-source": "binding",
+        "summary": "One instance",
+        "tags": [
+          "instance"
+        ],
+        "x-ess-consistency": "read_your_writes",
+        "parameters": [
+          {
+            "name": "name",
+            "in": "path",
+            "description": "Read by the view's filter as `param.name`; carried in the path rather than the query.",
+            "required": true,
+            "schema": {
+              "$ref": "#/components/schemas/conductor.config.InstanceName"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The one row of `conductor.instance.InstanceByName`, bare, as the `ess-http/1` binding declares (`body: single`): its filter selects by the identity of `conductor.instance.Instance`, so it holds one row at most.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/conductor.instance.InstanceByName.Row"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "`conductor.instance.InstanceByName` holds no row for these parameters, as the `ess-http/1` binding declares (`empty`). No body."
+          }
+        }
+      },
+      "put": {
+        "operationId": "conductor.config.PutInstance",
+        "x-ess-route-source": "binding",
+        "summary": "Replace an instance",
+        "tags": [
+          "config"
+        ],
+        "x-ess-may-invoke": [
+          "conductor.config.ControlPlane",
+          "conductor.config.Operator"
+        ],
+        "parameters": [
+          {
+            "name": "name",
+            "in": "path",
+            "description": "The input field `name`, carried in the path rather than the request body.",
+            "required": true,
+            "schema": {
+              "$ref": "#/components/schemas/conductor.config.InstanceName"
+            }
+          }
+        ],
+        "requestBody": {
+          "description": "The input `conductor.config.PutInstance` declares.",
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/conductor.config.PutInstance.Input"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Outcome `changed`, answered 200 as the `ess-http/1` binding declares, with ESS's own body: `outcome` names the branch and `published` lists what it published.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/conductor.config.PutInstance.changed.Response"
+                }
+              }
+            },
+            "x-ess-outcomes": [
+              "changed"
+            ]
+          },
+          "403": {
+            "description": "Outcome `actor-not-human`, answered 403 as the `ess-http/1` binding declares, with ESS's own body: `outcome` names the branch and `published` lists what it published. No declared outcome: the standard refusal for an actor no grant admits: the request was authenticated as no actor, or as one `x-ess-may-invoke` does not list. It is checked before the command runs, so nothing was read, written or published, and the same request from a granted actor is decided by the command. Its body carries `refused` and `actor`, never the `outcome` and `error` a declared branch carries.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "oneOf": [
+                    {
+                      "$ref": "#/components/schemas/conductor.config.PutInstance.actor-not-human.Response"
+                    },
+                    {
+                      "additionalProperties": false,
+                      "properties": {
+                        "actor": {
+                          "description": "The qualified name of the actor the request was authenticated as, or null where it was authenticated as none.",
+                          "type": [
+                            "string",
+                            "null"
+                          ]
+                        },
+                        "refused": {
+                          "description": "The standard refusal for an actor no grant admits.",
+                          "enum": [
+                            "not granted"
+                          ],
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "refused",
+                        "actor"
+                      ],
+                      "type": "object"
+                    }
+                  ]
+                }
+              }
+            },
+            "x-ess-outcomes": [
+              "actor-not-human"
+            ]
+          },
+          "404": {
+            "description": "Outcome `unknown`, answered 404 as the `ess-http/1` binding declares, with ESS's own body: `outcome` names the branch and `published` lists what it published.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/conductor.config.PutInstance.unknown.Response"
+                }
+              }
+            },
+            "x-ess-outcomes": [
+              "unknown"
+            ]
+          },
+          "422": {
+            "description": "Outcome `invalid`, answered 422 as the `ess-http/1` binding declares, with ESS's own body: `outcome` names the branch and `published` lists what it published.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/conductor.config.PutInstance.invalid.Response"
+                }
+              }
+            },
+            "x-ess-outcomes": [
+              "invalid"
+            ]
+          },
+          "501": {
+            "description": "No declared outcome: the realization is unfinished. Either a port this command runs reported an unmet obligation, and nothing was written: `committed` is `false`. Or the command's effect was committed and delivering what this command published to a binding failed: `committed` is `true`, the effect and its events stand, and each binding whose delivery failed keeps its event and is attempted again on a later delivery, while no other binding receives it twice. Do not retry: after a failed delivery a retry performs the command a second time.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "committed": {
+                      "description": "`true` when the command's effect and events were committed and delivering what it published failed; `false` when an unmet obligation stopped the command before anything was written.",
+                      "type": "boolean"
+                    },
+                    "refused": {
+                      "description": "What was left unfinished, in words.",
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "refused",
+                    "committed"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "x-ess-outcomes": []
+          }
+        }
+      },
+      "delete": {
+        "operationId": "conductor.config.RemoveInstance",
+        "x-ess-route-source": "binding",
+        "summary": "Remove an instance",
+        "tags": [
+          "config"
+        ],
+        "x-ess-may-invoke": [
+          "conductor.config.ControlPlane",
+          "conductor.config.Operator"
+        ],
+        "parameters": [
+          {
+            "name": "name",
+            "in": "path",
+            "description": "The input field `name`, carried in the path rather than the request body.",
+            "required": true,
+            "schema": {
+              "$ref": "#/components/schemas/conductor.config.InstanceName"
+            }
+          }
+        ],
+        "requestBody": {
+          "description": "The input `conductor.config.RemoveInstance` declares.",
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/conductor.config.RemoveInstance.Input"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Outcome `changed`, answered 200 as the `ess-http/1` binding declares, with ESS's own body: `outcome` names the branch and `published` lists what it published.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/conductor.config.RemoveInstance.changed.Response"
+                }
+              }
+            },
+            "x-ess-outcomes": [
+              "changed"
+            ]
+          },
+          "403": {
+            "description": "Outcome `actor-not-human`, answered 403 as the `ess-http/1` binding declares, with ESS's own body: `outcome` names the branch and `published` lists what it published. No declared outcome: the standard refusal for an actor no grant admits: the request was authenticated as no actor, or as one `x-ess-may-invoke` does not list. It is checked before the command runs, so nothing was read, written or published, and the same request from a granted actor is decided by the command. Its body carries `refused` and `actor`, never the `outcome` and `error` a declared branch carries.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "oneOf": [
+                    {
+                      "$ref": "#/components/schemas/conductor.config.RemoveInstance.actor-not-human.Response"
+                    },
+                    {
+                      "additionalProperties": false,
+                      "properties": {
+                        "actor": {
+                          "description": "The qualified name of the actor the request was authenticated as, or null where it was authenticated as none.",
+                          "type": [
+                            "string",
+                            "null"
+                          ]
+                        },
+                        "refused": {
+                          "description": "The standard refusal for an actor no grant admits.",
+                          "enum": [
+                            "not granted"
+                          ],
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "refused",
+                        "actor"
+                      ],
+                      "type": "object"
+                    }
+                  ]
+                }
+              }
+            },
+            "x-ess-outcomes": [
+              "actor-not-human"
+            ]
+          },
+          "404": {
+            "description": "Outcome `unknown`, answered 404 as the `ess-http/1` binding declares, with ESS's own body: `outcome` names the branch and `published` lists what it published.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/conductor.config.RemoveInstance.unknown.Response"
+                }
+              }
+            },
+            "x-ess-outcomes": [
+              "unknown"
+            ]
+          },
+          "422": {
+            "description": "Outcome `invalid`, answered 422 as the `ess-http/1` binding declares, with ESS's own body: `outcome` names the branch and `published` lists what it published.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/conductor.config.RemoveInstance.invalid.Response"
+                }
+              }
+            },
+            "x-ess-outcomes": [
+              "invalid"
+            ]
+          },
+          "501": {
+            "description": "No declared outcome: the realization is unfinished. Either a port this command runs reported an unmet obligation, and nothing was written: `committed` is `false`. Or the command's effect was committed and delivering what this command published to a binding failed: `committed` is `true`, the effect and its events stand, and each binding whose delivery failed keeps its event and is attempted again on a later delivery, while no other binding receives it twice. Do not retry: after a failed delivery a retry performs the command a second time.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "committed": {
+                      "description": "`true` when the command's effect and events were committed and delivering what it published failed; `false` when an unmet obligation stopped the command before anything was written.",
+                      "type": "boolean"
+                    },
+                    "refused": {
+                      "description": "What was left unfinished, in words.",
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "refused",
+                    "committed"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "x-ess-outcomes": []
+          }
+        }
+      }
+    },
     "/v1/instances/{name}/restart": {
       "post": {
         "operationId": "conductor.instance.RestartInstance",
@@ -2258,6 +2710,7 @@
         ],
         "x-ess-may-invoke": [
           "conductor.instance.Conductord",
+          "conductor.instance.ControlPlane",
           "conductor.instance.Operator"
         ],
         "parameters": [
@@ -2865,6 +3318,181 @@
         "x-ess-kind": "newtype",
         "type": "string"
       },
+      "conductor.config.AddInstance.Input": {
+        "title": "Add an instance input",
+        "x-ess-name": "conductor.config.AddInstance",
+        "x-ess-kind": "command-input",
+        "type": "object",
+        "properties": {
+          "actor": {
+            "$ref": "#/components/schemas/conductor.operator.Actor"
+          },
+          "name": {
+            "$ref": "#/components/schemas/conductor.config.InstanceName",
+            "examples": [
+              "example-org-two"
+            ]
+          },
+          "mapping": {
+            "type": "string",
+            "examples": [
+              "{sources: [{github: example-org}], checkouts: {root: /srv/example-org, trees: /srv/trees}}"
+            ]
+          },
+          "reason": {
+            "type": "string",
+            "examples": [
+              "a new tenant"
+            ]
+          },
+          "changed_at": {
+            "type": "string",
+            "format": "date-time",
+            "examples": [
+              "2026-11-12T09:00:00Z"
+            ]
+          }
+        },
+        "required": [
+          "actor",
+          "name",
+          "mapping",
+          "reason",
+          "changed_at"
+        ],
+        "additionalProperties": false
+      },
+      "conductor.config.AddInstance.actor-not-human.Response": {
+        "additionalProperties": false,
+        "description": "Only a person or the control plane adds an instance; an agent or the daemon is refused by name and nothing was written. Taken when `(actor.kind != Human and actor.kind != ControlPlane)` holds of the input.",
+        "properties": {
+          "error": {
+            "const": "conductor.operator.ActorNotHuman",
+            "description": "The command needs a grant, a grant belongs to a human actor only, and the actor that issued it is an agent or the daemon. Nothing was written.\n",
+            "type": "string"
+          },
+          "outcome": {
+            "const": "actor-not-human",
+            "description": "Which declared outcome the command took."
+          },
+          "payload": {
+            "$ref": "#/components/schemas/conductor.operator.ActorNotHuman.Error"
+          },
+          "published": {
+            "description": "Every event this branch published, in publication order: its qualified name and its payload.",
+            "maxItems": 0,
+            "type": "array"
+          }
+        },
+        "required": [
+          "outcome",
+          "published",
+          "error",
+          "payload"
+        ],
+        "type": "object"
+      },
+      "conductor.config.AddInstance.changed.Response": {
+        "additionalProperties": false,
+        "description": "The instance is written into the config file and committed with the actor and the reason; the daemon starts its runtime.\n Taken when no other outcome's condition matched. A `conductor.config.ConfigRevision` now exists, in `Committed`. Its identity is published as `revision_id` on `conductor.config.InstanceAdded`. Emits `InstanceAdded`, published to consumers and listed under `published`.",
+        "properties": {
+          "outcome": {
+            "const": "changed",
+            "description": "Which declared outcome the command took."
+          },
+          "published": {
+            "description": "Every event this branch published, in publication order: its qualified name and its payload.",
+            "items": false,
+            "maxItems": 1,
+            "minItems": 1,
+            "prefixItems": [
+              {
+                "additionalProperties": false,
+                "properties": {
+                  "event": {
+                    "const": "conductor.config.InstanceAdded",
+                    "type": "string"
+                  },
+                  "payload": {
+                    "$ref": "#/components/schemas/conductor.config.InstanceAdded.Event"
+                  }
+                },
+                "required": [
+                  "event",
+                  "payload"
+                ],
+                "type": "object"
+              }
+            ],
+            "type": "array"
+          }
+        },
+        "required": [
+          "outcome",
+          "published"
+        ],
+        "type": "object"
+      },
+      "conductor.config.AddInstance.exists.Response": {
+        "additionalProperties": false,
+        "description": "The config holds an instance of this name; nothing was written. Decided outside the request: the config already names an instance of this name.",
+        "properties": {
+          "error": {
+            "const": "conductor.config.InstanceExists",
+            "description": "The config already names an instance of this name; nothing was written.\n",
+            "type": "string"
+          },
+          "outcome": {
+            "const": "exists",
+            "description": "Which declared outcome the command took."
+          },
+          "payload": {
+            "$ref": "#/components/schemas/conductor.config.InstanceExists.Error"
+          },
+          "published": {
+            "description": "Every event this branch published, in publication order: its qualified name and its payload.",
+            "maxItems": 0,
+            "type": "array"
+          }
+        },
+        "required": [
+          "outcome",
+          "published",
+          "error",
+          "payload"
+        ],
+        "type": "object"
+      },
+      "conductor.config.AddInstance.invalid.Response": {
+        "additionalProperties": false,
+        "description": "The config with the instance added does not validate, the problem named by its YAML path; nothing was written. Decided outside the request: the config with the instance added does not validate.",
+        "properties": {
+          "error": {
+            "const": "conductor.config.ConfigInvalid",
+            "description": "The config with this change does not validate; nothing was written, committed or reconciled, and the problem is named by its YAML path.\n",
+            "type": "string"
+          },
+          "outcome": {
+            "const": "invalid",
+            "description": "Which declared outcome the command took."
+          },
+          "payload": {
+            "$ref": "#/components/schemas/conductor.config.ConfigInvalid.Error"
+          },
+          "published": {
+            "description": "Every event this branch published, in publication order: its qualified name and its payload.",
+            "maxItems": 0,
+            "type": "array"
+          }
+        },
+        "required": [
+          "outcome",
+          "published",
+          "error",
+          "payload"
+        ],
+        "type": "object"
+      },
       "conductor.config.ConfigChanged.Event": {
         "title": "ConfigChanged payload",
         "x-ess-name": "conductor.config.ConfigChanged",
@@ -3053,11 +3681,157 @@
         "x-ess-kind": "newtype",
         "type": "integer"
       },
+      "conductor.config.GitHubSource": {
+        "title": "GitHubSource",
+        "x-ess-name": "conductor.config.GitHubSource",
+        "x-ess-kind": "struct",
+        "type": "object",
+        "properties": {
+          "owner": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "owner"
+        ],
+        "additionalProperties": false
+      },
+      "conductor.config.GitLabSource": {
+        "title": "GitLabSource",
+        "x-ess-name": "conductor.config.GitLabSource",
+        "x-ess-kind": "struct",
+        "type": "object",
+        "properties": {
+          "group": {
+            "type": "string"
+          },
+          "host": {
+            "type": "string"
+          },
+          "exclude": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        },
+        "required": [
+          "group",
+          "host",
+          "exclude"
+        ],
+        "additionalProperties": false
+      },
+      "conductor.config.InstanceAdded.Event": {
+        "title": "InstanceAdded payload",
+        "x-ess-name": "conductor.config.InstanceAdded",
+        "x-ess-kind": "event-payload",
+        "type": "object",
+        "properties": {
+          "revision_id": {
+            "$ref": "#/components/schemas/conductor.config.RevisionId"
+          },
+          "actor": {
+            "$ref": "#/components/schemas/conductor.operator.Actor"
+          },
+          "name": {
+            "$ref": "#/components/schemas/conductor.config.InstanceName"
+          },
+          "mapping": {
+            "type": "string"
+          },
+          "reason": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "revision_id",
+          "actor",
+          "name",
+          "mapping",
+          "reason"
+        ],
+        "additionalProperties": false
+      },
+      "conductor.config.InstanceExists.Error": {
+        "title": "InstanceExists payload",
+        "description": "The config already names an instance of this name; nothing was written.\n",
+        "x-ess-name": "conductor.config.InstanceExists",
+        "x-ess-kind": "error-payload",
+        "type": "object",
+        "properties": {
+          "name": {
+            "$ref": "#/components/schemas/conductor.config.InstanceName"
+          }
+        },
+        "required": [
+          "name"
+        ],
+        "additionalProperties": false
+      },
       "conductor.config.InstanceName": {
         "title": "InstanceName",
         "x-ess-name": "conductor.config.InstanceName",
         "x-ess-kind": "newtype",
         "type": "string"
+      },
+      "conductor.config.InstanceRemoved.Event": {
+        "title": "InstanceRemoved payload",
+        "x-ess-name": "conductor.config.InstanceRemoved",
+        "x-ess-kind": "event-payload",
+        "type": "object",
+        "properties": {
+          "revision_id": {
+            "$ref": "#/components/schemas/conductor.config.RevisionId"
+          },
+          "actor": {
+            "$ref": "#/components/schemas/conductor.operator.Actor"
+          },
+          "name": {
+            "$ref": "#/components/schemas/conductor.config.InstanceName"
+          },
+          "reason": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "revision_id",
+          "actor",
+          "name",
+          "reason"
+        ],
+        "additionalProperties": false
+      },
+      "conductor.config.InstanceReplaced.Event": {
+        "title": "InstanceReplaced payload",
+        "x-ess-name": "conductor.config.InstanceReplaced",
+        "x-ess-kind": "event-payload",
+        "type": "object",
+        "properties": {
+          "revision_id": {
+            "$ref": "#/components/schemas/conductor.config.RevisionId"
+          },
+          "actor": {
+            "$ref": "#/components/schemas/conductor.operator.Actor"
+          },
+          "name": {
+            "$ref": "#/components/schemas/conductor.config.InstanceName"
+          },
+          "mapping": {
+            "type": "string"
+          },
+          "reason": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "revision_id",
+          "actor",
+          "name",
+          "mapping",
+          "reason"
+        ],
+        "additionalProperties": false
       },
       "conductor.config.Level": {
         "title": "Level",
@@ -3109,6 +3883,28 @@
           "(not (defined(cpu_weight)) or cpu_weight <= 10000)",
           "(not (defined(tasks_max)) or tasks_max >= 1)"
         ]
+      },
+      "conductor.config.LocalSource": {
+        "title": "LocalSource",
+        "x-ess-name": "conductor.config.LocalSource",
+        "x-ess-kind": "struct",
+        "type": "object",
+        "properties": {
+          "path": {
+            "type": "string"
+          },
+          "exclude": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        },
+        "required": [
+          "path",
+          "exclude"
+        ],
+        "additionalProperties": false
       },
       "conductor.config.PutConfig.Input": {
         "title": "Change the config input",
@@ -3291,6 +4087,335 @@
         ],
         "type": "object"
       },
+      "conductor.config.PutInstance.Input": {
+        "title": "Replace an instance input",
+        "x-ess-name": "conductor.config.PutInstance",
+        "x-ess-kind": "command-input",
+        "type": "object",
+        "properties": {
+          "actor": {
+            "$ref": "#/components/schemas/conductor.operator.Actor"
+          },
+          "mapping": {
+            "type": "string",
+            "examples": [
+              "{sources: [{github: example-org}], checkouts: {root: /srv/example-org, trees: /srv/trees}}"
+            ]
+          },
+          "reason": {
+            "type": "string",
+            "examples": [
+              "read the forge, not a directory"
+            ]
+          },
+          "changed_at": {
+            "type": "string",
+            "format": "date-time",
+            "examples": [
+              "2026-11-12T11:00:00Z"
+            ]
+          }
+        },
+        "required": [
+          "actor",
+          "mapping",
+          "reason",
+          "changed_at"
+        ],
+        "additionalProperties": false
+      },
+      "conductor.config.PutInstance.actor-not-human.Response": {
+        "additionalProperties": false,
+        "description": "Only a person or the control plane replaces an instance; an agent or the daemon is refused by name and nothing was written. Taken when `(actor.kind != Human and actor.kind != ControlPlane)` holds of the input.",
+        "properties": {
+          "error": {
+            "const": "conductor.operator.ActorNotHuman",
+            "description": "The command needs a grant, a grant belongs to a human actor only, and the actor that issued it is an agent or the daemon. Nothing was written.\n",
+            "type": "string"
+          },
+          "outcome": {
+            "const": "actor-not-human",
+            "description": "Which declared outcome the command took."
+          },
+          "payload": {
+            "$ref": "#/components/schemas/conductor.operator.ActorNotHuman.Error"
+          },
+          "published": {
+            "description": "Every event this branch published, in publication order: its qualified name and its payload.",
+            "maxItems": 0,
+            "type": "array"
+          }
+        },
+        "required": [
+          "outcome",
+          "published",
+          "error",
+          "payload"
+        ],
+        "type": "object"
+      },
+      "conductor.config.PutInstance.changed.Response": {
+        "additionalProperties": false,
+        "description": "The instance's mapping is replaced in the config file and committed with the actor and the reason; the daemon reconciles it.\n Taken when no other outcome's condition matched. A `conductor.config.ConfigRevision` now exists, in `Committed`. Its identity is published as `revision_id` on `conductor.config.InstanceReplaced`. Emits `InstanceReplaced`, published to consumers and listed under `published`.",
+        "properties": {
+          "outcome": {
+            "const": "changed",
+            "description": "Which declared outcome the command took."
+          },
+          "published": {
+            "description": "Every event this branch published, in publication order: its qualified name and its payload.",
+            "items": false,
+            "maxItems": 1,
+            "minItems": 1,
+            "prefixItems": [
+              {
+                "additionalProperties": false,
+                "properties": {
+                  "event": {
+                    "const": "conductor.config.InstanceReplaced",
+                    "type": "string"
+                  },
+                  "payload": {
+                    "$ref": "#/components/schemas/conductor.config.InstanceReplaced.Event"
+                  }
+                },
+                "required": [
+                  "event",
+                  "payload"
+                ],
+                "type": "object"
+              }
+            ],
+            "type": "array"
+          }
+        },
+        "required": [
+          "outcome",
+          "published"
+        ],
+        "type": "object"
+      },
+      "conductor.config.PutInstance.invalid.Response": {
+        "additionalProperties": false,
+        "description": "The config with the instance replaced does not validate, the problem named by its YAML path; nothing was written. Decided outside the request: the config with the instance replaced does not validate.",
+        "properties": {
+          "error": {
+            "const": "conductor.config.ConfigInvalid",
+            "description": "The config with this change does not validate; nothing was written, committed or reconciled, and the problem is named by its YAML path.\n",
+            "type": "string"
+          },
+          "outcome": {
+            "const": "invalid",
+            "description": "Which declared outcome the command took."
+          },
+          "payload": {
+            "$ref": "#/components/schemas/conductor.config.ConfigInvalid.Error"
+          },
+          "published": {
+            "description": "Every event this branch published, in publication order: its qualified name and its payload.",
+            "maxItems": 0,
+            "type": "array"
+          }
+        },
+        "required": [
+          "outcome",
+          "published",
+          "error",
+          "payload"
+        ],
+        "type": "object"
+      },
+      "conductor.config.PutInstance.unknown.Response": {
+        "additionalProperties": false,
+        "description": "The config names no instance of this name; nothing was written. Decided outside the request: the config names no instance of this name.",
+        "properties": {
+          "error": {
+            "const": "conductor.instance.UnknownInstance",
+            "description": "The config names no instance of this name, or no record of it is kept; nothing changed.\n",
+            "type": "string"
+          },
+          "outcome": {
+            "const": "unknown",
+            "description": "Which declared outcome the command took."
+          },
+          "payload": {
+            "$ref": "#/components/schemas/conductor.instance.UnknownInstance.Error"
+          },
+          "published": {
+            "description": "Every event this branch published, in publication order: its qualified name and its payload.",
+            "maxItems": 0,
+            "type": "array"
+          }
+        },
+        "required": [
+          "outcome",
+          "published",
+          "error",
+          "payload"
+        ],
+        "type": "object"
+      },
+      "conductor.config.RemoveInstance.Input": {
+        "title": "Remove an instance input",
+        "x-ess-name": "conductor.config.RemoveInstance",
+        "x-ess-kind": "command-input",
+        "type": "object",
+        "properties": {
+          "actor": {
+            "$ref": "#/components/schemas/conductor.operator.Actor"
+          },
+          "reason": {
+            "type": "string",
+            "examples": [
+              "the tenant left"
+            ]
+          },
+          "changed_at": {
+            "type": "string",
+            "format": "date-time",
+            "examples": [
+              "2026-11-12T13:00:00Z"
+            ]
+          }
+        },
+        "required": [
+          "actor",
+          "reason",
+          "changed_at"
+        ],
+        "additionalProperties": false
+      },
+      "conductor.config.RemoveInstance.actor-not-human.Response": {
+        "additionalProperties": false,
+        "description": "Only a person or the control plane removes an instance; an agent or the daemon is refused by name and nothing was written. Taken when `(actor.kind != Human and actor.kind != ControlPlane)` holds of the input.",
+        "properties": {
+          "error": {
+            "const": "conductor.operator.ActorNotHuman",
+            "description": "The command needs a grant, a grant belongs to a human actor only, and the actor that issued it is an agent or the daemon. Nothing was written.\n",
+            "type": "string"
+          },
+          "outcome": {
+            "const": "actor-not-human",
+            "description": "Which declared outcome the command took."
+          },
+          "payload": {
+            "$ref": "#/components/schemas/conductor.operator.ActorNotHuman.Error"
+          },
+          "published": {
+            "description": "Every event this branch published, in publication order: its qualified name and its payload.",
+            "maxItems": 0,
+            "type": "array"
+          }
+        },
+        "required": [
+          "outcome",
+          "published",
+          "error",
+          "payload"
+        ],
+        "type": "object"
+      },
+      "conductor.config.RemoveInstance.changed.Response": {
+        "additionalProperties": false,
+        "description": "The instance is removed from the config file and the removal committed with the actor and the reason; the daemon stops its runtime and keeps its data.\n Taken when no other outcome's condition matched. A `conductor.config.ConfigRevision` now exists, in `Committed`. Its identity is published as `revision_id` on `conductor.config.InstanceRemoved`. Emits `InstanceRemoved`, published to consumers and listed under `published`.",
+        "properties": {
+          "outcome": {
+            "const": "changed",
+            "description": "Which declared outcome the command took."
+          },
+          "published": {
+            "description": "Every event this branch published, in publication order: its qualified name and its payload.",
+            "items": false,
+            "maxItems": 1,
+            "minItems": 1,
+            "prefixItems": [
+              {
+                "additionalProperties": false,
+                "properties": {
+                  "event": {
+                    "const": "conductor.config.InstanceRemoved",
+                    "type": "string"
+                  },
+                  "payload": {
+                    "$ref": "#/components/schemas/conductor.config.InstanceRemoved.Event"
+                  }
+                },
+                "required": [
+                  "event",
+                  "payload"
+                ],
+                "type": "object"
+              }
+            ],
+            "type": "array"
+          }
+        },
+        "required": [
+          "outcome",
+          "published"
+        ],
+        "type": "object"
+      },
+      "conductor.config.RemoveInstance.invalid.Response": {
+        "additionalProperties": false,
+        "description": "The config without the instance does not validate, the problem named by its YAML path; nothing was written. Decided outside the request: the config without the instance does not validate.",
+        "properties": {
+          "error": {
+            "const": "conductor.config.ConfigInvalid",
+            "description": "The config with this change does not validate; nothing was written, committed or reconciled, and the problem is named by its YAML path.\n",
+            "type": "string"
+          },
+          "outcome": {
+            "const": "invalid",
+            "description": "Which declared outcome the command took."
+          },
+          "payload": {
+            "$ref": "#/components/schemas/conductor.config.ConfigInvalid.Error"
+          },
+          "published": {
+            "description": "Every event this branch published, in publication order: its qualified name and its payload.",
+            "maxItems": 0,
+            "type": "array"
+          }
+        },
+        "required": [
+          "outcome",
+          "published",
+          "error",
+          "payload"
+        ],
+        "type": "object"
+      },
+      "conductor.config.RemoveInstance.unknown.Response": {
+        "additionalProperties": false,
+        "description": "The config names no instance of this name; nothing was written. Decided outside the request: the config names no instance of this name.",
+        "properties": {
+          "error": {
+            "const": "conductor.instance.UnknownInstance",
+            "description": "The config names no instance of this name, or no record of it is kept; nothing changed.\n",
+            "type": "string"
+          },
+          "outcome": {
+            "const": "unknown",
+            "description": "Which declared outcome the command took."
+          },
+          "payload": {
+            "$ref": "#/components/schemas/conductor.instance.UnknownInstance.Error"
+          },
+          "published": {
+            "description": "Every event this branch published, in publication order: its qualified name and its payload.",
+            "maxItems": 0,
+            "type": "array"
+          }
+        },
+        "required": [
+          "outcome",
+          "published",
+          "error",
+          "payload"
+        ],
+        "type": "object"
+      },
       "conductor.config.RevisionId": {
         "title": "RevisionId",
         "x-ess-name": "conductor.config.RevisionId",
@@ -3310,6 +4435,68 @@
         "x-ess-name": "conductor.config.SettingKey",
         "x-ess-kind": "newtype",
         "type": "string"
+      },
+      "conductor.config.Source": {
+        "title": "Source",
+        "x-ess-name": "conductor.config.Source",
+        "x-ess-kind": "union",
+        "oneOf": [
+          {
+            "title": "GitHub",
+            "type": "object",
+            "properties": {
+              "kind": {
+                "type": "string",
+                "const": "GitHub"
+              },
+              "value": {
+                "$ref": "#/components/schemas/conductor.config.GitHubSource"
+              }
+            },
+            "required": [
+              "kind",
+              "value"
+            ],
+            "additionalProperties": false
+          },
+          {
+            "title": "GitLab",
+            "type": "object",
+            "properties": {
+              "kind": {
+                "type": "string",
+                "const": "GitLab"
+              },
+              "value": {
+                "$ref": "#/components/schemas/conductor.config.GitLabSource"
+              }
+            },
+            "required": [
+              "kind",
+              "value"
+            ],
+            "additionalProperties": false
+          },
+          {
+            "title": "Local",
+            "type": "object",
+            "properties": {
+              "kind": {
+                "type": "string",
+                "const": "Local"
+              },
+              "value": {
+                "$ref": "#/components/schemas/conductor.config.LocalSource"
+              }
+            },
+            "required": [
+              "kind",
+              "value"
+            ],
+            "additionalProperties": false
+          }
+        ],
+        "x-ess-union-tag": "kind"
       },
       "conductor.instance.Instance.State": {
         "title": "State",
@@ -3349,6 +4536,60 @@
           "actor",
           "name",
           "at"
+        ],
+        "additionalProperties": false
+      },
+      "conductor.instance.InstanceByName.Row": {
+        "title": "One instance row",
+        "x-ess-name": "conductor.instance.InstanceByName",
+        "x-ess-kind": "view-row",
+        "type": "object",
+        "properties": {
+          "name": {
+            "$ref": "#/components/schemas/conductor.config.InstanceName"
+          },
+          "state": {
+            "$ref": "#/components/schemas/conductor.instance.Instance.State"
+          },
+          "placement": {
+            "$ref": "#/components/schemas/conductor.placement.PlacementName"
+          },
+          "roles": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/conductor.config.RoleName"
+            }
+          },
+          "binary_version": {
+            "type": "string"
+          },
+          "last_seen": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "box_id": {
+            "$ref": "#/components/schemas/conductor.placement.BoxId"
+          },
+          "sources": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/conductor.config.Source"
+            }
+          },
+          "detail": {
+            "type": "string"
+          },
+          "changed_by": {
+            "$ref": "#/components/schemas/conductor.operator.Actor"
+          }
+        },
+        "required": [
+          "name",
+          "state",
+          "placement",
+          "roles",
+          "sources",
+          "changed_by"
         ],
         "additionalProperties": false
       },
@@ -3631,6 +4872,15 @@
           "box_id": {
             "$ref": "#/components/schemas/conductor.placement.BoxId"
           },
+          "sources": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/conductor.config.Source"
+            }
+          },
+          "detail": {
+            "type": "string"
+          },
           "changed_by": {
             "$ref": "#/components/schemas/conductor.operator.Actor"
           }
@@ -3640,6 +4890,7 @@
           "state",
           "placement",
           "roles",
+          "sources",
           "changed_by"
         ],
         "additionalProperties": false
@@ -3660,6 +4911,9 @@
             "type": "boolean"
           },
           "binary_version": {
+            "type": "string"
+          },
+          "detail": {
             "type": "string"
           },
           "at": {
@@ -4209,6 +5463,12 @@
               "$ref": "#/components/schemas/conductor.config.RoleName"
             }
           },
+          "sources": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/conductor.config.Source"
+            }
+          },
           "box_id": {
             "$ref": "#/components/schemas/conductor.placement.BoxId"
           },
@@ -4221,6 +5481,7 @@
           "actor",
           "placement",
           "roles",
+          "sources",
           "box_id",
           "at"
         ],
@@ -4375,6 +5636,12 @@
               "$ref": "#/components/schemas/conductor.config.RoleName"
             }
           },
+          "sources": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/conductor.config.Source"
+            }
+          },
           "box_id": {
             "$ref": "#/components/schemas/conductor.placement.BoxId"
           },
@@ -4387,6 +5654,7 @@
           "actor",
           "placement",
           "roles",
+          "sources",
           "box_id",
           "at"
         ],
@@ -4936,7 +6204,8 @@
         "enum": [
           "Human",
           "Agent",
-          "Daemon"
+          "Daemon",
+          "ControlPlane"
         ]
       },
       "conductor.operator.ActorNotHuman.Error": {
@@ -8373,6 +9642,47 @@
       "x-ess-kind": "newtype",
       "type": "integer"
     },
+    "conductor.config.GitHubSource": {
+      "title": "GitHubSource",
+      "x-ess-name": "conductor.config.GitHubSource",
+      "x-ess-kind": "struct",
+      "type": "object",
+      "properties": {
+        "owner": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "owner"
+      ],
+      "additionalProperties": false
+    },
+    "conductor.config.GitLabSource": {
+      "title": "GitLabSource",
+      "x-ess-name": "conductor.config.GitLabSource",
+      "x-ess-kind": "struct",
+      "type": "object",
+      "properties": {
+        "group": {
+          "type": "string"
+        },
+        "host": {
+          "type": "string"
+        },
+        "exclude": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      },
+      "required": [
+        "group",
+        "host",
+        "exclude"
+      ],
+      "additionalProperties": false
+    },
     "conductor.config.InstanceName": {
       "title": "InstanceName",
       "x-ess-name": "conductor.config.InstanceName",
@@ -8414,6 +9724,28 @@
         "(not (defined(tasks_max)) or tasks_max >= 1)"
       ]
     },
+    "conductor.config.LocalSource": {
+      "title": "LocalSource",
+      "x-ess-name": "conductor.config.LocalSource",
+      "x-ess-kind": "struct",
+      "type": "object",
+      "properties": {
+        "path": {
+          "type": "string"
+        },
+        "exclude": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      },
+      "required": [
+        "path",
+        "exclude"
+      ],
+      "additionalProperties": false
+    },
     "conductor.config.RevisionId": {
       "title": "RevisionId",
       "x-ess-name": "conductor.config.RevisionId",
@@ -8433,6 +9765,68 @@
       "x-ess-name": "conductor.config.SettingKey",
       "x-ess-kind": "newtype",
       "type": "string"
+    },
+    "conductor.config.Source": {
+      "title": "Source",
+      "x-ess-name": "conductor.config.Source",
+      "x-ess-kind": "union",
+      "oneOf": [
+        {
+          "title": "GitHub",
+          "type": "object",
+          "properties": {
+            "kind": {
+              "type": "string",
+              "const": "GitHub"
+            },
+            "value": {
+              "$ref": "#/x-ess-entities/conductor.config.GitHubSource"
+            }
+          },
+          "required": [
+            "kind",
+            "value"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "title": "GitLab",
+          "type": "object",
+          "properties": {
+            "kind": {
+              "type": "string",
+              "const": "GitLab"
+            },
+            "value": {
+              "$ref": "#/x-ess-entities/conductor.config.GitLabSource"
+            }
+          },
+          "required": [
+            "kind",
+            "value"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "title": "Local",
+          "type": "object",
+          "properties": {
+            "kind": {
+              "type": "string",
+              "const": "Local"
+            },
+            "value": {
+              "$ref": "#/x-ess-entities/conductor.config.LocalSource"
+            }
+          },
+          "required": [
+            "kind",
+            "value"
+          ],
+          "additionalProperties": false
+        }
+      ],
+      "x-ess-union-tag": "kind"
     },
     "conductor.instance.Instance": {
       "title": "Instance",
@@ -8480,6 +9874,15 @@
             "$ref": "#/x-ess-entities/conductor.placement.Box"
           }
         },
+        "sources": {
+          "type": "array",
+          "items": {
+            "$ref": "#/x-ess-entities/conductor.config.Source"
+          }
+        },
+        "detail": {
+          "type": "string"
+        },
         "changed_by": {
           "$ref": "#/x-ess-entities/conductor.operator.Actor"
         },
@@ -8491,6 +9894,7 @@
         "name",
         "placement",
         "roles",
+        "sources",
         "changed_by",
         "state"
       ],
@@ -8650,7 +10054,8 @@
       "enum": [
         "Human",
         "Agent",
-        "Daemon"
+        "Daemon",
+        "ControlPlane"
       ]
     },
     "conductor.operator.AgentActor": {

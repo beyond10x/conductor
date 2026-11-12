@@ -1,0 +1,47 @@
+# A consumer control plane reads one row per instance: one whose runtime failed reads
+# `Unreachable`, with the failure's text as `detail` (a pod's terminated or waiting message, else
+# its log tail) beside the sources the config gives it.
+# The daemon acts on its own account: `{kind: Daemon}`.
+type: ess-scenario/1
+domain: conductor.instance
+scenario: instance-row-sources-detail
+summary: An instance whose runtime failed reads Unreachable with its sources and the failure's detail, in the list and as one row.
+
+timeline:
+  - at: 2026-11-12T09:00:00Z
+    command: conductor.instance.StartInstance
+    actor: conductor.instance.Conductord
+    input:
+      actor: {kind: Daemon}
+      name: example-org
+      placement: none
+      roles: [controller]
+      sources: [{kind: GitHub, value: {owner: example-org}}]
+      box_id: 6f1c1d2e-0000-4000-8000-000000000001
+      at: 2026-11-12T09:00:00Z
+    outcome: created
+
+  - at: 2026-11-12T09:00:30Z
+    command: conductor.instance.ObserveInstance
+    actor: conductor.instance.Conductord
+    input:
+      actor: {kind: Daemon}
+      name: example-org
+      answering: false
+      detail: "ErrImagePull: the image was not found"
+      at: 2026-11-12T09:00:30Z
+    outcome: not-answering
+
+assert:
+  - view: conductor.instance.Instances
+    contains:
+      name: example-org
+      state: Unreachable
+      sources: [{kind: GitHub, value: {owner: example-org}}]
+      detail: "ErrImagePull: the image was not found"
+  - view: conductor.instance.InstanceByName
+    params: {name: example-org}
+    contains:
+      name: example-org
+      state: Unreachable
+      detail: "ErrImagePull: the image was not found"

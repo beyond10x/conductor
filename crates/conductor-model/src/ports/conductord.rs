@@ -1,5 +1,5 @@
 // generated from conductor v1
-// contract digest 2b03183365aedd50e23f3659c527d6ee72cb8b1ac517c9e046bb013284b8a454
+// contract digest 7a2d2151a617b034e5a12bae1525027cb9f09b0dd4f8f5435a8d7b89308daeba
 // do not edit: regenerate with `ess synthesize --layout crate`
 
 //! conductord — the `conductord` component of `conductor` v1.
@@ -19,6 +19,12 @@
 pub enum PublishedEvent {
     /// `conductor.config.ConfigChanged`.
     ConfigChanged(crate::config::ConfigChanged),
+    /// `conductor.config.InstanceAdded`.
+    InstanceAdded(crate::config::InstanceAdded),
+    /// `conductor.config.InstanceRemoved`.
+    InstanceRemoved(crate::config::InstanceRemoved),
+    /// `conductor.config.InstanceReplaced`.
+    InstanceReplaced(crate::config::InstanceReplaced),
     /// `conductor.instance.InstanceAnswered`.
     InstanceAnswered(crate::instance::InstanceAnswered),
     /// `conductor.instance.InstancePurged`.
@@ -95,8 +101,26 @@ impl<B> Conductord<B> {
 
 impl<B> Conductord<B>
 where
-    B: crate::config::obligations::PutConfigBehavior + crate::instance::obligations::ObserveInstanceBehavior + crate::instance::obligations::PurgeInstanceBehavior + crate::instance::obligations::ReconcileBehavior + crate::instance::obligations::RestartInstanceBehavior + crate::instance::obligations::StartInstanceBehavior + crate::instance::obligations::StopInstanceBehavior + crate::instance::obligations::UpgradeInstanceBehavior + crate::operator::obligations::JoinInstanceBehavior + crate::operator::obligations::LeaveInstanceBehavior + crate::placement::obligations::CloseBoxBehavior + crate::placement::obligations::OpenBoxBehavior + crate::secret::obligations::PutSecretBehavior + crate::secret::obligations::ResolveSecretsBehavior + crate::store::obligations::MigrateStoreBehavior + crate::token::obligations::ContributeTokenBehavior + crate::token::obligations::LeaseTokenBehavior + crate::token::obligations::MarkTokenLimitedBehavior + crate::token::obligations::ReleaseTokenBehavior + crate::token::obligations::WithdrawTokenBehavior + crate::config::obligations::ConfigRevisionsQuery + crate::config::obligations::EffectiveSettingsQuery + crate::instance::obligations::InstancesQuery + crate::instance::obligations::ReconciliationsQuery + crate::operator::obligations::OperatorsQuery + crate::placement::obligations::BoxRefusalsQuery + crate::placement::obligations::BoxesQuery + crate::placement::obligations::PlacementsQuery + crate::secret::obligations::SecretsQuery + crate::store::obligations::MigrationsQuery + crate::store::obligations::ReadinessQuery + crate::store::obligations::StoreStatusQuery + crate::token::obligations::TokensQuery,
+    B: crate::config::obligations::AddInstanceBehavior + crate::config::obligations::PutConfigBehavior + crate::config::obligations::PutInstanceBehavior + crate::config::obligations::RemoveInstanceBehavior + crate::instance::obligations::ObserveInstanceBehavior + crate::instance::obligations::PurgeInstanceBehavior + crate::instance::obligations::ReconcileBehavior + crate::instance::obligations::RestartInstanceBehavior + crate::instance::obligations::StartInstanceBehavior + crate::instance::obligations::StopInstanceBehavior + crate::instance::obligations::UpgradeInstanceBehavior + crate::operator::obligations::JoinInstanceBehavior + crate::operator::obligations::LeaveInstanceBehavior + crate::placement::obligations::CloseBoxBehavior + crate::placement::obligations::OpenBoxBehavior + crate::secret::obligations::PutSecretBehavior + crate::secret::obligations::ResolveSecretsBehavior + crate::store::obligations::MigrateStoreBehavior + crate::token::obligations::ContributeTokenBehavior + crate::token::obligations::LeaseTokenBehavior + crate::token::obligations::MarkTokenLimitedBehavior + crate::token::obligations::ReleaseTokenBehavior + crate::token::obligations::WithdrawTokenBehavior + crate::config::obligations::ConfigRevisionsQuery + crate::config::obligations::EffectiveSettingsQuery + crate::instance::obligations::InstanceByNameQuery + crate::instance::obligations::InstancesQuery + crate::instance::obligations::ReconciliationsQuery + crate::operator::obligations::OperatorsQuery + crate::placement::obligations::BoxRefusalsQuery + crate::placement::obligations::BoxesQuery + crate::placement::obligations::PlacementsQuery + crate::secret::obligations::SecretsQuery + crate::store::obligations::MigrationsQuery + crate::store::obligations::ReadinessQuery + crate::store::obligations::StoreStatusQuery + crate::token::obligations::TokensQuery,
 {
+    /// Accepts `conductor.config.AddInstance`: runs the behaviour obligation, then publishes the declared events
+    /// the outcome carries.
+    ///
+    /// `Err` is the typed refusal of an unmet obligation — never a domain outcome, which always
+    /// arrives as a variant of the outcome type, refusals included.
+    pub fn add_instance(&mut self, input: crate::config::AddInstance) -> Result<crate::config::AddInstanceOutcome, crate::obligation::UnmetObligation> {
+        let outcome = self.behaviors.add_instance(input)?;
+        match &outcome {
+            crate::config::AddInstanceOutcome::ActorNotHuman { .. } => {}
+            crate::config::AddInstanceOutcome::Exists { .. } => {}
+            crate::config::AddInstanceOutcome::Invalid { .. } => {}
+            crate::config::AddInstanceOutcome::Changed { instance_added, .. } => {
+                self.outbox.push(PublishedEvent::InstanceAdded(instance_added.clone()));
+            }
+        }
+        Ok(outcome)
+    }
+
     /// Accepts `conductor.config.PutConfig`: runs the behaviour obligation, then publishes the declared events
     /// the outcome carries.
     ///
@@ -110,6 +134,42 @@ where
             crate::config::PutConfigOutcome::Invalid { .. } => {}
             crate::config::PutConfigOutcome::Changed { config_changed, .. } => {
                 self.outbox.push(PublishedEvent::ConfigChanged(config_changed.clone()));
+            }
+        }
+        Ok(outcome)
+    }
+
+    /// Accepts `conductor.config.PutInstance`: runs the behaviour obligation, then publishes the declared events
+    /// the outcome carries.
+    ///
+    /// `Err` is the typed refusal of an unmet obligation — never a domain outcome, which always
+    /// arrives as a variant of the outcome type, refusals included.
+    pub fn put_instance(&mut self, input: crate::config::PutInstance) -> Result<crate::config::PutInstanceOutcome, crate::obligation::UnmetObligation> {
+        let outcome = self.behaviors.put_instance(input)?;
+        match &outcome {
+            crate::config::PutInstanceOutcome::ActorNotHuman { .. } => {}
+            crate::config::PutInstanceOutcome::Unknown { .. } => {}
+            crate::config::PutInstanceOutcome::Invalid { .. } => {}
+            crate::config::PutInstanceOutcome::Changed { instance_replaced, .. } => {
+                self.outbox.push(PublishedEvent::InstanceReplaced(instance_replaced.clone()));
+            }
+        }
+        Ok(outcome)
+    }
+
+    /// Accepts `conductor.config.RemoveInstance`: runs the behaviour obligation, then publishes the declared events
+    /// the outcome carries.
+    ///
+    /// `Err` is the typed refusal of an unmet obligation — never a domain outcome, which always
+    /// arrives as a variant of the outcome type, refusals included.
+    pub fn remove_instance(&mut self, input: crate::config::RemoveInstance) -> Result<crate::config::RemoveInstanceOutcome, crate::obligation::UnmetObligation> {
+        let outcome = self.behaviors.remove_instance(input)?;
+        match &outcome {
+            crate::config::RemoveInstanceOutcome::ActorNotHuman { .. } => {}
+            crate::config::RemoveInstanceOutcome::Unknown { .. } => {}
+            crate::config::RemoveInstanceOutcome::Invalid { .. } => {}
+            crate::config::RemoveInstanceOutcome::Changed { instance_removed, .. } => {
+                self.outbox.push(PublishedEvent::InstanceRemoved(instance_removed.clone()));
             }
         }
         Ok(outcome)
@@ -475,6 +535,11 @@ where
     /// Serves `conductor.config.EffectiveSettings` at `eventual` consistency, from the owed projection.
     pub fn effective_settings(&self, instance: crate::config::InstanceName) -> Result<Vec<crate::config::EffectiveSettings>, crate::obligation::UnmetObligation> {
         self.behaviors.effective_settings(instance)
+    }
+
+    /// Serves `conductor.instance.InstanceByName` at `read_your_writes` consistency, from the owed projection.
+    pub fn instance_by_name(&self, name: crate::config::InstanceName) -> Result<Vec<crate::instance::InstanceByName>, crate::obligation::UnmetObligation> {
+        self.behaviors.instance_by_name(name)
     }
 
     /// Serves `conductor.instance.Instances` at `read_your_writes` consistency, from the owed projection.

@@ -428,6 +428,9 @@ components:
         - conductor.token.ReleaseToken
         - conductor.token.MarkTokenLimited
         - conductor.config.PutConfig
+        - conductor.config.AddInstance
+        - conductor.config.PutInstance
+        - conductor.config.RemoveInstance
     publishes:
       events:
         - conductor.instance.InstanceStarted
@@ -453,6 +456,9 @@ components:
         - conductor.token.TokenReleased
         - conductor.token.TokenLimited
         - conductor.config.ConfigChanged
+        - conductor.config.InstanceAdded
+        - conductor.config.InstanceReplaced
+        - conductor.config.InstanceRemoved
     reached_by: network
 
   # Design § 2, § 5.1, § 7: one instance's runtime, `conductor instance serve`, inside the
