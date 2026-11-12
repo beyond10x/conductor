@@ -6,7 +6,8 @@ status: draft
 title: A conductor instance takes work from a control plane and reports each execution to it
 relations:
 - decomposes: epic:deployable-in-kubernetes
-revision: 2
+- depends_on: story:pod-source-checkouts
+revision: 3
 ---
 ## Why
 
@@ -33,3 +34,37 @@ contract. Still open, and the domain's to answer: whether one execution of a wor
 dispatch or several, how an instance learns of new work (it polls, or it is called), and how
 the caller proves who it is. The consumer's session answered on 2026-11-11 that on its side
 the last two are not decided and that a handler cannot sign in yet.
+
+## Shape (2026-11-12, reversible)
+
+The three open points, answered for the first version after a consumer control plane asked for
+a way to hand one unit of work to an instance with nothing but the control token:
+
+- The instance is called; it does not poll. The work source is whoever holds the control token.
+- One unit of work is one dispatch.
+- The caller proves who it is with the control token, as for the instance routes.
+
+The calls, on the daemon, forwarded to the instance:
+
+- `POST /v1/instances/{name}/work` with `repository` (as the instance's rows name it), `brief`
+  (text), `reference` (the caller's id for the unit, unique per instance) and optionally a ref
+  or an issue. A repeated `reference` answers what the first call answered and creates nothing.
+- `GET /v1/instances/{name}/work/{reference}` answers the dispatch's `state` by its own names
+  (Sent, Started, Blocked, Done, Failed, Cancelled), when it started and ended, the last
+  report, a `detail` where the state is Blocked or Failed, and `links`: the merge or pull
+  requests the session reported, as a list.
+
+What it needs that is not there on 2026-11-12 (read at v1.4.0):
+
+- The control token may write nothing but the instance routes; every other write answers `403`
+  `ActorNotHuman`. This call is one more write it may make.
+- A dispatch needs an open goal (`dispatch send-dispatch --goal-id`); a unit of work brings
+  none. The call creates what a dispatch needs or the dispatch stops needing it.
+- The loop starts a controller only for a repository with a charter file in the records, once
+  per cycle tick (2 h by default). The call brings a default charter where there is none and
+  starts the controller at the call.
+- A dispatch has no link to a merge request; a link is free text in a report. `links` needs a
+  place in the dispatch or in the report.
+- No agent session has been shown running end to end in an instance pod.
+
+Before it: `story:pod-source-checkouts` (an agent has no checkout to work in without it).
