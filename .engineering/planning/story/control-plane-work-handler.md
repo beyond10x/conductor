@@ -7,7 +7,56 @@ title: A conductor instance takes work from a control plane and reports each exe
 relations:
 - decomposes: epic:deployable-in-kubernetes
 - depends_on: story:pod-source-checkouts
-revision: 3
+scope:
+- confidence: cited
+  path: crates/conductor-model
+- confidence: inferred
+  path: crates/conductor/cli.yaml
+- confidence: inferred
+  path: crates/conductor/roles/controller.md
+- confidence: inferred
+  path: crates/conductor/src/actor.rs
+- confidence: cited
+  path: crates/conductor/src/daemon/api.rs
+- confidence: cited
+  path: crates/conductor/src/dashboard.rs
+- confidence: inferred
+  path: crates/conductor/src/dashboard/work.rs
+- confidence: cited
+  path: crates/conductor/src/dispatch.rs
+- confidence: cited
+  path: crates/conductor/src/records.rs
+- confidence: cited
+  path: crates/conductor/src/run.rs
+- confidence: cited
+  path: crates/conductor/src/run/mailbox.rs
+- confidence: cited
+  path: crates/conductor/src/spawn.rs
+- confidence: cited
+  path: crates/conductor/tests/api_parity.rs
+- confidence: cited
+  path: crates/conductor/tests/dispatch.rs
+- confidence: cited
+  path: crates/conductor/tests/fixtures/api_parity.md
+- confidence: cited
+  path: crates/conductor/tests/instance_api.rs
+- confidence: cited
+  path: crates/conductor/tests/instance_routes.rs
+- confidence: cited
+  path: crates/conductor/tests/kubernetes_guide.rs
+- confidence: cited
+  path: crates/conductor/tests/mailbox.rs
+- confidence: cited
+  path: crates/conductor/tests/run.rs
+- confidence: cited
+  path: crates/conductor/tests/spawn.rs
+- confidence: cited
+  path: crates/conductor/tests/work_route.rs
+- confidence: cited
+  path: spec/domains/dispatch.yaml
+- confidence: cited
+  path: website/docs/guides/run-in-kubernetes.md
+revision: 27
 ---
 ## Why
 
