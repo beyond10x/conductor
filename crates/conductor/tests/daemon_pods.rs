@@ -88,10 +88,30 @@ impl Case {
 
     /// Writes the config file: `daemon.kubernetes` on `image`, and `instances`.
     fn config(&self, image: &str, instances: &[String]) {
+        self.config_env(
+            image,
+            &[
+                "{name: GH_TOKEN, secret: secret:forge-token}",
+                "{name: GIT_AUTHOR_NAME, value: conductor}",
+            ],
+            instances,
+        );
+    }
+
+    /// Writes the config file: `daemon.kubernetes` on `image`, its `env` the entries `env`, and
+    /// `instances`.
+    fn config_env(&self, image: &str, env: &[&str], instances: &[String]) {
         let list = if instances.is_empty() {
             " []\n".to_owned()
         } else {
             format!("\n{}", instances.concat())
+        };
+        let env: String = if env.is_empty() {
+            " []".to_owned()
+        } else {
+            env.iter()
+                .map(|entry| format!("\n      - {entry}"))
+                .collect()
         };
         let text = format!(
             "version: conductor.config/2\n\
@@ -105,9 +125,7 @@ impl Case {
              \x20   api_port: {port}\n\
              \x20   volume: {{size: 20G, storage_class: fast-local}}\n\
              \x20   resources: {{requests: {{cpu: 500m, memory: 1Gi}}, limits: {{memory: 2Gi}}}}\n\
-             \x20   env:\n\
-             \x20     - {{name: GH_TOKEN, secret: secret:forge-token}}\n\
-             \x20     - {{name: GIT_AUTHOR_NAME, value: conductor}}\n\
+             \x20   env:{env}\n\
              instances:{list}",
             store = format!("sqlite:{}", self.dir.join("shared.sqlite").display()),
             secrets = self.dir.join("secrets"),
@@ -995,12 +1013,15 @@ fn the_daemons_seeding_skips_pod_run_instances() {
     assert!(conductor_cli::daemon::unattended::seeds_here(&unit_run));
 }
 
-/// The pod of an instance that names no `forge_token` (story:instance-forge-token) is the pod the
-/// supervisor made before the key existed, byte for byte: its spec, its claim, its rendered file,
-/// the secrets its Secret holds and its digest, held to `tests/fixtures/k8s/pod-alpha.json`, which
-/// was written from the supervisor of v1.4.0 for this case's file.
+/// The pod of an instance that names no `forge_token` (story:instance-forge-token) and has a
+/// `github` source under the daemon's `GH_TOKEN` is the pod the supervisor of v1.4.0 made for
+/// this case's file, and git's three variables after the git identity
+/// (story:pod-git-reaches-forge): its spec, its claim, its rendered file, the secrets its Secret
+/// holds and its digest, held to `tests/fixtures/k8s/pod-alpha.json`. The pods that carry no
+/// token of a forge of theirs are held to v1.4.0 byte for byte by the three fixtures
+/// `pod-alpha-no-token.json`, `pod-alpha-local.json` and `pod-alpha-git-config.json`.
 #[test]
-fn the_pod_of_an_instance_without_a_forge_token_is_the_one_made_before_the_key() {
+fn the_pod_of_an_instance_under_the_daemons_token_is_the_one_of_v1_4_0_and_gits_variables() {
     let case = Case::new("before-the-key");
     let text = fs::read_to_string(case.file()).expect("the config file");
     let config = conductor_cli::config::parse(&text, &case.home()).expect("a valid file");
@@ -1024,7 +1045,7 @@ fn the_pod_of_an_instance_without_a_forge_token_is_the_one_made_before_the_key()
         let now = case.dir.join("pod-alpha.json");
         fs::write(&now, &made).expect("write what is made now");
         panic!(
-            "the pod of an instance without forge_token differs from {}; what is made now is {}",
+            "the pod of an instance under the daemon's token differs from {}; what is made now is {}",
             fixture.display(),
             now.display()
         );
@@ -1157,11 +1178,15 @@ fn an_instances_forge_token_replaces_the_daemons_variable_in_its_own_pod_only() 
         "{}",
         gamma.pod
     );
-    assert_eq!(
-        variables(&gamma, "GH_TOKEN"),
-        [from_secret("GH_TOKEN", "gamma", "forge-token")],
-        "an entry of another variable stays: {}",
+    assert!(
+        variables(&gamma, "GH_TOKEN").is_empty(),
+        "an instance with a forge token of its own carries none of the daemon's: {}",
         gamma.pod
+    );
+    assert!(
+        !gamma.secrets.contains("forge-token"),
+        "{:?}",
+        gamma.secrets
     );
 
     // One pass: each Secret holds its own instance's token, from the daemon's secrets source.
@@ -1198,7 +1223,542 @@ fn an_instances_forge_token_replaces_the_daemons_variable_in_its_own_pod_only() 
         keys(&beta)
     );
     assert_eq!(secret_value(&gamma, "gamma-forge"), GAMMA_FORGE);
-    assert_eq!(secret_value(&gamma, "forge-token"), FORGE_TOKEN);
+    assert!(
+        !keys(&gamma).contains(&"forge-token".to_owned()),
+        "{:?}",
+        keys(&gamma)
+    );
+}
+
+/// An instance that names its own `forge_token` carries none of the daemon's forge token
+/// variables (decision F2-D7): a `gitlab` instance under a daemon whose `env` names `GH_TOKEN`
+/// gets `GITLAB_TOKEN` from its own secret and no `GH_TOKEN`, and a `github` instance under a
+/// daemon-wide `GITLAB_TOKEN` no `GITLAB_TOKEN`; its Secret holds the instance's secret and not
+/// the daemon's forge secret, unless an entry the pod keeps names that secret too. Every other
+/// entry stays. git's helper follows the variables the pod carries after that.
+#[test]
+fn an_instances_own_forge_token_leaves_every_daemon_forge_variable_out_of_its_pod() {
+    let case = Case::new("forge-token-only-own");
+    case.config_env(
+        IMAGE,
+        &[
+            "{name: GH_TOKEN, secret: secret:forge-token}",
+            "{name: GITLAB_TOKEN, secret: secret:gitlab-forge}",
+            "{name: GIT_AUTHOR_NAME, value: conductor}",
+        ],
+        &[
+            instance(
+                "gamma",
+                "{gitlab: example-org}",
+                "    forge_token: secret:gamma-forge\n",
+            ),
+            instance(
+                "delta",
+                "{github: example-org}",
+                "    forge_token: secret:delta-forge\n",
+            ),
+        ],
+    );
+    let text = fs::read_to_string(case.file()).expect("the config file");
+    let config = conductor_cli::config::parse(&text, &case.home())
+        .unwrap_or_else(|problems| panic!("the file does not validate: {problems:?}\n{text}"));
+    let made = |config: &conductor_model::config::Config, name: &str| {
+        let kubernetes = config.daemon.kubernetes.clone().expect("daemon.kubernetes");
+        let instance = config
+            .instances
+            .iter()
+            .find(|instance| instance.name.0 == name)
+            .unwrap_or_else(|| panic!("the instance {name}"));
+        pods::manifests(&kubernetes, config, instance)
+    };
+
+    let gamma = made(&config, "gamma");
+    assert_eq!(
+        variables(&gamma, "GITLAB_TOKEN"),
+        [from_secret("GITLAB_TOKEN", "gamma", "gamma-forge")],
+        "{}",
+        gamma.pod
+    );
+    assert!(variables(&gamma, "GH_TOKEN").is_empty(), "{}", gamma.pod);
+    assert_eq!(
+        variables(&gamma, "GIT_AUTHOR_NAME"),
+        [json!({"name": "GIT_AUTHOR_NAME", "value": "conductor"})],
+        "every other entry stays: {}",
+        gamma.pod
+    );
+    assert!(gamma.secrets.contains("gamma-forge"), "{:?}", gamma.secrets);
+    for daemons in ["forge-token", "gitlab-forge"] {
+        assert!(!gamma.secrets.contains(daemons), "{:?}", gamma.secrets);
+    }
+    assert_eq!(
+        git_config(&gamma),
+        helpers(&[("https://gitlab.com", GITLAB_HELPER)]),
+        "{}",
+        gamma.pod
+    );
+
+    let delta = made(&config, "delta");
+    assert_eq!(
+        variables(&delta, "GH_TOKEN"),
+        [from_secret("GH_TOKEN", "delta", "delta-forge")],
+        "{}",
+        delta.pod
+    );
+    assert!(
+        variables(&delta, "GITLAB_TOKEN").is_empty(),
+        "{}",
+        delta.pod
+    );
+    assert!(delta.secrets.contains("delta-forge"), "{:?}", delta.secrets);
+    for daemons in ["forge-token", "gitlab-forge"] {
+        assert!(!delta.secrets.contains(daemons), "{:?}", delta.secrets);
+    }
+    assert_eq!(
+        git_config(&delta),
+        helpers(&[("https://github.com", GITHUB_HELPER)]),
+        "{}",
+        delta.pod
+    );
+
+    // A secret a kept entry names too stays in the Secret, for that entry.
+    let shared = text.replace(
+        "{name: GIT_AUTHOR_NAME, value: conductor}",
+        "{name: FORGE_MIRROR_TOKEN, secret: secret:forge-token}",
+    );
+    let config = conductor_cli::config::parse(&shared, &case.home())
+        .unwrap_or_else(|problems| panic!("the file does not validate: {problems:?}\n{shared}"));
+    let gamma = made(&config, "gamma");
+    assert!(variables(&gamma, "GH_TOKEN").is_empty(), "{}", gamma.pod);
+    assert_eq!(
+        variables(&gamma, "FORGE_MIRROR_TOKEN"),
+        [from_secret("FORGE_MIRROR_TOKEN", "gamma", "forge-token")],
+        "{}",
+        gamma.pod
+    );
+    assert!(gamma.secrets.contains("forge-token"), "{:?}", gamma.secrets);
+    assert!(
+        !gamma.secrets.contains("gitlab-forge"),
+        "{:?}",
+        gamma.secrets
+    );
+}
+
+/// git's credential helper for `https://github.com` in a pod that carries `GH_TOKEN`
+/// (story:pod-git-reaches-forge): it answers `get` only, with the token read from the variable at
+/// the time of the call; its text holds no secret.
+const GITHUB_HELPER: &str = r#"!f() { test "$1" = get && printf 'username=%s\npassword=%s\n' x-access-token "$GH_TOKEN"; }; f"#;
+
+/// git's credential helper for a `gitlab` source's origin in a pod that carries `GITLAB_TOKEN`.
+const GITLAB_HELPER: &str =
+    r#"!f() { test "$1" = get && printf 'username=%s\npassword=%s\n' oauth2 "$GITLAB_TOKEN"; }; f"#;
+
+/// The `GIT_CONFIG_*` entries of `made`'s pod, in their order, as name and value.
+fn git_config(made: &pods::Manifests) -> Vec<(String, String)> {
+    made.pod["spec"]["containers"][0]["env"]
+        .as_array()
+        .expect("env")
+        .iter()
+        .filter_map(|entry| {
+            let name = entry["name"].as_str()?;
+            name.starts_with("GIT_CONFIG_").then(|| {
+                (
+                    name.to_owned(),
+                    entry["value"].as_str().unwrap_or_default().to_owned(),
+                )
+            })
+        })
+        .collect()
+}
+
+/// The entries one helper per `(origin, helper)` of `helpers` gives a pod, in that order.
+fn helpers(helpers: &[(&str, &str)]) -> Vec<(String, String)> {
+    let mut entries = vec![("GIT_CONFIG_COUNT".to_owned(), helpers.len().to_string())];
+    for (index, (origin, helper)) in helpers.iter().enumerate() {
+        entries.push((
+            format!("GIT_CONFIG_KEY_{index}"),
+            format!("credential.{origin}.helper"),
+        ));
+        entries.push((format!("GIT_CONFIG_VALUE_{index}"), (*helper).to_owned()));
+    }
+    entries
+}
+
+/// The index of the first `env` entry of `made`'s pod named `variable`.
+fn position(made: &pods::Manifests, variable: &str) -> usize {
+    made.pod["spec"]["containers"][0]["env"]
+        .as_array()
+        .expect("env")
+        .iter()
+        .position(|entry| entry["name"] == variable)
+        .unwrap_or_else(|| panic!("the pod has no {variable}: {}", made.pod))
+}
+
+/// What git itself answers to `git credential fill` for `protocol` and `host` in the environment
+/// of `made`'s pod, with no network: the pod's plain entries exported, each of `tokens` set as the
+/// value a `secretKeyRef` would give, an isolated home under `dir`, no system or global config
+/// and no terminal prompt. Answers whether git succeeded, its standard output and its error.
+fn fill(
+    dir: &std::path::Path,
+    made: &pods::Manifests,
+    tokens: &[(&str, &str)],
+    protocol: &str,
+    host: &str,
+) -> (bool, String, String) {
+    let home = dir.join("git-home");
+    fs::create_dir_all(&home).expect("create git's home");
+    let mut command = std::process::Command::new("git");
+    command
+        .env_clear()
+        .env("PATH", std::env::var_os("PATH").unwrap_or_default());
+    for entry in made.pod["spec"]["containers"][0]["env"]
+        .as_array()
+        .expect("env")
+    {
+        if let (Some(name), Some(value)) = (entry["name"].as_str(), entry["value"].as_str()) {
+            command.env(name, value);
+        }
+    }
+    for (name, value) in tokens {
+        command.env(name, value);
+    }
+    command
+        .env("HOME", &home)
+        .env("GIT_CONFIG_NOSYSTEM", "1")
+        .env("GIT_CONFIG_GLOBAL", "/dev/null")
+        .env("GIT_TERMINAL_PROMPT", "0")
+        .env("GIT_CEILING_DIRECTORIES", dir)
+        .current_dir(&home)
+        .args(["credential", "fill"])
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped());
+    let mut child = command.spawn().expect("start git");
+    child
+        .stdin
+        .take()
+        .expect("git's input")
+        .write_all(format!("protocol={protocol}\nhost={host}\n\n").as_bytes())
+        .expect("write git's input");
+    let output = child.wait_with_output().expect("git ends");
+    (
+        output.status.success(),
+        String::from_utf8_lossy(&output.stdout).into_owned(),
+        String::from_utf8_lossy(&output.stderr).into_owned(),
+    )
+}
+
+/// git answers `user` and `token` for `host` over HTTPS in `made`'s pod.
+fn answers(
+    dir: &std::path::Path,
+    made: &pods::Manifests,
+    tokens: &[(&str, &str)],
+    host: &str,
+    user: &str,
+    token: &str,
+) {
+    let (ok, out, err) = fill(dir, made, tokens, "https", host);
+    assert!(ok, "git credential fill for {host} failed: {err}\n{out}");
+    assert!(
+        out.contains(&format!("username={user}\npassword={token}\n")),
+        "git credential fill for {host} answered: {out}"
+    );
+}
+
+/// git offers no password for `host` over `protocol` in `made`'s pod: no helper answers, so it
+/// asks for a user name, which no terminal gives, and fails.
+fn answers_none(
+    dir: &std::path::Path,
+    made: &pods::Manifests,
+    tokens: &[(&str, &str)],
+    protocol: &str,
+    host: &str,
+) {
+    let (ok, out, err) = fill(dir, made, tokens, protocol, host);
+    assert!(
+        !ok && !out.contains("password=") && err.contains("terminal prompts disabled"),
+        "git credential fill for {protocol}://{host} answered: ok {ok}, out {out:?}, error {err:?}"
+    );
+}
+
+/// git over HTTPS in an instance pod that carries a forge token (story:pod-git-reaches-forge):
+/// the pod's environment gives git one credential helper, for the origin of the instance's forge,
+/// `https://github.com` for a `github` source and `https://<host>` for a `gitlab` one, whether
+/// the token comes from the instance's `forge_token` or from `daemon.kubernetes.env`; after the
+/// token's entry and before the git identity. git itself, run in that environment, answers the
+/// token for that host, as the variable holds it at the time of the call, and none for another
+/// host, a look-alike host, the same host over HTTP or the same name on another port. A pod that
+/// carries the token of a forge its instance has no source on gets no helper for it.
+#[test]
+fn git_in_a_pod_with_a_forge_token_reaches_its_forge_with_it_and_no_other_host() {
+    let case = Case::new("git-forge");
+    case.config(
+        IMAGE,
+        &[
+            alpha("    forge_token: secret:alpha-forge\n"),
+            instance("beta", "{github: example-org}", ""),
+            instance(
+                "gamma",
+                "{gitlab: example-org, host: gitlab.example.com:8443}",
+                "    forge_token: secret:gamma-forge\n",
+            ),
+        ],
+    );
+    let text = fs::read_to_string(case.file()).expect("the config file");
+    let config = conductor_cli::config::parse(&text, &case.home())
+        .unwrap_or_else(|problems| panic!("the file does not validate: {problems:?}\n{text}"));
+    let kubernetes = config.daemon.kubernetes.clone().expect("daemon.kubernetes");
+    let made = |name: &str| {
+        let instance = config
+            .instances
+            .iter()
+            .find(|instance| instance.name.0 == name)
+            .unwrap_or_else(|| panic!("the instance {name}"));
+        pods::manifests(&kubernetes, &config, instance)
+    };
+    let (first, second) = (
+        ["fixture", "value", "one"].join("-"),
+        ["fixture", "value", "two"].join("-"),
+    );
+
+    for (name, token) in [("alpha", "GH_TOKEN"), ("beta", "GH_TOKEN")] {
+        let made = made(name);
+        assert_eq!(
+            git_config(&made),
+            helpers(&[("https://github.com", GITHUB_HELPER)]),
+            "{name}: {}",
+            made.pod
+        );
+        let count = position(&made, "GIT_CONFIG_COUNT");
+        assert!(
+            position(&made, token) < count && count < position(&made, "GIT_AUTHOR_EMAIL"),
+            "{name}: the helper stands after the token and before the identity: {}",
+            made.pod
+        );
+        let spec = made.pod.to_string();
+        for value in [ALPHA_FORGE, FORGE_TOKEN] {
+            assert!(!spec.contains(value), "{name}: a token in the pod: {spec}");
+        }
+        for value in [first.as_str(), second.as_str()] {
+            answers(
+                &case.dir,
+                &made,
+                &[("GH_TOKEN", value)],
+                "github.com",
+                "x-access-token",
+                value,
+            );
+        }
+        for host in ["example.com", "github.com.example.com", "api.github.com"] {
+            answers_none(
+                &case.dir,
+                &made,
+                &[("GH_TOKEN", first.as_str())],
+                "https",
+                host,
+            );
+        }
+        answers_none(
+            &case.dir,
+            &made,
+            &[("GH_TOKEN", first.as_str())],
+            "http",
+            "github.com",
+        );
+    }
+
+    let gamma = made("gamma");
+    assert_eq!(
+        git_config(&gamma),
+        helpers(&[("https://gitlab.example.com:8443", GITLAB_HELPER)]),
+        "gamma has no github source: {}",
+        gamma.pod
+    );
+    let count = position(&gamma, "GIT_CONFIG_COUNT");
+    assert!(
+        position(&gamma, "GITLAB_TOKEN") < count && count < position(&gamma, "GIT_AUTHOR_EMAIL"),
+        "{}",
+        gamma.pod
+    );
+    assert!(
+        !gamma.pod.to_string().contains(GAMMA_FORGE),
+        "{}",
+        gamma.pod
+    );
+    let tokens = [
+        ("GITLAB_TOKEN", first.as_str()),
+        ("GH_TOKEN", second.as_str()),
+    ];
+    answers(
+        &case.dir,
+        &gamma,
+        &tokens,
+        "gitlab.example.com:8443",
+        "oauth2",
+        &first,
+    );
+    for host in [
+        "gitlab.example.com",
+        "gitlab.com",
+        "github.com",
+        "example.com",
+    ] {
+        answers_none(&case.dir, &gamma, &tokens, "https", host);
+    }
+    answers_none(
+        &case.dir,
+        &gamma,
+        &tokens,
+        "http",
+        "gitlab.example.com:8443",
+    );
+}
+
+/// An instance with sources on both forges, under a daemon whose `env` gives both variables, one
+/// as a `secret` and one as a `value` (story:pod-git-reaches-forge): one helper per origin,
+/// `github.com` first, then each `gitlab` host once, sorted, so the pod's digest does not move
+/// with the order of the sources. git answers each forge's token for its host only.
+#[test]
+fn an_instance_on_both_forges_gets_one_helper_per_origin_in_a_fixed_order() {
+    let case = Case::new("git-both-forges");
+    let gitlab_value = ["fixture", "gitlab", "value"].join("-");
+    case.config_env(
+        IMAGE,
+        &[
+            "{name: GH_TOKEN, secret: secret:forge-token}",
+            &format!("{{name: GITLAB_TOKEN, value: {gitlab_value}}}"),
+        ],
+        &[instance(
+            "delta",
+            "{gitlab: example-org, host: gitlab.example.org}, {github: example-org}, \
+             {gitlab: example-group}, {gitlab: other-group, host: gitlab.example.org}",
+            "",
+        )],
+    );
+    let text = fs::read_to_string(case.file()).expect("the config file");
+    let config = conductor_cli::config::parse(&text, &case.home())
+        .unwrap_or_else(|problems| panic!("the file does not validate: {problems:?}\n{text}"));
+    let kubernetes = config.daemon.kubernetes.clone().expect("daemon.kubernetes");
+    let made = pods::manifests(&kubernetes, &config, &config.instances[0]);
+    assert_eq!(
+        git_config(&made),
+        helpers(&[
+            ("https://github.com", GITHUB_HELPER),
+            ("https://gitlab.com", GITLAB_HELPER),
+            ("https://gitlab.example.org", GITLAB_HELPER),
+        ]),
+        "{}",
+        made.pod
+    );
+    let github = ["fixture", "github", "value"].join("-");
+    let tokens = [
+        ("GH_TOKEN", github.as_str()),
+        ("GITLAB_TOKEN", gitlab_value.as_str()),
+    ];
+    answers(
+        &case.dir,
+        &made,
+        &tokens,
+        "github.com",
+        "x-access-token",
+        &github,
+    );
+    for host in ["gitlab.com", "gitlab.example.org"] {
+        answers(&case.dir, &made, &tokens, host, "oauth2", &gitlab_value);
+    }
+    for host in ["gitlab.example.com", "example.org"] {
+        answers_none(&case.dir, &made, &tokens, "https", host);
+    }
+}
+
+/// The pod `made` of a case is the one held in `tests/fixtures/k8s/<fixture>`, byte for byte:
+/// its spec, its claim, its rendered file, the secrets its Secret holds and its digest; else what
+/// differs, with what is made now written beside the case.
+fn held_to(case: &Case, made: &pods::Manifests, fixture: &str) -> Option<String> {
+    let made = json!({
+        "pod": made.pod,
+        "claim": made.claim,
+        "rendered": made.rendered,
+        "secrets": made.secrets,
+        "digest": made.digest,
+    });
+    let made = format!(
+        "{}\n",
+        serde_json::to_string_pretty(&made).expect("the objects as JSON")
+    );
+    let path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("tests/fixtures/k8s")
+        .join(fixture);
+    let before = fs::read_to_string(&path).unwrap_or_default();
+    (made != before).then(|| {
+        let now = case.dir.join(fixture);
+        fs::write(&now, &made).expect("write what is made now");
+        format!(
+            "the pod differs from {}; what is made now is {}",
+            path.display(),
+            now.display()
+        )
+    })
+}
+
+/// A pod that git's credential helpers leave as it was (story:pod-git-reaches-forge), each held
+/// byte for byte to the pod the supervisor made before them, written from the supervisor of
+/// `cda5f4f0e` for the same file: a `github` instance's pod that carries no forge token; the pod
+/// of an instance with a `local` source only, under a daemon-wide `GH_TOKEN`; and a `github`
+/// instance's pod under a daemon-wide `GH_TOKEN` whose `env` names `GIT_CONFIG_COUNT`, where the
+/// installer owns git's configuration.
+#[test]
+fn a_pod_without_a_token_of_its_forge_or_with_gits_config_named_is_the_one_made_before() {
+    let render = |case: &Case| {
+        let text = fs::read_to_string(case.file()).expect("the config file");
+        let config = conductor_cli::config::parse(&text, &case.home())
+            .unwrap_or_else(|problems| panic!("the file does not validate: {problems:?}\n{text}"));
+        let kubernetes = config.daemon.kubernetes.clone().expect("daemon.kubernetes");
+        pods::manifests(&kubernetes, &config, &config.instances[0])
+    };
+
+    let case = Case::new("git-no-token");
+    case.config_env(
+        IMAGE,
+        &["{name: GIT_AUTHOR_NAME, value: conductor}"],
+        &[alpha("")],
+    );
+    let made = render(&case);
+    assert!(git_config(&made).is_empty(), "{}", made.pod);
+    let mut differ: Vec<String> = held_to(&case, &made, "pod-alpha-no-token.json")
+        .into_iter()
+        .collect();
+
+    let case = Case::new("git-local");
+    case.config(
+        IMAGE,
+        &[instance(
+            "alpha",
+            "{local: /var/lib/conductor/data/checkouts}",
+            "    model_token: secret:alpha-model\n",
+        )],
+    );
+    let made = render(&case);
+    assert!(git_config(&made).is_empty(), "{}", made.pod);
+    differ.extend(held_to(&case, &made, "pod-alpha-local.json"));
+
+    let case = Case::new("git-config-named");
+    case.config_env(
+        IMAGE,
+        &[
+            "{name: GH_TOKEN, secret: secret:forge-token}",
+            "{name: GIT_CONFIG_COUNT, value: \"0\"}",
+        ],
+        &[alpha("")],
+    );
+    let made = render(&case);
+    assert_eq!(
+        git_config(&made),
+        [("GIT_CONFIG_COUNT".to_owned(), "0".to_owned())],
+        "{}",
+        made.pod
+    );
+    differ.extend(held_to(&case, &made, "pod-alpha-git-config.json"));
+    assert!(differ.is_empty(), "{}", differ.join("\n"));
 }
 
 /// The control token of the forge-token route case: the value of the secret `control`.

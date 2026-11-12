@@ -404,6 +404,67 @@ fn the_forge_credentials_section_holds_both_setups_as_the_daemon_reads_them() {
     assert_eq!(token(1), [serde_json::json!(daemon_wide)], "{file}");
 }
 
+/// The section "Forge credentials" says what a pod's git reaches with the token
+/// (story:pod-git-reaches-forge): git over HTTPS to the forge's origin through a credential
+/// helper, no other host, `GIT_CONFIG_COUNT` in `daemon.kubernetes.env` leaving git's
+/// configuration to the installer, and SSH remotes not covered; and the pod its YAML block gives
+/// an instance with a `github` source has the helper for `https://github.com`.
+#[test]
+fn the_forge_credentials_section_says_what_a_pods_git_reaches_with_the_token() {
+    active::isolate();
+    let text = section("Forge credentials");
+    for words in [
+        "credential helper",
+        "https://github.com",
+        "https://<host>",
+        "no other host",
+        "carries none of the daemon's forge tokens",
+        "GIT_CONFIG_COUNT",
+        "SSH",
+    ] {
+        assert!(text.contains(words), "the section says {words:?}:\n{text}");
+    }
+    assert!(
+        !text.contains("does not read these variables"),
+        "the section still says git reads no token:\n{text}"
+    );
+    let block = text
+        .split_once("```yaml\n")
+        .and_then(|(_, rest)| rest.split_once("```"))
+        .map(|(block, _)| block)
+        .expect("the section's YAML block");
+    let fragment: Value = serde_yaml::from_str(block).expect("the YAML block");
+    let map = one("ConfigMap");
+    let mut daemon: Value =
+        serde_yaml::from_str(text_of(&map["data"]["daemon.yaml"])).expect("daemon.yaml");
+    daemon["daemon"]["kubernetes"]["env"] = fragment["daemon"]["kubernetes"]["env"].clone();
+    daemon["instances"] = serde_yaml::from_str(
+        "[{name: alpha, placement: none, session_prefix: alpha, sources: [{github: example-org}]}]",
+    )
+    .expect("an instance");
+    let file = serde_yaml::to_string(&daemon).expect("the file");
+    let config = conductor_cli::config::parse(&file, Path::new("/var/lib/conductor"))
+        .unwrap_or_else(|problems| panic!("the file does not validate: {problems:?}\n{file}"));
+    let kubernetes = config.daemon.kubernetes.clone().expect("daemon.kubernetes");
+    let made = pods::manifests(&kubernetes, &config, &config.instances[0]);
+    let env = made.pod["spec"]["containers"][0]["env"]
+        .as_array()
+        .expect("env")
+        .clone();
+    let value = |name: &str| {
+        env.iter()
+            .find(|entry| entry["name"] == name)
+            .and_then(|entry| entry["value"].as_str())
+            .map(str::to_owned)
+    };
+    assert_eq!(value("GIT_CONFIG_COUNT").as_deref(), Some("1"), "{env:?}");
+    assert_eq!(
+        value("GIT_CONFIG_KEY_0").as_deref(),
+        Some("credential.https://github.com.helper"),
+        "{env:?}"
+    );
+}
+
 /// A YAML string as text.
 fn text_of(value: &Value) -> &str {
     text(value, "a YAML string")

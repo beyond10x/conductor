@@ -429,7 +429,7 @@ For an instance `alpha`, in `daemon.kubernetes.namespace`:
 
 | object | name | holds |
 |---|---|---|
-| Secret | `conductor-instance-alpha` | `conductor.yaml`, the instance's config file as the daemon renders it; `api_token`, the runtime's API token, new at every start; one key per secret the mapping or `daemon.kubernetes.env` names, such as `model-token`, its value from the daemon's secrets source, but none for the `env` entry whose variable the instance's `forge_token` fills |
+| Secret | `conductor-instance-alpha` | `conductor.yaml`, the instance's config file as the daemon renders it; `api_token`, the runtime's API token, new at every start; one key per secret the mapping or `daemon.kubernetes.env` names, such as `model-token`, its value from the daemon's secrets source, but none for an `env` entry of `GH_TOKEN` or `GITLAB_TOKEN` when the instance names its own `forge_token` |
 | volume claim | `conductor-instance-alpha-data` | `ReadWriteOnce`, of `daemon.kubernetes.volume`: the instance's checkouts, records, state, cache and its own sqlite store |
 | pod | `conductor-instance-alpha` | one container, `runtime`, running `conductor --config /var/lib/conductor/data/conductor.yaml instance serve` from `daemon.kubernetes.image` |
 
@@ -453,7 +453,10 @@ The pod:
   `daemon.kubernetes.env` and the instance's forge token, each value through the Secret;
 - the git identity of the records' commits, `GIT_AUTHOR_NAME` and `GIT_COMMITTER_NAME`
   `conductor`, `GIT_AUTHOR_EMAIL` and `GIT_COMMITTER_EMAIL` `conductor@localhost`, each where
-  `daemon.kubernetes.env` does not name the variable.
+  `daemon.kubernetes.env` does not name the variable;
+- git's credential helper for the HTTPS origin of the forge whose token the pod carries, in
+  `GIT_CONFIG_COUNT`, `GIT_CONFIG_KEY_<n>` and `GIT_CONFIG_VALUE_<n>`, after the token and before
+  the git identity ([Forge credentials](#forge-credentials)).
 
 The three objects carry the label set of [A network policy](#a-network-policy) and no owner
 reference. At its start the runtime copies `conductor.yaml` from the Secret to its volume, writes
@@ -478,6 +481,7 @@ instance pods run on through it, with the same uid and no restart.
 | an instance pod ends | starts it again after the failed-start back-off; the row's `detail` holds what the container said, or the last lines of its log |
 | `PUT /v1/instances/{name}` changes the mapping | replaces the pod once: deleted, then created on the new rendering |
 | `daemon.kubernetes.image` changes | replaces each instance pod once, on the new image |
+| the daemon is upgraded to a version that changes the pod it would make | replaces each pod whose spec changed once, at its first pass, on the same image, and adopts every other pod. The version that gave git its credential helper ([Forge credentials](#forge-credentials)) replaces each pod that carries the token of a forge its instance has a source on, unless `daemon.kubernetes.env` names `GIT_CONFIG_COUNT`, and each pod of an instance with its own `forge_token` whose daemon gives a forge token variable it no longer carries |
 
 The instances are in the daemon's config file and nowhere else. A daemon that starts on an empty
 volume holds no instance, and at its first pass it deletes every pod and Secret that carries its
@@ -537,7 +541,7 @@ daemon can use both setups:
 | setup | where the token is named | which pods carry it |
 |---|---|---|
 | one token per daemon | an entry of `daemon.kubernetes.env`, as a `secret` | every instance pod |
-| one token per instance | the instance's `forge_token: secret:<name>` | that instance's pod, in place of the daemon's entry of the same variable |
+| one token per instance | the instance's `forge_token: secret:<name>` | that instance's pod, in place of the daemon's entries of `GH_TOKEN` and `GITLAB_TOKEN` |
 
 One token per daemon: put the token into the Secret `conductor-secrets` under `forge-token`, and
 add the entry to `daemon.yaml` in the ConfigMap:
@@ -561,16 +565,35 @@ curl -X PUT -H "Authorization: Bearer $TOKEN" -H 'content-type: application/json
 The daemon takes the variable from the instance's sources; a mapping names a secret, never a
 variable. A mapping that names a `forge_token` is refused `422` at
 `instances[<i>].forge_token` when its sources are all `local` or on both forges, and when it names
-a secret of the `daemon` section. An instance that names none keeps what `daemon.kubernetes.env`
-gives every pod.
+a secret of the `daemon` section. An instance that names its own `forge_token`
+carries none of the daemon's forge tokens: its pod gets neither the daemon's `GH_TOKEN` nor its
+`GITLAB_TOKEN` entry, and its Secret holds their secrets only where another entry names them.
+An instance that names none keeps what `daemon.kubernetes.env` gives every pod.
 
 The daemon writes a token's value into the instance's Secret when it starts the pod, and a
 running pod keeps the value it started with. To rotate a token, change its value in the Secret
 `conductor-secrets`, and once the kubelet has updated the mounted file, restart each instance
 that uses it with `POST /v1/instances/{name}/restart`.
 
-The image configures no git credential helper, so `git` over HTTPS does not read these
-variables; `gh` and `glab` do.
+git over HTTPS reaches the forge with the same token. Where a pod carries `GH_TOKEN` and its
+instance has a `github` source, or carries `GITLAB_TOKEN` and has a `gitlab` source, from either
+setup, the daemon gives git a credential helper for that forge's origin in git's own variables
+`GIT_CONFIG_COUNT`, `GIT_CONFIG_KEY_<n>` and `GIT_CONFIG_VALUE_<n>`: `https://github.com` for a
+`github` source, and `https://<host>` for each host of a `gitlab` source, `https://gitlab.com`
+where it names none. The helper answers git with the user name `x-access-token` for GitHub or
+`oauth2` for GitLab and the token as the variable holds it when git asks; its text names the
+variable and holds no token, and no file is written. git offers the token to no other host: not
+to another host, not to the same host over `http`, and not on another port. So a clone, a fetch
+or a push over HTTPS to the forge authenticates, for conductor's own `git fetch` and for every
+session in the pod alike. git reads these variables from version 2.31; the image's git, from
+Debian 13, is newer.
+
+Where `daemon.kubernetes.env` names `GIT_CONFIG_COUNT`, the daemon writes none of the three
+variables into any pod: the installer owns git's configuration, and a credential helper is then
+the installer's to give.
+
+SSH remotes are not covered: a remote such as `git@github.com:example-org/repository.git` gets
+nothing from the token. Use the HTTPS remote, `https://github.com/example-org/repository.git`.
 
 ## Limits
 

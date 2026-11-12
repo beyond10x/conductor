@@ -385,6 +385,109 @@ fn the_pod_and_the_claim_are_the_same_whatever_the_mapping_says_beside_the_name(
     );
 }
 
+/// git's credential helper of a `gitlab` origin (story:pod-git-reaches-forge): fixed text, no
+/// caller's.
+const GITLAB_HELPER: &str =
+    r#"!f() { test "$1" = get && printf 'username=%s\npassword=%s\n' oauth2 "$GITLAB_TOKEN"; }; f"#;
+
+/// The one text of a mapping that reaches git's configuration in a pod is a `gitlab` source's
+/// `host` (story:pod-git-reaches-forge), and only in the key of a credential helper,
+/// `credential.https://<host>.helper`, never in the helper's value, which the shell runs. The
+/// instance API refuses every host that could end that key, add a scheme, user or path to the
+/// origin, widen it to other hosts, or reach a shell, before anything is written; a host it
+/// takes appears in the key as a host name with an optional port, lowercased, and the value is
+/// the fixed helper whatever the host.
+#[test]
+fn a_gitlab_host_reaches_only_the_key_of_gits_credential_helper() {
+    let case = Case::new("git-helper-host");
+    case.write(" []");
+    let before = case.text();
+    let port = case.serve();
+    let source = |host: &str| json!({"sources": [{"gitlab": "example-org", "host": host}]});
+    for host in [
+        "gitlab.example.com\n[core]",
+        "gitlab.example.com\nhelper",
+        "gitlab.example.com;id",
+        "$(id).example.com",
+        "`id`.example.com",
+        "gitlab example.com",
+        "gitlab.example.com/group",
+        "user@gitlab.example.com",
+        "gitlab.example.com#x",
+        "gitlab.example.com?x",
+        "gitlab.example.com=x",
+        "gitlab.example.com'",
+        "gitlab.example.com\"",
+        "gitlab.example.com\\",
+        "*.example.com",
+        ".example.com",
+        "https://gitlab.example.com",
+        "gitlab.example.com:8443:1",
+        "gitlab.example.com:",
+        "gitlab.example.com:0",
+        "[::1]",
+        "gitlab.example.com\u{0}",
+    ] {
+        let body = json!({"mapping": mapping("beta", &source(host)), "reason": "r"});
+        let (status, answer) = exchange(port, &request(port, "POST", "/v1/instances", Some(&body)));
+        assert!(
+            (400..500).contains(&status) && status != 401 && status != 403,
+            "host {host:?}: answered {status}, not refused as invalid: {answer}"
+        );
+        assert_eq!(case.text(), before, "host {host:?}: the file changed");
+    }
+    // The same mapping with a host name and a port is taken: the refusals above are the host's.
+    let body = json!({
+        "mapping": mapping("beta", &source("gitlab.example.com:8443")),
+        "reason": "r",
+    });
+    let (status, answer) = exchange(port, &request(port, "POST", "/v1/instances", Some(&body)));
+    assert!((200..300).contains(&status), "{status}: {answer}");
+
+    for (host, origin) in [
+        ("gitlab.example.com", "https://gitlab.example.com"),
+        ("GitLab.Example.COM:8443", "https://gitlab.example.com:8443"),
+        ("a-b.c1.example", "https://a-b.c1.example"),
+    ] {
+        let text = case.daemon_text(&format!(
+            "\n  - name: beta\n    placement: none\n    session_prefix: beta\n    \
+             sources: [{{gitlab: example-org, host: {host:?}}}]\n    \
+             forge_token: secret:beta-forge"
+        ));
+        let config = conductor_cli::config::parse(&text, &case.home())
+            .unwrap_or_else(|problems| panic!("the file does not validate: {problems:?}\n{text}"));
+        let kubernetes = config.daemon.kubernetes.clone().expect("daemon.kubernetes");
+        let made = pods::manifests(&kubernetes, &config, &config.instances[0]);
+        let git: Vec<(String, String)> = made.pod["spec"]["containers"][0]["env"]
+            .as_array()
+            .expect("env")
+            .iter()
+            .filter_map(|entry| {
+                let name = entry["name"].as_str()?;
+                name.starts_with("GIT_CONFIG_").then(|| {
+                    (
+                        name.to_owned(),
+                        entry["value"].as_str().unwrap_or_default().to_owned(),
+                    )
+                })
+            })
+            .collect();
+        assert_eq!(
+            git,
+            [
+                ("GIT_CONFIG_COUNT".to_owned(), "1".to_owned()),
+                (
+                    "GIT_CONFIG_KEY_0".to_owned(),
+                    format!("credential.{origin}.helper")
+                ),
+                ("GIT_CONFIG_VALUE_0".to_owned(), GITLAB_HELPER.to_owned()),
+            ],
+            "host {host:?}: {}",
+            made.pod
+        );
+    }
+}
+
 /// Decision D8 at the instance API: a name that is no DNS label of at most 39 characters, a path
 /// outside the data mount, a key that would shape a pod, a YAML merge key or alias, and a body
 /// past the bound are each refused before anything is written; a path name that is no instance

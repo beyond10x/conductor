@@ -23,13 +23,13 @@
       "storageClassName": "fast-local"
     }
   },
-  "digest": "c62e62354f96811aa54f76eb42114d62dc302a71a7d5c7cfc449747322459ed5",
+  "digest": "dee844f2d5cec76c719b4abd628e2bff87591738821b7d9cb58983ff736b6005",
   "pod": {
     "apiVersion": "v1",
     "kind": "Pod",
     "metadata": {
       "annotations": {
-        "conductor/digest": "c62e62354f96811aa54f76eb42114d62dc302a71a7d5c7cfc449747322459ed5"
+        "conductor/digest": "dee844f2d5cec76c719b4abd628e2bff87591738821b7d9cb58983ff736b6005"
       },
       "labels": {
         "app.kubernetes.io/component": "instance-runtime",
@@ -84,6 +84,18 @@
             {
               "name": "GIT_AUTHOR_NAME",
               "value": "conductor"
+            },
+            {
+              "name": "GIT_CONFIG_COUNT",
+              "value": "1"
+            },
+            {
+              "name": "GIT_CONFIG_KEY_0",
+              "value": "credential.https://github.com.helper"
+            },
+            {
+              "name": "GIT_CONFIG_VALUE_0",
+              "value": "!f() { test \"$1\" = get && printf 'username=%s\\npassword=%s\\n' x-access-token \"$GH_TOKEN\"; }; f"
             },
             {
               "name": "GIT_AUTHOR_EMAIL",

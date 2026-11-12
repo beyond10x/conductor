@@ -1,0 +1,196 @@
+{
+  "claim": {
+    "apiVersion": "v1",
+    "kind": "PersistentVolumeClaim",
+    "metadata": {
+      "labels": {
+        "app.kubernetes.io/component": "instance-runtime",
+        "app.kubernetes.io/managed-by": "conductord",
+        "conductor/daemon": "example-org",
+        "conductor/instance": "alpha"
+      },
+      "name": "conductor-instance-alpha-data"
+    },
+    "spec": {
+      "accessModes": [
+        "ReadWriteOnce"
+      ],
+      "resources": {
+        "requests": {
+          "storage": "20Gi"
+        }
+      },
+      "storageClassName": "fast-local"
+    }
+  },
+  "digest": "1b904e5d4ac1897422c6641c726d644debea7998c0cf1f110ed22a385b2e705e",
+  "pod": {
+    "apiVersion": "v1",
+    "kind": "Pod",
+    "metadata": {
+      "annotations": {
+        "conductor/digest": "1b904e5d4ac1897422c6641c726d644debea7998c0cf1f110ed22a385b2e705e"
+      },
+      "labels": {
+        "app.kubernetes.io/component": "instance-runtime",
+        "app.kubernetes.io/managed-by": "conductord",
+        "conductor/daemon": "example-org",
+        "conductor/instance": "alpha"
+      },
+      "name": "conductor-instance-alpha"
+    },
+    "spec": {
+      "automountServiceAccountToken": false,
+      "containers": [
+        {
+          "command": [
+            "conductor",
+            "--config",
+            "/var/lib/conductor/data/conductor.yaml",
+            "instance",
+            "serve"
+          ],
+          "env": [
+            {
+              "name": "CONDUCTOR_INSTANCE",
+              "value": "alpha"
+            },
+            {
+              "name": "CONDUCTOR_CONFIG_SOURCE",
+              "value": "/run/secrets/conductor/conductor.yaml"
+            },
+            {
+              "name": "CONDUCTOR_API_LISTEN",
+              "value": "0.0.0.0:7310"
+            },
+            {
+              "name": "CONDUCTOR_API_TOKEN",
+              "valueFrom": {
+                "secretKeyRef": {
+                  "key": "api_token",
+                  "name": "conductor-instance-alpha"
+                }
+              }
+            },
+            {
+              "name": "GH_TOKEN",
+              "valueFrom": {
+                "secretKeyRef": {
+                  "key": "forge-token",
+                  "name": "conductor-instance-alpha"
+                }
+              }
+            },
+            {
+              "name": "GIT_CONFIG_COUNT",
+              "value": "0"
+            },
+            {
+              "name": "GIT_AUTHOR_NAME",
+              "value": "conductor"
+            },
+            {
+              "name": "GIT_AUTHOR_EMAIL",
+              "value": "conductor@localhost"
+            },
+            {
+              "name": "GIT_COMMITTER_NAME",
+              "value": "conductor"
+            },
+            {
+              "name": "GIT_COMMITTER_EMAIL",
+              "value": "conductor@localhost"
+            }
+          ],
+          "image": "registry.example.com/conductor:1.0.0",
+          "livenessProbe": {
+            "failureThreshold": 3,
+            "httpGet": {
+              "path": "/healthz",
+              "port": 7310
+            },
+            "periodSeconds": 10
+          },
+          "name": "runtime",
+          "ports": [
+            {
+              "containerPort": 7310,
+              "name": "api",
+              "protocol": "TCP"
+            }
+          ],
+          "readinessProbe": {
+            "failureThreshold": 3,
+            "httpGet": {
+              "path": "/healthz",
+              "port": 7310
+            },
+            "periodSeconds": 5
+          },
+          "resources": {
+            "limits": {
+              "memory": "2Gi"
+            },
+            "requests": {
+              "cpu": "500m",
+              "memory": "1Gi"
+            }
+          },
+          "securityContext": {
+            "allowPrivilegeEscalation": false,
+            "capabilities": {
+              "drop": [
+                "ALL"
+              ]
+            },
+            "runAsNonRoot": true
+          },
+          "volumeMounts": [
+            {
+              "mountPath": "/run/secrets/conductor",
+              "name": "secret",
+              "readOnly": true
+            },
+            {
+              "mountPath": "/var/lib/conductor/data",
+              "name": "data"
+            }
+          ]
+        }
+      ],
+      "enableServiceLinks": false,
+      "restartPolicy": "Never",
+      "securityContext": {
+        "fsGroup": 10001,
+        "runAsGroup": 10001,
+        "runAsNonRoot": true,
+        "runAsUser": 10001,
+        "seccompProfile": {
+          "type": "RuntimeDefault"
+        }
+      },
+      "shareProcessNamespace": true,
+      "terminationGracePeriodSeconds": 10,
+      "volumes": [
+        {
+          "name": "secret",
+          "secret": {
+            "defaultMode": 288,
+            "secretName": "conductor-instance-alpha"
+          }
+        },
+        {
+          "name": "data",
+          "persistentVolumeClaim": {
+            "claimName": "conductor-instance-alpha-data"
+          }
+        }
+      ]
+    }
+  },
+  "rendered": "version: conductor.config/2\ndaemon:\n  store: sqlite:/var/lib/conductor/data/conductor.sqlite\n  secrets:\n    source: files\n    dir: /run/secrets/conductor\n  unattended: true\n  operators: []\ninstances:\n- name: alpha\n  session_prefix: alpha\n  placement: none\n  gates_policy: null\n  model_token: secret:alpha-model\n  sources:\n  - github: example-org\n  checkouts:\n    root: /var/lib/conductor/data/checkouts\n    trees: /var/lib/conductor/data/trees\n  records: /var/lib/conductor/data/records\n  state: /var/lib/conductor/data/state\n  cache: /var/lib/conductor/data/cache\n  roles:\n  - role: conductor\n    kind: claude-code\n    harness: claude\n    model: opus\n    agent: null\n    settings: null\n    profile: null\n    session_name: alpha-conductor\n    read_only_tools: []\n    limits:\n      memory_max: null\n      cpu_weight: null\n      tasks_max: null\n    writable:\n    - checkout\n    - trees\n    - build-cache\n    - scratch\n    - harness-state\n    - records\n    network: open\n    forge_token_env: []\n    grant:\n      tools:\n      - show\n      - search\n      - diff\n      repositories: []\n      paths: []\n      max_output_bytes: 65536\n      ttl: null\n    token_owner: null\n  - role: conductor-dev\n    kind: claude-code\n    harness: claude\n    model: opus\n    agent: null\n    settings: null\n    profile: null\n    session_name: alpha-conductor-dev\n    read_only_tools: []\n    limits:\n      memory_max: null\n      cpu_weight: null\n      tasks_max: null\n    writable:\n    - checkout\n    - trees\n    - build-cache\n    - scratch\n    - harness-state\n    network: open\n    forge_token_env: []\n    grant:\n      tools:\n      - show\n      - search\n      - diff\n      repositories: []\n      paths: []\n      max_output_bytes: 65536\n      ttl: null\n    token_owner: null\n  - role: controller\n    kind: claude-code\n    harness: claude\n    model: opus\n    agent: null\n    settings: null\n    profile: null\n    session_name: null\n    read_only_tools: []\n    limits:\n      memory_max: null\n      cpu_weight: null\n      tasks_max: null\n    writable:\n    - checkout\n    - trees\n    - build-cache\n    - scratch\n    - harness-state\n    network: open\n    forge_token_env: []\n    grant:\n      tools:\n      - show\n      - search\n      - diff\n      repositories: []\n      paths: []\n      max_output_bytes: 65536\n      ttl: null\n    token_owner: null\n  limits:\n    memory_max: null\n    cpu_weight: null\n    tasks_max: null\n  forge:\n    route: gates\n  controllers:\n    max_working: 5\n    max_subagents: 4\n    max_open_reviews: 3\n  repositories: []\n  cadence:\n    cycle: 2h\n    daily: 08:07\n    watch: 180s\n    ci: 900s\n  thresholds:\n    context_handover: 300k\n    disk_path: /\n    disk_low: 100G\n    disk_clear: 110G\n    disk_admit: 20G\n    build_slot: 60G\n    build_size: 10G\n    gate_stop: 15G\n    gate_resume: 17G\n    watchdog_every: 10s\n    silent_session: 30m\n    cpu_reserve: 2\n    build_slots: 3\n    repo_cache: on\n    repo_cache_size: 2G\n    lean_debuginfo: true\n    short_lane_slots: 1\n    short_lane_max: 3m\n    stalled_session: 45m\n    build_queued: 30m\n    tree_stale: 48h\n  retention:\n    snapshots: 12\n  reports: []\n  authority:\n    class_c: conductor\n    class_o: operator\n  usage:\n    probe: null\n    watcher: null\n    rotate: null\n  operator: null\n  catalog: null\n  secret_syncs: []\n",
+  "secrets": [
+    "alpha-model",
+    "forge-token"
+  ]
+}

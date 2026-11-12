@@ -7,10 +7,11 @@
 //! the label set [`labels`] and no owner reference:
 //! - the Secret [`pod_name`]: the instance's config file as [`pod::render`] writes it (key
 //!   [`pod::CONFIG_FILE`]), the runtime's token (key [`TOKEN_KEY`]), and each secret the rendered
-//!   file, the instance's `forge_token` or a `daemon.kubernetes.env` entry names (but the entry
-//!   of the variable the forge token fills, which it replaces in the pod), resolved from the
-//!   daemon's secrets source and never from a Kubernetes Secret by name; one the source lacks
-//!   refuses the start, and nothing is created;
+//!   file, the instance's `forge_token` or a `daemon.kubernetes.env` entry names (but, for an
+//!   instance with a `forge_token`, the entries of `GH_TOKEN` and `GITLAB_TOKEN`: that pod
+//!   carries none of the daemon's forge tokens), resolved from the daemon's secrets source and
+//!   never from a Kubernetes Secret by name; one the source lacks refuses the start, and nothing
+//!   is created;
 //! - the volume claim [`claim_name`], of `daemon.kubernetes.volume`, created once and never
 //!   deleted by the supervisor;
 //! - the pod [`pod_name`] ([`manifests`]): the image `daemon.kubernetes.image` running
@@ -24,8 +25,11 @@
 //!
 //! Every field comes from `daemon.kubernetes`, the instance's name and the rendering (decision
 //! D8), and the key of one `env` entry from the instance's `forge_token`, whose variable its
-//! sources name and no caller does. The supervisor lists its pods once per tick by the first
-//! three labels ([`Pods::refresh`]): the reconciler reads each instance's state, address and
+//! sources name and no caller does. Where the pod carries the token of a forge its sources name,
+//! git's `GIT_CONFIG_COUNT`, `GIT_CONFIG_KEY_<n>` and `GIT_CONFIG_VALUE_<n>` give git a
+//! credential helper for that forge's HTTPS origin and no other ([`GIT_CONFIG_COUNT`]); a
+//! `gitlab` source's host reaches only the key. The supervisor lists its pods once per tick by
+//! the first three labels ([`Pods::refresh`]): the reconciler reads each instance's state, address and
 //! failure from that list ([`Pods::seen`], [`Pods::detail`]). A restarted daemon adopts the pods
 //! it finds there, the token read back from the instance's Secret ([`Pods::token`]); a pod or
 //! Secret of its owner whose instance the config no longer holds is deleted ([`Pods::sweep`]).
@@ -36,7 +40,7 @@ use std::net::IpAddr;
 use std::time::{Duration, Instant};
 
 use anyhow::{Result, anyhow, bail};
-use conductor_model::config::{Config, Instance, Kubernetes, KubernetesQuantities};
+use conductor_model::config::{Config, Instance, Kubernetes, KubernetesQuantities, Source};
 use conductor_model::secret::SecretName;
 use secrets_core::storage::SecretValue;
 use serde_json::{Map, Value, json};
@@ -92,6 +96,60 @@ pub const GIT_IDENTITY: [(&str, &str); 4] = [
     ("GIT_COMMITTER_NAME", "conductor"),
     ("GIT_COMMITTER_EMAIL", "conductor@localhost"),
 ];
+
+/// git's variable of the count of the configuration entries it reads from the environment, each
+/// in `GIT_CONFIG_KEY_<n>` and `GIT_CONFIG_VALUE_<n>` (git 2.31 and later). Where
+/// `daemon.kubernetes.env` names it, the installer owns git's configuration and the supervisor
+/// writes none of the three.
+pub const GIT_CONFIG_COUNT: &str = "GIT_CONFIG_COUNT";
+
+/// The user name git sends with a forge's token, by the kind of source that names the forge.
+pub const FORGE_USERS: [(&str, &str); 2] = [("github", "x-access-token"), ("gitlab", "oauth2")];
+
+/// git's credential helper that answers `get` only, with `user` and the value of `variable` at
+/// the time of the call: shell text that names the variable and holds no secret.
+#[must_use]
+pub fn credential_helper(user: &str, variable: &str) -> String {
+    format!(
+        r#"!f() {{ test "$1" = get && printf 'username=%s\npassword=%s\n' {user} "${variable}"; }}; f"#
+    )
+}
+
+/// git's configuration entries of a pod whose instance has `sources` and whose environment
+/// carries the variables `carried` (story:pod-git-reaches-forge): per forge origin of the sources
+/// whose token variable the pod carries, the key `credential.<origin>.helper` and a
+/// [`credential_helper`], so git offers the token to that origin and no other. The origin is
+/// `https://github.com` for a `github` source and `https://<host>` of a `gitlab` source, its host
+/// lowercased; `github.com` first, then each `gitlab` host once, sorted. A `gitlab` host is the
+/// one text of a caller that reaches git's configuration, and only its key: validation holds it
+/// to a host name with an optional port.
+fn git_credentials(sources: &[Source], carried: &BTreeSet<&str>) -> Vec<(String, String)> {
+    let mut entries = Vec::new();
+    for (kind, variable) in crate::config::FORGE_TOKEN_VARIABLES {
+        if !carried.contains(variable) {
+            continue;
+        }
+        let user = FORGE_USERS
+            .iter()
+            .find(|(forge, _)| *forge == kind)
+            .map_or("", |(_, user)| *user);
+        let hosts: BTreeSet<String> = sources
+            .iter()
+            .filter_map(|source| match (kind, source) {
+                ("github", Source::GitHub(_)) => Some(crate::doctor::GITHUB_HOST.to_owned()),
+                ("gitlab", Source::GitLab(gitlab)) => Some(gitlab.host.to_ascii_lowercase()),
+                _ => None,
+            })
+            .collect();
+        for host in hosts {
+            entries.push((
+                format!("credential.https://{host}.helper"),
+                credential_helper(user, variable),
+            ));
+        }
+    }
+    entries
+}
 
 /// The waiting reasons that hold a pod Pending until something changes: its row says so.
 pub const STUCK: [&str; 6] = [
@@ -233,10 +291,14 @@ pub fn manifests(kubernetes: &Kubernetes, config: &Config, instance: &Instance) 
                 _ => None,
             },
         );
+    // An instance with a forge token of its own carries none of the daemon's (decision F2-D7):
+    // every `env` entry of a forge token variable stays out of its pod, and so does its secret
+    // unless a kept entry or the rendered file names it too.
     for variable in &kubernetes.env {
-        if forge
-            .as_ref()
-            .is_some_and(|(name, _)| variable.name == *name)
+        if forge.is_some()
+            && crate::config::FORGE_TOKEN_VARIABLES
+                .iter()
+                .any(|(_, name)| variable.name == *name)
         {
             continue;
         }
@@ -258,6 +320,27 @@ pub fn manifests(kubernetes: &Kubernetes, config: &Config, instance: &Instance) 
             "name": variable,
             "valueFrom": {"secretKeyRef": {"name": pod_name, "key": secret}},
         }));
+    }
+    // git over HTTPS to the forge of the instance's sources authenticates with the token the pod
+    // carries, and git offers it to no other origin (story:pod-git-reaches-forge); where `env`
+    // names `GIT_CONFIG_COUNT`, git's configuration is the installer's.
+    if !kubernetes
+        .env
+        .iter()
+        .any(|named| named.name == GIT_CONFIG_COUNT)
+    {
+        let carried: BTreeSet<&str> = env
+            .iter()
+            .filter_map(|entry| entry["name"].as_str())
+            .collect();
+        let entries = git_credentials(&instance.sources, &carried);
+        if !entries.is_empty() {
+            env.push(json!({"name": GIT_CONFIG_COUNT, "value": entries.len().to_string()}));
+            for (index, (key, value)) in entries.into_iter().enumerate() {
+                env.push(json!({"name": format!("GIT_CONFIG_KEY_{index}"), "value": key}));
+                env.push(json!({"name": format!("GIT_CONFIG_VALUE_{index}"), "value": value}));
+            }
+        }
     }
     for (variable, value) in GIT_IDENTITY {
         if !kubernetes.env.iter().any(|named| named.name == variable) {
