@@ -8,7 +8,8 @@
 //!   dispatch it created; `200` for a reference a dispatch already holds, whatever the other
 //!   fields say, creating nothing; `409` `RepositoryBusy` with the open dispatches (`open`) of a
 //!   repository that works another; `422` `InvalidWorkRequest` (no JSON object, a member the
-//!   request does not declare, one it declares missing or of another type), `InvalidReference`,
+//!   request does not declare, one it declares missing or of another type, a `start_ref` or an
+//!   `issue` a dispatch does not carry, [`crate::dispatch::refused_member`]), `InvalidReference`,
 //!   `InvalidBrief` (a brief of 1 to [`BRIEF_MOST`] bytes is taken) or `UnknownRepository` (one
 //!   neither the newest complete snapshot nor the workspace file names,
 //!   [`crate::dispatch::named_repositories`]). It is taken as every write of the instance API is,
@@ -22,7 +23,9 @@
 //!   reference. A read, as the instance API's other reads.
 //!
 //! Every refusal is a JSON object naming the specification's error, `conductor.dispatch.<Error>`,
-//! and its one line in `detail`.
+//! and its one line in `detail`. A store or records that fail answer `500`
+//! `conductor.dispatch.WorkFailed` with the reference and nothing of the failure; the error's
+//! whole chain, with its paths, is the runtime's one line on standard error.
 
 use std::io;
 use std::sync::PoisonError;
@@ -107,6 +110,7 @@ pub(super) fn answer<'a>(
 
 /// `POST /v1/work` with `bytes` as `actor`, as the module documentation says.
 fn send(server: &Server, bytes: &[u8], actor: conductor_model::operator::Actor) -> Vec<u8> {
+    const SAID: &str = "POST /v1/work";
     let state = server.state.as_deref();
     let work = match request(bytes) {
         Ok(work) => work,
@@ -115,10 +119,11 @@ fn send(server: &Server, bytes: &[u8], actor: conductor_model::operator::Actor) 
     if !dispatch::valid_reference(&work.reference) {
         return invalid_reference(&work.reference);
     }
+    let failure = |error: &anyhow::Error| failed(SAID, &work.reference, error);
     match dispatch::held_by(state, &work.reference) {
-        Ok(Some(_)) => return row(server, &work.reference, 200, "OK"),
+        Ok(Some(_)) => return row(server, &work.reference, 200, "OK", SAID),
         Ok(None) => {}
-        Err(error) => return failed(&error),
+        Err(error) => return failure(&error),
     }
     if work.brief.is_empty() || work.brief.len() > BRIEF_MOST {
         return refused(
@@ -131,6 +136,15 @@ fn send(server: &Server, bytes: &[u8], actor: conductor_model::operator::Actor) 
                     work.brief.len()
                 ),
             }),
+        );
+    }
+    if let Some((member, rule)) =
+        dispatch::refused_member(work.start_ref.as_deref(), work.issue.as_deref())
+    {
+        return refused(
+            422,
+            "InvalidWorkRequest",
+            &json!({"detail": format!("{member} is not taken: {rule}; nothing was sent")}),
         );
     }
     match dispatch::named_repositories(state) {
@@ -154,11 +168,11 @@ fn send(server: &Server, bytes: &[u8], actor: conductor_model::operator::Actor) 
                 }),
             );
         }
-        Err(error) => return failed(&error),
+        Err(error) => return failure(&error),
     }
     match dispatch::send_work(state, &work, actor) {
-        Ok(Sent::Created(_)) => row(server, &work.reference, 201, "Created"),
-        Ok(Sent::Held(_)) => row(server, &work.reference, 200, "OK"),
+        Ok(Sent::Created(_)) => row(server, &work.reference, 201, "Created", SAID),
+        Ok(Sent::Held(_)) => row(server, &work.reference, 200, "OK", SAID),
         Ok(Sent::Refused {
             error: "RepositoryBusy",
             detail,
@@ -173,7 +187,7 @@ fn send(server: &Server, bytes: &[u8], actor: conductor_model::operator::Actor) 
             error,
             &json!({"reference": work.reference, "detail": detail}),
         ),
-        Err(error) => failed(&error),
+        Err(error) => failure(&error),
     }
 }
 
@@ -194,11 +208,18 @@ fn read(server: &Server, reference: &str) -> Vec<u8> {
     if !dispatch::valid_reference(reference) {
         return invalid_reference(reference);
     }
-    row(server, reference, 200, "OK")
+    row(
+        server,
+        reference,
+        200,
+        "OK",
+        &format!("GET {PREFIX}{reference}"),
+    )
 }
 
-/// The row of `reference` answered `status`, or `404` when no dispatch holds it.
-fn row(server: &Server, reference: &str, status: u16, reason: &str) -> Vec<u8> {
+/// The row of `reference` answered `status`, or `404` when no dispatch holds it; `said` is the
+/// request, which a failure's log line names.
+fn row(server: &Server, reference: &str, status: u16, reason: &str, said: &str) -> Vec<u8> {
     match dispatch::work_state(server.state.as_deref(), &server.sources.root, reference) {
         Ok(Some(state)) => {
             let mut text = String::new();
@@ -214,7 +235,7 @@ fn row(server: &Server, reference: &str, status: u16, reason: &str) -> Vec<u8> {
                 "detail": format!("no dispatch of this instance holds the reference {reference}"),
             }),
         ),
-        Err(error) => failed(&error),
+        Err(error) => failed(said, reference, &error),
     }
 }
 
@@ -257,9 +278,17 @@ fn refusal(status: u16, reason: &str, why: &str, extra: &str) -> Vec<u8> {
     response(status, reason, "application/json", text.as_bytes(), extra)
 }
 
-/// A failure of the store or the records: `500` with its reason on one line.
-fn failed(error: &anyhow::Error) -> Vec<u8> {
-    let mut text = json!({"error": "failed", "detail": format!("{error:#}")}).to_string();
+/// A failure of the store or the records on the request `said` for `reference`: `500`
+/// `conductor.dispatch.WorkFailed`, naming nothing of the failure, and the runtime's one line on
+/// standard error with the whole chain, which names the store's and the records' paths.
+fn failed(said: &str, reference: &str, error: &anyhow::Error) -> Vec<u8> {
+    eprintln!("conductor instance serve: {said} answered 500: {error:#}");
+    let mut text = json!({
+        "error": "conductor.dispatch.WorkFailed",
+        "reference": reference,
+        "detail": "the instance could not read or write its store or its records; its log says why",
+    })
+    .to_string();
     text.push('\n');
     response(
         500,

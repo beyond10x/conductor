@@ -2,8 +2,8 @@
   "provenance": {
     "system": "conductor",
     "specification_version": "v1",
-    "source_digest": "4cf091ef5b2c2e99367479c2c5a4c91c7d64cad3ccf6831566a3e9c7ecf48de8",
-    "contract_digest": "067700d83eba091eafe51c3cef5aa8464f79f5ebb92b96270439abfa631129f3"
+    "source_digest": "28dcf53ee86839f4174c7f9955e6967fde44527505c81718070663f451bc4515",
+    "contract_digest": "58983098659d5fd5fbd918be2db0c0ce1c382725137cfe87bf81bc48ad81f500"
   },
   "scope": {
     "profile": "component-skeletons",
@@ -5712,6 +5712,13 @@
     },
     {
       "kind": "error_type",
+      "source": "conductor.dispatch.MessageDispatchMismatch",
+      "disposition": {
+        "disposition": "generated"
+      }
+    },
+    {
+      "kind": "error_type",
       "source": "conductor.dispatch.MessageNotFound",
       "disposition": {
         "disposition": "generated"
@@ -5776,6 +5783,13 @@
     {
       "kind": "error_type",
       "source": "conductor.dispatch.WaitsOnItself",
+      "disposition": {
+        "disposition": "generated"
+      }
+    },
+    {
+      "kind": "error_type",
+      "source": "conductor.dispatch.WorkFailed",
       "disposition": {
         "disposition": "generated"
       }

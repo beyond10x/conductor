@@ -1346,3 +1346,101 @@ fn status_answers_within_2_s_on_an_instance_of_50k_tree_files_reading_the_newest
         }
     }
 }
+
+/// Whether `character` would act on a terminal or break a line: a C0 or C1 control character,
+/// DEL, or U+2028 or U+2029.
+fn breaks(character: char) -> bool {
+    character.is_control() || matches!(character, '\u{2028}' | '\u{2029}')
+}
+
+/// A brief or a request a work source or a controller wrote reaches `conductor status` with every
+/// control character, C1 character and Unicode line or paragraph separator written as a space:
+/// it moves no terminal and splits no row of the table.
+#[test]
+fn status_writes_no_control_character_or_line_separator_of_a_brief_or_a_request() {
+    let root = case_dir("status-controls");
+    propose_goal(&root);
+    let brief = "brief \u{1b}[31mred\u{1b}[0m bell\u{7} tab\t nel\u{85} csi\u{9b}2J \
+                 ls\u{2028}ps\u{2029}del\u{7f} cr\r lf\n end";
+    let id = printed(
+        &root,
+        &[
+            "dispatch",
+            "send-dispatch",
+            "--repository",
+            "alpha",
+            "--goal-id",
+            "G1",
+            "--brief",
+            brief,
+            "--sent-at",
+            LATER,
+        ],
+    )
+    .trim()
+    .to_owned();
+    printed(
+        &root,
+        &[
+            "decision",
+            "raise-decision-request",
+            "--request-id",
+            "REQ-9",
+            "--repository",
+            "alpha",
+            "--question",
+            "scope \u{1b}]0;title\u{7} \u{2028}which?",
+            "--options",
+            "A: read; B: write",
+            "--recommendation",
+            "A",
+            "--raised-at",
+            LATER,
+        ],
+    );
+
+    // The views' text and Markdown write the same brief the same way.
+    for format in ["text", "markdown"] {
+        let view = printed(&root, &["dispatch", "dispatches", "--format", format]);
+        let found: Vec<char> = view
+            .chars()
+            .filter(|character| *character != '\n' && breaks(*character))
+            .collect();
+        assert!(found.is_empty(), "{format} wrote {found:?}:\n{view:?}");
+        assert_eq!(
+            view.lines().filter(|line| line.contains(&id)).count(),
+            1,
+            "{view}"
+        );
+    }
+
+    for args in [&["--full"][..], &[][..]] {
+        let status = status_of(&root, args);
+        let found: Vec<(usize, char)> = status
+            .chars()
+            .enumerate()
+            .filter(|(_, character)| *character != '\n' && breaks(*character))
+            .collect();
+        assert!(
+            found.is_empty(),
+            "`conductor status {}` wrote {found:?}:\n{status:?}",
+            args.join(" ")
+        );
+        assert!(
+            status
+                .lines()
+                .any(|line| line.contains("REQ-9") && line.contains("which?")),
+            "the request is not one line:\n{status}"
+        );
+        if args == ["--full"] {
+            let row = status
+                .lines()
+                .find(|line| line.contains(&id))
+                .unwrap_or_else(|| panic!("no row of {id}:\n{status}"));
+            assert!(
+                row.contains("brief ") && row.ends_with(" end |"),
+                "the brief's row is split: {row:?}"
+            );
+        }
+    }
+}

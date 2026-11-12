@@ -1,5 +1,5 @@
 // generated from conductor v1
-// contract digest 067700d83eba091eafe51c3cef5aa8464f79f5ebb92b96270439abfa631129f3
+// contract digest 58983098659d5fd5fbd918be2db0c0ce1c382725137cfe87bf81bc48ad81f500
 // do not edit: regenerate with `ess synthesize --layout crate`
 //! Every generated declaration, as JSON, in the renderings the published wire contracts fix.
 //!
@@ -18631,6 +18631,18 @@ pub fn encode_error_conductor_dispatch_mailbox_body_missing(value: &crate::dispa
     out.push('}');
 }
 
+/// Writes the declared error `conductor.dispatch.MessageDispatchMismatch` as JSON.
+pub fn encode_error_conductor_dispatch_message_dispatch_mismatch(value: &crate::dispatch::MessageDispatchMismatch, out: &mut String) {
+    out.push('{');
+    json::member(out, "message_id");
+    encode_conductor_dispatch_message_id(&value.message_id, out);
+    if let Some(held0) = &value.dispatch_id {
+        json::member(out, "dispatch_id");
+        encode_conductor_dispatch_dispatch_id(&*held0, out);
+    }
+    out.push('}');
+}
+
 /// Writes the declared error `conductor.dispatch.MessageNotFound` as JSON.
 pub fn encode_error_conductor_dispatch_message_not_found(value: &crate::dispatch::MessageNotFound, out: &mut String) {
     out.push('{');
@@ -18708,6 +18720,14 @@ pub fn encode_error_conductor_dispatch_waits_on_itself(value: &crate::dispatch::
     out.push('{');
     json::member(out, "dispatch_id");
     encode_conductor_dispatch_dispatch_id(&value.dispatch_id, out);
+    out.push('}');
+}
+
+/// Writes the declared error `conductor.dispatch.WorkFailed` as JSON.
+pub fn encode_error_conductor_dispatch_work_failed(value: &crate::dispatch::WorkFailed, out: &mut String) {
+    out.push('{');
+    json::member(out, "reference");
+    json::push_text(out, &value.reference);
     out.push('}');
 }
 
@@ -25161,6 +25181,20 @@ pub fn encode_outcome_conductor_dispatch_handle_message(value: &crate::dispatch:
             json::push_text(out, "conductor.dispatch.NeedNotRouted");
             json::member(out, "payload");
             encode_error_conductor_dispatch_need_not_routed(error, out);
+            out.push('}');
+        }
+        crate::dispatch::HandleMessageOutcome::DispatchNotOfMessage { error } => {
+            json::member(out, "outcome");
+            json::push_text(out, "dispatch-not-of-message");
+            json::member(out, "published");
+            out.push('[');
+            out.push(']');
+            json::member(out, "refusal");
+            out.push('{');
+            json::member(out, "error");
+            json::push_text(out, "conductor.dispatch.MessageDispatchMismatch");
+            json::member(out, "payload");
+            encode_error_conductor_dispatch_message_dispatch_mismatch(error, out);
             out.push('}');
         }
         crate::dispatch::HandleMessageOutcome::Handled { message_handled } => {

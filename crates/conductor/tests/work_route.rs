@@ -193,6 +193,45 @@ impl Case {
             .unwrap_or_default()
     }
 
+    /// Every message of the case's store, as `message messages` lists them.
+    fn messages(&self) -> Vec<Value> {
+        let output = self.conductor(&["message", "messages", "--format", "json"], "");
+        assert!(output.status.success(), "message messages: {output:?}");
+        serde_json::from_slice::<Value>(&output.stdout)
+            .ok()
+            .and_then(|value| value.as_array().cloned())
+            .unwrap_or_default()
+    }
+
+    /// The row `message messages` gives the message `id`.
+    fn message(&self, id: &str) -> Value {
+        let rows = self.messages();
+        rows.iter()
+            .find(|row| row["message_id"] == id)
+            .unwrap_or_else(|| panic!("no message {id}: {rows:#?}"))
+            .clone()
+    }
+
+    /// A message `first_line` from `alpha`'s controller into conductor's mailbox, not yet handled;
+    /// its id.
+    fn send(&self, first_line: &str) -> String {
+        self.ok(
+            &[
+                "message",
+                "send",
+                "--to",
+                "conductor",
+                "--from",
+                "eo-alpha",
+                "--text",
+                "-",
+            ],
+            &format!("{first_line}\n"),
+        )
+        .trim()
+        .to_owned()
+    }
+
     /// A report `first_line` from `alpha`'s controller into conductor's mailbox, then one watch
     /// tick that handles it.
     fn report(&self, first_line: &str) {
@@ -250,6 +289,19 @@ impl Drop for Running {
     fn drop(&mut self) {
         let _ = self.0.kill();
         let _ = self.0.wait();
+    }
+}
+
+impl Running {
+    /// Stops the runtime; what it wrote on standard error.
+    fn stop(&mut self) -> String {
+        let _ = self.0.kill();
+        let _ = self.0.wait();
+        let mut stderr = String::new();
+        if let Some(mut pipe) = self.0.stderr.take() {
+            let _ = pipe.read_to_string(&mut stderr);
+        }
+        stderr
     }
 }
 
@@ -715,5 +767,272 @@ fn the_control_plane_header_is_honoured_only_with_the_token() {
             ("WI-2".to_owned(), "human:owner@example-org.test".to_owned()),
             ("WI-3".to_owned(), "human:operator".to_owned()),
         ]
+    );
+}
+
+/// The dispatch id of a `201` or `200` answer.
+fn dispatch_of(answer: &Answer) -> String {
+    assert!(matches!(answer.status, 200 | 201), "{answer:?}");
+    answer.json()["dispatch_id"]
+        .as_str()
+        .expect("a dispatch id")
+        .to_owned()
+}
+
+/// A `[REPORT alpha <beta's id>] done …` is a report of `alpha` that names no dispatch of
+/// `alpha`: it is handled as one naming no dispatch. Beta's dispatch does not move, its log gets
+/// no line, its row shows no report, and the message holds no dispatch.
+#[test]
+fn a_report_naming_another_repositorys_dispatch_moves_nothing_of_it() {
+    let case = Case::new("foreign");
+    let _runtime = case.serve();
+    dispatch_of(&post(&case, &work("alpha", "WI-A")));
+    let beta = dispatch_of(&post(&case, &work("beta", "WI-B")));
+
+    let message = case.send(&format!("[REPORT alpha {beta}] done merged by alpha"));
+    case.tick();
+
+    let row = get(&case, "WI-B").json();
+    assert_eq!(row["state"], "Sent", "beta's dispatch moved: {row}");
+    for absent in ["started_at", "ended_at", "detail", "last_report"] {
+        assert!(row.get(absent).is_none(), "{absent} on beta's row: {row}");
+    }
+    let held = case.message(&message);
+    assert_eq!(held["state"], "Handled", "{held}");
+    assert_eq!(held["dispatch_id"], Value::Null, "{held}");
+}
+
+/// `message handle-message --dispatch-id` takes only a dispatch that exists and is of the
+/// repository the message's first line names: another repository's dispatch, or one no dispatch
+/// has, is refused by its declared name on one line, exit 1, and the message stays unhandled.
+/// The message's own repository's dispatch is taken, and becomes the row's last report.
+#[test]
+fn handle_message_takes_only_a_dispatch_of_the_messages_repository() {
+    let case = Case::new("handle");
+    let _runtime = case.serve();
+    let alpha = dispatch_of(&post(&case, &work("alpha", "WI-A")));
+    let beta = dispatch_of(&post(&case, &work("beta", "WI-B")));
+    let first = format!("[REPORT alpha {alpha}] progress on alpha's export");
+    let message = case.send(&first);
+
+    for named in [beta.as_str(), "DSP-20990101-01"] {
+        let output = case.conductor(
+            &[
+                "message",
+                "handle-message",
+                "--message-id",
+                &message,
+                "--dispatch-id",
+                named,
+            ],
+            "",
+        );
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        assert_eq!(output.status.code(), Some(1), "{named}: {output:?}");
+        assert!(
+            stderr.starts_with("conductor: message handle-message: MessageDispatchMismatch: ")
+                && stderr.contains(named)
+                && stderr.lines().count() == 1,
+            "{named}: {stderr:?}"
+        );
+        assert_eq!(case.message(&message)["state"], "Received", "{named}");
+    }
+    assert!(get(&case, "WI-B").json().get("last_report").is_none());
+
+    case.ok(
+        &[
+            "message",
+            "handle-message",
+            "--message-id",
+            &message,
+            "--dispatch-id",
+            &alpha,
+        ],
+        "",
+    );
+    let held = case.message(&message);
+    assert_eq!(held["state"], "Handled", "{held}");
+    assert_eq!(held["dispatch_id"], alpha.as_str(), "{held}");
+    assert_eq!(get(&case, "WI-A").json()["last_report"], first.as_str());
+}
+
+/// `start_ref` is 1 to 255 bytes of what `git check-ref-format --allow-onelevel` admits, and
+/// `issue` 1 to 2048 bytes with no ASCII control character: any other is `422`
+/// `InvalidWorkRequest` naming the member, and nothing is sent. An absent member is taken.
+/// `dispatch send-dispatch` refuses the same values by the same name.
+#[test]
+fn a_start_ref_or_an_issue_it_does_not_take_is_422_and_the_command_line_refuses_it_too() {
+    let case = Case::new("members");
+    let _runtime = case.serve();
+    let with = |member: &str, value: &str| {
+        let mut body = work("alpha", "WI-M");
+        body[member] = json!(value);
+        body
+    };
+    let long_ref = "r".repeat(256);
+    let long_issue = "i".repeat(2049);
+    let bad_refs = [
+        "",
+        "-main",
+        "a b",
+        "a\tb",
+        "a\nb",
+        "a\u{1b}[31m",
+        "a\u{7f}",
+        "a~1",
+        "a^",
+        "a:b",
+        "a?",
+        "a*",
+        "a[b",
+        "a\\b",
+        "a..b",
+        "a@{1}",
+        "/a",
+        "a/",
+        "a//b",
+        "a.",
+        "a.lock",
+        "@{",
+        long_ref.as_str(),
+    ];
+    for start_ref in bad_refs {
+        let answer = post(&case, &with("start_ref", start_ref));
+        assert_eq!(answer.status, 422, "{start_ref:?}: {answer:?}");
+        let refusal = answer.json();
+        assert_eq!(
+            refusal["error"], "conductor.dispatch.InvalidWorkRequest",
+            "{start_ref:?}: {refusal}"
+        );
+        assert!(
+            refusal["detail"]
+                .as_str()
+                .is_some_and(|detail| detail.contains("start_ref")),
+            "{start_ref:?}: {refusal}"
+        );
+    }
+    for issue in [
+        "",
+        "a\nb",
+        "a\tb",
+        "a\u{7f}",
+        "a\u{1b}[2J",
+        long_issue.as_str(),
+    ] {
+        let answer = post(&case, &with("issue", issue));
+        assert_eq!(answer.status, 422, "{issue:?}: {answer:?}");
+        let refusal = answer.json();
+        assert_eq!(
+            refusal["error"], "conductor.dispatch.InvalidWorkRequest",
+            "{issue:?}: {refusal}"
+        );
+        assert!(
+            refusal["detail"]
+                .as_str()
+                .is_some_and(|detail| detail.contains("issue")),
+            "{issue:?}: {refusal}"
+        );
+    }
+    assert!(case.dispatches().is_empty(), "{:#?}", case.dispatches());
+
+    let mut absent = work("alpha", "WI-M");
+    let body = absent.as_object_mut().expect("an object");
+    body.remove("start_ref");
+    body.remove("issue");
+    dispatch_of(&post(&case, &absent));
+    // Beta is free: each value taken is sent, or meets beta's open dispatch (409), never 422.
+    let longest_ref = "r".repeat(255);
+    let longest_issue = "i".repeat(2048);
+    let good = [
+        ("start_ref", "main"),
+        ("start_ref", "feature/export-button"),
+        ("start_ref", "refs/heads/release-1.2"),
+        ("start_ref", "v1.2.3"),
+        ("start_ref", "a.b"),
+        ("start_ref", longest_ref.as_str()),
+        ("issue", "#7"),
+        ("issue", longest_issue.as_str()),
+    ];
+    for (index, (member, value)) in good.into_iter().enumerate() {
+        let mut body = work("beta", &format!("WI-G{index}"));
+        body[member] = json!(value);
+        let answer = post(&case, &body);
+        assert!(
+            matches!(answer.status, 201 | 409),
+            "{member} {value:?}: {answer:?}"
+        );
+    }
+
+    for (flag, value) in [("--start-ref", "-main"), ("--issue", "a\u{1b}[2J")] {
+        let output = case.conductor(
+            &[
+                "dispatch",
+                "send-dispatch",
+                "--repository",
+                "alpha",
+                "--brief",
+                "Add the export button",
+                "--sent-at",
+                "2026-11-12T08:00:00Z",
+                "--reference",
+                "WI-C",
+                &format!("{flag}={value}"),
+            ],
+            "",
+        );
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        assert_eq!(output.status.code(), Some(1), "{flag}: {output:?}");
+        assert!(
+            stderr.starts_with("conductor: dispatch send-dispatch: InvalidWorkRequest: ")
+                && stderr.contains(flag),
+            "{flag}: {stderr:?}"
+        );
+    }
+    assert!(
+        !case
+            .dispatches()
+            .iter()
+            .any(|row| row["reference"] == "WI-C"),
+        "the command line sent WI-C"
+    );
+}
+
+/// A failure of the store or the records answers `500` naming the declared error and nothing of
+/// the failure: no path, no error chain. The chain is in the runtime's line for the request, once.
+#[test]
+fn a_failure_answers_500_by_its_declared_name_and_its_log_line_holds_the_chain() {
+    let case = Case::new("failure");
+    let mut runtime = case.serve();
+    dispatch_of(&post(&case, &work("alpha", "WI-F")));
+    // Each month file of the dispatch log becomes a directory: the read of the row fails.
+    let log = case.records().join("dispatches");
+    for entry in fs::read_dir(&log).expect("the dispatch log") {
+        let path = entry.expect("an entry").path();
+        fs::remove_file(&path).expect("remove a month file");
+        fs::create_dir(&path).expect("a directory in its place");
+    }
+
+    let answer = get(&case, "WI-F");
+    assert_eq!(answer.status, 500, "{answer:?}");
+    let body = answer.json();
+    assert_eq!(body["error"], "conductor.dispatch.WorkFailed", "{body}");
+    assert_eq!(body["reference"], "WI-F", "{body}");
+    for leaked in [
+        case.dir.display().to_string(),
+        "dispatches".to_owned(),
+        "read the".to_owned(),
+    ] {
+        assert!(!answer.body.contains(&leaked), "{leaked:?} in {body}");
+    }
+
+    let stderr = runtime.stop();
+    let lines: Vec<&str> = stderr
+        .lines()
+        .filter(|line| line.contains("answered 500"))
+        .collect();
+    assert_eq!(lines.len(), 1, "{stderr}");
+    assert!(
+        lines[0].contains("GET /v1/work/WI-F") && lines[0].contains("read the dispatch log"),
+        "{stderr}"
     );
 }

@@ -300,11 +300,18 @@ pub fn status(state: Option<&Path>, args: &StatusArgs) -> Result<ExitCode> {
     let rendered = if json {
         format!("{}\n", status_json(&report))
     } else if args.full == Some(true) {
-        status_text(&report)
+        printable(&status_text(&report))
     } else {
-        attention_text(&report)
+        printable(&attention_text(&report))
     };
     crate::store::show(&store, WHAT, &rendered)
+}
+
+/// `text` with each of its lines [`plain`]: whatever a part did not flatten itself, no
+/// character of the text `status` prints acts on a terminal or breaks a line but its own line
+/// ends.
+fn printable(text: &str) -> String {
+    text.split('\n').map(plain).collect::<Vec<_>>().join("\n")
 }
 
 /// One decision request escalated as class O or H and not answered or withdrawn yet: an
@@ -482,7 +489,7 @@ const ATTENTION_TEXT: usize = 160;
 
 /// `text` on one line, cut to [`ATTENTION_TEXT`] characters with `…` when it is longer.
 fn one_line(text: &str) -> String {
-    let flat = text.split_whitespace().collect::<Vec<_>>().join(" ");
+    let flat = plain(text).split_whitespace().collect::<Vec<_>>().join(" ");
     if flat.chars().count() > ATTENTION_TEXT {
         let cut: String = flat.chars().take(ATTENTION_TEXT).collect();
         format!("{cut}…")
@@ -684,7 +691,7 @@ fn status_text(report: &StatusReport) -> String {
         out.push_str("None.\n\n");
     } else {
         for wait in &report.waits {
-            out.push_str(&format!("- {}\n", wait.replace(['\n', '\r'], " ")));
+            out.push_str(&format!("- {}\n", plain(wait)));
         }
         out.push('\n');
     }
@@ -711,7 +718,7 @@ fn status_text(report: &StatusReport) -> String {
 
     out.push_str("## Usage\n\n");
     match &report.usage {
-        Some(line) => out.push_str(&format!("{}\n", line.replace(['\n', '\r'], " "))),
+        Some(line) => out.push_str(&format!("{}\n", plain(line))),
         None => out.push_str("None: no usage reading.\n"),
     }
     out
@@ -1510,12 +1517,29 @@ fn line(cells: impl Iterator<Item = String>) -> String {
     format!("| {} |\n", cells.join(" | "))
 }
 
-/// `value` as one table cell: `\` and `|` escaped, every line break a space.
+/// `value` as one table cell: `\` and `|` escaped, every line break and every other character
+/// [`plain`] takes out a space.
 fn cell(value: &str) -> String {
-    value
-        .replace('\\', "\\\\")
-        .replace('|', "\\|")
-        .replace(['\n', '\r'], " ")
+    plain(&value.replace('\\', "\\\\").replace('|', "\\|"))
+}
+
+/// `text` with every control character (C0, DEL and C1, line breaks and tabs included), U+2028
+/// and U+2029 and every bidirectional control ([`crate::cli::bidirectional`]) written as a space,
+/// as a line break in a cell always was: text a work source or a controller wrote moves no
+/// terminal, reorders nothing and splits no line of what `status` prints.
+fn plain(text: &str) -> String {
+    text.chars()
+        .map(|character| {
+            if character.is_control()
+                || matches!(character, '\u{2028}' | '\u{2029}')
+                || crate::cli::bidirectional(character)
+            {
+                ' '
+            } else {
+                character
+            }
+        })
+        .collect()
 }
 
 /// Writes `board` to `path` whole: beside it first, then renamed into place, creating the

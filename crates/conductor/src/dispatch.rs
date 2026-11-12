@@ -67,7 +67,10 @@ use crate::store::{Store, StoreError};
 
 pub mod behaviour;
 
-pub use behaviour::{LINK_MOST, LINKS_MOST, REFERENCE_MOST, valid_link, valid_reference};
+pub use behaviour::{
+    ISSUE_MOST, LINK_MOST, LINKS_MOST, REFERENCE_MOST, START_REF_MOST, refused_member, valid_issue,
+    valid_link, valid_reference, valid_start_ref,
+};
 
 /// The prefix `conductor.dispatch.DispatchId` declares (`spec/domains/dispatch.yaml`).
 const DISPATCH_PREFIX: &str = "DSP-";
@@ -84,8 +87,9 @@ const DISPATCH: &str = "conductor.dispatch.Dispatch";
 /// `--dispatch-id` is not in the allocator's form or names a dispatch that exists, `--sent-at`
 /// falls outside the UTC years 1 to 9999, `--repository` is one neither the newest complete
 /// snapshot nor the workspace names, the store does not open or keep the dispatch,
-/// another writer took every allocated id, or the specification refuses it: `InvalidPriority`,
-/// `WaitsOnItself`, `GoalNotFound`, `GoalClosed`.
+/// another writer took every allocated id, `--start-ref` or `--issue` is not one a dispatch
+/// carries (`InvalidWorkRequest`, [`refused_member`]), or the specification refuses it:
+/// `InvalidPriority`, `WaitsOnItself`, `GoalNotFound`, `GoalClosed`.
 pub fn send_dispatch(state: Option<&Path>, args: SendDispatchArgs) -> Result<ExitCode> {
     let id = send_to(state, args, true)?;
     print_line("dispatch send-dispatch", &id)
@@ -339,6 +343,17 @@ fn send_as(
     let priority = args.priority.unwrap_or(0);
     let waits_on = args.waits_on.map(DispatchId);
     let (reference, start_ref, issue) = (args.reference, args.start_ref, args.issue);
+    // The members a work source names, held to what the work call takes before any store is
+    // read, so the command line and the route carry the same values.
+    if let Some((member, rule)) = refused_member(start_ref.as_deref(), issue.as_deref()) {
+        return Ok(refusal(
+            "InvalidWorkRequest",
+            format!(
+                "--{} is not taken: {rule}; nothing was sent",
+                member.replace('_', "-")
+            ),
+        ));
+    }
     // A flag check, so it opens no store; the behaviour refuses the same input when another caller
     // sends it.
     if goal_id.is_none() && reference.is_none() {

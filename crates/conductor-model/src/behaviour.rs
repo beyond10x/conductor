@@ -1,5 +1,5 @@
 // generated from conductor v1
-// contract digest 067700d83eba091eafe51c3cef5aa8464f79f5ebb92b96270439abfa631129f3
+// contract digest 58983098659d5fd5fbd918be2db0c0ce1c382725137cfe87bf81bc48ad81f500
 // do not edit: regenerate with `ess synthesize --layout crate`
 
 //! What the specification fully determines, generated: the behaviour of every command the plan
@@ -908,6 +908,8 @@ pub enum ExternalCommand<'a> {
     ConductorConfigPutInstance(&'a crate::config::PutInstance),
     /// The executing `conductor.config.RemoveInstance` input.
     ConductorConfigRemoveInstance(&'a crate::config::RemoveInstance),
+    /// The executing `conductor.dispatch.HandleMessage` input.
+    ConductorDispatchHandleMessage(&'a crate::dispatch::HandleMessage),
     /// The executing `conductor.instance.RestartInstance` input.
     ConductorInstanceRestartInstance(&'a crate::instance::RestartInstance),
     /// The executing `conductor.placement.OpenBox` input.
@@ -929,6 +931,7 @@ impl ExternalCommand<'_> {
             Self::ConductorConfigPutConfig(_) => "conductor.config.PutConfig",
             Self::ConductorConfigPutInstance(_) => "conductor.config.PutInstance",
             Self::ConductorConfigRemoveInstance(_) => "conductor.config.RemoveInstance",
+            Self::ConductorDispatchHandleMessage(_) => "conductor.dispatch.HandleMessage",
             Self::ConductorInstanceRestartInstance(_) => "conductor.instance.RestartInstance",
             Self::ConductorPlacementOpenBox(_) => "conductor.placement.OpenBox",
             Self::ConductorSessionDeliverMessage(_) => "conductor.session.DeliverMessage",
@@ -2250,7 +2253,7 @@ where
 /// `conductor.dispatch.HandleMessage`, generated: every outcome is one the specification fully determines.
 impl<P> crate::dispatch::obligations::HandleMessageBehavior for Generated<P>
 where
-    P: MessageStorage,
+    P: TryContext + MessageStorage,
 {
     fn handle_message(&mut self, input: crate::dispatch::HandleMessage) -> Result<crate::dispatch::HandleMessageOutcome, UnmetObligation> {
         let _ = &input;
@@ -2266,6 +2269,10 @@ where
         // `need-unrouted`: selected by the addressed row.
         if decided(all(&[equal(Some(&held.data.kind).map(|value| match value { crate::dispatch::MessageKind::Dispatch => "Dispatch", crate::dispatch::MessageKind::Report => "Report", crate::dispatch::MessageKind::DecisionRequest => "DecisionRequest", crate::dispatch::MessageKind::Decision => "Decision", crate::dispatch::MessageKind::Need => "Need", crate::dispatch::MessageKind::Resource => "Resource", crate::dispatch::MessageKind::Escalation => "Escalation", crate::dispatch::MessageKind::Team => "Team", crate::dispatch::MessageKind::Handover => "Handover", crate::dispatch::MessageKind::Unknown => "Unknown" }.to_owned()), Some("Need".to_owned())), equal(Some(&held.state).map(|value| match value { crate::dispatch::MessageState::Handled => "Handled", crate::dispatch::MessageState::Received => "Received", crate::dispatch::MessageState::Rejected => "Rejected" }.to_owned()), Some("Received".to_owned()))]), "conductor.dispatch.HandleMessage")? {
             return Ok(crate::dispatch::HandleMessageOutcome::NeedUnrouted { error: crate::dispatch::NeedNotRouted { message_id: input.message_id.clone() } });
+        }
+        // `dispatch-not-of-message`: an external branch, where the context takes it.
+        if self.ports.try_external(ExternalCommand::ConductorDispatchHandleMessage(&input), "dispatch-not-of-message")? {
+            return Ok(crate::dispatch::HandleMessageOutcome::DispatchNotOfMessage { error: crate::dispatch::MessageDispatchMismatch { message_id: input.message_id.clone(), dispatch_id: input.dispatch_id.clone() } });
         }
         // `handled`: the default.
         let Some(held) = MessageStorage::get(&self.ports, &input.message_id) else {

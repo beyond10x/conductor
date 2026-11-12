@@ -394,7 +394,8 @@ pub(crate) fn record(
 ///
 /// A flag is missing, `--input-json` is given ([`NotImplemented`](crate::NotImplemented)), the
 /// store does not open or keep the move, or the specification refuses it: `NeedNotRouted`,
-/// `MessageNotFound`, `MessageStateConflict`.
+/// `MessageDispatchMismatch` (a `--dispatch-id` that names no dispatch of the repository the
+/// message's first line names), `MessageNotFound`, `MessageStateConflict`.
 pub fn handle_message(state: Option<&Path>, args: HandleMessageArgs) -> Result<ExitCode> {
     const COMMAND: &str = "message handle-message";
     flags_only(args.input_json, "message handle-message --input-json")?;
@@ -403,8 +404,26 @@ pub fn handle_message(state: Option<&Path>, args: HandleMessageArgs) -> Result<E
         message_id: message_id(COMMAND, args.message_id)?,
         dispatch_id: args.dispatch_id.map(DispatchId),
     };
-    match run(state, COMMAND, |generated| generated.handle_message(input))? {
+    // Over [`Ports`], which decide `dispatch-not-of-message` ([`not_of_message`]).
+    let mut generated = Generated::new(Ports {
+        store: crate::state::open(state)?,
+    });
+    let outcome = generated
+        .handle_message(input)
+        .map_err(|unmet| anyhow!("{COMMAND}: {unmet}"))?;
+    kept(COMMAND, &generated.ports.store)?;
+    match outcome {
         HandleMessageOutcome::Handled { .. } => Ok(ExitCode::SUCCESS),
+        HandleMessageOutcome::DispatchNotOfMessage { error } => refused(
+            COMMAND,
+            "MessageDispatchMismatch",
+            &format!(
+                "dispatch {} does not exist or is no dispatch of the repository the first line \
+                 of message {} names; the message stays unhandled",
+                error.dispatch_id.map(|id| id.0).unwrap_or_default(),
+                error.message_id.0.0
+            ),
+        ),
         HandleMessageOutcome::NeedUnrouted { error } => refused(
             COMMAND,
             "NeedNotRouted",
@@ -733,7 +752,35 @@ fn transport_named(name: &str) -> Option<Transport> {
         .find(|transport| transport_name(*transport) == name)
 }
 
-/// The ports `ReceiveMessage` runs over: the store, and the message id it assigns.
+/// `HandleMessage` `dispatch-not-of-message`: `input` names a dispatch, and that dispatch does
+/// not exist or is not of the repository the message's first line names ([`repository_named`]);
+/// a first line that names none takes no dispatch. A message the store does not hold is answered
+/// `no-such-message` before this is asked.
+fn not_of_message(store: &Store, input: &HandleMessage) -> bool {
+    use conductor_model::behaviour::DispatchStorage;
+    let Some(dispatch) = &input.dispatch_id else {
+        return false;
+    };
+    let Some(message) = MessageStorage::get(store, &input.message_id) else {
+        return false;
+    };
+    let repository = repository_named(&message.data.first_line);
+    DispatchStorage::get(store, dispatch)
+        .is_none_or(|held| Some(held.data.repository.0.as_str()) != repository)
+}
+
+/// The repository a first line `[<KIND> <repo> …] …` names: its second word inside the brackets.
+#[must_use]
+pub fn repository_named(first_line: &str) -> Option<&str> {
+    first_line
+        .trim()
+        .strip_prefix('[')
+        .and_then(|opened| opened.split_once(']'))
+        .and_then(|(inside, _)| inside.split_whitespace().nth(1))
+}
+
+/// The ports `ReceiveMessage` and `HandleMessage` run over: the store, and the message id it
+/// assigns.
 struct Ports {
     store: Store,
 }
@@ -834,9 +881,15 @@ impl TryContext for Ports {
     fn try_external(
         &mut self,
         command: conductor_model::behaviour::ExternalCommand<'_>,
-        _outcome: &'static str,
+        outcome: &'static str,
     ) -> Result<bool, UnmetObligation> {
-        Err(conductor_model::behaviour::unmet_context(command.name()))
+        use conductor_model::behaviour::ExternalCommand;
+        match (command, outcome) {
+            (ExternalCommand::ConductorDispatchHandleMessage(input), "dispatch-not-of-message") => {
+                Ok(not_of_message(&self.store, input))
+            }
+            (command, _) => Err(conductor_model::behaviour::unmet_context(command.name())),
+        }
     }
 
     // The v1 domains' generated values (`story:spec-v1`): no command this handler runs

@@ -327,8 +327,10 @@ types:
   # nothing. The body of the instance runtime's `POST /v1/work`, which conductord forwards as
   # `POST /v1/instances/{name}/work`: a hand-written route, as `POST /v1/plan` is, which the
   # binding does not bind (`SendDispatch` belongs to the command line's component). A request the
-  # route does not take answers `InvalidWorkRequest`, `InvalidBrief` (a brief of 1 to 65536
-  # bytes is taken), `UnknownRepository` or `InvalidReference`.
+  # route does not take answers `InvalidWorkRequest` (as well for a `start_ref` or an `issue` the
+  # dispatch does not take, `conductor.dispatch.Dispatch`), `InvalidBrief` (a brief of 1 to
+  # 65536 bytes is taken), `UnknownRepository` or `InvalidReference`; a store or records that
+  # fail answer `WorkFailed`, and the runtime's log line says why.
   - name: conductor.dispatch.WorkRequest
     kind: struct
     fields:
@@ -468,7 +470,13 @@ entities:
       - name: reference
         type: Optional<String>
       # The git ref the work starts from and the issue it belongs to, as the work source named
-      # them; carried and shown, read by nothing yet.
+      # them; carried and shown, read by nothing yet. `start_ref` is 1 to 255 bytes that `git
+      # check-ref-format --allow-onelevel` admits: no leading `-`, no control character or space,
+      # none of `~ ^ : ? * [ \`, no `..`, no `@{`, no leading or trailing `/`, no `//`, no
+      # trailing `.`, no path step that starts with `.` or ends in `.lock`, and not `@` alone.
+      # `issue` is 1 to 2048 bytes with no ASCII control character.
+      # `SendDispatch` refuses any other as `InvalidWorkRequest` before it reads the store, the
+      # work call and `dispatch send-dispatch` alike; that check is the implementation's.
       - name: start_ref
         type: Optional<String>
       - name: issue
@@ -541,7 +549,9 @@ entities:
         type: Optional<String>
       # The dispatch a `[NEED]` message opened when conductor routed it (design § 3), or the one
       # a `[REPORT]` message was handled for, its own id or the open dispatch `-` named
-      # (`HandleMessage`, story:control-plane-work-handler); none on a report handled before.
+      # (`HandleMessage`, story:control-plane-work-handler), only ever a dispatch of the
+      # repository the message's first line names; none on a report handled before, and none on
+      # a report naming another repository's dispatch.
       - name: dispatch_id
         type: Optional<conductor.dispatch.DispatchId>
     relations:
@@ -767,10 +777,31 @@ errors:
   - name: conductor.dispatch.InvalidWorkRequest
     summary: >
       The body of the work call is no `WorkRequest`: no JSON object, a member it does not
-      declare, or one it declares missing or of another type; nothing was sent.
+      declare, or one it declares missing or of another type, or a `start_ref` or an `issue`
+      a dispatch does not take; nothing was sent. `dispatch send-dispatch` refuses such a
+      `--start-ref` or `--issue` by this name too.
     fields:
       - name: detail
         type: String
+
+  - name: conductor.dispatch.WorkFailed
+    summary: >
+      The instance's runtime could not read or write its store or its records for the work
+      call; its log line for the request says why, and the answer names nothing of it. A unit
+      of work sent before the failure stays sent: read it again by its reference.
+    fields:
+      - name: reference
+        type: String
+
+  - name: conductor.dispatch.MessageDispatchMismatch
+    summary: >
+      The dispatch named does not exist, or is no dispatch of the repository the message's
+      first line names, so the message is not handled for it and stays as it was.
+    fields:
+      - name: message_id
+        type: conductor.dispatch.MessageId
+      - name: dispatch_id
+        type: Optional<conductor.dispatch.DispatchId>
 
   - name: conductor.dispatch.InvalidBrief
     summary: A brief is 1 to 65536 bytes, and this one is not, so nothing was sent.
@@ -1705,7 +1736,11 @@ commands:
         summary: The message is recorded with its parsed first line.
 
   # A `[REPORT]` is handled with the dispatch it moved (`dispatch_id`), which the message then
-  # holds: the work call reads the last report of a dispatch from it.
+  # holds: the work call reads the last report of a dispatch from it. A `dispatch_id` is taken
+  # only where it names a dispatch that exists and is of the repository the message's first line
+  # names (`[<KIND> <repo> …]`); that comparison is the implementation's (`dispatch-not-of-message`,
+  # external): the repository is a word of the message's first line, which no field holds, and a
+  # row-set guard beside the `when_subject` guard of `need-unrouted` is refused (ESS-COMMAND-009).
   - name: conductor.dispatch.HandleMessage
     naming:
       wire: handle-message
@@ -1729,6 +1764,14 @@ commands:
           conductor.dispatch.NeedNotRouted:
             message_id: input.message_id
         summary: A `[NEED]` is closed only by routing it to the dispatch it opened (`RouteNeed`); the message stays where it was.
+      - name: dispatch-not-of-message
+        external: a dispatch_id is given and names no dispatch, or one of another repository than the message's first line names
+        error: conductor.dispatch.MessageDispatchMismatch
+        payload:
+          conductor.dispatch.MessageDispatchMismatch:
+            message_id: input.message_id
+            dispatch_id: input.dispatch_id
+        summary: A message is handled only for a dispatch of its own repository; it stays unhandled, and no dispatch is attached to it.
       - name: handled
         moves: conductor.dispatch.Message.handle
         instance: message_id

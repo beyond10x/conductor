@@ -2459,8 +2459,10 @@ impl ViewArgs {
     /// one value per column, in the columns' order; JSON objects keep that order.
     ///
     /// In `text` and `markdown`, a string value is written as it is and any other value as
-    /// compact JSON, and a line break inside a value is written as a space (`text`) or `<br>`
-    /// (`markdown`), so each row stays one line. `markdown` also escapes `\` and `|`, so each
+    /// compact JSON, and a line break inside a value (U+2028 and U+2029 included) is written as a
+    /// space (`text`) or `<br>` (`markdown`) and any other control character or bidirectional
+    /// control (U+202A to U+202E, U+2066 to U+2069) as a space, so each row stays one line in
+    /// its order and moves no terminal. `markdown` also escapes `\` and `|`, so each
     /// value is one cell that reads back as the value.
     #[must_use]
     pub fn render(&self, columns: &[&str], rows: &[Vec<Value>]) -> String {
@@ -2494,9 +2496,26 @@ fn cell(value: &Value) -> String {
     }
 }
 
-/// `text` with every line break written as `line_break`.
+/// Whether `character` is a bidirectional embedding, override or isolate (U+202A to U+202E,
+/// U+2066 to U+2069), which reorders what a terminal shows of the text around it.
+#[must_use]
+pub fn bidirectional(character: char) -> bool {
+    matches!(character, '\u{202a}'..='\u{202e}' | '\u{2066}'..='\u{2069}')
+}
+
+/// `text` with every line break, U+2028 and U+2029 included, written as `line_break`, and every
+/// other control character (C0, DEL and C1) and every [`bidirectional`] control as a space: a
+/// value moves no terminal, reorders no row and splits none.
 fn one_line(text: &str, line_break: &str) -> String {
-    text.replace("\r\n", "\n").replace(['\r', '\n'], line_break)
+    let mut out = String::with_capacity(text.len());
+    for character in text.replace("\r\n", "\n").chars() {
+        match character {
+            '\r' | '\n' | '\u{2028}' | '\u{2029}' => out.push_str(line_break),
+            control if control.is_control() || bidirectional(control) => out.push(' '),
+            other => out.push(other),
+        }
+    }
+    out
 }
 
 /// A header of the column names, then one line per row, each column padded to its widest value

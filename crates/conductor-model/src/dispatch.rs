@@ -1,5 +1,5 @@
 // generated from conductor v1
-// contract digest 067700d83eba091eafe51c3cef5aa8464f79f5ebb92b96270439abfa631129f3
+// contract digest 58983098659d5fd5fbd918be2db0c0ce1c382725137cfe87bf81bc48ad81f500
 // do not edit: regenerate with `ess synthesize --layout crate`
 
 //! Dispatch — `conductor.dispatch`.
@@ -1761,6 +1761,13 @@ pub enum HandleMessageOutcome {
         /// Why it was refused: `conductor.dispatch.NeedNotRouted`.
         error: NeedNotRouted,
     },
+    /// `dispatch-not-of-message` — externally decided (a dispatch_id is given and names no dispatch, or one of another repository than the message's first line names).
+    ///
+    /// A message is handled only for a dispatch of its own repository; it stays unhandled, and no dispatch is attached to it.
+    DispatchNotOfMessage {
+        /// Why it was refused: `conductor.dispatch.MessageDispatchMismatch`.
+        error: MessageDispatchMismatch,
+    },
     /// `handled` — otherwise.
     ///
     /// The message was acted on.
@@ -3044,7 +3051,7 @@ pub struct InvalidReference {
 
 /// The declared error `conductor.dispatch.InvalidWorkRequest`.
 ///
-/// The body of the work call is no `WorkRequest`: no JSON object, a member it does not declare, or one it declares missing or of another type; nothing was sent.
+/// The body of the work call is no `WorkRequest`: no JSON object, a member it does not declare, or one it declares missing or of another type, or a `start_ref` or an `issue` a dispatch does not take; nothing was sent. `dispatch send-dispatch` refuses such a `--start-ref` or `--issue` by this name too.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct InvalidWorkRequest {
     /// `detail` — `String`.
@@ -3060,6 +3067,17 @@ pub struct MailboxBodyMissing {
     pub sender: String,
     /// `recipient` — `String`.
     pub recipient: String,
+}
+
+/// The declared error `conductor.dispatch.MessageDispatchMismatch`.
+///
+/// The dispatch named does not exist, or is no dispatch of the repository the message's first line names, so the message is not handled for it and stays as it was.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct MessageDispatchMismatch {
+    /// `message_id` — `conductor.dispatch.MessageId`.
+    pub message_id: MessageId,
+    /// `dispatch_id` — `Optional<conductor.dispatch.DispatchId>`.
+    pub dispatch_id: Option<DispatchId>,
 }
 
 /// The declared error `conductor.dispatch.MessageNotFound`.
@@ -3150,6 +3168,15 @@ pub struct UnknownRepository {
 pub struct WaitsOnItself {
     /// `dispatch_id` — `conductor.dispatch.DispatchId`.
     pub dispatch_id: DispatchId,
+}
+
+/// The declared error `conductor.dispatch.WorkFailed`.
+///
+/// The instance's runtime could not read or write its store or its records for the work call; its log line for the request says why, and the answer names nothing of it. A unit of work sent before the failure stays sent: read it again by its reference.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct WorkFailed {
+    /// `reference` — `String`.
+    pub reference: String,
 }
 
 /// The declared error `conductor.dispatch.WorkNotFound`.

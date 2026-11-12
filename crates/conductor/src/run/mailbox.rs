@@ -238,7 +238,11 @@ fn open_dispatch(tick: &Tick<'_, '_>, repo: &str) -> Result<String> {
 /// and no dispatch of the repository open, the report moves nothing and is not refused: a
 /// controller started with no dispatch reports so (`story:spawn-without-dispatch-reports`).
 /// Answers whether it acted, and the dispatch the report was for: its own id, or the open one `-`
-/// named; none when `-` named none.
+/// named; none when `-` named none, or the id names no dispatch the store holds.
+///
+/// An id that names a dispatch of another repository than `repo` is no report of that dispatch
+/// (story:control-plane-work-handler): the report is handled as one of `repo` naming no
+/// dispatch, so it moves nothing, writes no log line, and the message holds no dispatch.
 fn report(
     tick: &mut Tick<'_, '_>,
     repo: &str,
@@ -258,8 +262,12 @@ fn report(
     let said = Some(said.trim().to_owned()).filter(|said| !said.is_empty());
     let state = tick.state;
     let id = Some(dispatch.clone());
-    let reported = Some(dispatch.clone());
-    let held = state_of(tick, &dispatch)?;
+    let held = held_of(tick, &dispatch)?;
+    if held.as_ref().is_some_and(|(_, of)| of != repo) {
+        return Ok((true, None));
+    }
+    let reported = held.is_some().then(|| dispatch.clone());
+    let held = held.map(|(state, _)| state);
     if matches!(verb, "blocked" | "done" | "failed") && held == Some(DispatchState::Sent) {
         let _ = crate::dispatch::report_started(
             state,
@@ -350,12 +358,13 @@ fn report(
     Ok((true, reported))
 }
 
-/// The state the store holds the dispatch `id` in; `None` when it holds no such dispatch.
-fn state_of(tick: &Tick<'_, '_>, id: &str) -> Result<Option<DispatchState>> {
+/// The state the store holds the dispatch `id` in, and its repository; `None` when it holds no
+/// such dispatch.
+fn held_of(tick: &Tick<'_, '_>, id: &str) -> Result<Option<(DispatchState, String)>> {
     let store = crate::state::open(tick.state)?;
     let held = DispatchStorage::get(&store, &DispatchId(id.to_owned()));
     store.check().context("read the dispatch")?;
-    Ok(held.map(|held| held.state))
+    Ok(held.map(|held| (held.state, held.data.repository.0)))
 }
 
 /// `[NEED <repo> <request>] <other-repo> <what>`: the whole message to `<other-repo>`'s running

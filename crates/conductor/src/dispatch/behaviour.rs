@@ -58,6 +58,66 @@ pub fn valid_link(link: &str) -> bool {
         && !link.contains([' ', '\t', '\n', '\r'])
 }
 
+/// The most bytes a `start_ref` holds.
+pub const START_REF_MOST: usize = 255;
+
+/// The most bytes an `issue` holds.
+pub const ISSUE_MOST: usize = 2048;
+
+/// What a `start_ref` is, as a refusal names it.
+pub const START_REF_RULE: &str = "a start_ref is 1 to 255 bytes of a git ref name: no leading -, \
+     no control character or space, none of ~ ^ : ? * [ \\, no .., no @{, no leading or trailing \
+     /, no //, no trailing ., no path step that starts with . or ends in .lock, not @ alone";
+
+/// What an `issue` is, as a refusal names it.
+pub const ISSUE_RULE: &str = "an issue is 1 to 2048 bytes with no ASCII control character";
+
+/// Whether `start_ref` is one a dispatch may carry: 1 to [`START_REF_MOST`] bytes that `git
+/// check-ref-format --allow-onelevel` admits in substance, decided here without running git
+/// ([`START_REF_RULE`]).
+#[must_use]
+pub fn valid_start_ref(start_ref: &str) -> bool {
+    let refused = |character: char| {
+        character.is_ascii_control()
+            || matches!(character, ' ' | '~' | '^' | ':' | '?' | '*' | '[' | '\\')
+    };
+    (1..=START_REF_MOST).contains(&start_ref.len())
+        && start_ref != "@"
+        && !start_ref.starts_with(['-', '/'])
+        && !start_ref.ends_with(['/', '.'])
+        && !start_ref.contains("..")
+        && !start_ref.contains("@{")
+        && !start_ref.contains("//")
+        && !start_ref.contains(refused)
+        && start_ref
+            .split('/')
+            .all(|step| !step.starts_with('.') && !step.ends_with(".lock"))
+}
+
+/// Whether `issue` is one a dispatch may carry: 1 to [`ISSUE_MOST`] bytes with no ASCII control
+/// character ([`ISSUE_RULE`]).
+#[must_use]
+pub fn valid_issue(issue: &str) -> bool {
+    (1..=ISSUE_MOST).contains(&issue.len()) && !issue.contains(|c: char| c.is_ascii_control())
+}
+
+/// The first of `start_ref` and `issue` a dispatch does not carry, by its member's name, with the
+/// rule it breaks; `None` when each is absent or taken. The work call and `dispatch
+/// send-dispatch` refuse it as `InvalidWorkRequest`.
+#[must_use]
+pub fn refused_member(
+    start_ref: Option<&str>,
+    issue: Option<&str>,
+) -> Option<(&'static str, &'static str)> {
+    if start_ref.is_some_and(|start_ref| !valid_start_ref(start_ref)) {
+        return Some(("start_ref", START_REF_RULE));
+    }
+    if issue.is_some_and(|issue| !valid_issue(issue)) {
+        return Some(("issue", ISSUE_RULE));
+    }
+    None
+}
+
 /// Whether a dispatch is open: sent, started or blocked.
 const fn open(state: DispatchState) -> bool {
     matches!(

@@ -1,5 +1,5 @@
 // generated from conductor v1
-// contract digest 067700d83eba091eafe51c3cef5aa8464f79f5ebb92b96270439abfa631129f3
+// contract digest 58983098659d5fd5fbd918be2db0c0ce1c382725137cfe87bf81bc48ad81f500
 // do not edit: regenerate with `ess synthesize --layout crate`
 
 //! conductor-cli — the `conductor-cli` component of `conductor` v1.
@@ -618,6 +618,7 @@ where
         let outcome = self.behaviors.handle_message(input)?;
         match &outcome {
             crate::dispatch::HandleMessageOutcome::NeedUnrouted { .. } => {}
+            crate::dispatch::HandleMessageOutcome::DispatchNotOfMessage { .. } => {}
             crate::dispatch::HandleMessageOutcome::Handled { message_handled, .. } => {
                 self.outbox.push(PublishedEvent::MessageHandled(message_handled.clone()));
             }

@@ -1,13 +1,13 @@
 <!--
   generated from conductor v1
-  contract digest 067700d83eba091eafe51c3cef5aa8464f79f5ebb92b96270439abfa631129f3
+  contract digest 58983098659d5fd5fbd918be2db0c0ce1c382725137cfe87bf81bc48ad81f500
   do not edit: regenerate with `ess synthesize --layout crate`
 -->
 # Synthesis plan — conductor v1
 
 Scope: `component-skeletons`, laid out as `crate`, planned by `ess-synth`. Regenerate with `ess synthesize --layout crate`.
 
-1022 capabilities: **1005 generated**, **17 obligations**, **0 refused**. An obligation is yours to implement against its contract; a refusal is a fact about this synthesis scope, not about the specification.
+1024 capabilities: **1007 generated**, **17 obligations**, **0 refused**. An obligation is yours to implement against its contract; a refusal is a fact about this synthesis scope, not about the specification.
 
 ## Generated
 
@@ -805,6 +805,7 @@ Scope: `component-skeletons`, laid out as `crate`, planned by `ess-synth`. Regen
 | error type | `conductor.dispatch.InvalidReference` |
 | error type | `conductor.dispatch.InvalidWorkRequest` |
 | error type | `conductor.dispatch.MailboxBodyMissing` |
+| error type | `conductor.dispatch.MessageDispatchMismatch` |
 | error type | `conductor.dispatch.MessageNotFound` |
 | error type | `conductor.dispatch.MessageStateConflict` |
 | error type | `conductor.dispatch.NeedNotRouted` |
@@ -815,6 +816,7 @@ Scope: `component-skeletons`, laid out as `crate`, planned by `ess-synth`. Regen
 | error type | `conductor.dispatch.ResourceRequestStateConflict` |
 | error type | `conductor.dispatch.UnknownRepository` |
 | error type | `conductor.dispatch.WaitsOnItself` |
+| error type | `conductor.dispatch.WorkFailed` |
 | error type | `conductor.dispatch.WorkNotFound` |
 | error type | `conductor.host.DiskThroughReservation` |
 | error type | `conductor.host.HostGrantNotFound` |
