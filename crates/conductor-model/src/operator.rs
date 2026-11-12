@@ -1,5 +1,5 @@
 // generated from conductor v1
-// contract digest 7a2d2151a617b034e5a12bae1525027cb9f09b0dd4f8f5435a8d7b89308daeba
+// contract digest 33c96138ad3173997519bd2cc8cd9c77cc04d0021627fb06de8e7bab55e87239
 // do not edit: regenerate with `ess synthesize --layout crate`
 
 //! Operator — `conductor.operator`.
@@ -22,14 +22,14 @@ pub struct Actor {
 /// ActorKind — `conductor.operator.ActorKind`: one of a closed set of names.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ActorKind {
+    /// `ControlPlane`.
+    ControlPlane,
     /// `Human`.
     Human,
     /// `Agent`.
     Agent,
     /// `Daemon`.
     Daemon,
-    /// `ControlPlane`.
-    ControlPlane,
 }
 
 /// AgentActor — `conductor.operator.AgentActor`.

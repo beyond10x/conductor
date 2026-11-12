@@ -66,7 +66,7 @@ keep conductor away from the rest of a machine, in a VM, a container or a dedica
 | `glab`, logged in to the source's host | | merge requests, pipelines, releases, project lists of a GitLab source; not needed without one |
 | `jq` | | the supervisor's and the teacher's context checks, and the shell examples of the documentation |
 | `aep` | 0.79 | the planning stores: blockers per repository |
-| `ess` | 0.90 | the specifications collector |
+| `ess` | 0.93 | the specifications collector |
 | `worktree` | 0.18.1 | managed worktrees for controllers and their workers |
 | `substrate-daemon` | 0.20.0 | the box of an instance whose `placement` names an adapter; not needed otherwise |
 | `b10x-gates` | | under `forge.route: gates`, the default: the bot route for commits and pushes |

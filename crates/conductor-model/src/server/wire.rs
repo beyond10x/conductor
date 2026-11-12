@@ -1,5 +1,5 @@
 // generated from conductor v1
-// contract digest 7a2d2151a617b034e5a12bae1525027cb9f09b0dd4f8f5435a8d7b89308daeba
+// contract digest 33c96138ad3173997519bd2cc8cd9c77cc04d0021627fb06de8e7bab55e87239
 // do not edit: regenerate with `ess synthesize --layout crate`
 //! Every generated declaration, as JSON, in the renderings the published wire contracts fix.
 //!
@@ -9931,10 +9931,10 @@ pub fn decode_conductor_operator_actor(value: &json::Value, at: &str) -> Result<
 /// Writes `conductor.operator.ActorKind` as JSON.
 pub fn encode_conductor_operator_actor_kind(value: &crate::operator::ActorKind, out: &mut String) {
     match value {
+        crate::operator::ActorKind::ControlPlane => json::push_text(out, "ControlPlane"),
         crate::operator::ActorKind::Human => json::push_text(out, "Human"),
         crate::operator::ActorKind::Agent => json::push_text(out, "Agent"),
         crate::operator::ActorKind::Daemon => json::push_text(out, "Daemon"),
-        crate::operator::ActorKind::ControlPlane => json::push_text(out, "ControlPlane"),
     }
 }
 
@@ -9944,12 +9944,12 @@ pub fn encode_conductor_operator_actor_kind(value: &crate::operator::ActorKind, 
 ///
 /// [`json::DecodeError`] naming the path and what the declaration says belongs there.
 pub fn decode_conductor_operator_actor_kind(value: &json::Value, at: &str) -> Result<crate::operator::ActorKind, json::DecodeError> {
-    Ok(match json::text_at(value, at, "one of `Human`, `Agent`, `Daemon`, `ControlPlane`")? {
+    Ok(match json::text_at(value, at, "one of `ControlPlane`, `Human`, `Agent`, `Daemon`")? {
+        "ControlPlane" => crate::operator::ActorKind::ControlPlane,
         "Human" => crate::operator::ActorKind::Human,
         "Agent" => crate::operator::ActorKind::Agent,
         "Daemon" => crate::operator::ActorKind::Daemon,
-        "ControlPlane" => crate::operator::ActorKind::ControlPlane,
-        other => return Err(json::DecodeError { at: at.to_owned(), expected: "one of `Human`, `Agent`, `Daemon`, `ControlPlane`".to_owned(), found: format!("`{other}`") }),
+        other => return Err(json::DecodeError { at: at.to_owned(), expected: "one of `ControlPlane`, `Human`, `Agent`, `Daemon`".to_owned(), found: format!("`{other}`") }),
     })
 }
 

@@ -108,7 +108,7 @@ the operator. A controller of one instance never messages another instance's ses
 ## 3. Specification first: the v1 domains
 
 Operator, 2026-11-08: "the whole system as visible in the design/stories/pub docs as proposed needs to
-be modelled in ESS". The specification (`spec/`, `ess 0.90`) is the source of truth for every noun,
+be modelled in ESS". The specification (`spec/`, `ess 0.93`) is the source of truth for every noun,
 command, view and error below; `crates/conductor-model` is generated from it; a handler is written
 against the generated types (`AGENTS.md` rule 1). The first story on `v1` is the model
 (`story:spec-v1`); every other story depends on it and starts by reading its domain.

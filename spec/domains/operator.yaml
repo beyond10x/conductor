@@ -50,7 +50,9 @@ types:
   #   admitted as it.
   - name: conductor.operator.ActorKind
     kind: enum
-    variants: [Human, Agent, Daemon, ControlPlane]
+    # The order carries no meaning. `ControlPlane` is first because an ess suite-synthesis defect
+    # otherwise puts a synthesized scenario's two runs on different instance names.
+    variants: [ControlPlane, Human, Agent, Daemon]
 
   # Who issued a command: a kind, and the fields of that kind, never told apart by naming
   # convention. A grant is checked on `kind`, so a person-only command's refusal is a predicate
