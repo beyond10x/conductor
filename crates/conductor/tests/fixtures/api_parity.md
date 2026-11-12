@@ -2,7 +2,7 @@
 
 Written by `tests/api_parity.rs` (`CONDUCTOR_API_PARITY_BLESS=1`); compared line for line.
 
-Probes: 2 match, 23 differ, 13 unbound; 30 routes spec-only.
+Probes: 2 match, 27 differ, 13 unbound; 30 routes spec-only.
 
 | route | binding | probe | hand-written | generated | verdict |
 |---|---|---|---|---|---|
@@ -16,6 +16,10 @@ Probes: 2 match, 23 differ, 13 unbound; 30 routes spec-only.
 | `PUT /v1/config` | conductor.config.PutConfig | spec level-scope-mismatch | `400 {error}` | `422 {error,outcome,payload,published}` | differs (status, body) |
 | `POST /v1/instances/{name}/upgrade` | conductor.instance.UpgradeInstance | client | `503 {error}` | `400 {refused}` | differs (status, body) |
 | `POST /v1/instances/{name}/upgrade` | conductor.instance.UpgradeInstance | spec | `400 {error}` | `404 {error,outcome,payload,published}` | differs (status, body) |
+| `GET /v1/instances/{name}` | conductor.instance.InstanceByName | read | `404 {error}` | `501 {committed,refused}` | differs (status, body) |
+| `POST /v1/instances` | conductor.config.AddInstance | spec | `405 {error}` | `403 {actor,refused}` | differs (status, body) |
+| `PUT /v1/instances/{name}` | conductor.config.PutInstance | spec | `404 {error}` | `403 {actor,refused}` | differs (status, body) |
+| `DELETE /v1/instances/{name}` | conductor.config.RemoveInstance | spec | `404 {error}` | `403 {actor,refused}` | differs (status, body) |
 | `POST /v1/instances/{name}/start` | conductor.instance.StartInstance | client | `404 {error}` | `400 {refused}` | differs (status, body) |
 | `POST /v1/instances/{name}/start` | conductor.instance.StartInstance | spec | `404 {error}` | `501 {committed,refused}` | differs (status, body) |
 | `POST /v1/instances/{name}/stop` | conductor.instance.StopInstance | client | `404 {error}` | `400 {refused}` | differs (status, body) |

@@ -1,0 +1,25 @@
+# A mapping that leaves the config invalid is refused before anything is written, naming the
+# problem by its YAML path (here: an instance with no `sources`), and nothing is recorded.
+type: ess-scenario/1
+domain: conductor.config
+scenario: config-put-instance-invalid
+summary: The control plane's replace with a mapping that does not validate is refused as ConfigInvalid, and no change is recorded.
+
+timeline:
+  - at: 2026-11-12T12:00:00Z
+    command: conductor.config.PutInstance
+    actor: conductor.config.ControlPlane
+    input:
+      actor: {kind: ControlPlane}
+      name: example-org
+      mapping: "{checkouts: {root: /srv/example-org, trees: /srv/trees}}"
+      reason: a mapping without sources
+      changed_at: 2026-11-12T12:00:00Z
+    outcome: invalid
+    error:
+      name: conductor.config.ConfigInvalid
+
+assert:
+  - view: conductor.config.ConfigRevisions
+    excludes:
+      reason: a mapping without sources

@@ -504,7 +504,7 @@ const REMOVED_KEYS: [(&str, &str); 3] = [
         "the store is the deployment's one database, at daemon.store",
     ),
 ];
-const DAEMON_KEYS: [&str; 13] = [
+const DAEMON_KEYS: [&str; 15] = [
     "port",
     "loopback",
     "tls",
@@ -518,6 +518,8 @@ const DAEMON_KEYS: [&str; 13] = [
     "substrate_slots",
     "unattended",
     "address",
+    "kubernetes",
+    "control_token",
 ];
 const TLS_KEYS: [&str; 4] = ["listen", "cert", "key", "identity"];
 const DAEMON_CADENCE_KEYS: [&str; 1] = ["reconcile"];
@@ -1894,6 +1896,8 @@ pub fn default_daemon(home: &Path) -> Daemon {
         substrate_slots: 0,
         unattended: false,
         address: DAEMON_ADDRESS.to_owned(),
+        kubernetes: None,
+        control_token: None,
     }
 }
 
@@ -2706,6 +2710,13 @@ impl Reader<'_> {
             }
             None => Some(defaults.address.clone()),
         };
+        // `daemon.kubernetes` and `daemon.control_token` are declared and not served yet: absent
+        // or null they read as absent, set they are refused by their path.
+        for key in ["kubernetes", "control_token"] {
+            if Self::get(map, key).is_some() {
+                self.problem(&join(path, key), "declared, and not served yet");
+            }
+        }
         Some(Daemon {
             port: port?,
             loopback: loopback?,
@@ -2720,6 +2731,8 @@ impl Reader<'_> {
             substrate_slots: substrate_slots?,
             unattended: unattended?,
             address: address?,
+            kubernetes: None,
+            control_token: None,
         })
     }
 
@@ -5286,6 +5299,9 @@ pub fn daemon_document(daemon: &Daemon) -> Yaml {
         ),
         ("unattended", Yaml::Bool(daemon.unattended)),
         ("address", text(&daemon.address)),
+        // Declared, and not served yet: never set on a file that validates.
+        ("kubernetes", Yaml::Null),
+        ("control_token", Yaml::Null),
     ])
 }
 

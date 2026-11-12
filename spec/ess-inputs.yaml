@@ -109,3 +109,10 @@ scenarios:
   - scenarios/token-contribute-token-daemon-refused.yaml
   - scenarios/secret-put-secret-daemon-refused.yaml
   - scenarios/secret-put-secret-exists.yaml
+  - scenarios/config-add-instance.yaml
+  - scenarios/config-add-instance-agent-refused.yaml
+  - scenarios/config-put-instance.yaml
+  - scenarios/config-put-instance-invalid.yaml
+  - scenarios/config-remove-instance.yaml
+  - scenarios/instance-row-starting.yaml
+  - scenarios/instance-row-sources-detail.yaml

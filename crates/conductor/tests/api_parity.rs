@@ -514,6 +514,44 @@ fn probes() -> Vec<Probe> {
             instance("upgrade"),
             json!({"actor": operator, "binary_version": "1.1.0", "at": "2026-11-08T12:00:00Z"}),
         ),
+        // The instance API of a consumer control plane: declared, and not served yet.
+        read(
+            "GET /v1/instances/{name}",
+            Binding::Bound("conductor.instance.InstanceByName"),
+            format!("/v1/instances/{INSTANCE}"),
+        ),
+        write(
+            "POST /v1/instances",
+            Binding::Bound("conductor.config.AddInstance"),
+            "spec",
+            "POST",
+            "/v1/instances".to_owned(),
+            json!({
+                "actor": operator, "name": "example-org-two",
+                "mapping": "{sources: [{github: example-org}], checkouts: {root: /srv/example-org-two, trees: /srv/trees}}",
+                "reason": "a new tenant", "changed_at": "2026-11-12T09:00:00Z",
+            }),
+        ),
+        write(
+            "PUT /v1/instances/{name}",
+            Binding::Bound("conductor.config.PutInstance"),
+            "spec",
+            "PUT",
+            format!("/v1/instances/{INSTANCE}"),
+            json!({
+                "actor": operator,
+                "mapping": "{sources: [{github: example-org}], checkouts: {root: /srv/example-org, trees: /srv/trees}}",
+                "reason": "read the forge", "changed_at": "2026-11-12T11:00:00Z",
+            }),
+        ),
+        write(
+            "DELETE /v1/instances/{name}",
+            Binding::Bound("conductor.config.RemoveInstance"),
+            "spec",
+            "DELETE",
+            "/v1/instances/example-org-two".to_owned(),
+            json!({"actor": operator, "reason": "the tenant left", "changed_at": "2026-11-12T13:00:00Z"}),
+        ),
     ]);
     for verb in ["start", "stop", "restart"] {
         let (route, operation) = match verb {
@@ -535,6 +573,7 @@ fn probes() -> Vec<Probe> {
         } else {
             json!({
                 "actor": operator, "placement": "local", "roles": ["Director"],
+                "sources": [{"kind": "GitHub", "value": {"owner": INSTANCE}}],
                 "box_id": "6f1c1d2e-0000-4000-8000-000000000001", "at": "2026-11-08T09:00:00Z",
             })
         };

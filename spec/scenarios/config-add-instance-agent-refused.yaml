@@ -1,0 +1,26 @@
+# Decision on the control token: only a person or the machine principal `control-plane` adds,
+# replaces or removes an instance. An agent asking to add one is refused by name
+# (`ActorNotHuman`), and nothing is recorded.
+type: ess-scenario/1
+domain: conductor.config
+scenario: config-add-instance-agent-refused
+summary: An agent's add of an instance is refused as ActorNotHuman, and no change is recorded.
+
+timeline:
+  - at: 2026-11-12T10:00:00Z
+    command: conductor.config.AddInstance
+    actor: conductor.config.Operator
+    input:
+      actor: {kind: Agent, agent: {instance: example-org, role: controller, name: example-org-controller, kind: claude-code}}
+      name: example-org-three
+      mapping: "{sources: [{local: /srv/example-org-three}], checkouts: {root: /srv/example-org-three, trees: /srv/trees}}"
+      reason: an agent adds a tenant
+      changed_at: 2026-11-12T10:00:00Z
+    outcome: actor-not-human
+    error:
+      name: conductor.operator.ActorNotHuman
+
+assert:
+  - view: conductor.config.ConfigRevisions
+    excludes:
+      reason: an agent adds a tenant

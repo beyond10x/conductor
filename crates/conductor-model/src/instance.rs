@@ -1,5 +1,5 @@
 // generated from conductor v1
-// contract digest 2b03183365aedd50e23f3659c527d6ee72cb8b1ac517c9e046bb013284b8a454
+// contract digest 7a2d2151a617b034e5a12bae1525027cb9f09b0dd4f8f5435a8d7b89308daeba
 // do not edit: regenerate with `ess synthesize --layout crate`
 
 //! Instance — `conductor.instance`.
@@ -92,6 +92,8 @@ pub struct ServeDaemon {
     pub install: Option<bool>,
     /// `uninstall` — `Optional<Boolean>`.
     pub uninstall: Option<bool>,
+    /// `daemon_config` — `Optional<String>`.
+    pub daemon_config: Option<String>,
 }
 
 /// StartHostRole — `conductor.instance.StartHostRole`.
@@ -134,6 +136,10 @@ pub struct InstanceData {
     ///
     /// Carries `box`: `conductor.instance.Instance` references one `conductor.placement.Box`.
     pub box_id: Option<crate::placement::BoxId>,
+    /// `sources` — `List<conductor.config.Source>`.
+    pub sources: Vec<crate::config::Source>,
+    /// `detail` — `Optional<String>`.
+    pub detail: Option<String>,
     /// `changed_by` — `conductor.operator.Actor`.
     pub changed_by: crate::operator::Actor,
 }
@@ -666,6 +672,8 @@ pub struct ObserveInstance {
     pub answering: bool,
     /// `binary_version` — `Optional<String>`.
     pub binary_version: Option<String>,
+    /// `detail` — `Optional<String>`.
+    pub detail: Option<String>,
     /// `at` — `Timestamp`.
     pub at: crate::primitives::Timestamp,
 }
@@ -807,6 +815,8 @@ pub struct RestartInstance {
     pub placement: crate::placement::PlacementName,
     /// `roles` — `List<conductor.config.RoleName>`.
     pub roles: Vec<crate::config::RoleName>,
+    /// `sources` — `List<conductor.config.Source>`.
+    pub sources: Vec<crate::config::Source>,
     /// `box_id` — `conductor.placement.BoxId`.
     pub box_id: crate::placement::BoxId,
     /// `at` — `Timestamp`.
@@ -863,6 +873,8 @@ pub struct StartInstance {
     pub placement: crate::placement::PlacementName,
     /// `roles` — `List<conductor.config.RoleName>`.
     pub roles: Vec<crate::config::RoleName>,
+    /// `sources` — `List<conductor.config.Source>`.
+    pub sources: Vec<crate::config::Source>,
     /// `box_id` — `conductor.placement.BoxId`.
     pub box_id: crate::placement::BoxId,
     /// `at` — `Timestamp`.
@@ -1175,6 +1187,35 @@ pub struct UnknownInstance {
     pub name: crate::config::InstanceName,
 }
 
+/// One instance — one row of the view `conductor.instance.InstanceByName`.
+///
+/// Projects `conductor.instance.Instance` at `read_your_writes` consistency, containing instances where `name == param.name`.
+/// Serving it is an implementation obligation — see the plan — because how a projection is kept
+/// current is a storage decision the specification does not take.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct InstanceByName {
+    /// `name` — `conductor.config.InstanceName`.
+    pub name: crate::config::InstanceName,
+    /// `state` — `conductor.instance.Instance.State`.
+    pub state: InstanceState,
+    /// `placement` — `conductor.placement.PlacementName`.
+    pub placement: crate::placement::PlacementName,
+    /// `roles` — `List<conductor.config.RoleName>`.
+    pub roles: Vec<crate::config::RoleName>,
+    /// `binary_version` — `Optional<String>`.
+    pub binary_version: Option<String>,
+    /// `last_seen` — `Optional<Timestamp>`.
+    pub last_seen: Option<crate::primitives::Timestamp>,
+    /// `box_id` — `Optional<conductor.placement.BoxId>`.
+    pub box_id: Option<crate::placement::BoxId>,
+    /// `sources` — `List<conductor.config.Source>`.
+    pub sources: Vec<crate::config::Source>,
+    /// `detail` — `Optional<String>`.
+    pub detail: Option<String>,
+    /// `changed_by` — `conductor.operator.Actor`.
+    pub changed_by: crate::operator::Actor,
+}
+
 /// Instances — one row of the view `conductor.instance.Instances`.
 ///
 /// Projects `conductor.instance.Instance` at `read_your_writes` consistency.
@@ -1196,6 +1237,10 @@ pub struct Instances {
     pub last_seen: Option<crate::primitives::Timestamp>,
     /// `box_id` — `Optional<conductor.placement.BoxId>`.
     pub box_id: Option<crate::placement::BoxId>,
+    /// `sources` — `List<conductor.config.Source>`.
+    pub sources: Vec<crate::config::Source>,
+    /// `detail` — `Optional<String>`.
+    pub detail: Option<String>,
     /// `changed_by` — `conductor.operator.Actor`.
     pub changed_by: crate::operator::Actor,
 }
@@ -1312,6 +1357,19 @@ pub mod obligations {
         fn upgrade_instance(&mut self, input: super::UpgradeInstance) -> Result<super::UpgradeInstanceOutcome, crate::obligation::UnmetObligation>;
     }
 
+    /// The query `conductor.instance.InstanceByName` — an implementation obligation.
+    ///
+    /// Why it is not generated: kept an obligation by a view parameter (`params:`), which a generated query does not apply.
+    ///
+    /// Contract: a query answering `conductor.instance.InstanceByName` with rows projected from `conductor.instance.Instance` at `read_your_writes` consistency, containing instances where `name == param.name`.
+    pub trait InstanceByNameQuery {
+        /// Serves `conductor.instance.InstanceByName` rows at the view's declared consistency.
+        ///
+        /// `Err` is the typed refusal of an obligation nothing has satisfied; a satisfying
+        /// implementation never returns it.
+        fn instance_by_name(&self, name: crate::config::InstanceName) -> Result<Vec<super::InstanceByName>, crate::obligation::UnmetObligation>;
+    }
+
     /// The query `conductor.instance.Instances` — generated.
     ///
     /// The specification fully determines it: [`crate::behaviour::Generated`] implements it
@@ -1343,6 +1401,12 @@ pub mod obligations {
     impl StartInstanceBehavior for Unimplemented {
         fn start_instance(&mut self, _input: super::StartInstance) -> Result<super::StartInstanceOutcome, crate::obligation::UnmetObligation> {
             Err(crate::obligation::UnmetObligation { capability: "command behaviour", source: "conductor.instance.StartInstance" })
+        }
+    }
+
+    impl InstanceByNameQuery for Unimplemented {
+        fn instance_by_name(&self, _name: crate::config::InstanceName) -> Result<Vec<super::InstanceByName>, crate::obligation::UnmetObligation> {
+            Err(crate::obligation::UnmetObligation { capability: "view query", source: "conductor.instance.InstanceByName" })
         }
     }
 }

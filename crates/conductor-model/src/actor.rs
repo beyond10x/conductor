@@ -1,5 +1,5 @@
 // generated from conductor v1
-// contract digest 2b03183365aedd50e23f3659c527d6ee72cb8b1ac517c9e046bb013284b8a454
+// contract digest 7a2d2151a617b034e5a12bae1525027cb9f09b0dd4f8f5435a8d7b89308daeba
 // do not edit: regenerate with `ess synthesize --layout crate`
 
 //! Every actor the specification declares, and the commands each may invoke — as data.
@@ -18,6 +18,8 @@ pub enum Actor {
     AgentInstanceRuntime,
     /// `conductor.agent.Operator`.
     AgentOperator,
+    /// `conductor.config.ControlPlane`.
+    ConfigControlPlane,
     /// `conductor.config.Operator`.
     ConfigOperator,
     /// `conductor.config.Tuner`.
@@ -52,6 +54,8 @@ pub enum Actor {
     ImprovementTuner,
     /// `conductor.instance.Conductord`.
     InstanceConductord,
+    /// `conductor.instance.ControlPlane`.
+    InstanceControlPlane,
     /// `conductor.instance.Operator`.
     InstanceOperator,
     /// `conductor.observation.Collector`.
@@ -84,6 +88,7 @@ impl Actor {
         Actor::AgentController,
         Actor::AgentInstanceRuntime,
         Actor::AgentOperator,
+        Actor::ConfigControlPlane,
         Actor::ConfigOperator,
         Actor::ConfigTuner,
         Actor::DecisionConductor,
@@ -101,6 +106,7 @@ impl Actor {
         Actor::ImprovementOperator,
         Actor::ImprovementTuner,
         Actor::InstanceConductord,
+        Actor::InstanceControlPlane,
         Actor::InstanceOperator,
         Actor::ObservationCollector,
         Actor::OperatorConductord,
@@ -121,6 +127,7 @@ impl Actor {
             Actor::AgentController => "conductor.agent.Controller",
             Actor::AgentInstanceRuntime => "conductor.agent.InstanceRuntime",
             Actor::AgentOperator => "conductor.agent.Operator",
+            Actor::ConfigControlPlane => "conductor.config.ControlPlane",
             Actor::ConfigOperator => "conductor.config.Operator",
             Actor::ConfigTuner => "conductor.config.Tuner",
             Actor::DecisionConductor => "conductor.decision.Conductor",
@@ -138,6 +145,7 @@ impl Actor {
             Actor::ImprovementOperator => "conductor.improvement.Operator",
             Actor::ImprovementTuner => "conductor.improvement.Tuner",
             Actor::InstanceConductord => "conductor.instance.Conductord",
+            Actor::InstanceControlPlane => "conductor.instance.ControlPlane",
             Actor::InstanceOperator => "conductor.instance.Operator",
             Actor::ObservationCollector => "conductor.observation.Collector",
             Actor::OperatorConductord => "conductor.operator.Conductord",
@@ -177,8 +185,16 @@ pub fn may(actor: Actor) -> &'static [&'static str] {
             "conductor.agent.RestartAgent",
             "conductor.agent.StopAgent",
         ],
+        Actor::ConfigControlPlane => &[
+            "conductor.config.AddInstance",
+            "conductor.config.PutInstance",
+            "conductor.config.RemoveInstance",
+        ],
         Actor::ConfigOperator => &[
+            "conductor.config.AddInstance",
             "conductor.config.PutConfig",
+            "conductor.config.PutInstance",
+            "conductor.config.RemoveInstance",
         ],
         Actor::ConfigTuner => &[
             "conductor.config.PutConfig",
@@ -300,6 +316,9 @@ pub fn may(actor: Actor) -> &'static [&'static str] {
             "conductor.instance.StopInstance",
             "conductor.instance.UpgradeInstance",
         ],
+        Actor::InstanceControlPlane => &[
+            "conductor.instance.RestartInstance",
+        ],
         Actor::InstanceOperator => &[
             "conductor.instance.PurgeInstance",
             "conductor.instance.RestartInstance",
@@ -404,6 +423,7 @@ pub fn may_read(actor: Actor) -> &'static [&'static str] {
             "conductor.agent.AgentKinds",
             "conductor.agent.Agents",
         ],
+        Actor::ConfigControlPlane => &[],
         Actor::ConfigOperator => &[],
         Actor::ConfigTuner => &[],
         Actor::DecisionConductor => &[],
@@ -421,6 +441,7 @@ pub fn may_read(actor: Actor) -> &'static [&'static str] {
         Actor::ImprovementOperator => &[],
         Actor::ImprovementTuner => &[],
         Actor::InstanceConductord => &[],
+        Actor::InstanceControlPlane => &[],
         Actor::InstanceOperator => &[],
         Actor::ObservationCollector => &[],
         Actor::OperatorConductord => &[

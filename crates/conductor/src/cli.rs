@@ -1146,7 +1146,7 @@ pub struct AgentAttachArgs {
 #[allow(missing_docs)]
 #[derive(Debug, Subcommand)]
 pub enum DaemonCommand {
-    /// Run conductord, the daemon of the control host, reconciling the instance runtimes from the config file - start what is absent, stop what is gone, restart what changed placement or binary - on a config change, a lost runtime and every daemon.cadence.reconcile, recording one Reconciliation per action, and serving GET 127.0.0.1:<daemon.port>/v1/instances. --install writes, enables and starts the user unit conductord.service, or the system unit when daemon.loopback is false (a box with no local operator, its config file in a git checkout, its secrets on the Secrets service); --uninstall stops and removes it
+    /// Run conductord, the daemon of the control host, reconciling the instance runtimes from the config file - start what is absent, stop what is gone, restart what changed placement or binary - on a config change, a lost runtime and every daemon.cadence.reconcile, recording one Reconciliation per action, and serving GET 127.0.0.1:<daemon.port>/v1/instances. --install writes, enables and starts the user unit conductord.service, or the system unit when daemon.loopback is false (a box with no local operator, its config file in a git checkout, its secrets on the Secrets service); --uninstall stops and removes it. --daemon-config names a file holding only version and daemon, such as a mounted ConfigMap - at every start the daemon writes the config file from it, keeping the file's globals and instances
     #[command(name = "serve")]
     Serve(DaemonServeArgs),
 
@@ -1176,6 +1176,10 @@ pub struct DaemonServeArgs {
     /// alone is `--uninstall true`
     #[arg(long, value_name = "BOOL", num_args = 0..=1, default_missing_value = "true")]
     pub uninstall: Option<bool>,
+    /// A file holding only `version` and `daemon`, such as a mounted ConfigMap: at every start
+    /// the daemon writes the config file from it, keeping the file's globals and instances
+    #[arg(long, value_name = "FILE")]
+    pub daemon_config: Option<String>,
 }
 
 // `conductor instance`: one instance's runtime (design architecture-next § 2, § 5.1,

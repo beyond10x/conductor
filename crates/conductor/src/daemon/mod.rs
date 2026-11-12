@@ -83,6 +83,11 @@ pub fn daemon_serve(
     if args.install == Some(true) && args.uninstall == Some(true) {
         bail!("{WHAT}: --install and --uninstall are given; give at most one");
     }
+    // `conductor.instance.ServeDaemon.daemon_config` is declared and not served yet: the daemon
+    // seeds its config file from it once that is written.
+    if args.daemon_config.is_some() {
+        return crate::not_implemented("daemon serve --daemon-config");
+    }
     let environment = Environment::from_process().context(WHAT)?;
     let home = environment.home().context(WHAT)?.to_owned();
     let (file, _) = config::locate(config_flag, &environment).context(WHAT)?;

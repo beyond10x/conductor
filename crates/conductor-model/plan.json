@@ -2,8 +2,8 @@
   "provenance": {
     "system": "conductor",
     "specification_version": "v1",
-    "source_digest": "8c4d7260c2cd89c19b538694951320f4049ae08dae675c93b6ecb0b961cf30f9",
-    "contract_digest": "2b03183365aedd50e23f3659c527d6ee72cb8b1ac517c9e046bb013284b8a454"
+    "source_digest": "5be39bf390f47990c7635b76e3a4dc5212bf98cdc98f6ae7e900881e50c4b8df",
+    "contract_digest": "7a2d2151a617b034e5a12bae1525027cb9f09b0dd4f8f5435a8d7b89308daeba"
   },
   "scope": {
     "profile": "component-skeletons",
@@ -243,6 +243,13 @@
     },
     {
       "kind": "domain_type",
+      "source": "conductor.config.DaemonConfig",
+      "disposition": {
+        "disposition": "generated"
+      }
+    },
+    {
+      "kind": "domain_type",
       "source": "conductor.config.DaemonOperator",
       "disposition": {
         "disposition": "generated"
@@ -363,6 +370,48 @@
     {
       "kind": "domain_type",
       "source": "conductor.config.InstanceRefused",
+      "disposition": {
+        "disposition": "generated"
+      }
+    },
+    {
+      "kind": "domain_type",
+      "source": "conductor.config.Kubernetes",
+      "disposition": {
+        "disposition": "generated"
+      }
+    },
+    {
+      "kind": "domain_type",
+      "source": "conductor.config.KubernetesEnv",
+      "disposition": {
+        "disposition": "generated"
+      }
+    },
+    {
+      "kind": "domain_type",
+      "source": "conductor.config.KubernetesName",
+      "disposition": {
+        "disposition": "generated"
+      }
+    },
+    {
+      "kind": "domain_type",
+      "source": "conductor.config.KubernetesQuantities",
+      "disposition": {
+        "disposition": "generated"
+      }
+    },
+    {
+      "kind": "domain_type",
+      "source": "conductor.config.KubernetesResources",
+      "disposition": {
+        "disposition": "generated"
+      }
+    },
+    {
+      "kind": "domain_type",
+      "source": "conductor.config.KubernetesVolume",
       "disposition": {
         "disposition": "generated"
       }
@@ -2883,6 +2932,20 @@
     },
     {
       "kind": "command_contract",
+      "source": "conductor.config.AddInstance",
+      "disposition": {
+        "disposition": "generated"
+      }
+    },
+    {
+      "kind": "command_behavior",
+      "source": "conductor.config.AddInstance",
+      "disposition": {
+        "disposition": "generated"
+      }
+    },
+    {
+      "kind": "command_contract",
       "source": "conductor.config.PutConfig",
       "disposition": {
         "disposition": "generated"
@@ -2891,6 +2954,34 @@
     {
       "kind": "command_behavior",
       "source": "conductor.config.PutConfig",
+      "disposition": {
+        "disposition": "generated"
+      }
+    },
+    {
+      "kind": "command_contract",
+      "source": "conductor.config.PutInstance",
+      "disposition": {
+        "disposition": "generated"
+      }
+    },
+    {
+      "kind": "command_behavior",
+      "source": "conductor.config.PutInstance",
+      "disposition": {
+        "disposition": "generated"
+      }
+    },
+    {
+      "kind": "command_contract",
+      "source": "conductor.config.RemoveInstance",
+      "disposition": {
+        "disposition": "generated"
+      }
+    },
+    {
+      "kind": "command_behavior",
+      "source": "conductor.config.RemoveInstance",
       "disposition": {
         "disposition": "generated"
       }
@@ -4407,6 +4498,27 @@
     },
     {
       "kind": "event_type",
+      "source": "conductor.config.InstanceAdded",
+      "disposition": {
+        "disposition": "generated"
+      }
+    },
+    {
+      "kind": "event_type",
+      "source": "conductor.config.InstanceRemoved",
+      "disposition": {
+        "disposition": "generated"
+      }
+    },
+    {
+      "kind": "event_type",
+      "source": "conductor.config.InstanceReplaced",
+      "disposition": {
+        "disposition": "generated"
+      }
+    },
+    {
+      "kind": "event_type",
       "source": "conductor.decision.DecisionRecorded",
       "disposition": {
         "disposition": "generated"
@@ -5199,6 +5311,13 @@
     {
       "kind": "error_type",
       "source": "conductor.config.ConfigInvalid",
+      "disposition": {
+        "disposition": "generated"
+      }
+    },
+    {
+      "kind": "error_type",
+      "source": "conductor.config.InstanceExists",
       "disposition": {
         "disposition": "generated"
       }
@@ -6232,6 +6351,25 @@
     },
     {
       "kind": "view_type",
+      "source": "conductor.instance.InstanceByName",
+      "disposition": {
+        "disposition": "generated"
+      }
+    },
+    {
+      "kind": "view_query",
+      "source": "conductor.instance.InstanceByName",
+      "disposition": {
+        "disposition": "obligation",
+        "reason": {
+          "class": "undetermined",
+          "construct": "a view parameter (`params:`), which a generated query does not apply"
+        },
+        "contract": "a query answering `conductor.instance.InstanceByName` with rows projected from `conductor.instance.Instance` at `read_your_writes` consistency, containing instances where `name == param.name`"
+      }
+    },
+    {
+      "kind": "view_type",
       "source": "conductor.instance.Instances",
       "disposition": {
         "disposition": "generated"
@@ -6664,6 +6802,13 @@
     },
     {
       "kind": "actor_grants",
+      "source": "conductor.config.ControlPlane",
+      "disposition": {
+        "disposition": "generated"
+      }
+    },
+    {
+      "kind": "actor_grants",
       "source": "conductor.config.Operator",
       "disposition": {
         "disposition": "generated"
@@ -6777,6 +6922,13 @@
     {
       "kind": "actor_grants",
       "source": "conductor.instance.Conductord",
+      "disposition": {
+        "disposition": "generated"
+      }
+    },
+    {
+      "kind": "actor_grants",
+      "source": "conductor.instance.ControlPlane",
       "disposition": {
         "disposition": "generated"
       }

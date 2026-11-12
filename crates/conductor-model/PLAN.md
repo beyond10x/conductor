@@ -1,13 +1,13 @@
 <!--
   generated from conductor v1
-  contract digest 2b03183365aedd50e23f3659c527d6ee72cb8b1ac517c9e046bb013284b8a454
+  contract digest 7a2d2151a617b034e5a12bae1525027cb9f09b0dd4f8f5435a8d7b89308daeba
   do not edit: regenerate with `ess synthesize --layout crate`
 -->
 # Synthesis plan — conductor v1
 
 Scope: `component-skeletons`, laid out as `crate`, planned by `ess-synth`. Regenerate with `ess synthesize --layout crate`.
 
-976 capabilities: **963 generated**, **13 obligations**, **0 refused**. An obligation is yours to implement against its contract; a refusal is a fact about this synthesis scope, not about the specification.
+997 capabilities: **983 generated**, **14 obligations**, **0 refused**. An obligation is yours to implement against its contract; a refusal is a fact about this synthesis scope, not about the specification.
 
 ## Generated
 
@@ -46,6 +46,7 @@ Scope: `component-skeletons`, laid out as `crate`, planned by `ess-synth`. Regen
 | domain type | `conductor.config.Controllers` |
 | domain type | `conductor.config.Daemon` |
 | domain type | `conductor.config.DaemonCadence` |
+| domain type | `conductor.config.DaemonConfig` |
 | domain type | `conductor.config.DaemonOperator` |
 | domain type | `conductor.config.DoctorReport` |
 | domain type | `conductor.config.EffectiveSetting.State` |
@@ -64,6 +65,12 @@ Scope: `component-skeletons`, laid out as `crate`, planned by `ess-synth`. Regen
 | domain type | `conductor.config.InstanceName` |
 | domain type | `conductor.config.InstanceRefusal` |
 | domain type | `conductor.config.InstanceRefused` |
+| domain type | `conductor.config.Kubernetes` |
+| domain type | `conductor.config.KubernetesEnv` |
+| domain type | `conductor.config.KubernetesName` |
+| domain type | `conductor.config.KubernetesQuantities` |
+| domain type | `conductor.config.KubernetesResources` |
+| domain type | `conductor.config.KubernetesVolume` |
 | domain type | `conductor.config.Level` |
 | domain type | `conductor.config.Limits` |
 | domain type | `conductor.config.LocalSource` |
@@ -418,8 +425,14 @@ Scope: `component-skeletons`, laid out as `crate`, planned by `ess-synth`. Regen
 | command contract | `conductor.agent.StartAgent` |
 | command contract | `conductor.agent.StopAgent` |
 | command behaviour | `conductor.agent.StopAgent` |
+| command contract | `conductor.config.AddInstance` |
+| command behaviour | `conductor.config.AddInstance` |
 | command contract | `conductor.config.PutConfig` |
 | command behaviour | `conductor.config.PutConfig` |
+| command contract | `conductor.config.PutInstance` |
+| command behaviour | `conductor.config.PutInstance` |
+| command contract | `conductor.config.RemoveInstance` |
+| command behaviour | `conductor.config.RemoveInstance` |
 | command contract | `conductor.decision.AmendEscalatedRequest` |
 | command behaviour | `conductor.decision.AmendEscalatedRequest` |
 | command contract | `conductor.decision.AnswerEscalatedRequest` |
@@ -622,6 +635,9 @@ Scope: `component-skeletons`, laid out as `crate`, planned by `ess-synth`. Regen
 | event type | `conductor.agent.AgentStarted` |
 | event type | `conductor.agent.AgentStopped` |
 | event type | `conductor.config.ConfigChanged` |
+| event type | `conductor.config.InstanceAdded` |
+| event type | `conductor.config.InstanceRemoved` |
+| event type | `conductor.config.InstanceReplaced` |
 | event type | `conductor.decision.DecisionRecorded` |
 | event type | `conductor.decision.DecisionRequested` |
 | event type | `conductor.decision.DecisionReversedEvent` |
@@ -736,6 +752,7 @@ Scope: `component-skeletons`, laid out as `crate`, planned by `ess-synth`. Regen
 | error type | `conductor.agent.CapabilityMissing` |
 | error type | `conductor.agent.UnknownAgentKind` |
 | error type | `conductor.config.ConfigInvalid` |
+| error type | `conductor.config.InstanceExists` |
 | error type | `conductor.config.LevelScopeMismatch` |
 | error type | `conductor.config.StateDirNotInstance` |
 | error type | `conductor.decision.ChoiceInvalid` |
@@ -881,6 +898,7 @@ Scope: `component-skeletons`, laid out as `crate`, planned by `ess-synth`. Regen
 | view query | `conductor.improvement.Metrics` |
 | view type | `conductor.improvement.SettingsProposals` |
 | view query | `conductor.improvement.SettingsProposals` |
+| view type | `conductor.instance.InstanceByName` |
 | view type | `conductor.instance.Instances` |
 | view query | `conductor.instance.Instances` |
 | view type | `conductor.instance.Reconciliations` |
@@ -941,6 +959,7 @@ Scope: `component-skeletons`, laid out as `crate`, planned by `ess-synth`. Regen
 | actor grants | `conductor.agent.Controller` |
 | actor grants | `conductor.agent.InstanceRuntime` |
 | actor grants | `conductor.agent.Operator` |
+| actor grants | `conductor.config.ControlPlane` |
 | actor grants | `conductor.config.Operator` |
 | actor grants | `conductor.config.Tuner` |
 | actor grants | `conductor.decision.Conductor` |
@@ -958,6 +977,7 @@ Scope: `component-skeletons`, laid out as `crate`, planned by `ess-synth`. Regen
 | actor grants | `conductor.improvement.Operator` |
 | actor grants | `conductor.improvement.Tuner` |
 | actor grants | `conductor.instance.Conductord` |
+| actor grants | `conductor.instance.ControlPlane` |
 | actor grants | `conductor.instance.Operator` |
 | actor grants | `conductor.observation.Collector` |
 | actor grants | `conductor.operator.Conductord` |
@@ -1002,6 +1022,7 @@ What the specification fully determines is generated; what it cannot determine i
 | command behaviour | `conductor.session.ClaimLease` | kept an obligation by an unknown identity, which reaches no declared outcome (neither `unknown_instance:` nor `wrong_state:`) | given `conductor.session.ClaimLease` input, decide and enact exactly one outcome. Declared outcomes (declaration order, not selection precedence): `taken` when, of the `conductor.session.Lease` rows satisfying `instance == input.instance`, no row is selected, creates `conductor.session.Lease`, emits `conductor.session.LeaseTaken`; `renewed` when, of the `conductor.session.Lease` rows satisfying `(instance == input.instance and pid == input.pid)`, at least one row is selected, updates `conductor.session.Lease`, emits `conductor.session.LeaseTaken`; `held` externally decided (the process the lease names lives and is not the claiming one), error `conductor.session.LeaseHeld`; `taken-over` otherwise, updates `conductor.session.Lease`, emits `conductor.session.LeaseTakenOver` |
 | command behaviour | `conductor.store.MigrateStore` | kept an obligation by a guard over the rows a selector selects (`when_related: {entity, where, exists | count | forall}`), in `already-migrated` | given `conductor.store.MigrateStore` input, decide and enact exactly one outcome. Declared outcomes (declaration order, not selection precedence): `not-human` when `actor.kind != Human`, error `conductor.operator.ActorNotHuman`; `negative-count` when `events_copied < 0`, error `conductor.store.InvalidEventCount`; `already-migrated` when, of the `conductor.store.Migration` rows satisfying `instance == input.instance`, at least one row is selected, error `conductor.store.AlreadyMigrated`; `source-missing` externally decided (no eventlog tree is at the source path), error `conductor.store.SourceMissing`; `migrated` otherwise, creates `conductor.store.Migration`, emits `conductor.store.StoreMigrated` |
 | view query | `conductor.config.EffectiveSettings` | kept an obligation by a view parameter (`params:`), which a generated query does not apply | a query answering `conductor.config.EffectiveSettings` with rows projected from `conductor.config.EffectiveSetting` at `eventual` consistency, containing instances where `instance == param.instance` |
+| view query | `conductor.instance.InstanceByName` | kept an obligation by a view parameter (`params:`), which a generated query does not apply | a query answering `conductor.instance.InstanceByName` with rows projected from `conductor.instance.Instance` at `read_your_writes` consistency, containing instances where `name == param.name` |
 | view query | `conductor.token.Tokens` | kept an obligation by a view parameter (`params:`), which a generated query does not apply | a query answering `conductor.token.Tokens` with rows projected from `conductor.token.PoolToken` at `read_your_writes` consistency, containing instances where `instance == param.instance` |
 
 ## Refused — not represented by this synthesis

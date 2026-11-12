@@ -14,6 +14,7 @@ timeline:
       name: example-org
       placement: local
       roles: [Director]
+      sources: [{kind: GitHub, value: {owner: example-org}}]
       box_id: 6f1c1d2e-0000-4000-8000-000000000001
       at: 2026-11-08T09:00:00Z
     outcome: created

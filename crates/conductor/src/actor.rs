@@ -123,6 +123,17 @@ pub fn daemon() -> Actor {
     }
 }
 
+/// The machine principal `control-plane`: a consumer control plane whose bearer equals the
+/// control token, `daemon.control_token` (`conductor.operator.ActorKind` `ControlPlane`).
+#[must_use]
+pub fn control_plane() -> Actor {
+    Actor {
+        kind: ActorKind::ControlPlane,
+        operator: None,
+        agent: None,
+    }
+}
+
 /// The actor of a process that names none: the calling session as an [`agent`] of the active
 /// instance where `CONDUCTOR_SESSION` names one ([`crate::session::actor_of`]), else the operator
 /// ([`human`]).
@@ -206,8 +217,9 @@ pub fn parse(text: &str) -> Result<Actor> {
         Some("Human") => ActorKind::Human,
         Some("Agent") => ActorKind::Agent,
         Some("Daemon") => ActorKind::Daemon,
-        Some(other) => bail!("kind {other:?} is not Human, Agent or Daemon"),
-        None => bail!("kind is missing: write Human, Agent or Daemon"),
+        Some("ControlPlane") => ActorKind::ControlPlane,
+        Some(other) => bail!("kind {other:?} is not Human, Agent, Daemon or ControlPlane"),
+        None => bail!("kind is missing: write Human, Agent, Daemon or ControlPlane"),
     };
     let operator = match map.get("operator") {
         None | Some(Value::Null) => None,
@@ -238,10 +250,13 @@ pub fn parse(text: &str) -> Result<Actor> {
     match (kind, &operator, &agent) {
         (ActorKind::Human, Some(_), None)
         | (ActorKind::Agent, None, Some(_))
-        | (ActorKind::Daemon, None, None) => {}
+        | (ActorKind::Daemon | ActorKind::ControlPlane, None, None) => {}
         (ActorKind::Human, _, _) => bail!("a Human actor names its operator, and no agent"),
         (ActorKind::Agent, _, _) => bail!("an Agent actor names its agent, and no operator"),
         (ActorKind::Daemon, _, _) => bail!("a Daemon actor names neither operator nor agent"),
+        (ActorKind::ControlPlane, _, _) => {
+            bail!("a ControlPlane actor names neither operator nor agent")
+        }
     }
     Ok(Actor {
         kind,
@@ -266,6 +281,7 @@ pub fn to_json(actor: &Actor) -> Value {
         ActorKind::Human => "Human",
         ActorKind::Agent => "Agent",
         ActorKind::Daemon => "Daemon",
+        ActorKind::ControlPlane => "ControlPlane",
     };
     map.insert("kind".to_owned(), Value::from(kind));
     if let Some(operator) = &actor.operator {
@@ -310,7 +326,7 @@ pub fn not_human(actor: &Actor) -> String {
 }
 
 /// How the records projection writes an actor (design § 3): `human:<name>`,
-/// `agent:<instance>/<role>/<name>` or `daemon`.
+/// `agent:<instance>/<role>/<name>`, `daemon` or `control-plane`.
 #[must_use]
 pub fn written(actor: &Actor) -> String {
     match (actor.kind, &actor.operator, &actor.agent) {
@@ -324,5 +340,6 @@ pub fn written(actor: &Actor) -> String {
         (ActorKind::Human, None, _) => "human:".to_owned(),
         (ActorKind::Agent, _, None) => "agent:".to_owned(),
         (ActorKind::Daemon, _, _) => "daemon".to_owned(),
+        (ActorKind::ControlPlane, _, _) => "control-plane".to_owned(),
     }
 }

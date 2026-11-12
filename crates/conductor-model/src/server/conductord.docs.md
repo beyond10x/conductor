@@ -1,6 +1,6 @@
 <!--
 generated from conductor v1
-contract digest slice-sha256/2:e46886c99396f118bec59bd86f08da395b14e84ed31bb731626b9815b2068555
+contract digest slice-sha256/2:7514fbe9942d02783f2358f99a56f3a61590a19c269de127e0ca264b016a0de7
 do not edit: regenerate with `ess generate`
 -->
 
@@ -88,7 +88,7 @@ The one file conductord reconciles from, `conductor.config/2`, read from `--conf
 - `default` — `Optional<conductor.config.InstanceName>`, which may be absent
 - `instances` — `List<conductor.config.Instance>`
 
-Every value satisfies `version == "conductor.config/2"`, `distinct instance in instances by instance.name`, `distinct instance in instances by instance.session_prefix`, `distinct instance in instances by instance.state`, `distinct instance in instances by instance.records` and `(not (defined(default)) or exists instance in instances: (instance.name == default))`.
+Every value satisfies `version == "conductor.config/2"`, `(defined(daemon.kubernetes) or instances.count >= 1)`, `(not (defined(daemon.kubernetes)) or forall instance in instances: (instance.name.count <= 39))`, `distinct instance in instances by instance.name`, `distinct instance in instances by instance.session_prefix`, `distinct instance in instances by instance.state`, `distinct instance in instances by instance.records` and `(not (defined(default)) or exists instance in instances: (instance.name == default))`.
 
 ### `ConfigChange`
 
@@ -174,7 +174,7 @@ Every value satisfies `max_working >= 1`, `max_subagents >= 1` and `max_open_rev
 
 ### `Daemon`
 
-`conductor.config.Daemon` is a record of 13 fields:
+`conductor.config.Daemon` is a record of 15 fields:
 
 - `port` — `Integer`
 - `loopback` — `Boolean`
@@ -189,6 +189,8 @@ Every value satisfies `max_working >= 1`, `max_subagents >= 1` and `max_open_rev
 - `substrate_slots` — `Integer`
 - `unattended` — `Boolean`
 - `address` — `String`
+- `kubernetes` — `Optional<conductor.config.Kubernetes>`, which may be absent
+- `control_token` — `Optional<conductor.secret.SecretName>`, which may be absent
 
 Every value satisfies `port >= 1`, `port <= 65535`, `substrate_slots >= 0` and `distinct operator in operators by operator.name`.
 
@@ -197,6 +199,15 @@ Every value satisfies `port >= 1`, `port <= 65535`, `substrate_slots >= 0` and `
 `conductor.config.DaemonCadence` is a record of one field:
 
 - `reconcile` — `Duration`
+
+### `DaemonConfig`
+
+`conductor.config.DaemonConfig` is a record of two fields:
+
+- `version` — `String`
+- `daemon` — `conductor.config.Daemon`
+
+Every value satisfies `version == "conductor.config/2"`.
 
 ### `DaemonOperator`
 
@@ -333,6 +344,57 @@ Every value satisfies `distinct role in roles by role.role`.
 
 - `refusal` — `conductor.config.InstanceRefusal`
 - `detail` — `String`
+
+### `Kubernetes`
+
+`conductor.config.Kubernetes` is a record of seven fields:
+
+- `namespace` — `conductor.config.KubernetesName`
+- `image` — `String`
+- `owner` — `conductor.config.KubernetesName`
+- `api_port` — `Integer`
+- `volume` — `conductor.config.KubernetesVolume`
+- `resources` — `conductor.config.KubernetesResources`
+- `env` — `List<conductor.config.KubernetesEnv>`
+
+Every value satisfies `api_port >= 1`, `api_port <= 65535`, `distinct variable in env by variable.name`, `forall variable in env: (not (variable.name starts_with "CONDUCTOR_"))` and `forall variable in env: (variable.name not in [HOME, PATH])`.
+
+### `KubernetesEnv`
+
+`conductor.config.KubernetesEnv` is a record of three fields:
+
+- `name` — `String`
+- `value` — `Optional<String>`, which may be absent
+- `secret` — `Optional<conductor.secret.SecretName>`, which may be absent
+
+Every value satisfies `(defined(value) or defined(secret))` and `(not (defined(value)) or not (defined(secret)))`.
+
+### `KubernetesName`
+
+`conductor.config.KubernetesName` wraps `String` and is not interchangeable with one: the whole value of naming it separately is the crossings the model then refuses. Its characters are drawn from `abcdefghijklmnopqrstuvwxyz0123456789-`.
+
+### `KubernetesQuantities`
+
+`conductor.config.KubernetesQuantities` is a record of two fields:
+
+- `cpu` — `Optional<String>`, which may be absent
+- `memory` — `Optional<String>`, which may be absent
+
+### `KubernetesResources`
+
+`conductor.config.KubernetesResources` is a record of two fields:
+
+- `requests` — `conductor.config.KubernetesQuantities`
+- `limits` — `conductor.config.KubernetesQuantities`
+
+### `KubernetesVolume`
+
+`conductor.config.KubernetesVolume` is a record of two fields:
+
+- `size` — `conductor.config.Gibibytes`
+- `storage_class` — `Optional<String>`, which may be absent
+
+Every value satisfies `size >= 1`.
 
 ### `Level`
 
@@ -669,7 +731,7 @@ Every value satisfies `gate_resume > gate_stop`, `cpu_reserve >= 0`, `build_slot
 - `instance` — `Optional<String>`, which may be absent
 - `check` — `Optional<Boolean>`, which may be absent
 
-20 of the types above are reached by nothing else in this system: `conductor.config.ChangeConfig`, `conductor.config.Config`, `conductor.config.ConfigPage`, `conductor.config.ConfigWriteRefused`, `conductor.config.ConfigWritten`, `conductor.config.InitRecords`, `conductor.config.InstanceRefused`, `conductor.config.MigrateConfig`, `conductor.config.SetupReport`, `conductor.config.SetupRepository`, `conductor.config.ShowConfig`, `conductor.config.SuggestedPrefix`, `conductor.config.TrustWorkspaces`, `conductor.config.UpgradeBinary`, `conductor.config.UpgradeRefused`, `conductor.config.UpgradeReport`, `conductor.config.ValidateConfig`, `conductor.config.WorkspaceMember`, `conductor.config.WriteConfig` and `conductor.config.WriteWorkspace`. No entity, view, command, event, error or crossing names them, so it is either vocabulary something outside this specification uses or a leftover — and only a person can tell which.
+21 of the types above are reached by nothing else in this system: `conductor.config.ChangeConfig`, `conductor.config.Config`, `conductor.config.ConfigPage`, `conductor.config.ConfigWriteRefused`, `conductor.config.ConfigWritten`, `conductor.config.DaemonConfig`, `conductor.config.InitRecords`, `conductor.config.InstanceRefused`, `conductor.config.MigrateConfig`, `conductor.config.SetupReport`, `conductor.config.SetupRepository`, `conductor.config.ShowConfig`, `conductor.config.SuggestedPrefix`, `conductor.config.TrustWorkspaces`, `conductor.config.UpgradeBinary`, `conductor.config.UpgradeRefused`, `conductor.config.UpgradeReport`, `conductor.config.ValidateConfig`, `conductor.config.WorkspaceMember`, `conductor.config.WriteConfig` and `conductor.config.WriteWorkspace`. No entity, view, command, event, error or crossing names them, so it is either vocabulary something outside this specification uses or a leftover — and only a person can tell which.
 
 ## Entities
 
@@ -805,6 +867,29 @@ A generated scenario therefore retries the assertion until the projection catche
 
 ## Commands
 
+### `AddInstance`
+
+`conductor.config.AddInstance`, shown to a person as "Add an instance" and called `add-instance` on the wire.
+
+It takes:
+
+- `actor` — `conductor.operator.Actor`
+- `name` — `conductor.config.InstanceName`
+- `mapping` — `String`
+- `reason` — `String`
+- `changed_at` — `Timestamp`
+
+It has four outcomes.
+
+**`actor-not-human`** — Only a person or the control plane adds an instance; an agent or the daemon is refused by name and nothing was written. Taken when `(actor.kind != Human and actor.kind != ControlPlane)` holds of the input. No entity in this specification changes. It reports `conductor.operator.ActorNotHuman`, carrying `actor`. It emits nothing. A test reaches it by constructing an input that satisfies that condition.
+
+**`exists`** — The config holds an instance of this name; nothing was written. Decided outside the input: the config already names an instance of this name. No predicate over the input reaches this branch, and saying `when: false` instead would have claimed it is unreachable, which is a different and false statement. No entity in this specification changes. It reports `conductor.config.InstanceExists`, carrying `name`. It emits nothing. A test reaches it by injecting the declared fault, because no input can.
+
+**`invalid`** — The config with the instance added does not validate, the problem named by its YAML path; nothing was written. Decided outside the input: the config with the instance added does not validate. No predicate over the input reaches this branch, and saying `when: false` instead would have claimed it is unreachable, which is a different and false statement. No entity in this specification changes. It reports `conductor.config.ConfigInvalid`, carrying `path`. It emits nothing. A test reaches it by injecting the declared fault, because no input can.
+
+**`changed`** — The instance is written into the config file and committed with the actor and the reason; the daemon starts its runtime.
+ The default branch, taken when no other outcome's condition matched. It creates a `conductor.config.ConfigRevision`, which starts in `Committed`. The new instance's identity is published as `revision_id` on `conductor.config.InstanceAdded`. It emits `conductor.config.InstanceAdded`. It sets `actor` from `input.actor`, `level` from `"Instance"`, `instance` from `input.name`, `role` cleared, `path` from `"."`, `value` from `input.mapping`, `reason` from `input.reason`, `commit` from `implementation-generated` and `changed_at` from `input.changed_at`. A test reaches it by constructing an input that satisfies no other outcome's condition.
+
 ### `PutConfig`
 
 `conductor.config.PutConfig`, shown to a person as "Change the config" and called `put-config` on the wire.
@@ -832,6 +917,51 @@ It has four outcomes.
 **`changed`** — The key is written at its level and committed with the actor and the reason; the daemon reconciles the instances the change touches.
  The default branch, taken when no other outcome's condition matched. It creates a `conductor.config.ConfigRevision`, which starts in `Committed`. The new instance's identity is published as `revision_id` on `conductor.config.ConfigChanged`. It emits `conductor.config.ConfigChanged`. It sets `actor` from `input.actor`, `level` from `input.level`, `instance` from `input.instance`, `role` from `input.role`, `path` from `input.path`, `value` from `input.value`, `reason` from `input.reason`, `commit` from `implementation-generated` and `changed_at` from `input.changed_at`. A test reaches it by constructing an input that satisfies no other outcome's condition.
 
+### `PutInstance`
+
+`conductor.config.PutInstance`, shown to a person as "Replace an instance" and called `put-instance` on the wire.
+
+It takes:
+
+- `actor` — `conductor.operator.Actor`
+- `name` — `conductor.config.InstanceName`
+- `mapping` — `String`
+- `reason` — `String`
+- `changed_at` — `Timestamp`
+
+It has four outcomes.
+
+**`actor-not-human`** — Only a person or the control plane replaces an instance; an agent or the daemon is refused by name and nothing was written. Taken when `(actor.kind != Human and actor.kind != ControlPlane)` holds of the input. No entity in this specification changes. It reports `conductor.operator.ActorNotHuman`, carrying `actor`. It emits nothing. A test reaches it by constructing an input that satisfies that condition.
+
+**`unknown`** — The config names no instance of this name; nothing was written. Decided outside the input: the config names no instance of this name. No predicate over the input reaches this branch, and saying `when: false` instead would have claimed it is unreachable, which is a different and false statement. No entity in this specification changes. It reports `conductor.instance.UnknownInstance`, carrying `name`. It emits nothing. A test reaches it by injecting the declared fault, because no input can.
+
+**`invalid`** — The config with the instance replaced does not validate, the problem named by its YAML path; nothing was written. Decided outside the input: the config with the instance replaced does not validate. No predicate over the input reaches this branch, and saying `when: false` instead would have claimed it is unreachable, which is a different and false statement. No entity in this specification changes. It reports `conductor.config.ConfigInvalid`, carrying `path`. It emits nothing. A test reaches it by injecting the declared fault, because no input can.
+
+**`changed`** — The instance's mapping is replaced in the config file and committed with the actor and the reason; the daemon reconciles it.
+ The default branch, taken when no other outcome's condition matched. It creates a `conductor.config.ConfigRevision`, which starts in `Committed`. The new instance's identity is published as `revision_id` on `conductor.config.InstanceReplaced`. It emits `conductor.config.InstanceReplaced`. It sets `actor` from `input.actor`, `level` from `"Instance"`, `instance` from `input.name`, `role` cleared, `path` from `"."`, `value` from `input.mapping`, `reason` from `input.reason`, `commit` from `implementation-generated` and `changed_at` from `input.changed_at`. A test reaches it by constructing an input that satisfies no other outcome's condition.
+
+### `RemoveInstance`
+
+`conductor.config.RemoveInstance`, shown to a person as "Remove an instance" and called `remove-instance` on the wire.
+
+It takes:
+
+- `actor` — `conductor.operator.Actor`
+- `name` — `conductor.config.InstanceName`
+- `reason` — `String`
+- `changed_at` — `Timestamp`
+
+It has four outcomes.
+
+**`actor-not-human`** — Only a person or the control plane removes an instance; an agent or the daemon is refused by name and nothing was written. Taken when `(actor.kind != Human and actor.kind != ControlPlane)` holds of the input. No entity in this specification changes. It reports `conductor.operator.ActorNotHuman`, carrying `actor`. It emits nothing. A test reaches it by constructing an input that satisfies that condition.
+
+**`unknown`** — The config names no instance of this name; nothing was written. Decided outside the input: the config names no instance of this name. No predicate over the input reaches this branch, and saying `when: false` instead would have claimed it is unreachable, which is a different and false statement. No entity in this specification changes. It reports `conductor.instance.UnknownInstance`, carrying `name`. It emits nothing. A test reaches it by injecting the declared fault, because no input can.
+
+**`invalid`** — The config without the instance does not validate, the problem named by its YAML path; nothing was written. Decided outside the input: the config without the instance does not validate. No predicate over the input reaches this branch, and saying `when: false` instead would have claimed it is unreachable, which is a different and false statement. No entity in this specification changes. It reports `conductor.config.ConfigInvalid`, carrying `path`. It emits nothing. A test reaches it by injecting the declared fault, because no input can.
+
+**`changed`** — The instance is removed from the config file and the removal committed with the actor and the reason; the daemon stops its runtime and keeps its data.
+ The default branch, taken when no other outcome's condition matched. It creates a `conductor.config.ConfigRevision`, which starts in `Committed`. The new instance's identity is published as `revision_id` on `conductor.config.InstanceRemoved`. It emits `conductor.config.InstanceRemoved`. It sets `actor` from `input.actor`, `level` from `"Instance"`, `instance` from `input.name`, `role` cleared, `path` from `"."`, `value` cleared, `reason` from `input.reason`, `commit` from `implementation-generated` and `changed_at` from `input.changed_at`. A test reaches it by constructing an input that satisfies no other outcome's condition.
+
 ## Events
 
 ### `ConfigChanged`
@@ -853,6 +983,53 @@ Emitted by `conductor.config.PutConfig` on its `changed` outcome.
 
 Nothing in this system reacts to it.
 
+### `InstanceAdded`
+
+`conductor.config.InstanceAdded`.
+
+It carries:
+
+- `revision_id` — `conductor.config.RevisionId`
+- `actor` — `conductor.operator.Actor`
+- `name` — `conductor.config.InstanceName`
+- `mapping` — `String`
+- `reason` — `String`
+
+Emitted by `conductor.config.AddInstance` on its `changed` outcome.
+
+Nothing in this system reacts to it.
+
+### `InstanceRemoved`
+
+`conductor.config.InstanceRemoved`.
+
+It carries:
+
+- `revision_id` — `conductor.config.RevisionId`
+- `actor` — `conductor.operator.Actor`
+- `name` — `conductor.config.InstanceName`
+- `reason` — `String`
+
+Emitted by `conductor.config.RemoveInstance` on its `changed` outcome.
+
+Nothing in this system reacts to it.
+
+### `InstanceReplaced`
+
+`conductor.config.InstanceReplaced`.
+
+It carries:
+
+- `revision_id` — `conductor.config.RevisionId`
+- `actor` — `conductor.operator.Actor`
+- `name` — `conductor.config.InstanceName`
+- `mapping` — `String`
+- `reason` — `String`
+
+Emitted by `conductor.config.PutInstance` on its `changed` outcome.
+
+Nothing in this system reacts to it.
+
 ## Errors
 
 ### `ConfigInvalid`
@@ -864,7 +1041,24 @@ It carries:
 
 - `path` — `String`
 
+Reported by `conductor.config.AddInstance` on its `invalid` outcome.
+
 Reported by `conductor.config.PutConfig` on its `invalid` outcome.
+
+Reported by `conductor.config.PutInstance` on its `invalid` outcome.
+
+Reported by `conductor.config.RemoveInstance` on its `invalid` outcome.
+
+### `InstanceExists`
+
+The config already names an instance of this name; nothing was written.
+
+
+It carries:
+
+- `name` — `conductor.config.InstanceName`
+
+Reported by `conductor.config.AddInstance` on its `exists` outcome.
 
 ### `LevelScopeMismatch`
 
@@ -894,11 +1088,17 @@ No outcome in this system reports it: it is declared and unreachable.
 
 An actor is who may ask this context for something. Every grant below points at a command this specification declares — a grant is a resolved reference, so "may invoke" something nobody wrote is not a permission this model can express, and an authorisation that authorises nothing cannot ship quietly.
 
+### `ControlPlane`
+
+`conductor.config.ControlPlane`, shown to a person as "Control plane".
+
+It may invoke [`AddInstance`](#addinstance), [`PutInstance`](#putinstance) and [`RemoveInstance`](#removeinstance).
+
 ### `Operator`
 
 `conductor.config.Operator`, shown to a person as "Operator".
 
-It may invoke [`PutConfig`](#putconfig).
+It may invoke [`AddInstance`](#addinstance), [`PutConfig`](#putconfig), [`PutInstance`](#putinstance) and [`RemoveInstance`](#removeinstance).
 
 ### `Tuner`
 
@@ -909,11 +1109,11 @@ It may invoke [`PutConfig`](#putconfig).
 
 ---
 
-Generated from conductor v1 · contract digest `slice-sha256/2:e46886c99396f118bec59bd86f08da395b14e84ed31bb731626b9815b2068555`. Do not edit this file; change the specification and regenerate it with `ess generate`.
+Generated from conductor v1 · contract digest `slice-sha256/2:7514fbe9942d02783f2358f99a56f3a61590a19c269de127e0ca264b016a0de7`. Do not edit this file; change the specification and regenerate it with `ess generate`.
 
 <!--
 generated from conductor v1
-contract digest slice-sha256/2:149361839fda9be7541f103323ff466118fe824fc36b471f99d552f2eee07060
+contract digest slice-sha256/2:7e4a5a0d780dcb21e25158bc5b59bcd7b827f49f58769248f1e6fd32ae0e26d7
 do not edit: regenerate with `ess generate`
 -->
 
@@ -944,10 +1144,11 @@ The instances conductord reconciles (design docs/design/architecture-next.md § 
 
 ### `ServeDaemon`
 
-`conductor.instance.ServeDaemon` is a record of two fields:
+`conductor.instance.ServeDaemon` is a record of three fields:
 
 - `install` — `Optional<Boolean>`, which may be absent
 - `uninstall` — `Optional<Boolean>`, which may be absent
+- `daemon_config` — `Optional<String>`, which may be absent
 
 ### `StartHostRole`
 
@@ -982,6 +1183,8 @@ It holds:
 - `binary_version` — `Optional<String>`, which may be absent
 - `last_seen` — `Optional<Timestamp>`, which may be absent
 - `box_id` — `Optional<conductor.placement.BoxId>`, which may be absent
+- `sources` — `List<conductor.config.Source>`
+- `detail` — `Optional<String>`, which may be absent
 - `changed_by` — `conductor.operator.Actor`
 
 It references at most one [`conductor.placement.Placement`](conductor-placement.md#placement), as `placement`, carried by `Instance.placement`. It references at most one [`conductor.placement.Box`](conductor-placement.md#box), as `box`, carried by `Instance.box_id`.
@@ -1047,7 +1250,7 @@ Illegal transitions are illegal by absence: no rule forbids them, there is simpl
 - `Unreachable` may not become `Upgrading`
 - `Upgrading` may not become `Purged`
 
-One view projects it: [`Instances`](#instances).
+Two views project it: [`InstanceByName`](#instancebyname) and [`Instances`](#instances).
 
 ### `Reconciliation`
 
@@ -1089,6 +1292,33 @@ One view projects it: [`Reconciliations`](#reconciliations).
 
 A view is what the outside world is promised it can observe. Each one says which instances it contains and how soon it reflects a command that has already returned, because "you can read this" without "how soon" is the promise every flaky suite is built on.
 
+### `InstanceByName`
+
+`conductor.instance.InstanceByName`, shown to a person as "One instance" and called `instance` on the wire.
+
+It reads [`Instance`](#instance).
+
+It contains the instances where `name == param.name` holds, and only those — so an instance a caller cannot find in here has been filtered out rather than lost.
+
+It exposes:
+
+- `name` — `conductor.config.InstanceName`
+- `state` — `conductor.instance.Instance.State`
+- `placement` — `conductor.placement.PlacementName`
+- `roles` — `List<conductor.config.RoleName>`
+- `binary_version` — `Optional<String>`, which may be absent
+- `last_seen` — `Optional<Timestamp>`, which may be absent
+- `box_id` — `Optional<conductor.placement.BoxId>`, which may be absent
+- `sources` — `List<conductor.config.Source>`
+- `detail` — `Optional<String>`, which may be absent
+- `changed_by` — `conductor.operator.Actor`
+
+It declares no order, so the rows come back in whatever order the implementation has, and two reads may disagree.
+
+**Read-your-writes**: it is current the moment the command that changed it returns. A caller that has just created an invoice and cannot see it in here has been told a lie about what it did.
+
+A generated scenario asserts it once, immediately after the command: a view promising this and not keeping the promise has to fail the suite rather than be retried until it passes.
+
 ### `Instances`
 
 `conductor.instance.Instances`, shown to a person as "Instances" and called `instances` on the wire.
@@ -1106,6 +1336,8 @@ It exposes:
 - `binary_version` — `Optional<String>`, which may be absent
 - `last_seen` — `Optional<Timestamp>`, which may be absent
 - `box_id` — `Optional<conductor.placement.BoxId>`, which may be absent
+- `sources` — `List<conductor.config.Source>`
+- `detail` — `Optional<String>`, which may be absent
 - `changed_by` — `conductor.operator.Actor`
 
 It declares no order, so the rows come back in whatever order the implementation has, and two reads may disagree.
@@ -1152,15 +1384,16 @@ It takes:
 - `name` — `conductor.config.InstanceName`
 - `answering` — `Boolean`
 - `binary_version` — `Optional<String>`, which may be absent
+- `detail` — `Optional<String>`, which may be absent
 - `at` — `Timestamp`
 
 It has four outcomes.
 
 **`unknown`** — No record of the instance is kept; nothing was observed. Taken when the identity the command names is one no record carries, before any other answer for it. No entity in this specification changes. It reports `conductor.instance.UnknownInstance`, carrying `name`. It emits nothing. A test reaches it by sending an identity no record carries, arranging nothing.
 
-**`answering`** — The runtime answers; the instance runs, with the version it reported and the time it answered. Taken when `answering == true` holds of the input. It moves a `conductor.instance.Instance` from `Running`, `Starting`, `Unreachable` and `Upgrading` to `Running`, along the declared move `come_up`. The instance is the one named by the input field `name`. It emits `conductor.instance.InstanceAnswered`. It sets `binary_version` from `input.binary_version`, `last_seen` from `input.at` and `changed_by` from `input.actor`. A test reaches it by constructing an input that satisfies that condition.
+**`answering`** — The runtime answers; the instance runs, with the version it reported and the time it answered. Taken when `answering == true` holds of the input. It moves a `conductor.instance.Instance` from `Running`, `Starting`, `Unreachable` and `Upgrading` to `Running`, along the declared move `come_up`. The instance is the one named by the input field `name`. It emits `conductor.instance.InstanceAnswered`. It sets `binary_version` from `input.binary_version`, `last_seen` from `input.at`, `detail` cleared and `changed_by` from `input.actor`. A test reaches it by constructing an input that satisfies that condition.
 
-**`not-answering`** — The runtime does not answer; the instance is a row with state Unreachable and the time it last answered. The default branch, taken when no other outcome's condition matched. It moves a `conductor.instance.Instance` from `Running`, `Starting`, `Unreachable` and `Upgrading` to `Unreachable`, along the declared move `lose`. The instance is the one named by the input field `name`. It emits `conductor.instance.InstanceUnreachable`. It sets `changed_by` from `input.actor`. A test reaches it by constructing an input that satisfies no other outcome's condition.
+**`not-answering`** — The runtime does not answer; the instance is a row with state Unreachable and the time it last answered. The default branch, taken when no other outcome's condition matched. It moves a `conductor.instance.Instance` from `Running`, `Starting`, `Unreachable` and `Upgrading` to `Unreachable`, along the declared move `lose`. The instance is the one named by the input field `name`. It emits `conductor.instance.InstanceUnreachable`. It sets `detail` from `input.detail` and `changed_by` from `input.actor`. A test reaches it by constructing an input that satisfies no other outcome's condition.
 
 **`not-running`** — A stopped or purged instance has no runtime to observe; nothing changed. Taken when the subject is resting in a state none of this command's moves start from — a `conductor.instance.Instance` in `Purged` and `Stopped`, which is what is left of the lifecycle once this command's own moves are taken away. The document lists none of it. No entity in this specification changes. It reports `conductor.instance.InstanceStateConflict`, carrying `name`. It emits nothing. A test reaches it by driving an instance into one of those states and then issuing the command, because no input selects this branch.
 
@@ -1212,6 +1445,7 @@ It takes:
 - `name` — `conductor.config.InstanceName`
 - `placement` — `conductor.placement.PlacementName`
 - `roles` — `List<conductor.config.RoleName>`
+- `sources` — `List<conductor.config.Source>`
 - `box_id` — `conductor.placement.BoxId`
 - `at` — `Timestamp`
 
@@ -1221,7 +1455,7 @@ It has four outcomes.
 
 **`placement-refused`** — The instance does not come back and nothing falls back; the daemon records why. Decided outside the input: substrate refused the box the placement asks for. No predicate over the input reaches this branch, and saying `when: false` instead would have claimed it is unreachable, which is a different and false statement. No entity in this specification changes. It reports `conductor.instance.PlacementRefused`, carrying `name` and `placement`. It emits nothing. A test reaches it by injecting the declared fault, because no input can.
 
-**`restarted`** — The runtime is stopped and started again in a box at the placement the config names. The default branch, taken when no other outcome's condition matched. It moves a `conductor.instance.Instance` from `Running` and `Unreachable` to `Starting`, along the declared move `restart`. The instance is the one named by the input field `name`. It emits `conductor.instance.InstanceRestarted`. It sets `placement` from `input.placement`, `roles` from `input.roles`, `box_id` from `input.box_id` and `changed_by` from `input.actor`. A test reaches it by constructing an input that satisfies no other outcome's condition.
+**`restarted`** — The runtime is stopped and started again in a box at the placement the config names. The default branch, taken when no other outcome's condition matched. It moves a `conductor.instance.Instance` from `Running` and `Unreachable` to `Starting`, along the declared move `restart`. The instance is the one named by the input field `name`. It emits `conductor.instance.InstanceRestarted`. It sets `placement` from `input.placement`, `roles` from `input.roles`, `box_id` from `input.box_id`, `sources` from `input.sources` and `changed_by` from `input.actor`. A test reaches it by constructing an input that satisfies no other outcome's condition.
 
 **`not-running`** — Only a running or unreachable instance is restarted; nothing changed. Taken when the subject is resting in a state none of this command's moves start from — a `conductor.instance.Instance` in `Purged`, `Starting`, `Stopped` and `Upgrading`, which is what is left of the lifecycle once this command's own moves are taken away. The document lists none of it. No entity in this specification changes. It reports `conductor.instance.InstanceStateConflict`, carrying `name`. It emits nothing. A test reaches it by driving an instance into one of those states and then issuing the command, because no input selects this branch.
 
@@ -1235,14 +1469,15 @@ It takes:
 - `name` — `conductor.config.InstanceName`
 - `placement` — `conductor.placement.PlacementName`
 - `roles` — `List<conductor.config.RoleName>`
+- `sources` — `List<conductor.config.Source>`
 - `box_id` — `conductor.placement.BoxId`
 - `at` — `Timestamp`
 
 It has six outcomes.
 
-**`created`** — The config names the instance and nothing ran it; its box is open, its runtime starting. Taken when no record carries the identity the command names, and no input-guarded refusal applies; it creates that record. It creates a `conductor.instance.Instance`, which starts in `Starting`. The new instance's identity is published as `name` on `conductor.instance.InstanceStarted`. It emits `conductor.instance.InstanceStarted`. It sets `placement` from `input.placement`, `roles` from `input.roles`, `binary_version` cleared, `last_seen` cleared, `box_id` from `input.box_id` and `changed_by` from `input.actor`. A test reaches it by sending an identity no record carries, arranging nothing.
+**`created`** — The config names the instance and nothing ran it; its box is open, its runtime starting. Taken when no record carries the identity the command names, and no input-guarded refusal applies; it creates that record. It creates a `conductor.instance.Instance`, which starts in `Starting`. The new instance's identity is published as `name` on `conductor.instance.InstanceStarted`. It emits `conductor.instance.InstanceStarted`. It sets `placement` from `input.placement`, `roles` from `input.roles`, `binary_version` cleared, `last_seen` cleared, `box_id` from `input.box_id`, `sources` from `input.sources`, `detail` cleared and `changed_by` from `input.actor`. A test reaches it by sending an identity no record carries, arranging nothing.
 
-**`started`** — The stopped instance's box is open again and its runtime starting. Taken when the existing subject is in Stopped. It moves a `conductor.instance.Instance` from `Stopped` to `Starting`, along the declared move `start`. The instance is the one named by the input field `name`. It emits `conductor.instance.InstanceStarted`. It sets `placement` from `input.placement`, `roles` from `input.roles`, `box_id` from `input.box_id` and `changed_by` from `input.actor`. A test establishes the declared subject state and constructs input selecting this branch in that state.
+**`started`** — The stopped instance's box is open again and its runtime starting. Taken when the existing subject is in Stopped. It moves a `conductor.instance.Instance` from `Stopped` to `Starting`, along the declared move `start`. The instance is the one named by the input field `name`. It emits `conductor.instance.InstanceStarted`. It sets `placement` from `input.placement`, `roles` from `input.roles`, `box_id` from `input.box_id`, `sources` from `input.sources` and `changed_by` from `input.actor`. A test establishes the declared subject state and constructs input selecting this branch in that state.
 
 **`already-started`** — The instance already runs or is coming up; nothing changed. Taken when the existing subject is in Running or Starting or Upgrading. It preserves the existing subject, without an error or event. The instance is the one named by the input field `name`. It emits nothing. A test establishes the declared subject state and constructs input selecting this branch in that state.
 
@@ -1488,6 +1723,10 @@ It carries:
 
 - `name` — `conductor.config.InstanceName`
 
+Reported by `conductor.config.PutInstance` on its `unknown` outcome.
+
+Reported by `conductor.config.RemoveInstance` on its `unknown` outcome.
+
 Reported by `conductor.instance.ObserveInstance` on its `unknown` outcome.
 
 Reported by `conductor.instance.PurgeInstance` on its `unknown` outcome.
@@ -1510,6 +1749,12 @@ An actor is who may ask this context for something. Every grant below points at 
 
 It may invoke [`ObserveInstance`](#observeinstance), [`Reconcile`](#reconcile), [`RestartInstance`](#restartinstance), [`StartInstance`](#startinstance), [`StopInstance`](#stopinstance) and [`UpgradeInstance`](#upgradeinstance).
 
+### `ControlPlane`
+
+`conductor.instance.ControlPlane`, shown to a person as "Control plane".
+
+It may invoke [`RestartInstance`](#restartinstance).
+
 ### `Operator`
 
 `conductor.instance.Operator`, shown to a person as "Operator".
@@ -1519,11 +1764,11 @@ It may invoke [`PurgeInstance`](#purgeinstance), [`RestartInstance`](#restartins
 
 ---
 
-Generated from conductor v1 · contract digest `slice-sha256/2:149361839fda9be7541f103323ff466118fe824fc36b471f99d552f2eee07060`. Do not edit this file; change the specification and regenerate it with `ess generate`.
+Generated from conductor v1 · contract digest `slice-sha256/2:7e4a5a0d780dcb21e25158bc5b59bcd7b827f49f58769248f1e6fd32ae0e26d7`. Do not edit this file; change the specification and regenerate it with `ess generate`.
 
 <!--
 generated from conductor v1
-contract digest slice-sha256/2:55e3b46448d8a315d3096117d41786ebf59713eedf0fbbf53aec2bfbe467fb05
+contract digest slice-sha256/2:80aa22310a21f78e9b52da5f1acb982a6f7b23245c2f4e5af56c91f6720ab85f
 do not edit: regenerate with `ess generate`
 -->
 
@@ -1546,7 +1791,7 @@ Who acts on conductor, told apart by kind (design docs/design/architecture-next.
 
 ### `ActorKind`
 
-`conductor.operator.ActorKind` is one of `Human`, `Agent` and `Daemon`.
+`conductor.operator.ActorKind` is one of `Human`, `Agent`, `Daemon` and `ControlPlane`.
 
 ### `AgentActor`
 
@@ -1729,7 +1974,13 @@ It carries:
 
 - `actor` — `conductor.operator.Actor`
 
+Reported by `conductor.config.AddInstance` on its `actor-not-human` outcome.
+
 Reported by `conductor.config.PutConfig` on its `actor-not-human` outcome.
+
+Reported by `conductor.config.PutInstance` on its `actor-not-human` outcome.
+
+Reported by `conductor.config.RemoveInstance` on its `actor-not-human` outcome.
 
 Reported by `conductor.decision.AnswerEscalatedRequest` on its `agent-actor` outcome.
 
@@ -1816,11 +2067,11 @@ It may read [`Operators`](#operators), which an actor whose grant does not name 
 
 ---
 
-Generated from conductor v1 · contract digest `slice-sha256/2:55e3b46448d8a315d3096117d41786ebf59713eedf0fbbf53aec2bfbe467fb05`. Do not edit this file; change the specification and regenerate it with `ess generate`.
+Generated from conductor v1 · contract digest `slice-sha256/2:80aa22310a21f78e9b52da5f1acb982a6f7b23245c2f4e5af56c91f6720ab85f`. Do not edit this file; change the specification and regenerate it with `ess generate`.
 
 <!--
 generated from conductor v1
-contract digest slice-sha256/2:9a003b10930a831edad88f69f8dbd9b46f6efc3513636feee22c9bcb09da3038
+contract digest slice-sha256/2:a5d7a42fe206574cdd31a9923f6d79e43dbe06e77dd53128b5e1e7b2291f9345
 do not edit: regenerate with `ess generate`
 -->
 
@@ -2205,11 +2456,11 @@ It may invoke [`CloseBox`](#closebox) and [`OpenBox`](#openbox).
 
 ---
 
-Generated from conductor v1 · contract digest `slice-sha256/2:9a003b10930a831edad88f69f8dbd9b46f6efc3513636feee22c9bcb09da3038`. Do not edit this file; change the specification and regenerate it with `ess generate`.
+Generated from conductor v1 · contract digest `slice-sha256/2:a5d7a42fe206574cdd31a9923f6d79e43dbe06e77dd53128b5e1e7b2291f9345`. Do not edit this file; change the specification and regenerate it with `ess generate`.
 
 <!--
 generated from conductor v1
-contract digest slice-sha256/2:ed58a7aff3ec068c8e56468bd3c08c29fc66ea5c8949e39a8b21fb907e4939f8
+contract digest slice-sha256/2:7d840a78dada4abf8cce90f6718b3ea2db6ba7f8447df25f259b2bcc3ad92a7b
 do not edit: regenerate with `ess generate`
 -->
 
@@ -2481,11 +2732,11 @@ It may invoke [`PutSecret`](#putsecret).
 
 ---
 
-Generated from conductor v1 · contract digest `slice-sha256/2:ed58a7aff3ec068c8e56468bd3c08c29fc66ea5c8949e39a8b21fb907e4939f8`. Do not edit this file; change the specification and regenerate it with `ess generate`.
+Generated from conductor v1 · contract digest `slice-sha256/2:7d840a78dada4abf8cce90f6718b3ea2db6ba7f8447df25f259b2bcc3ad92a7b`. Do not edit this file; change the specification and regenerate it with `ess generate`.
 
 <!--
 generated from conductor v1
-contract digest slice-sha256/2:50614836b416944b5208778fad366cdbfa664b02fd7194f14c58e167e034231b
+contract digest slice-sha256/2:cc93e2e137855e94b48fa05d28cfa134935c96fb2dc48688d48d5e8ab514397b
 do not edit: regenerate with `ess generate`
 -->
 
@@ -2743,11 +2994,11 @@ It may invoke [`MigrateStore`](#migratestore).
 
 ---
 
-Generated from conductor v1 · contract digest `slice-sha256/2:50614836b416944b5208778fad366cdbfa664b02fd7194f14c58e167e034231b`. Do not edit this file; change the specification and regenerate it with `ess generate`.
+Generated from conductor v1 · contract digest `slice-sha256/2:cc93e2e137855e94b48fa05d28cfa134935c96fb2dc48688d48d5e8ab514397b`. Do not edit this file; change the specification and regenerate it with `ess generate`.
 
 <!--
 generated from conductor v1
-contract digest slice-sha256/2:fa24257050c27d9a9c836fd57c64eaef29649029892b56d50889f77fb48e3dfc
+contract digest slice-sha256/2:b12e68d45ca12d036d1eacd3ec6f7013e12abcea7b258dd8fdd696d7c048926b
 do not edit: regenerate with `ess generate`
 -->
 
@@ -3156,4 +3407,4 @@ It may invoke [`ContributeToken`](#contributetoken) and [`WithdrawToken`](#withd
 
 ---
 
-Generated from conductor v1 · contract digest `slice-sha256/2:fa24257050c27d9a9c836fd57c64eaef29649029892b56d50889f77fb48e3dfc`. Do not edit this file; change the specification and regenerate it with `ess generate`.
+Generated from conductor v1 · contract digest `slice-sha256/2:b12e68d45ca12d036d1eacd3ec6f7013e12abcea7b258dd8fdd696d7c048926b`. Do not edit this file; change the specification and regenerate it with `ess generate`.

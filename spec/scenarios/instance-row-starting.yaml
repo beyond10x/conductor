@@ -1,0 +1,34 @@
+# An instance whose runtime the daemon asked for and which does not run yet (a Pending pod, a
+# unit or child not answering yet) reads `Starting`, with the sources the config gives it and no
+# detail.
+# The daemon acts on its own account: `{kind: Daemon}`.
+type: ess-scenario/1
+domain: conductor.instance
+scenario: instance-row-starting
+summary: A started instance that has not answered yet reads Starting with its sources, in the list and as one row.
+
+timeline:
+  - at: 2026-11-12T09:00:00Z
+    command: conductor.instance.StartInstance
+    actor: conductor.instance.Conductord
+    input:
+      actor: {kind: Daemon}
+      name: example-org
+      placement: none
+      roles: [controller]
+      sources: [{kind: Local, value: {path: /srv/example-org, exclude: []}}]
+      box_id: 6f1c1d2e-0000-4000-8000-000000000001
+      at: 2026-11-12T09:00:00Z
+    outcome: created
+
+assert:
+  - view: conductor.instance.Instances
+    contains:
+      name: example-org
+      state: Starting
+      sources: [{kind: Local, value: {path: /srv/example-org, exclude: []}}]
+  - view: conductor.instance.InstanceByName
+    params: {name: example-org}
+    contains:
+      name: example-org
+      state: Starting

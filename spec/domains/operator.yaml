@@ -39,9 +39,18 @@ types:
   # - `Daemon`: conductord or an instance runtime acting on its own account (reconcile, observe,
   #   open and close a box, resolve secrets, declare its kinds, a stop it observed); neither
   #   field is set. Printed `daemon`.
+  # - `ControlPlane`: the one machine principal a consumer control plane calls the daemon as, a
+  #   request whose bearer equals the value of the secret `daemon.control_token` names (compared
+  #   in constant time), with or without `daemon.tls`. Its name is `control-plane`, which the kind
+  #   carries, so neither field is set. Printed `control-plane`. It is admitted for the reads of
+  #   `/v1/` a person may make and for adding, replacing, removing and restarting an instance
+  #   (`conductor.config.AddInstance`, `PutInstance`, `RemoveInstance`,
+  #   `conductor.instance.RestartInstance`); every other command that refuses an actor that is no
+  #   person refuses it as it refuses an agent. Without `daemon.control_token` no request is
+  #   admitted as it.
   - name: conductor.operator.ActorKind
     kind: enum
-    variants: [Human, Agent, Daemon]
+    variants: [Human, Agent, Daemon, ControlPlane]
 
   # Who issued a command: a kind, and the fields of that kind, never told apart by naming
   # convention. A grant is checked on `kind`, so a person-only command's refusal is a predicate

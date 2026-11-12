@@ -1,0 +1,53 @@
+# A consumer control plane, the machine principal `control-plane` (`daemon.control_token`), adds
+# one whole instance to the config file: the mapping is validated, written as `instances[]`,
+# committed with the actor and the reason, recorded as a ConfigRevision at the instance level
+# with the path `.`, and the daemon reconciles. A second add of the same name is refused.
+type: ess-scenario/1
+domain: conductor.config
+scenario: config-add-instance
+summary: The control plane's add of a new instance is committed and recorded with its actor; a second add of the same name is refused as InstanceExists.
+
+timeline:
+  - at: 2026-11-12T09:00:00Z
+    command: conductor.config.AddInstance
+    actor: conductor.config.ControlPlane
+    input:
+      actor: {kind: ControlPlane}
+      name: example-org-two
+      mapping: "{sources: [{local: /srv/example-org-two}], checkouts: {root: /srv/example-org-two, trees: /srv/trees}}"
+      reason: a new tenant
+      changed_at: 2026-11-12T09:00:00Z
+    outcome: changed
+    events:
+      - event: conductor.config.InstanceAdded
+        payload:
+          actor: {kind: ControlPlane}
+          name: example-org-two
+          mapping: "{sources: [{local: /srv/example-org-two}], checkouts: {root: /srv/example-org-two, trees: /srv/trees}}"
+          reason: a new tenant
+
+  - at: 2026-11-12T09:05:00Z
+    command: conductor.config.AddInstance
+    actor: conductor.config.ControlPlane
+    input:
+      actor: {kind: ControlPlane}
+      name: example-org-two
+      mapping: "{sources: [{local: /srv/example-org-two}], checkouts: {root: /srv/example-org-two, trees: /srv/trees}}"
+      reason: the same tenant again
+      changed_at: 2026-11-12T09:05:00Z
+    outcome: exists
+    error:
+      name: conductor.config.InstanceExists
+
+assert:
+  - view: conductor.config.ConfigRevisions
+    contains:
+      state: Committed
+      actor: {kind: ControlPlane}
+      level: Instance
+      instance: example-org-two
+      path: "."
+      reason: a new tenant
+  - view: conductor.config.ConfigRevisions
+    excludes:
+      reason: the same tenant again

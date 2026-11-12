@@ -1,0 +1,49 @@
+# The control plane retires an instance: its mapping leaves the config file, the change is
+# committed and recorded at the instance level with the path `.` and no value, and the daemon
+# stops its runtime and keeps its data. A removal of a name the config does not hold is refused.
+type: ess-scenario/1
+domain: conductor.config
+scenario: config-remove-instance
+summary: The control plane's removal of an instance is committed and recorded with no value; a removal of an unknown name is refused as UnknownInstance.
+
+timeline:
+  - at: 2026-11-12T13:00:00Z
+    command: conductor.config.RemoveInstance
+    actor: conductor.config.ControlPlane
+    input:
+      actor: {kind: ControlPlane}
+      name: example-org
+      reason: the tenant left
+      changed_at: 2026-11-12T13:00:00Z
+    outcome: changed
+    events:
+      - event: conductor.config.InstanceRemoved
+        payload:
+          actor: {kind: ControlPlane}
+          name: example-org
+          reason: the tenant left
+
+  - at: 2026-11-12T13:05:00Z
+    command: conductor.config.RemoveInstance
+    actor: conductor.config.ControlPlane
+    input:
+      actor: {kind: ControlPlane}
+      name: example-org-unknown
+      reason: no such tenant
+      changed_at: 2026-11-12T13:05:00Z
+    outcome: unknown
+    error:
+      name: conductor.instance.UnknownInstance
+
+assert:
+  - view: conductor.config.ConfigRevisions
+    contains:
+      state: Committed
+      actor: {kind: ControlPlane}
+      level: Instance
+      instance: example-org
+      path: "."
+      reason: the tenant left
+  - view: conductor.config.ConfigRevisions
+    excludes:
+      reason: no such tenant
