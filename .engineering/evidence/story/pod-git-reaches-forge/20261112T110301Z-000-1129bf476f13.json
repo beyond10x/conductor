@@ -1,0 +1,15 @@
+{
+  "at": "2026-11-12T11:03:01Z",
+  "actor": "human:timo",
+  "artifact": "story:pod-git-reaches-forge",
+  "kind": "story",
+  "revision": 1,
+  "change": {
+    "change": "evidence",
+    "kind": "review_outcome",
+    "source": "review-result:forge-token-security-round-2",
+    "reference": "45ef228b4",
+    "review": "review-result:forge-token-security-round-2",
+    "outcome": "fixed"
+  }
+}
