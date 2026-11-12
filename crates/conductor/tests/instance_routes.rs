@@ -1026,3 +1026,115 @@ fn the_control_token_is_a_secret_name_in_the_daemon_section() {
     assert!(said.contains("daemon.control_token"), "{said}");
     assert!(!said.contains("plain-value-here"), "{said}");
 }
+
+/// The daemon's own secrets are no instance's (`conductor_cli::secret::daemons_own`): a mapping
+/// that names the control token's secret under `model_token`, or as a remote placement's
+/// `bearer`, is 422 `ConfigInvalid` at that path, its reason saying "a secret of the daemon's
+/// own" and not which key of the daemon names it, the file unchanged; a secret the daemon does
+/// not own is still taken; and a file written by hand that names it does not validate.
+#[test]
+fn a_mapping_naming_a_secret_of_the_daemons_own_is_refused_by_its_path() {
+    let case = Case::new("own-secret");
+    let text = case.text();
+    fs::write(
+        case.file(),
+        text.replacen(
+            "daemon: {",
+            "daemon: {control_token: \"secret:control\", ",
+            1,
+        ),
+    )
+    .expect("write the config file");
+    case.assert_valid();
+    let api = Arc::new(controlled(&case, None, Some(CONTROL)));
+    let listener = TcpListener::bind(("127.0.0.1", 0)).expect("bind loopback");
+    let port = listener.local_addr().expect("address").port();
+    thread::spawn(move || api::serve(&listener, &api));
+    let token = bearer(CONTROL);
+    let token = [(token.0, token.1.as_str())];
+    let before = case.text();
+
+    let mut by_model = case.mapping("beta", "beta");
+    by_model["model_token"] = json!("secret:control");
+    let mut by_bearer = case.mapping("beta", "beta");
+    by_bearer["placement"] = json!({
+        "daemon": "https://substrate.example.com",
+        "adapter": "oci",
+        "bearer": "secret:control",
+        "trust_roots": "/etc/substrate/roots.pem",
+    });
+    let mut replaced = case.mapping("alpha", "alpha");
+    replaced["model_token"] = json!("secret:control");
+    for (method, target, mapping, path) in [
+        (
+            "POST",
+            "/v1/instances",
+            by_model,
+            "instances[1].model_token",
+        ),
+        (
+            "POST",
+            "/v1/instances",
+            by_bearer,
+            "instances[1].placement.bearer",
+        ),
+        (
+            "PUT",
+            "/v1/instances/alpha",
+            replaced,
+            "instances[0].model_token",
+        ),
+    ] {
+        let refused = plain(
+            port,
+            method,
+            target,
+            &token,
+            Some(&json!({"mapping": mapping, "reason": "a tenant"})),
+        );
+        assert_eq!(refused.status, 422, "{path}: {refused:?}");
+        let answer = refused.json();
+        assert_eq!(
+            answer["error"], "conductor.config.ConfigInvalid",
+            "{answer}"
+        );
+        assert_eq!(answer["path"], path, "{answer}");
+        let detail = answer["detail"].as_str().unwrap_or_default();
+        assert!(
+            detail.contains(&format!("{path}: names a secret of the daemon's own"))
+                && !detail.contains("control_token")
+                && !detail.contains('\n'),
+            "{answer}"
+        );
+        assert_eq!(case.text(), before, "{path}: the file changed");
+    }
+
+    let mut not_owned = case.mapping("beta", "beta");
+    not_owned["model_token"] = json!("secret:beta-model");
+    let created = plain(
+        port,
+        "POST",
+        "/v1/instances",
+        &token,
+        Some(&json!({"mapping": not_owned, "reason": "a tenant"})),
+    );
+    assert_eq!(created.status, 201, "{created:?}");
+    case.assert_valid();
+
+    fs::write(
+        case.file(),
+        format!("{before}    model_token: secret:control\n"),
+    )
+    .expect("write the config file");
+    let output = case.validate();
+    let said = format!(
+        "{}{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert_eq!(output.status.code(), Some(1), "{said}");
+    assert!(
+        said.contains("instances[0].model_token: names a secret of the daemon's own"),
+        "{said}"
+    );
+}

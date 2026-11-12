@@ -590,6 +590,15 @@ impl Pods {
         );
         data.insert(TOKEN_KEY.to_owned(), json!(base64_encode(token.as_bytes())));
         let mut missing = Vec::new();
+        // Validation refuses a daemon's own secret in an instance or `env`; a file written before
+        // that rule still gets none of them into a pod.
+        let own = crate::secret::daemons_own(&config.daemon);
+        if made.secrets.iter().any(|secret| own.contains(secret)) {
+            bail!(
+                "a secret the pod of {name} would get is a secret of the daemon's own, which no \
+                 pod gets: name a secret kept for the instance; nothing is created"
+            );
+        }
         for secret in &made.secrets {
             if secret == pod::CONFIG_FILE || secret == TOKEN_KEY {
                 bail!(

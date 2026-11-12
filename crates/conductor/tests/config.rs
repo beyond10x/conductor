@@ -3619,6 +3619,73 @@ fn pod_instance(extra: &str) -> String {
     )
 }
 
+/// The daemon's own secrets, the control token and the store's password, are no instance's and
+/// no pod's: an instance or `globals` that names one, or a `daemon.kubernetes.env` secret that
+/// does, is refused by its path with "a secret of the daemon's own", not naming the daemon's key;
+/// a name the daemon does not own, or one only another daemon's section names, validates.
+#[test]
+fn a_secret_of_the_daemons_own_is_no_instances_and_no_pods() {
+    let case = Case::new("daemons-own-secrets");
+    let postgres = "store: \"postgres://conductor:secret:store-password@db.example.com/conductor\"";
+    for (name, text, path) in [
+        (
+            "instance-control",
+            pods(&pod_instance("\x20   model_token: secret:control-plane\n")),
+            "instances[0].model_token",
+        ),
+        (
+            "globals-control",
+            pods(&format!(
+                "globals: {{model_token: secret:control-plane}}\n{}",
+                pod_instance("")
+            )),
+            "globals.model_token",
+        ),
+        (
+            "env-control",
+            pods(&pod_instance(""))
+                .replace("secret: secret:forge-token", "secret: secret:control-plane"),
+            "daemon.kubernetes.env[0].secret",
+        ),
+        (
+            "instance-store-password",
+            pods(&pod_instance("\x20   model_token: secret:store-password\n"))
+                .replace("store: \"sqlite:/srv/conductor.sqlite\"", postgres),
+            "instances[0].model_token",
+        ),
+    ] {
+        let file = case.write(&format!("{name}.yaml"), &text);
+        let problems = refused(&case, &file);
+        assert!(
+            problems.contains(&format!("{path}: names a secret of the daemon's own")),
+            "{name}: {problems}"
+        );
+        assert!(!problems.contains("control_token"), "{name}: {problems}");
+        assert!(!problems.contains("daemon.store"), "{name}: {problems}");
+    }
+
+    for (name, text) in [
+        (
+            "not-owned",
+            pods(&pod_instance("\x20   model_token: secret:alpha-model\n")),
+        ),
+        (
+            "no-control-token",
+            pods(&pod_instance("\x20   model_token: secret:control-plane\n"))
+                .replace("\x20 control_token: secret:control-plane\n", ""),
+        ),
+    ] {
+        let file = case.write(&format!("{name}.yaml"), &text);
+        let output = case.with_file(&file, &["config", "validate"]);
+        assert_eq!(
+            output.status.code(),
+            Some(0),
+            "{name}: {}",
+            describe(&output)
+        );
+    }
+}
+
 /// `daemon.kubernetes` (design: instance pods): a file of the daemon section alone, with no
 /// instance, validates where it names the instance pods, and is refused by the path `instances`
 /// where it does not.

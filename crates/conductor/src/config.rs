@@ -78,7 +78,10 @@
 //!   `records`, `state`, `cache`) it writes lies under its data mount ([`pod::DATA_MOUNT`]); one
 //!   it leaves out, `checkouts` included, its pod's file fills in there ([`pod::render`]).
 //!   `daemon.control_token` is `secret:<name>`. A daemon-config file holds `version` and `daemon`
-//!   only ([`parse_daemon_config`]).
+//!   only ([`parse_daemon_config`]);
+//! - the daemon's own secrets ([`crate::secret::daemons_own`]: the control token, the store's
+//!   password) are no instance's and no pod's: a `secret:<name>` naming one under `globals` or
+//!   an instance, or as a `daemon.kubernetes.env` secret, is refused by its path.
 //!
 //! An instance may leave out every key but `name`, `sources` and `checkouts`. Absent, `records`,
 //! `state` and `cache` are `~/.b10x/conductor/<name>/records`, `~/.b10x/conductor/<name>/state`
@@ -504,6 +507,12 @@ const CONFINEMENT_KEYS: [&str; 3] = ["mode", "provider", "limits"];
 /// The keys `conductor.config/2` adds to the file and to an instance: a `conductor.config/1`
 /// file that writes one is told to write the new version.
 const SECOND_KEYS: [&str; 4] = ["daemon", "globals", "placement", "limits"];
+/// Why an instance's or the globals' `secret:<name>` naming a daemon's own secret is refused.
+const OWN_SECRET_OF_INSTANCE: &str = "names a secret of the daemon's own, which no instance may \
+     name: name a secret the daemon's secrets source keeps for the instance";
+/// Why a `daemon.kubernetes.env` secret naming a daemon's own secret is refused.
+const OWN_SECRET_OF_POD: &str = "names a secret of the daemon's own, which no pod gets: name a \
+     secret the daemon's secrets source keeps for the pods";
 /// The keys `conductor.config/2` removed from an instance, each with why (design
 /// architecture-next § 9, § 11).
 const REMOVED_KEYS: [(&str, &str); 3] = [
@@ -2119,7 +2128,7 @@ pub fn secret_name(text: &str) -> bool {
 /// The password a URL writes, if any: in the user information of a `<scheme>://` URL
 /// (`postgres://user:<password>@host`), or as a `password` parameter of its query
 /// (`?password=<password>`, as libpq reads it).
-fn url_password(url: &str) -> Option<&str> {
+pub(crate) fn url_password(url: &str) -> Option<&str> {
     let in_user = url.split_once("://").and_then(|(_, rest)| {
         let authority = rest.split('/').next().unwrap_or(rest);
         let (user, _) = authority.rsplit_once('@')?;
@@ -2313,6 +2322,36 @@ impl Reader<'_> {
                         continue;
                     }
                     self.secrets(item, &at);
+                }
+            }
+            _ => {}
+        }
+    }
+
+    /// Each `secret:<name>` under `value` (at `path`) that names one of `own`, the daemon's own
+    /// secrets ([`crate::secret::daemons_own`]), is a problem at its path saying `why`.
+    fn not_daemons(
+        &mut self,
+        value: &Value,
+        path: &str,
+        own: &std::collections::BTreeSet<String>,
+        why: &str,
+    ) {
+        match value {
+            Value::String(text) => {
+                let name = text.strip_prefix("secret:").filter(|_| secret_name(text));
+                if name.is_some_and(|name| own.contains(name)) {
+                    self.problem(path, why);
+                }
+            }
+            Value::Array(items) => {
+                for (index, item) in items.iter().enumerate() {
+                    self.not_daemons(item, &format!("{path}[{index}]"), own, why);
+                }
+            }
+            Value::Object(map) => {
+                for (key, item) in map {
+                    self.not_daemons(item, &join(path, key), own, why);
                 }
             }
             _ => {}
@@ -2598,6 +2637,15 @@ impl Reader<'_> {
             Some(value) if self.second => self.daemon(value, "daemon"),
             _ => Some(default_daemon(self.home)),
         };
+        // The daemon's own secrets are no instance's: neither `globals` nor an instance names one.
+        if let Some(daemon) = &daemon {
+            let own = crate::secret::daemons_own(daemon);
+            for key in ["globals", "instances"] {
+                if let Some(value) = Self::get(map, key).filter(|_| !own.is_empty()) {
+                    self.not_daemons(value, key, &own, OWN_SECRET_OF_INSTANCE);
+                }
+            }
+        }
         // Where the daemon runs its instances as pods, each is read as a pod's, whether or not
         // the section reads without a problem.
         self.pods = self.second
@@ -2875,7 +2923,7 @@ impl Reader<'_> {
             Some(_) => None,
             None => Some(None),
         };
-        Some(Daemon {
+        let daemon = Daemon {
             port: port?,
             loopback: loopback?,
             tls: tls?,
@@ -2891,7 +2939,24 @@ impl Reader<'_> {
             address: address?,
             kubernetes: kubernetes?,
             control_token: control_token?,
-        })
+        };
+        // The pods get none of the daemon's own secrets either.
+        let own = crate::secret::daemons_own(&daemon);
+        let env = daemon
+            .kubernetes
+            .iter()
+            .flat_map(|kubernetes| &kubernetes.env);
+        for (index, variable) in env.enumerate() {
+            if variable
+                .secret
+                .as_ref()
+                .is_some_and(|name| own.contains(&name.0))
+            {
+                let at = join(&join(path, "kubernetes"), "env");
+                self.problem(&format!("{at}[{index}].secret"), OWN_SECRET_OF_POD);
+            }
+        }
+        Some(daemon)
     }
 
     /// `daemon.kubernetes` (`conductor.config.Kubernetes`): `namespace` and `owner` each a

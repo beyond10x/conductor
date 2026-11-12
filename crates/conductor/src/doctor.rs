@@ -2103,17 +2103,15 @@ pub fn config_lines(flag: Option<&Path>) -> Vec<(String, Option<String>)> {
 }
 
 /// Each right a daemon that runs its instances as pods needs in their namespace, as a verb and a
-/// resource: create, get, list and delete on pods, volume claims and Secrets, and get on a
-/// pod's log (design: instance pods).
-pub const POD_RIGHTS: [(&str, &str); 13] = [
+/// resource: create, get, list and delete on pods and Secrets, create on volume claims, and get on
+/// a pod's log (design: instance pods). The daemon keeps every claim it made, so it neither
+/// reads, lists nor deletes one: no right of its could erase an instance's data.
+pub const POD_RIGHTS: [(&str, &str); 10] = [
     ("create", "pods"),
     ("get", "pods"),
     ("list", "pods"),
     ("delete", "pods"),
     ("create", "persistentvolumeclaims"),
-    ("get", "persistentvolumeclaims"),
-    ("list", "persistentvolumeclaims"),
-    ("delete", "persistentvolumeclaims"),
     ("create", "secrets"),
     ("get", "secrets"),
     ("list", "secrets"),

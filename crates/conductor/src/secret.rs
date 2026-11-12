@@ -753,6 +753,24 @@ fn collect(value: &Yaml, into: &mut BTreeSet<String>) {
     }
 }
 
+/// The names of the daemon's own secrets, those its `daemon` section names for the daemon
+/// itself: the control token (`daemon.control_token`) and the store's password (`daemon.store`,
+/// a `secret:<name>` password). No other key of the section names one: `daemon.secrets.url`
+/// holds no password, `daemon.tls` names files, and `daemon.kubernetes.env` names the pods'
+/// secrets, not the daemon's. They belong to no instance: an instance's config that names one
+/// does not validate, and no pod's Secret holds one.
+#[must_use]
+pub fn daemons_own(daemon: &conductor_model::config::Daemon) -> BTreeSet<String> {
+    let mut own = BTreeSet::new();
+    if let Some(name) = &daemon.control_token {
+        own.insert(name.0.clone());
+    }
+    if let Some(name) = crate::config::url_password(&daemon.store.0).and_then(named) {
+        own.insert(name.to_owned());
+    }
+    own
+}
+
 /// Every `secret:<name>` each instance's effective config writes, by instance: the names under
 /// `globals` and under the instance's own entry. The daemon's own (`daemon.*`) are no
 /// instance's. A text that is no YAML names none.
