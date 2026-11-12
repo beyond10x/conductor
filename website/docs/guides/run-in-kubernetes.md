@@ -31,6 +31,13 @@ The daemon and every instance pod run the release's container image, the one
 `registry.example.com/conductor:<tag>`; put the reference of your registry there, twice: once as
 the StatefulSet's image, once as `daemon.kubernetes.image`.
 
+The daemon passes `daemon.kubernetes.image` to each instance pod as written, so a reference by
+digest (`registry.example.com/conductor:<tag>@sha256:<digest>` or
+`registry.example.com/conductor@sha256:<digest>`) starts the pods from that digest. An instance's
+`binary_version` is read from the reference, not from the running binary: the tag where the
+reference has one, the first 19 characters of the digest (`sha256:` and 12 more) where it has a
+digest only, `latest` where it has neither.
+
 ## The manifests
 
 Conductor ships no chart and no install manifests. These are an example a control plane's own
@@ -258,7 +265,7 @@ instances live on the volume and arrive over HTTP. A file with no instance is al
 | `daemon.kubernetes.image` | `registry.example.com/conductor:<tag>` | the image every instance pod runs; its tag is the instance's `binary_version` |
 | `daemon.kubernetes.owner` | `example-org` | the value of the label `conductor/daemon` on every object the daemon makes |
 | `daemon.kubernetes.api_port` | `7301` | the port the runtime serves its API on in its pod |
-| `daemon.kubernetes.volume.size` | `10G` | the size of each instance's claim; `volume.storage_class` names its class, absent the cluster's default |
+| `daemon.kubernetes.volume.size` | `10G` | the size of each instance's claim, a whole number of GiB written with `G`, 1G or more (`Gi`, `Mi` and other suffixes are refused); `volume.storage_class` names its class, absent the cluster's default |
 | `daemon.kubernetes.resources` | none | `requests` and `limits` of `cpu` and `memory` for each instance pod |
 | `daemon.kubernetes.env` | none | variables of each instance pod, each a `value` or a `secret`, such as `GH_TOKEN` for an instance with a GitHub source |
 
@@ -471,6 +478,14 @@ instance pods run on through it, with the same uid and no restart.
 | an instance pod ends | starts it again after the failed-start back-off; the row's `detail` holds what the container said, or the last lines of its log |
 | `PUT /v1/instances/{name}` changes the mapping | replaces the pod once: deleted, then created on the new rendering |
 | `daemon.kubernetes.image` changes | replaces each instance pod once, on the new image |
+
+The instances are in the daemon's config file and nowhere else. A daemon that starts on an empty
+volume holds no instance, and at its first pass it deletes every pod and Secret that carries its
+`conductor/daemon` label; the claims stay, and adding an instance again by the same name mounts
+its claim again. So keep the daemon's volume across restarts and upgrades. A Deployment in place
+of the StatefulSet works where a claim holds the directory of `CONDUCTOR_CONFIG`, the replica
+count is one and the strategy is `Recreate`; the daemon uses nothing else of a StatefulSet, neither
+its pod name nor its hostname.
 
 The daemon reads the ConfigMap at its start only. After a change to it, restart the daemon's pod,
 `kubectl -n conductor rollout restart statefulset/conductor`, or let the chart put a checksum of
