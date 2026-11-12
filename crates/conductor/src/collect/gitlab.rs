@@ -463,7 +463,9 @@ pub const PAGES: usize = 100;
 
 /// The variable `glab config --help` names as the override of its `telemetry` key: set to
 /// `false`, `glab` sends no usage data to the forge. Every command the collectors run carries it
-/// ([`super::repositories::answer`]); without it, one pass sent the forge an event per call.
+/// ([`super::repositories::answer`]); without it, one pass sent the forge an event per call. An
+/// instance pod's environment carries it too, for every `glab` the pod runs
+/// ([`crate::daemon::pods::manifests`]).
 pub const TELEMETRY_VARIABLE: &str = "GLAB_SEND_TELEMETRY";
 
 /// One `gitlab` source, as the collectors read it: its forge, its group and its `exclude`
@@ -597,8 +599,8 @@ impl Forge {
 
     /// [`Forge::projects`], and each project of the list it leaves out because a step of its
     /// path names no checkout ([`checkouts::names_no_checkout`]), as `(its path under the group,
-    /// the line a member failure records)`; one an `exclude` entry covers is left out without
-    /// one.
+    /// the line a member failure records)`; one an `exclude` entry covers, or one no `include`
+    /// entry covers by its path, is left out without one.
     ///
     /// # Errors
     ///
@@ -633,8 +635,13 @@ impl Forge {
                 continue;
             }
             // A step `.git` or one a clone in progress is made under names no checkout: the
-            // project is no repository of the instance, and is reported.
+            // project is no repository of the instance, and is reported where the source would
+            // otherwise collect it, an `include` entry covering its path or none named; else it
+            // is left out without a report, as an excluded one is.
             if let Some(step) = steps.iter().find(|step| checkouts::names_no_checkout(step)) {
+                if !self.covered(steps.as_slice()) {
+                    continue;
+                }
                 refused.push((
                     path.clone(),
                     format!(

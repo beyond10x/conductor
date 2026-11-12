@@ -973,12 +973,17 @@ pub(crate) fn record(
 /// that did not answer when it failed. Takes no snapshot when a program the collectors start for
 /// the instance ([`collect::programs`]) is not on `PATH`.
 ///
+/// Every command its collectors run stays in its process group ([`collect::in_group`]): the
+/// cycle's step and a pod's start stop that group at their bound, and none of its `git`, `gh`
+/// or `glab` runs on after it.
+///
 /// # Errors
 ///
 /// `InvalidCount` for negative free bytes or a budget that is not positive, a program the
 /// collectors start is missing (named), or what [`take`] answers.
 pub fn start_snapshot(state: Option<&Path>, args: StartSnapshotArgs) -> Result<ExitCode> {
     const COMMAND: &str = "snapshot start-snapshot";
+    collect::in_group();
     no_input_json(args.input_json, "snapshot start-snapshot --input-json")?;
     let taken = run(COMMAND, || {
         let started_at = match args.started_at {

@@ -1241,8 +1241,11 @@ const INSTANCE_SECRETS: &str = "secrets";
 /// daemon's config file, read at this call, and the secrets source it started with, never a
 /// value. Admitted as `GET /v1/instances/{name}` is, the control token included. `404`
 /// `conductor.instance.UnknownInstance` for a name the file does not hold, `503`
-/// `conductor.secret.SourceUnreachable` while the source does not answer, and `503` when the
-/// daemon was given no config file.
+/// `conductor.secret.SourceUnreachable` while the source does not answer, `503`
+/// `conductor.secret.SourceUnusable` for a source it cannot use, `500` for a config file it
+/// cannot read, and `503` when the daemon was given no config file. No body names a path: the
+/// config file's path and the source's directory are in the daemon's line for the request
+/// ([`instance_secrets_said`]).
 fn instance_secrets(api: &Api, name: &str) -> (u16, &'static str, Value) {
     use crate::secret::Unanswered;
     let Some(target) = &api.config else {
@@ -1255,12 +1258,23 @@ fn instance_secrets(api: &Api, name: &str) -> (u16, &'static str, Value) {
     let text = match fs::read_to_string(&target.file) {
         Ok(text) => text,
         Err(error) => {
+            instance_secrets_said(
+                name,
+                500,
+                &format!("read {}: {error}", target.file.display()),
+            );
             return (
                 500,
                 "Internal Server Error",
-                json!({"error": format!("read {}: {error}", target.file.display())}),
+                json!({"error": "the daemon cannot read its config file; its log says why"}),
             );
         }
+    };
+    let dir = || {
+        api.secrets
+            .dir
+            .as_deref()
+            .map_or_else(String::new, |dir| format!(" (directory {dir})"))
     };
     match crate::secret::instance_view(&api.secrets, &text, name, &api.withheld) {
         Ok(Some(rows)) => (200, "OK", serde_json::to_value(rows).unwrap_or_default()),
@@ -1269,24 +1283,43 @@ fn instance_secrets(api: &Api, name: &str) -> (u16, &'static str, Value) {
             "Not Found",
             json!({"error": "conductor.instance.UnknownInstance", "name": name}),
         ),
-        Err(Unanswered::Unreachable(error)) => (
-            503,
-            "Service Unavailable",
-            json!({
-                "error": "conductor.secret.SourceUnreachable",
-                "source": format!("{:?}", error.source),
-            }),
-        ),
-        Err(Unanswered::Unusable(unusable)) => (
-            503,
-            "Service Unavailable",
-            json!({
-                "error": "conductor.secret.SourceUnusable",
-                "source": format!("{:?}", unusable.error.source),
-                "detail": unusable.to_string(),
-            }),
-        ),
+        Err(Unanswered::Unreachable(error)) => {
+            instance_secrets_said(
+                name,
+                503,
+                &format!(
+                    "SourceUnreachable: the {:?} source{} did not answer",
+                    error.source,
+                    dir()
+                ),
+            );
+            (
+                503,
+                "Service Unavailable",
+                json!({
+                    "error": "conductor.secret.SourceUnreachable",
+                    "source": format!("{:?}", error.source),
+                }),
+            )
+        }
+        Err(Unanswered::Unusable(unusable)) => {
+            instance_secrets_said(name, 503, &format!("{unusable}{}", dir()));
+            (
+                503,
+                "Service Unavailable",
+                json!({
+                    "error": "conductor.secret.SourceUnusable",
+                    "source": format!("{:?}", unusable.error.source),
+                }),
+            )
+        }
     }
+}
+
+/// The daemon's line on standard error for a `GET /v1/instances/{name}/secrets` that answered
+/// `status`: `why`, with the paths the answer leaves out, never a secret's value.
+fn instance_secrets_said(name: &str, status: u16, why: &str) {
+    eprintln!("conductor: daemon serve: GET /v1/instances/{name}/secrets answered {status}: {why}");
 }
 
 /// The routes of an instance's token pool (`story:token-pool`): `GET tokens`, `POST join` and

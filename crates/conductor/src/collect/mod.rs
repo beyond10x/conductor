@@ -21,13 +21,14 @@ use std::io::Read;
 use std::os::unix::process::CommandExt as _;
 use std::path::{Component, Path, PathBuf};
 use std::process::{Child, Command, Output, Stdio};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::{self, Receiver};
 use std::thread;
 use std::time::{Duration, Instant};
 
 use anyhow::{Context as _, Result};
 use conductor_model::config::{Checkouts, GitHubSource, Instance, LocalSource, Source};
-use nix::sys::signal::{Signal, killpg};
+use nix::sys::signal::{Signal, kill, killpg};
 use nix::unistd::Pid;
 
 use crate::config;
@@ -637,6 +638,10 @@ pub fn is_over_budget(error: &anyhow::Error) -> bool {
 /// a command is not started once the budget is spent, and one still running when it is spent is
 /// killed; either answers [`OverBudget`].
 ///
+/// A command leads a process group of its own, which its bound stops; in a process that keeps
+/// its commands in its own group ([`in_group`]) it does not, and its bound stops it and each
+/// process under it ([`stop_tree`]).
+///
 /// # Errors
 ///
 /// The program does not start, it is still running after `bound`, or the collector's budget is
@@ -646,22 +651,34 @@ pub fn run(command: &mut Command, bound: Duration) -> Result<Output> {
     let left = spent()?;
     let limit = left.map_or(bound, |left| left.min(bound));
     // The command leads a process group of its own, so what it leaves running can be stopped
-    // with it when the bound is spent.
+    // with it when the bound is spent; or it stays in this process's group ([`in_group`]).
+    let own_group = !IN_GROUP.load(Ordering::Relaxed);
+    if own_group {
+        command.process_group(0);
+    }
     let mut child = command
         .stdin(Stdio::null())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
-        .process_group(0)
         .spawn()
         .with_context(|| format!("start `{program}`"))?;
-    let group = i32::try_from(child.id()).ok().map(Pid::from_raw);
+    let pid = i32::try_from(child.id()).ok();
+    let group = pid.filter(|_| own_group).map(Pid::from_raw);
     let stdout = child.stdout.take().map(drain);
     let stderr = child.stderr.take().map(drain);
     let started = Instant::now();
-    let expired = |child: &mut Child| {
-        let _ = child.kill();
-        if let Some(group) = group {
-            let _ = killpg(group, Signal::SIGKILL);
+    // `reaped`: the command's status was read, so its process id may name another process now;
+    // what it left in this process's group ends with that group.
+    let expired = |child: &mut Child, reaped: bool| {
+        match (group, pid) {
+            (Some(group), _) => {
+                let _ = child.kill();
+                let _ = killpg(group, Signal::SIGKILL);
+            }
+            (None, Some(pid)) if !reaped => stop_tree(pid),
+            (None, _) => {
+                let _ = child.kill();
+            }
         }
         let _ = child.wait();
         if left.is_some_and(|left| left < bound) {
@@ -678,7 +695,7 @@ pub fn run(command: &mut Command, bound: Duration) -> Result<Output> {
             break status;
         }
         if started.elapsed() >= limit {
-            return Err(expired(&mut child));
+            return Err(expired(&mut child, false));
         }
         thread::sleep(Duration::from_millis(20));
     };
@@ -691,13 +708,64 @@ pub fn run(command: &mut Command, bound: Duration) -> Result<Output> {
             .ok(),
     };
     let (Some(stdout), Some(stderr)) = (read(stdout), read(stderr)) else {
-        return Err(expired(&mut child));
+        return Err(expired(&mut child, true));
     };
     Ok(Output {
         status,
         stdout,
         stderr,
     })
+}
+
+/// Whether each command [`run`] starts stays in this process's process group ([`in_group`]).
+static IN_GROUP: AtomicBool = AtomicBool::new(false);
+
+/// From now on each command [`run`] starts stays in this process's process group instead of
+/// leading one of its own, so whatever stops this process's group stops every command it runs.
+/// `snapshot start-snapshot` calls it at its start: the cycle's step and a pod's start run the
+/// snapshot as the leader of a group of its own, through [`run`], and stop that group at their
+/// bound, so no `git`, `gh` or `glab` of a collector outlives a stopped snapshot.
+pub fn in_group() {
+    IN_GROUP.store(true, Ordering::Relaxed);
+}
+
+/// Stops the process `pid` and each process under it: each is stopped (`SIGSTOP`) before its
+/// children are read, so none starts another meanwhile, then each is killed. Linux lists a
+/// process's children under `/proc` ([`children`]); where it does not, only `pid` is killed, and
+/// what it started ends with the process group it runs in.
+fn stop_tree(pid: i32) {
+    let mut found = vec![pid];
+    let mut next = 0;
+    while let Some(&at) = found.get(next) {
+        next += 1;
+        let _ = kill(Pid::from_raw(at), Signal::SIGSTOP);
+        for child in children(at) {
+            if !found.contains(&child) {
+                found.push(child);
+            }
+        }
+    }
+    for at in found {
+        let _ = kill(Pid::from_raw(at), Signal::SIGKILL);
+    }
+}
+
+/// The children of the process `pid`, as `/proc/<pid>/task/<thread>/children` lists them; none
+/// where that cannot be read.
+fn children(pid: i32) -> Vec<i32> {
+    let Ok(threads) = std::fs::read_dir(format!("/proc/{pid}/task")) else {
+        return Vec::new();
+    };
+    threads
+        .filter_map(Result::ok)
+        .filter_map(|thread| std::fs::read_to_string(thread.path().join("children")).ok())
+        .flat_map(|listed| {
+            listed
+                .split_whitespace()
+                .filter_map(|child| child.parse().ok())
+                .collect::<Vec<i32>>()
+        })
+        .collect()
 }
 
 /// Reads `pipe` to its end on a thread of its own, so a full pipe never stalls the child; the

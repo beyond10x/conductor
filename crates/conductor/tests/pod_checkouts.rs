@@ -1106,8 +1106,9 @@ fn an_entry_with_a_step_that_names_no_checkout_is_refused_at_validation() {
 }
 
 /// A listed project whose path holds a step `.git` (any case) or one that starts with the
-/// temporary clone prefix is left out of the pass: one member failure each, nothing under the
-/// checkouts root, no clone of it; the other included projects are cloned and read.
+/// temporary clone prefix is left out of the pass: one member failure each where an `include`
+/// entry covers its path, nothing under the checkouts root, no clone of it; the other included
+/// projects are cloned and read.
 #[test]
 fn a_listed_project_with_a_step_that_names_no_checkout_is_a_member_failure_and_not_cloned() {
     let case = Case::new("listed-refused", true);
@@ -1145,11 +1146,9 @@ fn a_listed_project_with_a_step_that_names_no_checkout_is_a_member_failure_and_n
         .iter()
         .map(|(member, _, _)| member.as_str())
         .collect();
-    assert_eq!(
-        members,
-        [&format!("{partial}alpha"), ".git", "sub/.Git"],
-        "{failures:#?}"
-    );
+    // `.git` and the shadow lie outside every entry: dropped without a failure, as an excluded
+    // project is.
+    assert_eq!(members, ["sub/.Git"], "{failures:#?}");
     for (_, collector, line) in &failures {
         assert_eq!(collector, "repositories");
         assert!(line.contains("names no checkout"), "{line}");
@@ -1180,6 +1179,53 @@ fn a_listed_project_with_a_step_that_names_no_checkout_is_a_member_failure_and_n
         .map(|row| row["repository"].clone())
         .collect();
     assert_eq!(names, [json!("alpha"), json!("sub/gamma")]);
+}
+
+/// A listed project with a step that names no checkout is a member failure only of a source that
+/// would otherwise collect it: of the source on the group whose `include` covers its parent path,
+/// and of one with no `include`; the source on the same group whose `include` names something
+/// else drops it without one, as it drops an excluded project.
+#[test]
+fn a_project_naming_no_checkout_is_a_failure_only_of_a_source_that_would_collect_it() {
+    let refused_of = |name: &str, source: &str| -> Vec<String> {
+        let case = Case::new(name, true);
+        case.projects(&[
+            (101, "example-org/gate", false),
+            (102, "example-org/platform/.git", false),
+        ]);
+        case.bare("gitlab", "example-org/gate");
+        case.bare("gitlab", "example-org/platform/.git");
+        let config = case.config(source);
+        let snapshot = case.pass(&config, &pod());
+        case.failures(&config, &snapshot)
+            .into_iter()
+            .filter(|(_, _, line)| line.contains("names no checkout"))
+            .map(|(member, _, _)| member)
+            .collect()
+    };
+    assert_eq!(
+        refused_of("refused-covered", &gitlab("platform")),
+        ["platform/.git"]
+    );
+    assert_eq!(
+        refused_of("refused-elsewhere", &gitlab("gate")),
+        Vec::<String>::new()
+    );
+    assert_eq!(
+        refused_of(
+            "refused-no-include",
+            &format!("{{gitlab: example-org, host: {HOST}}}")
+        ),
+        ["platform/.git"]
+    );
+    // Both sources on the one group: the failure is the first's alone, recorded once.
+    assert_eq!(
+        refused_of(
+            "refused-both",
+            &format!("{}, {}", gitlab("platform"), gitlab("gate"))
+        ),
+        ["platform/.git"]
+    );
 }
 
 /// The paths the trust names after a clone at a pass are the checkouts an `include` entry

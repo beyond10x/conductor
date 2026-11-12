@@ -674,6 +674,8 @@ fn the_calls_section_says_where_a_checkout_must_be_and_what_a_pod_clones() {
         "not tested against\nevery forge version",
         "names no checkout",
         "trusted for the harness",
+        "also one an earlier `include` had the pod clone, is not trusted",
+        "start trusts every checkout under it, so an operator's own checkout stays usable",
         "whose content may run in the pod with the pod's tokens",
         "the only limit of what a pod clones",
         "at most 20 minutes for clones",
@@ -718,5 +720,19 @@ fn the_calls_section_says_where_a_checkout_must_be_and_what_a_pod_clones() {
             text.contains(&row),
             "the section's table holds {row:?}:\n{text}"
         );
+    }
+}
+
+/// The guide's list of what a pod's environment holds names `GLAB_SEND_TELEMETRY`, which the
+/// daemon writes into every instance pod where `daemon.kubernetes.env` does not name it.
+#[test]
+fn the_pod_section_says_its_glab_sends_no_usage_data() {
+    active::isolate();
+    let text = section("What the daemon creates for each instance");
+    for words in [
+        "`GLAB_SEND_TELEMETRY` `false`",
+        "so no `glab` the pod runs sends usage",
+    ] {
+        assert!(text.contains(words), "the section says {words:?}:\n{text}");
     }
 }

@@ -437,3 +437,477 @@ fn a_clone_stopped_at_the_collector_budget_leaves_no_temporary_directory() {
     assert!(case.partials().is_empty(), "{:?}", case.partials());
     assert!(!case.root().join("alpha").exists(), "{}", describe(&output));
 }
+
+// ---------------------------------------------------------------------------------------------
+// Round 2: the fix of the `.git` step, the trust at a start, and a stopped snapshot's clones
+// ---------------------------------------------------------------------------------------------
+
+/// A git directory whose `config` names `.git/hook` as `core.fsmonitor`, as a repository's own
+/// files, the hook writing `marker`.
+fn gitdir_shaped(marker: &Path, origin: &str) -> Vec<(&'static str, String, bool)> {
+    vec![
+        ("HEAD", "ref: refs/heads/main\n".to_owned(), false),
+        (
+            "config",
+            format!(
+                "[core]\n\trepositoryformatversion = 0\n\tbare = false\n\tfsmonitor = .git/hook\n\
+                 [remote \"origin\"]\n\turl = https://{HOST}/{origin}.git\n"
+            ),
+            false,
+        ),
+        ("objects/keep", "x\n".to_owned(), false),
+        ("refs/keep", "x\n".to_owned(), false),
+        (
+            "hook",
+            format!("#!/bin/sh\n: > '{}'\nexit 1\n", text(marker)),
+            true,
+        ),
+    ]
+}
+
+/// The runtime of a pod, `instance serve` with its loop off, killed when dropped.
+struct Started {
+    child: std::process::Child,
+    printed: std::sync::Arc<std::sync::Mutex<String>>,
+}
+
+impl Started {
+    fn printed(&self) -> String {
+        self.printed
+            .lock()
+            .map(|printed| printed.clone())
+            .unwrap_or_default()
+    }
+}
+
+impl Drop for Started {
+    fn drop(&mut self) {
+        let _ = self.child.kill();
+        let _ = self.child.wait();
+    }
+}
+
+impl Case {
+    /// Every answer of the project 101 as the project `to`'s.
+    fn answer_as_101(&self, to: u64) {
+        for entry in fs::read_dir(self.dir.join("answers")).expect("read the answers") {
+            let path = entry.expect("an answer").path();
+            let name = path
+                .file_name()
+                .and_then(|name| name.to_str())
+                .expect("an answer's name")
+                .to_owned();
+            if let Some(rest) = name.strip_prefix("101.") {
+                fs::copy(&path, self.dir.join("answers").join(format!("{to}.{rest}")))
+                    .expect("copy an answer");
+            }
+        }
+    }
+
+    /// `conductor <args>` with the environment of [`Case::pass`], not yet run.
+    fn pod_command(&self, config: &Path, args: &[&str]) -> Command {
+        let forge = self.dir.join("forge");
+        let mut command = common::conductor(self.dir.join("home"));
+        command
+            .env_clear()
+            .env("HOME", self.dir.join("home"))
+            .env("PATH", self.dir.join("bin"))
+            .env("CONDUCTOR_CONFIG", config)
+            .env("GIT_AUTHOR_NAME", "Fixture")
+            .env("GIT_AUTHOR_EMAIL", "fixture@example.invalid")
+            .env("GIT_COMMITTER_NAME", "Fixture")
+            .env("GIT_COMMITTER_EMAIL", "fixture@example.invalid")
+            .env("GIT_CONFIG_COUNT", "1")
+            .env(
+                "GIT_CONFIG_KEY_0",
+                format!("url.file://{}/gitlab/.insteadOf", text(&forge)),
+            )
+            .env("GIT_CONFIG_VALUE_0", format!("https://{HOST}/"))
+            .env(LISTEN, "127.0.0.1:0")
+            .env("GITLAB_TOKEN", token())
+            .current_dir(self.dir.join("work"))
+            .args(args)
+            .stdin(Stdio::null());
+        command
+    }
+
+    /// The pod's runtime started over `config`, until it says its seeding ended.
+    fn start_pod(&self, config: &Path) -> Started {
+        use std::io::Read as _;
+        let mut command = self.pod_command(config, &["instance", "serve"]);
+        command
+            .env(conductor_cli::instance::TOKEN_VARIABLE, "instance-token")
+            .env(conductor_cli::instance::LOOP_VARIABLE, "off")
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped());
+        let mut child = command.spawn().expect("instance serve starts");
+        let printed = std::sync::Arc::new(std::sync::Mutex::new(String::new()));
+        let pipes: [Box<dyn std::io::Read + Send>; 2] = [
+            Box::new(child.stdout.take().expect("stdout")),
+            Box::new(child.stderr.take().expect("stderr")),
+        ];
+        for mut pipe in pipes {
+            let printed = std::sync::Arc::clone(&printed);
+            std::thread::spawn(move || {
+                let mut chunk = [0_u8; 1024];
+                while let Ok(read @ 1..) = pipe.read(&mut chunk) {
+                    if let Ok(mut printed) = printed.lock() {
+                        printed.push_str(&String::from_utf8_lossy(&chunk[..read]));
+                    }
+                }
+            });
+        }
+        let mut started = Started { child, printed };
+        let deadline = Instant::now() + Duration::from_secs(120);
+        loop {
+            let printed = started.printed();
+            if printed.contains("seeded its instance") || printed.contains("the seeding failed") {
+                return started;
+            }
+            if let Ok(Some(status)) = started.child.try_wait() {
+                panic!("instance serve exited {status}: {printed}");
+            }
+            assert!(Instant::now() < deadline, "never seeded: {printed}");
+            std::thread::sleep(Duration::from_millis(50));
+        }
+    }
+
+    /// The paths `~/.claude.json` of the case's home trusts.
+    fn trusted(&self) -> Vec<String> {
+        let file = self
+            .dir
+            .join("home")
+            .join(conductor_cli::trust::CLAUDE_JSON);
+        let document: Value = fs::read_to_string(&file)
+            .ok()
+            .and_then(|text| serde_json::from_str(&text).ok())
+            .unwrap_or(Value::Null);
+        document["projects"]
+            .as_object()
+            .map(|projects| {
+                projects
+                    .iter()
+                    .filter(|(_, project)| project["hasTrustDialogAccepted"] == json!(true))
+                    .map(|(path, _)| path.clone())
+                    .collect()
+            })
+            .unwrap_or_default()
+    }
+}
+
+/// Round 2, claim A: the step `.git` written in another letter case, and `.git.`, make no clone's
+/// work tree a git directory, and no repository's fsmonitor program runs at the next pass.
+#[test]
+fn a_dot_git_step_in_another_case_or_with_a_trailing_dot_runs_no_code() {
+    let case = Case::new("dot-git-variants");
+    let marker = case.dir.join("fsmonitor-ran");
+    case.projects(&[
+        (101, "example-org/platform/.GIT"),
+        (102, "example-org/platform/.git."),
+    ]);
+    case.answer_as_101(102);
+    case.bare(
+        "example-org/platform/.GIT",
+        &gitdir_shaped(&marker, "example-org/platform/.GIT"),
+    );
+    case.bare(
+        "example-org/platform/.git.",
+        &gitdir_shaped(&marker, "example-org/platform/.git."),
+    );
+    let config = case.config("platform");
+
+    let first = case.pass(&config, &[]);
+    let second = case.pass(&config, &[]);
+    let platform = case.root().join("platform");
+    assert!(
+        !marker.exists(),
+        "a repository's fsmonitor program ran\nfirst: {}\nsecond: {}",
+        describe(&first),
+        describe(&second)
+    );
+    assert!(!platform.join(".GIT").exists(), "{}", describe(&first));
+    assert!(!platform.join(".git").exists(), "{}", describe(&first));
+}
+
+/// Round 2, claim B: a checkout the pod cloned while an `include` entry covered it, and which no
+/// entry covers since, is not trusted again by a later start (whose home holds no trust yet, as
+/// a pod's home off the volume claim does).
+#[test]
+fn a_start_trusts_no_checkout_its_include_no_longer_covers() {
+    let case = Case::new("start-trust");
+    case.projects(&[(101, "example-org/alpha"), (102, "example-org/beta")]);
+    case.answer_as_101(102);
+    case.bare("example-org/alpha", &[("README", "x\n".to_owned(), false)]);
+    case.bare("example-org/beta", &[("README", "x\n".to_owned(), false)]);
+
+    let config = case.config("alpha, beta");
+    let first = case.start_pod(&config);
+    let printed = first.printed();
+    drop(first);
+    assert!(
+        case.root().join("beta/.git").is_dir(),
+        "the first start cloned beta: {printed}"
+    );
+
+    let config = case.config("alpha");
+    let _ = fs::remove_file(
+        case.dir
+            .join("home")
+            .join(conductor_cli::trust::CLAUDE_JSON),
+    );
+    let second = case.start_pod(&config);
+    let printed = second.printed();
+    drop(second);
+    let beta = text(&fs::canonicalize(case.root().join("beta")).expect("beta is there"));
+    let trusted = case.trusted();
+    assert!(
+        !trusted.contains(&beta),
+        "the start trusted a checkout no include entry covers: {trusted:#?}\n{printed}"
+    );
+}
+
+/// Round 2, claim D: a snapshot stopped with its process group (as `collect::run` stops the
+/// start's snapshot after an hour and the cycle's step after its bound) leaves no clone running.
+/// Each command a collector runs leads a process group of its own, so a stop of the snapshot's
+/// group does not reach it.
+#[test]
+fn a_stopped_snapshot_leaves_no_clone_running() {
+    use std::os::unix::process::CommandExt as _;
+    let case = Case::new("orphan-clone");
+    case.projects(&[(101, "example-org/alpha")]);
+    case.bare("example-org/alpha", &[("README", "x\n".to_owned(), false)]);
+    let pid_file = case.dir.join("clone.pid");
+    case.git_wrapper(&format!(
+        "if [ \"$1\" = clone ]; then printf '%s' $$ > '{}'; exec '{}' 300; fi",
+        text(&pid_file),
+        text(&which("sleep"))
+    ));
+    let config = case.config("alpha");
+
+    let mut command = case.pod_command(
+        &config,
+        &[
+            "snapshot",
+            "start-snapshot",
+            "--started-at",
+            NOW,
+            "--disk-free-bytes",
+            "100000000000",
+        ],
+    );
+    command
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .process_group(0);
+    let mut snapshot = command.spawn().expect("the snapshot starts");
+    let group = i32::try_from(snapshot.id()).expect("a process id");
+    let deadline = Instant::now() + Duration::from_secs(60);
+    let clone = loop {
+        if let Some(pid) = fs::read_to_string(&pid_file)
+            .ok()
+            .and_then(|text| text.trim().parse::<i32>().ok())
+        {
+            break pid;
+        }
+        if Instant::now() >= deadline {
+            let _ = nix::sys::signal::killpg(
+                nix::unistd::Pid::from_raw(group),
+                nix::sys::signal::Signal::SIGKILL,
+            );
+            let _ = snapshot.wait();
+            panic!("no clone began within 60 s");
+        }
+        std::thread::sleep(Duration::from_millis(50));
+    };
+    let _ = nix::sys::signal::killpg(
+        nix::unistd::Pid::from_raw(group),
+        nix::sys::signal::Signal::SIGKILL,
+    );
+    let _ = snapshot.wait();
+    std::thread::sleep(Duration::from_millis(500));
+    let running = Path::new(&format!("/proc/{clone}")).exists();
+    let _ = nix::sys::signal::kill(
+        nix::unistd::Pid::from_raw(clone),
+        nix::sys::signal::Signal::SIGKILL,
+    );
+    assert!(
+        !running,
+        "the clone (process {clone}) still ran after the snapshot's process group was stopped"
+    );
+}
+
+// ---------------------------------------------------------------------------------------------
+// The fixes of round 2: the runner's bound, the budget, and what a start still trusts
+// ---------------------------------------------------------------------------------------------
+
+/// Whether the process `pid` runs: it is there and no zombie.
+fn alive(pid: i32) -> bool {
+    fs::read_to_string(format!("/proc/{pid}/stat")).is_ok_and(|stat| {
+        stat.rsplit_once(')')
+            .and_then(|(_, rest)| rest.split_whitespace().next())
+            .is_some_and(|state| state != "Z")
+    })
+}
+
+/// The process id the file `file` holds, once a command wrote it, within 60 s.
+fn written_pid(file: &Path) -> Option<i32> {
+    let deadline = Instant::now() + Duration::from_secs(60);
+    loop {
+        if let Some(pid) = fs::read_to_string(file)
+            .ok()
+            .and_then(|text| text.trim().parse::<i32>().ok())
+        {
+            return Some(pid);
+        }
+        if Instant::now() >= deadline {
+            return None;
+        }
+        std::thread::sleep(Duration::from_millis(50));
+    }
+}
+
+impl Case {
+    /// The config file of [`Case::config`] with the sources `sources`, a YAML flow list.
+    fn config_sources(&self, sources: &str) -> PathBuf {
+        let text = format!(
+            "version: conductor.config/1\ninstances:\n  - name: acme\n    sources: {sources}\n    \
+             checkouts:\n      root: {}\n      trees: {}\n    records: {}\n    state: {}\n    \
+             cache: {}\n",
+            quoted(&self.root()),
+            quoted(&self.dir.join("trees")),
+            quoted(&self.dir.join("records")),
+            quoted(&self.dir.join("state")),
+            quoted(&self.dir.join("cache")),
+        );
+        let file = self.dir.join("conductor.yaml");
+        fs::write(&file, text).expect("write the config file");
+        file
+    }
+
+    /// An operator's hand-made checkout `<root>/<name>`: a git directory with no `origin`.
+    fn hand_made(&self, name: &str) -> String {
+        let dir = self.root().join(name);
+        fs::create_dir_all(&dir).expect("create the checkout");
+        git(&dir, &["init", "--quiet", "--initial-branch=main"]);
+        text(&fs::canonicalize(&dir).expect("the checkout is there"))
+    }
+}
+
+/// The cycle's snapshot step, run as the cycle and a pod's start run it (`collect::run`: the
+/// step leads a process group of its own, which is stopped at the step's bound), leaves no clone
+/// of its collectors running once it is stopped at that bound.
+#[test]
+fn a_snapshot_step_stopped_at_its_bound_leaves_no_clone_running() {
+    let case = Case::new("step-bound");
+    case.projects(&[(101, "example-org/alpha")]);
+    case.bare("example-org/alpha", &[("README", "x\n".to_owned(), false)]);
+    let pid_file = case.dir.join("clone.pid");
+    case.git_wrapper(&format!(
+        "if [ \"$1\" = clone ]; then printf '%s' $$ > '{}'; exec '{}' 300; fi",
+        text(&pid_file),
+        text(&which("sleep"))
+    ));
+    let config = case.config("alpha");
+    let mut step = case.pod_command(
+        &config,
+        &[
+            "snapshot",
+            "start-snapshot",
+            "--started-at",
+            NOW,
+            "--disk-free-bytes",
+            "100000000000",
+        ],
+    );
+
+    let stopped = conductor_cli::collect::run(&mut step, Duration::from_secs(15));
+    let Some(clone) = written_pid(&pid_file) else {
+        panic!("no clone began within the step's bound: {stopped:?}");
+    };
+    std::thread::sleep(Duration::from_millis(500));
+    let running = alive(clone);
+    let _ = nix::sys::signal::kill(
+        nix::unistd::Pid::from_raw(clone),
+        nix::sys::signal::Signal::SIGKILL,
+    );
+    assert!(stopped.is_err(), "the step was not stopped: {stopped:?}");
+    assert!(
+        !running,
+        "the clone (process {clone}) still ran after the step was stopped at its bound"
+    );
+}
+
+/// A clone stopped at the collector's budget ends with every process it started, not only the
+/// one the collector started: a command the snapshot runs stays in the snapshot's process group,
+/// and the budget stops that command and each process under it.
+#[test]
+fn a_clone_stopped_at_the_budget_leaves_none_of_its_processes_running() {
+    let case = Case::new("budget-tree");
+    case.projects(&[(101, "example-org/alpha")]);
+    case.bare("example-org/alpha", &[("README", "x\n".to_owned(), false)]);
+    let pid_file = case.dir.join("helper.pid");
+    case.git_wrapper(&format!(
+        "if [ \"$1\" = clone ]; then '{}' 300 & printf '%s' $! > '{}'; wait; exit 1; fi",
+        text(&which("sleep")),
+        text(&pid_file)
+    ));
+    let config = case.config("alpha");
+
+    let output = case.pass(&config, &["--budget", "3"]);
+    let Some(helper) = written_pid(&pid_file) else {
+        panic!("no clone began: {}", describe(&output));
+    };
+    std::thread::sleep(Duration::from_millis(500));
+    let running = alive(helper);
+    let _ = nix::sys::signal::kill(
+        nix::unistd::Pid::from_raw(helper),
+        nix::sys::signal::Signal::SIGKILL,
+    );
+    assert!(
+        !running,
+        "a process the clone started (process {helper}) still ran after the budget stopped the \
+         clone: {}",
+        describe(&output)
+    );
+    assert!(case.partials().is_empty(), "{:?}", case.partials());
+}
+
+/// A start trusts a checkout under the root that no `include` entry covers where a source on
+/// the root names no `include`: an operator's hand-made checkout stays usable.
+#[test]
+fn a_start_trusts_a_checkout_under_a_source_without_include() {
+    let case = Case::new("start-trust-every");
+    case.projects(&[(101, "example-org/alpha")]);
+    let hand = case.hand_made("hand");
+    let config = case.config_sources(&format!("[{{gitlab: example-org, host: {HOST}}}]"));
+    let started = case.start_pod(&config);
+    let printed = started.printed();
+    drop(started);
+    let trusted = case.trusted();
+    assert!(
+        trusted.contains(&hand),
+        "the start did not trust {hand}: {trusted:#?}\n{printed}"
+    );
+}
+
+/// A start trusts a checkout under the root that no `include` entry covers where a `local`
+/// source's path is the root, beside a `gitlab` source that names `include`.
+#[test]
+fn a_start_trusts_a_checkout_under_a_local_source() {
+    let case = Case::new("start-trust-local");
+    case.projects(&[(101, "example-org/alpha")]);
+    case.bare("example-org/alpha", &[("README", "x\n".to_owned(), false)]);
+    let hand = case.hand_made("hand");
+    let config = case.config_sources(&format!(
+        "[{{gitlab: example-org, host: {HOST}, include: [alpha]}}, {{local: {}}}]",
+        quoted(&case.root())
+    ));
+    let started = case.start_pod(&config);
+    let printed = started.printed();
+    drop(started);
+    let trusted = case.trusted();
+    assert!(
+        trusted.contains(&hand),
+        "the start did not trust {hand}: {trusted:#?}\n{printed}"
+    );
+}

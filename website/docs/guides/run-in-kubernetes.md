@@ -489,11 +489,16 @@ path under the group has more than two steps, or lies under a directory that is 
 itself, is not where the collector reads a checkout: it is not cloned, and is reported. A path
 step `.git`, in any case, or one that starts with `.conductor-clone-`, where the pod makes its
 clones, names no checkout: an `include` or `exclude` entry with one is refused, and a listed
-project with one is not cloned, is left out of every collector, and is reported.
+project with one is not cloned and is left out of every collector. It is reported where the
+source would collect it otherwise, an `include` entry covering its path or the source naming no
+`include`; elsewhere it is left out without a report, as an excluded project is.
 
 A repository an `include` entry covers is cloned and then trusted for the harness, so its
-project settings and hooks apply to sessions started in it. Name in `include` only hosts and
-repositories whose content may run in the pod with the pod's tokens.
+project settings and hooks apply to sessions started in it. A checkout under the root that no
+entry covers, also one an earlier `include` had the pod clone, is not trusted while every source
+on the root names `include`; where a `local` source or one without `include` is on the root, a
+start trusts every checkout under it, so an operator's own checkout stays usable. Name in
+`include` only hosts and repositories whose content may run in the pod with the pod's tokens.
 
 The size of the instance's volume claim is the only limit of what a pod clones. Its start waits
 at most 20 minutes for clones: it begins no clone after that, says how many it left, and the
@@ -562,7 +567,9 @@ The pod:
   `daemon.kubernetes.env` does not name the variable;
 - git's credential helper for the HTTPS origin of the forge whose token the pod carries, in
   `GIT_CONFIG_COUNT`, `GIT_CONFIG_KEY_<n>` and `GIT_CONFIG_VALUE_<n>`, after the token and before
-  the git identity ([Forge credentials](#forge-credentials)).
+  the git identity ([Forge credentials](#forge-credentials));
+- `GLAB_SEND_TELEMETRY` `false`, after the git identity, so no `glab` the pod runs sends usage
+  data to the forge, where `daemon.kubernetes.env` does not name the variable.
 
 The three objects carry the label set of [A network policy](#a-network-policy) and no owner
 reference. At its start the runtime copies `conductor.yaml` from the Secret to its volume, writes

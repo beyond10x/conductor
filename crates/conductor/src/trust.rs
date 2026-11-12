@@ -318,8 +318,9 @@ impl Edit {
 
 /// The paths `conductor trust` marks, as `projects` keys: each checkout of `instance`, the one at
 /// `index` of its config file ([`config::instance_checkouts`]: those of a `github`, `local` and
-/// `gitlab` source, nested ones included), in path order, then its records directory, each by
-/// its physical path.
+/// `gitlab` source, nested ones included) and each other git directory directly under the
+/// checkouts root but one no `include` entry covers where every source on the root names one,
+/// in path order, then its records directory, each by its physical path.
 ///
 /// # Errors
 ///
@@ -348,12 +349,22 @@ pub fn paths(instance: &Instance, index: usize) -> Result<Vec<String>> {
         );
     }
     let mut checkouts = config::instance_checkouts(instance, index)?;
-    // A git directory under the root with no `origin` yet is still the instance's checkout.
+    // A git directory under the root with no `origin` yet is still the instance's checkout,
+    // unless every source on the root names `include` and no entry covers it, as the guard,
+    // spawn, the sessions collector and doctor read `include` ([`crate::collect::LeftOut`]).
+    let include = crate::collect::LeftOut::under(instance, root).include;
+    let covered = |dir: &Path| {
+        include.as_ref().is_none_or(|include| {
+            dir.file_name()
+                .and_then(|name| name.to_str())
+                .is_some_and(|name| crate::collect::covers(include, &[name]))
+        })
+    };
     let bare: Vec<PathBuf> = fs::read_dir(root)
         .with_context(|| format!("read {}", root.display()))?
         .filter_map(Result::ok)
         .map(|entry| entry.path())
-        .filter(|dir| dir.is_dir() && dir.join(".git").exists())
+        .filter(|dir| dir.is_dir() && dir.join(".git").exists() && covered(dir))
         .collect();
     for dir in bare {
         if !checkouts.contains(&dir) {

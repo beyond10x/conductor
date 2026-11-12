@@ -23,9 +23,10 @@
 //!   .api_port`, its token from the Secret, the Secret mounted read-only and the claim mounted
 //!   writable, `restartPolicy: Never` (the daemon is the supervisor), no service account token,
 //!   restricted to a non-root user without privilege escalation or capabilities, probed on
-//!   `/healthz`. A digest of the pod's spec and of the rendered file is its annotation
-//!   [`DIGEST_ANNOTATION`]: a pod whose digest differs from the one the daemon would create now
-//!   (a new image, a changed rendering) is restarted.
+//!   `/healthz`, its `glab` sending no usage data (`GLAB_SEND_TELEMETRY=false`, unless
+//!   `daemon.kubernetes.env` names the variable). A digest of the pod's spec and of the rendered
+//!   file is its annotation [`DIGEST_ANNOTATION`]: a pod whose digest differs from the one the
+//!   daemon would create now (a new image, a changed rendering) is restarted.
 //!
 //! Every field comes from `daemon.kubernetes`, the instance's name and the rendering (decision
 //! D8); the key of the one `env` entry the instance's `forge_token` fills, whose variable its
@@ -401,6 +402,13 @@ pub fn manifests(kubernetes: &Kubernetes, config: &Config, instance: &Instance) 
         if !kubernetes.env.iter().any(|named| named.name == variable) {
             env.push(json!({"name": variable, "value": value}));
         }
+    }
+    // No `glab` the pod runs sends usage data to the forge: the collectors', doctor's, the
+    // watch's, spawn's or a session's. Where `env` names the variable, its value is the
+    // installer's.
+    let telemetry = crate::collect::gitlab::TELEMETRY_VARIABLE;
+    if !kubernetes.env.iter().any(|named| named.name == telemetry) {
+        env.push(json!({"name": telemetry, "value": "false"}));
     }
     let mut resources = Map::new();
     for (key, set) in [

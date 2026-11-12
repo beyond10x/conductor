@@ -981,6 +981,44 @@ fn an_instance_pod_commits_as_conductor_where_env_names_no_identity() {
     }
 }
 
+/// An instance pod's environment carries `GLAB_SEND_TELEMETRY=false`, so no `glab` the pod runs
+/// (the collectors', doctor's, the watch's, a session's) sends usage data to the forge; where
+/// `daemon.kubernetes.env` names the variable, the operator's value stands, once.
+#[test]
+fn an_instance_pod_sends_no_glab_usage_data_unless_env_names_the_variable() {
+    let case = Case::new("glab-telemetry");
+    let made = |case: &Case| {
+        let text = fs::read_to_string(case.file()).expect("the config file");
+        let config = conductor_cli::config::parse(&text, &case.home())
+            .unwrap_or_else(|problems| panic!("the file does not validate: {problems:?}\n{text}"));
+        let kubernetes = config.daemon.kubernetes.clone().expect("daemon.kubernetes");
+        pods::manifests(&kubernetes, &config, &config.instances[0])
+    };
+    let fixed = made(&case);
+    assert_eq!(
+        variables(&fixed, "GLAB_SEND_TELEMETRY"),
+        [json!({"name": "GLAB_SEND_TELEMETRY", "value": "false"})],
+        "{}",
+        fixed.pod
+    );
+
+    case.config_env(
+        IMAGE,
+        &[
+            "{name: GH_TOKEN, secret: secret:forge-token}",
+            "{name: GLAB_SEND_TELEMETRY, value: \"true\"}",
+        ],
+        &[alpha("")],
+    );
+    let operators = made(&case);
+    assert_eq!(
+        variables(&operators, "GLAB_SEND_TELEMETRY"),
+        [json!({"name": "GLAB_SEND_TELEMETRY", "value": "true"})],
+        "{}",
+        operators.pod
+    );
+}
+
 /// The runtime is not the first process of its pod: the pod shares one process namespace, so its
 /// pause process is, reaps what the agents leave behind, and a `SIGTERM` ends the runtime at once
 /// rather than being ignored as the first process's would be until the grace period kills it.
@@ -1016,9 +1054,10 @@ fn the_daemons_seeding_skips_pod_run_instances() {
 /// The pod of an instance that names no `forge_token` (story:instance-forge-token) and has a
 /// `github` source under the daemon's `GH_TOKEN` is the pod the supervisor of v1.4.0 made for
 /// this case's file, and git's three variables after the git identity
-/// (story:pod-git-reaches-forge): its spec, its claim, its rendered file, the secrets its Secret
-/// holds and its digest, held to `tests/fixtures/k8s/pod-alpha.json`. The pods that carry no
-/// token of a forge of theirs are held to v1.4.0 byte for byte by the three fixtures
+/// (story:pod-git-reaches-forge), and `GLAB_SEND_TELEMETRY` after them: its spec, its claim,
+/// its rendered file, the secrets its Secret holds and its digest, held to
+/// `tests/fixtures/k8s/pod-alpha.json`. The pods that carry no token of a forge of theirs are
+/// held to v1.4.0, and `GLAB_SEND_TELEMETRY`, byte for byte by the three fixtures
 /// `pod-alpha-no-token.json`, `pod-alpha-local.json` and `pod-alpha-git-config.json`.
 #[test]
 fn the_pod_of_an_instance_under_the_daemons_token_is_the_one_of_v1_4_0_and_gits_variables() {
@@ -2213,8 +2252,8 @@ fn held_to(case: &Case, made: &pods::Manifests, fixture: &str) -> Option<String>
 
 /// A pod that git's credential helpers leave as it was (story:pod-git-reaches-forge), each held
 /// byte for byte to the pod the supervisor made before them, written from the supervisor of
-/// `cda5f4f0e` for the same file: a `github` instance's pod that carries no forge token; the pod
-/// of an instance with a `local` source only, under a daemon-wide `GH_TOKEN`; and a `github`
+/// `cda5f4f0e` for the same file, and since then with `GLAB_SEND_TELEMETRY` after the git
+/// identity: a `github` instance's pod that carries no forge token; the pod of an instance with a `local` source only, under a daemon-wide `GH_TOKEN`; and a `github`
 /// instance's pod under a daemon-wide `GH_TOKEN` whose `env` names `GIT_CONFIG_COUNT`, where the
 /// installer owns git's configuration.
 #[test]

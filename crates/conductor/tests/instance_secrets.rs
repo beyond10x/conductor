@@ -604,6 +604,141 @@ fn a_withheld_name_is_no_row() {
     );
 }
 
+/// The secret of a `daemon.kubernetes.env` entry that is no forge's token is no row either,
+/// whichever key of the mapping names it; a secret a `globals` key names, which no entry and no
+/// key of the daemon names, still is (the key written into the file by hand: no key under
+/// `globals` that names a secret validates today, and the view reads the file as it is).
+#[test]
+fn an_env_entrys_secret_is_no_row_and_a_globals_secret_still_is() {
+    let case = Case::new("env-entry");
+    case.put("service-key", "service-key-value-of-the-case");
+    case.put("shared-model", &model_value());
+    let text = format!(
+        "version: conductor.config/2\n{daemon}\
+         instances:\n\
+         \x20 - name: alpha\n\
+         \x20   placement: none\n\
+         \x20   session_prefix: alpha\n\
+         \x20   sources: [{{github: example-org}}]\n\
+         \x20   model_token: secret:service-key\n",
+        daemon = case.daemon(
+            7300,
+            ", kubernetes: {namespace: conductor-instances, \
+             image: \"registry.example.com/conductor:1.0.0\", owner: example-org, \
+             api_port: 7310, volume: {size: 20G}, \
+             env: [{name: EXAMPLE_SERVICE_KEY, secret: secret:service-key}]}"
+        ),
+    );
+    let config = conductor_cli::config::parse(&text, &case.home())
+        .unwrap_or_else(|problems| panic!("the file does not validate: {problems:?}\n{text}"));
+    let withheld = secret::withheld(&config.daemon);
+    let text = text.replace(
+        "instances:\n",
+        "globals: {model_token: secret:shared-model}\ninstances:\n",
+    );
+    let rows = secret::instance_view(&files(&case.secrets()), &text, "alpha", &withheld)
+        .unwrap_or_else(|_| panic!("the files source did not answer"))
+        .expect("alpha is an instance of the file");
+    let listed: Vec<(&str, &str, bool)> = rows
+        .iter()
+        .map(|row| (row.key.as_str(), row.secret.as_str(), row.set))
+        .collect();
+    assert_eq!(
+        listed,
+        [("globals.model_token", "shared-model", true)],
+        "{rows:?}"
+    );
+}
+
+/// The `500` of a config file the daemon cannot read and the `503` of a source it cannot use or
+/// that does not answer carry the declared error name and no path: neither the config file's
+/// nor the source directory's.
+#[test]
+fn an_error_body_of_the_read_names_no_path() {
+    let case = Case::new("error-bodies");
+    let text = fs::read_to_string(case.file()).expect("read the config file");
+    let config = conductor_cli::config::parse(&text, &case.home())
+        .unwrap_or_else(|problems| panic!("the file does not validate: {problems:?}"));
+    let api_over = |secrets: &SecretsSource| {
+        let mut daemon = config.daemon.clone();
+        daemon.secrets = secrets.clone();
+        Api::new(TOKEN.to_owned(), "operator".to_owned(), None)
+            .with_config(case.file(), case.home(), case.store())
+            .with_secrets(&daemon)
+            .with_pods(true)
+    };
+    let read = |api: Api| get(serve(api, "127.0.0.1"), "/v1/instances/alpha/secrets", None);
+    let pathless = |answer: &Answer| {
+        assert!(!answer.body.contains('/'), "a path in the body: {answer:?}");
+    };
+
+    let unusable = read(api_over(&SecretsSource {
+        dir: None,
+        ..files(&case.secrets())
+    }));
+    assert_eq!(unusable.status, 503, "{unusable:?}");
+    assert_eq!(
+        unusable.json(),
+        json!({"error": "conductor.secret.SourceUnusable", "source": "Files"}),
+        "{unusable:?}"
+    );
+    pathless(&unusable);
+
+    let not_a_directory = case.dir.join("not-a-directory");
+    fs::write(&not_a_directory, "x").expect("write a file");
+    let unreachable = read(api_over(&files(&not_a_directory)));
+    assert_eq!(unreachable.status, 503, "{unreachable:?}");
+    assert_eq!(
+        unreachable.json(),
+        json!({"error": "conductor.secret.SourceUnreachable", "source": "Files"}),
+        "{unreachable:?}"
+    );
+    pathless(&unreachable);
+
+    let api = case.api();
+    fs::remove_file(case.file()).expect("remove the config file");
+    fs::create_dir(case.file()).expect("a directory where the config file was");
+    let unreadable = read(api);
+    assert_eq!(unreadable.status, 500, "{unreadable:?}");
+    assert!(
+        unreadable.json()["error"].is_string(),
+        "no error named: {unreadable:?}"
+    );
+    pathless(&unreadable);
+    assert!(
+        !unreadable.body.contains("conductor.yaml"),
+        "the file is named: {unreadable:?}"
+    );
+}
+
+/// The daemon's log line for a read whose config file it cannot read names the file, which the
+/// answer does not.
+#[test]
+fn the_daemons_log_names_the_config_file_the_answer_leaves_out() {
+    let case = Case::new("error-log");
+    let port = TcpListener::bind(("127.0.0.1", 0))
+        .and_then(|listener| listener.local_addr())
+        .map(|address| address.port())
+        .expect("a free port");
+    fs::write(case.file(), case.local_text(port)).expect("write the config file");
+    case.put("alpha-model", &format!("{}\n", model_value()));
+    let daemon = daemon_serve(&case, port);
+    fs::remove_file(case.file()).expect("remove the config file");
+    fs::create_dir(case.file()).expect("a directory where the config file was");
+
+    let answer = get(port, "/v1/instances/alpha/secrets", Some(&control_value()));
+    let said = daemon.stop();
+    assert_eq!(answer.status, 500, "{answer:?}\n{said}");
+    assert!(!answer.body.contains('/'), "a path in the body: {answer:?}");
+    let file = case.file().display().to_string();
+    assert!(
+        said.lines()
+            .any(|line| line.contains("/v1/instances/alpha/secrets") && line.contains(&file)),
+        "no line of the daemon names {file} for the read: {said}"
+    );
+    assert!(!said.contains(&model_value()), "a value is logged: {said}");
+}
+
 /// A source that does not answer is its declared error, `SourceUnreachable` naming the source,
 /// not rows that read `set: false`.
 #[test]

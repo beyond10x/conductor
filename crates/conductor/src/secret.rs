@@ -879,12 +879,20 @@ pub fn keyed(text: &str) -> BTreeMap<String, Vec<Named>> {
 }
 
 /// The names no instance's row lists ([`instance_view`]): the daemon's own ([`daemons_own`])
-/// and those of its forge tokens ([`daemons_forge`]). Validation refuses an instance or
-/// `globals` that names one; a file written before that rule still lists none of them.
+/// and those every entry of `daemon.kubernetes.env` names, its forge tokens ([`daemons_forge`])
+/// and any other: the daemon gives them to pods itself, and a mapping that names one learns
+/// nothing of it. Validation refuses an instance or `globals` that names one of the first two
+/// kinds; a file written before that rule still lists none of them.
 #[must_use]
 pub fn withheld(daemon: &conductor_model::config::Daemon) -> BTreeSet<String> {
     let mut names = daemons_own(daemon);
-    names.extend(daemons_forge(daemon));
+    names.extend(
+        daemon
+            .kubernetes
+            .iter()
+            .flat_map(|kubernetes| &kubernetes.env)
+            .filter_map(|entry| entry.secret.as_ref().map(|secret| secret.0.clone())),
+    );
     names
 }
 

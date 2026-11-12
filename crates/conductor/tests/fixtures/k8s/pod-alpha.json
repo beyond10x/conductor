@@ -23,13 +23,13 @@
       "storageClassName": "fast-local"
     }
   },
-  "digest": "dee844f2d5cec76c719b4abd628e2bff87591738821b7d9cb58983ff736b6005",
+  "digest": "760f1f168f8867eefef5b128eb66f4e6ce7d953f0554adc0b600426c11f42160",
   "pod": {
     "apiVersion": "v1",
     "kind": "Pod",
     "metadata": {
       "annotations": {
-        "conductor/digest": "dee844f2d5cec76c719b4abd628e2bff87591738821b7d9cb58983ff736b6005"
+        "conductor/digest": "760f1f168f8867eefef5b128eb66f4e6ce7d953f0554adc0b600426c11f42160"
       },
       "labels": {
         "app.kubernetes.io/component": "instance-runtime",
@@ -108,6 +108,10 @@
             {
               "name": "GIT_COMMITTER_EMAIL",
               "value": "conductor@localhost"
+            },
+            {
+              "name": "GLAB_SEND_TELEMETRY",
+              "value": "false"
             }
           ],
           "image": "registry.example.com/conductor:1.0.0",
