@@ -344,11 +344,15 @@ fn a_forge_token_naming_a_secret_of_the_daemons_own_reaches_no_pod() {
     assert!(fake.requests().is_empty(), "{:?}", fake.requests());
 }
 
-/// Decision D8: nothing of a mapping but the instance's name reaches the pod or the claim. Two
-/// mappings of one name that differ in every other key the instance pod takes make the same pod
-/// and the same claim, but for the digest annotation of the rendered file. The one exception is
-/// `forge_token` (story:instance-forge-token), which names the key one `env` entry reads, never
-/// its variable: `tests/daemon_pods.rs` holds it.
+/// Decision D8: what of a mapping reaches the pod or the claim is the instance's name; the one
+/// variable its `forge_token` fills, by the key that entry reads and never by a variable's name
+/// (story:instance-forge-token); and, through the kinds and the `gitlab` hosts of its sources,
+/// which of the daemon's forge token entries the pod keeps and which
+/// `credential.https://<host>.helper` keys git gets (story:pod-git-reaches-forge, decision F3-D2).
+/// No text of a caller reaches a variable's name or a helper's value. Two mappings of one name
+/// whose sources are of one kind, on GitHub, and that differ in every other key the instance pod
+/// takes make the same pod and the same claim, but for the digest annotation of the rendered
+/// file. `tests/daemon_pods.rs` holds the forge token and the sources' share.
 #[test]
 fn the_pod_and_the_claim_are_the_same_whatever_the_mapping_says_beside_the_name() {
     let case = Case::new("d8-property");
@@ -881,5 +885,369 @@ fn a_blank_token_with_a_tcp_listener_stops_the_start() {
                 && printed.contains(conductor_cli::instance::LISTEN_VARIABLE),
             "{blank:?}: it ended for another reason than its token: {printed}"
         );
+    }
+}
+
+/// The `env` entries of `pod`'s one container.
+fn pod_env(pod: &Value) -> Vec<Value> {
+    pod["spec"]["containers"][0]["env"]
+        .as_array()
+        .cloned()
+        .unwrap_or_default()
+}
+
+/// The control plane chooses a `gitlab` source's `host`. Under a daemon whose `env` gives every
+/// pod the operator's daemon-wide `GITLAB_TOKEN`, the operator's token must not get a git
+/// credential helper for a host the control plane named and the operator did not: otherwise the
+/// caller directs the operator's token to a server of its choosing with every HTTPS fetch the
+/// runtime or a session in the pod makes (story:pod-git-reaches-forge).
+#[test]
+fn the_daemons_gitlab_token_gets_no_git_helper_for_a_host_the_caller_names() {
+    let case = Case::new("daemon-token-caller-host");
+    let text = case.daemon_text(" []").replace(
+        "{name: GH_TOKEN, secret: secret:forge-token}",
+        "{name: GITLAB_TOKEN, secret: secret:forge-token}",
+    );
+    fs::write(case.file(), &text).expect("write the config file");
+    let port = case.serve();
+    let chosen = "forge.elsewhere.example";
+    let sent = json!({
+        "name": "beta",
+        "placement": "none",
+        "session_prefix": "beta",
+        "sources": [{"gitlab": "example-org", "host": chosen}],
+    });
+    let (status, body) = exchange(
+        port,
+        &request(
+            port,
+            "POST",
+            "/v1/instances",
+            Some(&json!({"mapping": sent, "reason": "a tenant"})),
+        ),
+    );
+    assert_eq!(status, 201, "the control plane's mapping was taken: {body}");
+    let text = case.text();
+    let config = conductor_cli::config::parse(&text, &case.home())
+        .unwrap_or_else(|problems| panic!("the file does not validate: {problems:?}\n{text}"));
+    let kubernetes = config.daemon.kubernetes.clone().expect("daemon.kubernetes");
+    let made = pods::manifests(&kubernetes, &config, &config.instances[0]);
+    let env = pod_env(&made.pod);
+    // The review wrote this case with the pod carrying the daemon-wide GITLAB_TOKEN and asked
+    // that git get no helper for the caller's host. The fix goes further: the variable itself
+    // stays out of such a pod, which also closes `glab --hostname <host>`.
+    assert!(
+        !env.iter().any(|entry| entry["name"] == "GITLAB_TOKEN"
+            || entry["valueFrom"]["secretKeyRef"]["key"] == "forge-token"),
+        "a pod whose gitlab source is on a host the daemon's GitLab token does not belong to \
+         carries neither GITLAB_TOKEN nor the secret forge-token: {}",
+        made.pod
+    );
+    assert!(
+        !made.secrets.contains("forge-token"),
+        "the instance's Secret holds the daemon's GitLab token: {:?}",
+        made.secrets
+    );
+    let wired: Vec<&str> = env
+        .iter()
+        .filter_map(|entry| {
+            let name = entry["name"].as_str()?;
+            let value = entry["value"].as_str()?;
+            (name.starts_with("GIT_CONFIG_KEY_") && value.contains(chosen)).then_some(value)
+        })
+        .collect();
+    assert!(
+        wired.is_empty(),
+        "git offers the operator's daemon-wide GITLAB_TOKEN (secret forge-token) to {chosen}, a \
+         host only the control plane named: {wired:?}"
+    );
+}
+
+/// The store's password, the other secret of the daemon's own, named as an instance's
+/// `forge_token`: a file that writes it does not validate, its path named with "a secret of the
+/// daemon's own" and not the daemon's key; and a config that slipped past that rule gets the pod
+/// supervisor to refuse the start before any secret is resolved, nothing created.
+#[test]
+fn a_forge_token_naming_the_stores_password_reaches_no_pod() {
+    let case = Case::new("forge-token-store");
+    let sqlite = format!("store: {:?}", case.store());
+    let password = ["secret:", "store", "-password"].concat();
+    let postgres = format!("store: \"postgres://conductor:{password}@db.example.com/conductor\"");
+    let beta = |forge: &str| {
+        format!(
+            "\n  - name: beta\n    placement: none\n    session_prefix: beta\n    \
+             sources: [{{github: example-org}}]\n    forge_token: {forge}"
+        )
+    };
+    let text = case
+        .daemon_text(&beta(&password))
+        .replace(&sqlite, &postgres);
+    assert!(text.contains("postgres://"), "{text}");
+    let problems = conductor_cli::config::parse(&text, &case.home())
+        .expect_err("a forge_token naming the store's password does not validate");
+    let said: Vec<String> = problems.iter().map(ToString::to_string).collect();
+    assert!(
+        problems
+            .iter()
+            .any(|problem| problem.path == "instances[0].forge_token"
+                && problem.message.contains("a secret of the daemon's own")),
+        "{said:?}"
+    );
+    assert!(
+        !said.iter().any(|line| line.contains("daemon.store")),
+        "{said:?}"
+    );
+
+    let fake = FakeKube::start(&case.dir);
+    let text = case.daemon_text(&beta("secret:beta-forge"));
+    let mut config = conductor_cli::config::parse(&text, &case.home())
+        .unwrap_or_else(|problems| panic!("the file does not validate: {problems:?}\n{text}"));
+    config.daemon.store = conductor_model::store::StoreUrl(
+        "postgres://conductor:secret:beta-forge@db.example.com/conductor".to_owned(),
+    );
+    let kubernetes = config.daemon.kubernetes.clone().expect("daemon.kubernetes");
+    let mut pods = Pods::new(fake.client());
+    let asked = std::cell::RefCell::new(Vec::new());
+    let error = pods
+        .start(
+            &kubernetes,
+            &config,
+            &config.instances[0],
+            "an-instance-token",
+            &|name: &SecretName| {
+                asked.borrow_mut().push(name.0.clone());
+                None
+            },
+        )
+        .expect_err("refused");
+    let error = format!("{error:#}");
+    assert!(
+        error.contains("a secret of the daemon's own") && error.contains("nothing is created"),
+        "{error}"
+    );
+    assert!(asked.borrow().is_empty(), "resolved {:?}", asked.borrow());
+    assert!(fake.requests().is_empty(), "{:?}", fake.requests());
+}
+
+/// An instance's own forge token, through the whole daemon: its value is in the pod's Secret
+/// under the secret's name and nowhere else the daemon writes (the pod, its labels and
+/// annotations, the claim, the rendered file in the Secret, the config file, the API's answer);
+/// and that Secret holds the daemon-wide forge token under no key.
+#[test]
+fn an_own_forge_tokens_value_is_only_in_its_pods_secret() {
+    let case = Case::new("forge-token-value");
+    let value = ["beta-forge", "-value-", "2222"].concat();
+    fs::write(case.dir.join("secrets/beta-forge"), &value).expect("write a secret");
+    case.write(" []");
+    let fake = FakeKube::start(&case.dir);
+    let port = case.serve();
+    let sent = mapping("beta", &json!({"forge_token": "secret:beta-forge"}));
+    let (status, body) = exchange(
+        port,
+        &request(
+            port,
+            "POST",
+            "/v1/instances",
+            Some(&json!({"mapping": sent, "reason": "a tenant"})),
+        ),
+    );
+    assert_eq!(status, 201, "{body}");
+    assert!(!body.contains(&value), "{body}");
+    assert!(!case.text().contains(&value), "{}", case.text());
+
+    let mut daemon = case.daemon(&fake, "daemon");
+    let done = daemon
+        .pass(ReconcileReason::Cadence, Instant::now())
+        .expect("a pass");
+    assert!(!format!("{done:?}").contains(&value), "{done:?}");
+    let pod = fake
+        .object(NAMESPACE, "pods", "conductor-instance-beta")
+        .expect("the pod");
+    let claim = fake
+        .object(
+            NAMESPACE,
+            "persistentvolumeclaims",
+            "conductor-instance-beta-data",
+        )
+        .map(|claim| claim.to_string())
+        .unwrap_or_default();
+    for (what, text) in [("pod", pod.to_string()), ("claim", claim)] {
+        assert!(!text.contains(&value), "{what}: {text}");
+    }
+    let secret = fake
+        .object(NAMESPACE, "secrets", "conductor-instance-beta")
+        .expect("the Secret");
+    let decoded: BTreeMap<String, String> = secret["data"]
+        .as_object()
+        .cloned()
+        .unwrap_or_default()
+        .into_iter()
+        .map(|(key, data)| {
+            let text = data
+                .as_str()
+                .and_then(pods::base64_decode)
+                .map(|bytes| String::from_utf8_lossy(&bytes).into_owned())
+                .unwrap_or_default();
+            (key, text)
+        })
+        .collect();
+    assert_eq!(
+        decoded.get("beta-forge"),
+        Some(&value),
+        "{:?}",
+        decoded.keys()
+    );
+    for (key, text) in &decoded {
+        assert!(
+            key == "beta-forge" || !text.contains(&value),
+            "the key {key} holds the instance's forge token"
+        );
+        assert!(
+            !text.contains(FORGE_TOKEN),
+            "the key {key} holds the daemon-wide forge token"
+        );
+    }
+    let entries: Vec<Value> = pod_env(&pod)
+        .into_iter()
+        .filter(|entry| entry["name"] == "GH_TOKEN")
+        .collect();
+    assert_eq!(
+        entries,
+        [json!({
+            "name": "GH_TOKEN",
+            "valueFrom": {"secretKeyRef": {"name": "conductor-instance-beta", "key": "beta-forge"}},
+        })],
+        "{pod}"
+    );
+}
+
+/// What a refusal of the secret of a daemon's forge token says (decision F3-D4).
+const DAEMONS_FORGE_SECRET: &str = "the secret of a daemon's forge token";
+
+/// The secret a daemon forge-token entry names (decision F3-D4: an entry of
+/// `daemon.kubernetes.env` named for a variable a forge's command line reads a token from) is the
+/// daemon's to hand out, to the pods it belongs to. Without that rule a caller names it as its
+/// own `forge_token` beside a `gitlab` host of its choice and gets the operator's token sent
+/// there. So no instance and no `globals` key names it, under `forge_token`, `model_token` or any
+/// other key: a file that does is refused at the reference's YAML path, for every such variable;
+/// a mapping that does is refused `422` at that path, the file unchanged; and a config read
+/// before that rule gets the pod supervisor to refuse the start before any secret is resolved,
+/// nothing created.
+#[test]
+fn the_secret_of_a_daemons_forge_token_is_no_instances_and_reaches_no_pod_as_one() {
+    let case = Case::new("daemons-forge-secret");
+    let chosen = "forge.elsewhere.example";
+    let beta = |key: &str, secret: &str| {
+        format!(
+            "\n  - name: beta\n    placement: none\n    session_prefix: beta\n    \
+             sources: [{{gitlab: example-org, host: {chosen}}}]\n    {key}: secret:{secret}"
+        )
+    };
+    let refused_at = |text: &str, path: &str| {
+        let problems = conductor_cli::config::parse(text, &case.home())
+            .expect_err("a reference to the daemon's forge secret does not validate");
+        let said: Vec<String> = problems.iter().map(ToString::to_string).collect();
+        assert!(
+            problems.iter().any(|problem| problem.path == path
+                && problem.message.contains(DAEMONS_FORGE_SECRET)
+                && problem.message.contains("pods it belongs to")),
+            "{path}: {said:?}\n{text}"
+        );
+    };
+    for variable in [
+        "GH_TOKEN",
+        "GITHUB_TOKEN",
+        "GH_ENTERPRISE_TOKEN",
+        "GITHUB_ENTERPRISE_TOKEN",
+        "GITLAB_TOKEN",
+        "GITLAB_ACCESS_TOKEN",
+        "OAUTH_TOKEN",
+    ] {
+        for key in ["forge_token", "model_token"] {
+            let text = case.daemon_text(&beta(key, "forge-token")).replace(
+                "{name: GH_TOKEN, secret: secret:forge-token}",
+                &format!("{{name: {variable}, secret: secret:forge-token}}"),
+            );
+            refused_at(&text, &format!("instances[0].{key}"));
+        }
+    }
+    let globals = case
+        .daemon_text(&beta("model_token", "beta-model"))
+        .replace(
+            "instances:",
+            "globals: {model_token: secret:forge-token}\ninstances:",
+        );
+    refused_at(&globals, "globals.model_token");
+
+    case.write(" []");
+    let before = case.text();
+    let port = case.serve();
+    for key in ["forge_token", "model_token"] {
+        let sent = json!({
+            "name": "beta",
+            "placement": "none",
+            "session_prefix": "beta",
+            "sources": [{"gitlab": "example-org", "host": chosen}],
+            key: "secret:forge-token",
+        });
+        let (status, body) = exchange(
+            port,
+            &request(
+                port,
+                "POST",
+                "/v1/instances",
+                Some(&json!({"mapping": sent, "reason": "a tenant"})),
+            ),
+        );
+        assert_eq!(status, 422, "{key}: {body}");
+        let answer: Value = serde_json::from_str(&body).expect("a JSON body");
+        assert_eq!(answer["path"], format!("instances[0].{key}"), "{answer}");
+        assert!(
+            answer["detail"]
+                .as_str()
+                .is_some_and(|detail| detail.contains(DAEMONS_FORGE_SECRET)),
+            "{answer}"
+        );
+        assert_eq!(case.text(), before, "{key}: the file changed");
+    }
+
+    let fake = FakeKube::start(&case.dir);
+    let text = case.daemon_text(&beta("forge_token", "beta-forge"));
+    let valid = conductor_cli::config::parse(&text, &case.home())
+        .unwrap_or_else(|problems| panic!("the file does not validate: {problems:?}\n{text}"));
+    for key in ["forge_token", "model_token"] {
+        let mut config = valid.clone();
+        let daemons = Some(SecretName("forge-token".to_owned()));
+        if key == "forge_token" {
+            config.instances[0].forge_token = daemons;
+        } else {
+            config.instances[0].model_token = daemons;
+        }
+        let kubernetes = config.daemon.kubernetes.clone().expect("daemon.kubernetes");
+        let mut pods = Pods::new(fake.client());
+        let asked = std::cell::RefCell::new(Vec::new());
+        let error = pods
+            .start(
+                &kubernetes,
+                &config,
+                &config.instances[0],
+                "an-instance-token",
+                &|name: &SecretName| {
+                    asked.borrow_mut().push(name.0.clone());
+                    None
+                },
+            )
+            .expect_err("refused");
+        let error = format!("{error:#}");
+        assert!(
+            error.contains(DAEMONS_FORGE_SECRET) && error.contains("nothing is created"),
+            "{key}: {error}"
+        );
+        assert!(
+            asked.borrow().is_empty(),
+            "{key}: resolved {:?}",
+            asked.borrow()
+        );
+        assert!(fake.requests().is_empty(), "{key}: {:?}", fake.requests());
     }
 }

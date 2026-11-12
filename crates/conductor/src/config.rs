@@ -79,11 +79,16 @@
 //!   it leaves out, `checkouts` included, its pod's file fills in there ([`pod::render`]).
 //!   An instance's `forge_token` (story:instance-forge-token) is `secret:<name>`, written only
 //!   where `daemon.kubernetes` is, and only by an instance whose sources name exactly one forge
-//!   ([`forge_token_variables`]). `daemon.control_token` is `secret:<name>`. A daemon-config
-//!   file holds `version` and `daemon` only ([`parse_daemon_config`]);
+//!   ([`forge_token_variables`]). A `GITLAB_HOST` entry of `env` ([`GITLAB_HOST_VARIABLE`]) is a
+//!   `value`, a host as a `gitlab` source writes one, never a `secret`. `daemon.control_token`
+//!   is `secret:<name>`. A daemon-config file holds `version` and `daemon` only
+//!   ([`parse_daemon_config`]);
 //! - the daemon's own secrets ([`crate::secret::daemons_own`]: the control token, the store's
 //!   password) are no instance's and no pod's: a `secret:<name>` naming one under `globals` or
-//!   an instance, or as a `daemon.kubernetes.env` secret, is refused by its path.
+//!   an instance, or as a `daemon.kubernetes.env` secret, is refused by its path;
+//! - the secrets of the daemon's forge tokens ([`crate::secret::daemons_forge`]: those the `env`
+//!   entries of a variable of [`FORGE_CLI_TOKEN_VARIABLES`] name) are no instance's: a
+//!   `secret:<name>` naming one under `globals` or an instance is refused by its path.
 //!
 //! An instance may leave out every key but `name`, `sources` and `checkouts`. Absent, `records`,
 //! `state` and `cache` are `~/.b10x/conductor/<name>/records`, `~/.b10x/conductor/<name>/state`
@@ -483,6 +488,47 @@ const CHECKOUT_KEYS: [&str; 2] = ["root", "trees"];
 pub const FORGE_TOKEN_VARIABLES: [(&str, &str); 2] =
     [("github", "GH_TOKEN"), ("gitlab", "GITLAB_TOKEN")];
 
+/// Every variable a forge's command line reads a token from, by the kind of source that names
+/// the forge (decision F3-D1): `GH_TOKEN`, `GITHUB_TOKEN`, `GH_ENTERPRISE_TOKEN` and
+/// `GITHUB_ENTERPRISE_TOKEN` for `gh` (`gh help environment`); `GITLAB_TOKEN`,
+/// `GITLAB_ACCESS_TOKEN` and `OAUTH_TOKEN` for `glab` (`glab auth login --help`). Each list starts
+/// with the forge's variable of [`FORGE_TOKEN_VARIABLES`], the only one an instance's
+/// `forge_token` fills and git's helper reads. A `daemon.kubernetes.env` entry of any of them is a
+/// daemon forge-token entry: an instance with a `forge_token` of its own carries none of them, the
+/// GitLab ones reach only a pod whose `gitlab` sources are all on the daemon's GitLab host
+/// ([`GITLAB_HOST_VARIABLE`]), and no instance names their secrets
+/// ([`crate::secret::daemons_forge`]).
+pub const FORGE_CLI_TOKEN_VARIABLES: [(&str, &[&str]); 2] = [
+    (
+        "github",
+        &[
+            "GH_TOKEN",
+            "GITHUB_TOKEN",
+            "GH_ENTERPRISE_TOKEN",
+            "GITHUB_ENTERPRISE_TOKEN",
+        ],
+    ),
+    (
+        "gitlab",
+        &["GITLAB_TOKEN", "GITLAB_ACCESS_TOKEN", "OAUTH_TOKEN"],
+    ),
+];
+
+/// The forge whose command line reads a token from `variable` ([`FORGE_CLI_TOKEN_VARIABLES`]);
+/// none for any other variable.
+#[must_use]
+pub fn token_variable_forge(variable: &str) -> Option<&'static str> {
+    FORGE_CLI_TOKEN_VARIABLES
+        .iter()
+        .find(|(_, variables)| variables.contains(&variable))
+        .map(|(forge, _)| *forge)
+}
+
+/// The `daemon.kubernetes.env` variable whose `value` is the one host the daemon's GitLab token
+/// belongs to (decision F3-D2), [`GITLAB_HOST`] where no entry names it; validated as a `gitlab`
+/// source's host is, and never a `secret`.
+pub const GITLAB_HOST_VARIABLE: &str = "GITLAB_HOST";
+
 /// The variable of each forge `sources` name, once each, in the order of
 /// [`FORGE_TOKEN_VARIABLES`]: none for local sources only, two for sources on both forges.
 #[must_use]
@@ -539,6 +585,11 @@ const OWN_SECRET_OF_INSTANCE: &str = "names a secret of the daemon's own, which 
 /// Why a `daemon.kubernetes.env` secret naming a daemon's own secret is refused.
 const OWN_SECRET_OF_POD: &str = "names a secret of the daemon's own, which no pod gets: name a \
      secret the daemon's secrets source keeps for the pods";
+/// Why an instance's or the globals' `secret:<name>` naming the secret of a daemon's forge token
+/// ([`crate::secret::daemons_forge`], decision F3-D4) is refused.
+const FORGE_SECRET_OF_INSTANCE: &str = "names the secret of a daemon's forge token, which the \
+     daemon gives to the pods it belongs to and no instance names: name a token of the \
+     instance's own instead";
 /// The keys `conductor.config/2` removed from an instance, each with why (design
 /// architecture-next § 9, § 11).
 const REMOVED_KEYS: [(&str, &str); 3] = [
@@ -2673,6 +2724,14 @@ impl Reader<'_> {
                     self.not_daemons(value, key, &own, OWN_SECRET_OF_INSTANCE);
                 }
             }
+            // Nor the secret of a daemon's forge token, which the daemon gives to the pods it
+            // belongs to (decision F3-D4).
+            let forge = crate::secret::daemons_forge(daemon);
+            for key in ["globals", "instances"] {
+                if let Some(value) = Self::get(map, key).filter(|_| !forge.is_empty()) {
+                    self.not_daemons(value, key, &forge, FORGE_SECRET_OF_INSTANCE);
+                }
+            }
         }
         // Where the daemon runs its instances as pods, each is read as a pod's, whether or not
         // the section reads without a problem.
@@ -3184,6 +3243,26 @@ impl Reader<'_> {
                 return None;
             }
             _ => {}
+        }
+        // The host the daemon's GitLab token belongs to (decision F3-D2) is a host as a `gitlab`
+        // source writes one, and no secret.
+        if name.as_deref() == Some(GITLAB_HOST_VARIABLE) {
+            if written.1 {
+                self.problem(
+                    path,
+                    "is a secret, and GITLAB_HOST names a host, which is no secret: write the \
+                     host the daemon's GitLab token belongs to as value, such as \
+                     gitlab.example.com",
+                );
+                return None;
+            }
+            if matches!(value_of, Some(Some(_)))
+                && self
+                    .host(Self::get(map, "value"), &join(path, "value"))
+                    .is_none()
+            {
+                return None;
+            }
         }
         Some(KubernetesEnv {
             name: name?,

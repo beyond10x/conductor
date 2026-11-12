@@ -209,7 +209,11 @@ workstation or a remote box, the following differs for such a daemon:
   The daemon's own secrets reach no instance pod.
 - **Nothing a caller sends shapes a pod**: its image, command, volumes, env sources, namespace,
   service account, security context and labels come from `daemon.kubernetes`, the instance's name
-  and the rendered config file.
+  and the rendered config file. What of an instance reaches its pod's env is its name, the one
+  variable its `forge_token` fills, and, through the kinds and the `gitlab` hosts of its sources,
+  which of the daemon's forge token entries the pod gets and which
+  `credential.https://<host>.helper` keys git gets. No text of a caller reaches a variable's name
+  or a helper's value.
 
 ## 5. APIs and federation
 

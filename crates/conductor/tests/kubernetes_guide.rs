@@ -418,7 +418,7 @@ fn the_forge_credentials_section_says_what_a_pods_git_reaches_with_the_token() {
         "https://github.com",
         "https://<host>",
         "no other host",
-        "carries none of the daemon's forge tokens",
+        "carries none of the daemon's forge token variables",
         "GIT_CONFIG_COUNT",
         "SSH",
     ] {
@@ -463,6 +463,98 @@ fn the_forge_credentials_section_says_what_a_pods_git_reaches_with_the_token() {
         Some("credential.https://github.com.helper"),
         "{env:?}"
     );
+}
+
+/// The section "Forge credentials" says who gets the daemon's forge token (decisions F3-D1 to
+/// F3-D5, F3-D7): it lists every variable of a forge's command line the daemon treats as its
+/// forge token once, says that the daemon's GitLab token belongs to the host of `GITLAB_HOST`,
+/// that `host` and `host:443` are different hosts, that an instance on another GitLab host names
+/// a `forge_token` of its own, and that no instance names the secret of a daemon's forge token.
+/// The self-hosted setup of its second YAML block, added to the ConfigMap's `daemon.yaml`, gives
+/// an instance on that host the token and git's helper for it, and an instance on `gitlab.com`
+/// neither; and the restart table names the pods that change once.
+#[test]
+fn the_forge_credentials_section_gives_the_daemons_gitlab_token_to_its_host_only() {
+    active::isolate();
+    let text = section("Forge credentials");
+    for words in [
+        "`GH_TOKEN`, `GITHUB_TOKEN`, `GH_ENTERPRISE_TOKEN`, `GITHUB_ENTERPRISE_TOKEN`",
+        "`GITLAB_TOKEN`, `GITLAB_ACCESS_TOKEN`, `OAUTH_TOKEN`",
+        "GITLAB_HOST",
+        "`host:443`",
+        "a `forge_token` of its own",
+        "cannot name the secret of a daemon's forge token",
+    ] {
+        assert!(text.contains(words), "the section says {words:?}:\n{text}");
+    }
+    let block = text
+        .split("```yaml\n")
+        .skip(1)
+        .filter_map(|rest| rest.split_once("```").map(|(block, _)| block))
+        .find(|block| block.contains("GITLAB_HOST"))
+        .expect("the section's YAML block of the self-hosted setup");
+    let fragment: Value = serde_yaml::from_str(block).expect("the YAML block");
+    let map = one("ConfigMap");
+    let mut daemon: Value =
+        serde_yaml::from_str(text_of(&map["data"]["daemon.yaml"])).expect("daemon.yaml");
+    daemon["daemon"]["kubernetes"]["env"] = fragment["daemon"]["kubernetes"]["env"].clone();
+    let host = config_host(&fragment);
+    daemon["instances"] = serde_yaml::from_str(&format!(
+        "[{{name: alpha, placement: none, session_prefix: alpha, \
+         sources: [{{gitlab: example-org, host: {host}}}]}}, \
+         {{name: beta, placement: none, session_prefix: beta, sources: [{{gitlab: example-org}}]}}]"
+    ))
+    .expect("two instances");
+    let file = serde_yaml::to_string(&daemon).expect("the file");
+    let config = conductor_cli::config::parse(&file, Path::new("/var/lib/conductor"))
+        .unwrap_or_else(|problems| panic!("the file does not validate: {problems:?}\n{file}"));
+    let kubernetes = config.daemon.kubernetes.clone().expect("daemon.kubernetes");
+    let env = |index: usize| -> Vec<serde_json::Value> {
+        let made = pods::manifests(&kubernetes, &config, &config.instances[index]);
+        made.pod["spec"]["containers"][0]["env"]
+            .as_array()
+            .expect("env")
+            .clone()
+    };
+    let named = |env: &[serde_json::Value], name: &str| {
+        env.iter()
+            .find(|entry| entry["name"] == name)
+            .cloned()
+            .unwrap_or_default()
+    };
+    let alpha = env(0);
+    assert!(
+        named(&alpha, "GITLAB_TOKEN")["valueFrom"].is_object(),
+        "{alpha:?}"
+    );
+    assert_eq!(
+        named(&alpha, "GIT_CONFIG_KEY_0")["value"],
+        serde_json::json!(format!("credential.https://{host}.helper")),
+        "{alpha:?}"
+    );
+    let beta = env(1);
+    assert!(named(&beta, "GITLAB_TOKEN").is_null(), "{beta:?}");
+    assert!(named(&beta, "GIT_CONFIG_COUNT").is_null(), "{beta:?}");
+
+    let restarts = section("What survives a restart of the daemon");
+    for words in ["GITLAB_HOST", "GITHUB_TOKEN"] {
+        assert!(
+            restarts.contains(words),
+            "the restart table says {words:?}:\n{restarts}"
+        );
+    }
+}
+
+/// The value of the `GITLAB_HOST` entry of a guide's YAML block.
+fn config_host(fragment: &Value) -> String {
+    fragment["daemon"]["kubernetes"]["env"]
+        .as_sequence()
+        .into_iter()
+        .flatten()
+        .find(|entry| entry["name"].as_str() == Some("GITLAB_HOST"))
+        .and_then(|entry| entry["value"].as_str())
+        .expect("the block's GITLAB_HOST value")
+        .to_owned()
 }
 
 /// A YAML string as text.

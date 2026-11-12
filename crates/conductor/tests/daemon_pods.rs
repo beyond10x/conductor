@@ -1614,9 +1614,11 @@ fn git_in_a_pod_with_a_forge_token_reaches_its_forge_with_it_and_no_other_host()
 }
 
 /// An instance with sources on both forges, under a daemon whose `env` gives both variables, one
-/// as a `secret` and one as a `value` (story:pod-git-reaches-forge): one helper per origin,
-/// `github.com` first, then each `gitlab` host once, sorted, so the pod's digest does not move
-/// with the order of the sources. git answers each forge's token for its host only.
+/// as a `secret` and one as a `value`, and names its GitLab host (story:pod-git-reaches-forge,
+/// decision F3-D2): one helper per origin, `github.com` first, then the `gitlab` host once
+/// however its sources write it. An instance with a GitLab token of its own on several `gitlab`
+/// hosts gets each host once, sorted, so the pod's digest does not move with the order of the
+/// sources. git answers each forge's token for its host only.
 #[test]
 fn an_instance_on_both_forges_gets_one_helper_per_origin_in_a_fixed_order() {
     let case = Case::new("git-both-forges");
@@ -1626,13 +1628,22 @@ fn an_instance_on_both_forges_gets_one_helper_per_origin_in_a_fixed_order() {
         &[
             "{name: GH_TOKEN, secret: secret:forge-token}",
             &format!("{{name: GITLAB_TOKEN, value: {gitlab_value}}}"),
+            "{name: GITLAB_HOST, value: gitlab.example.org}",
         ],
-        &[instance(
-            "delta",
-            "{gitlab: example-org, host: gitlab.example.org}, {github: example-org}, \
-             {gitlab: example-group}, {gitlab: other-group, host: gitlab.example.org}",
-            "",
-        )],
+        &[
+            instance(
+                "delta",
+                "{gitlab: example-org, host: GitLab.Example.org}, {github: example-org}, \
+                 {gitlab: other-group, host: gitlab.example.org}",
+                "",
+            ),
+            instance(
+                "gamma",
+                "{gitlab: example-org, host: gitlab.example.org}, {gitlab: example-group}, \
+                 {gitlab: other-group, host: gitlab.example.org}",
+                "    forge_token: secret:gamma-forge\n",
+            ),
+        ],
     );
     let text = fs::read_to_string(case.file()).expect("the config file");
     let config = conductor_cli::config::parse(&text, &case.home())
@@ -1643,7 +1654,6 @@ fn an_instance_on_both_forges_gets_one_helper_per_origin_in_a_fixed_order() {
         git_config(&made),
         helpers(&[
             ("https://github.com", GITHUB_HELPER),
-            ("https://gitlab.com", GITLAB_HELPER),
             ("https://gitlab.example.org", GITLAB_HELPER),
         ]),
         "{}",
@@ -1662,11 +1672,330 @@ fn an_instance_on_both_forges_gets_one_helper_per_origin_in_a_fixed_order() {
         "x-access-token",
         &github,
     );
-    for host in ["gitlab.com", "gitlab.example.org"] {
-        answers(&case.dir, &made, &tokens, host, "oauth2", &gitlab_value);
-    }
-    for host in ["gitlab.example.com", "example.org"] {
+    answers(
+        &case.dir,
+        &made,
+        &tokens,
+        "gitlab.example.org",
+        "oauth2",
+        &gitlab_value,
+    );
+    for host in ["gitlab.com", "gitlab.example.com", "example.org"] {
         answers_none(&case.dir, &made, &tokens, "https", host);
+    }
+
+    let gamma = pods::manifests(&kubernetes, &config, &config.instances[1]);
+    assert_eq!(
+        git_config(&gamma),
+        helpers(&[
+            ("https://gitlab.com", GITLAB_HELPER),
+            ("https://gitlab.example.org", GITLAB_HELPER),
+        ]),
+        "{}",
+        gamma.pod
+    );
+    let own = [("GITLAB_TOKEN", gitlab_value.as_str())];
+    for host in ["gitlab.com", "gitlab.example.org"] {
+        answers(&case.dir, &gamma, &own, host, "oauth2", &gitlab_value);
+    }
+    answers_none(&case.dir, &gamma, &own, "https", "github.com");
+}
+
+/// The daemon's entries of the variables `glab` reads a token from: one secret for two of them,
+/// another for the third.
+const DAEMON_GITLAB_ENV: [&str; 3] = [
+    "{name: GITLAB_TOKEN, secret: secret:gitlab-forge}",
+    "{name: GITLAB_ACCESS_TOKEN, secret: secret:gitlab-forge}",
+    "{name: OAUTH_TOKEN, secret: secret:gitlab-oauth}",
+];
+
+/// The variables `glab` reads a token from, and the secret the daemon's entry of each names.
+const GITLAB_VARIABLES: [(&str, &str); 3] = [
+    ("GITLAB_TOKEN", "gitlab-forge"),
+    ("GITLAB_ACCESS_TOKEN", "gitlab-forge"),
+    ("OAUTH_TOKEN", "gitlab-oauth"),
+];
+
+/// The daemon's GitLab token belongs to one host (decision F3-D2): the value of a `GITLAB_HOST`
+/// entry of `daemon.kubernetes.env`, `gitlab.com` where there is none, compared lowercased as
+/// git's key is. A pod carries the daemon's entries of every variable `glab` reads a token from,
+/// and git's helper for that host, only where every `gitlab` source of its instance is on that
+/// host. An instance on another host, on that host and another, or on that host with a port
+/// written (`host:443` is another text than `host`) gets none of those entries and no helper, its
+/// Secret holds none of their secrets, and git offers the token to its host from nowhere. An
+/// instance with no `gitlab` source is on no other host: it keeps the entries and gets no helper.
+#[test]
+fn the_daemons_gitlab_token_reaches_only_pods_whose_gitlab_sources_are_all_on_its_host() {
+    for (name, named, host) in [
+        (
+            "gitlab-host-named",
+            Some("GitLab.Example.org"),
+            "gitlab.example.org",
+        ),
+        ("gitlab-host-default", None, "gitlab.com"),
+    ] {
+        let case = Case::new(name);
+        let value = ["gitlab-forge", "-value-", "4444"].concat();
+        let oauth = ["gitlab-oauth", "-value-", "5555"].concat();
+        fs::write(case.dir.join("secrets/gitlab-forge"), &value).expect("write a secret");
+        fs::write(case.dir.join("secrets/gitlab-oauth"), &oauth).expect("write a secret");
+        let named_entry = named.map(|named| format!("{{name: GITLAB_HOST, value: {named}}}"));
+        let mut env: Vec<&str> = DAEMON_GITLAB_ENV.to_vec();
+        env.push("{name: GIT_AUTHOR_NAME, value: conductor}");
+        env.extend(named_entry.as_deref());
+        let other = "gitlab.other.example";
+        let on = |group: &str, host: &str| format!("{{gitlab: {group}, host: {host:?}}}");
+        let upper = host.to_ascii_uppercase();
+        let with_port = format!("{host}:443");
+        case.config_env(
+            IMAGE,
+            &env,
+            &[
+                instance(
+                    "alpha",
+                    &format!(
+                        "{}, {}",
+                        on("example-org", &upper),
+                        on("example-group", host)
+                    ),
+                    "",
+                ),
+                instance("beta", &on("example-org", other), ""),
+                instance(
+                    "gamma",
+                    &format!(
+                        "{}, {}",
+                        on("example-org", host),
+                        on("example-group", other)
+                    ),
+                    "",
+                ),
+                instance("delta", &on("example-org", &with_port), ""),
+                instance("epsilon", "{github: example-org}", ""),
+            ],
+        );
+        let text = fs::read_to_string(case.file()).expect("the config file");
+        let config = conductor_cli::config::parse(&text, &case.home())
+            .unwrap_or_else(|problems| panic!("the file does not validate: {problems:?}\n{text}"));
+        let kubernetes = config.daemon.kubernetes.clone().expect("daemon.kubernetes");
+        let made = |instance: &str| {
+            let instance = config
+                .instances
+                .iter()
+                .find(|named| named.name.0 == instance)
+                .unwrap_or_else(|| panic!("the instance {instance}"));
+            pods::manifests(&kubernetes, &config, instance)
+        };
+
+        for carrier in ["alpha", "epsilon"] {
+            let made = made(carrier);
+            for (variable, secret) in GITLAB_VARIABLES {
+                assert_eq!(
+                    variables(&made, variable),
+                    [from_secret(variable, carrier, secret)],
+                    "{name}: {carrier} keeps {variable}: {}",
+                    made.pod
+                );
+            }
+            for secret in ["gitlab-forge", "gitlab-oauth"] {
+                assert!(
+                    made.secrets.contains(secret),
+                    "{name}: {carrier}: {:?}",
+                    made.secrets
+                );
+            }
+        }
+        let alpha = made("alpha");
+        assert_eq!(
+            git_config(&alpha),
+            helpers(&[(&format!("https://{host}"), GITLAB_HELPER)]),
+            "{name}: {}",
+            alpha.pod
+        );
+        let tokens = [("GITLAB_TOKEN", value.as_str())];
+        answers(&case.dir, &alpha, &tokens, host, "oauth2", &value);
+        answers_none(&case.dir, &alpha, &tokens, "https", other);
+        let epsilon = made("epsilon");
+        assert!(
+            git_config(&epsilon).is_empty(),
+            "{name}: epsilon has no gitlab source and carries no GitHub token: {}",
+            epsilon.pod
+        );
+
+        for elsewhere in ["beta", "gamma", "delta"] {
+            let made = made(elsewhere);
+            for (variable, _) in GITLAB_VARIABLES {
+                assert!(
+                    variables(&made, variable).is_empty(),
+                    "{name}: {elsewhere} carries the daemon's {variable}: {}",
+                    made.pod
+                );
+            }
+            assert!(
+                git_config(&made).is_empty(),
+                "{name}: {elsewhere} gets a helper for the daemon's GitLab token: {}",
+                made.pod
+            );
+            for secret in ["gitlab-forge", "gitlab-oauth"] {
+                assert!(
+                    !made.secrets.contains(secret),
+                    "{name}: {elsewhere}: {:?}",
+                    made.secrets
+                );
+            }
+            assert_eq!(
+                variables(&made, "GIT_AUTHOR_NAME"),
+                [json!({"name": "GIT_AUTHOR_NAME", "value": "conductor"})],
+                "{name}: {elsewhere}: every other entry stays: {}",
+                made.pod
+            );
+            if let Some(named) = named {
+                assert_eq!(
+                    variables(&made, "GITLAB_HOST"),
+                    [json!({"name": "GITLAB_HOST", "value": named})],
+                    "{name}: {elsewhere}: {}",
+                    made.pod
+                );
+            }
+            for at in [other, with_port.as_str()] {
+                answers_none(&case.dir, &made, &tokens, "https", at);
+            }
+        }
+
+        // One pass: the Secret of each instance elsewhere holds neither secret under any key.
+        let mut daemon = case.daemon();
+        let done = daemon
+            .pass(ReconcileReason::Cadence, Instant::now())
+            .expect("a pass");
+        assert!(
+            done.iter()
+                .all(|row| row.result == ReconcileResult::Succeeded),
+            "{name}: {done:?}"
+        );
+        let secret = |instance: &str| {
+            case.object("secrets", &format!("conductor-instance-{instance}"))
+                .unwrap_or_else(|| panic!("{name}: the Secret of {instance}"))
+        };
+        assert_eq!(secret_value(&secret("alpha"), "gitlab-forge"), value);
+        for elsewhere in ["beta", "gamma", "delta"] {
+            let secret = secret(elsewhere);
+            let data = secret["data"].as_object().cloned().unwrap_or_default();
+            for (key, encoded) in &data {
+                let held = encoded
+                    .as_str()
+                    .and_then(pods::base64_decode)
+                    .map(|bytes| String::from_utf8_lossy(&bytes).into_owned())
+                    .unwrap_or_default();
+                assert!(
+                    held != value && held != oauth,
+                    "{name}: the Secret of {elsewhere} holds the daemon's GitLab token under {key}"
+                );
+            }
+        }
+    }
+}
+
+/// Every variable a forge's command line reads a token from (decision F3-D1): `GH_TOKEN`,
+/// `GITHUB_TOKEN`, `GH_ENTERPRISE_TOKEN` and `GITHUB_ENTERPRISE_TOKEN` for `gh`; `GITLAB_TOKEN`,
+/// `GITLAB_ACCESS_TOKEN` and `OAUTH_TOKEN` for `glab`. An instance with a forge token of its own
+/// carries the daemon's entry of none of them (decision F3-D5), only its own token in its forge's
+/// first variable, and its Secret none of their secrets; every other entry stays. An instance on
+/// GitHub that names none keeps the daemon's entry of each `gh` variable (decision F3-D3).
+#[test]
+fn an_own_forge_token_leaves_every_token_variable_of_both_forge_clis_out_of_its_pod() {
+    let case = Case::new("forge-token-every-variable");
+    let daemons: [(&str, &str); 7] = [
+        ("GH_TOKEN", "forge-token"),
+        ("GITHUB_TOKEN", "github-classic"),
+        ("GH_ENTERPRISE_TOKEN", "github-enterprise"),
+        ("GITHUB_ENTERPRISE_TOKEN", "github-enterprise-two"),
+        ("GITLAB_TOKEN", "gitlab-forge"),
+        ("GITLAB_ACCESS_TOKEN", "gitlab-access"),
+        ("OAUTH_TOKEN", "gitlab-oauth"),
+    ];
+    let listed: Vec<&str> = conductor_cli::config::FORGE_CLI_TOKEN_VARIABLES
+        .iter()
+        .flat_map(|(_, variables)| variables.iter().copied())
+        .collect();
+    assert_eq!(
+        listed,
+        daemons.map(|(variable, _)| variable),
+        "the daemon's forge token variables"
+    );
+    for (forge, first) in conductor_cli::config::FORGE_TOKEN_VARIABLES {
+        assert!(
+            conductor_cli::config::FORGE_CLI_TOKEN_VARIABLES
+                .iter()
+                .any(|(named, variables)| *named == forge && variables.first() == Some(&first)),
+            "{forge}: the variable a forge_token fills is the first of its forge's list"
+        );
+    }
+    let mut env: Vec<String> = daemons
+        .iter()
+        .map(|(variable, secret)| format!("{{name: {variable}, secret: secret:{secret}}}"))
+        .collect();
+    env.push("{name: GIT_AUTHOR_NAME, value: conductor}".to_owned());
+    let env: Vec<&str> = env.iter().map(String::as_str).collect();
+    case.config_env(
+        IMAGE,
+        &env,
+        &[
+            instance(
+                "alpha",
+                "{github: example-org}",
+                "    forge_token: secret:alpha-forge\n",
+            ),
+            instance(
+                "gamma",
+                "{gitlab: example-org}",
+                "    forge_token: secret:gamma-forge\n",
+            ),
+            instance("beta", "{github: example-org}", ""),
+        ],
+    );
+    let text = fs::read_to_string(case.file()).expect("the config file");
+    let config = conductor_cli::config::parse(&text, &case.home())
+        .unwrap_or_else(|problems| panic!("the file does not validate: {problems:?}\n{text}"));
+    let kubernetes = config.daemon.kubernetes.clone().expect("daemon.kubernetes");
+    for (index, (name, own_variable, own_secret)) in [
+        ("alpha", "GH_TOKEN", "alpha-forge"),
+        ("gamma", "GITLAB_TOKEN", "gamma-forge"),
+    ]
+    .into_iter()
+    .enumerate()
+    {
+        let made = pods::manifests(&kubernetes, &config, &config.instances[index]);
+        assert_eq!(
+            variables(&made, own_variable),
+            [from_secret(own_variable, name, own_secret)],
+            "{name}: {}",
+            made.pod
+        );
+        for (variable, secret) in daemons {
+            if variable != own_variable {
+                assert!(
+                    variables(&made, variable).is_empty(),
+                    "{name} carries the daemon's {variable}: {}",
+                    made.pod
+                );
+            }
+            assert!(!made.secrets.contains(secret), "{name}: {:?}", made.secrets);
+        }
+        assert_eq!(
+            variables(&made, "GIT_AUTHOR_NAME"),
+            [json!({"name": "GIT_AUTHOR_NAME", "value": "conductor"})],
+            "{name}: {}",
+            made.pod
+        );
+    }
+    let beta = pods::manifests(&kubernetes, &config, &config.instances[2]);
+    for (variable, secret) in &daemons[..4] {
+        assert_eq!(
+            variables(&beta, variable),
+            [from_secret(variable, "beta", secret)],
+            "{}",
+            beta.pod
+        );
     }
 }
 

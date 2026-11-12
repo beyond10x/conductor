@@ -771,6 +771,23 @@ pub fn daemons_own(daemon: &conductor_model::config::Daemon) -> BTreeSet<String>
     own
 }
 
+/// The names of the secrets of the daemon's forge tokens (decision F3-D4): those the entries of
+/// `daemon.kubernetes.env` named for a variable a forge's command line reads a token from
+/// ([`crate::config::FORGE_CLI_TOKEN_VARIABLES`]) name. Unlike [`daemons_own`] they reach pods,
+/// through those entries: the daemon gives each to the pods it belongs to. No instance and no
+/// `globals` key names one: such a config does not validate, and the pod supervisor creates
+/// nothing for it.
+#[must_use]
+pub fn daemons_forge(daemon: &conductor_model::config::Daemon) -> BTreeSet<String> {
+    daemon
+        .kubernetes
+        .iter()
+        .flat_map(|kubernetes| &kubernetes.env)
+        .filter(|entry| crate::config::token_variable_forge(&entry.name).is_some())
+        .filter_map(|entry| entry.secret.as_ref().map(|secret| secret.0.clone()))
+        .collect()
+}
+
 /// Every `secret:<name>` each instance's effective config writes, by instance: the names under
 /// `globals` and under the instance's own entry. The daemon's own (`daemon.*`) are no
 /// instance's. A text that is no YAML names none.

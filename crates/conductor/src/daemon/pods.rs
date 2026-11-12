@@ -7,11 +7,14 @@
 //! the label set [`labels`] and no owner reference:
 //! - the Secret [`pod_name`]: the instance's config file as [`pod::render`] writes it (key
 //!   [`pod::CONFIG_FILE`]), the runtime's token (key [`TOKEN_KEY`]), and each secret the rendered
-//!   file, the instance's `forge_token` or a `daemon.kubernetes.env` entry names (but, for an
-//!   instance with a `forge_token`, the entries of `GH_TOKEN` and `GITLAB_TOKEN`: that pod
-//!   carries none of the daemon's forge tokens), resolved from the daemon's secrets source and
-//!   never from a Kubernetes Secret by name; one the source lacks refuses the start, and nothing
-//!   is created;
+//!   file, the instance's `forge_token` or a `daemon.kubernetes.env` entry the pod keeps names,
+//!   resolved from the daemon's secrets source and never from a Kubernetes Secret by name; one
+//!   the source lacks refuses the start, and nothing is created. The pod keeps none of the
+//!   daemon's forge token variables ([`crate::config::FORGE_CLI_TOKEN_VARIABLES`]) when the
+//!   instance names a `forge_token` of its own, and none of the GitLab ones unless every `gitlab`
+//!   source of the instance is on the daemon's GitLab host ([`gitlab_host`]). An instance that
+//!   names a secret of the daemon's own or the secret of a daemon's forge token refuses the start
+//!   too;
 //! - the volume claim [`claim_name`], of `daemon.kubernetes.volume`, created once and never
 //!   deleted by the supervisor;
 //! - the pod [`pod_name`] ([`manifests`]): the image `daemon.kubernetes.image` running
@@ -24,11 +27,14 @@
 //!   (a new image, a changed rendering) is restarted.
 //!
 //! Every field comes from `daemon.kubernetes`, the instance's name and the rendering (decision
-//! D8), and the key of one `env` entry from the instance's `forge_token`, whose variable its
-//! sources name and no caller does. Where the pod carries the token of a forge its sources name,
-//! git's `GIT_CONFIG_COUNT`, `GIT_CONFIG_KEY_<n>` and `GIT_CONFIG_VALUE_<n>` give git a
-//! credential helper for that forge's HTTPS origin and no other ([`GIT_CONFIG_COUNT`]); a
-//! `gitlab` source's host reaches only the key. The supervisor lists its pods once per tick by
+//! D8); the key of the one `env` entry the instance's `forge_token` fills, whose variable its
+//! sources name and no caller does; and, through the kinds and the `gitlab` hosts of its
+//! sources, which of the daemon's forge token entries the pod keeps and which
+//! `credential.https://<host>.helper` keys git gets. No text of a caller reaches a variable's
+//! name or a helper's value. Where the pod carries the token of a forge its sources name, git's
+//! `GIT_CONFIG_COUNT`, `GIT_CONFIG_KEY_<n>` and `GIT_CONFIG_VALUE_<n>` give git a credential
+//! helper for that forge's HTTPS origin and no other ([`GIT_CONFIG_COUNT`]); a `gitlab`
+//! source's host reaches only the key. The supervisor lists its pods once per tick by
 //! the first three labels ([`Pods::refresh`]): the reconciler reads each instance's state, address and
 //! failure from that list ([`Pods::seen`], [`Pods::detail`]). A restarted daemon adopts the pods
 //! it finds there, the token read back from the instance's Secret ([`Pods::token`]); a pod or
@@ -151,6 +157,20 @@ fn git_credentials(sources: &[Source], carried: &BTreeSet<&str>) -> Vec<(String,
     entries
 }
 
+/// The one host the daemon's GitLab token belongs to (decision F3-D2): the value of the
+/// `GITLAB_HOST` entry of `kubernetes.env`, [`crate::config::GITLAB_HOST`] where there is none,
+/// lowercased as git's key is. A port is part of it: `host` and `host:443` are different hosts.
+#[must_use]
+pub fn gitlab_host(kubernetes: &Kubernetes) -> String {
+    kubernetes
+        .env
+        .iter()
+        .find(|entry| entry.name == crate::config::GITLAB_HOST_VARIABLE)
+        .and_then(|entry| entry.value.as_deref())
+        .unwrap_or(crate::config::GITLAB_HOST)
+        .to_ascii_lowercase()
+}
+
 /// The waiting reasons that hold a pod Pending until something changes: its row says so.
 pub const STUCK: [&str; 6] = [
     "ImagePullBackOff",
@@ -259,7 +279,8 @@ fn quantities(quantities: &KubernetesQuantities) -> Map<String, Value> {
 
 /// The objects of `instance`'s pod in the daemon of `config`, whose `daemon.kubernetes` is
 /// `kubernetes`, as the module documentation says. Nothing in them but from `kubernetes`, the
-/// instance's name, its `forge_token` and the rendering (decision D8).
+/// instance's name, its `forge_token`, the kinds and `gitlab` hosts of its sources, and the
+/// rendering (decision D8).
 #[must_use]
 pub fn manifests(kubernetes: &Kubernetes, config: &Config, instance: &Instance) -> Manifests {
     let name = &instance.name.0;
@@ -291,16 +312,22 @@ pub fn manifests(kubernetes: &Kubernetes, config: &Config, instance: &Instance) 
                 _ => None,
             },
         );
-    // An instance with a forge token of its own carries none of the daemon's (decision F2-D7):
-    // every `env` entry of a forge token variable stays out of its pod, and so does its secret
-    // unless a kept entry or the rendered file names it too.
+    // The daemon's GitLab token belongs to one host (decision F3-D2): its entries reach a pod
+    // only where every `gitlab` source of the instance is on that host, so neither git's helper
+    // nor `glab --hostname` sends it to a host a caller named.
+    let gitlab_host = gitlab_host(kubernetes);
+    let on_gitlab_host = instance.sources.iter().all(|source| match source {
+        Source::GitLab(gitlab) => gitlab.host.to_ascii_lowercase() == gitlab_host,
+        Source::GitHub(_) | Source::Local(_) => true,
+    });
+    // An instance with a forge token of its own carries none of the daemon's forge token
+    // variables (decisions F2-D7, F3-D5). An entry left out keeps its secret out of the
+    // Secret, unless a kept entry names it too.
     for variable in &kubernetes.env {
-        if forge.is_some()
-            && crate::config::FORGE_TOKEN_VARIABLES
-                .iter()
-                .any(|(_, name)| variable.name == *name)
-        {
-            continue;
+        match crate::config::token_variable_forge(&variable.name) {
+            Some(_) if forge.is_some() => continue,
+            Some("gitlab") if !on_gitlab_host => continue,
+            _ => {}
         }
         match (&variable.value, &variable.secret) {
             (_, Some(secret)) => {
@@ -722,6 +749,23 @@ impl Pods {
             bail!(
                 "a secret the pod of {name} would get is a secret of the daemon's own, which no \
                  pod gets: name a secret kept for the instance; nothing is created"
+            );
+        }
+        // Validation refuses an instance or `globals` that names the secret of a daemon's forge
+        // token (decision F3-D4); a file written before that rule gets nothing created either.
+        let forges = crate::secret::daemons_forge(&config.daemon);
+        let named = crate::secret::referenced(&made.rendered)
+            .remove(name)
+            .unwrap_or_default();
+        if named
+            .iter()
+            .chain(instance.forge_token.iter().map(|secret| &secret.0))
+            .any(|secret| forges.contains(secret))
+        {
+            bail!(
+                "a secret the pod of {name} would get from its instance is the secret of a \
+                 daemon's forge token, which the daemon gives to the pods it belongs to: name a \
+                 token of the instance's own instead; nothing is created"
             );
         }
         for secret in &made.secrets {

@@ -3781,6 +3781,103 @@ fn an_instances_forge_token_names_its_forge_through_its_sources_where_pods_run()
     assert!(!problems.contains(&value), "{problems}");
 }
 
+/// A `GITLAB_HOST` entry of `daemon.kubernetes.env` names the one host the daemon's GitLab token
+/// belongs to (decision F3-D2): its `value` is a host as a `gitlab` source writes one, with an
+/// optional port, and validates; a `value` with a scheme is refused at its path; a `secret` is
+/// refused at the entry's path, saying the host is no secret.
+#[test]
+fn a_gitlab_host_entry_is_a_host_written_as_its_value() {
+    let case = Case::new("gitlab-host-entry");
+    let entry = "{name: GIT_AUTHOR_NAME, value: conductor}";
+    let base = pods(&pod_instance(""));
+    for (name, host) in [
+        ("host", "gitlab.example.com"),
+        ("port", "GitLab.Example.com:8443"),
+    ] {
+        let text = base.replace(entry, &format!("{{name: GITLAB_HOST, value: {host:?}}}"));
+        let file = case.write(&format!("{name}.yaml"), &text);
+        let output = case.with_file(&file, &["config", "validate"]);
+        assert_eq!(
+            output.status.code(),
+            Some(0),
+            "{name}: {}",
+            describe(&output)
+        );
+    }
+    for (name, written, says) in [
+        (
+            "scheme",
+            "{name: GITLAB_HOST, value: \"https://gitlab.example.com\"}",
+            "daemon.kubernetes.env[1].value: is not a host name",
+        ),
+        (
+            "secret",
+            "{name: GITLAB_HOST, secret: secret:gitlab-host}",
+            "daemon.kubernetes.env[1]: is a secret, and GITLAB_HOST names a host, which is no \
+             secret",
+        ),
+    ] {
+        let file = case.write(&format!("{name}.yaml"), &base.replace(entry, written));
+        let problems = refused(&case, &file);
+        assert!(problems.contains(says), "{name}: {problems}");
+    }
+}
+
+/// The secret of a daemon's forge token, which an entry of `daemon.kubernetes.env` named for a
+/// variable `gh` or `glab` reads a token from names, is no instance's (decision F3-D4): an
+/// instance's `model_token` or `forge_token`, or a `globals` key, that names it is refused at its
+/// YAML path saying the daemon gives that token to the pods it belongs to; the secret of any
+/// other entry is the instance's to name.
+#[test]
+fn the_secret_of_a_daemons_forge_token_is_no_instances() {
+    let case = Case::new("daemons-forge-secret");
+    let gitlab = "[{gitlab: example-org, host: gitlab.example.com}]";
+    for (name, text, path) in [
+        (
+            "model-token",
+            pods(&pod_instance("\x20   model_token: secret:forge-token\n")),
+            "instances[0].model_token",
+        ),
+        (
+            "forge-token",
+            pods(&pod_instance("\x20   forge_token: secret:forge-token\n"))
+                .replace("[{github: example-org}]", gitlab),
+            "instances[0].forge_token",
+        ),
+        (
+            "globals",
+            pods(&format!(
+                "globals: {{model_token: secret:forge-token}}\n{}",
+                pod_instance("")
+            )),
+            "globals.model_token",
+        ),
+        (
+            "oauth-token",
+            pods(&pod_instance("\x20   model_token: secret:forge-token\n"))
+                .replace("name: GH_TOKEN", "name: OAUTH_TOKEN"),
+            "instances[0].model_token",
+        ),
+    ] {
+        let file = case.write(&format!("{name}.yaml"), &text);
+        let problems = refused(&case, &file);
+        assert!(
+            problems.contains(&format!(
+                "{path}: names the secret of a daemon's forge token, which the daemon gives to \
+                 the pods it belongs to"
+            )),
+            "{name}: {problems}"
+        );
+    }
+    let other = pods(&pod_instance("\x20   model_token: secret:mirror-key\n")).replace(
+        "{name: GIT_AUTHOR_NAME, value: conductor}",
+        "{name: MIRROR_KEY, secret: secret:mirror-key}",
+    );
+    let file = case.write("other.yaml", &other);
+    let output = case.with_file(&file, &["config", "validate"]);
+    assert_eq!(output.status.code(), Some(0), "{}", describe(&output));
+}
+
 /// `daemon.kubernetes` (design: instance pods): a file of the daemon section alone, with no
 /// instance, validates where it names the instance pods, and is refused by the path `instances`
 /// where it does not.
