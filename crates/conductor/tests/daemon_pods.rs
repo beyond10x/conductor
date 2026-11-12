@@ -836,7 +836,18 @@ fn the_doctor_names_each_right_and_fails_on_a_missing_one() {
     case.fake.allow(NAMESPACE, "get", "pods/log");
     let client = case.fake.client();
     let lines = conductor_cli::doctor::kubernetes_lines(&kubernetes, Ok(&client));
-    assert_eq!(lines.len(), 13, "{lines:?}");
+    assert_eq!(lines.len(), 10, "{lines:?}");
+    // Of the claims, create only: the daemon keeps every claim it made.
+    let claims: Vec<&str> = lines
+        .iter()
+        .map(|(line, _)| line.as_str())
+        .filter(|line| line.contains("persistentvolumeclaims"))
+        .collect();
+    assert_eq!(claims.len(), 1, "{lines:?}");
+    assert!(
+        claims[0].contains("create persistentvolumeclaims"),
+        "{claims:?}"
+    );
     let failures: Vec<String> = lines
         .iter()
         .filter_map(|(_, failure)| failure.clone())
@@ -860,6 +871,59 @@ fn the_doctor_names_each_right_and_fails_on_a_missing_one() {
     assert_eq!(lines.len(), 1, "{lines:?}");
     assert!(lines[0].0.contains("not in a cluster"), "{lines:?}");
     assert!(lines[0].1.is_some(), "it fails the verdict: {lines:?}");
+}
+
+/// A config read before validation refused the daemon's own secrets in an instance or in `env`
+/// still gets none into a pod: the start is refused before any secret is resolved, with "a secret
+/// of the daemon's own" as its detail, and nothing reaches the API.
+#[test]
+fn a_start_naming_a_secret_of_the_daemons_own_creates_nothing() {
+    use conductor_model::secret::SecretName;
+    let case = Case::new("daemons-own");
+    let text = fs::read_to_string(case.file()).expect("the config file");
+    let valid = conductor_cli::config::parse(&text, &case.home()).expect("a valid file");
+    // The control token is the instance's model token, or the secret `env` gives the pods.
+    for own in ["alpha-model", "forge-token"] {
+        let mut config = valid.clone();
+        config.daemon.control_token = Some(SecretName(own.to_owned()));
+        let kubernetes = config.daemon.kubernetes.clone().expect("daemon.kubernetes");
+        let mut pods = Pods::new(case.fake.client());
+        let asked = std::cell::RefCell::new(Vec::new());
+        let error = pods
+            .start(
+                &kubernetes,
+                &config,
+                &config.instances[0],
+                "an-instance-token",
+                &|name: &SecretName| {
+                    asked.borrow_mut().push(name.0.clone());
+                    None
+                },
+            )
+            .expect_err("refused");
+        let error = format!("{error:#}");
+        assert!(
+            error.contains("a secret of the daemon's own") && error.contains("nothing is created"),
+            "{own}: {error}"
+        );
+        assert!(!error.contains(own), "{own}: {error}");
+        assert_eq!(
+            asked.borrow().len(),
+            0,
+            "{own}: resolved {:?}",
+            asked.borrow()
+        );
+        assert_eq!(
+            pods.refused("alpha"),
+            Some(error),
+            "{own}: the row's detail"
+        );
+        assert!(
+            case.fake.requests().is_empty(),
+            "{own}: {:?}",
+            case.fake.requests()
+        );
+    }
 }
 
 /// The daemon's own seeding skips an instance that runs as a pod: its runtime seeds itself. (The
