@@ -1194,7 +1194,11 @@ impl<U: Units> Daemon<U> {
     /// through that slot ([`Daemon::box_request`], [`crate::placement::api_token_slot`]), any
     /// other box not at all, and its model token goes through the slot pool
     /// ([`crate::placement::SlotPool`]).
-    fn start_runtime(&mut self, instance: &Instance, service: &Service) -> Result<String> {
+    pub(super) fn start_runtime(
+        &mut self,
+        instance: &Instance,
+        service: &Service,
+    ) -> Result<String> {
         if !crate::placement::boxed(instance) {
             self.units.start(service)?;
             return Ok(service.unit.clone());
@@ -1339,7 +1343,7 @@ impl<U: Units> Daemon<U> {
 
     /// Stops the runtime of `name`, started as `unit`: closes its box when it runs in one, on the
     /// daemon it was opened on ([`crate::placement::close_box`]), else stops its unit.
-    fn stop_runtime(&mut self, name: &str, unit: &str) -> Result<()> {
+    pub(super) fn stop_runtime(&mut self, name: &str, unit: &str) -> Result<()> {
         match self.boxes.get(name).cloned() {
             Some(opened) if boxed_unit(&opened) == unit => {
                 let mut substrate = substrate_of(

@@ -131,6 +131,7 @@ use crate::cli::{
 
 pub mod convert;
 pub mod effective;
+pub mod instance;
 pub mod put;
 
 /// The placeholder GitHub owner of the built-in instance, which applies without a config file,
@@ -2710,13 +2711,21 @@ impl Reader<'_> {
             }
             None => Some(defaults.address.clone()),
         };
-        // `daemon.kubernetes` and `daemon.control_token` are declared and not served yet: absent
-        // or null they read as absent, set they are refused by their path.
-        for key in ["kubernetes", "control_token"] {
-            if Self::get(map, key).is_some() {
-                self.problem(&join(path, key), "declared, and not served yet");
-            }
+        // `daemon.kubernetes` is declared and not served yet: absent or null it reads as absent,
+        // set it is refused by its path.
+        if Self::get(map, "kubernetes").is_some() {
+            self.problem(&join(path, "kubernetes"), "declared, and not served yet");
         }
+        // Decision D2: the control token, `secret:<name>`; anything else is the generic
+        // secret-bearing check's problem at the same path, since the key ends in `token`.
+        let control_token = match Self::get(map, "control_token") {
+            Some(Value::String(text)) if secret_name(text) => Some(
+                text.strip_prefix("secret:")
+                    .map(|name| conductor_model::secret::SecretName(name.to_owned())),
+            ),
+            Some(_) => None,
+            None => Some(None),
+        };
         Some(Daemon {
             port: port?,
             loopback: loopback?,
@@ -2732,7 +2741,7 @@ impl Reader<'_> {
             unattended: unattended?,
             address: address?,
             kubernetes: None,
-            control_token: None,
+            control_token: control_token?,
         })
     }
 
@@ -5301,7 +5310,13 @@ pub fn daemon_document(daemon: &Daemon) -> Yaml {
         ("address", text(&daemon.address)),
         // Declared, and not served yet: never set on a file that validates.
         ("kubernetes", Yaml::Null),
-        ("control_token", Yaml::Null),
+        (
+            "control_token",
+            daemon
+                .control_token
+                .as_ref()
+                .map_or(Yaml::Null, |name| text(&format!("secret:{}", name.0))),
+        ),
     ])
 }
 

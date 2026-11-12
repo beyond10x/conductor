@@ -265,7 +265,7 @@ fn commit(file: &Path, subject: &str, body: &str) -> Result<Option<String>> {
 /// # Errors
 ///
 /// The lock file cannot be opened or locked.
-fn lock(file: &Path) -> Result<fs::File> {
+pub(super) fn lock(file: &Path) -> Result<fs::File> {
     let dir = file.parent().unwrap_or_else(|| Path::new("."));
     let name = file
         .file_name()
@@ -281,6 +281,48 @@ fn lock(file: &Path) -> Result<fs::File> {
     held.lock()
         .with_context(|| format!("lock {}", path.display()))?;
     Ok(held)
+}
+
+/// Writes `new` over the config `file`, which held `old`, by a rename beside it, and commits it
+/// with `subject` and `body` ([`commit`]): the commit's id, or none for a file in no checkout.
+/// Held under [`lock`].
+///
+/// # Errors
+///
+/// The file cannot be written, or the commit fails: the old text is put back when the file still
+/// holds `new`, else it is left as it is.
+pub(super) fn replace(
+    file: &Path,
+    old: &str,
+    new: &str,
+    subject: &str,
+    body: &str,
+) -> Result<Option<String>> {
+    let next = file.with_extension("yaml.next");
+    fs::write(&next, new).with_context(|| format!("write {}", next.display()))?;
+    fs::rename(&next, file).with_context(|| format!("write {}", file.display()))?;
+    match commit(file, subject, body) {
+        Ok(committed) => Ok(committed),
+        Err(error) => {
+            // Only this run's own text is taken back: a file that holds another text now was
+            // changed by someone else since, and is left as it is.
+            let ours = fs::read_to_string(file).is_ok_and(|now| now == new);
+            if !ours {
+                return Err(error.context(format!(
+                    "commit {}; the file was changed since this run wrote it, so it is left as \
+                     it is, and nothing was recorded",
+                    file.display()
+                )));
+            }
+            fs::write(&next, old)
+                .and_then(|()| fs::rename(&next, file))
+                .with_context(|| format!("put the old text back into {}", file.display()))?;
+            Err(error.context(format!(
+                "commit {}; the old text is back and nothing was recorded",
+                file.display()
+            )))
+        }
+    }
 }
 
 /// Changes one key of the config file `file` (`~` read as `home`) as `input` says, and records
@@ -373,9 +415,6 @@ pub fn put_config(
             problems: Vec::new(),
         }));
     }
-    let next = file.with_extension("yaml.next");
-    fs::write(&next, &new).with_context(|| format!("write {}", next.display()))?;
-    fs::rename(&next, file).with_context(|| format!("write {}", file.display()))?;
     let who = crate::actor::written(&input.actor);
     let subject = format!(
         "config: {under}.{} at {} by {who}",
@@ -383,28 +422,7 @@ pub fn put_config(
         level_name(input.level).to_ascii_lowercase()
     );
     let body = format!("{}\n\nActor: {who}", input.reason);
-    let committed = match commit(file, &subject, &body) {
-        Ok(committed) => committed,
-        Err(error) => {
-            // Only this run's own text is taken back: a file that holds another text now was
-            // changed by someone else since, and is left as it is.
-            let ours = fs::read_to_string(file).is_ok_and(|now| now == new);
-            if !ours {
-                return Err(error.context(format!(
-                    "commit {}; the file was changed since this run wrote it, so it is left as \
-                     it is, and nothing was recorded",
-                    file.display()
-                )));
-            }
-            fs::write(&next, &old)
-                .and_then(|()| fs::rename(&next, file))
-                .with_context(|| format!("put the old text back into {}", file.display()))?;
-            return Err(error.context(format!(
-                "commit {}; the old text is back and nothing was recorded",
-                file.display()
-            )));
-        }
-    };
+    let committed = replace(file, &old, &new, &subject, &body)?;
     let data = ConfigRevisionData {
         revision_id: RevisionId(Uuid(eventlog_core::new_event_id())),
         actor: input.actor.clone(),

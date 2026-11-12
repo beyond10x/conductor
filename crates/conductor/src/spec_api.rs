@@ -17,7 +17,8 @@
 //!   [`MemoryPorts`]': a UUID for an identity, and a refusal naming what is owed for a string, a
 //!   host grant's or reclaim run's id, a refusal reason and every `external:` branch;
 //! - the obligations the plan owes ([`OWED`]) are [`MemoryPorts`]' refusals, but
-//!   `conductor.token.Tokens`, answered from the store.
+//!   `conductor.token.Tokens`, answered from the store, and `conductor.instance.InstanceByName`,
+//!   answered from the ephemeral store's instances.
 //!
 //! A request is admitted as the loopback listener admits a write ([`caller`]): with the daemon's
 //! token in `X-Conductor-Token`, and then as the operator actor of the route's domain.
@@ -100,7 +101,7 @@ pub const MEMORY_BACKED: [&str; 18] = [
 
 /// The behaviours and queries the plan owes rather than generates, and who answers each here:
 /// `store` where this module answers it from the store, `memory` where [`MemoryPorts`] refuses it
-/// as unmet.
+/// as unmet or, for `InstanceByName`, where this module answers it from [`MemoryPorts`]' instances.
 pub const OWED: [(&str, &str); 14] = [
     ("conductor.agent.AttachAgent", "memory"),
     ("conductor.agent.DeliverToAgent", "memory"),
@@ -329,14 +330,32 @@ impl m::config::obligations::EffectiveSettingsQuery for StorePorts {
     }
 }
 
-/// `conductor.instance.InstanceByName`, `GET /v1/instances/{name}`: declared and not served yet,
-/// so the generated refusal of an unmet obligation answers it, as for `EffectiveSettings`.
+/// `conductor.instance.InstanceByName`, `GET /v1/instances/{name}`: the instance of that name the
+/// generated ephemeral store holds, as `conductor.instance.Instances` reads every one; none, the
+/// view's `404`, for a name it does not hold.
 impl m::instance::obligations::InstanceByNameQuery for StorePorts {
     fn instance_by_name(
         &self,
         name: m::config::InstanceName,
     ) -> Result<Vec<m::instance::InstanceByName>, UnmetObligation> {
-        m::instance::obligations::InstanceByNameQuery::instance_by_name(&self.memory, name)
+        Ok(port::InstanceStorage::get(&self.memory, &name)
+            .into_iter()
+            .map(|instance| {
+                let data = instance.data;
+                m::instance::InstanceByName {
+                    name: data.name,
+                    state: instance.state,
+                    placement: data.placement,
+                    roles: data.roles,
+                    binary_version: data.binary_version,
+                    last_seen: data.last_seen,
+                    box_id: data.box_id,
+                    sources: data.sources,
+                    detail: data.detail,
+                    changed_by: data.changed_by,
+                }
+            })
+            .collect())
     }
 }
 
@@ -397,9 +416,10 @@ pub enum Surface {
 }
 
 /// Who a request is from, as the loopback listener would admit its write: the daemon's `token` in
-/// `X-Conductor-Token`, then the operator actor of the route's domain (`/v1/config` the config's,
-/// `/v1/instances/…` the instance's, `/v1/agents/…` the agent's). Without the token, or on another
-/// path, no actor: a command answers the standard `403`.
+/// `X-Conductor-Token`, then the operator actor of the route's domain (`/v1/config`,
+/// `/v1/instances` and `/v1/instances/{name}` the config's, `/v1/instances/{name}/…` the
+/// instance's, `/v1/agents/…` the agent's). Without the token, or on another path, no actor: a
+/// command answers the standard `403`.
 #[must_use]
 pub fn caller(request: &http::Request, token: &str) -> Option<Caller> {
     let given = request
@@ -411,7 +431,11 @@ pub fn caller(request: &http::Request, token: &str) -> Option<Caller> {
         return None;
     }
     let path = request.path.as_str();
-    let actor = if path == "/v1/config" {
+    let whole_instance = path == "/v1/instances"
+        || path
+            .strip_prefix("/v1/instances/")
+            .is_some_and(|name| !name.is_empty() && !name.contains('/'));
+    let actor = if path == "/v1/config" || whole_instance {
         Actor::ConfigOperator
     } else if path.starts_with("/v1/instances/") {
         Actor::InstanceOperator

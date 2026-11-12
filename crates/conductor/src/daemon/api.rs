@@ -6,13 +6,19 @@
 //!   `index.html` carries the daemon's token in `<meta name="conductor-token">`, the one token a
 //!   browser holds; on the TLS listener it carries none, and the API takes bearers only;
 //! - `GET /v1/instances`: the rows the reconciler last published ([`Api::publish`]);
+//! - the instance API of a consumer control plane (design A6): `POST /v1/instances` adds one
+//!   whole instance to the config file, `GET`, `PUT` and `DELETE /v1/instances/{name}` read,
+//!   replace and remove one ([`crate::config::instance`]), and `POST
+//!   /v1/instances/{name}/restart` restarts its runtime ([`super::restart`]); a write of these is
+//!   `ChangeSettings` (`restart`: `StartInstances`);
 //! - `/v1/instances/{name}/<route>`: the instance's `/v1/<route>`, proxied to its runtime's socket,
 //!   or to the TCP address of a runtime alone in a pod with the token on every request
 //!   ([`Route`]), with the instance's token, which no browser holds; only its writing routes
 //!   ([`WRITES`]) are admitted as writes, any other method is forwarded bare and the instance
 //!   answers it 405. `start`, `stop`, `restart` and `upgrade` are the daemon's own routes and are
 //!   not proxied; `POST /v1/instances/{name}/upgrade` hands an upgrade to the loop
-//!   ([`super::upgrade::post`]), the others are not served yet;
+//!   ([`super::upgrade::post`]), `restart` a restart ([`super::restart::post`]), `start` and
+//!   `stop` are not served yet;
 //! - `PUT /v1/config`: one key of the config changed ([`crate::config::put::put_config`]).
 //! - `GET /v1/sessions`, `decisions`, `unanswered`, `kpis` and `events` (SSE): the union of every
 //!   instance's answer, each row carrying `instance`, an instance that does not answer within
@@ -29,7 +35,18 @@
 //!   `POST /v1/ask`, `POST /v1/roles/{role}/start`) is `503` with the readiness reason.
 //! - `GET /v1/instances/{name}/tokens`, `POST .../join` and `POST .../leave`: the instance's token
 //!   pool, the daemon's own routes ([`crate::token`], `story:token-pool`); a join or a leave is a
-//!   write of the `Join` grant.
+//!   write of the `Join` grant, refused `409` for a daemon that runs its instances as pods
+//!   ([`Api::with_pods`]).
+//!
+//! The control token (decision D2, [`Api::with_control_token`]): while the file names one
+//! (`daemon.control_token: secret:<name>`), a request on either listener whose bearer equals its
+//! value is the machine principal `control-plane`. It reads every `GET` under `/v1/` a person's
+//! bearer reads but `GET /v1/secrets`, and writes `POST /v1/instances`, `PUT` and `DELETE
+//! /v1/instances/{name}` and `POST /v1/instances/{name}/restart`, recorded as its own; every other
+//! write and `GET /v1/secrets` refuse it as an agent is refused (`ActorNotHuman`). Any other bearer
+//! is the Identity service's to admit on the bearer listener and nobody's on loopback, and is
+//! answered one `401` that says nothing of the kind expected. While the file names none, both
+//! listeners answer as they did before it.
 //!
 //! A local client that is no browser (`conductor instance upgrade`) writes with the token the
 //! daemon keeps in [`TOKEN_FILE`] of its directory, mode 0600, naming the listener's origin.
@@ -67,8 +84,9 @@ use std::sync::{Arc, Mutex, PoisonError};
 use std::time::{Duration, Instant};
 
 use anyhow::{Context as _, Result, anyhow, bail};
-use conductor_model::config::{DaemonOperator, OperatorGrant};
-use conductor_model::secret::Source;
+use conductor_model::config::{DaemonOperator, OperatorGrant, SecretsSource};
+use conductor_model::operator::Actor;
+use conductor_model::secret::{SecretName, Source};
 use rustls::pki_types::pem::PemObject as _;
 use rustls::pki_types::{CertificateDer, PrivateKeyDer, ServerName};
 use serde::Deserialize;
@@ -287,6 +305,13 @@ pub struct Api {
     /// waits for the reconciler's first publication, as it did while no listener took a request
     /// before it.
     starting: AtomicBool,
+    /// The control token (decision D2): the secrets source `daemon.secrets` names and the secret
+    /// `daemon.control_token` names in it, read at each request a bearer comes with; none while
+    /// the file names no control token ([`Self::with_control_token`]).
+    control: Option<(SecretsSource, SecretName)>,
+    /// Whether the daemon runs its instances as pods (`daemon.kubernetes` set): an instance's
+    /// token-pool join and leave are refused then ([`Self::with_pods`]).
+    pods: bool,
 }
 
 /// How `POST /v1/ask` delivers a question to the supervisor's session: by default the
@@ -313,6 +338,50 @@ impl Api {
             probes: super::metrics::Probes::default(),
             metrics_keep: super::metrics::KEEP,
             starting: AtomicBool::new(false),
+            control: None,
+            pods: false,
+        }
+    }
+
+    /// The API with the control token (decision D2): a request whose bearer equals the value
+    /// `secrets` holds under `name` (`daemon.control_token`) is the machine principal
+    /// `control-plane` ([`crate::actor::control_plane`]), on either listener. The value is read
+    /// from the source at each request that comes with a bearer, never kept, and compared in
+    /// constant time; an empty or missing value admits nobody. Without `name` the API answers as
+    /// it does without this call.
+    #[must_use]
+    pub fn with_control_token(mut self, secrets: SecretsSource, name: Option<SecretName>) -> Self {
+        self.control = name.map(|name| (secrets, name));
+        self
+    }
+
+    /// The API of a daemon that runs its instances as pods (`daemon.kubernetes` set): a runtime
+    /// in a pod keeps its own store and does not read the daemon's token pool, so an instance's
+    /// `POST .../join` and `POST .../leave` are refused (design B2).
+    #[must_use]
+    pub const fn with_pods(mut self, pods: bool) -> Self {
+        self.pods = pods;
+        self
+    }
+
+    /// What the bearer of `request` is to the control token.
+    fn control(&self, request: &Request) -> Control {
+        let Some((secrets, name)) = &self.control else {
+            return Control::Unset;
+        };
+        let Some(given) = presented(request) else {
+            return Control::NoBearer;
+        };
+        let value = crate::secret::open(secrets)
+            .ok()
+            .and_then(|source| source.reveal(name).ok().flatten());
+        match value {
+            Some(value)
+                if !value.expose().is_empty() && same_secret(value.expose(), given.as_bytes()) =>
+            {
+                Control::Admitted
+            }
+            _ => Control::Refused,
         }
     }
 
@@ -576,6 +645,8 @@ pub fn grant_for(route: &str) -> OperatorGrant {
     match route {
         "answers" | "plan" => OperatorGrant::AnswerDecisions,
         "upgrade" => OperatorGrant::UpgradeInstances,
+        // An instance's runtime started again (`POST /v1/instances/{name}/restart`).
+        "restart" => OperatorGrant::StartInstances,
         // story:token-pool: joining an instance, and leaving it, is the `Join` grant.
         "join" | "leave" => OperatorGrant::Join,
         _ => OperatorGrant::ChangeSettings,
@@ -793,6 +864,81 @@ enum Who {
         human: bool,
         cookie: bool,
     },
+    /// The machine principal `control-plane`: a bearer that equals the control token (decision
+    /// D2), admitted for the reads and the instance routes only ([`CONTROL_PLANE_ROUTES`]).
+    ControlPlane,
+}
+
+/// The routes besides the reads `control-plane` is admitted for, by the route word
+/// [`admit_instance`] is asked for: `POST /v1/instances`, `PUT` and `DELETE /v1/instances/{name}`
+/// (`instances`) and `POST /v1/instances/{name}/restart` (`restart`). Every other write refuses it
+/// as it refuses an agent, and so does `GET /v1/secrets`.
+const CONTROL_PLANE_ROUTES: [&str; 2] = ["instances", "restart"];
+
+/// What a request's bearer is to the control token ([`Api::with_control_token`]).
+enum Control {
+    /// The file names no control token: the listener admits as it does without one.
+    Unset,
+    /// The request carries no bearer.
+    NoBearer,
+    /// The bearer equals the control token.
+    Admitted,
+    /// The bearer is not the control token, or the token cannot be read or is empty.
+    Refused,
+}
+
+/// The bearer `request` presents in `Authorization: Bearer`, if any.
+fn presented(request: &Request) -> Option<&str> {
+    request
+        .header("authorization")
+        .and_then(|value| value.strip_prefix("Bearer "))
+        .map(str::trim)
+        .filter(|token| !token.is_empty())
+}
+
+/// Whether `given` is `expected`, compared in constant time: their SHA-256 digests, which have one
+/// length whatever the lengths of the two, compared byte by byte without an early end.
+fn same_secret(expected: &[u8], given: &[u8]) -> bool {
+    let (expected, given) = (
+        ring::digest::digest(&ring::digest::SHA256, expected),
+        ring::digest::digest(&ring::digest::SHA256, given),
+    );
+    expected
+        .as_ref()
+        .iter()
+        .zip(given.as_ref())
+        .fold(0_u8, |differs, (a, b)| differs | (a ^ b))
+        == 0
+}
+
+/// The answer to a bearer neither the control token nor the Identity service admits, while the
+/// file names a control token: one `401` whatever the bearer was and whichever kind was asked
+/// for, so it tells a caller nothing of what is expected.
+const NOT_ADMITTED: &str = "the bearer is not admitted";
+
+fn not_admitted(listener: Listener, api: &Api) -> Vec<u8> {
+    let identity = api.identity.as_ref().map(Identity::origin);
+    reply(
+        401,
+        "Unauthorized",
+        &json!({"error": NOT_ADMITTED, "identity": identity}),
+        listener,
+    )
+}
+
+/// The refusal of `control-plane` on a route it is not admitted for: as an agent is refused a
+/// write, `conductor.operator.ActorNotHuman`.
+fn control_plane_refused(listener: Listener) -> Vec<u8> {
+    reply(
+        403,
+        "Forbidden",
+        &json!({
+            "error": "conductor.operator.ActorNotHuman",
+            "actor": {"kind": "ControlPlane", "operator": null, "agent": null},
+            "principal": "control-plane",
+        }),
+        listener,
+    )
 }
 
 fn answer<S: Read + Write>(
@@ -855,9 +1001,20 @@ fn answer<S: Read + Write>(
             listener,
         );
     }
-    let who = match listener {
-        Listener::Loopback(_) => Who::Local,
-        Listener::Bearers => match bearer(request, api) {
+    // Decision D2: a bearer that equals the control token is `control-plane` on either listener;
+    // while the file names one, any other bearer is the Identity service's to admit on the bearer
+    // listener and nobody's on loopback, each refusal the same `401`. While it names none, every
+    // listener admits as before.
+    let control = api.control(request);
+    let who = match (listener, control) {
+        (_, Control::Admitted) => Who::ControlPlane,
+        (Listener::Loopback(_), Control::Refused) => return not_admitted(listener, api),
+        (Listener::Loopback(_), _) => Who::Local,
+        (Listener::Bearers, Control::Refused) => match bearer(request, api) {
+            Ok(who) => who,
+            Err(_) => return not_admitted(listener, api),
+        },
+        (Listener::Bearers, _) => match bearer(request, api) {
             Ok(who) => who,
             // The refusal names the Identity service, where `conductor login` obtains a bearer
             // (`story:daemon-remote`).
@@ -896,11 +1053,14 @@ fn answer<S: Read + Write>(
         return answer;
     }
     if path == INSTANCES {
+        if request.method == "POST" {
+            return instance_write(request, stream, listener, &who, api, None);
+        }
         if request.method != "GET" {
             return reply(
                 405,
                 "Method Not Allowed",
-                &json!({"error": format!("{INSTANCES} answers GET only")}),
+                &json!({"error": format!("{INSTANCES} answers GET and POST only")}),
                 listener,
             );
         }
@@ -908,6 +1068,28 @@ fn answer<S: Read + Write>(
             return api.unpublished(listener);
         }
         return reply(200, "OK", &Value::Array(api.rows()), listener);
+    }
+    // `/v1/instances/{name}`: one instance, read, replaced or removed (design A6).
+    if let Some(name) = path
+        .strip_prefix("/v1/instances/")
+        .filter(|name| !name.is_empty() && !name.contains('/'))
+    {
+        return match request.method.as_str() {
+            "GET" => {
+                if !api.is_reconciled() {
+                    return api.unpublished(listener);
+                }
+                let (code, reason, answer) = instance_row(api, name);
+                reply(code, reason, &answer, listener)
+            }
+            "PUT" | "DELETE" => instance_write(request, stream, listener, &who, api, Some(name)),
+            _ => reply(
+                405,
+                "Method Not Allowed",
+                &json!({"error": format!("{path} answers GET, PUT and DELETE only")}),
+                listener,
+            ),
+        };
     }
     let Some((name, route)) = path
         .strip_prefix("/v1/instances/")
@@ -943,6 +1125,26 @@ fn answer<S: Read + Write>(
         };
         let (status, answer) =
             super::upgrade::post(&path, &body, crate::actor::operator(&operator));
+        let (code, reason) = status_parts(status);
+        return reply(code, reason, &answer, listener);
+    }
+    if route == "restart" {
+        if request.method != "POST" {
+            return reply(
+                405,
+                "Method Not Allowed",
+                &json!({"error": format!("{path} answers POST only")}),
+                listener,
+            );
+        }
+        let actor = match admit_instance(request, listener, &who, route, api) {
+            Ok(actor) => actor,
+            Err(refusal) => return refusal,
+        };
+        if let Err(refusal) = optional_body(request, stream) {
+            return refusal(listener);
+        }
+        let (status, answer) = super::restart::post(name, actor);
         let (code, reason) = status_parts(status);
         return reply(code, reason, &answer, listener);
     }
@@ -1045,6 +1247,18 @@ fn pool<S: Read>(
         Ok(operator) => operator,
         Err(refusal) => return refusal,
     };
+    // Design B2: a runtime in a pod keeps its own store, which the daemon's pool is not.
+    if api.pods {
+        return reply(
+            409,
+            "Conflict",
+            &json!({"error": format!(
+                "{route} is refused: the daemon runs {name} as a pod, on a store of its own that \
+                 does not read the daemon's token pool"
+            )}),
+            listener,
+        );
+    }
     let body = match read_body(request, stream) {
         Ok(body) => body,
         Err(refusal) => return refusal(listener),
@@ -1217,6 +1431,10 @@ fn admit_write(
     route: &str,
     api: &Api,
 ) -> Result<String, Vec<u8>> {
+    // Decision D2: `control-plane` writes the instance routes only ([`admit_instance`]).
+    if matches!(who, Who::ControlPlane) {
+        return Err(control_plane_refused(listener));
+    }
     if let Listener::Loopback(bound) = listener {
         let header = |name: &str| request.header(name);
         let token = request.header(dashboard::TOKEN_HEADER);
@@ -1269,6 +1487,7 @@ fn admit_write(
         Who::Bearer {
             name, human: true, ..
         } => name.clone(),
+        Who::ControlPlane => return Err(control_plane_refused(listener)),
     };
     let grant = grant_for(route);
     let operators = api.operators();
@@ -1404,6 +1623,323 @@ fn put_config(api: &Api, body: &[u8], operator: &str) -> (u16, &'static str, Val
     }
 }
 
+/// Admits a write of `who` on the instance route `route` ([`CONTROL_PLANE_ROUTES`]): the control
+/// plane by its token, anyone else as [`admit_write`] admits a write. Answers the actor.
+fn admit_instance(
+    request: &Request,
+    listener: Listener,
+    who: &Who,
+    route: &str,
+    api: &Api,
+) -> Result<Actor, Vec<u8>> {
+    if matches!(who, Who::ControlPlane) && CONTROL_PLANE_ROUTES.contains(&route) {
+        return Ok(crate::actor::control_plane());
+    }
+    admit_write(request, listener, who, route, api).map(|name| crate::actor::operator(&name))
+}
+
+/// The body of a write that may have none (`DELETE /v1/instances/{name}`, `POST
+/// .../restart`): empty without a `Content-Length` or a `Transfer-Encoding`, else [`read_body`].
+fn optional_body<S: Read>(request: &Request, stream: &mut S) -> Result<Vec<u8>, Refusal> {
+    if request.header("content-length").is_none() && request.header("transfer-encoding").is_none() {
+        return Ok(Vec::new());
+    }
+    read_body(request, stream)
+}
+
+/// The body of `POST /v1/instances` and `PUT /v1/instances/{name}`: the instance's mapping as the
+/// config file writes it, a JSON object (or its YAML text), and why; `DELETE` takes the reason
+/// alone. The actor is the principal admitted and the time is now, as for `PUT /v1/config`; a
+/// `name` beside the mapping names the instance where the mapping names none.
+#[derive(Deserialize, Default)]
+struct InstanceChange {
+    #[serde(default)]
+    mapping: Option<Value>,
+    #[serde(default)]
+    name: Option<String>,
+    #[serde(default)]
+    reason: Option<String>,
+}
+
+/// `POST /v1/instances` (`path_name` none) or `PUT`/`DELETE /v1/instances/{path_name}`: admitted
+/// for the control plane and for an operator with `ChangeSettings`, then the change.
+fn instance_write<S: Read>(
+    request: &Request,
+    stream: &mut S,
+    listener: Listener,
+    who: &Who,
+    api: &Api,
+    path_name: Option<&str>,
+) -> Vec<u8> {
+    let actor = match admit_instance(request, listener, who, "instances", api) {
+        Ok(actor) => actor,
+        Err(refusal) => return refusal,
+    };
+    let body = if request.method == "DELETE" {
+        optional_body(request, stream)
+    } else {
+        read_body(request, stream)
+    };
+    let body = match body {
+        Ok(body) => body,
+        Err(refusal) => return refusal(listener),
+    };
+    let (code, reason, answer) = change_instance(api, &request.method, path_name, &body, &actor);
+    reply(code, reason, &answer, listener)
+}
+
+/// The `422` of a change that does not validate: the error's name, the YAML path of its first
+/// problem, and every problem on one line.
+fn config_invalid(path: &str, detail: &str) -> (u16, &'static str, Value) {
+    (
+        422,
+        "Unprocessable Content",
+        json!({
+            "error": "conductor.config.ConfigInvalid",
+            "path": path,
+            "detail": detail.replace(['\r', '\n'], " "),
+        }),
+    )
+}
+
+/// One change of a whole instance by `actor` ([`crate::config::instance`]), recorded in the
+/// daemon's store: `201` (`POST`) or `200` with the instance's name and the revision's id; `403`
+/// `ActorNotHuman`, `404` `UnknownInstance`, `409` `InstanceExists`, `422` `ConfigInvalid` naming
+/// the YAML path; `400` for a body that is no change, `503` without a config file.
+fn change_instance(
+    api: &Api,
+    method: &str,
+    path_name: Option<&str>,
+    body: &[u8],
+    actor: &Actor,
+) -> (u16, &'static str, Value) {
+    use crate::config::instance::{self, Refusal as Refused};
+    use conductor_model::config::{AddInstance, InstanceName, PutInstance, RemoveInstance};
+    let Some(target) = &api.config else {
+        return (
+            503,
+            "Service Unavailable",
+            json!({"error": "this daemon was given no config file to change"}),
+        );
+    };
+    let change = if body.iter().all(u8::is_ascii_whitespace) {
+        InstanceChange::default()
+    } else {
+        match serde_json::from_slice::<InstanceChange>(body) {
+            Ok(change) => change,
+            Err(error) => {
+                return (
+                    400,
+                    "Bad Request",
+                    json!({"error": format!(
+                        "the body is not an instance change: {error}; write {{\"mapping\": \
+                         {{<the instance's keys as the config file writes them>}}, \"reason\"}}"
+                    )}),
+                );
+            }
+        }
+    };
+    let reason = change.reason.clone().unwrap_or_default();
+    let mapping = match (method, change.mapping) {
+        ("DELETE", _) => None,
+        (_, Some(Value::Object(map))) => match serde_yaml::to_string(&map) {
+            Ok(text) => Some(text),
+            Err(error) => return config_invalid("mapping", &format!("mapping: {error}")),
+        },
+        (_, Some(Value::String(text))) => Some(text),
+        (_, _) => {
+            return (
+                400,
+                "Bad Request",
+                json!({"error": "the body holds no mapping: write {\"mapping\": {<the instance's \
+                                 keys as the config file writes them>}, \"reason\"}"}),
+            );
+        }
+    };
+    let name = match path_name {
+        Some(name) => name.to_owned(),
+        None => {
+            let written = mapping
+                .as_deref()
+                .and_then(|text| serde_yaml::from_str::<serde_yaml::Value>(text).ok())
+                .and_then(|yaml| {
+                    yaml.get("name")
+                        .and_then(|name| name.as_str().map(str::to_owned))
+                });
+            match (written, change.name) {
+                (Some(written), Some(named)) if written != named => {
+                    return config_invalid(
+                        "name",
+                        &format!("name: the mapping names {written:?}, the body {named:?}"),
+                    );
+                }
+                (Some(name), _) | (None, Some(name)) => name,
+                (None, None) => {
+                    return config_invalid(
+                        "name",
+                        "name: the mapping names no instance: write its name",
+                    );
+                }
+            }
+        }
+    };
+    let failed = |error: anyhow::Error| {
+        (
+            500,
+            "Internal Server Error",
+            json!({"error": format!("{error:#}")}),
+        )
+    };
+    let changed_at = match crate::records::now() {
+        Ok(now) => now,
+        Err(error) => return failed(error),
+    };
+    let mut store = match crate::store::open_url(&target.store, super::TENANT)
+        .map_err(|error| anyhow!("daemon.store: {error:#}"))
+    {
+        Ok(store) => store,
+        Err(error) => return failed(error),
+    };
+    let (file, home) = (&target.file, &target.home);
+    let actor = actor.clone();
+    let instance_name = InstanceName(name.clone());
+    let (done, created) = match (method, mapping) {
+        ("POST", Some(mapping)) => {
+            let input = AddInstance {
+                actor,
+                name: instance_name,
+                mapping,
+                reason,
+                changed_at,
+            };
+            (instance::add_instance(file, home, &mut store, &input), true)
+        }
+        ("PUT", Some(mapping)) => {
+            let input = PutInstance {
+                actor,
+                name: instance_name,
+                mapping,
+                reason,
+                changed_at,
+            };
+            (
+                instance::put_instance(file, home, &mut store, &input),
+                false,
+            )
+        }
+        _ => {
+            let input = RemoveInstance {
+                actor,
+                name: instance_name,
+                reason,
+                changed_at,
+            };
+            (
+                instance::remove_instance(file, home, &mut store, &input),
+                false,
+            )
+        }
+    };
+    match done {
+        Ok(Ok(data)) => {
+            let verb = match method {
+                "POST" => "added",
+                "PUT" => "replaced",
+                _ => "removed",
+            };
+            println!(
+                "conductord: instance {name} {verb} by {}: {}",
+                crate::actor::written(&data.actor),
+                data.revision_id.0.0
+            );
+            let (code, reason) = if created {
+                (201, "Created")
+            } else {
+                (200, "OK")
+            };
+            (
+                code,
+                reason,
+                json!({
+                    "name": name,
+                    "revision": data.revision_id.0.0.to_string(),
+                    "actor": crate::actor::written(&data.actor),
+                    "commit": data.commit,
+                }),
+            )
+        }
+        Ok(Err(refusal)) => match &refusal {
+            Refused::ActorNotHuman(actor) => (
+                403,
+                "Forbidden",
+                json!({
+                    "error": "conductor.operator.ActorNotHuman",
+                    "actor": crate::actor::to_json(actor),
+                }),
+            ),
+            Refused::Exists(name) => (
+                409,
+                "Conflict",
+                json!({"error": "conductor.config.InstanceExists", "name": name}),
+            ),
+            Refused::Unknown(name) => (
+                404,
+                "Not Found",
+                json!({"error": "conductor.instance.UnknownInstance", "name": name}),
+            ),
+            Refused::Invalid(_) => {
+                config_invalid(refusal.path().unwrap_or("."), &refusal.to_string())
+            }
+        },
+        Err(error) => failed(error),
+    }
+}
+
+/// `GET /v1/instances/{name}` (`conductor.instance.InstanceByName`): the row of `GET
+/// /v1/instances` for the instance, while the config file holds it; a `404` naming it while the
+/// file holds none of that name. An instance the file holds and the reconciler has not published
+/// yet reads `Stopped`, as the reconciler writes one whose runtime it did not start.
+fn instance_row(api: &Api, name: &str) -> (u16, &'static str, Value) {
+    let unknown = || {
+        (
+            404,
+            "Not Found",
+            json!({"error": "conductor.instance.UnknownInstance", "name": name}),
+        )
+    };
+    let published = api
+        .rows()
+        .into_iter()
+        .find(|row| row["name"].as_str() == Some(name));
+    let held = api.config.as_ref().and_then(|target| {
+        let text = fs::read_to_string(&target.file).ok()?;
+        crate::config::parse(&text, &target.home).ok()
+    });
+    let Some(config) = held else {
+        return published.map_or_else(unknown, |row| (200, "OK", row));
+    };
+    let Some(instance) = config
+        .instances
+        .iter()
+        .find(|instance| instance.name.0 == name)
+    else {
+        return unknown();
+    };
+    let row = published.unwrap_or_else(|| {
+        json!({
+            "name": name,
+            "state": "Stopped",
+            "placement": instance.placement.0,
+            "roles": instance.roles.iter().map(|role| role.role.clone()).collect::<Vec<_>>(),
+            "binary_version": Value::Null,
+            "last_seen": Value::Null,
+            "box_id": Value::Null,
+            "changed_by": crate::actor::to_json(&crate::actor::daemon()),
+        })
+    });
+    (200, "OK", row)
+}
+
 /// The route of the secrets' names (`story:secrets-source`): `GET` lists them
 /// ([`crate::secret::view`]), never a value.
 pub const SECRETS: &str = "/v1/secrets";
@@ -1430,6 +1966,10 @@ fn federated<S: Read + Write>(
     if path == SECRETS {
         if request.method != "GET" {
             return Some(only("GET"));
+        }
+        // Decision D2: the secrets routes refuse `control-plane` as the writes do.
+        if matches!(who, Who::ControlPlane) {
+            return Some(control_plane_refused(listener));
         }
         let (code, reason, answer) = secrets(api);
         return Some(reply(code, reason, &answer, listener));

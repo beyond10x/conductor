@@ -524,7 +524,11 @@ fn get_v1_instances_lists_every_instance_with_placement_state_version_and_last_s
 
     let (status, _) = http(port, "GET /v1/other HTTP/1.1\r\n\r\n");
     assert_eq!(status, "HTTP/1.1 404 Not Found");
+    // `POST /v1/instances` adds an instance (design A6): a write, refused without the daemon's
+    // token; a method the route does not take is still 405.
     let (status, _) = http(port, "POST /v1/instances HTTP/1.1\r\n\r\n");
+    assert_eq!(status, "HTTP/1.1 403 Forbidden");
+    let (status, _) = http(port, "DELETE /v1/instances HTTP/1.1\r\n\r\n");
     assert_eq!(status, "HTTP/1.1 405 Method Not Allowed");
 }
 
