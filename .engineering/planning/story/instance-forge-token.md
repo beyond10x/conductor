@@ -6,7 +6,7 @@ status: draft
 title: An instance pod carries its own forge token, or the daemon's
 relations:
 - decomposes: epic:deployable-in-kubernetes
-revision: 1
+revision: 2
 ---
 ## Why
 
@@ -37,8 +37,12 @@ line reads, and no other instance's pod carries it. An instance that names none 
 - A config that sets `forge_token` on an instance without `daemon.kubernetes` does not validate:
   nothing but the pod supervisor reads the key.
 - The pod of an instance that names a `forge_token` has that variable from its own Secret
-  `conductor-instance-<name>`, in place of a `daemon.kubernetes.env` entry of the same variable;
-  the pod of an instance that names none is unchanged, byte for byte.
+  `conductor-instance-<name>` and carries none of the daemon's forge tokens: every
+  `daemon.kubernetes.env` entry named `GH_TOKEN` or `GITLAB_TOKEN` stays out of that pod, and its
+  secret out of the instance's Secret unless an entry the pod keeps names it too (found on a
+  local cluster on 2026-11-12: with only the same variable replaced, an instance on one forge
+  with a token of its own still carried the daemon's token of the other). The pod of an instance
+  that names none keeps the daemon's entries.
 - A `forge_token` that names one of the daemon's own secrets does not validate, and the pod
   supervisor creates nothing for one.
 - `PUT /v1/instances/{name}` that changes the key replaces the pod once; the same body twice
