@@ -896,8 +896,8 @@ fn pod_env(pod: &Value) -> Vec<Value> {
         .unwrap_or_default()
 }
 
-/// The control plane chooses a `gitlab` source's `host`. Under a daemon whose `env` gives every
-/// pod the operator's daemon-wide `GITLAB_TOKEN`, the operator's token must not get a git
+/// The control plane chooses a `gitlab` source's `host`. Under a daemon whose `env` names the
+/// operator's daemon-wide `GITLAB_TOKEN`, the operator's token must not get a git
 /// credential helper for a host the control plane named and the operator did not: otherwise the
 /// caller directs the operator's token to a server of its choosing with every HTTPS fetch the
 /// runtime or a session in the pod makes (story:pod-git-reaches-forge).
@@ -1249,5 +1249,233 @@ fn the_secret_of_a_daemons_forge_token_is_no_instances_and_reaches_no_pod_as_one
             asked.borrow()
         );
         assert!(fake.requests().is_empty(), "{key}: {:?}", fake.requests());
+    }
+}
+
+/// A pod that got the daemon's GitLab token while its instance's `gitlab` source was on the
+/// daemon's GitLab host loses it when a `PUT` moves that source to a host the control plane
+/// names: the next pass replaces the pod, and the new pod and its Secret hold neither the
+/// variable nor the secret, and git has no helper for the new host.
+#[test]
+fn a_put_that_moves_a_gitlab_source_off_the_daemons_host_replaces_the_pod_without_its_token() {
+    let case = Case::new("gitlab-host-put");
+    let beta = "\n  - name: beta\n    placement: none\n    session_prefix: beta\n    \
+                sources: [{gitlab: example-org}]";
+    let text = case.daemon_text(beta).replace(
+        "{name: GH_TOKEN, secret: secret:forge-token}",
+        "{name: GITLAB_TOKEN, secret: secret:forge-token}",
+    );
+    fs::write(case.file(), &text).expect("write the config file");
+    let fake = FakeKube::start(&case.dir);
+    let mut daemon = case.daemon(&fake, "daemon");
+    let start = Instant::now();
+    daemon
+        .pass(ReconcileReason::Cadence, start)
+        .expect("a pass");
+    let carries = |pod: &Value| {
+        pod_env(pod)
+            .iter()
+            .any(|entry| entry["name"] == "GITLAB_TOKEN")
+    };
+    let mut pod = fake
+        .object(NAMESPACE, "pods", "conductor-instance-beta")
+        .expect("the pod");
+    assert!(
+        carries(&pod),
+        "precondition: on gitlab.com it carries the token: {pod}"
+    );
+    pod["status"] = json!({
+        "phase": "Running",
+        "podIP": "127.0.0.1",
+        "containerStatuses": [
+            {"name": "runtime", "ready": true, "state": {"running": {"startedAt": "now"}}}
+        ],
+    });
+    fake.put(NAMESPACE, "pods", pod);
+
+    let port = case.serve();
+    let chosen = "forge.elsewhere.example";
+    let sent = json!({
+        "name": "beta",
+        "placement": "none",
+        "session_prefix": "beta",
+        "sources": [{"gitlab": "example-org", "host": chosen}],
+    });
+    let (status, body) = exchange(
+        port,
+        &request(
+            port,
+            "PUT",
+            "/v1/instances/beta",
+            Some(&json!({"mapping": sent, "reason": "a tenant"})),
+        ),
+    );
+    assert_eq!(status, 200, "{body}");
+    daemon
+        .pass(
+            ReconcileReason::ConfigChange,
+            start + Duration::from_secs(4),
+        )
+        .expect("a pass");
+    let pod = fake
+        .object(NAMESPACE, "pods", "conductor-instance-beta")
+        .expect("the pod");
+    assert!(
+        !carries(&pod),
+        "the replaced pod carries GITLAB_TOKEN: {pod}"
+    );
+    assert!(
+        !pod.to_string().contains(chosen),
+        "git has a helper for {chosen}: {pod}"
+    );
+    let secret = fake
+        .object(NAMESPACE, "secrets", "conductor-instance-beta")
+        .expect("the Secret");
+    assert!(
+        secret["data"].get("forge-token").is_none(),
+        "the Secret holds the daemon's GitLab token: {:?}",
+        secret["data"]
+            .as_object()
+            .map(|data| data.keys().collect::<Vec<_>>())
+    );
+}
+
+/// A caller that holds the control token adds an instance whose sources are on one forge. Its pod
+/// carries the daemon's token of that forge only, never the daemon's token of the other forge,
+/// on which the instance has no source (decision F4-D1): an instance on GitLab on the daemon's
+/// GitLab host gets no `GH_TOKEN` or `GITHUB_TOKEN`, and one on GitHub no `GITLAB_TOKEN` or
+/// `CI_JOB_TOKEN`; neither pod's Secret holds the other forge's secret under any key. A mapping
+/// that names the secret of the daemon's `CI_JOB_TOKEN` entry as a token of its own is refused
+/// `422` at its path (decision F4-D2), the file unchanged.
+#[test]
+fn a_pod_carries_no_daemon_token_of_a_forge_its_instance_has_no_source_on() {
+    let case = Case::new("forge-per-source");
+    let gitlab_value = ["gitlab-forge", "-value-", "7777"].concat();
+    let job_value = ["gitlab-job", "-value-", "8888"].concat();
+    let github_value = ["github-classic", "-value-", "6666"].concat();
+    fs::write(case.dir.join("secrets/gitlab-forge"), &gitlab_value).expect("write a secret");
+    fs::write(case.dir.join("secrets/gitlab-job"), &job_value).expect("write a secret");
+    fs::write(case.dir.join("secrets/github-classic"), &github_value).expect("write a secret");
+    let text = case.daemon_text(" []").replace(
+        "{name: GH_TOKEN, secret: secret:forge-token}",
+        "{name: GH_TOKEN, secret: secret:forge-token}, \
+         {name: GITHUB_TOKEN, secret: secret:github-classic}, \
+         {name: GITLAB_TOKEN, secret: secret:gitlab-forge}, \
+         {name: CI_JOB_TOKEN, secret: secret:gitlab-job}",
+    );
+    fs::write(case.file(), &text).expect("write the config file");
+    let port = case.serve();
+    for (name, source) in [
+        ("beta", json!({"gitlab": "example-org"})),
+        ("gamma", json!({"github": "example-org"})),
+    ] {
+        let sent = json!({
+            "name": name,
+            "placement": "none",
+            "session_prefix": name,
+            "sources": [source],
+        });
+        let (status, body) = exchange(
+            port,
+            &request(
+                port,
+                "POST",
+                "/v1/instances",
+                Some(&json!({"mapping": sent, "reason": "a tenant"})),
+            ),
+        );
+        assert_eq!(status, 201, "{name}: {body}");
+    }
+    let before = case.text();
+    let sent = json!({
+        "name": "delta",
+        "placement": "none",
+        "session_prefix": "delta",
+        "sources": [{"gitlab": "example-org"}],
+        "model_token": "secret:gitlab-job",
+    });
+    let (status, body) = exchange(
+        port,
+        &request(
+            port,
+            "POST",
+            "/v1/instances",
+            Some(&json!({"mapping": sent, "reason": "a tenant"})),
+        ),
+    );
+    assert_eq!(status, 422, "{body}");
+    let answer: Value = serde_json::from_str(&body).expect("a JSON body");
+    assert_eq!(answer["path"], "instances[2].model_token", "{answer}");
+    assert!(
+        answer["detail"]
+            .as_str()
+            .is_some_and(|detail| detail.contains(DAEMONS_FORGE_SECRET)),
+        "{answer}"
+    );
+    assert_eq!(case.text(), before, "the file changed");
+
+    let fake = FakeKube::start(&case.dir);
+    let mut daemon = case.daemon(&fake, "daemon");
+    daemon
+        .pass(ReconcileReason::Cadence, Instant::now())
+        .expect("a pass");
+    for (name, own, other) in [
+        (
+            "beta",
+            [
+                ("GITLAB_TOKEN", "gitlab-forge"),
+                ("CI_JOB_TOKEN", "gitlab-job"),
+            ],
+            [
+                ("GH_TOKEN", "forge-token", FORGE_TOKEN),
+                ("GITHUB_TOKEN", "github-classic", github_value.as_str()),
+            ],
+        ),
+        (
+            "gamma",
+            [
+                ("GH_TOKEN", "forge-token"),
+                ("GITHUB_TOKEN", "github-classic"),
+            ],
+            [
+                ("GITLAB_TOKEN", "gitlab-forge", gitlab_value.as_str()),
+                ("CI_JOB_TOKEN", "gitlab-job", job_value.as_str()),
+            ],
+        ),
+    ] {
+        let pod = fake
+            .object(NAMESPACE, "pods", &format!("conductor-instance-{name}"))
+            .unwrap_or_else(|| panic!("the pod of {name}"));
+        let env = pod_env(&pod);
+        for (variable, _) in own {
+            assert!(
+                env.iter().any(|entry| entry["name"] == variable),
+                "precondition: {name} carries the daemon's {variable} of its own forge: {pod}"
+            );
+        }
+        for (variable, key, _) in other {
+            assert!(
+                !env.iter().any(|entry| entry["name"] == variable
+                    || entry["valueFrom"]["secretKeyRef"]["key"] == key),
+                "{name} has no source on that forge and carries the daemon's {variable}: {pod}"
+            );
+        }
+        let secret = fake
+            .object(NAMESPACE, "secrets", &format!("conductor-instance-{name}"))
+            .unwrap_or_else(|| panic!("the Secret of {name}"));
+        let data = secret["data"].as_object().cloned().unwrap_or_default();
+        for (key, encoded) in &data {
+            let held = encoded
+                .as_str()
+                .and_then(pods::base64_decode)
+                .map(|bytes| String::from_utf8_lossy(&bytes).into_owned())
+                .unwrap_or_default();
+            for (variable, _, value) in other {
+                assert!(
+                    held != value,
+                    "the Secret of {name} holds the daemon's {variable} under {key}"
+                );
+            }
+        }
     }
 }

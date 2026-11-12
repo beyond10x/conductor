@@ -716,12 +716,16 @@ types:
   # token a pod gets is the operator's decision, not conductor's. The daemon's forge token
   # variables are every variable a forge's command line reads a token from: `GH_TOKEN`,
   # `GITHUB_TOKEN`, `GH_ENTERPRISE_TOKEN` and `GITHUB_ENTERPRISE_TOKEN` for `gh`, `GITLAB_TOKEN`,
-  # `GITLAB_ACCESS_TOKEN` and `OAUTH_TOKEN` for `glab`. An instance's `forge_token` takes the
-  # place of every entry of them in its own pod. The daemon's GitLab token belongs to one host,
-  # the `value` of a `GITLAB_HOST` entry (a host as a `gitlab` source writes one; written as a
-  # `secret` it is refused at the entry's path), `gitlab.com` where none names it: a pod gets the
-  # entries of the `glab` variables only where every `gitlab` source of its instance is on that
-  # host, compared lowercased with the port as written. No instance and no `globals` key names
+  # `GITLAB_ACCESS_TOKEN`, `OAUTH_TOKEN` and `CI_JOB_TOKEN` for `glab`. An instance's
+  # `forge_token` takes the place of every entry of them in its own pod. The daemon's GitLab token
+  # belongs to one host, the `value` of a `GITLAB_HOST` entry (a host as a `gitlab` source writes
+  # one; written as a `secret` it is refused at the entry's path), `gitlab.com` where none names
+  # it; an entry named `GL_HOST`, `GITLAB_URI` or `GITLAB_URL` is refused at its path, since a
+  # host written there would leave the daemon's token on `gitlab.com`. A pod of an instance
+  # without a `forge_token` gets the entries of the `gh` variables only where its instance has a
+  # `github` source, and those of the `glab` variables only where it has a `gitlab` source and
+  # every `gitlab` source is on that host, compared lowercased with the port as written; an
+  # instance whose sources are all `local` gets both. No instance and no `globals` key names
   # the secret an entry of one of those variables names, refused at validate by the reference's
   # YAML path; the daemon gives that token to the pods it belongs to. Where the pod
   # carries the token of a forge its instance's sources name, the daemon gives git a credential
@@ -962,8 +966,9 @@ types:
       # secret of such an entry, which the daemon gives to the pods it belongs to; no
       # other pod carries it, and the file the pod runs on does not write it. Set on an instance
       # whose sources name no forge or two, or in a file without `daemon.kubernetes`, it is
-      # refused at validate by its YAML path, saying which. Absent, the pod carries what
-      # `daemon.kubernetes.env` gives every pod.
+      # refused at validate by its YAML path, saying which. Absent, the pod carries the entries
+      # of `daemon.kubernetes.env` of the forges its sources are on (`KubernetesEnv` says
+      # which), and every other entry.
       - {name: forge_token, type: Optional<conductor.secret.SecretName>}
       # The route of the instance's forge writes (story:forge-route); absent, `gates`.
       - {name: forge, type: conductor.config.Forge}

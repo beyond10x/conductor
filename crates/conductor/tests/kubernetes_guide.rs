@@ -545,6 +545,74 @@ fn the_forge_credentials_section_gives_the_daemons_gitlab_token_to_its_host_only
     }
 }
 
+/// The section "Forge credentials" says which forge's daemon token a pod gets (decisions F4-D1 to
+/// F4-D3): the daemon's entries of a forge only where the instance has a source on it, both where
+/// its sources are all `local`, `CI_JOB_TOKEN` among `glab`'s variables, and a GitLab host written
+/// in `GL_HOST`, `GITLAB_URI` or `GITLAB_URL` refused; it no longer says an instance keeps what
+/// `env` gives every pod. The setup of its first YAML block, added to the ConfigMap's
+/// `daemon.yaml`, gives an instance on GitLab no `GH_TOKEN` and one with `local` sources only the
+/// `GH_TOKEN`; the restart table names the pods that lose a token of another forge.
+#[test]
+fn the_forge_credentials_section_gives_each_forges_daemon_token_to_its_instances_only() {
+    active::isolate();
+    let text = section("Forge credentials");
+    for words in [
+        "`GITLAB_TOKEN`, `GITLAB_ACCESS_TOKEN`, `OAUTH_TOKEN`, `CI_JOB_TOKEN`",
+        "only where it has a source on that forge",
+        "sources are all `local`",
+        "`GL_HOST`, `GITLAB_URI` or `GITLAB_URL`",
+    ] {
+        assert!(text.contains(words), "the section says {words:?}:\n{text}");
+    }
+    for stale in ["on its forge and host", "every instance pod;"] {
+        assert!(
+            !text.contains(stale),
+            "the section still says {stale:?}:\n{text}"
+        );
+    }
+    let block = text
+        .split_once("```yaml\n")
+        .and_then(|(_, rest)| rest.split_once("```"))
+        .map(|(block, _)| block)
+        .expect("the section's YAML block");
+    let fragment: Value = serde_yaml::from_str(block).expect("the YAML block");
+    let map = one("ConfigMap");
+    let mut daemon: Value =
+        serde_yaml::from_str(text_of(&map["data"]["daemon.yaml"])).expect("daemon.yaml");
+    daemon["daemon"]["kubernetes"]["env"] = fragment["daemon"]["kubernetes"]["env"].clone();
+    daemon["instances"] = serde_yaml::from_str(
+        "[{name: alpha, placement: none, session_prefix: alpha, sources: [{gitlab: example-org}]}, \
+         {name: beta, placement: none, session_prefix: beta, \
+         sources: [{local: /var/lib/conductor/data/checkouts}]}]",
+    )
+    .expect("two instances");
+    let file = serde_yaml::to_string(&daemon).expect("the file");
+    let config = conductor_cli::config::parse(&file, Path::new("/var/lib/conductor"))
+        .unwrap_or_else(|problems| panic!("the file does not validate: {problems:?}\n{file}"));
+    let kubernetes = config.daemon.kubernetes.clone().expect("daemon.kubernetes");
+    let carries = |index: usize| {
+        let made = pods::manifests(&kubernetes, &config, &config.instances[index]);
+        made.pod["spec"]["containers"][0]["env"]
+            .as_array()
+            .expect("env")
+            .iter()
+            .any(|entry| entry["name"] == "GH_TOKEN")
+    };
+    assert!(
+        !carries(0),
+        "an instance on GitLab carries GH_TOKEN: {file}"
+    );
+    assert!(carries(1), "an instance with local sources only: {file}");
+
+    let restarts = section("What survives a restart of the daemon");
+    for words in ["no source on", "CI_JOB_TOKEN", "GL_HOST"] {
+        assert!(
+            restarts.contains(words),
+            "the restart table says {words:?}:\n{restarts}"
+        );
+    }
+}
+
 /// The value of the `GITLAB_HOST` entry of a guide's YAML block.
 fn config_host(fragment: &Value) -> String {
     fragment["daemon"]["kubernetes"]["env"]

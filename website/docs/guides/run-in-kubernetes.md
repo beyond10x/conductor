@@ -450,7 +450,8 @@ The pod:
 - the annotation `conductor/digest`, a digest of the pod's spec and the rendered file with no
   secret value in it: a pod whose digest is not the one the daemon would create now is replaced;
 - `requests` and `limits` from `daemon.kubernetes.resources`, and the variables of
-  `daemon.kubernetes.env` and the instance's forge token, each value through the Secret;
+  `daemon.kubernetes.env` the pod gets ([Forge credentials](#forge-credentials)) and the
+  instance's forge token, each value through the Secret;
 - the git identity of the records' commits, `GIT_AUTHOR_NAME` and `GIT_COMMITTER_NAME`
   `conductor`, `GIT_AUTHOR_EMAIL` and `GIT_COMMITTER_EMAIL` `conductor@localhost`, each where
   `daemon.kubernetes.env` does not name the variable;
@@ -481,7 +482,7 @@ instance pods run on through it, with the same uid and no restart.
 | an instance pod ends | starts it again after the failed-start back-off; the row's `detail` holds what the container said, or the last lines of its log |
 | `PUT /v1/instances/{name}` changes the mapping | replaces the pod once: deleted, then created on the new rendering |
 | `daemon.kubernetes.image` changes | replaces each instance pod once, on the new image |
-| the daemon is upgraded to a version that changes the pod it would make | replaces each pod whose spec changed once, at its first pass, on the same image, and adopts every other pod. The version that gave git its credential helper ([Forge credentials](#forge-credentials)) replaces each pod that carries the token of a forge its instance has a source on, unless `daemon.kubernetes.env` names `GIT_CONFIG_COUNT`, and each pod of an instance with its own `forge_token` whose daemon gives a forge token variable it no longer carries. The version that gave the daemon's GitLab token to one host replaces each pod that carried the daemon's entry of `GITLAB_TOKEN`, `GITLAB_ACCESS_TOKEN` or `OAUTH_TOKEN` while a `gitlab` source of its instance is on another host than `GITLAB_HOST` names (`gitlab.com` where `env` names none), and each pod of an instance with its own `forge_token` whose daemon gives `GITHUB_TOKEN`, `GH_ENTERPRISE_TOKEN`, `GITHUB_ENTERPRISE_TOKEN`, `GITLAB_ACCESS_TOKEN` or `OAUTH_TOKEN`. That version refuses a config file whose instance names the secret of a daemon's forge token, and a `GITLAB_HOST` entry written as a `secret`: change either before the upgrade |
+| the daemon is upgraded to a version that changes the pod it would make | replaces each pod whose spec changed once, at its first pass, on the same image, and adopts every other pod. The version that gave git its credential helper ([Forge credentials](#forge-credentials)) replaces each pod that carries the token of a forge its instance has a source on, unless `daemon.kubernetes.env` names `GIT_CONFIG_COUNT`, and each pod of an instance with its own `forge_token` whose daemon gives a forge token variable it no longer carries. The version that gave the daemon's GitLab token to one host replaces each pod that carried the daemon's entry of `GITLAB_TOKEN`, `GITLAB_ACCESS_TOKEN` or `OAUTH_TOKEN` while a `gitlab` source of its instance is on another host than `GITLAB_HOST` names (`gitlab.com` where `env` names none), and each pod of an instance with its own `forge_token` whose daemon gives `GITHUB_TOKEN`, `GH_ENTERPRISE_TOKEN`, `GITHUB_ENTERPRISE_TOKEN`, `GITLAB_ACCESS_TOKEN` or `OAUTH_TOKEN`. That version refuses a config file whose instance names the secret of a daemon's forge token, and a `GITLAB_HOST` entry written as a `secret`: change either before the upgrade. The version that gives a pod the daemon's forge token only of a forge its instance has a source on replaces each pod that carried the daemon's entries of a forge its instance has no source on, and each pod that carried the daemon's entry of `CI_JOB_TOKEN` it no longer carries; it refuses an entry named `GL_HOST`, `GITLAB_URI` or `GITLAB_URL`, and an instance that names the secret of a daemon's `CI_JOB_TOKEN` entry |
 
 The instances are in the daemon's config file and nowhere else. A daemon that starts on an empty
 volume holds no instance, and at its first pass it deletes every pod and Secret that carries its
@@ -537,14 +538,14 @@ model's API, so restrict egress to those hosts in a policy of your own if your c
 An instance with a source on a forge needs the forge's token in its pod. The daemon's forge
 token variables are every variable the forge's command line reads a token from:
 `GH_TOKEN`, `GITHUB_TOKEN`, `GH_ENTERPRISE_TOKEN`, `GITHUB_ENTERPRISE_TOKEN` for `gh` and a
-`github` source, and `GITLAB_TOKEN`, `GITLAB_ACCESS_TOKEN`, `OAUTH_TOKEN` for `glab` and a
-`gitlab` source. An instance's own token fills the first of its forge's list, `GH_TOKEN` or
-`GITLAB_TOKEN`, and git's credential helper reads only that one. One daemon can use both
-setups:
+`github` source, and `GITLAB_TOKEN`, `GITLAB_ACCESS_TOKEN`, `OAUTH_TOKEN`, `CI_JOB_TOKEN` for
+`glab` and a `gitlab` source. An instance's own token fills the first of its forge's list,
+`GH_TOKEN` or `GITLAB_TOKEN`, and git's credential helper reads only that one. One daemon can
+use both setups:
 
 | setup | where the token is named | which pods carry it |
 |---|---|---|
-| one token per daemon | an entry of `daemon.kubernetes.env`, as a `secret` | every instance pod; a GitLab token only the pods whose `gitlab` sources are all on its host |
+| one token per daemon | an entry of `daemon.kubernetes.env`, as a `secret` | the pods of the instances with a source on its forge or with `local` sources only; a GitLab token only the pods whose `gitlab` sources are all on its host |
 | one token per instance | the instance's `forge_token: secret:<name>` | that instance's pod, in place of every entry of the daemon's forge token variables |
 
 One token per daemon: put the token into the Secret `conductor-secrets` under `forge-token`, and
@@ -577,7 +578,10 @@ An instance on another GitLab host gets none of those entries, and its Secret no
 secrets: it names a `forge_token` of its own. Otherwise a control plane could add an instance
 whose `gitlab` source names a server of its choice and receive the daemon's token there with the
 pod's next fetch. `GITLAB_HOST` is a `value`, a host as a `gitlab` source writes one; an entry
-that writes it as a `secret` is refused at its path, since a host is no secret.
+that writes it as a `secret` is refused at its path, since a host is no secret. The daemon reads
+its GitLab host from `GITLAB_HOST` only: an entry named `GL_HOST`, `GITLAB_URI` or `GITLAB_URL`
+is refused at its path, since a host written there would leave the daemon's token on
+`gitlab.com`.
 
 One token per instance: put the token into the Secret `conductor-secrets` under a name of its
 own, and name it in the instance's mapping:
@@ -594,7 +598,11 @@ variable. A mapping that names a `forge_token` is refused `422` at
 a secret of the `daemon` section. An instance that names its own `forge_token`
 carries none of the daemon's forge token variables: its pod gets the daemon's entry of none of
 them, and its Secret holds their secrets only where another entry names them. An instance that
-names none keeps what `daemon.kubernetes.env` gives every pod on its forge and host.
+names none carries the daemon's entries of a forge only where it has a source on that forge:
+GitHub's where it has a `github` source, GitLab's where it has a `gitlab` source and every
+`gitlab` source is on the daemon's GitLab host. An entry it does not carry keeps its secret out
+of its Secret, unless an entry it carries names that secret too. An instance whose
+sources are all `local` names no forge, so its pod carries the daemon's entries of both forges.
 
 An instance cannot name the secret of a daemon's forge token, the secret an entry of one of
 those variables names: not as its `forge_token`, not as its `model_token`, not under any other

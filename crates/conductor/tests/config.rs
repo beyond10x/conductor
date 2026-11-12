@@ -3878,6 +3878,78 @@ fn the_secret_of_a_daemons_forge_token_is_no_instances() {
     assert_eq!(output.status.code(), Some(0), "{}", describe(&output));
 }
 
+/// `CI_JOB_TOKEN`, which `glab` reads a token from too, is a variable of a daemon's GitLab token
+/// (decision F4-D2): the secret its `daemon.kubernetes.env` entry names is no instance's, refused
+/// at the reference's YAML path under `model_token`, `forge_token` and `globals` alike.
+#[test]
+fn the_secret_of_a_daemons_ci_job_token_entry_is_no_instances() {
+    let case = Case::new("daemons-ci-job-secret");
+    let gitlab = "[{gitlab: example-org, host: gitlab.example.com}]";
+    let job = |text: String| text.replace("name: GH_TOKEN", "name: CI_JOB_TOKEN");
+    for (name, text, path) in [
+        (
+            "model-token",
+            job(pods(&pod_instance(
+                "\x20   model_token: secret:forge-token\n",
+            ))),
+            "instances[0].model_token",
+        ),
+        (
+            "forge-token",
+            job(pods(&pod_instance(
+                "\x20   forge_token: secret:forge-token\n",
+            )))
+            .replace("[{github: example-org}]", gitlab),
+            "instances[0].forge_token",
+        ),
+        (
+            "globals",
+            job(pods(&format!(
+                "globals: {{model_token: secret:forge-token}}\n{}",
+                pod_instance("")
+            ))),
+            "globals.model_token",
+        ),
+    ] {
+        let file = case.write(&format!("{name}.yaml"), &text);
+        let problems = refused(&case, &file);
+        assert!(
+            problems.contains(&format!(
+                "{path}: names the secret of a daemon's forge token, which the daemon gives to \
+                 the pods it belongs to"
+            )),
+            "{name}: {problems}"
+        );
+    }
+}
+
+/// The daemon reads the host its GitLab token belongs to from `GITLAB_HOST` only (decision
+/// F4-D3): a `daemon.kubernetes.env` entry named `GL_HOST`, `GITLAB_URI` or `GITLAB_URL`, as a
+/// value or a secret, is refused at the entry's path, saying the daemon reads its GitLab host from
+/// `GITLAB_HOST` and that a host written there would leave the daemon's token on `gitlab.com`.
+#[test]
+fn a_gitlab_host_written_in_another_variable_is_refused_at_its_entry() {
+    let case = Case::new("gitlab-host-elsewhere");
+    let entry = "{name: GIT_AUTHOR_NAME, value: conductor}";
+    let base = pods(&pod_instance(""));
+    for variable in ["GL_HOST", "GITLAB_URI", "GITLAB_URL"] {
+        for written in [
+            format!("{{name: {variable}, value: gitlab.example.com}}"),
+            format!("{{name: {variable}, secret: secret:gitlab-host}}"),
+        ] {
+            let file = case.write(&format!("{variable}.yaml"), &base.replace(entry, &written));
+            let problems = refused(&case, &file);
+            let line = problems
+                .lines()
+                .find(|line| line.contains("daemon.kubernetes.env[1]: "))
+                .unwrap_or_else(|| panic!("{written}: no problem at the entry: {problems}"));
+            for words in [variable, "GITLAB_HOST", "gitlab.com"] {
+                assert!(line.contains(words), "{written}: says {words:?}: {line}");
+            }
+        }
+    }
+}
+
 /// `daemon.kubernetes` (design: instance pods): a file of the daemon section alone, with no
 /// instance, validates where it names the instance pods, and is refused by the path `instances`
 /// where it does not.

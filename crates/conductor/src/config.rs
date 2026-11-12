@@ -80,7 +80,8 @@
 //!   An instance's `forge_token` (story:instance-forge-token) is `secret:<name>`, written only
 //!   where `daemon.kubernetes` is, and only by an instance whose sources name exactly one forge
 //!   ([`forge_token_variables`]). A `GITLAB_HOST` entry of `env` ([`GITLAB_HOST_VARIABLE`]) is a
-//!   `value`, a host as a `gitlab` source writes one, never a `secret`. `daemon.control_token`
+//!   `value`, a host as a `gitlab` source writes one, never a `secret`; no entry names another
+//!   variable a GitLab host is written in ([`OTHER_GITLAB_HOST_VARIABLES`]). `daemon.control_token`
 //!   is `secret:<name>`. A daemon-config file holds `version` and `daemon` only
 //!   ([`parse_daemon_config`]);
 //! - the daemon's own secrets ([`crate::secret::daemons_own`]: the control token, the store's
@@ -491,13 +492,15 @@ pub const FORGE_TOKEN_VARIABLES: [(&str, &str); 2] =
 /// Every variable a forge's command line reads a token from, by the kind of source that names
 /// the forge (decision F3-D1): `GH_TOKEN`, `GITHUB_TOKEN`, `GH_ENTERPRISE_TOKEN` and
 /// `GITHUB_ENTERPRISE_TOKEN` for `gh` (`gh help environment`); `GITLAB_TOKEN`,
-/// `GITLAB_ACCESS_TOKEN` and `OAUTH_TOKEN` for `glab` (`glab auth login --help`). Each list starts
-/// with the forge's variable of [`FORGE_TOKEN_VARIABLES`], the only one an instance's
+/// `GITLAB_ACCESS_TOKEN` and `OAUTH_TOKEN` for `glab` (`glab auth login --help`), and
+/// `CI_JOB_TOKEN`, which `glab` reads under `GLAB_ENABLE_CI_AUTOLOGIN` (decision F4-D2). Each list
+/// starts with the forge's variable of [`FORGE_TOKEN_VARIABLES`], the only one an instance's
 /// `forge_token` fills and git's helper reads. A `daemon.kubernetes.env` entry of any of them is a
-/// daemon forge-token entry: an instance with a `forge_token` of its own carries none of them, the
-/// GitLab ones reach only a pod whose `gitlab` sources are all on the daemon's GitLab host
-/// ([`GITLAB_HOST_VARIABLE`]), and no instance names their secrets
-/// ([`crate::secret::daemons_forge`]).
+/// daemon forge-token entry: an instance with a `forge_token` of its own carries none of them; any
+/// other carries a forge's only where it has a source on that forge, the GitLab ones only where
+/// its `gitlab` sources are all on the daemon's GitLab host ([`GITLAB_HOST_VARIABLE`]), and both
+/// forges' where its sources are all `local` (decision F4-D1); and no instance names their
+/// secrets ([`crate::secret::daemons_forge`]).
 pub const FORGE_CLI_TOKEN_VARIABLES: [(&str, &[&str]); 2] = [
     (
         "github",
@@ -510,7 +513,12 @@ pub const FORGE_CLI_TOKEN_VARIABLES: [(&str, &[&str]); 2] = [
     ),
     (
         "gitlab",
-        &["GITLAB_TOKEN", "GITLAB_ACCESS_TOKEN", "OAUTH_TOKEN"],
+        &[
+            "GITLAB_TOKEN",
+            "GITLAB_ACCESS_TOKEN",
+            "OAUTH_TOKEN",
+            "CI_JOB_TOKEN",
+        ],
     ),
 ];
 
@@ -528,6 +536,12 @@ pub fn token_variable_forge(variable: &str) -> Option<&'static str> {
 /// belongs to (decision F3-D2), [`GITLAB_HOST`] where no entry names it; validated as a `gitlab`
 /// source's host is, and never a `secret`.
 pub const GITLAB_HOST_VARIABLE: &str = "GITLAB_HOST";
+
+/// The other variables a GitLab host is written in (`GL_HOST`, `GITLAB_URI`, `GITLAB_URL`): a
+/// `daemon.kubernetes.env` entry of one is refused at its path (decision F4-D3), since the daemon
+/// reads its GitLab host from [`GITLAB_HOST_VARIABLE`] only and a host written there would leave
+/// the daemon's token on [`GITLAB_HOST`] without a word.
+pub const OTHER_GITLAB_HOST_VARIABLES: [&str; 3] = ["GL_HOST", "GITLAB_URI", "GITLAB_URL"];
 
 /// The variable of each forge `sources` name, once each, in the order of
 /// [`FORGE_TOKEN_VARIABLES`]: none for local sources only, two for sources on both forges.
@@ -3243,6 +3257,24 @@ impl Reader<'_> {
                 return None;
             }
             _ => {}
+        }
+        // The daemon reads the host its GitLab token belongs to from `GITLAB_HOST` only
+        // (decision F4-D3): a host written in another variable would leave the token on
+        // `gitlab.com` without a word.
+        if let Some(other) = name
+            .as_deref()
+            .filter(|name| OTHER_GITLAB_HOST_VARIABLES.contains(name))
+        {
+            self.problem(
+                path,
+                format!(
+                    "names {other}, and the daemon reads the host its GitLab token belongs to \
+                     from {GITLAB_HOST_VARIABLE} only: a host written in {other} would leave the \
+                     daemon's token on {GITLAB_HOST}; write it as {{name: {GITLAB_HOST_VARIABLE}, \
+                     value: <host>}}"
+                ),
+            );
+            return None;
         }
         // The host the daemon's GitLab token belongs to (decision F3-D2) is a host as a `gitlab`
         // source writes one, and no secret.
