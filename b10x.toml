@@ -1,5 +1,5 @@
 [pins]
 aep = "0.79"
-ess = "0.90"
+ess = "0.93"
 worktree = "0.18.1"
 substrate-daemon = "0.20.0"

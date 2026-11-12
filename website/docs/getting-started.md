@@ -64,13 +64,13 @@ claude: present, 2.1.319 (Claude Code)
 jq: present, jq-1.8.2
 aep: present, aep 0.79.0
 worktree: present, b10x-worktree-cli 0.19.4
-ess: present, ess 0.90.0
+ess: present, ess 0.93.0
 substrate-daemon: not needed
 b10x-gates: present, b10x-gates 0.1.27
 pins: none
 aep: 0.79.0 meets the build's pin 0.79
 worktree: 0.19.4 meets the build's pin 0.18.1
-ess: 0.90.0 meets the build's pin 0.90
+ess: 0.93.0 meets the build's pin 0.93
 secrets: keychain namespace default (answers)
 store: sqlite ~/.b10x/conductor/conductor.sqlite (does not answer: no database at ~/.b10x/conductor/conductor.sqlite)
 daemon unit: conductord.service not running (inactive)

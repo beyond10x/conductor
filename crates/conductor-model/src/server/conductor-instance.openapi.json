@@ -8,7 +8,7 @@
     "x-ess-provenance": {
       "system": "conductor",
       "specification_version": "v1",
-      "contract_digest": "slice-sha256/2:aea1b03bf7f2c69145ca558aa039792f330a7a215943ec189a70d31e69935d7c"
+      "contract_digest": "slice-sha256/2:a4fb2b980d07cec934e6049fb3a6ccb77032d83452e30b49cf416688efd954aa"
     },
     "x-ess-reached-by": "network"
   },
@@ -2490,10 +2490,10 @@
         "x-ess-kind": "enum",
         "type": "string",
         "enum": [
+          "ControlPlane",
           "Human",
           "Agent",
-          "Daemon",
-          "ControlPlane"
+          "Daemon"
         ]
       },
       "conductor.operator.AgentActor": {
@@ -2800,10 +2800,10 @@
       "x-ess-kind": "enum",
       "type": "string",
       "enum": [
+        "ControlPlane",
         "Human",
         "Agent",
-        "Daemon",
-        "ControlPlane"
+        "Daemon"
       ]
     },
     "conductor.operator.AgentActor": {

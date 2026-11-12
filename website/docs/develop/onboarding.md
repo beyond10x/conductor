@@ -16,7 +16,7 @@ This page is for changing conductor itself. To run it, start at
 | Rust: `cargo`, `rustfmt`, `clippy` | stable, edition 2024 | the workspace |
 | `git` | | many tests create repositories |
 | `task` (go-task) | | every command in `Taskfile.yml` |
-| `ess` | 0.90 | the specification, its conformance run, `crates/conductor-model` |
+| `ess` | 0.93 | the specification, its conformance run, `crates/conductor-model` |
 | `aep` | 0.79 | the planning store under `.engineering/planning/` |
 | `worktree` | 0.18.1 | managed worktrees |
 | Node.js and `npm` | the version in `crates/conductor/dashboard/.nvmrc` | the dashboard app's tests and build in `task check`, and this site |
