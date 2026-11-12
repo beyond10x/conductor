@@ -1,0 +1,15 @@
+{
+  "at": "2026-11-12T17:29:11Z",
+  "actor": "human:timo",
+  "artifact": "story:instance-secret-state",
+  "kind": "story",
+  "revision": 2,
+  "change": {
+    "change": "evidence",
+    "kind": "review_outcome",
+    "source": "review-result:pod-checkouts-security-round-2",
+    "reference": "8061c254a",
+    "review": "review-result:pod-checkouts-security-round-2",
+    "outcome": "fixed"
+  }
+}
