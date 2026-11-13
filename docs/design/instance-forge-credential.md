@@ -37,7 +37,8 @@ Every variant in this note is measured against these requirements:
 - **Q4.** The operator's requirement: "a user needs to manage their own secrets".
 - **Q5.** The operator's requirement: "when it's pushing, it does need the actual [secret] because
   it's using Git from there. Maybe it should be using a Git proxy server".
-- **Q6.** The operator's decision, taken before Q1 was stated: the credential is a GitHub App
+- **Q6.** The operator's decision, an answer chosen among lettered options before Q1 was stated,
+  not a typed sentence: the credential is a GitHub App
   installed on chosen repositories; its private key is the secret.
 
 | | the gateway (§ 4) | a reference with minting in the daemon (§ 6) |
@@ -147,8 +148,9 @@ in (`:2180-2183`). Under this design the proxy's rule per repository is what con
 9. create a tag and a release, upload its assets, edit and view it through the bot route
    (`roles/controller.md:41`, `guard/rules.rs:770-771`);
 10. push a change to workflow files, for which the forge asks a permission of its own (**not
-    shown**);
-11. close a request (role texts of the host roles; not a pod role today).
+    shown**); the gateway refuses it unless it admits the instance for releases;
+11. close a request (role texts of the host roles; not a pod role today); the gateway admits it
+    for a request the instance opened.
 
 Host roles, not pod roles today, also read across a whole group
 (`roles/supervisor.md:270`, `roles/teacher.md:66`) and start pipelines through `glab api`
@@ -170,7 +172,8 @@ for, the gateway mints and renews, so nothing in a pod expires with it (Q3).
 
 The gateway offers the operations of § 3 as **typed endpoints**, by name ("open a request for this
 branch", "merge this request"). It decides each by its meaning, can refuse a merge into a protected
-branch, and records who asked for what. The proxy decides per ref: a push lists each ref's old and
+branch, and records who asked for what. It appends a footer that names the instance to a
+request's description and keeps the session's text. The proxy decides per ref: a push lists each ref's old and
 new value before the pack, so the proxy can refuse a push to the default branch, to a tag, or a
 deletion (**not shown**).
 
@@ -360,7 +363,7 @@ that rests on it is accepted:
   with an installation token of that App, which lasts one hour (the forge's documentation; not
   run here). `forge_token` cannot serve such a repository beyond an hour.
 - An instance on the gateway does its whole work only after step 3 (§ 4.7). So before step 3
-  exists, such a repository has three ways, set out with their costs in § 9. Proposed: A, to
+  exists, such a repository has four ways, set out with their costs in § 9. Proposed: A, to
   wait for step 3.
 
 ## 6. Alternative not proposed: a credential by reference with minting in the daemon
@@ -398,7 +401,11 @@ Why it is not proposed:
   dropped; it would be built to be removed.
 
 Its five decisions of the second revision, D-1 to D-5 (the namespace rule, the refresh route, the
-Role's `update`, the minted token's permissions, the wrapper), leave the operator's list.
+Role's `update`, the minted token's permissions, the wrapper), leave the operator's list. They
+return with interim B or D of § 9, should the operator choose one.
+
+Whether a reference to a labelled Secret is built for another kind of secret, a model token
+among them, is a separate question, open, and not decided by this note.
 
 ## 7. What does not change
 
@@ -439,6 +446,13 @@ Asked of the operator:
   - **C.** A long-lived token on `forge_token`, with the repository's owner changing its rules to
     admit it. Cost: no code; the pod holds a long-lived forge token, against Q1 for that
     repository; the owner admits a token other than the App's, in place of Q6 there.
+  - **D.** The control plane keeps the App's key, mints, and writes only the one-hour token for
+    the instance's repositories into a labelled Secret of the pods' namespace; the daemon copies
+    it into the instance's Secret. Cost on conductor's side: the reference with its label rule
+    and the whole refresh route of § 6 (`update` on Secrets, without which such an instance is
+    refused at start; a helper and a wrapper that read a file), everything of § 6 but the
+    minting; the pod holds a one-hour forge token and the daemon handles it, against Q1 as
+    worded, though neither sees the key; removed once step 3 exists. Not proposed.
 - **P, the pod's proof** (§ 4.4), to be decided before step 1. Proposed: d, a projected token
   with the gateway as its audience. Cost: the control plane is given access into the pods'
   cluster to check the token, and the pod gets one projected token. a and b are replayable from
