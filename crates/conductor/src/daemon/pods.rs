@@ -51,7 +51,9 @@ use std::net::IpAddr;
 use std::time::{Duration, Instant};
 
 use anyhow::{Result, anyhow, bail};
-use conductor_model::config::{Config, Instance, Kubernetes, KubernetesQuantities, Source};
+use conductor_model::config::{
+    Config, Instance, Kubernetes, KubernetesEnv, KubernetesQuantities, Source,
+};
 use conductor_model::secret::SecretName;
 use secrets_core::storage::SecretValue;
 use serde_json::{Map, Value, json};
@@ -178,6 +180,71 @@ fn is_gits_config(name: &str) -> bool {
 /// (`GIT_ASKPASS`).
 fn is_forge_variable(name: &str) -> bool {
     crate::config::token_variable_forge(name).is_some() || name == "GIT_ASKPASS"
+}
+
+/// The variables that point git, ssh or a forge's command line at a credential or at a
+/// configuration file that may name one (story:anonymous-pod-no-forge-secret): git's global and
+/// system file, git's ssh command, ssh's agent and its prompt, `gh`'s and `glab`'s configuration
+/// directory, and the directory each of them reads its configuration under. No pod of an instance
+/// with `forge_access: anonymous` carries one.
+pub const CREDENTIAL_POINTERS: [&str; 10] = [
+    "GIT_CONFIG_GLOBAL",
+    "GIT_CONFIG_SYSTEM",
+    "GIT_SSH_COMMAND",
+    "GIT_SSH",
+    "SSH_AUTH_SOCK",
+    "SSH_ASKPASS",
+    "GH_CONFIG_DIR",
+    "GLAB_CONFIG_DIR",
+    "XDG_CONFIG_HOME",
+    "GIT_CONFIG",
+];
+
+/// Whether the git configuration key `key` is a proxy or a CA setting, which carries no
+/// credential of a forge: `proxy`, `sslCAInfo` or `sslCAPath` of the section `http` or `https`,
+/// with or without a URL between (`http.<url>.proxy`). Section and name are read as git reads
+/// them, in any case.
+fn is_plain_setting(key: &str) -> bool {
+    let Some((section, rest)) = key.split_once('.') else {
+        return false;
+    };
+    let name = rest.rsplit('.').next().unwrap_or(rest);
+    ["http", "https"]
+        .iter()
+        .any(|kept| section.eq_ignore_ascii_case(kept))
+        && ["proxy", "sslCAInfo", "sslCAPath"]
+            .iter()
+            .any(|kept| name.eq_ignore_ascii_case(kept))
+}
+
+/// The installer's git settings an anonymous instance's pod keeps (story:anonymous-pod-no-forge-
+/// secret): each pair `GIT_CONFIG_KEY_<n>`, `GIT_CONFIG_VALUE_<n>` of `env` below its
+/// [`GIT_CONFIG_COUNT`] whose key is written as a value and [`is_plain_setting`], and whose
+/// value names no secret of `forge`, in their order. Every other pair is left out.
+fn plain_settings<'e>(
+    env: &'e [KubernetesEnv],
+    forge: &BTreeSet<String>,
+) -> Vec<(&'e str, &'e KubernetesEnv)> {
+    let named = |name: &str| env.iter().find(|entry| entry.name == name);
+    let Some(count) = named(GIT_CONFIG_COUNT)
+        .and_then(|entry| entry.value.as_deref())
+        .and_then(|count| count.trim().parse::<usize>().ok())
+    else {
+        return Vec::new();
+    };
+    (0..count.min(env.len()))
+        .filter_map(|index| {
+            let key = named(&format!("GIT_CONFIG_KEY_{index}"))?
+                .value
+                .as_deref()?;
+            let value = named(&format!("GIT_CONFIG_VALUE_{index}"))?;
+            let forges = value
+                .secret
+                .as_ref()
+                .is_some_and(|secret| forge.contains(&secret.0));
+            (is_plain_setting(key) && !forges).then_some((key, value))
+        })
+        .collect()
 }
 
 /// The one host the daemon's GitLab token belongs to (decision F3-D2): the value of the
@@ -374,11 +441,26 @@ pub fn manifests(kubernetes: &Kubernetes, config: &Config, instance: &Instance) 
     // out of the Secret, unless a kept entry names it too.
     let gitlab_host = gitlab_host(kubernetes);
     // An instance with `forge_access: anonymous` (story:forge-access-anonymous) carries no
-    // credential of any forge: none of the daemon's forge token variables and no entry of git's
-    // configuration, the installer's included, which may give git a helper.
+    // credential of any forge: none of the daemon's forge token variables, no entry that names
+    // the secret of one under whatever name, none that points git, ssh or a forge's command
+    // line at a credential or a configuration file ([`CREDENTIAL_POINTERS`]), and of git's
+    // configuration only the installer's settings that carry none ([`plain_settings`]).
     let anonymous = crate::config::anonymous(instance);
+    let forge_secrets = if anonymous {
+        crate::secret::daemons_forge(&config.daemon)
+    } else {
+        BTreeSet::new()
+    };
     for variable in &kubernetes.env {
-        if anonymous && (is_gits_config(&variable.name) || is_forge_variable(&variable.name)) {
+        if anonymous
+            && (is_gits_config(&variable.name)
+                || is_forge_variable(&variable.name)
+                || CREDENTIAL_POINTERS.contains(&variable.name.as_str())
+                || variable
+                    .secret
+                    .as_ref()
+                    .is_some_and(|secret| forge_secrets.contains(&secret.0)))
+        {
             continue;
         }
         match crate::config::token_variable_forge(&variable.name) {
@@ -416,12 +498,32 @@ pub fn manifests(kubernetes: &Kubernetes, config: &Config, instance: &Instance) 
     // git over HTTPS to the forge of the instance's sources authenticates with the token the pod
     // carries, and git offers it to no other origin (story:pod-git-reaches-forge); where `env`
     // names `GIT_CONFIG_COUNT`, git's configuration is the installer's. An anonymous instance's
-    // pod gets none.
-    if !anonymous
-        && !kubernetes
-            .env
-            .iter()
-            .any(|named| named.name == GIT_CONFIG_COUNT)
+    // pod gets no helper, and of the installer's entries only those that carry no credential,
+    // renumbered from 0.
+    if anonymous {
+        let kept = plain_settings(&kubernetes.env, &forge_secrets);
+        if !kept.is_empty() {
+            env.push(json!({"name": GIT_CONFIG_COUNT, "value": kept.len().to_string()}));
+        }
+        for (index, (key, value)) in kept.into_iter().enumerate() {
+            env.push(json!({"name": format!("GIT_CONFIG_KEY_{index}"), "value": key}));
+            let name = format!("GIT_CONFIG_VALUE_{index}");
+            match (&value.value, &value.secret) {
+                (_, Some(secret)) => {
+                    secrets.insert(secret.0.clone());
+                    env.push(json!({
+                        "name": name,
+                        "valueFrom": {"secretKeyRef": {"name": pod_name, "key": secret.0}},
+                    }));
+                }
+                (Some(text), None) => env.push(json!({"name": name, "value": text})),
+                (None, None) => env.push(json!({"name": name, "value": ""})),
+            }
+        }
+    } else if !kubernetes
+        .env
+        .iter()
+        .any(|named| named.name == GIT_CONFIG_COUNT)
     {
         let carried: BTreeSet<&str> = env
             .iter()

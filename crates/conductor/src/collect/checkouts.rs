@@ -288,11 +288,19 @@ fn carries_token(forge: &str) -> bool {
 }
 
 /// `command`, a git command, with no credential (story:forge-access-anonymous): `-c
-/// credential.helper=` empties the list of helpers any configuration gives it, and no variable a
-/// forge's command line reads a token from reaches it ([`config::FORGE_CLI_TOKEN_VARIABLES`]). Its
-/// words come first, before the subcommand's.
+/// credential.helper=` empties the list of helpers any configuration gives it, `-c
+/// http.extraHeader=` the list of extra headers, and no variable a forge's command line reads a
+/// token from reaches it ([`config::FORGE_CLI_TOKEN_VARIABLES`]). git reads neither the system's
+/// nor the user's configuration file (story:anonymous-pod-no-forge-secret), so no `insteadOf`
+/// rewrite, which no command line can reset, and no `http.<url>.extraHeader` of the image's or
+/// the user's configuration applies; the pod's own environment (`GIT_CONFIG_COUNT`) still does.
+/// Its words come first, before the subcommand's.
 fn without_credential(command: &mut std::process::Command) {
-    command.args(["-c", "credential.helper="]);
+    command
+        .args(["-c", "credential.helper=", "-c", "http.extraHeader="])
+        .env("GIT_CONFIG_NOSYSTEM", "1")
+        .env("GIT_CONFIG_SYSTEM", "/dev/null")
+        .env("GIT_CONFIG_GLOBAL", "/dev/null");
     for variable in config::FORGE_CLI_TOKEN_VARIABLES
         .iter()
         .flat_map(|(_, variables)| variables.iter())

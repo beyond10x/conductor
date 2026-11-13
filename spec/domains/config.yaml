@@ -1045,23 +1045,28 @@ types:
       - {name: git_identity, type: Optional<conductor.config.GitIdentity>}
       # How the instance reaches its forge (`ForgeAccess`, story:forge-access-anonymous).
       # `anonymous`: the instance's pod carries no credential of any forge: no `forge_token`, no
-      # `daemon.kubernetes.env` entry of a forge's token variables (`KubernetesEnv`) and no
-      # entry of git's configuration (`GIT_CONFIG_COUNT`, `GIT_CONFIG_KEY_<n>`,
-      # `GIT_CONFIG_VALUE_<n>`, `GIT_CONFIG_PARAMETERS`) or `GIT_ASKPASS`, the installer's
-      # included, so git gets no credential helper. The file the pod runs on writes the member,
+      # `daemon.kubernetes.env` entry of a forge's token variables (`KubernetesEnv`) nor any
+      # other entry that names the secret of one, no entry that points git, ssh or a forge's
+      # command line at a credential or a configuration file (`GIT_ASKPASS`,
+      # `GIT_CONFIG_GLOBAL`, `GIT_CONFIG_SYSTEM`, `GIT_SSH_COMMAND`, `SSH_AUTH_SOCK` and the
+      # like), and of git's configuration (`GIT_CONFIG_COUNT`, `GIT_CONFIG_KEY_<n>`,
+      # `GIT_CONFIG_VALUE_<n>`, `GIT_CONFIG_PARAMETERS`) only the installer's proxy and CA
+      # settings, so git gets no credential helper. The file the pod runs on writes the member,
       # which the runtime reads. Its runtime clones each
       # repository its sources include over HTTPS with no credential; a clone that fails is one
       # member failure of the pass that says the repository is not public or not reachable,
       # with git's last error line. The repositories are listed from the `include` entries, not
       # read from the forge, and each is read from its checkout alone: the collectors read no
       # pull request, issue, release or run of the forge, and say so in one line a pass. Every
-      # write to the forge (a push, a pull request, a comment, a release, by any route) is
-      # refused before any call, in one line that names `forge_access: anonymous`, and the
-      # instance's `detail` says in one line that it writes nothing to its forge. Whoever sends
-      # the mapping answers for each repository being public: conductor does not check it before
-      # the clone. Refused at validate by its YAML path, and so by `AddInstance` and
-      # `PutInstance` (`ConfigInvalid`): any other value; and with it, a `forge_token` (at that
-      # key), a source that is not `github` or a `github` source without `include` (at the
+      # write to the forge the guard reads from a session's command (a push, a pull request, a
+      # comment, a release, by any route) is refused before any call, in one line that names
+      # `forge_access: anonymous`; one whose program the shell decides finds no credential; and
+      # the instance's `detail` says in one line that it writes nothing to its forge. Whoever
+      # sends the mapping answers for each repository being public: conductor does not check it
+      # before the clone. Refused at validate by its YAML path, and so by `AddInstance` and
+      # `PutInstance` (`ConfigInvalid`): any other value; and with it, a `forge_token` or a
+      # `secret_syncs` that is not empty (at that key), a source that is not `github` or a
+      # `github` source without `include` (at the
       # source), or a file without `daemon.kubernetes` that no instance pod's runtime reads (at
       # this key). The control plane alone writes it: the instance's own settings write
       # (`WriteConfig`) takes it as `Fixed`. Absent, the instance reaches its forge as before.

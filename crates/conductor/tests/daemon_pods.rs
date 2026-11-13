@@ -2434,6 +2434,44 @@ fn a_pod_without_a_token_of_its_forge_or_with_gits_config_named_is_the_one_made_
     assert!(differ.is_empty(), "{}", differ.join("\n"));
 }
 
+/// The pod of an instance without `forge_access` (story:anonymous-pod-no-forge-secret) under a
+/// daemon whose `env` names the forge token's secret twice, git's and ssh's configuration
+/// variables, and the installer's git configuration with a proxy, a CA file and a helper, is the
+/// one the supervisor of v1.8.0 made for this file, byte for byte, held to
+/// `tests/fixtures/k8s/pod-alpha-installer-env.json`: what an anonymous pod leaves out stays in
+/// every other pod.
+#[test]
+fn a_pod_without_the_anonymous_member_keeps_every_installer_entry_as_in_v1_8_0() {
+    let case = Case::new("installer-env");
+    case.config_env(
+        IMAGE,
+        &[
+            "{name: GH_TOKEN, secret: secret:forge-token}",
+            "{name: GITHUB_PAT, secret: secret:forge-token}",
+            "{name: GIT_CONFIG_GLOBAL, value: /etc/example/gitconfig}",
+            "{name: GIT_CONFIG_SYSTEM, value: /etc/example/gitconfig}",
+            "{name: GIT_SSH_COMMAND, value: ssh -i /etc/example/key}",
+            "{name: SSH_AUTH_SOCK, value: /run/example/agent.sock}",
+            "{name: GH_CONFIG_DIR, value: /etc/example/gh}",
+            "{name: GIT_CONFIG_COUNT, value: \"3\"}",
+            "{name: GIT_CONFIG_KEY_0, value: http.proxy}",
+            "{name: GIT_CONFIG_VALUE_0, value: \"http://proxy.example.com:3128\"}",
+            "{name: GIT_CONFIG_KEY_1, value: credential.helper}",
+            "{name: GIT_CONFIG_VALUE_1, value: store}",
+            "{name: GIT_CONFIG_KEY_2, value: http.sslCAInfo}",
+            "{name: GIT_CONFIG_VALUE_2, value: /etc/example/ca.pem}",
+        ],
+        &[alpha("")],
+    );
+    let text = fs::read_to_string(case.file()).expect("the config file");
+    let config = conductor_cli::config::parse(&text, &case.home())
+        .unwrap_or_else(|problems| panic!("the file does not validate: {problems:?}\n{text}"));
+    let kubernetes = config.daemon.kubernetes.clone().expect("daemon.kubernetes");
+    let made = pods::manifests(&kubernetes, &config, &config.instances[0]);
+    let differ = held_to(&case, &made, "pod-alpha-installer-env.json");
+    assert!(differ.is_none(), "{}", differ.unwrap_or_default());
+}
+
 /// The control token of the forge-token route case: the value of the secret `control`.
 const CONTROL: &str = "control-token-0123456789abcdef0123456789abcdef";
 

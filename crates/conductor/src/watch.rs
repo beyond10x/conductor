@@ -837,7 +837,8 @@ impl Watch {
         .with_usage(state.clone())
         .with_decisions(state.clone())
         .with_reclaim(state.clone(), crate::gc::reclaim::reclaim)
-        .with_host(host);
+        .with_host(host)
+        .with_anonymous(config::anonymous(&active.instance));
         watch.panes = Panes::of(&active.instance, &state);
         Ok(watch)
     }
@@ -913,7 +914,17 @@ pub struct Watch {
     decisions: Option<PathBuf>,
     /// The panes the banner probe reads; none: no banner probe (`story:auto-resume`).
     panes: Option<Panes>,
+    /// Whether the instance has `forge_access: anonymous`: its CI pass reads nothing of the
+    /// forge and says [`ANONYMOUS_SKIPPED`] instead (story:anonymous-pod-no-forge-secret).
+    anonymous: bool,
 }
+
+/// The one line the CI pass of an instance with `forge_access: anonymous` says on standard error,
+/// in the words of the collectors' ([`crate::collect::github::SKIPPED`]): it runs no forge
+/// command line, for `main`'s CI or for a pull request.
+pub const ANONYMOUS_SKIPPED: &str = "conductor watch: forge_access: anonymous: this pass reads no \
+                                     pull request, issue, release or workflow run of the forge, \
+                                     which the instance has no credential of";
 
 /// A reclaim run to a floor, recorded under a state directory: [`crate::gc::reclaim::reclaim`],
 /// or a test's fake.
@@ -1015,7 +1026,16 @@ impl Watch {
             usage: None,
             decisions: None,
             panes: None,
+            anonymous: false,
         }
+    }
+
+    /// This watch of an instance with `forge_access: anonymous` when `anonymous`: its CI pass runs
+    /// no forge command line and says so in one line ([`ANONYMOUS_SKIPPED`]).
+    #[must_use]
+    pub fn with_anonymous(mut self, anonymous: bool) -> Self {
+        self.anonymous = anonymous;
+        self
     }
 
     /// This watch reading `panes` for the usage-limit banner, rotating and resuming them
@@ -1911,8 +1931,13 @@ impl Watch {
     /// since the kept state, then keeps it, for each repository of [`Watch::repositories`]. Each
     /// repository's run list is run once; one that does not answer is named on `notes`, and the
     /// others are read. Without a complete snapshot no run list is read, and that is named on
-    /// `notes` once, until one completes.
+    /// `notes` once, until one completes. An instance with `forge_access: anonymous` reads none
+    /// and says [`ANONYMOUS_SKIPPED`] once.
     fn ci(&mut self, lines: &mut Vec<String>, notes: &mut dyn Write) -> Result<()> {
+        if self.anonymous {
+            let _ = writeln!(notes, "{ANONYMOUS_SKIPPED}");
+            return Ok(());
+        }
         let repositories = match self.repositories() {
             Ok(repositories) => {
                 self.answered(SNAPSHOT);

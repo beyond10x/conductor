@@ -728,9 +728,15 @@ impl Runtime {
     /// The config file of the instance `alpha`, whose sources include `one` and `two` of
     /// `example-owner`, `extra` lines appended.
     fn config(&self, extra: &str) -> PathBuf {
+        self.config_including("[one, two]", extra)
+    }
+
+    /// The config file of the instance `alpha`, whose source includes `include` of
+    /// `example-owner`, `extra` lines appended.
+    fn config_including(&self, include: &str, extra: &str) -> PathBuf {
         let text = format!(
             "version: conductor.config/1\ninstances:\n  - name: alpha\n    sources: [{{github: \
-             example-owner, include: [one, two]}}]\n    checkouts:\n      root: {}\n      \
+             example-owner, include: {include}}}]\n    checkouts:\n      root: {}\n      \
              trees: {}\n    records: {}\n    state: {}\n    cache: {}\n{extra}",
             quoted(&self.root()),
             quoted(&self.dir.join("trees")),
@@ -944,14 +950,81 @@ fn the_start_clones_each_included_repository_with_no_credential() {
         assert!(line.ends_with("[token:]"), "a token reached git: {line}");
         assert!(line.contains("https://github.com/example-owner/"), "{line}");
     }
-    // The start's own report asks gh for its version and its login, which reads no repository;
-    // nothing asks the forge for a list, a pull request or an issue.
-    for line in case.lines("gh") {
-        assert!(
-            line == "--version" || line.starts_with("auth status "),
-            "gh reads the forge: {line}"
-        );
-    }
+    // The start's own report asks no forge command line anything, not its version or its login
+    // (story:anonymous-pod-no-forge-secret): the instance needs none.
+    assert_eq!(
+        case.lines("gh"),
+        Vec::<String>::new(),
+        "gh is run: {printed}"
+    );
+}
+
+/// The words the watch's one line of an anonymous instance says, as the collectors' line does.
+const WATCH_SKIPPED: &str = "conductor watch: forge_access: anonymous: this pass reads no pull \
+                             request, issue, release or workflow run of the forge";
+
+/// The watch of an anonymous instance makes no call of a forge's command line: one pass over a
+/// store whose newest snapshot holds an Active repository reads no `main` CI and no pull
+/// request, runs no `gh`, and says so in one line (story:anonymous-pod-no-forge-secret).
+#[test]
+fn the_watch_of_an_anonymous_instance_runs_no_gh_and_says_so_once() {
+    let case = Runtime::new("watch");
+    case.bare("one");
+    let config = case.config_including("[one]", "    forge_access: anonymous\n");
+    // A snapshot that starts now, so the commit of `one` makes it Active.
+    let now = time::OffsetDateTime::now_utc()
+        .replace_nanosecond(0)
+        .expect("a whole second")
+        .format(&time::format_description::well_known::Rfc3339)
+        .expect("RFC 3339");
+    let mut command = common::conductor(case.dir.join("home"));
+    case.environment(&config, &mut command);
+    let output = command
+        .current_dir(case.dir.join("work"))
+        .args([
+            "snapshot",
+            "start-snapshot",
+            "--started-at",
+            &now,
+            "--disk-free-bytes",
+            "100000000000",
+        ])
+        .stdin(Stdio::null())
+        .output()
+        .expect("the conductor binary runs");
+    assert_eq!(output.status.code(), Some(0), "{}", describe(&output));
+    let snapshot = String::from_utf8_lossy(&output.stdout)
+        .lines()
+        .last()
+        .unwrap_or_default()
+        .trim()
+        .to_owned();
+    let rows = case.rows(&config, "repositories", &snapshot);
+    assert_eq!(rows.len(), 1, "{rows:?}");
+    assert_eq!(case.lines("gh"), Vec::<String>::new());
+
+    let mut command = common::conductor(case.dir.join("home"));
+    case.environment(&config, &mut command);
+    command
+        .current_dir(case.dir.join("work"))
+        .args(["watch", "run", "--follow", "--every", "1"])
+        .stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped());
+    let mut watch = Serve::spawn(command);
+    // The first pass reads main's CI; the passes after it, within `ci_every`, do not.
+    watch.until(|printed| printed.contains(WATCH_SKIPPED) || printed.contains("not read"));
+    // Two more passes of one second each, which read no CI.
+    std::thread::sleep(Duration::from_secs(3));
+    let printed = watch.until(|_| true);
+    drop(watch);
+    assert_eq!(case.lines("gh"), Vec::<String>::new(), "{printed}");
+    assert!(!printed.contains("not read"), "{printed}");
+    assert_eq!(
+        printed.matches(WATCH_SKIPPED).count(),
+        1,
+        "one line in the CI pass: {printed}"
+    );
 }
 
 /// A collect pass of an anonymous instance completes: it clones what has no checkout, records
@@ -996,6 +1069,100 @@ fn a_pass_reads_no_pull_request_or_issue_and_says_so_once() {
         assert!(line.contains("credential.helper="), "{line}");
         assert!(line.ends_with("[token:]"), "a token reached git: {line}");
     }
+}
+
+/// The anonymous clone runs with no `insteadOf` rewrite and no extra header of the system's or
+/// the user's git configuration (story:anonymous-pod-no-forge-secret): here both name a rewrite
+/// of the owner's origin to a place that holds nothing, which would win over the environment's
+/// rewrite to the forge as the longer match, and an extra header. `git` logs the configuration
+/// it reads for each clone; the clone of `one` succeeds and reads neither.
+#[test]
+fn the_anonymous_clone_reads_no_rewrite_and_no_extra_header_of_gits_configuration() {
+    let case = Runtime::new("rewrite");
+    case.bare("one");
+    let nowhere = format!("file://{}/", text(&case.dir.join("nowhere")));
+    let rewrite = |header: &str| {
+        format!(
+            "[url \"{nowhere}\"]\n\tinsteadOf = https://github.com/example-owner/\n[http]\n\t\
+             extraHeader = X-Example: {header}\n"
+        )
+    };
+    fs::write(case.dir.join("home/.gitconfig"), rewrite("from-global")).expect("write it");
+    let system = case.dir.join("gitconfig-system");
+    fs::write(&system, rewrite("from-system")).expect("write it");
+    case.script(
+        "git",
+        &format!(
+            "#!/bin/sh\nset -f\ndump() {{\n  pre=''\n  while [ \"$1\" = -c ]; do pre=\"$pre -c \
+             $2\"; shift 2; done\n  printf 'clone reads:\\n' >> '{dump}'\n  '{git}' $pre config \
+             --show-origin --get-regexp 'insteadof|extraheader' >> '{dump}' 2>&1\n}}\ncase \" $* \
+             \" in *' clone '*) dump \"$@\" ;; esac\nexec '{git}' \"$@\"\n",
+            dump = text(&case.log("gitconfig")),
+            git = text(&which("git")),
+        ),
+    );
+    let config = case.config_including("[one]", "    forge_access: anonymous\n");
+    let mut command = common::conductor(case.dir.join("home"));
+    case.environment(&config, &mut command);
+    let output = command
+        .env("GIT_CONFIG_SYSTEM", &system)
+        .current_dir(case.dir.join("work"))
+        .args([
+            "snapshot",
+            "start-snapshot",
+            "--started-at",
+            NOW,
+            "--disk-free-bytes",
+            "100000000000",
+        ])
+        .stdin(Stdio::null())
+        .output()
+        .expect("the conductor binary runs");
+    let read = fs::read_to_string(case.log("gitconfig")).unwrap_or_default();
+    assert!(
+        read.contains("clone reads:"),
+        "no clone ran: {}",
+        describe(&output)
+    );
+    for words in ["nowhere", "X-Example"] {
+        assert!(!read.contains(words), "the clone reads {words:?}:\n{read}");
+    }
+    assert!(
+        case.root().join("one/.git").is_dir(),
+        "one is cloned: {}\n{read}",
+        describe(&output)
+    );
+}
+
+/// An `include` entry validation accepts and no repository name can be (`two three`) is one
+/// member failure of an anonymous instance's pass, which records every other repository.
+#[test]
+fn an_include_entry_that_names_no_repository_is_one_member_failure() {
+    let case = Runtime::new("include-name");
+    case.bare("one");
+    let config = case.config_including("[one, \"two three\"]", "    forge_access: anonymous\n");
+    let output = case.pass(&config);
+    assert_eq!(output.status.code(), Some(0), "{}", describe(&output));
+    let snapshot = String::from_utf8_lossy(&output.stdout)
+        .lines()
+        .last()
+        .unwrap_or_default()
+        .trim()
+        .to_owned();
+    let rows = case.rows(&config, "repositories", &snapshot);
+    let names: Vec<&str> = rows
+        .iter()
+        .filter_map(|row| row["repository"].as_str())
+        .collect();
+    assert_eq!(names, ["one"], "{rows:?}\n{}", describe(&output));
+    let failures = case.rows(&config, "member-failures", &snapshot);
+    let named: Vec<&Value> = failures
+        .iter()
+        .filter(|failure| failure["member"] == "two three")
+        .collect();
+    assert_eq!(named.len(), 1, "{failures:?}\n{}", describe(&output));
+    let line = named[0]["error_line"].as_str().unwrap_or_default();
+    assert!(line.contains("is not a repository name"), "{line}");
 }
 
 /// Without the member, a pod that carries no token of its forge tries no clone, as before: each

@@ -669,12 +669,23 @@ fn listed(
     for owner in &origins.owners {
         // An anonymous instance's owner is listed by its `include` entries, nothing asked of
         // the forge (story:forge-access-anonymous): each is a repository's name, taken to be
-        // public, which the clone shows.
+        // public, which the clone shows. An entry no repository's name can be is one member
+        // failure (story:anonymous-pod-no-forge-secret).
         if anonymous {
             let what = format!("organization {owner}");
             for entry in origins.include.get(owner).into_iter().flatten() {
+                let name = match checked(&what, entry.clone()) {
+                    Ok(name) => name,
+                    Err(error) => {
+                        failures.push(blockers::Failure {
+                            repository: entry.clone(),
+                            error_line: format!("{error:#}"),
+                        });
+                        continue;
+                    }
+                };
                 listed.push(Listed {
-                    name: checked(&what, entry.clone())?,
+                    name,
                     visibility: Visibility::Public,
                     archived: false,
                     issues: false,

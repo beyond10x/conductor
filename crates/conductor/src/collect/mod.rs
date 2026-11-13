@@ -124,7 +124,10 @@ pub fn registered() -> Vec<Collector> {
 pub fn programs(instance: &Instance) -> Vec<&'static str> {
     let origins = Origins::of(instance);
     let mut programs = Vec::new();
-    if !origins.owners.is_empty() || !instance.secret_syncs.is_empty() {
+    // An instance with `forge_access: anonymous` runs no `gh` (story:anonymous-pod-no-forge-secret).
+    if !crate::config::anonymous(instance)
+        && (!origins.owners.is_empty() || !instance.secret_syncs.is_empty())
+    {
         programs.push("gh");
     }
     if instance

@@ -4454,7 +4454,8 @@ impl Reader<'_> {
     }
 
     /// The refusals of `forge_access: anonymous` on the instance `map` at `path` whose sources
-    /// read as `sources` (story:forge-access-anonymous): a `forge_token`, at that key; a source that
+    /// read as `sources` (story:forge-access-anonymous): a `forge_token`, at that key; a
+    /// `secret_syncs` that is not empty, at that key; a source that
     /// is not `github`, or a `github` source without `include`, at the source; and a file whose
     /// daemon runs no pods, at the member, unless this process is the runtime of an instance pod
     /// ([`crate::collect::checkouts::in_pod`]), whose rendered file writes no `daemon.kubernetes`.
@@ -4469,6 +4470,16 @@ impl Reader<'_> {
                 &join(path, "forge_token"),
                 "names a forge token beside forge_access: anonymous, which holds no credential \
                  of any forge: leave one of them out",
+            );
+        }
+        // A sync writes secrets to the forge (story:anonymous-pod-no-forge-secret).
+        if Self::get(map, "secret_syncs")
+            .is_some_and(|syncs| !syncs.as_array().is_some_and(Vec::is_empty))
+        {
+            self.problem(
+                &join(path, "secret_syncs"),
+                "names a secret sync beside forge_access: anonymous, which writes nothing to its \
+                 forge: leave one of them out",
             );
         }
         for (index, source) in sources.unwrap_or_default().iter().enumerate() {

@@ -2338,11 +2338,13 @@ impl Session<'_> {
     }
 }
 
-/// The words of a simple command from its command name on: reserved words, variable assignments
-/// and `builtin`, `command` and `exec` before it are dropped.
 /// The git subcommands that write to a remote: what a session of an instance with
 /// `forge_access: anonymous` never runs (story:forge-access-anonymous).
 const GIT_REMOTE_WRITES: [&str; 3] = ["push", "send-pack", "http-push"];
+
+/// The git subcommands whose own `push` writes to a remote (story:anonymous-pod-no-forge-secret):
+/// `git subtree push`, `git lfs push`.
+const GIT_PUSHING_GROUPS: [&str; 2] = ["subtree", "lfs"];
 
 /// The global options of git that take the next word as their value.
 const GIT_VALUED: [&str; 6] = [
@@ -2358,8 +2360,10 @@ const GIT_VALUED: [&str; 6] = [
 /// `forge_access: anonymous` (story:forge-access-anonymous), whatever its route: a `gh` or `glab`
 /// call that is not a read ([`forge_write`]; `assigned` says whether the line assigns a variable
 /// that may hold the forge's program); a run of the bot route `b10x-gates gh` with `gh`
-/// arguments; a git subcommand that writes to a remote ([`GIT_REMOTE_WRITES`]), by `git` itself
-/// or through `b10x-gates bot`.
+/// arguments; and a remote write of git or of the bot route ([`remote_write`]) by any program
+/// word of the command ([`is_program_word`]: its command name, after a launcher such as `env`,
+/// `timeout`, `nohup` or `xargs`, or after `find -exec`). A program word the shell expands
+/// (`$g push`) is not read: what it runs is decided after the guard has read the line.
 fn anonymous_write(words: &[String], assigned: &dyn Fn(Forge) -> bool) -> Option<String> {
     for forge in Forge::ALL {
         if let Some(write) = forge_write(words, forge, assigned(forge)) {
@@ -2372,38 +2376,94 @@ fn anonymous_write(words: &[String], assigned: &dyn Fn(Forge) -> bool) -> Option
     {
         return Some(format!("b10x-gates gh -- {}", gh.args.join(" ")));
     }
-    let named = command_words(words);
-    let (program, rest) = named.split_first()?;
-    let subcommand = match shell::program(program) {
+    let name = words.len() - command_words(words).len();
+    (name..words.len())
+        .filter(|&at| is_program_word(words, name, at))
+        .find_map(|at| remote_write(&words[at..]))
+}
+
+/// The run `run`, from its program word on, shown, when it writes to a remote
+/// (story:anonymous-pod-no-forge-secret): `git` with a subcommand of [`GIT_REMOTE_WRITES`], the
+/// `push` of one of [`GIT_PUSHING_GROUPS`], or an alias a `-c alias.<name>=…` of the same run
+/// gives a remote write; a git program by its own name (`git-push`, `git-lfs push`, any path);
+/// `b10x-gates bot` with a remote write among its words; and `b10x-gates api` with a method
+/// that is not `GET` or `HEAD`, or none the guard can read.
+fn remote_write(run: &[String]) -> Option<String> {
+    let (program, rest) = run.split_first()?;
+    let (subcommand, after) = match shell::program(program) {
         "git" => {
+            let mut aliases: Vec<&str> = Vec::new();
             let mut at = 0;
             loop {
                 let word = rest.get(at)?;
-                if GIT_VALUED.contains(&word.as_str()) {
+                if word == "-c" {
+                    aliases.extend(rest.get(at + 1).and_then(|value| pushing_alias(value)));
+                    at += 2;
+                } else if GIT_VALUED.contains(&word.as_str()) {
                     at += 2;
                 } else if word.starts_with('-') {
                     at += 1;
                 } else {
-                    break word;
+                    break;
                 }
             }
+            if aliases
+                .iter()
+                .any(|alias| alias.eq_ignore_ascii_case(&rest[at]))
+            {
+                return Some(run.join(" "));
+            }
+            (rest[at].as_str(), &rest[at + 1..])
         }
         BOT_ROUTE => {
             let at = rest.iter().position(|word| !word.starts_with('-'))?;
-            if rest[at] != "bot" {
-                return None;
-            }
-            rest[at + 1..]
-                .iter()
-                .find(|word| GIT_REMOTE_WRITES.contains(&word.as_str()))?
+            let writes = match rest[at].as_str() {
+                "bot" => rest[at + 1..]
+                    .iter()
+                    .any(|word| GIT_REMOTE_WRITES.contains(&word.as_str())),
+                "api" => !api_method_reads(&rest[at + 1..]),
+                _ => false,
+            };
+            return writes.then(|| run.join(" "));
         }
-        _ => return None,
+        other => (other.strip_prefix("git-")?, rest),
     };
-    GIT_REMOTE_WRITES
-        .contains(&subcommand.as_str())
-        .then(|| named.join(" "))
+    let writes = GIT_REMOTE_WRITES.contains(&subcommand)
+        || (GIT_PUSHING_GROUPS.contains(&subcommand) && after.iter().any(|word| word == "push"));
+    writes.then(|| run.join(" "))
 }
 
+/// The alias `value`, the value of a git `-c`, gives, when it is `alias.<name>=<text>` and its
+/// text names a remote write ([`GIT_REMOTE_WRITES`], `git-push` by its own name): `push`, `!git
+/// push origin`.
+fn pushing_alias(value: &str) -> Option<&str> {
+    let (key, text) = value.split_once('=')?;
+    let (section, alias) = key.split_once('.')?;
+    let pushes = text
+        .split(|c: char| c.is_whitespace() || matches!(c, '!' | ';' | '&' | '|' | '(' | ')'))
+        .map(shell::program)
+        .any(|word| GIT_REMOTE_WRITES.contains(&word.strip_prefix("git-").unwrap_or(word)));
+    (section.eq_ignore_ascii_case("alias") && pushes).then_some(alias)
+}
+
+/// Whether the words after `b10x-gates api` ask for a read: their method, `--method <m>`,
+/// `--method=<m>` or `-X <m>`, is `GET` or `HEAD`.
+fn api_method_reads(words: &[String]) -> bool {
+    let mut method = None;
+    for (at, word) in words.iter().enumerate() {
+        if word == "--method" || word == "-X" {
+            method = words.get(at + 1).map(String::as_str);
+        } else if let Some(value) = word.strip_prefix("--method=") {
+            method = Some(value);
+        }
+    }
+    method.is_some_and(|method| {
+        method.eq_ignore_ascii_case("GET") || method.eq_ignore_ascii_case("HEAD")
+    })
+}
+
+/// The words of a simple command from its command name on: reserved words, variable assignments
+/// and `builtin`, `command` and `exec` before it are dropped.
 fn command_words(words: &[String]) -> &[String] {
     const RESERVED: [&str; 15] = [
         "!", "{", "}", "if", "then", "else", "elif", "fi", "do", "done", "while", "until", "time",

@@ -298,11 +298,14 @@ pub fn login_line(login: &ForgeLogin) -> String {
 }
 
 /// The forge CLIs of [`FORGES`] that `instance` starts (`story:gh-optional`): `gh` when it has a
-/// `github` source, `glab` when it has a `gitlab` source.
+/// `github` source, `glab` when it has a `gitlab` source; none for an instance with
+/// `forge_access: anonymous`, which runs no forge command line
+/// (story:anonymous-pod-no-forge-secret), so its start asks none for its version or its login.
 #[must_use]
 pub fn forges(instance: &Instance) -> Vec<&'static str> {
     FORGES
         .into_iter()
+        .filter(|_| !crate::config::anonymous(instance))
         .filter(|forge| {
             instance.sources.iter().any(|source| match source {
                 Source::GitHub(_) => *forge == "gh",
