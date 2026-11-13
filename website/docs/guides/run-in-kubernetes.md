@@ -86,7 +86,7 @@ rules:
     verbs: [get]
   - apiGroups: [""]
     resources: [secrets]
-    verbs: [create, get, list, delete]
+    verbs: [create, get, list, update, delete]
   - apiGroups: [""]
     resources: [persistentvolumeclaims]
     verbs: [create]
@@ -270,6 +270,7 @@ instances live on the volume and arrive over HTTP. A file with no instance is al
 | `daemon.kubernetes.env` | none | variables of each instance pod, each a `value` or a `secret`, such as `GH_TOKEN` for an instance with a GitHub source, or `GITLAB_TOKEN` and `GITLAB_HOST` for a self-hosted GitLab; an instance's `forge_token` takes the place of every entry of the daemon's forge token variables in its own pod, see [forge credentials](#forge-credentials) |
 | `git_identity`, a key of an instance's mapping, not of this file | none | the git identity the instance's pod commits with, `{"name": "Example Bot", "email": "bot@example.com"}`: each value 1 to 200 bytes on one line, with no control character, no `<`, no `>` and no white space at either end, the `email` with exactly one `@`; a mapping that breaks the rule is refused `422` at the value's path. It takes the place of `daemon.kubernetes.env` entries of the identity's variables in the instance's pod, see [what the daemon creates](#what-the-daemon-creates-for-each-instance) |
 | `model_token_kind`, a key of an instance's mapping, not of this file | none | the kind of the instance's `model_token`: `api_key`, as where the mapping names none, or `subscription_token`; a mapping that names it without a `model_token`, or names another word, is refused `422` at its path. See [the model token](#the-model-token) |
+| `standing_rules`, a key of an instance's mapping, not of this file | none | text every session the instance starts reads in its prompt file, at most 16384 bytes of UTF-8 with no NUL; a mapping that breaks either is refused `422` at its path. See [standing rules](#standing-rules) |
 
 The [config reference](../reference/config.md) has each key's rules.
 
@@ -286,8 +287,9 @@ the Role does not grant.
 | `pods` | `delete` | to stop, restart or remove an instance, and to remove a pod of its own that no instance holds |
 | `pods/log` | `get` | the last lines of a pod that failed without a message, for the instance's `detail` |
 | `secrets` | `create`, `delete` | the instance's Secret, written at every start, removed with the pod |
-| `secrets` | `get` | to read an adopted pod's API token back after a restart of the daemon |
+| `secrets` | `get` | to read an adopted pod's API token back after a restart of the daemon, and an instance's Secret before it updates it |
 | `secrets` | `list` | to find a Secret of its own that no instance holds |
+| `secrets` | `update` | to write an instance's `conductor.yaml` again in place when only its [standing rules](#standing-rules) changed, so its pod is not replaced |
 | `persistentvolumeclaims` | `create` | the instance's claim, once; the daemon never reads or deletes it |
 
 `conductor doctor` asks the API for each of these with a self-subject access review and fails on
@@ -420,8 +422,8 @@ empty: the daemon's config file is not in a git checkout. One row:
  "state":"Running"}
 ```
 
-`GET /v1/instances/alpha` adds `git_identity`, `{"name":…,"email":…}`, and `model_token_kind`,
-as the mapping holds each, where the mapping names one.
+`GET /v1/instances/alpha` adds `git_identity`, `{"name":…,"email":…}`, `model_token_kind` and
+`standing_rules`, as the mapping holds each, where the mapping names one.
 
 A restart answers once the new pod is created, and a replace that changes the rendering
 replaces the pod the same way. Each waits for the old pod to be gone, so a call that comes
@@ -681,7 +683,7 @@ instance pods run on through it, with the same uid and no restart.
 | its own pod restarts | adopts every instance pod; none is replaced |
 | an instance pod is deleted, by hand or by eviction | creates it again at its next pass; a pod gone within 60 s of its start counts as a failed start, and the next one waits the back-off, a few seconds the first time |
 | an instance pod ends | starts it again after the failed-start back-off; the row's `detail` holds what the container said, or the last lines of its log |
-| `PUT /v1/instances/{name}` changes the mapping | replaces the pod once: deleted, then created on the new rendering |
+| `PUT /v1/instances/{name}` changes the mapping | replaces the pod once: deleted, then created on the new rendering; a change of its `standing_rules` alone replaces no pod and writes the instance's Secret again in place, see [standing rules](#standing-rules) |
 | `daemon.kubernetes.image` changes | replaces each instance pod once, on the new image |
 | the daemon is upgraded to a version that changes the pod it would make | replaces each pod whose spec changed once, at its first pass, on the same image, and adopts every other pod. The version that gave git its credential helper ([Forge credentials](#forge-credentials)) replaces each pod that carries the token of a forge its instance has a source on, unless `daemon.kubernetes.env` names `GIT_CONFIG_COUNT`, and each pod of an instance with its own `forge_token` whose daemon gives a forge token variable it no longer carries. The version that gave the daemon's GitLab token to one host replaces each pod that carried the daemon's entry of `GITLAB_TOKEN`, `GITLAB_ACCESS_TOKEN` or `OAUTH_TOKEN` while a `gitlab` source of its instance is on another host than `GITLAB_HOST` names (`gitlab.com` where `env` names none), and each pod of an instance with its own `forge_token` whose daemon gives `GITHUB_TOKEN`, `GH_ENTERPRISE_TOKEN`, `GITHUB_ENTERPRISE_TOKEN`, `GITLAB_ACCESS_TOKEN` or `OAUTH_TOKEN`. That version refuses a config file whose instance names the secret of a daemon's forge token, and a `GITLAB_HOST` entry written as a `secret`: change either before the upgrade. The version that gives a pod the daemon's forge token only of a forge its instance has a source on replaces each pod that carried the daemon's entries of a forge its instance has no source on, and each pod that carried the daemon's entry of `CI_JOB_TOKEN` it no longer carries; it refuses an entry named `GL_HOST`, `GITLAB_URI` or `GITLAB_URL`, and an instance that names the secret of a daemon's `CI_JOB_TOKEN` entry |
 
@@ -886,6 +888,50 @@ or keep the time of the control plane's own last restart:
 ```console
 kubectl -n conductor-instances get pod conductor-instance-alpha -o jsonpath='{.status.startTime}'
 ```
+
+## Standing rules
+
+An instance mapping may hold `standing_rules`: text that every session the instance starts
+reads, whatever its role: each controller, the director and the maintainer. The daemon's
+host roles, `supervisor` and `teacher`, do not read it. It is for a rule that must hold for every
+session of one instance from its first one, such as no private name in a commit, a branch, a pull
+request or an issue, where the repository's own `AGENTS.md` is not the control plane's to write.
+
+```json
+{"mapping": {"name": "alpha", "placement": "none", "session_prefix": "alpha",
+             "sources": [{"github": "example-org"}],
+             "standing_rules": "No private name in a commit, a branch, a pull request or an issue.\n"},
+ "reason": "the tenant's rules"}
+```
+
+The text is at most 16384 bytes of UTF-8 and holds no NUL; a mapping that breaks either is
+refused `422` `conductor.config.ConfigInvalid` at `instances[<i>].standing_rules`. A word that
+looks like a token is refused there as anywhere in the file.
+
+A session gets the text in its prompt file, after one line that says these are the instance's
+standing rules, verbatim inside a fenced block whose fence of backticks is longer than any run of
+backticks in the text, so no line of the text closes the block:
+
+- a role that starts from the profile the binary carries, as a controller and the maintainer do
+  by default, starts from that profile with the block after it, written to
+  `<state>/sessions/<session name>.profile.md`;
+- a role whose config names its own `profile` file starts from a copy there that holds that
+  file's text and the block; the named file is not changed;
+- a role that starts from an agent, as the director does, gets a prompt file with the block alone
+  beside its agent.
+
+Without `standing_rules` every session starts as before, with the same arguments and the same
+prompt file, and the pod is the one it was.
+
+A change of `standing_rules` alone replaces no pod: the text is no part of the pod's digest. At
+its next pass the daemon writes the instance's Secret again in place, its `conductor.yaml`
+holding the new text, which takes the Role's `update` on Secrets. The kubelet updates the
+Secret's files in the running pod after a delay of its own, by default up to about a minute, and
+the runtime reads the text from the mounted file at each session's start. So a session started
+after that reads the new text, and a session that already runs keeps the text it started with
+until it starts again. An instance whose runtime is no pod reads the text from its config file at
+each session's start. `GET /v1/instances/{name}` answers the text as the mapping holds it, and no
+member where it holds none.
 
 ## Limits
 

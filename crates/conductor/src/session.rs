@@ -1455,7 +1455,9 @@ fn request(instance: &Instance, role: &Role, cwd: &Path, home: &Path) -> Session
 /// The arguments the harness of `role` starts with before its first prompt: its name, its profile
 /// (`--append-system-prompt-file`: the role's own, else the one the binary carries, written into
 /// the state directory, [`profile_for`]) or else its agent (`--agent`, by default the role's old
-/// name: `conductor` for the director, which the binary carries no profile for), its model,
+/// name: `conductor` for the director, which the binary carries no profile for; where the instance
+/// has standing rules, followed by the prompt file that holds them, story:instance-rules-text),
+/// its model,
 /// the tools it never calls ([`denied_tools_argument`]), bypass permissions, no user settings
 /// (the `none` provider adds them for `claude --bg`, [`crate::confine::background_args`]), and
 /// its settings file; the director's defaults to the one the binary carries
@@ -1467,18 +1469,23 @@ fn harness_args(
     settings: Option<String>,
 ) -> Vec<String> {
     let mut args = vec!["-n".to_owned(), name.0.clone()];
-    match (profile, &role.agent) {
-        (Some(profile), _) => {
-            args.extend(["--append-system-prompt-file".to_owned(), profile]);
+    // A role without a profile of its own or one the binary carries starts from its agent; where
+    // the instance has standing rules, its prompt file holds them alone and follows the agent.
+    if role.profile.is_none() {
+        match &role.agent {
+            Some(agent) => args.extend(["--agent".to_owned(), agent.0.clone()]),
+            None if crate::role::profile(&role.role).is_none() => args.extend([
+                "--agent".to_owned(),
+                config::role_name(&role.role).map_or_else(
+                    || role.role.clone(),
+                    |name| config::old_role_word(name).to_owned(),
+                ),
+            ]),
+            None => {}
         }
-        (None, Some(agent)) => args.extend(["--agent".to_owned(), agent.0.clone()]),
-        (None, None) => args.extend([
-            "--agent".to_owned(),
-            config::role_name(&role.role).map_or_else(
-                || role.role.clone(),
-                |name| config::old_role_word(name).to_owned(),
-            ),
-        ]),
+    }
+    if let Some(profile) = profile {
+        args.extend(["--append-system-prompt-file".to_owned(), profile]);
     }
     args.extend(["--model".to_owned(), role.model.0.clone()]);
     if let Some(denied) = denied_tools_argument(&role.role) {
@@ -1514,17 +1521,35 @@ fn denied_tools_argument(role: &str) -> Option<String> {
 /// The profile the session `name` of `role` appends to its system prompt
 /// (`story:roles-in-the-binary`): the role's own `profile`, which the harness reads at start;
 /// else, for a role that names no agent either, the one the binary carries, written to
-/// `<state>/sessions/<name>.profile.md` ([`claude_code::write_profile`]); else none.
+/// `<state>/sessions/<name>.profile.md` ([`claude_code::write_profile`]); else none. Where the
+/// instance has standing rules `rules` (story:instance-rules-text), their block follows the
+/// profile in that file: for the role's own, a copy of it written there, its file not changed
+/// ([`claude_code::write_own`]); for a role that starts from its agent, the block alone.
 ///
 /// # Errors
 ///
-/// The binary's profile cannot be written.
-fn profile_for(role: &Role, state: &Path, name: &SessionName) -> Result<Option<String>> {
-    match (&role.profile, &role.agent) {
-        (Some(profile), _) => Ok(Some(profile.0.clone())),
-        (None, Some(_)) => Ok(None),
-        (None, None) => Ok(claude_code::write_profile(state, &name.0, &role.role)?
-            .map(|file| file.display().to_string())),
+/// The role's own profile cannot be read, or the file cannot be written.
+fn profile_for(
+    role: &Role,
+    state: &Path,
+    name: &SessionName,
+    rules: Option<&str>,
+) -> Result<Option<String>> {
+    let shown = |file: PathBuf| file.display().to_string();
+    match (&role.profile, &role.agent, rules) {
+        (Some(profile), _, None) => Ok(Some(profile.0.clone())),
+        (Some(profile), _, Some(rules)) => Ok(Some(shown(claude_code::write_own(
+            state,
+            &name.0,
+            Path::new(&profile.0),
+            rules,
+        )?))),
+        (None, Some(_), rules) => {
+            Ok(claude_code::write_prompt(state, &name.0, None, rules)?.map(shown))
+        }
+        (None, None, rules) => {
+            Ok(claude_code::write_profile(state, &name.0, &role.role, rules)?.map(shown))
+        }
     }
 }
 
@@ -1673,8 +1698,16 @@ pub fn start(
             .context("session start")?
             .map(|file| file.display().to_string()),
     };
-    // The role's profile, else the binary's, written into the state (`story:roles-in-the-binary`).
-    let profile = profile_for(found, &state_dir, &name).context("session start")?;
+    // The role's profile, else the binary's, written into the state (`story:roles-in-the-binary`),
+    // with the instance's standing rules as the config holds them now; a host role, the daemon's,
+    // reads none (story:instance-rules-text).
+    let rules = if host.is_none() {
+        config::standing_rules_at_start(config_flag, instance)
+    } else {
+        None
+    };
+    let profile =
+        profile_for(found, &state_dir, &name, rules.as_deref()).context("session start")?;
     let request = request(instance, found, cwd, home);
     // The session's socket to the instance's broker (`story:tool-broker-read`): registered with
     // its role's grant before it starts, and named in its environment.

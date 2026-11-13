@@ -66,6 +66,9 @@
 //!   key, where the instance sets one; a role's `writable` entry is a place's word
 //!   ([`PLACES`]) or a path, and its `network` is `open`;
 //! - `forge.route` (`story:forge-route`) is `gates` or `direct`;
+//! - an instance's `standing_rules` (story:instance-rules-text) is text of at most
+//!   [`STANDING_RULES_BYTES`] bytes of UTF-8 with no NUL ([`standing_rules_problem`]); a session
+//!   reads it at its start from the file as it holds it then ([`standing_rules_at_start`]);
 //! - `usage.probe` (`story:usage-probe`) and `usage.rotate` (`story:auto-resume`) are commands,
 //!   not empty, `usage.rotate` only beside a `usage.probe`, and `usage.watcher` a systemd unit
 //!   name ([`unit_name`]);
@@ -451,7 +454,7 @@ pub const TREE_STALE_HOURS: u64 = 48;
 
 /// The keys of each mapping the file holds, in the order `config show` writes them.
 const CONFIG_KEYS: [&str; 5] = ["version", "daemon", "globals", "default", "instances"];
-const INSTANCE_KEYS: [&str; 32] = [
+const INSTANCE_KEYS: [&str; 33] = [
     "name",
     "placement",
     "remote",
@@ -482,6 +485,7 @@ const INSTANCE_KEYS: [&str; 32] = [
     "model_token_kind",
     "forge_token",
     "git_identity",
+    "standing_rules",
     "forge",
     "conductor",
 ];
@@ -544,6 +548,77 @@ pub fn git_identity_problem(text: &str, email: bool) -> Option<String> {
     }
     None
 }
+
+/// The most bytes of UTF-8 an instance's `standing_rules` holds (story:instance-rules-text).
+pub const STANDING_RULES_BYTES: usize = 16_384;
+
+/// Why `text` is no value of an instance's `standing_rules` (story:instance-rules-text): more
+/// than [`STANDING_RULES_BYTES`] bytes of UTF-8, or a NUL. `None` for a text that holds.
+#[must_use]
+pub fn standing_rules_problem(text: &str) -> Option<String> {
+    if text.len() > STANDING_RULES_BYTES {
+        return Some(format!(
+            "is {} bytes: the standing rules of an instance are at most {STANDING_RULES_BYTES} \
+             bytes of UTF-8",
+            text.len()
+        ));
+    }
+    text.contains('\0').then(|| {
+        "holds a NUL character: the standing rules of an instance hold none, as no prompt file \
+         of a session does"
+            .to_owned()
+    })
+}
+
+/// The standing rules of `instance` in the config file `file` as it holds them now
+/// (story:instance-rules-text): the `standing_rules` of its instance of the same name, none where
+/// that instance holds none. A file that does not read or validate, or holds no instance of the
+/// name, leaves `instance`'s own, so a session starts with the text the process loaded rather
+/// than with none. `home` is the home directory a `~` of the file names.
+#[must_use]
+pub fn standing_rules_in(file: &Path, home: &Path, instance: &Instance) -> Option<String> {
+    let own = || instance.standing_rules.clone();
+    let Ok(text) = fs::read_to_string(file) else {
+        return own();
+    };
+    let Ok(config) = parse(&text, home) else {
+        return own();
+    };
+    config
+        .instances
+        .into_iter()
+        .find(|held| held.name == instance.name)
+        .map_or_else(own, |held| held.standing_rules)
+}
+
+/// The standing rules a session of `instance` starts with, read at its start
+/// (story:instance-rules-text): from the file [`crate::instance::CONFIG_SOURCE_VARIABLE`] names,
+/// where it names one (a runtime in a pod, whose mounted Secret the daemon writes again when the
+/// rules alone change); else from the config file this process reads (`config_flag`, else
+/// `CONDUCTOR_CONFIG`, else the default), as it holds them now and not as a long-running runtime
+/// loaded them ([`standing_rules_in`]); else, without a config file, `instance`'s own.
+#[must_use]
+pub fn standing_rules_at_start(config_flag: Option<&Path>, instance: &Instance) -> Option<String> {
+    let own = || instance.standing_rules.clone();
+    let Ok(environment) = Environment::from_process() else {
+        return own();
+    };
+    let Ok(home) = environment.home() else {
+        return own();
+    };
+    let source = env::var_os(crate::instance::CONFIG_SOURCE_VARIABLE)
+        .filter(|source| !source.is_empty())
+        .map(PathBuf::from);
+    let file = match source {
+        Some(source) => Some(source),
+        None if active().from_file => locate(config_flag, &environment)
+            .ok()
+            .map(|(file, _)| environment.cwd.join(file)),
+        None => None,
+    };
+    file.map_or_else(own, |file| standing_rules_in(&file, home, instance))
+}
+
 /// The keys that name a source's kind; a source names exactly one.
 const SOURCE_KINDS: [&str; 3] = ["github", "local", "gitlab"];
 const SOURCE_KEYS: [&str; 6] = ["github", "local", "gitlab", "exclude", "include", "host"];
@@ -1783,6 +1858,8 @@ pub fn built_in(home: &Path, cwd: &Path) -> Instance {
         forge_token: None,
         // So is a git identity (story:instance-git-identity).
         git_identity: None,
+        // And no standing rules (story:instance-rules-text).
+        standing_rules: None,
         // Forge writes take the bot route unless a user names another (story:forge-route).
         forge: default_forge(),
         // Its own conductor, the built-in director role's session, under the role's old name for
@@ -2529,6 +2606,14 @@ impl Reader<'_> {
             }
             Value::Object(map) => {
                 for (key, item) in map {
+                    // An instance's standing rules are text a session reads, never a reference to
+                    // a secret (story:instance-rules-text).
+                    if key == "standing_rules"
+                        && path.starts_with("instances[")
+                        && !path.contains('.')
+                    {
+                        continue;
+                    }
                     self.not_daemons(item, &join(path, key), own, why);
                 }
             }
@@ -4364,6 +4449,25 @@ impl Reader<'_> {
             }
             None => Some(None),
         };
+        // The instance's standing rules (story:instance-rules-text): text every session of the
+        // instance reads, bounded and without a NUL ([`standing_rules_problem`]).
+        let standing_rules = match Self::get(map, "standing_rules") {
+            Some(Value::String(text)) => match standing_rules_problem(text) {
+                Some(problem) => {
+                    self.problem(&join(path, "standing_rules"), problem);
+                    None
+                }
+                None => Some(Some(text.clone())),
+            },
+            Some(other) => {
+                self.problem(
+                    &join(path, "standing_rules"),
+                    format!("{} is not text", echo(other)),
+                );
+                None
+            }
+            None => Some(None),
+        };
         let forge = match Self::get(map, "forge") {
             Some(value) => self.forge(value, &join(path, "forge")),
             None => Some(default_forge()),
@@ -4403,6 +4507,7 @@ impl Reader<'_> {
             model_token_kind: model_token_kind?,
             forge_token: forge_token?,
             git_identity: git_identity?,
+            standing_rules: standing_rules?,
             forge: forge?,
         })
     }
@@ -6073,6 +6178,7 @@ fn shown_instance(instance: &Instance, legacy: &Legacy) -> Yaml {
                     ])
                 }),
         ),
+        ("standing_rules", optional(instance.standing_rules.as_ref())),
         (
             "forge",
             mapping([("route", text(forge_route_word(instance.forge.route)))]),

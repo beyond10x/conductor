@@ -28,7 +28,11 @@
 //!   `/healthz`, its `glab` sending no usage data (`GLAB_SEND_TELEMETRY=false`, unless
 //!   `daemon.kubernetes.env` names the variable). A digest of the pod's spec and of the rendered
 //!   file is its annotation [`DIGEST_ANNOTATION`]: a pod whose digest differs from the one the
-//!   daemon would create now (a new image, a changed rendering) is restarted.
+//!   daemon would create now (a new image, a changed rendering) is restarted. The instance's
+//!   `standing_rules` (story:instance-rules-text) are no part of it: a change of them alone
+//!   replaces no pod, and the daemon writes the rendered file into the Secret in place
+//!   ([`Pods::refresh_rendering`], the one update the supervisor makes), whose mounted copy the
+//!   runtime reads them from at each session's start.
 //!
 //! Every field comes from `daemon.kubernetes`, the instance's name and the rendering (decision
 //! D8); the key of the one `env` entry the instance's `forge_token` fills, whose variable its
@@ -517,7 +521,18 @@ pub fn manifests(kubernetes: &Kubernetes, config: &Config, instance: &Instance) 
             {"name": "data", "persistentVolumeClaim": {"claimName": claim_name(name)}},
         ],
     });
-    let digest = digest(&spec, &rendered, &secrets);
+    // The standing rules are no part of the digest (story:instance-rules-text): a change of them
+    // alone restarts no pod; the daemon writes it into the Secret in place
+    // ([`Pods::refresh_rendering`]), and the runtime reads it at each session's start.
+    let digest = if instance.standing_rules.is_some() {
+        let without = Instance {
+            standing_rules: None,
+            ..instance.clone()
+        };
+        digest(&spec, &pod::render(config, &without), &secrets)
+    } else {
+        digest(&spec, &rendered, &secrets)
+    };
     let mut annotations = Map::new();
     annotations.insert(DIGEST_ANNOTATION.to_owned(), json!(digest));
     let pod = json!({
@@ -583,6 +598,9 @@ pub struct Pods {
     refused: BTreeMap<String, String>,
     /// What the last failure of an instance's pod said ([`Pods::said`]), until its next start.
     said: BTreeMap<String, String>,
+    /// The rendered file the supervisor last wrote into an instance's Secret, or found there
+    /// ([`Pods::refresh_rendering`]).
+    written: BTreeMap<String, String>,
 }
 
 impl Pods {
@@ -595,7 +613,55 @@ impl Pods {
             unlisted: None,
             refused: BTreeMap::new(),
             said: BTreeMap::new(),
+            written: BTreeMap::new(),
         }
+    }
+
+    /// Writes `instance`'s rendered file ([`pod::render`]) into its Secret in place where the
+    /// Secret holds another, as a change the digest leaves out (its `standing_rules`,
+    /// story:instance-rules-text) leaves it: the pod is not replaced, and the kubelet updates the
+    /// mounted file the runtime reads at each session's start. Answers whether it wrote. Makes no
+    /// call where it last wrote or found this rendering; where the Secret is not there, writes
+    /// nothing: the pod's next start writes it.
+    ///
+    /// # Errors
+    ///
+    /// The Secret does not read for another reason than its absence, or the API refuses the
+    /// update.
+    pub fn refresh_rendering(
+        &mut self,
+        kubernetes: &Kubernetes,
+        config: &Config,
+        instance: &Instance,
+    ) -> Result<bool> {
+        let name = &instance.name.0;
+        let rendered = pod::render(config, instance);
+        if self.written.get(name) == Some(&rendered) {
+            return Ok(false);
+        }
+        let namespace = &kubernetes.namespace.0;
+        let secret_name = pod_name(name);
+        let mut secret = match self.client.get(namespace, Kind::Secret, &secret_name) {
+            Ok(secret) => secret,
+            Err(error) if error.is_not_found() => return Ok(false),
+            Err(error) => bail!("read the Secret {secret_name} in {namespace}: {error}"),
+        };
+        let held = secret["data"][pod::CONFIG_FILE]
+            .as_str()
+            .and_then(base64_decode)
+            .and_then(|bytes| String::from_utf8(bytes).ok());
+        if held.as_deref() != Some(rendered.as_str()) {
+            secret["data"][pod::CONFIG_FILE] = json!(base64_encode(rendered.as_bytes()));
+            self.client
+                .replace(namespace, Kind::Secret, &secret_name, &secret)
+                .map_err(|error| {
+                    anyhow!("update the Secret {secret_name} in {namespace}: {error}")
+                })?;
+            self.written.insert(name.clone(), rendered);
+            return Ok(true);
+        }
+        self.written.insert(name.clone(), rendered);
+        Ok(false)
     }
 
     /// The client it calls.
@@ -908,6 +974,7 @@ impl Pods {
             .create(namespace, Kind::Pod, &made.pod)
             .map_err(|error| anyhow!("create the pod {pod_name} in {namespace}: {error}"))?;
         self.seen.insert(name.clone(), created);
+        self.written.insert(name.clone(), made.rendered);
         Ok(pod_name)
     }
 
@@ -923,6 +990,7 @@ impl Pods {
         self.delete_pod(namespace, &name)?;
         self.delete_quietly(namespace, Kind::Secret, &name)?;
         self.seen.remove(instance);
+        self.written.remove(instance);
         Ok(())
     }
 

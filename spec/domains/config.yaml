@@ -1036,6 +1036,24 @@ types:
       # pod. Absent, each of the four is the `daemon.kubernetes.env` entry of its name, else
       # `conductor` for a name and `conductor@localhost` for an e-mail.
       - {name: git_identity, type: Optional<conductor.config.GitIdentity>}
+      # The instance's standing rules (story:instance-rules-text): text of a control plane's or
+      # an operator's choosing that every session the instance starts reads, whatever its role
+      # (the controller, the director, the maintainer); the daemon's host roles do not. At most
+      # 16384 bytes of UTF-8 and no NUL; a mapping that breaks either is refused at validate by
+      # the member's YAML path, and so by `AddInstance` and `PutInstance` (`ConfigInvalid`). A
+      # session's prompt file holds the text after one line that says it is the instance's
+      # standing rules, verbatim in a fenced block whose fence is longer than any run of
+      # backticks in it, so no line of it closes the block: after the role's profile where the
+      # session starts from one (a role that names its own `profile` file starts from a copy in
+      # the instance's state that holds the profile and the block; the named file is not
+      # changed), and alone in a prompt file of its own beside the agent a role starts from where
+      # it starts from an agent. Each session reads the text as it is at its start, and a session
+      # that runs keeps the text it started with. Where `daemon.kubernetes` is set, the file the
+      # pod runs on writes it, and it is no part of the pod's digest: a change of it alone
+      # replaces no pod; the daemon writes the pod's Secret again in place, and the runtime reads
+      # the text from the mounted file at each session's start. Absent, every session starts as
+      # before.
+      - {name: standing_rules, type: Optional<String>}
       # The route of the instance's forge writes (story:forge-route); absent, `gates`.
       - {name: forge, type: conductor.config.Forge}
       - {name: conductor, type: conductor.config.ConductorSession}

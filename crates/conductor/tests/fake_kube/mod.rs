@@ -11,6 +11,7 @@
 //! | `POST /api/v1/namespaces/{ns}/{resource}` | `201` and the object; `409 AlreadyExists` when the name is taken |
 //! | `GET /api/v1/namespaces/{ns}/{resource}?labelSelector=…` | `200` and a list of the objects whose labels match |
 //! | `GET /api/v1/namespaces/{ns}/{resource}/{name}` | `200` and the object; `404 NotFound` |
+//! | `PUT /api/v1/namespaces/{ns}/{resource}/{name}` | `200` and the object, which replaces the one held; `404 NotFound`; `400` when the body names another object |
 //! | `DELETE /api/v1/namespaces/{ns}/{resource}/{name}` | `200` and the object, which is gone; `404 NotFound` |
 //! | `GET /api/v1/namespaces/{ns}/pods/{name}/log?tailLines=n` | `200`, the last `n` lines [`FakeKube::set_log`] gave |
 //! | `POST /apis/authorization.k8s.io/v1/selfsubjectaccessreviews` | the review, `status.allowed` as [`FakeKube::allow`] said |
@@ -526,6 +527,28 @@ fn answer(state: &mut State, request: &Request) -> Answer {
                 200,
                 &json!({"kind": "List", "apiVersion": "v1", "metadata": {}, "items": items}),
             )
+        }
+        ("PUT", ["api", "v1", "namespaces", namespace, resource, name]) => {
+            let mut object = request.body.clone().unwrap_or(Value::Null);
+            if object["metadata"]["name"].as_str() != Some(*name) {
+                return status(
+                    400,
+                    "BadRequest",
+                    "the name of the object does not match the name on the URL",
+                );
+            }
+            let key = (
+                (*namespace).to_owned(),
+                (*resource).to_owned(),
+                (*name).to_owned(),
+            );
+            let Some(held) = state.objects.get(&key) else {
+                return status(404, "NotFound", &format!("{resource} \"{name}\" not found"));
+            };
+            object["metadata"]["namespace"] = json!(namespace);
+            object["metadata"]["uid"] = held["metadata"]["uid"].clone();
+            state.objects.insert(key, object.clone());
+            json_answer(200, &object)
         }
         (method @ ("GET" | "DELETE"), ["api", "v1", "namespaces", namespace, resource, name]) => {
             let key = (

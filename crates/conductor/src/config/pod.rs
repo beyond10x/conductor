@@ -20,7 +20,10 @@
 //! - the instance as `config show` writes it, every global key it takes written into it, and each
 //!   of its paths (`checkouts.root`, `checkouts.trees`, `records`, `state`, `cache`) under the data
 //!   mount: one it writes lies there already (`config validate` refuses another, [`within`]), and
-//!   one it leaves out is filled in there ([`PLACES`]).
+//!   one it leaves out is filled in there ([`PLACES`]); its `standing_rules`
+//!   (story:instance-rules-text) where it holds them, which the runtime reads from the mounted
+//!   file at each session's start, so the daemon writes a change of them alone into the Secret
+//!   without replacing the pod.
 //!
 //! It holds no `daemon.kubernetes` and no `daemon.control_token`: an instance pod creates no pods
 //! and admits no control plane. Nor does it hold the instance's `forge_token`, which only the pod
@@ -141,9 +144,12 @@ pub fn render_at(config: &Config, instance: &Instance, data: &Path, secrets: &Pa
         // First and in place, so the keys stand where they stood before the key existed.
         map.shift_remove("forge_token");
         map.shift_remove("git_identity");
-        // The runtime reads the model token's kind; a mapping without one renders as before.
-        if map.get("model_token_kind").is_some_and(Yaml::is_null) {
-            map.shift_remove("model_token_kind");
+        // The runtime reads the model token's kind and the standing rules; a mapping without
+        // either renders as before.
+        for key in ["model_token_kind", "standing_rules"] {
+            if map.get(key).is_some_and(Yaml::is_null) {
+                map.shift_remove(key);
+            }
         }
         map.remove("conductor");
         map.remove("remote");

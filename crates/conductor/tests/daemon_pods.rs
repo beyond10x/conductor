@@ -15,6 +15,7 @@ mod active;
 mod common;
 mod fake_kube;
 mod scratch;
+mod standing_rules;
 
 use std::fs;
 use std::io::{Read as _, Write as _};
@@ -34,6 +35,7 @@ use conductor_model::instance::{ReconcileAction, ReconcileReason, ReconcileResul
 use fake_kube::FakeKube;
 use scratch::Scratch;
 use serde_json::{Value, json};
+use standing_rules::{HOSTILE, RULES};
 
 /// The instance namespace of every case.
 const NAMESPACE: &str = "conductor-instances";
@@ -848,7 +850,7 @@ fn the_doctor_names_each_right_and_fails_on_a_missing_one() {
     let config = conductor_cli::config::parse(&text, &case.home()).expect("a valid file");
     let kubernetes = config.daemon.kubernetes.expect("daemon.kubernetes");
     for resource in ["pods", "persistentvolumeclaims", "secrets"] {
-        for verb in ["create", "get", "list", "delete"] {
+        for verb in ["create", "get", "list", "update", "delete"] {
             if (resource, verb) != ("secrets", "delete") {
                 case.fake.allow(NAMESPACE, verb, resource);
             }
@@ -857,7 +859,7 @@ fn the_doctor_names_each_right_and_fails_on_a_missing_one() {
     case.fake.allow(NAMESPACE, "get", "pods/log");
     let client = case.fake.client();
     let lines = conductor_cli::doctor::kubernetes_lines(&kubernetes, Ok(&client));
-    assert_eq!(lines.len(), 10, "{lines:?}");
+    assert_eq!(lines.len(), 11, "{lines:?}");
     // Of the claims, create only: the daemon keeps every claim it made.
     let claims: Vec<&str> = lines
         .iter()
@@ -2874,6 +2876,237 @@ fn a_model_token_kind_is_rendered_into_the_pods_file_and_its_value_stays_once_in
         unchanged,
         "a mapping without the kind renders the pod as before"
     );
+}
+
+/// The path of the instance `alpha`'s Secret on the API.
+const ALPHA_SECRET: &str =
+    "/api/v1/namespaces/conductor-instances/secrets/conductor-instance-alpha";
+
+/// The path of the instance `alpha`'s pod on the API.
+const ALPHA_POD: &str = "/api/v1/namespaces/conductor-instances/pods/conductor-instance-alpha";
+
+/// story:instance-rules-text: an instance's `standing_rules` are no part of its pod's digest or
+/// spec. The pod, the claim, the Secret's keys and the digest of a mapping with them are those of
+/// the mapping without them; the rendered file differs by the member alone, which it writes as
+/// the mapping holds it. A mapping without the member renders the file it rendered before, held
+/// byte for byte by [`a_pod_without_a_token_of_its_forge_or_with_gits_config_named_is_the_one_made_before`].
+#[test]
+fn the_standing_rules_are_no_part_of_the_pods_digest_or_spec() {
+    let case = Case::new("standing-rules-digest");
+    let render = |extra: &str| {
+        case.config(IMAGE, &[alpha(extra)]);
+        let text = fs::read_to_string(case.file()).expect("the config file");
+        let config = conductor_cli::config::parse(&text, &case.home())
+            .unwrap_or_else(|problems| panic!("the file does not validate: {problems:?}\n{text}"));
+        let kubernetes = config.daemon.kubernetes.clone().expect("daemon.kubernetes");
+        pods::manifests(&kubernetes, &config, &config.instances[0])
+    };
+    let without = render("");
+    let with = render(&format!(
+        "\x20   standing_rules: {}\n",
+        serde_json::to_string(HOSTILE).expect("JSON")
+    ));
+    assert_eq!(with.pod, without.pod);
+    assert_eq!(with.claim, without.claim);
+    assert_eq!(with.secrets, without.secrets);
+    assert_eq!(with.digest, without.digest);
+    let mut rendered: serde_yaml::Value =
+        serde_yaml::from_str(&with.rendered).expect("the rendered file");
+    assert_eq!(
+        rendered["instances"][0]["standing_rules"].as_str(),
+        Some(HOSTILE),
+        "{}",
+        with.rendered
+    );
+    if let Some(instance) = rendered["instances"][0].as_mapping_mut() {
+        instance.remove("standing_rules");
+    }
+    assert_eq!(
+        rendered,
+        serde_yaml::from_str::<serde_yaml::Value>(&without.rendered).expect("the rendered file")
+    );
+    assert!(
+        !without.rendered.contains("standing_rules"),
+        "{}",
+        without.rendered
+    );
+}
+
+/// story:instance-rules-text: a `PUT /v1/instances/{name}` that adds, changes or removes only the
+/// instance's `standing_rules` deletes and creates no pod and leaves its digest; the next pass
+/// records nothing and writes the instance's Secret again in place, its rendered file holding the
+/// new text and every other key as it was, once: a pass with nothing changed writes nothing. The
+/// file as the kubelet mounts it from the Secret is what the runtime reads the rules from at a
+/// session's start, so a session started after the update reads the new text. `GET
+/// /v1/instances/{name}` answers the member as the mapping holds it, and none without it.
+#[test]
+fn a_put_that_changes_only_the_standing_rules_replaces_no_pod_and_rewrites_its_secret() {
+    let case = Case::new("standing-rules-put");
+    fs::write(case.dir.join("secrets/control"), CONTROL).expect("write a secret");
+    let mut daemon = case.daemon();
+    let start = Instant::now();
+    daemon
+        .pass(ReconcileReason::Cadence, start)
+        .expect("a pass");
+    case.set_running();
+    let unchanged = case.pod()["metadata"]["annotations"]["conductor/digest"].clone();
+    let secret = case
+        .object("secrets", "conductor-instance-alpha")
+        .expect("the Secret");
+    let first = secret_value(&secret, "conductor.yaml");
+    let token = secret_value(&secret, "api_token");
+
+    let api = Api::new("3".repeat(64), "operator".to_owned(), None)
+        .with_config(
+            case.file(),
+            case.home(),
+            format!("sqlite:{}", case.dir.join("shared.sqlite").display()),
+        )
+        .with_control_token(
+            conductor_model::config::SecretsSource {
+                source: conductor_model::secret::Source::Files,
+                namespace: None,
+                url: None,
+                dir: Some(case.dir.join("secrets").display().to_string()),
+            },
+            Some(conductor_model::secret::SecretName("control".to_owned())),
+        )
+        .with_pods(true);
+    api.publish(daemon.rows(), daemon.routes(), Vec::new());
+    api.publish_host(Vec::new(), None);
+    let listener = TcpListener::bind(("127.0.0.1", 0)).expect("bind");
+    let port = listener.local_addr().expect("address").port();
+    let api = Arc::new(api);
+    std::thread::spawn(move || api::serve(&listener, &api));
+
+    let read = || {
+        let mut stream = TcpStream::connect(("127.0.0.1", port)).expect("connect");
+        stream
+            .set_read_timeout(Some(Duration::from_secs(60)))
+            .expect("a read timeout");
+        write!(
+            stream,
+            "GET /v1/instances/alpha HTTP/1.1\r\nHost: 127.0.0.1:{port}\r\nConnection: close\r\n\
+             Authorization: Bearer {CONTROL}\r\n\r\n"
+        )
+        .expect("send");
+        let mut bytes = Vec::new();
+        stream.read_to_end(&mut bytes).expect("read");
+        let text = String::from_utf8_lossy(&bytes).into_owned();
+        assert!(text.starts_with("HTTP/1.1 200"), "{text}");
+        let body = text
+            .split_once("\r\n\r\n")
+            .map(|(_, body)| body.to_owned())
+            .unwrap_or_default();
+        serde_json::from_str::<Value>(&body).unwrap_or_else(|_| panic!("a JSON row: {body}"))
+    };
+    let mapping = |rules: Option<&str>| {
+        let mut mapping = json!({
+            "name": "alpha",
+            "placement": "none",
+            "session_prefix": "alpha",
+            "sources": [{"github": "example-org"}],
+            "model_token": "secret:alpha-model",
+        });
+        if let Some(rules) = rules {
+            mapping["standing_rules"] = json!(rules);
+        }
+        mapping
+    };
+    let digest = || case.pod()["metadata"]["annotations"]["conductor/digest"].clone();
+    let pod_writes = || {
+        (
+            case.count("POST", PODS),
+            case.count("DELETE", ALPHA_POD),
+            case.count("POST", "/api/v1/namespaces/conductor-instances/secrets"),
+            case.count("DELETE", ALPHA_SECRET),
+        )
+    };
+    // The instance as the runtime in the pod loaded it at its start, before every change.
+    let loaded = {
+        let text = fs::read_to_string(case.file()).expect("the config file");
+        conductor_cli::config::parse(&text, &case.home())
+            .expect("a valid file")
+            .instances[0]
+            .clone()
+    };
+    let mount = case.dir.join("mount/conductor.yaml");
+    fs::create_dir_all(mount.parent().expect("a parent")).expect("create the mount");
+
+    let row = read();
+    assert!(row.get("standing_rules").is_none(), "{row}");
+    let mut at = 2;
+    for rules in [Some(RULES), Some(HOSTILE), None] {
+        let writes = pod_writes();
+        let updates = case.count("PUT", ALPHA_SECRET);
+        let (status, body) = put(port, "alpha", &mapping(rules));
+        assert_eq!(status, 200, "{rules:?}: {body}");
+        let row = read();
+        match rules {
+            Some(rules) => assert_eq!(row["standing_rules"], rules, "{row}"),
+            None => assert!(row.get("standing_rules").is_none(), "{row}"),
+        }
+        at += 2;
+        let done = daemon
+            .pass(
+                ReconcileReason::ConfigChange,
+                start + Duration::from_secs(at),
+            )
+            .expect("a pass");
+        assert!(done.is_empty(), "{rules:?}: {done:?}");
+        assert_eq!(
+            pod_writes(),
+            writes,
+            "{rules:?}: a pod or a Secret was replaced"
+        );
+        assert_eq!(digest(), unchanged, "{rules:?}: the digest");
+        assert_eq!(
+            case.count("PUT", ALPHA_SECRET),
+            updates + 1,
+            "{rules:?}: the Secret is written again in place, once"
+        );
+        let secret = case
+            .object("secrets", "conductor-instance-alpha")
+            .expect("the Secret");
+        let rendered = secret_value(&secret, "conductor.yaml");
+        let file: serde_yaml::Value = serde_yaml::from_str(&rendered).expect("YAML");
+        match rules {
+            Some(rules) => assert_eq!(
+                file["instances"][0]["standing_rules"].as_str(),
+                Some(rules),
+                "{rendered}"
+            ),
+            None => assert_eq!(rendered, first, "without the member the file it had"),
+        }
+        assert_eq!(secret_value(&secret, "api_token"), token, "{rules:?}");
+        assert_eq!(
+            secret_value(&secret, "alpha-model"),
+            MODEL_TOKEN,
+            "{rules:?}"
+        );
+
+        // The kubelet writes the Secret's key into the mount; a session's start reads it there.
+        fs::write(&mount, &rendered).expect("mount the rendered file");
+        assert_eq!(
+            conductor_cli::config::standing_rules_in(&mount, &case.home(), &loaded).as_deref(),
+            rules,
+            "{rules:?}"
+        );
+
+        at += 2;
+        let done = daemon
+            .pass(
+                ReconcileReason::ConfigChange,
+                start + Duration::from_secs(at),
+            )
+            .expect("a pass");
+        assert!(done.is_empty(), "{rules:?} again: {done:?}");
+        assert_eq!(
+            case.count("PUT", ALPHA_SECRET),
+            updates + 1,
+            "{rules:?} again: nothing changed, nothing written"
+        );
+    }
 }
 
 /// A free loopback port.

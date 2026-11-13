@@ -293,6 +293,7 @@ instances:
     gates_policy: ~/example-org/gates/policy.json
     model_token: secret:example-org-model
     model_token_kind: subscription_token
+    standing_rules: No private name in a commit.
     forge:
       route: direct
 ";

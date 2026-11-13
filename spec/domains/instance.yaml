@@ -155,6 +155,11 @@ entities:
       # config file as it holds it at each read, no secret; absent where the mapping holds none.
       - name: model_token_kind
         type: Optional<conductor.config.ModelTokenKind>
+      # The instance's standing rules (`instances[].standing_rules`,
+      # story:instance-rules-text), read from the config file as it holds it at each read;
+      # absent where the mapping holds none.
+      - name: standing_rules
+        type: Optional<String>
     relations:
       - name: placement
         kind: references
@@ -266,9 +271,10 @@ views:
       display: Instances
 
   # `GET /v1/instances/{name}`: the one row of `Instances` whose name is `name`, and the
-  # instance's `git_identity` (story:instance-git-identity) and `model_token_kind` as its mapping
-  # holds them, each absent where it holds none, never the model token's value; an instance the
-  # daemon's rows do not hold answers `404` (a retired one, once the daemon reconciled).
+  # instance's `git_identity` (story:instance-git-identity), `model_token_kind` and
+  # `standing_rules` (story:instance-rules-text) as its mapping holds them, each absent where it
+  # holds none, never the model token's value; an instance the daemon's rows do not hold answers
+  # `404` (a retired one, once the daemon reconciled).
   - name: conductor.instance.InstanceByName
     source: conductor.instance.Instance
     consistency: read_your_writes
@@ -289,6 +295,7 @@ views:
       - {name: changed_by, type: conductor.operator.Actor}
       - {name: git_identity, type: Optional<conductor.config.GitIdentity>}
       - {name: model_token_kind, type: Optional<conductor.config.ModelTokenKind>}
+      - {name: standing_rules, type: Optional<String>}
     naming:
       wire: instance
       display: One instance

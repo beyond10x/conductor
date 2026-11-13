@@ -584,6 +584,7 @@ fn show_without_a_file_prints_todays_constants() {
         "roles",
         "secret_syncs",
         "sources",
+        "standing_rules",
         "state",
         "thresholds",
         "usage",
@@ -4565,4 +4566,152 @@ fn the_kubernetes_refusals_name_their_yaml_path() {
     let file = case.write("plain.yaml", &plain);
     let output = case.with_file(&file, &["config", "validate"]);
     assert_eq!(output.status.code(), Some(0), "{}", describe(&output));
+}
+
+/// An instance's `standing_rules` (story:instance-rules-text) is text every session of the
+/// instance reads, written by a daemon that runs its instances as pods and by one that runs none:
+/// it validates, the library reads it as written, and `config show` writes it as written and
+/// `null` without it. It holds at most 16384 bytes of UTF-8, counted in bytes, not characters,
+/// and no NUL; above the bound, with a NUL, or as no text, it is refused at its YAML path,
+/// saying why, and so is every mapping that holds it there.
+#[test]
+fn an_instances_standing_rules_are_read_as_written_bounded_and_refused_at_their_path() {
+    let case = Case::new("standing-rules");
+    let rules = |text: &str| {
+        format!(
+            "\x20   standing_rules: {}\n",
+            serde_json::to_string(text).expect("JSON")
+        )
+    };
+    let text = "No private name in a commit, a branch, a pull request or an issue.\n\
+                ```\nA line of backticks.\n";
+    // 8192 characters of two bytes each: 16384 bytes.
+    let longest = "\u{e9}".repeat(8192);
+    let mut files = Vec::new();
+    for (name, written, held) in [
+        ("plain", model_token_instance("none", &rules(text)), text),
+        ("pods", pods(&pod_instance(&rules(text))), text),
+        (
+            "longest",
+            model_token_instance("none", &rules(&longest)),
+            longest.as_str(),
+        ),
+    ] {
+        let file = case.write(&format!("{name}.yaml"), &written);
+        let output = case.with_file(&file, &["config", "validate"]);
+        assert_eq!(
+            output.status.code(),
+            Some(0),
+            "{name}: {}",
+            describe(&output)
+        );
+        let parsed = config::parse(&fs::read_to_string(&file).expect("the file"), &case.home())
+            .unwrap_or_else(|problems| panic!("{name}: {problems:?}"));
+        assert_eq!(
+            parsed.instances[0].standing_rules.as_deref(),
+            Some(held),
+            "{name}"
+        );
+        files.push(file);
+    }
+    let shown = case.show(&files[0], &[]);
+    assert_eq!(shown["instances"][0]["standing_rules"], text, "{shown:#}");
+
+    let without = case.write("without.yaml", &model_token_instance("none", ""));
+    let output = case.with_file(&without, &["config", "validate"]);
+    assert_eq!(output.status.code(), Some(0), "{}", describe(&output));
+    let parsed = config::parse(
+        &fs::read_to_string(&without).expect("the file"),
+        &case.home(),
+    )
+    .expect("the file without the member reads");
+    assert_eq!(parsed.instances[0].standing_rules, None);
+    let shown = case.show(&without, &[]);
+    assert_eq!(
+        shown["instances"][0]["standing_rules"],
+        Value::Null,
+        "{shown:#}"
+    );
+
+    let path = "instances[0].standing_rules";
+    for (name, written, says) in [
+        (
+            "over",
+            model_token_instance("none", &rules(&"a".repeat(16385))),
+            "is 16385 bytes: the standing rules of an instance are at most 16384 bytes",
+        ),
+        (
+            "over-in-bytes",
+            pods(&pod_instance(&rules(&format!("{longest}a")))),
+            "is 16385 bytes: the standing rules of an instance are at most 16384 bytes",
+        ),
+        (
+            "nul",
+            model_token_instance("none", &rules("one rule\0and another")),
+            "holds a NUL character",
+        ),
+        (
+            "number",
+            model_token_instance("none", "\x20   standing_rules: 42\n"),
+            "is not text",
+        ),
+    ] {
+        let file = case.write(&format!("{name}.yaml"), &written);
+        let problems = refused(&case, &file);
+        let line = problems
+            .lines()
+            .find(|line| line.contains(&format!("{path}: ")))
+            .unwrap_or_else(|| panic!("{name}: no problem at {path}: {problems}"));
+        assert!(line.contains(says), "{name}: {problems}");
+    }
+}
+
+/// story:instance-rules-text: the standing rules a session starts with are read from the config
+/// file as it holds them at the session's start ([`config::standing_rules_in`]), not as a
+/// long-running process loaded them: a changed text is the new one, a removed one is none. A file
+/// that does not read, or holds no instance of the name, leaves the instance's own.
+#[test]
+fn the_standing_rules_a_session_starts_with_are_read_from_the_file_at_its_start() {
+    let case = Case::new("standing-rules-now");
+    let rules = |text: &str| {
+        format!(
+            "\x20   standing_rules: {}\n",
+            serde_json::to_string(text).expect("JSON")
+        )
+    };
+    let file = case.write(
+        "conductor.yaml",
+        &model_token_instance("none", &rules("Loaded.\n")),
+    );
+    let loaded = config::parse(&fs::read_to_string(&file).expect("the file"), &case.home())
+        .expect("a valid file")
+        .instances[0]
+        .clone();
+    let now = || config::standing_rules_in(&file, &case.home(), &loaded);
+    assert_eq!(now().as_deref(), Some("Loaded.\n"));
+
+    case.write(
+        "conductor.yaml",
+        &model_token_instance("none", &rules("Changed since.\n")),
+    );
+    assert_eq!(now().as_deref(), Some("Changed since.\n"));
+
+    case.write("conductor.yaml", &model_token_instance("none", ""));
+    assert_eq!(now(), None, "a removed member is none");
+
+    case.write(
+        "conductor.yaml",
+        &model_token_instance("none", "\x20   standing_rules: 42\n"),
+    );
+    assert_eq!(
+        now().as_deref(),
+        Some("Loaded.\n"),
+        "a file that does not validate leaves the instance's own"
+    );
+    fs::remove_file(&file).expect("remove the file");
+    assert_eq!(
+        now().as_deref(),
+        Some("Loaded.\n"),
+        "a file that is gone too"
+    );
 }

@@ -8,7 +8,7 @@
     "x-ess-provenance": {
       "system": "conductor",
       "specification_version": "v1",
-      "contract_digest": "slice-sha256/2:3e850422de882dfb651d10597fd0e9a91aaec0e94dc5f0f513ddd3156e31789b"
+      "contract_digest": "slice-sha256/2:58a2f1c36cb3780ac337ab1af60285a39a54fb71d8b638eacf60a270bdb39748"
     },
     "x-ess-reached-by": "network"
   },
@@ -4691,6 +4691,9 @@
           },
           "model_token_kind": {
             "$ref": "#/components/schemas/conductor.config.ModelTokenKind"
+          },
+          "standing_rules": {
+            "type": "string"
           }
         },
         "required": [
@@ -10098,6 +10101,9 @@
         },
         "model_token_kind": {
           "$ref": "#/x-ess-entities/conductor.config.ModelTokenKind"
+        },
+        "standing_rules": {
+          "type": "string"
         },
         "state": {
           "$ref": "#/x-ess-entities/conductor.instance.Instance.State"

@@ -12,7 +12,10 @@
 //! prompt from `<state>/sessions/<session name>.profile.md` ([`write_profile`]), and the settings
 //! the director and a controller start with when their role names none ([`settings`]), the files
 //! under `crates/conductor/kinds/claude-code/`. No adapter is committed for a role and none is
-//! written under `~/.claude/agents/`.
+//! written under `~/.claude/agents/`. Where the instance has standing rules
+//! (story:instance-rules-text), the same file holds them after the profile, framed
+//! ([`standing_rules_block`]); a role with a profile file of its own gets a copy of it with them
+//! ([`write_own`]), and the file it names is not changed.
 
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -88,15 +91,57 @@ pub fn profile_file(state: &Path, session: &str) -> PathBuf {
     state.join("sessions").join(format!("{session}.profile.md"))
 }
 
-/// Writes the profile the binary carries for `role` ([`crate::role::profile`]) to the session's
-/// profile file ([`profile_file`]) and answers its path; `None`, writing nothing, for a role the
-/// binary carries none for.
+/// The line before the instance's standing rules in a session's prompt file
+/// (story:instance-rules-text), which says what they are and names the length of the fence around
+/// them.
+#[must_use]
+pub fn standing_rules_heading(fence: usize) -> String {
+    format!(
+        "The standing rules of this instance follow, verbatim, between the two lines of {fence} \
+         backticks; they hold for every session of the instance."
+    )
+}
+
+/// The block of the instance's standing rules `rules` in a session's prompt file
+/// (story:instance-rules-text): [`standing_rules_heading`], a blank line, and `rules` in a fenced
+/// block whose fence is longer than any run of backticks they hold ([`crate::spawn::fenced`], the
+/// frame of the work call's brief), so no line of them closes the block.
+#[must_use]
+pub fn standing_rules_block(rules: &str) -> String {
+    let (fence, block) = crate::spawn::fenced(rules);
+    format!("{}\n\n{block}", standing_rules_heading(fence))
+}
+
+/// The text of a session's prompt file: `base`, the profile it starts from, where it starts from
+/// one, and after it, where the instance has standing rules, their block
+/// ([`standing_rules_block`]); `None` where it has neither. Without standing rules it is `base`,
+/// byte for byte.
+#[must_use]
+pub fn prompt_text(base: Option<&str>, rules: Option<&str>) -> Option<String> {
+    match (base, rules) {
+        (base, None) => base.map(str::to_owned),
+        (None, Some(rules)) => Some(standing_rules_block(rules)),
+        (Some(base), Some(rules)) => Some(format!(
+            "{}\n\n{}",
+            base.trim_end(),
+            standing_rules_block(rules)
+        )),
+    }
+}
+
+/// Writes [`prompt_text`] of `base` and `rules` to the session's profile file ([`profile_file`])
+/// and answers its path; `None`, writing nothing, where there is neither.
 ///
 /// # Errors
 ///
 /// The directory or the file cannot be written.
-pub fn write_profile(state: &Path, session: &str, role: &str) -> Result<Option<PathBuf>> {
-    let Some(text) = crate::role::profile(role) else {
+pub fn write_prompt(
+    state: &Path,
+    session: &str,
+    base: Option<&str>,
+    rules: Option<&str>,
+) -> Result<Option<PathBuf>> {
+    let Some(text) = prompt_text(base, rules) else {
         return Ok(None);
     };
     let file = profile_file(state, session);
@@ -105,6 +150,36 @@ pub fn write_profile(state: &Path, session: &str, role: &str) -> Result<Option<P
     }
     fs::write(&file, text).with_context(|| format!("write {}", file.display()))?;
     Ok(Some(file))
+}
+
+/// Writes the profile the binary carries for `role` ([`crate::role::profile`]), followed by the
+/// block of the instance's standing rules `rules` where it has them, to the session's profile
+/// file ([`profile_file`]) and answers its path; `None`, writing nothing, for a role the binary
+/// carries none for and an instance without standing rules.
+///
+/// # Errors
+///
+/// The directory or the file cannot be written.
+pub fn write_profile(
+    state: &Path,
+    session: &str,
+    role: &str,
+    rules: Option<&str>,
+) -> Result<Option<PathBuf>> {
+    write_prompt(state, session, crate::role::profile(role), rules)
+}
+
+/// Writes the role's own profile file `own`, followed by the block of the instance's standing
+/// rules `rules`, to the session's profile file ([`profile_file`]) and answers its path: a copy in
+/// the session's state, so the file the role names is not changed.
+///
+/// # Errors
+///
+/// `own` cannot be read, or the directory or the file cannot be written.
+pub fn write_own(state: &Path, session: &str, own: &Path, rules: &str) -> Result<PathBuf> {
+    let base = fs::read_to_string(own).with_context(|| format!("read {}", own.display()))?;
+    let file = write_prompt(state, session, Some(&base), Some(rules))?;
+    Ok(file.unwrap_or_else(|| profile_file(state, session)))
 }
 
 /// Writes the settings the binary carries for `role` ([`settings`]) as they are, pinned to no

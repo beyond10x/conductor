@@ -39,7 +39,7 @@ const IMAGE: &str = "registry.example.com/conductor:<tag>";
 
 /// The rights the pod supervisor uses in the instance namespace (`daemon/pods.rs`): no path reads,
 /// lists or deletes a volume claim.
-const SUPERVISOR_RIGHTS: [(&str, &str); 10] = [
+const SUPERVISOR_RIGHTS: [(&str, &str); 11] = [
     ("create", "pods"),
     ("get", "pods"),
     ("list", "pods"),
@@ -48,6 +48,7 @@ const SUPERVISOR_RIGHTS: [(&str, &str); 10] = [
     ("create", "secrets"),
     ("get", "secrets"),
     ("list", "secrets"),
+    ("update", "secrets"),
     ("delete", "secrets"),
     ("create", "persistentvolumeclaims"),
 ];
@@ -482,6 +483,50 @@ fn the_guide_names_the_model_token_kind_its_two_routes_and_what_a_new_value_need
         "`GET /v1/instances/{name}/secrets`",
         "a placement that opens a box",
         "/proc",
+    ] {
+        assert!(text.contains(words), "the section says {words:?}:\n{text}");
+    }
+}
+
+/// The guide names an instance's `standing_rules` (story:instance-rules-text) in the table of the
+/// config's keys, with its bound, the NUL and the refusal, and has a section "Standing rules" that
+/// says which sessions read them and which do not, the frame they stand in, the copy a role with
+/// its own profile starts from, that a change of them alone replaces no pod and how the new text
+/// reaches the pod, the right that takes, that a session started after the change reads the new
+/// text, and that a session that already runs keeps the text it started with.
+#[test]
+fn the_guide_names_the_standing_rules_who_reads_them_and_what_a_change_reaches() {
+    let table = section("The daemon-config file");
+    let row = table
+        .lines()
+        .find(|line| line.contains("`standing_rules`"))
+        .unwrap_or_else(|| panic!("the table names standing_rules:\n{table}"));
+    for words in [
+        "16384 bytes",
+        "NUL",
+        "422",
+        "[standing rules](#standing-rules)",
+    ] {
+        assert!(row.contains(words), "the row says {words:?}: {row}");
+    }
+
+    let text = section("Standing rules");
+    for words in [
+        "`standing_rules`",
+        "every session",
+        "controller",
+        "director",
+        "maintainer",
+        "host roles",
+        "backticks",
+        "`profile`",
+        "not changed",
+        "replaces no pod",
+        "in place",
+        "`update`",
+        "at each session's start",
+        "keeps the text it started with",
+        "`GET /v1/instances/{name}`",
     ] {
         assert!(text.contains(words), "the section says {words:?}:\n{text}");
     }

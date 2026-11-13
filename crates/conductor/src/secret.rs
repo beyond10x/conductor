@@ -769,7 +769,11 @@ pub struct Named {
     pub secret: String,
 }
 
-/// Each `secret:<name>` under `value`, at `path`, into `into`, in the order the file writes them.
+/// The key of an instance's standing rules, which [`collect`] does not read.
+const STANDING_RULES: &str = "standing_rules";
+
+/// Each `secret:<name>` under `value`, at `path`, into `into`, in the order the file writes them;
+/// not under an instance's [`STANDING_RULES`], which is text.
 fn collect(value: &Yaml, path: &str, into: &mut Vec<Named>) {
     match value {
         Yaml::String(text) => {
@@ -793,6 +797,12 @@ fn collect(value: &Yaml, path: &str, into: &mut Vec<Named>) {
                     Yaml::Bool(key) => key.to_string(),
                     _ => "?".to_owned(),
                 };
+                // An instance's standing rules are text a session reads, never a reference to a
+                // secret, even where the whole text reads `secret:<name>`
+                // (story:instance-rules-text).
+                if path.is_empty() && key == STANDING_RULES {
+                    continue;
+                }
                 collect(item, &crate::config::join(path, &key), into);
             }
         }

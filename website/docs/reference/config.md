@@ -253,6 +253,7 @@ A key path written `a[].b` is the key `b` of each element of the list `a`. A def
 | `git_identity` | [GitIdentity](#gitidentity) | none |  |
 | `git_identity.name` | string | required |  |
 | `git_identity.email` | string | required |  |
+| `standing_rules` | string | none |  |
 | `forge.route` | `gates` \| `direct` | `gates` |  |
 | `conductor.served_by` | [InstanceName](#instancename) | derived |  |
 | `conductor.session_name` | [SessionName](#sessionname) | derived |  |

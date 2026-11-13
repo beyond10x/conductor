@@ -610,6 +610,23 @@ impl<U: Units> Daemon<U> {
             .is_none_or(|digest| digest == wanted)
     }
 
+    /// Writes the rendered file of `instance`'s current pod into its Secret in place where it
+    /// changed in what the digest leaves out, its `standing_rules` (story:instance-rules-text,
+    /// [`super::pods::Pods::refresh_rendering`]); nothing for a runtime that is no pod. A refusal
+    /// of the API is written to the daemon's log and tried again at the next pass; the pod keeps
+    /// running.
+    fn refresh_rendering(&mut self, instance: &Instance) {
+        let Some(kubernetes) = self.pod_run() else {
+            return;
+        };
+        let Some(pods) = self.units.pods_mut() else {
+            return;
+        };
+        if let Err(error) = pods.refresh_rendering(&kubernetes, &self.config, instance) {
+            eprintln!("conductor: daemon: {}: {error:#}", instance.name.0);
+        }
+    }
+
     /// The store the reconciliations are recorded in.
     #[must_use]
     pub const fn store(&self) -> &Store {
@@ -1041,6 +1058,7 @@ impl<U: Units> Daemon<U> {
                         && held.version == wanted.version
                         && self.pod_current(instance);
                     if same {
+                        self.refresh_rendering(instance);
                         if let Some(kept) = self.started.get_mut(&name) {
                             kept.last_seen = wanted.last_seen.clone();
                         }

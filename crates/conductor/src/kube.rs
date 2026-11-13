@@ -10,8 +10,9 @@
 //!   that is missing.
 //! - **Trust.** The cluster's `ca.crt` is the only root: a server another authority signed is
 //!   refused ([`Error::Tls`]). The token is read again on every call, since the kubelet rotates it.
-//! - **Calls.** Create, get, list by label selector and delete of pods, persistent volume claims
-//!   and secrets ([`Kind`]) in a namespace given per call, over JSON as [`serde_json::Value`]; a
+//! - **Calls.** Create, get, replace ([`Client::replace`]), list by label selector and delete of
+//!   pods, persistent volume claims and secrets ([`Kind`]) in a namespace given per call, over
+//!   JSON as [`serde_json::Value`]; a
 //!   `SelfSubjectAccessReview` ([`Client::may`]); the last lines of a pod's log
 //!   ([`Client::log_tail`]). [`Pod::of`] reads what a supervisor needs of a pod.
 //! - **Answers.** One HTTP/1.1 exchange per call, `Connection: close`, its body read by length or
@@ -348,6 +349,23 @@ impl Client {
     /// [`Error::Api`] with `404` when there is none; any other [`Error`] of a call.
     pub fn get(&self, namespace: &str, kind: Kind, name: &str) -> Result<Value, Error> {
         self.json("GET", &item(namespace, kind, name), None)
+    }
+
+    /// Replaces the object `name` of `kind` in `namespace` with `object` (`PUT`, the `update`
+    /// verb); the object as the API stored it.
+    ///
+    /// # Errors
+    ///
+    /// [`Error::Api`] with `404` when there is none, `409` when `object`'s resource version is
+    /// not the stored one; any other [`Error`] of a call.
+    pub fn replace(
+        &self,
+        namespace: &str,
+        kind: Kind,
+        name: &str,
+        object: &Value,
+    ) -> Result<Value, Error> {
+        self.json("PUT", &item(namespace, kind, name), Some(object))
     }
 
     /// The objects of `kind` in `namespace` whose labels match `selector`

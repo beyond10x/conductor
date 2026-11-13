@@ -867,6 +867,111 @@ fn a_model_token_kind_the_specification_does_not_declare_is_refused_at_the_route
     }
 }
 
+/// An instance's `standing_rules` (story:instance-rules-text) is text of a caller that reaches
+/// the pod in its rendered file only: not the pod's spec, not a variable, not the claim, and never
+/// as a secret, even where the whole text reads `secret:<name>` and names the daemon's own control
+/// token, which no pod gets. Above 16384 bytes of UTF-8, or with a NUL, it is refused `422`
+/// `conductor.config.ConfigInvalid` at its YAML path by `POST /v1/instances` and by
+/// `PUT /v1/instances/{name}`, the file unchanged.
+#[test]
+fn standing_rules_reach_the_rendered_file_only_and_are_refused_above_the_bound_at_the_routes() {
+    let case = Case::new("standing-rules");
+    case.write(" []");
+    let port = case.serve();
+    let shell = "Rule: $(id) `id` ; & | \\ \" ' GH_TOKEN=x\n";
+    for (name, prefix, text) in [
+        ("beta", "beta", shell),
+        ("delta", "delta", "secret:control"),
+    ] {
+        let sent = mapping(
+            name,
+            &json!({"session_prefix": prefix, "standing_rules": text}),
+        );
+        let (status, body) = exchange(
+            port,
+            &request(
+                port,
+                "POST",
+                "/v1/instances",
+                Some(&json!({"mapping": sent, "reason": "a tenant"})),
+            ),
+        );
+        assert_eq!(status, 201, "{name}: {body}");
+    }
+
+    let text = case.text();
+    let config = conductor_cli::config::parse(&text, &case.home())
+        .unwrap_or_else(|problems| panic!("the file does not validate: {problems:?}\n{text}"));
+    let kubernetes = config.daemon.kubernetes.clone().expect("daemon.kubernetes");
+    for (index, written) in [(0, shell), (1, "secret:control")] {
+        let instance = &config.instances[index];
+        assert_eq!(instance.standing_rules.as_deref(), Some(written));
+        let made = pods::manifests(&kubernetes, &config, instance);
+        let rendered: serde_yaml::Value =
+            serde_yaml::from_str(&made.rendered).expect("the rendered file");
+        assert_eq!(
+            rendered["instances"][0]["standing_rules"].as_str(),
+            Some(written),
+            "{}",
+            made.rendered
+        );
+        for (what, held) in [
+            ("the pod", made.pod.to_string()),
+            ("the claim", made.claim.to_string()),
+        ] {
+            assert!(
+                !held.contains("$(id)") && !held.contains("secret:control"),
+                "{what}: {held}"
+            );
+        }
+        assert!(
+            !made.secrets.contains("control"),
+            "the Secret's keys: {:?}",
+            made.secrets
+        );
+    }
+
+    let before = case.text();
+    for (what, rules, says) in [
+        ("16385 bytes", "a".repeat(16385), "is 16385 bytes"),
+        ("a NUL", "one rule\0and another".to_owned(), "a NUL"),
+    ] {
+        let sent = mapping(
+            "gamma",
+            &json!({"session_prefix": "gamma", "standing_rules": rules}),
+        );
+        let sent_put = mapping("beta", &json!({"standing_rules": rules}));
+        for (method, target, body, path) in [
+            (
+                "POST",
+                "/v1/instances",
+                json!({"mapping": sent, "reason": "r"}),
+                "instances[2].standing_rules",
+            ),
+            (
+                "PUT",
+                "/v1/instances/beta",
+                json!({"mapping": sent_put, "reason": "r"}),
+                "instances[0].standing_rules",
+            ),
+        ] {
+            let (status, answer) = exchange(port, &request(port, method, target, Some(&body)));
+            assert_eq!(status, 422, "{method} {what}: {answer}");
+            let answer: Value = serde_json::from_str(&answer).expect("a JSON body");
+            assert_eq!(
+                answer["error"], "conductor.config.ConfigInvalid",
+                "{method} {what}: {answer}"
+            );
+            assert_eq!(answer["path"], json!(path), "{method} {what}: {answer}");
+            assert!(
+                answer.to_string().contains(says),
+                "{method} {what}: {answer}"
+            );
+            assert_eq!(case.text(), before, "{method} {what}: the file changed");
+        }
+    }
+}
+
 /// The client follows no redirect: a `3xx` is the call's error, after one request, and the token
 /// is in the text of no error: of a redirect, of a refusal, or of a token file that holds no
 /// token.
@@ -956,7 +1061,8 @@ fn names_and_selectors_stay_inside_their_segment_of_the_path() {
 
 /// The rights `conductor doctor` asks a daemon of instance pods for (`doctor::POD_RIGHTS`, which
 /// the Role of a run manifest grants) are rights some path of the supervisor calls: a start, a
-/// failed pod's log, an adoption, a removal and a sweep together use every one of them.
+/// failed pod's log, an adoption, a change of the standing rules alone, a removal and a sweep
+/// together use every one of them.
 #[test]
 fn every_right_the_doctor_asks_for_is_one_the_supervisor_uses() {
     let case = Case::new("rights");
@@ -1002,6 +1108,13 @@ fn every_right_the_doctor_asks_for_is_one_the_supervisor_uses() {
     let mut daemon = case.daemon(&fake, "daemon");
     daemon.tick(Instant::now()).expect("a tick");
 
+    // A change of the instance's standing rules alone: its Secret written again in place
+    // (story:instance-rules-text).
+    case.write(&format!("{alpha}\n    standing_rules: \"One rule.\""));
+    daemon
+        .tick(Instant::now() + Duration::from_secs(15))
+        .expect("a tick");
+
     // A Secret of the owner whose instance is gone, then the instance removed: the sweep and the
     // stop.
     let mut stray = fake
@@ -1024,6 +1137,7 @@ fn every_right_the_doctor_asks_for_is_one_the_supervisor_uses() {
             ("GET", ["api", "v1", "namespaces", _, resource]) => ("list", *resource),
             ("GET", ["api", "v1", "namespaces", _, resource, _]) => ("get", *resource),
             ("DELETE", ["api", "v1", "namespaces", _, resource, _]) => ("delete", *resource),
+            ("PUT", ["api", "v1", "namespaces", _, resource, _]) => ("update", *resource),
             _ => continue,
         };
         used.insert((right.0.to_owned(), right.1.to_owned()));

@@ -21,6 +21,7 @@
 
 mod common;
 mod fake_provider;
+mod standing_rules;
 
 use std::fs;
 use std::os::unix::fs::PermissionsExt as _;
@@ -31,6 +32,7 @@ use conductor_cli::cli::{Access, LEAVES};
 use conductor_cli::config;
 use fake_provider::{Child, call_names, calls};
 use serde_json::{Value, json};
+use standing_rules::{HOSTILE, RULES, framed, longest_run};
 
 /// The child run of this test binary ([`fake_provider::command`]); a plain run of the suite
 /// passes it at once.
@@ -227,19 +229,52 @@ impl Case {
     /// `conductor <args>` from the records directory, with `HOME` naming the case's home, the
     /// case's config file, and the stand-in first on `PATH`.
     fn run(&self, args: &[&str]) -> Output {
+        self.run_with(args, &[])
+    }
+
+    /// [`Case::run`] with the variables `env` set besides.
+    fn run_with(&self, args: &[&str], env: &[(&str, &Path)]) -> Output {
         let path = format!("{}:/usr/bin:/bin", self.dir.join("bin").display());
-        common::conductor(self.home())
+        let mut command = common::conductor(self.home());
+        command
             .args(args)
             .current_dir(self.records())
             .env("CONDUCTOR_CONFIG", self.config())
             .env("PATH", path)
-            .stdin(Stdio::null())
-            .output()
-            .expect("conductor runs")
+            .stdin(Stdio::null());
+        for (name, value) in env {
+            command.env(name, value);
+        }
+        command.output().expect("conductor runs")
     }
 
     fn spawn(&self) -> Output {
         self.run(&["spawn", "--repository", "alpha"])
+    }
+
+    /// Gives the instance of the config file the standing rules `text` (story:instance-rules-text),
+    /// a key of its mapping after the last one.
+    fn standing_rules(&self, text: &str) {
+        let config = fs::read_to_string(self.config()).expect("read the config file");
+        write(
+            &self.config(),
+            &format!(
+                "{config}\x20   standing_rules: {}\n",
+                serde_json::to_string(text).expect("JSON")
+            ),
+        );
+    }
+
+    /// The file the last launch appended to its system prompt, and its text.
+    fn prompt_file(&self) -> (String, String) {
+        let argv = self.argv();
+        let at = argv
+            .iter()
+            .position(|arg| arg == "--append-system-prompt-file")
+            .unwrap_or_else(|| panic!("a --append-system-prompt-file argument: {argv:?}"));
+        let file = argv[at + 1].clone();
+        let text = fs::read_to_string(&file).expect("read the prompt file");
+        (file, text)
     }
 
     /// The fake provider's directory.
@@ -682,6 +717,118 @@ fn spawn_without_a_profile_or_settings_starts_from_the_binary_s() {
         !case.home().join(".claude/agents").exists(),
         "nothing is written under ~/.claude/agents/"
     );
+}
+
+/// story:instance-rules-text: a controller of an instance whose mapping holds `standing_rules`
+/// starts with a prompt file that holds them after its profile, under one line that says they are
+/// the instance's standing rules, verbatim in a fenced block whose fence is longer than any run of
+/// backticks in them, so neither the heading line, a fence line nor a heading in the text leaves
+/// the block. A role that starts from the binary's profile gets it in
+/// `<state>/sessions/<session name>.profile.md`; a role whose config names its own profile file
+/// starts from a copy there that holds that profile and the block, and the named file is not
+/// changed.
+#[test]
+fn a_controllers_prompt_file_holds_the_standing_rules_in_a_frame_they_cannot_leave() {
+    let shipped =
+        fs::read_to_string(Path::new(env!("CARGO_MANIFEST_DIR")).join("roles/controller.md"))
+            .expect("the controller profile");
+    for (name, rules) in [("rules-binary", RULES), ("rules-hostile", HOSTILE)] {
+        let case = Case::new(name);
+        case.write_config("{role: controller, harness: claude, model: sonnet}");
+        case.standing_rules(rules);
+        let output = case.spawn();
+        assert!(output.status.success(), "{name}: {}", describe(&output));
+        let (file, prompt) = case.prompt_file();
+        assert_eq!(
+            file,
+            case.state()
+                .join("sessions/ex-alpha.profile.md")
+                .display()
+                .to_string(),
+            "{name}"
+        );
+        let (before, fence, inside) = framed(&prompt);
+        assert_eq!(before, format!("{}\n\n", shipped.trim_end()), "{name}");
+        assert_eq!(inside, rules, "{name}");
+        let longest = longest_run(rules);
+        assert!(fence > longest.max(2), "{name}: a fence of {fence}");
+    }
+
+    let case = Case::new("rules-own-profile");
+    case.standing_rules(RULES);
+    let output = case.spawn();
+    assert!(output.status.success(), "{}", describe(&output));
+    let (file, prompt) = case.prompt_file();
+    assert_eq!(
+        file,
+        case.state()
+            .join("sessions/ex-alpha.profile.md")
+            .display()
+            .to_string()
+    );
+    let (before, _, inside) = framed(&prompt);
+    assert_eq!(before, "# Repository controller\n\n");
+    assert_eq!(inside, RULES);
+    assert_eq!(
+        fs::read_to_string(case.profile()).expect("the role's profile"),
+        "# Repository controller\n",
+        "the role's own profile file is not changed"
+    );
+}
+
+/// story:instance-rules-text: without `standing_rules` a controller starts as before: from the
+/// binary's profile written byte for byte, or from the role's own profile file named as it is,
+/// with no copy written.
+#[test]
+fn without_standing_rules_a_controller_starts_with_the_prompt_it_had() {
+    let case = Case::new("rules-none-binary");
+    case.write_config("{role: controller, harness: claude, model: sonnet}");
+    let output = case.spawn();
+    assert!(output.status.success(), "{}", describe(&output));
+    let (_, prompt) = case.prompt_file();
+    assert_eq!(
+        prompt,
+        fs::read_to_string(Path::new(env!("CARGO_MANIFEST_DIR")).join("roles/controller.md"))
+            .expect("the controller profile")
+    );
+
+    let case = Case::new("rules-none-own");
+    let output = case.spawn();
+    assert!(output.status.success(), "{}", describe(&output));
+    assert_eq!(case.argv(), start_form(&case));
+    assert!(
+        !case.state().join("sessions/ex-alpha.profile.md").exists(),
+        "no copy of the role's profile is written"
+    );
+}
+
+/// story:instance-rules-text: a runtime whose config file is a copy of a mounted one
+/// (`CONDUCTOR_CONFIG_SOURCE`, an instance pod's Secret) reads the standing rules a session
+/// starts with from the mounted file at the session's start, so a text the daemon wrote into the
+/// Secret since the runtime started reaches the next session without a new pod.
+#[test]
+fn a_runtime_with_a_mounted_config_reads_the_standing_rules_from_the_mount_at_the_start() {
+    let case = Case::new("rules-mounted");
+    case.write_config("{role: controller, harness: claude, model: sonnet}");
+    case.standing_rules("Rule as the runtime copied it.\n");
+    let mounted = case.dir.join("mount/conductor.yaml");
+    write(
+        &mounted,
+        &fs::read_to_string(case.config())
+            .expect("the config file")
+            .replace(
+                "Rule as the runtime copied it.",
+                "Rule as the daemon wrote it since.",
+            ),
+    );
+    let output = case.run_with(
+        &["spawn", "--repository", "alpha"],
+        &[("CONDUCTOR_CONFIG_SOURCE", &mounted)],
+    );
+    assert!(output.status.success(), "{}", describe(&output));
+    let (_, prompt) = case.prompt_file();
+    let (_, _, inside) = framed(&prompt);
+    assert_eq!(inside, "Rule as the daemon wrote it since.\n");
 }
 
 /// `story:instance-isolation`, item 1: a controller role whose settings file pins no instance, as

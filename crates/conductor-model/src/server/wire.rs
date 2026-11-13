@@ -1,5 +1,5 @@
 // generated from conductor v1
-// contract digest 882143897862f23950c9f2c26ad3b57f23a8a0eb8334ddf254337d9e57836461
+// contract digest ea6225ee034cd34510f610d78edd12b15d60f43ce9c3eeace1dbaf407b4f6639
 // do not edit: regenerate with `ess synthesize --layout crate`
 //! Every generated declaration, as JSON, in the renderings the published wire contracts fix.
 //!
@@ -2099,6 +2099,10 @@ pub fn encode_conductor_config_instance(value: &crate::config::Instance, out: &m
         json::member(out, "git_identity");
         encode_conductor_config_git_identity(&*held0, out);
     }
+    if let Some(held0) = &value.standing_rules {
+        json::member(out, "standing_rules");
+        json::push_text(out, &*held0);
+    }
     json::member(out, "forge");
     encode_conductor_config_forge(&value.forge, out);
     json::member(out, "conductor");
@@ -2112,7 +2116,7 @@ pub fn encode_conductor_config_instance(value: &crate::config::Instance, out: &m
 ///
 /// [`json::DecodeError`] naming the path and what the declaration says belongs there.
 pub fn decode_conductor_config_instance(value: &json::Value, at: &str) -> Result<crate::config::Instance, json::DecodeError> {
-    json::closed_at(value, at, &["name", "placement", "remote", "session_prefix", "sources", "checkouts", "records", "state", "cache", "roles", "limits", "controllers", "repositories", "cadence", "thresholds", "retention", "reports", "authority", "usage", "operator", "catalog", "secret_syncs", "gates_policy", "model_token", "model_token_kind", "forge_token", "git_identity", "forge", "conductor"])?;
+    json::closed_at(value, at, &["name", "placement", "remote", "session_prefix", "sources", "checkouts", "records", "state", "cache", "roles", "limits", "controllers", "repositories", "cadence", "thresholds", "retention", "reports", "authority", "usage", "operator", "catalog", "secret_syncs", "gates_policy", "model_token", "model_token_kind", "forge_token", "git_identity", "standing_rules", "forge", "conductor"])?;
     Ok(crate::config::Instance {
         name: {
             let at0 = json::nested(at, "name");
@@ -2302,15 +2306,22 @@ pub fn decode_conductor_config_instance(value: &json::Value, at: &str) -> Result
                 Some(decode_conductor_config_git_identity(member26, &at26)?)
             }
         },
+        standing_rules: match value.member("standing_rules") {
+            None | Some(json::Value::Null) => None,
+            Some(member27) => {
+                let at27 = json::nested(at, "standing_rules");
+                Some(json::text_at(member27, &at27, "a string")?.to_owned())
+            }
+        },
         forge: {
-            let at27 = json::nested(at, "forge");
-            let member27 = json::member_at(value, at, "forge")?;
-            decode_conductor_config_forge(member27, &at27)?
+            let at28 = json::nested(at, "forge");
+            let member28 = json::member_at(value, at, "forge")?;
+            decode_conductor_config_forge(member28, &at28)?
         },
         conductor: {
-            let at28 = json::nested(at, "conductor");
-            let member28 = json::member_at(value, at, "conductor")?;
-            decode_conductor_config_conductor_session(member28, &at28)?
+            let at29 = json::nested(at, "conductor");
+            let member29 = json::member_at(value, at, "conductor")?;
+            decode_conductor_config_conductor_session(member29, &at29)?
         },
     })
 }
@@ -20269,6 +20280,10 @@ pub fn encode_view_conductor_instance_instance_by_name(value: &crate::instance::
     if let Some(held0) = &value.model_token_kind {
         json::member(out, "model_token_kind");
         encode_conductor_config_model_token_kind(&*held0, out);
+    }
+    if let Some(held0) = &value.standing_rules {
+        json::member(out, "standing_rules");
+        json::push_text(out, &*held0);
     }
     out.push('}');
 }

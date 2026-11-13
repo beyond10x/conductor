@@ -17,6 +17,7 @@
 
 mod common;
 mod fake_provider;
+mod standing_rules;
 
 use std::ffi::OsString;
 use std::fs;
@@ -35,6 +36,7 @@ use conductor_cli::snapshot;
 use conductor_model::config::{Checkouts, Harness, Writable};
 use fake_provider::{Child, call_names, calls};
 use serde_json::{Value, json};
+use standing_rules::{HOSTILE, RULES, framed, longest_run};
 
 /// The child run of this test binary ([`fake_provider::command`]); a plain run of the suite
 /// passes it at once.
@@ -792,6 +794,81 @@ fn the_provider_is_given_the_role_s_request_and_first_prompt() {
             .any(|call| call["call"] == "prompt" && call["prompt"] == DEV_PROMPT),
         "{logged:#?}"
     );
+}
+
+/// story:instance-rules-text: every session the instance starts reads its `standing_rules`. The
+/// director, which starts from an agent and with no prompt file, starts with one now beside its
+/// agent, `<state>/sessions/<session name>.profile.md`, that holds the rules alone under the
+/// heading line, in their frame; its other arguments are the ones it had. The maintainer, which
+/// starts from the binary's profile, starts with that profile and the rules after it. A session
+/// started after the mapping changed reads the new text. Without the member, both start as
+/// [`the_provider_is_given_the_role_s_request_and_first_prompt`] holds: no prompt file for the
+/// director, the binary's profile byte for byte for the maintainer.
+#[test]
+fn the_director_and_the_maintainer_start_with_the_standing_rules_in_their_prompt_file() {
+    let case = Case::new("standing-rules", STRICT);
+    let config = fs::read_to_string(case.config()).expect("the config file");
+    let with_rules = |text: &str| {
+        write(
+            &case.config(),
+            &format!(
+                "{config}\x20   standing_rules: {}\n",
+                serde_json::to_string(text).expect("JSON")
+            ),
+        );
+    };
+    with_rules(HOSTILE);
+    let output = case.start("conductor");
+    assert_eq!(output.status.code(), Some(0), "{}", describe(&output));
+    let logged = calls(&case.fake());
+    let settings = case.state().join("sessions/conductor.settings.json");
+    let prompt = case.state().join("sessions/conductor.profile.md");
+    assert_eq!(
+        logged[0]["args"],
+        json!([
+            "-n",
+            "conductor",
+            "--agent",
+            "conductor",
+            "--append-system-prompt-file",
+            prompt.display().to_string(),
+            "--model",
+            "opus",
+            "--disallowedTools",
+            "Artifact,Workflow,ScheduleWakeup,EnterWorktree,AskUserQuestion,ReportFindings,\
+             ShareOnboardingGuide",
+            "--permission-mode",
+            "bypassPermissions",
+            "--setting-sources",
+            "project,local",
+            "--settings",
+            settings.display().to_string(),
+        ])
+    );
+    let (before, fence, inside) = framed(&fs::read_to_string(&prompt).expect("the prompt file"));
+    assert_eq!(
+        before, "",
+        "the director's prompt file holds the rules alone"
+    );
+    assert_eq!(inside, HOSTILE);
+    assert!(fence > longest_run(HOSTILE), "a fence of {fence}");
+
+    let output = case.start("conductor-dev");
+    assert_eq!(output.status.code(), Some(0), "{}", describe(&output));
+    let dev = case.state().join("sessions/conductor-dev.profile.md");
+    let (before, _, inside) = framed(&fs::read_to_string(&dev).expect("the prompt file"));
+    let maintainer =
+        fs::read_to_string(Path::new(env!("CARGO_MANIFEST_DIR")).join("roles/maintainer.md"))
+            .expect("the maintainer profile");
+    assert_eq!(before, format!("{}\n\n", maintainer.trim_end()));
+    assert_eq!(inside, HOSTILE);
+
+    // The mapping changed: the next session's start reads the new text.
+    with_rules(RULES);
+    let output = case.start("conductor");
+    assert_eq!(output.status.code(), Some(0), "{}", describe(&output));
+    let (_, _, inside) = framed(&fs::read_to_string(&prompt).expect("the prompt file"));
+    assert_eq!(inside, RULES);
 }
 
 /// The measurement of a started session is written to `<state>/sessions/<name>.envelope.json`,

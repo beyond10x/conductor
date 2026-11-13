@@ -32,7 +32,7 @@ rules:
     verbs: [get]
   - apiGroups: [""]
     resources: [secrets]
-    verbs: [create, get, list, delete]
+    verbs: [create, get, list, update, delete]
   - apiGroups: [""]
     resources: [persistentvolumeclaims]
     verbs: [create]
