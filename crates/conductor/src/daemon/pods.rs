@@ -606,6 +606,7 @@ pub struct Pods {
     unwritten: BTreeMap<String, String>,
     /// The rendered file of an instance whose write a `403` refused, or whose Secret is not this
     /// daemon's: no call for it until the rendering differs, or the pod starts again or stops.
+    /// Kept in memory only, so a daemon that starts again tries once more.
     held_back: BTreeMap<String, String>,
 }
 
@@ -650,12 +651,13 @@ enum Unwritten<'e> {
 /// What an instance's row says while a write of its changed rendered file, its standing rules,
 /// into its Secret `secret` of `namespace` in place does not happen, for `why`
 /// (story:instance-rules-text): for a `403`, the rights that take and that the daemon does not try
-/// again until the text changes or the pod starts again; for a Secret that is not this daemon's,
-/// that, and no right; for any other failure, that it did not go through and its status or kind,
-/// and no right; then what the pod's sessions read meanwhile and what delivers the text. It holds
-/// no part of the rules and no message of the API.
+/// again until the text changes, the pod starts again or the daemon starts again; for a Secret
+/// that is not this daemon's, that, and no right; for any other failure, that it did not go
+/// through and its status or kind, and no right; then what the pod's sessions read meanwhile and
+/// what delivers the text. It holds no part of the rules and no message of the API.
 fn unwritten(secret: &str, namespace: &str, why: &Unwritten<'_>) -> String {
-    const HELD: &str = "does not try again until the text changes or the pod starts again";
+    const HELD: &str = "does not try again until the text changes, the pod starts again or the \
+                        daemon starts again";
     let why = match why {
         Unwritten::Refused => format!(
             "the API refused it, as the Role lacks `get` or `update` on Secrets in {namespace}, \
@@ -715,9 +717,10 @@ impl Pods {
     /// the instance's [`Pods::unwritten`] says so, until a write is taken, the Secret holds the
     /// rendering already, the Secret is gone, or the pod starts again or stops. After a refusal
     /// (`403`) or a Secret that is not this daemon's, no call is made for the instance until its
-    /// rendering differs from that one, or the pod starts again or stops; any other failure,
-    /// a conflict (`409`) among them, is tried again at the next pass. Nothing is deleted or
-    /// replaced in its place.
+    /// rendering differs from that one, or the pod starts again or stops; what is held back lives
+    /// in this supervisor alone, so a daemon that starts again tries the write once more. Any
+    /// other failure, a conflict (`409`) among them, is tried again at the next pass. Nothing is
+    /// deleted or replaced in its place.
     ///
     /// # Errors
     ///
@@ -739,7 +742,8 @@ impl Pods {
         }
         if self.held_back.get(name) == Some(&rendered) {
             // Refused for this rendering, or the Secret is not this daemon's: no call until the
-            // rendering changes or the pod starts again; the row keeps saying why.
+            // rendering changes, the pod starts again or the daemon starts again; the row keeps
+            // saying why.
             return Ok(false);
         }
         self.held_back.remove(name);

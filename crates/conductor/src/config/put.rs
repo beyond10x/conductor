@@ -11,9 +11,10 @@
 //! holds this run's text, and nothing is recorded. One run at a time reads, writes, commits and
 //! records: each holds an exclusive lock on `.<name>.lock` beside the file.
 //!
-//! The key `standing_rules` is refused at every level, set or removed, before anything is
-//! written, committed or recorded (story:instance-rules-text): `POST /v1/instances` and
-//! `PUT /v1/instances/{name}` alone write an instance's standing rules.
+//! The key `standing_rules` is refused at every level, set or removed, before the file is read
+//! (story:instance-rules-text): `POST /v1/instances` and `PUT /v1/instances/{name}` alone write
+//! an instance's standing rules. For the same reason the `name` of an instance whose mapping holds
+//! standing rules is not changed here; an instance without them is renamed as before.
 
 use std::fmt;
 use std::fs;
@@ -36,10 +37,20 @@ use crate::store::{Store, level_name};
 /// module writes.
 const STANDING_RULES: &str = "standing_rules";
 
+/// The key of an instance's name, by which every reader finds its mapping.
+const NAME: &str = "name";
+
 /// Why a change of [`STANDING_RULES`] is refused: the routes that write the text.
 const STANDING_RULES_WRITERS: &str = "is written by `POST /v1/instances` and `PUT \
      /v1/instances/{name}` alone, or on a host without that call in the config file itself; \
      `PUT /v1/config` and `conductor config put` do not change an instance's standing rules";
+
+/// Why a change of an instance's `name` is refused where its mapping holds standing rules: a
+/// mapping renamed here carries its text to whichever instance takes that name.
+const RENAMED_WITH_RULES: &str = "renames an instance that has standing rules: such an instance \
+     is renamed through `POST /v1/instances` and `PUT /v1/instances/{name}` alone, since its \
+     standing rules move with its mapping; `PUT /v1/config` and `conductor config put` rename \
+     only an instance without them";
 
 /// Why a change was refused; a refusal wrote, committed and recorded nothing.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -366,6 +377,17 @@ pub fn put_config(
             problems: Vec::new(),
         }));
     }
+    // An instance's standing rules are written by the instance calls alone
+    // (story:instance-rules-text): refused at every level, set or removed, before the file is
+    // read and its scope resolved, so a role or an instance the file does not hold gets this
+    // problem too. It stands at the caller's own path and holds no word of the offered value.
+    if input.path.split('.').next() == Some(STANDING_RULES) {
+        return Ok(Err(*PutRefusal::invalid(
+            input,
+            &input.path,
+            STANDING_RULES_WRITERS,
+        )));
+    }
     // Read, write, commit and record under one exclusive lock: a run that read the file before
     // another wrote it would write the others' changes away, or put its old text back over them.
     let _held = lock(file)?;
@@ -397,14 +419,20 @@ pub fn put_config(
     });
     let under = match scope(&mut yaml, input) {
         Ok((under, map)) => {
-            // An instance's standing rules are written by the instance calls alone
-            // (story:instance-rules-text): refused here at every level, set or removed, and
-            // without a word of the offered value.
-            if input.path.split('.').next() == Some(STANDING_RULES) {
+            // A mapping renamed here would carry its standing rules to whichever instance takes
+            // the name: an instance with standing rules is renamed by the instance calls alone.
+            let rules = map
+                .get(STANDING_RULES)
+                .and_then(Yaml::as_str)
+                .and_then(super::standing_rules_given);
+            if input.level == Level::Instance
+                && input.path.split('.').next() == Some(NAME)
+                && rules.is_some()
+            {
                 return Ok(Err(*PutRefusal::invalid(
                     input,
-                    &format!("{under}.{STANDING_RULES}"),
-                    STANDING_RULES_WRITERS,
+                    &format!("{under}.{NAME}"),
+                    RENAMED_WITH_RULES,
                 )));
             }
             if let Err(refusal) = set(map, &input.path, value, &under, input) {

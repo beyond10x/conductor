@@ -516,6 +516,19 @@ pub(super) fn write(
         ));
     };
     let home = &sources.home;
+    // Read, change and write the file under its one lock, the one `PUT /v1/config` and the
+    // instance calls take ([`config::put::lock`]): a write that read the file before another wrote
+    // it would put the old text back, an instance's standing rules among it. Released once the
+    // file is written, before the records of the write. A check writes nothing and takes none.
+    let held = if check {
+        None
+    } else {
+        Some(config::put::lock(&file).map_err(|error| Refused {
+            status: 500,
+            reason: "Internal Server Error",
+            why: format!("{error:#}\n"),
+        })?)
+    };
     let (text, mut value) = read(&file, home).map_err(|error| {
         refused(
             409,
@@ -694,6 +707,7 @@ pub(super) fn write(
             .map_err(|error| failed(format!("write {}: {error}", file.display())))?;
         backup = Some(kept.display().to_string());
     }
+    drop(held);
     for change in &staged.activity {
         repository::mark_as_operator(
             state,

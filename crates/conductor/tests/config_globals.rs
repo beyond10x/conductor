@@ -560,13 +560,14 @@ fn config_put_refuses_the_standing_rules_and_takes_another_instance_key() {
         "sqlite:{}",
         case.home().join("daemon/conductor.sqlite").display()
     );
-    if let Ok(store) = conductor_cli::store::open_url(&url, conductor_cli::daemon::TENANT) {
-        assert_eq!(
-            store.list_config_revisions().len(),
-            0,
-            "nothing is recorded"
-        );
-    }
+    let store = conductor_cli::store::open_url(&url, conductor_cli::daemon::TENANT)
+        .expect("the daemon's store opens, so that nothing recorded is shown");
+    assert_eq!(
+        store.list_config_revisions().len(),
+        0,
+        "nothing is recorded"
+    );
+    drop(store);
 
     let output = case.run(
         &file,
@@ -595,6 +596,14 @@ fn config_put_refuses_the_standing_rules_and_takes_another_instance_key() {
     assert_eq!(
         written["instances"][0]["standing_rules"], "No private name in a commit.\n",
         "{written:#}"
+    );
+    // The store read above is the one a change is recorded in: the change taken is there.
+    let store = conductor_cli::store::open_url(&url, conductor_cli::daemon::TENANT)
+        .expect("the daemon's store opens");
+    assert_eq!(
+        store.list_config_revisions().len(),
+        1,
+        "the change taken is recorded in the store read above"
     );
 }
 

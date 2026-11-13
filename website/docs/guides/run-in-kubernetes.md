@@ -923,7 +923,12 @@ Only `POST /v1/instances` and `PUT /v1/instances/{name}` write the text, the cal
 plane. The instance's own settings write, the dashboard's configuration page, shows
 `standing_rules` as fixed and refuses to change it. `PUT /v1/config` and `conductor config put`
 refuse the key `standing_rules` too, set or removed, at the instance and at every other level, with
-a problem at the key's path that names the two calls, and change nothing. On a host where the
+a problem at the key's path that names the two calls, and change nothing. They refuse as well a
+change of the `name` of an instance that has standing rules, since its mapping carries the text to
+whichever instance takes the name: such an instance is renamed through the two calls; an instance
+without standing rules is renamed as before. The settings write and these calls each take the
+config file's lock while they read and write it, so none writes an earlier text over another's
+change. On a host where the
 daemon starts its instances as units rather than as pods, a session runs as the daemon's user and
 can edit the config file itself, as that host's trust model already says of every key.
 
@@ -959,13 +964,15 @@ the file and why, and no part of the text.
 
 Where the Role lacks `get` or `update` on Secrets, the API refuses the read or the write in place
 (`403`). The instance's row then says so in its `detail`, naming the right, that the daemon does
-not try again until the text changes or the pod starts again, that the pod's sessions still read
-the earlier text and that the pod's next start delivers the new one. Until then the daemon makes
-no call for that Secret. So once the Role is corrected, the write happens at the next change of
-the text or the next start of the pod, not by itself. Where a Secret of the instance's name is
-there that is not this daemon's for this instance, its labels naming another daemon or instance
-or none, the daemon does not write it: the `detail` says so, names no right, and the daemon does
-not try again until the text changes or the pod starts again either. A write that fails
+not try again until the text changes, the pod starts again or the daemon starts again, that the
+pod's sessions still read the earlier text and that the pod's next start delivers the new one.
+Until then the daemon makes no call for that Secret; it keeps what it held back in memory only,
+so a daemon that starts again tries the write once more. So once the Role is corrected, the write
+happens at the next change of the text, the next start of the pod or the daemon's next start,
+not by itself. Where a Secret of the instance's name is there that is not this daemon's for this
+instance, its labels naming another daemon or instance or none, the daemon does not write it: the
+`detail` says so, names no right, and the daemon does not try again until the text changes, the
+pod starts again or the daemon starts again either. A write that fails
 otherwise, such as a `500`, a `409` conflict or an API server that does not answer, is no missing
 right: the `detail` says the write did not go through and gives the status or the kind of
 failure, names no right, says the same of the sessions and the next start, and the next pass
@@ -977,8 +984,8 @@ A Role made for an earlier release lacks `update` on Secrets: add the verb when 
 daemon. `conductor doctor` and `conductor setup` fail on it as on every right not granted, whether
 or not an instance names `standing_rules`. Until the verb is added, a change of an instance's
 text, its removal included, is refused (`403`) as above: the `detail` says so, the daemon does not
-try again until the text changes or the pod starts again, and the pod's next start delivers the
-text.
+try again until the text changes, the pod starts again or the daemon starts again, and the pod's
+next start delivers the text.
 
 ## Limits
 

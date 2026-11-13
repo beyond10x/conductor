@@ -1039,10 +1039,11 @@ fn put_v1_config_refuses_the_standing_rules_and_takes_another_instance_key() {
         );
     }
     let url = format!("sqlite:{}", case.dir.join("shared.sqlite").display());
-    if let Ok(store) = conductor_cli::store::open_url(&url, conductor_cli::daemon::TENANT) {
-        let revisions = conductor_model::behaviour::ConfigRevisionStorage::list(&store);
-        assert_eq!(revisions.len(), 0, "nothing is recorded");
-    }
+    let store = conductor_cli::store::open_url(&url, conductor_cli::daemon::TENANT)
+        .expect("the daemon's store opens, so that nothing recorded is shown");
+    let revisions = conductor_model::behaviour::ConfigRevisionStorage::list(&store);
+    assert_eq!(revisions.len(), 0, "nothing is recorded");
+    drop(store);
 
     let changed = own_write(
         port,
@@ -1052,6 +1053,15 @@ fn put_v1_config_refuses_the_standing_rules_and_takes_another_instance_key() {
                 "path": "thresholds.silent_session", "value": "45m", "reason": "another key"}),
     );
     assert_eq!(changed.status, 200, "{}", changed.body);
+    // The store read above is the one a change is recorded in: the change taken is there.
+    let store = conductor_cli::store::open_url(&url, conductor_cli::daemon::TENANT)
+        .expect("the daemon's store opens");
+    let revisions = conductor_model::behaviour::ConfigRevisionStorage::list(&store);
+    assert_eq!(
+        revisions.len(),
+        1,
+        "the change taken is recorded in the store read above"
+    );
 }
 
 /// `POST /v1/instances/{name}/upgrade` (`story:instance-upgrade`) is a write of the global API

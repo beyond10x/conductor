@@ -1052,8 +1052,11 @@ types:
       # /v1/instances/{name}`) alone write it, the calls of the control plane: the instance's
       # own settings write (`WriteConfig`) takes it as `Fixed`, and `PutConfig` (`PUT
       # /v1/config`, `conductor config put`) refuses the key `standing_rules`, set or removed,
-      # at every level, with a problem at the key's path that names those two calls and the
-      # config file itself for a host without them, and quotes no part of the value. On a host
+      # at every level and before the level's scope is resolved, with a problem at the caller's
+      # own key path that names those two calls and the config file itself for a host without
+      # them, and quotes no part of the value; it refuses as well a change of the `name` of an
+      # instance whose mapping holds standing rules, at that instance's `name`, since the
+      # mapping carries its text to whichever instance takes the name. On a host
       # that starts its instances as units, a session runs as the daemon's user and can edit
       # the config file itself. A session's prompt file starts with one line that says the text
       # is the instance's standing rules, then the text verbatim in a fenced block whose fence is

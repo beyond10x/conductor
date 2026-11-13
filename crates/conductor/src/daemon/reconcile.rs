@@ -614,9 +614,8 @@ impl<U: Units> Daemon<U> {
     /// changed in what the digest leaves out, its `standing_rules` (story:instance-rules-text,
     /// [`super::pods::Pods::refresh_rendering`]); nothing for a runtime that is no pod. A failure
     /// other than a `403` is tried again at the next pass; a `403`, or a Secret that is not this
-    /// daemon's, only once the text changes or the pod starts again. The pod keeps running; it
-    /// shows in the
-    /// instance's `detail` while it lasts ([`super::pods::Pods::unwritten`]), and the daemon's log
+    /// daemon's, only once the text changes, the pod starts again or the daemon starts again. The
+    /// pod keeps running; it shows in the instance's `detail` while it lasts ([`super::pods::Pods::unwritten`]), and the daemon's log
     /// gets one line when it begins or changes and one when it ends, not one per pass
     /// ([`super::pods::rendering_line`]).
     fn refresh_rendering(&mut self, instance: &Instance) {

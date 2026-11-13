@@ -185,8 +185,10 @@ impl FakeKube {
             .insert((namespace.to_owned(), name.to_owned()), text.to_owned());
     }
 
-    /// Every `method` request on `resource` (`secrets`, `pods`, …) answers `403 Forbidden` from
-    /// now on, as a Role without that verb makes the API answer, until [`FakeKube::permit`].
+    /// Every `method` request on `resource` (`secrets`, `pods`, …), or on the one object whose
+    /// path on the API `resource` is (`/api/v1/namespaces/<namespace>/secrets/<name>`), answers
+    /// `403 Forbidden` from now on, as a Role without that verb makes the API answer, until
+    /// [`FakeKube::permit`] with the same words.
     pub fn forbid(&self, method: &str, resource: &str) {
         self.refuse(method, resource, 403, "Forbidden");
     }
@@ -470,10 +472,9 @@ fn answer(state: &mut State, request: &Request) -> Answer {
     }
     let segments: Vec<&str> = request.path.trim_start_matches('/').split('/').collect();
     if let ["api", "v1", "namespaces", _, resource, ..] = segments.as_slice()
-        && let Some((_, _, code, reason)) = state
-            .forbidden
-            .iter()
-            .find(|held| held.0 == request.method && held.1 == *resource)
+        && let Some((_, _, code, reason)) = state.forbidden.iter().find(|held| {
+            held.0 == request.method && (held.1 == *resource || held.1 == request.path)
+        })
     {
         let message = if *code == 403 {
             format!(
