@@ -69,6 +69,9 @@
 //! - an instance's `standing_rules` (story:instance-rules-text) is text of at most
 //!   [`STANDING_RULES_BYTES`] bytes of UTF-8 with no NUL ([`standing_rules_problem`]); a session
 //!   reads it at its start from the file as it holds it then ([`standing_rules_at_start`]);
+//! - an instance's `forge_access` (story:forge-access-anonymous) is `anonymous` ([`FORGE_ACCESSES`]),
+//!   only beside no `forge_token`, `github` sources that each name `include`, and a daemon that runs
+//!   pods or a runtime in one ([`anonymous`]);
 //! - `usage.probe` (`story:usage-probe`) and `usage.rotate` (`story:auto-resume`) are commands,
 //!   not empty, `usage.rotate` only beside a `usage.probe`, and `usage.watcher` a systemd unit
 //!   name ([`unit_name`]);
@@ -139,9 +142,9 @@ use anyhow::{Context as _, Result, anyhow, bail};
 use conductor_model::agent::AgentKindName;
 use conductor_model::config::{
     Authority, Cadence, Catalog, CatalogNames, Checkouts, CommandWord, ConductorSession, Config,
-    Controllers, Daemon, DaemonCadence, DaemonConfig, DaemonOperator, Forge, ForgeRoute,
-    ForgeSecret, Gibibytes, GitHubSource, GitIdentity, GitLabSource, Globals, Harness, Instance,
-    InstanceName, Kubernetes, KubernetesEnv, KubernetesName, KubernetesQuantities,
+    Controllers, Daemon, DaemonCadence, DaemonConfig, DaemonOperator, Forge, ForgeAccess,
+    ForgeRoute, ForgeSecret, Gibibytes, GitHubSource, GitIdentity, GitLabSource, Globals, Harness,
+    Instance, InstanceName, Kubernetes, KubernetesEnv, KubernetesName, KubernetesQuantities,
     KubernetesResources, KubernetesVolume, Limits, LocalSource, ModelTokenKind, Network,
     OperatorGrant, OperatorRole, PlacementName, RepoCache, Report, RepositoryRule, Retention, Role,
     SecretSource, SecretSync, SecretsSource, SessionName, SessionPrefix, Source, SuggestedPrefix,
@@ -454,7 +457,7 @@ pub const TREE_STALE_HOURS: u64 = 48;
 
 /// The keys of each mapping the file holds, in the order `config show` writes them.
 const CONFIG_KEYS: [&str; 5] = ["version", "daemon", "globals", "default", "instances"];
-const INSTANCE_KEYS: [&str; 33] = [
+const INSTANCE_KEYS: [&str; 34] = [
     "name",
     "placement",
     "remote",
@@ -486,6 +489,7 @@ const INSTANCE_KEYS: [&str; 33] = [
     "forge_token",
     "git_identity",
     "standing_rules",
+    "forge_access",
     "forge",
     "conductor",
 ];
@@ -930,6 +934,32 @@ pub const MODEL_TOKEN_KINDS: [(&str, ModelTokenKind); 2] = [
     ("api_key", ModelTokenKind::ApiKey),
     ("subscription_token", ModelTokenKind::SubscriptionToken),
 ];
+
+/// How the file writes each `conductor.config.ForgeAccess` (story:forge-access-anonymous): how an
+/// instance reaches its forge, as before where the instance names none.
+pub const FORGE_ACCESSES: [(&str, ForgeAccess); 1] = [("anonymous", ForgeAccess::Anonymous)];
+
+/// The word the file writes for `access` ([`FORGE_ACCESSES`]).
+#[must_use]
+pub fn forge_access_word(access: ForgeAccess) -> &'static str {
+    FORGE_ACCESSES
+        .iter()
+        .find(|(_, meaning)| *meaning == access)
+        .map_or("anonymous", |(word, _)| word)
+}
+
+/// Whether `instance` names `forge_access: anonymous` (story:forge-access-anonymous): it holds no
+/// credential of any forge, reads only public repositories and writes nothing to its forge.
+#[must_use]
+pub fn anonymous(instance: &Instance) -> bool {
+    instance.forge_access == Some(ForgeAccess::Anonymous)
+}
+
+/// The one line that says an instance writes nothing to its forge, which its `detail` carries
+/// and every refusal of one of its forge writes begins with (story:forge-access-anonymous).
+pub const WRITES_NOTHING: &str = "forge_access: anonymous: the instance writes nothing to its \
+                                  forge (no push, pull request, comment or release) and holds no \
+                                  credential of it";
 
 /// The word the file writes for `kind` ([`MODEL_TOKEN_KINDS`]).
 #[must_use]
@@ -1911,6 +1941,8 @@ pub fn built_in(home: &Path, cwd: &Path) -> Instance {
         git_identity: None,
         // And no standing rules (story:instance-rules-text).
         standing_rules: None,
+        // It reaches its forge as it always has (story:forge-access-anonymous).
+        forge_access: None,
         // Forge writes take the bot route unless a user names another (story:forge-route).
         forge: default_forge(),
         // Its own conductor, the built-in director role's session, under the role's old name for
@@ -4520,6 +4552,19 @@ impl Reader<'_> {
             }
             None => Some(None),
         };
+        // How the instance reaches its forge (story:forge-access-anonymous): `anonymous`, no
+        // credential at all, holds only for public `github` repositories a pod clones by name.
+        let forge_access = match Self::get(map, "forge_access") {
+            Some(value) => {
+                let at = join(path, "forge_access");
+                let access = self.word(value, &at, &FORGE_ACCESSES);
+                if access == Some(ForgeAccess::Anonymous) {
+                    self.anonymous_access(map, path, sources.as_deref());
+                }
+                access.map(Some)
+            }
+            None => Some(None),
+        };
         let forge = match Self::get(map, "forge") {
             Some(value) => self.forge(value, &join(path, "forge")),
             None => Some(default_forge()),
@@ -4560,8 +4605,53 @@ impl Reader<'_> {
             forge_token: forge_token?,
             git_identity: git_identity?,
             standing_rules: standing_rules?,
+            forge_access: forge_access?,
             forge: forge?,
         })
+    }
+
+    /// The refusals of `forge_access: anonymous` on the instance `map` at `path` whose sources
+    /// read as `sources` (story:forge-access-anonymous): a `forge_token`, at that key; a source that
+    /// is not `github`, or a `github` source without `include`, at the source; and a file whose
+    /// daemon runs no pods, at the member, unless this process is the runtime of an instance pod
+    /// ([`crate::collect::checkouts::in_pod`]), whose rendered file writes no `daemon.kubernetes`.
+    fn anonymous_access(
+        &mut self,
+        map: &Map<String, Value>,
+        path: &str,
+        sources: Option<&[Source]>,
+    ) {
+        if Self::get(map, "forge_token").is_some() {
+            self.problem(
+                &join(path, "forge_token"),
+                "names a forge token beside forge_access: anonymous, which holds no credential \
+                 of any forge: leave one of them out",
+            );
+        }
+        for (index, source) in sources.unwrap_or_default().iter().enumerate() {
+            let at = join(path, &format!("sources[{index}]"));
+            match source {
+                Source::GitHub(github) if github.include.is_none() => self.problem(
+                    &at,
+                    "names no include: under forge_access: anonymous the repositories are the \
+                     include entries, cloned by name with no credential and listed by no forge",
+                ),
+                Source::GitHub(_) => {}
+                Source::GitLab(_) | Source::Local(_) => self.problem(
+                    &at,
+                    "is not a github source: forge_access: anonymous holds for public GitHub \
+                     repositories only",
+                ),
+            }
+        }
+        if !self.pods && !crate::collect::checkouts::in_pod() {
+            self.problem(
+                &join(path, "forge_access"),
+                "only a daemon that runs its instances as pods (daemon.kubernetes) runs an \
+                 instance with forge_access: anonymous, in a pod that carries no forge credential; \
+                 this file's daemon runs none: leave it out",
+            );
+        }
     }
 
     /// An instance's `git_identity` (story:instance-git-identity): `name` and `email`, both
@@ -6231,6 +6321,12 @@ fn shown_instance(instance: &Instance, legacy: &Legacy) -> Yaml {
                 }),
         ),
         ("standing_rules", optional(instance.standing_rules.as_ref())),
+        (
+            "forge_access",
+            instance
+                .forge_access
+                .map_or(Yaml::Null, |access| text(forge_access_word(access))),
+        ),
         (
             "forge",
             mapping([("route", text(forge_route_word(instance.forge.route)))]),

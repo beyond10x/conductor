@@ -37,6 +37,10 @@
 //!   the pass ([`Brought::Failed`]), its line with the reason and git's last error line, every
 //!   credential-shaped text taken out ([`redacted`]). A pod that carries no token of a source's
 //!   forge tries no clone: each of its repositories is a failure that says so.
+//! - **Anonymous.** An instance with `forge_access: anonymous` (story:forge-access-anonymous,
+//!   [`Wanted::anonymous`]) asks for no token: git clones and fetches over HTTPS with no
+//!   credential at all ([`without_credential`]), and a clone that fails is a failure that says
+//!   the repository is not public or not reachable, with git's last error line.
 
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -130,6 +134,9 @@ pub struct Wanted {
     pub checkout: Option<PathBuf>,
     /// Whether the forge lists it archived: then it is not cloned.
     pub archived: bool,
+    /// Whether its instance names `forge_access: anonymous` (story:forge-access-anonymous): it is
+    /// cloned and fetched with no credential, and no token of its forge is asked for.
+    pub anonymous: bool,
 }
 
 impl Wanted {
@@ -145,7 +152,16 @@ impl Wanted {
             host: crate::doctor::GITHUB_HOST.to_owned(),
             checkout: is_checkout(&dir).then_some(dir),
             archived,
+            anonymous: false,
         }
+    }
+
+    /// `self`, cloned and fetched with no credential when `anonymous`
+    /// (story:forge-access-anonymous).
+    #[must_use]
+    pub fn with_anonymous(mut self, anonymous: bool) -> Self {
+        self.anonymous = anonymous;
+        self
     }
 
     /// The project `path` (under the group `group` on `host`) of a `gitlab` source, the
@@ -173,6 +189,7 @@ impl Wanted {
             host: host.to_owned(),
             checkout,
             archived,
+            anonymous: false,
         }
     }
 }
@@ -208,7 +225,7 @@ pub fn bring(root: &Path, wanted: &Wanted, fetch: Option<Duration>) -> Brought {
         ));
     }
     if let Some(dir) = &wanted.checkout {
-        return fetch.map_or(Brought::Left, |bound| fetched(dir, bound));
+        return fetch.map_or(Brought::Left, |bound| fetched(dir, bound, wanted.anonymous));
     }
     let target = root.join(&wanted.path);
     if wanted.archived {
@@ -246,7 +263,7 @@ pub fn bring(root: &Path, wanted: &Wanted, fetch: Option<Duration>) -> Brought {
             target.display()
         ));
     }
-    if !carries_token(wanted.forge) {
+    if !wanted.anonymous && !carries_token(wanted.forge) {
         let variable = config::FORGE_TOKEN_VARIABLES
             .iter()
             .find(|(forge, _)| *forge == wanted.forge)
@@ -268,6 +285,20 @@ fn carries_token(forge: &str) -> bool {
         .filter(|(kind, _)| *kind == forge)
         .flat_map(|(_, variables)| variables.iter())
         .any(|variable| std::env::var(variable).is_ok_and(|value| !value.trim().is_empty()))
+}
+
+/// `command`, a git command, with no credential (story:forge-access-anonymous): `-c
+/// credential.helper=` empties the list of helpers any configuration gives it, and no variable a
+/// forge's command line reads a token from reaches it ([`config::FORGE_CLI_TOKEN_VARIABLES`]). Its
+/// words come first, before the subcommand's.
+fn without_credential(command: &mut std::process::Command) {
+    command.args(["-c", "credential.helper="]);
+    for variable in config::FORGE_CLI_TOKEN_VARIABLES
+        .iter()
+        .flat_map(|(_, variables)| variables.iter())
+    {
+        command.env_remove(variable);
+    }
 }
 
 /// `wanted` cloned into its directory under [`PARTIAL`], then renamed to `target`.
@@ -293,6 +324,9 @@ fn cloned(root: &Path, wanted: &Wanted, target: &Path) -> Brought {
         return failed(format!("create {}: {error}", partial.display()));
     }
     let mut command = crate::instance::command("git");
+    if wanted.anonymous {
+        without_credential(&mut command);
+    }
     command
         .args(["clone", "--quiet", "--", url])
         .arg(&into)
@@ -307,6 +341,15 @@ fn cloned(root: &Path, wanted: &Wanted, target: &Path) -> Brought {
         Err(error) => return failed(format!("`git clone`: {}", one_line(&error))),
     };
     if !output.status.success() {
+        // With no credential, git cannot tell a private repository from one that is not there:
+        // the clone's result is the check that it is public (story:forge-access-anonymous).
+        if wanted.anonymous {
+            return failed(format!(
+                "the repository is not public or not reachable, cloned over HTTPS with no \
+                 credential: `git clone` {}",
+                ended(&output)
+            ));
+        }
         return failed(format!("`git clone` {}", ended(&output)));
     }
     if let Some(parent) = target.parent()
@@ -323,9 +366,12 @@ fn cloned(root: &Path, wanted: &Wanted, target: &Path) -> Brought {
 
 /// The checkout `dir` fetched, `git fetch --quiet origin` run as the collector runs it, once more
 /// when it fails.
-fn fetched(dir: &Path, bound: Duration) -> Brought {
+fn fetched(dir: &Path, bound: Duration, anonymous: bool) -> Brought {
     let attempt = || {
         let mut command = crate::instance::command("git");
+        if anonymous {
+            without_credential(&mut command);
+        }
         command
             .args(["fetch", "--quiet", "origin"])
             .env("GIT_OPTIONAL_LOCKS", "0")

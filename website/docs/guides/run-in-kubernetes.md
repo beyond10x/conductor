@@ -273,6 +273,7 @@ instances live on the volume and arrive over HTTP. A file with no instance is al
 | `git_identity`, a key of an instance's mapping, not of this file | none | the git identity the instance's pod commits with, `{"name": "Example Bot", "email": "bot@example.com"}`: each value 1 to 200 bytes on one line, with no control character, no `<`, no `>` and no white space at either end, the `email` with exactly one `@`; a mapping that breaks the rule is refused `422` at the value's path. It takes the place of `daemon.kubernetes.env` entries of the identity's variables in the instance's pod, see [what the daemon creates](#what-the-daemon-creates-for-each-instance) |
 | `model_token_kind`, a key of an instance's mapping, not of this file | none | the kind of the instance's `model_token`: `api_key`, as where the mapping names none, or `subscription_token`; a mapping that names it without a `model_token`, or names another word, is refused `422` at its path. See [the model token](#the-model-token) |
 | `standing_rules`, a key of an instance's mapping, not of this file | none | text every session the instance starts reads in its prompt file, at most 16384 bytes of UTF-8 with no NUL and no `secret:<name>` as its whole text; a mapping that breaks one of these is refused `422` at its path. Only the instance calls write it; `PUT /v1/config` refuses it. See [standing rules](#standing-rules) |
+| `forge_access`, a key of an instance's mapping, not of this file | none | `anonymous`: the instance's pod carries no credential of any forge, clones each included public GitHub repository with no credential and writes nothing to its forge; refused `422` at its path beside a `forge_token`, a source that is not `github`, a `github` source without `include`, or a daemon that runs no pods. See [anonymous forge access](#anonymous-forge-access) |
 
 The [config reference](../reference/config.md) has each key's rules.
 
@@ -426,8 +427,8 @@ empty: the daemon's config file is not in a git checkout. One row:
  "state":"Running"}
 ```
 
-`GET /v1/instances/alpha` adds `git_identity`, `{"name":…,"email":…}`, `model_token_kind` and
-`standing_rules`, as the mapping holds each, where the mapping names one.
+`GET /v1/instances/alpha` adds `git_identity`, `{"name":…,"email":…}`, `model_token_kind`,
+`standing_rules` and `forge_access`, as the mapping holds each, where the mapping names one.
 
 A restart answers once the new pod is created, and a replace that changes the rendering
 replaces the pod the same way. Each waits for the old pod to be gone, so a call that comes
@@ -986,6 +987,57 @@ or not an instance names `standing_rules`. Until the verb is added, a change of 
 text, its removal included, is refused (`403`) as above: the `detail` says so, the daemon does not
 try again until the text changes, the pod starts again or the daemon starts again, and the pod's
 next start delivers the text.
+
+## Anonymous forge access
+
+An instance mapping may say `forge_access: anonymous`: the instance reads public GitHub
+repositories and holds no credential of any forge. It is for a control plane that starts an
+instance on repositories it may read and not write, with no token of the forge stored anywhere.
+
+```json
+{"mapping": {"name": "alpha", "placement": "none", "session_prefix": "alpha",
+             "sources": [{"github": "example-org", "include": ["one", "two"]}],
+             "model_token": "secret:model-token", "forge_access": "anonymous"},
+ "reason": "public repositories, read only"}
+```
+
+What the member does:
+
+- The instance's pod carries no credential of any forge: none of the daemon's forge token
+  variables of `daemon.kubernetes.env`, for either forge; no forge variable of its own; and no
+  entry of git's configuration, `GIT_CONFIG_COUNT`, `GIT_CONFIG_KEY_<n>` and
+  `GIT_CONFIG_VALUE_<n>`, neither the credential helper the daemon writes nor the installer's own
+  entries, which may give git one. Its Secret holds none of their secrets.
+- The runtime clones each repository the source's `include` names over HTTPS,
+  `https://github.com/<owner>/<name>.git`, with no credential: git gets no credential helper and
+  no token variable. A clone that fails is one member failure of the pass whose line says the
+  repository is not public or not reachable, with git's last error line; the next pass tries
+  again.
+- The repositories are the `include` entries, listed by no forge. Each is read from its checkout
+  alone: the collectors read no pull request, issue, release or workflow run of the forge, and say
+  so in one line a pass. A repository without a checkout has no row.
+- Every write to the forge is refused before any call to the forge or to git's remote, in one
+  line that names `forge_access: anonymous`: a session's push, by git or through the bot route, its
+  pull request, its comment, a release through the bot route, under `forge.route: gates` and
+  `direct` alike; and the push of the instance's records, which are committed and not pushed. The
+  instance's `detail` carries one line that says it writes nothing to its forge.
+
+What such an instance cannot do: open, comment on or merge a pull request, push a branch or a
+tag, publish a release, rerun a workflow, read a private repository, or read anything of the forge
+beyond the repositories' git history. A session that needs any of these needs an instance with a
+credential.
+
+Whoever sends the mapping answers for the repositories being public: conductor does not check
+it before the clone, and the clone's result is the check. A repository that is private, or not
+there, fails its clone in the same way, as git cannot tell them apart without a credential.
+
+A mapping with the member is refused `422` `conductor.config.ConfigInvalid` at the path of what
+it breaks: another value, at `instances[<i>].forge_access`; a `forge_token`, at
+`instances[<i>].forge_token`; a source that is not `github`, or a `github` source without
+`include`, at `instances[<i>].sources[<j>]`; and a daemon that runs no pods, at
+`instances[<i>].forge_access`. `GET /v1/instances/{name}` answers `forge_access` as the mapping
+holds it, and no member where it holds none. Without the member, an instance reaches its forge as
+before, and a pod that carries no token of its forge tries no clone.
 
 ## Limits
 

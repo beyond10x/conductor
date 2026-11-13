@@ -8,7 +8,7 @@
     "x-ess-provenance": {
       "system": "conductor",
       "specification_version": "v1",
-      "contract_digest": "slice-sha256/2:58a2f1c36cb3780ac337ab1af60285a39a54fb71d8b638eacf60a270bdb39748"
+      "contract_digest": "slice-sha256/2:accdd1e1d81ace8567012e21c4b811b725e24e95a4803a1759d4ec9dc408d249"
     },
     "x-ess-reached-by": "network"
   },
@@ -3738,6 +3738,15 @@
         ],
         "additionalProperties": false
       },
+      "conductor.config.ForgeAccess": {
+        "title": "ForgeAccess",
+        "x-ess-name": "conductor.config.ForgeAccess",
+        "x-ess-kind": "enum",
+        "type": "string",
+        "enum": [
+          "Anonymous"
+        ]
+      },
       "conductor.config.Gibibytes": {
         "title": "Gibibytes",
         "x-ess-name": "conductor.config.Gibibytes",
@@ -4694,6 +4703,9 @@
           },
           "standing_rules": {
             "type": "string"
+          },
+          "forge_access": {
+            "$ref": "#/components/schemas/conductor.config.ForgeAccess"
           }
         },
         "required": [
@@ -9805,6 +9817,15 @@
         "Effective"
       ]
     },
+    "conductor.config.ForgeAccess": {
+      "title": "ForgeAccess",
+      "x-ess-name": "conductor.config.ForgeAccess",
+      "x-ess-kind": "enum",
+      "type": "string",
+      "enum": [
+        "Anonymous"
+      ]
+    },
     "conductor.config.Gibibytes": {
       "title": "Gibibytes",
       "x-ess-name": "conductor.config.Gibibytes",
@@ -10104,6 +10125,9 @@
         },
         "standing_rules": {
           "type": "string"
+        },
+        "forge_access": {
+          "$ref": "#/x-ess-entities/conductor.config.ForgeAccess"
         },
         "state": {
           "$ref": "#/x-ess-entities/conductor.instance.Instance.State"

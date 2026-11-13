@@ -16,7 +16,8 @@
 //!    the lines of each log whose `at` falls on the UTC day `day` ([`message`]). The commit's id
 //!    is the one the route printed (git's `[<branch> <id>] <title>`), else `HEAD`'s.
 //! 5. With an `origin`, the route pushes: `b10x-gates bot -- push origin main` (under `direct`,
-//!    `git push origin main`).
+//!    `git push origin main`). An instance with `forge_access: anonymous` pushes nothing: the push
+//!    is refused before either runs, its line naming the member (story:forge-access-anonymous).
 //!
 //! The answer ([`Committed`]) is one dispatch line ([`Committed::line`]): `records-committed`
 //! with the commit and whether it was pushed, or `records-commit-refused` with the step that
@@ -28,7 +29,7 @@ use std::process::Output;
 use std::time::Duration;
 
 use anyhow::Result;
-use conductor_model::config::ForgeRoute;
+use conductor_model::config::{ForgeAccess, ForgeRoute};
 use conductor_model::dispatch::{DispatchLogEvent, DispatchLogLine};
 use serde_json::Value;
 use time::OffsetDateTime;
@@ -66,6 +67,9 @@ pub struct Route {
     /// The global `--state-dir` it runs with, when given; the commit message's file is written
     /// under its `run/`.
     pub state: Option<PathBuf>,
+    /// Whether the instance names `forge_access: anonymous` (story:forge-access-anonymous): then
+    /// the records are committed and never pushed, the push refused before git runs it.
+    pub anonymous: bool,
 }
 
 impl Route {
@@ -86,7 +90,16 @@ impl Route {
             program: program.to_owned(),
             config: config.map(Path::to_owned),
             state: state.map(Path::to_owned),
+            anonymous: false,
         }
+    }
+
+    /// The route of an instance whose `forge_access` is `access`: under `anonymous`, it pushes
+    /// nothing (story:forge-access-anonymous).
+    #[must_use]
+    pub fn with_forge_access(mut self, access: Option<ForgeAccess>) -> Self {
+        self.anonymous = access == Some(ForgeAccess::Anonymous);
+        self
     }
 }
 
@@ -214,6 +227,18 @@ pub fn commit_records(records: &Path, route: &Route, day: &str) -> Committed {
             commit,
             message,
             pushed: false,
+        };
+    }
+    // An instance that writes nothing to its forge pushes nothing: the push is refused here,
+    // before git or the bot route runs it (story:forge-access-anonymous).
+    if route.anonymous {
+        return Committed::Refused {
+            reason: "push",
+            line: format!(
+                "the push to origin is refused before git runs it: {}",
+                crate::config::WRITES_NOTHING
+            ),
+            commit: Some(commit),
         };
     }
     let push: Vec<String> = ["push", "origin", "main"]

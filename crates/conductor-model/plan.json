@@ -2,8 +2,8 @@
   "provenance": {
     "system": "conductor",
     "specification_version": "v1",
-    "source_digest": "26e61df2bbc80fd167c95a6ec48fd9d1d2777c100f3b4abb23caf70683d00789",
-    "contract_digest": "ea6225ee034cd34510f610d78edd12b15d60f43ce9c3eeace1dbaf407b4f6639"
+    "source_digest": "df003763b4e5edbf6a7bf5fb8d70bffc2fc251310b16b851018e7cddc91c177d",
+    "contract_digest": "2fc2642808077fb28855408e63bbd2024df0cf9fb9146a58853be9bd124f1c4b"
   },
   "scope": {
     "profile": "component-skeletons",
@@ -272,6 +272,13 @@
     {
       "kind": "domain_type",
       "source": "conductor.config.Forge",
+      "disposition": {
+        "disposition": "generated"
+      }
+    },
+    {
+      "kind": "domain_type",
+      "source": "conductor.config.ForgeAccess",
       "disposition": {
         "disposition": "generated"
       }

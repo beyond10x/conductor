@@ -23,7 +23,11 @@
 //!   one it leaves out is filled in there ([`PLACES`]); its `standing_rules`
 //!   (story:instance-rules-text) where it holds them, which the runtime reads from the mounted
 //!   file at each session's start, so the daemon writes a change of them alone into the Secret
-//!   without replacing the pod.
+//!   without replacing the pod; its `forge_access`
+//!   (story:forge-access-anonymous) where it names one, which the runtime reads as the daemon's
+//!   file does: it is the runtime that clones with no credential and refuses the forge writes,
+//!   and its file validates the member by the pod it runs in rather than by a
+//!   `daemon.kubernetes`.
 //!
 //! It holds no `daemon.kubernetes` and no `daemon.control_token`: an instance pod creates no pods
 //! and admits no control plane. Nor does it hold the instance's `forge_token`, which only the pod
@@ -144,14 +148,16 @@ pub fn render_at(config: &Config, instance: &Instance, data: &Path, secrets: &Pa
         // First and in place, so the keys stand where they stood before the key existed.
         map.shift_remove("forge_token");
         map.shift_remove("git_identity");
-        // The runtime reads the model token's kind and the standing rules; a mapping without
-        // either renders as before, and rules that are empty or only white space are none.
-        for key in ["model_token_kind", "standing_rules"] {
+        // The runtime reads the model token's kind, the standing rules and the forge access
+        // (story:forge-access-anonymous); a mapping without any of them renders as before, and
+        // rules that are empty or only white space are none.
+        for key in ["model_token_kind", "standing_rules", "forge_access"] {
             let absent = map.get(key).is_some_and(|value| {
                 value.is_null()
-                    || value
-                        .as_str()
-                        .is_some_and(|text| super::standing_rules_given(text).is_none())
+                    || (key == "standing_rules"
+                        && value
+                            .as_str()
+                            .is_some_and(|text| super::standing_rules_given(text).is_none()))
             });
             if absent {
                 map.shift_remove(key);

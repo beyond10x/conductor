@@ -145,10 +145,14 @@ entities:
       # change of the instance's `standing_rules` into its Secret in place fails
       # (story:instance-rules-text) or is not made: for a refusal (`403`), the rights that write
       # takes and that the daemon does not try again until the text changes, the pod starts
-      # again or the daemon starts again (what it holds back is in its memory only); for a Secret of that name that is not this daemon's for this instance (its labels),
-      # that, naming no right, and the same of trying again; for any other failure, that it did
-      # not go through and its status or kind, naming no right, tried again at the next pass;
-      # and that the pod's sessions still read the earlier text, no part of either text.
+      # again or the daemon starts again (what it holds back is in its memory only); for a
+      # Secret of that name that is not this daemon's for this instance (its labels), that,
+      # naming no right, and the same of trying again; for any other failure, that it did not
+      # go through and its status or kind, naming no right, tried again at the next pass; and
+      # that the pod's sessions still read the earlier text, no part of either text. An
+      # instance whose mapping names `forge_access: anonymous` (story:forge-access-anonymous)
+      # carries one line more, after any other, whatever its state: that it writes nothing to
+      # its forge.
       - name: detail
         type: Optional<String>
       - name: changed_by
@@ -167,6 +171,11 @@ entities:
       # absent where the mapping holds none.
       - name: standing_rules
         type: Optional<String>
+      # How the instance reaches its forge (`instances[].forge_access`,
+      # story:forge-access-anonymous), read from the config file as it holds it at each read;
+      # absent where the mapping holds none.
+      - name: forge_access
+        type: Optional<conductor.config.ForgeAccess>
     relations:
       - name: placement
         kind: references
@@ -279,7 +288,8 @@ views:
 
   # `GET /v1/instances/{name}`: the one row of `Instances` whose name is `name`, and the
   # instance's `git_identity` (story:instance-git-identity), `model_token_kind` and
-  # `standing_rules` (story:instance-rules-text) as its mapping holds them, each absent where it
+  # `standing_rules` (story:instance-rules-text) and `forge_access`
+  # (story:forge-access-anonymous) as its mapping holds them, each absent where it
   # holds none, never the model token's value; an instance the daemon's rows do not hold answers
   # `404` (a retired one, once the daemon reconciled).
   - name: conductor.instance.InstanceByName
@@ -303,6 +313,7 @@ views:
       - {name: git_identity, type: Optional<conductor.config.GitIdentity>}
       - {name: model_token_kind, type: Optional<conductor.config.ModelTokenKind>}
       - {name: standing_rules, type: Optional<String>}
+      - {name: forge_access, type: Optional<conductor.config.ForgeAccess>}
     naming:
       wire: instance
       display: One instance

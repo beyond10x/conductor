@@ -168,6 +168,22 @@ fn git_credentials(sources: &[Source], carried: &BTreeSet<&str>) -> Vec<(String,
     entries
 }
 
+/// Whether `name` is a variable of git's configuration from the environment: [`GIT_CONFIG_COUNT`],
+/// `GIT_CONFIG_KEY_<n>`, `GIT_CONFIG_VALUE_<n>` or `GIT_CONFIG_PARAMETERS`.
+fn is_gits_config(name: &str) -> bool {
+    name == GIT_CONFIG_COUNT
+        || name == "GIT_CONFIG_PARAMETERS"
+        || name.starts_with("GIT_CONFIG_KEY_")
+        || name.starts_with("GIT_CONFIG_VALUE_")
+}
+
+/// Whether `name` is a variable a forge's command line reads a token from
+/// ([`crate::config::FORGE_CLI_TOKEN_VARIABLES`]), or one git asks for a credential through
+/// (`GIT_ASKPASS`).
+fn is_forge_variable(name: &str) -> bool {
+    crate::config::token_variable_forge(name).is_some() || name == "GIT_ASKPASS"
+}
+
 /// The one host the daemon's GitLab token belongs to (decision F3-D2): the value of the
 /// `GITLAB_HOST` entry of `kubernetes.env`, [`crate::config::GITLAB_HOST`] where there is none,
 /// lowercased as git's key is. A port is part of it: `host` and `host:443` are different hosts.
@@ -361,7 +377,14 @@ pub fn manifests(kubernetes: &Kubernetes, config: &Config, instance: &Instance) 
     // nor `glab --hostname` sends it to a host a caller named. An entry left out keeps its secret
     // out of the Secret, unless a kept entry names it too.
     let gitlab_host = gitlab_host(kubernetes);
+    // An instance with `forge_access: anonymous` (story:forge-access-anonymous) carries no
+    // credential of any forge: none of the daemon's forge token variables and no entry of git's
+    // configuration, the installer's included, which may give git a helper.
+    let anonymous = crate::config::anonymous(instance);
     for variable in &kubernetes.env {
+        if anonymous && (is_gits_config(&variable.name) || is_forge_variable(&variable.name)) {
+            continue;
+        }
         match crate::config::token_variable_forge(&variable.name) {
             Some(_) if forge.is_some() => continue,
             Some(kind) if !keeps_daemons_token(&instance.sources, kind, &gitlab_host) => continue,
@@ -396,11 +419,13 @@ pub fn manifests(kubernetes: &Kubernetes, config: &Config, instance: &Instance) 
     }
     // git over HTTPS to the forge of the instance's sources authenticates with the token the pod
     // carries, and git offers it to no other origin (story:pod-git-reaches-forge); where `env`
-    // names `GIT_CONFIG_COUNT`, git's configuration is the installer's.
-    if !kubernetes
-        .env
-        .iter()
-        .any(|named| named.name == GIT_CONFIG_COUNT)
+    // names `GIT_CONFIG_COUNT`, git's configuration is the installer's. An anonymous instance's
+    // pod gets none.
+    if !anonymous
+        && !kubernetes
+            .env
+            .iter()
+            .any(|named| named.name == GIT_CONFIG_COUNT)
     {
         let carried: BTreeSet<&str> = env
             .iter()

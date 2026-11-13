@@ -1,5 +1,5 @@
 // generated from conductor v1
-// contract digest ea6225ee034cd34510f610d78edd12b15d60f43ce9c3eeace1dbaf407b4f6639
+// contract digest 2fc2642808077fb28855408e63bbd2024df0cf9fb9146a58853be9bd124f1c4b
 // do not edit: regenerate with `ess synthesize --layout crate`
 //! Every generated declaration, as JSON, in the renderings the published wire contracts fix.
 //!
@@ -1570,6 +1570,25 @@ pub fn decode_conductor_config_forge(value: &json::Value, at: &str) -> Result<cr
     })
 }
 
+/// Writes `conductor.config.ForgeAccess` as JSON.
+pub fn encode_conductor_config_forge_access(value: &crate::config::ForgeAccess, out: &mut String) {
+    match value {
+        crate::config::ForgeAccess::Anonymous => json::push_text(out, "Anonymous"),
+    }
+}
+
+/// Reads `conductor.config.ForgeAccess` from JSON.
+///
+/// # Errors
+///
+/// [`json::DecodeError`] naming the path and what the declaration says belongs there.
+pub fn decode_conductor_config_forge_access(value: &json::Value, at: &str) -> Result<crate::config::ForgeAccess, json::DecodeError> {
+    Ok(match json::text_at(value, at, "one of `Anonymous`")? {
+        "Anonymous" => crate::config::ForgeAccess::Anonymous,
+        other => return Err(json::DecodeError { at: at.to_owned(), expected: "one of `Anonymous`".to_owned(), found: format!("`{other}`") }),
+    })
+}
+
 /// Writes `conductor.config.ForgeLogin` as JSON.
 pub fn encode_conductor_config_forge_login(value: &crate::config::ForgeLogin, out: &mut String) {
     out.push('{');
@@ -2103,6 +2122,10 @@ pub fn encode_conductor_config_instance(value: &crate::config::Instance, out: &m
         json::member(out, "standing_rules");
         json::push_text(out, &*held0);
     }
+    if let Some(held0) = &value.forge_access {
+        json::member(out, "forge_access");
+        encode_conductor_config_forge_access(&*held0, out);
+    }
     json::member(out, "forge");
     encode_conductor_config_forge(&value.forge, out);
     json::member(out, "conductor");
@@ -2116,7 +2139,7 @@ pub fn encode_conductor_config_instance(value: &crate::config::Instance, out: &m
 ///
 /// [`json::DecodeError`] naming the path and what the declaration says belongs there.
 pub fn decode_conductor_config_instance(value: &json::Value, at: &str) -> Result<crate::config::Instance, json::DecodeError> {
-    json::closed_at(value, at, &["name", "placement", "remote", "session_prefix", "sources", "checkouts", "records", "state", "cache", "roles", "limits", "controllers", "repositories", "cadence", "thresholds", "retention", "reports", "authority", "usage", "operator", "catalog", "secret_syncs", "gates_policy", "model_token", "model_token_kind", "forge_token", "git_identity", "standing_rules", "forge", "conductor"])?;
+    json::closed_at(value, at, &["name", "placement", "remote", "session_prefix", "sources", "checkouts", "records", "state", "cache", "roles", "limits", "controllers", "repositories", "cadence", "thresholds", "retention", "reports", "authority", "usage", "operator", "catalog", "secret_syncs", "gates_policy", "model_token", "model_token_kind", "forge_token", "git_identity", "standing_rules", "forge_access", "forge", "conductor"])?;
     Ok(crate::config::Instance {
         name: {
             let at0 = json::nested(at, "name");
@@ -2313,15 +2336,22 @@ pub fn decode_conductor_config_instance(value: &json::Value, at: &str) -> Result
                 Some(json::text_at(member27, &at27, "a string")?.to_owned())
             }
         },
+        forge_access: match value.member("forge_access") {
+            None | Some(json::Value::Null) => None,
+            Some(member28) => {
+                let at28 = json::nested(at, "forge_access");
+                Some(decode_conductor_config_forge_access(member28, &at28)?)
+            }
+        },
         forge: {
-            let at28 = json::nested(at, "forge");
-            let member28 = json::member_at(value, at, "forge")?;
-            decode_conductor_config_forge(member28, &at28)?
+            let at29 = json::nested(at, "forge");
+            let member29 = json::member_at(value, at, "forge")?;
+            decode_conductor_config_forge(member29, &at29)?
         },
         conductor: {
-            let at29 = json::nested(at, "conductor");
-            let member29 = json::member_at(value, at, "conductor")?;
-            decode_conductor_config_conductor_session(member29, &at29)?
+            let at30 = json::nested(at, "conductor");
+            let member30 = json::member_at(value, at, "conductor")?;
+            decode_conductor_config_conductor_session(member30, &at30)?
         },
     })
 }
@@ -20284,6 +20314,10 @@ pub fn encode_view_conductor_instance_instance_by_name(value: &crate::instance::
     if let Some(held0) = &value.standing_rules {
         json::member(out, "standing_rules");
         json::push_text(out, &*held0);
+    }
+    if let Some(held0) = &value.forge_access {
+        json::member(out, "forge_access");
+        encode_conductor_config_forge_access(&*held0, out);
     }
     out.push('}');
 }

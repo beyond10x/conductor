@@ -410,6 +410,7 @@ impl m::instance::obligations::InstanceByNameQuery for StorePorts {
                     git_identity: data.git_identity,
                     model_token_kind: data.model_token_kind,
                     standing_rules: data.standing_rules,
+                    forge_access: data.forge_access,
                 }
             })
             .collect())

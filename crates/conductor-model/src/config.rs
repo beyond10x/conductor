@@ -1,5 +1,5 @@
 // generated from conductor v1
-// contract digest ea6225ee034cd34510f610d78edd12b15d60f43ce9c3eeace1dbaf407b4f6639
+// contract digest 2fc2642808077fb28855408e63bbd2024df0cf9fb9146a58853be9bd124f1c4b
 // do not edit: regenerate with `ess synthesize --layout crate`
 
 //! Config — `conductor.config`.
@@ -389,6 +389,13 @@ pub struct Forge {
     pub route: ForgeRoute,
 }
 
+/// ForgeAccess — `conductor.config.ForgeAccess`: one of a closed set of names.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ForgeAccess {
+    /// `Anonymous`.
+    Anonymous,
+}
+
 /// ForgeLogin — `conductor.config.ForgeLogin`.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ForgeLogin {
@@ -558,6 +565,8 @@ pub struct Instance {
     pub git_identity: Option<GitIdentity>,
     /// `standing_rules` — `Optional<String>`.
     pub standing_rules: Option<String>,
+    /// `forge_access` — `Optional<conductor.config.ForgeAccess>`.
+    pub forge_access: Option<ForgeAccess>,
     /// `forge` — `conductor.config.Forge`.
     pub forge: Forge,
     /// `conductor` — `conductor.config.ConductorSession`.

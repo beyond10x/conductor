@@ -37,8 +37,9 @@ use crate::{config, decide, repository};
 pub const CONFIG_PATH: &str = "/v1/settings";
 
 /// The keys under an instance the page shows and never changes: `config migrate` moves them, and
-/// the control plane alone writes the instance's standing rules ([`CONTROL_PLANES`]).
-const FIXED: [&str; 8] = [
+/// the control plane alone writes the instance's standing rules and its forge access
+/// ([`CONTROL_PLANE`]).
+const FIXED: [&str; 9] = [
     "name",
     "session_prefix",
     "dashboard_port",
@@ -46,12 +47,21 @@ const FIXED: [&str; 8] = [
     "state",
     "cache",
     "checkouts",
-    CONTROL_PLANES,
+    STANDING_RULES,
+    FORGE_ACCESS,
 ];
 
 /// The instance's standing rules (story:instance-rules-text): the control plane's text, which
 /// `POST` and `PUT /v1/instances` write; the instance's own settings write is no second writer.
-const CONTROL_PLANES: &str = "standing_rules";
+const STANDING_RULES: &str = "standing_rules";
+
+/// The instance's forge access (story:forge-access-anonymous): the control plane's, which `POST`
+/// and `PUT /v1/instances` write; the instance's own settings write is no second writer, so a
+/// session cannot give its instance back a forge it was started without.
+const FORGE_ACCESS: &str = "forge_access";
+
+/// The keys under an instance the control plane alone writes.
+const CONTROL_PLANE: [&str; 2] = [STANDING_RULES, FORGE_ACCESS];
 
 /// When a change of the key at `path` (under the instance) takes effect.
 #[must_use]
@@ -565,7 +575,12 @@ pub(super) fn write(
         for change in &staged.changes {
             let path = format!("{prefix}.{}", change.path);
             if effect(&change.path) == ConfigEffect::Fixed {
-                let message = if change.path.split(['.', '[']).next() == Some(CONTROL_PLANES) {
+                let message = if change
+                    .path
+                    .split(['.', '['])
+                    .next()
+                    .is_some_and(|head| CONTROL_PLANE.contains(&head))
+                {
                     "the page does not change this key; the control plane writes it, with \
                      `PUT /v1/instances/{name}`"
                 } else {
@@ -781,5 +796,7 @@ mod tests {
         assert_eq!(effect("controllers.max_working"), ConfigEffect::Cycle);
         // The control plane's text (story:instance-rules-text): the page never changes it.
         assert_eq!(effect("standing_rules"), ConfigEffect::Fixed);
+        // The control plane's (story:forge-access-anonymous): the page never changes it.
+        assert_eq!(effect("forge_access"), ConfigEffect::Fixed);
     }
 }

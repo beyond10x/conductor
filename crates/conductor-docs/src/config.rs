@@ -70,10 +70,12 @@ const PODS: [&str; 2] = ["daemon", "kubernetes"];
 
 /// The instance keys only a daemon that runs its instances as pods reads (`forge_token`, and only
 /// for an instance whose sources name one forge, story:instance-forge-token; `git_identity`,
-/// story:instance-git-identity): [`SAMPLE`], whose instance has sources on both forges and whose
-/// instance keys are read without [`PODS`], does not set them, their default is written `none`,
-/// and each key of one of them is written `required`, as the library refuses the key without it.
-const POD_ONLY: [&str; 2] = ["forge_token", "git_identity"];
+/// story:instance-git-identity; `forge_access`, only for an instance whose sources are all
+/// `github` with `include`, story:forge-access-anonymous): [`SAMPLE`], whose instance has sources
+/// on both forges and whose instance keys are read without [`PODS`], does not set them, their
+/// default is written `none`, and each key of one of them is written `required`, as the library
+/// refuses the key without it.
+const POD_ONLY: [&str; 3] = ["forge_token", "git_identity", "forge_access"];
 
 /// A config file that sets every key of the specification but [`DERIVED`] and [`POD_ONLY`] to a
 /// value that differs from its default, so that leaving one out shows the default the library

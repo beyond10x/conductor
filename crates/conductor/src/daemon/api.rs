@@ -2063,8 +2063,8 @@ fn change_instance(
 /// /v1/instances` for the instance, while the config file holds it; a `404` naming it while the
 /// file holds none of that name. An instance the file holds and the reconciler has not published
 /// yet reads `Stopped`, as the reconciler writes one whose runtime it did not start. The row
-/// carries the instance's `git_identity`, `model_token_kind` and `standing_rules` as the file
-/// holds them, each where it holds one.
+/// carries the instance's `git_identity`, `model_token_kind`, `standing_rules` and `forge_access`
+/// as the file holds them, each where it holds one.
 fn instance_row(api: &Api, name: &str) -> (u16, &'static str, Value) {
     let unknown = || {
         (
@@ -2129,6 +2129,14 @@ fn instance_row(api: &Api, name: &str) -> (u16, &'static str, Value) {
     // it holds none.
     if let (Some(rules), Some(row)) = (&instance.standing_rules, row.as_object_mut()) {
         row.insert("standing_rules".to_owned(), json!(rules));
+    }
+    // How it reaches its forge as the file holds it now (story:forge-access-anonymous); no member
+    // where it holds none.
+    if let (Some(access), Some(row)) = (instance.forge_access, row.as_object_mut()) {
+        row.insert(
+            "forge_access".to_owned(),
+            json!(crate::config::forge_access_word(access)),
+        );
     }
     (200, "OK", row)
 }

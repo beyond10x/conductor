@@ -301,6 +301,12 @@ impl Shipments {
     }
 }
 
+/// The one line a pass of an instance with `forge_access: anonymous` says of what it does not
+/// read (story:forge-access-anonymous).
+pub const SKIPPED: &str = "github: forge_access: anonymous: this pass reads no pull request, \
+                           issue, release or workflow run of the forge, which the instance has \
+                           no credential of; each included repository is read from its checkout";
+
 /// Records, over every non-archived repository of each GitHub owner of the instance the process
 /// runs, one `RecordPullRequest` per open pull request, one `RecordWorkflowRun` per workflow on
 /// `main`, and the releases and merged pull requests of the [`WINDOW`] before the snapshot
@@ -308,12 +314,20 @@ impl Shipments {
 ///
 /// # Errors
 ///
-/// The snapshot's start does not read, or what [`collect_over`] answers.
+/// The snapshot's start does not read, or what [`collect_over`] answers. For an instance with
+/// `forge_access: anonymous` it records nothing and says [`SKIPPED`] on standard error.
 pub fn collect(record: &mut Recorder<'_>) -> Result<()> {
     let started = record.started_at()?;
     let now = OffsetDateTime::parse(&started.0, &Rfc3339)
         .with_context(|| format!("the snapshot's start {:?} is not RFC 3339", started.0))?;
     let instance = &config::active().instance;
+    // An instance with no credential of its forge asks it nothing (story:forge-access-anonymous):
+    // whether `gh` reads a public repository without a token is shown by no case, so this
+    // collector records nothing and says so, once a pass.
+    if instance.forge_access == Some(conductor_model::config::ForgeAccess::Anonymous) {
+        eprintln!("{SKIPPED}");
+        return Ok(());
+    }
     collect_over(
         &Sources::of(instance),
         &Shipments::live(now),
