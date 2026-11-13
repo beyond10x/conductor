@@ -1,9 +1,9 @@
 # Design: how an instance that runs as a pod reaches its forge
 
 Status: proposal, not accepted; fourth revision, 2026-11-13, with the operator's answers to the
-two questions of § 9 recorded there. Nothing here is built and there is no store record yet. The direction proposed is a forge gateway of a control plane (§ 4), which
-sessions reach through the forge verbs of conductor's tool broker. The decisions asked of the
-operator are in § 9.
+two questions of § 9 recorded there. Nothing here is built and there is no store record yet. The
+direction proposed is a forge gateway of a control plane (§ 4), which sessions reach through the
+forge verbs of conductor's tool broker. The decisions asked of the operator are in § 9.
 
 Paths without a crate are under `crates/conductor/src/`, at tag `v1.6.0` (`700e1caa0d`). "The
 guide" is `website/docs/guides/run-in-kubernetes.md` at that tag. A statement about Kubernetes, git
@@ -291,8 +291,9 @@ Which proof it is has to be decided before step 1, since git uses it from step 1
 | c. the runtime's own token, minted at each start (`daemon/reconcile.rs:352-355`) | one start of the pod | at each start | to one start, by a new call that asks the daemon | not proposed: it reuses a credential the runtime holds for another purpose |
 | d. a token Kubernetes signs for the pod, with the gateway as its audience | expiring (**not shown**) | by Kubernetes (**not shown**) | invalid once the pod is gone (**not shown**) | from step 3: mounted only into the broker's container |
 
-Proposed, and the operator's answer (§ 9): **d**, checked by the gateway with a TokenReview, which answers the pod, whose name is
-`conductor-instance-<name>` (`daemon/pods.rs:219-221`) (**not shown**). Its costs: the rule of
+Proposed, and the operator's answer (§ 9): **d**, checked by the gateway with a TokenReview,
+which answers the pod, whose name is `conductor-instance-<name>` (`daemon/pods.rs:219-221`)
+(**not shown**). Its costs: the rule of
 `daemon/pods.rs:459` is lifted for one projected token; the pod gets a projected volume and the
 file-reading helper above; and the gateway needs access into the pods' cluster, the right to
 create a TokenReview there or a way to reach that cluster's token issuer, which the control plane
