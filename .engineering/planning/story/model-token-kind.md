@@ -6,7 +6,7 @@ status: active
 title: An instance says which kind its model token is, and a subscription token reaches the harness as its variable
 relations:
 - decomposes: epic:deployable-in-kubernetes
-revision: 3
+revision: 4
 transitions:
 - {from: "draft", to: "proposed", at: "2026-11-13T01:11:52Z", actor: "human:timo", revision: 2}
 - {from: "proposed", to: "active", at: "2026-11-13T01:11:52Z", actor: "human:timo", revision: 3}
@@ -43,6 +43,11 @@ no documented route today: the value is handed over as an API key.
 - An instance that runs as a pod is one of the cases: the pod's rendering carries the value as
   it carries `model_token` today (a key of the instance's Secret), and the kind adds no second
   copy.
+- A changed value: the story states, for each kind, what a pod that already runs does when the
+  secret's value changes (keeps the value it started with, or reads the new one, and from which
+  session on), and a test holds it. A control plane that sends no restart can read from the
+  API that a pod runs on an older value than the secret holds: the story names the members it
+  compares (`modified_at` of `GET /v1/instances/{name}/secrets` and the pod's start).
 - A kind the specification does not declare is refused with a declared error at
   `POST /v1/instances` and `PUT /v1/instances/{name}`.
 - `website/docs/guides/run-in-kubernetes.md` names the member, says which kind takes which
