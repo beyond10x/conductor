@@ -256,7 +256,7 @@ instance and the proof's own lifetime. From step 3 on it rests with the broker.
 |---|---|---|---|---|
 | a. a bearer value per instance, named as `forge_token` is (`secret:<name>`) | as long as the control plane lets it | through whoever installs the daemon; reaches the pod at its next start (`daemon/pods.rs:513-530`) | none: it works from anywhere until revoked | only with the separation |
 | b. the same value by a reference to a labelled Secret of the pods' namespace | as a | the control plane writes it; reaches the pod at its next start | none | only with the separation; brings back the label rule and the reference of § 6 |
-| c. the runtime's own token, minted at each start (`daemon/reconcile.rs:352-355`) | one start of the pod | at each start | to one start, by a new call that asks the daemon | only with the separation; the token becomes worth more |
+| c. the runtime's own token, minted at each start (`daemon/reconcile.rs:352-355`) | one start of the pod | at each start | to one start, by a new call that asks the daemon | from step 3: requires that only the runtime and the broker's container hold it |
 | d. a token Kubernetes signs for the pod, with the gateway as its audience | expiring (**not shown**) | by Kubernetes (**not shown**) | invalid once the pod is gone (**not shown**) | from step 3: mounted only into the broker's container |
 
 Proposed: **d**, checked by the gateway with a TokenReview, which answers the pod, whose name is
