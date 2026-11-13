@@ -143,9 +143,12 @@ entities:
       # of its log; for a unit or a child, its failed start. Absent while the runtime answers, and
       # before the daemon observed it fail; for a pod that starts or runs, while a write of a
       # change of the instance's `standing_rules` into its Secret in place fails
-      # (story:instance-rules-text): for a refusal (`403`), the rights that write takes; for any
-      # other failure, that it did not go through and its status or kind, naming no right; and
-      # that the pod's sessions still read the earlier text, no part of either text.
+      # (story:instance-rules-text) or is not made: for a refusal (`403`), the rights that write
+      # takes and that the daemon does not try again until the text changes or the pod starts
+      # again; for a Secret of that name that is not this daemon's for this instance (its labels),
+      # that, naming no right, and the same of trying again; for any other failure, that it did
+      # not go through and its status or kind, naming no right, tried again at the next pass;
+      # and that the pod's sessions still read the earlier text, no part of either text.
       - name: detail
         type: Optional<String>
       - name: changed_by

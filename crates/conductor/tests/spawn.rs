@@ -720,13 +720,13 @@ fn spawn_without_a_profile_or_settings_starts_from_the_binary_s() {
 }
 
 /// story:instance-rules-text: a controller of an instance whose mapping holds `standing_rules`
-/// starts with a prompt file that holds them after its profile, under one line that says they are
-/// the instance's standing rules, verbatim in a fenced block whose fence is longer than any run of
+/// starts with a prompt file that holds them first, under one line that says they are the
+/// instance's standing rules, verbatim in a fenced block whose fence is longer than any run of
 /// backticks in them, so neither the heading line, a fence line nor a heading in the text leaves
-/// the block. A role that starts from the binary's profile gets it in
-/// `<state>/sessions/<session name>.profile.md`; a role whose config names its own profile file
-/// starts from a copy there that holds that profile and the block, and the named file is not
-/// changed.
+/// the block; then an empty line and its profile, byte for byte. A role that starts from the
+/// binary's profile gets it in `<state>/sessions/<session name>.profile.md`; a role whose config
+/// names its own profile file starts from a copy there that holds the block and that profile, and
+/// the named file is not changed.
 #[test]
 fn a_controllers_prompt_file_holds_the_standing_rules_in_a_frame_they_cannot_leave() {
     let shipped =
@@ -747,8 +747,8 @@ fn a_controllers_prompt_file_holds_the_standing_rules_in_a_frame_they_cannot_lea
                 .to_string(),
             "{name}"
         );
-        let (before, fence, inside) = framed(&prompt);
-        assert_eq!(before, format!("{}\n\n", shipped.trim_end()), "{name}");
+        let (after, fence, inside) = framed(&prompt);
+        assert_eq!(after, format!("\n{shipped}"), "{name}");
         assert_eq!(inside, rules, "{name}");
         let longest = longest_run(rules);
         assert!(fence > longest.max(2), "{name}: a fence of {fence}");
@@ -766,8 +766,8 @@ fn a_controllers_prompt_file_holds_the_standing_rules_in_a_frame_they_cannot_lea
             .display()
             .to_string()
     );
-    let (before, _, inside) = framed(&prompt);
-    assert_eq!(before, "# Repository controller\n\n");
+    let (after, _, inside) = framed(&prompt);
+    assert_eq!(after, "\n# Repository controller\n");
     assert_eq!(inside, RULES);
     assert_eq!(
         fs::read_to_string(case.profile()).expect("the role's profile"),

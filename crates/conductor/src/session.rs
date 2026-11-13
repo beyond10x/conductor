@@ -1522,7 +1522,7 @@ fn denied_tools_argument(role: &str) -> Option<String> {
 /// (`story:roles-in-the-binary`): the role's own `profile`, which the harness reads at start;
 /// else, for a role that names no agent either, the one the binary carries, written to
 /// `<state>/sessions/<name>.profile.md` ([`claude_code::write_profile`]); else none. Where the
-/// instance has standing rules `rules` (story:instance-rules-text), their block follows the
+/// instance has standing rules `rules` (story:instance-rules-text), their block precedes the
 /// profile in that file: for the role's own, a copy of it written there, its file not changed
 /// ([`claude_code::write_own`]); for a role that starts from its agent, the block alone.
 ///

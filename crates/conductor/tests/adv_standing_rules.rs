@@ -159,30 +159,37 @@ fn every_text_the_mapping_takes_reaches_the_pods_file_byte_for_byte() {
     );
 }
 
-/// The frame holds the text "in a form the text cannot break out of" whatever the profile before
-/// it: a role's own `profile` file whose last fenced block is still open where the file ends (a
-/// fence opened and never closed) must not make the rules' opening fence close that block and
-/// leave the rules text outside every fence.
+/// The frame holds the text "in a form the text cannot break out of" whatever the profile: the
+/// rules come first, so a role's own `profile` file whose last fenced block is still open where
+/// the file ends (a fence opened and never closed) reaches neither the heading line nor the rules.
+/// The prompt starts with the heading line outside every fence and the rules' block, the block is
+/// closed before the profile's first byte, and the profile follows it unchanged.
 #[test]
-fn the_rules_stay_inside_their_fence_after_a_profile_that_ends_inside_an_open_fence() {
+fn the_rules_stay_inside_their_fence_ahead_of_a_profile_that_ends_inside_an_open_fence() {
     active::isolate();
     let base = "# Repository controller\n\nAn example:\n\n```\nconductor spawn\n";
     let prompt = claude_code::prompt_text(Some(base), Some(RULES)).expect("a prompt");
-    let lines = inside_fences(&prompt);
-    let heading = lines
+    let block = prompt
+        .strip_suffix(&format!("\n{base}"))
+        .unwrap_or_else(|| panic!("the profile ends the prompt unchanged:\n{prompt}"));
+    let lines = inside_fences(block);
+    assert!(
+        lines[0].0.starts_with(HEADING) && !lines[0].1,
+        "the prompt starts with the heading line, outside every fence:\n{prompt}"
+    );
+    let outside: Vec<&str> = lines[2..]
         .iter()
-        .position(|(line, _)| line.starts_with(HEADING))
-        .expect("the heading line");
-    let outside: Vec<&str> = lines[heading + 3..]
-        .iter()
-        .filter(|(line, inside)| !inside && !line.is_empty())
+        .filter(|(_, inside)| !inside)
         .map(|(line, _)| line.as_str())
         .collect();
     assert!(
-        outside.is_empty() && !lines[heading].1,
-        "the heading line is inside a fence: {}; lines of the rules outside every fence: \
-         {outside:?}\n{prompt}",
-        lines[heading].1
+        outside.is_empty(),
+        "lines of the rules' block outside its fence: {outside:?}\n{prompt}"
+    );
+    assert_eq!(
+        inside_fences(&format!("{block}after\n")).last(),
+        Some(&("after".to_owned(), false)),
+        "the rules' block is closed before the profile's first byte:\n{prompt}"
     );
 }
 

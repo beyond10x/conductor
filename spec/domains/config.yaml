@@ -1043,17 +1043,27 @@ types:
       # the member's YAML path, and so by `AddInstance` and `PutInstance` (`ConfigInvalid`). The
       # config file holds no secret, and its secret scan reads this text as every other value:
       # a text with a word that "looks like a token" or a URL that "writes a password in its
-      # URL" is refused the same way, at the same path, and no problem quotes the text. A text
+      # URL" is refused the same way, at the same path, and no problem quotes the text. The
+      # rules are text and no secret reference: a text that is, as a whole once trimmed, a
+      # `secret:<name>` is refused at the same path with a problem that quotes none of it, and
+      # the secret scan of the instance's manifests names no secret of this member. A text
       # that is empty or only white space gives no rule and reads as absent, everywhere the
-      # member is read. The control plane alone writes it: the instance's own settings write
-      # (`WriteConfig`) takes it as `Fixed`. A
-      # session's prompt file holds the text after one line that says it is the instance's
-      # standing rules, verbatim in a fenced block whose fence is longer than any run of
-      # backticks in it, so no line of it closes the block: after the role's profile where the
-      # session starts from one (a role that names its own `profile` file starts from a copy in
-      # the instance's state that holds the profile and the block; the named file is not
-      # changed), and alone in a prompt file of its own beside the agent a role starts from where
-      # it starts from an agent. Each session reads the text as it is at its start, and a session
+      # member is read. `AddInstance` (`POST /v1/instances`) and `PutInstance` (`PUT
+      # /v1/instances/{name}`) alone write it, the calls of the control plane: the instance's
+      # own settings write (`WriteConfig`) takes it as `Fixed`, and `PutConfig` (`PUT
+      # /v1/config`, `conductor config put`) refuses the key `standing_rules`, set or removed,
+      # at every level, with a problem at the key's path that names those two calls and the
+      # config file itself for a host without them, and quotes no part of the value. On a host
+      # that starts its instances as units, a session runs as the daemon's user and can edit
+      # the config file itself. A session's prompt file starts with one line that says the text
+      # is the instance's standing rules, then the text verbatim in a fenced block whose fence is
+      # longer than any run of backticks in it, so no line of it closes the block. Where the
+      # session starts from a role's profile, an empty line and the profile follow the block,
+      # byte for byte: the block is closed before the profile's first byte, so nothing the
+      # profile holds, a block it leaves open among them, reaches the line or the text (a role
+      # that names its own `profile` file starts from a copy in the instance's state that holds
+      # the block and the profile; the named file is not changed). Where the role starts from an
+      # agent, the block stands alone in a prompt file of its own beside the agent. Each session reads the text as it is at its start, and a session
       # that runs keeps the text it started with. Where `daemon.kubernetes` is set, the file the
       # pod runs on writes it, and it is no part of the pod's digest: a change of it alone
       # replaces no pod; the daemon writes the pod's Secret again in place, and the runtime reads

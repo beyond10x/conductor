@@ -987,6 +987,73 @@ fn put_v1_config_changes_the_file_as_an_operator_with_the_grant() {
     assert_eq!(get.status, 405, "{}", get.body);
 }
 
+/// story:instance-rules-text: `PUT /v1/config` is no route that writes an instance's
+/// `standing_rules`; `POST /v1/instances` and `PUT /v1/instances/{name}` are. A change of the key,
+/// set or removed, at the instance level or under `globals`, answers `422` naming its path and
+/// those routes, and no part of the offered value; nothing is written or recorded. Another key of
+/// the instance still goes through.
+#[test]
+fn put_v1_config_refuses_the_standing_rules_and_takes_another_instance_key() {
+    let case = Case::new("put-config-rules");
+    let port = global_api(
+        &case,
+        vec![operator("owner", &[OperatorGrant::ChangeSettings])],
+    );
+    let text = fs::read_to_string(case.file()).expect("read");
+    let offered = "Zq9 marker rule offered through the config route";
+    for (what, change) in [
+        (
+            "set at the instance",
+            json!({"level": "instance", "instance": "example-org", "path": "standing_rules",
+                   "value": offered, "reason": "a second writer"}),
+        ),
+        (
+            "removed at the instance",
+            json!({"level": "instance", "instance": "example-org", "path": "standing_rules",
+                   "reason": "a second writer"}),
+        ),
+        (
+            "set under globals",
+            json!({"level": "global", "path": "standing_rules", "value": offered,
+                   "reason": "a second writer"}),
+        ),
+    ] {
+        let refused = own_write(port, "PUT", "/v1/config", &change);
+        assert_eq!(refused.status, 422, "{what}: {}", refused.body);
+        for words in [
+            "standing_rules",
+            "POST /v1/instances",
+            "PUT /v1/instances/{name}",
+        ] {
+            assert!(
+                refused.body.contains(words),
+                "{what}: the refusal names {words:?}: {}",
+                refused.body
+            );
+        }
+        assert!(!refused.body.contains("Zq9"), "{what}: {}", refused.body);
+        assert_eq!(
+            fs::read_to_string(case.file()).expect("read"),
+            text,
+            "{what}"
+        );
+    }
+    let url = format!("sqlite:{}", case.dir.join("shared.sqlite").display());
+    if let Ok(store) = conductor_cli::store::open_url(&url, conductor_cli::daemon::TENANT) {
+        let revisions = conductor_model::behaviour::ConfigRevisionStorage::list(&store);
+        assert_eq!(revisions.len(), 0, "nothing is recorded");
+    }
+
+    let changed = own_write(
+        port,
+        "PUT",
+        "/v1/config",
+        &json!({"level": "instance", "instance": "example-org",
+                "path": "thresholds.silent_session", "value": "45m", "reason": "another key"}),
+    );
+    assert_eq!(changed.status, 200, "{}", changed.body);
+}
+
 /// `POST /v1/instances/{name}/upgrade` (`story:instance-upgrade`) is a write of the global API
 /// like any other: the operator needs UpgradeInstances, and is refused by name without it before
 /// anything reaches the loop.

@@ -10,6 +10,10 @@
 //! revision's `commit` is empty. A commit that fails puts the old text back, when the file still
 //! holds this run's text, and nothing is recorded. One run at a time reads, writes, commits and
 //! records: each holds an exclusive lock on `.<name>.lock` beside the file.
+//!
+//! The key `standing_rules` is refused at every level, set or removed, before anything is
+//! written, committed or recorded (story:instance-rules-text): `POST /v1/instances` and
+//! `PUT /v1/instances/{name}` alone write an instance's standing rules.
 
 use std::fmt;
 use std::fs;
@@ -27,6 +31,15 @@ use serde_yaml::{Mapping, Value as Yaml};
 
 use super::{Problem, VERSION_2, parse};
 use crate::store::{Store, level_name};
+
+/// The key of an instance's standing rules (story:instance-rules-text), which no change of this
+/// module writes.
+const STANDING_RULES: &str = "standing_rules";
+
+/// Why a change of [`STANDING_RULES`] is refused: the routes that write the text.
+const STANDING_RULES_WRITERS: &str = "is written by `POST /v1/instances` and `PUT \
+     /v1/instances/{name}` alone, or on a host without that call in the config file itself; \
+     `PUT /v1/config` and `conductor config put` do not change an instance's standing rules";
 
 /// Why a change was refused; a refusal wrote, committed and recorded nothing.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -384,6 +397,16 @@ pub fn put_config(
     });
     let under = match scope(&mut yaml, input) {
         Ok((under, map)) => {
+            // An instance's standing rules are written by the instance calls alone
+            // (story:instance-rules-text): refused here at every level, set or removed, and
+            // without a word of the offered value.
+            if input.path.split('.').next() == Some(STANDING_RULES) {
+                return Ok(Err(*PutRefusal::invalid(
+                    input,
+                    &format!("{under}.{STANDING_RULES}"),
+                    STANDING_RULES_WRITERS,
+                )));
+            }
             if let Err(refusal) = set(map, &input.path, value, &under, input) {
                 return Ok(Err(*refusal));
             }

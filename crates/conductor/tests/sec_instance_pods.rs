@@ -869,20 +869,21 @@ fn a_model_token_kind_the_specification_does_not_declare_is_refused_at_the_route
 
 /// An instance's `standing_rules` (story:instance-rules-text) is text of a caller that reaches
 /// the pod in its rendered file only: not the pod's spec, not a variable, not the claim, and never
-/// as a secret, even where the whole text reads `secret:<name>` and names the daemon's own control
-/// token, which no pod gets. Above 16384 bytes of UTF-8, or with a NUL, it is refused `422`
-/// `conductor.config.ConfigInvalid` at its YAML path by `POST /v1/instances` and by
-/// `PUT /v1/instances/{name}`, the file unchanged.
+/// as a secret: a sentence that holds the word `secret:<name>`, here naming the daemon's own
+/// control token, which no pod gets, names no secret ([`conductor_cli::secret::referenced`]), and
+/// the pod's Secret has no key beyond the one of the same instance without rules. Above 16384
+/// bytes of UTF-8, with a NUL, or with a whole text, white space aside, that reads as a secret
+/// reference, it is refused `422` `conductor.config.ConfigInvalid` at its YAML path by
+/// `POST /v1/instances` and by `PUT /v1/instances/{name}`, the file unchanged and no part of the
+/// text in the answer.
 #[test]
 fn standing_rules_reach_the_rendered_file_only_and_are_refused_above_the_bound_at_the_routes() {
     let case = Case::new("standing-rules");
     case.write(" []");
     let port = case.serve();
     let shell = "Rule: $(id) `id` ; & | \\ \" ' GH_TOKEN=x\n";
-    for (name, prefix, text) in [
-        ("beta", "beta", shell),
-        ("delta", "delta", "secret:control"),
-    ] {
+    let sentence = "Never print the value of secret:control into a log.\n";
+    for (name, prefix, text) in [("beta", "beta", shell), ("delta", "delta", sentence)] {
         let sent = mapping(
             name,
             &json!({"session_prefix": prefix, "standing_rules": text}),
@@ -903,10 +904,26 @@ fn standing_rules_reach_the_rendered_file_only_and_are_refused_above_the_bound_a
     let config = conductor_cli::config::parse(&text, &case.home())
         .unwrap_or_else(|problems| panic!("the file does not validate: {problems:?}\n{text}"));
     let kubernetes = config.daemon.kubernetes.clone().expect("daemon.kubernetes");
-    for (index, written) in [(0, shell), (1, "secret:control")] {
+    let referenced = conductor_cli::secret::referenced(&text);
+    for (index, written) in [(0, shell), (1, sentence)] {
         let instance = &config.instances[index];
         assert_eq!(instance.standing_rules.as_deref(), Some(written));
+        assert!(
+            !referenced
+                .get(&instance.name.0)
+                .is_some_and(|names| names.contains("control")),
+            "{referenced:?}"
+        );
         let made = pods::manifests(&kubernetes, &config, instance);
+        let without = conductor_model::config::Instance {
+            standing_rules: None,
+            ..instance.clone()
+        };
+        assert_eq!(
+            made.secrets,
+            pods::manifests(&kubernetes, &config, &without).secrets,
+            "the Secret's keys with the rules are those without"
+        );
         let rendered: serde_yaml::Value =
             serde_yaml::from_str(&made.rendered).expect("the rendered file");
         assert_eq!(
@@ -935,6 +952,16 @@ fn standing_rules_reach_the_rendered_file_only_and_are_refused_above_the_bound_a
     for (what, rules, says) in [
         ("16385 bytes", "a".repeat(16385), "is 16385 bytes"),
         ("a NUL", "one rule\0and another".to_owned(), "a NUL"),
+        (
+            "a secret reference",
+            "secret:control".to_owned(),
+            "no secret reference",
+        ),
+        (
+            "a secret reference in white space",
+            "  secret:alpha-model\n".to_owned(),
+            "no secret reference",
+        ),
     ] {
         let sent = mapping(
             "gamma",
@@ -967,6 +994,12 @@ fn standing_rules_reach_the_rendered_file_only_and_are_refused_above_the_bound_a
                 answer.to_string().contains(says),
                 "{method} {what}: {answer}"
             );
+            for part in ["secret:control", "alpha-model", "one rule"] {
+                assert!(
+                    !answer.to_string().contains(part),
+                    "{method} {what}: the answer quotes the text: {answer}"
+                );
+            }
             assert_eq!(case.text(), before, "{method} {what}: the file changed");
         }
     }

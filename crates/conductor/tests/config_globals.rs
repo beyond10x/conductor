@@ -488,6 +488,116 @@ fn put_validates_writes_commits_and_records_the_change() {
     assert_eq!(store.list_config_revisions().len(), 1);
 }
 
+/// story:instance-rules-text: an instance's `standing_rules` are written by `POST /v1/instances`
+/// and `PUT /v1/instances/{name}` alone. `conductor config put` refuses the key, set or removed,
+/// at the instance level and at the global and role levels, with one line that names the key's
+/// path and those routes and quotes no part of the offered value; the file, its commit and the
+/// store's revisions stay as they were. Another key of the instance still goes through.
+#[test]
+fn config_put_refuses_the_standing_rules_and_takes_another_instance_key() {
+    let case = Case::new("put-standing-rules");
+    let layered = fs::read_to_string(layered(&case)).expect("read");
+    let file = case.write(
+        "conductor.yaml",
+        &format!("{layered}\x20   standing_rules: \"No private name in a commit.\\n\"\n"),
+    );
+    let repo = case.dir.clone();
+    git(&repo, &["init", "-q"]);
+    git(&repo, &["add", "conductor.yaml"]);
+    git(&repo, &["commit", "-q", "-m", "the config"]);
+    let head = git(&repo, &["rev-parse", "HEAD"]);
+    let text = fs::read_to_string(&file).expect("read");
+    let offered = "Zq9 marker rule offered through the config put";
+    let instance = ["--level", "instance", "--instance", "one"];
+    let role = [
+        "--level",
+        "role",
+        "--instance",
+        "one",
+        "--role",
+        "controller",
+    ];
+    let global = ["--level", "global"];
+    for (what, level, value) in [
+        ("set at the instance", &instance[..], Some(offered)),
+        ("removed at the instance", &instance[..], None),
+        ("set at a role", &role[..], Some(offered)),
+        ("set under globals", &global[..], Some(offered)),
+    ] {
+        let mut words = vec!["config", "put"];
+        words.extend_from_slice(level);
+        words.extend_from_slice(&["--path", "standing_rules", "--reason", "a second writer"]);
+        if let Some(value) = value {
+            words.extend_from_slice(&["--value", value]);
+        }
+        let output = case.run(&file, &words);
+        assert_eq!(
+            output.status.code(),
+            Some(1),
+            "{what}: {}",
+            describe(&output)
+        );
+        let said = stderr(&output);
+        assert_eq!(said.lines().count(), 1, "{what}: {said}");
+        for words in [
+            "standing_rules",
+            "POST /v1/instances",
+            "PUT /v1/instances/{name}",
+        ] {
+            assert!(
+                said.contains(words),
+                "{what}: the refusal names {words:?}: {said}"
+            );
+        }
+        assert!(
+            !said.contains("Zq9"),
+            "{what}: the refusal quotes the value: {said}"
+        );
+        assert_eq!(fs::read_to_string(&file).expect("read"), text, "{what}");
+        assert_eq!(git(&repo, &["rev-parse", "HEAD"]), head, "{what}");
+    }
+    let url = format!(
+        "sqlite:{}",
+        case.home().join("daemon/conductor.sqlite").display()
+    );
+    if let Ok(store) = conductor_cli::store::open_url(&url, conductor_cli::daemon::TENANT) {
+        assert_eq!(
+            store.list_config_revisions().len(),
+            0,
+            "nothing is recorded"
+        );
+    }
+
+    let output = case.run(
+        &file,
+        &[
+            "config",
+            "put",
+            "--level",
+            "instance",
+            "--instance",
+            "one",
+            "--path",
+            "thresholds.silent_session",
+            "--value",
+            "45m",
+            "--reason",
+            "another key",
+        ],
+    );
+    assert_eq!(output.status.code(), Some(0), "{}", describe(&output));
+    let written: Value =
+        serde_yaml::from_str(&fs::read_to_string(&file).expect("read")).expect("yaml");
+    assert_eq!(
+        written["instances"][0]["thresholds"]["silent_session"],
+        "45m"
+    );
+    assert_eq!(
+        written["instances"][0]["standing_rules"], "No private name in a commit.\n",
+        "{written:#}"
+    );
+}
+
 /// The function `PUT /v1/config` calls: an agent changes only a key the tuning grant names, to a
 /// value inside its range, and no change is written at `Default`.
 #[test]

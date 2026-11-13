@@ -538,8 +538,43 @@ fn the_guide_names_the_standing_rules_who_reads_them_and_what_a_change_reaches()
         "the daemon's user",
         "`detail`",
         "`conductor doctor`",
+        "`POST /v1/instances`",
+        "`PUT /v1/instances/{name}`",
+        "`PUT /v1/config`",
+        "`conductor config put`",
+        "no secret reference",
+        "not by itself",
     ] {
         assert!(text.contains(words), "the section says {words:?}:\n{text}");
+    }
+}
+
+/// Each place of the guide that says how far the Role's rights reach says it of the writes too:
+/// `create`, `delete` and `update` on Secrets can write or replace any Secret of that namespace,
+/// an instance's API token and its rendered config included (story:instance-rules-text), beside
+/// what `get`, `list` and `create` on pods reach.
+#[test]
+fn every_place_that_says_how_far_the_rights_reach_names_the_writes_on_secrets() {
+    let guide = read(GUIDE);
+    for start in [
+        "The daemon needs no right in its own namespace.",
+        "These rights reach further than the daemon's own objects.",
+    ] {
+        let at = guide
+            .find(start)
+            .unwrap_or_else(|| panic!("the guide says {start:?}"));
+        let paragraph = guide[at..].split("\n\n").next().unwrap_or_default();
+        for words in [
+            "`create`, `delete` and `update` on Secrets",
+            "write or replace any Secret",
+            "API token",
+            "rendered config",
+        ] {
+            assert!(
+                paragraph.contains(words),
+                "the paragraph says {words:?}:\n{paragraph}"
+            );
+        }
     }
 }
 

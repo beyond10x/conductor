@@ -866,16 +866,8 @@ fn with_dispatch(charter: &str, repository: &str, id: &str, unit: Option<&Unit>)
 /// and the block.
 #[must_use]
 pub fn fenced(text: &str) -> (usize, String) {
-    fenced_longer(text, 0)
-}
-
-/// [`fenced`] with a fence longer than `longer_than` backticks as well: the instance's standing
-/// rules after a profile, whose runs of backticks their fence outruns too
-/// (story:instance-rules-text).
-#[must_use]
-pub fn fenced_longer(text: &str, longer_than: usize) -> (usize, String) {
     let longest = text.split(|c| c != '`').map(str::len).max().unwrap_or(0);
-    let fence = "`".repeat(longest.max(longer_than).max(2) + 1);
+    let fence = "`".repeat(longest.max(2) + 1);
     let mut block = format!("{fence}\n{text}");
     if !text.ends_with('\n') {
         block.push('\n');
@@ -1089,7 +1081,7 @@ fn pinned_settings(
 /// the role's own, read by the harness at start; else the one the binary carries for a
 /// controller, written to `<state>/sessions/<session name>.profile.md`
 /// ([`claude_code::write_profile`]). Where the instance has standing rules `rules`
-/// (story:instance-rules-text), their block follows the profile in that file: for a role's own
+/// (story:instance-rules-text), their block precedes the profile in that file: for a role's own
 /// profile, a copy of it written there, the role's file not changed ([`claude_code::write_own`]).
 fn role_files(
     profile: Option<String>,

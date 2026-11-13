@@ -800,7 +800,8 @@ fn the_provider_is_given_the_role_s_request_and_first_prompt() {
 /// director, which starts from an agent and with no prompt file, starts with one now beside its
 /// agent, `<state>/sessions/<session name>.profile.md`, that holds the rules alone under the
 /// heading line, in their frame; its other arguments are the ones it had. The maintainer, which
-/// starts from the binary's profile, starts with that profile and the rules after it. A session
+/// starts from the binary's profile, starts with the rules and that profile after them, byte for
+/// byte. A session
 /// started after the mapping changed reads the new text. Without the member, both start as
 /// [`the_provider_is_given_the_role_s_request_and_first_prompt`] holds: no prompt file for the
 /// director, the binary's profile byte for byte for the maintainer.
@@ -845,9 +846,9 @@ fn the_director_and_the_maintainer_start_with_the_standing_rules_in_their_prompt
             settings.display().to_string(),
         ])
     );
-    let (before, fence, inside) = framed(&fs::read_to_string(&prompt).expect("the prompt file"));
+    let (after, fence, inside) = framed(&fs::read_to_string(&prompt).expect("the prompt file"));
     assert_eq!(
-        before, "",
+        after, "",
         "the director's prompt file holds the rules alone"
     );
     assert_eq!(inside, HOSTILE);
@@ -856,11 +857,11 @@ fn the_director_and_the_maintainer_start_with_the_standing_rules_in_their_prompt
     let output = case.start("conductor-dev");
     assert_eq!(output.status.code(), Some(0), "{}", describe(&output));
     let dev = case.state().join("sessions/conductor-dev.profile.md");
-    let (before, _, inside) = framed(&fs::read_to_string(&dev).expect("the prompt file"));
+    let (after, _, inside) = framed(&fs::read_to_string(&dev).expect("the prompt file"));
     let maintainer =
         fs::read_to_string(Path::new(env!("CARGO_MANIFEST_DIR")).join("roles/maintainer.md"))
             .expect("the maintainer profile");
-    assert_eq!(before, format!("{}\n\n", maintainer.trim_end()));
+    assert_eq!(after, format!("\n{maintainer}"));
     assert_eq!(inside, HOSTILE);
 
     // The mapping changed: the next session's start reads the new text.

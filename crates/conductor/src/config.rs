@@ -553,7 +553,9 @@ pub fn git_identity_problem(text: &str, email: bool) -> Option<String> {
 pub const STANDING_RULES_BYTES: usize = 16_384;
 
 /// Why `text` is no value of an instance's `standing_rules` (story:instance-rules-text): more
-/// than [`STANDING_RULES_BYTES`] bytes of UTF-8, or a NUL. `None` for a text that holds.
+/// than [`STANDING_RULES_BYTES`] bytes of UTF-8, a NUL, or a whole text that, white space aside,
+/// is one secret reference ([`secret_name`]). `None` for a text that holds. No problem quotes the
+/// text.
 #[must_use]
 pub fn standing_rules_problem(text: &str) -> Option<String> {
     if text.len() > STANDING_RULES_BYTES {
@@ -562,6 +564,13 @@ pub fn standing_rules_problem(text: &str) -> Option<String> {
              bytes of UTF-8",
             text.len()
         ));
+    }
+    if secret_name(text.trim()) {
+        return Some(
+            "is, as a whole, a reference to a secret: the standing rules of an instance are text \
+             a session reads and no secret reference; write the rule as a sentence"
+                .to_owned(),
+        );
     }
     text.contains('\0').then(|| {
         "holds a NUL character: the standing rules of an instance hold none, as no prompt file \

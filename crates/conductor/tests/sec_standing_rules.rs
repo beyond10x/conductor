@@ -323,7 +323,8 @@ fn a_refused_standing_rules_text_is_not_quoted_in_the_problem() {
 /// B. A text of the most bytes the member takes, all backticks, and texts with the line breaks
 /// and separators another reader may break a line on (CR, NEL, U+2028, U+2029) and C1 controls,
 /// stay inside their block: the fence is longer than any run of backticks in the text, every
-/// line of the block between the fences is the text's, and the block is the file's end.
+/// line of the block between the fences is the text's, and the block is closed before the
+/// profile, which follows it unchanged.
 #[test]
 fn a_rules_text_at_the_bound_or_with_other_line_breaks_stays_in_its_block() {
     active::isolate();
@@ -335,8 +336,8 @@ fn a_rules_text_at_the_bound_or_with_other_line_breaks_stays_in_its_block() {
         assert_eq!(config::standing_rules_problem(text), None, "{what}");
         let prompt =
             claude_code::prompt_text(Some("The role's profile.\n"), Some(text)).expect("a prompt");
-        let (before, fence, inside) = framed(&prompt);
-        assert_eq!(before, "The role's profile.\n\n", "{what}");
+        let (after, fence, inside) = framed(&prompt);
+        assert_eq!(after, "\nThe role's profile.\n", "{what}");
         assert!(fence > longest_run(text), "{what}: fence {fence}");
         let expected = if text.ends_with('\n') {
             text.to_owned()

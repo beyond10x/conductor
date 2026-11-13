@@ -13,9 +13,9 @@
 //! the director and a controller start with when their role names none ([`settings`]), the files
 //! under `crates/conductor/kinds/claude-code/`. No adapter is committed for a role and none is
 //! written under `~/.claude/agents/`. Where the instance has standing rules
-//! (story:instance-rules-text), the same file holds them after the profile, framed
-//! ([`standing_rules_block`]); a role with a profile file of its own gets a copy of it with them
-//! ([`write_own`]), and the file it names is not changed.
+//! (story:instance-rules-text), the same file holds them first, framed
+//! ([`standing_rules_block`]), and the profile after them as it is; a role with a profile file of
+//! its own gets a copy of it with them ([`write_own`]), and the file it names is not changed.
 
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -108,68 +108,24 @@ pub fn standing_rules_heading(fence: usize) -> String {
 /// frame of the work call's brief), so no line of them closes the block.
 #[must_use]
 pub fn standing_rules_block(rules: &str) -> String {
-    standing_rules_block_after(rules, 0)
-}
-
-/// [`standing_rules_block`] with a fence longer than `longer_than` backticks as well.
-fn standing_rules_block_after(rules: &str, longer_than: usize) -> String {
-    let (fence, block) = crate::spawn::fenced_longer(rules, longer_than);
+    let (fence, block) = crate::spawn::fenced(rules);
     format!("{}\n\n{block}", standing_rules_heading(fence))
 }
 
-/// The fenced code block `text` leaves open at its end, as CommonMark reads fences: the
-/// character and the length of its opening fence; `None` where every fenced block it opens is
-/// closed.
-fn open_fence(text: &str) -> Option<(char, usize)> {
-    let mut open: Option<(char, usize)> = None;
-    for line in text.lines() {
-        let rest = line.trim_start_matches(' ');
-        if line.len() - rest.len() > 3 {
-            continue;
-        }
-        let Some(mark) = rest.chars().next().filter(|c| *c == '`' || *c == '~') else {
-            continue;
-        };
-        let run = rest.chars().take_while(|c| *c == mark).count();
-        match open {
-            None if run >= 3 && !(mark == '`' && rest[run..].contains('`')) => {
-                open = Some((mark, run));
-            }
-            Some((held, length))
-                if held == mark && run >= length && rest[run..].trim().is_empty() =>
-            {
-                open = None;
-            }
-            _ => {}
-        }
-    }
-    open
-}
-
-/// The text of a session's prompt file: `base`, the profile it starts from, where it starts from
-/// one, and after it, where the instance has standing rules, their block
-/// ([`standing_rules_block`]); `None` where it has neither. Rules that are empty or only white
-/// space are none ([`crate::config::standing_rules_given`]): without standing rules it is `base`,
-/// byte for byte. After a profile, the rules' fence is longer than any run of backticks in the
-/// profile too, and a fenced block the profile leaves open is closed before the heading line, so
-/// the heading and the rules stand outside it.
+/// The text of a session's prompt file: where the instance has standing rules, their block
+/// ([`standing_rules_block`]) first, and after it, where the session starts from a profile `base`,
+/// an empty line and `base` byte for byte; `None` where it has neither. Rules that are empty or
+/// only white space are none ([`crate::config::standing_rules_given`]): without standing rules it
+/// is `base`, byte for byte. The rules' block is closed before the profile's first byte, so
+/// nothing the profile holds, a block it leaves open among them, reaches the heading line or the
+/// rules, and the profile reads as it does without them.
 #[must_use]
 pub fn prompt_text(base: Option<&str>, rules: Option<&str>) -> Option<String> {
     let rules = rules.and_then(crate::config::standing_rules_given);
     match (base, rules) {
         (base, None) => base.map(str::to_owned),
         (None, Some(rules)) => Some(standing_rules_block(rules)),
-        (Some(base), Some(rules)) => {
-            let base = base.trim_end();
-            let close = open_fence(base)
-                .map(|(mark, length)| format!("\n{}", mark.to_string().repeat(length)))
-                .unwrap_or_default();
-            let longest = base.split(|c| c != '`').map(str::len).max().unwrap_or(0);
-            Some(format!(
-                "{base}{close}\n\n{}",
-                standing_rules_block_after(rules, longest)
-            ))
-        }
+        (Some(base), Some(rules)) => Some(format!("{}\n{base}", standing_rules_block(rules))),
     }
 }
 
@@ -196,10 +152,10 @@ pub fn write_prompt(
     Ok(Some(file))
 }
 
-/// Writes the profile the binary carries for `role` ([`crate::role::profile`]), followed by the
-/// block of the instance's standing rules `rules` where it has them, to the session's profile
-/// file ([`profile_file`]) and answers its path; `None`, writing nothing, for a role the binary
-/// carries none for and an instance without standing rules.
+/// Writes the profile the binary carries for `role` ([`crate::role::profile`]), after the block
+/// of the instance's standing rules `rules` where it has them ([`prompt_text`]), to the session's
+/// profile file ([`profile_file`]) and answers its path; `None`, writing nothing, for a role the
+/// binary carries none for and an instance without standing rules.
 ///
 /// # Errors
 ///
@@ -213,9 +169,9 @@ pub fn write_profile(
     write_prompt(state, session, crate::role::profile(role), rules)
 }
 
-/// Writes the role's own profile file `own`, followed by the block of the instance's standing
-/// rules `rules`, to the session's profile file ([`profile_file`]) and answers its path: a copy in
-/// the session's state, so the file the role names is not changed.
+/// Writes the role's own profile file `own`, after the block of the instance's standing rules
+/// `rules` ([`prompt_text`]), to the session's profile file ([`profile_file`]) and answers its
+/// path: a copy in the session's state, so the file the role names is not changed.
 ///
 /// # Errors
 ///

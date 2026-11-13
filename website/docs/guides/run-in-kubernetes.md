@@ -243,7 +243,9 @@ conductor doctor` names one row per right of the Role, `kubernetes conductor-ins
 
 The daemon needs no right in its own namespace. `daemon.kubernetes.namespace` may also name the
 daemon's own namespace, with the Role and the RoleBinding there. That layout works, and the
-daemon then reaches every Secret of its own namespace, its control token among them: [the
+daemon then reaches every Secret of its own namespace, its control token among them. Its
+`create`, `delete` and `update` on Secrets can write or replace any Secret of that namespace, an
+instance's API token and its rendered config included, so nothing else may live there: [the
 rights](#the-rights-and-why-each-verb) say why to keep the two apart.
 
 ## The daemon-config file
@@ -270,7 +272,7 @@ instances live on the volume and arrive over HTTP. A file with no instance is al
 | `daemon.kubernetes.env` | none | variables of each instance pod, each a `value` or a `secret`, such as `GH_TOKEN` for an instance with a GitHub source, or `GITLAB_TOKEN` and `GITLAB_HOST` for a self-hosted GitLab; an instance's `forge_token` takes the place of every entry of the daemon's forge token variables in its own pod, see [forge credentials](#forge-credentials) |
 | `git_identity`, a key of an instance's mapping, not of this file | none | the git identity the instance's pod commits with, `{"name": "Example Bot", "email": "bot@example.com"}`: each value 1 to 200 bytes on one line, with no control character, no `<`, no `>` and no white space at either end, the `email` with exactly one `@`; a mapping that breaks the rule is refused `422` at the value's path. It takes the place of `daemon.kubernetes.env` entries of the identity's variables in the instance's pod, see [what the daemon creates](#what-the-daemon-creates-for-each-instance) |
 | `model_token_kind`, a key of an instance's mapping, not of this file | none | the kind of the instance's `model_token`: `api_key`, as where the mapping names none, or `subscription_token`; a mapping that names it without a `model_token`, or names another word, is refused `422` at its path. See [the model token](#the-model-token) |
-| `standing_rules`, a key of an instance's mapping, not of this file | none | text every session the instance starts reads in its prompt file, at most 16384 bytes of UTF-8 with no NUL; a mapping that breaks either is refused `422` at its path. See [standing rules](#standing-rules) |
+| `standing_rules`, a key of an instance's mapping, not of this file | none | text every session the instance starts reads in its prompt file, at most 16384 bytes of UTF-8 with no NUL and no `secret:<name>` as its whole text; a mapping that breaks one of these is refused `422` at its path. Only the instance calls write it; `PUT /v1/config` refuses it. See [standing rules](#standing-rules) |
 
 The [config reference](../reference/config.md) has each key's rules.
 
@@ -297,8 +299,10 @@ one that is not granted. `kubectl auth can-i --list --as
 system:serviceaccount:conductor:conductor -n conductor-instances` lists them.
 
 These rights reach further than the daemon's own objects. `get` and `list` on Secrets read every
-Secret of the namespace, and `create` on pods starts a pod that may name any Secret and any
-service account of the namespace. So the namespace of the instance pods:
+Secret of the namespace, `create`, `delete` and `update` on Secrets can write or replace any Secret
+of the namespace, an instance's API token and its rendered config included, and `create` on pods
+starts a pod that may name any Secret and any service account of the namespace. So nothing else
+may live in the namespace of the instance pods. That namespace:
 
 - holds nothing but what the daemon makes there, the Role, the RoleBinding and the network
   policy: no other workload, Secret or service account than the `default` one Kubernetes makes,
@@ -911,21 +915,30 @@ looks like a token (one starting `ghp_` or `glpat-`, say) or a URL that writes a
 (`https://user:password@…`) is refused there too, and the problem quotes no part of the text.
 Write such a rule without the word itself, for example "no token of a forge goes into a file". A
 text that is empty or only white space is no rule: the mapping reads as one without the member.
+The rules are text and no secret reference: a text that is, as a whole, a `secret:<name>` is
+refused `422` at the same path, quoting no part of it, while a sentence that holds such a word is
+taken as text and names no secret of the instance.
 
-The control plane alone writes the text. The instance's own settings write, the dashboard's
-configuration page, shows `standing_rules` as fixed and refuses to change it. On a host where the
+Only `POST /v1/instances` and `PUT /v1/instances/{name}` write the text, the calls of the control
+plane. The instance's own settings write, the dashboard's configuration page, shows
+`standing_rules` as fixed and refuses to change it. `PUT /v1/config` and `conductor config put`
+refuse the key `standing_rules` too, set or removed, at the instance and at every other level, with
+a problem at the key's path that names the two calls, and change nothing. On a host where the
 daemon starts its instances as units rather than as pods, a session runs as the daemon's user and
 can edit the config file itself, as that host's trust model already says of every key.
 
-A session gets the text in its prompt file, after one line that says these are the instance's
-standing rules, verbatim inside a fenced block whose fence of backticks is longer than any run of
-backticks in the text, so no line of the text closes the block:
+A session gets the text at the start of its prompt file, after one line that says these are the
+instance's standing rules, verbatim inside a fenced block whose fence of backticks is longer than
+any run of backticks in the text, so no line of the text closes the block. Where the session
+starts from a profile, an empty line and the profile follow the block, byte for byte. The block
+is closed before the profile's first byte, so nothing the profile holds, a block it leaves open
+among them, reaches the heading line or the text, and the profile reads as it does without them:
 
 - a role that starts from the profile the binary carries, as a controller and the maintainer do
-  by default, starts from that profile with the block after it, written to
+  by default, starts from the block with that profile after it, written to
   `<state>/sessions/<session name>.profile.md`;
-- a role whose config names its own `profile` file starts from a copy there that holds that
-  file's text and the block; the named file is not changed;
+- a role whose config names its own `profile` file starts from a copy there that holds the block
+  and that file's text; the named file is not changed;
 - a role that starts from an agent, as the director does, gets a prompt file with the block alone
   beside its agent.
 
@@ -944,17 +957,28 @@ member where it holds none. A file that does not read or validate when a session
 the session the text the runtime last read, and the runtime writes one line to its log that names
 the file and why, and no part of the text.
 
-Where the Role lacks `update` on Secrets, the API refuses the write in place (`403`). The
-instance's row then says so in its `detail`, naming the right, that the pod's sessions still read
-the earlier text and that the pod's next start delivers the new one. A write that fails otherwise,
-such as a `500`, a `409` conflict or an API server that does not answer, is no missing right: the
-`detail` says the write did not go through and gives the status or the kind of failure, names no
-right, and says the same of the sessions and the next start. Either clears once a write goes
-through, the Secret holds the text already, or the pod starts again; the daemon's log gets one
-line when a failure begins or changes and one when it ends. Nothing is deleted or replaced in its
-place: the pod and its Secret stay as they were, and the next pass tries again. `conductor doctor`
-and `conductor setup` fail on the missing right only once an instance names `standing_rules`;
-until then its row says it is not needed yet.
+Where the Role lacks `get` or `update` on Secrets, the API refuses the read or the write in place
+(`403`). The instance's row then says so in its `detail`, naming the right, that the daemon does
+not try again until the text changes or the pod starts again, that the pod's sessions still read
+the earlier text and that the pod's next start delivers the new one. Until then the daemon makes
+no call for that Secret. So once the Role is corrected, the write happens at the next change of
+the text or the next start of the pod, not by itself. Where a Secret of the instance's name is
+there that is not this daemon's for this instance, its labels naming another daemon or instance
+or none, the daemon does not write it: the `detail` says so, names no right, and the daemon does
+not try again until the text changes or the pod starts again either. A write that fails
+otherwise, such as a `500`, a `409` conflict or an API server that does not answer, is no missing
+right: the `detail` says the write did not go through and gives the status or the kind of
+failure, names no right, says the same of the sessions and the next start, and the next pass
+tries again. Each clears once a write goes through, the Secret holds the text already, or the pod
+starts again; the daemon's log gets one line when a failure begins or changes and one when it
+ends. Nothing is deleted or replaced in its place: the pod and its Secret stay as they were.
+
+A Role made for an earlier release lacks `update` on Secrets: add the verb when you upgrade the
+daemon. `conductor doctor` and `conductor setup` fail on it as on every right not granted, whether
+or not an instance names `standing_rules`. Until the verb is added, a change of an instance's
+text, its removal included, is refused (`403`) as above: the `detail` says so, the daemon does not
+try again until the text changes or the pod starts again, and the pod's next start delivers the
+text.
 
 ## Limits
 
