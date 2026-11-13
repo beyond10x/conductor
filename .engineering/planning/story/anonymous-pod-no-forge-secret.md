@@ -2,7 +2,7 @@
 format: aep.planning-md/3
 id: story:anonymous-pod-no-forge-secret
 kind: story
-status: active
+status: implemented
 title: An anonymous instance's pod carries no forge credential under any entry name
 relations:
 - depends_on: story:forge-access-anonymous
@@ -21,10 +21,11 @@ scope:
   path: crates/conductor/tests
 - confidence: cited
   path: website/docs
-revision: 4
+revision: 5
 transitions:
 - {from: "draft", to: "proposed", at: "2026-11-13T13:49:08Z", actor: "human:timo", revision: 2}
 - {from: "proposed", to: "active", at: "2026-11-13T13:49:09Z", actor: "human:timo", revision: 3}
+- {from: "active", to: "implemented", at: "2026-11-13T22:48:33Z", actor: "human:timo", revision: 5, decided_on: {"recorded":{"test_result":1,"review_outcome":1}}}
 ---
 ## Why
 
