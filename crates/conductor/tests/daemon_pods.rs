@@ -1173,10 +1173,11 @@ fn the_daemons_seeding_skips_pod_run_instances() {
 /// The pod of an instance that names no `forge_token` (story:instance-forge-token) and has a
 /// `github` source under the daemon's `GH_TOKEN` is the pod the supervisor of v1.4.0 made for
 /// this case's file, and git's three variables after the git identity
-/// (story:pod-git-reaches-forge), and `GLAB_SEND_TELEMETRY` after them: its spec, its claim,
-/// its rendered file, the secrets its Secret holds and its digest, held to
-/// `tests/fixtures/k8s/pod-alpha.json`. The pods that carry no token of a forge of theirs are
-/// held to v1.4.0, and `GLAB_SEND_TELEMETRY`, byte for byte by the three fixtures
+/// (story:pod-git-reaches-forge), and `GLAB_SEND_TELEMETRY` after them, and the secret volume's
+/// `items`: its spec, its claim, its rendered file, the secrets its Secret holds and its
+/// digest, held to `tests/fixtures/k8s/pod-alpha.json`. The pods that carry no token of a forge
+/// of theirs are held to v1.4.0, `GLAB_SEND_TELEMETRY` and the secret volume's `items`, byte for
+/// byte by the three fixtures
 /// `pod-alpha-no-token.json`, `pod-alpha-local.json` and `pod-alpha-git-config.json`.
 #[test]
 fn the_pod_of_an_instance_under_the_daemons_token_is_the_one_of_v1_4_0_and_gits_variables() {
@@ -2372,7 +2373,7 @@ fn held_to(case: &Case, made: &pods::Manifests, fixture: &str) -> Option<String>
 /// A pod that git's credential helpers leave as it was (story:pod-git-reaches-forge), each held
 /// byte for byte to the pod the supervisor made before them, written from the supervisor of
 /// `cda5f4f0e` for the same file, and since then with `GLAB_SEND_TELEMETRY` after the git
-/// identity: a `github` instance's pod that carries no forge token; the pod of an instance with a `local` source only, under a daemon-wide `GH_TOKEN`; and a `github`
+/// identity and the secret volume's `items`: a `github` instance's pod that carries no forge token; the pod of an instance with a `local` source only, under a daemon-wide `GH_TOKEN`; and a `github`
 /// instance's pod under a daemon-wide `GH_TOKEN` whose `env` names `GIT_CONFIG_COUNT`, where the
 /// installer owns git's configuration.
 #[test]

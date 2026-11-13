@@ -68,8 +68,8 @@ use crate::store::{Store, StoreError};
 pub mod behaviour;
 
 pub use behaviour::{
-    ISSUE_MOST, LINK_MOST, LINKS_MOST, REFERENCE_MOST, START_REF_MOST, refused_member, valid_issue,
-    valid_link, valid_reference, valid_start_ref,
+    BRIEF_BACKTICKS_MOST, ISSUE_MOST, LINK_MOST, LINKS_MOST, REFERENCE_MOST, START_REF_MOST,
+    refused_brief, refused_member, valid_issue, valid_link, valid_reference, valid_start_ref,
 };
 
 /// The prefix `conductor.dispatch.DispatchId` declares (`spec/domains/dispatch.yaml`).
@@ -88,7 +88,9 @@ const DISPATCH: &str = "conductor.dispatch.Dispatch";
 /// falls outside the UTC years 1 to 9999, `--repository` is one neither the newest complete
 /// snapshot nor the workspace names, the store does not open or keep the dispatch,
 /// another writer took every allocated id, `--start-ref` or `--issue` is not one a dispatch
-/// carries (`InvalidWorkRequest`, [`refused_member`]), or the specification refuses it:
+/// carries (`InvalidWorkRequest`, [`refused_member`]), `--brief` holds a NUL or a run of more
+/// than [`BRIEF_BACKTICKS_MOST`] backticks (`InvalidBrief`, [`refused_brief`]), or the
+/// specification refuses it:
 /// `InvalidPriority`, `WaitsOnItself`, `GoalNotFound`, `GoalClosed`.
 pub fn send_dispatch(state: Option<&Path>, args: SendDispatchArgs) -> Result<ExitCode> {
     let id = send_to(state, args, true)?;
@@ -318,6 +320,37 @@ fn work_start_refusal(name: &str) -> Option<conductor_model::dispatch::WorkStart
     wire::decode_conductor_dispatch_work_start_refusal(&value, "").ok()
 }
 
+/// The most starts of a unit of work that may fail at the launch before the loop leaves it to the
+/// operator ([`failed_starts`]).
+pub const FAILED_STARTS_MOST: usize = 3;
+
+/// How many starts of the dispatch `id` of `repository`, sent at `sent_at`, failed at the launch:
+/// its `start-refused` lines under `records` whose reason is `StartFailed` or `LaunchFailed`. A
+/// refusal that starts nothing, `ControllerLimit` and `AlreadyRunning` among them, does not count.
+///
+/// # Errors
+///
+/// The log's directory or a month file does not read.
+pub fn failed_starts(
+    records: &Path,
+    sent_at: &Timestamp,
+    repository: &str,
+    id: &str,
+) -> Result<usize> {
+    Ok(dispatch_lines(records, sent_at)?
+        .iter()
+        .filter(|line| {
+            line["event"] == "start-refused"
+                && line["id"] == id
+                && line["repo"] == repository
+                && matches!(
+                    line["reason"].as_str(),
+                    Some("StartFailed" | "LaunchFailed")
+                )
+        })
+        .count())
+}
+
 /// The lines of the records' dispatch log under `records` in its month files from the month of
 /// `since` on, in file and line order; a line that is no JSON object is passed over.
 fn dispatch_lines(records: &Path, since: &Timestamp) -> Result<Vec<Value>> {
@@ -375,6 +408,12 @@ fn send_as(
                 "--{} is not taken: {rule}; nothing was sent",
                 member.replace('_', "-")
             ),
+        ));
+    }
+    if let Some(why) = refused_brief(&brief) {
+        return Ok(refusal(
+            "InvalidBrief",
+            format!("--brief is not taken: {why}; nothing was sent"),
         ));
     }
     // A flag check, so it opens no store; the behaviour refuses the same input when another caller

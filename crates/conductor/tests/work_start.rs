@@ -15,7 +15,8 @@
 //!
 //! The stand-ins, written here and never committed: `claude` (`agents --json` prints `[]`; a
 //! `--bg` call is a launch, counted in `f/launches`, whose last argument, the first prompt, is
-//! kept in `f/prompt.<n>`, and which prints the session id `s000000<n>-0000`; any other call, such
+//! kept in `f/prompt.<n>`, and which prints the session id `s000000<n>-0000`, or, while a file
+//! `f/fail` is there, exits 1 instead, a harness that cannot start; any other call, such
 //! as doctor's `--version`, prints nothing), `gh` and `aep` (`[]`),
 //! and `conductor-steps`, the program a cycle's steps run in the child, which runs nothing. No
 //! real session starts. The runtime is the built binary's `instance serve` with its loop off; a
@@ -223,6 +224,7 @@ impl Case {
                  echo \"$n\" > \"$D/launches\"\n\
                  for arg; do last=\"$arg\"; done\n\
                  printf '%s' \"$last\" > \"$D/prompt.$n\"\n\
+                 if [ -e \"$D/fail\" ]; then echo 'cannot start' >&2; exit 1; fi\n\
                  printf 's%07d-0000\\n' \"$n\"\n"
             ),
         );
@@ -929,4 +931,51 @@ fn a_default_charter_gets_a_controller_only_for_a_dispatch_and_an_edited_one_as_
         "the operator's charter starts one: {summary}"
     );
     assert_eq!(case.prompt(2), own, "no dispatch is named");
+}
+
+/// A unit whose controller cannot be launched is tried no more after three failed starts:
+/// after five cycles its log holds three `start-refused` lines of a failed launch, the stand-in
+/// was launched three times, the repository has three controller records at most, and one log
+/// line says it is left to the operator. The row still names the refusal.
+#[test]
+fn a_unit_whose_start_fails_is_tried_three_times_and_then_left_to_the_operator() {
+    let case = Case::new("fails", 4);
+    let _runtime = case.serve();
+    write(&case.fake().join("fail"), "");
+    let created = post(&case, &work("alpha", "WI-F", BRIEF));
+    assert_eq!(created.status, 201, "{created:?}");
+    let row = created.json();
+    let id = row["dispatch_id"].as_str().expect("an id").to_owned();
+    let refusal = row["start"].as_str().unwrap_or_default().to_owned();
+    assert!(
+        refusal == "LaunchFailed" || refusal == "StartFailed",
+        "the start failed: {row}"
+    );
+
+    let summaries: Vec<String> = (0..5).map(|_| case.cycle().to_string()).collect();
+    let failed: Vec<Value> = case
+        .log()
+        .into_iter()
+        .filter(|line| {
+            line["event"] == "start-refused"
+                && line["id"] == id.as_str()
+                && (line["reason"] == "LaunchFailed" || line["reason"] == "StartFailed")
+        })
+        .collect();
+    assert_eq!(failed.len(), 3, "{failed:?} {summaries:?}");
+    assert_eq!(case.launches(), 3, "{summaries:?}");
+    let records = case
+        .rows("controller", "all-controllers")
+        .into_iter()
+        .filter(|row| row["repository"] == "alpha")
+        .count();
+    assert!(records <= 3, "{records} controller records: {summaries:?}");
+    let log = case.log();
+    let left = log
+        .iter()
+        .filter(|line| line.to_string().contains("left to the operator"))
+        .count();
+    assert_eq!(left, 1, "{log:?}");
+    let read = get(&case, "WI-F").json();
+    assert!(read.get("start").is_some(), "{read}");
 }

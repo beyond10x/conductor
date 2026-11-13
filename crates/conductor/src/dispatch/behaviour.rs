@@ -74,11 +74,44 @@ pub const ISSUE_MOST: usize = 2048;
 
 /// What a `start_ref` is, as a refusal names it.
 pub const START_REF_RULE: &str = "a start_ref is 1 to 255 bytes of a git ref name: no leading -, \
-     no control character or space, none of ~ ^ : ? * [ \\, no .., no @{, no leading or trailing \
-     /, no //, no trailing ., no path step that starts with . or ends in .lock, not @ alone";
+     no control character (C0 or C1), line or paragraph separator, bidirectional control, \
+     backtick or space, none of ~ ^ : ? * [ \\, no .., no @{, no leading or trailing /, no //, no \
+     trailing ., no path step that starts with . or ends in .lock, not @ alone";
 
 /// What an `issue` is, as a refusal names it.
-pub const ISSUE_RULE: &str = "an issue is 1 to 2048 bytes with no ASCII control character";
+pub const ISSUE_RULE: &str = "an issue is 1 to 2048 bytes with no control character (C0 or C1), \
+     line or paragraph separator, bidirectional control or backtick";
+
+/// Whether `character` could break the frame a controller's first prompt writes a member in
+/// (`issue`, `start_ref`), each on its own line after a fixed label: a control character (C0 and
+/// C1), U+2028, U+2029, a bidirectional control ([`crate::cli::bidirectional`]) or a backtick.
+fn breaks_the_frame(character: char) -> bool {
+    character.is_control()
+        || matches!(character, '\u{2028}' | '\u{2029}' | '`')
+        || crate::cli::bidirectional(character)
+}
+
+/// The longest run of backticks a brief may hold: the fence a controller's first prompt writes
+/// the brief in is one longer, and stays a small part of the one argument the prompt is.
+pub const BRIEF_BACKTICKS_MOST: usize = 255;
+
+/// Why `brief` is no brief a controller can be started with, when it is none: it holds a NUL,
+/// which no argument of a process can carry, or a run of more than [`BRIEF_BACKTICKS_MOST`]
+/// backticks. The work call and `dispatch send-dispatch` refuse it as `InvalidBrief`. Its length
+/// is the work call's to bound.
+#[must_use]
+pub fn refused_brief(brief: &str) -> Option<String> {
+    if brief.contains('\0') {
+        return Some("the brief holds a NUL character, which no session can be given".to_owned());
+    }
+    let longest = brief.split(|c| c != '`').map(str::len).max().unwrap_or(0);
+    (longest > BRIEF_BACKTICKS_MOST).then(|| {
+        format!(
+            "the brief holds a run of {longest} backticks; a brief holds runs of at most \
+             {BRIEF_BACKTICKS_MOST}"
+        )
+    })
+}
 
 /// Whether `start_ref` is one a dispatch may carry: 1 to [`START_REF_MOST`] bytes that `git
 /// check-ref-format --allow-onelevel` admits in substance, decided here without running git
@@ -86,7 +119,7 @@ pub const ISSUE_RULE: &str = "an issue is 1 to 2048 bytes with no ASCII control 
 #[must_use]
 pub fn valid_start_ref(start_ref: &str) -> bool {
     let refused = |character: char| {
-        character.is_ascii_control()
+        breaks_the_frame(character)
             || matches!(character, ' ' | '~' | '^' | ':' | '?' | '*' | '[' | '\\')
     };
     (1..=START_REF_MOST).contains(&start_ref.len())
@@ -102,11 +135,11 @@ pub fn valid_start_ref(start_ref: &str) -> bool {
             .all(|step| !step.starts_with('.') && !step.ends_with(".lock"))
 }
 
-/// Whether `issue` is one a dispatch may carry: 1 to [`ISSUE_MOST`] bytes with no ASCII control
-/// character ([`ISSUE_RULE`]).
+/// Whether `issue` is one a dispatch may carry: 1 to [`ISSUE_MOST`] bytes with no character that
+/// breaks the frame ([`ISSUE_RULE`]); a `#`, as in `#123`, is taken.
 #[must_use]
 pub fn valid_issue(issue: &str) -> bool {
-    (1..=ISSUE_MOST).contains(&issue.len()) && !issue.contains(|c: char| c.is_ascii_control())
+    (1..=ISSUE_MOST).contains(&issue.len()) && !issue.contains(breaks_the_frame)
 }
 
 /// The first of `start_ref` and `issue` a dispatch does not carry, by its member's name, with the

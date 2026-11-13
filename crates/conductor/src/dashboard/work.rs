@@ -17,7 +17,9 @@
 //!   repository that works another; `422` `InvalidWorkRequest` (no JSON object, a member the
 //!   request does not declare, one it declares missing or of another type, a `start_ref` or an
 //!   `issue` a dispatch does not carry, [`crate::dispatch::refused_member`]), `InvalidReference`,
-//!   `InvalidBrief` (a brief of 1 to [`BRIEF_MOST`] bytes is taken) or `UnknownRepository` (one
+//!   `InvalidBrief` (a brief of 1 to [`BRIEF_MOST`] bytes with no NUL and no run of more than
+//!   [`crate::dispatch::BRIEF_BACKTICKS_MOST`] backticks is taken, [`crate::dispatch::refused_brief`])
+//!   or `UnknownRepository` (one
 //!   neither the newest complete snapshot nor the workspace file names,
 //!   [`crate::dispatch::named_repositories`]). It is taken as every write of the instance API is,
 //!   with the instance's token and as JSON, and one write at a time; its body is at most
@@ -142,6 +144,16 @@ fn send(server: &Server, bytes: &[u8], actor: conductor_model::operator::Actor) 
                     "the brief is {} bytes; a brief is 1 to {BRIEF_MOST} bytes, so nothing was sent",
                     work.brief.len()
                 ),
+            }),
+        );
+    }
+    if let Some(why) = dispatch::refused_brief(&work.brief) {
+        return refused(
+            422,
+            "InvalidBrief",
+            &json!({
+                "reference": work.reference,
+                "detail": format!("{why}, so nothing was sent"),
             }),
         );
     }

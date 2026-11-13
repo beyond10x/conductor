@@ -756,17 +756,75 @@ fn unit_of(state: Option<&Path>, id: &str) -> Result<Option<Unit>> {
 }
 
 /// Writes [`DEFAULT_CHARTER`] to `file` when it is missing or empty; a charter with text is never
-/// overwritten. A file of the records, written whole (a file beside it, renamed over it), which the
-/// records' commit takes as it takes every charter.
+/// overwritten. A file of the records, written whole, which the records' commit takes as it takes
+/// every charter. It is written only inside the records: the `charters` directory must be a real
+/// directory (created when missing, never a symbolic link), and the file beside the charter is
+/// created anew (a regular file left there is removed first; a symbolic link or anything else
+/// there is refused), then renamed over the charter. A refusal names why, and no path.
 fn default_charter(file: &Path) -> Result<()> {
+    const NOTHING: &str = "no charter was written";
+    let dir = file
+        .parent()
+        .ok_or_else(|| anyhow!("the charter has no directory; {NOTHING}"))?;
+    match fs::symlink_metadata(dir) {
+        Ok(held) if held.file_type().is_dir() => {}
+        Ok(_) => {
+            bail!("the records' charters directory is a symbolic link or no directory; {NOTHING}")
+        }
+        Err(error) if error.kind() == io::ErrorKind::NotFound => {
+            fs::create_dir(dir).map_err(|error| {
+                anyhow!(
+                    "the records' charters directory could not be created ({}); {NOTHING}",
+                    error.kind()
+                )
+            })?
+        }
+        Err(error) => bail!(
+            "the records' charters directory could not be read ({}); {NOTHING}",
+            error.kind()
+        ),
+    }
     match fs::read(file) {
         Ok(text) if !text.iter().all(u8::is_ascii_whitespace) => Ok(()),
-        Ok(_) => crate::run::write_file(file, DEFAULT_CHARTER),
-        Err(error) if error.kind() == io::ErrorKind::NotFound => {
-            crate::run::write_file(file, DEFAULT_CHARTER)
-        }
+        Ok(_) => write_charter(file),
+        Err(error) if error.kind() == io::ErrorKind::NotFound => write_charter(file),
         Err(error) => Err(error).with_context(|| format!("read the charter {}", file.display())),
     }
+}
+
+/// [`DEFAULT_CHARTER`] written to `<file>.next`, created exclusively, then renamed over `file`.
+fn write_charter(file: &Path) -> Result<()> {
+    const NOTHING: &str = "no charter was written";
+    let beside = file.with_extension("md.next");
+    match fs::symlink_metadata(&beside) {
+        Ok(held) if held.file_type().is_file() => fs::remove_file(&beside).map_err(|error| {
+            anyhow!(
+                "the file beside the charter could not be removed ({}); {NOTHING}",
+                error.kind()
+            )
+        })?,
+        Ok(_) => bail!("the file beside the charter is a symbolic link or no file; {NOTHING}"),
+        Err(error) if error.kind() == io::ErrorKind::NotFound => {}
+        Err(error) => bail!(
+            "the file beside the charter could not be read ({}); {NOTHING}",
+            error.kind()
+        ),
+    }
+    let written = fs::OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .open(&beside)
+        .and_then(|mut out| {
+            out.write_all(DEFAULT_CHARTER.as_bytes())
+                .and_then(|()| out.sync_all())
+        })
+        .and_then(|()| fs::rename(&beside, file));
+    written.map_err(|error| {
+        anyhow!(
+            "the default charter was not written ({}); {NOTHING}",
+            error.kind()
+        )
+    })
 }
 
 /// `charter` followed by its `## Dispatch` section: the dispatch `id` and the report form on it;

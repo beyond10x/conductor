@@ -1,5 +1,5 @@
 // generated from conductor v1
-// contract digest 75ad67e91894908237225e3df43bc9cc33c86850527f62ad5780c327755a37ae
+// contract digest 113cf38c10351ad6ed5d3994411dea49a051cfcd00a8594eba39d9cea1a8e6a4
 // do not edit: regenerate with `ess synthesize --layout crate`
 
 //! Dispatch — `conductor.dispatch`.
@@ -3058,7 +3058,7 @@ pub struct InvalidAmount {
 
 /// The declared error `conductor.dispatch.InvalidBrief`.
 ///
-/// A brief is 1 to 65536 bytes, and this one is not, so nothing was sent.
+/// A brief is 1 to 65536 bytes with no NUL and no run of more than 255 backticks, and this one is not, so nothing was sent. `dispatch send-dispatch` refuses a `--brief` with a NUL or such a run by this name too.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct InvalidBrief {
     /// `reference` — `String`.

@@ -20,7 +20,9 @@
 //!   deleted by the supervisor;
 //! - the pod [`pod_name`] ([`manifests`]): the image `daemon.kubernetes.image` running
 //!   `conductor --config <data>/conductor.yaml instance serve` on TCP at `daemon.kubernetes
-//!   .api_port`, its token from the Secret, the Secret mounted read-only and the claim mounted
+//!   .api_port`, its token from the Secret by its variable alone, the Secret mounted read-only
+//!   with each key but [`TOKEN_KEY`] listed as a file of its own name at mode 0440, and the claim
+//!   mounted
 //!   writable, `restartPolicy: Never` (the daemon is the supervisor), no service account token,
 //!   restricted to a non-root user without privilege escalation or capabilities, probed on
 //!   `/healthz`, its `glab` sending no usage data (`GLAB_SEND_TELEMETRY=false`, unless
@@ -478,6 +480,19 @@ pub fn manifests(kubernetes: &Kubernetes, config: &Config, instance: &Instance) 
     if !resources.is_empty() {
         container["resources"] = Value::Object(resources);
     }
+    // The `secret` volume lists the Secret's keys it mounts, each under its own name at the
+    // volume's mode: the rendered file and each secret the pod gets, not [`TOKEN_KEY`], which
+    // the runtime takes as its variable alone.
+    let items: Vec<Value> = std::iter::once(pod::CONFIG_FILE)
+        .chain(
+            secrets
+                .iter()
+                .map(String::as_str)
+                .filter(|key| *key != pod::CONFIG_FILE),
+        )
+        .filter(|key| *key != TOKEN_KEY)
+        .map(|key| json!({"key": key, "path": key}))
+        .collect();
     let spec = json!({
         "restartPolicy": "Never",
         "automountServiceAccountToken": false,
@@ -495,7 +510,10 @@ pub fn manifests(kubernetes: &Kubernetes, config: &Config, instance: &Instance) 
         },
         "containers": [container],
         "volumes": [
-            {"name": "secret", "secret": {"secretName": pod_name, "defaultMode": 0o440}},
+            {
+                "name": "secret",
+                "secret": {"secretName": pod_name, "defaultMode": 0o440, "items": items},
+            },
             {"name": "data", "persistentVolumeClaim": {"claimName": claim_name(name)}},
         ],
     });

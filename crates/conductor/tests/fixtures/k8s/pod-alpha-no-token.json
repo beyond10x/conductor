@@ -23,13 +23,13 @@
       "storageClassName": "fast-local"
     }
   },
-  "digest": "6a9bc9be58df5824c2515a9e031e94c7bd06cb07cd57308e9a867d856bd5ed21",
+  "digest": "aa213f8d7a3fce7207c1ea8227dd3b7e7edecf936dbba024b47165b9c55cfd21",
   "pod": {
     "apiVersion": "v1",
     "kind": "Pod",
     "metadata": {
       "annotations": {
-        "conductor/digest": "6a9bc9be58df5824c2515a9e031e94c7bd06cb07cd57308e9a867d856bd5ed21"
+        "conductor/digest": "aa213f8d7a3fce7207c1ea8227dd3b7e7edecf936dbba024b47165b9c55cfd21"
       },
       "labels": {
         "app.kubernetes.io/component": "instance-runtime",
@@ -167,6 +167,16 @@
           "name": "secret",
           "secret": {
             "defaultMode": 288,
+            "items": [
+              {
+                "key": "conductor.yaml",
+                "path": "conductor.yaml"
+              },
+              {
+                "key": "alpha-model",
+                "path": "alpha-model"
+              }
+            ],
             "secretName": "conductor-instance-alpha"
           }
         },

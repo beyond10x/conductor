@@ -352,7 +352,9 @@ fn a_forge_token_naming_a_secret_of_the_daemons_own_reaches_no_pod() {
 /// No text of a caller reaches a variable's name or a helper's value. Two mappings of one name
 /// whose sources are of one kind, on GitHub, and that differ in every other key the instance pod
 /// takes make the same pod and the same claim, but for the digest annotation of the rendered
-/// file. `tests/daemon_pods.rs` holds the forge token and the sources' share.
+/// file and the secret volume's `items`, which list the keys of the pod's Secret: the
+/// names of the secrets it gets, as validation takes them, and nothing else.
+/// `tests/daemon_pods.rs` holds the forge token and the sources' share.
 #[test]
 fn the_pod_and_the_claim_are_the_same_whatever_the_mapping_says_beside_the_name() {
     let case = Case::new("d8-property");
@@ -374,6 +376,23 @@ fn the_pod_and_the_claim_are_the_same_whatever_the_mapping_says_beside_the_name(
         made.pod["metadata"]
             .as_object_mut()
             .map(|metadata| metadata.remove("annotations"));
+        // The secret volume lists the keys of the pod's Secret, which are the names of the
+        // secrets the pod gets (`made.secrets`) and nothing else of the mapping: held here, then
+        // left out of the comparison.
+        let volumes = made.pod["spec"]["volumes"].as_array_mut().expect("volumes");
+        let secret = volumes
+            .iter_mut()
+            .find(|volume| volume["name"] == "secret")
+            .expect("the secret volume");
+        let items = secret["secret"]
+            .as_object_mut()
+            .and_then(|volume| volume.remove("items"))
+            .unwrap_or_default();
+        let wanted: Vec<Value> = std::iter::once("conductor.yaml")
+            .chain(made.secrets.iter().map(String::as_str))
+            .map(|key| json!({"key": key, "path": key}))
+            .collect();
+        assert_eq!(items, json!(wanted), "{text}");
         (made.pod, made.claim)
     };
     let (pod, claim) = made(plain);
@@ -1619,5 +1638,84 @@ fn a_pod_carries_no_daemon_token_of_a_forge_its_instance_has_no_source_on() {
                 );
             }
         }
+    }
+}
+
+/// The pod's `secret` volume lists the keys of the instance's Secret it mounts (`items`),
+/// each under its own file name at the volume's mode 0440: the rendered file, the instance's own
+/// forge token, its model token and each secret `daemon.kubernetes.env` maps, and not
+/// [`pods::TOKEN_KEY`], which the pod takes as its variable alone.
+#[test]
+fn the_secret_volume_lists_every_key_of_the_secret_but_the_runtimes_token() {
+    let case = Case::new("secret-items");
+    fs::write(case.dir.join("secrets/beta-forge"), "beta-forge-value-3333").expect("a secret");
+    fs::write(
+        case.dir.join("secrets/extra-token"),
+        "extra-token-value-4444",
+    )
+    .expect("a secret");
+    let text = case
+        .daemon_text(
+            "\n  - name: beta\n    placement: none\n    session_prefix: beta\n    \
+             sources: [{github: example-org}]\n    model_token: secret:alpha-model\n    \
+             forge_token: secret:beta-forge",
+        )
+        .replace(
+            "env: [{name: GH_TOKEN, secret: secret:forge-token}]",
+            "env: [{name: GH_TOKEN, secret: secret:forge-token}, \
+             {name: EXTRA_TOKEN, secret: secret:extra-token}]",
+        );
+    fs::write(case.file(), text).expect("write the config file");
+    let fake = FakeKube::start(&case.dir);
+    let mut daemon = case.daemon(&fake, "daemon");
+    daemon
+        .pass(ReconcileReason::Cadence, Instant::now())
+        .expect("a pass");
+    let pod = fake
+        .object(NAMESPACE, "pods", "conductor-instance-beta")
+        .expect("the pod");
+    let secret = fake
+        .object(NAMESPACE, "secrets", "conductor-instance-beta")
+        .expect("the Secret");
+    let keys: BTreeSet<String> = secret["data"]
+        .as_object()
+        .map(|data| data.keys().cloned().collect())
+        .unwrap_or_default();
+    for key in [
+        "conductor.yaml",
+        pods::TOKEN_KEY,
+        "alpha-model",
+        "beta-forge",
+        "extra-token",
+    ] {
+        assert!(keys.contains(key), "the Secret has no key {key}: {keys:?}");
+    }
+    let volume = pod["spec"]["volumes"]
+        .as_array()
+        .expect("volumes")
+        .iter()
+        .find(|volume| volume["name"] == "secret")
+        .cloned()
+        .expect("the secret volume");
+    assert_eq!(volume["secret"]["defaultMode"], 0o440, "{volume}");
+    let items = volume["secret"]["items"]
+        .as_array()
+        .cloned()
+        .unwrap_or_default();
+    assert!(!items.is_empty(), "the volume lists no keys: {volume}");
+    let listed: BTreeSet<String> = items
+        .iter()
+        .map(|item| item["key"].as_str().unwrap_or_default().to_owned())
+        .collect();
+    assert!(!listed.contains(pods::TOKEN_KEY), "{volume}");
+    let others: BTreeSet<String> = keys
+        .iter()
+        .filter(|key| *key != pods::TOKEN_KEY)
+        .cloned()
+        .collect();
+    assert_eq!(listed, others, "{volume}");
+    for item in &items {
+        assert_eq!(item["path"], item["key"], "{item}");
+        assert!(item.get("mode").is_none_or(|mode| *mode == 0o440), "{item}");
     }
 }

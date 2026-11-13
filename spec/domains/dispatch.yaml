@@ -143,7 +143,9 @@ types:
   # work call starts the repository's controller for the dispatch it created, and the loop's
   # cycle tries again each Sent dispatch with a `reference` whose repository runs no controller,
   # whether or not the repository is Active, while fewer than `controllers.max_working`
-  # controllers run. `ControllerLimit`, `controllers.max_working` controllers run already;
+  # controllers run, until three starts of it failed at the launch (`StartFailed` or
+  # `LaunchFailed`): then it is left to the operator. `ControllerLimit`,
+  # `controllers.max_working` controllers run already;
   # `AlreadyRunning`, the repository has a `Running` or `Paused` controller, which keeps working
   # what it works (no second one starts); `StartFailed`, the start failed with no refusal of its
   # own (a store or a file that could not be read or written; the runtime's log says why); every
@@ -515,7 +517,8 @@ entities:
       # check-ref-format --allow-onelevel` admits: no leading `-`, no control character or space,
       # none of `~ ^ : ? * [ \`, no `..`, no `@{`, no leading or trailing `/`, no `//`, no
       # trailing `.`, no path step that starts with `.` or ends in `.lock`, and not `@` alone.
-      # `issue` is 1 to 2048 bytes with no ASCII control character.
+      # `issue` is 1 to 2048 bytes. Neither holds a control character (C0 or C1), U+2028, U+2029,
+      # a bidirectional control or a backtick: each is written in a controller's first prompt.
       # `SendDispatch` refuses any other as `InvalidWorkRequest` before it reads the store, the
       # work call and `dispatch send-dispatch` alike; that check is the implementation's.
       - name: start_ref
@@ -845,7 +848,10 @@ errors:
         type: Optional<conductor.dispatch.DispatchId>
 
   - name: conductor.dispatch.InvalidBrief
-    summary: A brief is 1 to 65536 bytes, and this one is not, so nothing was sent.
+    summary: >
+      A brief is 1 to 65536 bytes with no NUL and no run of more than 255 backticks, and this one
+      is not, so nothing was sent. `dispatch send-dispatch` refuses a `--brief` with a NUL or such
+      a run by this name too.
     fields:
       - name: reference
         type: String

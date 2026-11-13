@@ -8,7 +8,9 @@
 //! the store keeps them, whose repository has no running or paused controller, Active or not, the
 //! controller is started for it as the work call starts one ([`super::start_work`]: under
 //! `controllers.max_working`, the default charter where there is none); a refused start writes a
-//! `start-refused` line with the tick's id. Then for each repository Active
+//! `start-refused` line with the tick's id. A unit whose start failed at the launch three times
+//! (`StartFailed` or `LaunchFailed`, [`crate::dispatch::failed_starts`]) is tried no more: the
+//! `cycle` line that wrote the third says it is left to the operator. Then for each repository Active
 //! in `repository activity` that has a charter `<records>/charters/<repo>.md` and no running or
 //! paused controller, in name order, `conductor spawn`, while fewer than `controllers.max_working`
 //! controllers run; each controller started gets its repository's open dispatch, or one sent in
@@ -36,6 +38,7 @@ use anyhow::{Context as _, Result};
 use conductor_model::behaviour::{ControllerStorage, DispatchStorage, SnapshotStorage};
 use conductor_model::direction::Activity;
 use conductor_model::dispatch::{ControllerState, DispatchLogEvent, DispatchState};
+use conductor_model::primitives::Timestamp;
 use conductor_model::session::TickKind;
 use time::OffsetDateTime;
 use time::format_description::well_known::Rfc3339;
@@ -121,10 +124,16 @@ fn dispatch_v1(tick: &mut Tick<'_, '_>) -> Result<String> {
     let instance = tick.instance();
     let (active, mut controlled, full, units) = {
         let store = crate::state::open(tick.state)?;
-        let units: Vec<(String, String)> = DispatchStorage::list(&store)
+        let units: Vec<(String, String, Timestamp)> = DispatchStorage::list(&store)
             .into_iter()
             .filter(|held| held.state == DispatchState::Sent && held.data.reference.is_some())
-            .map(|held| (held.data.repository.0, held.data.dispatch_id.0))
+            .map(|held| {
+                (
+                    held.data.repository.0,
+                    held.data.dispatch_id.0,
+                    held.data.sent_at,
+                )
+            })
             .collect();
         let active: Vec<String> = crate::repository::activity(&store)
             .into_iter()
@@ -161,11 +170,17 @@ fn dispatch_v1(tick: &mut Tick<'_, '_>) -> Result<String> {
     let mut waits = Vec::new();
     // Units of work first, Active or not: each Sent dispatch with a reference whose repository
     // runs no controller (`story:control-plane-work-handler`).
-    for (repo, id) in &units {
+    // A unit whose start failed at the launch `FAILED_STARTS_MOST` times is left to the operator.
+    let records = Path::new(&instance.records);
+    for (repo, id, sent_at) in &units {
         if controlled.contains(repo) {
             continue;
         }
         controlled.push(repo.clone());
+        let failed = crate::dispatch::failed_starts(records, sent_at, repo, id)?;
+        if failed >= crate::dispatch::FAILED_STARTS_MOST {
+            continue;
+        }
         match super::start_work(tick.config, tick.state, tick.seams.providers, repo, id) {
             None => {
                 tick.wrote(DispatchLogEvent::Sent);
@@ -179,6 +194,15 @@ fn dispatch_v1(tick: &mut Tick<'_, '_>) -> Result<String> {
                     "{repo} waits: {}: {detail}",
                     super::work_refusal_name(refusal)
                 ));
+                if crate::dispatch::failed_starts(records, sent_at, repo, id)?
+                    >= crate::dispatch::FAILED_STARTS_MOST
+                {
+                    waits.push(format!(
+                        "{id} of {repo} is left to the operator: {} starts of it failed, and the \
+                         loop tries it no more",
+                        crate::dispatch::FAILED_STARTS_MOST
+                    ));
+                }
             }
         }
     }
