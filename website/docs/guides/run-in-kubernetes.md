@@ -921,7 +921,9 @@ What the member does:
   names one is refused at that key, and the daemon starts no pod that would get one. An entry
   with a `secret` under any other name stays in the pod with its secret, as the daemon cannot
   tell what it holds: give no credential of the forge, nor the key of any route that writes to
-  it, such an entry. The pod carries `GIT_NO_LAZY_FETCH=1` of its own, in place of any entry of
+  it, such an entry. The daemon compares only the token values written in the file: an entry
+  whose `value` is a literal copy of a token the daemon holds only as a secret is not seen, and
+  stays. The pod carries `GIT_NO_LAZY_FETCH=1` of its own, in place of any entry of
   that name, so that no git in it, a session's included, fetches by itself the objects a partial
   clone lacks.
 - The runtime clones each repository the source's `include` names over HTTPS,
@@ -932,7 +934,11 @@ What the member does:
   checkout's own configuration every extra header, cookie file, TLS client certificate and key,
   and `insteadOf` rewrite. When one stays (a file the configuration includes names it, or the
   configuration cannot be written or read), the fetch is refused, one member failure naming the
-  key: remove the key, or remove the checkout so the next pass clones it again. Every fetch of
+  key: remove the key, or remove the checkout so the next pass clones it again. A fetch whose
+  `remote.origin.url` holds a user or a password (`https://user:token@host/...`, or a token as
+  the user) is refused the same way, one member failure that names `remote.origin.url` and not
+  the login; the URL is left as it is. git gets plain `ssh`, never a `core.sshCommand` or a
+  `GIT_SSH_COMMAND` of the caller's. Every fetch of
   the instance takes this one route, the blockers' and the specifications' read of each
   workspace member and the catalog's read included, and no other git command of the instance
   talks to a remote: this route fetches no submodule, and every git the runtime starts runs with

@@ -1324,8 +1324,9 @@ fn every_forge_write_of_a_session_is_denied_naming_the_member() {
 
 /// The variables the recording `git` of [`every_remote_git_of_an_anonymous_snapshot_is_hardened`]
 /// writes, each as `NAME=value`, `unset` where it is not set.
-const RECORDED: [&str; 8] = [
+const RECORDED: [&str; 9] = [
     "GIT_NO_LAZY_FETCH",
+    "GIT_SSH_COMMAND",
     "NETRC",
     "GIT_CONFIG_GLOBAL",
     "GIT_CONFIG_SYSTEM",
@@ -1419,6 +1420,20 @@ impl GitRun {
                 lacking.push(wanted.to_owned());
             }
         }
+        // No `core.sshCommand` of the home's configuration or of the checkout's own, and no
+        // `GIT_SSH_COMMAND` of the caller's, reaches the call: ssh as it is, never asking.
+        let ssh = format!(
+            "GIT_SSH_COMMAND=ssh {}",
+            conductor_cli::collect::SSH_OPTIONS
+        );
+        if !self.variables.contains(&ssh) {
+            let held = self
+                .variables
+                .iter()
+                .find(|held| held.starts_with("GIT_SSH_COMMAND="))
+                .map_or("", String::as_str);
+            lacking.push(format!("{ssh}, not {held}"));
+        }
         if self.token {
             lacking.push("no forge token".to_owned());
         }
@@ -1426,17 +1441,25 @@ impl GitRun {
     }
 }
 
-/// Two whole snapshots of an anonymous instance, the first cloning `one`, the second fetching
+/// Three whole snapshots of an anonymous instance, the first cloning `one`, the others fetching
 /// it, with a recording `git` on `PATH` and an `aep` whose workspace names `one`, so that the
 /// blockers collector reads it too: every git command runs with `GIT_NO_LAZY_FETCH=1`, so none
 /// fetches what a partial clone lacks by itself; every one that talks to a remote runs with the
 /// hardened route's words (no submodule fetched either) and environment and no forge token; and
 /// every fetch runs after the checkout's own configuration was read for the keys a fetch would
-/// send, in that checkout. The snapshots fetch `one` at least once.
+/// send, in that checkout. The snapshots fetch `one` at least once. The home's git configuration
+/// names a `core.sshCommand`, the checkout's own names another before the second snapshot, and
+/// the caller sets `GIT_SSH_COMMAND` for the third: the clone and the fetch get `GIT_SSH_COMMAND` as plain `ssh`
+/// with [`conductor_cli::collect::SSH_OPTIONS`], which git reads before `core.sshCommand`.
 #[test]
 fn every_remote_git_of_an_anonymous_snapshot_is_hardened() {
     let case = Runtime::new("hardened");
     case.bare("one");
+    fs::write(
+        case.dir.join("home/.gitconfig"),
+        "[core]\n\tsshCommand = ssh -i /srv/example/home-key\n",
+    )
+    .expect("write the home's git configuration");
     let tokens: String = FORGE_CLI_TOKEN_VARIABLES
         .iter()
         .flat_map(|(_, variables)| variables.iter())
@@ -1466,8 +1489,33 @@ fn every_remote_git_of_an_anonymous_snapshot_is_hardened() {
         ),
     );
     let config = case.config_including("[one]", "    forge_access: anonymous\n");
-    for pass in 0..2 {
-        let output = case.pass(&config);
+    // The clone with the home's `core.sshCommand`; a fetch with the checkout's own too; a fetch
+    // with the caller's `GIT_SSH_COMMAND` too.
+    for pass in 0..3 {
+        if pass == 1 {
+            git(
+                &case.root().join("one"),
+                &["config", "core.sshCommand", "ssh -i /srv/example/own-key"],
+            );
+        }
+        let mut command = common::conductor(case.dir.join("home"));
+        case.environment(&config, &mut command);
+        if pass == 2 {
+            command.env("GIT_SSH_COMMAND", "ssh -i /srv/example/caller-key");
+        }
+        let output = command
+            .current_dir(case.dir.join("work"))
+            .args([
+                "snapshot",
+                "start-snapshot",
+                "--started-at",
+                NOW,
+                "--disk-free-bytes",
+                "100000000000",
+            ])
+            .stdin(Stdio::null())
+            .output()
+            .expect("the conductor binary runs");
         assert_eq!(
             output.status.code(),
             Some(0),

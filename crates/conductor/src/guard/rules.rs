@@ -2750,9 +2750,25 @@ fn is_program_word(words: &[String], name: usize, at: usize) -> bool {
 }
 
 /// The options of each of [`LAUNCHERS`] that take the next word as their value
-/// (story:anonymous-pod-no-forge-secret).
+/// (story:anonymous-pod-no-forge-secret), as each program's own help or manual reads them. An
+/// option whose value is optional takes it only after `=` or written on to it, never as the next
+/// word, and is none of them: `xargs --replace[=R]`, `--eof[=END]`, `--max-lines[=N]`, `-i`,
+/// `-e`, `-l`, and `env --block-signal[=SIG]`; `ionice -t` is `--ignore`, which takes none.
+/// `sudo -r` and `-t` are those of a build with SELinux; a `sudo` without it refuses them and
+/// runs nothing.
 const LAUNCHER_VALUES: [(&str, &[&str]); 8] = [
-    ("env", &["-u", "--unset", "-C", "--chdir"]),
+    (
+        "env",
+        &[
+            "-u",
+            "--unset",
+            "-C",
+            "--chdir",
+            "-a",
+            "--argv0",
+            "--env0-from",
+        ],
+    ),
     ("timeout", &["-s", "--signal", "-k", "--kill-after"]),
     (
         "sudo",
@@ -2769,6 +2785,8 @@ const LAUNCHER_VALUES: [(&str, &[&str]); 8] = [
             "--close-from",
             "-D",
             "--chdir",
+            "-R",
+            "--chroot",
             "-r",
             "--role",
             "-t",
@@ -2779,9 +2797,9 @@ const LAUNCHER_VALUES: [(&str, &[&str]); 8] = [
             "--command-timeout",
         ],
     ),
-    ("doas", &["-u", "-C"]),
+    ("doas", &["-a", "-u", "-C"]),
     ("nice", &["-n", "--adjustment"]),
-    ("ionice", &["-c", "--class", "-n", "--classdata", "-t"]),
+    ("ionice", &["-c", "--class", "-n", "--classdata"]),
     (
         "stdbuf",
         &["-i", "--input", "-o", "--output", "-e", "--error"],
@@ -2797,14 +2815,12 @@ const LAUNCHER_VALUES: [(&str, &[&str]); 8] = [
             "-s",
             "-d",
             "-a",
-            "--replace",
-            "--eof",
-            "--max-lines",
             "--max-args",
             "--max-procs",
             "--max-chars",
             "--delimiter",
             "--arg-file",
+            "--process-slot-var",
         ],
     ),
 ];

@@ -947,6 +947,71 @@ fn a_start_naming_a_secret_of_the_daemons_own_creates_nothing() {
     }
 }
 
+/// An instance with `forge_access: anonymous` whose own `forge_token` passed by validation, as a
+/// config built in code does (story:anonymous-pod-no-forge-secret): its pod gets neither the
+/// token's secret in its Secret nor a variable read from it, and its start is refused before any
+/// secret is resolved, naming `forge_token` and the member and never the token's value, and
+/// nothing reaches the API.
+#[test]
+fn an_anonymous_instance_with_a_forge_token_past_validation_gets_no_token_and_no_start() {
+    use conductor_model::secret::SecretName;
+    let case = Case::new("anonymous-forge-token");
+    fs::write(case.dir.join("secrets/alpha-forge"), ALPHA_FORGE).expect("write a secret");
+    case.config(
+        IMAGE,
+        &[instance(
+            "alpha",
+            "{github: example-org, include: [one]}",
+            "    model_token: secret:alpha-model\n    forge_access: anonymous\n",
+        )],
+    );
+    let text = fs::read_to_string(case.file()).expect("the config file");
+    let mut config = conductor_cli::config::parse(&text, &case.home())
+        .unwrap_or_else(|problems| panic!("the file does not validate: {problems:?}\n{text}"));
+    config.instances[0].forge_token = Some(SecretName("alpha-forge".to_owned()));
+    let kubernetes = config.daemon.kubernetes.clone().expect("daemon.kubernetes");
+    let made = pods::manifests(&kubernetes, &config, &config.instances[0]);
+    let referenced: Vec<&Value> = made.pod["spec"]["containers"][0]["env"]
+        .as_array()
+        .expect("env")
+        .iter()
+        .filter(|entry| entry["valueFrom"]["secretKeyRef"]["key"] == "alpha-forge")
+        .collect();
+    assert!(
+        !made.secrets.contains("alpha-forge") && referenced.is_empty(),
+        "the anonymous pod gets its forge token: secrets {:?}, entries {referenced:?}",
+        made.secrets
+    );
+    let mut pods = Pods::new(case.fake.client());
+    let asked = std::cell::RefCell::new(Vec::new());
+    let error = pods
+        .start(
+            &kubernetes,
+            &config,
+            &config.instances[0],
+            "an-instance-token",
+            &|name: &SecretName| {
+                asked.borrow_mut().push(name.0.clone());
+                None
+            },
+        )
+        .expect_err("refused");
+    let error = format!("{error:#}");
+    assert!(
+        error.contains("forge_token")
+            && error.contains("forge_access: anonymous")
+            && error.contains("nothing is created")
+            && !error.contains(ALPHA_FORGE),
+        "{error}"
+    );
+    assert_eq!(asked.borrow().len(), 0, "resolved {:?}", asked.borrow());
+    assert!(
+        case.fake.requests().is_empty(),
+        "{:?}",
+        case.fake.requests()
+    );
+}
+
 /// An instance pod's git has no identity: the image has no git config and the pod's home is not
 /// kept. So the pod carries conductor's own for the records' commits, `GIT_AUTHOR_NAME`,
 /// `GIT_AUTHOR_EMAIL`, `GIT_COMMITTER_NAME` and `GIT_COMMITTER_EMAIL`, each where

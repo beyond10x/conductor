@@ -495,13 +495,18 @@ pub fn manifests(kubernetes: &Kubernetes, config: &Config, instance: &Instance) 
     ];
     // The instance's own forge token (story:instance-forge-token): the variable of the one forge
     // its sources name, read from its own Secret, in place of an `env` entry of that variable.
-    let forge =
-        instance.forge_token.as_ref().and_then(
-            |secret| match crate::config::forge_token_variables(&instance.sources).as_slice() {
+    // An instance with `forge_access: anonymous` gets none (story:anonymous-pod-no-forge-secret),
+    // which validation and the start refuse beside the member.
+    let anonymous = crate::config::anonymous(instance);
+    let forge = (!anonymous)
+        .then_some(instance.forge_token.as_ref())
+        .flatten()
+        .and_then(|secret| {
+            match crate::config::forge_token_variables(&instance.sources).as_slice() {
                 [variable] => Some((*variable, secret.0.clone())),
                 _ => None,
-            },
-        );
+            }
+        });
     // An instance with a forge token of its own carries none of the daemon's forge token
     // variables (decisions F2-D7, F3-D5). Any other carries those of a forge only where it has a
     // source on that forge (decision F4-D1), and the daemon's GitLab token only where every
@@ -518,7 +523,6 @@ pub fn manifests(kubernetes: &Kubernetes, config: &Config, instance: &Instance) 
     // or `globals` names, which validation and the start refuse. It carries
     // `GIT_NO_LAZY_FETCH=1` of its own, whatever `env` names under that name, so that no git in
     // it fetches by itself what a partial clone lacks (story:anonymous-pod-no-forge-secret).
-    let anonymous = crate::config::anonymous(instance);
     let forge_credentials = anonymous.then(|| ForgeCredentials::of(config, kubernetes));
     if let Some(credentials) = &forge_credentials {
         secrets.retain(|secret| !credentials.secrets.contains(secret));
@@ -1045,9 +1049,15 @@ impl Pods {
             );
         }
         // Validation refuses an instance with `forge_access: anonymous`, or `globals` beside one,
-        // that names any forge token's secret (story:anonymous-pod-no-forge-secret); a file that
-        // passed by it gets no such pod either.
+        // that names any forge token's secret or a `forge_token` of its own
+        // (story:anonymous-pod-no-forge-secret); a file that passed by it gets no such pod either.
         if crate::config::anonymous(instance) {
+            if instance.forge_token.is_some() {
+                bail!(
+                    "{name} names forge_access: anonymous and a forge_token, which its pod does \
+                     not get: remove one of them; nothing is created"
+                );
+            }
             let forge = forge_secrets(config);
             if let Some(secret) = named.iter().find(|secret| forge.contains(*secret)) {
                 bail!(

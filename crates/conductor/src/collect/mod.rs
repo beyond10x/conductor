@@ -542,6 +542,17 @@ pub fn git_environment<'a>(command: &'a mut Command, dir: Option<&Path>) -> &'a 
     )
 }
 
+/// [`git_environment`] of the anonymous route (story:anonymous-pod-no-forge-secret): the same
+/// `GIT_TERMINAL_PROMPT=0`, and [`SSH_COMMAND`] plain `ssh` with [`SSH_OPTIONS`], whatever names
+/// another: no `core.sshCommand` (the system's, the user's or the checkout's own: git reads the
+/// variable before it) and no caller's [`SSH_COMMAND`] reaches the git call, so none that names
+/// a key does.
+pub fn anonymous_git_environment(command: &mut Command) -> &mut Command {
+    command
+        .env("GIT_TERMINAL_PROMPT", "0")
+        .env(SSH_COMMAND, format!("ssh {SSH_OPTIONS}"))
+}
+
 /// The ssh command git would start in `dir`: `given` (the caller's [`SSH_COMMAND`]) when it names
 /// one, which wins in git too; else the `core.sshCommand` git's config gives in `dir` (the
 /// repository's, the user's or the system's), so a key named there is kept; else `ssh`.

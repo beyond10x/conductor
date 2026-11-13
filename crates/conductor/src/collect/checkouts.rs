@@ -293,7 +293,8 @@ fn carries_token(forge: &str) -> bool {
 /// token from reaches it ([`config::FORGE_CLI_TOKEN_VARIABLES`]). git asks no program for a
 /// login: `GIT_ASKPASS` is empty, which git reads before `core.askPass` (empty too) and
 /// `SSH_ASKPASS` (not set), and with none git would prompt on the terminal, which
-/// [`collect::git_environment`] turns off. git reads neither the system's
+/// [`collect::anonymous_git_environment`] turns off; it also gives git plain `ssh`, so no
+/// `core.sshCommand` and no caller's `GIT_SSH_COMMAND` names a key. git reads neither the system's
 /// nor the user's configuration file (story:anonymous-pod-no-forge-secret), so no `insteadOf`
 /// rewrite, which no command line can reset, and no `http.<url>.extraHeader` of the image's or
 /// the user's configuration applies; the pod's own environment (`GIT_CONFIG_COUNT`) still does.
@@ -422,6 +423,71 @@ fn own_credential_keys(dir: &Path, bound: Duration) -> Result<Vec<String>, Broug
     Ok(names.into_iter().collect())
 }
 
+/// Refuses an anonymous fetch in the checkout `dir` whose origin's URL holds a login
+/// (story:anonymous-pod-no-forge-secret): git answers the forge's challenge with the user and
+/// password of `remote.origin.url` (`https://user:token@host/`, or a token as the user), and no
+/// configuration takes them out of it. Each value is read as the fetch reads it
+/// ([`without_credential`]: the checkout's own configuration, the files it includes and the
+/// pod's environment). `remote.origin.pushurl` is not read: a fetch never uses it. The URL is
+/// left as it is; the answer is one member failure that names the key, never the user or the
+/// password, or says the URL could not be read. A collector whose budget is spent answers
+/// [`Brought::Stopped`].
+fn without_origin_login(dir: &Path, bound: Duration) -> Result<(), Brought> {
+    let refused = |why: String| {
+        Brought::Failed(format!(
+            "the anonymous fetch in {} was not run: {why}",
+            dir.display()
+        ))
+    };
+    let mut listed = crate::instance::command("git");
+    without_credential(&mut listed);
+    listed
+        .args(["config", "--get-all", "remote.origin.url"])
+        .current_dir(dir);
+    let output = match collect::run(&mut listed, bound) {
+        Ok(output) => output,
+        Err(error) if collect::is_over_budget(&error) => return Err(Brought::Stopped),
+        Err(error) => {
+            return Err(refused(format!(
+                "`remote.origin.url` could not be read: `git config --get-all` failed: {}",
+                one_line(&error)
+            )));
+        }
+    };
+    match output.status.code() {
+        Some(0) => {}
+        Some(1) if output.stdout.is_empty() => return Ok(()),
+        _ => {
+            return Err(refused(format!(
+                "`remote.origin.url` could not be read: `git config --get-all` {}",
+                ended(&output)
+            )));
+        }
+    }
+    if String::from_utf8_lossy(&output.stdout)
+        .lines()
+        .any(holds_login)
+    {
+        return Err(refused(
+            "`remote.origin.url` holds a user or a password, which the fetch would send to the \
+             forge; set the URL without it, or remove the checkout"
+                .to_owned(),
+        ));
+    }
+    Ok(())
+}
+
+/// Whether `url` is a URL with a scheme (`<scheme>://`) whose authority holds a user or a
+/// password (`user@`, `user:password@`). git's scp-like form (`git@host:path`) names the login
+/// name of ssh, which holds no password and goes to no HTTP server.
+fn holds_login(url: &str) -> bool {
+    url.trim().split_once("://").is_some_and(|(_, rest)| {
+        rest.split(['/', '?', '#'])
+            .next()
+            .is_some_and(|authority| authority.contains('@'))
+    })
+}
+
 /// `wanted` cloned into its directory under [`PARTIAL`], then renamed to `target`.
 fn cloned(root: &Path, wanted: &Wanted, target: &Path) -> Brought {
     let url = &wanted.url;
@@ -452,7 +518,11 @@ fn cloned(root: &Path, wanted: &Wanted, target: &Path) -> Brought {
         .args(["clone", "--quiet", "--", url])
         .arg(&into)
         .current_dir(root);
-    collect::git_environment(&mut command, None);
+    if wanted.anonymous {
+        collect::anonymous_git_environment(&mut command);
+    } else {
+        collect::git_environment(&mut command, None);
+    }
     let output = match collect::run(&mut command, CLONE_BOUND) {
         Ok(output) => output,
         Err(error) if collect::is_over_budget(&error) => {
@@ -506,10 +576,14 @@ pub fn fetch_anonymously(dir: &Path, bound: Duration) -> Result<()> {
 }
 
 /// The checkout `dir` fetched, `git fetch --quiet origin` run as the collector runs it, once more
-/// when it fails. An anonymous fetch runs only once the checkout's own configuration holds no key
-/// it would send or follow ([`without_own_credential`]).
+/// when it fails. An anonymous fetch runs only once the origin's URL holds no login
+/// ([`without_origin_login`]) and the checkout's own configuration holds no key it would send or
+/// follow ([`without_own_credential`]), with plain `ssh` ([`collect::anonymous_git_environment`]).
 fn fetched(dir: &Path, bound: Duration, anonymous: bool) -> Brought {
-    if anonymous && let Err(refused) = without_own_credential(dir, bound) {
+    if anonymous
+        && let Err(refused) =
+            without_origin_login(dir, bound).and_then(|()| without_own_credential(dir, bound))
+    {
         return refused;
     }
     let attempt = || {
@@ -521,7 +595,11 @@ fn fetched(dir: &Path, bound: Duration, anonymous: bool) -> Brought {
             .args(["fetch", "--quiet", "origin"])
             .env("GIT_OPTIONAL_LOCKS", "0")
             .current_dir(dir);
-        collect::git_environment(&mut command, Some(dir));
+        if anonymous {
+            collect::anonymous_git_environment(&mut command);
+        } else {
+            collect::git_environment(&mut command, Some(dir));
+        }
         collect::run(&mut command, bound)
     };
     let mut answered = attempt();

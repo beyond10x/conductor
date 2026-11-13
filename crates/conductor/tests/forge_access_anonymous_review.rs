@@ -2834,3 +2834,145 @@ fn a_read_of_a_blob_a_partial_clone_lacks_is_a_member_failure_with_gits_line() {
         String::from_utf8_lossy(&output.stderr)
     );
 }
+
+// ---------------------------------------------------------------------------------------------
+// The sixth round: launcher options that take no value, and the login of the origin's URL
+// ---------------------------------------------------------------------------------------------
+
+/// A push behind a launcher option that takes no value (`ionice -t` is `--ignore`, `xargs
+/// --replace` and `--eof` take theirs only after `=`) or behind one that takes the next word
+/// (`env -a`, `sudo -R`, `doas -a`, `xargs --process-slot-var`) is denied, naming the member.
+#[test]
+fn a_push_behind_a_launcher_option_with_or_without_a_value_is_denied() {
+    let (_scratch, dir, places) = guard_case("launcher-values", true);
+    let commands = [
+        "ionice -t git push origin main",
+        "ionice --ignore git push origin main",
+        "ionice -t -c 3 git push origin main",
+        "echo main | xargs --replace git push origin main",
+        "echo main | xargs --eof git push origin main",
+        "echo main | xargs --max-lines git push origin main",
+        "echo main | xargs --process-slot-var SLOT git push origin main",
+        "env -a pusher git push origin main",
+        "env --argv0 pusher git push origin main",
+        "sudo -R /srv/example git push origin main",
+        "sudo --chroot /srv/example git push origin main",
+        "doas -a style git push origin main",
+    ];
+    let missed = not_denied(&places, &dir, &commands);
+    assert!(
+        missed.is_empty(),
+        "{} of {} are no denial naming the member:\n{}",
+        missed.len(),
+        commands.len(),
+        missed.join("\n")
+    );
+}
+
+/// The value of `key` in the checkout `dir`'s own configuration.
+fn config_value(dir: &Path, key: &str) -> String {
+    let output = Command::new(which("git"))
+        .current_dir(dir)
+        .args(["config", "--local", "--get", key])
+        .env("GIT_CONFIG_GLOBAL", "/dev/null")
+        .env("GIT_CONFIG_NOSYSTEM", "1")
+        .stdin(Stdio::null())
+        .output()
+        .expect("git runs");
+    String::from_utf8_lossy(&output.stdout).trim().to_owned()
+}
+
+/// The origin's URL with a user and password in it, or a token as its user: the anonymous fetch
+/// answers a Basic challenge with none of it. It is refused: one member failure that names the
+/// key `remote.origin.url` and neither the user nor the password, no request reaches the forge,
+/// and the URL is left as it is. The guide's clone paragraph names the refusal.
+#[test]
+fn the_anonymous_fetch_sends_no_login_of_the_origins_url() {
+    let _lock = environment();
+    active::isolate();
+    let scratch = Scratch::new("faa-review/r3-url-login");
+    let dir = scratch.path().to_owned();
+    fs::create_dir_all(dir.join("home")).expect("home");
+    reset_environment(&dir.join("home"));
+    let listener = Listener::start(true);
+    let (checkout, _) = checkout_with(&dir, &listener, "");
+    let mut wrong = Vec::new();
+    for (origin, secrets) in [
+        (
+            format!(
+                "http://example:url-secret-6262@127.0.0.1:{}/example-owner/one.git",
+                listener.port
+            ),
+            ["example:", "url-secret-6262"],
+        ),
+        (
+            format!(
+                "http://url-token-7373@127.0.0.1:{}/example-owner/one.git",
+                listener.port
+            ),
+            ["url-token-7373", "url-token-7373@"],
+        ),
+    ] {
+        git(&checkout, &["remote", "set-url", "origin", &origin]);
+        let brought = fetch(&dir, &checkout, &origin, true);
+        let heads = listener.heads();
+        let sent = heads
+            .iter()
+            .any(|head| head.to_ascii_lowercase().contains("\nauthorization:"));
+        let refused = matches!(&brought, Brought::Failed(line)
+            if line.contains("`remote.origin.url`")
+                && line.contains("was not run")
+                && secrets.iter().all(|secret| !line.contains(secret)));
+        if sent || !(refused || !heads.is_empty()) {
+            wrong.push(format!(
+                "{origin}: the login is sent: {sent}; {} requests; {brought:?}",
+                heads.len()
+            ));
+        }
+        if !refused || !heads.is_empty() {
+            wrong.push(format!(
+                "{origin}: not refused before any request ({} requests): {brought:?}",
+                heads.len()
+            ));
+        }
+        let kept = config_value(&checkout, "remote.origin.url");
+        if kept != origin {
+            wrong.push(format!("{origin}: the URL was rewritten to {kept}"));
+        }
+    }
+    assert!(wrong.is_empty(), "{wrong:#?}");
+    assert!(
+        guide_section().contains("`remote.origin.url`"),
+        "the guide's clone paragraph does not name the refusal of a login in the origin's URL"
+    );
+}
+
+/// Without the member, a checkout whose origin's URL holds a login fetches as before: the fetch
+/// runs and git answers the challenge with that login; the URL is left as it is.
+#[test]
+fn without_the_member_an_origin_url_with_a_login_fetches_as_before() {
+    let _lock = environment();
+    active::isolate();
+    let scratch = Scratch::new("faa-review/url-login-without-member");
+    let dir = scratch.path().to_owned();
+    fs::create_dir_all(dir.join("home")).expect("home");
+    reset_environment(&dir.join("home"));
+    let listener = Listener::start(true);
+    let (checkout, _) = checkout_with(&dir, &listener, "");
+    let origin = format!(
+        "http://example:url-secret-6262@127.0.0.1:{}/example-owner/one.git",
+        listener.port
+    );
+    git(&checkout, &["remote", "set-url", "origin", &origin]);
+    let brought = fetch(&dir, &checkout, &origin, false);
+    let heads = listener.heads();
+    let sent = heads
+        .iter()
+        .any(|head| head.to_ascii_lowercase().contains("\nauthorization:"));
+    assert!(
+        sent,
+        "the fetch without the member does not run as before ({} requests): {brought:?}",
+        heads.len()
+    );
+    assert_eq!(config_value(&checkout, "remote.origin.url"), origin);
+}

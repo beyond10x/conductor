@@ -5802,6 +5802,79 @@ fn a_controller_s_build_under_conductor_build_run_is_allowed() {
     }
 }
 
+/// A launcher option that takes no value leaves the next word the program word
+/// (story:anonymous-pod-no-forge-secret): `ionice -t` is `--ignore`, and `xargs --replace`,
+/// `--eof` and `--max-lines` take theirs only after `=`, so each rule that reads the program
+/// word sees `cargo` or `timeout` after them; an option that takes the next word (`env -a`,
+/// `sudo -R`, `doas -a`, `xargs --process-slot-var`) leaves the word after its value the
+/// program word. For an instance without the member, through the denial of an unreserved build
+/// and of a `timeout` around `conductor snapshot`.
+#[test]
+fn a_launcher_option_without_a_value_leaves_the_program_word_to_the_rules() {
+    let home = home("launcher-values");
+    for cwd in [PROBE, WORKER] {
+        for command in [
+            "ionice -t cargo build",
+            "ionice --ignore cargo build",
+            "ionice -t -c 3 cargo build",
+            "xargs --replace cargo build",
+            "xargs --eof cargo build",
+            "xargs --max-lines cargo build",
+            "xargs --process-slot-var SLOT cargo build",
+            "env -a builder cargo build",
+            "env --argv0 builder cargo build",
+            "env --env0-from /dev/null cargo build",
+            "sudo -R /srv/example cargo build",
+            "sudo --chroot /srv/example cargo build",
+            "doas -a style cargo build",
+        ] {
+            assert_verdict(
+                &bash(&home, cwd, command),
+                Verdict::Deny,
+                "`conductor build run --reserve auto -- cargo build`",
+            );
+        }
+    }
+    for command in [
+        "ionice -t timeout 60 conductor snapshot start-snapshot",
+        "xargs --replace timeout 60 conductor snapshot start-snapshot",
+    ] {
+        assert_verdict(
+            &bash(&home, CONDUCTOR, command),
+            Verdict::Deny,
+            "kills the snapshot",
+        );
+    }
+}
+
+/// The launcher commands that matter, for an instance without the member: `nice -n 10`,
+/// `ionice -c 3` and `xargs -I {}` decide as in release 1.8.0, where a value that starts with a
+/// digit, or `{}`, was read as the launcher's too: each is denied as an unreserved build.
+/// `sudo -u root`, `timeout -s KILL 5` and `env -u X` do not: in 1.8.0 a value that is no number
+/// ended the launcher's words, so `cargo` was no program word and the build was allowed; the
+/// launcher's value is read now, and each is denied as the unreserved build it runs, as
+/// `cargo build` alone is.
+#[test]
+fn launcher_commands_without_the_member_decide_as_in_1_8_0_but_for_named_values() {
+    let home = home("launcher-main");
+    for cwd in [PROBE, WORKER] {
+        for (command, run) in [
+            ("sudo -u root cargo build", "cargo build"),
+            ("timeout -s KILL 5 cargo test", "cargo test"),
+            ("env -u X cargo build", "cargo build"),
+            ("nice -n 10 cargo build", "cargo build"),
+            ("ionice -c 3 cargo build", "cargo build"),
+            ("xargs -I {} cargo build", "cargo build"),
+        ] {
+            assert_verdict(
+                &bash(&home, cwd, command),
+                Verdict::Deny,
+                &format!("`conductor build run --reserve auto -- {run}`"),
+            );
+        }
+    }
+}
+
 /// What builds nothing stays allowed: formatting, metadata and the dependency tree, a listing of
 /// tasks, an npm command that is no build, test or install, and a build command named only as a
 /// word or a string.
