@@ -14,11 +14,12 @@
 mod active;
 mod common;
 mod fake_kube;
+mod scratch;
 
 use std::fs;
 use std::io::{Read as _, Write as _};
 use std::net::{TcpListener, TcpStream};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::process::{Child, Stdio};
 use std::sync::Arc;
 use std::sync::mpsc;
@@ -31,6 +32,7 @@ use conductor_cli::daemon::units::Manager;
 use conductor_model::behaviour::ReconciliationStorage;
 use conductor_model::instance::{ReconcileAction, ReconcileReason, ReconcileResult};
 use fake_kube::FakeKube;
+use scratch::Scratch;
 use serde_json::{Value, json};
 
 /// The instance namespace of every case.
@@ -46,11 +48,13 @@ const IMAGE: &str = "registry.example.com/conductor:1.0.0";
 const MODEL_TOKEN: &str = "model-token-value-0000";
 const FORGE_TOKEN: &str = "forge-token-value-1111";
 
-/// One case: its directory, its fake API server, its config file.
+/// One case: its directory, its fake API server, its config file. The directory is removed when
+/// a case that passed ends, after its fake server stopped.
 struct Case {
     dir: PathBuf,
     fake: FakeKube,
     api_port: u16,
+    _scratch: Scratch,
 }
 
 impl Case {
@@ -60,10 +64,8 @@ impl Case {
 
     fn on_port(name: &str, api_port: u16) -> Self {
         active::isolate();
-        let dir = PathBuf::from(env!("CARGO_TARGET_TMPDIR"))
-            .join("dp")
-            .join(name);
-        let _ = fs::remove_dir_all(&dir);
+        let scratch = Scratch::new(Path::new("dp").join(name));
+        let dir = scratch.path().to_owned();
         fs::create_dir_all(dir.join("home")).expect("create the case's home");
         fs::create_dir_all(dir.join("secrets")).expect("create the secrets directory");
         fs::write(dir.join("secrets/alpha-model"), MODEL_TOKEN).expect("write a secret");
@@ -73,6 +75,7 @@ impl Case {
             dir,
             fake,
             api_port,
+            _scratch: scratch,
         };
         case.config(IMAGE, &[alpha("")]);
         case
