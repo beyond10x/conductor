@@ -16,7 +16,9 @@
 //! - the network policy selects the instance pods by the daemon's label set
 //!   ([`conductor_cli::daemon::pods::labels`]) and admits the daemon's pods, by label and
 //!   namespace, on `daemon.kubernetes.api_port`;
-//! - the sidebar lists the guide beside the container guide.
+//! - the sidebar lists the guide beside the container guide;
+//! - the work call's subsection says what the call starts and how a review link comes back, and
+//!   its request and answers decode as the runtime's own.
 //!
 //! No case runs `kubectl`, a cluster or the `conductor` binary.
 
@@ -802,6 +804,225 @@ fn the_calls_section_says_where_a_checkout_must_be_and_what_a_pod_clones() {
             "the section's table holds {row:?}:\n{text}"
         );
     }
+}
+
+/// The text of the guide's subsection `title`, from its `###` heading to the next heading.
+fn subsection(title: &str) -> String {
+    let guide = read(GUIDE);
+    let heading = format!("\n### {title}\n");
+    let start = guide
+        .find(&heading)
+        .unwrap_or_else(|| panic!("{GUIDE} has a subsection {title:?}"));
+    let rest = &guide[start + heading.len()..];
+    let end = [rest.find("\n## "), rest.find("\n### ")]
+        .into_iter()
+        .flatten()
+        .min()
+        .unwrap_or(rest.len());
+    rest[..end].to_owned()
+}
+
+/// The answer line under the `console` block's `curl` line that ends with `url`.
+fn answer_to(text: &str, url: &str) -> String {
+    let lines: Vec<&str> = text.lines().collect();
+    let at = lines
+        .iter()
+        .position(|line| line.trim_end().ends_with(url))
+        .unwrap_or_else(|| panic!("a curl line ending {url:?}:\n{text}"));
+    lines
+        .get(at + 1)
+        .filter(|line| line.starts_with('{'))
+        .unwrap_or_else(|| panic!("an answer under {url:?}:\n{text}"))
+        .to_string()
+}
+
+/// `answer` decoded as the work call's row (`conductor.dispatch.WorkState`), and written again
+/// as the runtime writes it, byte for byte the line the guide quotes.
+fn work_row(answer: &str) -> conductor_model::dispatch::WorkState {
+    use conductor_model::server::{json, wire};
+    let value = json::parse(answer).unwrap_or_else(|error| panic!("{answer}: {error:?}"));
+    let row = wire::decode_conductor_dispatch_work_state(&value, "")
+        .unwrap_or_else(|error| panic!("the guide's row is no WorkState: {error:?}\n{answer}"));
+    let mut written = String::new();
+    wire::encode_conductor_dispatch_work_state(&row, &mut written);
+    assert_eq!(written, answer, "the runtime writes the row so");
+    row
+}
+
+/// The subsection "The work call" (story:control-plane-work-handler): what a `201` starts and a
+/// `200` does not, what the session reads, the default charter, the row's `start` with its three
+/// values and the cycle that tries again at the instance's `cadence.cycle`, `max_working` and its
+/// one-process lock, the rules of the brief, `start_ref` and `issue`, the stop after
+/// [`conductor_cli::dispatch::FAILED_STARTS_MOST`] failed starts, the `review <url>` report and
+/// the row it leaves, which is not finished. Its request decodes as a `WorkRequest` the call
+/// takes, and its two answers decode as rows the runtime writes so.
+#[test]
+fn the_work_call_section_says_what_a_201_starts_and_how_the_review_link_comes_back() {
+    use conductor_cli::dashboard::work::{BRIEF_MOST, MAX_BODY};
+    use conductor_cli::dispatch::{
+        BRIEF_BACKTICKS_MOST, FAILED_STARTS_MOST, refused_brief, refused_member, valid_link,
+        valid_reference,
+    };
+    use conductor_model::dispatch::DispatchState;
+    use conductor_model::server::{json, wire};
+
+    active::isolate();
+    let text = subsection("The work call");
+    let calls = section("The calls");
+    assert!(
+        calls.contains("the five writes below"),
+        "the calls name the work call among the writes:\n{calls}"
+    );
+    for words in [
+        "`POST /v1/instances/{name}/work`",
+        "`GET /v1/instances/{name}/work/{reference}`",
+        "`201`",
+        "starts nothing",
+        "`Running` or `Paused` controller",
+        "does not wait for the session",
+        "`## Dispatch`",
+        "the brief, verbatim, in a fenced block",
+        "`<records>/charters/<repository>.md`",
+        "missing or empty",
+        "never overwritten",
+        "`merge: human`",
+        "never merge",
+        "Any edit makes it the operator's charter",
+        "only for a dispatch",
+        "`controllers.max_working`",
+        "`conductor spawn` run by hand",
+        "not counted",
+        "every `cadence.cycle` (2 hours by default)",
+        "left to the operator",
+        "a NUL",
+        "C0 or C1",
+        "U+2028",
+        "U+2029",
+        "bidirectional control",
+        "backtick",
+        "written in the controller's first prompt",
+        "`[REPORT <repo> <dispatch-id>] review <url>`",
+        "Only a `review` report",
+        "is not finished",
+        "`done`",
+    ] {
+        assert!(
+            text.contains(words),
+            "the subsection says {words:?}:\n{text}"
+        );
+    }
+    assert!(
+        text.contains(&format!("{BRIEF_MOST} bytes"))
+            && text.contains(&format!("more than {BRIEF_BACKTICKS_MOST} backticks"))
+            && MAX_BODY == 1024 * 1024
+            && text.contains("1 MiB"),
+        "the brief's and the body's bounds:\n{text}"
+    );
+    assert_eq!(FAILED_STARTS_MOST, 3);
+    assert!(text.contains("three starts"), "{text}");
+
+    for words in [
+        "merge: human",
+        "review <url>",
+        "never merge",
+        "done",
+        "failed",
+        "blocked",
+    ] {
+        assert!(
+            conductor_cli::spawn::DEFAULT_CHARTER.contains(words),
+            "the default charter says {words:?}"
+        );
+    }
+    for name in [
+        "ControllerLimit",
+        "AlreadyRunning",
+        "StartFailed",
+        "LaunchFailed",
+    ] {
+        let row = text
+            .lines()
+            .find(|line| line.contains(&format!("`{name}`")))
+            .unwrap_or_else(|| panic!("the subsection names {name}:\n{text}"));
+        let value = json::parse(&format!("\"{name}\"")).expect("a JSON string");
+        assert!(
+            wire::decode_conductor_dispatch_work_start_refusal(&value, "").is_ok(),
+            "{name} is a WorkStartRefusal: {row}"
+        );
+    }
+
+    assert!(refused_brief("a\0b").is_some());
+    assert!(refused_brief(&"`".repeat(BRIEF_BACKTICKS_MOST)).is_none());
+    assert!(refused_brief(&"`".repeat(BRIEF_BACKTICKS_MOST + 1)).is_some());
+    for refused in ['\u{1}', '\u{85}', '\u{2028}', '\u{2029}', '\u{202e}', '`'] {
+        let word = format!("main{refused}x");
+        assert!(refused_member(Some(&word), None).is_some(), "{refused:?}");
+        assert!(refused_member(None, Some(&word)).is_some(), "{refused:?}");
+    }
+
+    let map = one("ConfigMap");
+    let mut daemon: Value =
+        serde_yaml::from_str(text_of(&map["data"]["daemon.yaml"])).expect("daemon.yaml");
+    let add = calls
+        .split("-d '")
+        .skip(1)
+        .filter_map(|rest| rest.split_once('\'').map(|(body, _)| body))
+        .find(|body| body.contains("\"mapping\""))
+        .expect("the request body of an add");
+    let add: serde_json::Value = serde_json::from_str(add).expect("the body's JSON");
+    daemon["instances"] = serde_yaml::to_value([add["mapping"].clone()]).expect("YAML");
+    let file = serde_yaml::to_string(&daemon).expect("the file");
+    let config = conductor_cli::config::parse(&file, Path::new("/var/lib/conductor"))
+        .unwrap_or_else(|problems| panic!("the file does not validate: {problems:?}\n{file}"));
+    assert_eq!(
+        conductor_cli::config::seconds(&config.instances[0].cadence.cycle),
+        Some(2 * 3600),
+        "the cycle's period the subsection names"
+    );
+
+    let body = text
+        .split_once("-d '")
+        .and_then(|(_, rest)| rest.split_once('\''))
+        .map(|(body, _)| body)
+        .expect("the subsection's request body");
+    let value = json::parse(body).expect("the body's JSON");
+    let request = wire::decode_conductor_dispatch_work_request(&value, "")
+        .unwrap_or_else(|error| panic!("the body is no WorkRequest: {error:?}"));
+    assert!(valid_reference(&request.reference), "{body}");
+    assert!(!request.brief.is_empty() && request.brief.len() <= BRIEF_MOST);
+    assert!(refused_brief(&request.brief).is_none(), "{body}");
+    assert!(
+        refused_member(request.start_ref.as_deref(), request.issue.as_deref()).is_none(),
+        "{body}"
+    );
+
+    let sent = work_row(&answer_to(&text, "$D/v1/instances/alpha/work"));
+    assert_eq!(sent.state, DispatchState::Sent);
+    assert_eq!(sent.reference, request.reference);
+    assert_eq!(sent.repository.0, request.repository.0);
+    assert!(sent.links.is_empty() && sent.start.is_none() && sent.last_report.is_none());
+
+    let read = work_row(&answer_to(
+        &text,
+        &format!("$D/v1/instances/alpha/work/{}", request.reference),
+    ));
+    assert_eq!(
+        read.state,
+        DispatchState::Started,
+        "a review report on a Sent row starts it, and ends nothing"
+    );
+    assert!(read.started_at.is_some() && read.ended_at.is_none());
+    assert_eq!(read.dispatch_id.0, sent.dispatch_id.0);
+    let report = read.last_report.clone().expect("last_report");
+    let link = report
+        .strip_prefix(&format!(
+            "[REPORT {} {}] review ",
+            read.repository.0, read.dispatch_id.0
+        ))
+        .and_then(|rest| rest.split_whitespace().next())
+        .unwrap_or_else(|| panic!("last_report is a review report: {report}"));
+    assert!(valid_link(link), "{link}");
+    assert_eq!(read.links, [link.to_owned()]);
 }
 
 /// The guide's list of what a pod's environment holds names `GLAB_SEND_TELEMETRY`, which the

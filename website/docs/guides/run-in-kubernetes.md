@@ -3,7 +3,7 @@ title: Run conductor in Kubernetes
 sidebar_position: 11
 description: Run conductor's daemon in a Kubernetes namespace from the release image, let a control plane list, add, replace, restart and remove instances over HTTP with a control token, and read what the daemon creates for each instance, which runs as a pod of its own.
 lede: The daemon runs as a StatefulSet of one from the release image. A control plane adds instances over HTTP, and the daemon runs each instance's runtime as a pod of its own, with a Secret and a volume claim beside it.
-source: crates/conductor/tests/fixtures/k8s/manifests.yaml; crates/conductor/src/daemon/pods.rs, daemon/api.rs, daemon/seed.rs, daemon/mod.rs, config/pod.rs, config/instance.rs, kube.rs, doctor.rs; crates/conductor/tests/kubernetes_guide.rs, daemon_pods.rs, instance_routes.rs
+source: crates/conductor/tests/fixtures/k8s/manifests.yaml; crates/conductor/src/daemon/pods.rs, daemon/api.rs, daemon/seed.rs, daemon/mod.rs, config/pod.rs, config/instance.rs, kube.rs, doctor.rs, dashboard/work.rs, run.rs, run/dispatch.rs, run/mailbox.rs, spawn.rs, spawn/charter.md; crates/conductor/tests/kubernetes_guide.rs, daemon_pods.rs, instance_routes.rs, work_route.rs, work_start.rs
 ---
 
 ## What runs where
@@ -318,7 +318,7 @@ into that instance's Secret. So keep nothing else there. A mapping that names a 
 ## The calls
 
 A control plane sends the control token as its bearer. With it, the daemon admits the reads of
-`/v1/` and the four writes below, and nothing else. In the cluster, the daemon is the Service
+`/v1/` and the five writes below, and nothing else. In the cluster, the daemon is the Service
 `conductor` of its namespace:
 
 ```console
@@ -537,6 +537,87 @@ their merge or pull requests, pipelines and releases) and the repositories (`git
 `git fetch`). A session's merge request needs the right to write through the API, and a push the
 right to write the repository. On GitLab those rights are called `read_api` and `read_repository`
 for reading, `api` for writing through the API, and `write_repository` for a push.
+
+### The work call
+
+`POST /v1/instances/{name}/work` hands the instance one unit of work. The body holds
+`repository`, which the instance's newest complete snapshot or its workspace file names; `brief`,
+1 to 65536 bytes; `reference`, the control plane's id of the unit, 1 to 64 characters of
+`A-Z a-z 0-9 . _ -` led by a letter or a digit; and optionally `start_ref` and `issue`. A body
+is at most 1 MiB:
+
+```console
+curl -X POST -H "Authorization: Bearer $TOKEN" -H 'content-type: application/json' \
+  -d '{"repository":"one","brief":"Add a /healthz route.","reference":"WI-1","start_ref":"main","issue":"https://github.com/example-org/one/issues/7"}' \
+  $D/v1/instances/alpha/work
+{"reference":"WI-1","dispatch_id":"DSP-<date>-01","repository":"one","state":"Sent","sent_at":"2026-11-13T09:00:00Z","links":[]}
+```
+
+The call sends the unit as a dispatch and starts one controller session for the repository at
+once, unless the repository has a `Running` or `Paused` controller. It answers `201` with the
+unit's row once the start was made or refused, and does not wait for the session. The session
+runs on the instance's `controller` role, its profile the controller profile the binary carries
+unless the role names one; its first message is the repository's charter, then a `## Dispatch` section that names the dispatch, its
+reference, start ref and issue, and last the brief, verbatim, in a fenced block whose fence is
+longer than any run of backticks in it. The same reference again answers `200` with the row and
+starts nothing, whatever the other members say. `GET /v1/instances/{name}/work/{reference}`
+answers the row, `404` `conductor.dispatch.WorkNotFound` for a reference no dispatch holds.
+
+Where `<records>/charters/<repository>.md` is missing or empty, the start first writes
+conductor's default charter there; a charter with text is never overwritten. The default charter
+has the session work the unit and nothing else, in one pull or merge request that it reports as
+`review <url>` and never merges (`merge: human`), and end with `done`, `failed` or `blocked`.
+Any edit makes it the operator's charter, treated as any other. While it is unchanged, the
+repository gets a controller only for a dispatch.
+
+| request | status | `error` |
+|---|---|---|
+| a repository with an open dispatch | `409` | `conductor.dispatch.RepositoryBusy`, its open dispatches in `open` |
+| no work request, or a `start_ref` or `issue` the rules below refuse | `422` | `conductor.dispatch.InvalidWorkRequest` |
+| a reference that is none | `422` | `conductor.dispatch.InvalidReference` |
+| a brief that is empty, over 65536 bytes, or holds a NUL or a run of more than 255 backticks | `422` | `conductor.dispatch.InvalidBrief` |
+| a repository neither the snapshot nor the workspace file names | `422` | `conductor.dispatch.UnknownRepository` |
+| a body over 1 MiB | `413` | none, the reason as text |
+| a store or records that fail | `500` | `conductor.dispatch.WorkFailed`; the runtime's log says why |
+
+`start_ref` is a git ref name of 1 to 255 bytes and `issue` 1 to 2048 bytes. Neither holds a
+control character (C0 or C1), U+2028, U+2029, a bidirectional control or a backtick: each is
+written in the controller's first prompt.
+
+A start that is refused does not fail the call: it answers `201`, the row stays `Sent`, and its
+member `start` says why no controller runs. `start` is there only while the row is `Sent`, until
+a controller of the repository starts after it:
+
+| `start` | means |
+|---|---|
+| `ControllerLimit` | `controllers.max_working` controllers run already |
+| `AlreadyRunning` | the repository has a `Running` or `Paused` controller, which keeps working what it works; no second one starts |
+| `StartFailed` | the start failed with no refusal of its own, a store or a file that could not be read or written; the runtime's log says why |
+| any other | the refusal of `conductor spawn` by that name, such as `LaunchFailed` or `UntrustedCheckout` |
+
+The loop tries the start again at its next cycle, every `cadence.cycle` (2 hours by default),
+for each `Sent` unit whose repository runs no controller. After three starts of a unit failed at
+the launch, `StartFailed` or `LaunchFailed`, it tries that unit no more, and one `cycle` line
+says it is left to the operator.
+
+`controllers.max_working` holds for the call and the cycle alike: each counts the instance's
+running controllers and starts under one lock of the runtime's process, so neither starts past
+it beside the other. A `conductor spawn` run by hand beside the runtime is not counted under that
+lock.
+
+The session reports its pull or merge request as `[REPORT <repo> <dispatch-id>] review <url>`,
+and the loop takes the report at its next watch tick. The row's `links` then holds the URL and
+`last_report` the report's first line. Only a `review` report records a link: its first word, an
+`http://` or `https://` URL of at most 2048 characters with no space, control character, line or
+paragraph separator or bidirectional control. A dispatch holds 32 links at most.
+
+```console
+curl -H "Authorization: Bearer $TOKEN" $D/v1/instances/alpha/work/WI-1
+{"reference":"WI-1","dispatch_id":"DSP-<date>-01","repository":"one","state":"Started","sent_at":"2026-11-13T09:00:00Z","started_at":"2026-11-13T09:42:10Z","last_report":"[REPORT one DSP-<date>-01] review https://github.com/example-org/one/pull/12 opened for WI-1","links":["https://github.com/example-org/one/pull/12"]}
+```
+
+A `review` report starts a `Sent` row and moves no other: a row with a review link is not finished.
+It reads `Done`, with `ended_at`, once the session reports `done`.
 
 ## What the daemon creates for each instance
 
@@ -819,6 +900,9 @@ kubectl -n conductor-instances get pod conductor-instance-alpha -o jsonpath='{.s
   have no call. `POST /v1/instances/{name}/upgrade` answers `409` for an instance that runs as a
   pod: the image names its version. The token pool's join and leave answer `409`: each instance
   pod has a store of its own, which does not read the daemon's pool.
+- **Not run on a cluster.** The work call's start and its review link were not shown end to
+  end in an instance pod: no session ran there on a real model token, and no push reached a
+  forge with a real forge token.
 - **One control token.** It is one secret, not a person: the control token may make the calls
   above and no other write, and `PUT /v1/config` answers it `403`. Change its value in the
   Secret to rotate it; the daemon reads the value at every request, once the kubelet has updated
