@@ -1795,19 +1795,25 @@ fn a_program_running_from_a_target_keeps_it() {
         .into_iter()
         .find(|path| Path::new(path).is_file())
         .expect("a sleep program");
-    let program = target.join("debug/deps/stand-in");
+    // The copy keeps the name `sleep`: where the host's `sleep` is one program of many in one
+    // file, that file reads which program it is from its own name and ends at once under another.
+    let program = target.join("debug/deps/sleep");
     fs::copy(sleep, &program).expect("copy the program into the target");
     age_by(&target, 240 * MINUTE);
     let elsewhere = case.dir.join("elsewhere");
     fs::create_dir_all(&elsewhere).expect("create a directory outside every target");
     // Its command line does not name the target: only its program lies in it.
-    let _program = stand_in(
+    let mut running = stand_in(
         Command::new(&program)
             .arg0("stand-in")
             .arg("120")
             .current_dir(&elsewhere),
     );
     std::thread::sleep(Duration::from_millis(300));
+    assert!(
+        matches!(running.0.try_wait(), Ok(None)),
+        "the stand-in still runs when the collector starts"
+    );
 
     let output = case.gc_at(&["--format", "json"], &[10]);
     assert!(output.status.success(), "{}", shown(&output));
