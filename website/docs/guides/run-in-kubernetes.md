@@ -904,24 +904,29 @@ instance on repositories it may read and not write, with no token of the forge s
 What the member does:
 
 - The instance's pod carries no credential of any forge: none of the daemon's forge token
-  variables of `daemon.kubernetes.env`, for either forge, and no other entry that names the
-  secret of one, under whatever name; no forge variable of its own; none of the variables that
-  point git, ssh or a forge's command line at a credential or a configuration file
-  (`GIT_ASKPASS`, `GIT_CONFIG_GLOBAL`, `GIT_CONFIG_SYSTEM`, `GIT_CONFIG`, `GIT_SSH_COMMAND`,
-  `GIT_SSH`, `SSH_AUTH_SOCK`, `SSH_ASKPASS`, `GH_CONFIG_DIR`, `GLAB_CONFIG_DIR`,
-  `XDG_CONFIG_HOME`); and of git's configuration, `GIT_CONFIG_COUNT`, `GIT_CONFIG_KEY_<n>` and
-  `GIT_CONFIG_VALUE_<n>`, neither the credential helper the daemon writes nor any of the
-  installer's own entries but its proxy and CA settings (`http.proxy`, `https.proxy`,
-  `http.sslCAInfo`, `http.sslCAPath`, each also as `http.<url>.<name>`), which the pod keeps,
-  renumbered under their own count. Its Secret holds none of the forge tokens' secrets. An entry
-  with a `secret` under any other name stays in the pod with its secret, as the daemon cannot
-  tell what it holds: give no forge credential such an entry.
+  variables of `daemon.kubernetes.env`, for either forge, and no other entry, under whatever
+  name, that names the secret of a forge token the file names (the daemon's, or any instance's
+  `forge_token`) or holds the value of a forge token variable's entry; no forge variable of its
+  own; none of the variables that point git, ssh, git's HTTP library or a forge's command line
+  at a credential or a configuration file (`GIT_ASKPASS`, `GIT_CONFIG_GLOBAL`,
+  `GIT_CONFIG_SYSTEM`, `GIT_CONFIG`, `GIT_SSH_COMMAND`, `GIT_SSH`, `SSH_AUTH_SOCK`,
+  `SSH_ASKPASS`, `GH_CONFIG_DIR`, `GLAB_CONFIG_DIR`, `XDG_CONFIG_HOME`, `NETRC`, `CURL_HOME`,
+  `GIT_TEMPLATE_DIR`, `GIT_SSL_KEY`, `GIT_SSL_CERT`); and of git's configuration,
+  `GIT_CONFIG_COUNT`, `GIT_CONFIG_KEY_<n>` and `GIT_CONFIG_VALUE_<n>`, neither the credential
+  helper the daemon writes nor any of the installer's own entries but its proxy and CA settings
+  (`http.proxy`, `https.proxy`, `http.sslCAInfo`, `http.sslCAPath`, each also as
+  `http.<url>.<name>`), which the pod keeps, renumbered under their own count. Its Secret holds
+  none of the forge tokens' secrets. An entry with a `secret` under any other name stays in the
+  pod with its secret, as the daemon cannot tell what it holds: give no forge credential such an
+  entry.
 - The runtime clones each repository the source's `include` names over HTTPS,
   `https://github.com/<owner>/<name>.git`, with no credential: git gets no credential helper, no
-  extra header and no token variable, and reads neither the system's nor the user's git
-  configuration file, so no `insteadOf` rewrite of the image applies. A clone that fails is one
-  member failure of the pass whose line says the repository is not public or not reachable, with
-  git's last error line; the next pass tries again.
+  extra header and no token variable, reads neither the system's nor the user's git
+  configuration file nor a netrc file, and copies no template, so no `insteadOf` rewrite of the
+  image applies. Before it fetches a checkout, it removes from the checkout's own configuration
+  every extra header, cookie file, TLS client certificate and key, and `insteadOf` rewrite. A
+  clone that fails is one member failure of the pass whose line says the repository is
+  not public or not reachable, with git's last error line; the next pass tries again.
 - The repositories are the `include` entries, listed by no forge. Each is read from its checkout
   alone: the collectors read no pull request, issue, release or workflow run of the forge, and say
   so in one line a pass. A repository without a checkout has no row. An entry that no
@@ -931,13 +936,18 @@ What the member does:
 - A session's write to the forge is refused before any call to the forge or to git's remote, in
   one line that names `forge_access: anonymous`: a push by git (`git push`, `git send-pack`,
   `git subtree push`, `git lfs push`, `git-push` by its path, or an alias the same command gives
-  with `-c alias.<name>=`), after `env`, `timeout`, `nohup`, `xargs` or `find -exec` too, or
-  through the bot route; its pull request, its comment, a release through the bot route, a call
-  of `b10x-gates api` with a method other than `GET` or `HEAD`; under `forge.route: gates` and
-  `direct` alike; and the push of the instance's records, which are committed and not pushed. The
-  guard reads the command as written: a program word the shell expands (`g=git; $g push`) is not
-  read, and such a write fails at the forge, as the pod holds no credential to write with. The
-  instance's `detail` carries one line that says it writes nothing to its forge.
+  with `-c alias.<name>=` or `--config-env alias.<name>=`), written as the command, after `env`,
+  `timeout`, `nice`, `nohup`, `sudo`, `doas`, `setsid`, `stdbuf`, `ionice`, `taskset`, `xargs`
+  or `parallel` with their own options, after `find -exec`, after `command`, `exec` or `time`,
+  in a shell's `-c` script or an `eval`, or through the bot route; its pull request, its comment,
+  a release through the bot route, a call of `b10x-gates api` with a method other than `GET` or
+  `HEAD`; under `forge.route: gates` and `direct` alike; and the push of the instance's records,
+  which are committed and not pushed. The guard reads the command as written and refuses these
+  spellings only. A write in any other spelling, such as a program word the shell expands
+  (`g=git; $g push`), a script on a shell's standard input, a launcher outside that list, or
+  `curl` to the forge's API, is not read as one, and it finds no credential in the pod to write
+  with: the pod holds no credential of the forge. The instance's `detail` carries one line that
+  says it writes nothing to its forge.
 
 **Known issue in 1.8.0**: with `forge_access: anonymous`, a `daemon.kubernetes.env` entry under
 another name that names the same secret as a forge token variable, and a `GIT_CONFIG_GLOBAL` or

@@ -2347,13 +2347,14 @@ const GIT_REMOTE_WRITES: [&str; 3] = ["push", "send-pack", "http-push"];
 const GIT_PUSHING_GROUPS: [&str; 2] = ["subtree", "lfs"];
 
 /// The global options of git that take the next word as their value.
-const GIT_VALUED: [&str; 6] = [
+const GIT_VALUED: [&str; 7] = [
     "-c",
     "-C",
     "--git-dir",
     "--work-tree",
     "--namespace",
     "--config-env",
+    "--attr-source",
 ];
 
 /// The forge write the simple command `words` makes, shown, if it makes one, for an instance with
@@ -2399,6 +2400,14 @@ fn remote_write(run: &[String]) -> Option<String> {
                 if word == "-c" {
                     aliases.extend(rest.get(at + 1).and_then(|value| pushing_alias(value)));
                     at += 2;
+                } else if let Some(value) = word.strip_prefix("--config-env=") {
+                    aliases.extend(alias_of(value));
+                    at += 1;
+                } else if word == "--config-env" {
+                    // The alias's text is a variable's, which the line need not show: any alias
+                    // it gives may push.
+                    aliases.extend(rest.get(at + 1).and_then(|value| alias_of(value)));
+                    at += 2;
                 } else if GIT_VALUED.contains(&word.as_str()) {
                     at += 2;
                 } else if word.starts_with('-') {
@@ -2431,6 +2440,14 @@ fn remote_write(run: &[String]) -> Option<String> {
     let writes = GIT_REMOTE_WRITES.contains(&subcommand)
         || (GIT_PUSHING_GROUPS.contains(&subcommand) && after.iter().any(|word| word == "push"));
     writes.then(|| run.join(" "))
+}
+
+/// The alias `value` names, when it is `alias.<name>=<anything>`: the value of a git
+/// `--config-env`, whose text is read from a variable.
+fn alias_of(value: &str) -> Option<&str> {
+    let (key, _) = value.split_once('=')?;
+    let (section, alias) = key.split_once('.')?;
+    section.eq_ignore_ascii_case("alias").then_some(alias)
 }
 
 /// The alias `value`, the value of a git `-c`, gives, when it is `alias.<name>=<text>` and its
@@ -2469,13 +2486,25 @@ fn command_words(words: &[String]) -> &[String] {
         "!", "{", "}", "if", "then", "else", "elif", "fi", "do", "done", "while", "until", "time",
         "builtin", "command",
     ];
-    let start = words
-        .iter()
-        .position(|word| {
-            !(RESERVED.contains(&word.as_str()) || word == "exec" || is_assignment(word))
-        })
-        .unwrap_or(words.len());
-    &words[start..]
+    // The keyword whose own options may follow it: `command -p`, `time -p`, `exec -c`, `exec -l`
+    // and `exec -a <name>` (story:anonymous-pod-no-forge-secret).
+    let mut keyword = "";
+    let mut start = 0;
+    while let Some(word) = words.get(start) {
+        let word = word.as_str();
+        if RESERVED.contains(&word) || word == "exec" || is_assignment(word) {
+            keyword = word;
+        } else if matches!((keyword, word), ("exec", "-a")) {
+            start += 1;
+        } else if !matches!(
+            (keyword, word),
+            ("command" | "time", "-p") | ("exec", "-c" | "-l" | "-cl" | "-lc")
+        ) {
+            break;
+        }
+        start += 1;
+    }
+    &words[start.min(words.len())..]
 }
 
 fn is_assignment(word: &str) -> bool {
@@ -2667,8 +2696,10 @@ const FIND_RUNS: [&str; 4] = ["-exec", "-execdir", "-ok", "-okdir"];
 /// Whether `words[at]` is the program a simple command runs: its command name (`words[name]`, from
 /// [`command_words`]); the word after a [`FIND_RUNS`] action; or the first word after a chain of
 /// [`LAUNCHERS`] starting at the command name, in which every other word is an option, an
-/// assignment, a value that starts with a digit (`timeout 5`, `nice -n 10`) or `{}`. A word that
-/// follows any other program's words (`grep -rn conductor`) is an argument, not a program.
+/// assignment, a value that starts with a digit (`timeout 5`, `nice -n 10`), `{}`, or the value
+/// of the launcher's own option that takes one ([`LAUNCHER_VALUES`]: `sudo -u root`, `timeout -s
+/// KILL`, `env -u NAME`, `xargs -I %`). A word that follows any other program's words (`grep -rn
+/// conductor`) is an argument, not a program.
 fn is_program_word(words: &[String], name: usize, at: usize) -> bool {
     if at <= name {
         return at == name;
@@ -2676,14 +2707,95 @@ fn is_program_word(words: &[String], name: usize, at: usize) -> bool {
     if FIND_RUNS.contains(&words[at - 1].as_str()) {
         return true;
     }
-    LAUNCHERS.contains(&shell::program(&words[name]))
-        && words[name + 1..at].iter().all(|word| {
-            LAUNCHERS.contains(&shell::program(word))
-                || word.starts_with('-')
-                || is_assignment(word)
-                || word.starts_with(|c: char| c.is_ascii_digit())
-                || word == "{}"
-        })
+    let mut launcher = shell::program(&words[name]);
+    if !LAUNCHERS.contains(&launcher) {
+        return false;
+    }
+    let mut index = name + 1;
+    while index < at {
+        let word = words[index].as_str();
+        if LAUNCHERS.contains(&shell::program(word)) {
+            launcher = shell::program(word);
+        } else if takes_value(launcher, word) {
+            // The option's value is the next word, which is then no program.
+            index += 1;
+        } else if !(word.starts_with('-')
+            || is_assignment(word)
+            || word.starts_with(|c: char| c.is_ascii_digit())
+            || word == "{}")
+        {
+            return false;
+        }
+        index += 1;
+    }
+    index == at
+}
+
+/// The options of each of [`LAUNCHERS`] that take the next word as their value
+/// (story:anonymous-pod-no-forge-secret).
+const LAUNCHER_VALUES: [(&str, &[&str]); 8] = [
+    ("env", &["-u", "--unset", "-C", "--chdir"]),
+    ("timeout", &["-s", "--signal", "-k", "--kill-after"]),
+    (
+        "sudo",
+        &[
+            "-u",
+            "--user",
+            "-g",
+            "--group",
+            "-h",
+            "--host",
+            "-p",
+            "--prompt",
+            "-C",
+            "--close-from",
+            "-D",
+            "--chdir",
+            "-r",
+            "--role",
+            "-t",
+            "--type",
+            "-U",
+            "--other-user",
+            "-T",
+            "--command-timeout",
+        ],
+    ),
+    ("doas", &["-u", "-C"]),
+    ("nice", &["-n", "--adjustment"]),
+    ("ionice", &["-c", "--class", "-n", "--classdata", "-t"]),
+    (
+        "stdbuf",
+        &["-i", "--input", "-o", "--output", "-e", "--error"],
+    ),
+    (
+        "xargs",
+        &[
+            "-I",
+            "-E",
+            "-L",
+            "-n",
+            "-P",
+            "-s",
+            "-d",
+            "-a",
+            "--replace",
+            "--eof",
+            "--max-lines",
+            "--max-args",
+            "--max-procs",
+            "--max-chars",
+            "--delimiter",
+            "--arg-file",
+        ],
+    ),
+];
+
+/// Whether `word` is an option of the launcher `launcher` that takes the next word as its value.
+fn takes_value(launcher: &str, word: &str) -> bool {
+    LAUNCHER_VALUES
+        .iter()
+        .any(|(named, options)| *named == launcher && options.contains(&word))
 }
 
 /// Whether the shell expands `word` into other words before a program reads it ([`EXPANSIONS`]).

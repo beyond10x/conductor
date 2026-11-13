@@ -185,9 +185,16 @@ fn is_forge_variable(name: &str) -> bool {
 /// The variables that point git, ssh or a forge's command line at a credential or at a
 /// configuration file that may name one (story:anonymous-pod-no-forge-secret): git's global and
 /// system file, git's ssh command, ssh's agent and its prompt, `gh`'s and `glab`'s configuration
-/// directory, and the directory each of them reads its configuration under. No pod of an instance
-/// with `forge_access: anonymous` carries one.
-pub const CREDENTIAL_POINTERS: [&str; 10] = [
+/// directory, and the directory each of them reads its configuration under; a netrc file of
+/// git's HTTP library (`NETRC`, `CURL_HOME`), git's template directory, whose `config` a clone
+/// copies, and a TLS client key or certificate. No pod of an instance with `forge_access:
+/// anonymous` carries one.
+pub const CREDENTIAL_POINTERS: [&str; 15] = [
+    "NETRC",
+    "CURL_HOME",
+    "GIT_TEMPLATE_DIR",
+    "GIT_SSL_KEY",
+    "GIT_SSL_CERT",
     "GIT_CONFIG_GLOBAL",
     "GIT_CONFIG_SYSTEM",
     "GIT_SSH_COMMAND",
@@ -220,10 +227,10 @@ fn is_plain_setting(key: &str) -> bool {
 /// The installer's git settings an anonymous instance's pod keeps (story:anonymous-pod-no-forge-
 /// secret): each pair `GIT_CONFIG_KEY_<n>`, `GIT_CONFIG_VALUE_<n>` of `env` below its
 /// [`GIT_CONFIG_COUNT`] whose key is written as a value and [`is_plain_setting`], and whose
-/// value names no secret of `forge`, in their order. Every other pair is left out.
+/// value carries no forge credential of `forge`, in their order. Every other pair is left out.
 fn plain_settings<'e>(
     env: &'e [KubernetesEnv],
-    forge: &BTreeSet<String>,
+    forge: &ForgeCredentials,
 ) -> Vec<(&'e str, &'e KubernetesEnv)> {
     let named = |name: &str| env.iter().find(|entry| entry.name == name);
     let Some(count) = named(GIT_CONFIG_COUNT)
@@ -238,13 +245,53 @@ fn plain_settings<'e>(
                 .value
                 .as_deref()?;
             let value = named(&format!("GIT_CONFIG_VALUE_{index}"))?;
-            let forges = value
-                .secret
-                .as_ref()
-                .is_some_and(|secret| forge.contains(&secret.0));
-            (is_plain_setting(key) && !forges).then_some((key, value))
+            (is_plain_setting(key) && !forge.carried_by(value)).then_some((key, value))
         })
         .collect()
+}
+
+/// The forge credentials the file names (story:anonymous-pod-no-forge-secret), which no pod of
+/// an instance with `forge_access: anonymous` carries under any name: the secret of each
+/// daemon's forge token ([`crate::secret::daemons_forge`]) and of each instance's
+/// `forge_token`, and the value, not empty, of each `daemon.kubernetes.env` entry of a forge's
+/// token variable written as a `value`.
+struct ForgeCredentials {
+    secrets: BTreeSet<String>,
+    values: BTreeSet<String>,
+}
+
+impl ForgeCredentials {
+    fn of(config: &Config, kubernetes: &Kubernetes) -> Self {
+        let mut secrets = crate::secret::daemons_forge(&config.daemon);
+        secrets.extend(
+            config
+                .instances
+                .iter()
+                .filter_map(|instance| instance.forge_token.as_ref())
+                .map(|secret| secret.0.clone()),
+        );
+        let values = kubernetes
+            .env
+            .iter()
+            .filter(|entry| crate::config::token_variable_forge(&entry.name).is_some())
+            .filter_map(|entry| entry.value.as_deref())
+            .filter(|value| !value.is_empty())
+            .map(str::to_owned)
+            .collect();
+        Self { secrets, values }
+    }
+
+    /// Whether `entry` names one of the secrets or holds one of the values.
+    fn carried_by(&self, entry: &KubernetesEnv) -> bool {
+        entry
+            .secret
+            .as_ref()
+            .is_some_and(|secret| self.secrets.contains(&secret.0))
+            || entry
+                .value
+                .as_deref()
+                .is_some_and(|value| self.values.contains(value))
+    }
 }
 
 /// The one host the daemon's GitLab token belongs to (decision F3-D2): the value of the
@@ -442,24 +489,18 @@ pub fn manifests(kubernetes: &Kubernetes, config: &Config, instance: &Instance) 
     let gitlab_host = gitlab_host(kubernetes);
     // An instance with `forge_access: anonymous` (story:forge-access-anonymous) carries no
     // credential of any forge: none of the daemon's forge token variables, no entry that names
-    // the secret of one under whatever name, none that points git, ssh or a forge's command
-    // line at a credential or a configuration file ([`CREDENTIAL_POINTERS`]), and of git's
-    // configuration only the installer's settings that carry none ([`plain_settings`]).
+    // a forge credential the file names under whatever name ([`ForgeCredentials`]), none that
+    // points git, ssh or a forge's command line at a credential or a configuration file
+    // ([`CREDENTIAL_POINTERS`]), and of git's configuration only the installer's settings that
+    // carry none ([`plain_settings`]).
     let anonymous = crate::config::anonymous(instance);
-    let forge_secrets = if anonymous {
-        crate::secret::daemons_forge(&config.daemon)
-    } else {
-        BTreeSet::new()
-    };
+    let forge_credentials = anonymous.then(|| ForgeCredentials::of(config, kubernetes));
     for variable in &kubernetes.env {
-        if anonymous
+        if let Some(credentials) = &forge_credentials
             && (is_gits_config(&variable.name)
                 || is_forge_variable(&variable.name)
                 || CREDENTIAL_POINTERS.contains(&variable.name.as_str())
-                || variable
-                    .secret
-                    .as_ref()
-                    .is_some_and(|secret| forge_secrets.contains(&secret.0)))
+                || credentials.carried_by(variable))
         {
             continue;
         }
@@ -500,8 +541,8 @@ pub fn manifests(kubernetes: &Kubernetes, config: &Config, instance: &Instance) 
     // names `GIT_CONFIG_COUNT`, git's configuration is the installer's. An anonymous instance's
     // pod gets no helper, and of the installer's entries only those that carry no credential,
     // renumbered from 0.
-    if anonymous {
-        let kept = plain_settings(&kubernetes.env, &forge_secrets);
+    if let Some(credentials) = &forge_credentials {
+        let kept = plain_settings(&kubernetes.env, credentials);
         if !kept.is_empty() {
             env.push(json!({"name": GIT_CONFIG_COUNT, "value": kept.len().to_string()}));
         }
