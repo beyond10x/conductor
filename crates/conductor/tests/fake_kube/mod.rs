@@ -17,7 +17,9 @@
 //! | `POST /apis/authorization.k8s.io/v1/selfsubjectaccessreviews` | the review, `status.allowed` as [`FakeKube::allow`] said |
 //!
 //! A bearer other than the token of the directory answers `401 Unauthorized`; [`FakeKube::fail_next`]
-//! makes the next request answer a `Status` of the case's choosing. Every answer is a `Status`
+//! makes the next request answer a `Status` of the case's choosing, and [`FakeKube::forbid`]
+//! ([`FakeKube::refuse`]) makes every request of a method on a resource answer `403 Forbidden`
+//! (another `Status`) until [`FakeKube::permit`]. Every answer is a `Status`
 //! object where the API answers one, with a `Content-Length`, or in chunks after
 //! [`FakeKube::chunked`]. [`FakeKube::requests`] lists every request as it was received.
 
@@ -67,6 +69,7 @@ struct State {
     allowed: Vec<(String, String, String)>,
     logs: BTreeMap<(String, String), String>,
     fail: Option<(u16, String, String)>,
+    forbidden: Vec<(String, String, u16, String)>,
     serial: u64,
 }
 
@@ -180,6 +183,30 @@ impl FakeKube {
         self.lock()
             .logs
             .insert((namespace.to_owned(), name.to_owned()), text.to_owned());
+    }
+
+    /// Every `method` request on `resource` (`secrets`, `pods`, …) answers `403 Forbidden` from
+    /// now on, as a Role without that verb makes the API answer, until [`FakeKube::permit`].
+    pub fn forbid(&self, method: &str, resource: &str) {
+        self.refuse(method, resource, 403, "Forbidden");
+    }
+
+    /// Every `method` request on `resource` answers a `Status` of `code` and `reason` from now
+    /// on, as an API server that fails (`500 InternalError`) does, until [`FakeKube::permit`].
+    pub fn refuse(&self, method: &str, resource: &str, code: u16, reason: &str) {
+        self.lock().forbidden.push((
+            method.to_owned(),
+            resource.to_owned(),
+            code,
+            reason.to_owned(),
+        ));
+    }
+
+    /// `method` requests on `resource` are answered again.
+    pub fn permit(&self, method: &str, resource: &str) {
+        self.lock()
+            .forbidden
+            .retain(|held| (held.0.as_str(), held.1.as_str()) != (method, resource));
     }
 
     /// The next request answers a `Status` of `code`, `reason` and `message`, whatever it asks.
@@ -442,6 +469,25 @@ fn answer(state: &mut State, request: &Request) -> Answer {
         return status(401, "Unauthorized", "Unauthorized");
     }
     let segments: Vec<&str> = request.path.trim_start_matches('/').split('/').collect();
+    if let ["api", "v1", "namespaces", _, resource, ..] = segments.as_slice()
+        && let Some((_, _, code, reason)) = state
+            .forbidden
+            .iter()
+            .find(|held| held.0 == request.method && held.1 == *resource)
+    {
+        let message = if *code == 403 {
+            format!(
+                "{resource} is forbidden: the service account cannot {} it",
+                request.method
+            )
+        } else {
+            format!(
+                "the server could not answer {} on {resource}",
+                request.method
+            )
+        };
+        return status(*code, &reason.clone(), &message);
+    }
     match (request.method.as_str(), segments.as_slice()) {
         (
             "POST",

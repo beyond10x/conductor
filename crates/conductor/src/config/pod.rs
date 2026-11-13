@@ -145,9 +145,15 @@ pub fn render_at(config: &Config, instance: &Instance, data: &Path, secrets: &Pa
         map.shift_remove("forge_token");
         map.shift_remove("git_identity");
         // The runtime reads the model token's kind and the standing rules; a mapping without
-        // either renders as before.
+        // either renders as before, and rules that are empty or only white space are none.
         for key in ["model_token_kind", "standing_rules"] {
-            if map.get(key).is_some_and(Yaml::is_null) {
+            let absent = map.get(key).is_some_and(|value| {
+                value.is_null()
+                    || value
+                        .as_str()
+                        .is_some_and(|text| super::standing_rules_given(text).is_none())
+            });
+            if absent {
                 map.shift_remove(key);
             }
         }

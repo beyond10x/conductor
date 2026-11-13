@@ -905,8 +905,17 @@ request or an issue, where the repository's own `AGENTS.md` is not the control p
 ```
 
 The text is at most 16384 bytes of UTF-8 and holds no NUL; a mapping that breaks either is
-refused `422` `conductor.config.ConfigInvalid` at `instances[<i>].standing_rules`. A word that
-looks like a token is refused there as anywhere in the file.
+refused `422` `conductor.config.ConfigInvalid` at `instances[<i>].standing_rules`. The config file
+holds no secret, so its secret scan reads this text as every other value: a text with a word that
+looks like a token (one starting `ghp_` or `glpat-`, say) or a URL that writes a password
+(`https://user:password@…`) is refused there too, and the problem quotes no part of the text.
+Write such a rule without the word itself, for example "no token of a forge goes into a file". A
+text that is empty or only white space is no rule: the mapping reads as one without the member.
+
+The control plane alone writes the text. The instance's own settings write, the dashboard's
+configuration page, shows `standing_rules` as fixed and refuses to change it. On a host where the
+daemon starts its instances as units rather than as pods, a session runs as the daemon's user and
+can edit the config file itself, as that host's trust model already says of every key.
 
 A session gets the text in its prompt file, after one line that says these are the instance's
 standing rules, verbatim inside a fenced block whose fence of backticks is longer than any run of
@@ -931,7 +940,21 @@ the runtime reads the text from the mounted file at each session's start. So a s
 after that reads the new text, and a session that already runs keeps the text it started with
 until it starts again. An instance whose runtime is no pod reads the text from its config file at
 each session's start. `GET /v1/instances/{name}` answers the text as the mapping holds it, and no
-member where it holds none.
+member where it holds none. A file that does not read or validate when a session starts leaves
+the session the text the runtime last read, and the runtime writes one line to its log that names
+the file and why, and no part of the text.
+
+Where the Role lacks `update` on Secrets, the API refuses the write in place (`403`). The
+instance's row then says so in its `detail`, naming the right, that the pod's sessions still read
+the earlier text and that the pod's next start delivers the new one. A write that fails otherwise,
+such as a `500`, a `409` conflict or an API server that does not answer, is no missing right: the
+`detail` says the write did not go through and gives the status or the kind of failure, names no
+right, and says the same of the sessions and the next start. Either clears once a write goes
+through, the Secret holds the text already, or the pod starts again; the daemon's log gets one
+line when a failure begins or changes and one when it ends. Nothing is deleted or replaced in its
+place: the pod and its Secret stay as they were, and the next pass tries again. `conductor doctor`
+and `conductor setup` fail on the missing right only once an instance names `standing_rules`;
+until then its row says it is not needed yet.
 
 ## Limits
 

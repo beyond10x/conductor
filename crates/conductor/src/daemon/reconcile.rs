@@ -613,8 +613,10 @@ impl<U: Units> Daemon<U> {
     /// Writes the rendered file of `instance`'s current pod into its Secret in place where it
     /// changed in what the digest leaves out, its `standing_rules` (story:instance-rules-text,
     /// [`super::pods::Pods::refresh_rendering`]); nothing for a runtime that is no pod. A refusal
-    /// of the API is written to the daemon's log and tried again at the next pass; the pod keeps
-    /// running.
+    /// of the API is tried again at the next pass, and the pod keeps running; it shows in the
+    /// instance's `detail` while it lasts ([`super::pods::Pods::unwritten`]), and the daemon's log
+    /// gets one line when it begins or changes and one when it ends, not one per pass
+    /// ([`super::pods::rendering_line`]).
     fn refresh_rendering(&mut self, instance: &Instance) {
         let Some(kubernetes) = self.pod_run() else {
             return;
@@ -622,8 +624,17 @@ impl<U: Units> Daemon<U> {
         let Some(pods) = self.units.pods_mut() else {
             return;
         };
-        if let Err(error) = pods.refresh_rendering(&kubernetes, &self.config, instance) {
-            eprintln!("conductor: daemon: {}: {error:#}", instance.name.0);
+        let name = &instance.name.0;
+        let before = pods.unwritten(name);
+        let error = pods
+            .refresh_rendering(&kubernetes, &self.config, instance)
+            .err()
+            .map(|error| format!("{error:#}"));
+        let after = pods.unwritten(name);
+        if let Some(line) =
+            super::pods::rendering_line(name, before.as_deref(), after.as_deref(), error.as_deref())
+        {
+            eprintln!("{line}");
         }
     }
 
@@ -1844,10 +1855,12 @@ fn pod_state(
         return (InstanceState::Unreachable, pods.detail(name));
     }
     match pods.seen(name) {
+        // A pod that starts or runs: the refused write of its changed standing rules into its
+        // Secret, while it is refused (story:instance-rules-text).
         Seen::Pending { stuck: None } | Seen::Running { ready: false, .. } => {
-            (InstanceState::Starting, None)
+            (InstanceState::Starting, pods.unwritten(name))
         }
-        Seen::Running { ready: true, .. } => (InstanceState::Running, None),
+        Seen::Running { ready: true, .. } => (InstanceState::Running, pods.unwritten(name)),
         Seen::Pending { stuck: Some(_) }
         | Seen::Unlisted(_)
         | Seen::Absent

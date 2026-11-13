@@ -570,25 +570,67 @@ pub fn standing_rules_problem(text: &str) -> Option<String> {
     })
 }
 
+/// `text` as standing rules (story:instance-rules-text): none where it is empty or only white
+/// space, which gives no rule, so every session starts as a mapping without the member makes it.
+#[must_use]
+pub fn standing_rules_given(text: &str) -> Option<&str> {
+    (!text.trim().is_empty()).then_some(text)
+}
+
 /// The standing rules of `instance` in the config file `file` as it holds them now
 /// (story:instance-rules-text): the `standing_rules` of its instance of the same name, none where
-/// that instance holds none. A file that does not read or validate, or holds no instance of the
-/// name, leaves `instance`'s own, so a session starts with the text the process loaded rather
-/// than with none. `home` is the home directory a `~` of the file names.
-#[must_use]
-pub fn standing_rules_in(file: &Path, home: &Path, instance: &Instance) -> Option<String> {
-    let own = || instance.standing_rules.clone();
-    let Ok(text) = fs::read_to_string(file) else {
-        return own();
-    };
-    let Ok(config) = parse(&text, home) else {
-        return own();
-    };
-    config
+/// that instance holds none. A file that holds no instance of the name leaves `instance`'s own.
+/// A file that does not read or validate is an error that names the file and why, and holds no
+/// part of any text of the file: the problems' paths and messages, which quote no rules text.
+/// `home` is the home directory a `~` of the file names.
+///
+/// # Errors
+///
+/// The file does not read, or does not validate.
+pub fn standing_rules_read(
+    file: &Path,
+    home: &Path,
+    instance: &Instance,
+) -> Result<Option<String>, String> {
+    let text = fs::read_to_string(file).map_err(|error| {
+        format!(
+            "{}: does not read ({}), so the session starts with the standing rules last read",
+            file.display(),
+            error.kind()
+        )
+    })?;
+    let config = parse(&text, home).map_err(|problems| {
+        let paths: Vec<&str> = problems
+            .iter()
+            .map(|problem| problem.path.as_str())
+            .collect();
+        format!(
+            "{}: does not validate ({} problem(s), at {}), so the session starts with the \
+             standing rules last read",
+            file.display(),
+            problems.len(),
+            paths.join(", ")
+        )
+    })?;
+    Ok(config
         .instances
         .into_iter()
         .find(|held| held.name == instance.name)
-        .map_or_else(own, |held| held.standing_rules)
+        .map_or_else(
+            || instance.standing_rules.clone(),
+            |held| held.standing_rules,
+        ))
+}
+
+/// [`standing_rules_read`], where the file does not read or validate the text the process loaded,
+/// `instance`'s own, with one line to stderr that says so ([`standing_rules_read`]'s error), so a
+/// session starts with the text last read and the reason is visible.
+#[must_use]
+pub fn standing_rules_in(file: &Path, home: &Path, instance: &Instance) -> Option<String> {
+    standing_rules_read(file, home, instance).unwrap_or_else(|why| {
+        eprintln!("conductor: standing rules: {why}");
+        instance.standing_rules.clone()
+    })
 }
 
 /// The standing rules a session of `instance` starts with, read at its start
@@ -4450,19 +4492,20 @@ impl Reader<'_> {
             None => Some(None),
         };
         // The instance's standing rules (story:instance-rules-text): text every session of the
-        // instance reads, bounded and without a NUL ([`standing_rules_problem`]).
+        // instance reads, bounded and without a NUL ([`standing_rules_problem`]); a text that is
+        // empty or only white space gives no rule and reads as absent.
         let standing_rules = match Self::get(map, "standing_rules") {
             Some(Value::String(text)) => match standing_rules_problem(text) {
                 Some(problem) => {
                     self.problem(&join(path, "standing_rules"), problem);
                     None
                 }
-                None => Some(Some(text.clone())),
+                None => Some(standing_rules_given(text).map(str::to_owned)),
             },
-            Some(other) => {
+            Some(_) => {
                 self.problem(
                     &join(path, "standing_rules"),
-                    format!("{} is not text", echo(other)),
+                    "is not text: the standing rules of an instance are one string",
                 );
                 None
             }

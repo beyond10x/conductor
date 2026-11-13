@@ -493,7 +493,11 @@ fn the_guide_names_the_model_token_kind_its_two_routes_and_what_a_new_value_need
 /// says which sessions read them and which do not, the frame they stand in, the copy a role with
 /// its own profile starts from, that a change of them alone replaces no pod and how the new text
 /// reaches the pod, the right that takes, that a session started after the change reads the new
-/// text, and that a session that already runs keeps the text it started with.
+/// text, and that a session that already runs keeps the text it started with. It names the
+/// secret scan's two refusals of the text, that an empty text is no rule, that the instance's own
+/// settings write does not change the rules, that a session on a host where the daemon starts
+/// instances as units runs as the daemon's user, what a refused write of the Secret shows and
+/// when the doctor needs the right.
 #[test]
 fn the_guide_names_the_standing_rules_who_reads_them_and_what_a_change_reaches() {
     let table = section("The daemon-config file");
@@ -527,6 +531,13 @@ fn the_guide_names_the_standing_rules_who_reads_them_and_what_a_change_reaches()
         "at each session's start",
         "keeps the text it started with",
         "`GET /v1/instances/{name}`",
+        "looks like a token",
+        "writes a password",
+        "only white space",
+        "settings write",
+        "the daemon's user",
+        "`detail`",
+        "`conductor doctor`",
     ] {
         assert!(text.contains(words), "the section says {words:?}:\n{text}");
     }

@@ -896,6 +896,80 @@ fn the_doctor_names_each_right_and_fails_on_a_missing_one() {
     assert!(lines[0].1.is_some(), "it fails the verdict: {lines:?}");
 }
 
+/// story:instance-rules-text: `update` on Secrets is needed only to write an instance's standing
+/// rules into its Secret in place. The rows `conductor doctor` and `conductor setup` print for a
+/// daemon that runs pods ([`conductor_cli::doctor::pod_rights_lines`], which both reach through
+/// `doctor::config_lines`): with a Role of 1.7.0, which grants every other right, and no instance
+/// that names `standing_rules`, the right's row says it is not needed yet and when it is, and the
+/// failures are those of a Role that grants it, none: the verdict is the one 1.7.0 gave. Once an
+/// instance names the member, the row fails the verdict and says why.
+#[test]
+fn update_on_secrets_fails_the_verdict_only_where_an_instance_names_standing_rules() {
+    let case = Case::new("doctor-rules");
+    let failures = |lines: &[(String, Option<String>)]| -> Vec<String> {
+        lines
+            .iter()
+            .filter_map(|(_, failure)| failure.clone())
+            .collect()
+    };
+    let read = || {
+        let text = fs::read_to_string(case.file()).expect("the config file");
+        conductor_cli::config::parse(&text, &case.home()).expect("a valid file")
+    };
+    let client = case.fake.client();
+    for resource in ["pods", "persistentvolumeclaims", "secrets"] {
+        for verb in ["create", "get", "list", "delete"] {
+            case.fake.allow(NAMESPACE, verb, resource);
+        }
+    }
+    case.fake.allow(NAMESPACE, "get", "pods/log");
+
+    let old = conductor_cli::doctor::pod_rights_lines(&read(), Ok(&client));
+    assert_eq!(old.len(), 11, "{old:?}");
+    assert_eq!(failures(&old), Vec::<String>::new(), "{old:?}");
+    let row = old
+        .iter()
+        .find(|(line, _)| line.contains("update secrets"))
+        .unwrap_or_else(|| panic!("a row of update secrets: {old:?}"));
+    for words in ["not allowed", "not needed yet", "standing_rules"] {
+        assert!(row.0.contains(words), "the row says {words:?}: {}", row.0);
+    }
+    case.fake.allow(NAMESPACE, "update", "secrets");
+    let granted = conductor_cli::doctor::pod_rights_lines(&read(), Ok(&client));
+    assert_eq!(failures(&granted), failures(&old), "{granted:?}");
+
+    let narrow = Case::new("doctor-rules-named");
+    for resource in ["pods", "persistentvolumeclaims", "secrets"] {
+        for verb in ["create", "get", "list", "delete"] {
+            narrow.fake.allow(NAMESPACE, verb, resource);
+        }
+    }
+    narrow.fake.allow(NAMESPACE, "get", "pods/log");
+    let rules = format!(
+        "\x20   standing_rules: {}\n",
+        serde_json::to_string(RULES).expect("JSON")
+    );
+    narrow.config(IMAGE, &[alpha(&rules)]);
+    let text = fs::read_to_string(narrow.file()).expect("the config file");
+    let config = conductor_cli::config::parse(&text, &narrow.home()).expect("a valid file");
+    let named = conductor_cli::doctor::pod_rights_lines(&config, Ok(&narrow.fake.client()));
+    assert_eq!(
+        failures(&named),
+        vec![format!(
+            "kubernetes {NAMESPACE} (update secrets not allowed)"
+        )],
+        "{named:?}"
+    );
+    let row = named
+        .iter()
+        .find(|(line, _)| line.contains("update secrets"))
+        .expect("a row of update secrets");
+    for words in ["not allowed", "standing_rules", "in place"] {
+        assert!(row.0.contains(words), "the row says {words:?}: {}", row.0);
+    }
+    assert!(!row.0.contains(RULES.trim()), "{}", row.0);
+}
+
 /// A config read before validation refused the daemon's own secrets in an instance or in `env`
 /// still gets none into a pod: the start is refused before any secret is resolved, with "a secret
 /// of the daemon's own" as its detail, and nothing reaches the API.
@@ -3107,6 +3181,225 @@ fn a_put_that_changes_only_the_standing_rules_replaces_no_pod_and_rewrites_its_s
             "{rules:?} again: nothing changed, nothing written"
         );
     }
+}
+
+/// story:instance-rules-text: a write of the instance's Secret in place that the cluster refuses
+/// (`403` on the `PUT`, a Role without `update` on Secrets) is visible in the instance's row: its
+/// `detail` names the right, says the pod's sessions still read the earlier text and that the
+/// pod's next start delivers it, and holds no part of the rules. Nothing is replaced or deleted:
+/// the pod and the Secret stay as they were. A later write the cluster takes clears the detail.
+#[test]
+fn a_refused_write_of_the_secret_shows_in_the_instances_detail_until_one_is_taken() {
+    let case = Case::new("standing-rules-refused");
+    let mut daemon = case.daemon();
+    let start = Instant::now();
+    daemon
+        .pass(ReconcileReason::Cadence, start)
+        .expect("a pass");
+    case.set_running();
+    daemon
+        .pass(ReconcileReason::Cadence, start + Duration::from_secs(2))
+        .expect("a pass");
+    let row = |daemon: &Daemon<Manager>| {
+        daemon
+            .rows()
+            .into_iter()
+            .find(|row| row["name"] == "alpha")
+            .expect("the row of alpha")
+    };
+    assert_eq!(row(&daemon)["state"], "Running", "{}", row(&daemon));
+    assert_eq!(row(&daemon)["detail"], Value::Null, "{}", row(&daemon));
+    let pod = case.pod();
+    let secret = case
+        .object("secrets", "conductor-instance-alpha")
+        .expect("the Secret");
+
+    case.fake.forbid("PUT", "secrets");
+    let rules = format!(
+        "\x20   standing_rules: {}\n",
+        serde_json::to_string(HOSTILE).expect("JSON")
+    );
+    case.config(IMAGE, &[alpha(&rules)]);
+    for at in [4, 6] {
+        let done = daemon
+            .pass(
+                ReconcileReason::ConfigChange,
+                start + Duration::from_secs(at),
+            )
+            .expect("a pass");
+        assert!(done.is_empty(), "{done:?}");
+        assert_eq!(case.pod(), pod, "the pod is not replaced");
+        assert_eq!(
+            case.object("secrets", "conductor-instance-alpha"),
+            Some(secret.clone()),
+            "the Secret is untouched"
+        );
+        let shown = row(&daemon);
+        assert_eq!(shown["state"], "Running", "{shown}");
+        let detail = shown["detail"].as_str().unwrap_or_default();
+        for words in ["update", "Secrets", NAMESPACE, "earlier", "next start"] {
+            assert!(detail.contains(words), "the detail says {words:?}: {shown}");
+        }
+        for line in HOSTILE.lines().filter(|line| line.len() > 3) {
+            assert!(
+                !detail.contains(line.trim()),
+                "the detail quotes the rules: {detail}"
+            );
+        }
+    }
+
+    case.fake.permit("PUT", "secrets");
+    daemon
+        .pass(ReconcileReason::Cadence, start + Duration::from_secs(8))
+        .expect("a pass");
+    assert_eq!(row(&daemon)["detail"], Value::Null, "{}", row(&daemon));
+    assert_eq!(case.pod(), pod, "the pod is not replaced");
+    let secret = case
+        .object("secrets", "conductor-instance-alpha")
+        .expect("the Secret");
+    let file: serde_yaml::Value =
+        serde_yaml::from_str(&secret_value(&secret, "conductor.yaml")).expect("YAML");
+    assert_eq!(
+        file["instances"][0]["standing_rules"].as_str(),
+        Some(HOSTILE)
+    );
+}
+
+/// The daemon of `case` after two passes, its pod `alpha` running; the time of its first pass.
+fn running(case: &Case) -> (Daemon<Manager>, Instant) {
+    let mut daemon = case.daemon();
+    let start = Instant::now();
+    daemon
+        .pass(ReconcileReason::Cadence, start)
+        .expect("a pass");
+    case.set_running();
+    daemon
+        .pass(ReconcileReason::Cadence, start + Duration::from_secs(2))
+        .expect("a pass");
+    (daemon, start)
+}
+
+/// The row of `alpha` the daemon publishes.
+fn alpha_row(daemon: &Daemon<Manager>) -> Value {
+    daemon
+        .rows()
+        .into_iter()
+        .find(|row| row["name"] == "alpha")
+        .expect("the row of alpha")
+}
+
+/// The mapping of `alpha` with the standing rules `text`.
+fn alpha_with_rules(text: &str) -> String {
+    alpha(&format!(
+        "\x20   standing_rules: {}\n",
+        serde_json::to_string(text).expect("JSON")
+    ))
+}
+
+/// story:instance-rules-text: after a refused write of a new text, a mapping that puts back the
+/// text the Secret already holds leaves nothing unwritten: the instance's `detail` is null again,
+/// and no further `PUT` is sent, at that pass or the next.
+#[test]
+fn putting_back_the_text_the_secret_holds_clears_a_refused_write() {
+    let case = Case::new("standing-rules-put-back");
+    case.config(IMAGE, &[alpha_with_rules(RULES)]);
+    let (mut daemon, start) = running(&case);
+    assert_eq!(alpha_row(&daemon)["detail"], Value::Null);
+    case.fake.forbid("PUT", "secrets");
+    case.config(IMAGE, &[alpha_with_rules(HOSTILE)]);
+    daemon
+        .pass(
+            ReconcileReason::ConfigChange,
+            start + Duration::from_secs(4),
+        )
+        .expect("a pass");
+    assert!(
+        alpha_row(&daemon)["detail"].is_string(),
+        "{}",
+        alpha_row(&daemon)
+    );
+
+    case.config(IMAGE, &[alpha_with_rules(RULES)]);
+    let puts = case.count("PUT", ALPHA_SECRET);
+    for at in [6, 8] {
+        daemon
+            .pass(
+                ReconcileReason::ConfigChange,
+                start + Duration::from_secs(at),
+            )
+            .expect("a pass");
+        assert_eq!(
+            alpha_row(&daemon)["detail"],
+            Value::Null,
+            "{}",
+            alpha_row(&daemon)
+        );
+        assert_eq!(case.count("PUT", ALPHA_SECRET), puts, "no further PUT");
+    }
+}
+
+/// story:instance-rules-text: a write of the Secret that fails for another reason than a missing
+/// right (`500` here) is no refusal by the Role: the instance's `detail` says the write did not
+/// go through and gives the status, names no right and no `update`, and keeps what the pod's
+/// sessions read meanwhile. The next pass tries again, and a write that goes through clears it.
+#[test]
+fn a_failed_write_of_the_secret_that_is_no_refusal_names_no_right() {
+    let case = Case::new("standing-rules-500");
+    let (mut daemon, start) = running(&case);
+    case.fake.refuse("PUT", "secrets", 500, "InternalError");
+    case.config(IMAGE, &[alpha_with_rules(RULES)]);
+    daemon
+        .pass(
+            ReconcileReason::ConfigChange,
+            start + Duration::from_secs(4),
+        )
+        .expect("a pass");
+    let row = alpha_row(&daemon);
+    let detail = row["detail"].as_str().unwrap_or_default();
+    for words in ["did not go through", "500", "earlier text", "next start"] {
+        assert!(detail.contains(words), "the detail says {words:?}: {row}");
+    }
+    for words in ["update", "Role", "right", NAMESPACE] {
+        assert!(!detail.contains(words), "the detail names {words:?}: {row}");
+    }
+
+    case.fake.permit("PUT", "secrets");
+    daemon
+        .pass(ReconcileReason::Cadence, start + Duration::from_secs(6))
+        .expect("a pass");
+    assert_eq!(
+        alpha_row(&daemon)["detail"],
+        Value::Null,
+        "{}",
+        alpha_row(&daemon)
+    );
+}
+
+/// story:instance-rules-text: the daemon's log gets one line when a write of the Secret in place
+/// begins to fail, one when the failure changes, and one when no failure stands any more; none on
+/// a pass that changes nothing ([`pods::rendering_line`], over what stood before the pass, what
+/// stands after it, and the pass's error).
+#[test]
+fn the_daemons_log_says_once_when_a_refused_write_begins_and_once_when_it_ends() {
+    let refused = "refused, it takes update";
+    let failed = "did not go through (500)";
+    let error = "update the Secret: 403 Forbidden";
+    let line = |before, after, error| pods::rendering_line("alpha", before, after, error);
+    assert_eq!(line(None, None, None), None, "nothing stands");
+    let begun = line(None, Some(refused), Some(error)).expect("a line when it begins");
+    assert!(begun.contains("alpha") && begun.contains(error), "{begun}");
+    assert_eq!(
+        line(Some(refused), Some(refused), Some(error)),
+        None,
+        "a pass that fails the same way again"
+    );
+    assert!(
+        line(Some(refused), Some(failed), Some("500")).is_some(),
+        "the failure changed"
+    );
+    let ended = line(Some(failed), None, None).expect("a line when it ends");
+    assert!(ended.contains("alpha"), "{ended}");
+    assert_eq!(line(None, None, None), None, "and none after");
 }
 
 /// A free loopback port.

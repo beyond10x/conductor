@@ -866,8 +866,16 @@ fn with_dispatch(charter: &str, repository: &str, id: &str, unit: Option<&Unit>)
 /// and the block.
 #[must_use]
 pub fn fenced(text: &str) -> (usize, String) {
+    fenced_longer(text, 0)
+}
+
+/// [`fenced`] with a fence longer than `longer_than` backticks as well: the instance's standing
+/// rules after a profile, whose runs of backticks their fence outruns too
+/// (story:instance-rules-text).
+#[must_use]
+pub fn fenced_longer(text: &str, longer_than: usize) -> (usize, String) {
     let longest = text.split(|c| c != '`').map(str::len).max().unwrap_or(0);
-    let fence = "`".repeat(longest.max(2) + 1);
+    let fence = "`".repeat(longest.max(longer_than).max(2) + 1);
     let mut block = format!("{fence}\n{text}");
     if !text.ends_with('\n') {
         block.push('\n');

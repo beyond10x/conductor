@@ -871,6 +871,64 @@ fn the_director_and_the_maintainer_start_with_the_standing_rules_in_their_prompt
     assert_eq!(inside, RULES);
 }
 
+/// story:instance-rules-text: the daemon's host roles read no instance's standing rules. The
+/// supervisor, a host role `globals.roles` lists, started while the file's one instance names
+/// `standing_rules`, starts with the profile the binary carries for it, byte for byte, and no
+/// line of the rules or their heading.
+#[test]
+fn a_host_role_started_beside_an_instance_with_standing_rules_reads_none() {
+    let case = Case::new("standing-rules-host", STRICT);
+    write(
+        &case.config(),
+        &format!(
+            "version: conductor.config/2\n\
+             daemon: {{port: 7399, store: {store:?}}}\n\
+             globals:\n\
+             \x20 roles:\n\
+             \x20   - {{role: supervisor, harness: claude, model: opus}}\n\
+             instances:\n\
+             \x20 - name: alpha\n\
+             \x20   placement: local\n\
+             \x20   session_prefix: alpha\n\
+             \x20   sources: [{{github: example-org}}]\n\
+             \x20   checkouts: {{root: {root:?}, trees: {trees:?}}}\n\
+             \x20   records: {records:?}\n\
+             \x20   state: {state:?}\n\
+             \x20   cache: {cache:?}\n\
+             \x20   standing_rules: {rules}\n",
+            store = format!("sqlite:{}", case.dir.join("shared.sqlite").display()),
+            root = case.home().join("example-org"),
+            trees = case.dir.join("trees"),
+            records = case.records(),
+            state = case.state(),
+            cache = case.dir.join("cache"),
+            rules = serde_json::to_string(HOSTILE).expect("JSON"),
+        ),
+    );
+    let output = case.start("supervisor");
+    assert_eq!(output.status.code(), Some(0), "{}", describe(&output));
+    let logged = calls(&case.fake());
+    let args: Vec<String> = logged[0]["args"]
+        .as_array()
+        .expect("the harness's arguments")
+        .iter()
+        .map(|arg| arg.as_str().unwrap_or_default().to_owned())
+        .collect();
+    let at = args
+        .iter()
+        .position(|arg| arg == "--append-system-prompt-file")
+        .unwrap_or_else(|| panic!("the supervisor starts from its profile: {args:?}"));
+    let prompt = fs::read_to_string(&args[at + 1]).expect("the prompt file");
+    let supervisor =
+        fs::read_to_string(Path::new(env!("CARGO_MANIFEST_DIR")).join("roles/supervisor.md"))
+            .expect("the supervisor profile");
+    assert_eq!(
+        prompt, supervisor,
+        "the host role's prompt file is its profile alone"
+    );
+    assert!(!prompt.contains(standing_rules::HEADING), "{prompt}");
+}
+
 /// The measurement of a started session is written to `<state>/sessions/<name>.envelope.json`,
 /// and a snapshot reads it into that session's `envelope_*` fields of `conductor snapshot
 /// sessions`.

@@ -2136,6 +2136,58 @@ pub fn kubernetes_lines(
     kubernetes: &conductor_model::config::Kubernetes,
     client: Result<&crate::kube::Client, &crate::kube::Error>,
 ) -> Vec<(String, Option<String>)> {
+    rights_lines(kubernetes, true, client)
+}
+
+/// The right only an instance's standing rules need (story:instance-rules-text): `update` on
+/// Secrets, to write a change of them into the instance's Secret in place.
+const STANDING_RULES_RIGHT: (&str, &str) = ("update", "secrets");
+
+/// [`kubernetes_lines`], where `standing_rules` says whether an instance of the daemon names
+/// `standing_rules`: where none does, [`STANDING_RULES_RIGHT`] is not needed yet, and its row,
+/// granted or not, adds no failure and says when it is needed; a Role of 1.7.0 gives the verdict
+/// it gave.
+fn rights_lines(
+    kubernetes: &conductor_model::config::Kubernetes,
+    standing_rules: bool,
+    client: Result<&crate::kube::Client, &crate::kube::Error>,
+) -> Vec<(String, Option<String>)> {
+    let lines = all_rights_lines(kubernetes, client);
+    let namespace = &kubernetes.namespace.0;
+    let (verb, resource) = STANDING_RULES_RIGHT;
+    let named = format!("kubernetes {namespace}: {verb} {resource} ");
+    lines
+        .into_iter()
+        .map(|(line, failure)| {
+            if !line.starts_with(&named) || failure.is_none() {
+                return (line, failure);
+            }
+            if standing_rules {
+                (
+                    format!(
+                        "{line}; needed: an instance names standing_rules, whose change the \
+                         daemon writes into its Secret in place"
+                    ),
+                    failure,
+                )
+            } else {
+                (
+                    format!(
+                        "{line}; not needed yet: needed once an instance names standing_rules, \
+                         to write a change of them into its Secret in place"
+                    ),
+                    None,
+                )
+            }
+        })
+        .collect()
+}
+
+/// [`kubernetes_lines`] with every right of [`POD_RIGHTS`] needed.
+fn all_rights_lines(
+    kubernetes: &conductor_model::config::Kubernetes,
+    client: Result<&crate::kube::Client, &crate::kube::Error>,
+) -> Vec<(String, Option<String>)> {
     let namespace = &kubernetes.namespace.0;
     let client = match client {
         Ok(client) => client,
@@ -2180,15 +2232,38 @@ pub fn kubernetes_lines(
 /// [`kubernetes_lines`] for the config `flag`, where it sets `daemon.kubernetes`, through the
 /// service account of the pod doctor runs in; none otherwise.
 fn pod_lines(flag: Option<&Path>) -> Vec<(String, Option<String>)> {
-    let Some(kubernetes) = config::Environment::from_process()
+    let Some(config) = config::Environment::from_process()
         .and_then(|environment| config::load(flag, &environment))
         .ok()
-        .and_then(|loaded| loaded.config.daemon.kubernetes)
+        .map(|loaded| loaded.config)
+        .filter(|config| config.daemon.kubernetes.is_some())
     else {
         return Vec::new();
     };
     let client = crate::kube::Client::in_cluster();
-    kubernetes_lines(&kubernetes, client.as_ref())
+    pod_rights_lines(&config, client.as_ref())
+}
+
+/// The rows of the rights of the daemon of `config` where it runs its instances as pods
+/// ([`kubernetes_lines`]), which `conductor doctor` and `conductor setup` print ([`config_lines`]):
+/// `update` on Secrets fails the verdict only where an instance of `config` names
+/// `standing_rules` (story:instance-rules-text); otherwise its row says it is not needed yet.
+/// None where `config` sets no `daemon.kubernetes`.
+#[must_use]
+pub fn pod_rights_lines(
+    config: &conductor_model::config::Config,
+    client: Result<&crate::kube::Client, &crate::kube::Error>,
+) -> Vec<(String, Option<String>)> {
+    let standing_rules = config
+        .instances
+        .iter()
+        .any(|instance| instance.standing_rules.is_some());
+    config
+        .daemon
+        .kubernetes
+        .as_ref()
+        .map(|kubernetes| rights_lines(kubernetes, standing_rules, client))
+        .unwrap_or_default()
 }
 
 /// The one verdict of `conductor doctor` and `conductor setup` ([`verdict_of`]): over `doctor`'s

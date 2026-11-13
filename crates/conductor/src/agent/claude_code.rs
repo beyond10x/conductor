@@ -108,24 +108,68 @@ pub fn standing_rules_heading(fence: usize) -> String {
 /// frame of the work call's brief), so no line of them closes the block.
 #[must_use]
 pub fn standing_rules_block(rules: &str) -> String {
-    let (fence, block) = crate::spawn::fenced(rules);
+    standing_rules_block_after(rules, 0)
+}
+
+/// [`standing_rules_block`] with a fence longer than `longer_than` backticks as well.
+fn standing_rules_block_after(rules: &str, longer_than: usize) -> String {
+    let (fence, block) = crate::spawn::fenced_longer(rules, longer_than);
     format!("{}\n\n{block}", standing_rules_heading(fence))
+}
+
+/// The fenced code block `text` leaves open at its end, as CommonMark reads fences: the
+/// character and the length of its opening fence; `None` where every fenced block it opens is
+/// closed.
+fn open_fence(text: &str) -> Option<(char, usize)> {
+    let mut open: Option<(char, usize)> = None;
+    for line in text.lines() {
+        let rest = line.trim_start_matches(' ');
+        if line.len() - rest.len() > 3 {
+            continue;
+        }
+        let Some(mark) = rest.chars().next().filter(|c| *c == '`' || *c == '~') else {
+            continue;
+        };
+        let run = rest.chars().take_while(|c| *c == mark).count();
+        match open {
+            None if run >= 3 && !(mark == '`' && rest[run..].contains('`')) => {
+                open = Some((mark, run));
+            }
+            Some((held, length))
+                if held == mark && run >= length && rest[run..].trim().is_empty() =>
+            {
+                open = None;
+            }
+            _ => {}
+        }
+    }
+    open
 }
 
 /// The text of a session's prompt file: `base`, the profile it starts from, where it starts from
 /// one, and after it, where the instance has standing rules, their block
-/// ([`standing_rules_block`]); `None` where it has neither. Without standing rules it is `base`,
-/// byte for byte.
+/// ([`standing_rules_block`]); `None` where it has neither. Rules that are empty or only white
+/// space are none ([`crate::config::standing_rules_given`]): without standing rules it is `base`,
+/// byte for byte. After a profile, the rules' fence is longer than any run of backticks in the
+/// profile too, and a fenced block the profile leaves open is closed before the heading line, so
+/// the heading and the rules stand outside it.
 #[must_use]
 pub fn prompt_text(base: Option<&str>, rules: Option<&str>) -> Option<String> {
+    let rules = rules.and_then(crate::config::standing_rules_given);
     match (base, rules) {
         (base, None) => base.map(str::to_owned),
         (None, Some(rules)) => Some(standing_rules_block(rules)),
-        (Some(base), Some(rules)) => Some(format!(
-            "{}\n\n{}",
-            base.trim_end(),
-            standing_rules_block(rules)
-        )),
+        (Some(base), Some(rules)) => {
+            let base = base.trim_end();
+            let close = open_fence(base)
+                .map(|(mark, length)| format!("\n{}", mark.to_string().repeat(length)))
+                .unwrap_or_default();
+            let longest = base.split(|c| c != '`').map(str::len).max().unwrap_or(0);
+            Some(format!(
+                "{base}{close}\n\n{}",
+                standing_rules_block_after(rules, longest)
+            ))
+        }
     }
 }
 

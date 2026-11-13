@@ -36,8 +36,9 @@ use crate::{config, decide, repository};
 /// The page's data and its write.
 pub const CONFIG_PATH: &str = "/v1/settings";
 
-/// The keys under an instance the page shows and never changes: `config migrate` moves them.
-const FIXED: [&str; 7] = [
+/// The keys under an instance the page shows and never changes: `config migrate` moves them, and
+/// the control plane alone writes the instance's standing rules ([`CONTROL_PLANES`]).
+const FIXED: [&str; 8] = [
     "name",
     "session_prefix",
     "dashboard_port",
@@ -45,7 +46,12 @@ const FIXED: [&str; 7] = [
     "state",
     "cache",
     "checkouts",
+    CONTROL_PLANES,
 ];
+
+/// The instance's standing rules (story:instance-rules-text): the control plane's text, which
+/// `POST` and `PUT /v1/instances` write; the instance's own settings write is no second writer.
+const CONTROL_PLANES: &str = "standing_rules";
 
 /// When a change of the key at `path` (under the instance) takes effect.
 #[must_use]
@@ -546,11 +552,15 @@ pub(super) fn write(
         for change in &staged.changes {
             let path = format!("{prefix}.{}", change.path);
             if effect(&change.path) == ConfigEffect::Fixed {
+                let message = if change.path.split(['.', '[']).next() == Some(CONTROL_PLANES) {
+                    "the page does not change this key; the control plane writes it, with \
+                     `PUT /v1/instances/{name}`"
+                } else {
+                    "the page does not change this key; `conductor config migrate` moves it"
+                };
                 problems.push(ConfigProblem {
                     path,
-                    message: "the page does not change this key; `conductor config migrate` \
-                              moves it"
-                        .to_owned(),
+                    message: message.to_owned(),
                 });
                 continue;
             }
@@ -755,5 +765,7 @@ mod tests {
         assert_eq!(effect("cadence.watch"), ConfigEffect::LoopRestart);
         assert_eq!(effect("thresholds.disk_low"), ConfigEffect::WatchTick);
         assert_eq!(effect("controllers.max_working"), ConfigEffect::Cycle);
+        // The control plane's text (story:instance-rules-text): the page never changes it.
+        assert_eq!(effect("standing_rules"), ConfigEffect::Fixed);
     }
 }

@@ -601,6 +601,55 @@ pub struct Pods {
     /// The rendered file the supervisor last wrote into an instance's Secret, or found there
     /// ([`Pods::refresh_rendering`]).
     written: BTreeMap<String, String>,
+    /// Why the last write of an instance's rendered file into its Secret in place was refused,
+    /// while it was ([`Pods::unwritten`]).
+    unwritten: BTreeMap<String, String>,
+}
+
+/// The line the daemon's log gets for `instance` after a pass of [`Pods::refresh_rendering`],
+/// once per change of state: `before` and `after` what [`Pods::unwritten`] held before and after
+/// the pass, `error` the pass's error. A failure that begins, or that changes, writes the error;
+/// one that stood before and stands no more writes that it ended; a pass that changes nothing
+/// writes none.
+#[must_use]
+pub fn rendering_line(
+    instance: &str,
+    before: Option<&str>,
+    after: Option<&str>,
+    error: Option<&str>,
+) -> Option<String> {
+    match (before, after) {
+        (_, Some(now)) if before != Some(now) => Some(format!(
+            "conductor: daemon: {instance}: {}",
+            error.unwrap_or(now)
+        )),
+        (Some(_), None) => Some(format!(
+            "conductor: daemon: {instance}: no write of the instance's standing rules into its \
+             Secret fails any more"
+        )),
+        _ => None,
+    }
+}
+
+/// What an instance's row says while a write of its changed rendered file, its standing rules,
+/// into its Secret `secret` of `namespace` in place fails with `error`
+/// (story:instance-rules-text): for a `403`, the rights that take; for any other failure, that it
+/// did not go through and its status or kind, and no right; then what the pod's sessions read
+/// meanwhile and what delivers the text. It holds no part of the rules and no message of the API.
+fn unwritten(secret: &str, namespace: &str, error: &crate::kube::Error) -> String {
+    let why = if error.is_forbidden() {
+        format!("the API refused it, and that takes `get` and `update` on Secrets in {namespace}")
+    } else {
+        format!(
+            "the write did not go through ({}), and the next pass tries again",
+            error.kind_of()
+        )
+    };
+    format!(
+        "the instance's changed standing rules are not written into its Secret {secret}: {why}; \
+         the pod's sessions still read the earlier text, and the pod's next start delivers the \
+         new one"
+    )
 }
 
 impl Pods {
@@ -614,6 +663,7 @@ impl Pods {
             refused: BTreeMap::new(),
             said: BTreeMap::new(),
             written: BTreeMap::new(),
+            unwritten: BTreeMap::new(),
         }
     }
 
@@ -623,6 +673,11 @@ impl Pods {
     /// mounted file the runtime reads at each session's start. Answers whether it wrote. Makes no
     /// call where it last wrote or found this rendering; where the Secret is not there, writes
     /// nothing: the pod's next start writes it.
+    ///
+    /// While the read or the write fails, the instance's [`Pods::unwritten`] says so, until a
+    /// write is taken, the Secret holds the rendering already, the Secret is gone, or the pod
+    /// starts again or stops. Nothing is deleted or replaced in its place; a conflict (`409`) is
+    /// tried again at the next pass as any other failure.
     ///
     /// # Errors
     ///
@@ -637,14 +692,24 @@ impl Pods {
         let name = &instance.name.0;
         let rendered = pod::render(config, instance);
         if self.written.get(name) == Some(&rendered) {
+            // The Secret holds this rendering already: nothing is left to write.
+            self.unwritten.remove(name);
             return Ok(false);
         }
         let namespace = &kubernetes.namespace.0;
         let secret_name = pod_name(name);
         let mut secret = match self.client.get(namespace, Kind::Secret, &secret_name) {
             Ok(secret) => secret,
-            Err(error) if error.is_not_found() => return Ok(false),
-            Err(error) => bail!("read the Secret {secret_name} in {namespace}: {error}"),
+            Err(error) if error.is_not_found() => {
+                // No Secret, so no write fails: the pod's next start writes it.
+                self.unwritten.remove(name);
+                return Ok(false);
+            }
+            Err(error) => {
+                self.unwritten
+                    .insert(name.clone(), unwritten(&secret_name, namespace, &error));
+                bail!("read the Secret {secret_name} in {namespace}: {error}");
+            }
         };
         let held = secret["data"][pod::CONFIG_FILE]
             .as_str()
@@ -652,16 +717,28 @@ impl Pods {
             .and_then(|bytes| String::from_utf8(bytes).ok());
         if held.as_deref() != Some(rendered.as_str()) {
             secret["data"][pod::CONFIG_FILE] = json!(base64_encode(rendered.as_bytes()));
-            self.client
+            if let Err(error) = self
+                .client
                 .replace(namespace, Kind::Secret, &secret_name, &secret)
-                .map_err(|error| {
-                    anyhow!("update the Secret {secret_name} in {namespace}: {error}")
-                })?;
+            {
+                self.unwritten
+                    .insert(name.clone(), unwritten(&secret_name, namespace, &error));
+                bail!("update the Secret {secret_name} in {namespace}: {error}");
+            }
+            self.unwritten.remove(name);
             self.written.insert(name.clone(), rendered);
             return Ok(true);
         }
+        self.unwritten.remove(name);
         self.written.insert(name.clone(), rendered);
         Ok(false)
+    }
+
+    /// Why the last write of `instance`'s rendered file into its Secret in place was refused
+    /// ([`Pods::refresh_rendering`]), while it was: no part of the rendered file or its rules.
+    #[must_use]
+    pub fn unwritten(&self, instance: &str) -> Option<String> {
+        self.unwritten.get(instance).cloned()
     }
 
     /// The client it calls.
@@ -974,6 +1051,7 @@ impl Pods {
             .create(namespace, Kind::Pod, &made.pod)
             .map_err(|error| anyhow!("create the pod {pod_name} in {namespace}: {error}"))?;
         self.seen.insert(name.clone(), created);
+        self.unwritten.remove(name);
         self.written.insert(name.clone(), made.rendered);
         Ok(pod_name)
     }
@@ -991,6 +1069,7 @@ impl Pods {
         self.delete_quietly(namespace, Kind::Secret, &name)?;
         self.seen.remove(instance);
         self.written.remove(instance);
+        self.unwritten.remove(instance);
         Ok(())
     }
 

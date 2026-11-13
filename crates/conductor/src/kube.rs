@@ -231,6 +231,27 @@ impl Error {
     pub fn is_conflict(&self) -> bool {
         matches!(self, Self::Api(status) if status.code == 409)
     }
+
+    /// The API answered `403`: the caller's Role does not grant the call.
+    #[must_use]
+    pub fn is_forbidden(&self) -> bool {
+        matches!(self, Self::Api(status) if status.code == 403)
+    }
+
+    /// What kind of failure this is, in a few words and with no message of the server: the
+    /// status code of an answer outside `2xx`, else the kind of the failure.
+    #[must_use]
+    pub fn kind_of(&self) -> String {
+        match self {
+            Self::Api(status) => format!("status {}", status.code),
+            Self::NotInCluster { .. } => "not in a cluster".to_owned(),
+            Self::Config(_) => "no usable client config".to_owned(),
+            Self::Connect(_) => "no connection to the API server".to_owned(),
+            Self::Tls(_) => "a failed TLS handshake".to_owned(),
+            Self::Timeout(_) => "no answer within the deadline".to_owned(),
+            Self::Answer(_) => "an answer that does not read".to_owned(),
+        }
+    }
 }
 
 impl fmt::Display for Error {
