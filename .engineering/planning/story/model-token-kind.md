@@ -2,14 +2,15 @@
 format: aep.planning-md/3
 id: story:model-token-kind
 kind: story
-status: active
+status: implemented
 title: An instance says which kind its model token is, and a subscription token reaches the harness as its variable
 relations:
 - decomposes: epic:deployable-in-kubernetes
-revision: 4
+revision: 5
 transitions:
 - {from: "draft", to: "proposed", at: "2026-11-13T01:11:52Z", actor: "human:timo", revision: 2}
 - {from: "proposed", to: "active", at: "2026-11-13T01:11:52Z", actor: "human:timo", revision: 3}
+- {from: "active", to: "implemented", at: "2026-11-13T04:19:12Z", actor: "human:timo", revision: 5, decided_on: {"recorded":{"test_result":1}}}
 ---
 ## Why
 

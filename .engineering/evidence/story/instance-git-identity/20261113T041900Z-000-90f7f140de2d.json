@@ -1,0 +1,12 @@
+{
+  "at": "2026-11-13T04:19:00Z",
+  "actor": "human:timo",
+  "artifact": "story:instance-git-identity",
+  "kind": "story",
+  "revision": 4,
+  "change": {
+    "change": "evidence",
+    "kind": "test_result",
+    "source": "cargo nextest run --locked -p conductor-cli -p conductor-docs --no-fail-fast at 930a71fd1c: 2244 run, 2241 passed, 3 failed; the 3 rerun at fe4a5599a6 with their four test files: 108 run, 108 passed"
+  }
+}
