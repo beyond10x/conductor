@@ -673,6 +673,16 @@ const OWN_SECRET_OF_POD: &str = "names a secret of the daemon's own, which no po
 const FORGE_SECRET_OF_INSTANCE: &str = "names the secret of a daemon's forge token, which the \
      daemon gives to the pods it belongs to and no instance names: name a token of the \
      instance's own instead";
+/// Why a key of an instance with `forge_access: anonymous` that names another instance's
+/// `forge_token` secret is refused (story:anonymous-pod-no-forge-secret).
+const FORGE_TOKEN_OF_ANONYMOUS: &str = "names the secret of another instance's forge_token beside \
+     forge_access: anonymous, whose pod carries no credential of any forge: name a secret that \
+     holds no forge token";
+/// Why a key of `globals` that names an instance's `forge_token` secret is refused in a file with
+/// an instance with `forge_access: anonymous` (story:anonymous-pod-no-forge-secret).
+const FORGE_TOKEN_IN_GLOBALS_OF_ANONYMOUS: &str = "names the secret of an instance's forge_token, \
+     and globals reach the pod of each instance, one with forge_access: anonymous among them, \
+     which carries no credential of any forge: name it in an instance's own entry instead";
 /// The keys `conductor.config/2` removed from an instance, each with why (design
 /// architecture-next § 9, § 11).
 const REMOVED_KEYS: [(&str, &str); 3] = [
@@ -2538,6 +2548,66 @@ impl Reader<'_> {
         }
     }
 
+    /// The refusals of an instance's `forge_token` secret where it would reach the pod of an
+    /// instance with `forge_access: anonymous` (story:anonymous-pod-no-forge-secret): a key of
+    /// the anonymous instance's own entry that names another instance's, at that key; and, where
+    /// the file has such an instance, a key of `globals`, which every instance's effective config
+    /// holds, that names any instance's. The anonymous instance's own `forge_token` is refused
+    /// at that key already ([`Self::anonymous_access`]).
+    fn no_forge_token_of_anonymous(&mut self, map: &Map<String, Value>) {
+        let Some(Value::Array(items)) = Self::get(map, "instances") else {
+            return;
+        };
+        let forge_token = |item: &Value| {
+            item.get("forge_token")
+                .and_then(Value::as_str)
+                .and_then(|text| text.strip_prefix("secret:"))
+                .map(str::to_owned)
+        };
+        let anonymous = |item: &Value| {
+            item.get("forge_access").and_then(Value::as_str)
+                == Some(forge_access_word(ForgeAccess::Anonymous))
+        };
+        let mut any = false;
+        for (index, item) in items.iter().enumerate() {
+            let Value::Object(entry) = item else {
+                continue;
+            };
+            if !anonymous(item) {
+                continue;
+            }
+            any = true;
+            let others: std::collections::BTreeSet<String> = items
+                .iter()
+                .enumerate()
+                .filter(|(other, _)| *other != index)
+                .filter_map(|(_, other)| forge_token(other))
+                .collect();
+            if others.is_empty() {
+                continue;
+            }
+            let path = format!("instances[{index}]");
+            for (key, value) in entry {
+                if key != "forge_token" {
+                    self.not_daemons(value, &join(&path, key), &others, FORGE_TOKEN_OF_ANONYMOUS);
+                }
+            }
+        }
+        let all: std::collections::BTreeSet<String> =
+            items.iter().filter_map(forge_token).collect();
+        if any
+            && !all.is_empty()
+            && let Some(globals) = Self::get(map, "globals")
+        {
+            self.not_daemons(
+                globals,
+                "globals",
+                &all,
+                FORGE_TOKEN_IN_GLOBALS_OF_ANONYMOUS,
+            );
+        }
+    }
+
     /// Each `secret:<name>` under `value` (at `path`) that names one of `own`, the daemon's own
     /// secrets ([`crate::secret::daemons_own`]), is a problem at its path saying `why`.
     fn not_daemons(
@@ -2864,6 +2934,7 @@ impl Reader<'_> {
                 }
             }
         }
+        self.no_forge_token_of_anonymous(map);
         // Where the daemon runs its instances as pods, each is read as a pod's, whether or not
         // the section reads without a problem.
         self.pods = self.second

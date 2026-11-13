@@ -7,6 +7,8 @@
 //! - The anonymous clone and fetch (`checkouts::bring`) against a local HTTP listener: an extra
 //!   header of the checkout's own configuration, a template's configuration, a netrc file, and
 //!   the proxy of the pod's environment.
+//! - The checkout's own configuration (third round): a key that cannot be removed, or that an
+//!   included file names, stops the anonymous fetch; a fetch without the member leaves it alone.
 //! - The guard: push spellings beside those the change names, reads that stay allowed, and an
 //!   instance without the member.
 //! - The doctor's and the collectors' forge programs, and validation without the member.
@@ -24,7 +26,7 @@ use std::process::{Command, Stdio};
 use std::sync::{Arc, Mutex, MutexGuard};
 use std::time::Duration;
 
-use conductor_cli::collect::checkouts::{self, Wanted};
+use conductor_cli::collect::checkouts::{self, Brought, Wanted};
 use conductor_cli::config;
 use conductor_cli::daemon::pods;
 use conductor_cli::guard::{self, Places, SessionList};
@@ -366,6 +368,7 @@ fn reset_environment(home: &Path) {
             "GIT_CONFIG_KEY_0",
             "GIT_CONFIG_VALUE_0",
             "GIT_CONFIG_PARAMETERS",
+            "GIT_TRACE",
             "http_proxy",
             "https_proxy",
             "HTTP_PROXY",
@@ -695,6 +698,222 @@ fn the_proxy_of_the_pods_environment_reaches_the_anonymous_clone() {
 }
 
 // ---------------------------------------------------------------------------------------------
+// The checkout's own configuration that cannot be cleared
+// ---------------------------------------------------------------------------------------------
+
+/// The lines of the trace git wrote to `trace` (`GIT_TRACE`) that start a fetch.
+fn fetches(trace: &Path) -> Vec<String> {
+    fs::read_to_string(trace)
+        .unwrap_or_default()
+        .lines()
+        .filter(|line| line.contains("trace: built-in: git fetch"))
+        .map(str::to_owned)
+        .collect()
+}
+
+/// The lines of the trace git wrote to `trace` that read or change a configuration file.
+fn config_calls(trace: &Path) -> Vec<String> {
+    fs::read_to_string(trace)
+        .unwrap_or_default()
+        .lines()
+        .filter(|line| {
+            line.contains("trace: built-in: git config")
+                && (line.contains("--get-regexp") || line.contains("--unset"))
+        })
+        .map(str::to_owned)
+        .collect()
+}
+
+/// A checkout's `.git` and its `config` made read-only (`0555`, `0444`) while it lives, and
+/// writable again when it is dropped, a failed case included.
+struct ReadOnly(PathBuf);
+
+impl ReadOnly {
+    fn new(checkout: &Path) -> Self {
+        use std::os::unix::fs::PermissionsExt as _;
+        let git = checkout.join(".git");
+        fs::set_permissions(git.join("config"), fs::Permissions::from_mode(0o444))
+            .expect("make the config read-only");
+        fs::set_permissions(&git, fs::Permissions::from_mode(0o555)).expect("make .git read-only");
+        Self(git)
+    }
+}
+
+impl Drop for ReadOnly {
+    fn drop(&mut self) {
+        use std::os::unix::fs::PermissionsExt as _;
+        let _ = fs::set_permissions(&self.0, fs::Permissions::from_mode(0o755));
+        let _ = fs::set_permissions(self.0.join("config"), fs::Permissions::from_mode(0o644));
+    }
+}
+
+/// A checkout whose own configuration cannot be written: its extra header cannot be removed, so
+/// the anonymous fetch is not run, and the member failure names the key and not its value.
+#[test]
+fn an_extra_header_that_cannot_be_removed_stops_the_anonymous_fetch() {
+    let _lock = environment();
+    active::isolate();
+    let scratch = Scratch::new("faa-review/read-only");
+    let dir = scratch.path().to_owned();
+    fs::create_dir_all(dir.join("home")).expect("home");
+    fs::create_dir_all(dir.join("root/one")).expect("checkout");
+    reset_environment(&dir.join("home"));
+    let listener = Listener::start(false);
+    let checkout = dir.join("root/one");
+    let origin = format!("{}example-owner/one.git", listener.url());
+    git(&checkout, &["init", "--quiet", "--initial-branch=main"]);
+    git(&checkout, &["remote", "add", "origin", &origin]);
+    git(
+        &checkout,
+        &["config", "http.extraHeader", "X-Plain: read-only-7777"],
+    );
+    let trace = dir.join("trace");
+    let _read_only = ReadOnly::new(&checkout);
+    assert!(
+        fs::write(checkout.join(".git/config.lock"), "").is_err(),
+        "the case needs a .git this process cannot write in"
+    );
+    set("GIT_TRACE", &trace);
+    let brought = checkouts::bring(
+        &dir.join("root"),
+        &wanted(&origin, Some(checkout)),
+        Some(Duration::from_secs(20)),
+    );
+    reset_environment(&dir.join("home"));
+    let heads = listener.heads();
+    let fetched = fetches(&trace);
+    assert!(
+        heads.is_empty() && fetched.is_empty(),
+        "the anonymous fetch ran ({} requests, fetches {fetched:?}): {brought:?}",
+        heads.len()
+    );
+    let checkouts::Brought::Failed(line) = &brought else {
+        panic!("not one member failure: {brought:?}");
+    };
+    assert!(
+        line.contains("`http.extraheader`")
+            && line.contains("was not run")
+            && line.contains("still holds")
+            && !line.contains("read-only-7777"),
+        "the failure does not name the key, or names its value: {line}"
+    );
+}
+
+/// A checkout whose own configuration includes a file (`include.path`, `includeIf`) that names an
+/// extra header or a rewrite for the origin: the anonymous fetch would follow it, nothing in the
+/// checkout's own file can remove it, so the fetch is not run, and the failure names the key.
+#[test]
+fn a_header_or_rewrite_of_an_included_file_stops_the_anonymous_fetch() {
+    let _lock = environment();
+    active::isolate();
+    let scratch = Scratch::new("faa-review/included");
+    let dir = scratch.path().to_owned();
+    fs::create_dir_all(dir.join("home")).expect("home");
+    reset_environment(&dir.join("home"));
+    let listener = Listener::start(false);
+    let header = format!(
+        "[http \"{}\"]\n\textraHeader = X-Included: included-3333\n",
+        listener.url()
+    );
+    let rewrite = format!(
+        "[url \"{}\"]\n\tinsteadOf = https://forge.example.invalid/\n",
+        listener.url()
+    );
+    fs::write(dir.join("header.cfg"), header).expect("write the included header");
+    fs::write(dir.join("rewrite.cfg"), rewrite).expect("write the included rewrite");
+    let mut wrong = Vec::new();
+    for (name, origin, key, value, include) in [
+        (
+            "one",
+            format!("{}example-owner/one.git", listener.url()),
+            format!("`http.{}.extraheader`", listener.url()),
+            "included-3333",
+            ("include.path".to_owned(), dir.join("header.cfg")),
+        ),
+        (
+            "two",
+            "https://forge.example.invalid/example-owner/two.git".to_owned(),
+            format!("`url.{}.insteadof`", listener.url()),
+            "forge.example.invalid",
+            (
+                format!("includeIf.gitdir:{}/.path", text_of(&dir.join("root/two"))),
+                dir.join("rewrite.cfg"),
+            ),
+        ),
+    ] {
+        let checkout = dir.join("root").join(name);
+        fs::create_dir_all(&checkout).expect("checkout");
+        git(&checkout, &["init", "--quiet", "--initial-branch=main"]);
+        git(&checkout, &["remote", "add", "origin", &origin]);
+        git(&checkout, &["config", &include.0, &text_of(&include.1)]);
+        let trace = dir.join(format!("{name}.trace"));
+        set("GIT_TRACE", &trace);
+        let brought = checkouts::bring(
+            &dir.join("root"),
+            &wanted(&origin, Some(checkout)),
+            Some(Duration::from_secs(20)),
+        );
+        reset_environment(&dir.join("home"));
+        let fetched = fetches(&trace);
+        let refused = matches!(&brought, checkouts::Brought::Failed(line)
+            if line.contains(&key) && line.contains("was not run") && !line.contains(value));
+        if !fetched.is_empty() || !refused {
+            wrong.push(format!("{name}: fetches {fetched:?}; {brought:?}"));
+        }
+    }
+    let heads = listener.heads();
+    assert!(
+        wrong.is_empty() && heads.is_empty(),
+        "{} requests reached the listener; {wrong:#?}",
+        heads.len()
+    );
+}
+
+/// A fetch of an instance without the member neither reads nor changes the checkout's own
+/// configuration for keys a fetch would send: its extra header stays, and the fetch runs.
+#[test]
+fn a_fetch_without_the_member_leaves_the_checkouts_own_configuration_alone() {
+    let _lock = environment();
+    active::isolate();
+    let scratch = Scratch::new("faa-review/fetch-without-member");
+    let dir = scratch.path().to_owned();
+    fs::create_dir_all(dir.join("home")).expect("home");
+    fs::create_dir_all(dir.join("root/one")).expect("checkout");
+    reset_environment(&dir.join("home"));
+    let listener = Listener::start(false);
+    let checkout = dir.join("root/one");
+    let origin = format!("{}example-owner/one.git", listener.url());
+    git(&checkout, &["init", "--quiet", "--initial-branch=main"]);
+    git(&checkout, &["remote", "add", "origin", &origin]);
+    git(
+        &checkout,
+        &["config", "http.extraHeader", "X-Plain: kept-2222"],
+    );
+    let before = fs::read(checkout.join(".git/config")).expect("read the config");
+    let trace = dir.join("trace");
+    set("GIT_TRACE", &trace);
+    let brought = checkouts::bring(
+        &dir.join("root"),
+        &Wanted {
+            anonymous: false,
+            ..wanted(&origin, Some(checkout.clone()))
+        },
+        Some(Duration::from_secs(20)),
+    );
+    reset_environment(&dir.join("home"));
+    let after = fs::read(checkout.join(".git/config")).expect("read the config");
+    let calls = config_calls(&trace);
+    assert!(
+        before == after && calls.is_empty(),
+        "the fetch without the member read or changed the checkout's configuration: {calls:?}"
+    );
+    assert!(
+        !fetches(&trace).is_empty() && !listener.heads().is_empty(),
+        "the fetch without the member did not run: {brought:?}"
+    );
+}
+
+// ---------------------------------------------------------------------------------------------
 // The guard
 // ---------------------------------------------------------------------------------------------
 
@@ -1015,4 +1234,553 @@ fn secret_syncs_without_the_member_still_validates() {
          \x20       command: example-sync publish ci/policy.json\n",
     );
     assert_eq!(plain.secret_syncs.len(), 1);
+}
+// ---------------------------------------------------------------------------------------------
+// The second review
+// ---------------------------------------------------------------------------------------------
+
+/// An instance's `forge_token` written as plain text in the mapping, not `secret:<name>`: refused,
+/// or else it reaches no anonymous pod.
+#[test]
+fn a_forge_token_written_as_plain_text_in_a_mapping_reaches_no_anonymous_pod() {
+    active::isolate();
+    let text = file(
+        &["{name: GH_TOKEN, secret: secret:forge-token}"],
+        &[
+            anonymous_alpha(),
+            instance(
+                "beta",
+                "{github: example-owner}",
+                "\x20   forge_token: example-plain-forge-5151\n",
+            ),
+        ]
+        .concat(),
+    );
+    match config::parse(&text, Path::new("/srv/example")) {
+        Err(problems) => eprintln!("refused: {problems:?}"),
+        Ok(_) => {
+            let made = made(&text);
+            let pod = made.pod.to_string();
+            assert!(
+                !pod.contains("example-plain-forge-5151")
+                    && !made.rendered.contains("example-plain-forge-5151"),
+                "the anonymous pod carries beta's plain forge token"
+            );
+        }
+    }
+}
+
+/// Another instance's `forge_token` secret named by a key of the anonymous instance's own mapping
+/// (`model_token`): the rendered file puts that secret into the anonymous pod's Secret and
+/// volume, by a route `ForgeCredentials` does not read. Refused at validation, or left out.
+#[test]
+fn another_instances_forge_token_named_by_the_anonymous_mapping_reaches_no_pod() {
+    active::isolate();
+    let text = file(
+        &["{name: GH_TOKEN, secret: secret:forge-token}"],
+        &[
+            instance(
+                "alpha",
+                "{github: example-owner, include: [one]}",
+                "\x20   forge_access: anonymous\n\x20   model_token: secret:beta-forge\n",
+            ),
+            instance(
+                "beta",
+                "{github: example-owner}",
+                "\x20   forge_token: secret:beta-forge\n",
+            ),
+        ]
+        .concat(),
+    );
+    match config::parse(&text, Path::new("/srv/example")) {
+        Err(problems) => eprintln!("refused: {problems:?}"),
+        Ok(_) => {
+            let made = made(&text);
+            assert!(
+                !made.secrets.contains("beta-forge"),
+                "the anonymous pod's Secret holds beta's forge token: {:?}",
+                made.secrets
+            );
+        }
+    }
+}
+
+/// The value comparison of a forge token written as a value: a copy with white space around it,
+/// one inside a header's text. (An empty value is refused at validation: `is empty`.) The copies
+/// carry the token.
+#[test]
+fn a_forge_token_value_in_another_spelling_reaches_no_anonymous_pod() {
+    let token = "example-forge-value-7777";
+    let text = file(
+        &[
+            &format!("{{name: GH_TOKEN, value: {token}}}"),
+            &format!("{{name: EXAMPLE_PADDED, value: \" {token} \"}}"),
+            &format!("{{name: EXAMPLE_BEARER, value: \"Bearer {token}\"}}"),
+        ],
+        &anonymous_alpha(),
+    );
+    let made = made(&text);
+    let carrying: Vec<String> = env_of(&made.pod)
+        .iter()
+        .filter(|entry| entry["value"].as_str().is_some_and(|v| v.contains(token)))
+        .filter_map(|entry| entry["name"].as_str().map(str::to_owned))
+        .collect();
+    assert!(
+        carrying.is_empty(),
+        "the anonymous pod carries the token's text as {carrying:?}"
+    );
+}
+
+/// A kept proxy pair whose URL holds the forge token as its user information: refused at
+/// validation, or left out.
+#[test]
+fn a_proxy_url_holding_the_forge_token_reaches_no_anonymous_pod() {
+    active::isolate();
+    let token = "example-forge-value-7777";
+    let text = file(
+        &[
+            &format!("{{name: GH_TOKEN, value: {token}}}"),
+            "{name: GIT_CONFIG_COUNT, value: \"1\"}",
+            "{name: GIT_CONFIG_KEY_0, value: http.proxy}",
+            &format!(
+                "{{name: GIT_CONFIG_VALUE_0, value: \"http://x-access-token:{token}@proxy.example.com:3128\"}}"
+            ),
+        ],
+        &anonymous_alpha(),
+    );
+    match config::parse(&text, Path::new("/srv/example")) {
+        Err(problems) => eprintln!("refused: {problems:?}"),
+        Ok(_) => {
+            let made = made(&text);
+            assert!(
+                !gits(&made.pod).iter().any(|entry| entry.contains(token)),
+                "the anonymous pod keeps the proxy with the token: {:?}",
+                gits(&made.pod)
+            );
+        }
+    }
+}
+
+/// The key of a route that writes to the forge, under a name the daemon does not know: the daemon
+/// cannot tell what it holds, so it stays in the anonymous pod, and the guide tells the operator
+/// to give no such key an entry.
+#[test]
+fn a_route_key_under_an_unknown_name_stays_and_the_guide_says_to_give_it_no_entry() {
+    let made = made(&file(
+        &["{name: EXAMPLE_ROUTE_KEY, secret: secret:route-key}"],
+        &anonymous_alpha(),
+    ));
+    assert_eq!(
+        reading(&made.pod, "route-key"),
+        ["EXAMPLE_ROUTE_KEY"],
+        "an entry under an unknown name is kept"
+    );
+    let section = guide_section();
+    assert!(
+        section.contains("nor the key of any route that writes to it"),
+        "the guide does not tell the operator to give such a key no entry"
+    );
+}
+
+/// A checkout with origin on `listener`, its `.git/config` with `extra` appended.
+fn checkout_with(dir: &Path, listener: &Listener, extra: &str) -> (PathBuf, String) {
+    let checkout = dir.join("root/one");
+    fs::create_dir_all(&checkout).expect("checkout");
+    let origin = format!("{}example-owner/one.git", listener.url());
+    git(&checkout, &["init", "--quiet", "--initial-branch=main"]);
+    git(&checkout, &["remote", "add", "origin", &origin]);
+    let config = checkout.join(".git").join("config");
+    let mut text = fs::read_to_string(&config).expect("the checkout's config");
+    text.push_str(extra);
+    fs::write(&config, text).expect("write the checkout's config");
+    (checkout, origin)
+}
+
+fn fetch(dir: &Path, checkout: &Path, origin: &str, anonymous: bool) -> Brought {
+    let mut wanted = wanted(origin, Some(checkout.to_owned()));
+    wanted.anonymous = anonymous;
+    checkouts::bring(&dir.join("root"), &wanted, Some(Duration::from_secs(20)))
+}
+
+/// Keys in the spelling git normalises (section and name in any case, the URL's scheme in capitals)
+/// and a key of two values: the anonymous fetch sends none, and the checkout's config holds none
+/// after it.
+#[test]
+fn the_anonymous_fetch_clears_headers_in_any_spelling_and_every_value() {
+    let _lock = environment();
+    active::isolate();
+    let scratch = Scratch::new("faa-review/r2-spelling");
+    let dir = scratch.path().to_owned();
+    fs::create_dir_all(dir.join("home")).expect("home");
+    reset_environment(&dir.join("home"));
+    let listener = Listener::start(false);
+    let upper = format!("HTTP://127.0.0.1:{}/", listener.port);
+    let (checkout, origin) = checkout_with(
+        &dir,
+        &listener,
+        &format!(
+            "[HTTP \"{upper}\"]\n\tExtraHeader = X-One: spelled-1111\n\tEXTRAHEADER = X-Two: \
+             spelled-1112\n[Http]\n\tExtraHeader = X-Three: spelled-1113\n"
+        ),
+    );
+    let brought = fetch(&dir, &checkout, &origin, true);
+    let heads = listener.heads();
+    let sent: Vec<&str> = ["spelled-1111", "spelled-1112", "spelled-1113"]
+        .into_iter()
+        .filter(|header| heads.iter().any(|head| head.contains(header)))
+        .collect();
+    let left = fs::read_to_string(checkout.join(".git/config")).unwrap_or_default();
+    assert!(
+        !heads.is_empty() && sent.is_empty() && !left.contains("spelled-"),
+        "requests {}, sent {sent:?}; {brought:?}\nconfig after:\n{left}",
+        heads.len()
+    );
+}
+
+/// An `include.path` of the checkout's config naming a file with an extra header: `--local`
+/// alone lists the including file only, and the fetch follows the include. The header is not
+/// sent: the fetch runs without it, or it is not run, one member failure that names the key.
+#[test]
+fn the_anonymous_fetch_sends_no_header_of_an_included_file() {
+    let _lock = environment();
+    active::isolate();
+    let scratch = Scratch::new("faa-review/r2-include");
+    let dir = scratch.path().to_owned();
+    fs::create_dir_all(dir.join("home")).expect("home");
+    reset_environment(&dir.join("home"));
+    let listener = Listener::start(false);
+    let included = dir.join("included.conf");
+    fs::write(
+        &included,
+        format!(
+            "[http \"{}\"]\n\textraHeader = X-Included: included-2222\n",
+            listener.url()
+        ),
+    )
+    .expect("write the included file");
+    let (checkout, origin) = checkout_with(
+        &dir,
+        &listener,
+        &format!("[include]\n\tpath = {}\n", included.display()),
+    );
+    let brought = fetch(&dir, &checkout, &origin, true);
+    let heads = listener.heads();
+    let key = format!("`http.{}.extraheader`", listener.url());
+    let refused = matches!(&brought, Brought::Failed(line)
+        if line.contains(&key) && !line.contains("included-2222"));
+    assert!(
+        (heads.is_empty() && refused) || (!heads.is_empty() && !refused),
+        "neither a fetch nor a refusal naming {key}: {} requests; {brought:?}",
+        heads.len()
+    );
+    assert!(
+        !heads.iter().any(|head| head.contains("included-2222")),
+        "the anonymous fetch sends the included header:\n{}",
+        heads.join("---\n")
+    );
+}
+
+/// `core.askPass` of the checkout's config: git asks it for the login of a Basic challenge
+/// whatever `GIT_TERMINAL_PROMPT` says, and `OWN_CREDENTIAL_KEYS` does not name it.
+#[test]
+fn the_anonymous_fetch_asks_no_askpass_of_the_checkouts_config() {
+    use std::os::unix::fs::PermissionsExt;
+    let _lock = environment();
+    active::isolate();
+    let scratch = Scratch::new("faa-review/r2-askpass");
+    let dir = scratch.path().to_owned();
+    fs::create_dir_all(dir.join("home")).expect("home");
+    reset_environment(&dir.join("home"));
+    let askpass = dir.join("askpass");
+    fs::write(&askpass, "#!/bin/sh\necho askpass-secret-3333\n").expect("write askpass");
+    fs::set_permissions(&askpass, fs::Permissions::from_mode(0o755)).expect("chmod");
+    let listener = Listener::start(true);
+    let (checkout, origin) = checkout_with(
+        &dir,
+        &listener,
+        &format!("[core]\n\taskPass = {}\n", askpass.display()),
+    );
+    let brought = fetch(&dir, &checkout, &origin, true);
+    let heads = listener.heads();
+    assert!(
+        !heads.is_empty(),
+        "no request reached the listener: {brought:?}"
+    );
+    assert!(
+        !heads
+            .iter()
+            .any(|head| head.to_ascii_lowercase().contains("\nauthorization:")),
+        "the anonymous fetch answers with the askpass login: {brought:?}"
+    );
+}
+
+/// A checkout whose `.git` the runtime cannot write: the header cannot be removed, and it is not
+/// sent.
+#[test]
+fn a_header_the_runtime_cannot_remove_is_not_sent() {
+    use std::os::unix::fs::PermissionsExt;
+    let _lock = environment();
+    active::isolate();
+    let scratch = Scratch::new("faa-review/r2-read-only");
+    let dir = scratch.path().to_owned();
+    fs::create_dir_all(dir.join("home")).expect("home");
+    reset_environment(&dir.join("home"));
+    let listener = Listener::start(false);
+    let (checkout, origin) = checkout_with(
+        &dir,
+        &listener,
+        &format!(
+            "[http \"{}\"]\n\textraHeader = X-Stuck: read-only-4141\n",
+            listener.url()
+        ),
+    );
+    let git_dir = checkout.join(".git");
+    fs::set_permissions(&git_dir, fs::Permissions::from_mode(0o555)).expect("chmod .git");
+    let brought = fetch(&dir, &checkout, &origin, true);
+    fs::set_permissions(&git_dir, fs::Permissions::from_mode(0o755)).expect("chmod .git back");
+    let heads = listener.heads();
+    assert!(
+        !heads.iter().any(|head| head.contains("read-only-4141")),
+        "with .git read-only the anonymous fetch sends the header ({} requests): {brought:?}",
+        heads.len()
+    );
+}
+
+/// A fetch of an instance without the member leaves the checkout's config as it was.
+#[test]
+fn a_fetch_without_the_member_changes_nothing_in_the_checkouts_config() {
+    let _lock = environment();
+    active::isolate();
+    let scratch = Scratch::new("faa-review/r2-fetch-without-member");
+    let dir = scratch.path().to_owned();
+    fs::create_dir_all(dir.join("home")).expect("home");
+    reset_environment(&dir.join("home"));
+    let listener = Listener::start(false);
+    let (checkout, origin) = checkout_with(
+        &dir,
+        &listener,
+        &format!(
+            "[http \"{}\"]\n\textraHeader = X-Kept: kept-4242\n[url \"{}\"]\n\tinsteadOf = \
+             https://forge.example.invalid/\n",
+            listener.url(),
+            listener.url()
+        ),
+    );
+    let before = fs::read_to_string(checkout.join(".git/config")).expect("config");
+    let _ = fetch(&dir, &checkout, &origin, false);
+    let after = fs::read_to_string(checkout.join(".git/config")).expect("config");
+    assert_eq!(before, after);
+    assert!(
+        listener
+            .heads()
+            .iter()
+            .any(|head| head.contains("kept-4242")),
+        "the fetch without the member sends the checkout's header, as before"
+    );
+}
+
+/// The git a clone and a fetch run, recorded by a wrapper ahead of the real one on `PATH`: its
+/// arguments and the variables the anonymous route sets. Without the member, neither the
+/// arguments nor the environment carry anything of the anonymous route, and no `git config
+/// --local` runs; with it (the control), they do.
+#[test]
+fn a_clone_and_a_fetch_without_the_member_run_git_as_before() {
+    use std::os::unix::fs::PermissionsExt;
+    let _lock = environment();
+    active::isolate();
+    let scratch = Scratch::new("faa-review/r2-wrapper");
+    let dir = scratch.path().to_owned();
+    for sub in ["home", "bin", "plain", "anon"] {
+        fs::create_dir_all(dir.join(sub)).expect("create the case's directories");
+    }
+    reset_environment(&dir.join("home"));
+    let real = which("git");
+    let log = dir.join("git.log");
+    fs::write(
+        dir.join("bin/git"),
+        format!(
+            "#!/bin/sh\n{{ printf 'args:'; for a in \"$@\"; do printf ' [%s]' \"$a\"; done; \
+             printf '\\n'; env | grep -E \
+             '^(NETRC|GIT_TEMPLATE_DIR|GIT_CONFIG_GLOBAL|GIT_CONFIG_SYSTEM|GIT_CONFIG_NOSYSTEM|GH_TOKEN)=' \
+             | sed 's/^/env: /'; }} >> '{log}'\nexec '{real}' \"$@\"\n",
+            log = log.display(),
+            real = real.display()
+        ),
+    )
+    .expect("write the wrapper");
+    fs::set_permissions(dir.join("bin/git"), fs::Permissions::from_mode(0o755)).expect("chmod");
+    let listener = Listener::start(false);
+    let path = std::env::var_os("PATH").unwrap_or_default();
+    let mut paths = vec![dir.join("bin")];
+    paths.extend(std::env::split_paths(&path));
+    let run = |base: &Path, anonymous: bool| -> String {
+        let _ = fs::remove_file(&log);
+        let (checkout, origin) = checkout_with(base, &listener, "");
+        set("PATH", std::env::join_paths(&paths).expect("PATH"));
+        set("GH_TOKEN", "example-daemon-token-0000");
+        let mut clone = wanted(&format!("{}example-owner/two.git", listener.url()), None);
+        clone.anonymous = anonymous;
+        clone.path = "two".to_owned();
+        let _ = checkouts::bring(&base.join("root"), &clone, None);
+        let _ = fetch(base, &checkout, &origin, anonymous);
+        set("PATH", &path);
+        // SAFETY: as in [`reset_environment`].
+        unsafe { std::env::remove_var("GH_TOKEN") };
+        fs::read_to_string(&log).unwrap_or_default()
+    };
+    // Only the records of the clone, the fetch and the runtime's `config --local`: a case of this
+    // binary that runs at the same time may start git through the wrapper too.
+    let records = |log: String| -> String {
+        log.split("args:")
+            .filter(|record| {
+                ["[clone]", "[fetch]", "[--local]"]
+                    .iter()
+                    .any(|mark| record.lines().next().unwrap_or_default().contains(mark))
+            })
+            .collect::<Vec<_>>()
+            .join("args:")
+    };
+    let plain = records(run(&dir.join("plain"), false));
+    let anon = records(run(&dir.join("anon"), true));
+    let anon_network: String = anon
+        .split("args:")
+        .filter(|record| !record.contains("[--local]"))
+        .collect();
+    let marks = [
+        "[credential.helper=]",
+        "[http.extraHeader=]",
+        "env: NETRC=",
+        "env: GIT_TEMPLATE_DIR=",
+        "env: GIT_CONFIG_GLOBAL=",
+        "env: GIT_CONFIG_NOSYSTEM=",
+        "[--local]",
+    ];
+    let in_plain: Vec<&str> = marks
+        .iter()
+        .copied()
+        .filter(|m| plain.contains(m))
+        .collect();
+    let in_anon: Vec<&str> = marks.iter().copied().filter(|m| anon.contains(m)).collect();
+    assert!(
+        in_plain.is_empty()
+            && plain.contains("[clone]")
+            && plain.contains("[fetch]")
+            && plain.contains("env: GH_TOKEN=")
+            && in_anon.len() == marks.len()
+            && !anon_network.contains("env: GH_TOKEN="),
+        "without the member: {in_plain:?}\n{plain}\nwith it: {in_anon:?}\n{anon}"
+    );
+}
+
+/// Reads behind the launcher options and keywords the change reads now stay allowed by the
+/// member's rule.
+#[test]
+fn the_new_launcher_and_keyword_reading_denies_no_read() {
+    let (_scratch, dir, places) = guard_case("r2-reads", true);
+    let mut named = Vec::new();
+    for command in [
+        "env -u GH_TOKEN git fetch origin",
+        "timeout -s KILL 60 git status",
+        "sudo -u root gh pr view 1 -R example-owner/one",
+        "command -v git",
+        "command -p git log --oneline",
+        "time -p cargo test",
+        "echo main | xargs -I {} git log {}",
+        "exec -a puller git pull origin main",
+        "sh -c -- 'git log --oneline'",
+        "git --attr-source HEAD log",
+    ] {
+        let decision = decide(&places, &dir.join("root/one"), command);
+        if decision.reason.contains(NAMED) {
+            named.push(format!(
+                "{command} | {:?} | {}",
+                decision.verdict, decision.reason
+            ));
+        }
+    }
+    assert!(named.is_empty(), "{}", named.join("\n"));
+}
+
+/// An alias given with `--config-env alias.<name>=` takes its text from a variable the guard does
+/// not read: it is refused whatever it runs, a read included, and the guide says so.
+#[test]
+fn an_alias_given_by_config_env_is_refused_even_for_a_read() {
+    let (_scratch, dir, places) = guard_case("r2-config-env-read", true);
+    let commands = [
+        "PAGER=cat git --config-env alias.l=PAGER l",
+        "PAGER=cat git --config-env=alias.l=PAGER l",
+    ];
+    let missed = not_denied(&places, &dir, &commands);
+    assert!(
+        missed.is_empty(),
+        "an alias given by --config-env is not refused:\n{}",
+        missed.join("\n")
+    );
+    let section = guide_section();
+    assert!(
+        section.contains("`--config-env alias.<name>=`") && section.contains("a read included"),
+        "the guide does not say an alias given by --config-env is refused, a read included"
+    );
+}
+
+/// Push spellings within the guide's list ("after `env`, `sudo` … with their own options, after
+/// `command`, `exec`") that the new reading still passes: a cluster of options whose last takes a
+/// value, and `--` after `command` or `exec`.
+#[test]
+fn push_spellings_within_the_guides_list_that_pass() {
+    let (_scratch, dir, places) = guard_case("r2-missed", true);
+    let commands = [
+        "sudo -Eu root git push origin main",
+        "env -iu GH_TOKEN git push origin main",
+        "command -- git push origin main",
+        "exec -- git push origin main",
+        "exec -a pusher -- git push origin main",
+        "timeout --signal KILL 60 git push origin main",
+    ];
+    let missed = not_denied(&places, &dir, &commands);
+    assert!(
+        missed.is_empty(),
+        "{} of {} are no denial naming the member:\n{}",
+        missed.len(),
+        commands.len(),
+        missed.join("\n")
+    );
+}
+
+/// An instance without the member under every spelling the change reads now: no decision names
+/// the member. Printed: each verdict.
+#[test]
+fn an_instance_without_the_member_gets_no_anonymous_denial_for_new_spellings() {
+    let (_scratch, dir, places) = guard_case("r2-not-anonymous", false);
+    let mut named = Vec::new();
+    for command in [
+        "sudo -u root git push origin main",
+        "timeout -s KILL 60 git push origin main",
+        "env -u GH_TOKEN git push origin main",
+        "env -C . git push origin main",
+        "stdbuf -o L git push origin main",
+        "echo main | xargs -I % git push origin %",
+        "command -p git push origin main",
+        "exec -a pusher git push origin main",
+        "time -p git push origin main",
+        "git --attr-source HEAD push origin main",
+        "sh -c -- 'git push origin main'",
+        "PUSHING=push git --config-env alias.p=PUSHING p origin main",
+        "command -p gh pr create -R example-owner/one --fill",
+        "time -p gh pr view 1 -R example-owner/one",
+    ] {
+        let decision = decide(&places, &dir.join("root/one"), command);
+        eprintln!(
+            "without the member: {command} | {:?} | {}",
+            decision.verdict,
+            decision.reason.chars().take(100).collect::<String>()
+        );
+        if decision.reason.contains(NAMED) {
+            named.push(format!(
+                "{command} | {:?} | {}",
+                decision.verdict, decision.reason
+            ));
+        }
+    }
+    assert!(named.is_empty(), "{}", named.join("\n"));
 }

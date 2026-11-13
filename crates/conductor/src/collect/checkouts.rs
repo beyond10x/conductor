@@ -290,17 +290,29 @@ fn carries_token(forge: &str) -> bool {
 /// `command`, a git command, with no credential (story:forge-access-anonymous): `-c
 /// credential.helper=` empties the list of helpers any configuration gives it, `-c
 /// http.extraHeader=` the list of extra headers, and no variable a forge's command line reads a
-/// token from reaches it ([`config::FORGE_CLI_TOKEN_VARIABLES`]). git reads neither the system's
+/// token from reaches it ([`config::FORGE_CLI_TOKEN_VARIABLES`]). git asks no program for a
+/// login: `GIT_ASKPASS` is empty, which git reads before `core.askPass` (empty too) and
+/// `SSH_ASKPASS` (not set), and with none git would prompt on the terminal, which
+/// [`collect::git_environment`] turns off. git reads neither the system's
 /// nor the user's configuration file (story:anonymous-pod-no-forge-secret), so no `insteadOf`
 /// rewrite, which no command line can reset, and no `http.<url>.extraHeader` of the image's or
 /// the user's configuration applies; the pod's own environment (`GIT_CONFIG_COUNT`) still does.
 /// git's HTTP library reads no netrc file (`NETRC=/dev/null`), and a clone copies no template
 /// (`GIT_TEMPLATE_DIR` empty), whose `config` would be the clone's own. A checkout's own
-/// configuration is cleared of what a fetch would send before it runs
+/// configuration is cleared of what a fetch would send before it runs, or the fetch is not run
 /// ([`without_own_credential`]). Its words come first, before the subcommand's.
 fn without_credential(command: &mut std::process::Command) {
     command
-        .args(["-c", "credential.helper=", "-c", "http.extraHeader="])
+        .args([
+            "-c",
+            "credential.helper=",
+            "-c",
+            "http.extraHeader=",
+            "-c",
+            "core.askPass=",
+        ])
+        .env("GIT_ASKPASS", "")
+        .env_remove("SSH_ASKPASS")
         .env("GIT_CONFIG_NOSYSTEM", "1")
         .env("GIT_CONFIG_SYSTEM", "/dev/null")
         .env("GIT_CONFIG_GLOBAL", "/dev/null")
@@ -323,34 +335,83 @@ const OWN_CREDENTIAL_KEYS: &str =
     r"^(http\.(.*\.)?(extraheader|cookiefile|sslcert|sslkey)|url\..*\.(push)?insteadof)$";
 
 /// Removes [`OWN_CREDENTIAL_KEYS`] from the own configuration of the checkout `dir`, before an
-/// anonymous fetch in it, each within `bound`. A key that does not go is left; the fetch still
-/// runs without any other credential.
-fn without_own_credential(dir: &Path, bound: Duration) {
-    let mut listed = crate::instance::command("git");
-    listed
-        .args([
-            "config",
-            "--local",
-            "--name-only",
-            "--get-regexp",
-            OWN_CREDENTIAL_KEYS,
-        ])
-        .current_dir(dir);
-    let Ok(output) = collect::run(&mut listed, bound) else {
-        return;
-    };
-    let names = String::from_utf8_lossy(&output.stdout).into_owned();
-    let mut seen = std::collections::BTreeSet::new();
-    for name in names.lines().filter(|name| !name.is_empty()) {
-        if !seen.insert(name) {
-            continue;
-        }
+/// anonymous fetch in it, each git command within `bound`; `Err` with what [`fetched`] answers in
+/// place of a fetch when one stays. The keys are read with the files that configuration includes
+/// (`--includes`: `include.path`, `includeIf`), as the fetch reads them, and read again after the
+/// removal, whose exit code does not tell what stays: a key an included file names, or one of a
+/// configuration that cannot be written, stays. Then the fetch is not run: the answer is one
+/// member failure that names each key that stays, as git names it (never its value), or says the
+/// configuration could not be read. A collector whose budget is spent answers
+/// [`Brought::Stopped`].
+fn without_own_credential(dir: &Path, bound: Duration) -> Result<(), Brought> {
+    let held = own_credential_keys(dir, bound)?;
+    if held.is_empty() {
+        return Ok(());
+    }
+    for name in &held {
         let mut unset = crate::instance::command("git");
         unset
             .args(["config", "--local", "--unset-all", name])
             .current_dir(dir);
         let _ = collect::run(&mut unset, bound);
     }
+    let still = own_credential_keys(dir, bound)?;
+    if still.is_empty() {
+        return Ok(());
+    }
+    let named = still
+        .iter()
+        .map(|name| format!("`{}`", redacted(name)))
+        .collect::<Vec<_>>()
+        .join(", ");
+    Err(Brought::Failed(format!(
+        "the anonymous fetch in {} was not run: the checkout's own configuration still holds \
+         {named}, which the fetch would send or follow; remove it there or from the file that \
+         includes it, or remove the checkout",
+        dir.display()
+    )))
+}
+
+/// The names of the [`OWN_CREDENTIAL_KEYS`] the own configuration of the checkout `dir` holds,
+/// the files it includes read too, each once; `Err` as [`without_own_credential`] answers when
+/// they cannot be read: git ends with an error other than "no match" (exit 1), gives no answer
+/// within `bound`, or does not start.
+fn own_credential_keys(dir: &Path, bound: Duration) -> Result<Vec<String>, Brought> {
+    let unread = |why: String| {
+        Brought::Failed(format!(
+            "the anonymous fetch in {} was not run: the checkout's own configuration could not be \
+             read for an extra header, a cookie file, a TLS client certificate or key, or a \
+             rewrite of a URL: `git config --local --includes --get-regexp` {why}",
+            dir.display()
+        ))
+    };
+    let mut listed = crate::instance::command("git");
+    listed
+        .args([
+            "config",
+            "--local",
+            "--includes",
+            "--name-only",
+            "--get-regexp",
+            OWN_CREDENTIAL_KEYS,
+        ])
+        .current_dir(dir);
+    let output = match collect::run(&mut listed, bound) {
+        Ok(output) => output,
+        Err(error) if collect::is_over_budget(&error) => return Err(Brought::Stopped),
+        Err(error) => return Err(unread(format!("failed: {}", one_line(&error)))),
+    };
+    match output.status.code() {
+        Some(0) => {}
+        Some(1) if output.stdout.is_empty() => return Ok(Vec::new()),
+        _ => return Err(unread(ended(&output))),
+    }
+    let names: std::collections::BTreeSet<String> = String::from_utf8_lossy(&output.stdout)
+        .lines()
+        .filter(|name| !name.is_empty())
+        .map(str::to_owned)
+        .collect();
+    Ok(names.into_iter().collect())
 }
 
 /// `wanted` cloned into its directory under [`PARTIAL`], then renamed to `target`.
@@ -417,10 +478,11 @@ fn cloned(root: &Path, wanted: &Wanted, target: &Path) -> Brought {
 }
 
 /// The checkout `dir` fetched, `git fetch --quiet origin` run as the collector runs it, once more
-/// when it fails.
+/// when it fails. An anonymous fetch runs only once the checkout's own configuration holds no key
+/// it would send or follow ([`without_own_credential`]).
 fn fetched(dir: &Path, bound: Duration, anonymous: bool) -> Brought {
-    if anonymous {
-        without_own_credential(dir, bound);
+    if anonymous && let Err(refused) = without_own_credential(dir, bound) {
+        return refused;
     }
     let attempt = || {
         let mut command = crate::instance::command("git");

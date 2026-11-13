@@ -1068,8 +1068,10 @@ types:
       # `secret_syncs` that is not empty (at that key), a source that is not `github` or a
       # `github` source without `include` (at the
       # source), or a file without `daemon.kubernetes` that no instance pod's runtime reads (at
-      # this key). The control plane alone writes it: the instance's own settings write
-      # (`WriteConfig`) takes it as `Fixed`. Absent, the instance reaches its forge as before.
+      # this key). A key of the instance's own entry that names another instance's `forge_token`
+      # secret, or of `globals` beside it that names any, is refused too (at that key), and the
+      # daemon starts no pod that would get one. The control plane alone writes it: the
+      # instance's own settings write (`WriteConfig`) takes it as `Fixed`. Absent, the instance reaches its forge as before.
       - {name: forge_access, type: Optional<conductor.config.ForgeAccess>}
       # The route of the instance's forge writes (story:forge-route); absent, `gates`.
       - {name: forge, type: conductor.config.Forge}

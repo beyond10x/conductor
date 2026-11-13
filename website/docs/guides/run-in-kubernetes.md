@@ -906,7 +906,8 @@ What the member does:
 - The instance's pod carries no credential of any forge: none of the daemon's forge token
   variables of `daemon.kubernetes.env`, for either forge, and no other entry, under whatever
   name, that names the secret of a forge token the file names (the daemon's, or any instance's
-  `forge_token`) or holds the value of a forge token variable's entry; no forge variable of its
+  `forge_token`) or holds, anywhere in its value, the value of a forge token variable's entry;
+  no forge variable of its
   own; none of the variables that point git, ssh, git's HTTP library or a forge's command line
   at a credential or a configuration file (`GIT_ASKPASS`, `GIT_CONFIG_GLOBAL`,
   `GIT_CONFIG_SYSTEM`, `GIT_CONFIG`, `GIT_SSH_COMMAND`, `GIT_SSH`, `SSH_AUTH_SOCK`,
@@ -916,17 +917,22 @@ What the member does:
   helper the daemon writes nor any of the installer's own entries but its proxy and CA settings
   (`http.proxy`, `https.proxy`, `http.sslCAInfo`, `http.sslCAPath`, each also as
   `http.<url>.<name>`), which the pod keeps, renumbered under their own count. Its Secret holds
-  none of the forge tokens' secrets. An entry with a `secret` under any other name stays in the
-  pod with its secret, as the daemon cannot tell what it holds: give no forge credential such an
-  entry.
+  none of the forge tokens' secrets: a key of the instance's own mapping, or of `globals`, that
+  names one is refused at that key, and the daemon starts no pod that would get one. An entry
+  with a `secret` under any other name stays in the pod with its secret, as the daemon cannot
+  tell what it holds: give no credential of the forge, nor the key of any route that writes to
+  it, such an entry.
 - The runtime clones each repository the source's `include` names over HTTPS,
   `https://github.com/<owner>/<name>.git`, with no credential: git gets no credential helper, no
-  extra header and no token variable, reads neither the system's nor the user's git
-  configuration file nor a netrc file, and copies no template, so no `insteadOf` rewrite of the
-  image applies. Before it fetches a checkout, it removes from the checkout's own configuration
-  every extra header, cookie file, TLS client certificate and key, and `insteadOf` rewrite. A
-  clone that fails is one member failure of the pass whose line says the repository is
-  not public or not reachable, with git's last error line; the next pass tries again.
+  program that asks for a login, no extra header and no token variable, reads neither the
+  system's nor the user's git configuration file nor a netrc file, and copies no template, so no
+  `insteadOf` rewrite of the image applies. Before it fetches a checkout, it removes from the
+  checkout's own configuration every extra header, cookie file, TLS client certificate and key, and `insteadOf` rewrite. When
+  one stays (a file the configuration includes names it, or the configuration cannot be written
+  or read), the fetch is refused, one member failure naming the key: remove the key, or remove
+  the checkout so the next pass clones it again. A clone that fails is one member failure of the
+  pass whose line says the repository is not public or not reachable, with git's last error line;
+  the next pass tries again.
 - The repositories are the `include` entries, listed by no forge. Each is read from its checkout
   alone: the collectors read no pull request, issue, release or workflow run of the forge, and say
   so in one line a pass. A repository without a checkout has no row. An entry that no
@@ -942,7 +948,9 @@ What the member does:
   in a shell's `-c` script or an `eval`, or through the bot route; its pull request, its comment,
   a release through the bot route, a call of `b10x-gates api` with a method other than `GET` or
   `HEAD`; under `forge.route: gates` and `direct` alike; and the push of the instance's records,
-  which are committed and not pushed. The guard reads the command as written and refuses these
+  which are committed and not pushed. An alias given with `--config-env alias.<name>=` is
+  refused whatever it runs, a read included, as its text is in a variable the guard does not
+  read. The guard reads the command as written and refuses these
   spellings only. A write in any other spelling, such as a program word the shell expands
   (`g=git; $g push`), a script on a shell's standard input, a launcher outside that list, or
   `curl` to the forge's API, is not read as one, and it finds no credential in the pod to write

@@ -2487,7 +2487,8 @@ fn command_words(words: &[String]) -> &[String] {
         "builtin", "command",
     ];
     // The keyword whose own options may follow it: `command -p`, `time -p`, `exec -c`, `exec -l`
-    // and `exec -a <name>` (story:anonymous-pod-no-forge-secret).
+    // and `exec -a <name>`, and `--`, which ends them: the next word is the command name
+    // (story:anonymous-pod-no-forge-secret).
     let mut keyword = "";
     let mut start = 0;
     while let Some(word) = words.get(start) {
@@ -2496,6 +2497,9 @@ fn command_words(words: &[String]) -> &[String] {
             keyword = word;
         } else if matches!((keyword, word), ("exec", "-a")) {
             start += 1;
+        } else if matches!((keyword, word), ("command" | "exec" | "time", "--")) {
+            start += 1;
+            break;
         } else if !matches!(
             (keyword, word),
             ("command" | "time", "-p") | ("exec", "-c" | "-l" | "-cl" | "-lc")
@@ -2697,8 +2701,9 @@ const FIND_RUNS: [&str; 4] = ["-exec", "-execdir", "-ok", "-okdir"];
 /// [`command_words`]); the word after a [`FIND_RUNS`] action; or the first word after a chain of
 /// [`LAUNCHERS`] starting at the command name, in which every other word is an option, an
 /// assignment, a value that starts with a digit (`timeout 5`, `nice -n 10`), `{}`, or the value
-/// of the launcher's own option that takes one ([`LAUNCHER_VALUES`]: `sudo -u root`, `timeout -s
-/// KILL`, `env -u NAME`, `xargs -I %`). A word that follows any other program's words (`grep -rn
+/// of the launcher's own option that takes one ([`takes_value`]: `sudo -u root`, `sudo -Eu root`,
+/// `timeout -s KILL`, `env -u NAME`, `xargs -I %`); a `--` among them ends them, and the word
+/// after it is the program. A word that follows any other program's words (`grep -rn
 /// conductor`) is an argument, not a program.
 fn is_program_word(words: &[String], name: usize, at: usize) -> bool {
     if at <= name {
@@ -2712,10 +2717,17 @@ fn is_program_word(words: &[String], name: usize, at: usize) -> bool {
         return false;
     }
     let mut index = name + 1;
+    // `--` ends a launcher's options: the word after it is its program.
+    let mut ended = false;
     while index < at {
         let word = words[index].as_str();
         if LAUNCHERS.contains(&shell::program(word)) {
             launcher = shell::program(word);
+            ended = false;
+        } else if ended {
+            return false;
+        } else if word == "--" {
+            ended = true;
         } else if takes_value(launcher, word) {
             // The option's value is the next word, which is then no program.
             index += 1;
@@ -2791,11 +2803,29 @@ const LAUNCHER_VALUES: [(&str, &[&str]); 8] = [
     ),
 ];
 
-/// Whether `word` is an option of the launcher `launcher` that takes the next word as its value.
+/// Whether `word` is an option of the launcher `launcher` that takes the next word as its value:
+/// one of [`LAUNCHER_VALUES`], or a cluster of short options whose first letter that takes a
+/// value is its last (`sudo -Eu root`, `env -iu NAME`); one with letters after it holds its value
+/// itself (`sudo -uroot`).
 fn takes_value(launcher: &str, word: &str) -> bool {
-    LAUNCHER_VALUES
-        .iter()
-        .any(|(named, options)| *named == launcher && options.contains(&word))
+    let listed = |option: &str| {
+        LAUNCHER_VALUES
+            .iter()
+            .any(|(named, options)| *named == launcher && options.contains(&option))
+    };
+    if listed(word) {
+        return true;
+    }
+    let Some(letters) = word
+        .strip_prefix('-')
+        .filter(|letters| !letters.is_empty() && !letters.starts_with('-'))
+    else {
+        return false;
+    };
+    letters
+        .char_indices()
+        .find(|(_, letter)| listed(&format!("-{letter}")))
+        .is_some_and(|(at, letter)| at + letter.len_utf8() == letters.len())
 }
 
 /// Whether the shell expands `word` into other words before a program reads it ([`EXPANSIONS`]).

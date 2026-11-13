@@ -29,6 +29,7 @@ use conductor_cli::daemon::units::Manager;
 use conductor_cli::guard::{self, Places, SessionList};
 use conductor_model::dispatch::Verdict;
 use conductor_model::instance::ReconcileReason;
+use conductor_model::secret::SecretName;
 use fake_kube::FakeKube;
 use scratch::Scratch;
 use serde_json::{Value, json};
@@ -516,6 +517,100 @@ fn an_anonymous_mapping_cannot_name_the_daemons_forge_secret() {
             .iter()
             .any(|problem| problem.path == "instances[0].git_identity.name"),
         "{problems:?}"
+    );
+}
+
+/// What a refusal of another instance's forge token beside the member says.
+const OTHER_FORGE_TOKEN: &str = "forge_token";
+
+/// An anonymous mapping that names another instance's `forge_token` secret at another key, or
+/// `globals` that name it beside an anonymous instance, are refused at that key; a config that
+/// passed by validation gets no pod: the start refuses it before any secret is resolved, nothing
+/// created. The same key naming a secret of no forge token validates.
+#[test]
+fn another_instances_forge_token_is_refused_beside_the_member_and_starts_no_pod() {
+    let case = Pod::new("other-forge-token");
+    let beta = "\x20 - name: beta\n\
+                \x20   placement: none\n\
+                \x20   session_prefix: beta\n\
+                \x20   sources: [{github: example-owner}]\n\
+                \x20   forge_token: secret:beta-forge\n";
+    let refused_at = |text: &str, path: &str| {
+        let problems = config::parse(text, Path::new("/srv/example"))
+            .err()
+            .unwrap_or_else(|| panic!("the file validates:\n{text}"));
+        assert!(
+            problems.iter().any(|problem| problem.path == path
+                && problem.message.contains(OTHER_FORGE_TOKEN)
+                && problem.message.contains(NAMED)),
+            "{path}: {problems:?}"
+        );
+    };
+    refused_at(
+        &anonymous_file(&format!("\x20   model_token: secret:beta-forge\n{beta}")),
+        "instances[0].model_token",
+    );
+    refused_at(
+        &anonymous_file(&format!(
+            "\x20   git_identity: {{name: \"secret:beta-forge\", email: bot@example.com}}\n{beta}"
+        )),
+        "instances[0].git_identity.name",
+    );
+    refused_at(
+        &anonymous_file(beta).replace(
+            "instances:",
+            "globals: {model_token: secret:beta-forge}\ninstances:",
+        ),
+        "globals.model_token",
+    );
+    let valid = config::parse(
+        &anonymous_file(&format!("\x20   model_token: secret:alpha-model\n{beta}")),
+        Path::new("/srv/example"),
+    )
+    .unwrap_or_else(|problems| panic!("{problems:?}"));
+
+    let mut passed = valid.clone();
+    passed.instances[0].model_token = Some(SecretName("beta-forge".to_owned()));
+    let made = pods::manifests(
+        passed
+            .daemon
+            .kubernetes
+            .as_ref()
+            .expect("daemon.kubernetes"),
+        &passed,
+        &passed.instances[0],
+    );
+    assert!(
+        !made.secrets.contains("beta-forge"),
+        "the anonymous pod's Secret holds beta's forge token: {:?}",
+        made.secrets
+    );
+    let kubernetes = passed.daemon.kubernetes.clone().expect("daemon.kubernetes");
+    let asked = std::cell::RefCell::new(Vec::new());
+    let error = Pods::new(case.fake.client())
+        .start(
+            &kubernetes,
+            &passed,
+            &passed.instances[0],
+            "an-instance-token",
+            &|name: &SecretName| {
+                asked.borrow_mut().push(name.0.clone());
+                None
+            },
+        )
+        .expect_err("the start is refused");
+    let error = format!("{error:#}");
+    assert!(
+        error.contains("beta-forge")
+            && error.contains(NAMED)
+            && error.contains("nothing is created"),
+        "{error}"
+    );
+    assert!(asked.borrow().is_empty(), "resolved {:?}", asked.borrow());
+    assert!(
+        case.fake.requests().is_empty(),
+        "{:?}",
+        case.fake.requests()
     );
 }
 
