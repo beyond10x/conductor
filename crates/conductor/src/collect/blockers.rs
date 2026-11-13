@@ -161,6 +161,9 @@ impl Sources {
             );
             sources.checkouts = Some(PathBuf::from(&active.instance.checkouts.root));
             sources.anonymous = config::anonymous(&active.instance);
+            if sources.anonymous {
+                crate::instance::fetch_nothing_lazily();
+            }
             Ok(sources)
         } else {
             Ok(Self::new(root()?, state))
@@ -851,13 +854,19 @@ pub(crate) struct CommandFailed {
 
 impl CommandFailed {
     /// The command line, how it ended and the first line it printed on standard error that is not
-    /// blank, when it printed one.
+    /// blank, when it printed one; a `warning: ` line is passed over when a line that is not one
+    /// follows, as git warns before it fails (a partial clone that may not fetch what it lacks warns
+    /// `warning: lazy fetching disabled; ...` and fails on the next line).
     fn first_line(&self) -> String {
-        match self
-            .stderr
-            .lines()
-            .map(str::trim)
-            .find(|line| !line.is_empty())
+        let lines = || {
+            self.stderr
+                .lines()
+                .map(str::trim)
+                .filter(|line| !line.is_empty())
+        };
+        match lines()
+            .find(|line| !line.starts_with("warning: "))
+            .or_else(|| lines().next())
         {
             Some(line) => format!("`{}` {}: {line}", self.command, self.exited),
             None => format!("`{}` {}", self.command, self.exited),
@@ -881,8 +890,9 @@ impl std::error::Error for CommandFailed {}
 
 /// The first line of `error`, as a member failure records it: when a command failed
 /// ([`CommandFailed`]), the command line, how it ended and the first line it printed on standard
-/// error; else the first line of the error and its causes, joined by `: `, which for a command
-/// that did not answer in time names it and the bound ([`collect::run`]).
+/// error that is not a warning ([`CommandFailed::first_line`]); else the first line of the error
+/// and its causes, joined by `: `, which for a command that did not answer in time names it and
+/// the bound ([`collect::run`]).
 pub(crate) fn first_line(error: &anyhow::Error) -> String {
     if let Some(failed) = error
         .chain()

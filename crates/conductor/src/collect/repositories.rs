@@ -230,9 +230,13 @@ impl Sources {
     /// `instance`'s: its first `github:` owner as [`Sources::organization`] (none when it has
     /// none), its checkouts root as the workspace, its catalog when it names one, every command
     /// through `gh`, the 7 days before `now`, [`WIDTH`] repositories at once, and
-    /// [`collect::BOUND`] on each command.
+    /// [`collect::BOUND`] on each command. Sources of an instance with `forge_access: anonymous`
+    /// mark the process ([`crate::instance::fetch_nothing_lazily`]).
     #[must_use]
     pub fn of(instance: &Instance, now: OffsetDateTime) -> Self {
+        if crate::config::anonymous(instance) {
+            crate::instance::fetch_nothing_lazily();
+        }
         Self {
             organization: Origins::of(instance)
                 .owners

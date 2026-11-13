@@ -300,7 +300,10 @@ fn carries_token(forge: &str) -> bool {
 /// git's HTTP library reads no netrc file (`NETRC=/dev/null`), and a clone copies no template
 /// (`GIT_TEMPLATE_DIR` empty), whose `config` would be the clone's own. A checkout's own
 /// configuration is cleared of what a fetch would send before it runs, or the fetch is not run
-/// ([`without_own_credential`]). Its words come first, before the subcommand's.
+/// ([`without_own_credential`]). No submodule is fetched (`-c fetch.recurseSubmodules=false`,
+/// `-c submodule.recurse=false`), whose own configuration nothing clears, and nothing is fetched
+/// lazily ([`crate::instance::NO_LAZY_FETCH_VARIABLE`]). Its words come first, before the
+/// subcommand's.
 fn without_credential(command: &mut std::process::Command) {
     command
         .args([
@@ -310,7 +313,12 @@ fn without_credential(command: &mut std::process::Command) {
             "http.extraHeader=",
             "-c",
             "core.askPass=",
+            "-c",
+            "fetch.recurseSubmodules=false",
+            "-c",
+            "submodule.recurse=false",
         ])
+        .env(crate::instance::NO_LAZY_FETCH_VARIABLE, "1")
         .env("GIT_ASKPASS", "")
         .env_remove("SSH_ASKPASS")
         .env("GIT_CONFIG_NOSYSTEM", "1")
@@ -481,7 +489,9 @@ fn cloned(root: &Path, wanted: &Wanted, target: &Path) -> Brought {
 /// than [`bring`] (story:anonymous-pod-no-forge-secret): the same one route, `git fetch --quiet
 /// origin` with no credential, after its own configuration is cleared of what a fetch would send
 /// or the fetch is refused ([`fetched`]). No other git command of an anonymous instance talks to
-/// a remote.
+/// a remote: none fetches what a partial clone lacks by itself, as every process it starts
+/// carries [`crate::instance::NO_LAZY_FETCH_VARIABLE`]`=1` ([`crate::instance::command`]), and
+/// this route fetches no submodule ([`without_credential`]).
 ///
 /// # Errors
 ///

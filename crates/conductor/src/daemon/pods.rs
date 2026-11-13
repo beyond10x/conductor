@@ -515,17 +515,21 @@ pub fn manifests(kubernetes: &Kubernetes, config: &Config, instance: &Instance) 
     // points git, ssh or a forge's command line at a credential or a configuration file
     // ([`CREDENTIAL_POINTERS`]), and of git's configuration only the installer's settings that
     // carry none ([`plain_settings`]). Its Secret holds no forge token's secret its own mapping
-    // or `globals` names, which validation and the start refuse.
+    // or `globals` names, which validation and the start refuse. It carries
+    // `GIT_NO_LAZY_FETCH=1` of its own, whatever `env` names under that name, so that no git in
+    // it fetches by itself what a partial clone lacks (story:anonymous-pod-no-forge-secret).
     let anonymous = crate::config::anonymous(instance);
     let forge_credentials = anonymous.then(|| ForgeCredentials::of(config, kubernetes));
     if let Some(credentials) = &forge_credentials {
         secrets.retain(|secret| !credentials.secrets.contains(secret));
+        env.push(json!({"name": crate::instance::NO_LAZY_FETCH_VARIABLE, "value": "1"}));
     }
     for variable in &kubernetes.env {
         if let Some(credentials) = &forge_credentials
             && (is_gits_config(&variable.name)
                 || is_forge_variable(&variable.name)
                 || CREDENTIAL_POINTERS.contains(&variable.name.as_str())
+                || variable.name == crate::instance::NO_LAZY_FETCH_VARIABLE
                 || credentials.carried_by(variable))
         {
             continue;

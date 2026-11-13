@@ -16,6 +16,7 @@
 //! No case calls a real forge or a real cluster; every listener is on 127.0.0.1.
 
 mod active;
+mod common;
 mod scratch;
 
 use std::fs;
@@ -2091,4 +2092,745 @@ fn an_instance_without_the_member_gets_no_denial_for_dashes_and_clusters() {
         }
     }
     assert!(named.is_empty(), "{}", named.join("\n"));
+}
+
+// ---------------------------------------------------------------------------------------------
+// Every fetch of an anonymous instance by the one route
+// ---------------------------------------------------------------------------------------------
+
+/// The program `name` in `bin`, the script `script`.
+fn program(bin: &Path, name: &str, script: &str) {
+    use std::os::unix::fs::PermissionsExt;
+    let file = bin.join(name);
+    fs::write(&file, script).expect("write the program");
+    fs::set_permissions(&file, fs::Permissions::from_mode(0o755)).expect("make it runnable");
+}
+
+/// One whole snapshot by the built binary, outside a pod, and what reached the forge's stand-in.
+struct Pass {
+    _scratch: Scratch,
+    dir: PathBuf,
+    heads: Vec<String>,
+    output: std::process::Output,
+}
+
+impl Pass {
+    /// The `git` runs the recording `git` logged in `root/<checkout>` whose subcommand is `fetch`.
+    fn fetches(&self, checkout: &str) -> Vec<String> {
+        let at = format!("pwd={}\t", text_of(&self.dir.join("root").join(checkout)));
+        fs::read_to_string(self.dir.join("git.log"))
+            .unwrap_or_default()
+            .lines()
+            .filter(|line| line.starts_with(&at) && line.contains("\tfetch\t"))
+            .map(str::to_owned)
+            .collect()
+    }
+
+    fn sent(&self, needle: &str) -> bool {
+        self.heads.iter().any(|head| head.contains(needle))
+    }
+
+    fn login(&self) -> bool {
+        self.heads
+            .iter()
+            .any(|head| head.to_ascii_lowercase().contains("\nauthorization:"))
+    }
+
+    fn describe(&self) -> String {
+        format!(
+            "exit {:?}; {} requests\n{}\nstderr: {}",
+            self.output.status.code(),
+            self.heads.len(),
+            self.heads.join("---\n"),
+            String::from_utf8_lossy(&self.output.stderr)
+                .lines()
+                .take(30)
+                .collect::<Vec<_>>()
+                .join("\n")
+        )
+    }
+}
+
+/// A snapshot of the instance `alpha` (its source `example-owner`, `include: [one]`, with the
+/// member when `anonymous`) by the built binary, in its pod when `anonymous` and outside one when
+/// not, `PATH` only fakes and a recording `git`, every proxied request to a closed local port. `root/<checkout>` is a checkout whose `origin` is a listener that asks for a login and
+/// whose own configuration names an extra header for it; the home holds a `.netrc` for it. With
+/// `checkout` `registry` the instance names it as its catalog's repository and no repository is
+/// listed, so the catalog's read fetches it; with `one`, the repositories collector reads `one`
+/// from that checkout, a fetch first.
+fn snapshot_pass(name: &str, anonymous: bool, checkout: &str) -> Pass {
+    let _lock = environment();
+    active::isolate();
+    let scratch = Scratch::new(Path::new("faa-review").join(name));
+    let dir = fs::canonicalize(scratch.path()).expect("the case's directory");
+    for sub in [
+        "home",
+        "root",
+        "trees",
+        "work",
+        "bin",
+        "state",
+        "cache",
+        "secrets",
+        "records/.engineering",
+    ] {
+        fs::create_dir_all(dir.join(sub)).expect("create the case's directories");
+    }
+    fs::write(
+        dir.join("records/.engineering/workspace.yaml"),
+        "version: aep.workspace/1\nmembers: []\n",
+    )
+    .expect("write the records' workspace file");
+    fs::write(
+        dir.join("home/.netrc"),
+        "machine 127.0.0.1 login example password pass-netrc-7171\n",
+    )
+    .expect("write .netrc");
+    let listener = Listener::start(true);
+    let repository = dir.join("root").join(checkout);
+    fs::create_dir_all(&repository).expect("the checkout");
+    git(&repository, &["init", "--quiet", "--initial-branch=main"]);
+    git(
+        &repository,
+        &[
+            "remote",
+            "add",
+            "origin",
+            &format!("{}example-owner/{checkout}.git", listener.url()),
+        ],
+    );
+    let config = repository.join(".git/config");
+    let mut text = fs::read_to_string(&config).expect("the checkout's config");
+    text.push_str(&format!(
+        "[http \"{}\"]\n\textraHeader = X-Pass: pass-7272\n",
+        listener.url()
+    ));
+    fs::write(&config, text).expect("write the checkout's config");
+    if anonymous && checkout == "one" {
+        // A `.git` that holds a `.git` is no checkout to the pod's bring, which leaves it unfetched
+        // and failed; the read then fetches it itself.
+        fs::create_dir_all(repository.join(".git/.git")).expect("a .git in the .git");
+    }
+    if checkout == "registry" {
+        // `one`, which the source includes, has a checkout the pod's bring fetches, so nothing is
+        // cloned.
+        let one = dir.join("root/one");
+        fs::create_dir_all(&one).expect("the checkout of one");
+        git(&one, &["init", "--quiet", "--initial-branch=main"]);
+        git(
+            &one,
+            &[
+                "remote",
+                "add",
+                "origin",
+                &format!("{}example-owner/one.git", listener.url()),
+            ],
+        );
+        // Its `origin/main` as last fetched, so that its read, which comes before the catalog's,
+        // does not end the collector.
+        git(
+            &one,
+            &[
+                "-c",
+                "user.name=Example",
+                "-c",
+                "user.email=example@example.invalid",
+                "commit",
+                "--quiet",
+                "--allow-empty",
+                "-m",
+                "Start",
+            ],
+        );
+        git(&one, &["update-ref", "refs/remotes/origin/main", "HEAD"]);
+    }
+    let bin = dir.join("bin");
+    program(
+        &bin,
+        "git",
+        &format!(
+            "#!/bin/sh\n{{ printf 'pwd=%s' \"$(pwd)\"; for word in \"$@\"; do printf '\\t%s' \
+             \"$word\"; done; printf '\\tNETRC=%s\\n' \"${{NETRC-unset}}\"; }} >> '{}'\nexec '{}' \
+             \"$@\"\n",
+            text_of(&dir.join("git.log")),
+            text_of(&which("git"))
+        ),
+    );
+    let listed = if anonymous || checkout == "registry" {
+        "[]"
+    } else {
+        "[{\"hasIssuesEnabled\": true, \"isArchived\": false, \"name\": \"one\", \"visibility\": \
+         \"PUBLIC\"}]"
+    };
+    program(
+        &bin,
+        "gh",
+        &format!(
+            "#!/bin/sh\nif [ \"$1 $2\" = 'repo list' ]; then printf '%s' '{listed}'; exit 0; fi\n\
+             echo 'no answer' >&2\nexit 1\n"
+        ),
+    );
+    program(
+        &bin,
+        "aep",
+        "#!/bin/sh\ncase \"$3\" in\n  members) printf '%s' '{\"members\": []}' ;;\n  *) printf \
+         '%s' '{\"artifacts\": []}' ;;\nesac\n",
+    );
+    program(&bin, "claude", "#!/bin/sh\nprintf '%s' '[]'\n");
+    program(
+        &bin,
+        "ess",
+        "#!/bin/sh\ncase \"$1\" in\n  specify) exit 0 ;;\n  *) echo '1 scenario(s) (0 \
+         authored), 0 refusal(s), written to x' ;;\nesac\n",
+    );
+    std::os::unix::fs::symlink(which("tar"), bin.join("tar")).expect("link tar");
+    let member = if anonymous {
+        "    forge_access: anonymous\n"
+    } else {
+        ""
+    };
+    let catalog = if checkout == "registry" {
+        "    catalog: {repository: registry, path: catalog}\n"
+    } else {
+        ""
+    };
+    let file = dir.join("conductor.yaml");
+    fs::write(
+        &file,
+        format!(
+            "version: conductor.config/1\ninstances:\n  - name: alpha\n    sources: [{{github: \
+             example-owner, include: [one]}}]\n    checkouts:\n      root: {:?}\n      trees: \
+             {:?}\n    records: {:?}\n    state: {:?}\n    cache: {:?}\n{member}{catalog}",
+            text_of(&dir.join("root")),
+            text_of(&dir.join("trees")),
+            text_of(&dir.join("records")),
+            text_of(&dir.join("state")),
+            text_of(&dir.join("cache")),
+        ),
+    )
+    .expect("write the config file");
+    let mut command = common::conductor(dir.join("home"));
+    command
+        .env_clear()
+        .env("HOME", dir.join("home"))
+        .env("USER", "operator")
+        .env("PATH", &bin)
+        .env("CONDUCTOR_CONFIG", &file)
+        .env("GIT_AUTHOR_NAME", "Example")
+        .env("GIT_AUTHOR_EMAIL", "example@example.invalid")
+        .env("GIT_COMMITTER_NAME", "Example")
+        .env("GIT_COMMITTER_EMAIL", "example@example.invalid")
+        .env("HTTPS_PROXY", "http://127.0.0.1:9")
+        .env("https_proxy", "http://127.0.0.1:9")
+        .env("NO_PROXY", "127.0.0.1")
+        .env("no_proxy", "127.0.0.1")
+        .current_dir(dir.join("work"))
+        .args([
+            "snapshot",
+            "start-snapshot",
+            "--started-at",
+            "2026-10-07T12:00:00Z",
+            "--disk-free-bytes",
+            "100000000000",
+        ])
+        .stdin(Stdio::null());
+    if anonymous {
+        // The runtime alone in its pod: a file with the member validates only there.
+        command.env(conductor_cli::instance::LISTEN_VARIABLE, "127.0.0.1:0");
+    }
+    let output = command.output().expect("the conductor binary runs");
+    let heads = listener.heads();
+    Pass {
+        _scratch: scratch,
+        dir,
+        heads,
+        output,
+    }
+}
+
+/// The repositories collector's read of a checkout of an anonymous instance that the pod's bring
+/// left unfetched (its `.git` holds a `.git`), so `local` fetches it: the fetch reaches the forge,
+/// with no header of the checkout's own configuration and no netrc login.
+#[test]
+fn the_local_read_of_an_anonymous_checkout_fetches_with_no_credential() {
+    let pass = snapshot_pass("r4-local", true, "one");
+    eprintln!("fetches: {:?}\n{}", pass.fetches("one"), pass.describe());
+    assert!(
+        !pass.fetches("one").is_empty() && !pass.heads.is_empty(),
+        "the local read fetched nothing: {}",
+        pass.describe()
+    );
+    assert!(
+        !pass.sent("pass-7272") && !pass.login(),
+        "the local read's fetch sends the header: {}, a netrc login: {}\n{}",
+        pass.sent("pass-7272"),
+        pass.login(),
+        pass.describe()
+    );
+}
+
+/// The catalog's read of its repository's checkout, which no owner lists, of an anonymous
+/// instance: the fetch reaches the forge, with no header and no netrc login.
+#[test]
+fn the_catalog_read_of_an_anonymous_instance_fetches_with_no_credential() {
+    let pass = snapshot_pass("r4-catalog", true, "registry");
+    eprintln!(
+        "fetches: {:?}\n{}",
+        pass.fetches("registry"),
+        pass.describe()
+    );
+    assert!(
+        !pass.fetches("registry").is_empty() && !pass.heads.is_empty(),
+        "the catalog's read fetched nothing: {}",
+        pass.describe()
+    );
+    assert!(
+        !pass.sent("pass-7272") && !pass.login(),
+        "the catalog's fetch sends the header: {}, a netrc login: {}\n{}",
+        pass.sent("pass-7272"),
+        pass.login(),
+        pass.describe()
+    );
+}
+
+/// Without the member the local read and the catalog's read run `git fetch --quiet origin` as
+/// they did: those words alone, git's own configuration and netrc file read (the checkout's
+/// header reaches the forge, as it did before the change).
+#[test]
+fn without_the_member_the_local_and_catalog_reads_fetch_as_before() {
+    let mut wrong = Vec::new();
+    for (name, checkout) in [("r4-local-plain", "one"), ("r4-catalog-plain", "registry")] {
+        let pass = snapshot_pass(name, false, checkout);
+        let fetches = pass.fetches(checkout);
+        eprintln!(
+            "{checkout}: fetches {fetches:?}; {} requests",
+            pass.heads.len()
+        );
+        let plain = fetches
+            .iter()
+            .all(|line| line.ends_with("\tfetch\t--quiet\torigin\tNETRC=unset"));
+        if fetches.is_empty() || !plain || !pass.sent("pass-7272") {
+            wrong.push(format!(
+                "{checkout}: fetches {fetches:?}, the header sent: {}\n{}",
+                pass.sent("pass-7272"),
+                pass.describe()
+            ));
+        }
+    }
+    assert!(wrong.is_empty(), "{}", wrong.join("\n"));
+}
+
+/// The blockers collector over the instance `alpha` of the checkouts under `dir/root`, with the
+/// member when `anonymous`, driven as a snapshot drives it: whether its sources name the
+/// anonymous route, and its plain fetch command.
+fn blockers_pass(dir: &Path, anonymous: bool) -> (bool, String) {
+    git(
+        &dir.join("records"),
+        &["init", "--quiet", "--initial-branch=main"],
+    );
+    let alpha = if anonymous {
+        anonymous_alpha()
+    } else {
+        instance("alpha", "{github: example-owner, include: [one]}", "")
+    };
+    let parsed = config::parse(
+        &file(&["{name: GH_TOKEN, secret: secret:forge-token}"], &alpha),
+        &dir.join("home"),
+    )
+    .unwrap_or_else(|p| panic!("{p:?}"));
+    let mut instance = parsed.instances[0].clone();
+    instance.checkouts.root = text_of(&dir.join("root"));
+    instance.records = text_of(&dir.join("records"));
+    instance.state = text_of(&dir.join("state"));
+    instance.cache = text_of(&dir.join("cache"));
+    let members = config::workspace_members(&instance, 0).expect("the workspace members");
+    let workspace = dir
+        .join("records")
+        .join(conductor_cli::collect::blockers::WORKSPACE);
+    fs::create_dir_all(workspace.parent().expect("parent")).expect("create .engineering");
+    fs::write(&workspace, config::workspace_text(&members)).expect("write the workspace file");
+    let active = config::Active {
+        instance,
+        from_file: true,
+        others: Vec::new(),
+        default: None,
+        daemon_port: config::DAEMON_PORT,
+    };
+    let sources = conductor_cli::collect::blockers::Sources::of(&active, &dir.join("state"))
+        .expect("the blockers sources");
+    let named = (sources.anonymous, format!("{:?}", sources.fetch));
+    let store = conductor_cli::store::open(&dir.join("state")).expect("open the store");
+    let taken = conductor_cli::snapshot::take(
+        store,
+        &[conductor_cli::collect::Collector::new(
+            "blockers",
+            move |record| conductor_cli::collect::blockers::collect_from(&sources, record),
+        )],
+    )
+    .expect("the snapshot ends");
+    eprintln!("blockers snapshot {:?} {:?}", taken.state, taken.reason);
+    named
+}
+
+/// Without the member the blockers collector fetches each member with its own `git fetch --quiet
+/// origin`, as before the change: the checkout's own header reaches the forge as it did.
+#[test]
+fn without_the_member_the_blockers_fetch_runs_git_as_before() {
+    let _lock = environment();
+    active::isolate();
+    let scratch = Scratch::new("faa-review/r4-blockers-plain");
+    let dir = fs::canonicalize(scratch.path()).expect("the case's directory");
+    for sub in ["home", "root", "records", "state", "cache"] {
+        fs::create_dir_all(dir.join(sub)).expect("create the case's directories");
+    }
+    reset_environment(&dir.join("home"));
+    let listener = Listener::start(true);
+    let _ = checkout_with(
+        &dir,
+        &listener,
+        &format!(
+            "[http \"{}\"]\n\textraHeader = X-Plain: plain-9393\n",
+            listener.url()
+        ),
+    );
+    let (anonymous, fetch) = blockers_pass(&dir, false);
+    let heads = listener.heads();
+    eprintln!(
+        "anonymous route: {anonymous}; fetch {fetch}; {} requests",
+        heads.len()
+    );
+    assert!(
+        !anonymous
+            && fetch == r#"["git", "fetch", "--quiet", "origin"]"#
+            && heads.iter().any(|head| head.contains("plain-9393")),
+        "without the member: anonymous {anonymous}, fetch {fetch}\n{}",
+        heads.join("---\n")
+    );
+}
+
+/// A checkout of an anonymous instance that is a partial clone (`--filter=blob:none`, so
+/// `remote.origin.promisor`): the blockers collector's anonymous fetch of it fails (the forge
+/// asks for a login), and its export of `origin/main` then runs `git archive`, which fetches the
+/// blobs it lacks from `origin` itself, a fetch outside the hardened route that reads the home's
+/// `.netrc` and git configuration. No header of the home's configuration and no netrc login may
+/// reach the forge.
+#[test]
+fn the_blockers_export_of_a_partial_checkout_fetches_nothing_outside_the_route() {
+    let _lock = environment();
+    active::isolate();
+    let scratch = Scratch::new("faa-review/r4-partial");
+    let dir = fs::canonicalize(scratch.path()).expect("the case's directory");
+    for sub in [
+        "home",
+        "root",
+        "records",
+        "state",
+        "cache",
+        "source/.engineering",
+    ] {
+        fs::create_dir_all(dir.join(sub)).expect("create the case's directories");
+    }
+    reset_environment(&dir.join("home"));
+    let listener = Listener::start(true);
+    fs::write(
+        dir.join("home/.netrc"),
+        "machine 127.0.0.1 login example password partial-netrc-8181\n",
+    )
+    .expect("write .netrc");
+    fs::write(
+        dir.join("home/.gitconfig"),
+        "[http]\n\textraHeader = X-Home: partial-8282\n",
+    )
+    .expect("write the home's git configuration");
+    let source = dir.join("source");
+    git(&source, &["init", "--quiet", "--initial-branch=main"]);
+    fs::write(source.join(".engineering/notes.md"), "notes\n").expect("write a file");
+    git(&source, &["add", "--all"]);
+    git(
+        &source,
+        &[
+            "-c",
+            "user.name=Example",
+            "-c",
+            "user.email=example@example.invalid",
+            "commit",
+            "--quiet",
+            "-m",
+            "Start",
+        ],
+    );
+    git(&source, &["config", "uploadpack.allowFilter", "true"]);
+    git(
+        &dir,
+        &[
+            "clone",
+            "--quiet",
+            "--no-checkout",
+            "--filter=blob:none",
+            &format!("file://{}", text_of(&source)),
+            "root/one",
+        ],
+    );
+    git(
+        &dir.join("root/one"),
+        &[
+            "remote",
+            "set-url",
+            "origin",
+            &format!("{}example-owner/one.git", listener.url()),
+        ],
+    );
+    let (anonymous, _) = blockers_pass(&dir, true);
+    let heads = listener.heads();
+    let header = heads.iter().any(|head| head.contains("partial-8282"));
+    let login = heads
+        .iter()
+        .any(|head| head.to_ascii_lowercase().contains("\nauthorization:"));
+    eprintln!(
+        "anonymous route: {anonymous}; {} requests; the home's header: {header}, a netrc login: \
+         {login}",
+        heads.len()
+    );
+    assert!(
+        anonymous,
+        "the blockers' sources do not name the anonymous route"
+    );
+    assert!(
+        !header && !login,
+        "a fetch outside the route sends the home's header: {header}, a netrc login: {login}\n{}",
+        heads.join("---\n")
+    );
+}
+
+/// `--` before an assignment of `env` or `sudo` and before the duration of `timeout`: each push
+/// is denied naming the member, and no read is.
+#[test]
+fn dashes_before_assignments_and_durations_deny_pushes_and_no_reads() {
+    let (_scratch, dir, places) = guard_case("r4-dashes", true);
+    let mut wrong = Vec::new();
+    for command in [
+        "env -- EXAMPLE=1 git status",
+        "timeout -- 60 git log --oneline",
+        "sudo -- EXAMPLE=1 git log",
+        "env -- A=1 B=2 git fetch origin",
+        "env -- EXAMPLE=1 grep -rn push .",
+        "timeout -- 60 echo git push origin main",
+        "sudo -- EXAMPLE=1 echo git push origin main",
+        "env -- EXAMPLE=1 timeout 60 git log",
+        "xargs -- git log",
+    ] {
+        let decision = decide(&places, &dir.join("root/one"), command);
+        if decision.reason.contains(NAMED) {
+            wrong.push(format!("read denied: {command} | {}", decision.reason));
+        }
+    }
+    let pushes = [
+        "env -- EXAMPLE=1 git push origin main",
+        "sudo -- EXAMPLE=1 git push origin main",
+        "timeout -- 60 git push origin main",
+        "timeout -- 5s git push origin main",
+        "env -- A=1 B=2 git push origin main",
+        "env -- EXAMPLE=1 timeout 60 git push origin main",
+        "sudo -E -- git push origin main",
+        "sudo -- EXAMPLE=1 env -- B=2 git push origin main",
+    ];
+    wrong.extend(
+        not_denied(&places, &dir, &pushes)
+            .into_iter()
+            .map(|line| format!("push allowed: {line}")),
+    );
+    assert!(wrong.is_empty(), "{}", wrong.join("\n"));
+}
+
+/// Further forge writes after `--` and an assignment: a pull request, a shell's script and the
+/// bot route.
+#[test]
+fn forge_writes_after_dashes_and_an_assignment_are_denied() {
+    let (_scratch, dir, places) = guard_case("r4-dashes-more", true);
+    let writes = [
+        "env -- EXAMPLE=1 gh pr create --fill",
+        "env -- EXAMPLE=1 sh -c 'git push origin main'",
+        "sudo -- EXAMPLE=1 b10x-gates bot push origin main",
+        "env -- EXAMPLE=1 git -c alias.p=push p origin main",
+    ];
+    let allowed = not_denied(&places, &dir, &writes);
+    assert!(allowed.is_empty(), "{}", allowed.join("\n"));
+}
+
+/// An instance without the member under the spellings of this read: no decision names it.
+#[test]
+fn an_instance_without_the_member_gets_no_denial_for_dashes_before_assignments() {
+    let (_scratch, dir, places) = guard_case("r4-not-anonymous", false);
+    let mut named = Vec::new();
+    for command in [
+        "env -- EXAMPLE=1 git push origin main",
+        "sudo -- EXAMPLE=1 git push origin main",
+        "timeout -- 60 git push origin main",
+        "env -- EXAMPLE=1 git status",
+        "timeout -- 60 git log --oneline",
+        "env -- EXAMPLE=1 gh pr create --fill",
+    ] {
+        let decision = decide(&places, &dir.join("root/one"), command);
+        eprintln!(
+            "without the member: {command} | {:?} | {}",
+            decision.verdict,
+            decision.reason.chars().take(100).collect::<String>()
+        );
+        if decision.reason.contains(NAMED) {
+            named.push(format!(
+                "{command} | {:?} | {}",
+                decision.verdict, decision.reason
+            ));
+        }
+    }
+    assert!(named.is_empty(), "{}", named.join("\n"));
+}
+
+// ---------------------------------------------------------------------------------------------
+// No lazy fetch of a partial clone
+// ---------------------------------------------------------------------------------------------
+
+/// The values the container of `pod` gives `GIT_NO_LAZY_FETCH`.
+fn no_lazy_fetch(pod: &Value) -> Vec<Value> {
+    env_of(pod)
+        .iter()
+        .filter(|entry| entry["name"] == "GIT_NO_LAZY_FETCH")
+        .map(|entry| entry["value"].clone())
+        .collect()
+}
+
+/// The pod of an anonymous instance carries `GIT_NO_LAZY_FETCH=1`, so no git of a session in it
+/// fetches what a partial clone lacks by itself; an entry of `daemon.kubernetes.env` of that name
+/// is left out for it. A pod without the member carries the entry as the file names it.
+#[test]
+fn the_anonymous_pod_carries_no_lazy_fetch_whatever_the_file_names() {
+    let text = file(
+        &[
+            "{name: GH_TOKEN, secret: secret:forge-token}",
+            "{name: GIT_NO_LAZY_FETCH, value: \"0\"}",
+        ],
+        &[
+            anonymous_alpha(),
+            instance("beta", "{github: example-owner}", ""),
+        ]
+        .concat(),
+    );
+    let alpha = made(&text);
+    let parsed = config::parse(&text, Path::new("/srv/example")).expect("validates");
+    let kubernetes = parsed.daemon.kubernetes.clone().expect("daemon.kubernetes");
+    let beta = pods::manifests(&kubernetes, &parsed, &parsed.instances[1]);
+    assert_eq!(no_lazy_fetch(&alpha.pod), [json!("1")], "the anonymous pod");
+    assert_eq!(no_lazy_fetch(&beta.pod), [json!("0")], "without the member");
+    let plain = made(&file(
+        &["{name: GH_TOKEN, secret: secret:forge-token}"],
+        &anonymous_alpha(),
+    ));
+    assert_eq!(
+        no_lazy_fetch(&plain.pod),
+        [json!("1")],
+        "with no entry of it"
+    );
+}
+
+/// The blockers collector of an anonymous instance over a partial clone whose `origin` asks for
+/// a login: the export's read of a blob the clone lacks fails without fetching it, and that is
+/// one member failure of the checkout with git's line, as any other failed read.
+#[test]
+fn a_read_of_a_blob_a_partial_clone_lacks_is_a_member_failure_with_gits_line() {
+    let _lock = environment();
+    active::isolate();
+    let scratch = Scratch::new("faa-review/partial-line");
+    let dir = fs::canonicalize(scratch.path()).expect("the case's directory");
+    for sub in [
+        "home",
+        "root",
+        "records",
+        "state",
+        "cache",
+        "work",
+        "source/.engineering",
+    ] {
+        fs::create_dir_all(dir.join(sub)).expect("create the case's directories");
+    }
+    reset_environment(&dir.join("home"));
+    let listener = Listener::start(true);
+    let source = dir.join("source");
+    git(&source, &["init", "--quiet", "--initial-branch=main"]);
+    fs::write(source.join(".engineering/notes.md"), "notes\n").expect("write a file");
+    git(&source, &["add", "--all"]);
+    git(
+        &source,
+        &[
+            "-c",
+            "user.name=Example",
+            "-c",
+            "user.email=example@example.invalid",
+            "commit",
+            "--quiet",
+            "-m",
+            "Start",
+        ],
+    );
+    git(&source, &["config", "uploadpack.allowFilter", "true"]);
+    git(
+        &dir,
+        &[
+            "clone",
+            "--quiet",
+            "--no-checkout",
+            "--filter=blob:none",
+            &format!("file://{}", text_of(&source)),
+            "root/one",
+        ],
+    );
+    git(
+        &dir.join("root/one"),
+        &[
+            "remote",
+            "set-url",
+            "origin",
+            &format!("{}example-owner/one.git", listener.url()),
+        ],
+    );
+    let (anonymous, _) = blockers_pass(&dir, true);
+    assert!(
+        anonymous,
+        "the blockers' sources do not name the anonymous route"
+    );
+    let output = common::conductor(dir.join("home"))
+        .current_dir(dir.join("work"))
+        .arg("--state-dir")
+        .arg(dir.join("state"))
+        .args(["snapshot", "member-failures", "--format", "json"])
+        .stdin(Stdio::null())
+        .output()
+        .expect("the conductor binary runs");
+    let text = String::from_utf8_lossy(&output.stdout).into_owned();
+    let rows: Vec<Value> = match serde_json::from_str::<Value>(&text) {
+        Ok(Value::Array(rows)) => rows,
+        Ok(row) => vec![row],
+        Err(_) => text
+            .lines()
+            .filter_map(|line| serde_json::from_str::<Value>(line).ok())
+            .collect(),
+    };
+    let lines: Vec<String> = rows
+        .iter()
+        .filter(|row| row["member"] == "one")
+        .filter_map(|row| row["error_line"].as_str().map(str::to_owned))
+        .collect();
+    for line in &lines {
+        eprintln!("member failure of one: {line}");
+    }
+    let reads: Vec<&String> = lines
+        .iter()
+        .filter(|line| line.starts_with("`git archive "))
+        .collect();
+    assert!(
+        reads.len() == 1
+            && reads[0].contains("fatal: could not fetch ")
+            && reads[0].ends_with(" from promisor remote"),
+        "not one member failure with git's line of the missing blob: {lines:?}\n{text}\n{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
 }

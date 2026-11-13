@@ -1324,7 +1324,8 @@ fn every_forge_write_of_a_session_is_denied_naming_the_member() {
 
 /// The variables the recording `git` of [`every_remote_git_of_an_anonymous_snapshot_is_hardened`]
 /// writes, each as `NAME=value`, `unset` where it is not set.
-const RECORDED: [&str; 7] = [
+const RECORDED: [&str; 8] = [
+    "GIT_NO_LAZY_FETCH",
     "NETRC",
     "GIT_CONFIG_GLOBAL",
     "GIT_CONFIG_SYSTEM",
@@ -1394,11 +1395,17 @@ impl GitRun {
 
     /// What of the hardened route it lacks.
     fn lacks(&self) -> Vec<String> {
-        let mut lacking: Vec<String> = ["credential.helper=", "http.extraHeader=", "core.askPass="]
-            .into_iter()
-            .filter(|word| !self.words.iter().any(|held| held == word))
-            .map(str::to_owned)
-            .collect();
+        let mut lacking: Vec<String> = [
+            "credential.helper=",
+            "http.extraHeader=",
+            "core.askPass=",
+            "fetch.recurseSubmodules=false",
+            "submodule.recurse=false",
+        ]
+        .into_iter()
+        .filter(|word| !self.words.iter().any(|held| held == word))
+        .map(str::to_owned)
+        .collect();
         for wanted in [
             "NETRC=/dev/null",
             "GIT_CONFIG_GLOBAL=/dev/null",
@@ -1421,10 +1428,11 @@ impl GitRun {
 
 /// Two whole snapshots of an anonymous instance, the first cloning `one`, the second fetching
 /// it, with a recording `git` on `PATH` and an `aep` whose workspace names `one`, so that the
-/// blockers collector reads it too: every git command that talks to a remote runs with the
-/// hardened route's words and environment and no forge token, and every fetch runs after the
-/// checkout's own configuration was read for the keys a fetch would send, in that checkout. The
-/// snapshots fetch `one` at least once.
+/// blockers collector reads it too: every git command runs with `GIT_NO_LAZY_FETCH=1`, so none
+/// fetches what a partial clone lacks by itself; every one that talks to a remote runs with the
+/// hardened route's words (no submodule fetched either) and environment and no forge token; and
+/// every fetch runs after the checkout's own configuration was read for the keys a fetch would
+/// send, in that checkout. The snapshots fetch `one` at least once.
 #[test]
 fn every_remote_git_of_an_anonymous_snapshot_is_hardened() {
     let case = Runtime::new("hardened");
@@ -1476,6 +1484,14 @@ fn every_remote_git_of_an_anonymous_snapshot_is_hardened() {
     let mut wrong = Vec::new();
     let mut fetches = 0;
     for (at, run) in runs.iter().enumerate() {
+        // No git command of the instance fetches what a partial clone lacks by itself.
+        if !run
+            .variables
+            .iter()
+            .any(|held| held == "GIT_NO_LAZY_FETCH=1")
+        {
+            wrong.push(format!("{:?} lacks GIT_NO_LAZY_FETCH=1", run.words));
+        }
         if !run.talks_to_a_remote() {
             continue;
         }

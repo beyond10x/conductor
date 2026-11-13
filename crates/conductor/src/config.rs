@@ -1359,9 +1359,18 @@ pub fn set_active(flag: Option<&Path>) -> Result<()> {
     let (file, _) = locate(flag, &environment)?;
     let _ = CONFIG_FILE.set(environment.cwd.join(file));
     let active = resolve(flag, &environment)?;
-    let _ = ACTIVE.set(active);
+    fixed(active);
     let _ = EXPLICIT.set(flag.map(|flag| environment.cwd.join(flag)));
     Ok(())
+}
+
+/// Fixes `active` as the instance this process runs, unless one is fixed already; one with
+/// `forge_access: anonymous` marks the process ([`crate::instance::fetch_nothing_lazily`]).
+fn fixed(active: Active) {
+    let anonymous = anonymous(&active.instance);
+    if ACTIVE.set(active).is_ok() && anonymous {
+        crate::instance::fetch_nothing_lazily();
+    }
 }
 
 /// [`set_active`] with the instance `instance` names, when it names one, as
@@ -1378,7 +1387,7 @@ pub fn set_active_instance(flag: Option<&Path>, instance: Option<&str>) -> Resul
     let (file, _) = locate(flag, &environment)?;
     let _ = CONFIG_FILE.set(environment.cwd.join(file));
     let active = resolve(flag, &environment)?;
-    let _ = ACTIVE.set(active);
+    fixed(active);
     let _ = EXPLICIT.set(flag.map(|flag| environment.cwd.join(flag)));
     Ok(())
 }

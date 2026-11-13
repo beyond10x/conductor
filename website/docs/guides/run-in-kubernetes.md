@@ -921,7 +921,9 @@ What the member does:
   names one is refused at that key, and the daemon starts no pod that would get one. An entry
   with a `secret` under any other name stays in the pod with its secret, as the daemon cannot
   tell what it holds: give no credential of the forge, nor the key of any route that writes to
-  it, such an entry.
+  it, such an entry. The pod carries `GIT_NO_LAZY_FETCH=1` of its own, in place of any entry of
+  that name, so that no git in it, a session's included, fetches by itself the objects a partial
+  clone lacks.
 - The runtime clones each repository the source's `include` names over HTTPS,
   `https://github.com/<owner>/<name>.git`, with no credential: git gets no credential helper, no
   program that asks for a login, no extra header and no token variable, reads neither the
@@ -933,9 +935,11 @@ What the member does:
   key: remove the key, or remove the checkout so the next pass clones it again. Every fetch of
   the instance takes this one route, the blockers' and the specifications' read of each
   workspace member and the catalog's read included, and no other git command of the instance
-  talks to a remote. A clone that fails is one member failure of the
-  pass whose line says the repository is not public or not reachable, with git's last error line;
-  the next pass tries again.
+  talks to a remote: this route fetches no submodule, and every git the runtime starts runs with
+  `GIT_NO_LAZY_FETCH=1`, so a read of a partial clone fetches no object it lacks; such a read
+  fails instead, one member failure with git's line. A clone that fails is one member failure of
+  the pass whose line says the repository is not public or not reachable, with
+  git's last error line; the next pass tries again.
 - The repositories are the `include` entries, listed by no forge. Each is read from its checkout
   alone: the collectors read no pull request, issue, release or workflow run of the forge, and say
   so in one line a pass. A repository without a checkout has no row. An entry that no
