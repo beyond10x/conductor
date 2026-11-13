@@ -1,0 +1,13 @@
+{
+  "at": "2026-11-13T13:38:35Z",
+  "actor": "human:timo",
+  "artifact": "story:forge-access-anonymous",
+  "kind": "story",
+  "revision": 5,
+  "change": {
+    "change": "evidence",
+    "kind": "test_result",
+    "source": "task check on the pull request's head 253af3b835: 1026 tests run: 1026 passed (1 slow), 5 skipped in the local gate",
+    "reference": "https://github.com/beyond10x/conductor/actions/runs/43433459270/job/131912475255"
+  }
+}
