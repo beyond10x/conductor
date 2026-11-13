@@ -1,5 +1,5 @@
 // generated from conductor v1
-// contract digest 9b05469633bcf1d4139af714f927c2a3b9c70504015e08449956d3e7adddbe34
+// contract digest 75ad67e91894908237225e3df43bc9cc33c86850527f62ad5780c327755a37ae
 // do not edit: regenerate with `ess synthesize --layout crate`
 
 //! Config — `conductor.config`.
@@ -444,6 +444,15 @@ pub struct GitHubSource {
     pub include: Option<Vec<String>>,
 }
 
+/// GitIdentity — `conductor.config.GitIdentity`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct GitIdentity {
+    /// `name` — `String`.
+    pub name: String,
+    /// `email` — `String`.
+    pub email: String,
+}
+
 /// GitLabSource — `conductor.config.GitLabSource`.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct GitLabSource {
@@ -543,6 +552,8 @@ pub struct Instance {
     pub model_token: Option<crate::secret::SecretName>,
     /// `forge_token` — `Optional<conductor.secret.SecretName>`.
     pub forge_token: Option<crate::secret::SecretName>,
+    /// `git_identity` — `Optional<conductor.config.GitIdentity>`.
+    pub git_identity: Option<GitIdentity>,
     /// `forge` — `conductor.config.Forge`.
     pub forge: Forge,
     /// `conductor` — `conductor.config.ConductorSession`.

@@ -404,6 +404,47 @@ fn the_forge_credentials_section_holds_both_setups_as_the_daemon_reads_them() {
     assert_eq!(token(1), [serde_json::json!(daemon_wide)], "{file}");
 }
 
+/// The guide names an instance's `git_identity` (story:instance-git-identity) in the table of
+/// the config's keys, with its rule, and in the list of what a pod carries: the identity's four
+/// variables, the member over a `daemon.kubernetes.env` entry over the fixed default, and every
+/// commit in the pod carrying it, a session's and the records'. The list no longer says the
+/// fixed identity is the only one.
+#[test]
+fn the_guide_names_an_instances_git_identity_in_the_keys_and_in_what_a_pod_carries() {
+    let table = section("The daemon-config file");
+    let row = table
+        .lines()
+        .find(|line| line.starts_with("| `git_identity") || line.contains("`git_identity`"))
+        .unwrap_or_else(|| panic!("the table names git_identity:\n{table}"));
+    for words in ["name", "email", "200 bytes", "`<`", "`>`", "`@`", "422"] {
+        assert!(row.contains(words), "the row says {words:?}: {row}");
+    }
+
+    let pod = section("What the daemon creates for each instance");
+    let item = pod
+        .split("\n- ")
+        .find(|item| item.contains("GIT_AUTHOR_NAME"))
+        .unwrap_or_else(|| panic!("the pod's list names the git identity:\n{pod}"));
+    for words in [
+        "`git_identity`",
+        "GIT_AUTHOR_NAME",
+        "GIT_AUTHOR_EMAIL",
+        "GIT_COMMITTER_NAME",
+        "GIT_COMMITTER_EMAIL",
+        "`daemon.kubernetes.env`",
+        "`conductor`",
+        "`conductor@localhost`",
+        "a session's commits",
+        "the records",
+    ] {
+        assert!(item.contains(words), "the item says {words:?}:\n{item}");
+    }
+    assert!(
+        !item.contains("the git identity of the records' commits,"),
+        "the item still names one identity for the records only:\n{item}"
+    );
+}
+
 /// The section "Forge credentials" says what a pod's git reaches with the token
 /// (story:pod-git-reaches-forge): git over HTTPS to the forge's origin through a credential
 /// helper, no other host, `GIT_CONFIG_COUNT` in `daemon.kubernetes.env` leaving git's

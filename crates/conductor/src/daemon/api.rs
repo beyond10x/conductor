@@ -2062,7 +2062,8 @@ fn change_instance(
 /// `GET /v1/instances/{name}` (`conductor.instance.InstanceByName`): the row of `GET
 /// /v1/instances` for the instance, while the config file holds it; a `404` naming it while the
 /// file holds none of that name. An instance the file holds and the reconciler has not published
-/// yet reads `Stopped`, as the reconciler writes one whose runtime it did not start.
+/// yet reads `Stopped`, as the reconciler writes one whose runtime it did not start. The row
+/// carries the instance's `git_identity` as the file holds it, where it holds one.
 fn instance_row(api: &Api, name: &str) -> (u16, &'static str, Value) {
     let unknown = || {
         (
@@ -2089,7 +2090,7 @@ fn instance_row(api: &Api, name: &str) -> (u16, &'static str, Value) {
     else {
         return unknown();
     };
-    let row = published.unwrap_or_else(|| {
+    let mut row = published.unwrap_or_else(|| {
         json!({
             "name": name,
             "state": "Stopped",
@@ -2107,6 +2108,14 @@ fn instance_row(api: &Api, name: &str) -> (u16, &'static str, Value) {
             "changed_by": crate::actor::to_json(&crate::actor::daemon()),
         })
     });
+    // The instance's git identity as the file holds it now (story:instance-git-identity), no
+    // secret; no member where it holds none, as the specification's wire leaves an absent one out.
+    if let (Some(identity), Some(row)) = (&instance.git_identity, row.as_object_mut()) {
+        row.insert(
+            "git_identity".to_owned(),
+            json!({"name": identity.name, "email": identity.email}),
+        );
+    }
     (200, "OK", row)
 }
 

@@ -981,6 +981,125 @@ fn an_instance_pod_commits_as_conductor_where_env_names_no_identity() {
     }
 }
 
+/// The git identity of an instance that names one (story:instance-git-identity).
+const BOT: &str = "    git_identity: {name: Example Bot, email: bot@example.com}\n";
+
+/// A commit made in a fresh repository under `dir` with exactly the variables `made`'s pod gives
+/// by value, a home of its own and no system or global git config: its author and committer as
+/// `git log --format='%an <%ae> %cn <%ce>'` reads them.
+fn commit_in_pod(dir: &std::path::Path, made: &pods::Manifests) -> String {
+    let repository = dir.join("repository");
+    let home = dir.join("git-home");
+    fs::create_dir_all(&repository).expect("create the repository's directory");
+    fs::create_dir_all(&home).expect("create git's home");
+    let git = |args: &[&str]| {
+        let mut command = std::process::Command::new("git");
+        command
+            .env_clear()
+            .env("PATH", std::env::var_os("PATH").unwrap_or_default());
+        for entry in made.pod["spec"]["containers"][0]["env"]
+            .as_array()
+            .expect("env")
+        {
+            if let (Some(name), Some(value)) = (entry["name"].as_str(), entry["value"].as_str()) {
+                command.env(name, value);
+            }
+        }
+        let output = command
+            .env("HOME", &home)
+            .env("GIT_CONFIG_NOSYSTEM", "1")
+            .env("GIT_CONFIG_GLOBAL", "/dev/null")
+            .env("GIT_CEILING_DIRECTORIES", dir)
+            .current_dir(&repository)
+            .args(args)
+            .output()
+            .expect("run git");
+        assert!(
+            output.status.success(),
+            "git {args:?}: {}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        String::from_utf8_lossy(&output.stdout)
+            .trim_end()
+            .to_owned()
+    };
+    git(&["init", "--quiet"]);
+    git(&[
+        "commit",
+        "--quiet",
+        "--allow-empty",
+        "--message",
+        "a commit",
+    ]);
+    git(&["log", "--format=%an <%ae> %cn <%ce>"])
+}
+
+/// An instance's `git_identity` (story:instance-git-identity) gives its pod `GIT_AUTHOR_NAME` and
+/// `GIT_COMMITTER_NAME` from `name`, `GIT_AUTHOR_EMAIL` and `GIT_COMMITTER_EMAIL` from `email`,
+/// each once and over a `daemon.kubernetes.env` entry of the variable; a commit made with the
+/// pod's variables carries it as author and as committer. The rendered file does not write it.
+/// An instance of the same file without it keeps `env`'s entries and the fixed default.
+#[test]
+fn an_instances_git_identity_is_its_pods_author_and_committer_over_env() {
+    let case = Case::new("git-identity");
+    case.config_env(
+        IMAGE,
+        &[
+            "{name: GH_TOKEN, secret: secret:forge-token}",
+            "{name: GIT_AUTHOR_NAME, value: conductor}",
+            "{name: GIT_AUTHOR_EMAIL, value: ops@example.com}",
+        ],
+        &[alpha(BOT), instance("beta", "{github: example-org}", "")],
+    );
+    let text = fs::read_to_string(case.file()).expect("the config file");
+    let config = conductor_cli::config::parse(&text, &case.home())
+        .unwrap_or_else(|problems| panic!("the file does not validate: {problems:?}\n{text}"));
+    let kubernetes = config.daemon.kubernetes.clone().expect("daemon.kubernetes");
+
+    let alpha = pods::manifests(&kubernetes, &config, &config.instances[0]);
+    for (variable, value) in [
+        ("GIT_AUTHOR_NAME", "Example Bot"),
+        ("GIT_AUTHOR_EMAIL", "bot@example.com"),
+        ("GIT_COMMITTER_NAME", "Example Bot"),
+        ("GIT_COMMITTER_EMAIL", "bot@example.com"),
+    ] {
+        assert_eq!(
+            variables(&alpha, variable),
+            [json!({"name": variable, "value": value})],
+            "{}",
+            alpha.pod
+        );
+    }
+    assert!(
+        !alpha.rendered.contains("git_identity") && !alpha.rendered.contains("Example Bot"),
+        "{}",
+        alpha.rendered
+    );
+    assert_eq!(
+        commit_in_pod(&case.dir.join("alpha-commit"), &alpha),
+        "Example Bot <bot@example.com> Example Bot <bot@example.com>"
+    );
+
+    let beta = pods::manifests(&kubernetes, &config, &config.instances[1]);
+    for (variable, value) in [
+        ("GIT_AUTHOR_NAME", "conductor"),
+        ("GIT_AUTHOR_EMAIL", "ops@example.com"),
+        ("GIT_COMMITTER_NAME", "conductor"),
+        ("GIT_COMMITTER_EMAIL", "conductor@localhost"),
+    ] {
+        assert_eq!(
+            variables(&beta, variable),
+            [json!({"name": variable, "value": value})],
+            "{}",
+            beta.pod
+        );
+    }
+    assert_eq!(
+        commit_in_pod(&case.dir.join("beta-commit"), &beta),
+        "conductor <ops@example.com> conductor <conductor@localhost>"
+    );
+}
+
 /// An instance pod's environment carries `GLAB_SEND_TELEMETRY=false`, so no `glab` the pod runs
 /// (the collectors', doctor's, the watch's, a session's) sends usage data to the forge; where
 /// `daemon.kubernetes.env` names the variable, the operator's value stands, once.
@@ -2448,6 +2567,148 @@ fn a_put_that_changes_the_forge_token_replaces_the_pod_once_and_the_same_body_no
         let done = pass(&mut daemon);
         assert!(done.is_empty(), "{forge} again: {done:?}");
         assert_eq!(digest(), before, "{forge} again: the digest");
+    }
+}
+
+/// `PUT /v1/instances/{name}` that adds, changes or removes only the instance's `git_identity`
+/// (story:instance-git-identity) replaces its pod once, on a new digest, with the identity's
+/// variables; the same body again replaces nothing. `GET /v1/instances/{name}` answers the
+/// member as the mapping holds it, and no `git_identity` for a mapping without it.
+#[test]
+fn a_put_that_changes_only_the_git_identity_replaces_the_pod_once_and_get_answers_it() {
+    let case = Case::new("git-identity-put");
+    fs::write(case.dir.join("secrets/control"), CONTROL).expect("write a secret");
+    let mut daemon = case.daemon();
+    let start = Instant::now();
+    daemon
+        .pass(ReconcileReason::Cadence, start)
+        .expect("a pass");
+    case.set_running();
+
+    let api = Api::new("3".repeat(64), "operator".to_owned(), None)
+        .with_config(
+            case.file(),
+            case.home(),
+            format!("sqlite:{}", case.dir.join("shared.sqlite").display()),
+        )
+        .with_control_token(
+            conductor_model::config::SecretsSource {
+                source: conductor_model::secret::Source::Files,
+                namespace: None,
+                url: None,
+                dir: Some(case.dir.join("secrets").display().to_string()),
+            },
+            Some(conductor_model::secret::SecretName("control".to_owned())),
+        )
+        .with_pods(true);
+    api.publish(daemon.rows(), daemon.routes(), Vec::new());
+    api.publish_host(Vec::new(), None);
+    let listener = TcpListener::bind(("127.0.0.1", 0)).expect("bind");
+    let port = listener.local_addr().expect("address").port();
+    let api = Arc::new(api);
+    std::thread::spawn(move || api::serve(&listener, &api));
+
+    let mapping = |identity: Option<(&str, &str)>| {
+        let mut mapping = json!({
+            "name": "alpha",
+            "placement": "none",
+            "session_prefix": "alpha",
+            "sources": [{"github": "example-org"}],
+            "model_token": "secret:alpha-model",
+        });
+        if let Some((name, email)) = identity {
+            mapping["git_identity"] = json!({"name": name, "email": email});
+        }
+        mapping
+    };
+    let read = || {
+        let mut stream = TcpStream::connect(("127.0.0.1", port)).expect("connect");
+        stream
+            .set_read_timeout(Some(Duration::from_secs(60)))
+            .expect("a read timeout");
+        write!(
+            stream,
+            "GET /v1/instances/alpha HTTP/1.1\r\nHost: 127.0.0.1:{port}\r\nConnection: close\r\n\
+             Authorization: Bearer {CONTROL}\r\n\r\n"
+        )
+        .expect("send");
+        let mut bytes = Vec::new();
+        stream.read_to_end(&mut bytes).expect("read");
+        let text = String::from_utf8_lossy(&bytes).into_owned();
+        let body = text
+            .split_once("\r\n\r\n")
+            .map(|(_, body)| body.to_owned())
+            .unwrap_or_default();
+        assert!(text.starts_with("HTTP/1.1 200"), "{text}");
+        serde_json::from_str::<Value>(&body).unwrap_or_else(|_| panic!("a JSON row: {body}"))
+    };
+    let digest = || case.pod()["metadata"]["annotations"]["conductor/digest"].clone();
+    let mut at = 2;
+    let mut pass = |daemon: &mut Daemon<Manager>| {
+        at += 2;
+        daemon
+            .pass(
+                ReconcileReason::ConfigChange,
+                start + Duration::from_secs(at),
+            )
+            .expect("a pass")
+    };
+
+    let row = read();
+    assert!(row.get("git_identity").is_none(), "{row}");
+    let mut before = digest();
+    for identity in [
+        Some(("Example Bot", "bot@example.com")),
+        Some(("Example Bot", "bot+ci@example.com")),
+        None,
+    ] {
+        let (status, body) = put(port, "alpha", &mapping(identity));
+        assert_eq!(status, 200, "{identity:?}: {body}");
+        let row = read();
+        match identity {
+            Some((name, email)) => assert_eq!(
+                row["git_identity"],
+                json!({"name": name, "email": email}),
+                "{row}"
+            ),
+            None => assert!(row.get("git_identity").is_none(), "{row}"),
+        }
+        let done = pass(&mut daemon);
+        assert_eq!(done.len(), 1, "{identity:?}: {done:?}");
+        assert_eq!(
+            done[0].action,
+            ReconcileAction::Restart,
+            "{identity:?}: {done:?}"
+        );
+        assert_eq!(
+            done[0].result,
+            ReconcileResult::Succeeded,
+            "{identity:?}: {done:?}"
+        );
+        assert_ne!(digest(), before, "{identity:?}: the digest");
+        let made = case.pod();
+        let email: Vec<Value> = made["spec"]["containers"][0]["env"]
+            .as_array()
+            .expect("env")
+            .iter()
+            .filter(|entry| entry["name"] == "GIT_COMMITTER_EMAIL")
+            .map(|entry| entry["value"].clone())
+            .collect();
+        assert_eq!(
+            email,
+            [json!(
+                identity.map_or("conductor@localhost", |(_, email)| email)
+            )],
+            "{identity:?}: {made}"
+        );
+        case.set_running();
+        before = digest();
+
+        let (status, body) = put(port, "alpha", &mapping(identity));
+        assert_eq!(status, 200, "{identity:?} again: {body}");
+        let done = pass(&mut daemon);
+        assert!(done.is_empty(), "{identity:?} again: {done:?}");
+        assert_eq!(digest(), before, "{identity:?} again: the digest");
     }
 }
 

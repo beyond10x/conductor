@@ -731,7 +731,8 @@ types:
   # instance's Secret (`conductor-instance-<name>`) and the container reads it by `secretKeyRef`,
   # so no value stands in the pod's spec. It carries what an instance pod needs from outside, such
   # as `GH_TOKEN` or `GITLAB_TOKEN` for the forge's CLI, the `GIT_AUTHOR_*` and `GIT_COMMITTER_*`
-  # identity, or `GIT_CONFIG_COUNT`, `GIT_CONFIG_KEY_<n>` and `GIT_CONFIG_VALUE_<n>`; which forge
+  # identity (an instance's `git_identity` takes the place of those four in its own pod), or
+  # `GIT_CONFIG_COUNT`, `GIT_CONFIG_KEY_<n>` and `GIT_CONFIG_VALUE_<n>`; which forge
   # token a pod gets is the operator's decision, not conductor's. The daemon's forge token
   # variables are every variable a forge's command line reads a token from: `GH_TOKEN`,
   # `GITHUB_TOKEN`, `GH_ENTERPRISE_TOKEN` and `GITHUB_ENTERPRISE_TOKEN` for `gh`, `GITLAB_TOKEN`,
@@ -783,8 +784,9 @@ types:
   # `app.kubernetes.io/component=instance-runtime`, `conductor/daemon=<owner>` and
   # `conductor/instance=<name>`; the daemon adopts and cleans up by the first three. The daemon
   # builds the pod, its Secret and its claim from this key, the instance's name and the rendered
-  # file; what else of a mapping reaches the pod's env is the one variable its `forge_token` fills
-  # and, through the kinds and the `gitlab` hosts of its sources, which of the daemon's forge token
+  # file; what else of a mapping reaches the pod's env is the one variable its `forge_token` fills,
+  # the values of the four git identity variables its `git_identity` gives (`Instance`), and,
+  # through the kinds and the `gitlab` hosts of its sources, which of the daemon's forge token
   # entries the pod gets and which `credential.https://<host>.helper` keys git gets
   # (`KubernetesEnv`). Nothing an instance's mapping holds reaches the image, the command, a
   # volume, an env source, a service account, a host path, the namespace, a label, an annotation,
@@ -900,6 +902,17 @@ types:
     invariants:
       - distinct: {in: roles, as: role, by: role.role}
 
+  # The git identity an instance's pod commits with (`Instance.git_identity`,
+  # story:instance-git-identity): `name` and `email`, both required. Each is 1 to 200 bytes on
+  # one line, with no control character, no `<`, no `>` and no white space at its start or end;
+  # `email` holds exactly one `@` with text on both sides. A value that breaks the rule is refused
+  # at validate by its YAML path, and so by `AddInstance` and `PutInstance` (`ConfigInvalid`).
+  - name: conductor.config.GitIdentity
+    kind: struct
+    fields:
+      - {name: name, type: String}
+      - {name: email, type: String}
+
   # One instance, `instances[]` of the file (design architecture-next § 9: name, `placement`,
   # sources, checkouts, records, roles, overrides of any global key). A path is written absolute or
   # under `~`, which is the home directory; the
@@ -989,6 +1002,17 @@ types:
       # of `daemon.kubernetes.env` of the forges its sources are on (`KubernetesEnv` says
       # which), and every other entry.
       - {name: forge_token, type: Optional<conductor.secret.SecretName>}
+      # The git identity of the instance's pod (`GitIdentity`, story:instance-git-identity), read
+      # only by the pod supervisor: where `daemon.kubernetes` is set, the pod carries
+      # `GIT_AUTHOR_NAME` and `GIT_COMMITTER_NAME` from its `name` and `GIT_AUTHOR_EMAIL` and
+      # `GIT_COMMITTER_EMAIL` from its `email`, each once, in place of a `daemon.kubernetes.env`
+      # entry of that variable. They are the pod's environment, so every commit made in the pod
+      # carries them, a session's in a checkout and conductor's in the instance's records. The
+      # file the pod runs on does not write it. In a file without `daemon.kubernetes` it is
+      # refused at validate by its YAML path, saying that it holds for an instance that runs as a
+      # pod. Absent, each of the four is the `daemon.kubernetes.env` entry of its name, else
+      # `conductor` for a name and `conductor@localhost` for an e-mail.
+      - {name: git_identity, type: Optional<conductor.config.GitIdentity>}
       # The route of the instance's forge writes (story:forge-route); absent, `gates`.
       - {name: forge, type: conductor.config.Forge}
       - {name: conductor, type: conductor.config.ConductorSession}

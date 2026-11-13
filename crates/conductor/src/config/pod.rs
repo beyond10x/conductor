@@ -23,8 +23,10 @@
 //!
 //! It holds no `daemon.kubernetes` and no `daemon.control_token`: an instance pod creates no pods
 //! and admits no control plane. Nor does it hold the instance's `forge_token`, which only the pod
-//! supervisor reads, into a variable of the pod (story:instance-forge-token): the runtime reads
-//! no such key, and its file, which writes no `daemon.kubernetes`, would not validate with it.
+//! supervisor reads, into a variable of the pod (story:instance-forge-token), or its
+//! `git_identity`, which it reads into the pod's git identity variables
+//! (story:instance-git-identity): the runtime reads neither key, and its file, which writes no
+//! `daemon.kubernetes`, would not validate with them.
 
 use std::path::{Component, Path};
 
@@ -137,6 +139,7 @@ pub fn render_at(config: &Config, instance: &Instance, data: &Path, secrets: &Pa
     if let Yaml::Mapping(map) = &mut shown {
         // First and in place, so the keys stand where they stood before the key existed.
         map.shift_remove("forge_token");
+        map.shift_remove("git_identity");
         map.remove("conductor");
         map.remove("remote");
     }

@@ -637,6 +637,148 @@ fn the_instance_routes_refuse_what_would_shape_a_pod() {
     }
 }
 
+/// An instance's `git_identity` (story:instance-git-identity) is text of a caller that reaches
+/// the pod: only as the values of `GIT_AUTHOR_NAME`, `GIT_AUTHOR_EMAIL`, `GIT_COMMITTER_NAME`
+/// and `GIT_COMMITTER_EMAIL`, never a variable's name, the rendered file, the Secret's keys or the
+/// claim. A value that is not one line, holds a control character, `<` or `>`, or an e-mail
+/// without exactly one `@` is refused `422` `conductor.config.ConfigInvalid` at its YAML path by
+/// `POST /v1/instances` and by `PUT /v1/instances/{name}`, the file unchanged.
+#[test]
+fn a_git_identity_reaches_only_the_values_of_the_four_variables_and_is_refused_at_the_routes() {
+    let case = Case::new("git-identity");
+    case.write(" []");
+    let port = case.serve();
+    let shell = "Example Bot $(id) `id` ; & | \\ \" '";
+    let identity = json!({"name": shell, "email": "bot+ci@example.com"});
+    let sent = mapping("beta", &json!({"git_identity": identity}));
+    let (status, body) = exchange(
+        port,
+        &request(
+            port,
+            "POST",
+            "/v1/instances",
+            Some(&json!({"mapping": sent, "reason": "a tenant"})),
+        ),
+    );
+    assert_eq!(status, 201, "{body}");
+
+    let text = case.text();
+    let config = conductor_cli::config::parse(&text, &case.home())
+        .unwrap_or_else(|problems| panic!("the file does not validate: {problems:?}\n{text}"));
+    let kubernetes = config.daemon.kubernetes.clone().expect("daemon.kubernetes");
+    let made = pods::manifests(&kubernetes, &config, &config.instances[0]);
+    let mut carried: Vec<(String, String)> = pod_env(&made.pod)
+        .iter()
+        .filter(|entry| {
+            let value = entry["value"].as_str().unwrap_or_default();
+            value.contains("Example Bot") || value.contains("bot+ci")
+        })
+        .map(|entry| {
+            (
+                entry["name"].as_str().unwrap_or_default().to_owned(),
+                entry["value"].as_str().unwrap_or_default().to_owned(),
+            )
+        })
+        .collect();
+    carried.sort();
+    assert_eq!(
+        carried,
+        [
+            (
+                "GIT_AUTHOR_EMAIL".to_owned(),
+                "bot+ci@example.com".to_owned()
+            ),
+            ("GIT_AUTHOR_NAME".to_owned(), shell.to_owned()),
+            (
+                "GIT_COMMITTER_EMAIL".to_owned(),
+                "bot+ci@example.com".to_owned()
+            ),
+            ("GIT_COMMITTER_NAME".to_owned(), shell.to_owned()),
+        ],
+        "{}",
+        made.pod
+    );
+    let mut pod = made.pod.clone();
+    if let Some(env) = pod["spec"]["containers"][0]["env"].as_array_mut() {
+        env.retain(|entry| {
+            !entry["name"]
+                .as_str()
+                .unwrap_or_default()
+                .starts_with("GIT_")
+        });
+    }
+    for (what, text) in [
+        ("the pod beside the four values", pod.to_string()),
+        ("the claim", made.claim.to_string()),
+        ("the rendered file", made.rendered.clone()),
+        ("the Secret's keys", format!("{:?}", made.secrets)),
+    ] {
+        assert!(
+            !text.contains("Example Bot") && !text.contains("bot+ci"),
+            "{what}: {text}"
+        );
+    }
+
+    let before = case.text();
+    for (what, identity, path) in [
+        (
+            "a newline",
+            json!({"name": "Example\nBot", "email": "bot@example.com"}),
+            "instances[0].git_identity.name",
+        ),
+        (
+            "a carriage return",
+            json!({"name": "Example Bot", "email": "bot@example.com\r"}),
+            "instances[0].git_identity.email",
+        ),
+        (
+            "a NUL",
+            json!({"name": "Example\u{0}Bot", "email": "bot@example.com"}),
+            "instances[0].git_identity.name",
+        ),
+        (
+            "an angle bracket",
+            json!({"name": "Example Bot", "email": "bot@example.com> <x@example.com"}),
+            "instances[0].git_identity.email",
+        ),
+        (
+            "two ats",
+            json!({"name": "Example Bot", "email": "bot@x@example.com"}),
+            "instances[0].git_identity.email",
+        ),
+    ] {
+        let sent = mapping(
+            "gamma",
+            &json!({"session_prefix": "gamma", "git_identity": identity}),
+        );
+        let sent_put = mapping("beta", &json!({"git_identity": identity}));
+        for (method, target, body, path) in [
+            (
+                "POST",
+                "/v1/instances",
+                json!({"mapping": sent, "reason": "r"}),
+                path.replace("instances[0]", "instances[1]"),
+            ),
+            (
+                "PUT",
+                "/v1/instances/beta",
+                json!({"mapping": sent_put, "reason": "r"}),
+                path.to_owned(),
+            ),
+        ] {
+            let (status, answer) = exchange(port, &request(port, method, target, Some(&body)));
+            assert_eq!(status, 422, "{method} {what}: {answer}");
+            let answer: Value = serde_json::from_str(&answer).expect("a JSON body");
+            assert_eq!(
+                answer["error"], "conductor.config.ConfigInvalid",
+                "{method} {what}: {answer}"
+            );
+            assert_eq!(answer["path"], json!(path), "{method} {what}: {answer}");
+            assert_eq!(case.text(), before, "{method} {what}: the file changed");
+        }
+    }
+}
+
 /// The client follows no redirect: a `3xx` is the call's error, after one request, and the token
 /// is in the text of no error: of a redirect, of a refusal, or of a token file that holds no
 /// token.

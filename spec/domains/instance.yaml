@@ -146,6 +146,11 @@ entities:
         type: Optional<String>
       - name: changed_by
         type: conductor.operator.Actor
+      # The git identity the config gives the instance's pod (`instances[].git_identity`,
+      # story:instance-git-identity), read from the config file as it holds it at each read, no
+      # secret; absent where the mapping holds none.
+      - name: git_identity
+        type: Optional<conductor.config.GitIdentity>
     relations:
       - name: placement
         kind: references
@@ -256,8 +261,10 @@ views:
       wire: instances
       display: Instances
 
-  # `GET /v1/instances/{name}`: the one row of `Instances` whose name is `name`; an instance the
-  # daemon's rows do not hold answers `404` (a retired one, once the daemon reconciled).
+  # `GET /v1/instances/{name}`: the one row of `Instances` whose name is `name`, and the
+  # instance's `git_identity` as its mapping holds it (story:instance-git-identity), absent where
+  # it holds none; an instance the daemon's rows do not hold answers `404` (a retired one, once
+  # the daemon reconciled).
   - name: conductor.instance.InstanceByName
     source: conductor.instance.Instance
     consistency: read_your_writes
@@ -276,6 +283,7 @@ views:
       - {name: sources, type: List<conductor.config.Source>}
       - {name: detail, type: Optional<String>}
       - {name: changed_by, type: conductor.operator.Actor}
+      - {name: git_identity, type: Optional<conductor.config.GitIdentity>}
     naming:
       wire: instance
       display: One instance

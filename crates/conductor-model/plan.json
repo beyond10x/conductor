@@ -2,8 +2,8 @@
   "provenance": {
     "system": "conductor",
     "specification_version": "v1",
-    "source_digest": "e556c6300ee733842e3a55bb7652250d2fa644a90d4985a34e2143e1230a7a63",
-    "contract_digest": "9b05469633bcf1d4139af714f927c2a3b9c70504015e08449956d3e7adddbe34"
+    "source_digest": "6445602cf31c79122f8ede7207be7b9a6db12511c349079f4bb53037ae70a58d",
+    "contract_digest": "75ad67e91894908237225e3df43bc9cc33c86850527f62ad5780c327755a37ae"
   },
   "scope": {
     "profile": "component-skeletons",
@@ -314,6 +314,13 @@
     {
       "kind": "domain_type",
       "source": "conductor.config.GitHubSource",
+      "disposition": {
+        "disposition": "generated"
+      }
+    },
+    {
+      "kind": "domain_type",
+      "source": "conductor.config.GitIdentity",
       "disposition": {
         "disposition": "generated"
       }

@@ -8,7 +8,7 @@
     "x-ess-provenance": {
       "system": "conductor",
       "specification_version": "v1",
-      "contract_digest": "slice-sha256/2:32b68e46ff501f2009cb70c10bb164022900e426226b78401a1aa3464b8b06fe"
+      "contract_digest": "slice-sha256/2:fea93e99809497d91a0765b4394d3ff1d05f1d45733e4faa9b7781a2af860f95"
     },
     "x-ess-reached-by": "network"
   },
@@ -3765,6 +3765,25 @@
         ],
         "additionalProperties": false
       },
+      "conductor.config.GitIdentity": {
+        "title": "GitIdentity",
+        "x-ess-name": "conductor.config.GitIdentity",
+        "x-ess-kind": "struct",
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string"
+          },
+          "email": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "name",
+          "email"
+        ],
+        "additionalProperties": false
+      },
       "conductor.config.GitLabSource": {
         "title": "GitLabSource",
         "x-ess-name": "conductor.config.GitLabSource",
@@ -4656,6 +4675,9 @@
           },
           "changed_by": {
             "$ref": "#/components/schemas/conductor.operator.Actor"
+          },
+          "git_identity": {
+            "$ref": "#/components/schemas/conductor.config.GitIdentity"
           }
         },
         "required": [
@@ -9794,6 +9816,25 @@
       ],
       "additionalProperties": false
     },
+    "conductor.config.GitIdentity": {
+      "title": "GitIdentity",
+      "x-ess-name": "conductor.config.GitIdentity",
+      "x-ess-kind": "struct",
+      "type": "object",
+      "properties": {
+        "name": {
+          "type": "string"
+        },
+        "email": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "name",
+        "email"
+      ],
+      "additionalProperties": false
+    },
     "conductor.config.GitLabSource": {
       "title": "GitLabSource",
       "x-ess-name": "conductor.config.GitLabSource",
@@ -10028,6 +10069,9 @@
         },
         "changed_by": {
           "$ref": "#/x-ess-entities/conductor.operator.Actor"
+        },
+        "git_identity": {
+          "$ref": "#/x-ess-entities/conductor.config.GitIdentity"
         },
         "state": {
           "$ref": "#/x-ess-entities/conductor.instance.Instance.State"

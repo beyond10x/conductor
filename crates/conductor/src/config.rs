@@ -82,7 +82,9 @@
 //!   it leaves out, `checkouts` included, its pod's file fills in there ([`pod::render`]).
 //!   An instance's `forge_token` (story:instance-forge-token) is `secret:<name>`, written only
 //!   where `daemon.kubernetes` is, and only by an instance whose sources name exactly one forge
-//!   ([`forge_token_variables`]). A `GITLAB_HOST` entry of `env` ([`GITLAB_HOST_VARIABLE`]) is a
+//!   ([`forge_token_variables`]). An instance's `git_identity` (story:instance-git-identity) is
+//!   a `name` and an `email`, each one line of text ([`git_identity_problem`]), written only
+//!   where `daemon.kubernetes` is. A `GITLAB_HOST` entry of `env` ([`GITLAB_HOST_VARIABLE`]) is a
 //!   `value`, a host as a `gitlab` source writes one, never a `secret`; no entry names another
 //!   variable a GitLab host is written in ([`OTHER_GITLAB_HOST_VARIABLES`]). `daemon.control_token`
 //!   is `secret:<name>`. A daemon-config file holds `version` and `daemon` only
@@ -135,12 +137,12 @@ use conductor_model::agent::AgentKindName;
 use conductor_model::config::{
     Authority, Cadence, Catalog, CatalogNames, Checkouts, CommandWord, ConductorSession, Config,
     Controllers, Daemon, DaemonCadence, DaemonConfig, DaemonOperator, Forge, ForgeRoute,
-    ForgeSecret, Gibibytes, GitHubSource, GitLabSource, Globals, Harness, Instance, InstanceName,
-    Kubernetes, KubernetesEnv, KubernetesName, KubernetesQuantities, KubernetesResources,
-    KubernetesVolume, Limits, LocalSource, Network, OperatorGrant, OperatorRole, PlacementName,
-    RepoCache, Report, RepositoryRule, Retention, Role, SecretSource, SecretSync, SecretsSource,
-    SessionName, SessionPrefix, Source, SuggestedPrefix, Thresholds, TimeOfDay, TlsListener,
-    Tokens, Usage, WorkspaceMember, Writable,
+    ForgeSecret, Gibibytes, GitHubSource, GitIdentity, GitLabSource, Globals, Harness, Instance,
+    InstanceName, Kubernetes, KubernetesEnv, KubernetesName, KubernetesQuantities,
+    KubernetesResources, KubernetesVolume, Limits, LocalSource, Network, OperatorGrant,
+    OperatorRole, PlacementName, RepoCache, Report, RepositoryRule, Retention, Role, SecretSource,
+    SecretSync, SecretsSource, SessionName, SessionPrefix, Source, SuggestedPrefix, Thresholds,
+    TimeOfDay, TlsListener, Tokens, Usage, WorkspaceMember, Writable,
 };
 use conductor_model::decision::Decider;
 use conductor_model::direction::Activity;
@@ -449,7 +451,7 @@ pub const TREE_STALE_HOURS: u64 = 48;
 
 /// The keys of each mapping the file holds, in the order `config show` writes them.
 const CONFIG_KEYS: [&str; 5] = ["version", "daemon", "globals", "default", "instances"];
-const INSTANCE_KEYS: [&str; 30] = [
+const INSTANCE_KEYS: [&str; 31] = [
     "name",
     "placement",
     "remote",
@@ -478,10 +480,69 @@ const INSTANCE_KEYS: [&str; 30] = [
     "gates_policy",
     "model_token",
     "forge_token",
+    "git_identity",
     "forge",
     "conductor",
 ];
 const CONDUCTOR_KEYS: [&str; 2] = ["served_by", "session_name"];
+const GIT_IDENTITY_KEYS: [&str; 2] = ["name", "email"];
+
+/// The most bytes a value of an instance's `git_identity` holds (story:instance-git-identity).
+pub const GIT_IDENTITY_BYTES: usize = 200;
+
+/// Why `text` is no value of an instance's `git_identity` (story:instance-git-identity), its
+/// `email` where `email` holds: 1 to [`GIT_IDENTITY_BYTES`] bytes on one line, with no control
+/// character, no `<`, no `>` and no white space at its start or end, and for an e-mail exactly
+/// one `@` with text on both sides. git writes the identity as `name <email>` into each commit, so
+/// a line break, a control character or an angle bracket would end or forge that line. `None`
+/// for a value that holds.
+#[must_use]
+pub fn git_identity_problem(text: &str, email: bool) -> Option<String> {
+    let what = if email { "an e-mail" } else { "a name" };
+    if text.is_empty() || text.len() > GIT_IDENTITY_BYTES {
+        return Some(format!(
+            "is {} bytes: {what} of a git identity is 1 to {GIT_IDENTITY_BYTES} bytes",
+            text.len()
+        ));
+    }
+    if text
+        .chars()
+        .any(|c| matches!(c, '\n' | '\r' | '\u{85}' | '\u{2028}' | '\u{2029}'))
+    {
+        return Some(format!(
+            "is not one line: {what} of a git identity is one line of text"
+        ));
+    }
+    if text.chars().any(char::is_control) {
+        return Some(format!(
+            "holds a control character: {what} of a git identity holds none"
+        ));
+    }
+    if text.contains(['<', '>']) {
+        return Some(format!(
+            "holds < or >, which git writes around the e-mail of an identity: {what} of a git \
+             identity holds neither"
+        ));
+    }
+    if text.trim() != text {
+        return Some(format!(
+            "starts or ends with white space: {what} of a git identity does not"
+        ));
+    }
+    if email {
+        let one_at = text.split_once('@').is_some_and(|(local, domain)| {
+            !local.is_empty() && !domain.is_empty() && !domain.contains('@')
+        });
+        if !one_at {
+            return Some(
+                "is no e-mail: an e-mail of a git identity holds exactly one @, with text on \
+                 both sides"
+                    .to_owned(),
+            );
+        }
+    }
+    None
+}
 /// The keys that name a source's kind; a source names exactly one.
 const SOURCE_KINDS: [&str; 3] = ["github", "local", "gitlab"];
 const SOURCE_KEYS: [&str; 6] = ["github", "local", "gitlab", "exclude", "include", "host"];
@@ -1702,6 +1763,8 @@ pub fn built_in(home: &Path, cwd: &Path) -> Instance {
         model_token: None,
         // So is a forge token, and only where the daemon runs its instances as pods.
         forge_token: None,
+        // So is a git identity (story:instance-git-identity).
+        git_identity: None,
         // Forge writes take the bot route unless a user names another (story:forge-route).
         forge: default_forge(),
         // Its own conductor, the built-in director role's session, under the role's old name for
@@ -4234,6 +4297,23 @@ impl Reader<'_> {
             Some(_) => None,
             None => Some(None),
         };
+        // The git identity of the instance's pod (story:instance-git-identity). Only the pod
+        // supervisor reads it, into the pod's four git identity variables.
+        let git_identity = match Self::get(map, "git_identity") {
+            Some(value) => {
+                let at = join(path, "git_identity");
+                if !self.pods {
+                    self.problem(
+                        &at,
+                        "only a daemon that runs its instances as pods (daemon.kubernetes) reads \
+                         git_identity, into the git identity of the instance's pod; this file's \
+                         daemon runs none: leave it out",
+                    );
+                }
+                self.git_identity(value, &at).map(Some)
+            }
+            None => Some(None),
+        };
         let forge = match Self::get(map, "forge") {
             Some(value) => self.forge(value, &join(path, "forge")),
             None => Some(default_forge()),
@@ -4271,7 +4351,36 @@ impl Reader<'_> {
             gates_policy: gates_policy?,
             model_token: model_token?,
             forge_token: forge_token?,
+            git_identity: git_identity?,
             forge: forge?,
+        })
+    }
+
+    /// An instance's `git_identity` (story:instance-git-identity): `name` and `email`, both
+    /// required, each text that [`git_identity_problem`] finds nothing in.
+    fn git_identity(&mut self, value: &Value, path: &str) -> Option<GitIdentity> {
+        let map = self.mapping(value, path, &GIT_IDENTITY_KEYS)?;
+        let read = |reader: &mut Self, key: &str| {
+            let at = join(path, key);
+            match reader.required(map, path, key)? {
+                Value::String(text) => match git_identity_problem(text, key == "email") {
+                    Some(problem) => {
+                        reader.problem(&at, problem);
+                        None
+                    }
+                    None => Some(text.clone()),
+                },
+                other => {
+                    reader.problem(&at, format!("{} is not text", echo(other)));
+                    None
+                }
+            }
+        };
+        let name = read(self, "name");
+        let email = read(self, "email");
+        Some(GitIdentity {
+            name: name?,
+            email: email?,
         })
     }
 
@@ -5894,6 +6003,18 @@ fn shown_instance(instance: &Instance, legacy: &Legacy) -> Yaml {
                     .map(|name| format!("secret:{}", name.0))
                     .as_ref(),
             ),
+        ),
+        (
+            "git_identity",
+            instance
+                .git_identity
+                .as_ref()
+                .map_or(Yaml::Null, |identity| {
+                    mapping([
+                        ("name", text(&identity.name)),
+                        ("email", text(&identity.email)),
+                    ])
+                }),
         ),
         (
             "forge",

@@ -571,6 +571,7 @@ fn show_without_a_file_prints_todays_constants() {
         "forge",
         "forge_token",
         "gates_policy",
+        "git_identity",
         "model_token",
         "name",
         "operator",
@@ -3779,6 +3780,191 @@ fn an_instances_forge_token_names_its_forge_through_its_sources_where_pods_run()
         "{problems}"
     );
     assert!(!problems.contains(&value), "{problems}");
+}
+
+/// An instance's `git_identity` (story:instance-git-identity) is a `name` and an `email`, read
+/// where the daemon runs its instances as pods: it validates and `config show` writes it as
+/// written, and writes `null` without it. Each value is 1 to 200 bytes on one line, with no
+/// control character, no `<` or `>` and no white space at either end, and the e-mail holds
+/// exactly one `@` with text on both sides; a value that breaks a rule, a missing or unknown key
+/// and a file without `daemon.kubernetes` are each refused at the member's YAML path, saying why.
+#[test]
+fn an_instances_git_identity_is_one_line_each_and_read_where_pods_run() {
+    let case = Case::new("git-identity");
+    let identity = |name: &str, email: &str| {
+        format!(
+            "\x20   git_identity: {{name: {}, email: {}}}\n",
+            serde_json::to_string(name).expect("JSON"),
+            serde_json::to_string(email).expect("JSON")
+        )
+    };
+    let longest = "n".repeat(200);
+    for (name, written) in [
+        ("plain", identity("Example Bot", "bot@example.com")),
+        ("longest", identity(&longest, "bot@example.com")),
+        (
+            "inner-space",
+            identity("Example  Bot (CI)", "bot+ci@example.com"),
+        ),
+    ] {
+        let file = case.write(&format!("{name}.yaml"), &pods(&pod_instance(&written)));
+        let output = case.with_file(&file, &["config", "validate"]);
+        assert_eq!(
+            output.status.code(),
+            Some(0),
+            "{name}: {}",
+            describe(&output)
+        );
+    }
+    let file = case.write(
+        "shown.yaml",
+        &pods(&pod_instance(&identity("Example Bot", "bot@example.com"))),
+    );
+    let shown = case.show(&file, &[]);
+    assert_eq!(
+        shown["instances"][0]["git_identity"],
+        serde_json::json!({"name": "Example Bot", "email": "bot@example.com"}),
+        "{shown:#}"
+    );
+    let without = case.show(&case.write("without.yaml", &pods(&pod_instance(""))), &[]);
+    assert_eq!(
+        without["instances"][0]["git_identity"],
+        Value::Null,
+        "{without:#}"
+    );
+
+    let name = "instances[0].git_identity.name";
+    let email = "instances[0].git_identity.email";
+    let too_long = "n".repeat(201);
+    for (case_name, written, path, says) in [
+        (
+            "empty-name",
+            identity("", "bot@example.com"),
+            name,
+            "is 0 bytes",
+        ),
+        (
+            "long-name",
+            identity(&too_long, "bot@example.com"),
+            name,
+            "is 201 bytes",
+        ),
+        (
+            "newline",
+            identity("Example\nBot", "bot@example.com"),
+            name,
+            "is not one line",
+        ),
+        (
+            "tab",
+            identity("Example\tBot", "bot@example.com"),
+            name,
+            "a control character",
+        ),
+        (
+            "separator",
+            "\x20   git_identity: {name: \"Example\\u2028Bot\", email: bot@example.com}\n"
+                .to_owned(),
+            name,
+            "is not one line",
+        ),
+        (
+            "angle",
+            identity("Example <Bot>", "bot@example.com"),
+            name,
+            "holds < or >",
+        ),
+        (
+            "leading",
+            identity(" Example Bot", "bot@example.com"),
+            name,
+            "white space",
+        ),
+        (
+            "trailing",
+            identity("Example Bot", "bot@example.com "),
+            email,
+            "white space",
+        ),
+        (
+            "angle-email",
+            identity("Example Bot", "<bot@example.com>"),
+            email,
+            "holds < or >",
+        ),
+        (
+            "no-at",
+            identity("Example Bot", "bot.example.com"),
+            email,
+            "exactly one @",
+        ),
+        (
+            "two-ats",
+            identity("Example Bot", "bot@ci@example.com"),
+            email,
+            "exactly one @",
+        ),
+        (
+            "no-local",
+            identity("Example Bot", "@example.com"),
+            email,
+            "exactly one @",
+        ),
+        (
+            "no-domain",
+            identity("Example Bot", "bot@"),
+            email,
+            "exactly one @",
+        ),
+        (
+            "number",
+            "\x20   git_identity: {name: 42, email: bot@example.com}\n".to_owned(),
+            name,
+            "is not text",
+        ),
+        (
+            "missing",
+            "\x20   git_identity: {name: Example Bot}\n".to_owned(),
+            email,
+            "missing",
+        ),
+        (
+            "unknown",
+            "\x20   git_identity: {name: Example Bot, email: bot@example.com, key: x}\n".to_owned(),
+            "instances[0].git_identity.key",
+            "unknown key",
+        ),
+    ] {
+        let file = case.write(&format!("{case_name}.yaml"), &pods(&pod_instance(&written)));
+        let problems = refused(&case, &file);
+        let line = problems
+            .lines()
+            .find(|line| line.contains(&format!("{path}: ")))
+            .unwrap_or_else(|| panic!("{case_name}: no problem at {path}: {problems}"));
+        assert!(line.contains(says), "{case_name}: {problems}");
+    }
+
+    let plain = format!(
+        "version: conductor.config/2\n\
+         daemon: {{store: \"sqlite:/srv/conductor.sqlite\"}}\n\
+         instances:\n\
+         \x20 - name: alpha\n\
+         \x20   placement: none\n\
+         \x20   session_prefix: alpha\n\
+         \x20   sources: [{{github: example-org}}]\n\
+         \x20   checkouts: {{root: ~/alpha, trees: ~/alpha-trees}}\n\
+         {}",
+        identity("Example Bot", "bot@example.com")
+    );
+    let file = case.write("no-kubernetes.yaml", &plain);
+    let problems = refused(&case, &file);
+    assert!(
+        problems.contains(
+            "instances[0].git_identity: only a daemon that runs its instances as pods \
+             (daemon.kubernetes) reads git_identity"
+        ),
+        "{problems}"
+    );
 }
 
 /// A `GITLAB_HOST` entry of `daemon.kubernetes.env` names the one host the daemon's GitLab token

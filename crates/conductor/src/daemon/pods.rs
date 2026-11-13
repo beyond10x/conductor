@@ -30,9 +30,10 @@
 //!
 //! Every field comes from `daemon.kubernetes`, the instance's name and the rendering (decision
 //! D8); the key of the one `env` entry the instance's `forge_token` fills, whose variable its
-//! sources name and no caller does; and, through the kinds and the `gitlab` hosts of its
-//! sources, which of the daemon's forge token entries the pod keeps and which
-//! `credential.https://<host>.helper` keys git gets. No text of a caller reaches a variable's
+//! sources name and no caller does; the values of the four variables of [`GIT_IDENTITY`] the
+//! instance's `git_identity` gives, whose names are fixed; and, through the kinds and the
+//! `gitlab` hosts of its sources, which of the daemon's forge token entries the pod keeps and
+//! which `credential.https://<host>.helper` keys git gets. No text of a caller reaches a variable's
 //! name or a helper's value. Where the pod carries the token of a forge its sources name, git's
 //! `GIT_CONFIG_COUNT`, `GIT_CONFIG_KEY_<n>` and `GIT_CONFIG_VALUE_<n>` give git a credential
 //! helper for that forge's HTTPS origin and no other ([`GIT_CONFIG_COUNT`]); a `gitlab`
@@ -95,9 +96,11 @@ const GRACE_SECONDS: i64 = 10;
 /// The lines of a pod's log a failure's detail carries, when its container says nothing.
 const LOG_LINES: u32 = 8;
 
-/// The git identity of an instance pod's commits, each variable where `daemon.kubernetes.env`
-/// names it not: the image has no git config and the pod's home is not kept, so without one the
-/// records' first commit fails `Author identity unknown`.
+/// The git identity of an instance pod's commits, each variable where neither the instance's
+/// `git_identity` (story:instance-git-identity) nor `daemon.kubernetes.env` names it: the image
+/// has no git config and the pod's home is not kept, so without one the records' first commit
+/// fails `Author identity unknown`. An instance's `git_identity` gives the `_NAME` variables its
+/// `name` and the `_EMAIL` ones its `email`, in place of an `env` entry of any of the four.
 pub const GIT_IDENTITY: [(&str, &str); 4] = [
     ("GIT_AUTHOR_NAME", "conductor"),
     ("GIT_AUTHOR_EMAIL", "conductor@localhost"),
@@ -312,8 +315,8 @@ fn quantities(quantities: &KubernetesQuantities) -> Map<String, Value> {
 
 /// The objects of `instance`'s pod in the daemon of `config`, whose `daemon.kubernetes` is
 /// `kubernetes`, as the module documentation says. Nothing in them but from `kubernetes`, the
-/// instance's name, its `forge_token`, the kinds and `gitlab` hosts of its sources, and the
-/// rendering (decision D8).
+/// instance's name, its `forge_token`, its `git_identity`, the kinds and `gitlab` hosts of its
+/// sources, and the rendering (decision D8).
 #[must_use]
 pub fn manifests(kubernetes: &Kubernetes, config: &Config, instance: &Instance) -> Manifests {
     let name = &instance.name.0;
@@ -358,6 +361,14 @@ pub fn manifests(kubernetes: &Kubernetes, config: &Config, instance: &Instance) 
             Some(kind) if !keeps_daemons_token(&instance.sources, kind, &gitlab_host) => continue,
             _ => {}
         }
+        // The instance's own git identity takes the place of an entry of its four variables.
+        if instance.git_identity.is_some()
+            && GIT_IDENTITY
+                .iter()
+                .any(|(identity, _)| *identity == variable.name)
+        {
+            continue;
+        }
         match (&variable.value, &variable.secret) {
             (_, Some(secret)) => {
                 secrets.insert(secret.0.clone());
@@ -398,9 +409,22 @@ pub fn manifests(kubernetes: &Kubernetes, config: &Config, instance: &Instance) 
             }
         }
     }
+    // The git identity of every commit in the pod (story:instance-git-identity): the instance's
+    // own, else each `env` entry of its variables, else the fixed one.
     for (variable, value) in GIT_IDENTITY {
-        if !kubernetes.env.iter().any(|named| named.name == variable) {
-            env.push(json!({"name": variable, "value": value}));
+        match &instance.git_identity {
+            Some(identity) => {
+                let own = if variable.ends_with("_EMAIL") {
+                    &identity.email
+                } else {
+                    &identity.name
+                };
+                env.push(json!({"name": variable, "value": own}));
+            }
+            None if !kubernetes.env.iter().any(|named| named.name == variable) => {
+                env.push(json!({"name": variable, "value": value}));
+            }
+            None => {}
         }
     }
     // No `glab` the pod runs sends usage data to the forge: the collectors', doctor's, the

@@ -268,6 +268,7 @@ instances live on the volume and arrive over HTTP. A file with no instance is al
 | `daemon.kubernetes.volume.size` | `10G` | the size of each instance's claim, a whole number of GiB written with `G`, 1G or more (`Gi`, `Mi` and other suffixes are refused); `volume.storage_class` names its class, absent the cluster's default |
 | `daemon.kubernetes.resources` | none | `requests` and `limits` of `cpu` and `memory` for each instance pod |
 | `daemon.kubernetes.env` | none | variables of each instance pod, each a `value` or a `secret`, such as `GH_TOKEN` for an instance with a GitHub source, or `GITLAB_TOKEN` and `GITLAB_HOST` for a self-hosted GitLab; an instance's `forge_token` takes the place of every entry of the daemon's forge token variables in its own pod, see [forge credentials](#forge-credentials) |
+| `git_identity`, a key of an instance's mapping, not of this file | none | the git identity the instance's pod commits with, `{"name": "Example Bot", "email": "bot@example.com"}`: each value 1 to 200 bytes on one line, with no control character, no `<`, no `>` and no white space at either end, the `email` with exactly one `@`; a mapping that breaks the rule is refused `422` at the value's path. It takes the place of `daemon.kubernetes.env` entries of the identity's variables in the instance's pod, see [what the daemon creates](#what-the-daemon-creates-for-each-instance) |
 
 The [config reference](../reference/config.md) has each key's rules.
 
@@ -418,6 +419,9 @@ empty: the daemon's config file is not in a git checkout. One row:
  "state":"Running"}
 ```
 
+`GET /v1/instances/alpha` adds `git_identity`, `{"name":…,"email":…}`, as the mapping holds it,
+where the mapping names one.
+
 A restart answers once the new pod is created, and a replace that changes the rendering
 replaces the pod the same way. Each waits for the old pod to be gone, so a call that comes
 meanwhile waits its turn.
@@ -562,9 +566,12 @@ The pod:
 - `requests` and `limits` from `daemon.kubernetes.resources`, and the variables of
   `daemon.kubernetes.env` the pod gets ([Forge credentials](#forge-credentials)) and the
   instance's forge token, each value through the Secret;
-- the git identity of the records' commits, `GIT_AUTHOR_NAME` and `GIT_COMMITTER_NAME`
-  `conductor`, `GIT_AUTHOR_EMAIL` and `GIT_COMMITTER_EMAIL` `conductor@localhost`, each where
-  `daemon.kubernetes.env` does not name the variable;
+- the git identity, `GIT_AUTHOR_NAME` and `GIT_COMMITTER_NAME` from the `name` of the
+  instance's `git_identity`, `GIT_AUTHOR_EMAIL` and `GIT_COMMITTER_EMAIL` from its `email`, each
+  once and in place of a `daemon.kubernetes.env` entry of the variable; for an instance without
+  it, each variable `daemon.kubernetes.env` names, else `conductor` for a name and
+  `conductor@localhost` for an e-mail. They are the pod's environment, so they hold for every
+  commit in the pod, a session's commits in a checkout and conductor's in the records;
 - git's credential helper for the HTTPS origin of the forge whose token the pod carries, in
   `GIT_CONFIG_COUNT`, `GIT_CONFIG_KEY_<n>` and `GIT_CONFIG_VALUE_<n>`, after the token and before
   the git identity ([Forge credentials](#forge-credentials));

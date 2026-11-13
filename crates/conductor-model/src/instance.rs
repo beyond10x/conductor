@@ -1,5 +1,5 @@
 // generated from conductor v1
-// contract digest 9b05469633bcf1d4139af714f927c2a3b9c70504015e08449956d3e7adddbe34
+// contract digest 75ad67e91894908237225e3df43bc9cc33c86850527f62ad5780c327755a37ae
 // do not edit: regenerate with `ess synthesize --layout crate`
 
 //! Instance — `conductor.instance`.
@@ -142,6 +142,8 @@ pub struct InstanceData {
     pub detail: Option<String>,
     /// `changed_by` — `conductor.operator.Actor`.
     pub changed_by: crate::operator::Actor,
+    /// `git_identity` — `Optional<conductor.config.GitIdentity>`.
+    pub git_identity: Option<crate::config::GitIdentity>,
 }
 
 /// The states of `conductor.instance.Instance`, at the type level.
@@ -1214,6 +1216,8 @@ pub struct InstanceByName {
     pub detail: Option<String>,
     /// `changed_by` — `conductor.operator.Actor`.
     pub changed_by: crate::operator::Actor,
+    /// `git_identity` — `Optional<conductor.config.GitIdentity>`.
+    pub git_identity: Option<crate::config::GitIdentity>,
 }
 
 /// Instances — one row of the view `conductor.instance.Instances`.

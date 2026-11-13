@@ -64,11 +64,12 @@ const ONE_OF: [(&str, [&str; 2]); 1] = [("daemon.kubernetes.env[]", ["value", "s
 /// of an instance of a daemon that runs no pod.
 const PODS: [&str; 2] = ["daemon", "kubernetes"];
 
-/// The instance keys only a daemon that runs its instances as pods reads, and only for an
-/// instance whose sources name one forge (`forge_token`, story:instance-forge-token): [`SAMPLE`],
-/// whose instance has sources on both forges and whose instance keys are read without [`PODS`],
-/// does not set them, and their default is written `none`.
-const POD_ONLY: [&str; 1] = ["forge_token"];
+/// The instance keys only a daemon that runs its instances as pods reads (`forge_token`, and only
+/// for an instance whose sources name one forge, story:instance-forge-token; `git_identity`,
+/// story:instance-git-identity): [`SAMPLE`], whose instance has sources on both forges and whose
+/// instance keys are read without [`PODS`], does not set them, their default is written `none`,
+/// and each key of one of them is written `required`, as the library refuses the key without it.
+const POD_ONLY: [&str; 2] = ["forge_token", "git_identity"];
 
 /// A config file that sets every key of the specification but [`DERIVED`] and [`POD_ONLY`] to a
 /// value that differs from its default, so that leaving one out shows the default the library
@@ -825,6 +826,10 @@ fn rows(
                 "derived".to_owned()
             } else if !top && prefix.is_empty() && POD_ONLY.contains(&key) {
                 "none".to_owned()
+            } else if !top
+                && matches!(prefix, [Step::Key(section)] if POD_ONLY.contains(&section.as_str()))
+            {
+                "required".to_owned()
             } else if let Some((_, [a, b])) = pair {
                 format!("one of `{a}`, `{b}`")
             } else {

@@ -1,5 +1,5 @@
 // generated from conductor v1
-// contract digest 9b05469633bcf1d4139af714f927c2a3b9c70504015e08449956d3e7adddbe34
+// contract digest 75ad67e91894908237225e3df43bc9cc33c86850527f62ad5780c327755a37ae
 // do not edit: regenerate with `ess synthesize --layout crate`
 //! Every generated declaration, as JSON, in the renderings the published wire contracts fix.
 //!
@@ -1766,6 +1766,37 @@ pub fn decode_conductor_config_git_hub_source(value: &json::Value, at: &str) -> 
     })
 }
 
+/// Writes `conductor.config.GitIdentity` as JSON.
+pub fn encode_conductor_config_git_identity(value: &crate::config::GitIdentity, out: &mut String) {
+    out.push('{');
+    json::member(out, "name");
+    json::push_text(out, &value.name);
+    json::member(out, "email");
+    json::push_text(out, &value.email);
+    out.push('}');
+}
+
+/// Reads `conductor.config.GitIdentity` from JSON.
+///
+/// # Errors
+///
+/// [`json::DecodeError`] naming the path and what the declaration says belongs there.
+pub fn decode_conductor_config_git_identity(value: &json::Value, at: &str) -> Result<crate::config::GitIdentity, json::DecodeError> {
+    json::closed_at(value, at, &["name", "email"])?;
+    Ok(crate::config::GitIdentity {
+        name: {
+            let at0 = json::nested(at, "name");
+            let member0 = json::member_at(value, at, "name")?;
+            json::text_at(member0, &at0, "a string")?.to_owned()
+        },
+        email: {
+            let at1 = json::nested(at, "email");
+            let member1 = json::member_at(value, at, "email")?;
+            json::text_at(member1, &at1, "a string")?.to_owned()
+        },
+    })
+}
+
 /// Writes `conductor.config.GitLabSource` as JSON.
 pub fn encode_conductor_config_git_lab_source(value: &crate::config::GitLabSource, out: &mut String) {
     out.push('{');
@@ -2060,6 +2091,10 @@ pub fn encode_conductor_config_instance(value: &crate::config::Instance, out: &m
         json::member(out, "forge_token");
         encode_conductor_secret_secret_name(&*held0, out);
     }
+    if let Some(held0) = &value.git_identity {
+        json::member(out, "git_identity");
+        encode_conductor_config_git_identity(&*held0, out);
+    }
     json::member(out, "forge");
     encode_conductor_config_forge(&value.forge, out);
     json::member(out, "conductor");
@@ -2073,7 +2108,7 @@ pub fn encode_conductor_config_instance(value: &crate::config::Instance, out: &m
 ///
 /// [`json::DecodeError`] naming the path and what the declaration says belongs there.
 pub fn decode_conductor_config_instance(value: &json::Value, at: &str) -> Result<crate::config::Instance, json::DecodeError> {
-    json::closed_at(value, at, &["name", "placement", "remote", "session_prefix", "sources", "checkouts", "records", "state", "cache", "roles", "limits", "controllers", "repositories", "cadence", "thresholds", "retention", "reports", "authority", "usage", "operator", "catalog", "secret_syncs", "gates_policy", "model_token", "forge_token", "forge", "conductor"])?;
+    json::closed_at(value, at, &["name", "placement", "remote", "session_prefix", "sources", "checkouts", "records", "state", "cache", "roles", "limits", "controllers", "repositories", "cadence", "thresholds", "retention", "reports", "authority", "usage", "operator", "catalog", "secret_syncs", "gates_policy", "model_token", "forge_token", "git_identity", "forge", "conductor"])?;
     Ok(crate::config::Instance {
         name: {
             let at0 = json::nested(at, "name");
@@ -2249,15 +2284,22 @@ pub fn decode_conductor_config_instance(value: &json::Value, at: &str) -> Result
                 Some(decode_conductor_secret_secret_name(member24, &at24)?)
             }
         },
+        git_identity: match value.member("git_identity") {
+            None | Some(json::Value::Null) => None,
+            Some(member25) => {
+                let at25 = json::nested(at, "git_identity");
+                Some(decode_conductor_config_git_identity(member25, &at25)?)
+            }
+        },
         forge: {
-            let at25 = json::nested(at, "forge");
-            let member25 = json::member_at(value, at, "forge")?;
-            decode_conductor_config_forge(member25, &at25)?
+            let at26 = json::nested(at, "forge");
+            let member26 = json::member_at(value, at, "forge")?;
+            decode_conductor_config_forge(member26, &at26)?
         },
         conductor: {
-            let at26 = json::nested(at, "conductor");
-            let member26 = json::member_at(value, at, "conductor")?;
-            decode_conductor_config_conductor_session(member26, &at26)?
+            let at27 = json::nested(at, "conductor");
+            let member27 = json::member_at(value, at, "conductor")?;
+            decode_conductor_config_conductor_session(member27, &at27)?
         },
     })
 }
@@ -20188,6 +20230,10 @@ pub fn encode_view_conductor_instance_instance_by_name(value: &crate::instance::
     }
     json::member(out, "changed_by");
     encode_conductor_operator_actor(&value.changed_by, out);
+    if let Some(held0) = &value.git_identity {
+        json::member(out, "git_identity");
+        encode_conductor_config_git_identity(&*held0, out);
+    }
     out.push('}');
 }
 
