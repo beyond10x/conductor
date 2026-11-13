@@ -148,7 +148,8 @@ in (`:2180-2183`). Under this design the proxy's rule per repository is what con
 9. create a tag and a release, upload its assets, edit and view it through the bot route
    (`roles/controller.md:41`, `guard/rules.rs:770-771`);
 10. push a change to workflow files, for which the forge asks a permission of its own (**not
-    shown**); the gateway refuses it unless it admits the instance for releases;
+    shown**); the control plane refuses it unless it admits the instance for releases, by the
+    permissions of the token it mints or by reading the pack, not by a rule per ref;
 11. close a request (role texts of the host roles; not a pod role today); the gateway admits it
     for a request the instance opened.
 
@@ -224,7 +225,8 @@ a second broker.
    secrets.
 3. **The broker's forge verbs,** each handing its call to the gateway: the design's `push`,
    `pr open|checks|comment`, `ci rerun` and `release`, and what § 3 needs beyond them (a
-   request's description, ready, merge, a branch's deletion).
+   request's description, ready, merge, a branch's deletion). Closing a request is outside the
+   first contract on conductor's side: the gateway admits it, no verb calls it yet.
 4. **The session's reads: a fixed list,** agreed with the control plane's side: the instance's
    repositories, reads 2 to 12 of § 3 for each of them, a request's view, diff, comments and
    reviews (under `merge: human` a person reviews the request, `roles/controller.md:48-51`), and
@@ -269,9 +271,16 @@ requirement is met from step 3 of § 4.7, not before:
 - **From step 3.** The proof is mounted only into the broker's container, and the gateway's
   writing endpoints open for it. git in the runtime's container, the collectors' and a
   session's alike, then reaches the proxy through a local endpoint of the broker's container on
-  the pod's loopback, which adds the proof and forwards. That endpoint knows the instance, not
-  the session, so a session's grant does not narrow git: the proxy's rule per ref does. **To be
-  shown** (§ 4.8).
+  the pod's loopback, which adds the proof and forwards. It is reachable by every process of
+  the pod, a session's among them, and that is intended: a session fetches and pushes branches.
+  It admits git's two services only, fetch and push, for the instance's repositories, and
+  forwards no other path, so no endpoint of the gateway is reachable through it and the proof
+  never leaves the broker's container. What bounds a session there is what bounds git: the
+  proxy's rule per ref (no default branch, no tag, no deletion) and the gateway's policy for the
+  instance. A session's own grant does not narrow it, because the endpoint cannot tell one
+  session from another. Left open by this: one session can push to a branch another session of
+  the same instance works on; the guard decides a git write by the directory it runs in
+  (`guard/rules.rs:2180-2183`), and step 4 keeps that rule. **To be shown** (§ 4.8).
 
 Which proof it is has to be decided before step 1, since git uses it from step 1.
 
@@ -279,7 +288,7 @@ Which proof it is has to be decided before step 1, since git uses it from step 1
 |---|---|---|---|---|
 | a. a bearer value per instance, named as `forge_token` is (`secret:<name>`) | as long as the control plane lets it | through whoever installs the daemon; reaches the pod at its next start (`daemon/pods.rs:513-530`) | none: it works from anywhere until revoked | only with the separation |
 | b. the same value by a reference to a labelled Secret of the pods' namespace | as a | the control plane writes it; reaches the pod at its next start | none | only with the separation; brings back the label rule and the reference of § 6 |
-| c. the runtime's own token, minted at each start (`daemon/reconcile.rs:352-355`) | one start of the pod | at each start | to one start, by a new call that asks the daemon | from step 3: requires that only the runtime and the broker's container hold it |
+| c. the runtime's own token, minted at each start (`daemon/reconcile.rs:352-355`) | one start of the pod | at each start | to one start, by a new call that asks the daemon | not proposed: it reuses a credential the runtime holds for another purpose |
 | d. a token Kubernetes signs for the pod, with the gateway as its audience | expiring (**not shown**) | by Kubernetes (**not shown**) | invalid once the pod is gone (**not shown**) | from step 3: mounted only into the broker's container |
 
 Proposed: **d**, checked by the gateway with a TokenReview, which answers the pod, whose name is
@@ -324,7 +333,8 @@ do this much:
    container, the proof only there, and the local git endpoint (§ 4.2, § 4.3 item 3, § 4.4).
    *Then:* a session opens, describes and merges a request. This is the first step after which
    an instance does its whole work with no forge token, so Q1 holds for a working instance from
-   here, and from here no session can use the proof.
+   here, and from here no session can read the proof: a session uses it only for git, through
+   the local endpoint.
 4. **Role texts and guard narrowed to those verbs** (§ 4.3 items 4 and 5). *Then:* a session has
    no forge command line left to call.
 
@@ -412,7 +422,7 @@ among them, is a separate question, open, and not decided by this note.
 An instance whose mapping names no gateway gets the pod it gets today: the same variables, the
 same helper text, the same Secret keys, the same digest. `forge_token` keeps its meaning and its
 refusals. The daemon's own secrets source is untouched, and the guide's Role gains no verb on
-Secrets.
+Secrets unless interim B or D (§ 9) is chosen.
 
 ## 8. Not shown, and not in this design
 
@@ -439,8 +449,8 @@ Asked of the operator:
   - **A.** Wait for step 3. Cost: no working instance on such a repository until three of the
     four stories of § 4.7 and the control plane's side of them are built; every other repository
     can run on `forge_token` meanwhile. Proposed.
-  - **B.** Build the minting and refresh of § 6 as an interim: the shape chosen first, with Q6.
-    Cost: JWT signing, minting, a new Role verb, a helper and a wrapper that read a file; the
+  - **B.** The daemon reads the App's key and mints; the pod holds a one-hour token, renewed
+    while it runs. This is § 6, the shape chosen first, with Q6. Cost: JWT signing, minting, a new Role verb, a helper and a wrapper that read a file; the
     daemon reads the App's key and the pod holds a forge token, against Q1; removed once step 3
     exists.
   - **C.** A long-lived token on `forge_token`, with the repository's owner changing its rules to
@@ -452,7 +462,11 @@ Asked of the operator:
     and the whole refresh route of § 6 (`update` on Secrets, without which such an instance is
     refused at start; a helper and a wrapper that read a file), everything of § 6 but the
     minting; the pod holds a one-hour forge token and the daemon handles it, against Q1 as
-    worded, though neither sees the key; removed once step 3 exists. Not proposed.
+    worded, though neither sees the key; removed once step 3 exists. What it leaves open: whoever
+    holds the control call can name any labelled Secret for any instance (§ 6, Q4); the control
+    plane gets write access to Secrets of the pods' namespace; and an instance stops within the
+    hour once the control plane stops writing. It would also build most of the reference that
+    § 6 leaves open for other kinds of secret. Not proposed.
 - **P, the pod's proof** (§ 4.4), to be decided before step 1. Proposed: d, a projected token
   with the gateway as its audience. Cost: the control plane is given access into the pods'
   cluster to check the token, and the pod gets one projected token. a and b are replayable from
