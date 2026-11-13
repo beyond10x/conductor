@@ -1,5 +1,5 @@
 // generated from conductor v1
-// contract digest 882143897862f23950c9f2c26ad3b57f23a8a0eb8334ddf254337d9e57836461
+// contract digest 443fef748c065c217b3fdb9182c6e947f5a24e9603079251e02e9ccc09aa604e
 // do not edit: regenerate with `ess synthesize --layout crate`
 
 //! Instance — `conductor.instance`.
@@ -146,6 +146,8 @@ pub struct InstanceData {
     pub git_identity: Option<crate::config::GitIdentity>,
     /// `model_token_kind` — `Optional<conductor.config.ModelTokenKind>`.
     pub model_token_kind: Option<crate::config::ModelTokenKind>,
+    /// `forge_access` — `Optional<conductor.config.ForgeAccess>`.
+    pub forge_access: Option<crate::config::ForgeAccess>,
 }
 
 /// The states of `conductor.instance.Instance`, at the type level.
@@ -1222,6 +1224,8 @@ pub struct InstanceByName {
     pub git_identity: Option<crate::config::GitIdentity>,
     /// `model_token_kind` — `Optional<conductor.config.ModelTokenKind>`.
     pub model_token_kind: Option<crate::config::ModelTokenKind>,
+    /// `forge_access` — `Optional<conductor.config.ForgeAccess>`.
+    pub forge_access: Option<crate::config::ForgeAccess>,
 }
 
 /// Instances — one row of the view `conductor.instance.Instances`.

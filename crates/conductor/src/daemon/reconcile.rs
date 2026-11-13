@@ -1733,6 +1733,16 @@ impl<U: Units> Daemon<U> {
                         None,
                     ),
                 };
+                // An instance that writes nothing to its forge says so, after any other line,
+                // whatever its state (story:forge-access-anonymous).
+                let detail = if crate::config::anonymous(instance) {
+                    Some(match detail {
+                        Some(detail) => format!("{detail}\n{}", crate::config::WRITES_NOTHING),
+                        None => crate::config::WRITES_NOTHING.to_owned(),
+                    })
+                } else {
+                    detail
+                };
                 json!({
                     "name": name,
                     "state": state_name(state),

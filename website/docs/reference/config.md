@@ -253,6 +253,7 @@ A key path written `a[].b` is the key `b` of each element of the list `a`. A def
 | `git_identity` | [GitIdentity](#gitidentity) | none |  |
 | `git_identity.name` | string | required |  |
 | `git_identity.email` | string | required |  |
+| `forge_access` | `anonymous` | none |  |
 | `forge.route` | `gates` \| `direct` | `gates` |  |
 | `conductor.served_by` | [InstanceName](#instancename) | derived |  |
 | `conductor.session_name` | [SessionName](#sessionname) | derived |  |
@@ -558,6 +559,12 @@ Keys: `name`, `email`. Specified as `conductor.config.GitIdentity`.
 Which kind of credential an instance's `model_token` holds (`Instance.model_token_kind`). The file writes it in lower case: `api_key`, a key the harness sends as an API key, or `subscription_token`, the long-lived token of a subscription login, which the harness reads from the variable `CLAUDE_CODE_OAUTH_TOKEN` of its process's environment only.
 
 One of `apikey` | `subscriptiontoken`. Specified as `conductor.config.ModelTokenKind`.
+
+### ForgeAccess
+
+How an instance reaches its forge (`Instance.forge_access`). The file writes it in lower case; its one value, `anonymous`: no credential of the forge at all, so the instance reads public repositories and writes nothing to its forge.
+
+One of `anonymous`. Specified as `conductor.config.ForgeAccess`.
 
 ### StoreUrl
 

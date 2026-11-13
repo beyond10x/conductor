@@ -569,6 +569,7 @@ fn show_without_a_file_prints_todays_constants() {
         "confinement",
         "controllers",
         "forge",
+        "forge_access",
         "forge_token",
         "gates_policy",
         "git_identity",

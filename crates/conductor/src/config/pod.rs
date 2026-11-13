@@ -20,7 +20,11 @@
 //! - the instance as `config show` writes it, every global key it takes written into it, and each
 //!   of its paths (`checkouts.root`, `checkouts.trees`, `records`, `state`, `cache`) under the data
 //!   mount: one it writes lies there already (`config validate` refuses another, [`within`]), and
-//!   one it leaves out is filled in there ([`PLACES`]).
+//!   one it leaves out is filled in there ([`PLACES`]); its `forge_access`
+//!   (story:forge-access-anonymous) where it names one, which the runtime reads as the daemon's
+//!   file does: it is the runtime that clones with no credential and refuses the forge writes,
+//!   and its file validates the member by the pod it runs in rather than by a
+//!   `daemon.kubernetes`.
 //!
 //! It holds no `daemon.kubernetes` and no `daemon.control_token`: an instance pod creates no pods
 //! and admits no control plane. Nor does it hold the instance's `forge_token`, which only the pod
@@ -141,9 +145,12 @@ pub fn render_at(config: &Config, instance: &Instance, data: &Path, secrets: &Pa
         // First and in place, so the keys stand where they stood before the key existed.
         map.shift_remove("forge_token");
         map.shift_remove("git_identity");
-        // The runtime reads the model token's kind; a mapping without one renders as before.
-        if map.get("model_token_kind").is_some_and(Yaml::is_null) {
-            map.shift_remove("model_token_kind");
+        // The runtime reads the model token's kind and the forge access
+        // (story:forge-access-anonymous); a mapping without either renders as before.
+        for key in ["model_token_kind", "forge_access"] {
+            if map.get(key).is_some_and(Yaml::is_null) {
+                map.shift_remove(key);
+            }
         }
         map.remove("conductor");
         map.remove("remote");

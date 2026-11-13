@@ -82,6 +82,10 @@ use crate::store::Store;
 pub use self::rules::{Places, SessionList};
 use self::rules::{Rules, Session};
 
+/// What a denied forge write of a session of an instance with `forge_access: anonymous` says
+/// (story:forge-access-anonymous).
+pub use crate::config::WRITES_NOTHING;
+
 /// How long recording a verdict may take before the verdict is answered without it.
 pub const RECORD_DEADLINE: Duration = Duration::from_secs(2);
 

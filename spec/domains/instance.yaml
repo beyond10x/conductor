@@ -141,7 +141,9 @@ entities:
       # Why the runtime does not answer, as one text, when the daemon knows: for a pod, its
       # container's terminated or waiting message (`OOMKilled`, `ErrImagePull: …`), else the tail
       # of its log; for a unit or a child, its failed start. Absent while the runtime answers, and
-      # before the daemon observed it fail.
+      # before the daemon observed it fail. An instance whose mapping names
+      # `forge_access: anonymous` (story:forge-access-anonymous) carries one line more, after any
+      # other, whatever its state: that it writes nothing to its forge.
       - name: detail
         type: Optional<String>
       - name: changed_by
@@ -155,6 +157,11 @@ entities:
       # config file as it holds it at each read, no secret; absent where the mapping holds none.
       - name: model_token_kind
         type: Optional<conductor.config.ModelTokenKind>
+      # How the instance reaches its forge (`instances[].forge_access`,
+      # story:forge-access-anonymous), read from the config file as it holds it at each read;
+      # absent where the mapping holds none.
+      - name: forge_access
+        type: Optional<conductor.config.ForgeAccess>
     relations:
       - name: placement
         kind: references
@@ -266,9 +273,10 @@ views:
       display: Instances
 
   # `GET /v1/instances/{name}`: the one row of `Instances` whose name is `name`, and the
-  # instance's `git_identity` (story:instance-git-identity) and `model_token_kind` as its mapping
-  # holds them, each absent where it holds none, never the model token's value; an instance the
-  # daemon's rows do not hold answers `404` (a retired one, once the daemon reconciled).
+  # instance's `git_identity` (story:instance-git-identity), `model_token_kind` and
+  # `forge_access` (story:forge-access-anonymous) as its mapping holds them, each absent where it
+  # holds none, never the model token's value; an instance the daemon's rows do not hold answers
+  # `404` (a retired one, once the daemon reconciled).
   - name: conductor.instance.InstanceByName
     source: conductor.instance.Instance
     consistency: read_your_writes
@@ -289,6 +297,7 @@ views:
       - {name: changed_by, type: conductor.operator.Actor}
       - {name: git_identity, type: Optional<conductor.config.GitIdentity>}
       - {name: model_token_kind, type: Optional<conductor.config.ModelTokenKind>}
+      - {name: forge_access, type: Optional<conductor.config.ForgeAccess>}
     naming:
       wire: instance
       display: One instance

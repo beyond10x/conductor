@@ -33,6 +33,12 @@
 //! above ([`kill_denial`], `story:guard-no-pattern-kill`): `pkill`, `killall`, and a `kill` that
 //! is not given numeric process ids (rules.md item 147).
 //!
+//! For an instance with `forge_access: anonymous` (story:forge-access-anonymous) a Bash command
+//! that writes to the forge is denied for every role and under either route, before the rows
+//! above, naming the member ([`anonymous_write`]): a `gh` or `glab` write, a run of the bot route
+//! `b10x-gates gh` with `gh` arguments, and a git push (`push`, `send-pack`, `http-push`), by git
+//! or through `b10x-gates bot`.
+//!
 //! Monitor runs a shell command, and is decided by the Bash row. Any other tool has no row: it is
 //! allowed from the built-in read-only allowlist (`READ_ONLY` in `guard.rs`) or the session's
 //! role's `read_only_tools` (`conductor` for conductor's rules, `controller` for a controller's),
@@ -70,7 +76,7 @@ use std::time::Duration;
 
 use crate::config::BuiltInRole;
 use anyhow::{Context as _, Result, bail};
-use conductor_model::config::{ForgeRoute, Instance, SessionPrefix};
+use conductor_model::config::{ForgeAccess, ForgeRoute, Instance, SessionPrefix};
 use conductor_model::dispatch::Verdict;
 use serde_json::Value;
 
@@ -175,6 +181,9 @@ pub struct Places {
     /// The instance's `forge.route` (`story:forge-route`): under `direct` a session's own pull or
     /// merge requests are written with `gh` or `glab` ([`Session::direct_denial`]).
     forge_route: ForgeRoute,
+    /// Whether the instance names `forge_access: anonymous` (story:forge-access-anonymous): every
+    /// forge write of its sessions is denied, by any route ([`anonymous_write`]).
+    anonymous: bool,
 }
 
 impl Places {
@@ -266,6 +275,7 @@ impl Places {
             }),
             daemon_port: config::DAEMON_PORT,
             forge_route: instance.forge.route,
+            anonymous: instance.forge_access == Some(ForgeAccess::Anonymous),
         }
     }
 
@@ -1529,6 +1539,19 @@ impl Session<'_> {
         if let Some(reason) = kill_denial(&commands) {
             return (Verdict::Deny, reason);
         }
+        if self.places.anonymous
+            && let Some(write) = commands
+                .iter()
+                .find_map(|words| anonymous_write(words, &assigned))
+        {
+            return (
+                Verdict::Deny,
+                format!(
+                    "`{write}` writes to the forge, and {}: no session runs it by any route",
+                    crate::guard::WRITES_NOTHING
+                ),
+            );
+        }
         for (index, words) in commands.iter().enumerate() {
             if let Some(gh) = bot_route(words)
                 && let Some(reason) = self.bot_route_denial(&gh)
@@ -2317,6 +2340,70 @@ impl Session<'_> {
 
 /// The words of a simple command from its command name on: reserved words, variable assignments
 /// and `builtin`, `command` and `exec` before it are dropped.
+/// The git subcommands that write to a remote: what a session of an instance with
+/// `forge_access: anonymous` never runs (story:forge-access-anonymous).
+const GIT_REMOTE_WRITES: [&str; 3] = ["push", "send-pack", "http-push"];
+
+/// The global options of git that take the next word as their value.
+const GIT_VALUED: [&str; 6] = [
+    "-c",
+    "-C",
+    "--git-dir",
+    "--work-tree",
+    "--namespace",
+    "--config-env",
+];
+
+/// The forge write the simple command `words` makes, shown, if it makes one, for an instance with
+/// `forge_access: anonymous` (story:forge-access-anonymous), whatever its route: a `gh` or `glab`
+/// call that is not a read ([`forge_write`]; `assigned` says whether the line assigns a variable
+/// that may hold the forge's program); a run of the bot route `b10x-gates gh` with `gh`
+/// arguments; a git subcommand that writes to a remote ([`GIT_REMOTE_WRITES`]), by `git` itself
+/// or through `b10x-gates bot`.
+fn anonymous_write(words: &[String], assigned: &dyn Fn(Forge) -> bool) -> Option<String> {
+    for forge in Forge::ALL {
+        if let Some(write) = forge_write(words, forge, assigned(forge)) {
+            return Some(write);
+        }
+    }
+    if let Some(gh) = bot_route(words)
+        && !gh.help
+        && !gh.args.is_empty()
+    {
+        return Some(format!("b10x-gates gh -- {}", gh.args.join(" ")));
+    }
+    let named = command_words(words);
+    let (program, rest) = named.split_first()?;
+    let subcommand = match shell::program(program) {
+        "git" => {
+            let mut at = 0;
+            loop {
+                let word = rest.get(at)?;
+                if GIT_VALUED.contains(&word.as_str()) {
+                    at += 2;
+                } else if word.starts_with('-') {
+                    at += 1;
+                } else {
+                    break word;
+                }
+            }
+        }
+        BOT_ROUTE => {
+            let at = rest.iter().position(|word| !word.starts_with('-'))?;
+            if rest[at] != "bot" {
+                return None;
+            }
+            rest[at + 1..]
+                .iter()
+                .find(|word| GIT_REMOTE_WRITES.contains(&word.as_str()))?
+        }
+        _ => return None,
+    };
+    GIT_REMOTE_WRITES
+        .contains(&subcommand.as_str())
+        .then(|| named.join(" "))
+}
+
 fn command_words(words: &[String]) -> &[String] {
     const RESERVED: [&str; 15] = [
         "!", "{", "}", "if", "then", "else", "elif", "fi", "do", "done", "while", "until", "time",

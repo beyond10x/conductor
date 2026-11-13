@@ -921,6 +921,13 @@ types:
     kind: enum
     variants: [ApiKey, SubscriptionToken]
 
+  # How an instance reaches its forge (`Instance.forge_access`, story:forge-access-anonymous).
+  # The file writes it in lower case; its one value, `anonymous`: no credential of the forge at
+  # all, so the instance reads public repositories and writes nothing to its forge.
+  - name: conductor.config.ForgeAccess
+    kind: enum
+    variants: [Anonymous]
+
   # One instance, `instances[]` of the file (design architecture-next § 9: name, `placement`,
   # sources, checkouts, records, roles, overrides of any global key). A path is written absolute or
   # under `~`, which is the home directory; the
@@ -1036,6 +1043,29 @@ types:
       # pod. Absent, each of the four is the `daemon.kubernetes.env` entry of its name, else
       # `conductor` for a name and `conductor@localhost` for an e-mail.
       - {name: git_identity, type: Optional<conductor.config.GitIdentity>}
+      # How the instance reaches its forge (`ForgeAccess`, story:forge-access-anonymous).
+      # `anonymous`: the instance's pod carries no credential of any forge: no `forge_token`, no
+      # `daemon.kubernetes.env` entry of a forge's token variables (`KubernetesEnv`) and no
+      # entry of git's configuration (`GIT_CONFIG_COUNT`, `GIT_CONFIG_KEY_<n>`,
+      # `GIT_CONFIG_VALUE_<n>`, `GIT_CONFIG_PARAMETERS`) or `GIT_ASKPASS`, the installer's
+      # included, so git gets no credential helper. The file the pod runs on writes the member,
+      # which the runtime reads. Its runtime clones each
+      # repository its sources include over HTTPS with no credential; a clone that fails is one
+      # member failure of the pass that says the repository is not public or not reachable,
+      # with git's last error line. The repositories are listed from the `include` entries, not
+      # read from the forge, and each is read from its checkout alone: the collectors read no
+      # pull request, issue, release or run of the forge, and say so in one line a pass. Every
+      # write to the forge (a push, a pull request, a comment, a release, by any route) is
+      # refused before any call, in one line that names `forge_access: anonymous`, and the
+      # instance's `detail` says in one line that it writes nothing to its forge. Whoever sends
+      # the mapping answers for each repository being public: conductor does not check it before
+      # the clone. Refused at validate by its YAML path, and so by `AddInstance` and
+      # `PutInstance` (`ConfigInvalid`): any other value; and with it, a `forge_token` (at that
+      # key), a source that is not `github` or a `github` source without `include` (at the
+      # source), or a file without `daemon.kubernetes` that no instance pod's runtime reads (at
+      # this key). The control plane alone writes it: the instance's own settings write
+      # (`WriteConfig`) takes it as `Fixed`. Absent, the instance reaches its forge as before.
+      - {name: forge_access, type: Optional<conductor.config.ForgeAccess>}
       # The route of the instance's forge writes (story:forge-route); absent, `gates`.
       - {name: forge, type: conductor.config.Forge}
       - {name: conductor, type: conductor.config.ConductorSession}
@@ -1414,7 +1444,8 @@ types:
   # When a change of a config key takes effect (story:dashboard-config-page): `WatchTick`, the
   # loop's next watch tick reads it; `Cycle`, its next cycle; `LoopRestart`, only when the loop
   # starts again (`conductor run --uninstall`, then `--install`); `Fixed`, the dashboard does not
-  # change it (the instance's name, prefix and paths: `conductor config migrate` moves them).
+  # change it (the instance's name, prefix and paths: `conductor config migrate` moves them; its
+  # `forge_access`: the control plane writes it, story:forge-access-anonymous).
   - name: conductor.config.ConfigEffect
     kind: enum
     variants: [WatchTick, Cycle, LoopRestart, Fixed]

@@ -66,6 +66,7 @@ use std::process::Output;
 use std::time::Duration;
 
 use anyhow::{Context as _, Result, anyhow};
+use conductor_model::config::ForgeAccess;
 use conductor_model::observation::{
     RecordSpecification, RepositoryName, SnapshotId, SpecificationPresence, ValidationResult,
 };
@@ -113,6 +114,9 @@ pub struct Sources {
     /// The `include` entries of each owner that names them ([`Origins::include`],
     /// `story:source-include-list`): only those of its repositories are listed.
     pub include: BTreeMap<String, Vec<String>>,
+    /// Whether the instance names `forge_access: anonymous` (story:forge-access-anonymous): an
+    /// owner's repositories are then its `include` entries, nothing asked of the forge.
+    pub anonymous: bool,
     /// Each `local:` source's directory, with the `exclude` entries of the instance under it,
     /// whose repositories are listed as [`repositories::local_names`] lists them and read at
     /// `HEAD`.
@@ -158,6 +162,7 @@ impl Sources {
         let origins = Origins::of(instance);
         let mut sources = Self::over(blockers::Sources::of(active, state)?, origins.owners, state);
         sources.include = origins.include;
+        sources.anonymous = instance.forge_access == Some(ForgeAccess::Anonymous);
         sources.local = origins
             .local
             .into_iter()
@@ -195,6 +200,7 @@ impl Sources {
             ]),
             owners,
             include: BTreeMap::new(),
+            anonymous: false,
             ess: blockers::words(&["ess"]),
             specs: state.join("specs"),
             bound: collect::BOUND,
@@ -354,6 +360,17 @@ fn enumerated(sources: &Sources) -> Result<Vec<(String, Origin)>> {
     let mut listed: Vec<(String, Origin)> = Vec::new();
     for owner in &sources.owners {
         let include = sources.include.get(owner);
+        // An anonymous instance's owner is listed by its `include` entries, nothing asked of the
+        // forge (story:forge-access-anonymous).
+        if sources.anonymous {
+            listed.extend(
+                include
+                    .into_iter()
+                    .flatten()
+                    .map(|name| (name.clone(), Origin::Owner(owner.clone()))),
+            );
+            continue;
+        }
         let command = filled(&sources.repositories, owner);
         let answered = blockers::twice(|| {
             let stdout = blockers::succeed(&command, None, sources.bound)?;

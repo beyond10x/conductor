@@ -82,6 +82,12 @@
 //! and recorded as they are. Nothing of this runs outside a pod or for a source without
 //! `include`.
 //!
+//! An instance with `forge_access: anonymous` (story:forge-access-anonymous) asks its forge
+//! nothing: each owner's repositories are its `include` entries, each `Public`, not archived and
+//! with no issue read; each is cloned with no credential and read from its checkout alone, its
+//! latest release the newest tag there; one without a checkout records no row, its failed clone
+//! being the pass's member failure. The `github` collector says once a pass what is not read.
+//!
 //! # Failures
 //!
 //! Every command runs through [`crate::collect::run`] under [`Sources::bound`]. One that exits
@@ -99,7 +105,7 @@ use std::thread;
 use std::time::Duration;
 
 use anyhow::{Context as _, Result, anyhow, bail};
-use conductor_model::config::{Catalog, CatalogNames, Instance};
+use conductor_model::config::{Catalog, CatalogNames, ForgeAccess, Instance};
 use conductor_model::observation::{CommitSha, RecordRepository, RepositoryName, Visibility};
 use conductor_model::primitives::Timestamp;
 use serde::Deserialize;
@@ -325,6 +331,7 @@ pub fn collect(record: &mut Recorder<'_>) -> Result<()> {
         &exclude,
         &Forge::all(instance),
         checkouts::in_pod().then_some(instance),
+        instance.forge_access == Some(ForgeAccess::Anonymous),
         record,
     )
 }
@@ -379,24 +386,33 @@ pub fn collect_with_gitlab(
     forges: &[Forge],
     record: &mut Recorder<'_>,
 ) -> Result<()> {
-    pass(sources, origins, exclude, forges, None, record)
+    pass(sources, origins, exclude, forges, None, false, record)
 }
 
 /// [`collect_with_gitlab`], and, for the instance `pod` of a runtime alone in a pod
 /// ([`checkouts::in_pod`], `story:pod-source-checkouts`), each repository a source includes
-/// brought to its checkout first ([`bring_checkouts`]).
+/// brought to its checkout first ([`bring_checkouts`]); and, for an instance with
+/// `forge_access: anonymous` (`anonymous`, story:forge-access-anonymous), nothing asked of the
+/// forge, as the module documentation says.
 fn pass(
     sources: &Sources,
     origins: &Origins,
     exclude: &HashMap<PathBuf, Vec<String>>,
     forges: &[Forge],
     pod: Option<&Instance>,
+    anonymous: bool,
     record: &mut Recorder<'_>,
 ) -> Result<()> {
     let since = instant((sources.now - WINDOW).replace_nanosecond(0)?)?;
-    let (mut listed, mut failures) = listed(sources, origins, exclude, forges)?;
+    let (mut listed, mut failures) = listed(sources, origins, exclude, forges, anonymous)?;
     if let Some(instance) = pod {
         failures.extend(bring_checkouts(sources, origins, instance, &mut listed));
+    }
+    // An anonymous instance reads a repository from its checkout alone: one whose clone failed
+    // is that pass's member failure, and nothing of it is asked of the forge
+    // (story:forge-access-anonymous).
+    if anonymous {
+        listed.retain(|item| item.checkout(sources).join(".git").exists());
     }
     let read = each(&listed, sources.width, |listed| {
         read(sources, listed, &since)
@@ -518,7 +534,8 @@ fn bring_checkouts(
 fn wanted(sources: &Sources, origins: &Origins, listed: &Listed) -> Option<checkouts::Wanted> {
     match &listed.origin {
         Origin::Owner(owner) if origins.include.contains_key(owner) => Some(
-            checkouts::Wanted::github(owner, &listed.name, &sources.workspace, listed.archived),
+            checkouts::Wanted::github(owner, &listed.name, &sources.workspace, listed.archived)
+                .with_anonymous(listed.anonymous),
         ),
         Origin::GitLab(mapped) if mapped.forge.include.is_some() => {
             Some(checkouts::Wanted::gitlab(
@@ -559,7 +576,8 @@ pub(crate) fn included(instance: &Instance) -> Result<Vec<checkouts::Wanted>> {
         .into_iter()
         .filter(|forge| forge.include.is_some())
         .collect();
-    let (listed, _) = listed(&sources, &origins, &HashMap::new(), &forges)?;
+    let anonymous = instance.forge_access == Some(ForgeAccess::Anonymous);
+    let (listed, _) = listed(&sources, &origins, &HashMap::new(), &forges, anonymous)?;
     Ok(listed
         .iter()
         .filter_map(|item| wanted(&sources, &origins, item))
@@ -576,6 +594,10 @@ struct Listed {
     /// Whether a pod fetched its checkout already in this pass, or tried to
     /// ([`bring_checkouts`]): it is read without a fetch of its own.
     fetched: bool,
+    /// Whether its instance names `forge_access: anonymous` (story:forge-access-anonymous): it
+    /// is listed from its source's `include`, cloned with no credential, and read from its
+    /// checkout alone, nothing asked of the forge.
+    anonymous: bool,
 }
 
 /// Where a listed repository comes from.
@@ -640,10 +662,29 @@ fn listed(
     origins: &Origins,
     exclude: &HashMap<PathBuf, Vec<String>>,
     forges: &[Forge],
+    anonymous: bool,
 ) -> Result<(Vec<Listed>, Vec<blockers::Failure>)> {
     let mut listed = Vec::new();
     let mut failures = Vec::new();
     for owner in &origins.owners {
+        // An anonymous instance's owner is listed by its `include` entries, nothing asked of
+        // the forge (story:forge-access-anonymous): each is a repository's name, taken to be
+        // public, which the clone shows.
+        if anonymous {
+            let what = format!("organization {owner}");
+            for entry in origins.include.get(owner).into_iter().flatten() {
+                listed.push(Listed {
+                    name: checked(&what, entry.clone())?,
+                    visibility: Visibility::Public,
+                    archived: false,
+                    issues: false,
+                    origin: Origin::Owner(owner.clone()),
+                    fetched: false,
+                    anonymous: true,
+                });
+            }
+            continue;
+        }
         let every = owned(sources, owner)?;
         let names = every.iter().map(|listed| listed.name.clone()).collect();
         let (kept, not_answered) = origins.included(owner, names);
@@ -687,6 +728,7 @@ fn listed(
         issues: false,
         origin: Origin::GitLab(Box::new(mapped)),
         fetched: false,
+        anonymous: false,
     }));
     listed.sort_by(|one, other| one.name.cmp(&other.name));
     one_of_each(&listed, |listed| &listed.name, Listed::origin_named)?;
@@ -716,6 +758,7 @@ fn owned(sources: &Sources, owner: &str) -> Result<Vec<Listed>> {
                 issues: entry.has_issues_enabled,
                 origin: Origin::Owner(owner.to_owned()),
                 fetched: false,
+                anonymous: false,
             })
         })
         .collect::<Result<Vec<_>>>()?;
@@ -741,6 +784,7 @@ fn local_repositories(dir: &Path, exclude: &[String]) -> Result<Vec<Listed>> {
         issues: false,
         origin: Origin::Local(dir.to_owned()),
         fetched: false,
+        anonymous: false,
     };
     for path in directories(dir, &what)? {
         let name = path.file_name().and_then(OsStr::to_str);
@@ -1244,7 +1288,9 @@ fn release(
     what: &str,
     checkout: Option<(&Checkout<'_>, &str)>,
 ) -> Result<Release> {
-    let published: Vec<Published> = match listed.owner() {
+    // An anonymous instance asks the forge for no release (story:forge-access-anonymous): its
+    // checkout's newest tag stands for one.
+    let published: Vec<Published> = match listed.owner().filter(|_| !listed.anonymous) {
         Some(owner) => {
             let command = filled(
                 &sources.latest_release,

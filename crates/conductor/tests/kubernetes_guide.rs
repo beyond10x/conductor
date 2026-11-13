@@ -487,6 +487,57 @@ fn the_guide_names_the_model_token_kind_its_two_routes_and_what_a_new_value_need
     }
 }
 
+/// The guide names an instance's `forge_access` (story:forge-access-anonymous) in the table of the
+/// config's keys, and has a section "Anonymous forge access" that says what the member does (no
+/// credential in the pod, the clone with none, the line of a failed clone, the reads not made,
+/// the writes refused and the `detail`), what such an instance cannot do, that whoever sends the
+/// mapping answers for the repositories being public, each refusal and the API's answer.
+#[test]
+fn the_guide_names_anonymous_forge_access_what_it_does_and_cannot_do() {
+    let table = section("The daemon-config file");
+    let row = table
+        .lines()
+        .find(|line| line.starts_with("| `forge_access`"))
+        .unwrap_or_else(|| panic!("the table names forge_access:\n{table}"));
+    for words in [
+        "`anonymous`",
+        "422",
+        "[anonymous forge access](#anonymous-forge-access)",
+    ] {
+        assert!(row.contains(words), "the row says {words:?}: {row}");
+    }
+
+    let text = section("Anonymous forge access");
+    for words in [
+        "`forge_access: anonymous`",
+        "no credential",
+        "`daemon.kubernetes.env`",
+        "`GIT_CONFIG_COUNT`",
+        "credential helper",
+        "over HTTPS",
+        "not public or not reachable",
+        "git's last error line",
+        "`include`",
+        "pull request, issue, release or workflow run",
+        "one line a pass",
+        "refused before any call",
+        "push",
+        "comment",
+        "`detail`",
+        "writes nothing to its forge",
+        "cannot do",
+        "read a private repository",
+        "Whoever sends the mapping answers for the repositories being public",
+        "`instances[<i>].forge_token`",
+        "`instances[<i>].sources[<j>]`",
+        "`instances[<i>].forge_access`",
+        "daemon that runs no pods",
+        "`GET /v1/instances/{name}`",
+    ] {
+        assert!(text.contains(words), "the section says {words:?}:\n{text}");
+    }
+}
+
 /// The section "Forge credentials" says what a pod's git reaches with the token
 /// (story:pod-git-reaches-forge): git over HTTPS to the forge's origin through a credential
 /// helper, no other host, `GIT_CONFIG_COUNT` in `daemon.kubernetes.env` leaving git's

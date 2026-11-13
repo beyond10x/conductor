@@ -317,7 +317,8 @@ pub fn daily_tick(
         &tick.seams.program,
         tick.config,
         tick.state,
-    );
+    )
+    .with_forge_access(tick.instance().forge_access);
     if let Some(mut line) = commit_records(records, &route, day).line()? {
         line.tick_id = Some(tick.id.clone());
         tick.write(&line)?;
