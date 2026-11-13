@@ -63,6 +63,12 @@
 //! never its working tree. Until 2026-10-12 it failed every snapshot on `git fetch --quiet origin`.
 //! Every other member is fetched whatever its remotes, and one that has no `origin` is a member
 //! failure.
+//!
+//! **An instance with `forge_access: anonymous` fetches by one route.** Each member's fetch is
+//! the anonymous fetch of its checkouts ([`checkouts::fetch_anonymously`],
+//! story:anonymous-pod-no-forge-secret), tried once: no credential, and none of the keys of the
+//! checkout's own configuration a fetch would send, or no fetch and a member failure that says
+//! why.
 
 use std::ffi::{OsStr, OsString};
 use std::fmt;
@@ -77,7 +83,7 @@ use conductor_model::observation::{
 };
 use serde_json::Value;
 
-use crate::collect::{self, specifications};
+use crate::collect::{self, checkouts, specifications};
 use crate::config::{self, Active};
 use crate::snapshot::Recorder;
 
@@ -126,6 +132,9 @@ pub struct Sources {
     pub list: Vec<OsString>,
     /// How long one command may run before it is stopped.
     pub bound: Duration,
+    /// Whether the instance names `forge_access: anonymous`: each fetch is its anonymous fetch
+    /// ([`checkouts::fetch_anonymously`]) and not [`Sources::fetch`].
+    pub anonymous: bool,
 }
 
 impl Sources {
@@ -151,6 +160,10 @@ impl Sources {
                 PathBuf::from(&active.instance.cache).join("exports"),
             );
             sources.checkouts = Some(PathBuf::from(&active.instance.checkouts.root));
+            sources.anonymous = config::anonymous(&active.instance);
+            if sources.anonymous {
+                crate::instance::fetch_nothing_lazily();
+            }
             Ok(sources)
         } else {
             Ok(Self::new(root()?, state))
@@ -183,6 +196,7 @@ impl Sources {
             exports,
             root,
             checkouts: None,
+            anonymous: false,
         }
     }
 }
@@ -505,7 +519,12 @@ fn read_member(
     failures: &mut Vec<Failure>,
 ) -> Result<bool> {
     let at = if fetched {
-        if let Err(error) = twice(|| succeed(&sources.fetch, Some(checkout), sources.bound)) {
+        let brought = if sources.anonymous {
+            checkouts::fetch_anonymously(checkout, sources.bound)
+        } else {
+            twice(|| succeed(&sources.fetch, Some(checkout), sources.bound)).map(drop)
+        };
+        if let Err(error) = brought {
             if collect::is_over_budget(&error) {
                 return Err(error);
             }
@@ -835,13 +854,19 @@ pub(crate) struct CommandFailed {
 
 impl CommandFailed {
     /// The command line, how it ended and the first line it printed on standard error that is not
-    /// blank, when it printed one.
+    /// blank, when it printed one; a `warning: ` line is passed over when a line that is not one
+    /// follows, as git warns before it fails (a partial clone that may not fetch what it lacks warns
+    /// `warning: lazy fetching disabled; ...` and fails on the next line).
     fn first_line(&self) -> String {
-        match self
-            .stderr
-            .lines()
-            .map(str::trim)
-            .find(|line| !line.is_empty())
+        let lines = || {
+            self.stderr
+                .lines()
+                .map(str::trim)
+                .filter(|line| !line.is_empty())
+        };
+        match lines()
+            .find(|line| !line.starts_with("warning: "))
+            .or_else(|| lines().next())
         {
             Some(line) => format!("`{}` {}: {line}", self.command, self.exited),
             None => format!("`{}` {}", self.command, self.exited),
@@ -865,8 +890,9 @@ impl std::error::Error for CommandFailed {}
 
 /// The first line of `error`, as a member failure records it: when a command failed
 /// ([`CommandFailed`]), the command line, how it ended and the first line it printed on standard
-/// error; else the first line of the error and its causes, joined by `: `, which for a command
-/// that did not answer in time names it and the bound ([`collect::run`]).
+/// error that is not a warning ([`CommandFailed::first_line`]); else the first line of the error
+/// and its causes, joined by `: `, which for a command that did not answer in time names it and
+/// the bound ([`collect::run`]).
 pub(crate) fn first_line(error: &anyhow::Error) -> String {
     if let Some(failed) = error
         .chain()

@@ -273,7 +273,7 @@ instances live on the volume and arrive over HTTP. A file with no instance is al
 | `git_identity`, a key of an instance's mapping, not of this file | none | the git identity the instance's pod commits with, `{"name": "Example Bot", "email": "bot@example.com"}`: each value 1 to 200 bytes on one line, with no control character, no `<`, no `>` and no white space at either end, the `email` with exactly one `@`; a mapping that breaks the rule is refused `422` at the value's path. It takes the place of `daemon.kubernetes.env` entries of the identity's variables in the instance's pod, see [what the daemon creates](#what-the-daemon-creates-for-each-instance) |
 | `model_token_kind`, a key of an instance's mapping, not of this file | none | the kind of the instance's `model_token`: `api_key`, as where the mapping names none, or `subscription_token`; a mapping that names it without a `model_token`, or names another word, is refused `422` at its path. See [the model token](#the-model-token) |
 | `standing_rules`, a key of an instance's mapping, not of this file | none | text every session the instance starts reads in its prompt file, at most 16384 bytes of UTF-8 with no NUL and no `secret:<name>` as its whole text; a mapping that breaks one of these is refused `422` at its path. Only the instance calls write it; `PUT /v1/config` refuses it. See [standing rules](#standing-rules) |
-| `forge_access`, a key of an instance's mapping, not of this file | none | `anonymous`: the instance's pod carries no credential of any forge, clones each included public GitHub repository with no credential and writes nothing to its forge; refused `422` at its path beside a `forge_token`, a source that is not `github`, a `github` source without `include`, or a daemon that runs no pods. See [anonymous forge access](#anonymous-forge-access) |
+| `forge_access`, a key of an instance's mapping, not of this file | none | `anonymous`: the instance's pod carries no credential of any forge, clones each included public GitHub repository with no credential and writes nothing to its forge; refused `422` at its path beside a `forge_token`, a `secret_syncs` entry, a source that is not `github`, a `github` source without `include`, or a daemon that runs no pods. See [anonymous forge access](#anonymous-forge-access) |
 
 The [config reference](../reference/config.md) has each key's rules.
 
@@ -1004,23 +1004,80 @@ instance on repositories it may read and not write, with no token of the forge s
 What the member does:
 
 - The instance's pod carries no credential of any forge: none of the daemon's forge token
-  variables of `daemon.kubernetes.env`, for either forge; no forge variable of its own; and no
-  entry of git's configuration, `GIT_CONFIG_COUNT`, `GIT_CONFIG_KEY_<n>` and
-  `GIT_CONFIG_VALUE_<n>`, neither the credential helper the daemon writes nor the installer's own
-  entries, which may give git one. Its Secret holds none of their secrets.
+  variables of `daemon.kubernetes.env`, for either forge, and no other entry, under whatever
+  name, that names the secret of a forge token the file names (the daemon's, or any instance's
+  `forge_token`) or holds the value of a forge token variable's entry: anywhere in its value
+  for a token value of at least 8 characters, a shorter one only as its whole value; no forge
+  variable of its own; none of the variables that point git, ssh, git's HTTP library or a
+  forge's command line at a credential or a configuration file (`GIT_ASKPASS`, `GIT_CONFIG_GLOBAL`,
+  `GIT_CONFIG_SYSTEM`, `GIT_CONFIG`, `GIT_SSH_COMMAND`, `GIT_SSH`, `SSH_AUTH_SOCK`,
+  `SSH_ASKPASS`, `GH_CONFIG_DIR`, `GLAB_CONFIG_DIR`, `XDG_CONFIG_HOME`, `NETRC`, `CURL_HOME`,
+  `GIT_TEMPLATE_DIR`, `GIT_SSL_KEY`, `GIT_SSL_CERT`); and of git's configuration,
+  `GIT_CONFIG_COUNT`, `GIT_CONFIG_KEY_<n>` and `GIT_CONFIG_VALUE_<n>`, neither the credential
+  helper the daemon writes nor any of the installer's own entries but its proxy and CA settings
+  (`http.proxy`, `https.proxy`, `http.sslCAInfo`, `http.sslCAPath`, each also as
+  `http.<url>.<name>`), which the pod keeps, renumbered under their own count. Its Secret holds
+  none of the forge tokens' secrets: a key of the instance's own mapping, or of `globals`, that
+  names one is refused at that key, and the daemon starts no pod that would get one. An entry
+  with a `secret` under any other name stays in the pod with its secret, as the daemon cannot
+  tell what it holds: give no credential of the forge, nor the key of any route that writes to
+  it, such an entry. The daemon compares only the token values written in the file: an entry
+  whose `value` is a literal copy of a token the daemon holds only as a secret is not seen, and
+  stays. The pod carries `GIT_NO_LAZY_FETCH=1` of its own, in place of any entry of
+  that name, so that no git in it, a session's included, fetches by itself the objects a partial
+  clone lacks.
 - The runtime clones each repository the source's `include` names over HTTPS,
-  `https://github.com/<owner>/<name>.git`, with no credential: git gets no credential helper and
-  no token variable. A clone that fails is one member failure of the pass whose line says the
-  repository is not public or not reachable, with git's last error line; the next pass tries
-  again.
+  `https://github.com/<owner>/<name>.git`, with no credential: git gets no credential helper, no
+  program that asks for a login, no extra header and no token variable, reads neither the
+  system's nor the user's git configuration file nor a netrc file, and copies no template, so no
+  `insteadOf` rewrite of the image applies. Before it fetches a checkout, it removes from the
+  checkout's own configuration every extra header, cookie file, TLS client certificate and key,
+  and `insteadOf` rewrite. When one stays (a file the configuration includes names it, or the
+  configuration cannot be written or read), the fetch is refused, one member failure naming the
+  key: remove the key, or remove the checkout so the next pass clones it again. Then the URL of
+  `origin` is read as the fetch will use it, after that removal (`remote.origin.url`, or the
+  legacy file `.git/remotes/origin` or `.git/branches/origin`), and a fetch whose URL holds a
+  user or a password
+  (`https://user:token@host/...`, a token as the user, or `ssh://git@host/...`) is refused the
+  same way, one member failure that names where the URL comes from and not the login; the URL
+  is left as it is. Only git's scp-like form, `git@host:path`, is not refused. Every git command
+  the runtime starts, and every program a collector starts, gets plain `ssh`, never a
+  `core.sshCommand` or a `GIT_SSH_COMMAND` of the caller's. Every fetch of the instance takes
+  this one route, the blockers' and the specifications' read of each
+  workspace member and the catalog's read included, and no other git command of the instance
+  talks to a remote: this route fetches no submodule, and every git the runtime starts runs with
+  `GIT_NO_LAZY_FETCH=1`, so a read of a partial clone fetches no object it lacks; such a read
+  fails instead, one member failure with git's line. A clone that fails is one member failure of
+  the pass whose line says the repository is not public or not reachable, with
+  git's last error line; the next pass tries again.
 - The repositories are the `include` entries, listed by no forge. Each is read from its checkout
   alone: the collectors read no pull request, issue, release or workflow run of the forge, and say
-  so in one line a pass. A repository without a checkout has no row.
-- Every write to the forge is refused before any call to the forge or to git's remote, in one
-  line that names `forge_access: anonymous`: a session's push, by git or through the bot route, its
-  pull request, its comment, a release through the bot route, under `forge.route: gates` and
-  `direct` alike; and the push of the instance's records, which are committed and not pushed. The
-  instance's `detail` carries one line that says it writes nothing to its forge.
+  so in one line a pass. A repository without a checkout has no row. An entry that no
+  repository's name can be is one member failure. The watch and the runtime's start run no `gh`
+  or `glab` at all: the watch's pass that would read `main`'s CI and the pull requests' checks
+  says in one line that it reads none.
+- A session's write to the forge is refused before any call to the forge or to git's remote, in
+  one line that names `forge_access: anonymous`: a push by git (`git push`, `git send-pack`,
+  `git subtree push`, `git lfs push`, `git-push` by its path, or an alias the same command gives
+  with `-c alias.<name>=` or `--config-env alias.<name>=`), written as the command, after `env`,
+  `timeout`, `nice`, `nohup`, `sudo`, `doas`, `setsid`, `stdbuf`, `ionice`, `taskset`, `xargs`
+  or `parallel` with their own options, after `find -exec`, after `command`, `exec` or `time`,
+  in a shell's `-c` script or an `eval`, or through the bot route; its pull request, its comment,
+  a release through the bot route, a call of `b10x-gates api` with a method other than `GET` or
+  `HEAD`; under `forge.route: gates` and `direct` alike; and the push of the instance's records,
+  which are committed and not pushed. An alias given with `--config-env alias.<name>=` is
+  refused whatever it runs, a read included, as its text is in a variable the guard does not
+  read. The guard reads the command as written and refuses these
+  spellings only. A write in any other spelling, such as a program word the shell expands
+  (`g=git; $g push`), a script on a shell's standard input, a launcher outside that list, or
+  `curl` to the forge's API, is not read as one, and it finds no credential in the pod to write
+  with: the pod holds no credential of the forge. The instance's `detail` carries one line that
+  says it writes nothing to its forge.
+
+**Known issue in 1.8.0**: with `forge_access: anonymous`, a `daemon.kubernetes.env` entry under
+another name that names the same secret as a forge token variable, and a `GIT_CONFIG_GLOBAL` or
+`GIT_CONFIG_SYSTEM` entry, still reach the instance's pod; 1.8.1 leaves them out. Do not use the
+member with such a configuration before 1.8.1.
 
 What such an instance cannot do: open, comment on or merge a pull request, push a branch or a
 tag, publish a release, rerun a workflow, read a private repository, or read anything of the forge
@@ -1033,7 +1090,8 @@ there, fails its clone in the same way, as git cannot tell them apart without a 
 
 A mapping with the member is refused `422` `conductor.config.ConfigInvalid` at the path of what
 it breaks: another value, at `instances[<i>].forge_access`; a `forge_token`, at
-`instances[<i>].forge_token`; a source that is not `github`, or a `github` source without
+`instances[<i>].forge_token`; a `secret_syncs` that is not empty, at
+`instances[<i>].secret_syncs`; a source that is not `github`, or a `github` source without
 `include`, at `instances[<i>].sources[<j>]`; and a daemon that runs no pods, at
 `instances[<i>].forge_access`. `GET /v1/instances/{name}` answers `forge_access` as the mapping
 holds it, and no member where it holds none. Without the member, an instance reaches its forge as

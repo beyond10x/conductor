@@ -58,7 +58,12 @@ pub const SLOTS_VARIABLE: &str = "SUBSTRATE_SECRET_SLOTS";
 /// to end with ([`PARENT_VARIABLE`] removed) and with no [`TOKEN_VARIABLE`] (removed): every
 /// process the runtime starts itself is built here, which `tests/placement.rs` holds for the
 /// crate's sources. A caller that hands a child the token, as the daemon hands a runtime its own,
-/// sets it after.
+/// sets it after. In a process that works for an instance with `forge_access: anonymous`
+/// ([`fetch_nothing_lazily`]) it carries [`NO_LAZY_FETCH_VARIABLE`]`=1`, so that no git it starts,
+/// or that a program it starts starts, fetches by itself what a partial clone lacks, and
+/// [`crate::collect::SSH_COMMAND`] as plain `ssh` with [`crate::collect::SSH_OPTIONS`], so that no
+/// `core.sshCommand` of a configuration and no caller's ssh command reaches it
+/// (story:anonymous-pod-no-forge-secret).
 #[must_use]
 pub fn command(program: impl AsRef<std::ffi::OsStr>) -> std::process::Command {
     let mut command = std::process::Command::new(program);
@@ -66,7 +71,40 @@ pub fn command(program: impl AsRef<std::ffi::OsStr>) -> std::process::Command {
         .env_remove(SLOTS_VARIABLE)
         .env_remove(PARENT_VARIABLE)
         .env_remove(TOKEN_VARIABLE);
+    if works_for_anonymous() {
+        command.env(NO_LAZY_FETCH_VARIABLE, "1").env(
+            crate::collect::SSH_COMMAND,
+            format!("ssh {}", crate::collect::SSH_OPTIONS),
+        );
+    }
     command
+}
+
+/// Whether this process was marked as one that works for an instance with `forge_access:
+/// anonymous` ([`fetch_nothing_lazily`]).
+#[must_use]
+pub fn works_for_anonymous() -> bool {
+    NO_LAZY_FETCH.load(std::sync::atomic::Ordering::Relaxed)
+}
+
+/// The variable that, set to `1`, keeps git from fetching what a partial clone lacks from its
+/// promisor remote on demand: a local read (`git show`, `git archive`, `git log -p`) of a blob
+/// the clone lacks fails instead of fetching it, outside the one route an anonymous fetch takes.
+pub const NO_LAZY_FETCH_VARIABLE: &str = "GIT_NO_LAZY_FETCH";
+
+/// Whether this process works for an instance with `forge_access: anonymous`
+/// ([`fetch_nothing_lazily`]).
+static NO_LAZY_FETCH: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+/// Marks this process as one that works for an instance with `forge_access: anonymous`
+/// (story:anonymous-pod-no-forge-secret): from then on every process [`command`] builds carries
+/// [`NO_LAZY_FETCH_VARIABLE`]`=1` and plain `ssh`, and the collectors' git environment is the
+/// anonymous route's (`collect::git_environment`). Marked where a process learns it: when the
+/// config fixes such an instance as the one it runs ([`config::set_active`]), and where a
+/// collector's sources are made of one (`collect::blockers::Sources::of`,
+/// `collect::repositories::Sources::of`). Nothing takes the mark back.
+pub fn fetch_nothing_lazily() {
+    NO_LAZY_FETCH.store(true, std::sync::atomic::Ordering::Relaxed);
 }
 
 /// The most a sealed token is read to: a token is far shorter, and a slot is not read whole on

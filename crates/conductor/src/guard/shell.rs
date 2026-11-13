@@ -112,8 +112,8 @@ fn collect(script: &str, depth: usize, out: &mut Vec<Simple>) {
     }
 }
 
-/// The scripts `words` hands to a shell: the argument of `-c` after a shell, and the arguments of
-/// `eval`.
+/// The scripts `words` hands to a shell: the argument of `-c` after a shell (after a `--` that
+/// follows `-c`, too), and the arguments of `eval`.
 fn argument_scripts(words: &[String]) -> Vec<String> {
     let mut scripts = Vec::new();
     for (at, word) in words.iter().enumerate() {
@@ -122,9 +122,15 @@ fn argument_scripts(words: &[String]) -> Vec<String> {
             let flags = words[at + 1..].iter().position(|flag| {
                 flag.starts_with('-') && !flag.starts_with("--") && flag.ends_with('c')
             });
-            if let Some(flag) = flags
-                && let Some(script) = words.get(at + 1 + flag + 1)
-            {
+            // `--` after `-c` ends the shell's options; the script is the word after it.
+            let script = flags.map(|flag| at + 1 + flag + 1).map(|next| {
+                if words.get(next).is_some_and(|word| word == "--") {
+                    next + 1
+                } else {
+                    next
+                }
+            });
+            if let Some(script) = script.and_then(|next| words.get(next)) {
                 scripts.push(script.clone());
             }
         } else if name == "eval" && at + 1 < words.len() {

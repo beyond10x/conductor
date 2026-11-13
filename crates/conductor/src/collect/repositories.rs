@@ -230,9 +230,13 @@ impl Sources {
     /// `instance`'s: its first `github:` owner as [`Sources::organization`] (none when it has
     /// none), its checkouts root as the workspace, its catalog when it names one, every command
     /// through `gh`, the 7 days before `now`, [`WIDTH`] repositories at once, and
-    /// [`collect::BOUND`] on each command.
+    /// [`collect::BOUND`] on each command. Sources of an instance with `forge_access: anonymous`
+    /// mark the process ([`crate::instance::fetch_nothing_lazily`]).
     #[must_use]
     pub fn of(instance: &Instance, now: OffsetDateTime) -> Self {
+        if crate::config::anonymous(instance) {
+            crate::instance::fetch_nothing_lazily();
+        }
         Self {
             organization: Origins::of(instance)
                 .owners
@@ -417,7 +421,7 @@ fn pass(
     let read = each(&listed, sources.width, |listed| {
         read(sources, listed, &since)
     })?;
-    let cataloged = cataloged(sources, &listed)?;
+    let cataloged = cataloged(sources, &listed, anonymous)?;
     let gates_version = gates::version(&sources.gates, sources.bound)?;
     let waves = each(&listed, sources.width, |listed| wave(sources, listed))?;
     let sweeps = sweeps(&listed, &read);
@@ -669,12 +673,23 @@ fn listed(
     for owner in &origins.owners {
         // An anonymous instance's owner is listed by its `include` entries, nothing asked of
         // the forge (story:forge-access-anonymous): each is a repository's name, taken to be
-        // public, which the clone shows.
+        // public, which the clone shows. An entry no repository's name can be is one member
+        // failure (story:anonymous-pod-no-forge-secret).
         if anonymous {
             let what = format!("organization {owner}");
             for entry in origins.include.get(owner).into_iter().flatten() {
+                let name = match checked(&what, entry.clone()) {
+                    Ok(name) => name,
+                    Err(error) => {
+                        failures.push(blockers::Failure {
+                            repository: entry.clone(),
+                            error_line: format!("{error:#}"),
+                        });
+                        continue;
+                    }
+                };
                 listed.push(Listed {
-                    name: checked(&what, entry.clone())?,
+                    name,
                     visibility: Visibility::Public,
                     archived: false,
                     issues: false,
@@ -968,6 +983,17 @@ struct Checkout<'a> {
 }
 
 impl Checkout<'_> {
+    /// `git fetch --quiet origin` in the checkout; for an instance with `forge_access:
+    /// anonymous`, by the one route its fetches take ([`checkouts::fetch_anonymously`],
+    /// story:anonymous-pod-no-forge-secret).
+    fn fetch(&self, anonymous: bool) -> Result<()> {
+        if anonymous {
+            return checkouts::fetch_anonymously(self.dir, self.bound)
+                .with_context(|| self.what.to_owned());
+        }
+        self.git(&["fetch", "--quiet", "origin"]).map(drop)
+    }
+
     /// What `git <args>` printed in the checkout.
     fn git(&self, args: &[&str]) -> Result<String> {
         let command: Vec<String> = std::iter::once("git")
@@ -1003,7 +1029,7 @@ fn local(
     let main = reading.main();
     let after = format!("--since={since}");
     if matches!(reading, Reading::Fetched) && !listed.fetched {
-        checkout.git(&["fetch", "--quiet", "origin"])?;
+        checkout.fetch(listed.anonymous)?;
     }
     let head = checkout.git(&["log", "-1", "--format=%H%x09%cI", main])?;
     let (main_head, main_committed_at) = head
@@ -1591,8 +1617,14 @@ fn store_version(text: &str) -> Option<String> {
 /// The repositories the instance's catalog names on its repository's `origin/main`, which the
 /// read before this fetched (or this fetches, when no owner lists that repository): the stem of
 /// each `.json` entry of the catalog's directory, spelled as its `names` says. None, unread, when
-/// the instance names no catalog or the checkouts root holds no checkout of its repository.
-fn cataloged(sources: &Sources, listed: &[Listed]) -> Result<Option<HashSet<String>>> {
+/// the instance names no catalog or the checkouts root holds no checkout of its repository. The
+/// fetch of an instance with `forge_access: anonymous` (`anonymous`) takes its one route
+/// ([`Checkout::fetch`]).
+fn cataloged(
+    sources: &Sources,
+    listed: &[Listed],
+    anonymous: bool,
+) -> Result<Option<HashSet<String>>> {
     let Some(catalog) = &sources.catalog else {
         return Ok(None);
     };
@@ -1610,7 +1642,7 @@ fn cataloged(sources: &Sources, listed: &[Listed]) -> Result<Option<HashSet<Stri
         .iter()
         .any(|listed| listed.name == catalog.repository && listed.owner().is_some())
     {
-        checkout.git(&["fetch", "--quiet", "origin"])?;
+        checkout.fetch(anonymous)?;
     }
     let directory = format!("{}/", catalog.path.trim_end_matches('/'));
     let names: HashSet<String> = checkout

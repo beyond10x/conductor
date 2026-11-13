@@ -2338,28 +2338,33 @@ impl Session<'_> {
     }
 }
 
-/// The words of a simple command from its command name on: reserved words, variable assignments
-/// and `builtin`, `command` and `exec` before it are dropped.
 /// The git subcommands that write to a remote: what a session of an instance with
 /// `forge_access: anonymous` never runs (story:forge-access-anonymous).
 const GIT_REMOTE_WRITES: [&str; 3] = ["push", "send-pack", "http-push"];
 
+/// The git subcommands whose own `push` writes to a remote (story:anonymous-pod-no-forge-secret):
+/// `git subtree push`, `git lfs push`.
+const GIT_PUSHING_GROUPS: [&str; 2] = ["subtree", "lfs"];
+
 /// The global options of git that take the next word as their value.
-const GIT_VALUED: [&str; 6] = [
+const GIT_VALUED: [&str; 7] = [
     "-c",
     "-C",
     "--git-dir",
     "--work-tree",
     "--namespace",
     "--config-env",
+    "--attr-source",
 ];
 
 /// The forge write the simple command `words` makes, shown, if it makes one, for an instance with
 /// `forge_access: anonymous` (story:forge-access-anonymous), whatever its route: a `gh` or `glab`
 /// call that is not a read ([`forge_write`]; `assigned` says whether the line assigns a variable
 /// that may hold the forge's program); a run of the bot route `b10x-gates gh` with `gh`
-/// arguments; a git subcommand that writes to a remote ([`GIT_REMOTE_WRITES`]), by `git` itself
-/// or through `b10x-gates bot`.
+/// arguments; and a remote write of git or of the bot route ([`remote_write`]) by any program
+/// word of the command ([`is_program_word`]: its command name, after a launcher such as `env`,
+/// `timeout`, `nohup` or `xargs`, or after `find -exec`). A program word the shell expands
+/// (`$g push`) is not read: what it runs is decided after the guard has read the line.
 fn anonymous_write(words: &[String], assigned: &dyn Fn(Forge) -> bool) -> Option<String> {
     for forge in Forge::ALL {
         if let Some(write) = forge_write(words, forge, assigned(forge)) {
@@ -2372,50 +2377,229 @@ fn anonymous_write(words: &[String], assigned: &dyn Fn(Forge) -> bool) -> Option
     {
         return Some(format!("b10x-gates gh -- {}", gh.args.join(" ")));
     }
-    let named = command_words(words);
-    let (program, rest) = named.split_first()?;
-    let subcommand = match shell::program(program) {
+    let name = words.len() - command_words(words).len();
+    (name..words.len())
+        .filter(|&at| is_program_word(words, name, at))
+        .flat_map(|at| runs_at(words, name, at))
+        .find_map(|run| remote_write(&run))
+}
+
+/// The runs of the program word `words[at]` of the simple command `words`, whose command name is
+/// `words[name]`, that a rule decides (story:anonymous-pod-no-forge-secret): the run as written,
+/// and the run under each name [`argv0_names`] gives the program, which a program that reads its
+/// name from `argv[0]` runs as (git runs `git-push` as `git push`, rustup runs `cargo` as
+/// cargo). A deny of either denies.
+fn runs_at(words: &[String], name: usize, at: usize) -> Vec<Vec<String>> {
+    let written = words[at..].to_vec();
+    let mut runs = vec![written.clone()];
+    for argv0 in argv0_names(words, name, at) {
+        let mut run = written.clone();
+        argv0.clone_into(&mut run[0]);
+        runs.push(run);
+    }
+    runs
+}
+
+/// The names `words` gives the program `words[at]` in `argv[0]`: the value of `exec`'s `-a
+/// <name>` or `-a<name>`, also after its other options and last in a cluster of them (`-c -a
+/// <name>`, `-ca <name>`), before the command name `words[name]` ([`command_name`]), and of
+/// `env`'s `-a <name>`, `-a<name>` (also last in a cluster of its short options, `-ia <name>`),
+/// `--argv0 <name>` and `--argv0=<name>` among the options of `env` in the chain of launchers
+/// that runs `words[at]` ([`launcher_options`], which passes over the value of every other
+/// option).
+fn argv0_names(words: &[String], name: usize, at: usize) -> Vec<&str> {
+    let mut names = command_name(words).1;
+    let options = if at > name {
+        launcher_options(words, name, at).unwrap_or_default()
+    } else {
+        Vec::new()
+    };
+    for (launcher, index) in options {
+        let word = words[index].as_str();
+        if launcher != "env" {
+            continue;
+        }
+        if word == "--argv0" {
+            names.extend(words.get(index + 1).map(String::as_str));
+        } else if let Some(value) = word.strip_prefix("--argv0=") {
+            names.push(value);
+        } else if let Some(letters) = word.strip_prefix('-').filter(|rest| !rest.starts_with('-')) {
+            // The first letter of the cluster that takes a value ends it: `a` with the rest of
+            // the word, or with the next word, as its value.
+            if let Some((at_letter, letter)) = letters
+                .char_indices()
+                .find(|(_, letter)| takes_value("env", &format!("-{letter}")))
+                && letter == 'a'
+            {
+                let rest = &letters[at_letter + 1..];
+                if rest.is_empty() {
+                    names.extend(words.get(index + 1).map(String::as_str));
+                } else {
+                    names.push(rest);
+                }
+            }
+        }
+    }
+    names
+}
+
+/// The run `run`, from its program word on, shown, when it writes to a remote
+/// (story:anonymous-pod-no-forge-secret): `git` with a subcommand of [`GIT_REMOTE_WRITES`], the
+/// `push` of one of [`GIT_PUSHING_GROUPS`], or an alias a `-c alias.<name>=…` of the same run
+/// gives a remote write; a git program by its own name (`git-push`, `git-lfs push`, any path);
+/// `b10x-gates bot` with a remote write among its words; and `b10x-gates api` with a method
+/// that is not `GET` or `HEAD`, or none the guard can read.
+fn remote_write(run: &[String]) -> Option<String> {
+    let (program, rest) = run.split_first()?;
+    let (subcommand, after) = match shell::program(program) {
         "git" => {
+            let mut aliases: Vec<&str> = Vec::new();
             let mut at = 0;
             loop {
                 let word = rest.get(at)?;
-                if GIT_VALUED.contains(&word.as_str()) {
+                if word == "-c" {
+                    aliases.extend(rest.get(at + 1).and_then(|value| pushing_alias(value)));
+                    at += 2;
+                } else if let Some(value) = word.strip_prefix("--config-env=") {
+                    aliases.extend(alias_of(value));
+                    at += 1;
+                } else if word == "--config-env" {
+                    // The alias's text is a variable's, which the line need not show: any alias
+                    // it gives may push.
+                    aliases.extend(rest.get(at + 1).and_then(|value| alias_of(value)));
+                    at += 2;
+                } else if GIT_VALUED.contains(&word.as_str()) {
                     at += 2;
                 } else if word.starts_with('-') {
                     at += 1;
                 } else {
-                    break word;
+                    break;
                 }
             }
+            if aliases
+                .iter()
+                .any(|alias| alias.eq_ignore_ascii_case(&rest[at]))
+            {
+                return Some(run.join(" "));
+            }
+            (rest[at].as_str(), &rest[at + 1..])
         }
         BOT_ROUTE => {
             let at = rest.iter().position(|word| !word.starts_with('-'))?;
-            if rest[at] != "bot" {
-                return None;
-            }
-            rest[at + 1..]
-                .iter()
-                .find(|word| GIT_REMOTE_WRITES.contains(&word.as_str()))?
+            let writes = match rest[at].as_str() {
+                "bot" => rest[at + 1..]
+                    .iter()
+                    .any(|word| GIT_REMOTE_WRITES.contains(&word.as_str())),
+                "api" => !api_method_reads(&rest[at + 1..]),
+                _ => false,
+            };
+            return writes.then(|| run.join(" "));
         }
-        _ => return None,
+        other => (other.strip_prefix("git-")?, rest),
     };
-    GIT_REMOTE_WRITES
-        .contains(&subcommand.as_str())
-        .then(|| named.join(" "))
+    let writes = GIT_REMOTE_WRITES.contains(&subcommand)
+        || (GIT_PUSHING_GROUPS.contains(&subcommand) && after.iter().any(|word| word == "push"));
+    writes.then(|| run.join(" "))
 }
 
+/// The alias `value` names, when it is `alias.<name>=<anything>`: the value of a git
+/// `--config-env`, whose text is read from a variable.
+fn alias_of(value: &str) -> Option<&str> {
+    let (key, _) = value.split_once('=')?;
+    let (section, alias) = key.split_once('.')?;
+    section.eq_ignore_ascii_case("alias").then_some(alias)
+}
+
+/// The alias `value`, the value of a git `-c`, gives, when it is `alias.<name>=<text>` and its
+/// text names a remote write ([`GIT_REMOTE_WRITES`], `git-push` by its own name): `push`, `!git
+/// push origin`.
+fn pushing_alias(value: &str) -> Option<&str> {
+    let (key, text) = value.split_once('=')?;
+    let (section, alias) = key.split_once('.')?;
+    let pushes = text
+        .split(|c: char| c.is_whitespace() || matches!(c, '!' | ';' | '&' | '|' | '(' | ')'))
+        .map(shell::program)
+        .any(|word| GIT_REMOTE_WRITES.contains(&word.strip_prefix("git-").unwrap_or(word)));
+    (section.eq_ignore_ascii_case("alias") && pushes).then_some(alias)
+}
+
+/// Whether the words after `b10x-gates api` ask for a read: their method, `--method <m>`,
+/// `--method=<m>` or `-X <m>`, is `GET` or `HEAD`.
+fn api_method_reads(words: &[String]) -> bool {
+    let mut method = None;
+    for (at, word) in words.iter().enumerate() {
+        if word == "--method" || word == "-X" {
+            method = words.get(at + 1).map(String::as_str);
+        } else if let Some(value) = word.strip_prefix("--method=") {
+            method = Some(value);
+        }
+    }
+    method.is_some_and(|method| {
+        method.eq_ignore_ascii_case("GET") || method.eq_ignore_ascii_case("HEAD")
+    })
+}
+
+/// The words of a simple command from its command name on: reserved words, variable assignments
+/// and `builtin`, `command` and `exec` before it are dropped ([`command_name`]).
 fn command_words(words: &[String]) -> &[String] {
+    &words[command_name(words).0..]
+}
+
+/// The index of the command name of the simple command `words`, after its reserved words,
+/// variable assignments and `builtin`, `command` and `exec`, and the names the options of `exec`
+/// before it give the program in `argv[0]`.
+fn command_name(words: &[String]) -> (usize, Vec<&str>) {
     const RESERVED: [&str; 15] = [
         "!", "{", "}", "if", "then", "else", "elif", "fi", "do", "done", "while", "until", "time",
         "builtin", "command",
     ];
-    let start = words
-        .iter()
-        .position(|word| {
-            !(RESERVED.contains(&word.as_str()) || word == "exec" || is_assignment(word))
-        })
-        .unwrap_or(words.len());
-    &words[start..]
+    // The keyword whose own options may follow it: `command -p`, `time -p`, the options of `exec`
+    // ([`exec_option`]), and `--`, which ends them: the next word is the command name
+    // (story:anonymous-pod-no-forge-secret).
+    let mut keyword = "";
+    let mut start = 0;
+    let mut names = Vec::new();
+    while let Some(word) = words.get(start) {
+        let word = word.as_str();
+        if RESERVED.contains(&word) || word == "exec" || is_assignment(word) {
+            keyword = word;
+        } else if matches!((keyword, word), ("command" | "exec" | "time", "--")) {
+            start += 1;
+            break;
+        } else if let Some(name) = exec_option(word).filter(|_| keyword == "exec") {
+            match name {
+                Some("") => {
+                    names.extend(words.get(start + 1).map(String::as_str));
+                    start += 1;
+                }
+                Some(name) => names.push(name),
+                None => {}
+            }
+        } else if !matches!((keyword, word), ("command" | "time", "-p")) {
+            break;
+        }
+        start += 1;
+    }
+    (start.min(words.len()), names)
+}
+
+/// The word `word` as options of `exec`, which bash reads as getopt does: a cluster of `c`
+/// (an empty environment) and `l` (a login shell's dash in `argv[0]`) that may end with `a`, whose
+/// value, the program's name in `argv[0]`, is the rest of the word or else the next word
+/// (`-a <name>`, `-ca <name>`, `-la<name>`). `None` when it is no such word; else the name: `None`
+/// when the cluster has no `a`, `Some("")` when the name is the next word.
+fn exec_option(word: &str) -> Option<Option<&str>> {
+    let letters = word
+        .strip_prefix('-')
+        .filter(|rest| !rest.is_empty() && !rest.starts_with('-'))?;
+    for (at, letter) in letters.char_indices() {
+        match letter {
+            'c' | 'l' => {}
+            'a' => return Some(Some(&letters[at + 1..])),
+            _ => return None,
+        }
+    }
+    Some(None)
 }
 
 fn is_assignment(word: &str) -> bool {
@@ -2607,23 +2791,163 @@ const FIND_RUNS: [&str; 4] = ["-exec", "-execdir", "-ok", "-okdir"];
 /// Whether `words[at]` is the program a simple command runs: its command name (`words[name]`, from
 /// [`command_words`]); the word after a [`FIND_RUNS`] action; or the first word after a chain of
 /// [`LAUNCHERS`] starting at the command name, in which every other word is an option, an
-/// assignment, a value that starts with a digit (`timeout 5`, `nice -n 10`) or `{}`. A word that
-/// follows any other program's words (`grep -rn conductor`) is an argument, not a program.
+/// assignment, a value that starts with a digit (`timeout 5`, `nice -n 10`), `{}`, or the value
+/// of the launcher's own option that takes one ([`takes_value`]: `sudo -u root`, `sudo -Eu root`,
+/// `timeout -s KILL`, `env -u NAME`, `xargs -I %`); a `--` among them ends the options, and the
+/// first word after it that is no assignment of `env` or `sudo` and no duration of `timeout` is
+/// the program. A word that follows any other program's words (`grep -rn
+/// conductor`) is an argument, not a program.
 fn is_program_word(words: &[String], name: usize, at: usize) -> bool {
     if at <= name {
         return at == name;
     }
-    if FIND_RUNS.contains(&words[at - 1].as_str()) {
+    FIND_RUNS.contains(&words[at - 1].as_str()) || launcher_options(words, name, at).is_some()
+}
+
+/// The options of the chain of [`LAUNCHERS`] from the command name `words[name]` that runs
+/// `words[at]`, each by its index with the launcher it is an option of, read as
+/// [`is_program_word`] says; `None` when `words[at]` is not the program that chain runs. The value
+/// of an option that takes the next word ([`takes_value`]) is passed over: it is never read as
+/// `--`, as a launcher or as an option.
+fn launcher_options(words: &[String], name: usize, at: usize) -> Option<Vec<(&str, usize)>> {
+    let mut launcher = shell::program(&words[name]);
+    if !LAUNCHERS.contains(&launcher) {
+        return None;
+    }
+    let mut options = Vec::new();
+    let mut index = name + 1;
+    // `--` ends a launcher's options: after it, the first word that is not an assignment of `env`
+    // or `sudo`, or the duration of `timeout`, is its program.
+    let mut ended = false;
+    while index < at {
+        let word = words[index].as_str();
+        if LAUNCHERS.contains(&shell::program(word)) {
+            launcher = shell::program(word);
+            ended = false;
+        } else if ended {
+            let passed = (is_assignment(word) && matches!(launcher, "env" | "sudo"))
+                || (launcher == "timeout" && word.starts_with(|c: char| c.is_ascii_digit()));
+            if !passed {
+                return None;
+            }
+        } else if word == "--" {
+            ended = true;
+        } else if takes_value(launcher, word) {
+            // The option's value is the next word, which is then no program.
+            options.push((launcher, index));
+            index += 1;
+        } else if word.starts_with('-') {
+            options.push((launcher, index));
+        } else if !(is_assignment(word)
+            || word.starts_with(|c: char| c.is_ascii_digit())
+            || word == "{}")
+        {
+            return None;
+        }
+        index += 1;
+    }
+    (index == at).then_some(options)
+}
+
+/// The options of each of [`LAUNCHERS`] that take the next word as their value
+/// (story:anonymous-pod-no-forge-secret), as each program's own help or manual reads them. An
+/// option whose value is optional takes it only after `=` or written on to it, never as the next
+/// word, and is none of them: `xargs --replace[=R]`, `--eof[=END]`, `--max-lines[=N]`, `-i`,
+/// `-e`, `-l`, and `env --block-signal[=SIG]`; `ionice -t` is `--ignore`, which takes none.
+/// `sudo -r` and `-t` are those of a build with SELinux; a `sudo` without it refuses them and
+/// runs nothing.
+const LAUNCHER_VALUES: [(&str, &[&str]); 8] = [
+    (
+        "env",
+        &[
+            "-u",
+            "--unset",
+            "-C",
+            "--chdir",
+            "-a",
+            "--argv0",
+            "--env0-from",
+        ],
+    ),
+    ("timeout", &["-s", "--signal", "-k", "--kill-after"]),
+    (
+        "sudo",
+        &[
+            "-u",
+            "--user",
+            "-g",
+            "--group",
+            "-h",
+            "--host",
+            "-p",
+            "--prompt",
+            "-C",
+            "--close-from",
+            "-D",
+            "--chdir",
+            "-R",
+            "--chroot",
+            "-r",
+            "--role",
+            "-t",
+            "--type",
+            "-U",
+            "--other-user",
+            "-T",
+            "--command-timeout",
+        ],
+    ),
+    ("doas", &["-a", "-u", "-C"]),
+    ("nice", &["-n", "--adjustment"]),
+    ("ionice", &["-c", "--class", "-n", "--classdata"]),
+    (
+        "stdbuf",
+        &["-i", "--input", "-o", "--output", "-e", "--error"],
+    ),
+    (
+        "xargs",
+        &[
+            "-I",
+            "-E",
+            "-L",
+            "-n",
+            "-P",
+            "-s",
+            "-d",
+            "-a",
+            "--max-args",
+            "--max-procs",
+            "--max-chars",
+            "--delimiter",
+            "--arg-file",
+            "--process-slot-var",
+        ],
+    ),
+];
+
+/// Whether `word` is an option of the launcher `launcher` that takes the next word as its value:
+/// one of [`LAUNCHER_VALUES`], or a cluster of short options whose first letter that takes a
+/// value is its last (`sudo -Eu root`, `env -iu NAME`); one with letters after it holds its value
+/// itself (`sudo -uroot`).
+fn takes_value(launcher: &str, word: &str) -> bool {
+    let listed = |option: &str| {
+        LAUNCHER_VALUES
+            .iter()
+            .any(|(named, options)| *named == launcher && options.contains(&option))
+    };
+    if listed(word) {
         return true;
     }
-    LAUNCHERS.contains(&shell::program(&words[name]))
-        && words[name + 1..at].iter().all(|word| {
-            LAUNCHERS.contains(&shell::program(word))
-                || word.starts_with('-')
-                || is_assignment(word)
-                || word.starts_with(|c: char| c.is_ascii_digit())
-                || word == "{}"
-        })
+    let Some(letters) = word
+        .strip_prefix('-')
+        .filter(|letters| !letters.is_empty() && !letters.starts_with('-'))
+    else {
+        return false;
+    };
+    letters
+        .char_indices()
+        .find(|(_, letter)| listed(&format!("-{letter}")))
+        .is_some_and(|(at, letter)| at + letter.len_utf8() == letters.len())
 }
 
 /// Whether the shell expands `word` into other words before a program reads it ([`EXPANSIONS`]).
@@ -2797,9 +3121,11 @@ fn unreserved_build(commands: &[Vec<String>]) -> Option<(String, &'static str)> 
             if !is_program_word(words, name, at) {
                 continue;
             }
-            if let Some(size) = build_reserve(shell::program(&words[at]), &words[at + 1..]) {
-                let run: Vec<String> = words[at..].iter().map(|word| shell::quoted(word)).collect();
-                return Some((run.join(" "), size));
+            for run in runs_at(words, name, at) {
+                if let Some(size) = build_reserve(shell::program(&run[0]), &run[1..]) {
+                    let run: Vec<String> = run.iter().map(|word| shell::quoted(word)).collect();
+                    return Some((run.join(" "), size));
+                }
             }
         }
     }

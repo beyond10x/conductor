@@ -1,0 +1,13 @@
+{
+  "at": "2026-11-13T22:40:40Z",
+  "actor": "human:timo",
+  "artifact": "story:anonymous-pod-no-forge-secret",
+  "kind": "story",
+  "revision": 4,
+  "change": {
+    "change": "evidence",
+    "kind": "test_result",
+    "source": "task check on the pull request's head df7bc07746: pass in 13m56s, with the Gates job, the documentation build and the container start",
+    "reference": "https://github.com/beyond10x/conductor/actions/runs/43519274703/job/132209125459"
+  }
+}
