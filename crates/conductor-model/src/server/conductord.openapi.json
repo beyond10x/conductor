@@ -8,7 +8,7 @@
     "x-ess-provenance": {
       "system": "conductor",
       "specification_version": "v1",
-      "contract_digest": "slice-sha256/2:fea93e99809497d91a0765b4394d3ff1d05f1d45733e4faa9b7781a2af860f95"
+      "contract_digest": "slice-sha256/2:3e850422de882dfb651d10597fd0e9a91aaec0e94dc5f0f513ddd3156e31789b"
     },
     "x-ess-reached-by": "network"
   },
@@ -4000,6 +4000,16 @@
         ],
         "additionalProperties": false
       },
+      "conductor.config.ModelTokenKind": {
+        "title": "ModelTokenKind",
+        "x-ess-name": "conductor.config.ModelTokenKind",
+        "x-ess-kind": "enum",
+        "type": "string",
+        "enum": [
+          "ApiKey",
+          "SubscriptionToken"
+        ]
+      },
       "conductor.config.PutConfig.Input": {
         "title": "Change the config input",
         "x-ess-name": "conductor.config.PutConfig",
@@ -4678,6 +4688,9 @@
           },
           "git_identity": {
             "$ref": "#/components/schemas/conductor.config.GitIdentity"
+          },
+          "model_token_kind": {
+            "$ref": "#/components/schemas/conductor.config.ModelTokenKind"
           }
         },
         "required": [
@@ -9930,6 +9943,16 @@
       ],
       "additionalProperties": false
     },
+    "conductor.config.ModelTokenKind": {
+      "title": "ModelTokenKind",
+      "x-ess-name": "conductor.config.ModelTokenKind",
+      "x-ess-kind": "enum",
+      "type": "string",
+      "enum": [
+        "ApiKey",
+        "SubscriptionToken"
+      ]
+    },
     "conductor.config.RevisionId": {
       "title": "RevisionId",
       "x-ess-name": "conductor.config.RevisionId",
@@ -10072,6 +10095,9 @@
         },
         "git_identity": {
           "$ref": "#/x-ess-entities/conductor.config.GitIdentity"
+        },
+        "model_token_kind": {
+          "$ref": "#/x-ess-entities/conductor.config.ModelTokenKind"
         },
         "state": {
           "$ref": "#/x-ess-entities/conductor.instance.Instance.State"

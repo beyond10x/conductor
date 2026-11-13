@@ -573,6 +573,7 @@ fn show_without_a_file_prints_todays_constants() {
         "gates_policy",
         "git_identity",
         "model_token",
+        "model_token_kind",
         "name",
         "operator",
         "records",
@@ -3965,6 +3966,118 @@ fn an_instances_git_identity_is_one_line_each_and_read_where_pods_run() {
         ),
         "{problems}"
     );
+}
+
+/// One instance `alpha` of a `conductor.config/2` file whose daemon runs no pods, at
+/// `placement`, with `extra` lines appended.
+fn model_token_instance(placement: &str, extra: &str) -> String {
+    format!(
+        "version: conductor.config/2\n\
+         daemon: {{store: \"sqlite:/srv/conductor.sqlite\", unattended: true}}\n\
+         instances:\n\
+         \x20 - name: alpha\n\
+         \x20   placement: {placement}\n\
+         \x20   session_prefix: alpha\n\
+         \x20   sources: [{{github: example-org}}]\n\
+         \x20   checkouts: {{root: ~/alpha, trees: ~/alpha-trees}}\n\
+         {extra}"
+    )
+}
+
+/// An instance's `model_token_kind` says which kind its `model_token` is: `api_key` or
+/// `subscription_token`, and absent means `api_key`. It validates beside a `model_token` and
+/// `config show` writes it as written, `null` without it. Set without a `model_token`, written as
+/// a word the specification does not declare, or `subscription_token` at a placement that opens
+/// a box (which receives its model token as an API key through a slot), it is refused at its
+/// YAML path, saying why.
+#[test]
+fn an_instances_model_token_kind_is_declared_and_refused_where_it_cannot_hold() {
+    let case = Case::new("model-token-kind");
+    let token = "\x20   model_token: secret:alpha-model\n";
+    let kind = |word: &str| format!("\x20   model_token_kind: {word}\n");
+    for (name, text) in [
+        (
+            "subscription",
+            model_token_instance("none", &format!("{token}{}", kind("subscription_token"))),
+        ),
+        (
+            "api-key",
+            model_token_instance("none", &format!("{token}{}", kind("api_key"))),
+        ),
+        (
+            "api-key-in-a-box",
+            model_token_instance("systemd", &format!("{token}{}", kind("api_key"))),
+        ),
+        ("absent-in-a-box", model_token_instance("systemd", token)),
+        (
+            "pods-subscription",
+            pods(&pod_instance(&format!(
+                "{token}{}",
+                kind("subscription_token")
+            ))),
+        ),
+    ] {
+        let file = case.write(&format!("{name}.yaml"), &text);
+        let output = case.with_file(&file, &["config", "validate"]);
+        assert_eq!(
+            output.status.code(),
+            Some(0),
+            "{name}: {}",
+            describe(&output)
+        );
+    }
+    let shown = case.show(
+        &case.write(
+            "shown.yaml",
+            &model_token_instance("none", &format!("{token}{}", kind("subscription_token"))),
+        ),
+        &[],
+    );
+    assert_eq!(
+        shown["instances"][0]["model_token_kind"], "subscription_token",
+        "{shown:#}"
+    );
+    let without = case.show(
+        &case.write("without.yaml", &model_token_instance("none", token)),
+        &[],
+    );
+    assert_eq!(
+        without["instances"][0]["model_token_kind"],
+        Value::Null,
+        "{without:#}"
+    );
+
+    let path = "instances[0].model_token_kind";
+    for (name, text, says) in [
+        (
+            "no-model-token",
+            model_token_instance("none", &kind("subscription_token")),
+            "names the kind of the model_token, and the instance names no model_token",
+        ),
+        (
+            "api-key-no-model-token",
+            model_token_instance("none", &kind("api_key")),
+            "names the kind of the model_token, and the instance names no model_token",
+        ),
+        (
+            "undeclared",
+            model_token_instance("none", &format!("{token}{}", kind("oauth"))),
+            "\"oauth\" is not one of api_key, subscription_token",
+        ),
+        (
+            "subscription-in-a-box",
+            model_token_instance("systemd", &format!("{token}{}", kind("subscription_token"))),
+            "is not supported at a placement that opens a box",
+        ),
+    ] {
+        let file = case.write(&format!("refused-{name}.yaml"), &text);
+        let problems = refused(&case, &file);
+        let line = problems
+            .lines()
+            .find(|line| line.contains(&format!("{path}: ")))
+            .unwrap_or_else(|| panic!("{name}: no problem at {path}: {problems}"));
+        assert!(line.contains(says), "{name}: {problems}");
+    }
 }
 
 /// A `GITLAB_HOST` entry of `daemon.kubernetes.env` names the one host the daemon's GitLab token

@@ -2713,6 +2713,166 @@ fn a_put_that_changes_only_the_git_identity_replaces_the_pod_once_and_get_answer
     }
 }
 
+/// An instance's `model_token_kind` is part of the pod's rendering: a `PUT /v1/instances/{name}`
+/// that sets or changes only the kind replaces the pod once, on a new digest, and the file the
+/// pod runs on names the kind, since the runtime in the pod hands the token over by it. For
+/// either kind the value of the model token stands once in the instance's Secret, under the
+/// secret's own key, and nowhere else: no second key, no plain `value` and no variable of the
+/// pod, not the rendered file, not the claim. `GET /v1/instances/{name}` answers the kind as the
+/// mapping holds it, no member for a mapping without it, and never the value.
+#[test]
+fn a_model_token_kind_is_rendered_into_the_pods_file_and_its_value_stays_once_in_the_secret() {
+    let case = Case::new("model-token-kind");
+    fs::write(case.dir.join("secrets/control"), CONTROL).expect("write a secret");
+    let mut daemon = case.daemon();
+    let start = Instant::now();
+    daemon
+        .pass(ReconcileReason::Cadence, start)
+        .expect("a pass");
+    case.set_running();
+    let unchanged = case.pod()["metadata"]["annotations"]["conductor/digest"].clone();
+
+    let api = Api::new("3".repeat(64), "operator".to_owned(), None)
+        .with_config(
+            case.file(),
+            case.home(),
+            format!("sqlite:{}", case.dir.join("shared.sqlite").display()),
+        )
+        .with_control_token(
+            conductor_model::config::SecretsSource {
+                source: conductor_model::secret::Source::Files,
+                namespace: None,
+                url: None,
+                dir: Some(case.dir.join("secrets").display().to_string()),
+            },
+            Some(conductor_model::secret::SecretName("control".to_owned())),
+        )
+        .with_pods(true);
+    api.publish(daemon.rows(), daemon.routes(), Vec::new());
+    api.publish_host(Vec::new(), None);
+    let listener = TcpListener::bind(("127.0.0.1", 0)).expect("bind");
+    let port = listener.local_addr().expect("address").port();
+    let api = Arc::new(api);
+    std::thread::spawn(move || api::serve(&listener, &api));
+
+    let read = || {
+        let mut stream = TcpStream::connect(("127.0.0.1", port)).expect("connect");
+        stream
+            .set_read_timeout(Some(Duration::from_secs(60)))
+            .expect("a read timeout");
+        write!(
+            stream,
+            "GET /v1/instances/alpha HTTP/1.1\r\nHost: 127.0.0.1:{port}\r\nConnection: close\r\n\
+             Authorization: Bearer {CONTROL}\r\n\r\n"
+        )
+        .expect("send");
+        let mut bytes = Vec::new();
+        stream.read_to_end(&mut bytes).expect("read");
+        let text = String::from_utf8_lossy(&bytes).into_owned();
+        assert!(text.starts_with("HTTP/1.1 200"), "{text}");
+        assert!(
+            !text.contains(MODEL_TOKEN),
+            "the answer holds the value: {text}"
+        );
+        let body = text
+            .split_once("\r\n\r\n")
+            .map(|(_, body)| body.to_owned())
+            .unwrap_or_default();
+        serde_json::from_str::<Value>(&body).unwrap_or_else(|_| panic!("a JSON row: {body}"))
+    };
+    let mapping = |kind: Option<&str>| {
+        let mut mapping = json!({
+            "name": "alpha",
+            "placement": "none",
+            "session_prefix": "alpha",
+            "sources": [{"github": "example-org"}],
+            "model_token": "secret:alpha-model",
+        });
+        if let Some(kind) = kind {
+            mapping["model_token_kind"] = json!(kind);
+        }
+        mapping
+    };
+    let digest = || case.pod()["metadata"]["annotations"]["conductor/digest"].clone();
+
+    let row = read();
+    assert!(row.get("model_token_kind").is_none(), "{row}");
+    let mut before = unchanged.clone();
+    let mut at = 2;
+    for kind in [Some("subscription_token"), Some("api_key"), None] {
+        let (status, body) = put(port, "alpha", &mapping(kind));
+        assert_eq!(status, 200, "{kind:?}: {body}");
+        let row = read();
+        match kind {
+            Some(kind) => assert_eq!(row["model_token_kind"], kind, "{row}"),
+            None => assert!(row.get("model_token_kind").is_none(), "{row}"),
+        }
+        at += 2;
+        let done = daemon
+            .pass(
+                ReconcileReason::ConfigChange,
+                start + Duration::from_secs(at),
+            )
+            .expect("a pass");
+        assert_eq!(done.len(), 1, "{kind:?}: {done:?}");
+        assert_eq!(
+            done[0].action,
+            ReconcileAction::Restart,
+            "{kind:?}: {done:?}"
+        );
+        assert_ne!(digest(), before, "{kind:?}: the digest");
+        before = digest();
+        case.set_running();
+
+        let pod = case.pod();
+        let secret = case
+            .object("secrets", "conductor-instance-alpha")
+            .expect("the Secret");
+        let rendered = secret_value(&secret, "conductor.yaml");
+        match kind {
+            Some(kind) => assert!(
+                rendered.contains(&format!("model_token_kind: {kind}\n")),
+                "{rendered}"
+            ),
+            None => assert!(!rendered.contains("model_token_kind"), "{rendered}"),
+        }
+        let holding: Vec<String> = secret["data"]
+            .as_object()
+            .expect("the Secret's data")
+            .keys()
+            .filter(|key| secret_value(&secret, key).contains(MODEL_TOKEN))
+            .cloned()
+            .collect();
+        assert_eq!(holding, ["alpha-model"], "{kind:?}: {secret}");
+        assert!(secret.get("stringData").is_none(), "{kind:?}: {secret}");
+        let claim = case
+            .object("persistentvolumeclaims", "conductor-instance-alpha-data")
+            .expect("the claim");
+        for (what, text) in [
+            ("the pod", pod.to_string()),
+            ("the rendered file", rendered.clone()),
+            ("the claim", claim.to_string()),
+        ] {
+            assert!(!text.contains(MODEL_TOKEN), "{kind:?}: {what}: {text}");
+        }
+        let env = pod["spec"]["containers"][0]["env"]
+            .as_array()
+            .expect("env")
+            .clone();
+        assert!(
+            env.iter()
+                .all(|entry| entry["name"] != "CLAUDE_CODE_OAUTH_TOKEN"
+                    && entry["valueFrom"]["secretKeyRef"]["key"] != "alpha-model"),
+            "{kind:?}: the pod carries the model token as a variable: {pod}"
+        );
+    }
+    assert_eq!(
+        digest(),
+        unchanged,
+        "a mapping without the kind renders the pod as before"
+    );
+}
+
 /// A free loopback port.
 fn free_port() -> u16 {
     TcpListener::bind(("127.0.0.1", 0))

@@ -50,9 +50,13 @@ const DERIVED: [(&str, &str); 1] = [("roles", "session_name")];
 const DERIVED_SECTIONS: [&str; 2] = ["conductor", "remote"];
 
 /// The instance keys `(key, dependent)` where the library refuses `dependent` without `key`
-/// (`story:auto-resume`: `usage.rotate` only beside `usage.probe`). Whether `key` is optional is
-/// read with `dependent` left out too, else the refusal would make `key` read `required`.
-const DEPENDENT: [(&str, &str); 1] = [("usage.probe", "usage.rotate")];
+/// (`story:auto-resume`: `usage.rotate` only beside `usage.probe`; `model_token_kind` only beside
+/// `model_token`). Whether `key` is optional is read with `dependent` left out too, else the
+/// refusal would make `key` read `required`.
+const DEPENDENT: [(&str, &str); 2] = [
+    ("usage.probe", "usage.rotate"),
+    ("model_token", "model_token_kind"),
+];
 
 /// The keys `(<list>[], [<a>, <b>])` of which each element of the list writes exactly one
 /// (`conductor.config.KubernetesEnv`'s `value` and `secret`): leaving one of them out of every
@@ -288,6 +292,7 @@ instances:
         dry_run: example-sync publish ci/policy.json --dry-run
     gates_policy: ~/example-org/gates/policy.json
     model_token: secret:example-org-model
+    model_token_kind: subscription_token
     forge:
       route: direct
 ";

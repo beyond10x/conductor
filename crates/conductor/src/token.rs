@@ -39,7 +39,9 @@ use conductor_model::agent::AgentName;
 use conductor_model::behaviour::{
     ExternalCommand, Generated, PoolTokenStorage, TryContext, unmet_context,
 };
-use conductor_model::config::{DaemonOperator, Instance, InstanceName, OperatorGrant, Role};
+use conductor_model::config::{
+    DaemonOperator, Instance, InstanceName, ModelTokenKind, OperatorGrant, Role,
+};
 use conductor_model::obligation::UnmetObligation;
 use conductor_model::operator::obligations::{
     JoinInstanceBehavior as _, LeaveInstanceBehavior as _,
@@ -660,8 +662,8 @@ pub fn helper(program: &Path, config: Option<&str>, token_id: &TokenId) -> Strin
     reveal_words(program, config, "--token", &token_id.0.0)
 }
 
-/// The `apiKeyHelper` that hands the harness the `model_token` of `instance`
-/// (`story:container-start-without-prompt`): this binary's `token reveal --model-token`, with
+/// The `apiKeyHelper` that hands the harness the `model_token` of `instance`, of the kind
+/// `api_key` (`story:container-start-without-prompt`): this binary's `token reveal --model-token`, with
 /// the config file `config` when there is one. Names the instance, never the value.
 #[must_use]
 pub fn model_helper(program: &Path, config: Option<&str>, instance: &InstanceName) -> String {
@@ -704,13 +706,31 @@ fn apply_helper(
     helper: impl FnOnce(&Path, Option<&str>) -> String,
     remote_control: bool,
 ) -> Result<PathBuf> {
-    let name = launch.request.session_name.0.clone();
     let config = launch
         .env
         .iter()
         .find(|(key, _)| key == crate::config::CONFIG_VARIABLE)
         .map(|(_, value)| value.clone());
     let program = std::env::current_exe().context("the token's helper: read the binary")?;
+    let helper = helper(&program, config.as_deref());
+    copy_settings(
+        launch,
+        |settings| {
+            settings.insert(HELPER_KEY.to_owned(), Value::String(helper));
+        },
+        remote_control,
+    )
+}
+
+/// Writes the launch's `--settings` file, read as it is and changed by `edit`, again to
+/// `<state>/sessions/<session name>.settings.json`, and starts the launch with that copy;
+/// `remote_control` adds `--remote-control <session name>`. Answers the settings file written.
+fn copy_settings(
+    launch: &mut Launch,
+    edit: impl FnOnce(&mut serde_json::Map<String, Value>),
+    remote_control: bool,
+) -> Result<PathBuf> {
+    let name = launch.request.session_name.0.clone();
     let at = launch.args.iter().position(|arg| arg == "--settings");
     let mut settings: Value = match at.and_then(|at| launch.args.get(at + 1)) {
         Some(file) => match fs::read_to_string(file) {
@@ -724,10 +744,7 @@ fn apply_helper(
     let Some(object) = settings.as_object_mut() else {
         bail!("the settings of {name} are no JSON object");
     };
-    object.insert(
-        HELPER_KEY.to_owned(),
-        Value::String(helper(&program, config.as_deref())),
-    );
+    edit(object);
     let dir = launch.state.join("sessions");
     fs::create_dir_all(&dir).with_context(|| format!("create {}", dir.display()))?;
     let file = dir.join(format!("{name}.settings.json"));
@@ -746,17 +763,82 @@ fn apply_helper(
     Ok(file)
 }
 
+/// The variable of the harness's process environment it reads the long-lived token of a
+/// subscription login from. A [`HELPER_KEY`] in its settings outranks it.
+pub const OAUTH_VARIABLE: &str = "CLAUDE_CODE_OAUTH_TOKEN";
+
+/// Puts the `model_token` of `instance`, of the kind `subscription_token`, into `launch`: its
+/// value, read from `secrets` now, as [`OAUTH_VARIABLE`] of the launch's environment, which the
+/// provider sets on the harness's process alone; and the launch's settings copied as [`apply`]
+/// copies them, without a [`HELPER_KEY`], which would outrank the variable. One the settings
+/// named is left out, and one line of standard error says so, without its text. The value is
+/// in no argument, no file and no line written.
+fn apply_subscription(
+    launch: &mut Launch,
+    instance: &Instance,
+    secret: &SecretName,
+    secrets: &conductor_model::config::SecretsSource,
+) -> Result<(), String> {
+    let name = &instance.name.0;
+    let what = format!("the model_token of instance {name}");
+    let source = crate::secret::open(secrets).map_err(|unusable| unusable.to_string())?;
+    let value = match source.reveal(secret) {
+        Ok(Some(value)) => value,
+        Ok(None) => {
+            return Err(format!(
+                "SecretMissing: {what}: the secrets source holds no value for it"
+            ));
+        }
+        Err(error) => {
+            return Err(format!(
+                "SourceUnreachable: {what}: the {:?} source did not answer",
+                error.source
+            ));
+        }
+    };
+    let value = std::str::from_utf8(value.expose())
+        .ok()
+        .filter(|text| !text.chars().any(char::is_control))
+        .ok_or_else(|| {
+            format!("{what}: its value is no one line of text, which {OAUTH_VARIABLE} holds")
+        })?
+        .to_owned();
+    let mut held = false;
+    let file = copy_settings(
+        launch,
+        |settings| held = settings.remove(HELPER_KEY).is_some(),
+        false,
+    )
+    .map_err(|error| format!("{error:#}"))?;
+    if held {
+        eprintln!(
+            "conductor: session {}: its settings named an {HELPER_KEY}, which outranks \
+             {OAUTH_VARIABLE}; the session's settings {} leave it out, since {what} is a \
+             subscription_token",
+            launch.request.session_name.0,
+            file.display()
+        );
+    }
+    launch.env.retain(|(key, _)| key != OAUTH_VARIABLE);
+    launch.env.push((OAUTH_VARIABLE.to_owned(), value));
+    Ok(())
+}
+
 /// Leases a token for the launch of `role`'s agent and puts it into `launch` ([`apply`]); a role
 /// that names `token_owner` starts for Remote Control. Answers the lease, `None` with an empty
 /// pool. With an empty pool the launch is left as it is, but for an instance whose placement
 /// opens no box and that names a `model_token`, where the config file says `daemon.unattended`
-/// (`story:container-start-without-prompt`): its settings then name [`model_helper`], so the
-/// agent runs on that token. Without that key an empty pool leaves every launch as it is, so an
-/// agent on a workstation keeps the harness's own login.
+/// (`story:container-start-without-prompt`): the agent then runs on that token, by its
+/// `model_token_kind`. An `api_key`, the kind of a token that names none: its settings name
+/// [`model_helper`]. A `subscription_token`: [`apply_subscription`] reads its value from the
+/// daemon's secrets source now, at the start of this session, into the launch's environment.
+/// Without `daemon.unattended` an empty pool leaves every launch as it is, so an agent on a
+/// workstation keeps the harness's own login.
 ///
 /// # Errors
 ///
-/// `NoTokenAvailable`, or the settings cannot be written; one line.
+/// `NoTokenAvailable`, the settings cannot be written, or a subscription token cannot be read;
+/// one line, which holds no token's value.
 pub fn lease_into(
     instance: &Instance,
     role: &Role,
@@ -765,16 +847,23 @@ pub fn lease_into(
 ) -> Result<Option<Lease>, String> {
     let name = launch.request.session_name.0.clone();
     let Some(lease) = lease_for_start(instance, role, &name, headroom)? else {
-        if instance.model_token.is_some()
+        if let Some(secret) = &instance.model_token
             && !crate::placement::boxed(instance)
-            && daemon_config().is_some_and(|daemon| daemon.unattended)
+            && let Some(daemon) = daemon_config().filter(|daemon| daemon.unattended)
         {
-            apply_helper(
-                launch,
-                |program, config| model_helper(program, config, &instance.name),
-                false,
-            )
-            .map_err(|error| format!("{error:#}"))?;
+            match instance.model_token_kind {
+                Some(ModelTokenKind::SubscriptionToken) => {
+                    apply_subscription(launch, instance, secret, &daemon.secrets)?;
+                }
+                Some(ModelTokenKind::ApiKey) | None => {
+                    apply_helper(
+                        launch,
+                        |program, config| model_helper(program, config, &instance.name),
+                        false,
+                    )
+                    .map_err(|error| format!("{error:#}"))?;
+                }
+            }
         }
         return Ok(None);
     };

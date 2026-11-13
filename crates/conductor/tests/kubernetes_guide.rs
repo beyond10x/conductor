@@ -445,6 +445,46 @@ fn the_guide_names_an_instances_git_identity_in_the_keys_and_in_what_a_pod_carri
     );
 }
 
+/// The guide names an instance's `model_token_kind` in the table of the config's keys, with its
+/// two kinds and its default, and has a section "The model token" that says which kind takes
+/// which route to the harness (`apiKeyHelper` and `conductor token reveal --model-token` for an
+/// API key; `CLAUDE_CODE_OAUTH_TOKEN` in the harness's environment, read once at each session's
+/// start, for a subscription token), that nothing refreshes a subscription token, so an expired
+/// or changed one needs a new value and `POST /v1/instances/{name}/restart`, what a running pod
+/// does when the value changes, and what a control plane compares to see a pod on an older
+/// value: `modified_at` of `GET /v1/instances/{name}/secrets` and the pod's start.
+#[test]
+fn the_guide_names_the_model_token_kind_its_two_routes_and_what_a_new_value_needs() {
+    let table = section("The daemon-config file");
+    let row = table
+        .lines()
+        .find(|line| line.contains("`model_token_kind`"))
+        .unwrap_or_else(|| panic!("the table names model_token_kind:\n{table}"));
+    for words in ["`api_key`", "`subscription_token`", "`model_token`", "422"] {
+        assert!(row.contains(words), "the row says {words:?}: {row}");
+    }
+
+    let text = section("The model token");
+    for words in [
+        "`model_token_kind`",
+        "`api_key`",
+        "`subscription_token`",
+        "`apiKeyHelper`",
+        "`conductor token reveal --model-token <instance>`",
+        "`CLAUDE_CODE_OAUTH_TOKEN`",
+        "at each session's start",
+        "nothing refreshes",
+        "expired",
+        "`POST /v1/instances/{name}/restart`",
+        "`modified_at`",
+        "`GET /v1/instances/{name}/secrets`",
+        "a placement that opens a box",
+        "/proc",
+    ] {
+        assert!(text.contains(words), "the section says {words:?}:\n{text}");
+    }
+}
+
 /// The section "Forge credentials" says what a pod's git reaches with the token
 /// (story:pod-git-reaches-forge): git over HTTPS to the forge's origin through a credential
 /// helper, no other host, `GIT_CONFIG_COUNT` in `daemon.kubernetes.env` leaving git's

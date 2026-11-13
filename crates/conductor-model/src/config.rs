@@ -1,5 +1,5 @@
 // generated from conductor v1
-// contract digest 113cf38c10351ad6ed5d3994411dea49a051cfcd00a8594eba39d9cea1a8e6a4
+// contract digest 882143897862f23950c9f2c26ad3b57f23a8a0eb8334ddf254337d9e57836461
 // do not edit: regenerate with `ess synthesize --layout crate`
 
 //! Config — `conductor.config`.
@@ -550,6 +550,8 @@ pub struct Instance {
     pub gates_policy: Option<String>,
     /// `model_token` — `Optional<conductor.secret.SecretName>`.
     pub model_token: Option<crate::secret::SecretName>,
+    /// `model_token_kind` — `Optional<conductor.config.ModelTokenKind>`.
+    pub model_token_kind: Option<ModelTokenKind>,
     /// `forge_token` — `Optional<conductor.secret.SecretName>`.
     pub forge_token: Option<crate::secret::SecretName>,
     /// `git_identity` — `Optional<conductor.config.GitIdentity>`.
@@ -731,6 +733,15 @@ pub struct Machine {
 pub struct MigrateConfig {
     /// `check` — `Optional<Boolean>`.
     pub check: Option<bool>,
+}
+
+/// ModelTokenKind — `conductor.config.ModelTokenKind`: one of a closed set of names.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ModelTokenKind {
+    /// `ApiKey`.
+    ApiKey,
+    /// `SubscriptionToken`.
+    SubscriptionToken,
 }
 
 /// Network — `conductor.config.Network`: one of a closed set of names.

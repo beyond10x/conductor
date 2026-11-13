@@ -695,6 +695,256 @@ fn without_unattended_an_empty_pool_leaves_the_launch_on_the_harness_login() {
     case.assert_nowhere(VALUE);
 }
 
+// -------------------------------------------------------------------------------------------
+// The kind of the model token: the route each kind takes to the harness.
+// -------------------------------------------------------------------------------------------
+
+/// A model token's value no output, file or command line may carry.
+const MARKER: &str = "marker-subscription-0001";
+
+/// The value the secret holds after it changed.
+const CHANGED: &str = "marker-subscription-0002";
+
+/// The variable the harness reads a subscription token from.
+const OAUTH: &str = "CLAUDE_CODE_OAUTH_TOKEN";
+
+/// Makes `case`'s `claude` a harness double that keeps, for its last launch, each argument on a
+/// line of `harness/argv`, the value of [`OAUTH`] in its environment in `harness/oauth`, and
+/// `set` in `harness/oauth-set` where the variable is set at all. `claude agents` lists no
+/// session. It runs shell builtins only: the case's `PATH` holds no other program.
+fn harness_double(case: &Case) {
+    let harness = case.dir.join("harness");
+    fs::create_dir_all(&harness).expect("the harness double's directory");
+    fs::create_dir_all(case.dir.join("tmp")).expect("the case's TMPDIR");
+    let claude = case.dir.join("bin/claude");
+    fs::write(
+        &claude,
+        format!(
+            "#!/bin/sh\n\
+             if [ \"$1\" = agents ]; then echo '[]'; exit 0; fi\n\
+             if [ \"$1\" = --version ]; then echo '9.9.9 (Claude Code)'; exit 0; fi\n\
+             printf '%s\\n' \"$@\" > '{argv}'\n\
+             printf '%s' \"${{{OAUTH}-}}\" > '{oauth}'\n\
+             printf '%s' \"${{{OAUTH}+set}}\" > '{set}'\n\
+             echo 'session 0190a1b2-0000-7000-8000-000000000001'\n",
+            argv = harness.join("argv").display(),
+            oauth = harness.join("oauth").display(),
+            set = harness.join("oauth-set").display(),
+        ),
+    )
+    .expect("write the harness double");
+    fs::set_permissions(&claude, fs::Permissions::from_mode(0o755)).expect("runnable");
+}
+
+/// The value of [`OAUTH`] the harness double's last launch had, `None` where it was not set.
+fn oauth_of(case: &Case) -> Option<String> {
+    let set = fs::read_to_string(case.dir.join("harness/oauth-set")).expect("the double ran");
+    (set == "set").then(|| {
+        fs::read_to_string(case.dir.join("harness/oauth")).expect("the double kept the value")
+    })
+}
+
+/// The arguments of the harness double's last launch.
+fn argv_of(case: &Case) -> String {
+    fs::read_to_string(case.dir.join("harness/argv")).expect("the harness double was launched")
+}
+
+/// The settings file the harness double's last launch was given with `--settings`.
+fn settings_of(case: &Case) -> PathBuf {
+    let argv = argv_of(case);
+    let words: Vec<&str> = argv.lines().collect();
+    let at = words
+        .iter()
+        .position(|word| *word == "--settings")
+        .unwrap_or_else(|| panic!("no --settings in {argv}"));
+    PathBuf::from(words[at + 1])
+}
+
+/// `conductor session start --role <role>` of the built binary, through the `none` provider: it
+/// launches the case's harness double with the launch's environment, the variables of this
+/// process taken out but the case's own.
+fn start_built(case: &Case, role: &str) -> Output {
+    case.conductor()
+        .env_remove(OAUTH)
+        .args(["session", "start", "--role", role])
+        .output()
+        .expect("run session start")
+}
+
+/// [`with_model_token`] at a placement that opens no box, in a file that says
+/// `daemon.unattended`, the instance's `model_token_kind` `kind` where one is given, and the
+/// director's own settings file `settings`, which names an `apiKeyHelper` of its own.
+fn with_kind(case: &Case, secrets: &Path, kind: Option<&str>) {
+    let settings = case.dir.join("director-settings.json");
+    fs::write(
+        &settings,
+        serde_json::json!({"apiKeyHelper": "printf helper-of-the-role", "env": {"KEPT": "1"}})
+            .to_string(),
+    )
+    .expect("write the role's settings");
+    with_model_token(case, secrets, ", unattended: true", "none");
+    let mut text = fs::read_to_string(case.file()).expect("the config file");
+    text = text.replace(
+        "{role: director, harness: claude, model: opus}",
+        &format!(
+            "{{role: director, harness: claude, model: opus, settings: {:?}}}",
+            settings.display().to_string()
+        ),
+    );
+    if let Some(kind) = kind {
+        text = text.replace(
+            "\x20   model_token: secret:alpha-model\n",
+            &format!("\x20   model_token: secret:alpha-model\n\x20   model_token_kind: {kind}\n"),
+        );
+    }
+    fs::write(case.file(), text).expect("write the config file");
+}
+
+/// The model token's secret `alpha-model` in `secrets` holds `value`.
+fn mount(secrets: &Path, value: &str) {
+    fs::create_dir_all(secrets).expect("the secrets directory");
+    fs::write(secrets.join("alpha-model"), format!("{value}\n")).expect("mount the token");
+}
+
+/// A `model_token` of kind `subscription_token` reaches the harness as `CLAUDE_CODE_OAUTH_TOKEN`
+/// in its process's environment, and the session's settings copy names no `apiKeyHelper`, which
+/// would outrank the variable: the one the role's own settings named is taken out of the copy,
+/// and one line of the start says so without the helper's text. The value is in no output of the
+/// start, no argument of the harness, not in the settings copy and in no file under the
+/// instance's state, records or the daemon's directory: the launch's environment is the only
+/// place it is handed over, and the `none` provider sets it on the harness's process, which no
+/// unit and no command line carries.
+#[test]
+fn a_subscription_token_reaches_the_harness_in_its_variable_and_its_settings_name_no_helper() {
+    let case = Case::new("kind-subscription", ROLES);
+    let secrets = case.dir.join("secrets");
+    mount(&secrets, MARKER);
+    with_kind(&case, &secrets, Some("subscription_token"));
+    harness_double(&case);
+
+    let started = start_built(&case, "director");
+    assert_eq!(started.status.code(), Some(0), "{}", said(&started));
+    assert_eq!(
+        oauth_of(&case).as_deref(),
+        Some(MARKER),
+        "{}",
+        said(&started)
+    );
+    let settings = settings_of(&case);
+    let text = fs::read_to_string(&settings).expect("the settings copy");
+    let json: Value = serde_json::from_str(&text).expect("the settings copy is JSON");
+    assert!(json.get(token::HELPER_KEY).is_none(), "{text}");
+    assert_eq!(
+        json["env"]["KEPT"], "1",
+        "the rest of the settings is kept: {text}"
+    );
+    assert!(
+        settings.starts_with(case.dir.join("state")),
+        "the copy is the session's: {}",
+        settings.display()
+    );
+    let stderr = String::from_utf8_lossy(&started.stderr).into_owned();
+    let told: Vec<&str> = stderr
+        .lines()
+        .filter(|line| line.contains(token::HELPER_KEY))
+        .collect();
+    assert_eq!(told.len(), 1, "{}", said(&started));
+    assert!(
+        told[0].contains("alpha-director") && !told[0].contains("helper-of-the-role"),
+        "{}",
+        told[0]
+    );
+
+    for (what, text) in [
+        ("the start's output", said(&started)),
+        ("the harness's arguments", argv_of(&case)),
+        ("the settings copy", text.clone()),
+    ] {
+        assert!(!text.contains(MARKER), "{what}: {text}");
+    }
+    case.assert_nowhere(MARKER);
+}
+
+/// A `model_token` of kind `api_key`, and one whose instance names no kind, takes the route it
+/// took before the kind existed: the settings copy names `conductor token reveal --model-token
+/// <instance>` as its `apiKeyHelper`, and the harness's process has no `CLAUDE_CODE_OAUTH_TOKEN`.
+#[test]
+fn an_api_key_and_a_model_token_of_no_kind_name_the_helper_and_set_no_variable() {
+    for kind in [None, Some("api_key")] {
+        let case = Case::new(
+            &format!("kind-{}", kind.unwrap_or("absent").replace('_', "-")),
+            ROLES,
+        );
+        let secrets = case.dir.join("secrets");
+        mount(&secrets, MARKER);
+        with_kind(&case, &secrets, kind);
+        harness_double(&case);
+
+        let started = start_built(&case, "director");
+        assert_eq!(
+            started.status.code(),
+            Some(0),
+            "{kind:?}: {}",
+            said(&started)
+        );
+        assert_eq!(oauth_of(&case), None, "{kind:?}");
+        let helper = helper_of(&settings_of(&case));
+        assert!(
+            helper.ends_with("token reveal --model-token 'alpha'"),
+            "{kind:?}: {helper}"
+        );
+        assert!(
+            !said(&started).contains(MARKER),
+            "{kind:?}: {}",
+            said(&started)
+        );
+        assert!(!argv_of(&case).contains(MARKER), "{kind:?}");
+        case.assert_nowhere(MARKER);
+    }
+}
+
+/// What a changed value reaches without a restart of the runtime: a subscription token is read
+/// from the secrets source once at each session's start, so a session started after the secret
+/// changed runs on the new value and one started before keeps the old; an API key is read by
+/// `token reveal --model-token` at each ask of the harness, so the next ask answers the new value.
+#[test]
+fn a_changed_model_token_reaches_the_next_session_start_or_the_next_ask() {
+    let case = Case::new("kind-changed", ROLES);
+    let secrets = case.dir.join("secrets");
+    mount(&secrets, MARKER);
+    with_kind(&case, &secrets, Some("subscription_token"));
+    harness_double(&case);
+
+    let first = start_built(&case, "director");
+    assert_eq!(first.status.code(), Some(0), "{}", said(&first));
+    assert_eq!(oauth_of(&case).as_deref(), Some(MARKER));
+    mount(&secrets, CHANGED);
+    let second = start_built(&case, "director");
+    assert_eq!(second.status.code(), Some(0), "{}", said(&second));
+    assert_eq!(oauth_of(&case).as_deref(), Some(CHANGED));
+
+    let reveal = || {
+        case.conductor()
+            .args(["token", "reveal", "--model-token", "alpha"])
+            .output()
+            .expect("run token reveal")
+    };
+    mount(&secrets, MARKER);
+    let before = reveal();
+    assert_eq!(before.status.code(), Some(0), "{}", said(&before));
+    assert_eq!(
+        String::from_utf8_lossy(&before.stdout),
+        format!("{MARKER}\n")
+    );
+    mount(&secrets, CHANGED);
+    let after = reveal();
+    assert_eq!(after.status.code(), Some(0), "{}", said(&after));
+    assert_eq!(
+        String::from_utf8_lossy(&after.stdout),
+        format!("{CHANGED}\n")
+    );
+}
+
 #[test]
 fn token_owner_is_a_controller_s_key_only() {
     let case = Case::new(

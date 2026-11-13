@@ -151,6 +151,10 @@ entities:
       # secret; absent where the mapping holds none.
       - name: git_identity
         type: Optional<conductor.config.GitIdentity>
+      # The kind of the instance's model token (`instances[].model_token_kind`), read from the
+      # config file as it holds it at each read, no secret; absent where the mapping holds none.
+      - name: model_token_kind
+        type: Optional<conductor.config.ModelTokenKind>
     relations:
       - name: placement
         kind: references
@@ -262,9 +266,9 @@ views:
       display: Instances
 
   # `GET /v1/instances/{name}`: the one row of `Instances` whose name is `name`, and the
-  # instance's `git_identity` as its mapping holds it (story:instance-git-identity), absent where
-  # it holds none; an instance the daemon's rows do not hold answers `404` (a retired one, once
-  # the daemon reconciled).
+  # instance's `git_identity` (story:instance-git-identity) and `model_token_kind` as its mapping
+  # holds them, each absent where it holds none, never the model token's value; an instance the
+  # daemon's rows do not hold answers `404` (a retired one, once the daemon reconciled).
   - name: conductor.instance.InstanceByName
     source: conductor.instance.Instance
     consistency: read_your_writes
@@ -284,6 +288,7 @@ views:
       - {name: detail, type: Optional<String>}
       - {name: changed_by, type: conductor.operator.Actor}
       - {name: git_identity, type: Optional<conductor.config.GitIdentity>}
+      - {name: model_token_kind, type: Optional<conductor.config.ModelTokenKind>}
     naming:
       wire: instance
       display: One instance

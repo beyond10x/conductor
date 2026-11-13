@@ -2,8 +2,8 @@
   "provenance": {
     "system": "conductor",
     "specification_version": "v1",
-    "source_digest": "463f5cce7ce15f391f5b547540a3c36acb2522b877a8e0f377e040541e904cbf",
-    "contract_digest": "113cf38c10351ad6ed5d3994411dea49a051cfcd00a8594eba39d9cea1a8e6a4"
+    "source_digest": "b98468fddadf708a9408f6a48fb79eded72bc26c70a45e249a4c95fa54fa5bef",
+    "contract_digest": "882143897862f23950c9f2c26ad3b57f23a8a0eb8334ddf254337d9e57836461"
   },
   "scope": {
     "profile": "component-skeletons",
@@ -454,6 +454,13 @@
     {
       "kind": "domain_type",
       "source": "conductor.config.MigrateConfig",
+      "disposition": {
+        "disposition": "generated"
+      }
+    },
+    {
+      "kind": "domain_type",
+      "source": "conductor.config.ModelTokenKind",
       "disposition": {
         "disposition": "generated"
       }

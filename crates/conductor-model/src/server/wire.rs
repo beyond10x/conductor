@@ -1,5 +1,5 @@
 // generated from conductor v1
-// contract digest 113cf38c10351ad6ed5d3994411dea49a051cfcd00a8594eba39d9cea1a8e6a4
+// contract digest 882143897862f23950c9f2c26ad3b57f23a8a0eb8334ddf254337d9e57836461
 // do not edit: regenerate with `ess synthesize --layout crate`
 //! Every generated declaration, as JSON, in the renderings the published wire contracts fix.
 //!
@@ -2087,6 +2087,10 @@ pub fn encode_conductor_config_instance(value: &crate::config::Instance, out: &m
         json::member(out, "model_token");
         encode_conductor_secret_secret_name(&*held0, out);
     }
+    if let Some(held0) = &value.model_token_kind {
+        json::member(out, "model_token_kind");
+        encode_conductor_config_model_token_kind(&*held0, out);
+    }
     if let Some(held0) = &value.forge_token {
         json::member(out, "forge_token");
         encode_conductor_secret_secret_name(&*held0, out);
@@ -2108,7 +2112,7 @@ pub fn encode_conductor_config_instance(value: &crate::config::Instance, out: &m
 ///
 /// [`json::DecodeError`] naming the path and what the declaration says belongs there.
 pub fn decode_conductor_config_instance(value: &json::Value, at: &str) -> Result<crate::config::Instance, json::DecodeError> {
-    json::closed_at(value, at, &["name", "placement", "remote", "session_prefix", "sources", "checkouts", "records", "state", "cache", "roles", "limits", "controllers", "repositories", "cadence", "thresholds", "retention", "reports", "authority", "usage", "operator", "catalog", "secret_syncs", "gates_policy", "model_token", "forge_token", "git_identity", "forge", "conductor"])?;
+    json::closed_at(value, at, &["name", "placement", "remote", "session_prefix", "sources", "checkouts", "records", "state", "cache", "roles", "limits", "controllers", "repositories", "cadence", "thresholds", "retention", "reports", "authority", "usage", "operator", "catalog", "secret_syncs", "gates_policy", "model_token", "model_token_kind", "forge_token", "git_identity", "forge", "conductor"])?;
     Ok(crate::config::Instance {
         name: {
             let at0 = json::nested(at, "name");
@@ -2277,29 +2281,36 @@ pub fn decode_conductor_config_instance(value: &json::Value, at: &str) -> Result
                 Some(decode_conductor_secret_secret_name(member23, &at23)?)
             }
         },
-        forge_token: match value.member("forge_token") {
+        model_token_kind: match value.member("model_token_kind") {
             None | Some(json::Value::Null) => None,
             Some(member24) => {
-                let at24 = json::nested(at, "forge_token");
-                Some(decode_conductor_secret_secret_name(member24, &at24)?)
+                let at24 = json::nested(at, "model_token_kind");
+                Some(decode_conductor_config_model_token_kind(member24, &at24)?)
+            }
+        },
+        forge_token: match value.member("forge_token") {
+            None | Some(json::Value::Null) => None,
+            Some(member25) => {
+                let at25 = json::nested(at, "forge_token");
+                Some(decode_conductor_secret_secret_name(member25, &at25)?)
             }
         },
         git_identity: match value.member("git_identity") {
             None | Some(json::Value::Null) => None,
-            Some(member25) => {
-                let at25 = json::nested(at, "git_identity");
-                Some(decode_conductor_config_git_identity(member25, &at25)?)
+            Some(member26) => {
+                let at26 = json::nested(at, "git_identity");
+                Some(decode_conductor_config_git_identity(member26, &at26)?)
             }
         },
         forge: {
-            let at26 = json::nested(at, "forge");
-            let member26 = json::member_at(value, at, "forge")?;
-            decode_conductor_config_forge(member26, &at26)?
+            let at27 = json::nested(at, "forge");
+            let member27 = json::member_at(value, at, "forge")?;
+            decode_conductor_config_forge(member27, &at27)?
         },
         conductor: {
-            let at27 = json::nested(at, "conductor");
-            let member27 = json::member_at(value, at, "conductor")?;
-            decode_conductor_config_conductor_session(member27, &at27)?
+            let at28 = json::nested(at, "conductor");
+            let member28 = json::member_at(value, at, "conductor")?;
+            decode_conductor_config_conductor_session(member28, &at28)?
         },
     })
 }
@@ -2818,6 +2829,27 @@ pub fn decode_conductor_config_migrate_config(value: &json::Value, at: &str) -> 
                 Some(json::bool_at(member0, &at0, "a boolean")?)
             }
         },
+    })
+}
+
+/// Writes `conductor.config.ModelTokenKind` as JSON.
+pub fn encode_conductor_config_model_token_kind(value: &crate::config::ModelTokenKind, out: &mut String) {
+    match value {
+        crate::config::ModelTokenKind::ApiKey => json::push_text(out, "ApiKey"),
+        crate::config::ModelTokenKind::SubscriptionToken => json::push_text(out, "SubscriptionToken"),
+    }
+}
+
+/// Reads `conductor.config.ModelTokenKind` from JSON.
+///
+/// # Errors
+///
+/// [`json::DecodeError`] naming the path and what the declaration says belongs there.
+pub fn decode_conductor_config_model_token_kind(value: &json::Value, at: &str) -> Result<crate::config::ModelTokenKind, json::DecodeError> {
+    Ok(match json::text_at(value, at, "one of `ApiKey`, `SubscriptionToken`")? {
+        "ApiKey" => crate::config::ModelTokenKind::ApiKey,
+        "SubscriptionToken" => crate::config::ModelTokenKind::SubscriptionToken,
+        other => return Err(json::DecodeError { at: at.to_owned(), expected: "one of `ApiKey`, `SubscriptionToken`".to_owned(), found: format!("`{other}`") }),
     })
 }
 
@@ -20233,6 +20265,10 @@ pub fn encode_view_conductor_instance_instance_by_name(value: &crate::instance::
     if let Some(held0) = &value.git_identity {
         json::member(out, "git_identity");
         encode_conductor_config_git_identity(&*held0, out);
+    }
+    if let Some(held0) = &value.model_token_kind {
+        json::member(out, "model_token_kind");
+        encode_conductor_config_model_token_kind(&*held0, out);
     }
     out.push('}');
 }

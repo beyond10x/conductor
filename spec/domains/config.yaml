@@ -913,6 +913,14 @@ types:
       - {name: name, type: String}
       - {name: email, type: String}
 
+  # Which kind of credential an instance's `model_token` holds (`Instance.model_token_kind`). The
+  # file writes it in lower case: `api_key`, a key the harness sends as an API key, or
+  # `subscription_token`, the long-lived token of a subscription login, which the harness reads
+  # from the variable `CLAUDE_CODE_OAUTH_TOKEN` of its process's environment only.
+  - name: conductor.config.ModelTokenKind
+    kind: enum
+    variants: [ApiKey, SubscriptionToken]
+
   # One instance, `instances[]` of the file (design architecture-next § 9: name, `placement`,
   # sources, checkouts, records, roles, overrides of any global key). A path is written absolute or
   # under `~`, which is the home directory; the
@@ -985,9 +993,24 @@ types:
       # through a slot of the daemon's pool (`daemon.substrate_slots`); absent, the box receives
       # no slot. At a placement that opens no box, where the file says `daemon.unattended`
       # (story:container-start-without-prompt), an agent whose instance's pool leases it no token
-      # runs on it instead: its settings name `conductor token reveal --model-token <instance>`
-      # as their `apiKeyHelper`. Without that key an empty pool leaves the launch as it is.
+      # runs on it instead, by its `model_token_kind`. Without that key an empty pool leaves the
+      # launch as it is.
       - {name: model_token, type: Optional<conductor.secret.SecretName>}
+      # The kind of the `model_token` (`ModelTokenKind`); absent, `api_key`. At a placement that
+      # opens no box, an agent that runs on the model token gets it by its kind. `api_key`: the
+      # session's settings copy names `conductor token reveal --model-token <instance>` as its
+      # `apiKeyHelper`, which reads the value from the secrets source at each ask of the harness.
+      # `subscription_token`: the runtime reads the value from the secrets source once at each
+      # session's start and sets it as `CLAUDE_CODE_OAUTH_TOKEN` in the environment of the
+      # harness's process, never in a unit, a command line, the settings copy or a log; the
+      # settings copy names no `apiKeyHelper`, which would outrank the variable, and one the
+      # role's settings named is left out of it, which the start says in one line. Nothing
+      # refreshes such a token: an expired or changed one needs a new value in the secrets
+      # source and a new session, which `POST /v1/instances/{name}/restart` starts for every
+      # session of an instance pod. Set without a `model_token`, or as `subscription_token` at a
+      # placement that opens a box (a box receives its model token as an API key through a
+      # slot), it is refused at validate by its YAML path.
+      - {name: model_token_kind, type: Optional<conductor.config.ModelTokenKind>}
       # The instance's own forge token, written `secret:<name>` (story:instance-forge-token), read
       # only by the pod supervisor: where `daemon.kubernetes` is set, the instance's pod reads the
       # secret's value from its own Secret in the variable of the forge its sources name,

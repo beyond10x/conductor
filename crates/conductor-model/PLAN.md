@@ -1,13 +1,13 @@
 <!--
   generated from conductor v1
-  contract digest 113cf38c10351ad6ed5d3994411dea49a051cfcd00a8594eba39d9cea1a8e6a4
+  contract digest 882143897862f23950c9f2c26ad3b57f23a8a0eb8334ddf254337d9e57836461
   do not edit: regenerate with `ess synthesize --layout crate`
 -->
 # Synthesis plan — conductor v1
 
 Scope: `component-skeletons`, laid out as `crate`, planned by `ess-synth`. Regenerate with `ess synthesize --layout crate`.
 
-1026 capabilities: **1009 generated**, **17 obligations**, **0 refused**. An obligation is yours to implement against its contract; a refusal is a fact about this synthesis scope, not about the specification.
+1027 capabilities: **1010 generated**, **17 obligations**, **0 refused**. An obligation is yours to implement against its contract; a refusal is a fact about this synthesis scope, not about the specification.
 
 ## Generated
 
@@ -77,6 +77,7 @@ Scope: `component-skeletons`, laid out as `crate`, planned by `ess-synth`. Regen
 | domain type | `conductor.config.LocalSource` |
 | domain type | `conductor.config.Machine` |
 | domain type | `conductor.config.MigrateConfig` |
+| domain type | `conductor.config.ModelTokenKind` |
 | domain type | `conductor.config.Network` |
 | domain type | `conductor.config.OperatorGrant` |
 | domain type | `conductor.config.OperatorRole` |

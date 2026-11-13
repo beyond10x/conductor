@@ -798,6 +798,75 @@ fn a_git_identity_reaches_only_the_values_of_the_four_variables_and_is_refused_a
     }
 }
 
+/// An instance's `model_token_kind` takes the two kinds the specification declares: a kind it
+/// does not declare, and a kind beside no `model_token`, are refused `422`
+/// `conductor.config.ConfigInvalid` at `instances[<i>].model_token_kind` by `POST /v1/instances`
+/// and by `PUT /v1/instances/{name}`, the file unchanged; a declared kind is taken.
+#[test]
+fn a_model_token_kind_the_specification_does_not_declare_is_refused_at_the_routes() {
+    let case = Case::new("model-token-kind");
+    case.write(" []");
+    let port = case.serve();
+    let sent = mapping(
+        "beta",
+        &json!({"model_token": "secret:alpha-model", "model_token_kind": "subscription_token"}),
+    );
+    let (status, body) = exchange(
+        port,
+        &request(
+            port,
+            "POST",
+            "/v1/instances",
+            Some(&json!({"mapping": sent, "reason": "a tenant"})),
+        ),
+    );
+    assert_eq!(status, 201, "{body}");
+    assert!(
+        case.text().contains("model_token_kind: subscription_token"),
+        "{}",
+        case.text()
+    );
+
+    let before = case.text();
+    for (what, extra) in [
+        (
+            "an undeclared kind",
+            json!({"model_token": "secret:alpha-model", "model_token_kind": "oauth_token"}),
+        ),
+        (
+            "a kind of no model_token",
+            json!({"model_token_kind": "api_key"}),
+        ),
+    ] {
+        let mut gamma = extra.clone();
+        gamma["session_prefix"] = json!("gamma");
+        for (method, target, body, path) in [
+            (
+                "POST",
+                "/v1/instances",
+                json!({"mapping": mapping("gamma", &gamma), "reason": "r"}),
+                "instances[1].model_token_kind",
+            ),
+            (
+                "PUT",
+                "/v1/instances/beta",
+                json!({"mapping": mapping("beta", &extra), "reason": "r"}),
+                "instances[0].model_token_kind",
+            ),
+        ] {
+            let (status, answer) = exchange(port, &request(port, method, target, Some(&body)));
+            assert_eq!(status, 422, "{method} {what}: {answer}");
+            let answer: Value = serde_json::from_str(&answer).expect("a JSON body");
+            assert_eq!(
+                answer["error"], "conductor.config.ConfigInvalid",
+                "{method} {what}: {answer}"
+            );
+            assert_eq!(answer["path"], json!(path), "{method} {what}: {answer}");
+            assert_eq!(case.text(), before, "{method} {what}: the file changed");
+        }
+    }
+}
+
 /// The client follows no redirect: a `3xx` is the call's error, after one request, and the token
 /// is in the text of no error: of a redirect, of a refusal, or of a token file that holds no
 /// token.

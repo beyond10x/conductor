@@ -408,6 +408,7 @@ impl m::instance::obligations::InstanceByNameQuery for StorePorts {
                     detail: data.detail,
                     changed_by: data.changed_by,
                     git_identity: data.git_identity,
+                    model_token_kind: data.model_token_kind,
                 }
             })
             .collect())

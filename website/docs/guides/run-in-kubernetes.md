@@ -269,6 +269,7 @@ instances live on the volume and arrive over HTTP. A file with no instance is al
 | `daemon.kubernetes.resources` | none | `requests` and `limits` of `cpu` and `memory` for each instance pod |
 | `daemon.kubernetes.env` | none | variables of each instance pod, each a `value` or a `secret`, such as `GH_TOKEN` for an instance with a GitHub source, or `GITLAB_TOKEN` and `GITLAB_HOST` for a self-hosted GitLab; an instance's `forge_token` takes the place of every entry of the daemon's forge token variables in its own pod, see [forge credentials](#forge-credentials) |
 | `git_identity`, a key of an instance's mapping, not of this file | none | the git identity the instance's pod commits with, `{"name": "Example Bot", "email": "bot@example.com"}`: each value 1 to 200 bytes on one line, with no control character, no `<`, no `>` and no white space at either end, the `email` with exactly one `@`; a mapping that breaks the rule is refused `422` at the value's path. It takes the place of `daemon.kubernetes.env` entries of the identity's variables in the instance's pod, see [what the daemon creates](#what-the-daemon-creates-for-each-instance) |
+| `model_token_kind`, a key of an instance's mapping, not of this file | none | the kind of the instance's `model_token`: `api_key`, as where the mapping names none, or `subscription_token`; a mapping that names it without a `model_token`, or names another word, is refused `422` at its path. See [the model token](#the-model-token) |
 
 The [config reference](../reference/config.md) has each key's rules.
 
@@ -419,8 +420,8 @@ empty: the daemon's config file is not in a git checkout. One row:
  "state":"Running"}
 ```
 
-`GET /v1/instances/alpha` adds `git_identity`, `{"name":…,"email":…}`, as the mapping holds it,
-where the mapping names one.
+`GET /v1/instances/alpha` adds `git_identity`, `{"name":…,"email":…}`, and `model_token_kind`,
+as the mapping holds each, where the mapping names one.
 
 A restart answers once the new pod is created, and a replace that changes the rendering
 replaces the pod the same way. Each waits for the old pod to be gone, so a call that comes
@@ -753,6 +754,57 @@ the installer's to give.
 
 SSH remotes are not covered: a remote such as `git@github.com:example-org/repository.git` gets
 nothing from the token. Use the HTTPS remote, `https://github.com/example-org/repository.git`.
+
+## The model token
+
+An instance's `model_token: secret:<name>` is the credential its agents run on. Its
+`model_token_kind` says which kind it is, and so how the harness gets it:
+
+| `model_token_kind` | the secret holds | how the harness gets it |
+|---|---|---|
+| `api_key`, also where the mapping names none | an API key | the session's settings copy names `conductor token reveal --model-token <instance>` as its `apiKeyHelper`; the harness runs it when it needs the key, and it prints the value from the instance's secrets source at each ask |
+| `subscription_token` | the long-lived token of a subscription login, as `claude setup-token` prints it | the runtime reads the value from the instance's secrets source once, at each session's start, and starts the harness with it as `CLAUDE_CODE_OAUTH_TOKEN` in the environment of the harness's process. The session's settings copy names no `apiKeyHelper`, which would outrank the variable: one the role's own settings name is left out of the copy, and the start says so in one line |
+
+For either kind the value is in no command line, no settings file, no log line, no record and no
+answer of the API; the pod holds it once, under the secret's key of the instance's Secret. The
+runtime sets the variable on the harness's process as it starts it, with no unit and no shell in
+between, so the value is in that process's environment, `/proc/<pid>/environ`, which its own
+user and root can read, as for any variable of a process.
+
+`subscription_token` is not supported at a placement that opens a box: a box receives its model
+token sealed through a slot of the daemon's pool, as an API key. A mapping that names it there,
+that names a kind without a `model_token`, or a word other than the two kinds, is refused `422`
+`conductor.config.ConfigInvalid` at `instances[<i>].model_token_kind`. `GET /v1/instances/{name}`
+answers `model_token_kind` as the mapping holds it, and no member where it holds none.
+
+### A new value
+
+A subscription token expires, and nothing refreshes it. An expired one, or one replaced, needs
+a new value in the Secret `conductor-secrets` and a new session started on it. What a pod that
+runs does when the value changes:
+
+- Its secrets source is the instance's Secret, mounted at `/run/secrets/conductor`. The daemon
+  writes the value into that Secret from `conductor-secrets` when it starts the pod, and not
+  after: a pod that runs reads the value it started with, of either kind, whatever
+  `conductor-secrets` holds now.
+- `api_key`: `conductor token reveal` reads the mounted file at each ask of the harness.
+- `subscription_token`: the runtime reads the mounted file once at each session's start; a
+  session keeps the value it started with until it ends.
+
+So once the kubelet has updated the daemon's mounted file, `POST /v1/instances/{name}/restart`:
+the daemon writes the new value into the instance's Secret and starts a new pod, whose sessions
+start on it. An instance that runs as no pod reads the daemon's secrets source itself: each
+session started after the change runs on the new value.
+
+A control plane that sends no restart can tell a pod that runs on an older value than the secret
+holds: `modified_at` of the `model_token` row of `GET /v1/instances/{name}/secrets` is when the
+daemon's file of the secret last changed, and a pod that started before that runs on the value
+before it. No answer of the daemon carries the pod's start: read the pod's `status.startTime`,
+or keep the time of the control plane's own last restart:
+
+```console
+kubectl -n conductor-instances get pod conductor-instance-alpha -o jsonpath='{.status.startTime}'
+```
 
 ## Limits
 

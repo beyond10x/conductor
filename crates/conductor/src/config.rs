@@ -139,10 +139,10 @@ use conductor_model::config::{
     Controllers, Daemon, DaemonCadence, DaemonConfig, DaemonOperator, Forge, ForgeRoute,
     ForgeSecret, Gibibytes, GitHubSource, GitIdentity, GitLabSource, Globals, Harness, Instance,
     InstanceName, Kubernetes, KubernetesEnv, KubernetesName, KubernetesQuantities,
-    KubernetesResources, KubernetesVolume, Limits, LocalSource, Network, OperatorGrant,
-    OperatorRole, PlacementName, RepoCache, Report, RepositoryRule, Retention, Role, SecretSource,
-    SecretSync, SecretsSource, SessionName, SessionPrefix, Source, SuggestedPrefix, Thresholds,
-    TimeOfDay, TlsListener, Tokens, Usage, WorkspaceMember, Writable,
+    KubernetesResources, KubernetesVolume, Limits, LocalSource, ModelTokenKind, Network,
+    OperatorGrant, OperatorRole, PlacementName, RepoCache, Report, RepositoryRule, Retention, Role,
+    SecretSource, SecretSync, SecretsSource, SessionName, SessionPrefix, Source, SuggestedPrefix,
+    Thresholds, TimeOfDay, TlsListener, Tokens, Usage, WorkspaceMember, Writable,
 };
 use conductor_model::decision::Decider;
 use conductor_model::direction::Activity;
@@ -451,7 +451,7 @@ pub const TREE_STALE_HOURS: u64 = 48;
 
 /// The keys of each mapping the file holds, in the order `config show` writes them.
 const CONFIG_KEYS: [&str; 5] = ["version", "daemon", "globals", "default", "instances"];
-const INSTANCE_KEYS: [&str; 31] = [
+const INSTANCE_KEYS: [&str; 32] = [
     "name",
     "placement",
     "remote",
@@ -479,6 +479,7 @@ const INSTANCE_KEYS: [&str; 31] = [
     "secret_syncs",
     "gates_policy",
     "model_token",
+    "model_token_kind",
     "forge_token",
     "git_identity",
     "forge",
@@ -796,6 +797,22 @@ const FORGE_KEYS: [&str; 1] = ["route"];
 /// How the file writes each `conductor.config.ForgeRoute` (`story:forge-route`).
 pub const FORGE_ROUTES: [(&str, ForgeRoute); 2] =
     [("gates", ForgeRoute::Gates), ("direct", ForgeRoute::Direct)];
+
+/// How the file writes each `conductor.config.ModelTokenKind`: the kind of an instance's
+/// `model_token`, `api_key` where the instance names none.
+pub const MODEL_TOKEN_KINDS: [(&str, ModelTokenKind); 2] = [
+    ("api_key", ModelTokenKind::ApiKey),
+    ("subscription_token", ModelTokenKind::SubscriptionToken),
+];
+
+/// The word the file writes for `kind` ([`MODEL_TOKEN_KINDS`]).
+#[must_use]
+pub fn model_token_kind_word(kind: ModelTokenKind) -> &'static str {
+    MODEL_TOKEN_KINDS
+        .iter()
+        .find(|(_, meaning)| *meaning == kind)
+        .map_or("api_key", |(word, _)| word)
+}
 
 /// The suffixes of a systemd unit name: what `usage.watcher` ends with (`story:usage-probe`).
 const UNIT_TYPES: [&str; 11] = [
@@ -1761,6 +1778,7 @@ pub fn built_in(home: &Path, cwd: &Path) -> Instance {
         gates_policy: None,
         // A model token is named only by a user.
         model_token: None,
+        model_token_kind: None,
         // So is a forge token, and only where the daemon runs its instances as pods.
         forge_token: None,
         // So is a git identity (story:instance-git-identity).
@@ -4261,6 +4279,38 @@ impl Reader<'_> {
             Some(_) => None,
             None => Some(None),
         };
+        // The kind of the model token, which decides how an agent at a placement with no box
+        // gets it: an API key through the settings' helper, a subscription token in the harness's
+        // environment. A box receives its model token through a slot, as an API key.
+        let model_token_kind = match Self::get(map, "model_token_kind") {
+            Some(value) => {
+                let at = join(path, "model_token_kind");
+                let kind = self.word(value, &at, &MODEL_TOKEN_KINDS);
+                if kind.is_some() && Self::get(map, "model_token").is_none() {
+                    self.problem(
+                        &at,
+                        "names the kind of the model_token, and the instance names no \
+                         model_token: name one, or leave the kind out",
+                    );
+                }
+                if kind == Some(ModelTokenKind::SubscriptionToken)
+                    && let Some(placement) = &placement
+                    && crate::placement::resolve(placement).is_some()
+                {
+                    self.problem(
+                        &at,
+                        format!(
+                            "subscription_token is not supported at a placement that opens a \
+                             box: {placement:?} receives its model_token sealed through a slot \
+                             of the daemon's pool, which hands it over as an API key; write \
+                             api_key, or a placement that opens no box"
+                        ),
+                    );
+                }
+                kind.map(Some)
+            }
+            None => Some(None),
+        };
         // The instance's own forge token, `secret:<name>` as the model token is
         // (story:instance-forge-token). Only the pod supervisor reads it, into the variable of the
         // one forge the instance's sources name.
@@ -4350,6 +4400,7 @@ impl Reader<'_> {
             secret_syncs: secret_syncs?,
             gates_policy: gates_policy?,
             model_token: model_token?,
+            model_token_kind: model_token_kind?,
             forge_token: forge_token?,
             git_identity: git_identity?,
             forge: forge?,
@@ -5993,6 +6044,12 @@ fn shown_instance(instance: &Instance, legacy: &Legacy) -> Yaml {
                     .map(|name| format!("secret:{}", name.0))
                     .as_ref(),
             ),
+        ),
+        (
+            "model_token_kind",
+            instance
+                .model_token_kind
+                .map_or(Yaml::Null, |kind| text(model_token_kind_word(kind))),
         ),
         (
             "forge_token",

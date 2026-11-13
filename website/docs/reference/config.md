@@ -248,6 +248,7 @@ A key path written `a[].b` is the key `b` of each element of the list `a`. A def
 | `secret_syncs[].dry_run` | string | none |  |
 | `gates_policy` | string | none |  |
 | `model_token` | [SecretName](#secretname) | none |  |
+| `model_token_kind` | `apikey` \| `subscriptiontoken` | none |  |
 | `forge_token` | [SecretName](#secretname) | none |  |
 | `git_identity` | [GitIdentity](#gitidentity) | none |  |
 | `git_identity.name` | string | required |  |
@@ -551,6 +552,12 @@ Keys: `namespace`, `image`, `owner`, `api_port`, `volume`, `resources`, `env`. S
 The git identity an instance's pod commits with (`Instance.git_identity`): `name` and `email`, both required. Each is 1 to 200 bytes on one line, with no control character, no `<`, no `>` and no white space at its start or end; `email` holds exactly one `@` with text on both sides. A value that breaks the rule is refused at validate by its YAML path, and so by `AddInstance` and `PutInstance` (`ConfigInvalid`).
 
 Keys: `name`, `email`. Specified as `conductor.config.GitIdentity`.
+
+### ModelTokenKind
+
+Which kind of credential an instance's `model_token` holds (`Instance.model_token_kind`). The file writes it in lower case: `api_key`, a key the harness sends as an API key, or `subscription_token`, the long-lived token of a subscription login, which the harness reads from the variable `CLAUDE_CODE_OAUTH_TOKEN` of its process's environment only.
+
+One of `apikey` | `subscriptiontoken`. Specified as `conductor.config.ModelTokenKind`.
 
 ### StoreUrl
 

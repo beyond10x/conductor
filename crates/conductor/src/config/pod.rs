@@ -13,7 +13,8 @@
 //!   shares; else the instance's own sqlite file [`STORE_FILE`] under the data mount, since no
 //!   volume is shared between the daemon and a pod;
 //! - `daemon.secrets`: a `files` source over [`SECRET_MOUNT`], where the Secret holds one file per
-//!   secret the instance names (its `model_token` among them);
+//!   secret the instance names (its `model_token` among them, whose `model_token_kind` the file
+//!   writes where the instance names one);
 //! - `daemon.unattended`: true, since a pod has no terminal and no person to answer a prompt;
 //! - `daemon.operators`: the daemon's, by name and grant;
 //! - the instance as `config show` writes it, every global key it takes written into it, and each
@@ -140,6 +141,10 @@ pub fn render_at(config: &Config, instance: &Instance, data: &Path, secrets: &Pa
         // First and in place, so the keys stand where they stood before the key existed.
         map.shift_remove("forge_token");
         map.shift_remove("git_identity");
+        // The runtime reads the model token's kind; a mapping without one renders as before.
+        if map.get("model_token_kind").is_some_and(Yaml::is_null) {
+            map.shift_remove("model_token_kind");
+        }
         map.remove("conductor");
         map.remove("remote");
     }
