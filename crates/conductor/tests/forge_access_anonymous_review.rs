@@ -2992,13 +2992,20 @@ fn without_the_member_an_origin_url_with_a_login_fetches_as_before() {
 
 /// The pushes that name the program `git-push` in `argv[0]`, which git runs as `git push`
 /// (`env -a git-version git` prints git's version): `env -a <name>`, `env -a<name>`, `env
-/// --argv0 <name>`, `env --argv0=<name>` and `exec -a <name>`.
-const ARGV0_PUSHES: [&str; 9] = [
+/// --argv0 <name>`, `env --argv0=<name>` and `exec -a <name>`, also after other options of `exec`
+/// or last in a cluster of them (`exec -c -a <name>`, `exec -ca <name>`, `exec -ca<name>`).
+const ARGV0_PUSHES: [&str; 15] = [
     "env -a git-push git origin main",
     "env -agit-push git origin main",
     "env --argv0 git-push git origin main",
     "env --argv0=git-push git origin main",
     "exec -a git-push git origin main",
+    "exec -c -a git-push git origin main",
+    "exec -ca git-push git origin main",
+    "exec -la git-push git origin main",
+    "exec -l -a git-push git origin main",
+    "exec -agit-push git origin main",
+    "exec -cagit-push git origin main",
     // The value of an option before `-a` is passed over: no `--`, launcher or option.
     "env -u -- -a git-push git origin main",
     "env -u nice -a git-push git origin main",
@@ -3037,6 +3044,28 @@ fn without_the_member_a_push_named_in_argv0_decides_as_before() {
                 .then(|| format!("{command} | {:?} | {}", decision.verdict, decision.reason))
         })
         .collect();
+    assert!(changed.is_empty(), "{}", changed.join("\n"));
+}
+
+/// A read behind an option of `exec` that gives no name (`-c`, `-l`, a cluster of them) stays
+/// allowed for an instance with the member, as the read alone is.
+#[test]
+fn a_read_behind_an_option_of_exec_stays_allowed_with_the_member() {
+    let (_scratch, dir, places) = guard_case("exec-read", true);
+    let checkout = dir.join("root/one");
+    let changed: Vec<String> = [
+        "git status",
+        "exec -c git status",
+        "exec -l git log",
+        "exec -cl git log",
+    ]
+    .iter()
+    .filter_map(|command| {
+        let decision = decide(&places, &checkout, command);
+        (decision.verdict != Verdict::Allow || decision.reason.contains(NAMED))
+            .then(|| format!("{command} | {:?} | {}", decision.verdict, decision.reason))
+    })
+    .collect();
     assert!(changed.is_empty(), "{}", changed.join("\n"));
 }
 
@@ -3085,6 +3114,81 @@ fn a_login_in_a_legacy_remote_file_of_the_checkout_is_not_sent() {
             if line.contains("was not run")
                 && line.contains("`origin`")
                 && !line.contains("pw-")
+                && !line.contains("example:"));
+        eprintln!(
+            "{name}: {} requests, a login: {sent}; {brought:?}",
+            heads.len() - before
+        );
+        if sent || !refused || heads.len() != before {
+            wrong.push(format!(
+                "{name}: the login is sent: {sent}; {} requests; {brought:?}",
+                heads.len() - before
+            ));
+        }
+    }
+    assert!(wrong.is_empty(), "{wrong:#?}");
+}
+
+/// A checkout whose origin's URL holds a login, in `remote.origin.url` or in the legacy file
+/// `.git/remotes/origin`, and whose own configuration holds an `insteadOf` that rewrites that URL
+/// to the same one without the login. The clearing of the checkout's own configuration removes
+/// the rewrite, so the fetch would use the URL as written: the URL is read after the clearing,
+/// and the anonymous fetch is refused before any request, its line holding neither the user nor
+/// the password. The same rewrite in a file the configuration includes, which cannot be removed,
+/// is refused as well.
+#[test]
+fn a_rewrite_in_the_checkout_that_hides_the_origins_login_is_not_sent() {
+    let _lock = environment();
+    active::isolate();
+    let scratch = Scratch::new("faa-review/hidden-login");
+    let dir = scratch.path().to_owned();
+    fs::create_dir_all(dir.join("home")).expect("home");
+    reset_environment(&dir.join("home"));
+    let listener = Listener::start(true);
+    let port = listener.port;
+    let login = format!("http://example:pw-hidden-6161@127.0.0.1:{port}/");
+    let rewrite = format!("[url \"{}\"]\n\tinsteadOf = {login}\n", listener.url());
+    let included = dir.join("hidden.cfg");
+    fs::write(&included, &rewrite).expect("write the included rewrite");
+    let remote = format!("[remote \"origin\"]\n\turl = {login}example-owner/one.git\n");
+    let mut wrong = Vec::new();
+    for (name, config, legacy) in [
+        ("config", format!("{remote}{rewrite}"), false),
+        ("remotes", rewrite.clone(), true),
+        (
+            "included",
+            format!("{remote}[include]\n\tpath = {}\n", included.display()),
+            false,
+        ),
+    ] {
+        let checkout = dir.join("root").join(name);
+        fs::create_dir_all(&checkout).expect("checkout");
+        git(&checkout, &["init", "--quiet", "--initial-branch=main"]);
+        let file = checkout.join(".git/config");
+        let mut text = fs::read_to_string(&file).expect("the checkout's config");
+        text.push_str(&config);
+        fs::write(&file, text).expect("write the checkout's config");
+        if legacy {
+            fs::create_dir_all(checkout.join(".git/remotes")).expect("the directory");
+            fs::write(
+                checkout.join(".git/remotes/origin"),
+                format!(
+                    "URL: {login}example-owner/one.git\nPull: \
+                     refs/heads/main:refs/remotes/origin/main\n"
+                ),
+            )
+            .expect("write the legacy file");
+        }
+        let before = listener.heads().len();
+        let origin = format!("{}example-owner/one.git", listener.url());
+        let brought = fetch(&dir, &checkout, &origin, true);
+        let heads = listener.heads();
+        let sent = heads[before..]
+            .iter()
+            .any(|head| head.to_ascii_lowercase().contains("\nauthorization:"));
+        let refused = matches!(&brought, Brought::Failed(line)
+            if line.contains("was not run")
+                && !line.contains("pw-hidden")
                 && !line.contains("example:"));
         eprintln!(
             "{name}: {} requests, a login: {sent}; {brought:?}",

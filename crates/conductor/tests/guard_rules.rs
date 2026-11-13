@@ -5906,6 +5906,36 @@ fn a_build_named_in_argv0_is_denied_with_the_build_run_form() {
     }
 }
 
+/// The name `exec -a <name>` gives is read after other options of `exec` and last in a cluster of
+/// them (`exec -c -a <name>`, `exec -ca <name>`, `exec -l -a <name>`, `exec -la <name>`, `exec
+/// -ca<name>`), so a build run that way is denied as an unreserved build, for every instance.
+#[test]
+fn a_build_named_in_argv0_after_exec_options_is_denied_with_the_build_run_form() {
+    let home = home("argv0-build-exec-options");
+    let form = "`conductor build run --reserve auto -- cargo build`";
+    let mut missed = Vec::new();
+    for cwd in [PROBE, WORKER] {
+        for command in [
+            "exec -c -a cargo rustup build",
+            "exec -ca cargo rustup build",
+            "exec -la cargo rustup build",
+            "exec -l -a cargo rustup build",
+            "exec -acargo rustup build",
+            "exec -cacargo rustup build",
+        ] {
+            let decision = bash(&home, cwd, command);
+            if decision.verdict != Verdict::Deny || !decision.reason.contains(form) {
+                missed.push(format!(
+                    "{cwd}: {command} | {:?} | {}",
+                    decision.verdict,
+                    decision.reason.chars().take(160).collect::<String>()
+                ));
+            }
+        }
+    }
+    assert!(missed.is_empty(), "{}", missed.join("\n"));
+}
+
 /// What builds nothing stays allowed: formatting, metadata and the dependency tree, a listing of
 /// tasks, an npm command that is no build, test or install, and a build command named only as a
 /// word or a string.

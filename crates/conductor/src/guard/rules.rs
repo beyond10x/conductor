@@ -2400,18 +2400,15 @@ fn runs_at(words: &[String], name: usize, at: usize) -> Vec<Vec<String>> {
     runs
 }
 
-/// The names `words` gives the program `words[at]` in `argv[0]`: the value of `exec -a <name>`
-/// before the command name `words[name]`, and of `env`'s `-a <name>`, `-a<name>` (also last in
-/// a cluster of its short options, `-ia <name>`), `--argv0 <name>` and `--argv0=<name>` among the
-/// options of `env` in the chain of launchers that runs `words[at]` ([`launcher_options`], which
-/// passes over the value of every other option).
+/// The names `words` gives the program `words[at]` in `argv[0]`: the value of `exec`'s `-a
+/// <name>` or `-a<name>`, also after its other options and last in a cluster of them (`-c -a
+/// <name>`, `-ca <name>`), before the command name `words[name]` ([`command_name`]), and of
+/// `env`'s `-a <name>`, `-a<name>` (also last in a cluster of its short options, `-ia <name>`),
+/// `--argv0 <name>` and `--argv0=<name>` among the options of `env` in the chain of launchers
+/// that runs `words[at]` ([`launcher_options`], which passes over the value of every other
+/// option).
 fn argv0_names(words: &[String], name: usize, at: usize) -> Vec<&str> {
-    let mut names = Vec::new();
-    for (index, word) in words[..name].iter().enumerate() {
-        if word == "-a" && index > 0 && words[index - 1] == "exec" {
-            names.extend(words.get(index + 1).map(String::as_str));
-        }
-    }
+    let mut names = command_name(words).1;
     let options = if at > name {
         launcher_options(words, name, at).unwrap_or_default()
     } else {
@@ -2543,35 +2540,66 @@ fn api_method_reads(words: &[String]) -> bool {
 }
 
 /// The words of a simple command from its command name on: reserved words, variable assignments
-/// and `builtin`, `command` and `exec` before it are dropped.
+/// and `builtin`, `command` and `exec` before it are dropped ([`command_name`]).
 fn command_words(words: &[String]) -> &[String] {
+    &words[command_name(words).0..]
+}
+
+/// The index of the command name of the simple command `words`, after its reserved words,
+/// variable assignments and `builtin`, `command` and `exec`, and the names the options of `exec`
+/// before it give the program in `argv[0]`.
+fn command_name(words: &[String]) -> (usize, Vec<&str>) {
     const RESERVED: [&str; 15] = [
         "!", "{", "}", "if", "then", "else", "elif", "fi", "do", "done", "while", "until", "time",
         "builtin", "command",
     ];
-    // The keyword whose own options may follow it: `command -p`, `time -p`, `exec -c`, `exec -l`
-    // and `exec -a <name>`, and `--`, which ends them: the next word is the command name
+    // The keyword whose own options may follow it: `command -p`, `time -p`, the options of `exec`
+    // ([`exec_option`]), and `--`, which ends them: the next word is the command name
     // (story:anonymous-pod-no-forge-secret).
     let mut keyword = "";
     let mut start = 0;
+    let mut names = Vec::new();
     while let Some(word) = words.get(start) {
         let word = word.as_str();
         if RESERVED.contains(&word) || word == "exec" || is_assignment(word) {
             keyword = word;
-        } else if matches!((keyword, word), ("exec", "-a")) {
-            start += 1;
         } else if matches!((keyword, word), ("command" | "exec" | "time", "--")) {
             start += 1;
             break;
-        } else if !matches!(
-            (keyword, word),
-            ("command" | "time", "-p") | ("exec", "-c" | "-l" | "-cl" | "-lc")
-        ) {
+        } else if let Some(name) = exec_option(word).filter(|_| keyword == "exec") {
+            match name {
+                Some("") => {
+                    names.extend(words.get(start + 1).map(String::as_str));
+                    start += 1;
+                }
+                Some(name) => names.push(name),
+                None => {}
+            }
+        } else if !matches!((keyword, word), ("command" | "time", "-p")) {
             break;
         }
         start += 1;
     }
-    &words[start.min(words.len())..]
+    (start.min(words.len()), names)
+}
+
+/// The word `word` as options of `exec`, which bash reads as getopt does: a cluster of `c`
+/// (an empty environment) and `l` (a login shell's dash in `argv[0]`) that may end with `a`, whose
+/// value, the program's name in `argv[0]`, is the rest of the word or else the next word
+/// (`-a <name>`, `-ca <name>`, `-la<name>`). `None` when it is no such word; else the name: `None`
+/// when the cluster has no `a`, `Some("")` when the name is the next word.
+fn exec_option(word: &str) -> Option<Option<&str>> {
+    let letters = word
+        .strip_prefix('-')
+        .filter(|rest| !rest.is_empty() && !rest.starts_with('-'))?;
+    for (at, letter) in letters.char_indices() {
+        match letter {
+            'c' | 'l' => {}
+            'a' => return Some(Some(&letters[at + 1..])),
+            _ => return None,
+        }
+    }
+    Some(None)
 }
 
 fn is_assignment(word: &str) -> bool {

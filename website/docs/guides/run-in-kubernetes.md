@@ -934,9 +934,10 @@ What the member does:
   checkout's own configuration every extra header, cookie file, TLS client certificate and key,
   and `insteadOf` rewrite. When one stays (a file the configuration includes names it, or the
   configuration cannot be written or read), the fetch is refused, one member failure naming the
-  key: remove the key, or remove the checkout so the next pass clones it again. A fetch whose
-  URL of `origin`, as git reads it (`remote.origin.url`, or the legacy file `.git/remotes/origin`
-  or `.git/branches/origin`, after any `insteadOf` rewrite), holds a user or a password
+  key: remove the key, or remove the checkout so the next pass clones it again. Then the URL of
+  `origin` is read as the fetch will use it, after that removal (`remote.origin.url`, or the
+  legacy file `.git/remotes/origin` or `.git/branches/origin`), and a fetch whose URL holds a
+  user or a password
   (`https://user:token@host/...`, a token as the user, or `ssh://git@host/...`) is refused the
   same way, one member failure that names where the URL comes from and not the login; the URL
   is left as it is. Only git's scp-like form, `git@host:path`, is not refused. Every git command

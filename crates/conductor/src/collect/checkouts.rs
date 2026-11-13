@@ -430,7 +430,10 @@ fn own_credential_keys(dir: &Path, bound: Duration) -> Result<Vec<String>, Broug
 /// it reads it, with no call to the remote: `git ls-remote --get-url origin` on the hardened
 /// command ([`without_credential`]), the first `remote.origin.url` of the checkout's own
 /// configuration, the files it includes and the pod's environment, or else of the legacy files
-/// `.git/remotes/origin` and `.git/branches/origin`, after any `insteadOf` rewrite.
+/// `.git/remotes/origin` and `.git/branches/origin`, after any `insteadOf` rewrite. It is read
+/// after [`without_own_credential`] has cleared that configuration, so a rewrite the clearing
+/// removes, which would hide the login from this read, no longer applies to it, as it no longer
+/// applies to the fetch.
 /// `remote.origin.pushurl` is not read: a fetch never uses it. An `ssh://` URL with a user is
 /// refused as well; git's scp-like form (`git@host:path`) is not. The URL is left as it is; the
 /// answer is one member failure that names where the URL comes from, never the user or the
@@ -579,13 +582,14 @@ pub fn fetch_anonymously(dir: &Path, bound: Duration) -> Result<()> {
 }
 
 /// The checkout `dir` fetched, `git fetch --quiet origin` run as the collector runs it, once more
-/// when it fails. An anonymous fetch runs only once the origin's URL holds no login
-/// ([`without_origin_login`]) and the checkout's own configuration holds no key it would send or
-/// follow ([`without_own_credential`]), with plain `ssh` ([`collect::anonymous_git_environment`]).
+/// when it fails. An anonymous fetch runs only once the checkout's own configuration holds no key
+/// it would send or follow ([`without_own_credential`]) and then the origin's URL, read after that
+/// clearing as the fetch will use it, holds no login ([`without_origin_login`]), with plain `ssh`
+/// ([`collect::anonymous_git_environment`]).
 fn fetched(dir: &Path, bound: Duration, anonymous: bool) -> Brought {
     if anonymous
         && let Err(refused) =
-            without_origin_login(dir, bound).and_then(|()| without_own_credential(dir, bound))
+            without_own_credential(dir, bound).and_then(|()| without_origin_login(dir, bound))
     {
         return refused;
     }
