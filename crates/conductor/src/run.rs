@@ -60,7 +60,7 @@ use conductor_model::behaviour::{
 };
 use conductor_model::config::{Instance, SessionName};
 use conductor_model::dispatch::{
-    ControllerState, DispatchLogEvent, DispatchLogLine, DispatchState,
+    ControllerState, DispatchLogEvent, DispatchLogLine, DispatchState, WorkStartRefusal,
 };
 use conductor_model::obligation::UnmetObligation;
 use conductor_model::primitives::{Timestamp, Uuid};
@@ -801,27 +801,39 @@ impl<'s, 'a> Tick<'s, 'a> {
 
     /// Spawns `repo`'s controller from its charter (`conductor spawn`), within
     /// `controllers.max_working` running controllers, its charter followed by the dispatch it works
-    /// on (`dispatch_for`); counts the `sent` lines it writes. Answers
-    /// why it did not, when it did not.
+    /// on (`dispatch_for`); counts the `sent` lines it writes. A repository whose charter is the
+    /// default one, byte for byte ([`crate::spawn::is_default_charter`]), gets one only for its
+    /// open dispatch, never a goal's sent now nor none: dispatch v1, a red `main` and a restart
+    /// pass it over without one. Answers why it did not, when it did not.
     ///
     /// # Errors
     ///
     /// The store does not open.
     pub fn spawn(&mut self, repo: &str) -> Result<Result<(), String>> {
-        let working = self
-            .controllers()?
-            .iter()
-            .filter(|held| held.state == ControllerState::Running)
-            .count();
-        let limit = self.instance().controllers.max_working;
-        if i64::try_from(working).unwrap_or(i64::MAX) >= limit {
+        let _one = STARTS
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        if let Some(limit) = at_limit(self.state)? {
             return Ok(Err(format!("max_working {limit} reached")));
         }
-        let dispatch = match self.dispatch_for(repo) {
-            Ok(dispatch) => dispatch,
-            Err(error) => {
-                self.note(&format!("dispatch for {repo}"), &error);
-                None
+        // A repository on the default charter works units of work only: its open dispatch, else
+        // no controller (no goal's dispatch is sent for it).
+        let dispatch = if crate::spawn::is_default_charter(&self.charter(repo)) {
+            let Ok(crate::dispatch::Open::One(id)) = crate::dispatch::open_of(self.state, repo)
+            else {
+                return Ok(Err(
+                    "the charter is conductor's default: a controller starts only for a dispatch"
+                        .to_owned(),
+                ));
+            };
+            Some(id)
+        } else {
+            match self.dispatch_for(repo) {
+                Ok(dispatch) => dispatch,
+                Err(error) => {
+                    self.note(&format!("dispatch for {repo}"), &error);
+                    None
+                }
             }
         };
         match crate::spawn::spawn_for(
@@ -975,6 +987,136 @@ impl<'s, 'a> Tick<'s, 'a> {
         line.line = cause.map(str::to_owned);
         self.write(&line)
     }
+}
+
+/// Held around a count of the running controllers and the start it allows: the work call's
+/// ([`start_work`], on the API's thread) and the loop's ([`Tick::spawn`], [`start_work`]), which
+/// run in one runtime process, so neither starts past `controllers.max_working` beside the other.
+static STARTS: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
+/// `controllers.max_working`, when that many controllers of the store under `state` run.
+///
+/// # Errors
+///
+/// The store does not open, or a controller does not read.
+fn at_limit(state: Option<&Path>) -> Result<Option<i64>> {
+    let store = crate::state::open(state)?;
+    let working = ControllerStorage::list(&store)
+        .iter()
+        .filter(|held| held.state == ControllerState::Running)
+        .count();
+    store.check().context("read the controllers")?;
+    let limit = config::active().instance.controllers.max_working;
+    Ok((i64::try_from(working).unwrap_or(i64::MAX) >= limit).then_some(limit))
+}
+
+/// Starts `repo`'s controller for the dispatch `dispatch`, a unit of work
+/// (`story:control-plane-work-handler`), as the loop starts one ([`Tick::spawn`]) but for the
+/// dispatch it is given: refused `AlreadyRunning` while the repository has a `Running` or `Paused`
+/// controller, which keeps what it works, and `ControllerLimit` while `controllers.max_working`
+/// controllers run; else through `conductor spawn`'s code ([`crate::spawn::spawn_for`]), whose
+/// refusal is answered by its name and anything else that failed as `StartFailed`. The work call
+/// and the cycle start a unit's controller through this; neither waits for the session.
+///
+/// Answers `None` once the controller started, else the refusal and what it found.
+#[must_use]
+pub fn start_work(
+    config_flag: Option<&Path>,
+    state: Option<&Path>,
+    providers: &dyn Providers,
+    repo: &str,
+    dispatch: &str,
+) -> Option<(WorkStartRefusal, String)> {
+    let failed = |error: &anyhow::Error| {
+        Some((
+            WorkStartRefusal::StartFailed,
+            one_line(&format!("{error:#}")),
+        ))
+    };
+    let _one = STARTS
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
+    let held = crate::state::open(state).and_then(|store| {
+        let held = ControllerStorage::list(&store)
+            .into_iter()
+            .find(|held| {
+                held.data.repository.0 == repo
+                    && matches!(
+                        held.state,
+                        ControllerState::Running | ControllerState::Paused
+                    )
+            })
+            .map(|held| held.data.controller_id.0.0);
+        store.check().context("read the controllers")?;
+        Ok(held)
+    });
+    match held {
+        Ok(Some(held)) => {
+            return Some((
+                WorkStartRefusal::AlreadyRunning,
+                format!("the controller {held} of {repo} runs; no second one is started"),
+            ));
+        }
+        Ok(None) => {}
+        Err(error) => return failed(&error),
+    }
+    match at_limit(state) {
+        Ok(Some(limit)) => {
+            return Some((
+                WorkStartRefusal::ControllerLimit,
+                format!("max_working {limit} reached"),
+            ));
+        }
+        Ok(None) => {}
+        Err(error) => return failed(&error),
+    }
+    match crate::spawn::spawn_for(
+        config_flag,
+        state,
+        &SpawnArgs {
+            repository: Some(repo.to_owned()),
+        },
+        providers,
+        Some(dispatch),
+    ) {
+        Ok(_) => None,
+        Err(error) => match error.downcast_ref::<crate::spawn::Refused>() {
+            Some(refused) => Some((
+                crate::spawn::work_refusal(refused.0.refusal),
+                one_line(&refused.0.detail),
+            )),
+            None => failed(&error),
+        },
+    }
+}
+
+/// The `start-refused` line of the dispatch `dispatch` of `repo`: `refusal` by its name as
+/// `reason`, what it found as `line`.
+///
+/// # Errors
+///
+/// The clock cannot be formatted.
+pub fn start_refused_line(
+    repo: &str,
+    dispatch: &str,
+    refusal: WorkStartRefusal,
+    detail: &str,
+) -> Result<DispatchLogLine> {
+    let mut line = crate::records::dispatch_line(DispatchLogEvent::StartRefused, repo)?;
+    line.id = Some(dispatch.to_owned());
+    line.reason = Some(work_refusal_name(refusal));
+    line.line = Some(detail.to_owned());
+    Ok(line)
+}
+
+/// The name of `refusal`, as the specification spells it.
+#[must_use]
+pub fn work_refusal_name(refusal: WorkStartRefusal) -> String {
+    let mut text = String::new();
+    conductor_model::server::wire::encode_conductor_dispatch_work_start_refusal(
+        &refusal, &mut text,
+    );
+    text.trim_matches('"').to_owned()
 }
 
 /// Sets `path` as the resume point of the charter `charter`: its `## Resume point` section, the

@@ -221,9 +221,11 @@ pub fn held_by(state: Option<&Path>, reference: &str) -> Result<Option<String>> 
 
 /// The state of the unit of work `reference` names (`conductor.dispatch.WorkState`), or none when
 /// no dispatch holds it or there is no store. The dispatch gives its own fields; the records'
-/// dispatch log under `records` its times and its detail, read only in the month files from the
-/// month of its `sent_at` on and only from lines of its id and its repository; and the latest
-/// `[REPORT]` message handled for it ([`MessageStorage`]) its last report.
+/// dispatch log under `records` its times, its detail and, while it is `Sent`, why no controller
+/// was started for it (its last `start-refused` line, unless a `sent` line of `conductor spawn`
+/// for its repository follows it), read only in the month files from the month of its `sent_at`
+/// on and only from lines of its repository; and the latest `[REPORT]` message handled for it
+/// ([`MessageStorage`]) its last report.
 ///
 /// # Errors
 ///
@@ -262,9 +264,20 @@ pub fn work_state(
     kept("the work call", &store)?;
 
     let (mut started_at, mut ended_at, mut reason) = (None, None, None);
+    let mut start = None;
     for line in dispatch_lines(records, &held.data.sent_at)? {
-        if line["id"] != id.0.as_str() || line["repo"] != held.data.repository.0.as_str() {
+        if line["repo"] != held.data.repository.0.as_str() {
             continue;
+        }
+        // A controller of the repository started after a refused start: one works it now.
+        if line["event"] == "sent" && line["controller_id"].is_string() {
+            start = None;
+        }
+        if line["id"] != id.0.as_str() {
+            continue;
+        }
+        if line["event"] == "start-refused" {
+            start = line["reason"].as_str().and_then(work_start_refusal);
         }
         let at = line["at"].as_str().map(|at| Timestamp(at.to_owned()));
         match line["event"].as_str() {
@@ -292,7 +305,17 @@ pub fn work_state(
         last_report,
         detail,
         links: held.data.links,
+        start: (held.state == DispatchState::Sent)
+            .then_some(start)
+            .flatten(),
     }))
+}
+
+/// The `conductor.dispatch.WorkStartRefusal` `name` spells, if any.
+fn work_start_refusal(name: &str) -> Option<conductor_model::dispatch::WorkStartRefusal> {
+    use conductor_model::server::{json as wire_json, wire};
+    let value = wire_json::parse(&serde_json::to_string(name).ok()?).ok()?;
+    wire::decode_conductor_dispatch_work_start_refusal(&value, "").ok()
 }
 
 /// The lines of the records' dispatch log under `records` in its month files from the month of

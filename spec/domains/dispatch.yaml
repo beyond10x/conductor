@@ -139,6 +139,37 @@ types:
       - ProviderUnavailable
       - MeasurementShort
 
+  # Why no controller was started for a unit of work (story:control-plane-work-handler): the
+  # work call starts the repository's controller for the dispatch it created, and the loop's
+  # cycle tries again each Sent dispatch with a `reference` whose repository runs no controller,
+  # whether or not the repository is Active, while fewer than `controllers.max_working`
+  # controllers run. `ControllerLimit`, `controllers.max_working` controllers run already;
+  # `AlreadyRunning`, the repository has a `Running` or `Paused` controller, which keeps working
+  # what it works (no second one starts); `StartFailed`, the start failed with no refusal of its
+  # own (a store or a file that could not be read or written; the runtime's log says why); every
+  # other variant is the `SpawnRefusal` of that name, which the start through `conductor spawn`'s
+  # code answered.
+  - name: conductor.dispatch.WorkStartRefusal
+    kind: enum
+    variants:
+      - ControllerLimit
+      - AlreadyRunning
+      - StartFailed
+      - InstanceNotPinned
+      - SessionRunning
+      - SessionsUnread
+      - NoControllerRole
+      - NotClaude
+      - NoProfile
+      - NoSettings
+      - NoCheckout
+      - RecordsCheckout
+      - UntrustedCheckout
+      - NoCharter
+      - LaunchFailed
+      - ProviderUnavailable
+      - MeasurementShort
+
   # A refusal of `conductor spawn`: the repository it was asked to start, why, and what it found.
   - name: conductor.dispatch.SpawnRefused
     kind: struct
@@ -188,7 +219,8 @@ types:
   # commands), `cancelled` (`CancelDispatch`), `message-received` (`ReceiveMessage`),
   # `resource-granted`, `resource-refused` (`GrantResource`, `RefuseResource`),
   # `charter-revised` (`ReviseCharter`) and `linked` (`RecordDispatchLink`, a link the dispatch did
-  # not hold).
+  # not hold). The work call and the loop write `start-refused`, a start of a controller for a
+  # dispatch with a `reference` that was refused (`WorkStartRefusal`).
   # The run daemon writes the rest (story:run-daemon, docs/design/conductor-run.md § 3), one per
   # action its handlers take, and `conductor session deliver` writes `delivered`
   # (`conductor.session.DeliverMessage`): `handover-sent`, a `[HANDOVER]` delivered to a session
@@ -239,6 +271,7 @@ types:
       - Cycle
       - RecordsCommitted
       - RecordsCommitRefused
+      - StartRefused
 
   # One line of `<records>/dispatches/YYYY-MM.jsonl`: a JSON object holding `at` (when it was
   # written, RFC 3339 UTC), `event`, `repo` (the repository; the key is `repo`, never
@@ -250,6 +283,8 @@ types:
   # - `linked` by `RecordDispatchLink`: `id` and `link`, the link appended;
   # - `sent` by `conductor spawn`: `controller_id`, `to`, `session_id` (what `claude --bg`
   #   printed) and `charter_revision`;
+  # - `start-refused`: `id` (the dispatch), `reason` (the `WorkStartRefusal`'s name) and `line`
+  #   (what the refusal found), and `tick_id` when the loop wrote it;
   # - `started`, `unblocked`: `id`; `blocked`, `failed`, `cancelled`: `id`, `reason`; `done`:
   #   `id`, `evidence`;
   # - `message-received`: `id`, `from`, `to`, `kind`, `first_line`; `repo` is the repository the
@@ -351,9 +386,14 @@ types:
   # `started_at` is the first `started` line's, `ended_at` the `done`, `failed` or `cancelled`
   # line's, `detail` the reason of the last `blocked` or `failed` line while the state is Blocked
   # or Failed, and `last_report` the first line of the latest `[REPORT]` message handled for the
-  # dispatch (`HandleMessage` with its `dispatch_id`). Only lines of the dispatch's id and its
-  # repository are read, in the log's month files from the month of `sent_at` on. `GET
-  # /v1/work/{reference}` answers it, `WorkNotFound` for a reference no dispatch holds.
+  # dispatch (`HandleMessage` with its `dispatch_id`). `start`, only while the state is Sent, is
+  # why no controller was started for it: the `reason` of the last `start-refused` line of the
+  # dispatch, absent when none was written or a controller of its repository was started after it
+  # (a `sent` line of `conductor spawn`, which carries `controller_id`). Only lines of the
+  # dispatch's id and its repository, and those `sent` lines of its repository, are read, in the
+  # log's month files from the month of `sent_at` on. `POST /v1/work` answers it once the start it made for a dispatch it created was
+  # made or refused; `GET /v1/work/{reference}` answers it, `WorkNotFound` for a reference no
+  # dispatch holds.
   - name: conductor.dispatch.WorkState
     kind: struct
     fields:
@@ -367,6 +407,7 @@ types:
       - {name: last_report, type: Optional<String>}
       - {name: detail, type: Optional<String>}
       - {name: links, type: List<String>}
+      - {name: start, type: Optional<conductor.dispatch.WorkStartRefusal>}
 
   # The input of `conductor records check` (story:records-from-commands), a view over the records'
   # two logs and the store: it reads `<records>/dispatches/*.jsonl` and

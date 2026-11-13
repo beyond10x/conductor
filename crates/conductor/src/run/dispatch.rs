@@ -3,11 +3,19 @@
 //!
 //! **Cycle.** `snapshot start-snapshot`, `snapshot publish-board` and `records check`, each a run
 //! of the conductor binary ([`super::Seams::program`]) with the daemon's global `--config` and
-//! `--state-dir`, each to its end however it ends; then dispatch v1: for each repository Active
+//! `--state-dir`, each to its end however it ends; then dispatch v1. First the units of work
+//! (`story:control-plane-work-handler`): for each `Sent` dispatch with a `reference`, in the order
+//! the store keeps them, whose repository has no running or paused controller, Active or not, the
+//! controller is started for it as the work call starts one ([`super::start_work`]: under
+//! `controllers.max_working`, the default charter where there is none); a refused start writes a
+//! `start-refused` line with the tick's id. Then for each repository Active
 //! in `repository activity` that has a charter `<records>/charters/<repo>.md` and no running or
 //! paused controller, in name order, `conductor spawn`, while fewer than `controllers.max_working`
 //! controllers run; each controller started gets its repository's open dispatch, or one sent in
-//! the same tick for the goal the repository serves, and its charter names it ([`Tick::spawn`]). A repository whose charter has the line `merge: human` and that has at least
+//! the same tick for the goal the repository serves, and its charter names it ([`Tick::spawn`]);
+//! a repository whose charter is conductor's default one, unedited, gets none but for its open
+//! dispatch, and waits. The units of work skip the `merge: human` review cap below: the work call
+//! is the control plane telling the instance to work the unit. A repository whose charter has the line `merge: human` and that has at least
 //! `controllers.max_open_reviews` pull requests waiting for review in the newest complete snapshot
 //! (as the board counts them, [`crate::status::waiting_in`]) waits. One `cycle` line names what
 //! each step did: `snapshot ok`, `board ok`, `records check ok` or how each ended, then `spawned
@@ -25,9 +33,9 @@ use std::path::Path;
 use std::time::Duration;
 
 use anyhow::{Context as _, Result};
-use conductor_model::behaviour::{ControllerStorage, SnapshotStorage};
+use conductor_model::behaviour::{ControllerStorage, DispatchStorage, SnapshotStorage};
 use conductor_model::direction::Activity;
-use conductor_model::dispatch::{ControllerState, DispatchLogEvent};
+use conductor_model::dispatch::{ControllerState, DispatchLogEvent, DispatchState};
 use conductor_model::session::TickKind;
 use time::OffsetDateTime;
 use time::format_description::well_known::Rfc3339;
@@ -111,8 +119,13 @@ fn checked(tick: &Tick<'_, '_>) -> String {
 /// Dispatch v1, as the module documentation says; what it did, as the `cycle` line says it.
 fn dispatch_v1(tick: &mut Tick<'_, '_>) -> Result<String> {
     let instance = tick.instance();
-    let (active, controlled, full) = {
+    let (active, mut controlled, full, units) = {
         let store = crate::state::open(tick.state)?;
+        let units: Vec<(String, String)> = DispatchStorage::list(&store)
+            .into_iter()
+            .filter(|held| held.state == DispatchState::Sent && held.data.reference.is_some())
+            .map(|held| (held.data.repository.0, held.data.dispatch_id.0))
+            .collect();
         let active: Vec<String> = crate::repository::activity(&store)
             .into_iter()
             .filter(|row| matches!(row.activity, Activity::Active))
@@ -141,11 +154,34 @@ fn dispatch_v1(tick: &mut Tick<'_, '_>) -> Result<String> {
         store
             .check()
             .context("read the repositories and controllers")?;
-        (active, controlled, full)
+        (active, controlled, full, units)
     };
     let limit = instance.controllers.max_open_reviews;
     let mut spawned = Vec::new();
     let mut waits = Vec::new();
+    // Units of work first, Active or not: each Sent dispatch with a reference whose repository
+    // runs no controller (`story:control-plane-work-handler`).
+    for (repo, id) in &units {
+        if controlled.contains(repo) {
+            continue;
+        }
+        controlled.push(repo.clone());
+        match super::start_work(tick.config, tick.state, tick.seams.providers, repo, id) {
+            None => {
+                tick.wrote(DispatchLogEvent::Sent);
+                spawned.push(repo.clone());
+            }
+            Some((refusal, detail)) => {
+                let mut line = super::start_refused_line(repo, id, refusal, &detail)?;
+                line.tick_id = Some(tick.id.clone());
+                tick.write(&line)?;
+                waits.push(format!(
+                    "{repo} waits: {}: {detail}",
+                    super::work_refusal_name(refusal)
+                ));
+            }
+        }
+    }
     for repo in &active {
         if controlled.contains(repo) || !tick.charter(repo).is_file() {
             continue;

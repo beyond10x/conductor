@@ -1,5 +1,5 @@
 // generated from conductor v1
-// contract digest 58983098659d5fd5fbd918be2db0c0ce1c382725137cfe87bf81bc48ad81f500
+// contract digest 63f3332f35d5d8242d09f4ee9ffd402eddf1d2ad15f24591d584a5e75f993453
 // do not edit: regenerate with `ess synthesize --layout crate`
 
 //! Dispatch — `conductor.dispatch`.
@@ -130,6 +130,8 @@ pub enum DispatchLogEvent {
     RecordsCommitted,
     /// `RecordsCommitRefused`.
     RecordsCommitRefused,
+    /// `StartRefused`.
+    StartRefused,
 }
 
 /// DispatchLogLine — `conductor.dispatch.DispatchLogLine`.
@@ -439,6 +441,45 @@ pub struct WorkRequest {
     pub issue: Option<String>,
 }
 
+/// WorkStartRefusal — `conductor.dispatch.WorkStartRefusal`: one of a closed set of names.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum WorkStartRefusal {
+    /// `ControllerLimit`.
+    ControllerLimit,
+    /// `AlreadyRunning`.
+    AlreadyRunning,
+    /// `StartFailed`.
+    StartFailed,
+    /// `InstanceNotPinned`.
+    InstanceNotPinned,
+    /// `SessionRunning`.
+    SessionRunning,
+    /// `SessionsUnread`.
+    SessionsUnread,
+    /// `NoControllerRole`.
+    NoControllerRole,
+    /// `NotClaude`.
+    NotClaude,
+    /// `NoProfile`.
+    NoProfile,
+    /// `NoSettings`.
+    NoSettings,
+    /// `NoCheckout`.
+    NoCheckout,
+    /// `RecordsCheckout`.
+    RecordsCheckout,
+    /// `UntrustedCheckout`.
+    UntrustedCheckout,
+    /// `NoCharter`.
+    NoCharter,
+    /// `LaunchFailed`.
+    LaunchFailed,
+    /// `ProviderUnavailable`.
+    ProviderUnavailable,
+    /// `MeasurementShort`.
+    MeasurementShort,
+}
+
 /// WorkState — `conductor.dispatch.WorkState`.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct WorkState {
@@ -462,6 +503,8 @@ pub struct WorkState {
     pub detail: Option<String>,
     /// `links` — `List<String>`.
     pub links: Vec<String>,
+    /// `start` — `Optional<conductor.dispatch.WorkStartRefusal>`.
+    pub start: Option<WorkStartRefusal>,
 }
 
 /// What Controller — `conductor.dispatch.Controller` — holds, apart from where it is in its lifecycle.

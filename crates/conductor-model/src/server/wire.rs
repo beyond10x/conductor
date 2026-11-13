@@ -1,5 +1,5 @@
 // generated from conductor v1
-// contract digest 58983098659d5fd5fbd918be2db0c0ce1c382725137cfe87bf81bc48ad81f500
+// contract digest 63f3332f35d5d8242d09f4ee9ffd402eddf1d2ad15f24591d584a5e75f993453
 // do not edit: regenerate with `ess synthesize --layout crate`
 //! Every generated declaration, as JSON, in the renderings the published wire contracts fix.
 //!
@@ -6290,6 +6290,7 @@ pub fn encode_conductor_dispatch_dispatch_log_event(value: &crate::dispatch::Dis
         crate::dispatch::DispatchLogEvent::Cycle => json::push_text(out, "Cycle"),
         crate::dispatch::DispatchLogEvent::RecordsCommitted => json::push_text(out, "RecordsCommitted"),
         crate::dispatch::DispatchLogEvent::RecordsCommitRefused => json::push_text(out, "RecordsCommitRefused"),
+        crate::dispatch::DispatchLogEvent::StartRefused => json::push_text(out, "StartRefused"),
     }
 }
 
@@ -6299,7 +6300,7 @@ pub fn encode_conductor_dispatch_dispatch_log_event(value: &crate::dispatch::Dis
 ///
 /// [`json::DecodeError`] naming the path and what the declaration says belongs there.
 pub fn decode_conductor_dispatch_dispatch_log_event(value: &json::Value, at: &str) -> Result<crate::dispatch::DispatchLogEvent, json::DecodeError> {
-    Ok(match json::text_at(value, at, "one of `Sent`, `Started`, `Blocked`, `Unblocked`, `Done`, `Failed`, `Cancelled`, `Linked`, `MessageReceived`, `ResourceGranted`, `ResourceRefused`, `CharterRevised`, `Delivered`, `HandoverSent`, `Handover`, `ControllerRestarted`, `UsageLimit`, `Resumed`, `Relayed`, `RedCi`, `Stalled`, `Cleanup`, `DecisionSent`, `Cycle`, `RecordsCommitted`, `RecordsCommitRefused`")? {
+    Ok(match json::text_at(value, at, "one of `Sent`, `Started`, `Blocked`, `Unblocked`, `Done`, `Failed`, `Cancelled`, `Linked`, `MessageReceived`, `ResourceGranted`, `ResourceRefused`, `CharterRevised`, `Delivered`, `HandoverSent`, `Handover`, `ControllerRestarted`, `UsageLimit`, `Resumed`, `Relayed`, `RedCi`, `Stalled`, `Cleanup`, `DecisionSent`, `Cycle`, `RecordsCommitted`, `RecordsCommitRefused`, `StartRefused`")? {
         "Sent" => crate::dispatch::DispatchLogEvent::Sent,
         "Started" => crate::dispatch::DispatchLogEvent::Started,
         "Blocked" => crate::dispatch::DispatchLogEvent::Blocked,
@@ -6326,7 +6327,8 @@ pub fn decode_conductor_dispatch_dispatch_log_event(value: &json::Value, at: &st
         "Cycle" => crate::dispatch::DispatchLogEvent::Cycle,
         "RecordsCommitted" => crate::dispatch::DispatchLogEvent::RecordsCommitted,
         "RecordsCommitRefused" => crate::dispatch::DispatchLogEvent::RecordsCommitRefused,
-        other => return Err(json::DecodeError { at: at.to_owned(), expected: "one of `Sent`, `Started`, `Blocked`, `Unblocked`, `Done`, `Failed`, `Cancelled`, `Linked`, `MessageReceived`, `ResourceGranted`, `ResourceRefused`, `CharterRevised`, `Delivered`, `HandoverSent`, `Handover`, `ControllerRestarted`, `UsageLimit`, `Resumed`, `Relayed`, `RedCi`, `Stalled`, `Cleanup`, `DecisionSent`, `Cycle`, `RecordsCommitted`, `RecordsCommitRefused`".to_owned(), found: format!("`{other}`") }),
+        "StartRefused" => crate::dispatch::DispatchLogEvent::StartRefused,
+        other => return Err(json::DecodeError { at: at.to_owned(), expected: "one of `Sent`, `Started`, `Blocked`, `Unblocked`, `Done`, `Failed`, `Cancelled`, `Linked`, `MessageReceived`, `ResourceGranted`, `ResourceRefused`, `CharterRevised`, `Delivered`, `HandoverSent`, `Handover`, `ControllerRestarted`, `UsageLimit`, `Resumed`, `Relayed`, `RedCi`, `Stalled`, `Cleanup`, `DecisionSent`, `Cycle`, `RecordsCommitted`, `RecordsCommitRefused`, `StartRefused`".to_owned(), found: format!("`{other}`") }),
     })
 }
 
@@ -7262,6 +7264,57 @@ pub fn decode_conductor_dispatch_work_request(value: &json::Value, at: &str) -> 
     })
 }
 
+/// Writes `conductor.dispatch.WorkStartRefusal` as JSON.
+pub fn encode_conductor_dispatch_work_start_refusal(value: &crate::dispatch::WorkStartRefusal, out: &mut String) {
+    match value {
+        crate::dispatch::WorkStartRefusal::ControllerLimit => json::push_text(out, "ControllerLimit"),
+        crate::dispatch::WorkStartRefusal::AlreadyRunning => json::push_text(out, "AlreadyRunning"),
+        crate::dispatch::WorkStartRefusal::StartFailed => json::push_text(out, "StartFailed"),
+        crate::dispatch::WorkStartRefusal::InstanceNotPinned => json::push_text(out, "InstanceNotPinned"),
+        crate::dispatch::WorkStartRefusal::SessionRunning => json::push_text(out, "SessionRunning"),
+        crate::dispatch::WorkStartRefusal::SessionsUnread => json::push_text(out, "SessionsUnread"),
+        crate::dispatch::WorkStartRefusal::NoControllerRole => json::push_text(out, "NoControllerRole"),
+        crate::dispatch::WorkStartRefusal::NotClaude => json::push_text(out, "NotClaude"),
+        crate::dispatch::WorkStartRefusal::NoProfile => json::push_text(out, "NoProfile"),
+        crate::dispatch::WorkStartRefusal::NoSettings => json::push_text(out, "NoSettings"),
+        crate::dispatch::WorkStartRefusal::NoCheckout => json::push_text(out, "NoCheckout"),
+        crate::dispatch::WorkStartRefusal::RecordsCheckout => json::push_text(out, "RecordsCheckout"),
+        crate::dispatch::WorkStartRefusal::UntrustedCheckout => json::push_text(out, "UntrustedCheckout"),
+        crate::dispatch::WorkStartRefusal::NoCharter => json::push_text(out, "NoCharter"),
+        crate::dispatch::WorkStartRefusal::LaunchFailed => json::push_text(out, "LaunchFailed"),
+        crate::dispatch::WorkStartRefusal::ProviderUnavailable => json::push_text(out, "ProviderUnavailable"),
+        crate::dispatch::WorkStartRefusal::MeasurementShort => json::push_text(out, "MeasurementShort"),
+    }
+}
+
+/// Reads `conductor.dispatch.WorkStartRefusal` from JSON.
+///
+/// # Errors
+///
+/// [`json::DecodeError`] naming the path and what the declaration says belongs there.
+pub fn decode_conductor_dispatch_work_start_refusal(value: &json::Value, at: &str) -> Result<crate::dispatch::WorkStartRefusal, json::DecodeError> {
+    Ok(match json::text_at(value, at, "one of `ControllerLimit`, `AlreadyRunning`, `StartFailed`, `InstanceNotPinned`, `SessionRunning`, `SessionsUnread`, `NoControllerRole`, `NotClaude`, `NoProfile`, `NoSettings`, `NoCheckout`, `RecordsCheckout`, `UntrustedCheckout`, `NoCharter`, `LaunchFailed`, `ProviderUnavailable`, `MeasurementShort`")? {
+        "ControllerLimit" => crate::dispatch::WorkStartRefusal::ControllerLimit,
+        "AlreadyRunning" => crate::dispatch::WorkStartRefusal::AlreadyRunning,
+        "StartFailed" => crate::dispatch::WorkStartRefusal::StartFailed,
+        "InstanceNotPinned" => crate::dispatch::WorkStartRefusal::InstanceNotPinned,
+        "SessionRunning" => crate::dispatch::WorkStartRefusal::SessionRunning,
+        "SessionsUnread" => crate::dispatch::WorkStartRefusal::SessionsUnread,
+        "NoControllerRole" => crate::dispatch::WorkStartRefusal::NoControllerRole,
+        "NotClaude" => crate::dispatch::WorkStartRefusal::NotClaude,
+        "NoProfile" => crate::dispatch::WorkStartRefusal::NoProfile,
+        "NoSettings" => crate::dispatch::WorkStartRefusal::NoSettings,
+        "NoCheckout" => crate::dispatch::WorkStartRefusal::NoCheckout,
+        "RecordsCheckout" => crate::dispatch::WorkStartRefusal::RecordsCheckout,
+        "UntrustedCheckout" => crate::dispatch::WorkStartRefusal::UntrustedCheckout,
+        "NoCharter" => crate::dispatch::WorkStartRefusal::NoCharter,
+        "LaunchFailed" => crate::dispatch::WorkStartRefusal::LaunchFailed,
+        "ProviderUnavailable" => crate::dispatch::WorkStartRefusal::ProviderUnavailable,
+        "MeasurementShort" => crate::dispatch::WorkStartRefusal::MeasurementShort,
+        other => return Err(json::DecodeError { at: at.to_owned(), expected: "one of `ControllerLimit`, `AlreadyRunning`, `StartFailed`, `InstanceNotPinned`, `SessionRunning`, `SessionsUnread`, `NoControllerRole`, `NotClaude`, `NoProfile`, `NoSettings`, `NoCheckout`, `RecordsCheckout`, `UntrustedCheckout`, `NoCharter`, `LaunchFailed`, `ProviderUnavailable`, `MeasurementShort`".to_owned(), found: format!("`{other}`") }),
+    })
+}
+
 /// Writes `conductor.dispatch.WorkState` as JSON.
 pub fn encode_conductor_dispatch_work_state(value: &crate::dispatch::WorkState, out: &mut String) {
     out.push('{');
@@ -7300,6 +7353,10 @@ pub fn encode_conductor_dispatch_work_state(value: &crate::dispatch::WorkState, 
         json::push_text(out, &*item0);
     }
     out.push(']');
+    if let Some(held0) = &value.start {
+        json::member(out, "start");
+        encode_conductor_dispatch_work_start_refusal(&*held0, out);
+    }
     out.push('}');
 }
 
@@ -7309,7 +7366,7 @@ pub fn encode_conductor_dispatch_work_state(value: &crate::dispatch::WorkState, 
 ///
 /// [`json::DecodeError`] naming the path and what the declaration says belongs there.
 pub fn decode_conductor_dispatch_work_state(value: &json::Value, at: &str) -> Result<crate::dispatch::WorkState, json::DecodeError> {
-    json::closed_at(value, at, &["reference", "dispatch_id", "repository", "state", "sent_at", "started_at", "ended_at", "last_report", "detail", "links"])?;
+    json::closed_at(value, at, &["reference", "dispatch_id", "repository", "state", "sent_at", "started_at", "ended_at", "last_report", "detail", "links", "start"])?;
     Ok(crate::dispatch::WorkState {
         reference: {
             let at0 = json::nested(at, "reference");
@@ -7374,6 +7431,13 @@ pub fn decode_conductor_dispatch_work_state(value: &json::Value, at: &str) -> Re
                     items9.push(json::text_at(element9, &nested9, "a string")?.to_owned());
                 }
                 items9
+            }
+        },
+        start: match value.member("start") {
+            None | Some(json::Value::Null) => None,
+            Some(member10) => {
+                let at10 = json::nested(at, "start");
+                Some(decode_conductor_dispatch_work_start_refusal(member10, &at10)?)
             }
         },
     })

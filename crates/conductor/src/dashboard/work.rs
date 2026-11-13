@@ -4,8 +4,15 @@
 //! - `POST /v1/work`, body `conductor.dispatch.WorkRequest` as JSON: one unit of work sent as a
 //!   dispatch with the caller's `reference` and no goal, through the code `dispatch send-dispatch
 //!   --reference` runs ([`crate::dispatch::send_work`]), with the priority that command defaults
-//!   to. It answers the unit's `conductor.dispatch.WorkState` as one JSON object: `201` for a
-//!   dispatch it created; `200` for a reference a dispatch already holds, whatever the other
+//!   to. A dispatch it created it starts the repository's controller for at once, under the same
+//!   one write at a time, as the loop's cycle starts one ([`crate::run::start_work`]: no second
+//!   controller beside a running one, `controllers.max_working`, then `conductor spawn`'s code with
+//!   the default charter where the repository has none and the brief in the session's first
+//!   prompt), without waiting for the session; a refused start is the row's `start` and the
+//!   dispatch's `start-refused` line, and the next cycle tries again. It answers the unit's
+//!   `conductor.dispatch.WorkState` as one JSON object: `201` for a
+//!   dispatch it created, whether its start was made or refused; `200` for a reference a dispatch
+//!   already holds, starting nothing, whatever the other
 //!   fields say, creating nothing; `409` `RepositoryBusy` with the open dispatches (`open`) of a
 //!   repository that works another; `422` `InvalidWorkRequest` (no JSON object, a member the
 //!   request does not declare, one it declares missing or of another type, a `start_ref` or an
@@ -30,7 +37,7 @@
 use std::io;
 use std::sync::PoisonError;
 
-use conductor_model::dispatch::WorkRequest;
+use conductor_model::dispatch::{WorkRequest, WorkStartRefusal};
 use conductor_model::server::{json as wire_json, wire};
 use serde_json::{Value, json};
 
@@ -171,7 +178,10 @@ fn send(server: &Server, bytes: &[u8], actor: conductor_model::operator::Actor) 
         Err(error) => return failure(&error),
     }
     match dispatch::send_work(state, &work, actor) {
-        Ok(Sent::Created(_)) => row(server, &work.reference, 201, "Created", SAID),
+        Ok(Sent::Created(id)) => {
+            start(server, &work.repository.0, &id);
+            row(server, &work.reference, 201, "Created", SAID)
+        }
         Ok(Sent::Held(_)) => row(server, &work.reference, 200, "OK", SAID),
         Ok(Sent::Refused {
             error: "RepositoryBusy",
@@ -188,6 +198,34 @@ fn send(server: &Server, bytes: &[u8], actor: conductor_model::operator::Actor) 
             &json!({"reference": work.reference, "detail": detail}),
         ),
         Err(error) => failure(&error),
+    }
+}
+
+/// Starts `repository`'s controller for the dispatch `id` the call created, as the loop's cycle
+/// starts one ([`crate::run::start_work`]), through the runtime's providers and with the config
+/// file its `--config` named; a refused start is kept as the dispatch's `start-refused` line, which
+/// the row reads. What failed is the runtime's line on standard error; the call goes on.
+fn start(server: &Server, repository: &str, id: &str) {
+    let Some((refusal, detail)) = crate::run::start_work(
+        crate::config::explicit(),
+        server.state.as_deref(),
+        &server.providers,
+        repository,
+        id,
+    ) else {
+        return;
+    };
+    let name = crate::run::work_refusal_name(refusal);
+    if refusal == WorkStartRefusal::StartFailed {
+        eprintln!("conductor instance serve: POST /v1/work: the start of {id} failed: {detail}");
+    }
+    if let Err(error) = crate::run::start_refused_line(repository, id, refusal, &detail)
+        .and_then(|line| crate::records::append_dispatch(&line))
+    {
+        eprintln!(
+            "conductor instance serve: POST /v1/work: the start of {id} was refused ({name}) and \
+             its line not written: {error:#}"
+        );
     }
 }
 

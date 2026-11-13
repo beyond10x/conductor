@@ -155,11 +155,12 @@ pub const fn dispatch_event(event: DispatchLogEvent) -> &'static str {
         DispatchLogEvent::Cycle => "cycle",
         DispatchLogEvent::RecordsCommitted => "records-committed",
         DispatchLogEvent::RecordsCommitRefused => "records-commit-refused",
+        DispatchLogEvent::StartRefused => "start-refused",
     }
 }
 
 /// Every event of the dispatch log, in the specification's order.
-pub const DISPATCH_EVENTS: [DispatchLogEvent; 26] = [
+pub const DISPATCH_EVENTS: [DispatchLogEvent; 27] = [
     DispatchLogEvent::Sent,
     DispatchLogEvent::Started,
     DispatchLogEvent::Blocked,
@@ -186,6 +187,7 @@ pub const DISPATCH_EVENTS: [DispatchLogEvent; 26] = [
     DispatchLogEvent::Cycle,
     DispatchLogEvent::RecordsCommitted,
     DispatchLogEvent::RecordsCommitRefused,
+    DispatchLogEvent::StartRefused,
 ];
 
 /// The dispatch log event `name` spells ([`dispatch_event`]), if any.

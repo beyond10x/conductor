@@ -1,5 +1,5 @@
 // generated from conductor v1
-// contract digest 58983098659d5fd5fbd918be2db0c0ce1c382725137cfe87bf81bc48ad81f500
+// contract digest 63f3332f35d5d8242d09f4ee9ffd402eddf1d2ad15f24591d584a5e75f993453
 // do not edit: regenerate with `ess synthesize --layout crate`
 
 //! Secret — `conductor.secret`.
