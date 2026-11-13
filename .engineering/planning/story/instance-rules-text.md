@@ -2,7 +2,7 @@
 format: aep.planning-md/3
 id: story:instance-rules-text
 kind: story
-status: active
+status: implemented
 title: An instance mapping carries standing rules text that every session of the instance reads
 relations:
 - decomposes: epic:deployable-in-kubernetes
@@ -41,10 +41,11 @@ scope:
   path: spec/domains/instance.yaml
 - confidence: inferred
   path: website/docs
-revision: 6
+revision: 7
 transitions:
 - {from: "draft", to: "proposed", at: "2026-11-13T00:16:24Z", actor: "human:timo", revision: 3}
 - {from: "proposed", to: "active", at: "2026-11-13T00:16:24Z", actor: "human:timo", revision: 4}
+- {from: "active", to: "implemented", at: "2026-11-13T23:49:46Z", actor: "human:timo", revision: 7, decided_on: {"recorded":{"test_result":1}}}
 ---
 ## Why
 
