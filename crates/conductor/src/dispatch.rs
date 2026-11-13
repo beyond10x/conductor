@@ -613,8 +613,8 @@ fn open_ids(command: &str, store: &Store, repository: &RepositoryName) -> Result
     Ok(ids)
 }
 
-/// `conductor dispatch record-link`: the command `conductor.dispatch.RecordDispatchLink`. A link
-/// the dispatch holds already changes nothing and writes no line.
+/// `conductor dispatch record-link`: the command `conductor.dispatch.RecordDispatchLink`, through
+/// [`link`]. A link the dispatch holds already changes nothing and writes no line.
 ///
 /// # Errors
 ///
@@ -624,44 +624,79 @@ fn open_ids(command: &str, store: &Store, repository: &RepositoryName) -> Result
 pub fn record_link(state: Option<&Path>, args: RecordDispatchLinkArgs) -> Result<ExitCode> {
     const COMMAND: &str = "dispatch record-link";
     flags_only(args.input_json, "dispatch record-link --input-json")?;
+    let actor = crate::actor::chosen();
+    let dispatch = dispatch_id(COMMAND, args.dispatch_id)?;
+    let given = flag(COMMAND, "--link", args.link)?;
+    match link(state, dispatch, given, actor)? {
+        Linking::Linked | Linking::Held => Ok(ExitCode::SUCCESS),
+        Linking::Refused { error, detail } => refused(COMMAND, error, &detail),
+    }
+}
+
+/// What recording a link on a dispatch answered ([`link`]).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Linking {
+    /// The link is the dispatch's last, and its `linked` line is written.
+    Linked,
+    /// The dispatch held the link already: nothing changed and no line was written.
+    Held,
+    /// The specification refused it: the error's name in `conductor.dispatch` and its one line.
+    Refused { error: &'static str, detail: String },
+}
+
+/// Records `link` on the dispatch `dispatch` as `actor` (`conductor.dispatch.RecordDispatchLink`):
+/// the code `dispatch record-link` runs, and the loop's mailbox for a `review <url>` report.
+///
+/// # Errors
+///
+/// The store does not open or keep the link, or the records' line is not written.
+pub fn link(
+    state: Option<&Path>,
+    dispatch: DispatchId,
+    link: String,
+    actor: conductor_model::operator::Actor,
+) -> Result<Linking> {
+    const COMMAND: &str = "dispatch record-link";
     let input = RecordDispatchLink {
-        actor: crate::actor::chosen(),
-        dispatch_id: dispatch_id(COMMAND, args.dispatch_id)?,
-        link: flag(COMMAND, "--link", args.link)?,
+        actor,
+        dispatch_id: dispatch,
+        link,
     };
     let (outcome, store) = run(state, COMMAND, |generated| {
         generated.record_dispatch_link(input)
     })?;
-    match outcome {
-        RecordDispatchLinkOutcome::Linked { dispatch_linked } => logged(
-            COMMAND,
-            &store,
-            &dispatch_linked.dispatch_id,
-            DispatchLogEvent::Linked,
-            |line| line.link = Some(dispatch_linked.link.clone()),
-        ),
-        RecordDispatchLinkOutcome::AlreadyLinked => Ok(ExitCode::SUCCESS),
-        RecordDispatchLinkOutcome::InvalidLink { error } => refused(
-            COMMAND,
-            "InvalidLink",
-            &format!(
+    Ok(match outcome {
+        RecordDispatchLinkOutcome::Linked { dispatch_linked } => {
+            let _ = logged(
+                COMMAND,
+                &store,
+                &dispatch_linked.dispatch_id,
+                DispatchLogEvent::Linked,
+                |line| line.link = Some(dispatch_linked.link.clone()),
+            )?;
+            Linking::Linked
+        }
+        RecordDispatchLinkOutcome::AlreadyLinked => Linking::Held,
+        RecordDispatchLinkOutcome::InvalidLink { error } => Linking::Refused {
+            error: "InvalidLink",
+            detail: format!(
                 "--link {:?} is not an http:// or https:// URL of at most {LINK_MOST} characters \
-                 without a space, so nothing was recorded",
+                 without a space or control character, so nothing was recorded",
                 error.link
             ),
-        ),
-        RecordDispatchLinkOutcome::NoSuchDispatch { error } => {
-            no_dispatch(COMMAND, &error.dispatch_id)
-        }
-        RecordDispatchLinkOutcome::LinksFull { error } => refused(
-            COMMAND,
-            "DispatchLinksFull",
-            &format!(
+        },
+        RecordDispatchLinkOutcome::NoSuchDispatch { error } => Linking::Refused {
+            error: "DispatchNotFound",
+            detail: format!("no dispatch has the id {}", error.dispatch_id.0),
+        },
+        RecordDispatchLinkOutcome::LinksFull { error } => Linking::Refused {
+            error: "DispatchLinksFull",
+            detail: format!(
                 "dispatch {} holds {LINKS_MOST} links, the most it holds, so nothing was recorded",
                 error.dispatch_id.0
             ),
-        ),
-    }
+        },
+    })
 }
 
 /// `conductor dispatch report-started`: the command `conductor.dispatch.ReportStarted`.

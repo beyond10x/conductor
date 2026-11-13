@@ -378,7 +378,7 @@ types:
   # What the work call answers for a reference: the dispatch that holds it, its repository, its
   # state by the lifecycle's own names, when it was sent, when it started and when it ended, the
   # text of the last report, a `detail` where it is Blocked or Failed (the reason), and the links
-  # recorded on it (`RecordDispatchLink`). `reference`, `dispatch_id`, `repository`, `state`,
+  # recorded on it (`RecordDispatchLink`, as a `review <url>` report records one). `reference`, `dispatch_id`, `repository`, `state`,
   # `sent_at` and `links` are the dispatch's own; `started_at`, `ended_at` and `detail` are the
   # `at` and `reason` of its `started`, `done`, `failed`, `cancelled` and `blocked` lines in the
   # records' dispatch log, and `last_report` a message's first line, which no field of the
@@ -860,8 +860,9 @@ errors:
 
   - name: conductor.dispatch.InvalidLink
     summary: >
-      A link is an `http://` or `https://` URL of at most 2048 characters with no space, and this
-      one is not, so nothing was recorded.
+      A link is an `http://` or `https://` URL of at most 2048 characters with no space, control
+      character, line or paragraph separator or bidirectional control, and this one is not, so
+      nothing was recorded.
     fields:
       - name: link
         type: String
@@ -1616,8 +1617,11 @@ commands:
 
   # Records line (`DispatchLogLine`): `linked`, with `id` and `link`, when the link was appended.
   # A link is a merge or pull request the dispatch's work opened, as the session reported it
-  # (story:control-plane-work-handler); it is recorded in any state of the dispatch, each link
-  # once, at most 32 per dispatch.
+  # (story:control-plane-work-handler): the loop records the URL of a controller's
+  # `[REPORT <repo> <dispatch-id|->] review <url>` through this command, and no other report's;
+  # it is recorded in any state of the dispatch, each link once, at most 32 per dispatch. A link
+  # holds no space, no control character (C0, DEL, C1), no line or paragraph separator and no
+  # bidirectional control, so no terminal that shows it is moved or reordered by it.
   - name: conductor.dispatch.RecordDispatchLink
     naming:
       wire: record-link
@@ -1643,11 +1647,84 @@ commands:
             - link: {contains: "\t"}
             - link: {contains: "\n"}
             - link: {contains: "\r"}
+            - link: {contains: "\x00"}
+            - link: {contains: "\x01"}
+            - link: {contains: "\x02"}
+            - link: {contains: "\x03"}
+            - link: {contains: "\x04"}
+            - link: {contains: "\x05"}
+            - link: {contains: "\x06"}
+            - link: {contains: "\x07"}
+            - link: {contains: "\x08"}
+            - link: {contains: "\x0b"}
+            - link: {contains: "\x0c"}
+            - link: {contains: "\x0e"}
+            - link: {contains: "\x0f"}
+            - link: {contains: "\x10"}
+            - link: {contains: "\x11"}
+            - link: {contains: "\x12"}
+            - link: {contains: "\x13"}
+            - link: {contains: "\x14"}
+            - link: {contains: "\x15"}
+            - link: {contains: "\x16"}
+            - link: {contains: "\x17"}
+            - link: {contains: "\x18"}
+            - link: {contains: "\x19"}
+            - link: {contains: "\x1a"}
+            - link: {contains: "\x1b"}
+            - link: {contains: "\x1c"}
+            - link: {contains: "\x1d"}
+            - link: {contains: "\x1e"}
+            - link: {contains: "\x1f"}
+            - link: {contains: "\x7f"}
+            - link: {contains: "\x80"}
+            - link: {contains: "\x81"}
+            - link: {contains: "\x82"}
+            - link: {contains: "\x83"}
+            - link: {contains: "\x84"}
+            - link: {contains: "\x85"}
+            - link: {contains: "\x86"}
+            - link: {contains: "\x87"}
+            - link: {contains: "\x88"}
+            - link: {contains: "\x89"}
+            - link: {contains: "\x8a"}
+            - link: {contains: "\x8b"}
+            - link: {contains: "\x8c"}
+            - link: {contains: "\x8d"}
+            - link: {contains: "\x8e"}
+            - link: {contains: "\x8f"}
+            - link: {contains: "\x90"}
+            - link: {contains: "\x91"}
+            - link: {contains: "\x92"}
+            - link: {contains: "\x93"}
+            - link: {contains: "\x94"}
+            - link: {contains: "\x95"}
+            - link: {contains: "\x96"}
+            - link: {contains: "\x97"}
+            - link: {contains: "\x98"}
+            - link: {contains: "\x99"}
+            - link: {contains: "\x9a"}
+            - link: {contains: "\x9b"}
+            - link: {contains: "\x9c"}
+            - link: {contains: "\x9d"}
+            - link: {contains: "\x9e"}
+            - link: {contains: "\x9f"}
+            - link: {contains: "\u2028"}
+            - link: {contains: "\u2029"}
+            - link: {contains: "\u202a"}
+            - link: {contains: "\u202b"}
+            - link: {contains: "\u202c"}
+            - link: {contains: "\u202d"}
+            - link: {contains: "\u202e"}
+            - link: {contains: "\u2066"}
+            - link: {contains: "\u2067"}
+            - link: {contains: "\u2068"}
+            - link: {contains: "\u2069"}
         error: conductor.dispatch.InvalidLink
         payload:
           conductor.dispatch.InvalidLink:
             link: input.link
-        summary: A link is an `http://` or `https://` URL of at most 2048 characters; nothing was recorded.
+        summary: A link is an `http://` or `https://` URL of at most 2048 characters with no space or control character; nothing was recorded.
       - name: no-such-dispatch
         unknown_instance: true
         error: conductor.dispatch.DispatchNotFound

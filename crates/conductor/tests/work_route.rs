@@ -802,6 +802,37 @@ fn a_report_naming_another_repositorys_dispatch_moves_nothing_of_it() {
     assert_eq!(held["dispatch_id"], Value::Null, "{held}");
 }
 
+/// A controller's `review <url>` report, sent as a controller sends one, reaches the row: its
+/// `links` hold the URL, `last_report` the report's first line, and the Sent dispatch is
+/// Started. The same report naming another repository's dispatch links nothing of it.
+#[test]
+fn a_review_report_puts_its_url_on_the_row() {
+    let case = Case::new("review");
+    let _runtime = case.serve();
+    let alpha = dispatch_of(&post(&case, &work("alpha", "WI-A")));
+    let beta = dispatch_of(&post(&case, &work("beta", "WI-B")));
+    let link = "https://forge.example.org/example-org/alpha/pull/12";
+    let first = format!("[REPORT alpha {alpha}] review {link} opened for WI-A");
+    case.report(&first);
+
+    let row = get(&case, "WI-A").json();
+    assert_eq!(row["state"], "Started", "{row}");
+    assert_eq!(row["links"], json!([link]), "{row}");
+    assert_eq!(row["last_report"], first.as_str(), "{row}");
+    assert!(row.get("started_at").is_some(), "{row}");
+
+    let message = case.send(&format!(
+        "[REPORT alpha {beta}] review https://forge.example.org/example-org/beta/pull/3"
+    ));
+    case.tick();
+    let row = get(&case, "WI-B").json();
+    assert_eq!(row["state"], "Sent", "{row}");
+    assert_eq!(row["links"], json!([]), "{row}");
+    assert!(row.get("last_report").is_none(), "{row}");
+    assert_eq!(case.message(&message)["state"], "Handled");
+    assert_eq!(get(&case, "WI-A").json()["links"], json!([link]));
+}
+
 /// `message handle-message --dispatch-id` takes only a dispatch that exists and is of the
 /// repository the message's first line names: another repository's dispatch, or one no dispatch
 /// has, is refused by its declared name on one line, exit 1, and the message stays unhandled.

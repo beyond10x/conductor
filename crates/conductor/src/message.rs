@@ -71,6 +71,7 @@ pub const FORMAT: &str = "\
 The first line of a message to conductor is one of:
 [DISPATCH <repo> <dispatch-id>] <goal id> <what to do>
 [REPORT <repo> <dispatch-id>] <started|progress|blocked|unblocked|done|failed> <one line>
+[REPORT <repo> <dispatch-id>] review <url> [<words>]
 [DECISION-REQUEST <repo> <request-id>] <question>
 [DECISION <request-id>] <option> <one-line reason> (<decision-id>)
 [NEED <repo> <request-id>] <other-repo> <what is needed>
@@ -122,6 +123,7 @@ const FORMS: [Form; 8] = [
                 && [
                     "started",
                     "progress",
+                    "review",
                     "blocked",
                     "unblocked",
                     "done",

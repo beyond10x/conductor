@@ -1,5 +1,5 @@
 // generated from conductor v1
-// contract digest 63f3332f35d5d8242d09f4ee9ffd402eddf1d2ad15f24591d584a5e75f993453
+// contract digest 9b05469633bcf1d4139af714f927c2a3b9c70504015e08449956d3e7adddbe34
 // do not edit: regenerate with `ess synthesize --layout crate`
 
 //! Session — `conductor.session`.

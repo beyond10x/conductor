@@ -13,6 +13,7 @@
 //! | first line | what the tick does |
 //! |---|---|
 //! | `[REPORT <repo> <dispatch-id>] started\|blocked\|unblocked\|done\|failed <rest>` | moves the dispatch as `dispatch report-<verb>` does, `<rest>` its reason or evidence (`story:report-to-state`); `-` for the dispatch is the repository's one open dispatch, and with none open the report moves nothing and is not refused; `blocked handover <path>` is a report like any. A `blocked`, `done` or `failed` on a dispatch still `Sent` is reported `started` first, so the log holds both lines; a `started` on a `Blocked` dispatch is recorded `unblocked`, as a controller restarted after a hand-over reports |
+//! | `[REPORT <repo> <dispatch-id\|->] review <url> [<words>]` | the controller's pull request ([`review`]): a `Sent` dispatch is reported `started`, another moves nothing, as `progress`; the URL, the first word after the verb, is then recorded on the dispatch as `dispatch record-link` records it. A first word that is no link a dispatch takes, or none, is a `progress` report with nothing linked, and a dispatch that holds the most links takes the report without it: neither is refused, and the journal names it in one line. No other verb records a link |
 //! | `[HANDOVER <repo>] <rest>` | recorded as a report: the repository's open dispatch is reported blocked, `handover: <rest>` |
 //! | `[NEED <repo> <request-id>] <other-repo> <what>` | the whole message delivered to the running controller of `<other-repo>` (`relayed`), else kept for its next start; the repository is the field's leading run of name characters (`docs:` names `docs`). A field that names no repository the instance knows is not relayed and nothing is kept for it: the file stays in the mailbox, where the supervisor reads it, and the sender is told so in one message, `[REPORT <repo> -] not relayed: <reason>`; one that names the mailbox's own recipient, `conductor`, is the supervisor's and is answered by no one (`story:need-repository-from-tag`) |
 //! | `[DECISION-REQUEST <repo> <request-id>] <question>` | handed whole to `decide::handle_request` ([`super::handle_request`]), which raises it with the rule that classified it, answers and records class C and escalates class O and H; a decided request's `[DECISION]` is delivered to the controller that raised it (`decision-sent`), else kept for its next start. With no decider seam ([`super::HandleRequest`]), raised (`decision raise-decision-request`) and escalated as class O, one of the options its body lists (`A) <label>: <cost>`), its `Recommendation:` line's letter recommended and the default, the deadline 48 hours out |
@@ -41,7 +42,7 @@ use crate::cli::{
     EscalateRequestArgs, HandleMessageArgs, RaiseDecisionRequestArgs, ReportBlockedArgs,
     ReportDoneArgs, ReportFailedArgs, ReportStartedArgs, ReportUnblockedArgs,
 };
-use crate::dispatch::Open;
+use crate::dispatch::{Linking, Open};
 
 /// The files handled, one name per line, in `<state>/run/`.
 const HANDLED: &str = "mailbox.handled";
@@ -142,7 +143,8 @@ fn act(tick: &mut Tick<'_, '_>, file: &Path) -> Result<bool> {
 const FORMS: [(&str, &str); 5] = [
     (
         "REPORT",
-        "[REPORT <repo> <dispatch-id|->] <started|progress|blocked|unblocked|done|failed> <one line>",
+        "[REPORT <repo> <dispatch-id|->] <started|progress|blocked|unblocked|done|failed> <one line>, \
+         or [REPORT <repo> <dispatch-id|->] review <url> [<words>]",
     ),
     ("HANDOVER", "[HANDOVER <repo>] <path of the hand-over>"),
     ("NEED", "[NEED <repo> <request-id>] <other-repo> <what>"),
@@ -232,9 +234,9 @@ fn open_dispatch(tick: &Tick<'_, '_>, repo: &str) -> Result<String> {
 }
 
 /// `[REPORT <repo> <dispatch>] <verb> <rest>`: the dispatch moved as `dispatch report-<verb>`
-/// does; `progress` and `ready` move nothing. A `blocked`, `done` or `failed` on a dispatch still
-/// `Sent` reports it `started` first, and a `started` on a `Blocked` one reports it `unblocked`
-/// (`story:report-on-sent-dispatch`). With `-` for the dispatch
+/// does; `progress` and `ready` move nothing, and `review` links its URL ([`review`]). A
+/// `blocked`, `done` or `failed` on a dispatch still `Sent` reports it `started` first, and a
+/// `started` on a `Blocked` one reports it `unblocked` (`story:report-on-sent-dispatch`). With `-` for the dispatch
 /// and no dispatch of the repository open, the report moves nothing and is not refused: a
 /// controller started with no dispatch reports so (`story:spawn-without-dispatch-reports`).
 /// Answers whether it acted, and the dispatch the report was for: its own id, or the open one `-`
@@ -268,6 +270,10 @@ fn report(
     }
     let reported = held.is_some().then(|| dispatch.clone());
     let held = held.map(|(state, _)| state);
+    if verb == "review" {
+        review(tick, &dispatch, held, said.as_deref())?;
+        return Ok((true, reported));
+    }
     if matches!(verb, "blocked" | "done" | "failed") && held == Some(DispatchState::Sent) {
         let _ = crate::dispatch::report_started(
             state,
@@ -356,6 +362,75 @@ fn report(
     };
     tick.wrote(event);
     Ok((true, reported))
+}
+
+/// `review <url> [<words>]` on the dispatch `id`, which the store holds in `held` (`None`: no
+/// dispatch has the id), of the report's own repository. `said` is the line after the verb.
+///
+/// The first word of `said` that is a link a dispatch takes ([`crate::dispatch::valid_link`]) is
+/// the pull request's URL: a `Sent` dispatch is reported `started` first, as a `blocked`, `done`
+/// or `failed` on it is (`story:report-on-sent-dispatch`), a dispatch in any other state does not
+/// move, and the URL is recorded through [`crate::dispatch::link`], the code `dispatch
+/// record-link` runs: `linked` where the dispatch did not hold it, nothing where it did. A
+/// dispatch that holds the most links (`DispatchLinksFull`) takes the report without the link.
+/// A first word that is no such link, or none, makes the report a `progress` one: nothing moves
+/// and nothing is linked. Neither is a refusal; each is one line of the journal, the word written
+/// as Rust escapes it, so no control character of it reaches the journal.
+///
+/// # Errors
+///
+/// The store does not open or keep the move or the link, or no dispatch has the id
+/// (`DispatchNotFound`), as for the verbs that move a dispatch.
+fn review(
+    tick: &mut Tick<'_, '_>,
+    id: &str,
+    held: Option<DispatchState>,
+    said: Option<&str>,
+) -> Result<()> {
+    let word = said
+        .and_then(|said| said.split_whitespace().next())
+        .unwrap_or_default();
+    if !crate::dispatch::valid_link(word) {
+        let why = if word.is_empty() {
+            anyhow!("names no URL; handled as progress, nothing linked")
+        } else {
+            anyhow!(
+                "{word:?} is no link a dispatch takes (InvalidLink); handled as progress, nothing \
+                 linked"
+            )
+        };
+        tick.note(&format!("mailbox: review on {id}"), &why);
+        return Ok(());
+    }
+    if held == Some(DispatchState::Sent) {
+        let _ = crate::dispatch::report_started(
+            tick.state,
+            ReportStartedArgs {
+                actor: None,
+                dispatch_id: Some(id.to_owned()),
+                input_json: None,
+            },
+        )?;
+        tick.wrote(DispatchLogEvent::Started);
+    }
+    match crate::dispatch::link(
+        tick.state,
+        DispatchId(id.to_owned()),
+        word.to_owned(),
+        crate::actor::chosen(),
+    )? {
+        Linking::Linked => tick.wrote(DispatchLogEvent::Linked),
+        Linking::Held => {}
+        Linking::Refused {
+            error: "DispatchLinksFull",
+            detail,
+        } => tick.note(
+            &format!("mailbox: review on {id}"),
+            &anyhow!("{word:?} is not linked: DispatchLinksFull: {detail}"),
+        ),
+        Linking::Refused { error, detail } => bail!("dispatch record-link: {error}: {detail}"),
+    }
+    Ok(())
 }
 
 /// The state the store holds the dispatch `id` in, and its repository; `None` when it holds no

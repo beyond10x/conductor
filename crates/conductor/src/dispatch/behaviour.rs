@@ -47,15 +47,23 @@ pub fn valid_reference(reference: &str) -> bool {
 }
 
 /// Whether `link` is one a dispatch may hold: an `http://` or `https://` URL, more than its
-/// scheme, of at most [`LINK_MOST`] characters, with no space, tab or line break
+/// scheme, of at most [`LINK_MOST`] characters, with no space, no control character (C0, DEL and
+/// C1, so no tab or line break), no line or paragraph separator and no bidirectional control
+/// ([`crate::cli::bidirectional`]): nothing that moves or reorders a terminal that shows it
 /// (`RecordDispatchLink` `invalid-link`).
 #[must_use]
 pub fn valid_link(link: &str) -> bool {
+    let refused = |character: char| {
+        character == ' '
+            || character.is_control()
+            || matches!(character, '\u{2028}' | '\u{2029}')
+            || crate::cli::bidirectional(character)
+    };
     link.chars().count() <= LINK_MOST
         && (link.starts_with("http://") || link.starts_with("https://"))
         && link != "http://"
         && link != "https://"
-        && !link.contains([' ', '\t', '\n', '\r'])
+        && !link.contains(refused)
 }
 
 /// The most bytes a `start_ref` holds.
@@ -365,5 +373,23 @@ mod tests {
         ] {
             assert!(!valid_link(bad), "{bad:?}");
         }
+    }
+
+    /// No character a terminal would act on: every control character (C0, DEL and C1), the line
+    /// and paragraph separators and every bidirectional control. A character past ASCII that is
+    /// none of them is taken.
+    #[test]
+    fn a_link_holds_no_control_or_bidirectional_character() {
+        let refused = (0..=0x1f_u32)
+            .chain(0x7f..=0x9f)
+            .chain(0x202a..=0x202e)
+            .chain(0x2066..=0x2069)
+            .chain([0x2028, 0x2029])
+            .filter_map(char::from_u32);
+        for character in refused {
+            let link = format!("https://example.org/a{character}b");
+            assert!(!valid_link(&link), "{link:?}");
+        }
+        assert!(valid_link("https://example.org/straße/ä"));
     }
 }

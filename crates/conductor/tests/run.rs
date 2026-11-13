@@ -2802,6 +2802,188 @@ fn a_dash_report_with_no_open_dispatch_moves_nothing_and_is_not_refused() {
     assert!(case.deliveries().is_empty(), "{:?}", case.deliveries());
 }
 
+/// The links `dispatch dispatches` gives the dispatch `id`.
+fn links_of(case: &Case, id: &str) -> Value {
+    case.view(&["dispatch", "dispatches"])
+        .into_iter()
+        .find(|row| row["dispatch_id"] == id)
+        .map(|row| row["links"].clone())
+        .unwrap_or_else(|| panic!("no dispatch {id}"))
+}
+
+/// A pull request of `alpha` by its number.
+fn pull(number: u32) -> String {
+    format!("https://forge.example.org/example-org/alpha/pull/{number}")
+}
+
+/// `[REPORT <repo> <id|->] review <url> [words]`: on a Sent dispatch it starts it, as `blocked`
+/// and `done` do, then records the URL as the dispatch's link (`linked`); on a Started one it
+/// records the link and the dispatch stays Started. A URL the dispatch holds is no error and
+/// writes no second line. Nothing is refused, so its sender is told nothing.
+#[test]
+fn a_mailbox_review_report_links_its_url_and_starts_a_sent_dispatch() {
+    let case = Case::new("mail-review");
+    case.spawn("alpha", FIRST);
+    let id = case.dispatch("alpha");
+    case.mail(
+        "0001",
+        &format!(
+            "[REPORT alpha {id}] review {} opened for the unit\n",
+            pull(12)
+        ),
+    );
+    let tick = case.tick(&[]);
+    assert_eq!(tick["lines_handled"], 1, "{tick}");
+    assert_eq!(case.dispatch_state(&id), "Started", "{tick}");
+    assert_eq!(actions(&tick), ["started", "linked"], "{tick}");
+    assert_eq!(events_of(&case, &id), ["sent", "started", "linked"]);
+    let linked = case
+        .log()
+        .into_iter()
+        .find(|line| line["event"] == "linked")
+        .expect("a linked line");
+    assert_eq!(linked["link"], pull(12), "{linked}");
+    assert_eq!(linked["repo"], "alpha", "{linked}");
+    assert_eq!(links_of(&case, &id), json!([pull(12)]));
+
+    case.mail("0002", &format!("[REPORT alpha -] review {}\n", pull(13)));
+    case.mail(
+        "0003",
+        &format!("[REPORT alpha {id}] review: {}\n", pull(12)),
+    );
+    let tick = case.tick(&[]);
+    assert_eq!(tick["lines_handled"], 2, "{tick}");
+    assert_eq!(case.dispatch_state(&id), "Started", "{tick}");
+    assert_eq!(actions(&tick), ["linked"], "{tick}");
+    assert_eq!(
+        events_of(&case, &id),
+        ["sent", "started", "linked", "linked"]
+    );
+    assert_eq!(links_of(&case, &id), json!([pull(12), pull(13)]));
+    assert!(case.deliveries().is_empty(), "{:?}", case.deliveries());
+}
+
+/// A `review` whose first word after it is no link a dispatch takes (none at all, no URL, a
+/// scheme other than http or https, a control character) is handled as `progress`: not refused,
+/// the dispatch does not move, nothing is linked, and the loop says so in one line of its
+/// journal, the word written without its control character. A dispatch that holds the most links
+/// takes the report too: it starts, and the loop says the link was not recorded.
+#[test]
+fn a_review_with_no_link_it_takes_is_handled_as_progress_and_says_so() {
+    let case = Case::new("mail-review-nolink");
+    case.spawn("alpha", FIRST);
+    let id = case.dispatch("alpha");
+    let words = [
+        String::new(),
+        " opened, see the forge".to_owned(),
+        " pull/12".to_owned(),
+        " ftp://forge.example.org/example-org/alpha/pull/12".to_owned(),
+        format!(" {}\u{1b}[2J", pull(12)),
+    ];
+    for (n, said) in words.iter().enumerate() {
+        case.mail(
+            &format!("000{n}"),
+            &format!("[REPORT alpha {id}] review{said}\n"),
+        );
+    }
+    let (tick, journal) = case.tick_said(&[]);
+    assert_eq!(tick["lines_handled"], 5, "{tick}");
+    assert_eq!(case.dispatch_state(&id), "Sent", "{tick}");
+    assert_eq!(actions(&tick), Vec::<String>::new(), "{tick}");
+    assert_eq!(events_of(&case, &id), ["sent"]);
+    assert_eq!(links_of(&case, &id), json!([]));
+    assert!(case.deliveries().is_empty(), "{:?}", case.deliveries());
+    let review: Vec<&String> = journal
+        .iter()
+        .filter(|line| line.contains("review") && line.contains(&id))
+        .collect();
+    assert_eq!(review.len(), 5, "one line per report: {journal:#?}");
+    assert!(
+        review.iter().all(|line| line.contains("progress")),
+        "{review:#?}"
+    );
+    assert!(
+        journal.iter().all(|line| !line.contains('\u{1b}')),
+        "no control character reaches the journal: {journal:#?}"
+    );
+
+    for number in 1..=32 {
+        case.ok(&[
+            "dispatch",
+            "record-link",
+            "--dispatch-id",
+            &id,
+            "--link",
+            &pull(number),
+        ]);
+    }
+    case.mail(
+        "0010",
+        &format!("[REPORT alpha {id}] review {}\n", pull(33)),
+    );
+    let (tick, journal) = case.tick_said(&[]);
+    assert_eq!(tick["lines_handled"], 1, "{tick}");
+    assert_eq!(case.dispatch_state(&id), "Started", "{tick}");
+    assert_eq!(actions(&tick), ["started"], "{tick}");
+    assert_eq!(
+        links_of(&case, &id).as_array().map(Vec::len),
+        Some(32),
+        "the 33rd is not recorded"
+    );
+    assert!(case.deliveries().is_empty(), "{:?}", case.deliveries());
+    assert_eq!(
+        journal
+            .iter()
+            .filter(|line| line.contains(&pull(33)) && line.contains("DispatchLinksFull"))
+            .count(),
+        1,
+        "{journal:#?}"
+    );
+}
+
+/// One verb, one place: a `progress`, `ready` or `done` report whose line holds the URL of a pull
+/// request records no link.
+#[test]
+fn a_progress_ready_or_done_report_with_a_url_records_no_link() {
+    let case = Case::new("mail-url-nolink");
+    let id = case.dispatch("alpha");
+    case.mail(
+        "0001",
+        &format!("[REPORT alpha {id}] progress PR opened: {}\n", pull(12)),
+    );
+    case.mail("0002", &format!("[REPORT alpha {id}] ready {}\n", pull(13)));
+    case.mail(
+        "0003",
+        &format!("[REPORT alpha {id}] done {} merged\n", pull(14)),
+    );
+    let tick = case.tick(&[]);
+    assert_eq!(tick["lines_handled"], 3, "{tick}");
+    assert_eq!(case.dispatch_state(&id), "Done", "{tick}");
+    assert_eq!(events_of(&case, &id), ["sent", "started", "done"]);
+    assert_eq!(links_of(&case, &id), json!([]));
+}
+
+/// A `review` whose id names another repository's dispatch is a report of its own repository
+/// naming no dispatch: the other dispatch neither moves nor gets the link, and no line is written.
+#[test]
+fn a_review_naming_another_repositorys_dispatch_links_nothing_of_it() {
+    let case = Case::new("mail-review-foreign");
+    let alpha = case.dispatch("alpha");
+    let beta = case.dispatch("beta");
+    case.mail(
+        "0001",
+        &format!("[REPORT alpha {beta}] review {}\n", pull(12)),
+    );
+    let tick = case.tick(&[]);
+    assert_eq!(tick["lines_handled"], 1, "{tick}");
+    assert_eq!(actions(&tick), Vec::<String>::new(), "{tick}");
+    assert_eq!(case.dispatch_state(&beta), "Sent");
+    assert_eq!(case.dispatch_state(&alpha), "Sent");
+    assert_eq!(links_of(&case, &beta), json!([]));
+    assert_eq!(links_of(&case, &alpha), json!([]));
+    assert_eq!(events_of(&case, &beta), ["sent"]);
+}
+
 // ---------------------------------------------------------------------------------------------
 // Cycle and daily
 // ---------------------------------------------------------------------------------------------

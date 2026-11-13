@@ -263,6 +263,18 @@ fn a_report_is_left_in_the_mailbox_and_recorded() {
     );
 }
 
+/// A `review <url>` report, the one a controller under `merge: human` sends for its pull request.
+#[test]
+fn a_review_report_is_left_in_the_mailbox_and_recorded() {
+    sends(
+        "review",
+        "[REPORT cortex DSP-20991231-01] review https://forge.example.org/example-org/cortex/pull/12\n",
+        &Text::Stdin,
+        "Report",
+        "cortex",
+    );
+}
+
 #[test]
 fn a_need_is_left_in_the_mailbox_and_recorded() {
     sends(

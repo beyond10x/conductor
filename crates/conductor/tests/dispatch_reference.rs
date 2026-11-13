@@ -472,6 +472,17 @@ fn record_link_appends_a_link_once_and_refuses_what_is_no_link() {
         "http://",
         "https://forge.example.org/a b",
         too_long.as_str(),
+        // A control character or a bidirectional control, which would move or reorder a
+        // terminal that shows the link.
+        "https://forge.example.org/a\u{1b}[2J",
+        // NUL cannot be an argument; the library's case holds it.
+        "https://forge.example.org/a\u{7}b",
+        "https://forge.example.org/a\u{7f}",
+        "https://forge.example.org/a\u{85}",
+        "https://forge.example.org/a\u{9b}31m",
+        "https://forge.example.org/\u{202e}gpj.exe",
+        "https://forge.example.org/a\u{2066}b",
+        "https://forge.example.org/a\u{2028}b",
     ] {
         case.refuses(&args(&record(bad)), "InvalidLink");
     }

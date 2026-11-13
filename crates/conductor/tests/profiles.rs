@@ -411,6 +411,32 @@ fn a_charter_s_merge_human_leaves_the_merge_to_a_person() {
     );
 }
 
+/// The pull request a `merge: human` controller opens is reported `review <url>`: the controller's
+/// list of first lines names the form, the format `message send` answers with names it, and the
+/// default charter conductor writes tells the session to send it in that form.
+#[test]
+fn the_review_report_is_named_with_its_form_where_the_report_forms_are() {
+    let controller = profile("controller.md");
+    assert!(
+        controller.contains("- `[REPORT <repo> <dispatch-id|->] review <url> [<words>]`"),
+        "controller.md: the first lines name review: {controller}"
+    );
+    assert!(
+        conductor_cli::message::FORMAT
+            .contains("[REPORT <repo> <dispatch-id>] review <url> [<words>]"),
+        "{}",
+        conductor_cli::message::FORMAT
+    );
+    let charter =
+        fs::read_to_string(PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("src/spawn/charter.md"))
+            .expect("read the default charter");
+    let charter = charter.split_whitespace().collect::<Vec<_>>().join(" ");
+    assert!(
+        charter.contains("`[REPORT <repo> <dispatch-id>] review <url>`"),
+        "the default charter: {charter}"
+    );
+}
+
 /// `story:worktree-activation`: a controller whose `worktree create` is refused for a workspace
 /// that is not activated asks conductor and, until answered, works in a plain git worktree.
 #[test]

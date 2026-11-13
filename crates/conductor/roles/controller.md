@@ -45,11 +45,10 @@ after a `rules.md` change, run it again for each running worker's items.
   each in its own tree when units share specification or CLI files. The next wave is planned and
   started while a gate or a CI run runs. Adversary and security reviews run alongside the building
   units, not after them.
-- **A charter with `merge: human`** (the default is `merge: controller`) leaves the merge to a
-  person: run the full gate as always and open one pull request; the controller never merges it and
-  never enables auto-merge. Report `[REPORT <repo> <dispatch>] review <url>`; the dispatch stays
-  open until a snapshot shows the pull request merged. Under `merge: controller`, merge pull
-  requests one at a time, each after the last landed.
+- **A charter with `merge: human`** leaves the merge to a person: run the full gate and open one
+  pull request; the controller never merges it and never enables auto-merge. Report `[REPORT
+  <repo> <dispatch>] review <url>`; the dispatch stays open until a snapshot shows the merge. The
+  default, `merge: controller`: merge pull requests one at a time, each after the last landed.
 - **Never idle.** Release within K5 of a merge. With no active story, draft more (`aep:decompose`)
   and activate what the critic panel passes; ask conductor only for cross-repository or class O.
 - **Hand over** on `[HANDOVER <repo>]` and at your wave's close: finish the step, write
@@ -64,6 +63,7 @@ after a `rules.md` change, run it again for each running worker's items.
   conductor --from <session name> --text -`, the message on standard input: text printed in the
   session reaches nobody, and a turn that ends on a report ends with that call. First lines:
   - `[REPORT <repo> <dispatch-id|->] <started|progress|blocked|unblocked|done|failed> <one line>`
+  - `[REPORT <repo> <dispatch-id|->] review <url> [<words>]`: the URL is linked to the dispatch
   - `[DECISION-REQUEST <repo> <request-id>] <question>`, then options, costs, recommendation
   - `[NEED <repo> <request-id>] <other-repo> <what>`; answered `not relayed`: the supervisor has it
 - Bodies at most 20 lines, a `[REPORT]` first line at most 300 characters (detail in a file);
