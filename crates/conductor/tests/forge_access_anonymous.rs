@@ -1322,6 +1322,191 @@ fn every_forge_write_of_a_session_is_denied_naming_the_member() {
     assert_eq!(allowed.verdict, Verdict::Allow, "{}", allowed.reason);
 }
 
+/// The variables the recording `git` of [`every_remote_git_of_an_anonymous_snapshot_is_hardened`]
+/// writes, each as `NAME=value`, `unset` where it is not set.
+const RECORDED: [&str; 7] = [
+    "NETRC",
+    "GIT_CONFIG_GLOBAL",
+    "GIT_CONFIG_SYSTEM",
+    "GIT_CONFIG_NOSYSTEM",
+    "GIT_TEMPLATE_DIR",
+    "GIT_ASKPASS",
+    "SSH_ASKPASS",
+];
+
+/// One run of the recording `git`: its words, the [`RECORDED`] variables, whether a forge token
+/// reached it, and the directory it ran in (`-C` counted).
+struct GitRun {
+    words: Vec<String>,
+    variables: Vec<String>,
+    token: bool,
+    dir: String,
+}
+
+impl GitRun {
+    fn read(line: &str) -> Option<Self> {
+        let fields: Vec<&str> = line.strip_prefix("args:")?.split('\t').skip(1).collect();
+        let (words, rest) = fields.split_at(fields.iter().position(|field| *field == "env:")?);
+        let variables: Vec<String> = rest[1..=RECORDED.len()]
+            .iter()
+            .map(|field| (*field).to_owned())
+            .collect();
+        let token = !rest[RECORDED.len() + 1].strip_prefix("token=")?.is_empty();
+        let mut dir = rest[RECORDED.len() + 2].strip_prefix("pwd=")?.to_owned();
+        if let Some(at) = words.iter().position(|word| *word == "-C") {
+            dir = (*words.get(at + 1)?).to_owned();
+        }
+        Some(Self {
+            words: words.iter().map(|word| (*word).to_owned()).collect(),
+            variables,
+            token,
+            dir,
+        })
+    }
+
+    /// Its subcommand and the word after it: the first word that is no option of git's own.
+    fn subcommand(&self) -> (Option<&str>, Option<&str>) {
+        let mut at = 0;
+        while let Some(word) = self.words.get(at) {
+            if ["-c", "-C", "--git-dir", "--work-tree", "--namespace"].contains(&word.as_str()) {
+                at += 2;
+            } else if word.starts_with('-') {
+                at += 1;
+            } else {
+                return (Some(word), self.words.get(at + 1).map(String::as_str));
+            }
+        }
+        (None, None)
+    }
+
+    /// Whether it talks to a remote: a clone, fetch, pull, ls-remote or push, `remote update` or
+    /// `show`, or `submodule update`.
+    fn talks_to_a_remote(&self) -> bool {
+        matches!(
+            self.subcommand(),
+            (
+                Some("clone" | "fetch" | "pull" | "ls-remote" | "push" | "fetch-pack"),
+                _
+            ) | (Some("remote"), Some("update" | "show"))
+                | (Some("submodule"), Some("update"))
+        )
+    }
+
+    /// What of the hardened route it lacks.
+    fn lacks(&self) -> Vec<String> {
+        let mut lacking: Vec<String> = ["credential.helper=", "http.extraHeader=", "core.askPass="]
+            .into_iter()
+            .filter(|word| !self.words.iter().any(|held| held == word))
+            .map(str::to_owned)
+            .collect();
+        for wanted in [
+            "NETRC=/dev/null",
+            "GIT_CONFIG_GLOBAL=/dev/null",
+            "GIT_CONFIG_SYSTEM=/dev/null",
+            "GIT_CONFIG_NOSYSTEM=1",
+            "GIT_TEMPLATE_DIR=",
+            "GIT_ASKPASS=",
+            "SSH_ASKPASS=unset",
+        ] {
+            if !self.variables.iter().any(|held| held == wanted) {
+                lacking.push(wanted.to_owned());
+            }
+        }
+        if self.token {
+            lacking.push("no forge token".to_owned());
+        }
+        lacking
+    }
+}
+
+/// Two whole snapshots of an anonymous instance, the first cloning `one`, the second fetching
+/// it, with a recording `git` on `PATH` and an `aep` whose workspace names `one`, so that the
+/// blockers collector reads it too: every git command that talks to a remote runs with the
+/// hardened route's words and environment and no forge token, and every fetch runs after the
+/// checkout's own configuration was read for the keys a fetch would send, in that checkout. The
+/// snapshots fetch `one` at least once.
+#[test]
+fn every_remote_git_of_an_anonymous_snapshot_is_hardened() {
+    let case = Runtime::new("hardened");
+    case.bare("one");
+    let tokens: String = FORGE_CLI_TOKEN_VARIABLES
+        .iter()
+        .flat_map(|(_, variables)| variables.iter())
+        .map(|variable| format!("${{{variable}:+{variable}}}"))
+        .collect();
+    let variables: String = RECORDED
+        .iter()
+        .map(|name| format!("printf '\\t{name}=%s' \"${{{name}-unset}}\"\n"))
+        .collect();
+    case.script(
+        "git",
+        &format!(
+            "#!/bin/sh\n{{\nprintf 'args:'\nfor word in \"$@\"; do printf '\\t%s' \"$word\"; \
+             done\nprintf '\\tenv:'\n{variables}printf '\\ttoken=%s' \"{tokens}\"\nprintf \
+             '\\tpwd=%s\\n' \"$(pwd)\"\n}} >> '{}'\nexec '{}' \"$@\"\n",
+            text(&case.log("git")),
+            text(&which("git"))
+        ),
+    );
+    case.script(
+        "aep",
+        &format!(
+            "#!/bin/sh\ncase \"$3\" in\n  members) printf '%s' '{{\"members\": [{{\"name\": \
+             \"one\", \"source\": \"one\", \"tree\": {}}}]}}' ;;\n  *) printf '%s' \
+             '{{\"artifacts\": []}}' ;;\nesac\n",
+            quoted(&case.root().join("one"))
+        ),
+    );
+    let config = case.config_including("[one]", "    forge_access: anonymous\n");
+    for pass in 0..2 {
+        let output = case.pass(&config);
+        assert_eq!(
+            output.status.code(),
+            Some(0),
+            "pass {pass}: {}",
+            describe(&output)
+        );
+    }
+    let runs: Vec<GitRun> = case
+        .lines("git")
+        .iter()
+        .filter_map(|line| GitRun::read(line))
+        .collect();
+    assert!(!runs.is_empty(), "git was not recorded");
+    let mut wrong = Vec::new();
+    let mut fetches = 0;
+    for (at, run) in runs.iter().enumerate() {
+        if !run.talks_to_a_remote() {
+            continue;
+        }
+        let lacking = run.lacks();
+        if !lacking.is_empty() {
+            wrong.push(format!("{:?} lacks {lacking:?}", run.words));
+        }
+        if run.subcommand().0 == Some("fetch") {
+            fetches += 1;
+            let read = runs[..at].iter().rev().any(|earlier| {
+                earlier.dir == run.dir
+                    && earlier.subcommand().0 == Some("config")
+                    && earlier.words.iter().any(|word| word == "--includes")
+                    && earlier.words.iter().any(|word| word == "--get-regexp")
+            });
+            if !read {
+                wrong.push(format!(
+                    "{:?} in {} without a read of the checkout's own configuration",
+                    run.words, run.dir
+                ));
+            }
+        }
+    }
+    assert!(
+        fetches >= 1,
+        "no fetch was recorded: {:?}",
+        case.lines("git")
+    );
+    assert!(wrong.is_empty(), "{}", wrong.join("\n"));
+}
+
 /// The records of an anonymous instance are committed and not pushed: the push is refused
 /// before git runs it, in one line that names `forge_access: anonymous`, and `origin` receives
 /// nothing.

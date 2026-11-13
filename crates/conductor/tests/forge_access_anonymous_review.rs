@@ -1784,3 +1784,311 @@ fn an_instance_without_the_member_gets_no_anonymous_denial_for_new_spellings() {
     }
     assert!(named.is_empty(), "{}", named.join("\n"));
 }
+
+// ---------------------------------------------------------------------------------------------
+// The third review
+// ---------------------------------------------------------------------------------------------
+
+/// The blockers collector fetches each workspace member's checkout with its own `git fetch
+/// --quiet origin` (`blockers::Sources::of`), and after an anonymous clone the workspace file
+/// names the anonymous checkouts (`checkouts::refresh`). Driven as the snapshot drives it, over an
+/// anonymous instance whose checkout's config names an extra header and whose home holds a
+/// `.netrc`: no header and no login reach the forge from that fetch either.
+#[test]
+fn the_blockers_collectors_fetch_of_an_anonymous_checkout_sends_no_credential() {
+    let _lock = environment();
+    active::isolate();
+    let scratch = Scratch::new("faa-review/r3-blockers");
+    let dir = fs::canonicalize(scratch.path()).expect("the case's directory");
+    for sub in ["home", "root", "records", "state", "cache"] {
+        fs::create_dir_all(dir.join(sub)).expect("create the case's directories");
+    }
+    reset_environment(&dir.join("home"));
+    let listener = Listener::start(true);
+    fs::write(
+        dir.join("home/.netrc"),
+        "machine 127.0.0.1 login example password blockers-netrc-5454\n",
+    )
+    .expect("write .netrc");
+    let (_checkout, _origin) = checkout_with(
+        &dir,
+        &listener,
+        &format!(
+            "[http \"{}\"]\n\textraHeader = X-Blockers: blockers-5353\n",
+            listener.url()
+        ),
+    );
+    git(
+        &dir.join("records"),
+        &["init", "--quiet", "--initial-branch=main"],
+    );
+    let parsed = config::parse(
+        &file(
+            &["{name: GH_TOKEN, secret: secret:forge-token}"],
+            &anonymous_alpha(),
+        ),
+        &dir.join("home"),
+    )
+    .unwrap_or_else(|p| panic!("{p:?}"));
+    let mut instance = parsed.instances[0].clone();
+    instance.checkouts.root = text_of(&dir.join("root"));
+    instance.records = text_of(&dir.join("records"));
+    instance.state = text_of(&dir.join("state"));
+    instance.cache = text_of(&dir.join("cache"));
+    let members = config::workspace_members(&instance, 0).expect("the workspace members");
+    let workspace = dir
+        .join("records")
+        .join(conductor_cli::collect::blockers::WORKSPACE);
+    fs::create_dir_all(workspace.parent().expect("parent")).expect("create .engineering");
+    fs::write(&workspace, config::workspace_text(&members)).expect("write the workspace file");
+    let active = config::Active {
+        instance,
+        from_file: true,
+        others: Vec::new(),
+        default: None,
+        daemon_port: config::DAEMON_PORT,
+    };
+    let sources = conductor_cli::collect::blockers::Sources::of(&active, &dir.join("state"))
+        .expect("the blockers sources");
+    eprintln!("the blockers collector fetches with {:?}", sources.fetch);
+    let store = conductor_cli::store::open(&dir.join("state")).expect("open the store");
+    let taken = conductor_cli::snapshot::take(
+        store,
+        &[conductor_cli::collect::Collector::new(
+            "blockers",
+            move |record| conductor_cli::collect::blockers::collect_from(&sources, record),
+        )],
+    )
+    .expect("the snapshot ends");
+    let heads = listener.heads();
+    eprintln!(
+        "snapshot {:?} {:?}; {} requests reached the forge's stand-in",
+        taken.state,
+        taken.reason,
+        heads.len()
+    );
+    let header = heads.iter().any(|head| head.contains("blockers-5353"));
+    let login = heads
+        .iter()
+        .any(|head| head.to_ascii_lowercase().contains("\nauthorization:"));
+    assert!(
+        !header && !login,
+        "the blockers collector's fetch of the anonymous checkout sends the header: {header}, a \
+         netrc login: {login}\n{}",
+        heads.join("---\n")
+    );
+}
+
+/// The member failure of a refused fetch names the key that stays, never its value; a key's own
+/// name may hold a credential as a URL's user information, which is taken out too.
+#[test]
+fn a_refused_fetch_names_no_credential_held_in_a_key_name() {
+    let _lock = environment();
+    active::isolate();
+    let scratch = Scratch::new("faa-review/r3-redaction");
+    let dir = scratch.path().to_owned();
+    fs::create_dir_all(dir.join("home")).expect("home");
+    reset_environment(&dir.join("home"));
+    let listener = Listener::start(false);
+    let included = dir.join("included.conf");
+    fs::write(
+        &included,
+        format!(
+            "[http \"http://example:name-secret-7171@127.0.0.1:{port}/\"]\n\textraHeader = X: \
+             value-secret-7070\n[url \"http://tok-7272@127.0.0.1:{port}/\"]\n\tinsteadOf = \
+             https://forge.example.invalid/\n",
+            port = listener.port
+        ),
+    )
+    .expect("write the included file");
+    let (checkout, origin) = checkout_with(
+        &dir,
+        &listener,
+        &format!("[include]\n\tpath = {}\n", included.display()),
+    );
+    let brought = fetch(&dir, &checkout, &origin, true);
+    let Brought::Failed(line) = &brought else {
+        panic!("the fetch was not refused: {brought:?}");
+    };
+    let shown: Vec<&str> = ["name-secret-7171", "tok-7272", "value-secret-7070"]
+        .into_iter()
+        .filter(|secret| line.contains(secret))
+        .collect();
+    assert!(
+        shown.is_empty() && listener.heads().is_empty(),
+        "the refusal shows {shown:?}: {line}"
+    );
+}
+
+/// A forge token value that is a short word other entries hold: the anonymous pod leaves out a
+/// proxy that holds it, which carries no credential; a pod without the member keeps it.
+#[test]
+fn a_short_forge_token_value_removes_no_unrelated_entry() {
+    let text = file(
+        &[
+            "{name: GH_TOKEN, value: example}",
+            "{name: HTTPS_PROXY, value: \"http://proxy.example.com:3128\"}",
+            "{name: GIT_CONFIG_COUNT, value: \"1\"}",
+            "{name: GIT_CONFIG_KEY_0, value: http.proxy}",
+            "{name: GIT_CONFIG_VALUE_0, value: \"http://proxy.example.com:3128\"}",
+        ],
+        &[
+            anonymous_alpha(),
+            instance("beta", "{github: example-owner}", ""),
+        ]
+        .concat(),
+    );
+    let alpha = made(&text);
+    active::isolate();
+    let parsed = config::parse(&text, Path::new("/srv/example")).expect("validates");
+    let kubernetes = parsed.daemon.kubernetes.clone().expect("daemon.kubernetes");
+    let beta = pods::manifests(&kubernetes, &parsed, &parsed.instances[1]);
+    let has = |pod: &Value, name: &str| env_of(pod).iter().any(|entry| entry["name"] == name);
+    let seen = (
+        has(&alpha.pod, "HTTPS_PROXY"),
+        gits(&alpha.pod),
+        has(&beta.pod, "HTTPS_PROXY"),
+    );
+    assert!(
+        seen.0 && !seen.1.is_empty() && seen.2,
+        "anonymous keeps HTTPS_PROXY: {}, its git settings: {:?}; without the member: {}",
+        seen.0,
+        seen.1,
+        seen.2
+    );
+}
+
+/// Another instance's `forge_token` secret named deeper in the anonymous mapping (a role's key)
+/// or in `globals` beside it: refused at validation by the new rule, or else not in the pod.
+#[test]
+fn another_instances_forge_token_nested_in_the_mapping_or_globals_is_refused() {
+    active::isolate();
+    let beta = instance(
+        "beta",
+        "{github: example-owner}",
+        "\x20   forge_token: secret:beta-forge\n",
+    );
+    let nested = file(
+        &["{name: GH_TOKEN, secret: secret:forge-token}"],
+        &[
+            instance(
+                "alpha",
+                "{github: example-owner, include: [one]}",
+                "\x20   forge_access: anonymous\n\
+                 \x20   roles:\n\
+                 \x20     - {role: conductor, profile: \"secret:beta-forge\"}\n",
+            ),
+            beta.clone(),
+        ]
+        .concat(),
+    );
+    let globals = file(
+        &["{name: GH_TOKEN, secret: secret:forge-token}"],
+        &[anonymous_alpha(), beta].concat(),
+    )
+    .replace(
+        "instances:\n",
+        "globals:\n  roles:\n    - {role: conductor, profile: \"secret:beta-forge\"}\ninstances:\n",
+    );
+    let mut wrong = Vec::new();
+    for (case, text) in [("nested", nested), ("globals", globals)] {
+        match config::parse(&text, Path::new("/srv/example")) {
+            Err(problems) => {
+                eprintln!("{case}: {problems:?}");
+                if !problems
+                    .iter()
+                    .any(|problem| problem.message.contains("forge_token"))
+                {
+                    wrong.push(format!("{case}: refused, but not for the forge token"));
+                }
+            }
+            Ok(_) => {
+                let made = made(&text);
+                if made.secrets.contains("beta-forge")
+                    || made.rendered.contains("secret:beta-forge")
+                {
+                    wrong.push(format!("{case}: validates and the pod gets beta-forge"));
+                }
+            }
+        }
+    }
+    assert!(wrong.is_empty(), "{}", wrong.join("\n"));
+}
+
+/// The reads the brief names, and reads with `--` and option clusters: none is refused as a
+/// write; the push spellings with `--` and clusters are.
+#[test]
+fn dashes_and_clusters_deny_pushes_and_no_reads() {
+    let (_scratch, dir, places) = guard_case("r3-dashes", true);
+    let mut wrong = Vec::new();
+    for command in [
+        "env -u X git fetch origin",
+        "timeout -s KILL 60 git status",
+        "sudo -u root gh pr view 1 -R example-owner/one",
+        "command -v git",
+        "time -p cargo test",
+        "echo main | xargs -I {} git log {}",
+        "exec -a x git pull origin main",
+        "env -- git status",
+        "sudo -Eu root git log",
+        "grep -- push README.md",
+        "git log -- push",
+        "nice -- git log --oneline",
+        "command -- git fetch origin",
+        "env -- EXAMPLE=1 git status",
+        "timeout -- 60 git log --oneline",
+    ] {
+        let decision = decide(&places, &dir.join("root/one"), command);
+        if decision.reason.contains(NAMED) {
+            wrong.push(format!("read denied: {command} | {}", decision.reason));
+        }
+    }
+    let pushes = [
+        "command -- git push origin main",
+        "exec -- git push origin main",
+        "exec -a x -- git push origin main",
+        "sudo -Eu root git push origin main",
+        "env -iu GH_TOKEN git push origin main",
+        "env -u GH_TOKEN -- git push origin main",
+        "env -- EXAMPLE=1 git push origin main",
+        "sudo -- EXAMPLE=1 git push origin main",
+        "timeout -- 60 git push origin main",
+    ];
+    wrong.extend(
+        not_denied(&places, &dir, &pushes)
+            .into_iter()
+            .map(|line| format!("push allowed: {line}")),
+    );
+    assert!(wrong.is_empty(), "{}", wrong.join("\n"));
+}
+
+/// An instance without the member under the spellings this head reads: no decision names the
+/// member.
+#[test]
+fn an_instance_without_the_member_gets_no_denial_for_dashes_and_clusters() {
+    let (_scratch, dir, places) = guard_case("r3-not-anonymous", false);
+    let mut named = Vec::new();
+    for command in [
+        "command -- git push origin main",
+        "exec -- git push origin main",
+        "exec -a x -- git push origin main",
+        "sudo -Eu root git push origin main",
+        "env -iu GH_TOKEN git push origin main",
+        "env -- git status",
+        "PAGER=cat git --config-env alias.l=PAGER l",
+    ] {
+        let decision = decide(&places, &dir.join("root/one"), command);
+        eprintln!(
+            "without the member: {command} | {:?} | {}",
+            decision.verdict,
+            decision.reason.chars().take(100).collect::<String>()
+        );
+        if decision.reason.contains(NAMED) {
+            named.push(format!(
+                "{command} | {:?} | {}",
+                decision.verdict, decision.reason
+            ));
+        }
+    }
+    assert!(named.is_empty(), "{}", named.join("\n"));
+}

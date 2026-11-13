@@ -63,6 +63,12 @@
 //! never its working tree. Until 2026-10-12 it failed every snapshot on `git fetch --quiet origin`.
 //! Every other member is fetched whatever its remotes, and one that has no `origin` is a member
 //! failure.
+//!
+//! **An instance with `forge_access: anonymous` fetches by one route.** Each member's fetch is
+//! the anonymous fetch of its checkouts ([`checkouts::fetch_anonymously`],
+//! story:anonymous-pod-no-forge-secret), tried once: no credential, and none of the keys of the
+//! checkout's own configuration a fetch would send, or no fetch and a member failure that says
+//! why.
 
 use std::ffi::{OsStr, OsString};
 use std::fmt;
@@ -77,7 +83,7 @@ use conductor_model::observation::{
 };
 use serde_json::Value;
 
-use crate::collect::{self, specifications};
+use crate::collect::{self, checkouts, specifications};
 use crate::config::{self, Active};
 use crate::snapshot::Recorder;
 
@@ -126,6 +132,9 @@ pub struct Sources {
     pub list: Vec<OsString>,
     /// How long one command may run before it is stopped.
     pub bound: Duration,
+    /// Whether the instance names `forge_access: anonymous`: each fetch is its anonymous fetch
+    /// ([`checkouts::fetch_anonymously`]) and not [`Sources::fetch`].
+    pub anonymous: bool,
 }
 
 impl Sources {
@@ -151,6 +160,7 @@ impl Sources {
                 PathBuf::from(&active.instance.cache).join("exports"),
             );
             sources.checkouts = Some(PathBuf::from(&active.instance.checkouts.root));
+            sources.anonymous = config::anonymous(&active.instance);
             Ok(sources)
         } else {
             Ok(Self::new(root()?, state))
@@ -183,6 +193,7 @@ impl Sources {
             exports,
             root,
             checkouts: None,
+            anonymous: false,
         }
     }
 }
@@ -505,7 +516,12 @@ fn read_member(
     failures: &mut Vec<Failure>,
 ) -> Result<bool> {
     let at = if fetched {
-        if let Err(error) = twice(|| succeed(&sources.fetch, Some(checkout), sources.bound)) {
+        let brought = if sources.anonymous {
+            checkouts::fetch_anonymously(checkout, sources.bound)
+        } else {
+            twice(|| succeed(&sources.fetch, Some(checkout), sources.bound)).map(drop)
+        };
+        if let Err(error) = brought {
             if collect::is_over_budget(&error) {
                 return Err(error);
             }

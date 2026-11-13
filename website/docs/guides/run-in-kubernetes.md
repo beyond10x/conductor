@@ -906,10 +906,10 @@ What the member does:
 - The instance's pod carries no credential of any forge: none of the daemon's forge token
   variables of `daemon.kubernetes.env`, for either forge, and no other entry, under whatever
   name, that names the secret of a forge token the file names (the daemon's, or any instance's
-  `forge_token`) or holds, anywhere in its value, the value of a forge token variable's entry;
-  no forge variable of its
-  own; none of the variables that point git, ssh, git's HTTP library or a forge's command line
-  at a credential or a configuration file (`GIT_ASKPASS`, `GIT_CONFIG_GLOBAL`,
+  `forge_token`) or holds the value of a forge token variable's entry: anywhere in its value
+  for a token value of at least 8 characters, a shorter one only as its whole value; no forge
+  variable of its own; none of the variables that point git, ssh, git's HTTP library or a
+  forge's command line at a credential or a configuration file (`GIT_ASKPASS`, `GIT_CONFIG_GLOBAL`,
   `GIT_CONFIG_SYSTEM`, `GIT_CONFIG`, `GIT_SSH_COMMAND`, `GIT_SSH`, `SSH_AUTH_SOCK`,
   `SSH_ASKPASS`, `GH_CONFIG_DIR`, `GLAB_CONFIG_DIR`, `XDG_CONFIG_HOME`, `NETRC`, `CURL_HOME`,
   `GIT_TEMPLATE_DIR`, `GIT_SSL_KEY`, `GIT_SSL_CERT`); and of git's configuration,
@@ -927,10 +927,13 @@ What the member does:
   program that asks for a login, no extra header and no token variable, reads neither the
   system's nor the user's git configuration file nor a netrc file, and copies no template, so no
   `insteadOf` rewrite of the image applies. Before it fetches a checkout, it removes from the
-  checkout's own configuration every extra header, cookie file, TLS client certificate and key, and `insteadOf` rewrite. When
-  one stays (a file the configuration includes names it, or the configuration cannot be written
-  or read), the fetch is refused, one member failure naming the key: remove the key, or remove
-  the checkout so the next pass clones it again. A clone that fails is one member failure of the
+  checkout's own configuration every extra header, cookie file, TLS client certificate and key,
+  and `insteadOf` rewrite. When one stays (a file the configuration includes names it, or the
+  configuration cannot be written or read), the fetch is refused, one member failure naming the
+  key: remove the key, or remove the checkout so the next pass clones it again. Every fetch of
+  the instance takes this one route, the blockers' and the specifications' read of each
+  workspace member and the catalog's read included, and no other git command of the instance
+  talks to a remote. A clone that fails is one member failure of the
   pass whose line says the repository is not public or not reachable, with git's last error line;
   the next pass tries again.
 - The repositories are the `include` entries, listed by no forge. Each is read from its checkout

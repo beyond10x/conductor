@@ -477,6 +477,24 @@ fn cloned(root: &Path, wanted: &Wanted, target: &Path) -> Brought {
     Brought::Cloned(target.to_owned())
 }
 
+/// The checkout `dir` of an instance with `forge_access: anonymous` fetched by a collector other
+/// than [`bring`] (story:anonymous-pod-no-forge-secret): the same one route, `git fetch --quiet
+/// origin` with no credential, after its own configuration is cleared of what a fetch would send
+/// or the fetch is refused ([`fetched`]). No other git command of an anonymous instance talks to
+/// a remote.
+///
+/// # Errors
+///
+/// The fetch failed or was refused, with its line; or the collector's budget is spent
+/// ([`collect::OverBudget`]).
+pub fn fetch_anonymously(dir: &Path, bound: Duration) -> Result<()> {
+    match fetched(dir, bound, true) {
+        Brought::Failed(line) => Err(anyhow!(line)),
+        Brought::Stopped => Err(anyhow::Error::new(collect::OverBudget)),
+        Brought::Left | Brought::Fetched | Brought::Cloned(_) => Ok(()),
+    }
+}
+
 /// The checkout `dir` fetched, `git fetch --quiet origin` run as the collector runs it, once more
 /// when it fails. An anonymous fetch runs only once the checkout's own configuration holds no key
 /// it would send or follow ([`without_own_credential`]).

@@ -2702,8 +2702,9 @@ const FIND_RUNS: [&str; 4] = ["-exec", "-execdir", "-ok", "-okdir"];
 /// [`LAUNCHERS`] starting at the command name, in which every other word is an option, an
 /// assignment, a value that starts with a digit (`timeout 5`, `nice -n 10`), `{}`, or the value
 /// of the launcher's own option that takes one ([`takes_value`]: `sudo -u root`, `sudo -Eu root`,
-/// `timeout -s KILL`, `env -u NAME`, `xargs -I %`); a `--` among them ends them, and the word
-/// after it is the program. A word that follows any other program's words (`grep -rn
+/// `timeout -s KILL`, `env -u NAME`, `xargs -I %`); a `--` among them ends the options, and the
+/// first word after it that is no assignment of `env` or `sudo` and no duration of `timeout` is
+/// the program. A word that follows any other program's words (`grep -rn
 /// conductor`) is an argument, not a program.
 fn is_program_word(words: &[String], name: usize, at: usize) -> bool {
     if at <= name {
@@ -2717,7 +2718,8 @@ fn is_program_word(words: &[String], name: usize, at: usize) -> bool {
         return false;
     }
     let mut index = name + 1;
-    // `--` ends a launcher's options: the word after it is its program.
+    // `--` ends a launcher's options: after it, the first word that is not an assignment of `env`
+    // or `sudo`, or the duration of `timeout`, is its program.
     let mut ended = false;
     while index < at {
         let word = words[index].as_str();
@@ -2725,7 +2727,11 @@ fn is_program_word(words: &[String], name: usize, at: usize) -> bool {
             launcher = shell::program(word);
             ended = false;
         } else if ended {
-            return false;
+            let passed = (is_assignment(word) && matches!(launcher, "env" | "sudo"))
+                || (launcher == "timeout" && word.starts_with(|c: char| c.is_ascii_digit()));
+            if !passed {
+                return false;
+            }
         } else if word == "--" {
             ended = true;
         } else if takes_value(launcher, word) {

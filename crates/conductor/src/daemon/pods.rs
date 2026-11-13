@@ -277,20 +277,30 @@ impl ForgeCredentials {
         }
     }
 
-    /// Whether `entry` names one of the secrets, or its value holds one of the values anywhere
-    /// in it (`Bearer <token>`, a URL with the token as its user).
+    /// Whether `entry` names one of the secrets, or its value holds one of the values: anywhere
+    /// in it (`Bearer <token>`, a URL with the token as its user) for a value of at least
+    /// [`TOKEN_INSIDE`] characters; a shorter one only as the whole value, white space around it
+    /// taken off, so that a short word does not take an entry that merely contains it.
     fn carried_by(&self, entry: &KubernetesEnv) -> bool {
         entry
             .secret
             .as_ref()
             .is_some_and(|secret| self.secrets.contains(&secret.0))
             || entry.value.as_deref().is_some_and(|value| {
-                self.values
-                    .iter()
-                    .any(|token| value.contains(token.as_str()))
+                self.values.iter().any(|token| {
+                    if token.chars().count() >= TOKEN_INSIDE {
+                        value.contains(token.as_str())
+                    } else {
+                        value.trim() == token
+                    }
+                })
             })
     }
 }
+
+/// The fewest characters a forge token value written in `daemon.kubernetes.env` has for an
+/// anonymous pod to leave out any entry whose value holds it anywhere ([`ForgeCredentials`]).
+const TOKEN_INSIDE: usize = 8;
 
 /// The secrets of the forge tokens the file `config` names (story:anonymous-pod-no-forge-secret):
 /// each daemon's ([`crate::secret::daemons_forge`]) and each instance's `forge_token`.
