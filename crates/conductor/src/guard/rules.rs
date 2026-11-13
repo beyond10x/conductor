@@ -2380,7 +2380,70 @@ fn anonymous_write(words: &[String], assigned: &dyn Fn(Forge) -> bool) -> Option
     let name = words.len() - command_words(words).len();
     (name..words.len())
         .filter(|&at| is_program_word(words, name, at))
-        .find_map(|at| remote_write(&words[at..]))
+        .flat_map(|at| runs_at(words, name, at))
+        .find_map(|run| remote_write(&run))
+}
+
+/// The runs of the program word `words[at]` of the simple command `words`, whose command name is
+/// `words[name]`, that a rule decides (story:anonymous-pod-no-forge-secret): the run as written,
+/// and the run under each name [`argv0_names`] gives the program, which a program that reads its
+/// name from `argv[0]` runs as (git runs `git-push` as `git push`, rustup runs `cargo` as
+/// cargo). A deny of either denies.
+fn runs_at(words: &[String], name: usize, at: usize) -> Vec<Vec<String>> {
+    let written = words[at..].to_vec();
+    let mut runs = vec![written.clone()];
+    for argv0 in argv0_names(words, name, at) {
+        let mut run = written.clone();
+        argv0.clone_into(&mut run[0]);
+        runs.push(run);
+    }
+    runs
+}
+
+/// The names `words` gives the program `words[at]` in `argv[0]`: the value of `exec -a <name>`
+/// before the command name `words[name]`, and of `env`'s `-a <name>`, `-a<name>` (also last in
+/// a cluster of its short options, `-ia <name>`), `--argv0 <name>` and `--argv0=<name>` among the
+/// options of `env` in the chain of launchers that runs `words[at]` ([`launcher_options`], which
+/// passes over the value of every other option).
+fn argv0_names(words: &[String], name: usize, at: usize) -> Vec<&str> {
+    let mut names = Vec::new();
+    for (index, word) in words[..name].iter().enumerate() {
+        if word == "-a" && index > 0 && words[index - 1] == "exec" {
+            names.extend(words.get(index + 1).map(String::as_str));
+        }
+    }
+    let options = if at > name {
+        launcher_options(words, name, at).unwrap_or_default()
+    } else {
+        Vec::new()
+    };
+    for (launcher, index) in options {
+        let word = words[index].as_str();
+        if launcher != "env" {
+            continue;
+        }
+        if word == "--argv0" {
+            names.extend(words.get(index + 1).map(String::as_str));
+        } else if let Some(value) = word.strip_prefix("--argv0=") {
+            names.push(value);
+        } else if let Some(letters) = word.strip_prefix('-').filter(|rest| !rest.starts_with('-')) {
+            // The first letter of the cluster that takes a value ends it: `a` with the rest of
+            // the word, or with the next word, as its value.
+            if let Some((at_letter, letter)) = letters
+                .char_indices()
+                .find(|(_, letter)| takes_value("env", &format!("-{letter}")))
+                && letter == 'a'
+            {
+                let rest = &letters[at_letter + 1..];
+                if rest.is_empty() {
+                    names.extend(words.get(index + 1).map(String::as_str));
+                } else {
+                    names.push(rest);
+                }
+            }
+        }
+    }
+    names
 }
 
 /// The run `run`, from its program word on, shown, when it writes to a remote
@@ -2710,13 +2773,20 @@ fn is_program_word(words: &[String], name: usize, at: usize) -> bool {
     if at <= name {
         return at == name;
     }
-    if FIND_RUNS.contains(&words[at - 1].as_str()) {
-        return true;
-    }
+    FIND_RUNS.contains(&words[at - 1].as_str()) || launcher_options(words, name, at).is_some()
+}
+
+/// The options of the chain of [`LAUNCHERS`] from the command name `words[name]` that runs
+/// `words[at]`, each by its index with the launcher it is an option of, read as
+/// [`is_program_word`] says; `None` when `words[at]` is not the program that chain runs. The value
+/// of an option that takes the next word ([`takes_value`]) is passed over: it is never read as
+/// `--`, as a launcher or as an option.
+fn launcher_options(words: &[String], name: usize, at: usize) -> Option<Vec<(&str, usize)>> {
     let mut launcher = shell::program(&words[name]);
     if !LAUNCHERS.contains(&launcher) {
-        return false;
+        return None;
     }
+    let mut options = Vec::new();
     let mut index = name + 1;
     // `--` ends a launcher's options: after it, the first word that is not an assignment of `env`
     // or `sudo`, or the duration of `timeout`, is its program.
@@ -2730,23 +2800,25 @@ fn is_program_word(words: &[String], name: usize, at: usize) -> bool {
             let passed = (is_assignment(word) && matches!(launcher, "env" | "sudo"))
                 || (launcher == "timeout" && word.starts_with(|c: char| c.is_ascii_digit()));
             if !passed {
-                return false;
+                return None;
             }
         } else if word == "--" {
             ended = true;
         } else if takes_value(launcher, word) {
             // The option's value is the next word, which is then no program.
+            options.push((launcher, index));
             index += 1;
-        } else if !(word.starts_with('-')
-            || is_assignment(word)
+        } else if word.starts_with('-') {
+            options.push((launcher, index));
+        } else if !(is_assignment(word)
             || word.starts_with(|c: char| c.is_ascii_digit())
             || word == "{}")
         {
-            return false;
+            return None;
         }
         index += 1;
     }
-    index == at
+    (index == at).then_some(options)
 }
 
 /// The options of each of [`LAUNCHERS`] that take the next word as their value
@@ -3021,9 +3093,11 @@ fn unreserved_build(commands: &[Vec<String>]) -> Option<(String, &'static str)> 
             if !is_program_word(words, name, at) {
                 continue;
             }
-            if let Some(size) = build_reserve(shell::program(&words[at]), &words[at + 1..]) {
-                let run: Vec<String> = words[at..].iter().map(|word| shell::quoted(word)).collect();
-                return Some((run.join(" "), size));
+            for run in runs_at(words, name, at) {
+                if let Some(size) = build_reserve(shell::program(&run[0]), &run[1..]) {
+                    let run: Vec<String> = run.iter().map(|word| shell::quoted(word)).collect();
+                    return Some((run.join(" "), size));
+                }
             }
         }
     }

@@ -5875,6 +5875,37 @@ fn launcher_commands_without_the_member_decide_as_in_1_8_0_but_for_named_values(
     }
 }
 
+/// A program that reads its name from `argv[0]` runs as that name: rustup runs as `cargo` when
+/// `argv[0]` is `cargo` (`env -a cargo rustup --version` prints cargo's version). The name that
+/// `env -a <name>`, `env -a<name>`, `env --argv0 <name>`, `env --argv0=<name>` or `exec -a
+/// <name>` gives is read as a program name beside the program word, so a build run that way is
+/// denied as an unreserved build, for every instance, with the form under the name it runs as.
+/// The value of an option before the name (`env -u -- -a`, `env -u nice -a`) is passed over:
+/// it is read as no `--`, no launcher and no option.
+#[test]
+fn a_build_named_in_argv0_is_denied_with_the_build_run_form() {
+    let home = home("argv0-build");
+    for cwd in [PROBE, WORKER] {
+        for command in [
+            "env -a cargo rustup build",
+            "env -acargo rustup build",
+            "env --argv0 cargo rustup build",
+            "env --argv0=cargo rustup build",
+            "exec -a cargo rustup build",
+            "env -u -- -a cargo rustup build",
+            "env -u nice -a cargo rustup build",
+            "env -C . -a cargo rustup build",
+            "sudo -u root env -a cargo rustup build",
+        ] {
+            assert_verdict(
+                &bash(&home, cwd, command),
+                Verdict::Deny,
+                "`conductor build run --reserve auto -- cargo build`",
+            );
+        }
+    }
+}
+
 /// What builds nothing stays allowed: formatting, metadata and the dependency tree, a listing of
 /// tasks, an npm command that is no build, test or install, and a build command named only as a
 /// word or a string.

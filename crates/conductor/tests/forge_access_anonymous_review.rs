@@ -2882,10 +2882,11 @@ fn config_value(dir: &Path, key: &str) -> String {
     String::from_utf8_lossy(&output.stdout).trim().to_owned()
 }
 
-/// The origin's URL with a user and password in it, or a token as its user: the anonymous fetch
-/// answers a Basic challenge with none of it. It is refused: one member failure that names the
-/// key `remote.origin.url` and neither the user nor the password, no request reaches the forge,
-/// and the URL is left as it is. The guide's clone paragraph names the refusal.
+/// The origin's URL with a user and password in it, a token as its user, or an `ssh://` URL with
+/// a user: the anonymous fetch answers a Basic challenge with none of it. It is refused: one
+/// member failure that names the key `remote.origin.url` and neither the user nor the password,
+/// no request reaches the forge, and the URL is left as it is. The guide's clone paragraph names
+/// the refusal.
 #[test]
 fn the_anonymous_fetch_sends_no_login_of_the_origins_url() {
     let _lock = environment();
@@ -2911,6 +2912,14 @@ fn the_anonymous_fetch_sends_no_login_of_the_origins_url() {
                 listener.port
             ),
             ["url-token-7373", "url-token-7373@"],
+        ),
+        // An ssh URL with a user is refused too; only git's scp-like form is not read as one.
+        (
+            format!(
+                "ssh://ssh-user-7474@127.0.0.1:{}/example-owner/one.git",
+                listener.port
+            ),
+            ["ssh-user-7474", "ssh-user-7474@"],
         ),
     ] {
         git(&checkout, &["remote", "set-url", "origin", &origin]);
@@ -2975,4 +2984,153 @@ fn without_the_member_an_origin_url_with_a_login_fetches_as_before() {
         heads.len()
     );
     assert_eq!(config_value(&checkout, "remote.origin.url"), origin);
+}
+
+// ---------------------------------------------------------------------------------------------
+// The seventh round: the program's name in `argv[0]`, and a remote of a legacy file
+// ---------------------------------------------------------------------------------------------
+
+/// The pushes that name the program `git-push` in `argv[0]`, which git runs as `git push`
+/// (`env -a git-version git` prints git's version): `env -a <name>`, `env -a<name>`, `env
+/// --argv0 <name>`, `env --argv0=<name>` and `exec -a <name>`.
+const ARGV0_PUSHES: [&str; 9] = [
+    "env -a git-push git origin main",
+    "env -agit-push git origin main",
+    "env --argv0 git-push git origin main",
+    "env --argv0=git-push git origin main",
+    "exec -a git-push git origin main",
+    // The value of an option before `-a` is passed over: no `--`, launcher or option.
+    "env -u -- -a git-push git origin main",
+    "env -u nice -a git-push git origin main",
+    "env -C . -a git-push git origin main",
+    "sudo -u root env -a git-push git origin main",
+];
+
+/// Each of [`ARGV0_PUSHES`] is denied for an instance with the member, naming it: the name in
+/// `argv[0]` is read as a program name beside the program word, and a deny of either denies.
+#[test]
+fn a_push_named_in_argv0_is_denied_naming_the_member() {
+    let (_scratch, dir, places) = guard_case("argv0", true);
+    let missed = not_denied(&places, &dir, &ARGV0_PUSHES);
+    assert!(
+        missed.is_empty(),
+        "{} of {} are no denial naming the member:\n{}",
+        missed.len(),
+        ARGV0_PUSHES.len(),
+        missed.join("\n")
+    );
+}
+
+/// Without the member, each of [`ARGV0_PUSHES`] decides as before: allowed, as `git push origin
+/// main` in the checkout is.
+#[test]
+fn without_the_member_a_push_named_in_argv0_decides_as_before() {
+    let (_scratch, dir, places) = guard_case("argv0-without-member", false);
+    let checkout = dir.join("root/one");
+    let plain = decide(&places, &checkout, "git push origin main");
+    assert_eq!(plain.verdict, Verdict::Allow, "{}", plain.reason);
+    let changed: Vec<String> = ARGV0_PUSHES
+        .iter()
+        .filter_map(|command| {
+            let decision = decide(&places, &checkout, command);
+            (decision.verdict != Verdict::Allow)
+                .then(|| format!("{command} | {:?} | {}", decision.verdict, decision.reason))
+        })
+        .collect();
+    assert!(changed.is_empty(), "{}", changed.join("\n"));
+}
+
+/// A checkout whose `origin` git reads from a legacy file, `.git/remotes/origin` (`URL: ...`) or
+/// `.git/branches/origin`, not from its configuration, with a login in that URL: the anonymous
+/// fetch sends none of it. It is refused, naming where the URL comes from and neither the user
+/// nor the password, before any request.
+#[test]
+fn a_login_in_a_legacy_remote_file_of_the_checkout_is_not_sent() {
+    let _lock = environment();
+    active::isolate();
+    let scratch = Scratch::new("faa-review/legacy-remote");
+    let dir = scratch.path().to_owned();
+    fs::create_dir_all(dir.join("home")).expect("home");
+    reset_environment(&dir.join("home"));
+    let listener = Listener::start(true);
+    let mut wrong = Vec::new();
+    for (name, file, text) in [
+        (
+            "remotes",
+            "remotes/origin",
+            "URL: http://example:pw-remotes-5555@127.0.0.1:{port}/example-owner/one.git\nPull: \
+             refs/heads/main:refs/remotes/origin/main\n",
+        ),
+        (
+            "branches",
+            "branches/origin",
+            "http://example:pw-branches-5656@127.0.0.1:{port}/example-owner/one.git\n",
+        ),
+    ] {
+        let checkout = dir.join("root").join(name);
+        fs::create_dir_all(&checkout).expect("checkout");
+        git(&checkout, &["init", "--quiet", "--initial-branch=main"]);
+        let path = checkout.join(".git").join(file);
+        fs::create_dir_all(path.parent().expect("its directory")).expect("the directory");
+        fs::write(&path, text.replace("{port}", &listener.port.to_string()))
+            .expect("write the legacy file");
+        let before = listener.heads().len();
+        let origin = format!("{}example-owner/one.git", listener.url());
+        let brought = fetch(&dir, &checkout, &origin, true);
+        let heads = listener.heads();
+        let sent = heads[before..]
+            .iter()
+            .any(|head| head.to_ascii_lowercase().contains("\nauthorization:"));
+        let refused = matches!(&brought, Brought::Failed(line)
+            if line.contains("was not run")
+                && line.contains("`origin`")
+                && !line.contains("pw-")
+                && !line.contains("example:"));
+        eprintln!(
+            "{name}: {} requests, a login: {sent}; {brought:?}",
+            heads.len() - before
+        );
+        if sent || !refused || heads.len() != before {
+            wrong.push(format!(
+                "{name}: the login is sent: {sent}; {} requests; {brought:?}",
+                heads.len() - before
+            ));
+        }
+    }
+    assert!(wrong.is_empty(), "{wrong:#?}");
+}
+
+/// Without the member, a checkout whose `origin` comes from `.git/remotes/origin` with a login
+/// fetches as before: the fetch runs and git answers the challenge with that login.
+#[test]
+fn without_the_member_a_legacy_remote_file_with_a_login_fetches_as_before() {
+    let _lock = environment();
+    active::isolate();
+    let scratch = Scratch::new("faa-review/legacy-remote-without-member");
+    let dir = scratch.path().to_owned();
+    fs::create_dir_all(dir.join("home")).expect("home");
+    reset_environment(&dir.join("home"));
+    let listener = Listener::start(true);
+    let checkout = dir.join("root/one");
+    fs::create_dir_all(&checkout).expect("checkout");
+    git(&checkout, &["init", "--quiet", "--initial-branch=main"]);
+    fs::create_dir_all(checkout.join(".git/remotes")).expect("the directory");
+    fs::write(
+        checkout.join(".git/remotes/origin"),
+        format!(
+            "URL: http://example:pw-remotes-5555@127.0.0.1:{}/example-owner/one.git\n",
+            listener.port
+        ),
+    )
+    .expect("write the legacy file");
+    let origin = format!("{}example-owner/one.git", listener.url());
+    let brought = fetch(&dir, &checkout, &origin, false);
+    let sent = listener
+        .heads()
+        .iter()
+        .any(|head| head.to_ascii_lowercase().contains("\nauthorization:"));
+    assert!(
+        sent,
+        "the fetch without the member does not run as before: {brought:?}"
+    );
 }

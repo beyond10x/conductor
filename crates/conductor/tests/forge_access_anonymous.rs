@@ -1420,20 +1420,6 @@ impl GitRun {
                 lacking.push(wanted.to_owned());
             }
         }
-        // No `core.sshCommand` of the home's configuration or of the checkout's own, and no
-        // `GIT_SSH_COMMAND` of the caller's, reaches the call: ssh as it is, never asking.
-        let ssh = format!(
-            "GIT_SSH_COMMAND=ssh {}",
-            conductor_cli::collect::SSH_OPTIONS
-        );
-        if !self.variables.contains(&ssh) {
-            let held = self
-                .variables
-                .iter()
-                .find(|held| held.starts_with("GIT_SSH_COMMAND="))
-                .map_or("", String::as_str);
-            lacking.push(format!("{ssh}, not {held}"));
-        }
         if self.token {
             lacking.push("no forge token".to_owned());
         }
@@ -1449,8 +1435,9 @@ impl GitRun {
 /// every fetch runs after the checkout's own configuration was read for the keys a fetch would
 /// send, in that checkout. The snapshots fetch `one` at least once. The home's git configuration
 /// names a `core.sshCommand`, the checkout's own names another before the second snapshot, and
-/// the caller sets `GIT_SSH_COMMAND` for the third: the clone and the fetch get `GIT_SSH_COMMAND` as plain `ssh`
-/// with [`conductor_cli::collect::SSH_OPTIONS`], which git reads before `core.sshCommand`.
+/// the caller sets `GIT_SSH_COMMAND` for the third: every git command, local ones included, and
+/// the `aep` the blockers collector starts get `GIT_SSH_COMMAND` as plain `ssh` with
+/// [`conductor_cli::collect::SSH_OPTIONS`], which git reads before `core.sshCommand`.
 #[test]
 fn every_remote_git_of_an_anonymous_snapshot_is_hardened() {
     let case = Runtime::new("hardened");
@@ -1482,13 +1469,15 @@ fn every_remote_git_of_an_anonymous_snapshot_is_hardened() {
     case.script(
         "aep",
         &format!(
-            "#!/bin/sh\ncase \"$3\" in\n  members) printf '%s' '{{\"members\": [{{\"name\": \
-             \"one\", \"source\": \"one\", \"tree\": {}}}]}}' ;;\n  *) printf '%s' \
-             '{{\"artifacts\": []}}' ;;\nesac\n",
+            "#!/bin/sh\nprintf '%s\\n' \"${{GIT_SSH_COMMAND-unset}}\" >> '{}'\ncase \"$3\" in\n  \
+             members) printf '%s' '{{\"members\": [{{\"name\": \"one\", \"source\": \"one\", \
+             \"tree\": {}}}]}}' ;;\n  *) printf '%s' '{{\"artifacts\": []}}' ;;\nesac\n",
+            text(&case.log("aep")),
             quoted(&case.root().join("one"))
         ),
     );
     let config = case.config_including("[one]", "    forge_access: anonymous\n");
+    let ssh = format!("ssh {}", conductor_cli::collect::SSH_OPTIONS);
     // The clone with the home's `core.sshCommand`; a fetch with the checkout's own too; a fetch
     // with the caller's `GIT_SSH_COMMAND` too.
     for pass in 0..3 {
@@ -1540,6 +1529,16 @@ fn every_remote_git_of_an_anonymous_snapshot_is_hardened() {
         {
             wrong.push(format!("{:?} lacks GIT_NO_LAZY_FETCH=1", run.words));
         }
+        // No `core.sshCommand` of the home's configuration or of the checkout's own, and no
+        // `GIT_SSH_COMMAND` of the caller's, reaches any git command: ssh as it is, never asking.
+        let held = run
+            .variables
+            .iter()
+            .find_map(|held| held.strip_prefix("GIT_SSH_COMMAND="))
+            .unwrap_or_default();
+        if held != ssh {
+            wrong.push(format!("{:?} has GIT_SSH_COMMAND={held}", run.words));
+        }
         if !run.talks_to_a_remote() {
             continue;
         }
@@ -1568,6 +1567,13 @@ fn every_remote_git_of_an_anonymous_snapshot_is_hardened() {
         "no fetch was recorded: {:?}",
         case.lines("git")
     );
+    let aep = case.lines("aep");
+    assert!(!aep.is_empty(), "aep was not recorded");
+    for held in &aep {
+        if *held != ssh {
+            wrong.push(format!("aep has GIT_SSH_COMMAND={held}"));
+        }
+    }
     assert!(wrong.is_empty(), "{}", wrong.join("\n"));
 }
 

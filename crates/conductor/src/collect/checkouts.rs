@@ -425,12 +425,16 @@ fn own_credential_keys(dir: &Path, bound: Duration) -> Result<Vec<String>, Broug
 
 /// Refuses an anonymous fetch in the checkout `dir` whose origin's URL holds a login
 /// (story:anonymous-pod-no-forge-secret): git answers the forge's challenge with the user and
-/// password of `remote.origin.url` (`https://user:token@host/`, or a token as the user), and no
-/// configuration takes them out of it. Each value is read as the fetch reads it
-/// ([`without_credential`]: the checkout's own configuration, the files it includes and the
-/// pod's environment). `remote.origin.pushurl` is not read: a fetch never uses it. The URL is
-/// left as it is; the answer is one member failure that names the key, never the user or the
-/// password, or says the URL could not be read. A collector whose budget is spent answers
+/// password of the URL it fetches `origin` from (`https://user:token@host/`, or a token as the
+/// user), and no configuration takes them out of it. The URL is the one the fetch uses, read as
+/// it reads it, with no call to the remote: `git ls-remote --get-url origin` on the hardened
+/// command ([`without_credential`]), the first `remote.origin.url` of the checkout's own
+/// configuration, the files it includes and the pod's environment, or else of the legacy files
+/// `.git/remotes/origin` and `.git/branches/origin`, after any `insteadOf` rewrite.
+/// `remote.origin.pushurl` is not read: a fetch never uses it. An `ssh://` URL with a user is
+/// refused as well; git's scp-like form (`git@host:path`) is not. The URL is left as it is; the
+/// answer is one member failure that names where the URL comes from, never the user or the
+/// password, or says it could not be read. A collector whose budget is spent answers
 /// [`Brought::Stopped`].
 fn without_origin_login(dir: &Path, bound: Duration) -> Result<(), Brought> {
     let refused = |why: String| {
@@ -442,35 +446,33 @@ fn without_origin_login(dir: &Path, bound: Duration) -> Result<(), Brought> {
     let mut listed = crate::instance::command("git");
     without_credential(&mut listed);
     listed
-        .args(["config", "--get-all", "remote.origin.url"])
+        .args(["ls-remote", "--get-url", "origin"])
         .current_dir(dir);
     let output = match collect::run(&mut listed, bound) {
         Ok(output) => output,
         Err(error) if collect::is_over_budget(&error) => return Err(Brought::Stopped),
         Err(error) => {
             return Err(refused(format!(
-                "`remote.origin.url` could not be read: `git config --get-all` failed: {}",
+                "the URL of `origin` could not be read: `git ls-remote --get-url origin` failed: \
+                 {}",
                 one_line(&error)
             )));
         }
     };
-    match output.status.code() {
-        Some(0) => {}
-        Some(1) if output.stdout.is_empty() => return Ok(()),
-        _ => {
-            return Err(refused(format!(
-                "`remote.origin.url` could not be read: `git config --get-all` {}",
-                ended(&output)
-            )));
-        }
+    if !output.status.success() {
+        return Err(refused(format!(
+            "the URL of `origin` could not be read: `git ls-remote --get-url origin` {}",
+            ended(&output)
+        )));
     }
     if String::from_utf8_lossy(&output.stdout)
         .lines()
         .any(holds_login)
     {
         return Err(refused(
-            "`remote.origin.url` holds a user or a password, which the fetch would send to the \
-             forge; set the URL without it, or remove the checkout"
+            "the URL git fetches `origin` from (`remote.origin.url`, or the file \
+             `.git/remotes/origin` or `.git/branches/origin`) holds a user or a password, which \
+             the fetch would send to the forge; set the URL without it, or remove the checkout"
                 .to_owned(),
         ));
     }
@@ -478,8 +480,9 @@ fn without_origin_login(dir: &Path, bound: Duration) -> Result<(), Brought> {
 }
 
 /// Whether `url` is a URL with a scheme (`<scheme>://`) whose authority holds a user or a
-/// password (`user@`, `user:password@`). git's scp-like form (`git@host:path`) names the login
-/// name of ssh, which holds no password and goes to no HTTP server.
+/// password (`user@`, `user:password@`), `ssh://user@host/` included. git's scp-like form
+/// (`git@host:path`) is not: it names the login name of ssh, holds no password and goes to no
+/// HTTP server.
 fn holds_login(url: &str) -> bool {
     url.trim().split_once("://").is_some_and(|(_, rest)| {
         rest.split(['/', '?', '#'])

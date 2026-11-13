@@ -533,8 +533,14 @@ pub const SSH_OPTIONS: &str = "-o BatchMode=yes -o ConnectTimeout=10";
 /// `GIT_TERMINAL_PROMPT=0`, so git asks for no login on the terminal, and [`SSH_COMMAND`], the ssh
 /// command the user already gave git ([`ssh_command`]) with [`SSH_OPTIONS`] after it. `dir` is the
 /// directory the command runs in, whose `core.sshCommand` counts. A command that is not git
-/// ignores both.
+/// ignores both. In a process that works for an instance with `forge_access: anonymous`
+/// ([`crate::instance::works_for_anonymous`]) it is [`anonymous_git_environment`]: no ssh command
+/// of a configuration or of the caller's reaches any command of the instance's collectors, git
+/// and `aep` alike (story:anonymous-pod-no-forge-secret).
 pub fn git_environment<'a>(command: &'a mut Command, dir: Option<&Path>) -> &'a mut Command {
+    if crate::instance::works_for_anonymous() {
+        return anonymous_git_environment(command);
+    }
     let given = std::env::var(SSH_COMMAND).ok();
     command.env("GIT_TERMINAL_PROMPT", "0").env(
         SSH_COMMAND,

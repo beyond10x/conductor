@@ -935,11 +935,14 @@ What the member does:
   and `insteadOf` rewrite. When one stays (a file the configuration includes names it, or the
   configuration cannot be written or read), the fetch is refused, one member failure naming the
   key: remove the key, or remove the checkout so the next pass clones it again. A fetch whose
-  `remote.origin.url` holds a user or a password (`https://user:token@host/...`, or a token as
-  the user) is refused the same way, one member failure that names `remote.origin.url` and not
-  the login; the URL is left as it is. git gets plain `ssh`, never a `core.sshCommand` or a
-  `GIT_SSH_COMMAND` of the caller's. Every fetch of
-  the instance takes this one route, the blockers' and the specifications' read of each
+  URL of `origin`, as git reads it (`remote.origin.url`, or the legacy file `.git/remotes/origin`
+  or `.git/branches/origin`, after any `insteadOf` rewrite), holds a user or a password
+  (`https://user:token@host/...`, a token as the user, or `ssh://git@host/...`) is refused the
+  same way, one member failure that names where the URL comes from and not the login; the URL
+  is left as it is. Only git's scp-like form, `git@host:path`, is not refused. Every git command
+  the runtime starts, and every program a collector starts, gets plain `ssh`, never a
+  `core.sshCommand` or a `GIT_SSH_COMMAND` of the caller's. Every fetch of the instance takes
+  this one route, the blockers' and the specifications' read of each
   workspace member and the catalog's read included, and no other git command of the instance
   talks to a remote: this route fetches no submodule, and every git the runtime starts runs with
   `GIT_NO_LAZY_FETCH=1`, so a read of a partial clone fetches no object it lacks; such a read
