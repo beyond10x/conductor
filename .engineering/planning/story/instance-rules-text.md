@@ -6,7 +6,42 @@ status: active
 title: An instance mapping carries standing rules text that every session of the instance reads
 relations:
 - decomposes: epic:deployable-in-kubernetes
-revision: 4
+scope:
+- confidence: inferred
+  path: crates/conductor-docs/src/config.rs
+- confidence: cited
+  path: crates/conductor-model
+- confidence: cited
+  path: crates/conductor/http.yaml
+- confidence: inferred
+  path: crates/conductor/src/agent/claude_code.rs
+- confidence: cited
+  path: crates/conductor/src/config.rs
+- confidence: cited
+  path: crates/conductor/src/config/pod.rs
+- confidence: cited
+  path: crates/conductor/src/daemon/api.rs
+- confidence: cited
+  path: crates/conductor/src/daemon/pods.rs
+- confidence: inferred
+  path: crates/conductor/src/instance.rs
+- confidence: inferred
+  path: crates/conductor/src/role.rs
+- confidence: inferred
+  path: crates/conductor/src/session.rs
+- confidence: inferred
+  path: crates/conductor/src/spawn.rs
+- confidence: cited
+  path: crates/conductor/src/spec_api.rs
+- confidence: inferred
+  path: crates/conductor/tests
+- confidence: cited
+  path: spec/domains/config.yaml
+- confidence: cited
+  path: spec/domains/instance.yaml
+- confidence: inferred
+  path: website/docs
+revision: 6
 transitions:
 - {from: "draft", to: "proposed", at: "2026-11-13T00:16:24Z", actor: "human:timo", revision: 3}
 - {from: "proposed", to: "active", at: "2026-11-13T00:16:24Z", actor: "human:timo", revision: 4}

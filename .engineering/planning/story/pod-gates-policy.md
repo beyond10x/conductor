@@ -6,7 +6,44 @@ status: active
 title: A control plane gives a pod instance a gates policy, and a matching commit or push is refused
 relations:
 - decomposes: epic:deployable-in-kubernetes
-revision: 4
+scope:
+- confidence: inferred
+  path: crates/conductor-docs/src/config.rs
+- confidence: cited
+  path: crates/conductor-model
+- confidence: cited
+  path: crates/conductor/http.yaml
+- confidence: cited
+  path: crates/conductor/src/collect/checkouts.rs
+- confidence: cited
+  path: crates/conductor/src/config.rs
+- confidence: cited
+  path: crates/conductor/src/config/pod.rs
+- confidence: cited
+  path: crates/conductor/src/daemon/api.rs
+- confidence: cited
+  path: crates/conductor/src/daemon/pods.rs
+- confidence: inferred
+  path: crates/conductor/src/dashboard/health.rs
+- confidence: inferred
+  path: crates/conductor/src/doctor.rs
+- confidence: inferred
+  path: crates/conductor/src/run/records.rs
+- confidence: inferred
+  path: crates/conductor/src/secret.rs
+- confidence: cited
+  path: crates/conductor/src/spec_api.rs
+- confidence: inferred
+  path: crates/conductor/tests
+- confidence: cited
+  path: spec/domains/config.yaml
+- confidence: cited
+  path: spec/domains/instance.yaml
+- confidence: cited
+  path: website/docs/guides/run-in-kubernetes.md
+- confidence: inferred
+  path: website/docs/reference/config.md
+revision: 6
 transitions:
 - {from: "draft", to: "proposed", at: "2026-11-13T00:16:24Z", actor: "human:timo", revision: 3}
 - {from: "proposed", to: "active", at: "2026-11-13T00:16:25Z", actor: "human:timo", revision: 4}
