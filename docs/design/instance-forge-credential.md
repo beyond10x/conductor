@@ -1,7 +1,7 @@
 # Design: how an instance that runs as a pod reaches its forge
 
-Status: proposal, not accepted; fourth revision, 2026-11-13. Nothing here is built and there is no
-store record yet. The direction proposed is a forge gateway of a control plane (§ 4), which
+Status: proposal, not accepted; fourth revision, 2026-11-13, with the operator's answers to the
+two questions of § 9 recorded there. Nothing here is built and there is no store record yet. The direction proposed is a forge gateway of a control plane (§ 4), which
 sessions reach through the forge verbs of conductor's tool broker. The decisions asked of the
 operator are in § 9.
 
@@ -291,7 +291,7 @@ Which proof it is has to be decided before step 1, since git uses it from step 1
 | c. the runtime's own token, minted at each start (`daemon/reconcile.rs:352-355`) | one start of the pod | at each start | to one start, by a new call that asks the daemon | not proposed: it reuses a credential the runtime holds for another purpose |
 | d. a token Kubernetes signs for the pod, with the gateway as its audience | expiring (**not shown**) | by Kubernetes (**not shown**) | invalid once the pod is gone (**not shown**) | from step 3: mounted only into the broker's container |
 
-Proposed: **d**, checked by the gateway with a TokenReview, which answers the pod, whose name is
+Proposed, and the operator's answer (§ 9): **d**, checked by the gateway with a TokenReview, which answers the pod, whose name is
 `conductor-instance-<name>` (`daemon/pods.rs:219-221`) (**not shown**). Its costs: the rule of
 `daemon/pods.rs:459` is lifted for one projected token; the pod gets a projected volume and the
 file-reading helper above; and the gateway needs access into the pods' cluster, the right to
@@ -373,8 +373,8 @@ that rests on it is accepted:
   with an installation token of that App, which lasts one hour (the forge's documentation; not
   run here). `forge_token` cannot serve such a repository beyond an hour.
 - An instance on the gateway does its whole work only after step 3 (§ 4.7). So before step 3
-  exists, such a repository has four ways, set out with their costs in § 9. Proposed: A, to
-  wait for step 3.
+  exists, such a repository has four ways, set out with their costs in § 9. Proposed, and the
+  operator's answer: A, to wait for step 3.
 
 ## 6. Alternative not proposed: a credential by reference with minting in the daemon
 
@@ -434,6 +434,12 @@ Secrets unless interim B or D (§ 9) is chosen.
 - `gh auth status` behind the gateway is moot under typed endpoints: a pod on the gateway has no
   forge login to check. What the doctor's login row and the health answer read under the gateway
   instead (`doctor.rs:262-275`, `:2267-2270`) is open, and part of step 2.
+- How conductor's own reads (§ 4.3 item 2) reach the gateway from step 3, when the proof is
+  mounted only into the broker's container. One way is a socket of the broker for the runtime,
+  with read verbs the broker hands to the gateway. The broker keeps its sockets by file mode
+  only (`crates/conductor-broker/src/server.rs:121`, `:130`, `:200`), and the runtime and its
+  sessions are one user (`daemon/pods.rs:465-472`), so a session could open that socket too;
+  what it would reach is bounded by the list of read endpoints. Open, and part of step 3.
 - How the records' push of `forge.route: gates` (`run/records.rs:380-391`) reaches the proxy, and
   whether the `worktree` tool reaches a remote.
 - Not here: creating an App, installing it, or any rule of a forge that admits its pushes (the
@@ -442,7 +448,9 @@ Secrets unless interim B or D (§ 9) is chosen.
 
 ## 9. Decisions
 
-Asked of the operator:
+Asked of the operator, and answered on 2026-11-13. Neither answer builds anything: the steps of
+§ 4.7 are stories still to be drafted, and the tests of § 4.8 come before the step that rests
+on each.
 
 - **V, the direction.** Proposed: the gateway (§ 4), built in the steps of § 4.7. With it, the
   question of § 5, for a repository that only a GitHub App may push to, before step 3 exists:
@@ -450,9 +458,9 @@ Asked of the operator:
     four stories of § 4.7 and the control plane's side of them are built; every other repository
     can run on `forge_token` meanwhile. Proposed.
   - **B.** The daemon reads the App's key and mints; the pod holds a one-hour token, renewed
-    while it runs. This is § 6, the shape chosen first, with Q6. Cost: JWT signing, minting, a new Role verb, a helper and a wrapper that read a file; the
-    daemon reads the App's key and the pod holds a forge token, against Q1; removed once step 3
-    exists.
+    while it runs. This is § 6, the shape chosen first, with Q6. Cost: JWT signing, minting, a
+    new Role verb, a helper and a wrapper that read a file; the daemon reads the App's key and
+    the pod holds a forge token, against Q1; removed once step 3 exists.
   - **C.** A long-lived token on `forge_token`, with the repository's owner changing its rules to
     admit it. Cost: no code; the pod holds a long-lived forge token, against Q1 for that
     repository; the owner admits a token other than the App's, in place of Q6 there.
@@ -467,10 +475,19 @@ Asked of the operator:
     plane gets write access to Secrets of the pods' namespace; and an instance stops within the
     hour once the control plane stops writing. It would also build most of the reference that
     § 6 leaves open for other kinds of secret. Not proposed.
+
+  **Answered: A** (2026-11-13, 04:14 CET). A repository that only a GitHub App may push to
+  waits for step 3. B, C and D are not built, and neither is the reference with its label rule
+  or the refresh route of § 6.
 - **P, the pod's proof** (§ 4.4), to be decided before step 1. Proposed: d, a projected token
   with the gateway as its audience. Cost: the control plane is given access into the pods'
   cluster to check the token, and the pod gets one projected token. a and b are replayable from
-  anywhere and need the installer or the label rule; c needs a new call to the daemon.
+  anywhere and need the installer or the label rule; c reuses a credential the runtime holds
+  for another purpose and needs a new call to the daemon.
+
+  **Answered: d** (2026-11-13, 08:23 CET). An instance pod proves which instance it is with a
+  short-lived token that Kubernetes issues to the pod, with the gateway as its audience. What
+  § 4.4 marks **not shown** for d stays to be shown (§ 4.8, § 8).
 
 Settled in this note:
 
