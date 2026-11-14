@@ -1,0 +1,12 @@
+{
+  "at": "2026-11-14T20:55:03Z",
+  "actor": "human:agent",
+  "artifact": "story:box-runtime-dials-conductord",
+  "kind": "story",
+  "revision": 18,
+  "change": {
+    "change": "evidence",
+    "kind": "test_result",
+    "source": "local slot run at substrate pin befef3aa: cargo fmt --check, cargo clippy --all-targets -D warnings, nextest conductor-cli lib dial (3 passed), tests placement and instance_api (111 passed), no_organization and isolated_home (11 passed), task docs-check (5 generated files current)"
+  }
+}
