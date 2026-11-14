@@ -969,6 +969,85 @@ pub fn serve_tcp(listener: TcpListener, sources: Sources, state: Option<PathBuf>
     accept(listener.incoming(), &server, true);
 }
 
+/// Answers the instance API over connections it dials out to `address`, the daemon's dial-in
+/// listener ([`crate::instance::DIAL_VARIABLE`], `daemon.dial_port`): a runtime in a substrate box,
+/// where a Unix socket is refused and nothing dials in. It keeps `connections` open, each opened
+/// with the line [`crate::instance::DIAL_HELLO`]` <instance> <token>`, and answers one request on
+/// each, through the token gate as on TCP ([`serve_tcp`]); then it dials the next. A connection
+/// that does not open, or that the daemon closes unanswered (it does not know the token yet, or
+/// at all), is dialed again after a wait that doubles up to [`DIAL_RETRY_MAX`].
+///
+/// It does not return.
+pub fn serve_dial(
+    address: &str,
+    instance: &str,
+    sources: Sources,
+    state: Option<PathBuf>,
+    token: String,
+    connections: usize,
+) {
+    let hello = format!("{} {instance} {token}\n", crate::instance::DIAL_HELLO);
+    let server = Arc::new(Server::new(sources, state, cache::Tuning::default(), token));
+    start(&server);
+    let dialers: Vec<_> = (0..connections.max(1))
+        .map(|_| {
+            let (server, address, hello) = (Arc::clone(&server), address.to_owned(), hello.clone());
+            std::thread::spawn(move || dial_forever(&address, &hello, &server))
+        })
+        .collect();
+    for dialer in dialers {
+        let _ = dialer.join();
+    }
+}
+
+/// The first wait before a connection that failed is dialed again.
+const DIAL_RETRY_MIN: Duration = Duration::from_millis(250);
+
+/// The longest wait before a connection that failed is dialed again.
+pub const DIAL_RETRY_MAX: Duration = Duration::from_secs(10);
+
+/// Dials `address` again and again, one exchange per connection ([`dial_once`]).
+fn dial_forever(address: &str, hello: &str, server: &Arc<Server>) {
+    let mut wait = DIAL_RETRY_MIN;
+    let mut said: Option<String> = None;
+    loop {
+        match dial_once(address, hello, server) {
+            Ok(()) => {
+                wait = DIAL_RETRY_MIN;
+                said = None;
+            }
+            Err(error) => {
+                // Said once until it changes: a daemon that is away is not a line a second.
+                let line = format!("conductor instance serve: dial {address}: {error}");
+                if said.as_deref() != Some(line.as_str()) {
+                    eprintln!("{line}");
+                    said = Some(line);
+                }
+                std::thread::sleep(wait);
+                wait = (wait * 2).min(DIAL_RETRY_MAX);
+            }
+        }
+    }
+}
+
+/// One connection dialed to `address`: the greeting `hello`, then, once the daemon sends a
+/// request on it, however long that takes, the answer ([`connection`]).
+fn dial_once(address: &str, hello: &str, server: &Arc<Server>) -> io::Result<()> {
+    let mut stream = TcpStream::connect(address)?;
+    stream.write_all(hello.as_bytes())?;
+    stream.flush()?;
+    stream.set_read_timeout(None)?;
+    let mut byte = [0_u8; 1];
+    if stream.peek(&mut byte)? == 0 {
+        return Err(io::Error::new(
+            ErrorKind::ConnectionAborted,
+            "the daemon closed the connection unanswered: it does not route this instance by \
+             dial-in, or not with this token",
+        ));
+    }
+    connection(stream, server, true)
+}
+
 /// Serves `server` on `listener`, as [`serve_unix`] says.
 fn run(listener: UnixListener, server: Arc<Server>) {
     start(&server);

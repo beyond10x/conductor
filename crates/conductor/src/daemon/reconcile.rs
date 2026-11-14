@@ -1473,6 +1473,19 @@ impl<U: Units> Daemon<U> {
         host.daemon = Some(self.dir.clone());
         let mut request =
             crate::placement::request_on(instance, &self.config_file, &binary, env, &host);
+        // A runtime in a local box binds no socket, which substrate refuses there: it dials its
+        // instance API out to the daemon's dial-in listener through the aperture of that name
+        // (`daemon.dial_port`, [`super::dial`]), besides the model host's. Listed first, it
+        // listens in the box on `127.0.0.1` at the port it is declared with, the address
+        // [`Self::dial_address`] names.
+        if let Some(dial) = self.dial_address(instance) {
+            request
+                .env
+                .push((crate::instance::DIAL_VARIABLE.to_owned(), dial));
+            request
+                .apertures
+                .insert(0, super::dial::APERTURE.to_owned());
+        }
         if request.refused.is_none()
             && let Some(slot) = request.api_token.take()
         {
@@ -1488,6 +1501,16 @@ impl<U: Units> Daemon<U> {
             }
         }
         request
+    }
+
+    /// Where the runtime of `instance` dials its instance API out to: the daemon's dial-in
+    /// listener, `127.0.0.1:<daemon.dial_port>`, for a box on the local substrate daemon while
+    /// the port is set; none for any other runtime, and while it is 0.
+    fn dial_address(&self, instance: &Instance) -> Option<String> {
+        (self.config.daemon.dial_port != 0
+            && instance.remote.is_none()
+            && crate::placement::boxed(instance))
+        .then(|| format!("127.0.0.1:{}", self.config.daemon.dial_port))
     }
 
     /// The local substrate daemon's model-token slot pool (`daemon.substrate_slots`), under the
@@ -1792,7 +1815,9 @@ impl<U: Units> Daemon<U> {
     /// runtime the daemon started, with a token, and that was not seen stopped, by name, at its
     /// state directory's socket. A runtime in a box on a remote daemon is reached through a relay
     /// session in its box instead (`story:placement-substrate-remote`): the box's own conductor
-    /// running `instance relay` on that socket ([`crate::placement::Exchange::relay`]).
+    /// running `instance relay` on that socket ([`crate::placement::Exchange::relay`]). A runtime
+    /// in a local box while `daemon.dial_port` is set is reached over the connections it dials in
+    /// ([`Route::dialed`], [`super::dial`]).
     #[must_use]
     pub fn routes(&self) -> BTreeMap<String, Route> {
         self.config
@@ -1815,6 +1840,15 @@ impl<U: Units> Daemon<U> {
                         name.clone(),
                         Route::tcp(std::net::SocketAddr::new(ip, port), token),
                     ));
+                }
+                // A runtime in a local box that dials in: over its connections in the pool.
+                if self.dial_address(instance).is_some()
+                    && self
+                        .boxes
+                        .get(name)
+                        .is_some_and(|opened| opened.remote.is_none())
+                {
+                    return Some((name.clone(), Route::dialed(name, token)));
                 }
                 let socket = crate::instance::socket(Path::new(&instance.state));
                 let remote = self.boxes.get(name).and_then(|opened| {
@@ -1843,6 +1877,7 @@ impl<U: Units> Daemon<U> {
                         token,
                         remote,
                         tcp: None,
+                        dial: None,
                     },
                 ))
             })

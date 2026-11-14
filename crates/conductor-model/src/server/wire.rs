@@ -1,5 +1,5 @@
 // generated from conductor v1
-// contract digest 2fc2642808077fb28855408e63bbd2024df0cf9fb9146a58853be9bd124f1c4b
+// contract digest 7578a10cc04cfe745727906384787e01024a2731ead7f2fb1023e14b672f398b
 // do not edit: regenerate with `ess synthesize --layout crate`
 //! Every generated declaration, as JSON, in the renderings the published wire contracts fix.
 //!
@@ -1245,6 +1245,8 @@ pub fn encode_conductor_config_daemon(value: &crate::config::Daemon, out: &mut S
         json::member(out, "control_token");
         encode_conductor_secret_secret_name(&*held0, out);
     }
+    json::member(out, "dial_port");
+    json::push_integer(out, value.dial_port);
     out.push('}');
 }
 
@@ -1254,7 +1256,7 @@ pub fn encode_conductor_config_daemon(value: &crate::config::Daemon, out: &mut S
 ///
 /// [`json::DecodeError`] naming the path and what the declaration says belongs there.
 pub fn decode_conductor_config_daemon(value: &json::Value, at: &str) -> Result<crate::config::Daemon, json::DecodeError> {
-    json::closed_at(value, at, &["port", "loopback", "tls", "cadence", "store", "secrets", "dashboard", "operators", "upgrade_timeout", "timeout", "substrate_slots", "unattended", "address", "kubernetes", "control_token"])?;
+    json::closed_at(value, at, &["port", "loopback", "tls", "cadence", "store", "secrets", "dashboard", "operators", "upgrade_timeout", "timeout", "substrate_slots", "unattended", "address", "kubernetes", "control_token", "dial_port"])?;
     Ok(crate::config::Daemon {
         port: {
             let at0 = json::nested(at, "port");
@@ -1343,6 +1345,11 @@ pub fn decode_conductor_config_daemon(value: &json::Value, at: &str) -> Result<c
                 let at14 = json::nested(at, "control_token");
                 Some(decode_conductor_secret_secret_name(member14, &at14)?)
             }
+        },
+        dial_port: {
+            let at15 = json::nested(at, "dial_port");
+            let member15 = json::member_at(value, at, "dial_port")?;
+            json::integer_at(member15, &at15, "an integer")?
         },
     })
 }

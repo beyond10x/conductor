@@ -282,7 +282,7 @@ dependencies = [
 [[package]]
 name = "b10x-substrate-sdk"
 version = "0.20.0"
-source = "git+https://github.com/beyond10x/substrate?rev=546693082bcc10590fd4509f1b31926b3e3d1ddb#546693082bcc10590fd4509f1b31926b3e3d1ddb"
+source = "git+https://github.com/beyond10x/substrate?rev=befef3aa45c7d78436556c690a0125d85316b1e8#befef3aa45c7d78436556c690a0125d85316b1e8"
 dependencies = [
  "b10x-substrate-wire",
  "base64 0.23.1",
@@ -313,7 +313,7 @@ dependencies = [
 [[package]]
 name = "b10x-substrate-wire"
 version = "0.20.0"
-source = "git+https://github.com/beyond10x/substrate?rev=546693082bcc10590fd4509f1b31926b3e3d1ddb#546693082bcc10590fd4509f1b31926b3e3d1ddb"
+source = "git+https://github.com/beyond10x/substrate?rev=befef3aa45c7d78436556c690a0125d85316b1e8#befef3aa45c7d78436556c690a0125d85316b1e8"
 dependencies = [
  "base64 0.23.1",
  "chrono",

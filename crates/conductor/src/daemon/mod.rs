@@ -37,6 +37,7 @@
 
 pub mod api;
 pub mod browser;
+pub mod dial;
 pub mod federate;
 pub mod host_roles;
 pub mod install;
@@ -257,6 +258,21 @@ pub fn daemon_serve(
         thread::spawn(move || api::serve_tls(&secure, &served, &config));
         serving.push(format!(
             "conductord: serving the dashboard and /v1/ on https://{address}/ with bearers"
+        ));
+    }
+    // The dial-in listener of the runtimes in local boxes (`daemon.dial_port`), on loopback only:
+    // the aperture's forwarder dials it from the host.
+    if written.daemon.dial_port != 0 {
+        let dial_port =
+            u16::try_from(written.daemon.dial_port).context("daemon serve: daemon.dial_port")?;
+        let dialed = TcpListener::bind((std::net::Ipv4Addr::LOCALHOST, dial_port))
+            .with_context(|| format!("daemon serve: listen on 127.0.0.1:{dial_port}"))?;
+        let served = Arc::clone(&api);
+        thread::spawn(move || dial::serve(&dialed, &served));
+        serving.push(format!(
+            "conductord: taking the instance API of the runtimes in local boxes on \
+             127.0.0.1:{dial_port}, through the aperture {}",
+            dial::APERTURE
         ));
     }
     let watched = Arc::clone(&api);

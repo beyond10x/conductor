@@ -67,6 +67,7 @@ pub fn serve_tuned(
                 token,
                 remote: None,
                 tcp: None,
+                dial: None,
             },
         )]
         .into_iter()

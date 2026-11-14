@@ -30,6 +30,9 @@
 //! answers and before the loop starts; before the seeding it clones each repository its sources
 //! include that has no checkout ([`crate::collect::checkouts::at_start`]), and after it it takes
 //! its first snapshot, whatever `cycle.last` says ([`first_snapshot`]).
+//! A runtime in a box on the local substrate daemon, where substrate refuses a Unix socket, is
+//! told by [`DIAL_VARIABLE`] to bind nothing and dial its API out to the daemon instead
+//! ([`crate::dashboard::serve_dial`], [`crate::daemon::dial`]).
 //! [`CONFIG_SOURCE_VARIABLE`] names a file it copies over its
 //! `--config` file at every start, before it reads it: how a config mounted read-only reaches a
 //! place the runtime writes beside.
@@ -180,6 +183,21 @@ pub const SOCKET_VARIABLE: &str = "CONDUCTOR_API_SOCKET";
 /// daemon reaches over the network ([`crate::daemon::api::Route::tcp`]). Its presence is also
 /// what tells the runtime it runs alone and seeds its own instance.
 pub const LISTEN_VARIABLE: &str = "CONDUCTOR_API_LISTEN";
+
+/// The variable that asks the runtime to dial its API out to an address and port (`127.0.0.1:<daemon.dial_port>`),
+/// the daemon's dial-in listener ([`crate::daemon::dial`]), instead of binding the socket: a
+/// runtime in a substrate box, where a Unix socket is refused (substrate's ADR 0039) and nothing
+/// dials in. It keeps [`DIAL_CONNECTIONS`] connections open there, each opened with
+/// [`DIAL_HELLO`], the instance's name and its token, and answers one exchange on each
+/// ([`crate::dashboard::serve_dial`]); it refuses to start without a token handed to it.
+pub const DIAL_VARIABLE: &str = "CONDUCTOR_API_DIAL";
+
+/// The first word of the line a dialed connection opens with.
+pub const DIAL_HELLO: &str = "CONDUCTOR-DIAL/1";
+
+/// How many connections a runtime that dials its API keeps open at once: as many exchanges as it
+/// answers at once.
+pub const DIAL_CONNECTIONS: usize = 4;
 
 /// The variable that names a config file the runtime copies over its `--config` file at every
 /// start, before it reads it, creating the file's directory: a config mounted read-only reaches a
@@ -498,10 +516,12 @@ fn first_snapshot(config_flag: Option<&Path>, state_flag: Option<&Path>, what: &
     );
 }
 
-/// Where the instance API is served: the socket, or TCP for a runtime alone in a pod.
+/// Where the instance API is served: the socket, TCP for a runtime alone in a pod, or the
+/// connections a runtime in a box dials out to the daemon.
 enum Listener {
     Unix(UnixListener),
     Tcp(TcpListener),
+    Dial(String),
 }
 
 /// `conductor instance serve`, as the module documentation says.
@@ -545,16 +565,31 @@ pub fn instance_serve(
         .ok()
         .map(|address| address.trim().to_owned())
         .filter(|address| !address.is_empty());
-    let token = match (given, &listen) {
-        (Some(token), _) => token,
-        (None, Some(_)) => bail!(
+    let dial = std::env::var(DIAL_VARIABLE)
+        .ok()
+        .map(|address| address.trim().to_owned())
+        .filter(|address| !address.is_empty());
+    let token = match (given, &listen, &dial) {
+        (Some(token), _, _) => token,
+        (None, Some(_), _) => bail!(
             "{WHAT}: {LISTEN_VARIABLE} asks for the API on TCP, and {TOKEN_VARIABLE} hands it no \
              token: every request on TCP carries one"
         ),
-        (None, None) => dashboard::mint().context("instance serve: mint the instance's token")?,
+        (None, None, Some(_)) => bail!(
+            "{WHAT}: {DIAL_VARIABLE} asks for the API dialed out to the daemon, and neither \
+             {TOKEN_VARIABLE} nor a sealed slot hands it the daemon's token, which every dialed \
+             connection opens with: declare the slot {} on the substrate daemon",
+            crate::placement::api_token_slot(&active.instance.name.0)
+        ),
+        (None, None, None) => {
+            dashboard::mint().context("instance serve: mint the instance's token")?
+        }
     };
     let what = format!("conductor instance {}", active.instance.name.0);
-    let listener = if let Some(address) = &listen {
+    let listener = if let Some(address) = &dial {
+        println!("{what}: serving /v1/ over connections dialed to {address}");
+        Listener::Dial(address.clone())
+    } else if let Some(address) = &listen {
         let listener = TcpListener::bind(address.as_str())
             .with_context(|| format!("{WHAT}: bind {address} ({LISTEN_VARIABLE})"))?;
         let at = listener
@@ -570,6 +605,7 @@ pub fn instance_serve(
         println!("{what}: serving /v1/ on {}", path.display());
         Listener::Unix(listener)
     };
+    let instance = active.instance.name.0.clone();
     let api = std::thread::Builder::new()
         .name("instance-api".to_owned())
         .spawn(move || {
@@ -589,6 +625,16 @@ pub fn instance_serve(
                 }
                 Listener::Tcp(listener) => {
                     dashboard::serve_tcp(listener, sources, Some(state), token);
+                }
+                Listener::Dial(address) => {
+                    dashboard::serve_dial(
+                        &address,
+                        &instance,
+                        sources,
+                        Some(state),
+                        token,
+                        DIAL_CONNECTIONS,
+                    );
                 }
             }
         })
