@@ -4558,9 +4558,11 @@ impl Reader<'_> {
             Some(_) => None,
             None => Some(None),
         };
-        // The kind of the model token, which decides how an agent at a placement with no box
-        // gets it: an API key through the settings' helper, a subscription token in the harness's
-        // environment. A box receives its model token through a slot, as an API key.
+        // The kind of the model token, which decides how an agent gets it: an API key through
+        // the settings' helper, a subscription token in the harness's environment. A box
+        // receives its model token through a slot, which its runtime reads and, for a
+        // subscription token, hands to the harness in the same variable
+        // (story:box-subscription-token).
         let model_token_kind = match Self::get(map, "model_token_kind") {
             Some(value) => {
                 let at = join(path, "model_token_kind");
@@ -4570,20 +4572,6 @@ impl Reader<'_> {
                         &at,
                         "names the kind of the model_token, and the instance names no \
                          model_token: name one, or leave the kind out",
-                    );
-                }
-                if kind == Some(ModelTokenKind::SubscriptionToken)
-                    && let Some(placement) = &placement
-                    && crate::placement::resolve(placement).is_some()
-                {
-                    self.problem(
-                        &at,
-                        format!(
-                            "subscription_token is not supported at a placement that opens a \
-                             box: {placement:?} receives its model_token sealed through a slot \
-                             of the daemon's pool, which hands it over as an API key; write \
-                             api_key, or a placement that opens no box"
-                        ),
                     );
                 }
                 kind.map(Some)

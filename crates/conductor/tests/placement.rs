@@ -3814,6 +3814,30 @@ fn the_runtime_started_from_the_box_request_takes_a_write_with_the_daemons_token
     );
 }
 
+/// The runtime knows a model token's slot (story:box-subscription-token) by the name a remote
+/// daemon's start gives it and by the names of the local pool's slots, and by no other: not the
+/// daemon's token's slot, nor a name that only begins like one.
+#[test]
+fn a_model_token_slot_is_the_slot_of_a_remote_start_or_of_the_pool() {
+    for name in ["model_token", "model_token_0", "model_token_63"] {
+        assert!(placement::is_model_token_slot(name), "{name}");
+    }
+    assert_eq!(placement::SlotPool::slot(7), "model_token_7");
+    assert!(placement::is_model_token_slot(&placement::SlotPool::slot(
+        7
+    )));
+    for name in [
+        "model_token_",
+        "model_token_x",
+        "model_tokens",
+        "model_token_1a",
+        "api_token_model_token",
+        &placement::api_token_slot("model_token"),
+    ] {
+        assert!(!placement::is_model_token_slot(name), "{name}");
+    }
+}
+
 /// The slot's name is in substrate's slot-name set (`[a-z][a-z0-9_]{0,63}`) whatever the
 /// instance is called, and is told from the model token's.
 #[test]
@@ -4164,7 +4188,7 @@ fn doctor_and_conductord_refuse_a_declared_slot_whose_file_is_a_directory() {
 
 /// Programs named `names` in `bin`, each of which writes what it saw into a file of its own
 /// under `seen` when it is started: its name and arguments, `SUBSTRATE_SECRET_SLOTS`, and what
-/// descriptor 4 reads (`closed` when it has none).
+/// descriptors 3 and 4 read (`closed` when it has none).
 fn witnesses(bin: &Path, seen: &Path, names: &[&str]) {
     fs::create_dir_all(bin).expect("the programs' directory");
     fs::create_dir_all(seen).expect("the records' directory");
@@ -4172,7 +4196,9 @@ fn witnesses(bin: &Path, seen: &Path, names: &[&str]) {
         "#!/bin/sh\n{{\n  printf 'argv=%s %s\\n' \"${{0##*/}}\" \"$*\"\n  \
          printf 'slots=%s\\n' \"${{SUBSTRATE_SECRET_SLOTS-unset}}\"\n  \
          if [ -e /proc/self/fd/4 ] && read -r held </proc/self/fd/4; then \
-         printf 'fd4=%s\\n' \"$held\"; else printf 'fd4=closed\\n'; fi\n\
+         printf 'fd4=%s\\n' \"$held\"; else printf 'fd4=closed\\n'; fi\n  \
+         if [ -e /proc/self/fd/3 ] && read -r held </proc/self/fd/3; then \
+         printf 'fd3=%s\\n' \"$held\"; else printf 'fd3=closed\\n'; fi\n\
          }} >\"{seen}/${{0##*/}}.$$\"\n",
         seen = seen.display()
     );
@@ -4191,7 +4217,7 @@ fn witnessed(seen: &Path, enough: impl Fn(&[String]) -> bool) -> Vec<String> {
             .map(|entries| {
                 entries
                     .filter_map(|entry| fs::read_to_string(entry.ok()?.path()).ok())
-                    .filter(|record| record.contains("fd4="))
+                    .filter(|record| record.contains("fd3="))
                     .collect()
             })
             .unwrap_or_default();
@@ -4208,7 +4234,8 @@ fn witnessed(seen: &Path, enough: impl Fn(&[String]) -> bool) -> Vec<String> {
 }
 
 /// The runtime of the local box of `a` as substrate starts it: this build's conductor with the
-/// box request's environment and nothing else, the daemon's token sealed at descriptor 4 and
+/// box request's environment and nothing else, the daemon's token sealed at descriptor 4 and a
+/// model token, [`SEALED_MODEL_TOKEN`], in the pool's slot `model_token_0` at descriptor 3, both
 /// named in `SUBSTRATE_SECRET_SLOTS`, the loop off, and `bin` first on its `PATH`. Answers the
 /// daemon, the runtime, its socket and the daemon's token once the runtime listens.
 fn boxed_runtime(case: &Case, bin: &Path) -> (Daemon<Units0>, Runtime, PathBuf, String) {
@@ -4225,6 +4252,8 @@ fn boxed_runtime(case: &Case, bin: &Path) -> (Daemon<Units0>, Runtime, PathBuf, 
     let request = fake.log.lock().expect("the log").opened[0].clone();
     let route = daemon.routes()["a"].clone();
     let sealed = case.dir.join("daemon/slots/api_token_a");
+    let model = case.dir.join("model_token_0");
+    fs::write(&model, format!("{SEALED_MODEL_TOKEN}\n")).expect("seal a model token");
     let path = request
         .env
         .iter()
@@ -4233,15 +4262,16 @@ fn boxed_runtime(case: &Case, bin: &Path) -> (Daemon<Units0>, Runtime, PathBuf, 
     let program = common::conductor(case.home()).get_program().to_owned();
     let child = std::process::Command::new("/bin/sh")
         .arg("-c")
-        .arg("slot=$1; shift; exec \"$@\" 4<\"$slot\"")
+        .arg("slot=$1; model=$2; shift 2; exec \"$@\" 4<\"$slot\" 3<\"$model\"")
         .arg("sh")
         .arg(&sealed)
+        .arg(&model)
         .arg(&program)
         .args(&request.argv[1..])
         .env_clear()
         .envs(request.env.iter().map(|(name, value)| (name, value)))
         .env("PATH", format!("{}:{path}", bin.display()))
-        .env("SUBSTRATE_SECRET_SLOTS", "api_token_a=4")
+        .env("SUBSTRATE_SECRET_SLOTS", "api_token_a=4,model_token_0=3")
         .env(conductor_cli::instance::LOOP_VARIABLE, "off")
         .stdin(Stdio::null())
         .stdout(Stdio::null())
@@ -4277,9 +4307,13 @@ fn started(records: &[String], args: &str) -> bool {
         .any(|record| record.starts_with(&format!("argv=claude {args}\n")))
 }
 
-/// A process the runtime of a local box starts inherits neither the daemon's token nor its
-/// slot's name: the runtime closes the descriptor substrate sealed the token at once it has read
-/// it, and starts no process with `SUBSTRATE_SECRET_SLOTS`. What it starts at its own start
+/// The model token [`boxed_runtime`] seals at descriptor 3.
+const SEALED_MODEL_TOKEN: &str = "sealed-model-token-0001";
+
+/// A process the runtime of a local box starts inherits neither the daemon's token, nor the
+/// model token, nor their slots' names: the runtime closes the descriptors substrate sealed them
+/// at once it has read them (story:box-subscription-token for the model token's), and starts no
+/// process with `SUBSTRATE_SECRET_SLOTS`. What it starts at its own start
 /// stands for every start: the session list and doctor's version checks, one a start of its own,
 /// the other through the bounded runner the loop's steps, the session starts and the hooks'
 /// commands take.
@@ -4300,6 +4334,11 @@ fn a_process_the_boxed_runtime_starts_sees_neither_its_token_slot_nor_the_variab
         assert!(
             record.contains("\nfd4=closed\n") && !record.contains(&token),
             "a process the runtime starts has no descriptor 4 to read the token from: {record}"
+        );
+        assert!(
+            record.contains("\nfd3=closed\n") && !record.contains(SEALED_MODEL_TOKEN),
+            "a process the runtime starts has no descriptor 3 to read the model token from: \
+             {record}"
         );
     }
 }

@@ -737,6 +737,18 @@ pub fn is_api_token_slot(name: &str) -> bool {
         .is_some_and(|rest| rest.starts_with('_'))
 }
 
+/// Whether `name` is the sealed slot of a box's model token: [`crate::secret::MODEL_TOKEN_SLOT`],
+/// as a remote daemon's start names it, or a slot of the local daemon's pool,
+/// `model_token_<i>` ([`SlotPool::slot`]).
+#[must_use]
+pub fn is_model_token_slot(name: &str) -> bool {
+    name == crate::secret::MODEL_TOKEN_SLOT
+        || name
+            .strip_prefix(crate::secret::MODEL_TOKEN_SLOT)
+            .and_then(|rest| rest.strip_prefix('_'))
+            .is_some_and(|index| !index.is_empty() && index.bytes().all(|b| b.is_ascii_digit()))
+}
+
 /// What follows for a box when the daemon does not declare `slot`, `served` its `secrets.slots`
 /// fact (`None` when it publishes none), with the flag that declares it; `None` when the daemon
 /// declares it or the box has none. It is no refusal: the box is asked for without the slot.

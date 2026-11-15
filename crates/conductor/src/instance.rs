@@ -115,11 +115,8 @@ pub fn fetch_nothing_lazily() {
 const SEALED_TOKEN_BOUND: u64 = 4096;
 
 /// The daemon's token as `slots`, the value of [`SLOTS_VARIABLE`], seals it: read from the
-/// descriptor of the slot that carries it, or `None` where no such slot is named. The
-/// descriptor is closed once it is read, whatever it held: substrate hands it over without
-/// close-on-exec, so every process the runtime starts would inherit it and could read the token
-/// from it. Nothing reads it again: the runtime reads it once, at its start, and a restart in the
-/// same box is a new process substrate hands a slot of its own.
+/// descriptor of the slot that carries it, or `None` where no such slot is named
+/// ([`sealed_slot`]).
 ///
 /// # Errors
 ///
@@ -127,12 +124,39 @@ const SEALED_TOKEN_BOUND: u64 = 4096;
 /// or holds nothing: a runtime that minted its own token then would refuse every write the daemon
 /// proxies, silently.
 fn sealed_token(slots: &str) -> Result<Option<String>> {
+    sealed_slot(slots, crate::placement::is_api_token_slot, "token")
+}
+
+/// The instance's model token as `slots` seals it (`story:box-subscription-token`): read from
+/// the descriptor of the model-token slot the daemon named for the box
+/// ([`crate::placement::is_model_token_slot`]), or `None` where none is named ([`sealed_slot`]).
+///
+/// # Errors
+///
+/// The slot is named and its descriptor is not a number, is a standard stream, cannot be read,
+/// or holds nothing.
+fn sealed_model_token(slots: &str) -> Result<Option<String>> {
+    sealed_slot(slots, crate::placement::is_model_token_slot, "model token")
+}
+
+/// The value of the first slot `slots`, the value of [`SLOTS_VARIABLE`], names that `wanted`
+/// knows, read from its descriptor, trimmed; `None` where no such slot is named. The descriptor
+/// is closed once it is read, whatever it held: substrate hands it over without close-on-exec,
+/// so every process the runtime starts would inherit it and could read the value from it.
+/// Nothing reads it again: the runtime reads it once, at its start, and a restart in the same box
+/// is a new process substrate hands a slot of its own. `what` names the value in an error.
+///
+/// # Errors
+///
+/// The slot is named and its descriptor is not a number, is a standard stream, cannot be read,
+/// or holds nothing.
+fn sealed_slot(slots: &str, wanted: fn(&str) -> bool, what: &str) -> Result<Option<String>> {
     use std::io::Read as _;
     let Some((name, descriptor)) = slots
         .split(',')
         .filter_map(|pair| pair.split_once('='))
         .map(|(name, descriptor)| (name.trim(), descriptor.trim()))
-        .find(|(name, _)| crate::placement::is_api_token_slot(name))
+        .find(|(name, _)| wanted(name))
     else {
         return Ok(None);
     };
@@ -152,20 +176,20 @@ fn sealed_token(slots: &str) -> Result<Option<String>> {
         .or_else(|_| fs::File::open(format!("/dev/fd/{descriptor}")))
         .with_context(|| format!("open the sealed slot {name} at descriptor {descriptor}"))
         .and_then(|file| {
-            let mut token = String::new();
+            let mut value = String::new();
             file.take(SEALED_TOKEN_BOUND)
-                .read_to_string(&mut token)
+                .read_to_string(&mut value)
                 .with_context(|| format!("read the sealed slot {name} at descriptor {descriptor}"))
-                .map(|_| token)
+                .map(|_| value)
         });
     // One the process does not hold is closed already: nothing to answer for.
     let _ = nix::unistd::close(descriptor);
-    let token = read?;
-    let token = token.trim();
-    if token.is_empty() {
-        bail!("the sealed slot {name} at descriptor {descriptor} holds no token");
+    let value = read?;
+    let value = value.trim();
+    if value.is_empty() {
+        bail!("the sealed slot {name} at descriptor {descriptor} holds no {what}");
     }
-    Ok(Some(token.to_owned()))
+    Ok(Some(value.to_owned()))
 }
 
 /// The socket's file name in the instance's state directory.
@@ -554,7 +578,18 @@ pub fn instance_serve(
     let state = PathBuf::from(&active.instance.state);
     let sources = dashboard::Sources::active(None).context(WHAT)?;
     let sealed = match std::env::var(SLOTS_VARIABLE) {
-        Ok(slots) => sealed_token(&slots).context("instance serve: the daemon's token")?,
+        Ok(slots) => {
+            // The model token's slot is read and its descriptor closed whatever the instance's
+            // `model_token_kind`, so no process the runtime starts inherits it; the runtime
+            // hands its value to an agent's harness for a `subscription_token` only
+            // (`story:box-subscription-token`, [`crate::token::hold_sealed_model_token`]).
+            if let Some(value) =
+                sealed_model_token(&slots).context("instance serve: the model token")?
+            {
+                crate::token::hold_sealed_model_token(value);
+            }
+            sealed_token(&slots).context("instance serve: the daemon's token")?
+        }
         Err(_) => None,
     };
     let given = match (std::env::var(TOKEN_VARIABLE), sealed) {

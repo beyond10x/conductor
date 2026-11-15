@@ -768,19 +768,15 @@ fn copy_settings(
 pub const OAUTH_VARIABLE: &str = "CLAUDE_CODE_OAUTH_TOKEN";
 
 /// Puts the `model_token` of `instance`, of the kind `subscription_token`, into `launch`: its
-/// value, read from `secrets` now, as [`OAUTH_VARIABLE`] of the launch's environment, which the
-/// provider sets on the harness's process alone; and the launch's settings copied as [`apply`]
-/// copies them, without a [`HELPER_KEY`], which would outrank the variable. One the settings
-/// named is left out, and one line of standard error says so, without its text. The value is
-/// in no argument, no file and no line written.
+/// value, read from `secrets` now, as [`OAUTH_VARIABLE`] of the launch's environment
+/// ([`apply_subscription_value`]).
 fn apply_subscription(
     launch: &mut Launch,
     instance: &Instance,
     secret: &SecretName,
     secrets: &conductor_model::config::SecretsSource,
 ) -> Result<(), String> {
-    let name = &instance.name.0;
-    let what = format!("the model_token of instance {name}");
+    let what = format!("the model_token of instance {}", instance.name.0);
     let source = crate::secret::open(secrets).map_err(|unusable| unusable.to_string())?;
     let value = match source.reveal(secret) {
         Ok(Some(value)) => value,
@@ -797,12 +793,24 @@ fn apply_subscription(
         }
     };
     let value = std::str::from_utf8(value.expose())
-        .ok()
-        .filter(|text| !text.chars().any(char::is_control))
-        .ok_or_else(|| {
+        .map_err(|_| {
             format!("{what}: its value is no one line of text, which {OAUTH_VARIABLE} holds")
         })?
         .to_owned();
+    apply_subscription_value(launch, &what, value)
+}
+
+/// Puts `value`, the subscription token `what` names, into `launch`: as [`OAUTH_VARIABLE`] of
+/// the launch's environment, which the provider sets on the harness's process alone; and the
+/// launch's settings copied as [`apply`] copies them, without a [`HELPER_KEY`], which would
+/// outrank the variable. One the settings named is left out, and one line of standard error says
+/// so, without its text. The value is in no argument, no file and no line written.
+fn apply_subscription_value(launch: &mut Launch, what: &str, value: String) -> Result<(), String> {
+    if value.chars().any(char::is_control) {
+        return Err(format!(
+            "{what}: its value is no one line of text, which {OAUTH_VARIABLE} holds"
+        ));
+    }
     let mut held = false;
     let file = copy_settings(
         launch,
@@ -824,6 +832,39 @@ fn apply_subscription(
     Ok(())
 }
 
+/// The model token the runtime of a box read from its sealed slot at its start
+/// (`story:box-subscription-token`): set once, by [`hold_sealed_model_token`], and only in that
+/// process; never written anywhere.
+static SEALED_MODEL_TOKEN: std::sync::OnceLock<String> = std::sync::OnceLock::new();
+
+/// Keeps `value`, the model token the runtime of a box read from its sealed slot
+/// (`crate::instance`), for the agents it starts: [`lease_into`] hands it to the harness of an
+/// instance whose `model_token_kind` is `subscription_token`. A second call keeps the first value.
+pub fn hold_sealed_model_token(value: String) {
+    let _ = SEALED_MODEL_TOKEN.set(value);
+}
+
+/// The value [`lease_into`] hands the harness of an agent of `instance`, at a placement that
+/// opens a box, as [`OAUTH_VARIABLE`], when its `model_token_kind` is `subscription_token`: the
+/// model token the runtime of its box read from its sealed slot ([`hold_sealed_model_token`]),
+/// else, in a process the runtime started (`conductor session start` for the maintainer), the
+/// variable this process was started with. `None` for another kind, an instance with no
+/// `model_token`, or none of the two.
+#[must_use]
+pub fn boxed_subscription_token(instance: &Instance) -> Option<String> {
+    if instance.model_token.is_none()
+        || instance.model_token_kind != Some(ModelTokenKind::SubscriptionToken)
+        || !crate::placement::boxed(instance)
+    {
+        return None;
+    }
+    SEALED_MODEL_TOKEN.get().cloned().or_else(|| {
+        std::env::var(OAUTH_VARIABLE)
+            .ok()
+            .filter(|value| !value.trim().is_empty())
+    })
+}
+
 /// Leases a token for the launch of `role`'s agent and puts it into `launch` ([`apply`]); a role
 /// that names `token_owner` starts for Remote Control. Answers the lease, `None` with an empty
 /// pool. With an empty pool the launch is left as it is, but for an instance whose placement
@@ -833,7 +874,10 @@ fn apply_subscription(
 /// [`model_helper`]. A `subscription_token`: [`apply_subscription`] reads its value from the
 /// daemon's secrets source now, at the start of this session, into the launch's environment.
 /// Without `daemon.unattended` an empty pool leaves every launch as it is, so an agent on a
-/// workstation keeps the harness's own login.
+/// workstation keeps the harness's own login. At a placement that opens a box, a
+/// `subscription_token` the runtime holds from its box's sealed slot
+/// ([`boxed_subscription_token`], `story:box-subscription-token`) goes into the launch's
+/// environment the same way; an `api_key` there leaves the launch as it is.
 ///
 /// # Errors
 ///
@@ -847,7 +891,10 @@ pub fn lease_into(
 ) -> Result<Option<Lease>, String> {
     let name = launch.request.session_name.0.clone();
     let Some(lease) = lease_for_start(instance, role, &name, headroom)? else {
-        if let Some(secret) = &instance.model_token
+        if let Some(value) = boxed_subscription_token(instance) {
+            let what = format!("the model_token of instance {}", instance.name.0);
+            apply_subscription_value(launch, &what, value)?;
+        } else if let Some(secret) = &instance.model_token
             && !crate::placement::boxed(instance)
             && let Some(daemon) = daemon_config().filter(|daemon| daemon.unattended)
         {

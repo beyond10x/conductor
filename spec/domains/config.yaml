@@ -838,7 +838,9 @@ types:
   # (substrate 0.20.0, design 11: a slot is daemon configuration, never a per-request value): the
   # operator declares `--secret-slot model_token_<i>=<daemon dir>/slots/model_token_<i>` for each
   # `i` below it; before a box opens the daemon writes the instance's `model_token` into a free
-  # slot's file (mode 0600), names that slot in the start, and frees it when the box closes.
+  # slot's file (mode 0600), names that slot in the start, and frees it when the box closes; the
+  # runtime in the box reads the slot at its start, and hands its value to the harness by the
+  # instance's `model_token_kind` (story:box-subscription-token).
   # `unattended` (story:container-start-without-prompt), whether `daemon serve` at its start
   # does for each instance of the file what `conductor setup --apply` does, each only where it is
   # missing: writes and commits its records skeleton, trusts its checkouts and records directory,
@@ -1014,7 +1016,8 @@ types:
       - {name: gates_policy, type: Optional<String>}
       # The secret the instance's box receives as its model token, written `secret:<name>`, sealed
       # through a slot of the daemon's pool (`daemon.substrate_slots`); absent, the box receives
-      # no slot. At a placement that opens no box, where the file says `daemon.unattended`
+      # no slot. The runtime in the box reads the slot once at its start and closes its
+      # descriptor, so no process it starts inherits it. At a placement that opens no box, where the file says `daemon.unattended`
       # (story:container-start-without-prompt), an agent whose instance's pool leases it no token
       # runs on it instead, by its `model_token_kind`. Without that key an empty pool leaves the
       # launch as it is.
@@ -1030,9 +1033,15 @@ types:
       # role's settings named is left out of it, which the start says in one line. Nothing
       # refreshes such a token: an expired or changed one needs a new value in the secrets
       # source and a new session, which `POST /v1/instances/{name}/restart` starts for every
-      # session of an instance pod. Set without a `model_token`, or as `subscription_token` at a
-      # placement that opens a box (a box receives its model token as an API key through a
-      # slot), it is refused at validate by its YAML path.
+      # session of an instance pod. At a placement that opens a box
+      # (story:box-subscription-token), an agent whose instance's pool leases it no token runs on
+      # the value the runtime read from the box's slot: `subscription_token` sets it as
+      # `CLAUDE_CODE_OAUTH_TOKEN` in the environment of the harness's process, with a settings
+      # copy that names no `apiKeyHelper`, as above, and the `conductor session start` the
+      # runtime runs for the maintainer receives it in that variable to hand on; `api_key` leaves
+      # the launch as it is. A changed value there needs a new box start, since the runtime reads
+      # the slot only at its own start. Set without a `model_token`, it is refused at validate by
+      # its YAML path.
       - {name: model_token_kind, type: Optional<conductor.config.ModelTokenKind>}
       # The instance's own forge token, written `secret:<name>` (story:instance-forge-token), read
       # only by the pod supervisor: where `daemon.kubernetes` is set, the instance's pod reads the

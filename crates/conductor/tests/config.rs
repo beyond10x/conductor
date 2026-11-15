@@ -3988,10 +3988,10 @@ fn model_token_instance(placement: &str, extra: &str) -> String {
 
 /// An instance's `model_token_kind` says which kind its `model_token` is: `api_key` or
 /// `subscription_token`, and absent means `api_key`. It validates beside a `model_token` and
-/// `config show` writes it as written, `null` without it. Set without a `model_token`, written as
-/// a word the specification does not declare, or `subscription_token` at a placement that opens
-/// a box (which receives its model token as an API key through a slot), it is refused at its
-/// YAML path, saying why.
+/// `config show` writes it as written, `null` without it, and either kind holds at a placement
+/// that opens a box, whose runtime reads the model token from its slot
+/// (story:box-subscription-token). Set without a `model_token`, or written as a word the
+/// specification does not declare, it is refused at its YAML path, saying why.
 #[test]
 fn an_instances_model_token_kind_is_declared_and_refused_where_it_cannot_hold() {
     let case = Case::new("model-token-kind");
@@ -4011,6 +4011,10 @@ fn an_instances_model_token_kind_is_declared_and_refused_where_it_cannot_hold() 
             model_token_instance("systemd", &format!("{token}{}", kind("api_key"))),
         ),
         ("absent-in-a-box", model_token_instance("systemd", token)),
+        (
+            "subscription-in-a-box",
+            model_token_instance("systemd", &format!("{token}{}", kind("subscription_token"))),
+        ),
         (
             "pods-subscription",
             pods(&pod_instance(&format!(
@@ -4065,11 +4069,6 @@ fn an_instances_model_token_kind_is_declared_and_refused_where_it_cannot_hold() 
             "undeclared",
             model_token_instance("none", &format!("{token}{}", kind("oauth"))),
             "\"oauth\" is not one of api_key, subscription_token",
-        ),
-        (
-            "subscription-in-a-box",
-            model_token_instance("systemd", &format!("{token}{}", kind("subscription_token"))),
-            "is not supported at a placement that opens a box",
         ),
     ] {
         let file = case.write(&format!("refused-{name}.yaml"), &text);
