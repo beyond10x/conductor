@@ -775,6 +775,11 @@ fn start_built(case: &Case, role: &str) -> Output {
 /// `daemon.unattended`, the instance's `model_token_kind` `kind` where one is given, and the
 /// director's own settings file `settings`, which names an `apiKeyHelper` of its own.
 fn with_kind(case: &Case, secrets: &Path, kind: Option<&str>) {
+    with_kind_at(case, secrets, kind, "none");
+}
+
+/// [`with_kind`] at the placement `placement`.
+fn with_kind_at(case: &Case, secrets: &Path, kind: Option<&str>, placement: &str) {
     let settings = case.dir.join("director-settings.json");
     fs::write(
         &settings,
@@ -782,7 +787,7 @@ fn with_kind(case: &Case, secrets: &Path, kind: Option<&str>) {
             .to_string(),
     )
     .expect("write the role's settings");
-    with_model_token(case, secrets, ", unattended: true", "none");
+    with_model_token(case, secrets, ", unattended: true", placement);
     let mut text = fs::read_to_string(case.file()).expect("the config file");
     text = text.replace(
         "{role: director, harness: claude, model: opus}",
@@ -863,6 +868,69 @@ fn a_subscription_token_reaches_the_harness_in_its_variable_and_its_settings_nam
         assert!(!text.contains(MARKER), "{what}: {text}");
     }
     case.assert_nowhere(MARKER);
+}
+
+/// story:box-subscription-token: at a placement that opens a box, the runtime in the box holds
+/// the model token it read from its sealed slot and hands it, for a `subscription_token`, to the
+/// `conductor session start` it runs as `CLAUDE_CODE_OAUTH_TOKEN`. That start puts it into the
+/// harness's environment and writes a settings copy with no `apiKeyHelper` (the role's own is
+/// taken out), and reads no secrets source for it: the source here holds nothing. For an
+/// `api_key` the launch is left as it is: no variable reaches the harness and the role's own
+/// settings, with their helper, are the ones it starts with. The value is in no output, argument
+/// or settings copy.
+#[test]
+fn in_a_box_a_subscription_token_the_runtime_holds_reaches_the_harness_in_its_variable() {
+    for kind in ["subscription_token", "api_key"] {
+        let case = Case::new(&format!("box-{}", kind.replace('_', "-")), ROLES);
+        let secrets = case.dir.join("secrets");
+        fs::create_dir_all(&secrets).expect("the secrets directory");
+        with_kind_at(&case, &secrets, Some(kind), "systemd");
+        harness_double(&case);
+
+        // The runtime hands the variable on for a `subscription_token` only
+        // (`run/handlers.rs`, `token::boxed_subscription_token`).
+        let mut command = case.conductor();
+        command.env_remove(OAUTH);
+        if kind == "subscription_token" {
+            command.env(OAUTH, MARKER);
+        }
+        let started = command
+            .args(["session", "start", "--role", "director"])
+            .output()
+            .expect("run session start");
+        assert_eq!(started.status.code(), Some(0), "{kind}: {}", said(&started));
+        let settings = settings_of(&case);
+        let text = fs::read_to_string(&settings).expect("the settings");
+        let json: Value = serde_json::from_str(&text).expect("the settings are JSON");
+        if kind == "subscription_token" {
+            assert_eq!(
+                oauth_of(&case).as_deref(),
+                Some(MARKER),
+                "{}",
+                said(&started)
+            );
+            assert!(json.get(token::HELPER_KEY).is_none(), "{text}");
+            assert!(
+                settings.starts_with(case.dir.join("state")),
+                "the copy is the session's: {}",
+                settings.display()
+            );
+        } else {
+            assert_eq!(oauth_of(&case), None, "{kind}: {}", said(&started));
+            assert_eq!(
+                json[token::HELPER_KEY],
+                "printf helper-of-the-role",
+                "{kind}: the role's own settings are left as they are: {text}"
+            );
+        }
+        for (what, text) in [
+            ("the start's output", said(&started)),
+            ("the harness's arguments", argv_of(&case)),
+            ("the settings", text.clone()),
+        ] {
+            assert!(!text.contains(MARKER), "{kind}: {what}: {text}");
+        }
+    }
 }
 
 /// A `model_token` of kind `api_key`, and one whose instance names no kind, takes the route it

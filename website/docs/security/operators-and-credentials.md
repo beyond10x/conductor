@@ -174,5 +174,10 @@ Before a box opens, every `secret:` the instance's effective config names and it
 must be in the source, or the box is refused (`SecretMissing`). The box gets one slot from the
 source, the model token. A local daemon takes it from a pool of `daemon.substrate_slots` slots, each declared as
 `--secret-slot model_token_<i>=<daemon dir>/slots/model_token_<i>`. The daemon writes the token
-into a free slot's file (mode 0600) and frees it when the box closes. No forge token is sealed into
-a box: forge writes take the bot route.
+into a free slot's file (mode 0600) and frees it when the box closes. The runtime in the box reads
+the slot once at its start and closes its descriptor, so no process it starts inherits it. With
+`model_token_kind: subscription_token` (the token `claude setup-token` prints) the runtime starts
+each agent whose pool leases it no token with that value as `CLAUDE_CODE_OAUTH_TOKEN` in the
+harness's process environment, and a settings copy that names no `apiKeyHelper`; with `api_key`
+the launch is left as it is. A new value reaches the agents with the next start of the box. No
+forge token is sealed into a box: forge writes take the bot route.

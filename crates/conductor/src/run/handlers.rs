@@ -909,9 +909,15 @@ fn active_stories(checkout: &Path) -> Result<usize> {
 }
 
 /// Runs `conductor session start --role maintainer` (this binary, the tick's `--config` and
-/// `--state-dir`) in `cwd`.
+/// `--state-dir`) in `cwd`. In the runtime of a box whose instance's model token is a
+/// `subscription_token`, the token the runtime read from its sealed slot goes to that process as
+/// [`crate::token::OAUTH_VARIABLE`], which its start hands on to the harness
+/// (`story:box-subscription-token`).
 fn start_maintainer(tick: &Tick<'_, '_>, cwd: &Path) -> Result<()> {
     let mut command = crate::instance::command(&tick.seams.program);
+    if let Some(value) = crate::token::boxed_subscription_token(tick.instance()) {
+        command.env(crate::token::OAUTH_VARIABLE, value);
+    }
     if let Some(config) = tick.config {
         command
             .arg("--config")

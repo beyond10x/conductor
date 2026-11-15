@@ -1,0 +1,12 @@
+{
+  "at": "2026-11-15T07:53:43Z",
+  "actor": "human:agent",
+  "artifact": "story:box-subscription-token",
+  "kind": "story",
+  "revision": 6,
+  "change": {
+    "change": "evidence",
+    "kind": "test_result",
+    "source": "local slot run at c34ce5a4 plus the story's change: cargo fmt --check, cargo clippy --all-targets -D warnings, conductor-cli lib (136 passed), tests config (76), placement (95), token_pool (16), kubernetes_guide (19), no_organization and isolated_home (11), all passed; task docs-check (5 generated files current)"
+  }
+}

@@ -859,9 +859,10 @@ runtime sets the variable on the harness's process as it starts it, with no unit
 between, so the value is in that process's environment, `/proc/<pid>/environ`, which its own
 user and root can read, as for any variable of a process.
 
-`subscription_token` is not supported at a placement that opens a box: a box receives its model
-token sealed through a slot of the daemon's pool, as an API key. A mapping that names it there,
-that names a kind without a `model_token`, or a word other than the two kinds, is refused `422`
+At a placement that opens a box, the box receives its model token sealed through a slot of the
+daemon's pool; its runtime reads the slot at its start and, for `subscription_token`, starts each
+agent with the value as `CLAUDE_CODE_OAUTH_TOKEN`, as above. A mapping that names a kind without a
+`model_token`, or a word other than the two kinds, is refused `422`
 `conductor.config.ConfigInvalid` at `instances[<i>].model_token_kind`. `GET /v1/instances/{name}`
 answers `model_token_kind` as the mapping holds it, and no member where it holds none.
 
