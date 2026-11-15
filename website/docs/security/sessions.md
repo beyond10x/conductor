@@ -42,6 +42,31 @@ A stop is `claude stop <id>`, up to 30 s for the session list to drop it, then `
 resume is `claude --bg --resume <id>` with the same arguments. `conductor controller
 pause-controller`, `stop-controller` and `resume-controller` use them.
 
+## In a box: the child launch
+
+`claude --bg` needs a Unix socket for its background service, and a substrate box refuses
+`socket(AF_UNIX)`. Where conductor may not create a Unix socket, as in a runtime's box, or when
+a `conductor.config/1` file writes `confinement.provider: child`, the `child` provider starts the
+session in place of `none`, as a plain child process:
+
+```console
+claude -p --input-format stream-json --output-format stream-json --verbose \
+  --replay-user-messages --session-id <uuid> \
+  -n <session name> <the same arguments as above, without the prompt>
+```
+
+Conductor chooses the session's id, which names its transcript under `CLAUDE_CONFIG_DIR` as a
+`--bg` session's id does. The session's files are in `conductor-sessions/` of Claude Code's state
+directory (`CLAUDE_CONFIG_DIR`, else `~/.claude`), named by its id: `<id>.json` (name, directory,
+pid, start time), the FIFO `<id>.in` it reads its messages from, and its output `<id>.out` and
+`<id>.err`. The first prompt and every `conductor session deliver` are one stream-json user
+message written to the FIFO, in place of `claude attach`. Every reader of the session list (`spawn`,
+the sessions collector, the watch, the loop, the dashboard) sees these sessions beside the ones
+`claude agents --json` prints: live while their pid runs, `busy` from a message to its result.
+A stop sends `SIGTERM` to the session's process group, `SIGKILL` after 30 s, and removes its
+files; a resume is `claude -p --resume <id>` the same way. `conductor session attach` opens no
+such session: it has no terminal.
+
 ## Setting sources
 
 The launch writes `--setting-sources project,local`. When it asks for `bypassPermissions`, the
@@ -130,7 +155,7 @@ Conductor builds no sandbox. It asks substrate for a box. Today only runtimes ru
 |---|---|---|
 | an instance runtime whose `placement` names an adapter | a substrate PTY session in the instance's substrate workspace | the adapter's confinement facts |
 | an instance runtime whose `placement` names none, such as `local` | the user unit `conductor_<instance>-runtime.service` (`systemd-run --user`), restarted 30 s after a failure | the instance's `limits` on its slice: `MemoryMax`, `CPUWeight`, `TasksMax` |
-| every agent session | `claude --bg` | nothing: its record says it runs unboxed |
+| every agent session | `claude --bg`; in a runtime's box, `claude -p` as the runtime's child ([the child launch](#in-a-box-the-child-launch)) | the runtime's box when it runs in one; its record says conductor measured no box of its own |
 
 `placement` is `{daemon, adapter}`, or a bare string read as `{daemon: local, adapter: <string>}`.
 The adapters are `systemd`, `linux`, `oci` and `pod`. A local daemon refuses `oci` and `pod` at

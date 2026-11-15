@@ -103,7 +103,7 @@ use serde_json::Value;
 use crate::agent::claude_code;
 use crate::cli::SpawnArgs;
 use crate::collect::{self, Under};
-use crate::config::{self, BuiltInRole, ConfinementProvider, Environment};
+use crate::config::{self, BuiltInRole, Environment};
 use crate::confine::places::{self, Placement};
 use crate::confine::{self, CLAUDE, Launch, Providers, Refusal, live_session};
 
@@ -515,7 +515,8 @@ fn recorded_session(state_dir: &Path, name: &SessionName) -> Result<Option<Start
 /// Ends the controller session `session_name`, the one behind `controller pause-controller` and
 /// `controller stop-controller`, through the provider its measurement names: the `systemd`
 /// provider stops its unit (`systemctl --user stop`; nothing when the unit is gone already), the
-/// `none` provider a session the session list shows live (`claude stop`, `claude rm`). The
+/// `none` provider a session the session list shows live (`claude stop`, `claude rm`), the
+/// `child` provider such a session by a signal to its process group ([`confine::child`]). The
 /// measurement stays: it holds the id a resume starts from. A session with no measurement is left
 /// as it is.
 ///
@@ -538,11 +539,7 @@ pub fn end(
     if !systemd && live_session(&session_name.0)?.is_none() {
         return Ok(None);
     }
-    let mut provider = providers.provider(if systemd {
-        ConfinementProvider::Systemd
-    } else {
-        ConfinementProvider::None
-    });
+    let mut provider = confine::named(providers, &session.provider);
     let instance = &config::active().instance;
     let cwd = checkout(instance, repository).map_or_else(
         |_| instance.checkouts.root.clone(),

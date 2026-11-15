@@ -2299,11 +2299,13 @@ fn running_sessions(list: &[OsString]) -> Result<HashSet<String>> {
     if !output.status.success() {
         bail!("`{shown}` exited {}", output.status);
     }
-    let Value::Array(entries) = serde_json::from_slice(&output.stdout)
+    let Value::Array(mut entries) = serde_json::from_slice(&output.stdout)
         .with_context(|| format!("`{shown}` printed no JSON"))?
     else {
         bail!("`{shown}` printed no JSON array");
     };
+    // The `child` provider's sessions beside the harness's (`story:box-session-without-bg`).
+    crate::confine::child::append(program, &mut entries);
     Ok(entries
         .iter()
         .filter(|entry| !entry["pid"].is_null())

@@ -41,5 +41,6 @@ time = { version = "0.3", features = ["formatting", "parsing"] }
 tokio = { version = "1", default-features = false, features = ["rt", "net", "time"] }
 
 [dev-dependencies]
+libc = "0.2"
 rcgen = { version = "0.13", default-features = false, features = ["crypto", "pem", "ring"] }
 rusqlite = { version = "=0.40.2", features = ["bundled"] }

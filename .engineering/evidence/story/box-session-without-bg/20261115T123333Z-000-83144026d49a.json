@@ -1,0 +1,12 @@
+{
+  "at": "2026-11-15T12:33:33Z",
+  "actor": "human:agent",
+  "artifact": "story:box-session-without-bg",
+  "kind": "story",
+  "revision": 4,
+  "change": {
+    "change": "evidence",
+    "kind": "test_result",
+    "source": "local slot run at 964f4a89 plus the story's change: task check with B10X_GATES_POLICY set ran the Gates scan, ess validate and conformance, the model diff, the dashboard npm ci, Vitest, dist and UX gate, cargo fmt --check and cargo clippy --all-targets -D warnings, all passed; cargo nextest 2462 run, 2455 passed, 7 failed: the 5 forge_access_anonymous_review cases that read the host's .netrc, sec_work_route against the live conductord on 7300, and build_run a_second_signal_ends_a_stopped_run_that_waits_for_the_ledger, which touches no changed code and fails here alone too; box_session (4) passed; a manual run with Claude Code 2.1.325 under RestrictAddressFamilies=AF_INET AF_INET6 AF_NETLINK took spawn, deliver, pause, resume, deliver and stop, each exit 0, the resumed session keeping its context"
+  }
+}

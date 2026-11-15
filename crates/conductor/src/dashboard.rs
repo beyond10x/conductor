@@ -1817,7 +1817,12 @@ fn agents(command: &[OsString], errors: &mut Vec<String>) -> Vec<Value> {
         return Vec::new();
     }
     match serde_json::from_slice::<Value>(&output.stdout) {
-        Ok(Value::Array(rows)) => rows,
+        Ok(Value::Array(mut rows)) => {
+            // The `child` provider's sessions beside the harness's
+            // (`story:box-session-without-bg`).
+            crate::confine::child::append(program, &mut rows);
+            rows
+        }
         Ok(_) => {
             errors.push(format!("`{shown}` printed no JSON array"));
             Vec::new()

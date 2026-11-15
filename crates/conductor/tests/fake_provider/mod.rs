@@ -56,6 +56,7 @@ impl Providers for Fakes {
         let name = match name {
             ConfinementProvider::Systemd => "systemd",
             ConfinementProvider::None => "none",
+            ConfinementProvider::Child => "child",
         };
         Box::new(Fake::new(&self.dir, name))
     }
