@@ -117,6 +117,7 @@ impl Case {
                     token: INSTANCE_TOKEN.to_owned(),
                     remote: None,
                     tcp: None,
+                    dial: None,
                 },
             )
         };
@@ -661,6 +662,7 @@ fn the_agent_routes_deliver_and_restart_through_the_daemon_and_attach_is_refused
                 token: INSTANCE_TOKEN.to_owned(),
                 remote: None,
                 tcp: None,
+                dial: None,
             },
         )]
         .into_iter()

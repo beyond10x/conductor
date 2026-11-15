@@ -129,6 +129,7 @@ daemon:
       - name: GIT_AUTHOR_NAME
         value: conductor
   control_token: secret:example-control-token
+  dial_port: 7301
 globals:
   roles:
     - role: supervisor

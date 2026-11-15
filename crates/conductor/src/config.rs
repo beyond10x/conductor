@@ -825,7 +825,7 @@ const REMOVED_KEYS: [(&str, &str); 3] = [
         "the store is the deployment's one database, at daemon.store",
     ),
 ];
-const DAEMON_KEYS: [&str; 15] = [
+const DAEMON_KEYS: [&str; 16] = [
     "port",
     "loopback",
     "tls",
@@ -841,6 +841,7 @@ const DAEMON_KEYS: [&str; 15] = [
     "address",
     "kubernetes",
     "control_token",
+    "dial_port",
 ];
 /// The keys of `daemon.kubernetes` (`conductor.config.Kubernetes`) and of its mappings.
 const KUBERNETES_KEYS: [&str; 7] = [
@@ -2305,6 +2306,7 @@ pub fn default_daemon(home: &Path) -> Daemon {
         address: DAEMON_ADDRESS.to_owned(),
         kubernetes: None,
         control_token: None,
+        dial_port: 0,
     }
 }
 
@@ -3357,6 +3359,34 @@ impl Reader<'_> {
             Some(_) => None,
             None => Some(None),
         };
+        // The dial-in listener of the runtimes in local boxes: 0 takes none.
+        let dial_port = match Self::get(map, "dial_port") {
+            Some(value) => {
+                let port = value
+                    .as_i64()
+                    .filter(|port| (0..=i64::from(u16::MAX)).contains(port));
+                if port.is_none() {
+                    self.problem(
+                        &join(path, "dial_port"),
+                        format!(
+                            "`{value}` is no port: write a whole number from 1 to 65535, or 0 \
+                             for no dial-in listener"
+                        ),
+                    );
+                }
+                port
+            }
+            None => Some(defaults.dial_port),
+        };
+        if let (Some(dial), Some(port)) = (dial_port, port)
+            && dial != 0
+            && dial == port
+        {
+            self.problem(
+                &join(path, "dial_port"),
+                format!("is {dial}, the port of the API's own listener: name another"),
+            );
+        }
         let daemon = Daemon {
             port: port?,
             loopback: loopback?,
@@ -3373,6 +3403,7 @@ impl Reader<'_> {
             address: address?,
             kubernetes: kubernetes?,
             control_token: control_token?,
+            dial_port: dial_port?,
         };
         // The pods get none of the daemon's own secrets either.
         let own = crate::secret::daemons_own(&daemon);
@@ -6625,6 +6656,7 @@ pub fn daemon_document(daemon: &Daemon) -> Yaml {
                     .as_ref(),
             ),
         ),
+        ("dial_port", Yaml::Number(daemon.dial_port.into())),
     ])
 }
 

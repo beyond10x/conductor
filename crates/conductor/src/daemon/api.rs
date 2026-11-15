@@ -149,6 +149,10 @@ pub struct Route {
     /// ([`crate::instance::LISTEN_VARIABLE`]): every request sent there carries [`Self::token`],
     /// reads too ([`Route::tcp()`]).
     pub tcp: Option<SocketAddr>,
+    /// For a runtime in a box on the local substrate daemon, the instance whose connections
+    /// dialed in to the daemon ([`super::dial`], `daemon.dial_port`) carry its exchanges instead of
+    /// the socket: every request sent on one carries [`Self::token`], reads too, as on TCP.
+    pub dial: Option<String>,
 }
 
 impl Route {
@@ -161,15 +165,33 @@ impl Route {
             token,
             remote: None,
             tcp: Some(address),
+            dial: None,
         }
     }
 
-    /// A connection to the runtime: to its TCP address within `within`, else to its socket.
+    /// The route to the runtime of `instance` in a local box, reached over the connections it
+    /// dials in to the daemon ([`super::dial`]) and taking every request with `token`.
+    #[must_use]
+    pub fn dialed(instance: &str, token: String) -> Self {
+        Self {
+            socket: PathBuf::new(),
+            token,
+            remote: None,
+            tcp: None,
+            dial: Some(instance.to_owned()),
+        }
+    }
+
+    /// A connection to the runtime: one it dialed in, waiting at most `within` for one; to its
+    /// TCP address within `within`; else to its socket.
     ///
     /// # Errors
     ///
-    /// It does not connect.
+    /// It does not connect, or no dialed-in connection arrives within `within`.
     pub(crate) fn connect(&self, within: Duration) -> Result<Link> {
+        if let Some(instance) = &self.dial {
+            return super::dial::POOL.take(instance, within).map(Link::Tcp);
+        }
         match self.tcp {
             Some(address) => TcpStream::connect_timeout(&address, within)
                 .map(Link::Tcp)
@@ -185,7 +207,7 @@ impl Route {
     /// is to a socket.
     pub(crate) fn carrying<'a>(&self, request: &'a [u8]) -> std::borrow::Cow<'a, [u8]> {
         use std::borrow::Cow;
-        if self.tcp.is_none() {
+        if self.tcp.is_none() && self.dial.is_none() {
             return Cow::Borrowed(request);
         }
         let end = request
@@ -612,6 +634,18 @@ impl Api {
             .lock()
             .map(|published| published.rows.clone())
             .unwrap_or_default()
+    }
+
+    /// Whether `token` is the token of `instance`, whose runtime the daemon reaches over the
+    /// connections it dials in ([`Route::dialed`]), compared in constant time: what admits a
+    /// dialed-in connection to the pool ([`super::dial::serve`]).
+    #[must_use]
+    pub fn admits_dial(&self, instance: &str, token: &str) -> bool {
+        self.route(instance).is_some_and(|route| {
+            route.dial.as_deref() == Some(instance)
+                && !route.token.is_empty()
+                && same_secret(route.token.as_bytes(), token.as_bytes())
+        })
     }
 
     fn route(&self, name: &str) -> Option<Route> {

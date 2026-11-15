@@ -5724,3 +5724,87 @@ fn adv2_box_token_a_slot_directory_without_its_write_bit_is_restricted_and_writt
     );
     assert_eq!(dir_mode, 0o700);
 }
+
+/// `daemon.dial_port` set: substrate refuses a Unix socket in a box (its ADR 0039), so conductord
+/// starts a local box's runtime with the address to dial its API out to and names the aperture
+/// `conductord` in its start before the model host's, and routes the instance over the connections it dials in; an
+/// instance with no box keeps its socket. Without the key nothing of it is asked for.
+#[test]
+fn a_local_box_dials_its_api_out_to_conductord_while_the_dial_port_is_set() {
+    let case = Case::new("dial");
+    let file = case.config(&[
+        ("alpha", "{daemon: local, adapter: linux}"),
+        ("beta", "none"),
+    ]);
+    let text = fs::read_to_string(&file).expect("the config file");
+    fs::write(
+        &file,
+        text.replace(
+            "daemon: {port: 7300,",
+            "daemon: {port: 7300, dial_port: 7301,",
+        ),
+    )
+    .expect("write the config file");
+    let fake = Fake::default();
+    let mut daemon = case.daemon(fake.clone());
+    daemon
+        .pass(
+            conductor_model::instance::ReconcileReason::ConfigChange,
+            std::time::Instant::now(),
+        )
+        .expect("a pass");
+    {
+        let log = fake.log.lock().expect("the log");
+        assert_eq!(log.opened.len(), 1, "one box, alpha's");
+        let request = &log.opened[0];
+        assert_eq!(
+            request.apertures,
+            [
+                conductor_cli::daemon::dial::APERTURE,
+                placement::EGRESS_APERTURE
+            ],
+            "the dial-in aperture first, at 127.0.0.1 in the box, and the model host's"
+        );
+        assert!(
+            request.env.contains(&(
+                conductor_cli::instance::DIAL_VARIABLE.to_owned(),
+                "127.0.0.1:7301".to_owned()
+            )),
+            "{:?}",
+            request.env
+        );
+    }
+    let routes = daemon.routes();
+    let alpha = routes.get("alpha").expect("alpha is routed");
+    assert_eq!(alpha.dial.as_deref(), Some("alpha"));
+    assert!(!alpha.token.is_empty(), "the route carries the token");
+    if let Some(beta) = routes.get("beta") {
+        assert_eq!(beta.dial, None, "an instance with no box keeps its socket");
+    }
+
+    // Without the key the box names only the model host's aperture and dials nothing.
+    let case = Case::new("dial-off");
+    case.config(&[("alpha", "{daemon: local, adapter: linux}")]);
+    let fake = Fake::default();
+    let mut daemon = case.daemon(fake.clone());
+    daemon
+        .pass(
+            conductor_model::instance::ReconcileReason::ConfigChange,
+            std::time::Instant::now(),
+        )
+        .expect("a pass");
+    let log = fake.log.lock().expect("the log");
+    assert_eq!(log.opened[0].apertures, [placement::EGRESS_APERTURE]);
+    assert!(
+        log.opened[0]
+            .env
+            .iter()
+            .all(|(name, _)| name != conductor_cli::instance::DIAL_VARIABLE),
+        "{:?}",
+        log.opened[0].env
+    );
+    assert_eq!(
+        daemon.routes().get("alpha").and_then(|r| r.dial.clone()),
+        None
+    );
+}

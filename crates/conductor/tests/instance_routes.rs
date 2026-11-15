@@ -697,6 +697,7 @@ fn the_control_token_is_refused_on_every_other_write_and_the_secrets() {
                 token: "1111".to_owned(),
                 remote: None,
                 tcp: None,
+                dial: None,
             },
         )]
         .into_iter()
@@ -848,6 +849,7 @@ fn work_api(case: &Case, socket: &std::path::Path) -> Api {
                 token: "5".repeat(64),
                 remote: None,
                 tcp: None,
+                dial: None,
             },
         )]
         .into_iter()

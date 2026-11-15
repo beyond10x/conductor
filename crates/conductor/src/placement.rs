@@ -98,11 +98,11 @@ pub const MODEL_HOST: &str = "api.anthropic.com";
 /// The variable naming the local substrate daemon's socket; [`default_socket`] without it.
 pub const SOCKET_VARIABLE: &str = "CONDUCTOR_SUBSTRATE_SOCKET";
 
-/// The egress aperture a box's sessions are started with. Substrate 0.20.0 declares apertures on
-/// the daemon (`--egress-aperture <name>=<host>:<port>/tcp`), not per request, and one aperture
-/// is one destination. The SDK of 0.20.0 names one aperture in a start (its builders keep one
-/// name and send no list), so the box reaches the one destination the operator declares this
-/// aperture with, the model host, and none of the forges of [`BoxRequest::egress`].
+/// The egress aperture a box's sessions reach the model host through. Substrate declares
+/// apertures on the daemon (`--egress-aperture <name>=<host>:<port>/tcp`), not per request, and
+/// one aperture is one destination; a start selects up to four by name (its design 26 § 2). The
+/// operator declares this one with the model host, so the box reaches it and none of the forges
+/// of [`BoxRequest::egress`].
 pub const EGRESS_APERTURE: &str = "conductor";
 
 /// The descriptor the model token's sealed slot arrives at inside the box.
@@ -552,6 +552,12 @@ pub struct BoxRequest {
     /// The hosts the runtime asks for: the forges of its sources and [`MODEL_HOST`]. No start
     /// carries them ([`EGRESS_APERTURE`]).
     pub egress: Vec<String>,
+    /// The egress apertures the runtime's session names, in order: [`EGRESS_APERTURE`], the
+    /// model host's, and, for a runtime that dials its instance API out to conductord
+    /// (`daemon.dial_port`, [`crate::instance::DIAL_VARIABLE`]), [`crate::daemon::dial::APERTURE`]
+    /// first. Substrate listens for the n-th on `127.0.0.n` in the box, at the port it was
+    /// declared with.
+    pub apertures: Vec<String>,
     /// The sealed slots the box receives: the model token (`story:secrets-source`). [`request`]
     /// names [`crate::secret::MODEL_TOKEN_SLOT`]; for a local daemon the reconciler replaces it
     /// with the pool slot it wrote the token into ([`SlotPool`]), or with none.
@@ -1511,6 +1517,7 @@ pub fn request_on(
         places: crate::config::PLACES.map(str::to_owned).to_vec(),
         limits: instance.limits.clone(),
         egress,
+        apertures: vec![EGRESS_APERTURE.to_owned()],
         secret_slots: vec![crate::secret::MODEL_TOKEN_SLOT.to_owned()],
         api_token,
         requires: resolve(&instance.placement.0)
@@ -2190,7 +2197,7 @@ impl Sdk {
             .input_limit_bytes(substrate_sdk::MAX_SESSION_INPUT_BYTES)
             .frame_limit_bytes(substrate_sdk::MAX_SESSION_FRAME_BYTES)
             .queued_frames(substrate_sdk::MAX_SESSION_QUEUED_FRAMES)
-            .aperture(EGRESS_APERTURE);
+            .apertures(request.apertures.iter().cloned());
         for (name, value) in &request.env {
             session = session.env(name.clone(), value.clone());
         }

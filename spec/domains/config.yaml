@@ -858,6 +858,19 @@ types:
   # `/v1/` a person may make and for `POST /v1/instances`, `PUT` and `DELETE
   # /v1/instances/{name}` and `POST /v1/instances/{name}/restart`, and nothing else. Absent, no
   # request is admitted so, and the daemon answers as it did before the key existed.
+  # `dial_port`, the loopback port on 127.0.0.1 the daemon takes the instance API of a runtime in
+  # a box on the local substrate daemon on, absent 0, which takes none: substrate refuses a Unix
+  # socket inside a box (its ADR 0039), so such a runtime binds no `api.sock` and serves no
+  # listener. With a port set, the daemon listens there, and each runtime it starts in a local
+  # box (`systemd`, `linux`) dials out to it through the egress aperture `conductord`, which the
+  # operator declares on the substrate daemon as `--egress-aperture
+  # conductord=127.0.0.1:<dial_port>/tcp`, keeps idle connections open to it, each opened with the
+  # instance's name and the token the daemon minted for it, and answers one instance API exchange
+  # on each; the daemon proxies the instance's routes over those connections. A connection whose
+  # token is not the instance's is closed unanswered, so the runtime needs the token through its
+  # sealed slot. The runtime's session names `conductord` first, which substrate listens for on
+  # 127.0.0.1 in the box, and `conductor`, the model host's. A `none` placement keeps the socket,
+  # a pod its TCP listener, a box on a remote daemon its relay.
   # UNMAPPED: "the dashboard's served path" may be the URL path the app is served under (`/`, as
   # § 5.3 says) or the directory of the built app the daemon serves; read here as the URL path.
   # Open question.
@@ -879,10 +892,13 @@ types:
       - {name: address, type: String}
       - {name: kubernetes, type: Optional<conductor.config.Kubernetes>}
       - {name: control_token, type: Optional<conductor.secret.SecretName>}
+      - {name: dial_port, type: Integer}
     invariants:
       - port >= 1
       - port <= 65535
       - substrate_slots >= 0
+      - dial_port >= 0
+      - dial_port <= 65535
       - distinct: {in: operators, as: operator, by: operator.name}
 
   # The `globals` section (design architecture-next § 9, § 10): the defaults every instance starts

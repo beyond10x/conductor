@@ -154,6 +154,7 @@ impl Case {
                     token: INSTANCE_TOKEN.to_owned(),
                     remote: None,
                     tcp: None,
+                    dial: None,
                 },
             )]
             .into_iter()
@@ -1458,4 +1459,138 @@ fn the_daemon_reads_and_writes_through_a_tcp_route_with_the_token_on_every_reque
         ),
     );
     assert_eq!(refused.status, 401, "{}", refused.body);
+}
+
+/// The daemon's API with `instance` routed over the connections its runtime dials in, and the
+/// dial-in listener serving it: the listener's address.
+fn dial_in(instance: &str) -> (Arc<Api>, Route, SocketAddr) {
+    let api = Arc::new(Api::new(DAEMON_TOKEN.to_owned(), "owner".to_owned(), None));
+    let route = Route::dialed(instance, INSTANCE_TOKEN.to_owned());
+    api.publish(
+        vec![json!({"name": instance, "state": "Running"})],
+        [(instance.to_owned(), route.clone())].into_iter().collect(),
+        Vec::new(),
+    );
+    let listener = TcpListener::bind("127.0.0.1:0").expect("bind the dial-in listener");
+    let address = listener.local_addr().expect("its address");
+    let served = Arc::clone(&api);
+    std::thread::spawn(move || conductor_cli::daemon::dial::serve(&listener, &served));
+    (api, route, address)
+}
+
+/// A runtime in a substrate box, where a Unix socket is refused, binds none: told to dial
+/// (`CONDUCTOR_API_DIAL`), it opens connections to the daemon's dial-in listener with its
+/// instance and token, and the daemon's proxy answers the instance's routes over them, writes
+/// with the token included.
+#[test]
+fn instance_serve_dials_its_api_out_to_the_daemon_and_answers_over_it() {
+    let case = Case::new("dial");
+    let (_api, route, address) = dial_in("example-org");
+    let child = common::conductor(case.home())
+        .current_dir(case.state())
+        .arg("--config")
+        .arg(case.file())
+        .args(["instance", "serve"])
+        .env(conductor_cli::instance::LOOP_VARIABLE, "off")
+        .env(conductor_cli::config::INSTANCE_VARIABLE, "example-org")
+        .env(conductor_cli::instance::TOKEN_VARIABLE, INSTANCE_TOKEN)
+        .env(conductor_cli::instance::DIAL_VARIABLE, address.to_string())
+        .stdin(Stdio::null())
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .spawn()
+        .expect("instance serve starts");
+    let _running = Running(child);
+    let until = Instant::now() + Duration::from_secs(30);
+    while conductor_cli::daemon::dial::POOL.idle("example-org") == 0 {
+        assert!(Instant::now() < until, "the runtime dialed nothing in");
+        std::thread::sleep(Duration::from_millis(50));
+    }
+    let settings = settled(|| {
+        parse(
+            &api::send(&route, &raw("GET", "/v1/settings", &[], None))
+                .expect("an answer over a dialed connection"),
+        )
+    });
+    assert_eq!(settings.status, 200, "{} {}", settings.head, settings.body);
+    assert!(settings.json().is_object(), "{}", settings.body);
+    assert!(!case.socket().exists(), "no socket was bound");
+    // One exchange per connection: the next request takes the next one the runtime dialed.
+    for _ in 0..3 {
+        let again = settled(|| {
+            parse(&api::send(&route, &raw("GET", "/v1/settings", &[], None)).expect("an answer"))
+        });
+        assert_eq!(again.status, 200, "{} {}", again.head, again.body);
+    }
+}
+
+/// A connection that opens with another token, an instance not routed by dial-in, or no greeting
+/// is closed unanswered and never pooled: a process on the host that dials in as an instance
+/// would otherwise receive the writes proxied to it.
+#[test]
+fn the_dial_in_listener_closes_a_connection_without_the_instances_token() {
+    let (_api, _route, address) = dial_in("dial-refused");
+    let hello = conductor_cli::instance::DIAL_HELLO;
+    for line in [
+        format!(
+            "{hello} dial-refused {}\n",
+            "0".repeat(INSTANCE_TOKEN.len())
+        ),
+        format!("{hello} not-routed {INSTANCE_TOKEN}\n"),
+        "GET /v1/settings HTTP/1.1\r\n\r\n".to_owned(),
+    ] {
+        let mut stream = TcpStream::connect(address).expect("connect");
+        stream
+            .write_all(line.as_bytes())
+            .expect("send the greeting");
+        stream
+            .set_read_timeout(Some(Duration::from_secs(10)))
+            .expect("a read timeout");
+        let mut byte = [0_u8; 1];
+        let read = stream.read(&mut byte);
+        assert!(
+            matches!(read, Ok(0))
+                || read
+                    .as_ref()
+                    .is_err_and(|e| e.kind() != ErrorKind::WouldBlock),
+            "{line:?} was not closed: {read:?}"
+        );
+    }
+    assert_eq!(conductor_cli::daemon::dial::POOL.idle("dial-refused"), 0);
+    assert_eq!(conductor_cli::daemon::dial::POOL.idle("not-routed"), 0);
+
+    // The instance's own token is pooled.
+    let mut stream = TcpStream::connect(address).expect("connect");
+    stream
+        .write_all(format!("{hello} dial-refused {INSTANCE_TOKEN}\n").as_bytes())
+        .expect("send the greeting");
+    let until = Instant::now() + Duration::from_secs(10);
+    while conductor_cli::daemon::dial::POOL.idle("dial-refused") == 0 {
+        assert!(Instant::now() < until, "the connection was not pooled");
+        std::thread::sleep(Duration::from_millis(20));
+    }
+}
+
+/// A runtime told to dial with no token handed to it does not start: every dialed connection
+/// opens with the daemon's token, and one it minted itself the daemon would refuse.
+#[test]
+fn instance_serve_refuses_to_dial_without_the_daemons_token() {
+    let case = Case::new("dial-no-token");
+    let output = common::conductor(case.home())
+        .current_dir(case.state())
+        .arg("--config")
+        .arg(case.file())
+        .args(["instance", "serve"])
+        .env(conductor_cli::instance::LOOP_VARIABLE, "off")
+        .env(conductor_cli::config::INSTANCE_VARIABLE, "example-org")
+        .env(conductor_cli::instance::DIAL_VARIABLE, "127.0.0.1:9")
+        .stdin(Stdio::null())
+        .output()
+        .expect("instance serve runs");
+    assert_eq!(output.status.code(), Some(1), "{output:?}");
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        stderr.contains(conductor_cli::instance::DIAL_VARIABLE) && stderr.contains("api_token_"),
+        "{stderr}"
+    );
 }

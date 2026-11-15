@@ -910,6 +910,7 @@ impl Instance {
                     token: INSTANCE_TOKEN.to_owned(),
                     remote: None,
                     tcp: None,
+                    dial: None,
                 },
             )]
             .into_iter()
