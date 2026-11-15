@@ -389,6 +389,7 @@ fn every_config_file_a_page_shows_with_a_box_is_one_conductord_admits() {
             path: None,
             store: Some(parsed.daemon.store.0.clone()),
             daemon: Some(home.join(".b10x/conductor/daemon")),
+            dial: None,
         };
         for instance in parsed.instances.iter().filter(|one| placement::boxed(one)) {
             boxes += 1;

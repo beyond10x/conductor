@@ -28,6 +28,8 @@ pub fn conductor(home: impl AsRef<Path>) -> Command {
         .env_remove(INSTANCE_VARIABLE)
         .env_remove(conductor_cli::remote::VARIABLE)
         .env_remove("CLAUDE_CODE_SESSION_ID")
+        // Claude Code's state directory, which a box names (`story:box-forge-work`).
+        .env_remove(conductor_cli::placement::CLAUDE_CONFIG_VARIABLE)
         .env_remove(conductor_cli::actor::SESSION_VARIABLE)
         .env("USER", "operator")
         .env(

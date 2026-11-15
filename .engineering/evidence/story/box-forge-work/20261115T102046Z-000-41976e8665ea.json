@@ -1,0 +1,12 @@
+{
+  "at": "2026-11-15T10:20:46Z",
+  "actor": "human:agent",
+  "artifact": "story:box-forge-work",
+  "kind": "story",
+  "revision": 4,
+  "change": {
+    "change": "evidence",
+    "kind": "test_result",
+    "source": "local slot run at 9edbdcee plus the story's change: task check with B10X_GATES_POLICY set ran the Gates scan, ess validate and conformance, the model diff, the dashboard npm ci, Vitest, dist and UX gate, cargo fmt --check and cargo clippy --all-targets -D warnings, all passed; cargo nextest 2454 run, 2447 passed, 7 failed: the 5 forge_access_anonymous_review cases that read the host's .netrc, sec_work_route against the live conductord on 7300, and build_run a_second_signal_ends_a_stopped_run_that_waits_for_the_ledger, which touches no changed code and fails here alone too; task docs-check (5 generated files current); placement (100), setup (18), trust (9) passed"
+  }
+}

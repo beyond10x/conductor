@@ -138,26 +138,28 @@ validate. `systemd` is `linux` inside a delegated systemd scope, adding `limits`
 `whole-tree-kill`. Before anything starts, the facts are checked against `substrate-daemon`'s
 `/v1/machine`. A shortfall is refused with substrate's name (`confinement.family-unserved`,
 `confinement.fact-unserved`), and nothing falls back. The runtime writes its state directory,
-its records, its cache and the directory of a sqlite store through host roots the operator
-declares, `substrate-daemon --writable-root state-<instance>=<state>`,
-`records-<instance>=<records>`, `cache-<instance>=<cache>` and `store=<directory>`, one root
-where one holds the others. A root is a whole directory, so conductord refuses a box, before
-substrate is asked, when one of these directories holds the config file or lies with
-`~/.b10x/conductor/daemon`, which keeps the runtimes' tokens and binaries
-(`placement.writable-root-shared`): a sqlite store is in a directory of its own. The box reads
-the config file, the directories of `conductor` and the harness, the checkouts root, and each
-forge's CLI and login, and nothing else of the host. A checkouts root that holds the records is
-read by its other entries. One box reads at most four directories, those of `conductor` and
-the harness among them, else it is refused (`placement.mounts-exceeded`): keep `records`
-outside the checkouts root. The box gets one secret slot, the model token
+its records, its cache and the directory of a sqlite store, and its controllers the checkouts
+root and the managed trees, through host roots the operator declares, `substrate-daemon
+--writable-root state-<instance>=<state>`, `records-<instance>=<records>`,
+`cache-<instance>=<cache>`, `store=<directory>`, `checkouts-<instance>=<checkouts.root>` and
+`trees-<instance>=<checkouts.trees>`, one root where one holds the others. A root is a whole
+directory, so conductord refuses a box, before substrate is asked, when one of these directories
+holds the config file or lies with `~/.b10x/conductor/daemon`, which keeps the runtimes' tokens
+and binaries (`placement.writable-root-shared`): a sqlite store is in a directory of its own, and
+the config file is outside the checkouts root. The box reads the config file, the directories of
+`conductor` and the harness, each forge's CLI and login, and git's and the `worktree` CLI's
+configuration, and nothing else of the host. Its network is the model host and one egress
+aperture per forge host the operator declares ([the host](/docs/concepts/the-host#placement)).
+The box gets one secret slot, the model token
 ([secrets](/docs/security/operators-and-credentials#secrets)). For a daemon on another host, see
 the [remote daemon guide](/docs/guides/remote-daemon).
 
 An instance's slice is `conductor_<session_prefix>.slice`, else `conductor.slice`. A prefix
 character other than a letter or digit is written `\xNN` (`-` is `\x2d`), so no slice nests.
 
-Agent sessions are unboxed: conductor's own `systemd` session provider is gone, and substrate
-0.20.0 starts no agent session in a box. A `conductor.config/2` file has no `confinement` key, so
+Conductor boxes no agent session itself: its own `systemd` session provider is gone. A session
+the runtime of a box starts runs in that box as the runtime's child, and reaches what the box
+reaches; every other session is unboxed. A `conductor.config/2` file has no `confinement` key, so
 every session starts through `none`. A `conductor.config/1` file that asks for `strict` with the
 `systemd` provider refuses every start (`ProviderUnavailable`).
 

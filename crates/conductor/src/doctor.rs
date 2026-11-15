@@ -1566,8 +1566,20 @@ fn box_lines(
         .iter()
         .map(|(index, request)| {
             request.refused.clone().or_else(|| {
+                // The managed trees root is one conductord makes before it opens the box.
+                let trees = loaded
+                    .config
+                    .instances
+                    .get(*index)
+                    .map(|instance| instance.checkouts.trees.as_str());
+                let roots: Vec<crate::placement::HostRoot> = request
+                    .writable_roots
+                    .iter()
+                    .filter(|root| Some(root.path.as_str()) != trees)
+                    .cloned()
+                    .collect();
                 (!is_remote(*index))
-                    .then(|| crate::placement::roots_missing(&request.writable_roots))
+                    .then(|| crate::placement::roots_missing(&roots))
                     .flatten()
             })
         })
@@ -1585,7 +1597,7 @@ fn box_lines(
             Err(silent) => vec![
                 crate::placement::Admission {
                     refused: Some(silent),
-                    unsealed: None,
+                    ..crate::placement::Admission::default()
                 };
                 asked.len()
             ],
@@ -1608,7 +1620,7 @@ fn box_lines(
                 .and_then(|nth| answers.get_mut(nth))
                 .map(std::mem::take)
                 .unwrap_or_default();
-            let refused = own.or(answer.refused);
+            let refused = own.or(answer.refused.clone());
             let mut rows = vec![match &refused {
                 Some(refused) => (
                     format!(
@@ -1637,9 +1649,141 @@ fn box_lines(
             if let (None, Some(unsealed)) = (&refused, &answer.unsealed) {
                 rows.push((format!("box {name} token: {}", one_line(unsealed)), None));
             }
+            // What a controller in the box needs for its forge work (`story:box-forge-work`).
+            if refused.is_none() && !remote {
+                rows.extend(forge_work_lines(name, index, instance, &request, &answer));
+            }
             rows
         })
         .collect()
+}
+
+/// The rows of a box the local daemon would open about the forge work of its controllers
+/// (`story:box-forge-work`), for the instance `name` at `index` of its config file:
+///
+/// - `box <name> forge: ` each forge host of its sources the daemon declares no egress aperture
+///   to ([`crate::placement::forges_unreached`]), with the `substrate-daemon` flag; a failure,
+///   `box <name> (forge unreachable)`, since the box then reaches no such forge. With every
+///   aperture declared, the row names them.
+/// - `box <name> git: ` the identity and the credential helper of each forge host in the
+///   global git configuration the box reads ([`crate::placement::HOME_FILES`]): `git commit`
+///   there needs `user.name` and `user.email`, `git push` over HTTPS a `credential.helper` for
+///   `https://<host>`. Reported, not a failure: the box starts without them.
+/// - `box <name> trust: ` the checkouts and records the harness's `.claude.json` in the box
+///   ([`crate::placement::box_claude_dir`]) does not mark trusted yet; reported, not a failure:
+///   conductord marks them before it opens the box, `conductor trust` marks them now.
+fn forge_work_lines(
+    name: &str,
+    index: usize,
+    instance: &Instance,
+    request: &crate::placement::BoxRequest,
+    answer: &crate::placement::Admission,
+) -> Vec<(String, Option<String>)> {
+    let mut rows = Vec::new();
+    if !request.forges.is_empty() {
+        rows.push(match &answer.unreached {
+            Some(unreached) => (
+                format!("box {name} forge: {}", one_line(unreached)),
+                Some(format!("box {name} (forge unreachable)")),
+            ),
+            None => (
+                format!(
+                    "box {name} forge: {} through the declared egress apertures {}",
+                    request
+                        .forges
+                        .iter()
+                        .map(|forge| forge.host.as_str())
+                        .collect::<Vec<_>>()
+                        .join(", "),
+                    request
+                        .forges
+                        .iter()
+                        .map(|forge| forge.name.as_str())
+                        .collect::<Vec<_>>()
+                        .join(", ")
+                ),
+                None,
+            ),
+        });
+        rows.extend(git_line(name, &request.forges));
+    }
+    let file = crate::placement::box_claude_dir(Path::new(&instance.state))
+        .join(crate::trust::CLAUDE_JSON);
+    if let Ok(paths) = crate::trust::paths(instance, index) {
+        let edit = crate::trust::Edit::read(&file).ok();
+        let untrusted = paths
+            .iter()
+            .filter(|path| !edit.as_ref().is_some_and(|edit| edit.trusts(path)))
+            .count();
+        rows.push((
+            if untrusted == 0 {
+                format!(
+                    "box {name} trust: {} paths marked in {}",
+                    paths.len(),
+                    file.display()
+                )
+            } else {
+                format!(
+                    "box {name} trust: {untrusted} of {} paths not marked in {} yet; conductord \
+                     marks them before it opens the box, conductor trust marks them now",
+                    paths.len(),
+                    file.display()
+                )
+            },
+            None,
+        ));
+    }
+    rows
+}
+
+/// The `box <name> git: ` row of [`forge_work_lines`] for the forge hosts `forges`: `None` where
+/// `git` is not on `PATH`, which its own row names.
+fn git_line(
+    name: &str,
+    forges: &[crate::placement::ForgeAperture],
+) -> Option<(String, Option<String>)> {
+    find("git")?;
+    let mut missing: Vec<String> = Vec::new();
+    for key in ["user.name", "user.email"] {
+        if git_global(&["--get", key]).is_none() {
+            missing.push(format!("no {key} (git config --global {key} <value>)"));
+        }
+    }
+    // `git push` asks the host it pushes to, not the API host `gh` asks.
+    let api = format!("api.{GITHUB_HOST}");
+    for forge in forges.iter().filter(|forge| forge.host != api) {
+        let url = format!("https://{}", forge.host);
+        if git_global(&["--get-urlmatch", "credential.helper", &url]).is_none() {
+            let fix = if on_github(&forge.host) {
+                "gh auth setup-git".to_owned()
+            } else {
+                format!("git config --global credential.{url}.helper '!glab auth git-credential'")
+            };
+            missing.push(format!("no credential.helper for {url} ({fix})"));
+        }
+    }
+    // Reported, not a failure, as the token's row: the box starts and runs without them, and
+    // only a controller's commit or push misses them.
+    Some(if missing.is_empty() {
+        (
+            format!("box {name} git: identity and credential helpers in the global git config"),
+            None,
+        )
+    } else {
+        (format!("box {name} git: {}", missing.join("; ")), None)
+    })
+}
+
+/// What `git config --global <args>` prints, trimmed, for this process's `HOME`; `None` when it
+/// prints nothing or fails.
+fn git_global(args: &[&str]) -> Option<String> {
+    let output = crate::instance::command("git")
+        .args(["config", "--global"])
+        .args(args)
+        .output()
+        .ok()?;
+    let text = String::from_utf8_lossy(&output.stdout).trim().to_owned();
+    (output.status.success() && !text.is_empty()).then_some(text)
 }
 
 /// The hosts the bot route writes to (`story:doctor-checks-guard-forge-writes`), GitHub's: its

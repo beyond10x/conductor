@@ -1471,20 +1471,38 @@ impl<U: Units> Daemon<U> {
         let binary = PathBuf::from(service.command.first().cloned().unwrap_or_default());
         let mut host = crate::placement::Host::of(&env);
         host.daemon = Some(self.dir.clone());
-        let mut request =
-            crate::placement::request_on(instance, &self.config_file, &binary, env, &host);
         // A runtime in a local box binds no socket, which substrate refuses there: it dials its
         // instance API out to the daemon's dial-in listener through the aperture of that name
         // (`daemon.dial_port`, [`super::dial`]), besides the model host's. Listed first, it
         // listens in the box on `127.0.0.1` at the port it is declared with, the address
         // [`Self::dial_address`] names.
-        if let Some(dial) = self.dial_address(instance) {
-            request
-                .env
-                .push((crate::instance::DIAL_VARIABLE.to_owned(), dial));
+        host.dial = self.dial_address(instance);
+        let mut request =
+            crate::placement::request_on(instance, &self.config_file, &binary, env, &host);
+        // A forge's aperture is named only where the daemon that opens the box declares it
+        // (`story:box-forge-work`): substrate refuses a start naming one it does not, and the box
+        // runs without that forge rather than not at all; `conductor doctor` names the flag.
+        if !request.forges.is_empty() {
+            let remote = instance
+                .remote
+                .as_ref()
+                .map(crate::placement::RemoteAt::from);
+            let mut substrate = substrate_of(
+                self.substrate.as_mut(),
+                &self.remote,
+                &self.config.daemon.secrets,
+                remote.as_ref(),
+            );
+            let undeclared: Vec<String> = request
+                .forges
+                .iter()
+                .filter(|forge| !substrate.declares_aperture(&forge.name))
+                .map(|forge| forge.name.clone())
+                .collect();
+            drop(substrate);
             request
                 .apertures
-                .insert(0, super::dial::APERTURE.to_owned());
+                .retain(|aperture| !undeclared.contains(aperture));
         }
         if request.refused.is_none()
             && let Some(slot) = request.api_token.take()
@@ -1507,10 +1525,7 @@ impl<U: Units> Daemon<U> {
     /// listener, `127.0.0.1:<daemon.dial_port>`, for a box on the local substrate daemon while
     /// the port is set; none for any other runtime, and while it is 0.
     fn dial_address(&self, instance: &Instance) -> Option<String> {
-        (self.config.daemon.dial_port != 0
-            && instance.remote.is_none()
-            && crate::placement::boxed(instance))
-        .then(|| format!("127.0.0.1:{}", self.config.daemon.dial_port))
+        crate::placement::dial_address(self.config.daemon.dial_port, instance)
     }
 
     /// The local substrate daemon's model-token slot pool (`daemon.substrate_slots`), under the
@@ -1601,6 +1616,18 @@ impl<U: Units> Daemon<U> {
         let _ = fs::create_dir_all(&instance.state);
         // In the box's writable state root, which substrate refuses by name when it is absent.
         let _ = crate::placement::prepare_sessions(Path::new(&instance.state));
+        // The managed trees root and the harness's trust in the box (`story:box-forge-work`).
+        // A failure refuses nothing here: the box opens, `conductor doctor` names a missing
+        // root, and a spawn in the box names the checkout it finds untrusted.
+        if crate::placement::boxed(instance) {
+            let index = self
+                .config
+                .instances
+                .iter()
+                .position(|other| other.name == instance.name)
+                .unwrap_or_default();
+            let _ = crate::placement::prepare_box(instance, index);
+        }
         Service {
             unit: unit_name(name),
             slice: systemd::slice_name(

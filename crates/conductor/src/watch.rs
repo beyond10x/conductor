@@ -397,7 +397,7 @@ impl Sources {
             },
             records: active.from_file.then_some(records),
             root,
-            projects: home.join(".claude/projects"),
+            projects: crate::trust::claude_projects(&home),
             store: (owner.is_some() || gitlab).then_some(state),
             organization: owner.unwrap_or_default(),
             owners: Origins::of(instance).owners,

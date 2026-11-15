@@ -161,11 +161,20 @@ to fill in, and each step says where they come from. `<target>` is the build of 
    `conductor config show`; create `<state>/sessions`, ~/.local/state/substrate and
    ~/.local/state/substrate/workspaces, each at mode 700, before the daemon starts: it refuses a writable root that does not exist and a state directory that is not mode 700. `<uid>` is the user's numeric id.
    The runtime writes its state directory, its records, its cache and the directory of the
-   sqlite store (`daemon.store`), each a writable root: `state-<name>=<state>`,
-   `records-<name>=<records>`, `cache-<name>=<cache>`, `store=<store directory>`; `<records>`
-   and `<cache>` are the instance's `records` and `cache` values in `conductor config show`.
-   With the file of step 6 the store directory is ~/.b10x/conductor/store. Create the cache and
-   the store directory mode 700 too. Each root is one `--writable-root <root>` below.
+   sqlite store (`daemon.store`), and its controllers the checkouts root and the managed trees,
+   each a writable root: `state-<name>=<state>`, `records-<name>=<records>`,
+   `cache-<name>=<cache>`, `store=<store directory>`, `checkouts-<name>=<checkouts root>`,
+   `trees-<name>=<trees>`; `<records>`, `<cache>`, `<checkouts root>` and `<trees>` are the
+   instance's `records`, `cache`, `checkouts.root` and `checkouts.trees` values in
+   `conductor config show`. With the file of step 6 the store directory is
+   ~/.b10x/conductor/store. Create the cache, the store directory and the trees mode 700 too.
+   Each root is one `--writable-root <root>` below; a root inside another is the outer one's.
+   For each forge host of the sources the box reaches the forge through an egress aperture to
+   its port 443, `<aperture>` below: `forge_<host>=<host>:443/tcp`, `<host>` with `_` for every
+   character but a letter or a digit in the name (`forge_github_com=github.com:443/tcp` and
+   `forge_api_github_com=api.github.com:443/tcp` for GitHub). A box starts without an aperture
+   the daemon does not declare, and `conductor doctor` prints the flag in the row
+   `box <name> forge`.
    The sealed slot `--secret-slot <slot>` below is what makes a write conductord proxies to
    the runtime work: the runtime takes the token conductord proxies writes with through it,
    never in its environment. A box starts without the slot too; its runtime then refuses each
@@ -178,7 +187,7 @@ to fill in, and each step says where they come from. `<target>` is the build of 
    - Check: `curl --silent --unix-socket $XDG_RUNTIME_DIR/substrate/daemon.sock http://localhost/v1/machine`;
      it answers, and its exec.writable-roots.host fact lists each root by its name; with the
      slot declared, its secrets.slots fact lists the slot by its name.
-   - Fix: `substrate-daemon --socket $XDG_RUNTIME_DIR/substrate/daemon.sock --state ~/.local/state/substrate/state.db --workspaces ~/.local/state/substrate/workspaces --deployment personal --allow-uid <uid> --cgroup-root <delegated cgroup root> --writable-root <root> --secret-slot <slot> --egress-aperture conductor=api.anthropic.com:443/tcp --ca-bundle $(readlink -f /etc/ssl/certs/ca-certificates.crt)`,
+   - Fix: `substrate-daemon --socket $XDG_RUNTIME_DIR/substrate/daemon.sock --state ~/.local/state/substrate/state.db --workspaces ~/.local/state/substrate/workspaces --deployment personal --allow-uid <uid> --cgroup-root <delegated cgroup root> --writable-root <root> --secret-slot <slot> --egress-aperture conductor=api.anthropic.com:443/tcp --egress-aperture <aperture> --ca-bundle $(readlink -f /etc/ssl/certs/ca-certificates.crt)`,
      run inside that subtree and kept running.
    - Hands: the delegated cgroup subtree, when the user's systemd does not delegate one.
 
