@@ -2,12 +2,14 @@
 format: aep.planning-md/3
 id: decision-blocker:substrate-sdk-single-aperture
 kind: decision-blocker
-status: open
+status: cleared
 title: The pinned substrate SDK sends one aperture per session, so a box request cannot name a forge host
 relations:
 - blocks: story:box-reaches-forge-and-daemon
 withholds: test_result
-revision: 1
+revision: 3
+transitions:
+- {from: "open", to: "cleared", at: "2026-11-15T09:47:23Z", actor: "human:agent", revision: 3}
 ---
 ## What is stopped
 
@@ -43,3 +45,10 @@ decision for U4 has it, and the tests against the fake substrate hold it.
 
 A boxed session reaches no forge. `decision-blocker:box-api-unix-socket-denied` is open as well:
 on substrate-daemon 0.20.0 the live box does not serve its API at all.
+
+## Cleared
+
+The substrate SDK pin at `befef3aa` takes a list of apertures per session (`apertures(..)`, at
+most four per start), and conductor's box request sends the model host's, the dial-in's and one
+per forge host of the instance's sources (`story:box-forge-work`). The working directory is still
+not sent; the runtime starts in the workspace.
