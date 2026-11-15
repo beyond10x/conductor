@@ -103,7 +103,7 @@ use time::format_description::well_known::Rfc3339;
 
 use crate::agent::claude_code;
 use crate::cli::{ClaimLeaseArgs, DeliverArgs, SessionRoleArgs, ViewArgs};
-use crate::config::{self, BuiltInRole, ConfinementProvider, Environment};
+use crate::config::{self, BuiltInRole, Environment};
 use crate::confine::places::{self, Placement};
 use crate::confine::{self, Launch, Providers, Refusal};
 use crate::daemon::host_roles;
@@ -555,6 +555,24 @@ fn reach(sessions: &Path, name: &SessionName, typed: &str) -> Reach {
         }
         said.split_whitespace().collect::<Vec<_>>().join(" ")
     };
+    // A session the `child` provider started reads its messages from its input, no terminal
+    // (`story:box-session-without-bg`).
+    match confine::child::feed(&name.0, typed, DELIVERY_LIST) {
+        confine::child::Fed::NoSession => {}
+        confine::child::Fed::Written => return Reach::Typed,
+        confine::child::Fed::Unwritten(why) => {
+            return Reach::Unreached(format!(
+                "its input as a child session did not take the text: {}",
+                said(&anyhow!(why))
+            ));
+        }
+        confine::child::Fed::Partial(why) => {
+            return Reach::Unread(format!(
+                "the text went into its input as a child session in part: {}",
+                said(&anyhow!(why))
+            ));
+        }
+    }
     let socket = sessions.join(format!("{}.tmux", name.0));
     let planted = fs::symlink_metadata(&socket).is_ok();
     let launcher = if planted {
@@ -1866,10 +1884,7 @@ pub fn stop(
         || ("none".to_owned(), None),
         |measurement| (measurement.session.provider, measurement.session.unit),
     );
-    let mut stopper = match provider.as_str() {
-        "systemd" => providers.provider(ConfinementProvider::Systemd),
-        _ => providers.provider(ConfinementProvider::None),
-    };
+    let mut stopper = confine::named(providers, &provider);
     let request = request(instance, found, cwd, home);
     let session = StartedSession {
         role: role.clone(),

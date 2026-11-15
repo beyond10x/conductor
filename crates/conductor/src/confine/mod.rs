@@ -23,6 +23,14 @@
 //! is a substrate box (`crate::placement`), and a session started by a runtime in one runs in
 //! that box. A session an earlier conductor started in its own unit is still stopped.
 //!
+//! A box refuses `socket(AF_UNIX)`, and `claude --bg` needs a Unix socket for its background
+//! service, so no `--bg` session starts in one. The `child` provider ([`child::Child`],
+//! `story:box-session-without-bg`) runs the session as a plain child process, headless with
+//! stream-json input and output, and needs no socket. [`Host`] gives it for `child`, and in place
+//! of `none` wherever this process may not create a Unix socket
+//! ([`child::unix_sockets_refused`]); the session list ([`listed`], [`harness_busy`]) holds its
+//! sessions beside the ones `claude agents --json` prints ([`child::append`]).
+//!
 //! [`choose`] reads `confinement`: under `strict`, a provider that is not available starts
 //! nothing (`ProviderUnavailable`); under `report`, the session starts unboxed through `none`
 //! and its record names why. [`Chosen::start`] then starts, prompts and measures, and
@@ -32,6 +40,7 @@
 //! `<state>/sessions/<session name>.envelope.json` ([`record_path`]), which the sessions
 //! collector reads into the session's `envelope_*` fields ([`read_measurement`]).
 
+pub mod child;
 pub mod places;
 
 use std::collections::BTreeMap;
@@ -212,8 +221,10 @@ pub trait Providers {
     fn unboxed(&self) -> Box<dyn Provider>;
 }
 
-/// This host's providers: `none`, and `systemd`, which conductor no longer serves
-/// ([`Unserved`]): a session's box is its instance's substrate box (`crate::placement`).
+/// This host's providers: `none`, `child`, and `systemd`, which conductor no longer serves
+/// ([`Unserved`]): a session's box is its instance's substrate box (`crate::placement`). Where
+/// this process may not create a Unix socket, as in a box, `none` is `child`
+/// ([`child::unix_sockets_refused`]): `claude --bg` cannot start there.
 #[derive(Debug, Clone, Default)]
 pub struct Host;
 
@@ -221,13 +232,28 @@ impl Providers for Host {
     fn provider(&self, name: ConfinementProvider) -> Box<dyn Provider> {
         match name {
             ConfinementProvider::Systemd => Box::new(Unserved),
-            ConfinementProvider::None => Box::new(Unboxed::default()),
+            ConfinementProvider::Child => Box::new(child::Child::default()),
+            ConfinementProvider::None => self.unboxed(),
         }
     }
 
     fn unboxed(&self) -> Box<dyn Provider> {
-        Box::new(Unboxed::default())
+        if child::unix_sockets_refused() {
+            Box::new(child::Child::default())
+        } else {
+            Box::new(Unboxed::default())
+        }
     }
+}
+
+/// The provider a session's record names, `provider` (`systemd`, `child`, else `none`).
+#[must_use]
+pub fn named(providers: &dyn Providers, provider: &str) -> Box<dyn Provider> {
+    providers.provider(match provider {
+        "systemd" => ConfinementProvider::Systemd,
+        child::NAME => ConfinementProvider::Child,
+        _ => ConfinementProvider::None,
+    })
 }
 
 /// Why the `systemd` provider is not available: conductor's own `systemd-run` sessions are gone
@@ -896,7 +922,8 @@ pub fn live_session_within(name: &str, bound: Duration) -> Result<Option<String>
 /// it: its `sessionId` and `id`; a `pid` when the session is live; `startedAt`, the instant it
 /// started at in milliseconds since the epoch, where the harness lists one
 /// (`story:handover-restart-by-controller-id`). The list is not bound to a directory: a name
-/// may be held by more than one session.
+/// may be held by more than one session. The `child` provider's sessions follow the list's
+/// ([`child::append`]).
 ///
 /// # Errors
 ///
@@ -916,11 +943,12 @@ fn listed_within(name: &str, bound: Duration) -> Result<Vec<Value>> {
     if !output.status.success() {
         bail!("`{shown}` {}", exited(&output));
     }
-    let Value::Array(entries) = serde_json::from_slice(&output.stdout)
+    let Value::Array(mut entries) = serde_json::from_slice(&output.stdout)
         .with_context(|| format!("`{shown}` printed no JSON"))?
     else {
         bail!("`{shown}` printed no JSON array");
     };
+    child::append(std::ffi::OsStr::new(CLAUDE), &mut entries);
     Ok(entries
         .into_iter()
         .filter(|entry| entry["name"].as_str() == Some(name))
@@ -940,9 +968,10 @@ pub fn harness_busy() -> BTreeMap<String, bool> {
     ) else {
         return BTreeMap::new();
     };
-    let Ok(Value::Array(entries)) = serde_json::from_slice::<Value>(&output.stdout) else {
+    let Ok(Value::Array(mut entries)) = serde_json::from_slice::<Value>(&output.stdout) else {
         return BTreeMap::new();
     };
+    child::append(std::ffi::OsStr::new(CLAUDE), &mut entries);
     entries
         .iter()
         .filter(|entry| !entry["pid"].is_null())

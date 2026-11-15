@@ -5,7 +5,7 @@
 //!
 //! | harness | source | live when | `session_ref` | `activity` |
 //! |---|---|---|---|---|
-//! | Claude | the list `claude agents --json` prints, run through [`run`] under [`Sources::bound`] | the entry has a `pid`; the list keeps a session that exited, without one | `id`, else `sessionId` (an interactive session has no `id`) | `status`, else `state` (`claude_activity`) |
+//! | Claude | the list `claude agents --json` prints, run through [`run`] under [`Sources::bound`], and the sessions the `child` provider started ([`confine::child::append_under`] for [`Sources::home`]) | the entry has a `pid`; the list keeps a session that exited, without one | `id`, else `sessionId` (an interactive session has no `id`) | `status`, else `state` (`claude_activity`) |
 //! | Codex | the first record, `session_meta`, of each `*.jsonl` file under [`Sources::codex`] | the file was written within [`RECENT`] of [`Sources::now`] | `payload.id` | `Background` for a sub-agent thread (`payload.thread_source`), else `Unknown`: the file does not say whether the thread works |
 //!
 //! A Claude session's `name` is the list's; a Codex thread has none in its file.
@@ -412,11 +412,14 @@ fn claude(sources: &Sources) -> Result<Vec<Live>> {
         Some(code) => bail!("`{shown}` exited {code}"),
         None => bail!("`{shown}` was ended by a signal"),
     }
-    let Value::Array(entries) = serde_json::from_slice(&output.stdout)
+    let Value::Array(mut entries) = serde_json::from_slice(&output.stdout)
         .with_context(|| format!("`{shown}` printed no JSON"))?
     else {
         bail!("`{shown}` printed no JSON array");
     };
+    // The `child` provider's sessions, which the harness's list does not hold
+    // (`story:box-session-without-bg`).
+    confine::child::append_under(&sources.home, program, &mut entries);
     let mut live = Vec::new();
     for (at, entry) in entries.iter().enumerate() {
         let position = at + 1;

@@ -171,7 +171,9 @@ The daemon reads `runtime.log` only when it is a regular file: it follows no lin
 A bare string that names no adapter keeps the runtime in the systemd user unit
 `conductor_<instance>-runtime.service`. The sessions such a runtime starts run in no box: each
 starts unboxed through `claude --bg` ([sessions](/docs/security/sessions)). A runtime in a box
-starts its sessions in that box, as its children.
+starts its sessions in that box, as its children: the box refuses the Unix socket `claude --bg`
+needs, so each runs as `claude -p` with stream-json input
+([the child launch](/docs/security/sessions#in-a-box-the-child-launch)).
 
 ## Shared state
 

@@ -1213,11 +1213,13 @@ impl Watch {
             Some(code) => bail!("`{shown}` exited {code}"),
             None => bail!("`{shown}` was ended by a signal"),
         }
-        let Value::Array(entries) = serde_json::from_slice(&output.stdout)
+        let Value::Array(mut entries) = serde_json::from_slice(&output.stdout)
             .with_context(|| format!("`{shown}` printed no JSON"))?
         else {
             bail!("`{shown}` printed no JSON array");
         };
+        // The `child` provider's sessions beside the harness's (`story:box-session-without-bg`).
+        crate::confine::child::append(program, &mut entries);
         let active = config::active();
         let instances = active.all();
         let mut sessions = Vec::new();

@@ -1020,6 +1020,9 @@ pub enum ConfinementProvider {
     Systemd,
     /// No box: today's start form.
     None,
+    /// A plain child process with stream-json input and output, which needs no Unix socket
+    /// (`story:box-session-without-bg`, [`crate::confine::child`]).
+    Child,
 }
 
 /// An instance's `confinement` as a `conductor.config/1` file writes it ([`Legacy`]): the mode,
@@ -1029,7 +1032,7 @@ pub enum ConfinementProvider {
 pub struct Confinement {
     /// `strict` or `report`.
     pub mode: ConfinementMode,
-    /// `systemd` or `none`.
+    /// `systemd`, `none` or `child`.
     pub provider: ConfinementProvider,
     /// The instance's limits.
     pub limits: Limits,
@@ -1089,9 +1092,10 @@ const MODES: [(&str, ConfinementMode); 2] = [
 ];
 
 /// How the file writes each [`ConfinementProvider`].
-const PROVIDERS: [(&str, ConfinementProvider); 2] = [
+const PROVIDERS: [(&str, ConfinementProvider); 3] = [
     ("systemd", ConfinementProvider::Systemd),
     ("none", ConfinementProvider::None),
+    ("child", ConfinementProvider::Child),
 ];
 
 /// How the file writes each `conductor.config.Network`.
@@ -6284,6 +6288,7 @@ fn shown_instance(instance: &Instance, legacy: &Legacy) -> Yaml {
                     text(match legacy.confinement.provider {
                         ConfinementProvider::Systemd => "systemd",
                         ConfinementProvider::None => "none",
+                        ConfinementProvider::Child => "child",
                     }),
                 ),
                 ("limits", limits(&legacy.confinement.limits)),
