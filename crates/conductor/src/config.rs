@@ -6987,6 +6987,7 @@ pub(crate) fn box_requests(
         store: store
             .map(str::to_owned)
             .or_else(|| written.then(|| config.daemon.store.0.clone())),
+        dial: None,
     };
     let binary = std::env::current_exe().unwrap_or_default();
     config
@@ -6995,6 +6996,10 @@ pub(crate) fn box_requests(
         .enumerate()
         .filter(|(_, instance)| crate::placement::boxed(instance))
         .map(|(index, instance)| {
+            let host = crate::placement::Host {
+                dial: crate::placement::dial_address(config.daemon.dial_port, instance),
+                ..host.clone()
+            };
             (
                 index,
                 crate::placement::request_on(instance, file, &binary, Vec::new(), &host),

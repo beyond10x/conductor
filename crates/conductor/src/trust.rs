@@ -33,6 +33,54 @@ pub const CLAUDE_JSON: &str = ".claude.json";
 /// The key of `projects` that marks a workspace trusted.
 const TRUSTED: &str = "hasTrustDialogAccepted";
 
+/// Claude Code's state directory for the home directory `home`: the absolute directory
+/// `CLAUDE_CONFIG_DIR` names when it is set, as in a substrate box
+/// ([`crate::placement::box_claude_dir`], `story:box-forge-work`), else `home`. Claude Code keeps
+/// [`CLAUDE_JSON`] there, and its transcripts under [`claude_projects`].
+#[must_use]
+pub fn claude_home(home: &Path) -> PathBuf {
+    configured().unwrap_or_else(|| home.to_owned())
+}
+
+/// The file Claude Code keeps its projects and their trust in: [`CLAUDE_JSON`] in
+/// [`claude_home`].
+#[must_use]
+pub fn claude_json(home: &Path) -> PathBuf {
+    claude_home(home).join(CLAUDE_JSON)
+}
+
+/// Claude Code's transcripts directory: `projects` in the directory `CLAUDE_CONFIG_DIR` names,
+/// else `~/.claude/projects`.
+#[must_use]
+pub fn claude_projects(home: &Path) -> PathBuf {
+    configured().map_or_else(|| home.join(".claude/projects"), |dir| dir.join("projects"))
+}
+
+/// The absolute directory `CLAUDE_CONFIG_DIR` names in this process's environment.
+fn configured() -> Option<PathBuf> {
+    std::env::var_os(crate::placement::CLAUDE_CONFIG_VARIABLE)
+        .map(PathBuf::from)
+        .filter(|dir| dir.is_absolute())
+}
+
+/// Marks each of `paths` trusted in the Claude Code file `file` ([`Edit`]), creating the file
+/// when it is not there; writes nothing when each is marked already. Answers whether it wrote.
+///
+/// # Errors
+///
+/// The file cannot be read or holds no JSON object, or [`Edit::write`] fails.
+pub fn mark(file: &Path, paths: &[String]) -> Result<bool> {
+    let mut edit = Edit::read(file)?;
+    if paths.iter().all(|path| edit.trusts(path)) && edit.read.is_some() {
+        return Ok(false);
+    }
+    for path in paths {
+        edit.trust(path);
+    }
+    edit.write()?;
+    Ok(true)
+}
+
 /// A JSON value that keeps the order of every object's keys, so that a rewrite changes only what
 /// it sets.
 #[derive(Debug, Clone, PartialEq)]
@@ -412,14 +460,29 @@ pub fn trust(config_flag: Option<&Path>, args: &TrustArgs) -> Result<ExitCode> {
         .position(|other| other.name == instance.name)
         .unwrap_or_default();
     let paths = paths(instance, index).context(WHAT)?;
-    let file = environment.home().context(WHAT)?.join(CLAUDE_JSON);
+    let file = claude_json(environment.home().context(WHAT)?);
     let mut edit = Edit::read(&file).context(WHAT)?;
     for path in &paths {
         edit.trust(path);
     }
     edit.write().context(WHAT)?;
+    // A runtime in a substrate box starts its sessions on Claude Code's state in the instance's
+    // state directory (`story:box-forge-work`): marked there too, where it is another file.
+    // Only where the state directory is there: conductord makes it, and marks the file at the
+    // box's start in any case.
+    let state = Path::new(&instance.state);
+    let boxed = (crate::placement::boxed(instance) && state.is_dir())
+        .then(|| crate::placement::box_claude_dir(state).join(CLAUDE_JSON))
+        .filter(|boxed| *boxed != file);
+    if let Some(boxed) = &boxed {
+        crate::placement::prepare_claude_dir(state).context(WHAT)?;
+        mark(boxed, &paths).context(WHAT)?;
+    }
     for path in &paths {
         println!("trusted: {path}");
+    }
+    if let Some(boxed) = boxed {
+        println!("trusted in the box's {}", boxed.display());
     }
     Ok(ExitCode::SUCCESS)
 }

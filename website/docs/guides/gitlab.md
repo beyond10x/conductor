@@ -3,7 +3,7 @@ title: Run conductor on GitLab
 sidebar_position: 2
 description: Point an instance at a group on a self-hosted GitLab, log glab in to its host, check the programs, write the workspace file, and read what conductor collects from GitLab.
 lede: A gitlab source names a group and the host it is on. Conductor reads that forge through glab, so a team with no repository on GitHub needs no gh.
-source: crates/conductor/src/config.rs, crates/conductor/tests/config.rs; crates/conductor/src/doctor.rs; crates/conductor/src/collect/gitlab.rs, collect/mod.rs; crates/conductor/src/watch.rs; crates/conductor/src/guard/rules.rs; spec/domains/config.yaml
+source: crates/conductor/src/config.rs, crates/conductor/tests/config.rs; crates/conductor/src/doctor.rs; crates/conductor/src/placement.rs; crates/conductor/src/collect/gitlab.rs, collect/mod.rs; crates/conductor/src/watch.rs; crates/conductor/src/guard/rules.rs; spec/domains/config.yaml
 ---
 
 This guide sets up an instance whose repositories are the projects of one group on a self-hosted
@@ -116,6 +116,31 @@ checkout `checks` of the project
 its charter `charters/checks.md` and its dispatches. A checkout of the same group path on another
 host, or of another group on this host, is not a member. The records directory is a member too
 ([initialise the records](./initialise-the-records.md#3-keep-the-workspace-file-in-step)).
+
+## In a substrate box
+
+An instance whose `placement` opens a box (`systemd`, `linux`) runs its runtime and the
+controllers it starts in that box, which reaches only what the substrate daemon declares
+([the host](../concepts/the-host.md#placement)). For a `gitlab` source on `gitlab.example.com`:
+
+- the egress aperture of the host, named `forge_` and the host with `_` for every character but
+  a letter or a digit: `substrate-daemon --egress-aperture
+  forge_gitlab_example_com=gitlab.example.com:443/tcp`. In the box `gitlab.example.com` resolves
+  to that aperture, so `glab` and `git` over HTTPS reach it by name;
+- the writable roots `checkouts-<instance>=<checkouts.root>` and
+  `trees-<instance>=<checkouts.trees>` beside the instance's other roots, so the controllers
+  commit, push and make managed worktrees;
+- a credential helper for the host and an identity in the global git config, which the box reads:
+
+  ```console
+  $ git config --global credential.https://gitlab.example.com.helper '!glab auth git-credential'
+  $ git config --global user.name 'Example Operator'
+  $ git config --global user.email operator@example.com
+  ```
+
+The box reads `glab`'s login at `~/.config/glab-cli/config.yml`; a login kept in the system
+keyring does not reach it. `conductor doctor` prints the rows `box <instance> forge`,
+`box <instance> git` and `box <instance> trust`, and names each flag or setting that is missing.
 
 ## What conductor reads from GitLab
 

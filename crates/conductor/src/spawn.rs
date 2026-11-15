@@ -1103,11 +1103,12 @@ fn role_files(
     Ok(file.display().to_string())
 }
 
-/// Whether `~/.claude.json` under `home` marks `checkout`, a physical path, trusted:
+/// Whether `~/.claude.json` under `home`, or under `CLAUDE_CONFIG_DIR` where that is set, as in a
+/// substrate box ([`crate::trust::claude_json`]), marks `checkout`, a physical path, trusted:
 /// `projects[<checkout>].hasTrustDialogAccepted` is `true`, as `conductor trust` sets it
 /// ([`crate::trust`]). Reads the file and writes nothing.
 fn trusted(home: &Path, checkout: &Path) -> Result<(), String> {
-    let file = home.join(crate::trust::CLAUDE_JSON);
+    let file = crate::trust::claude_json(home);
     let untrusted = || {
         format!(
             "{} is not marked trusted in {}; run conductor trust",

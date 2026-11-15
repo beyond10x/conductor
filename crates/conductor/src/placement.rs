@@ -101,9 +101,166 @@ pub const SOCKET_VARIABLE: &str = "CONDUCTOR_SUBSTRATE_SOCKET";
 /// The egress aperture a box's sessions reach the model host through. Substrate declares
 /// apertures on the daemon (`--egress-aperture <name>=<host>:<port>/tcp`), not per request, and
 /// one aperture is one destination; a start selects up to four by name (its design 26 § 2). The
-/// operator declares this one with the model host, so the box reaches it and none of the forges
-/// of [`BoxRequest::egress`].
+/// operator declares this one with the model host; each forge host has an aperture of its own
+/// ([`forge_aperture`]).
 pub const EGRESS_APERTURE: &str = "conductor";
+
+/// The port a forge aperture is declared with: HTTPS, which `git`, `gh` and `glab` speak.
+pub const FORGE_PORT: u16 = 443;
+
+/// The most egress apertures one start names (substrate-wire's `MAX_EGRESS_APERTURES`, its
+/// design 26 § 2).
+pub const APERTURES_BOUND: usize = 4;
+
+/// The longest aperture name substrate takes (`[a-z][a-z0-9_]{0,63}`).
+const APERTURE_NAME_BOUND: usize = 64;
+
+/// The box would name more egress apertures than one start may ([`APERTURES_BOUND`]), or a forge
+/// host whose aperture name substrate does not take. Conductor's own refusal, before substrate
+/// is asked, and a problem of `conductor config validate`.
+pub const APERTURES_EXCEEDED: &str = "placement.apertures-exceeded";
+
+/// One forge host of an instance's sources and the egress aperture the box reaches it through
+/// (`story:box-forge-work`): the operator declares it on the substrate daemon,
+/// `--egress-aperture <name>=<host>:443/tcp` ([`ForgeAperture::flag`]).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ForgeAperture {
+    /// The aperture's name ([`forge_aperture`]).
+    pub name: String,
+    /// The forge host, in lower case.
+    pub host: String,
+}
+
+impl ForgeAperture {
+    /// The `substrate-daemon` flag that declares this aperture.
+    #[must_use]
+    pub fn flag(&self) -> String {
+        format!(
+            "--egress-aperture {}={}:{FORGE_PORT}/tcp",
+            self.name, self.host
+        )
+    }
+}
+
+/// The name of the egress aperture a box reaches the forge `host` through: `forge_` and the host
+/// in lower case, each byte outside letters and digits written `_`, so it is in substrate's
+/// aperture-name set (`[a-z][a-z0-9_]{0,63}`): `gitlab.example.com` is
+/// `forge_gitlab_example_com`. One name per host, whatever instance asks for it, so a daemon
+/// declares it once.
+#[must_use]
+pub fn forge_aperture(host: &str) -> String {
+    let host: String = host
+        .trim_end_matches('.')
+        .chars()
+        .map(|c| {
+            if c.is_ascii_alphanumeric() {
+                c.to_ascii_lowercase()
+            } else {
+                '_'
+            }
+        })
+        .collect();
+    format!("forge_{host}")
+}
+
+/// Where the runtime of `instance` dials its instance API out to while `daemon.dial_port` is
+/// `dial_port` ([`Host::dial`]): `127.0.0.1:<dial_port>` for a box on the local substrate daemon
+/// while the port is not 0; none for any other runtime.
+#[must_use]
+pub fn dial_address(dial_port: i64, instance: &Instance) -> Option<String> {
+    (dial_port != 0 && instance.remote.is_none() && boxed(instance))
+        .then(|| format!("127.0.0.1:{dial_port}"))
+}
+
+/// The forge hosts the sources of `instance` reach, each once in the sources' order, with the
+/// aperture of each: a `github` source's `github.com`, where `git` pushes, and `api.github.com`,
+/// which `gh` asks; a `gitlab` source's host, which serves both. A `local` source reaches none.
+#[must_use]
+pub fn forge_apertures(instance: &Instance) -> Vec<ForgeAperture> {
+    let mut found: Vec<ForgeAperture> = Vec::new();
+    for source in &instance.sources {
+        let hosts: Vec<String> = match source {
+            Source::GitHub(_) => vec![
+                crate::doctor::GITHUB_HOST.to_owned(),
+                format!("api.{}", crate::doctor::GITHUB_HOST),
+            ],
+            Source::GitLab(gitlab) => vec![gitlab.host.trim_end_matches('.').to_ascii_lowercase()],
+            Source::Local(_) => continue,
+        };
+        for host in hosts {
+            if found.iter().all(|known| known.host != host) {
+                found.push(ForgeAperture {
+                    name: forge_aperture(&host),
+                    host,
+                });
+            }
+        }
+    }
+    found
+}
+
+/// The refusal of a box whose egress apertures, `dial` the dial-in one ([`Host::dial`]), the
+/// model host's and those of `forges`, are more than one start names, or whose forge aperture
+/// names no aperture substrate takes; `None` when the start can name them all.
+fn apertures_refused(name: &str, dial: bool, forges: &[ForgeAperture]) -> Option<Refused> {
+    if let Some(long) = forges
+        .iter()
+        .find(|forge| forge.name.len() > APERTURE_NAME_BOUND)
+    {
+        return Some(Refused {
+            name: APERTURES_EXCEEDED.to_owned(),
+            detail: format!(
+                "the forge host {} of instance {name} gives the aperture name {}, longer than \
+                 the {APERTURE_NAME_BOUND} bytes substrate takes, so the box cannot reach it",
+                long.host, long.name
+            ),
+        });
+    }
+    let asked = usize::from(dial) + 1 + forges.len();
+    (asked > APERTURES_BOUND).then(|| {
+        let mut named: Vec<&str> = Vec::new();
+        if dial {
+            named.push(crate::daemon::dial::APERTURE);
+        }
+        named.push(EGRESS_APERTURE);
+        named.extend(forges.iter().map(|forge| forge.name.as_str()));
+        Refused {
+            name: APERTURES_EXCEEDED.to_owned(),
+            detail: format!(
+                "the box of instance {name} would name {asked} egress apertures ({}) and one \
+                 start names at most {APERTURES_BOUND}: one for the model host, one for \
+                 conductord's dial-in while daemon.dial_port is set, and one per forge host of \
+                 the sources; split the sources over instances so each reaches at most {} forge \
+                 hosts",
+                named.join(", "),
+                APERTURES_BOUND - 1 - usize::from(dial)
+            ),
+        }
+    })
+}
+
+/// The forge apertures of `forges` the daemon does not declare, by `declared`: one line naming
+/// each with the `substrate-daemon` flag that declares it, `None` when it declares them all. The
+/// box starts without those (conductord names only what the daemon declares), and a runtime there
+/// reaches no such forge.
+#[must_use]
+pub fn forges_unreached(
+    forges: &[ForgeAperture],
+    mut declared: impl FnMut(&str) -> bool,
+) -> Option<String> {
+    let missing: Vec<String> = forges
+        .iter()
+        .filter(|forge| !declared(&forge.name))
+        .map(|forge| format!("{} ({})", forge.host, forge.flag()))
+        .collect();
+    (!missing.is_empty()).then(|| {
+        format!(
+            "the substrate daemon declares no egress aperture to {}, so the box reaches no such \
+             forge: declare each with the flag named",
+            missing.join(", ")
+        )
+    })
+}
 
 /// The descriptor the model token's sealed slot arrives at inside the box.
 pub const SLOT_FD: u32 = 3;
@@ -550,14 +707,18 @@ pub struct BoxRequest {
     /// The instance's limits.
     pub limits: Limits,
     /// The hosts the runtime asks for: the forges of its sources and [`MODEL_HOST`]. No start
-    /// carries them ([`EGRESS_APERTURE`]).
+    /// carries a host: it names the apertures the daemon declares for them ([`Self::apertures`]).
     pub egress: Vec<String>,
-    /// The egress apertures the runtime's session names, in order: [`EGRESS_APERTURE`], the
-    /// model host's, and, for a runtime that dials its instance API out to conductord
-    /// (`daemon.dial_port`, [`crate::instance::DIAL_VARIABLE`]), [`crate::daemon::dial::APERTURE`]
-    /// first. Substrate listens for the n-th on `127.0.0.n` in the box, at the port it was
-    /// declared with.
+    /// The egress apertures the runtime's session names, in order: for a runtime that dials its
+    /// instance API out to conductord (`daemon.dial_port`, [`Host::dial`]),
+    /// [`crate::daemon::dial::APERTURE`]; [`EGRESS_APERTURE`], the model host's; then the
+    /// aperture of each forge host of [`Self::forges`] (`story:box-forge-work`), which the
+    /// reconciler keeps only where the daemon declares it. Substrate listens for the n-th on
+    /// `127.0.0.n` in the box, at the port it was declared with, and maps each declared host name
+    /// to its address in the box's `/etc/hosts`. At most [`APERTURES_BOUND`].
     pub apertures: Vec<String>,
+    /// The forge hosts of the instance's sources and their apertures ([`forge_apertures`]).
+    pub forges: Vec<ForgeAperture>,
     /// The sealed slots the box receives: the model token (`story:secrets-source`). [`request`]
     /// names [`crate::secret::MODEL_TOKEN_SLOT`]; for a local daemon the reconciler replaces it
     /// with the pool slot it wrote the token into ([`SlotPool`]), or with none.
@@ -650,6 +811,49 @@ pub fn prepare_sessions(state: &Path) -> Result<()> {
         .map_err(|error| anyhow!("create {}: {error}", dir.display()))?;
     std::fs::set_permissions(&dir, std::fs::Permissions::from_mode(0o700))
         .map_err(|error| anyhow!("restrict {}: {error}", dir.display()))
+}
+
+/// Creates the harness's state directory of a box whose state directory is `state`
+/// ([`box_claude_dir`]) mode 0700, or makes an existing one 0700.
+///
+/// # Errors
+///
+/// The directory cannot be created or restricted.
+pub fn prepare_claude_dir(state: &Path) -> Result<()> {
+    use std::os::unix::fs::{DirBuilderExt as _, PermissionsExt as _};
+    let dir = box_claude_dir(state);
+    std::fs::DirBuilder::new()
+        .recursive(true)
+        .mode(0o700)
+        .create(&dir)
+        .map_err(|error| anyhow!("create {}: {error}", dir.display()))?;
+    std::fs::set_permissions(&dir, std::fs::Permissions::from_mode(0o700))
+        .map_err(|error| anyhow!("restrict {}: {error}", dir.display()))
+}
+
+/// What conductord makes before it opens the box of `instance`, the instance at `index` of its
+/// config file, beside the sessions directory ([`prepare_sessions`], `story:box-forge-work`):
+/// the managed trees root (`checkouts.trees`), a writable root of the box that the first
+/// `worktree create` would otherwise make; the harness's state directory
+/// ([`prepare_claude_dir`]); and in its `.claude.json` the trust of each checkout and of the
+/// records ([`crate::trust::paths`], [`crate::trust::mark`]), so a controller's spawn in the box
+/// finds its checkout trusted, as `conductor trust` marks it on the host. Each step is tried;
+/// the first failure is answered after the others ran.
+///
+/// # Errors
+///
+/// A directory cannot be made, the paths to trust cannot be read, or the file cannot be written.
+pub fn prepare_box(instance: &Instance, index: usize) -> Result<()> {
+    let state = Path::new(&instance.state);
+    let trees = Path::new(&instance.checkouts.trees);
+    let made = std::fs::create_dir_all(trees)
+        .map_err(|error| anyhow!("create {}: {error}", trees.display()));
+    let trusted = prepare_claude_dir(state).and_then(|()| {
+        let paths = crate::trust::paths(instance, index)?;
+        let file = box_claude_dir(state).join(crate::trust::CLAUDE_JSON);
+        crate::trust::mark(&file, &paths).map(|_| ())
+    });
+    made.and(trusted)
 }
 
 /// Substrate's name for a start naming a writable host root the daemon does not serve
@@ -775,6 +979,20 @@ pub struct Admission {
     /// Why the daemon's token would not reach the runtime of a box the daemon would open
     /// ([`slot_undeclared`]); `None` when it would, and for a box it would refuse.
     pub unsealed: Option<String>,
+    /// The forge hosts the box would reach none of, since the daemon declares no aperture to
+    /// them ([`forges_unreached`]); `None` when it reaches each, and for a box it would refuse.
+    pub unreached: Option<String>,
+}
+
+/// The names of the egress apertures `machine` declares (its `exec.egress-apertures` fact).
+fn apertures_of(machine: &substrate_sdk::Machine) -> Vec<String> {
+    machine
+        .facts
+        .exec_egress_apertures
+        .iter()
+        .flatten()
+        .map(|aperture| aperture.name.clone())
+        .collect()
 }
 
 /// Conductor's name for a daemon's token that could not be written into its slot's file.
@@ -990,6 +1208,10 @@ pub struct Host {
     /// conductord's own directory ([`crate::daemon::DIR`] under `HOME`, unless it was started on
     /// another): the runtimes' tokens and the binaries it starts, which no box writes.
     pub daemon: Option<PathBuf>,
+    /// Where the runtime dials its instance API out to, `127.0.0.1:<daemon.dial_port>`
+    /// ([`crate::instance::DIAL_VARIABLE`]), for a box on the local daemon while the port is set:
+    /// the start then names [`crate::daemon::dial::APERTURE`] first. `None` for any other box.
+    pub dial: Option<String>,
 }
 
 impl Host {
@@ -1012,6 +1234,7 @@ impl Host {
                 .map(std::ffi::OsString::from)
                 .or_else(|| std::env::var_os("PATH")),
             store: named(crate::store::STORE_VARIABLE),
+            dial: None,
         }
     }
 
@@ -1050,6 +1273,38 @@ const LOGINS: [(&str, &[&str]); 2] = [
     ("gh", &[".config/gh/hosts.yml", ".config/gh/config.yml"]),
     ("glab", &[".config/glab-cli/config.yml"]),
 ];
+
+/// The files under `HOME` a box with a forge source reads besides the forge CLI's login
+/// (`story:box-forge-work`), by what each is: git's global configuration (its identity and the
+/// credential helper that hands `git push` the forge CLI's token) and the `worktree` CLI's
+/// configuration (the profile that places the instance's managed trees).
+pub const HOME_FILES: [(&str, &str); 3] = [
+    ("git-config", ".gitconfig"),
+    ("git-config", ".config/git/config"),
+    ("worktree-config", ".config/worktree/config.toml"),
+];
+
+/// The directory under the state directory that the box's harness keeps its state in
+/// (`CLAUDE_CONFIG_DIR`, `story:box-forge-work`): `.claude.json` with the trust of the
+/// checkouts, the settings and the session transcripts under `projects/`. It is in the state
+/// root the box writes, so it outlives each start of the box.
+pub const BOX_CLAUDE_DIR: &str = "claude";
+
+/// The directory under the state directory the box's programs keep their XDG state in
+/// (`XDG_STATE_HOME`): the `worktree` CLI's registry of the managed trees the controllers make.
+pub const BOX_XDG_STATE_DIR: &str = "xdg-state";
+
+/// The variable naming the harness's state directory ([`BOX_CLAUDE_DIR`] in a box).
+pub const CLAUDE_CONFIG_VARIABLE: &str = "CLAUDE_CONFIG_DIR";
+
+/// The variable naming the XDG state directory ([`BOX_XDG_STATE_DIR`] in a box).
+pub const XDG_STATE_VARIABLE: &str = "XDG_STATE_HOME";
+
+/// The harness's state directory of a box whose state directory is `state` ([`BOX_CLAUDE_DIR`]).
+#[must_use]
+pub fn box_claude_dir(state: &Path) -> PathBuf {
+    clean(state).join(BOX_CLAUDE_DIR)
+}
 
 /// The most read-only directories one start names (substrate-wire's `MAX_READ_ONLY_ROOTS`).
 pub const READ_ONLY_ROOTS_BOUND: usize = 4;
@@ -1228,13 +1483,15 @@ fn shares(mount: &str, config: &[String], daemon: Option<&str>) -> Option<String
 /// | `records` | the records directory | writes, root `records-<instance>` |
 /// | `cache` | the cache directory (the collectors' exports, the decider's directory) | writes, root `cache-<instance>` |
 /// | `store` | the directory of a sqlite store (the database and its journal) | writes, root [`STORE_ROOT`] |
+/// | `checkouts` | the checkouts root: the controllers' branches and commits | writes, root `checkouts-<instance>` |
+/// | `trees` | the managed trees root (`checkouts.trees`), when it is outside the checkouts root | writes, root `trees-<instance>` |
 /// | `binary` | the conductor binary's directory (it carries the role profiles) | reads |
 /// | `harness` | the harness's directory on `PATH` | reads |
-/// | `checkouts` | the checkouts root, when the trees are elsewhere | reads |
 /// | `config` | the config file | reads, one file |
 /// | `harness` | the file the harness's name on `PATH` links to | reads, one file |
 /// | `forge-cli` | the CLI of each forge among the sources (`gh`, `glab`) | reads, one file |
 /// | `forge-login` | that CLI's login files under `HOME` | reads, one file each |
+/// | `git-config`, `worktree-config` | git's global configuration and the `worktree` CLI's ([`HOME_FILES`]) | reads, one file each |
 ///
 /// Nothing else of the host is written: a writable root is a whole directory, so one that holds
 /// the config file or lies with conductord's own directory ([`Host::daemon`]) is not in the
@@ -1302,6 +1559,9 @@ fn layout(
             "store",
             store.as_deref().and_then(Path::parent).map(Path::to_owned),
         ),
+        // The controllers' branches and managed trees (`story:box-forge-work`).
+        ("checkouts", Some(PathBuf::from(&instance.checkouts.root))),
+        ("trees", Some(PathBuf::from(&instance.checkouts.trees))),
     ];
     for (what, path) in written {
         let Some(path) = path else { continue };
@@ -1348,9 +1608,6 @@ fn layout(
             .and_then(Path::parent)
             .map(|dir| ("harness", dir.to_owned())),
     );
-    if !Path::new(&instance.checkouts.trees).starts_with(&instance.checkouts.root) {
-        read.push(("checkouts", PathBuf::from(&instance.checkouts.root)));
-    }
     // The first directory named by its entries, and what of the instance it holds (`records`).
     let mut split: Option<(String, String)> = None;
     for (what, dir) in read {
@@ -1397,12 +1654,20 @@ fn layout(
             admit(&mut kept, read_only_file(what, &target, &target));
         }
     }
+    if let Some(home) = &host.home {
+        logins.extend(HOME_FILES.iter().map(|(_, path)| home.join(path)));
+    }
     for login in logins {
         if login.is_file() {
-            admit(
-                &mut kept,
-                read_only_file("forge-login", &real(&login), &login),
-            );
+            let what = HOME_FILES
+                .iter()
+                .find(|(_, path)| {
+                    host.home
+                        .as_ref()
+                        .is_some_and(|home| home.join(path) == login)
+                })
+                .map_or("forge-login", |(what, _)| *what);
+            admit(&mut kept, read_only_file(what, &real(&login), &login));
         }
     }
 
@@ -1466,12 +1731,38 @@ pub fn request_on(
     mut env: Vec<(String, String)>,
     host: &Host,
 ) -> BoxRequest {
-    let (mounts, refused) = layout(instance, config_file, binary, host);
+    let (mounts, mut refused) = layout(instance, config_file, binary, host);
     let state = clean(Path::new(&instance.state));
     env.push((
         crate::instance::LOG_VARIABLE.to_owned(),
         sessions_dir(&state).join(RUNTIME_LOG).display().to_string(),
     ));
+    // The harness's state and the `worktree` registry in the state root the box writes, so the
+    // trust of the checkouts, the transcripts and the managed trees outlive a start
+    // (`story:box-forge-work`); the box's own home is gone at each.
+    env.retain(|(name, _)| name != CLAUDE_CONFIG_VARIABLE && name != XDG_STATE_VARIABLE);
+    env.push((
+        CLAUDE_CONFIG_VARIABLE.to_owned(),
+        box_claude_dir(&state).display().to_string(),
+    ));
+    env.push((
+        XDG_STATE_VARIABLE.to_owned(),
+        state.join(BOX_XDG_STATE_DIR).display().to_string(),
+    ));
+    // The egress apertures, in order: conductord's dial-in, listened for on `127.0.0.1` in the
+    // box, the model host's, then one per forge host, each on `127.0.0.<n>` and named for its
+    // host in the box's `/etc/hosts`.
+    let forges = forge_apertures(instance);
+    let mut apertures: Vec<String> = Vec::new();
+    if let Some(dial) = &host.dial {
+        env.push((crate::instance::DIAL_VARIABLE.to_owned(), dial.clone()));
+        apertures.push(crate::daemon::dial::APERTURE.to_owned());
+    }
+    apertures.push(EGRESS_APERTURE.to_owned());
+    apertures.extend(forges.iter().map(|forge| forge.name.clone()));
+    if refused.is_none() {
+        refused = apertures_refused(&instance.name.0, host.dial.is_some(), &forges);
+    }
     let mut read_only_roots: Vec<String> = Vec::new();
     let mut read_only_files: Vec<HostFile> = Vec::new();
     let mut writable_roots: Vec<HostRoot> = Vec::new();
@@ -1529,7 +1820,8 @@ pub fn request_on(
         places: crate::config::PLACES.map(str::to_owned).to_vec(),
         limits: instance.limits.clone(),
         egress,
-        apertures: vec![EGRESS_APERTURE.to_owned()],
+        apertures,
+        forges,
         secret_slots: vec![crate::secret::MODEL_TOKEN_SLOT.to_owned()],
         api_token,
         requires: resolve(&instance.placement.0)
@@ -1740,6 +2032,15 @@ pub trait Substrate {
     /// that does not say, declares none, so the box is asked for without the slot.
     fn declares(&mut self, slot: &str) -> bool {
         let _ = slot;
+        false
+    }
+
+    /// Whether the daemon declares the egress aperture `name` (its `exec.egress-apertures`
+    /// fact): conductord names a forge's aperture in a start only where it does
+    /// (`story:box-forge-work`), since substrate refuses a start that names one it does not. A
+    /// daemon that cannot be asked, and a box opener that does not say, declares none.
+    fn declares_aperture(&mut self, name: &str) -> bool {
+        let _ = name;
         false
     }
 
@@ -2009,6 +2310,9 @@ impl<T: Substrate + ?Sized> Substrate for &mut T {
     }
     fn declares(&mut self, slot: &str) -> bool {
         (**self).declares(slot)
+    }
+    fn declares_aperture(&mut self, name: &str) -> bool {
+        (**self).declares_aperture(name)
     }
     fn renew(&mut self, workspace: &str, session: &str, ttl: Duration) -> Result<()> {
         (**self).renew(workspace, session, ttl)
@@ -2291,23 +2595,31 @@ impl Sdk {
         self.block_within(Some(bound), async move |client| {
             let machine = client.machine();
             let served = machine.facts.secrets_slots.as_deref();
+            let apertures = apertures_of(&machine);
             Ok(requests
                 .iter()
                 .map(|request| match Self::unserved(&machine, request) {
                     Some(refused) => Admission {
                         refused: Some(refused),
-                        unsealed: None,
+                        ..Admission::default()
                     },
-                    None => match &request.api_token {
-                        Some(slot) if declared(served, &slot.name) => Admission {
-                            refused: api_token_unsealable(slot),
-                            unsealed: None,
-                        },
-                        slot => Admission {
-                            refused: None,
-                            unsealed: slot_undeclared(slot.as_ref(), served),
-                        },
-                    },
+                    None => {
+                        let unreached = forges_unreached(&request.forges, |name| {
+                            apertures.iter().any(|declared| declared == name)
+                        });
+                        match &request.api_token {
+                            Some(slot) if declared(served, &slot.name) => Admission {
+                                refused: api_token_unsealable(slot),
+                                unsealed: None,
+                                unreached,
+                            },
+                            slot => Admission {
+                                refused: None,
+                                unsealed: slot_undeclared(slot.as_ref(), served),
+                                unreached,
+                            },
+                        }
+                    }
                 })
                 .collect())
         })
@@ -2347,6 +2659,12 @@ impl Substrate for Sdk {
             ))
         })
         .unwrap_or(false)
+    }
+
+    fn declares_aperture(&mut self, name: &str) -> bool {
+        let name = name.to_owned();
+        self.block_on(async move |client| Ok(apertures_of(&client.machine()).contains(&name)))
+            .unwrap_or(false)
     }
 
     fn renew(&mut self, workspace: &str, session: &str, ttl: Duration) -> Result<()> {

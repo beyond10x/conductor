@@ -14,16 +14,20 @@ Read the [security overview](../security/overview.md) first.
 |---|---|
 | conductord | your user, as the user unit `conductord.service`, or the system unit on a box with `daemon.loopback: false` |
 | an instance's runtime, `conductor instance serve` | a substrate box when `placement` names an adapter (`linux`, `systemd`), else a user unit with no box |
-| every session: the maintainer, a controller, a host role | unboxed, as your user, with `--permission-mode bypassPermissions` |
+| a session the runtime starts: the maintainer, a controller | in the runtime's box when the runtime runs in one, else unboxed as your user, with `--permission-mode bypassPermissions` |
+| a host role, a session you start by hand | unboxed, as your user |
 
-A runtime's box reads the config file, the directories of `conductor` and the harness, the
-checkouts root and each forge's CLI and login, and writes the instance's state, records and
-cache and the directory of a sqlite store. Its network is the one egress aperture `conductor`,
-one destination, which you declare on `substrate-daemon` as `api.anthropic.com`: on substrate
-0.20.0 the box reaches no forge. The token the daemon proxies writes with reaches the runtime
-through a sealed slot, not through the box's environment, where you declare that slot on
-`substrate-daemon`; without it the box starts and its runtime refuses each proxied write
-([the host](../concepts/the-host.md#placement)). The runtime starts no session yet.
+A runtime's box reads the config file, the directories of `conductor` and the harness, each
+forge's CLI and login, and git's and the `worktree` CLI's configuration, and writes the
+instance's state, records and cache, the directory of a sqlite store, the checkouts root and the
+managed trees. Its network is the egress aperture `conductor` to the model host and one aperture
+per forge host of the sources, `forge_<host>`, each one destination that you declare on
+`substrate-daemon` ([the host](../concepts/the-host.md#placement)); a forge whose aperture the
+daemon does not declare is not reached, and `conductor doctor` names the flag. The token the
+daemon proxies writes with reaches the runtime through a sealed slot, not through the box's
+environment, where you declare that slot on `substrate-daemon`; without it the box starts and
+its runtime refuses each proxied write. The sessions the runtime starts run in its box, children
+of the runtime: they write what the box writes and reach what it reaches.
 
 A session is narrowed by [the guard](../security/the-guard.md) only, which narrows writes and not
 reads, the shell or the network ([known limits](../security/limits.md)). What the account can

@@ -196,9 +196,12 @@ that it answers and serves the box. You start it and keep it running:
   [Serving exec](https://github.com/beyond10x/substrate#serving-exec) says how to set one up;
 - on the socket conductord opens, `$XDG_RUNTIME_DIR/substrate/daemon.sock`, unless
   `CONDUCTOR_SUBSTRATE_SOCKET` in conductord's environment names another;
-- with a writable root for each directory the runtime writes: `state-<instance>` for the state
-  directory, `records-<instance>` for the records, `cache-<instance>` for the cache and `store`
-  for the directory of the sqlite store. Each must exist before the daemon starts;
+- with a writable root for each directory the runtime and its controllers write:
+  `state-<instance>` for the state directory, `records-<instance>` for the records,
+  `cache-<instance>` for the cache, `store` for the directory of the sqlite store,
+  `checkouts-<instance>` for the checkouts root and `trees-<instance>` for the managed trees
+  (`checkouts.trees`), where the controllers commit and make their worktrees. Each must exist
+  before the daemon starts;
 - for writes conductord proxies to the runtime, with the secret slot `api_token_<instance>` on
   the file `~/.b10x/conductor/daemon/slots/api_token_<instance>`, the instance's name in lower
   case with `_` for every character but a letter or a digit. conductord writes the token it
@@ -207,11 +210,18 @@ that it answers and serves the box. You start it and keep it running:
   empty and mode 600, before the daemon starts. A box starts without the slot too: its runtime
   then refuses each proxied write, and `conductor doctor` says so in the row
   `box <instance> token`, with the flag;
-- with the aperture `conductor`, which the runtime starts with.
+- with the aperture `conductor`, which the runtime starts with, and, for an instance with a
+  `github` or `gitlab` source, one aperture per forge host to its port 443, named `forge_` and
+  the host with `_` for every character but a letter or a digit: `forge_github_com` and
+  `forge_api_github_com` for GitHub, `forge_gitlab_example_com=gitlab.example.com:443/tcp` for a
+  GitLab on `gitlab.example.com`. This instance's `local` source needs none. A box starts
+  without an aperture the daemon does not declare, and `conductor doctor` prints the flag in the
+  row `box <instance> forge`.
 
 ```console
 state=$(conductor config show --format json | jq -r '.instances[0].state')
-install -d -m 700 "$state/sessions" "$XDG_RUNTIME_DIR/substrate" ~/.local/state/substrate ~/.local/state/substrate/workspaces
+trees=$(conductor config show --format json | jq -r '.instances[0].checkouts.trees')
+install -d -m 700 "$state/sessions" "$trees" "$XDG_RUNTIME_DIR/substrate" ~/.local/state/substrate ~/.local/state/substrate/workspaces
 install -d -m 700 ~/.b10x/conductor/store ~/.cache/b10x/conductor/home
 install -d -m 700 ~/.b10x/conductor/daemon ~/.b10x/conductor/daemon/slots
 (umask 077 && echo free > ~/.b10x/conductor/daemon/slots/api_token_home)
@@ -226,12 +236,14 @@ substrate-daemon \
   --writable-root "records-home=$HOME/.b10x/conductor/home/records" \
   --writable-root "cache-home=$HOME/.cache/b10x/conductor/home" \
   --writable-root "store=$HOME/.b10x/conductor/store" \
+  --writable-root "checkouts-home=$HOME/src" \
+  --writable-root "trees-home=$trees" \
   --secret-slot "api_token_home=$HOME/.b10x/conductor/daemon/slots/api_token_home" \
   --egress-aperture conductor=api.anthropic.com:443/tcp \
   --ca-bundle "$(readlink -f /etc/ssl/certs/ca-certificates.crt)"
 ```
 
-From another terminal, read the daemon's facts. `exec.writable-roots.host` lists the four roots
+From another terminal, read the daemon's facts. `exec.writable-roots.host` lists the six roots
 and `secrets.slots` lists `api_token_home`:
 
 ```console
@@ -239,17 +251,21 @@ curl -s --unix-socket "$XDG_RUNTIME_DIR/substrate/daemon.sock" http://localhost/
 ```
 
 Each further instance with a box adds its own `state-<instance>`, `records-<instance>`,
-`cache-<instance>` and `api_token_<instance>`; `store` is declared once. Directories that lie
-inside one another are one root, the outer one. A box that names a root the daemon does not
-serve is refused, and the refusal prints the flag to add. A slot the daemon does not declare
-refuses nothing. The box writes nothing else of the host: not the config file,
-and not `~/.b10x/conductor/daemon`. Besides its writable roots it gets conductord's `HOME` and,
-read-only, the config file, the directories of `conductor` and `claude`, the checkouts root,
-and the CLI and login of each forge among the sources. Where the records lie under the
-checkouts root, the box reads the root's other entries one by one, and one box reads at most
-four directories, those of `conductor` and `claude` among them: with more, conductord refuses
-the box (`placement.mounts-exceeded`) until the
-records are outside the checkouts root. An
+`cache-<instance>`, `checkouts-<instance>`, `trees-<instance>` and `api_token_<instance>`;
+`store` and each forge aperture are declared once. Directories that lie inside one another are
+one root, the outer one: records under the checkouts root are written through
+`checkouts-<instance>`. A box that names a root the daemon does not serve is refused, and the
+refusal prints the flag to add. A slot or an aperture the daemon does not declare refuses
+nothing. The box writes nothing else of the host: not the config file, and not
+`~/.b10x/conductor/daemon`; a checkouts root that holds the config file is refused
+(`placement.writable-root-shared`). Besides its writable roots it gets conductord's `HOME` and,
+read-only, the config file, the directories of `conductor` and `claude`, the CLI and login of
+each forge among the sources, `~/.gitconfig` and `~/.config/git/config` (git's identity and
+credential helper) and `~/.config/worktree/config.toml`, each where it is there. Claude Code in
+the box keeps its state in `<state>/claude`, where conductord marks the checkouts and the
+records trusted before the box opens, and the `worktree` CLI its registry in
+`<state>/xdg-state`. One box reads at most four directories and sixteen files: with more,
+conductord refuses the box (`placement.mounts-exceeded`). An
 instance that names a `model_token` also needs `daemon.substrate_slots` and one `--secret-slot`
 per slot ([secrets](/docs/security/operators-and-credentials#secrets)).
 

@@ -40,7 +40,7 @@ instances:
 | `session_prefix` | the prefix of every session name the instance starts, such as `personal-conductor`. Required |
 | `sources` | where the repositories come from: `github: <owner>`, `local: <path>` or `gitlab: <group>` ([GitLab](./gitlab.md)) |
 | `checkouts.root`, `checkouts.trees` | where their checkouts and managed worktrees are |
-| `records` | the directory conductor keeps its records in. Default `~/.b10x/conductor/<name>/records`. With a box placement, keep it outside `checkouts.root`: a box reads at most four directories, and a checkouts root that holds the records is read entry by entry |
+| `records` | the directory conductor keeps its records in. Default `~/.b10x/conductor/<name>/records`. With a box placement it may lie under `checkouts.root`: the box writes the checkouts root, the records with it |
 | `forge.route` | `direct`: a controller writes its pull requests with your own forge login. The default, `gates`, writes through the bot route and needs a `gates_policy` ([forge calls](../security/the-guard.md#forge-calls)); `conductor doctor` is not ready on it without one |
 
 With no `roles`, the instance takes the built-in roles on `claude` and `opus`. A `roles` list

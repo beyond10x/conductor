@@ -92,7 +92,7 @@ impl Sources {
     pub fn new(home: PathBuf) -> Self {
         let checkouts = &crate::config::active().instance.checkouts;
         Self {
-            projects: home.join(".claude/projects"),
+            projects: crate::trust::claude_projects(&home),
             root: PathBuf::from(&checkouts.root),
             trees: PathBuf::from(&checkouts.trees),
             home,

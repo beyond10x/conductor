@@ -288,7 +288,21 @@ impl Case {
             placement::writable_root_name("records", name),
             placement::writable_root_name("cache", name),
             "store",
+            placement::writable_root_name("checkouts", name),
+            placement::writable_root_name("trees", name),
         ]);
+        // The egress apertures of the forges a case's origin names (`story:box-forge-work`).
+        facts["exec.egress-apertures"] = Value::Array(
+            ["github.com", "api.github.com", "gitlab.example.com"]
+                .iter()
+                .map(|host| {
+                    serde_json::json!({
+                        "name": placement::forge_aperture(host),
+                        "destination": "127.0.0.1:443",
+                    })
+                })
+                .collect(),
+        );
         let body = serde_json::to_vec(&serde_json::json!({
             "api_version": "v1",
             "request_id": "req_machine",

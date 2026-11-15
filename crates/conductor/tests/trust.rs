@@ -370,3 +370,78 @@ fn trust_refuses_when_the_file_changed_between_read_and_write() {
         .collect();
     assert_eq!(left, vec![".claude.json".to_owned()]);
 }
+
+/// `story:box-forge-work`: for an instance whose placement opens a substrate box, trust also
+/// marks the checkouts and the records in the `.claude.json` of the harness's state directory in
+/// the instance's state (`<state>/claude`), which the box's harness reads, once the state
+/// directory is there; with
+/// `CLAUDE_CONFIG_DIR` set, as in the box, trust writes the file there instead of
+/// `~/.claude.json`.
+#[test]
+fn trust_marks_a_boxed_instance_in_the_state_of_its_harness() {
+    let case = Case::new("boxed");
+    let state = case.dir.join("state");
+    let text = format!(
+        "version: conductor.config/2\n\
+         instances:\n\
+         \x20 - name: alpha\n\
+         \x20   session_prefix: alpha\n\
+         \x20   placement: {{daemon: local, adapter: linux}}\n\
+         \x20   sources: [{{gitlab: example-group, host: gitlab.example.com}}]\n\
+         \x20   checkouts: {{root: {root:?}, trees: {trees:?}}}\n\
+         \x20   records: {records:?}\n\
+         \x20   state: {state:?}\n",
+        root = case.dir.join("checkouts"),
+        trees = case.dir.join("trees"),
+        records = case.records(),
+    );
+    let config = case.dir.join("conductor.yaml");
+    fs::write(&config, text).expect("write the config file");
+    let checkout = case.checkout("alpha");
+
+    // No state directory yet: trust marks the host's file only.
+    let output = case.trust(&config);
+    assert_eq!(output.status.code(), Some(0), "{}", shown(&output));
+    assert!(!state.exists(), "trust makes no state directory");
+    fs::create_dir_all(&state).expect("the state directory conductord makes");
+
+    let output = case.trust(&config);
+    assert_eq!(output.status.code(), Some(0), "{}", shown(&output));
+    let boxed = state.join("claude/.claude.json");
+    let written: Value =
+        serde_json::from_str(&fs::read_to_string(&boxed).expect("the box's .claude.json"))
+            .expect("JSON");
+    for path in [&checkout, &case.records()] {
+        assert_eq!(
+            written["projects"][path.display().to_string()]["hasTrustDialogAccepted"],
+            Value::Bool(true),
+            "{written:#}"
+        );
+    }
+    assert_eq!(
+        fs::metadata(state.join("claude"))
+            .expect("the harness's state")
+            .permissions()
+            .mode()
+            & 0o777,
+        0o700
+    );
+    assert!(
+        case.claude_json().is_file(),
+        "the host's file is marked too"
+    );
+
+    // In the box: `CLAUDE_CONFIG_DIR` names the file trust writes.
+    let inside = case.dir.join("inside");
+    fs::create_dir_all(&inside).expect("the directory");
+    let output = common::conductor(case.dir.join("home"))
+        .arg("trust")
+        .current_dir(&case.dir)
+        .env("CONDUCTOR_CONFIG", &config)
+        .env(conductor_cli::placement::CLAUDE_CONFIG_VARIABLE, &inside)
+        .stdin(Stdio::null())
+        .output()
+        .expect("conductor runs");
+    assert_eq!(output.status.code(), Some(0), "{}", shown(&output));
+    assert!(inside.join(".claude.json").is_file(), "{}", shown(&output));
+}

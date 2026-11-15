@@ -51,7 +51,7 @@ impl Cache {
         drop(state);
         let cache = self.clone();
         let usage_sources = usage::Sources {
-            projects: sources.home.join(".claude/projects"),
+            projects: crate::trust::claude_projects(&sources.home),
             home: sources.home.clone(),
             root: sources.checkouts.clone(),
             trees: sources.trees.clone(),

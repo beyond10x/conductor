@@ -81,6 +81,8 @@ struct Log {
     sessions_at_open: Vec<Option<u32>>,
     /// The secret slots the daemon declares, by name: none unless a case names one.
     slots: Vec<String>,
+    /// The egress apertures the daemon declares, by name: none unless a case names one.
+    apertures: Vec<String>,
 }
 
 /// A substrate daemon that opens every box it is asked for, unless told to refuse.
@@ -174,6 +176,11 @@ impl Substrate for Fake {
     fn declares(&mut self, slot: &str) -> bool {
         let log = self.log.lock().expect("the log");
         log.slots.iter().any(|declared| declared == slot)
+    }
+
+    fn declares_aperture(&mut self, name: &str) -> bool {
+        let log = self.log.lock().expect("the log");
+        log.apertures.iter().any(|declared| declared == name)
     }
 
     fn renew(&mut self, workspace: &str, session: &str, _ttl: std::time::Duration) -> Result<()> {
@@ -305,6 +312,8 @@ impl Case {
         );
         for (name, placement) in instances {
             let root = self.dir.join(name);
+            // The checkouts root a box writes is there, as the operator makes it.
+            fs::create_dir_all(root.join("checkouts")).expect("the checkouts root");
             text.push_str(&format!(
                 "  - name: {name}\n    placement: {placement}\n    session_prefix: {name}\n    \
                  sources: [{{github: example-org}}]\n    \
@@ -1488,6 +1497,14 @@ fn a_box_request_carries_its_requirement_and_its_named_writable_roots() {
                 name: format!("cache-{}", instance.name.0),
                 path: instance.cache.clone(),
             },
+            placement::HostRoot {
+                name: format!("checkouts-{}", instance.name.0),
+                path: instance.checkouts.root.clone(),
+            },
+            placement::HostRoot {
+                name: format!("trees-{}", instance.name.0),
+                path: instance.checkouts.trees.clone(),
+            },
         ]
     );
 }
@@ -1512,7 +1529,8 @@ fn a_writable_root_name_is_in_substrates_root_name_set() {
 /// one 503; [`FakeLocal::opening`] also creates every workspace asked for and keeps the body of
 /// every session start. It publishes `roots` as the writable host roots it serves
 /// (`exec.writable-roots.host`), and the fact not at all when `roots` is empty; a name among
-/// them that is an API token's slot is a secret slot it declares instead (`secrets.slots`).
+/// them that is an API token's slot is a secret slot it declares instead (`secrets.slots`), and
+/// one that starts `forge_` an egress aperture it declares (`exec.egress-apertures`).
 struct FakeLocal {
     lines: Arc<Mutex<Vec<String>>>,
     starts: Arc<Mutex<Vec<Value>>>,
@@ -1562,6 +1580,17 @@ impl FakeLocal {
         let (slots, roots): (Vec<&str>, Vec<&str>) = roots
             .iter()
             .partition(|name| placement::is_api_token_slot(name));
+        // A forge's aperture (`story:box-forge-work`) is an egress aperture it declares.
+        let (apertures, roots): (Vec<&str>, Vec<&str>) =
+            roots.iter().partition(|name| name.starts_with("forge_"));
+        if !apertures.is_empty() {
+            facts["exec.egress-apertures"] = Value::Array(
+                apertures
+                    .iter()
+                    .map(|name| serde_json::json!({"name": name, "destination": "127.0.0.1:443"}))
+                    .collect(),
+            );
+        }
         if !roots.is_empty() {
             facts["exec.writable-roots.host"] = serde_json::json!(roots);
         }
@@ -2230,8 +2259,15 @@ fn conductord_asks_for_a_systemd_box_with_home_and_only_its_own_directories_writ
             .iter()
             .map(|root| root.name.as_str())
             .collect::<Vec<_>>(),
-        ["state-alpha", "records-alpha", "cache-alpha", "store"],
-        "the instance's own directories and the store's, nothing else"
+        [
+            "state-alpha",
+            "records-alpha",
+            "cache-alpha",
+            "store",
+            "checkouts-alpha",
+            "trees-alpha"
+        ],
+        "the instance's own directories, its checkouts and trees, and the store's, nothing else"
     );
     // The daemon was opened on its own directory, not the default one under HOME.
     for (what, path) in [
@@ -2389,6 +2425,12 @@ fn a_box_mounts_what_the_runtime_and_the_loop_read_and_write_each_named_in_one_l
     let login = case.home().join(".config/gh/hosts.yml");
     fs::create_dir_all(login.parent().expect("a parent")).expect("create the directory");
     fs::write(&login, "github.com: {}\n").expect("write the login");
+    // Git's global configuration and the worktree CLI's (`story:box-forge-work`).
+    let gitconfig = case.home().join(".gitconfig");
+    fs::write(&gitconfig, "[user]\n\tname = example\n").expect("write the git config");
+    let worktree = case.home().join(".config/worktree/config.toml");
+    fs::create_dir_all(worktree.parent().expect("a parent")).expect("create the directory");
+    fs::write(&worktree, "version = 1\n").expect("write the worktree config");
 
     let store = case.dir.join("store/conductor.sqlite");
     let env = vec![
@@ -2416,13 +2458,16 @@ fn a_box_mounts_what_the_runtime_and_the_loop_read_and_write_each_named_in_one_l
             "records",
             "cache",
             "store",
+            "checkouts",
+            "trees",
             "binary",
             "harness",
-            "checkouts",
             "config",
             "harness",
             "forge-cli",
             "forge-login",
+            "git-config",
+            "worktree-config",
         ],
         "the one list: {listed:?}"
     );
@@ -2462,17 +2507,25 @@ fn a_box_mounts_what_the_runtime_and_the_loop_read_and_write_each_named_in_one_l
                 name: "store".to_owned(),
                 path: case.dir.join("store").display().to_string(),
             },
+            placement::HostRoot {
+                name: format!("checkouts-{name}"),
+                path: instance.checkouts.root.clone(),
+            },
+            placement::HostRoot {
+                name: format!("trees-{name}"),
+                path: instance.checkouts.trees.clone(),
+            },
         ],
-        "the state directory, the records, the cache and the store's directory are written"
+        "the state directory, the records, the cache, the store's directory, the checkouts and \
+         the managed trees are written"
     );
     assert_eq!(
         asked.read_only_roots,
         [
             "/opt/conductor/bin".to_owned(),
             case.dir.join("tools/bin").display().to_string(),
-            instance.checkouts.root.clone(),
         ],
-        "the binary's and the harness's directories and the checkouts root are read"
+        "the binary's and the harness's directories are read"
     );
     let at_own = |path: &Path| placement::HostFile {
         host_path: real(path),
@@ -2498,8 +2551,18 @@ fn a_box_mounts_what_the_runtime_and_the_loop_read_and_write_each_named_in_one_l
                 host_path: real(&login),
                 mount: login.display().to_string(),
             },
+            // Git's identity and credential helper, and the worktree CLI's profiles.
+            placement::HostFile {
+                host_path: real(&gitconfig),
+                mount: gitconfig.display().to_string(),
+            },
+            placement::HostFile {
+                host_path: real(&worktree),
+                mount: worktree.display().to_string(),
+            },
         ],
-        "the config file, the harness binary, the forge CLI and its login are read"
+        "the config file, the harness binary, the forge CLI, its login and the git and worktree \
+         configuration are read"
     );
     assert_substrate_admits(asked);
 }
@@ -2542,6 +2605,14 @@ fn a_box_writes_no_directory_that_holds_the_config_file_or_the_daemons_directory
         placement::HostRoot {
             name: format!("cache-{name}"),
             path: instance.cache.clone(),
+        },
+        placement::HostRoot {
+            name: format!("checkouts-{name}"),
+            path: instance.checkouts.root.clone(),
+        },
+        placement::HostRoot {
+            name: format!("trees-{name}"),
+            path: instance.checkouts.trees.clone(),
         },
     ];
 
@@ -2624,6 +2695,7 @@ fn a_box_writes_no_directory_that_holds_the_config_file_or_the_daemons_directory
             path: None,
             store: None,
             daemon: None,
+            dial: None,
         },
     );
     assert!(
@@ -2639,6 +2711,7 @@ fn a_box_writes_no_directory_that_holds_the_config_file_or_the_daemons_directory
             path: None,
             store: None,
             daemon: None,
+            dial: None,
         },
     )
     .expect("the state directory holds the config file");
@@ -2646,8 +2719,11 @@ fn a_box_writes_no_directory_that_holds_the_config_file_or_the_daemons_directory
     assert!(refused.detail.contains("state directory"), "{refused:?}");
 }
 
-/// The records under the checkouts root, as the configure-an-instance guide writes them:
-/// substrate refuses a directory to read that holds one to write.
+/// The records under the checkouts root, as the configure-an-instance guide writes them: the
+/// box writes the checkouts root (`story:box-forge-work`), so the records are written through
+/// it, one root. A directory to read that holds one to write, the binary's directory around the
+/// store's here, is named by its other entries: substrate refuses a directory to read that holds
+/// one to write.
 #[test]
 fn a_directory_to_read_that_holds_one_to_write_is_named_by_its_other_entries() {
     let case = Case::new("box-around");
@@ -2656,17 +2732,19 @@ fn a_directory_to_read_that_holds_one_to_write_is_named_by_its_other_entries() {
     instance.placement = PlacementName("systemd".to_owned());
     let own = case.dir.join("i");
     let root = own.join("checkouts");
+    let tools = own.join("tools");
     // Written with what substrate takes no mount with: a trailing slash, a `.` component.
     instance.state = format!("{}/./state/", own.display());
     instance.records = format!("{}/records/", root.display());
     instance.cache = own.join("cache").display().to_string();
     instance.checkouts.root = format!("{}/", root.display());
     instance.checkouts.trees = own.join("trees").display().to_string();
-    for dir in ["records/decisions", "one/src", "two"] {
-        fs::create_dir_all(root.join(dir)).expect("create the directory");
+    fs::create_dir_all(root.join("records/decisions")).expect("create the records");
+    for dir in ["store", "one/src", "two"] {
+        fs::create_dir_all(tools.join(dir)).expect("create the directory");
     }
-    fs::write(root.join("notes.md"), "notes\n").expect("write the file");
-    std::os::unix::fs::symlink(root.join("one"), root.join("link")).expect("link");
+    fs::write(tools.join("notes.md"), "notes\n").expect("write the file");
+    std::os::unix::fs::symlink(tools.join("one"), tools.join("link")).expect("link");
     let env = || {
         vec![
             ("HOME".to_owned(), case.home().display().to_string()),
@@ -2674,11 +2752,15 @@ fn a_directory_to_read_that_holds_one_to_write_is_named_by_its_other_entries() {
                 "PATH".to_owned(),
                 case.dir.join("none").display().to_string(),
             ),
+            (
+                conductor_cli::store::STORE_VARIABLE.to_owned(),
+                format!("sqlite:{}", tools.join("store/shared.sqlite").display()),
+            ),
         ]
     };
-    let binary = Path::new("/usr/bin/conductor");
+    let binary = tools.join("conductor");
 
-    let request = placement::request(&instance, &file, binary, env());
+    let request = placement::request(&instance, &file, &binary, env());
     assert_eq!(request.refused, None, "{request:?}");
     assert_eq!(
         request.cwd,
@@ -2689,44 +2771,62 @@ fn a_directory_to_read_that_holds_one_to_write_is_named_by_its_other_entries() {
         request
             .writable_roots
             .iter()
-            .map(|root| root.path.clone())
+            .map(|root| (root.name.clone(), root.path.clone()))
             .collect::<Vec<_>>(),
         [
-            own.join("state").display().to_string(),
-            root.join("records").display().to_string(),
-            own.join("cache").display().to_string(),
-        ]
+            (
+                "state-example-org".to_owned(),
+                own.join("state").display().to_string()
+            ),
+            (
+                "checkouts-example-org".to_owned(),
+                root.display().to_string()
+            ),
+            (
+                "cache-example-org".to_owned(),
+                own.join("cache").display().to_string()
+            ),
+            (
+                "store".to_owned(),
+                tools.join("store").display().to_string()
+            ),
+            (
+                "trees-example-org".to_owned(),
+                own.join("trees").display().to_string()
+            ),
+        ],
+        "the records are written through the checkouts root, under its name"
     );
     assert_eq!(
         request.read_only_roots,
         [
-            root.join("one").display().to_string(),
-            root.join("two").display().to_string(),
+            tools.join("one").display().to_string(),
+            tools.join("two").display().to_string(),
         ],
-        "each directory of the checkouts root but the records, no link to one"
+        "each directory of the binary's directory but the store's, no link to one"
     );
     assert!(
         request.read_only_files.contains(&placement::HostFile {
-            host_path: real(&root.join("notes.md")),
-            mount: root.join("notes.md").display().to_string(),
+            host_path: real(&tools.join("notes.md")),
+            mount: tools.join("notes.md").display().to_string(),
         }),
-        "each file of the checkouts root: {request:?}"
+        "each file of the binary's directory: {request:?}"
     );
     assert_substrate_admits(&request);
 
     // More entries than one start names: refused by conductor, naming the directory.
     for dir in ["three", "four", "five"] {
-        fs::create_dir_all(root.join(dir)).expect("create the directory");
+        fs::create_dir_all(tools.join(dir)).expect("create the directory");
     }
-    let request = placement::request(&instance, &file, binary, env());
+    let request = placement::request(&instance, &file, &binary, env());
     let refused = request.refused.clone().expect("five directories to read");
     assert_eq!(refused.name, placement::MOUNTS_EXCEEDED);
     assert!(
-        refused.detail.contains(&root.display().to_string())
+        refused.detail.contains(&tools.display().to_string())
             && refused.detail.contains("5 directories to read")
             && refused
                 .detail
-                .contains(&format!("put records outside {}", root.display())),
+                .contains(&format!("put store outside {}", tools.display())),
         "the refusal names the directory and the fix: {refused:?}"
     );
     let mut store =
@@ -2742,9 +2842,9 @@ fn a_directory_to_read_that_holds_one_to_write_is_named_by_its_other_entries() {
 }
 
 /// The layout the configure-an-instance guide writes: the records outside the checkouts root,
-/// which is then one directory to read however many repositories it holds.
+/// which is one directory to write however many repositories it holds (`story:box-forge-work`).
 #[test]
-fn a_checkouts_root_of_six_repositories_with_the_records_outside_it_is_one_directory_to_read() {
+fn a_checkouts_root_of_six_repositories_is_one_directory_to_write() {
     let case = Case::new("box-six");
     let file = case.config(&[("alpha", "systemd")]);
     let mut instance = linux_instance(&case);
@@ -2769,34 +2869,37 @@ fn a_checkouts_root_of_six_repositories_with_the_records_outside_it_is_one_direc
     ];
     let request = placement::request(&instance, &file, Path::new("/usr/bin/conductor"), env);
     assert_eq!(request.refused, None, "{request:?}");
-    assert_eq!(
-        request.read_only_roots,
-        [root.display().to_string()],
-        "the checkouts root, whole"
+    assert!(request.read_only_roots.is_empty(), "{request:?}");
+    assert!(
+        request
+            .writable_roots
+            .iter()
+            .any(|written| written.path == root.display().to_string()),
+        "the checkouts root, whole: {request:?}"
     );
-    assert_eq!(request.writable_roots.len(), 4, "{request:?}");
+    assert_eq!(request.writable_roots.len(), 6, "{request:?}");
     assert_substrate_admits(&request);
 }
 
-/// The bound of files to read (`story:box-runtime-starts`): the records under the checkouts
-/// root, so each loose file beside them is named alone. Sixteen are one start's; the seventeenth
-/// is refused by conductor's own name before substrate is asked. The config file is in a
-/// directory of the root, read with it, so the loose files are every file the box names.
+/// The bound of files to read (`story:box-runtime-starts`): the store's directory in the
+/// binary's directory, so each loose file beside it is named alone. Sixteen are one start's; the
+/// seventeenth is refused by conductor's own name before substrate is asked. The config file is
+/// in a directory of the binary's, read with it, so the loose files are every file the box names.
 #[test]
-fn sixteen_loose_files_beside_the_records_are_admitted_and_the_seventeenth_is_refused() {
+fn sixteen_loose_files_beside_the_store_are_admitted_and_the_seventeenth_is_refused() {
     let case = Case::new("box-files");
     let mut instance = linux_instance(&case);
     instance.placement = PlacementName("systemd".to_owned());
     let own = case.dir.join("i");
-    let root = own.join("checkouts");
+    let tools = own.join("tools");
     instance.state = own.join("state").display().to_string();
-    instance.records = root.join("records").display().to_string();
+    instance.records = own.join("records").display().to_string();
     instance.cache = own.join("cache").display().to_string();
-    instance.checkouts.root = root.display().to_string();
+    instance.checkouts.root = own.join("checkouts").display().to_string();
     instance.checkouts.trees = own.join("trees").display().to_string();
-    fs::create_dir_all(root.join("records")).expect("create the records");
-    fs::create_dir_all(root.join("etc")).expect("create the directory");
-    let file = root.join("etc/conductor.yaml");
+    fs::create_dir_all(tools.join("store")).expect("create the store's directory");
+    fs::create_dir_all(tools.join("etc")).expect("create the directory");
+    let file = tools.join("etc/conductor.yaml");
     fs::copy(case.config(&[("alpha", "systemd")]), &file).expect("copy the config file");
     let asked = || {
         let env = vec![
@@ -2805,12 +2908,15 @@ fn sixteen_loose_files_beside_the_records_are_admitted_and_the_seventeenth_is_re
                 "PATH".to_owned(),
                 case.dir.join("none").display().to_string(),
             ),
-            (conductor_cli::store::STORE_VARIABLE.to_owned(), case.url()),
+            (
+                conductor_cli::store::STORE_VARIABLE.to_owned(),
+                format!("sqlite:{}", tools.join("store/shared.sqlite").display()),
+            ),
         ];
-        placement::request(&instance, &file, Path::new("/usr/bin/conductor"), env)
+        placement::request(&instance, &file, &tools.join("conductor"), env)
     };
     for number in 0..placement::READ_ONLY_FILES_BOUND {
-        fs::write(root.join(format!("note-{number}.txt")), "").expect("write a loose file");
+        fs::write(tools.join(format!("note-{number}.txt")), "").expect("write a loose file");
     }
     let request = asked();
     assert_eq!(request.refused, None, "{request:?}");
@@ -2822,7 +2928,7 @@ fn sixteen_loose_files_beside_the_records_are_admitted_and_the_seventeenth_is_re
     );
     assert_substrate_admits(&request);
 
-    fs::write(root.join("note-more.txt"), "").expect("write a loose file");
+    fs::write(tools.join("note-more.txt"), "").expect("write a loose file");
     let request = asked();
     let refused = request.refused.clone().expect("seventeen files to read");
     assert_eq!(refused.name, placement::MOUNTS_EXCEEDED);
@@ -2830,7 +2936,7 @@ fn sixteen_loose_files_beside_the_records_are_admitted_and_the_seventeenth_is_re
         refused.detail.contains("17 files to read")
             && refused
                 .detail
-                .contains(&format!("put records outside {}", root.display())),
+                .contains(&format!("put store outside {}", tools.display())),
         "{refused:?}"
     );
 }
@@ -3508,7 +3614,7 @@ fn doctor_dry_runs_a_box_against_the_substrate_daemon_and_starts_nothing() {
     );
     fs::remove_file(&socket).expect("remove the socket");
 
-    // It serves all four and declares no slot for the daemon's token
+    // It serves all six roots and the forge apertures and declares no slot for the daemon's token
     // (`story:box-reaches-forge-and-daemon`): the box starts as it did, so it is no failure,
     // and one row says the token does not reach it, with the flag.
     let socket = case.dir.join("s.sock");
@@ -3516,13 +3622,22 @@ fn doctor_dry_runs_a_box_against_the_substrate_daemon_and_starts_nothing() {
         &socket,
         &systemd_families(),
         &SYSTEMD_PROPERTIES,
-        &["state-alpha", "records-alpha", "cache-alpha", "store"],
+        &[
+            "state-alpha",
+            "records-alpha",
+            "cache-alpha",
+            "store",
+            "checkouts-alpha",
+            "trees-alpha",
+            "forge_github_com",
+            "forge_api_github_com",
+        ],
     );
     let output = case.doctor_on(&file, &socket);
     let shown = lines(&output);
     assert!(
         shown.iter().any(
-            |line| line.starts_with("box alpha: systemd") && line.contains("4 writable roots")
+            |line| line.starts_with("box alpha: systemd") && line.contains("6 writable roots")
         ),
         "{}",
         describe(&output)
@@ -3563,6 +3678,10 @@ fn doctor_dry_runs_a_box_against_the_substrate_daemon_and_starts_nothing() {
             "records-alpha",
             "cache-alpha",
             "store",
+            "checkouts-alpha",
+            "trees-alpha",
+            "forge_github_com",
+            "forge_api_github_com",
             "api_token_alpha",
         ],
     );
@@ -3570,7 +3689,7 @@ fn doctor_dry_runs_a_box_against_the_substrate_daemon_and_starts_nothing() {
     let shown = lines(&output);
     assert!(
         shown.iter().any(
-            |line| line.starts_with("box alpha: systemd") && line.contains("4 writable roots")
+            |line| line.starts_with("box alpha: systemd") && line.contains("6 writable roots")
         ),
         "{}",
         describe(&output)
@@ -3609,7 +3728,16 @@ fn doctor_dry_runs_a_box_against_the_substrate_daemon_and_starts_nothing() {
         &socket,
         &systemd_families(),
         &SYSTEMD_PROPERTIES,
-        &["state-alpha", "records-alpha", "cache-alpha", "store"],
+        &[
+            "state-alpha",
+            "records-alpha",
+            "cache-alpha",
+            "store",
+            "checkouts-alpha",
+            "trees-alpha",
+            "forge_github_com",
+            "forge_api_github_com",
+        ],
     );
     let output = case.doctor_on(&file, &socket);
     let verdict = lines(&output).last().cloned().unwrap_or_default();
@@ -3650,7 +3778,16 @@ fn doctor_names_a_box_conductord_would_refuse_before_it_asks_substrate() {
         &socket,
         &systemd_families(),
         &SYSTEMD_PROPERTIES,
-        &["state-alpha", "records-alpha", "cache-alpha", "store"],
+        &[
+            "state-alpha",
+            "records-alpha",
+            "cache-alpha",
+            "store",
+            "checkouts-alpha",
+            "trees-alpha",
+            "forge_github_com",
+            "forge_api_github_com",
+        ],
     );
     let output = case.doctor_on(&case.file(), &socket);
     let verdict = lines(&output).last().cloned().unwrap_or_default();
@@ -3896,6 +4033,7 @@ fn the_sdk_seals_the_api_token_slot_at_the_start_and_says_whether_the_daemon_dec
         .writable_roots
         .iter()
         .map(|root| root.name.as_str())
+        .chain(request.forges.iter().map(|forge| forge.name.as_str()))
         .collect();
     let properties = [Property::IpcSocketAllowlist, Property::IpcSignalsContained];
 
@@ -3939,6 +4077,10 @@ fn the_sdk_seals_the_api_token_slot_at_the_start_and_says_whether_the_daemon_dec
     sdk.socket = socket.clone();
     assert!(sdk.declares(&slot.name), "the slot is declared");
     assert!(!sdk.declares("api_token_b"), "another is not");
+    assert!(
+        sdk.declares_aperture("forge_github_com") && !sdk.declares_aperture("forge_other"),
+        "the forge apertures the daemon declares, by name"
+    );
     let admitted = sdk
         .admits(
             std::slice::from_ref(&request),
@@ -3960,6 +4102,11 @@ fn the_sdk_seals_the_api_token_slot_at_the_start_and_says_whether_the_daemon_dec
     assert!(
         !starts[0].to_string().contains("CONDUCTOR_API_TOKEN"),
         "no start carries the token's variable: {}",
+        starts[0]
+    );
+    assert!(
+        starts[0].to_string().contains("\"forge_github_com\""),
+        "the start names the forge's aperture: {}",
         starts[0]
     );
 }
@@ -4086,6 +4233,10 @@ fn doctor_checks_a_declared_api_token_slot_and_writes_no_slot() {
             "records-alpha",
             "cache-alpha",
             "store",
+            "checkouts-alpha",
+            "trees-alpha",
+            "forge_github_com",
+            "forge_api_github_com",
             "api_token_alpha",
         ],
     );
@@ -4093,7 +4244,7 @@ fn doctor_checks_a_declared_api_token_slot_and_writes_no_slot() {
     let shown = lines(&output);
     assert!(
         shown.iter().any(
-            |line| line.starts_with("box alpha: systemd") && line.contains("4 writable roots")
+            |line| line.starts_with("box alpha: systemd") && line.contains("6 writable roots")
         ),
         "{}",
         describe(&output)
@@ -4156,6 +4307,10 @@ fn doctor_and_conductord_refuse_a_declared_slot_whose_file_is_a_directory() {
             "records-alpha",
             "cache-alpha",
             "store",
+            "checkouts-alpha",
+            "trees-alpha",
+            "forge_github_com",
+            "forge_api_github_com",
             "api_token_alpha",
         ],
     );
@@ -4986,7 +5141,16 @@ mod adversary {
         let case = Case::new("adv-doc");
         let file = case.config(&[("alpha", "systemd")]);
         case.directories("alpha");
-        let all = ["state-alpha", "records-alpha", "cache-alpha", "store"];
+        let all = [
+            "state-alpha",
+            "records-alpha",
+            "cache-alpha",
+            "store",
+            "checkouts-alpha",
+            "trees-alpha",
+            "forge_github_com",
+            "forge_api_github_com",
+        ];
 
         // No `limits` family: the systemd adapter requires it.
         let socket = case.dir.join("a.sock");
@@ -5604,6 +5768,10 @@ fn adv_box_token_doctor_names_a_box_whose_declared_slot_conductord_cannot_seal()
             "records-alpha",
             "cache-alpha",
             "store",
+            "checkouts-alpha",
+            "trees-alpha",
+            "forge_github_com",
+            "forge_api_github_com",
             "api_token_alpha",
         ],
     );
@@ -5632,6 +5800,10 @@ fn adv2_box_token_declaring(socket: &Path) -> FakeLocal {
             "records-alpha",
             "cache-alpha",
             "store",
+            "checkouts-alpha",
+            "trees-alpha",
+            "forge_github_com",
+            "forge_api_github_com",
             "api_token_alpha",
         ],
     )
@@ -5846,4 +6018,359 @@ fn a_local_box_dials_its_api_out_to_conductord_while_the_dial_port_is_set() {
         daemon.routes().get("alpha").and_then(|r| r.dial.clone()),
         None
     );
+}
+
+// ---------------------------------------------------------------------------------------------
+// story:box-forge-work: a runtime in a box and its controllers do forge work
+// ---------------------------------------------------------------------------------------------
+
+impl Case {
+    /// One instance `alpha` in a local `linux` box with one `gitlab` source on
+    /// `gitlab.example.com` and the sources `more` beside it (YAML flow values), `daemon.dial_port`
+    /// set when `dial`; its checkouts root and its records are directories. (`tests/trust.rs`
+    /// holds the trust of a checkout: this file plants no repository.)
+    fn forge_config(&self, dial: bool, more: &[&str]) -> PathBuf {
+        let root = self.dir.join("alpha");
+        fs::create_dir_all(root.join("checkouts")).expect("the checkouts root");
+        fs::create_dir_all(root.join("records")).expect("the records");
+        let mut sources = vec!["{gitlab: example-group, host: gitlab.example.com}".to_owned()];
+        sources.extend(more.iter().map(|more| (*more).to_owned()));
+        let text = format!(
+            "version: conductor.config/2\ndaemon: {{port: 7300, {dial}store: {url:?}}}\n\
+             instances:\n  - name: alpha\n    placement: {{daemon: local, adapter: linux}}\n    \
+             session_prefix: alpha\n    sources: [{sources}]\n    \
+             checkouts: {{root: {root:?}, trees: {trees:?}}}\n    \
+             records: {records:?}\n    state: {state:?}\n    cache: {cache:?}\n",
+            dial = if dial { "dial_port: 7301, " } else { "" },
+            url = self.url(),
+            sources = sources.join(", "),
+            root = root.join("checkouts"),
+            trees = self.dir.join("trees/alpha"),
+            records = root.join("records"),
+            state = root.join("state"),
+            cache = root.join("cache"),
+        );
+        fs::write(self.file(), text).expect("write the config file");
+        self.file()
+    }
+
+    fn pass(&self, fake: &Fake) {
+        let mut daemon = self.daemon(fake.clone());
+        daemon
+            .pass(
+                conductor_model::instance::ReconcileReason::ConfigChange,
+                std::time::Instant::now(),
+            )
+            .expect("a pass");
+    }
+}
+
+/// The aperture of a forge host is `forge_` and the host in lower case, each byte outside
+/// letters and digits `_`: in substrate's name set, one per host whatever instance asks.
+#[test]
+fn a_forge_aperture_is_named_for_its_host() {
+    assert_eq!(
+        placement::forge_aperture("gitlab.example.com"),
+        "forge_gitlab_example_com"
+    );
+    assert_eq!(
+        placement::forge_aperture("Git-Lab.Example.COM."),
+        "forge_git_lab_example_com"
+    );
+    let forge = placement::ForgeAperture {
+        name: placement::forge_aperture("gitlab.example.com"),
+        host: "gitlab.example.com".to_owned(),
+    };
+    assert_eq!(
+        forge.flag(),
+        "--egress-aperture forge_gitlab_example_com=gitlab.example.com:443/tcp"
+    );
+    let unreached = placement::forges_unreached(std::slice::from_ref(&forge), |_| false)
+        .expect("an undeclared aperture is named");
+    assert!(unreached.contains(&forge.flag()), "{unreached}");
+    assert_eq!(placement::forges_unreached(&[forge], |_| true), None);
+}
+
+/// The box of an instance with a forge source names the forge's aperture after the dial-in and
+/// the model host's, so conductord's stays on `127.0.0.1` and the model host's on `127.0.0.2`;
+/// where the daemon does not declare it, the box starts without it.
+#[test]
+fn a_box_reaches_each_forge_host_through_a_declared_aperture() {
+    let case = Case::new("forge-apertures");
+    case.forge_config(true, &[]);
+    let fake = Fake::default();
+    fake.log
+        .lock()
+        .expect("the log")
+        .apertures
+        .push("forge_gitlab_example_com".to_owned());
+    case.pass(&fake);
+    {
+        let log = fake.log.lock().expect("the log");
+        let request = &log.opened[0];
+        assert_eq!(
+            request.apertures,
+            [
+                conductor_cli::daemon::dial::APERTURE,
+                placement::EGRESS_APERTURE,
+                "forge_gitlab_example_com"
+            ]
+        );
+        assert_eq!(request.forges.len(), 1, "{:?}", request.forges);
+        assert_eq!(request.forges[0].host, "gitlab.example.com");
+    }
+
+    let case = Case::new("forge-apertures-undeclared");
+    case.forge_config(false, &[]);
+    let fake = Fake::default();
+    case.pass(&fake);
+    let log = fake.log.lock().expect("the log");
+    assert_eq!(
+        log.opened[0].apertures,
+        [placement::EGRESS_APERTURE],
+        "an aperture the daemon does not declare is not named: substrate would refuse the start"
+    );
+}
+
+/// More apertures than one start names (four) is refused before substrate is asked, and
+/// `conductor config validate` names the instance's placement.
+#[test]
+fn more_forge_hosts_than_a_start_names_are_refused_at_validate() {
+    let case = Case::new("forge-apertures-exceeded");
+    let file = case.forge_config(true, &["{github: example-org}"]);
+    let output = case.conductor(&[
+        "--config",
+        &file.display().to_string(),
+        "config",
+        "validate",
+    ]);
+    assert_eq!(output.status.code(), Some(1), "{}", describe(&output));
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        stderr.contains("instances[0].placement")
+            && stderr.contains(placement::APERTURES_EXCEEDED)
+            && stderr.contains("5 egress apertures"),
+        "{}",
+        describe(&output)
+    );
+
+    // Without the dial-in, the model host and three forge hosts fit.
+    let file = case.forge_config(false, &["{github: example-org}"]);
+    let output = case.conductor(&[
+        "--config",
+        &file.display().to_string(),
+        "config",
+        "validate",
+    ]);
+    assert!(
+        !String::from_utf8_lossy(&output.stderr).contains(placement::APERTURES_EXCEEDED),
+        "{}",
+        describe(&output)
+    );
+}
+
+/// The box writes the checkouts root and the managed trees root, under roots the daemon
+/// declares; it reads git's and the `worktree` CLI's configuration; its harness keeps its state,
+/// and the `worktree` CLI its registry, in the state root; conductord makes the trees root and
+/// marks the records (and each checkout, `tests/trust.rs`) trusted in the harness's
+/// `.claude.json` there.
+#[test]
+fn a_box_writes_its_checkouts_and_trees_and_trusts_them_for_its_harness() {
+    let case = Case::new("forge-work");
+    case.forge_config(false, &[]);
+    fs::write(case.home().join(".gitconfig"), "[user]\n\tname = example\n").expect("gitconfig");
+    fs::create_dir_all(case.home().join(".config/worktree")).expect("worktree config dir");
+    fs::write(
+        case.home().join(".config/worktree/config.toml"),
+        "version = 1\n",
+    )
+    .expect("worktree config");
+    let fake = Fake::default();
+    case.pass(&fake);
+    let log = fake.log.lock().expect("the log");
+    let request = &log.opened[0];
+    let root = case.dir.join("alpha");
+    let names: Vec<(&str, &str)> = request
+        .writable_roots
+        .iter()
+        .map(|root| (root.name.as_str(), root.path.as_str()))
+        .collect();
+    let checkouts = root.join("checkouts").display().to_string();
+    let trees = case.dir.join("trees/alpha").display().to_string();
+    assert!(
+        names.contains(&("checkouts-alpha", checkouts.as_str()))
+            && names.contains(&("trees-alpha", trees.as_str())),
+        "{names:?}"
+    );
+    assert!(
+        !request.read_only_roots.contains(&checkouts),
+        "the checkouts root is written, not read: {:?}",
+        request.read_only_roots
+    );
+    for file in [".gitconfig", ".config/worktree/config.toml"] {
+        let path = case.home().join(file).display().to_string();
+        assert!(
+            request.read_only_files.iter().any(|one| one.mount == path),
+            "{file}: {:?}",
+            request.read_only_files
+        );
+    }
+    let state = root.join("state");
+    let claude = state.join("claude");
+    assert!(
+        request.env.contains(&(
+            placement::CLAUDE_CONFIG_VARIABLE.to_owned(),
+            claude.display().to_string()
+        )) && request.env.contains(&(
+            placement::XDG_STATE_VARIABLE.to_owned(),
+            state.join("xdg-state").display().to_string()
+        )),
+        "{:?}",
+        request.env
+    );
+    assert!(
+        Path::new(&trees).is_dir(),
+        "conductord makes the trees root"
+    );
+    assert_eq!(
+        fs::metadata(&claude)
+            .expect("the harness's state")
+            .permissions()
+            .mode()
+            & 0o777,
+        0o700
+    );
+    let document: Value =
+        serde_json::from_slice(&fs::read(claude.join(".claude.json")).expect(".claude.json"))
+            .expect("JSON");
+    let key = fs::canonicalize(root.join("records"))
+        .expect("physical")
+        .display()
+        .to_string();
+    assert_eq!(
+        document["projects"][&key]["hasTrustDialogAccepted"],
+        Value::Bool(true),
+        "{key}: {document}"
+    );
+}
+
+/// `conductor doctor` says what a controller in the box needs for its forge work: the forge's
+/// egress aperture declared on the daemon, with the flag where it is not; git's identity and the
+/// forge's credential helper in the global git config the box reads; and the trust of the
+/// checkouts in the box's `.claude.json`, which conductord marks before it opens the box.
+#[test]
+fn doctor_names_the_forge_aperture_the_git_identity_and_the_trust_of_a_box() {
+    let case = Case::new("dforge");
+    let file = case.forge_config(false, &[]);
+    case.directories("alpha");
+    let git = Path::new("/usr/bin/git");
+    if git.is_file() {
+        std::os::unix::fs::symlink(git, case.dir.join("bin/git")).expect("link git");
+    }
+    let roots = [
+        "state-alpha",
+        "records-alpha",
+        "cache-alpha",
+        "store",
+        "checkouts-alpha",
+        "trees-alpha",
+    ];
+
+    // No aperture to the forge: a failure, with the flag that declares it.
+    let socket = case.dir.join("a.sock");
+    let fake = FakeLocal::opening(&socket, &systemd_families(), &SYSTEMD_PROPERTIES, &roots);
+    let output = case.doctor_on(&file, &socket);
+    drop(fake);
+    let shown = lines(&output);
+    assert!(
+        shown
+            .iter()
+            .any(|line| line.starts_with("box alpha forge: ")
+                && line.contains(
+                    "--egress-aperture forge_gitlab_example_com=gitlab.example.com:443/tcp"
+                )),
+        "{}",
+        describe(&output)
+    );
+    let verdict = shown.last().cloned().unwrap_or_default();
+    assert!(
+        verdict.contains("box alpha (forge unreachable)"),
+        "{}",
+        describe(&output)
+    );
+    assert!(
+        shown
+            .iter()
+            .any(|line| line.starts_with("box alpha trust: 1 of 1 paths not marked")),
+        "{}",
+        describe(&output)
+    );
+    if git.is_file() {
+        assert!(
+            shown
+                .iter()
+                .any(|line| line.starts_with("box alpha git: no user.name")
+                    && line.contains("no credential.helper for https://gitlab.example.com")),
+            "{}",
+            describe(&output)
+        );
+        assert!(
+            !verdict.contains("box alpha (git)"),
+            "reported, not a failure: {}",
+            describe(&output)
+        );
+    }
+    fs::remove_file(&socket).expect("remove the socket");
+
+    // The aperture declared, git's identity and helper written, the checkouts trusted.
+    let mut served = roots.to_vec();
+    served.push("forge_gitlab_example_com");
+    let fake = FakeLocal::opening(&socket, &systemd_families(), &SYSTEMD_PROPERTIES, &served);
+    fs::write(
+        case.home().join(".gitconfig"),
+        "[user]\n\tname = example\n\temail = example@example.com\n\
+         [credential \"https://gitlab.example.com\"]\n\thelper = !glab auth git-credential\n",
+    )
+    .expect("write the git config");
+    let instance =
+        conductor_cli::config::parse(&fs::read_to_string(&file).expect("config"), &case.home())
+            .expect("the config")
+            .instances
+            .remove(0);
+    placement::prepare_box(&instance, 0).expect("conductord's preparation");
+    let output = case.doctor_on(&file, &socket);
+    drop(fake);
+    let shown = lines(&output);
+    assert!(
+        shown.contains(
+            &"box alpha forge: gitlab.example.com through the declared egress apertures \
+              forge_gitlab_example_com"
+                .to_owned()
+        ),
+        "{}",
+        describe(&output)
+    );
+    assert!(
+        shown
+            .iter()
+            .any(|line| line.starts_with("box alpha trust: 1 paths marked in ")),
+        "{}",
+        describe(&output)
+    );
+    let verdict = shown.last().cloned().unwrap_or_default();
+    assert!(
+        !verdict.contains("box alpha"),
+        "nothing of the box fails: {}",
+        describe(&output)
+    );
+    if git.is_file() {
+        assert!(
+            shown.contains(
+                &"box alpha git: identity and credential helpers in the global git config"
+                    .to_owned()
+            ),
+            "{}",
+            describe(&output)
+        );
+    }
 }
