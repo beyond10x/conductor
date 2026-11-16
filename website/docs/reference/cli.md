@@ -192,6 +192,7 @@ Every command takes these, before or after its name.
 | [`conductor gc`](#conductor-gc) | Remove what the dashboard's disk panel marks reclaimable, and no tree a live session works in; print the bytes freed |
 | [`conductor init`](#conductor-init) | Write and commit the instance's records directory skeleton; refuse to overwrite any file |
 | [`conductor instance`](#conductor-instance) |  |
+| [`conductor instance cycle`](#conductor-instance-cycle) | Ask the daemon for a cycle of the instance now (POST /v1/instances/\{name}/cycle, proxied to the runtime's POST /v1/cycle) - the instance's loop runs it at its next tick, within seconds and under its own lock, rather than when cadence.cycle has passed, and records it as every cycle; the instance is the one CONDUCTOR_INSTANCE or the config file selects |
 | [`conductor instance relay`](#conductor-instance-relay) | Bridge one instance API exchange from standard input to the instance's api.sock (CONDUCTOR_API_SOCKET, else &lt;state>/api.sock) and its answer to standard output; conductord runs it as a substrate pipe session in a box on a remote substrate daemon |
 | [`conductor instance serve`](#conductor-instance-serve) | Serve the instance API, the routes of the dashboard under /v1/, on the instance's &lt;state>/api.sock until stopped, and run the instance's loop beside it under the lock conductor run takes (&lt;state>/run/lock), so a conductor run started by hand is refused; while a conductor run holds the lock the runtime yields and takes the loop once it is let go; CONDUCTOR_RUNTIME_LOOP=off serves the API alone; a write takes the token the daemon minted for the instance, in CONDUCTOR_API_TOKEN |
 | [`conductor instance upgrade`](#conductor-instance-upgrade) | Ask the daemon to upgrade an instance to a released binary (POST /v1/instances/\{name}/upgrade) - it fetches the release, installs its binary, runs its conductor doctor, restarts the runtime on it and rolls back to the previous binary unless it answers within daemon.upgrade_timeout; --all goes through every instance of the config file one at a time and stops at the first rollback |
@@ -2562,6 +2563,14 @@ Usage: conductor init [OPTIONS]
 
 ```text
 Usage: conductor instance [OPTIONS] <COMMAND>
+```
+
+## `conductor instance cycle`
+
+Ask the daemon for a cycle of the instance now (POST /v1/instances/\{name}/cycle, proxied to the runtime's POST /v1/cycle) - the instance's loop runs it at its next tick, within seconds and under its own lock, rather than when cadence.cycle has passed, and records it as every cycle; the instance is the one CONDUCTOR_INSTANCE or the config file selects
+
+```text
+Usage: conductor instance cycle [OPTIONS]
 ```
 
 ## `conductor instance relay`

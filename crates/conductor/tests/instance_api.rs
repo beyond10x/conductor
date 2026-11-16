@@ -1594,3 +1594,33 @@ fn instance_serve_refuses_to_dial_without_the_daemons_token() {
         "{stderr}"
     );
 }
+
+/// `story:cycle-now`: the runtime's `POST /v1/cycle` takes the instance's token and marks the
+/// loop's next cycle due in `<state>/run/`; without the token it is refused and nothing is asked.
+#[test]
+fn post_v1_cycle_asks_the_loop_for_a_cycle_with_the_instance_token_only() {
+    let case = Case::new("cycle");
+    case.serve_instance();
+    let asked = case.state().join("run/cycle.asked");
+    let ask = |headers: &[(&str, &str)]| {
+        over_socket(
+            &case.socket(),
+            &raw("POST", "/v1/cycle", headers, Some(&json!({}))),
+        )
+    };
+    let refused = ask(&[]);
+    assert_eq!(refused.status, 403, "{}", refused.body);
+    assert!(!asked.exists());
+    let answer = ask(&[("X-Conductor-Token", INSTANCE_TOKEN)]);
+    assert_eq!(answer.status, 200, "{}", answer.body);
+    assert!(
+        answer.json()["asked_at"]
+            .as_str()
+            .is_some_and(|at| !at.is_empty()),
+        "{}",
+        answer.body
+    );
+    assert!(asked.exists(), "the ask is in the loop's directory");
+    let read = over_socket(&case.socket(), &raw("GET", "/v1/cycle", &[], None));
+    assert_eq!(read.status, 405, "{}", read.body);
+}

@@ -1601,3 +1601,71 @@ fn an_entry_with_a_step_that_names_no_checkout_is_422_over_the_instance_routes()
         }
     }
 }
+
+/// `story:cycle-now`: `POST /v1/instances/{name}/cycle` is an operator's write the daemon proxies
+/// to the runtime's `POST /v1/cycle` with the instance's token and the operator; it needs
+/// `StartInstances`, and an agent's bearer is refused by name, as other operator writes are,
+/// nothing forwarded.
+#[test]
+fn a_person_asks_an_instance_for_a_cycle_now_and_an_agent_is_refused() {
+    let case = Case::new("cycle-now");
+    let runtime = FakeRuntime::start();
+    let identity = fake_identity();
+    let api = api(&case, Some(&identity));
+    api.publish(
+        vec![json!({"name": "alpha", "state": "Running"})],
+        [(
+            "alpha".to_owned(),
+            api::Route {
+                socket: runtime.socket.clone(),
+                token: "5".repeat(64),
+                remote: None,
+                tcp: None,
+                dial: None,
+            },
+        )]
+        .into_iter()
+        .collect(),
+        vec![
+            operator("owner@example-org.test", &[OperatorGrant::StartInstances]),
+            operator("reader@example-org.test", &[]),
+        ],
+    );
+    let listener = serve_tls(&case, api);
+    let ask = |who: (&str, &str)| {
+        tls(
+            &listener,
+            "POST",
+            "/v1/instances/alpha/cycle",
+            &[who],
+            Some(&json!({})),
+        )
+    };
+
+    let refused = ask(AGENT);
+    assert_eq!(refused.status, 403, "{refused:?}");
+    assert_eq!(
+        refused.json()["error"],
+        "conductor.operator.ActorNotHuman",
+        "{refused:?}"
+    );
+    let reader = ask(("Authorization", "Bearer access-reader"));
+    assert_eq!(reader.status, 403, "{reader:?}");
+    assert_eq!(reader.json()["grant"], "StartInstances", "{reader:?}");
+    assert!(runtime.taken().is_empty(), "a refused ask was forwarded");
+
+    let asked = ask(OWNER);
+    assert_eq!(
+        asked.status, 201,
+        "the runtime's answer, as it gave it: {asked:?}"
+    );
+    let seen = runtime.taken();
+    assert_eq!(seen.len(), 1, "{seen:?}");
+    let (head, _) = &seen[0];
+    assert!(head.starts_with("POST /v1/cycle "), "{head}");
+    assert_eq!(
+        header_of(head, "x-conductor-operator"),
+        ["owner@example-org.test"]
+    );
+    assert_eq!(header_of(head, "x-conductor-token"), ["5".repeat(64)]);
+}

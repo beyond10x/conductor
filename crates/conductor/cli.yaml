@@ -257,6 +257,11 @@ callables:
     input: null
     result: String
     errors: {}
+  instance-cycle:
+    target: {kind: local, owner: conductor-cli, action: instance_cycle}
+    input: null
+    result: String
+    errors: {}
   instance-upgrade:
     target: {kind: local, owner: conductor-cli, action: instance_upgrade}
     input: conductor.instance.UpgradeInstances
@@ -636,6 +641,10 @@ commands:
   - path: [instance, relay]
     callable: instance-relay
     about: Bridge one instance API exchange from standard input to the instance's api.sock (CONDUCTOR_API_SOCKET, else <state>/api.sock) and its answer to standard output; conductord runs it as a substrate pipe session in a box on a remote substrate daemon
+    arguments: []
+  - path: [instance, cycle]
+    callable: instance-cycle
+    about: "Ask the daemon for a cycle of the instance now (POST /v1/instances/{name}/cycle, proxied to the runtime's POST /v1/cycle) - the instance's loop runs it at its next tick, within seconds and under its own lock, rather than when cadence.cycle has passed, and records it as every cycle; the instance is the one CONDUCTOR_INSTANCE or the config file selects"
     arguments: []
   - path: [instance, upgrade]
     callable: instance-upgrade

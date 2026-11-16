@@ -701,14 +701,15 @@ impl Api {
 }
 
 /// The grant a write on the route `route` needs: answers and the Plan page's moves are decisions,
-/// an upgrade upgrades, and everything else, `PUT /v1/config` included, changes settings.
+/// an upgrade upgrades, a restart and a cycle now start, and everything else, `PUT /v1/config` included, changes settings.
 #[must_use]
 pub fn grant_for(route: &str) -> OperatorGrant {
     match route {
         "answers" | "plan" => OperatorGrant::AnswerDecisions,
         "upgrade" => OperatorGrant::UpgradeInstances,
-        // An instance's runtime started again (`POST /v1/instances/{name}/restart`).
-        "restart" => OperatorGrant::StartInstances,
+        // An instance's runtime started again (`POST /v1/instances/{name}/restart`), and its
+        // loop asked for a cycle now (`POST /v1/instances/{name}/cycle`, story:cycle-now).
+        "restart" | "cycle" => OperatorGrant::StartInstances,
         // story:token-pool: joining an instance, and leaving it, is the `Join` grant.
         "join" | "leave" => OperatorGrant::Join,
         _ => OperatorGrant::ChangeSettings,
@@ -2528,12 +2529,14 @@ fn read_body_within<const MOST: usize, S: Read>(
 }
 
 /// The instance routes that write, each with its method: the answers, the settings, the Plan
-/// page's moves and the work call (story:control-plane-work-handler).
-const WRITES: [(&str, &str); 4] = [
+/// page's moves, the work call (story:control-plane-work-handler) and an ask for a cycle now
+/// (story:cycle-now).
+const WRITES: [(&str, &str); 5] = [
     ("answers", "POST"),
     ("settings", "PUT"),
     ("plan", "POST"),
     (WORK, "POST"),
+    ("cycle", "POST"),
 ];
 
 /// The route word of the work call: `POST /v1/instances/{name}/work`, and `GET .../work/
