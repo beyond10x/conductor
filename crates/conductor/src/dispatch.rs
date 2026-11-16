@@ -862,7 +862,7 @@ pub fn unblock(
     })?;
     match outcome {
         ReportUnblockedOutcome::Unblocked { dispatch_unblocked } => {
-            logged(
+            let _ = logged(
                 COMMAND,
                 &store,
                 &dispatch_unblocked.dispatch_id,
