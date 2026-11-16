@@ -15,8 +15,8 @@ scope:
   path: crates/conductor/src/daemon/upgrade.rs
 - confidence: cited
   path: crates/conductor/src/daemon/reconcile.rs
-- confidence: inferred
-  path: crates/conductor/tests/placement.rs
+- confidence: cited
+  path: crates/conductor/tests/box_upgrade.rs
 revision: 1
 ---
 ## Why

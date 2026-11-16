@@ -1295,10 +1295,18 @@ impl<U: Units> Daemon<U> {
         Ok(self.look(name, unit)?.unwrap_or(true))
     }
 
+    /// Whether the runtime of `name`, started as `unit`, runs in a substrate box the daemon
+    /// opened ([`boxed_unit`]): substrate, not the service manager, knows whether it runs.
+    pub(super) fn in_box(&self, name: &str, unit: &str) -> bool {
+        self.boxes
+            .get(name)
+            .is_some_and(|opened| boxed_unit(opened) == unit)
+    }
+
     /// What [`Daemon::runs`] answers, and `None` when the runtime is in a box on a remote daemon
     /// that does not answer (`story:placement-substrate-remote`): its instance is `Unreachable`,
     /// a row and never an error, and nothing is started in its place.
-    fn look(&mut self, name: &str, unit: &str) -> Result<Option<bool>> {
+    pub(super) fn look(&mut self, name: &str, unit: &str) -> Result<Option<bool>> {
         // A pod, from the tick's one list: Pending or Running runs, absent or ended does not, and
         // a list that failed is `None`, as a silent remote daemon: nothing starts in its place.
         if let (Some(_), Some(pods)) = (self.pod_run(), self.units.pods()) {

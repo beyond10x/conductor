@@ -14,6 +14,12 @@
 //!   before the switch; a failure is `RolledBack` and the runtime runs on, untouched;
 //! - `restart`: the runtime stopped and started on the new binary, which becomes the instance's
 //!   desired binary, the one it ran kept as its previous ([`super::reconcile::BINARIES_FILE`]).
+//!   A runtime in a substrate box (`story:box-instance-upgrade`) has its box closed and a new
+//!   one opened on the new binary, as a pass does for a changed desired binary.
+//!
+//! Whether a runtime in a box runs, and whether it answers, is substrate's answer for its
+//! session, as the reconciler reads it (`Daemon::look`); the service manager knows no
+//! `substrate:<session>` unit. Its rollback opens a box on the previous binary.
 //!
 //! The instance is then `Upgrading` until [`Daemon::settle`] sees its runtime answer (`up`,
 //! `Succeeded`), or puts the previous binary back and starts it (`rollback`, `RolledBack`): when
@@ -253,7 +259,7 @@ impl<U: Units> Daemon<U> {
             .get(name)
             .is_some_and(|pinned| pinned.upgrading.is_some());
         let running = match &held {
-            Some(held) if !upgrading => self.units.active(&held.unit).map_err(failed)?,
+            Some(held) if !upgrading => self.runs_now(name, &held.unit).map_err(failed)?,
             _ => false,
         };
         let Some(held) = held.filter(|_| running) else {
@@ -353,17 +359,24 @@ impl<U: Units> Daemon<U> {
                 }),
             },
         );
-        let restarted = self
-            .units
-            .stop(&held.unit)
-            .and_then(|()| self.units.start(&service));
+        // A runtime in a substrate box: its box closed and a new one opened on the new binary,
+        // as a pass does for a changed desired binary; the service manager knows no such unit.
+        let restarted = if self.in_box(name, &held.unit) {
+            self.stop_runtime(name, &held.unit)
+                .and_then(|()| self.start_runtime(&instance, &service))
+        } else {
+            self.units
+                .stop(&held.unit)
+                .and_then(|()| self.units.start(&service))
+                .map(|()| held.unit.clone())
+        };
         match restarted {
-            Ok(()) => {
+            Ok(unit) => {
                 let at = crate::records::now().map_err(failed)?;
                 self.started.insert(
                     name.to_owned(),
                     Started {
-                        unit: held.unit.clone(),
+                        unit,
                         placement: held.placement.clone(),
                         binary: new.path.display().to_string(),
                         version: new.version.clone(),
@@ -429,15 +442,23 @@ impl<U: Units> Daemon<U> {
                 continue;
             };
             let unit = self.started.get(&name).map(|held| held.unit.clone());
-            let running = match &unit {
-                Some(unit) => self.units.active(unit)?,
-                None => false,
+            // A runtime in a box answers when substrate says its session runs, as the reconciler
+            // decides; a silent remote daemon is neither lost nor answering, until the deadline.
+            let (running, answers) = match &unit {
+                Some(unit) if self.in_box(&name, unit) => match self.look(&name, unit)? {
+                    Some(running) => (running, running),
+                    None => (true, false),
+                },
+                Some(unit) => {
+                    let running = self.units.active(unit)?;
+                    (
+                        running,
+                        running && self.units.answers(unit).unwrap_or(false),
+                    )
+                }
+                None => (false, false),
             };
-            if running
-                && unit
-                    .as_deref()
-                    .is_some_and(|unit| self.units.answers(unit).unwrap_or(false))
-            {
+            if answers {
                 if let Some(pinned) = self.pins.get_mut(&name) {
                     pinned.upgrading = None;
                 }
@@ -509,15 +530,20 @@ impl<U: Units> Daemon<U> {
         );
         let token = crate::dashboard::mint().context("mint the runtime's token")?;
         let service = self.service(instance, &previous, &token);
-        let unit = super::reconcile::unit_name(&name);
-        let outcome = (|| {
-            if self.units.active(&unit)? {
-                self.units.stop(&unit)?;
-            }
-            self.units.start(&service)
-        })();
+        let outcome = if crate::placement::boxed(instance) {
+            self.box_back(&name, instance, &service)
+        } else {
+            let unit = super::reconcile::unit_name(&name);
+            (|| {
+                if self.units.active(&unit)? {
+                    self.units.stop(&unit)?;
+                }
+                self.units.start(&service)
+            })()
+            .map(|()| unit)
+        };
         let (result, detail) = match outcome {
-            Ok(()) => {
+            Ok(unit) => {
                 let at = crate::records::now()?;
                 self.started.insert(
                     name.clone(),
@@ -556,6 +582,26 @@ impl<U: Units> Daemon<U> {
             Some(detail),
             &crate::actor::daemon(),
         )
+    }
+
+    /// Whether the runtime of `name`, started as `unit`, runs: substrate's answer for its
+    /// session when it runs in a box ([`Self::in_box`]), else the service manager's; a silent
+    /// remote substrate daemon is not running here, so nothing is upgraded on it.
+    fn runs_now(&mut self, name: &str, unit: &str) -> Result<bool> {
+        if self.in_box(name, unit) {
+            return Ok(self.look(name, unit)?.unwrap_or(false));
+        }
+        self.units.active(unit)
+    }
+
+    /// Starts `name`'s runtime in a new box as `service` says, after closing the box it runs in,
+    /// if any is still recorded; answers the unit it runs as.
+    fn box_back(&mut self, name: &str, instance: &Instance, service: &Service) -> Result<String> {
+        let held = self.started.get(name).map(|held| held.unit.clone());
+        if let Some(unit) = held.filter(|unit| self.in_box(name, unit)) {
+            self.stop_runtime(name, &unit)?;
+        }
+        self.start_runtime(instance, service)
     }
 
     /// Answers one request [`post`] handed over: the upgrade, then its reply.
