@@ -992,7 +992,9 @@ impl<'s, 'a> Tick<'s, 'a> {
 
 /// Held around a count of the running controllers and the start it allows: the work call's
 /// ([`start_work`], on the API's thread) and the loop's ([`Tick::spawn`], [`start_work`]), which
-/// run in one runtime process, so neither starts past `controllers.max_working` beside the other.
+/// run in one runtime process, so neither starts past `controllers.max_working` beside the other;
+/// and around the cycle's stop of the controllers whose sessions are gone ([`dispatch`]), so no
+/// start counts a record while it is being stopped.
 static STARTS: std::sync::Mutex<()> = std::sync::Mutex::new(());
 
 /// `controllers.max_working`, when that many controllers of the store under `state` run.

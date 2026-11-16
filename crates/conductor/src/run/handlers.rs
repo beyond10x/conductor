@@ -61,7 +61,7 @@ use crate::watch::Watch;
 const HANDOVER: &str = "handover.json";
 
 /// The sessions a usage limit marked.
-const LIMITED: &str = "limited.json";
+pub(super) const LIMITED: &str = "limited.json";
 
 /// The sessions a check-in was sent.
 const STALLED: &str = "stalled.json";
@@ -1154,12 +1154,26 @@ fn offer(tick: &Tick<'_, '_>, controller: &str, session: &str, text: &str) -> Re
 /// Records the running controller `controller` stopped, as the delivery that found its session
 /// unreachable said in `said`.
 fn record_stopped(tick: &Tick<'_, '_>, controller: &str, said: &str) -> Result<()> {
+    stop_record(
+        tick,
+        controller,
+        &format!("conductor run: a delivery was refused: {said}"),
+    )
+}
+
+/// Records the controller `controller` stopped for `reason`, its session left as it is: the
+/// caller found it gone or unreachable.
+///
+/// # Errors
+///
+/// The store does not open or keep the stop, or holds no such controller, or holds it stopped.
+pub(super) fn stop_record(tick: &Tick<'_, '_>, controller: &str, reason: &str) -> Result<()> {
     let mut generated = crate::controller::record(tick.state)?;
     let outcome = generated
         .stop_controller(StopController {
             actor: crate::actor::chosen(),
             controller_id: ControllerId(Uuid(controller.to_owned())),
-            reason: format!("conductor run: a delivery was refused: {said}"),
+            reason: reason.to_owned(),
         })
         .map_err(|unmet| anyhow!("{unmet}"))?;
     generated.ports.store.check().context("keep the stop")?;

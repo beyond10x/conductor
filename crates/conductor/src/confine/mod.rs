@@ -934,6 +934,24 @@ pub fn listed(name: &str) -> Result<Vec<Value>> {
 
 /// [`listed`], with the list given `bound`.
 fn listed_within(name: &str, bound: Duration) -> Result<Vec<Value>> {
+    Ok(sessions_within(bound)?
+        .into_iter()
+        .filter(|entry| entry["name"].as_str() == Some(name))
+        .collect())
+}
+
+/// Every entry of the Claude session list, whatever its name, as [`listed`] reads it, the
+/// `child` provider's sessions with them: one read for a caller that asks about many names.
+///
+/// # Errors
+///
+/// The list cannot be run or read.
+pub fn sessions() -> Result<Vec<Value>> {
+    sessions_within(BOUND)
+}
+
+/// [`sessions`], with the list given `bound`.
+fn sessions_within(bound: Duration) -> Result<Vec<Value>> {
     let shown = format!("{CLAUDE} agents --json");
     let output = collect::run(
         crate::instance::command(CLAUDE).args(["agents", "--json"]),
@@ -949,10 +967,7 @@ fn listed_within(name: &str, bound: Duration) -> Result<Vec<Value>> {
         bail!("`{shown}` printed no JSON array");
     };
     child::append(std::ffi::OsStr::new(CLAUDE), &mut entries);
-    Ok(entries
-        .into_iter()
-        .filter(|entry| entry["name"].as_str() == Some(name))
-        .collect())
+    Ok(entries)
 }
 
 /// The harness's own state of each live session it lists, by session name: true where it reports

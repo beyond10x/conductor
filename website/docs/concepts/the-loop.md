@@ -16,6 +16,12 @@ source: docs/design/conductor-run.md section 3; docs/design/conductor.md section
 | cycle | every `cadence.cycle` (2 h), first at start | `snapshot start-snapshot`, `snapshot publish-board`, `records check`, dispatch v1 |
 | daily | at `cadence.daily` (08:07 UTC) | `metric compute` for the previous day, `<records>/REPORT.md`, a records commit |
 
+Before dispatch v1 the cycle checks each `Running` controller against the session list. A
+controller whose session is gone, neither live nor waiting at a usage limit (after a runtime
+restart or an OOM kill, say), is recorded stopped, and the `cycle` line says why; it no longer
+counts against `controllers.max_working`. One whose repository has an open dispatch starts again,
+as after `session gone`.
+
 Dispatch v1 runs `conductor spawn`, in name order, for each Active repository with a charter and no
 running or paused controller, while fewer than `controllers.max_working` run. A repository whose charter has
 `merge: human` waits while `controllers.max_open_reviews` of its pull requests wait for review.

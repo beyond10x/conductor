@@ -112,6 +112,11 @@ neither route reaches is reported, never
 retried in a loop. `SendMessage` is no longer used between roles; the guard allows `message send`
 and denies `session deliver` to a controller.
 
+Reconcile: each cycle, before dispatch v1, every Running controller whose session the session
+list names neither live nor blocked, and that no usage limit marked, is recorded stopped with the
+reason; one whose repository has an open dispatch is started again, as after `session gone`
+(`story:controllers-reconciled-with-live-sessions`). An unread list stops none.
+
 Dispatch v1: each cycle, for each Active repository with a charter and no Running controller,
 spawn one, until `controllers.max_working` run; a repository marked `merge: human` with
 `controllers.max_open_reviews` open pull requests waits. Every controller the daemon starts (dispatch
