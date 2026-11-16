@@ -3181,6 +3181,158 @@ fn a_controller_the_loop_starts_has_a_dispatch_its_charter_names() {
     );
 }
 
+/// Marks `repo` Active, as the operator marks one for the cycle.
+fn mark_active(case: &Case, repo: &str) {
+    case.ok(&[
+        "repository",
+        "mark-repository",
+        "--repository",
+        repo,
+        "--activity",
+        "Active",
+        "--marked-by",
+        "Operator",
+        "--reason",
+        "pilot",
+    ]);
+}
+
+/// Writes the `child` provider's registry entry of the session `id` named `ex-<repo>`, under the
+/// case's `HOME`, with `pid` (`story:box-session-without-bg`).
+fn child_entry(case: &Case, repo: &str, id: &str, pid: u32) {
+    write(
+        &case
+            .home()
+            .join(format!(".claude/conductor-sessions/{id}.json")),
+        &json!({
+            "name": format!("ex-{repo}"), "session_id": id, "cwd": case.checkout(repo),
+            "pid": pid, "started_at": 1, "exit_code": null,
+        })
+        .to_string(),
+    );
+}
+
+/// The `cycle` line the tick `tick` wrote.
+fn cycle_said(case: &Case, tick: &Value) -> String {
+    case.lines_of(tick)
+        .iter()
+        .find(|line| line["event"] == "cycle")
+        .and_then(|line| line["line"].as_str())
+        .map(str::to_owned)
+        .expect("the cycle's line")
+}
+
+/// `story:controllers-reconciled-with-live-sessions`: after a runtime restart two `Running`
+/// controllers have no live session (the `none` provider's list names neither; the `child`
+/// provider's registry keeps one with the pid of a process that is gone). The next cycle records
+/// both stopped and says why in its `cycle` line; the one whose repository has an open dispatch
+/// starts again (`controller-restarted`, as after `session gone`), and the slot the other held
+/// starts the Active repository that waited, within `controllers.max_working`.
+#[test]
+fn a_cycle_stops_running_controllers_whose_sessions_are_gone() {
+    let case = Case::new("reconcile-gone");
+    case.configure("{provider: none}", "{max_working: 2}");
+    for repo in ["beta", "gamma"] {
+        write(
+            &case.charter(repo),
+            &format!("# Charter: {repo}\n\nKeep main green.\n"),
+        );
+    }
+    case.ok(&["spawn", "--repository", "alpha"]);
+    case.ok(&["spawn", "--repository", "beta"]);
+    // A pid no process holds: above the kernel's largest.
+    child_entry(&case, "beta", "c0000001-0000", 4_194_305);
+    case.dispatch("alpha");
+    mark_active(&case, "gamma");
+
+    let tick = case.child(json!({
+        "do": "cycle",
+        "program": case.bin().join("conductor-steps"),
+    }));
+    assert_eq!(states_of(&case, "alpha"), ["Stopped", "Running"], "{tick}");
+    assert_eq!(states_of(&case, "beta"), ["Stopped"], "{tick}");
+    assert_eq!(states_of(&case, "gamma"), ["Running"], "{tick}");
+    assert_eq!(
+        case.launched(),
+        ["ex-alpha", "ex-beta", "ex-alpha", "ex-gamma"]
+    );
+    let restarted: Vec<Value> = case
+        .lines_of(&tick)
+        .into_iter()
+        .filter(|line| line["event"] == "controller-restarted")
+        .collect();
+    assert_eq!(restarted.len(), 1, "{tick}");
+    assert_eq!(restarted[0]["repo"], "alpha");
+    assert_eq!(restarted[0]["session"], "ex-alpha");
+    assert_eq!(restarted[0]["reason"], "gone");
+    let said = cycle_said(&case, &tick);
+    for part in [
+        "stopped alpha (ex-alpha): its session is gone",
+        "stopped beta (ex-beta): its session is gone",
+        "restarted alpha",
+        "spawned gamma",
+    ] {
+        assert!(said.contains(part), "{part:?} in {said}");
+    }
+    assert!(!said.contains("max_working"), "{said}");
+}
+
+/// A `Running` controller whose session lives (a `child` session with a live pid), one the list
+/// keeps blocked at a usage limit, and every one while the session list does not read, stay
+/// `Running` and keep their slots.
+#[test]
+fn a_cycle_leaves_running_controllers_whose_sessions_live_or_wait() {
+    let case = Case::new("reconcile-live");
+    case.configure("{provider: none}", "{max_working: 2}");
+    for repo in ["beta", "gamma"] {
+        write(
+            &case.charter(repo),
+            &format!("# Charter: {repo}\n\nKeep main green.\n"),
+        );
+    }
+    case.ok(&["spawn", "--repository", "alpha"]);
+    let id = "c0000002-0000";
+    // A live process whose command line names the session's id, as the child provider's has.
+    let mut process = Command::new("sh")
+        .args(["-c", "sleep 60; :", id])
+        .spawn()
+        .expect("a live process");
+    child_entry(&case, "alpha", id, process.id());
+    case.ok(&["spawn", "--repository", "beta"]);
+    case.live("beta", "s0000002-0000", false);
+    mark_active(&case, "gamma");
+
+    let tick = case.child(json!({
+        "do": "cycle",
+        "program": case.bin().join("conductor-steps"),
+    }));
+    let _ = process.kill();
+    let _ = process.wait();
+    assert_eq!(states_of(&case, "alpha"), ["Running"], "{tick}");
+    assert_eq!(states_of(&case, "beta"), ["Running"], "{tick}");
+    assert_eq!(case.launched(), ["ex-alpha", "ex-beta"]);
+    let said = cycle_said(&case, &tick);
+    assert!(
+        said.contains("gamma waits: max_working 2 reached"),
+        "{said}"
+    );
+    assert!(!said.contains("stopped"), "{said}");
+
+    fs::remove_file(case.fake().join("agents/s0000002-0000.json")).expect("beta's entry");
+    write(&case.fake().join("agents/unread.json"), "no JSON");
+    let unread = case.child(json!({
+        "do": "cycle",
+        "program": case.bin().join("conductor-steps"),
+    }));
+    assert_eq!(states_of(&case, "alpha"), ["Running"], "{unread}");
+    assert_eq!(states_of(&case, "beta"), ["Running"], "{unread}");
+    let said = cycle_said(&case, &unread);
+    assert!(
+        said.contains("controllers not reconciled: the session list was not read"),
+        "{said}"
+    );
+}
+
 /// The daily tick computes the previous day's metrics and writes `REPORT.md` with deviations
 /// only.
 #[test]

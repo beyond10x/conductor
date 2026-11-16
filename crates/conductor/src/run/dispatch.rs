@@ -3,7 +3,15 @@
 //!
 //! **Cycle.** `snapshot start-snapshot`, `snapshot publish-board` and `records check`, each a run
 //! of the conductor binary ([`super::Seams::program`]) with the daemon's global `--config` and
-//! `--state-dir`, each to its end however it ends; then dispatch v1. First the units of work
+//! `--state-dir`, each to its end however it ends; then the controllers are reconciled with the
+//! session list ([`reconcile`], `story:controllers-reconciled-with-live-sessions`), so a record
+//! that outlived its session (a runtime restart, an OOM kill) holds no `controllers.max_working`
+//! slot: each `Running` controller whose session the list (the `child` provider's sessions with
+//! it) names neither live (a `pid`) nor `blocked`, and that no usage limit marked, is recorded
+//! stopped with the reason, and the `cycle` line names it; one whose repository has an open
+//! dispatch is then started again, its `controller-restarted` line's reason `gone`, as after a
+//! `session gone` line. A list that does not read stops none, and the `cycle` line says so. Then
+//! dispatch v1. First the units of work
 //! (`story:control-plane-work-handler`): for each `Sent` dispatch with a `reference`, in the order
 //! the store keeps them, whose repository has no running or paused controller, Active or not, the
 //! controller is started for it as the work call starts one ([`super::start_work`]: under
@@ -43,7 +51,9 @@ use conductor_model::session::TickKind;
 use time::OffsetDateTime;
 use time::format_description::well_known::Rfc3339;
 
-use super::{Route, Seams, Summary, Tick, commit_records, one_line, write_file};
+use serde_json::{Value, json};
+
+use super::{Route, Seams, Summary, Tick, commit_records, handlers, one_line, write_file};
 
 /// How long one step of the cycle or the daily tick may run.
 const STEP_BOUND: Duration = Duration::from_secs(3600);
@@ -64,6 +74,17 @@ pub fn cycle_tick(
         step(&tick, &["snapshot", "publish-board"], "board"),
         checked(&tick),
     ];
+    match reconcile(&mut tick) {
+        Ok(Some(said)) => parts.push(said),
+        Ok(None) => {}
+        Err(error) => {
+            tick.note("reconcile the controllers", &error);
+            parts.push(format!(
+                "controllers not reconciled: {}",
+                one_line(&format!("{error:#}"))
+            ));
+        }
+    }
     match dispatch_v1(&mut tick) {
         Ok(said) => parts.push(said),
         Err(error) => {
@@ -117,6 +138,104 @@ fn checked(tick: &Tick<'_, '_>) -> String {
             one_line(&format!("{error:#}"))
         ),
     }
+}
+
+/// The `Running` controllers reconciled with the session list
+/// (`story:controllers-reconciled-with-live-sessions`), as the module documentation says; what it
+/// did, as the `cycle` line says it, or `None` when every one's session lives or waits.
+///
+/// # Errors
+///
+/// The store does not open, a line is not written, or a start fails other than by a refusal.
+fn reconcile(tick: &mut Tick<'_, '_>) -> Result<Option<String>> {
+    let mut parts = Vec::new();
+    let mut stopped = Vec::new();
+    {
+        // No start counts the controllers while a record it would count is being stopped.
+        let _one = super::STARTS
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        let running: Vec<(String, String, String)> = tick
+            .controllers()?
+            .into_iter()
+            .filter(|held| held.state == ControllerState::Running)
+            .map(|held| {
+                (
+                    held.data.controller_id.0.0,
+                    held.data.repository.0,
+                    held.data.session_name.0,
+                )
+            })
+            .collect();
+        if running.is_empty() {
+            return Ok(None);
+        }
+        let listed = match crate::confine::sessions() {
+            Ok(listed) => listed,
+            Err(unread) => {
+                return Ok(Some(format!(
+                    "controllers not reconciled: the session list was not read: {}",
+                    one_line(&format!("{unread:#}"))
+                )));
+            }
+        };
+        let limited = super::read_json(&tick.dir, handlers::LIMITED, json!({}));
+        for (controller, repo, session) in running {
+            if lives_or_waits(&listed, &limited, &session) {
+                continue;
+            }
+            let reason = format!(
+                "conductor run: its session {session} is gone: the session list names no live \
+                 session of that name"
+            );
+            match handlers::stop_record(tick, &controller, &reason) {
+                Ok(()) => {
+                    if let Err(error) = crate::token::release_for_stop(tick.instance(), &session) {
+                        tick.note(&format!("release the token of {session}"), &error);
+                    }
+                    parts.push(format!("stopped {repo} ({session}): its session is gone"));
+                    stopped.push((repo, session));
+                }
+                Err(error) => {
+                    tick.note(&format!("stop the controller {controller}"), &error);
+                    parts.push(format!(
+                        "{repo} ({session}) not stopped: {}",
+                        one_line(&format!("{error:#}"))
+                    ));
+                }
+            }
+        }
+    }
+    // As after `session gone`: a repository with an open dispatch starts again; the others are
+    // left to dispatch v1.
+    for (repo, session) in stopped {
+        handlers::forget(tick, &session);
+        if !tick.open_dispatch(&repo)? || tick.running(&repo)?.is_some() {
+            continue;
+        }
+        match tick.spawn(&repo)? {
+            Ok(()) => {
+                let mut line = tick.line(DispatchLogEvent::ControllerRestarted, &repo)?;
+                line.session = Some(session);
+                line.reason = Some("gone".to_owned());
+                tick.write(&line)?;
+                parts.push(format!("restarted {repo}"));
+            }
+            Err(why) => parts.push(format!("{repo} waits: {why}")),
+        }
+    }
+    Ok((!parts.is_empty()).then(|| parts.join("; ")))
+}
+
+/// Whether the session list `listed` names the session `session` live (an entry with a `pid`)
+/// or waiting for headroom: an entry the list keeps `blocked`, as a usage limit leaves one, or a
+/// session the loop marked in `limited`, which a later tick resumes.
+fn lives_or_waits(listed: &[Value], limited: &Value, session: &str) -> bool {
+    limited.get(session).is_some()
+        || listed
+            .iter()
+            .filter(|entry| entry["name"].as_str() == Some(session))
+            .any(|entry| !entry["pid"].is_null() || entry["status"].as_str() == Some("blocked"))
 }
 
 /// Dispatch v1, as the module documentation says; what it did, as the `cycle` line says it.
