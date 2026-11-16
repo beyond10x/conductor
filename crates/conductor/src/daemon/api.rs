@@ -27,7 +27,11 @@
 //!   `conductor.instance.SupervisorNotRunning` while none runs; `POST /v1/roles/{role}/start`:
 //!   a host role `globals.roles` lists asked for now ([`super::host_roles`]); `GET /v1/secrets`: the secrets' names, sources and instances, never a value
 //!   ([`crate::secret::view`]);
-//! - an instance's `agents/{name}/deliver` and `restart` are proxied as writes, `attach` bare.
+//! - an instance's `agents/{name}/deliver` and `restart` are proxied as writes, `attach` bare;
+//!   so are its `sessions/{name}/deliver` (the `AnswerDecisions` grant) and
+//!   `controllers/{id}/stop`, which the host's `session deliver` and `controller
+//!   stop-controller` send for a session in the runtime's box
+//!   (`story:host-commands-reach-boxed-session`).
 //! - the work call of a consumer control plane (`story:control-plane-work-handler`,
 //!   [`crate::dashboard::work`]): `POST /v1/instances/{name}/work` is proxied as a write with a
 //!   body of up to 1 MiB, `GET /v1/instances/{name}/work/{reference}` as a read; a reference that
@@ -728,6 +732,11 @@ pub fn grant_for(route: &str) -> OperatorGrant {
         "restart" | "cycle" => OperatorGrant::StartInstances,
         // story:token-pool: joining an instance, and leaving it, is the `Join` grant.
         "join" | "leave" => OperatorGrant::Join,
+        // story:host-commands-reach-boxed-session: the text the operator delivers to a session
+        // is how a session's question (a NEED) is answered.
+        _ if route.starts_with("sessions/") && route.ends_with("/deliver") => {
+            OperatorGrant::AnswerDecisions
+        }
         _ => OperatorGrant::ChangeSettings,
     }
 }
@@ -2563,17 +2572,24 @@ const WORK: &str = "work";
 /// The prefix of the work call's read.
 const WORK_PREFIX: &str = "work/";
 
-/// Whether `method` on the instance route `route` writes: one of [`WRITES`], or `POST` on an
-/// agent's `deliver` or `restart` (`agents/{name}/deliver`, `story:agent-kinds`).
+/// Whether `method` on the instance route `route` writes: one of [`WRITES`], `POST` on an
+/// agent's `deliver` or `restart` (`agents/{name}/deliver`, `story:agent-kinds`), or `POST` on a
+/// session's `deliver` or a controller's `stop` (`sessions/{name}/deliver`,
+/// `controllers/{id}/stop`, `story:host-commands-reach-boxed-session`).
 fn writes(route: &str, method: &str) -> bool {
     if WRITES.contains(&(route, method)) {
         return true;
     }
-    method == "POST"
-        && route
-            .strip_prefix("agents/")
+    let named = |prefix: &str, verbs: &[&str]| {
+        route
+            .strip_prefix(prefix)
             .and_then(|rest| rest.split_once('/'))
-            .is_some_and(|(name, verb)| !name.is_empty() && matches!(verb, "deliver" | "restart"))
+            .is_some_and(|(name, verb)| !name.is_empty() && verbs.contains(&verb))
+    };
+    method == "POST"
+        && (named("agents/", &["deliver", "restart"])
+            || named("sessions/", &["deliver"])
+            || named("controllers/", &["stop"]))
 }
 
 /// The headers a proxied request keeps.

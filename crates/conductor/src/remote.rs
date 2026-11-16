@@ -168,6 +168,22 @@ pub fn send(
     headers: &[(&str, &str)],
     body: Option<(&str, &[u8])>,
 ) -> Result<(u16, Vec<u8>)> {
+    send_within(origin, method, target, headers, body, TIMEOUT)
+}
+
+/// [`send`], the answer waited for at most `timeout`.
+///
+/// # Errors
+///
+/// Those of [`send`].
+pub fn send_within(
+    origin: &Origin,
+    method: &str,
+    target: &str,
+    headers: &[(&str, &str)],
+    body: Option<(&str, &[u8])>,
+    timeout: Duration,
+) -> Result<(u16, Vec<u8>)> {
     let mut request = format!(
         "{method} {target} HTTP/1.1\r\nHost: {}:{}\r\nAccept: application/json\r\nConnection: close\r\n",
         origin.host, origin.port
@@ -192,7 +208,7 @@ pub fn send(
     whole.extend_from_slice(bytes);
     let tcp = TcpStream::connect((origin.host.as_str(), origin.port))
         .with_context(|| format!("connect to {}", origin.url()))?;
-    tcp.set_read_timeout(Some(TIMEOUT))?;
+    tcp.set_read_timeout(Some(timeout))?;
     tcp.set_write_timeout(Some(TIMEOUT))?;
     let answer = if origin.https {
         let config = crate::daemon::api::client_config()?;
@@ -274,7 +290,7 @@ pub fn get(url: &str, path: &str) -> Result<Value> {
 }
 
 /// The one line of a refusal the daemon answered: its specification error with what it names.
-fn refusal(answer: &Value) -> String {
+pub(crate) fn refusal(answer: &Value) -> String {
     match answer["error"].as_str() {
         Some("conductor.operator.GrantMissing") => format!(
             "conductor.operator.GrantMissing: {} holds no {} grant",

@@ -102,6 +102,40 @@ pub fn registry_here() -> Option<PathBuf> {
         .map(|home| registry(&home))
 }
 
+/// The registry of the box `instance` runs in, when it runs in one ([`crate::placement::boxed`])
+/// and this process is not in it (`story:host-commands-reach-boxed-session`): the box names its
+/// harness's state directory in the instance's state directory `state`
+/// ([`crate::placement::box_claude_dir`]), which the host sees at the same path, and a process
+/// whose own registry ([`registry_here`]) is that one is the box's.
+#[must_use]
+pub fn box_registry(instance: &conductor_model::config::Instance, state: &Path) -> Option<PathBuf> {
+    if !crate::placement::boxed(instance) {
+        return None;
+    }
+    let dir = crate::placement::box_claude_dir(state).join(REGISTRY);
+    let same = |a: &Path, b: &Path| match (a.canonicalize(), b.canonicalize()) {
+        (Ok(a), Ok(b)) => a == b,
+        _ => a == b,
+    };
+    match registry_here() {
+        Some(here) if same(&here, &dir) => None,
+        _ => Some(dir),
+    }
+}
+
+/// Whether the child session `name` runs in the box of `instance`, seen from a process outside
+/// that box ([`box_registry`]): the box's registry holds an entry of that name with a pid and no
+/// exit. Its pid is one of the box's pid namespace, which this process can neither read nor
+/// signal, so the entry is taken as written: only the box's runtime can stop or feed the session.
+#[must_use]
+pub fn runs_in_box(instance: &conductor_model::config::Instance, state: &Path, name: &str) -> bool {
+    box_registry(instance, state).is_some_and(|dir| {
+        entries(&dir)
+            .iter()
+            .any(|entry| entry.name == name && entry.pid.is_some() && entry.exit_code.is_none())
+    })
+}
+
 /// Whether this process may not create a Unix socket: `socket(AF_UNIX)` is refused as a
 /// permission (`EACCES`, `EPERM`) or an unsupported family (`EAFNOSUPPORT`), as a substrate box
 /// and a unit with `RestrictAddressFamilies` refuse it. Asked once per process; the socket made to

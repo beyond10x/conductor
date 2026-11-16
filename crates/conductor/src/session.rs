@@ -330,6 +330,56 @@ pub fn deliver_text(
     if !crate::message::plain_name(name) {
         bail!("{WHAT}: --name {name:?} names no session: one name, without `/`, not `.` or `..`");
     }
+    // story:host-commands-reach-boxed-session: a session in the box of its instance, seen from
+    // outside the box, is fed by the box's runtime, through conductord.
+    let instance = &crate::config::active().instance;
+    let id = if confine::child::runs_in_box(instance, &crate::state::dir(state)?, name) {
+        match crate::instance::through_daemon(
+            &instance.name.0,
+            &format!("{DELIVER_ROUTE}/{name}/deliver"),
+            &serde_json::json!({ "text": text }),
+        ) {
+            crate::instance::Through::Done(answer) => answer["delivery_id"]
+                .as_str()
+                .unwrap_or_default()
+                .to_owned(),
+            crate::instance::Through::Refused(line) => bail!("{line}"),
+            crate::instance::Through::Unreached(why) => bail!(
+                "{WHAT}: refused: SessionNotReachable: session {name}: it runs in the box of \
+                 instance {}, and its runtime was not reached: {why}; nothing was recorded, and \
+                 it is not tried again",
+                instance.name.0
+            ),
+        }
+    } else {
+        deliver_here(state, name, text, file, crate::actor::chosen())?
+    };
+    writeln!(io::stdout().lock(), "{id}").context("write the delivery's id to standard output")?;
+    Ok(ExitCode::SUCCESS)
+}
+
+/// The prefix of the instance API's session routes: `POST /v1/sessions/{name}/deliver`
+/// ([`deliver_here`]).
+pub const DELIVER_ROUTE: &str = "sessions";
+
+/// [`deliver_text`] in this process, recorded as `actor`; answers the delivery's id. The
+/// instance API's `POST /v1/sessions/{name}/deliver` calls it in the runtime, for the operator
+/// conductord admitted (`story:host-commands-reach-boxed-session`).
+///
+/// # Errors
+///
+/// Those of [`deliver_text`].
+pub(crate) fn deliver_here(
+    state: Option<&Path>,
+    name: &str,
+    text: &str,
+    file: Option<&Path>,
+    actor: conductor_model::operator::Actor,
+) -> Result<String> {
+    const WHAT: &str = "session deliver";
+    if !crate::message::plain_name(name) {
+        bail!("{WHAT}: --name {name:?} names no session: one name, without `/`, not `.` or `..`");
+    }
     let first_line = crate::message::first_line(text).to_owned();
     let typed = text.trim_end_matches(['\n', '\r']);
     let dir = crate::state::dir(state)?;
@@ -362,7 +412,7 @@ pub fn deliver_text(
     };
     let outcome = generated
         .deliver_message(DeliverMessage {
-            actor: crate::actor::chosen(),
+            actor,
             session_name: name.clone(),
             first_line: first_line.clone(),
             body_path: body_path.clone(),
@@ -401,9 +451,7 @@ pub fn deliver_text(
             message_delivered.delivery_id.0.0, name.0
         )
     })?;
-    writeln!(io::stdout().lock(), "{}", message_delivered.delivery_id.0.0)
-        .context("write the delivery's id to standard output")?;
-    Ok(ExitCode::SUCCESS)
+    Ok(message_delivered.delivery_id.0.0)
 }
 
 /// How long `claude attach` may take to draw in the pane made for a delivery.
