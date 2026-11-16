@@ -14,7 +14,8 @@
 //! ([`Watch::pass`], reading `main`'s CI every `cadence.ci`), then what earlier ticks left waiting
 //! ([`handlers::pending`]: sessions a usage limit stopped, hand-overs asked for, deliveries kept
 //! for a controller's next start), then a handler per line ([`handlers::handle`]), then the
-//! mailbox ([`mailbox::read`]); in the loop, the `gc` a `disk low` line starts runs beside the
+//! mailbox ([`mailbox::read`]), then the end of a fall of free disk, which unblocks the dispatches
+//! it blocked ([`handlers::disk_recovered`]); in the loop, the `gc` a `disk low` line starts runs beside the
 //! ticks and a later watch tick writes its `cleanup` line ([`handlers`]). A cycle tick, every `cadence.cycle`, first at the start
 //! ([`dispatch::cycle_tick`]): `snapshot start-snapshot`, `snapshot publish-board` and `records
 //! check`, each a run of this binary, then dispatch v1, and one `cycle` line. A daily tick, once
@@ -523,6 +524,9 @@ fn handle(
     handlers::pending(&mut tick);
     handlers::handle(&mut tick, lines);
     mailbox::read(&mut tick);
+    if let Err(error) = handlers::disk_recovered(&mut tick) {
+        tick.note("free disk back at disk_clear", &error);
+    }
     if gc == Gc::Waited
         && let Err(error) = handlers::cleaned(&mut tick, true)
     {

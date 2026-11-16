@@ -1655,6 +1655,116 @@ fn disk_low_in_the_loop_runs_gc_beside_the_ticks() {
     );
 }
 
+/// A blocked line of `repo`'s dispatch `id` for a refused build, as the controller role writes it.
+fn blocked_disk(repo: &str, id: &str) -> String {
+    format!(
+        "[REPORT {repo} {id}] blocked disk: conductor: build run: refused: 3G short of the \
+         reservation\n"
+    )
+}
+
+/// `story:disk-recovery-unblocks-dispatch`: a dispatch reported `blocked disk` while free disk is
+/// under `disk_clear` is reported `unblocked` by conductor once free disk is read back at it, its
+/// line naming the free disk, and its live controller is told once; a dispatch blocked for
+/// another reason stays blocked.
+#[test]
+fn a_dispatch_blocked_on_disk_is_unblocked_and_its_controller_told_once_free_disk_recovers() {
+    let case = Case::new("disk-unblocks");
+    case.spawn("alpha", FIRST);
+    let id = case.dispatch("alpha");
+    let other = case.dispatch("beta");
+    case.readings(LOW);
+    case.mail("0001", &format!("[REPORT alpha {id}] started\n"));
+    case.mail("0002", &blocked_disk("alpha", &id));
+    case.mail("0003", &format!("[REPORT beta {other}] started\n"));
+    case.mail(
+        "0004",
+        &format!("[REPORT beta {other}] blocked on alpha's API\n"),
+    );
+    case.tick(&[]);
+    assert_eq!(case.dispatch_state(&id), "Blocked");
+    let under = case.tick(&[]);
+    assert_eq!(actions(&under), Vec::<String>::new(), "{under}");
+    assert_eq!(
+        case.dispatch_state(&id),
+        "Blocked",
+        "under disk_clear the fall goes on"
+    );
+
+    case.readings(PLENTY);
+    let tick = case.tick(&[]);
+    assert_eq!(case.dispatch_state(&id), "Started", "{tick}");
+    assert_eq!(
+        case.dispatch_state(&other),
+        "Blocked",
+        "not blocked on disk"
+    );
+    assert_eq!(actions(&tick), ["unblocked", "relayed"], "{tick}");
+    let written = case.lines_of(&tick);
+    let unblocked = written
+        .iter()
+        .find(|line| line["event"] == "unblocked")
+        .expect("an unblocked line with the tick's id");
+    assert_eq!(unblocked["id"], id.as_str());
+    assert_eq!(unblocked["repo"], "alpha");
+    let reason = unblocked["reason"].as_str().expect("the unblock's reason");
+    assert!(
+        reason.contains("free disk is back at 500G, at or over disk_clear 110G"),
+        "{reason}"
+    );
+    let told: Vec<(String, String)> = case
+        .attempts()
+        .into_iter()
+        .filter(|(_, text)| text.contains("unblocked"))
+        .collect();
+    assert_eq!(
+        told,
+        [(
+            "ex-alpha".to_owned(),
+            format!("[REPORT alpha {id}] unblocked: {reason}; build again")
+        )]
+    );
+
+    let again = case.tick(&[]);
+    assert_eq!(actions(&again), Vec::<String>::new(), "once: {again}");
+    assert_eq!(case.attempts().len(), told.len(), "told once");
+}
+
+/// `story:disk-recovery-unblocks-dispatch`: with no live controller, the dispatch is still
+/// unblocked when free disk recovers, and the next cycle starts a controller for it.
+#[test]
+fn a_dispatch_blocked_on_disk_with_no_controller_is_unblocked_and_the_cycle_starts_one() {
+    let case = Case::new("disk-unblocks-cold");
+    let id = case.dispatch("alpha");
+    case.readings(LOW);
+    case.mail("0001", &format!("[REPORT alpha {id}] started\n"));
+    case.mail("0002", &blocked_disk("alpha", &id));
+    case.tick(&[]);
+    assert_eq!(case.dispatch_state(&id), "Blocked");
+
+    case.readings(PLENTY);
+    let tick = case.tick(&[]);
+    assert_eq!(case.dispatch_state(&id), "Started", "{tick}");
+    assert_eq!(
+        actions(&tick),
+        ["unblocked"],
+        "no controller to tell: {tick}"
+    );
+    assert!(case.attempts().is_empty(), "{:?}", case.attempts());
+
+    case.child(json!({
+        "do": "cycle",
+        "reviews": {"alpha": 0},
+        "program": case.bin().join("conductor-steps"),
+    }));
+    assert_eq!(case.launched(), ["ex-alpha"]);
+    let charter = fs::read_to_string(case.fake().join("charter.1")).expect("the charter sent");
+    assert!(
+        charter.contains(&format!("[REPORT alpha {id}]")),
+        "the charter names the dispatch: {charter}"
+    );
+}
+
 /// `answered <id> <choice>` delivers `[DECISION <id>] <choice> <reason> (<decision id>)` to the
 /// controller of the repository that raised the request (`decision-sent`).
 #[test]

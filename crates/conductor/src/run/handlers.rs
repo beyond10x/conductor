@@ -33,6 +33,10 @@
 //! id, by the first watch tick that finds it ended ([`pending`]), or by the tick that started it
 //! where that tick waits for it ([`super::handle_lines`]). A process that stops while it runs
 //! loses it; the next `disk low` line starts another.
+//!
+//! After the mailbox, each watch tick reads free disk ([`disk_recovered`]): once it is back at
+//! `disk_clear` after a reading under it, each dispatch blocked on disk is reported `unblocked`
+//! by conductor and its running controller told (`unblocked`, `relayed`).
 
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -1018,6 +1022,121 @@ pub(crate) fn cleaned(tick: &mut Tick<'_, '_>, wait: bool) -> Result<()> {
     written.line = Some(ended.line);
     written.evidence = Some(evidence);
     tick.write(&written)
+}
+
+/// There while the last reading of free disk on `thresholds.disk_path` was under the instance's
+/// `disk_clear`: a fall of free disk is on (`story:disk-recovery-unblocks-dispatch`).
+const DISK_UNDER: &str = "disk.under";
+
+/// The end of a fall of free disk, read each watch tick after the mailbox
+/// (`story:disk-recovery-unblocks-dispatch`). Free disk on `thresholds.disk_path` under
+/// `disk_clear` (never under the build floor, as [`crate::host::clear_fall`] reads it) marks the
+/// fall ([`DISK_UNDER`]); the first reading back at it ends the fall: each dispatch whose last
+/// `blocked` line gives a disk reason ([`on_disk`]) is reported `unblocked` by conductor
+/// ([`crate::actor::daemon`]), its line naming the free disk, and its running controller is told
+/// once (`relayed`). A dispatch with no running controller is left to the next cycle, which starts
+/// one as for any open dispatch. The fall ends only once every such report was kept, so a failed
+/// one is tried again by the next tick.
+///
+/// # Errors
+///
+/// Free disk does not read, or the marker, the store or the dispatch log cannot be read or
+/// written.
+pub(crate) fn disk_recovered(tick: &mut Tick<'_, '_>) -> Result<()> {
+    let instance = tick.instance();
+    let settings = crate::build::Settings::of(instance);
+    let clear = settings.clear.max(settings.floor);
+    let free = crate::gc::reclaim::free_bytes(Path::new(&instance.thresholds.disk_path))?;
+    let marker = tick.dir.join(DISK_UNDER);
+    if free < clear {
+        if !marker.exists() {
+            super::write_file(&marker, "")?;
+        }
+        return Ok(());
+    }
+    if !marker.exists() {
+        return Ok(());
+    }
+    let reason = format!(
+        "free disk is back at {}G, at or over disk_clear {}G: the fall of free disk is over",
+        free >> 30,
+        crate::host::gib(clear)
+    );
+    let mut kept = true;
+    for (id, repo) in blocked_on_disk(tick)? {
+        match crate::dispatch::unblock(tick.state, &id, crate::actor::daemon(), &reason, &tick.id) {
+            Ok(true) => tick.wrote(DispatchLogEvent::Unblocked),
+            Ok(false) => continue,
+            Err(error) => {
+                tick.note(&format!("unblock {id}"), &error);
+                kept = false;
+                continue;
+            }
+        }
+        let Some((controller, session)) = tick.running(&repo)? else {
+            continue;
+        };
+        let text = format!("[REPORT {repo} {id}] unblocked: {reason}; build again");
+        if let Err(error) = send(tick, &controller, &session, &text) {
+            tick.note(&format!("deliver to {session}"), &error);
+            continue;
+        }
+        let mut written = tick.line(DispatchLogEvent::Relayed, &repo)?;
+        written.session = Some(session);
+        written.id = Some(id);
+        written.line = Some(text);
+        tick.write(&written)?;
+    }
+    if kept {
+        fs::remove_file(&marker).with_context(|| format!("remove {}", marker.display()))?;
+    }
+    Ok(())
+}
+
+/// Each blocked dispatch, by id and repository, whose last `blocked` line in the dispatch log
+/// gives a disk reason.
+fn blocked_on_disk(tick: &Tick<'_, '_>) -> Result<Vec<(String, String)>> {
+    use conductor_model::behaviour::DispatchStorage;
+    use conductor_model::dispatch::DispatchState;
+
+    let blocked: Vec<(String, String)> = {
+        let store = crate::state::open(tick.state)?;
+        let blocked = DispatchStorage::list(&store)
+            .into_iter()
+            .filter(|held| held.state == DispatchState::Blocked)
+            .map(|held| (held.data.dispatch_id.0, held.data.repository.0))
+            .collect();
+        store.check().context("read the blocked dispatches")?;
+        blocked
+    };
+    if blocked.is_empty() {
+        return Ok(blocked);
+    }
+    let (lines, _) = crate::records::log_objects(
+        Path::new(&tick.instance().records),
+        crate::records::DISPATCHES,
+    )?;
+    Ok(blocked
+        .into_iter()
+        .filter(|(id, _)| {
+            lines
+                .iter()
+                .rev()
+                .find(|line| line["event"] == "blocked" && line["id"] == id.as_str())
+                .and_then(|line| line["reason"].as_str())
+                .is_some_and(on_disk)
+        })
+        .collect())
+}
+
+/// Whether a block's `reason` is a disk shortfall: its first word is `disk`, as the controller
+/// role reports a refused build (`blocked disk: <its line>`).
+fn on_disk(reason: &str) -> bool {
+    let reason = reason.trim_start();
+    reason
+        .get(..4)
+        .is_some_and(|word| word.eq_ignore_ascii_case("disk"))
+        && !reason[4..].starts_with(char::is_alphanumeric)
 }
 
 /// A desktop notification of `line`, titled `<instance>: decision`; one that does not run is
