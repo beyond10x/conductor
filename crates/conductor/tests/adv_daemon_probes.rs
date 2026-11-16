@@ -714,6 +714,7 @@ fn an_upgrade_asked_while_a_record_is_held_is_503_with_the_reason_and_fetches_no
                 actor: conductor_cli::actor::operator("operator"),
                 reply,
             },
+            |_| {},
         );
         answer.recv().expect("the loop answers the upgrade")
     };

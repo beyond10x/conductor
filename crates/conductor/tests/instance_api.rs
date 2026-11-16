@@ -353,6 +353,21 @@ fn instance_serve_writes_its_output_to_the_log_file_it_is_handed() {
     assert_eq!(err, "", "nothing on standard error");
     let mode = fs::metadata(&log).expect("the log").permissions().mode() & 0o777;
     assert_eq!(mode, 0o600, "the log is the owner's only");
+    stamped(&fs::read_to_string(&log).expect("the log"));
+}
+
+/// Asserts every line of `log`, a runtime's log, starts with an RFC 3339 time and a space, so it
+/// can be matched with the daemon's journal (`story:dial-refusal-diagnosable`).
+fn stamped(log: &str) {
+    assert!(!log.is_empty(), "the log holds nothing");
+    for line in log.lines() {
+        let at = line.split(' ').next().unwrap_or_default();
+        assert!(
+            time::OffsetDateTime::parse(at, &time::format_description::well_known::Rfc3339).is_ok()
+                && line.len() > at.len() + 1,
+            "a line without its time: {line:?}\n{log}"
+        );
+    }
 }
 
 /// A runtime that cannot start says why in the log file it is handed: in a box its standard
@@ -385,6 +400,7 @@ fn instance_serve_writes_an_error_before_it_serves_to_the_log_file_it_is_handed(
         "the log holds the error: {text:?}; standard error: {}",
         String::from_utf8_lossy(&output.stderr)
     );
+    stamped(&text);
     assert_eq!(
         String::from_utf8_lossy(&output.stderr),
         "",
@@ -1478,12 +1494,236 @@ fn dial_in(instance: &str) -> (Arc<Api>, Route, SocketAddr) {
     (api, route, address)
 }
 
+/// [`dial_in`], the listener saying what it closes into the list it answers too.
+fn dial_in_saying(instance: &str) -> (SocketAddr, Arc<Mutex<Vec<String>>>) {
+    let api = Arc::new(Api::new(DAEMON_TOKEN.to_owned(), "owner".to_owned(), None));
+    let route = Route::dialed(instance, INSTANCE_TOKEN.to_owned());
+    api.publish(
+        vec![json!({"name": instance, "state": "Running"})],
+        [(instance.to_owned(), route)].into_iter().collect(),
+        Vec::new(),
+    );
+    let listener = TcpListener::bind("127.0.0.1:0").expect("bind the dial-in listener");
+    let address = listener.local_addr().expect("its address");
+    let said = Arc::new(Mutex::new(Vec::new()));
+    let into = Arc::clone(&said);
+    std::thread::spawn(move || {
+        conductor_cli::daemon::dial::serve_saying(
+            &listener,
+            &api,
+            Arc::new(move |line: &str| into.lock().expect("said").push(line.to_owned())),
+        );
+    });
+    (address, said)
+}
+
+/// Waits until `said` holds `count` lines; answers them.
+fn said_lines(said: &Mutex<Vec<String>>, count: usize) -> Vec<String> {
+    let until = Instant::now() + Duration::from_secs(30);
+    loop {
+        let lines = said.lock().expect("said").clone();
+        if lines.len() >= count {
+            return lines;
+        }
+        assert!(Instant::now() < until, "said only {lines:?}");
+        std::thread::sleep(Duration::from_millis(20));
+    }
+}
+
+/// Sends `line` on a new connection to `address`; answers what the listener sent back before it
+/// closed the connection, or `None` while it keeps it open.
+fn dial_with(address: SocketAddr, line: &str) -> (TcpStream, Option<String>) {
+    let mut stream = TcpStream::connect(address).expect("connect");
+    stream
+        .write_all(line.as_bytes())
+        .expect("send the greeting");
+    stream
+        .set_read_timeout(Some(Duration::from_secs(10)))
+        .expect("a read timeout");
+    let mut back = Vec::new();
+    let closed = match stream.try_clone().expect("clone").read_to_end(&mut back) {
+        Ok(_) => true,
+        Err(error) => error.kind() != ErrorKind::WouldBlock && error.kind() != ErrorKind::TimedOut,
+    };
+    (
+        stream,
+        closed.then(|| String::from_utf8_lossy(&back).into_owned()),
+    )
+}
+
+/// conductord says in its journal why it closed each dialed connection: no greeting, an instance
+/// it does not route by dial-in, a token other than the runtime's, a pool already full; a
+/// repeat is said once until the cause changes. The surplus connection is told the pool is full
+/// before it is closed, so its runtime need not take it for a refusal; a refused one is told
+/// nothing (`story:dial-refusal-diagnosable`).
+#[test]
+fn the_dial_in_listener_says_why_it_closed_a_connection() {
+    let instance = "dial-said";
+    let (address, said) = dial_in_saying(instance);
+    let hello = conductor_cli::instance::DIAL_HELLO;
+    let wrong = format!("{hello} {instance} {}\n", "0".repeat(INSTANCE_TOKEN.len()));
+
+    let (_, back) = dial_with(address, &wrong);
+    assert_eq!(back.as_deref(), Some(""), "a wrong token is told nothing");
+    let lines = said_lines(&said, 1);
+    assert!(
+        lines[0].contains(instance) && lines[0].contains("token"),
+        "{lines:?}"
+    );
+    // The same cause again is not said again.
+    let _ = dial_with(address, &wrong);
+    let _ = dial_with(address, &format!("{hello} not-routed {INSTANCE_TOKEN}\n"));
+    let lines = said_lines(&said, 2);
+    assert!(
+        lines[1].contains("not-routed") && lines[1].contains("does not route"),
+        "{lines:?}"
+    );
+    let _ = dial_with(address, "GET /v1/settings HTTP/1.1\r\n\r\n");
+    let lines = said_lines(&said, 3);
+    assert!(lines[2].contains("greeting"), "{lines:?}");
+    assert_eq!(lines.len(), 3, "a repeat was said again: {lines:?}");
+
+    // The pool full: the surplus connection is told so, then closed.
+    let mut held = Vec::new();
+    let own = format!("{hello} {instance} {INSTANCE_TOKEN}\n");
+    for _ in 0..conductor_cli::daemon::dial::MAX_IDLE {
+        let mut stream = TcpStream::connect(address).expect("connect");
+        stream.write_all(own.as_bytes()).expect("send the greeting");
+        held.push(stream);
+    }
+    let until = Instant::now() + Duration::from_secs(15);
+    while conductor_cli::daemon::dial::POOL.idle(instance) < conductor_cli::daemon::dial::MAX_IDLE {
+        assert!(Instant::now() < until, "the connections were not pooled");
+        std::thread::sleep(Duration::from_millis(20));
+    }
+    let (_, back) = dial_with(address, &own);
+    assert_eq!(
+        back,
+        Some(format!("{}\n", conductor_cli::instance::DIAL_FULL)),
+        "the surplus connection is told the pool is full"
+    );
+    let lines = said_lines(&said, 4);
+    assert!(
+        lines[3].contains(instance) && lines[3].contains("full"),
+        "{lines:?}"
+    );
+    let _ = dial_with(address, &own);
+    std::thread::sleep(Duration::from_millis(200));
+    assert_eq!(
+        said.lock().expect("said").len(),
+        4,
+        "a repeat was said again"
+    );
+}
+
+/// A runtime whose dials the daemon refuses says so once, naming only what it knows, not once
+/// per connection and attempt; one whose dials are surplus to a full pool says nothing of them
+/// (`story:dial-refusal-diagnosable`). Every line it writes carries its time.
+#[test]
+fn a_dialing_runtime_says_a_refusal_once_and_a_surplus_dial_not_at_all() {
+    let _pool = EXAMPLE_POOL
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
+    let case = Case::new("dial-said");
+    let log = case.state().join("sessions").join("runtime.log");
+    let (address, said) = dial_in_saying("example-org");
+    let serve = |token: &str| {
+        Running(
+            common::conductor(case.home())
+                .current_dir(case.state())
+                .arg("--config")
+                .arg(case.file())
+                .args(["instance", "serve"])
+                .env(conductor_cli::instance::LOOP_VARIABLE, "off")
+                .env(conductor_cli::config::INSTANCE_VARIABLE, "example-org")
+                .env(conductor_cli::instance::TOKEN_VARIABLE, token)
+                .env(conductor_cli::instance::DIAL_VARIABLE, address.to_string())
+                .env(conductor_cli::instance::LOG_VARIABLE, &log)
+                .stdin(Stdio::null())
+                .stdout(Stdio::null())
+                .stderr(Stdio::null())
+                .spawn()
+                .expect("instance serve starts"),
+        )
+    };
+
+    let serving = |runtime: &mut Running| {
+        let until = Instant::now() + Duration::from_secs(30);
+        while !fs::read_to_string(&log).is_ok_and(|text| text.contains("serving /v1/")) {
+            if let Ok(Some(status)) = runtime.0.try_wait() {
+                panic!(
+                    "instance serve exited {status}: {}",
+                    fs::read_to_string(&log).unwrap_or_default()
+                );
+            }
+            assert!(Instant::now() < until, "the runtime does not serve");
+            std::thread::sleep(Duration::from_millis(50));
+        }
+    };
+
+    // Refused: another token than the daemon's.
+    let mut refused = serve(&"9".repeat(INSTANCE_TOKEN.len()));
+    serving(&mut refused);
+    let lines = said_lines(&said, 1);
+    assert!(lines[0].contains("token"), "{lines:?}");
+    // Its dialers retry a few times meanwhile.
+    std::thread::sleep(Duration::from_secs(3));
+    drop(refused);
+    let text = fs::read_to_string(&log).expect("the log");
+    assert_eq!(
+        text.matches("closed the connection").count(),
+        1,
+        "said once:\n{text}"
+    );
+    assert!(text.contains("before any request"), "{text}");
+    stamped(&text);
+
+    // Surplus: the pool holds its bound already.
+    fs::remove_file(&log).expect("remove the log");
+    let hello = conductor_cli::instance::DIAL_HELLO;
+    let mut held = Vec::new();
+    for _ in 0..conductor_cli::daemon::dial::MAX_IDLE {
+        let mut stream = TcpStream::connect(address).expect("connect");
+        stream
+            .write_all(format!("{hello} example-org {INSTANCE_TOKEN}\n").as_bytes())
+            .expect("send the greeting");
+        held.push(stream);
+    }
+    let until = Instant::now() + Duration::from_secs(15);
+    while conductor_cli::daemon::dial::POOL.idle("example-org")
+        < conductor_cli::daemon::dial::MAX_IDLE
+    {
+        assert!(Instant::now() < until, "the connections were not pooled");
+        std::thread::sleep(Duration::from_millis(20));
+    }
+    let mut surplus = serve(INSTANCE_TOKEN);
+    serving(&mut surplus);
+    let lines = said_lines(&said, 2);
+    assert!(lines[1].contains("full"), "{lines:?}");
+    std::thread::sleep(Duration::from_secs(2));
+    drop(surplus);
+    let text = fs::read_to_string(&log).expect("the log");
+    assert!(text.contains("serving /v1/"), "{text}");
+    assert!(
+        !text.contains("serve: dial "),
+        "a surplus dial was said:\n{text}"
+    );
+    stamped(&text);
+}
+
 /// A runtime in a substrate box, where a Unix socket is refused, binds none: told to dial
 /// (`CONDUCTOR_API_DIAL`), it opens connections to the daemon's dial-in listener with its
 /// instance and token, and the daemon's proxy answers the instance's routes over them, writes
 /// with the token included.
+/// The pool of the daemon is one per process ([`conductor_cli::daemon::dial::POOL`]): the cases
+/// that pool connections of `example-org` take turns.
+static EXAMPLE_POOL: Mutex<()> = Mutex::new(());
+
 #[test]
 fn instance_serve_dials_its_api_out_to_the_daemon_and_answers_over_it() {
+    let _pool = EXAMPLE_POOL
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
     let case = Case::new("dial");
     let (_api, route, address) = dial_in("example-org");
     let child = common::conductor(case.home())

@@ -114,6 +114,17 @@ use crate::dashboard;
 /// The route of the instances list.
 pub const INSTANCES: &str = "/v1/instances";
 
+/// What [`Api::admit_dial`] answers for a dialed-in connection's greeting.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Admission {
+    /// The instance is routed by dial-in and the token is its runtime's.
+    Admitted,
+    /// No instance of that name is routed by dial-in.
+    NotRouted,
+    /// The instance is routed by dial-in, with another token.
+    WrongToken,
+}
+
 /// The prefix of the host roles' routes: `POST /v1/roles/{role}/start`
 /// (`story:host-roles-by-daemon`).
 pub const ROLES: &str = "/v1/roles/";
@@ -638,14 +649,19 @@ impl Api {
 
     /// Whether `token` is the token of `instance`, whose runtime the daemon reaches over the
     /// connections it dials in ([`Route::dialed`]), compared in constant time: what admits a
-    /// dialed-in connection to the pool ([`super::dial::serve`]).
+    /// dialed-in connection to the pool ([`super::dial::serve`]), and why not.
     #[must_use]
-    pub fn admits_dial(&self, instance: &str, token: &str) -> bool {
-        self.route(instance).is_some_and(|route| {
-            route.dial.as_deref() == Some(instance)
-                && !route.token.is_empty()
-                && same_secret(route.token.as_bytes(), token.as_bytes())
-        })
+    pub fn admit_dial(&self, instance: &str, token: &str) -> Admission {
+        match self.route(instance) {
+            Some(route) if route.dial.as_deref() == Some(instance) && !route.token.is_empty() => {
+                if same_secret(route.token.as_bytes(), token.as_bytes()) {
+                    Admission::Admitted
+                } else {
+                    Admission::WrongToken
+                }
+            }
+            _ => Admission::NotRouted,
+        }
     }
 
     fn route(&self, name: &str) -> Option<Route> {

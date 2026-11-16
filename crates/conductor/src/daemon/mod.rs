@@ -355,7 +355,7 @@ pub fn daemon_serve(
             .record_held()
             .context("record the reconciliations the store refused");
         while let Ok(request) = upgrades.try_recv() {
-            answer_upgrade(&mut daemon, request);
+            answer_upgrade(&mut daemon, request, |daemon| publish(&api, daemon));
         }
         while let Ok(request) = restarts.try_recv() {
             daemon.answer_restart(request);
@@ -453,8 +453,14 @@ pub fn start_role(
 /// `daemon` holds a record the store refused ([`Daemon::record_held`]), `503` with the readiness
 /// reason [`metrics::UNRECORDED`] and nothing done, since nothing would be recorded; `409` for an
 /// instance the daemon runs as a pod, whose version the image `daemon.kubernetes.image` names
-/// (design: instance pods); otherwise the upgrade ([`Daemon::answer`]).
-pub fn answer_upgrade<U: units::Units>(daemon: &mut Daemon<U>, request: upgrade::Request) {
+/// (design: instance pods); otherwise the upgrade ([`Daemon::answered`]), and `publish` called
+/// before the reply is sent, so a client that reads `GET /v1/instances` once answered reads the
+/// instance upgrading, not as it ran before.
+pub fn answer_upgrade<U: units::Units>(
+    daemon: &mut Daemon<U>,
+    request: upgrade::Request,
+    publish: impl FnOnce(&Daemon<U>),
+) {
     let pod_run = daemon.units.pods().is_some()
         && daemon.config().daemon.kubernetes.is_some()
         && daemon
@@ -480,7 +486,9 @@ pub fn answer_upgrade<U: units::Units>(daemon: &mut Daemon<U>, request: upgrade:
         ));
         return;
     }
-    daemon.answer(request);
+    let reply = daemon.answered(&request);
+    publish(daemon);
+    let _ = request.reply.send(reply);
 }
 
 /// Publishes what `daemon` last saw to `api`: whether it holds a record the store refused, the

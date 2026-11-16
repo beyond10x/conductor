@@ -571,8 +571,14 @@ fn http(port: u16, request: &str) -> (String, String) {
     )
 }
 
+/// The upgrade queue is one per process ([`upgrade::listen`]): the cases that open it take turns.
+static QUEUE: Mutex<()> = Mutex::new(());
+
 #[test]
 fn post_v1_instances_upgrade_hands_the_request_to_the_daemon_and_answers_its_outcome() {
+    let _queue = QUEUE
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
     let case = Case::new("post");
     case.config("{port: 7300}", &["alpha"]);
     let mut daemon = case.daemon(Release::default());
@@ -613,14 +619,68 @@ fn post_v1_instances_upgrade_hands_the_request_to_the_daemon_and_answers_its_out
     assert_eq!(status, "HTTP/1.1 400 Bad Request", "{body}");
 }
 
+/// The daemon's loop answers an upgrade before its next tick publishes the instances' rows, and
+/// `conductor instance upgrade` reads them as soon as the answer arrives: the rows it reads then
+/// show the upgrade, not the instance as it ran before. A runtime in a box answers seconds after
+/// its restart, so a row read before the publish took the old version for a rollback.
+#[test]
+fn the_rows_show_the_upgrade_by_the_time_the_daemon_answers_it() {
+    let _queue = QUEUE
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
+    let case = Case::new("published");
+    case.config("{port: 7300}", &["alpha"]);
+    let mut daemon = case.daemon(Release::default());
+    let requests = upgrade::listen();
+    let token = "4444444444444444444444444444444444444444444444444444444444444444";
+    let api = Arc::new(api::Api::new(token.to_owned(), "owner".to_owned(), None));
+    api.publish(daemon.rows(), std::collections::BTreeMap::new(), Vec::new());
+    let listener = TcpListener::bind(("127.0.0.1", 0)).expect("bind");
+    let port = listener.local_addr().expect("address").port();
+    let served = Arc::clone(&api);
+    thread::spawn(move || api::serve(&listener, &served));
+
+    let body = json!({"tag": "v1.1.0"}).to_string();
+    let post = format!(
+        "POST /v1/instances/alpha/upgrade HTTP/1.1\r\nHost: localhost\r\nOrigin: http://localhost:{port}\r\nX-Conductor-Token: {token}\r\nContent-Type: \
+         application/json\r\nContent-Length: {}\r\n\r\n{body}",
+        body.len()
+    );
+    // The client reads the rows right after the answer, as `instance upgrade` does.
+    let client = thread::spawn(move || {
+        let answer = http(port, &post);
+        let rows = http(
+            port,
+            &format!(
+                "GET /v1/instances HTTP/1.1\r\nHost: 127.0.0.1:{port}\r\nConnection: close\r\n\r\n"
+            ),
+        );
+        (answer, rows)
+    });
+    let handed = requests
+        .recv_timeout(Duration::from_secs(10))
+        .expect("the request reaches the loop");
+    conductor_cli::daemon::answer_upgrade(&mut daemon, handed, |daemon| {
+        api.publish(daemon.rows(), std::collections::BTreeMap::new(), Vec::new());
+    });
+    let ((status, body), (_, rows)) = client.join().expect("the client");
+    assert_eq!(status, "HTTP/1.1 202 Accepted", "{body}");
+    let rows: Vec<Value> = serde_json::from_str(&rows).expect("the rows");
+    assert_eq!(row(&rows, "alpha")["state"], "Upgrading", "{rows:?}");
+    assert_eq!(row(&rows, "alpha")["binary_version"], "1.1.0", "{rows:?}");
+}
+
 /// A daemon's API for the client cases: each `POST .../upgrade` is answered `202` and recorded;
-/// `GET /v1/instances` answers each upgraded instance on the version `comes_up` gives it.
-fn fake_daemon(comes_up: fn(&str) -> &'static str) -> (u16, Arc<Mutex<Vec<String>>>) {
+/// `GET /v1/instances` answers each upgraded instance as it ran before for the first `stale`
+/// reads after its upgrade (rows the daemon's loop has not published anew yet), `Upgrading` on
+/// the next, then on the version `comes_up` gives it.
+fn fake_daemon(comes_up: fn(&str) -> &'static str, stale: usize) -> (u16, Arc<Mutex<Vec<String>>>) {
     let listener = TcpListener::bind(("127.0.0.1", 0)).expect("bind");
     let port = listener.local_addr().expect("address").port();
     let posted = Arc::new(Mutex::new(Vec::<String>::new()));
     let seen = Arc::clone(&posted);
     thread::spawn(move || {
+        let mut reads = std::collections::BTreeMap::<String, usize>::new();
         for stream in listener.incoming().flatten() {
             let mut reader = BufReader::new(stream.try_clone().expect("clone"));
             let mut line = String::new();
@@ -657,12 +717,17 @@ fn fake_daemon(comes_up: fn(&str) -> &'static str) -> (u16, Arc<Mutex<Vec<String
                 let rows: Vec<Value> = ["alpha", "beta", "gamma"]
                     .iter()
                     .map(|name| {
-                        let version = if posted.iter().any(|done| done == name) {
-                            comes_up(name)
-                        } else {
-                            "1.0.0"
+                        let read = posted.iter().any(|done| done == name).then(|| {
+                            let read = reads.entry((*name).to_owned()).or_default();
+                            *read += 1;
+                            *read
+                        });
+                        let (state, version) = match read {
+                            Some(read) if read > stale + 1 => ("Running", comes_up(name)),
+                            Some(read) if read == stale + 1 => ("Upgrading", "1.1.0"),
+                            _ => ("Running", "1.0.0"),
                         };
-                        json!({"name": name, "state": "Running", "binary_version": version})
+                        json!({"name": name, "state": state, "binary_version": version})
                     })
                     .collect();
                 ("200 OK", Value::Array(rows))
@@ -683,7 +748,7 @@ fn fake_daemon(comes_up: fn(&str) -> &'static str) -> (u16, Arc<Mutex<Vec<String
 #[test]
 fn instance_upgrade_all_goes_one_at_a_time_and_stops_at_the_first_rollback() {
     let case = Case::new("all");
-    let (port, posted) = fake_daemon(|name| if name == "beta" { "1.0.0" } else { "1.1.0" });
+    let (port, posted) = fake_daemon(|name| if name == "beta" { "1.0.0" } else { "1.1.0" }, 0);
     case.config(&format!("{{port: {port}}}"), &["alpha", "beta", "gamma"]);
     let output = common::conductor(case.dir.join("home"))
         .args(["--config"])
@@ -703,7 +768,7 @@ fn instance_upgrade_all_goes_one_at_a_time_and_stops_at_the_first_rollback() {
 #[test]
 fn instance_upgrade_of_one_instance_reports_it_upgraded() {
     let case = Case::new("one");
-    let (port, posted) = fake_daemon(|_| "1.1.0");
+    let (port, posted) = fake_daemon(|_| "1.1.0", 0);
     case.config(&format!("{{port: {port}}}"), &["alpha", "beta", "gamma"]);
     let output = common::conductor(case.dir.join("home"))
         .args(["--config"])
@@ -726,6 +791,34 @@ fn instance_upgrade_of_one_instance_reports_it_upgraded() {
     );
     assert_eq!(*posted.lock().expect("posted"), ["beta"]);
     assert!(stdout.contains("beta: upgraded to 1.1.0"), "{stdout}");
+}
+
+/// A daemon that answers the upgrade before it publishes the rows anew (conductord 1.13 and
+/// older) shows the instance as it ran before for a read or two: that is no rollback, and
+/// `conductor instance upgrade` waits until the rows show the upgrade, then reports how it ended.
+#[test]
+fn instance_upgrade_does_not_take_rows_from_before_the_upgrade_for_a_rollback() {
+    let case = Case::new("stale");
+    let (port, posted) = fake_daemon(|_| "1.1.0", 2);
+    case.config(&format!("{{port: {port}}}"), &["alpha", "beta", "gamma"]);
+    let output = common::conductor(case.dir.join("home"))
+        .args(["--config"])
+        .arg(case.file())
+        .args([
+            "instance",
+            "upgrade",
+            "--instance",
+            "alpha",
+            "--tag",
+            "v1.1.0",
+        ])
+        .output()
+        .expect("run conductor");
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(output.status.success(), "{stdout}\n{stderr}");
+    assert_eq!(*posted.lock().expect("posted"), ["alpha"]);
+    assert!(stdout.contains("alpha: upgraded to 1.1.0"), "{stdout}");
 }
 
 /// The second adversary pass on `story:box-crash-loop-reads-failed`: the `Unreachable` a start

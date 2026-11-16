@@ -219,6 +219,11 @@ pub const DIAL_VARIABLE: &str = "CONDUCTOR_API_DIAL";
 /// The first word of the line a dialed connection opens with.
 pub const DIAL_HELLO: &str = "CONDUCTOR-DIAL/1";
 
+/// The line the daemon sends on a dialed connection it admitted and closes because the
+/// instance's pool is full ([`crate::daemon::dial::MAX_IDLE`]): a surplus connection, which the
+/// runtime does not take for a refusal (`story:dial-refusal-diagnosable`).
+pub const DIAL_FULL: &str = "CONDUCTOR-DIAL/1 FULL";
+
 /// How many connections a runtime that dials its API keeps open at once: as many exchanges as it
 /// answers at once.
 pub const DIAL_CONNECTIONS: usize = 4;
@@ -231,6 +236,7 @@ pub const CONFIG_SOURCE_VARIABLE: &str = "CONDUCTOR_CONFIG_SOURCE";
 /// The variable the daemon names the runtime's log file in: a runtime in a substrate box writes
 /// what it says there, not to its session, which substrate ends at its output bound. The
 /// runtime turns to it before anything else, so an error that ends it at once is in the file.
+/// Each line there starts with the time it was written, RFC 3339 ([`log_to`]).
 pub const LOG_VARIABLE: &str = "CONDUCTOR_API_LOG";
 
 /// The variable that, set to `off`, has the runtime serve the instance API without the loop: for
@@ -259,6 +265,7 @@ fn end_with(daemon: u32) {
                 true,
                 &format!("conductor: instance serve: the daemon, process {daemon}, ended"),
             );
+            end_log();
             std::process::exit(0);
         });
 }
@@ -364,11 +371,17 @@ pub fn instance_relay(config_flag: Option<&Path>) -> Result<ExitCode> {
 const RELAY_MAX: u64 = dashboard::MAX_BODY as u64 + 64 * 1024;
 
 /// Points this process's standard output and error at the end of `log` ([`LOG_VARIABLE`]),
-/// created mode 0600 with its directory when missing.
+/// created mode 0600 with its directory when missing, each line led by the time it was written
+/// (RFC 3339) and a space: both go into a pipe, whose lines a thread writes to the file stamped
+/// ([`stamp`]), so what any part of the runtime or a program it starts says carries its time,
+/// and can be matched with the daemon's journal (`story:dial-refusal-diagnosable`). Before the
+/// process exits both go back to the file and the thread writes what the pipe still holds
+/// ([`end_log`]).
 ///
 /// # Errors
 ///
-/// The directory or the file cannot be created, or a descriptor not replaced.
+/// The directory or the file cannot be created, the pipe not opened, or a descriptor not
+/// replaced.
 fn log_to(log: &Path) -> Result<()> {
     use std::os::unix::fs::OpenOptionsExt as _;
     if let Some(parent) = log.parent() {
@@ -380,9 +393,96 @@ fn log_to(log: &Path) -> Result<()> {
         .mode(0o600)
         .open(log)
         .with_context(|| format!("open the log {}", log.display()))?;
-    nix::unistd::dup2_stdout(&file)
-        .and_then(|()| nix::unistd::dup2_stderr(&file))
-        .with_context(|| format!("write the output to {}", log.display()))
+    let (reader, writer) = std::io::pipe().context("open the log's pipe")?;
+    let stamped = file
+        .try_clone()
+        .with_context(|| format!("open the log {}", log.display()))?;
+    nix::unistd::dup2_stdout(&writer)
+        .and_then(|()| nix::unistd::dup2_stderr(&writer))
+        .with_context(|| format!("write the output to {}", log.display()))?;
+    drop(writer);
+    let _ = STAMPED.set(Stamped::new(file));
+    std::thread::Builder::new()
+        .name("instance-log".to_owned())
+        .spawn(move || stamp(reader, stamped))
+        .context("start the log's writer")?;
+    Ok(())
+}
+
+/// How long the exit waits for the log's writer to write what the pipe still holds.
+const DRAIN: std::time::Duration = std::time::Duration::from_millis(500);
+
+/// The log file [`log_to`] stamps lines into, and whether its writer has written all.
+struct Stamped {
+    file: fs::File,
+    written: std::sync::Mutex<bool>,
+    ended: std::sync::Condvar,
+}
+
+impl Stamped {
+    const fn new(file: fs::File) -> Self {
+        Self {
+            file,
+            written: std::sync::Mutex::new(false),
+            ended: std::sync::Condvar::new(),
+        }
+    }
+}
+
+static STAMPED: std::sync::OnceLock<Stamped> = std::sync::OnceLock::new();
+
+/// Writes each line `reader` gives to `file`, led by the time and a space, until the pipe ends.
+fn stamp(reader: std::io::PipeReader, mut file: fs::File) {
+    use std::io::{BufRead as _, Write as _};
+    let mut lines = std::io::BufReader::new(reader);
+    let mut line = Vec::new();
+    loop {
+        line.clear();
+        match lines.read_until(b'\n', &mut line) {
+            Ok(0) | Err(_) => break,
+            Ok(_) => {}
+        }
+        let _ = file.write_all(&stamped(&line));
+    }
+    if let Some(stamped) = STAMPED.get() {
+        *stamped
+            .written
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner) = true;
+        stamped.ended.notify_all();
+    }
+}
+
+/// `line` led by the time now, RFC 3339, and a space, ending in a newline.
+#[must_use]
+pub fn stamped(line: &[u8]) -> Vec<u8> {
+    let at = crate::records::now().map(|at| at.0).unwrap_or_default();
+    let mut out = Vec::with_capacity(at.len() + 1 + line.len() + 1);
+    out.extend_from_slice(at.as_bytes());
+    out.push(b' ');
+    out.extend_from_slice(line);
+    if !line.ends_with(b"\n") {
+        out.push(b'\n');
+    }
+    out
+}
+
+/// Before the process exits, where [`log_to`] stamps its lines: standard output and error back to
+/// the log file, which ends the pipe unless a program the runtime started holds it, then up to
+/// [`DRAIN`] for the writer to write the rest. Elsewhere it does nothing.
+pub fn end_log() {
+    let Some(stamped) = STAMPED.get() else {
+        return;
+    };
+    let _ = nix::unistd::dup2_stdout(&stamped.file);
+    let _ = nix::unistd::dup2_stderr(&stamped.file);
+    let written = stamped
+        .written
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
+    let _ = stamped
+        .ended
+        .wait_timeout_while(written, DRAIN, |written| !*written);
 }
 
 /// Copies the file [`CONFIG_SOURCE_VARIABLE`] names, where it names one, over the config file
@@ -650,6 +750,7 @@ pub fn instance_serve(
             impl Drop for Ended {
                 fn drop(&mut self) {
                     crate::run::say(true, "conductor: instance serve: the instance API ended");
+                    end_log();
                     std::process::exit(1);
                 }
             }

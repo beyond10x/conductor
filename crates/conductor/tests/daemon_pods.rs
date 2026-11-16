@@ -829,6 +829,7 @@ fn an_upgrade_of_a_pod_run_instance_answers_409() {
             actor: conductor_cli::actor::operator("operator-one"),
             reply,
         },
+        |_| {},
     );
     let (status, body) = answer.recv().expect("an answer");
     assert_eq!(status, "409 Conflict", "{body}");
