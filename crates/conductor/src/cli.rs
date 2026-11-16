@@ -604,9 +604,7 @@ impl Cli {
                 InstanceCommand::Serve => {
                     crate::instance::instance_serve(self.config.as_deref(), state, providers)
                 }
-                InstanceCommand::Cycle => {
-                    crate::daemon::cycle::instance_cycle(self.config.as_deref())
-                }
+                InstanceCommand::Cycle => crate::instance::instance_cycle(self.config.as_deref()),
                 InstanceCommand::Relay => crate::instance::instance_relay(self.config.as_deref()),
                 InstanceCommand::Upgrade(args) => match &remote {
                     Some(daemon) => crate::remote::instance_upgrade(daemon, &args),
