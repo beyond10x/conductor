@@ -146,15 +146,12 @@ runs without one) are green on its head commit. Run `task check` locally only wh
 
 - Work in a managed worktree, not in the primary checkout: `worktree create --purpose <what>`,
   and end with `worktree finish --discard-cache --archive <tree>`.
-- `conductor build run` owns the target directory. It sets `CARGO_TARGET_DIR` for a cargo-based
-  command to the repository's one target under the instance's cache, shared by all its trees, so
-  the dependencies are built once; the tree's own `target/` stays empty. Never set
-  `CARGO_TARGET_DIR` yourself: `build run` keeps a value you set and takes no lock for it. A
-  shared target is safe only under `build run`'s lock: it holds the repository's lock for the
-  whole command, not only cargo's build step, so no test runs a binary another tree uplifted
-  meanwhile, and a run from another tree than the target's last marks its own files modified, so
-  cargo rebuilds the repository's crates rather than reuse the other tree's. Runs of one
-  repository queue behind each other; `conductor gc` removes a shared target no run holds.
+- Each tree builds in its own `target/`; never set `CARGO_TARGET_DIR`. `conductor build run`
+  sets none (`story:build-target-per-tree`): cargo keys a workspace crate by its path inside the
+  workspace, the same in every tree, so one target shared by a repository's trees rebuilt its own
+  crates on every switch between trees, and a gate run outside `build run` built a second full
+  tree beside it. The dependencies come from the repository's compile cache instead. An idle
+  tree's `target/` is reclaimed by the host reclaim and `conductor gc`.
 - Run at most one local `task check` per repository at a time; prefer `cargo test -p conductor-cli`
   on what you touched.
 

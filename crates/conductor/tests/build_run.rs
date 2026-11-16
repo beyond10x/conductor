@@ -68,14 +68,18 @@ impl Drop for Case {
     }
 }
 
-/// Removes the two debug-information variables from this process once, so the cases see what
-/// `build run` sets and not what the operator's shell passed down
-/// (`story:build-run-lean-debuginfo`).
-fn forget_inherited_debuginfo() {
+/// Removes the two debug-information variables (`story:build-run-lean-debuginfo`) and
+/// `CARGO_TARGET_DIR` (`story:build-target-per-tree`) from this process once, so the cases see
+/// what `build run` sets and not what the operator's shell passed down.
+fn forget_inherited_build_variables() {
     static ONCE: std::sync::Once = std::sync::Once::new();
     ONCE.call_once(|| {
-        for name in ["CARGO_PROFILE_DEV_DEBUG", "CARGO_PROFILE_TEST_DEBUG"] {
-            // SAFETY: nothing else in this test binary reads or writes these two names, and
+        for name in [
+            "CARGO_PROFILE_DEV_DEBUG",
+            "CARGO_PROFILE_TEST_DEBUG",
+            "CARGO_TARGET_DIR",
+        ] {
+            // SAFETY: nothing else in this test binary reads or writes these names, and
             // `Command` takes std's own environment lock.
             unsafe { std::env::remove_var(name) };
         }
@@ -85,7 +89,7 @@ fn forget_inherited_debuginfo() {
 impl Case {
     fn new(name: &str) -> Self {
         active::isolate();
-        forget_inherited_debuginfo();
+        forget_inherited_build_variables();
         let dir = PathBuf::from(env!("CARGO_TARGET_TMPDIR"))
             .join("build_run")
             .join(name);
@@ -136,9 +140,8 @@ impl Case {
             // No session list: a library case names no harness session.
             sessions: Vec::new(),
             walk: build::walk,
-            // No compile cache: these cases run no cargo command.
+            // No compile cache: no case starts an sccache server.
             sccache: None,
-            targets: None,
         }
     }
 
@@ -3599,4 +3602,101 @@ fn the_threshold_off_sets_neither_variable() {
     };
     let sources = case.sources(reclaim_nothing);
     assert_eq!(debug_seen(&case, &off, &sources, "cargo test"), ",");
+}
+
+/// Runs git in `dir`, reading no configuration of the host's user.
+fn git(dir: &Path, args: &[&str]) {
+    let status = Command::new("git")
+        .args(args)
+        .current_dir(dir)
+        .env("GIT_CONFIG_GLOBAL", "/dev/null")
+        .env("GIT_CONFIG_NOSYSTEM", "1")
+        .env("GIT_AUTHOR_NAME", "example")
+        .env("GIT_AUTHOR_EMAIL", "example@example.org")
+        .env("GIT_COMMITTER_NAME", "example")
+        .env("GIT_COMMITTER_EMAIL", "example@example.org")
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .status()
+        .expect("git runs");
+    assert!(status.success(), "git {args:?} in {}", dir.display());
+}
+
+/// `story:build-target-per-tree`: each tree builds in its own `target/`. Two trees of one
+/// repository (`repo/` and its worktree `tree2/`) alternate `build run -- cargo build`: the
+/// command gets no `CARGO_TARGET_DIR`, each tree's build lands in its own `target/`, and the
+/// third run, back in `repo/`, compiles nothing, as no source of `repo/` changed. A gate run
+/// outside `build run` (plain `cargo build` in `tree2/`) finds that tree's build fresh: it builds
+/// in the same `target/`, so the repository holds no second build tree for it.
+#[test]
+fn alternating_trees_each_keep_their_own_fresh_target() {
+    let case = Case::new("target-per-tree");
+    let repo = case.dir.join("repo");
+    fs::create_dir_all(repo.join("src")).expect("create the repository");
+    fs::write(
+        repo.join("Cargo.toml"),
+        "[package]\nname = \"example\"\nversion = \"0.1.0\"\nedition = \"2021\"\n\n[workspace]\n",
+    )
+    .expect("write the manifest");
+    fs::write(repo.join("src/main.rs"), "fn main() {}\n").expect("write the binary");
+    fs::write(repo.join(".gitignore"), "/target\n").expect("write .gitignore");
+    git(&case.dir, &["init", "-q", "repo"]);
+    git(&repo, &["add", "."]);
+    git(&repo, &["commit", "-q", "-m", "example"]);
+    git(&repo, &["worktree", "add", "-q", "--detach", "../tree2"]);
+    // The gate below runs plain cargo, which gets no debug-information variables either.
+    let lean_off = Settings {
+        lean_debuginfo: false,
+        ..settings()
+    };
+    let sources = case.sources(reclaim_nothing);
+    let build = |tree: &str, log: &str| {
+        let request = Request {
+            cwd: case.dir.join(tree),
+            ..case.request(
+                GIB,
+                &format!(
+                    "echo \"${{CARGO_TARGET_DIR-unset}}\" > env.txt; \
+                     cargo build --offline 2> {log}"
+                ),
+            )
+        };
+        let outcome = build::run(&case.state(), &case.host(), &lean_off, &sources, &request)
+            .expect("the run ends");
+        assert_eq!(outcome.exit_code(), 0, "{outcome:?}\n{}", case.said());
+        let read =
+            |name: &str| fs::read_to_string(case.dir.join(tree).join(name)).unwrap_or_default();
+        assert_eq!(
+            read("env.txt").trim(),
+            "unset",
+            "no CARGO_TARGET_DIR in {tree}"
+        );
+        read(log)
+    };
+    for tree in ["repo", "tree2"] {
+        let log = build(tree, "first.txt");
+        assert!(log.contains("Compiling example"), "{tree} builds: {log}");
+        assert!(
+            case.dir.join(tree).join("target/debug").is_dir(),
+            "{tree} builds in its own target/"
+        );
+    }
+    let again = build("repo", "again.txt");
+    assert!(
+        !again.contains("Compiling"),
+        "back in repo, nothing changed and nothing is compiled: {again}\n{}",
+        case.said()
+    );
+    let gate = Command::new("cargo")
+        .args(["build", "--offline"])
+        .current_dir(case.dir.join("tree2"))
+        .env_remove("CARGO_TARGET_DIR")
+        .output()
+        .expect("cargo runs");
+    let gated = String::from_utf8_lossy(&gate.stderr);
+    assert!(gate.status.success(), "{gated}");
+    assert!(
+        !gated.contains("Compiling"),
+        "the gate finds tree2's build fresh in its own target/: {gated}"
+    );
 }

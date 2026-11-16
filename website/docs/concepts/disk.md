@@ -81,7 +81,6 @@ starts.
 | for | sets | key |
 |---|---|---|
 | every command | `nice -n 19` and the idle I/O class; `CARGO_BUILD_JOBS` and `MAKEFLAGS=-j`: the cores less the reserve, over the build slots, at least 1; a higher `CARGO_BUILD_JOBS` in the environment is lowered to it | `thresholds.cpu_reserve` (2) |
-| a cargo-based command | `CARGO_TARGET_DIR`: the repository's one target, `<cache>/target/<key>`, held under its lock for the whole command; a value the environment sets is kept and takes no lock | |
 | a cargo-based command | `RUSTC_WRAPPER=sccache`, the repository's `SCCACHE_DIR` and `SCCACHE_SERVER_PORT` (4300–5299), one server per repository that ends itself when idle; without `sccache` on `PATH`, nothing, and one line says so | `thresholds.repo_cache`, `repo_cache_size` (2G) |
 | a cargo-based command | `CARGO_PROFILE_DEV_DEBUG` and `CARGO_PROFILE_TEST_DEBUG` set to `line-tables-only`, unless the environment or the manifest sets `debug` | `thresholds.lean_debuginfo` |
 | a short command | a short-lane slot beside the regular ones, at most 4 jobs: at least 3 runs in 14 days with a p90 at most `short_lane_max`; a run over twice that is marked `lane_overrun` and leaves the lane for 24 hours | `thresholds.short_lane_slots` (1), `short_lane_max` (3m) |

@@ -76,7 +76,6 @@ impl Case {
             sessions: Vec::new(),
             walk: build::walk,
             sccache: None,
-            targets: None,
         }
     }
 

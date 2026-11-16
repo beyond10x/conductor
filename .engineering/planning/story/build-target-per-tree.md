@@ -12,13 +12,13 @@ relations:
 - informed_by: story:build-shared-target-dir
 - informed_by: story:build-run-repo-cache
 scope:
+- confidence: inferred
+  path: AGENTS.md
 - confidence: cited
   path: crates/conductor/src/build.rs
 - confidence: inferred
   path: crates/conductor/src/gc.rs
-- confidence: inferred
-  path: AGENTS.md
-revision: 1
+revision: 2
 ---
 ## Why
 
@@ -51,3 +51,22 @@ gc reclaims a shared target idle past `tree_stale`, and a gate that runs outside
   rebuilds no more workspace crates than the change requires, and no repository holds two
   full target trees after a gate. A `tests/build_run.rs` case holds whichever variant is
   decided.
+
+## Decision
+
+Per-tree targets with the repository's sccache (decided 2026-11-16). `build run` sets no
+`CARGO_TARGET_DIR` and takes no repository lock; each tree builds in its own `target/`.
+
+- The shared target cannot be fast across tree switches: cargo keys a workspace crate's artifacts
+  by its path inside the workspace, the same in every tree, so correctness required
+  `SharedTarget::claim` to mark the tree's files modified on every switch (F39). Bounding it
+  would not remove the rebuilds.
+- A gate run outside `build run` builds in the tree's own `target/`, so with per-tree targets it
+  reuses what `build run` built there instead of building a second full tree (F43).
+- The dependencies stay shared through `story:build-run-repo-cache`, which this story's sibling
+  rejected a shared target in favour of.
+- Idle per-tree targets are reclaimed by the host reclaim and `conductor gc`
+  (`story:gc-idle-targets`). A shared target an earlier version left is an idle cargo target to
+  the host reclaim (it no longer excludes them) and `conductor gc` removes it.
+- Held by `tests/build_run.rs` `alternating_trees_each_keep_their_own_fresh_target` and
+  `tests/reclaim.rs` `reclaim_cleans_a_shared_target_an_earlier_build_run_left`.

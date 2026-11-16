@@ -946,3 +946,43 @@ fn reclaim_cleans_the_idle_cargo_targets_oldest_first_and_keeps_a_held_one() {
         "the tree stays"
     );
 }
+
+/// `story:build-target-per-tree`: `build run` no longer builds into a shared target of the
+/// repository, so one an earlier version left under the instance's cache
+/// (`~/.cache/conductor-watch/target/<key>`, its lock under `target/.locks/`) is an idle cargo
+/// target like any other: a reclaim run cleans it once it was not written for the window, and
+/// keeps the locks.
+#[test]
+fn reclaim_cleans_a_shared_target_an_earlier_build_run_left() {
+    let case = Case::new("left-shared-target");
+    let root = case.home().join(".cache/conductor-watch/target");
+    let key = "example-00000000000000a1";
+    let target = root.join(key);
+    write(
+        &target.join("CACHEDIR.TAG"),
+        "Signature: 8a477f597d28d172789f06886806bc55\n# This file is a cache directory tag created by cargo.\n# For information about cache directory tags see https://bford.info/cachedir/\n",
+    );
+    write(&target.join(".rustc_info.json"), "{}\n");
+    write(&target.join("debug/.cargo-lock"), "");
+    fill(&target.join("debug/deps/out.bin"), 64 * KIB);
+    let lock = root.join(".locks").join(format!("{key}.lock"));
+    write(&lock, "");
+    age_by(&target, Duration::from_secs(8 * 3600));
+    // Never over the floor: every step runs.
+    case.readings(&[10]);
+    let output = case.reclaim(&[]);
+    assert_eq!(output.status.code(), Some(1), "{}", shown(&output));
+    let cleaned: Vec<String> = steps(&String::from_utf8_lossy(&output.stdout))
+        .into_iter()
+        .filter(|(_, _, what)| what.starts_with(&root.display().to_string()))
+        .map(|(_, _, what)| what)
+        .collect();
+    assert_eq!(
+        cleaned,
+        [target.display().to_string()],
+        "{}",
+        shown(&output)
+    );
+    assert!(!target.exists(), "the shared target is gone");
+    assert!(lock.is_file(), "its lock stays");
+}

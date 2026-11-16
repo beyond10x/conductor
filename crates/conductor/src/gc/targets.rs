@@ -1,7 +1,8 @@
-//! The repositories' shared targets of `conductor build run` (`story:build-shared-target-dir`):
+//! The repositories' shared targets an earlier `conductor build run` left
+//! (`story:build-shared-target-dir`; it shares none since `story:build-target-per-tree`):
 //! `<cache>/target/<key>`, each with its lock `<cache>/target/.locks/<key>.lock`
-//! ([`crate::build::targets_root`]), which `build run` holds for the whole of a command that
-//! builds into it. `conductor gc` takes the lock without waiting: a target whose lock it takes has
+//! ([`crate::build::targets_root`]), which that `build run` held for the whole of a command that
+//! built into it. `conductor gc` takes the lock without waiting: a target whose lock it takes has
 //! no build running, and it is removed under that lock, so no build starts into it meanwhile; a
 //! target whose lock a run holds is kept. An entry with no lock file is not `build run`'s and is
 //! left alone.
