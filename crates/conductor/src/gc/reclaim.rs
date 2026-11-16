@@ -412,8 +412,9 @@ fn trees(sources: &Sources, steps: &mut Steps) -> Result<Vec<(String, u64)>> {
 }
 
 /// Step 1, second half (`story:gc-idle-targets`): each idle cargo target under the instance's
-/// trees and cache roots that no lock of `build run` answers for ([`targets::assess`]), the
-/// oldest last write first, until enough is free. The window is the one of the free disk the step
+/// trees and cache roots ([`targets::assess`]), the oldest last write first, until enough is
+/// free. A shared target an earlier `build run` left (`story:build-target-per-tree`) is one of
+/// them; only the locks' directory is left alone. The window is the one of the free disk the step
 /// starts with, and [`targets::clean`] makes every check again just before it moves one aside
 /// and removes it. What a reclaim that ended left moved aside comes first, with no check. When
 /// the host's processes cannot be read, the step cleans nothing and says why on standard error.
@@ -423,8 +424,8 @@ fn idle_targets(sources: &Sources, steps: &mut Steps) -> Result<()> {
     }
     let window = targets::window(steps.free);
     let root = crate::build::targets_root(&config::active().instance);
-    let locked = targets::handled(&root, &targets::list(&root));
-    let candidates = match targets::assess(sources, window, &locked, false) {
+    let locks = [root.join(crate::build::TARGET_LOCKS)];
+    let candidates = match targets::assess(sources, window, &locks, false) {
         Ok(candidates) => candidates,
         Err(why) => {
             let _ = writeln!(

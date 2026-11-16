@@ -141,7 +141,6 @@ impl Case {
             sessions: Vec::new(),
             walk: build::walk,
             sccache: Some(self.fake()),
-            targets: None,
         }
     }
 

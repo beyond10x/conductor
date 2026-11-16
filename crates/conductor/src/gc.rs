@@ -32,8 +32,9 @@
 //! ends with one `trees  <repository>: …` line per repository: trees finished, stale and kept, each
 //! with GiB (`trees` in JSON).
 //!
-//! Beside them it lists each repository's shared target of `conductor build run` ([`targets`],
-//! `story:build-shared-target-dir`): one whose lock it takes without waiting has no build running,
+//! Beside them it lists each repository's shared target an earlier `conductor build run` left
+//! ([`targets`], `story:build-shared-target-dir`; `build run` shares none since
+//! `story:build-target-per-tree`): one whose lock it takes without waiting has no build running,
 //! and is listed with its bytes and removed under that lock; one whose lock a build holds is a
 //! holder, kept.
 //!
@@ -194,7 +195,7 @@ pub fn gc(args: &GcArgs) -> Result<ExitCode> {
             take(&sources, row, &tree)
         }
     }));
-    // The repositories' shared targets of `build run` (`story:build-shared-target-dir`).
+    // The repositories' shared targets an earlier `build run` left (`story:build-shared-target-dir`).
     let root = crate::build::targets_root(&crate::config::active().instance);
     let shared_targets = targets::list(&root);
     for target in &shared_targets {
