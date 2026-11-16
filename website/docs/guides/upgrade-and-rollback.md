@@ -69,6 +69,10 @@ of action `Upgrade` in its store:
 | `restart` | stops the runtime and starts it on the new binary. The binary it ran is kept as its previous one |
 
 The instance is then `Upgrading` in `GET /v1/instances` until its runtime answers on `api.sock`.
+
+A runtime in a substrate box is asked about through substrate, not the service manager: it runs,
+and answers, while substrate says its session runs. Its `restart` closes the box and opens a new
+one on the new binary, and a rollback opens one on the previous binary.
 The command waits up to `daemon.upgrade_timeout` and a minute, and prints one line per instance.
 
 ## 3. Rollback
