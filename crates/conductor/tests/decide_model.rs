@@ -19,7 +19,7 @@ use std::path::PathBuf;
 
 use conductor_cli::config;
 use conductor_cli::decide::model::{
-    Answer, ClaudePrint, Decider, Fake, parse_answer, parse_output,
+    Answer, ClaudePrint, Decider, Fake, failure_reason, parse_answer, parse_output,
 };
 use conductor_cli::decide::{
     self, Handled, PROMPT_CAP, PromptInputs, build_prompt, parse_request, prompt_inputs,
@@ -482,6 +482,27 @@ fn the_answer_is_one_letter_and_a_reason_and_anything_else_is_refused() {
     let failed = r#"{"type":"result","subtype":"error_max_turns","is_error":true,"result":""}"#;
     assert!(parse_output(failed).is_err());
     assert!(parse_output("not json").is_err());
+}
+
+#[test]
+fn a_failed_run_says_why_from_standard_error_or_its_json_result() {
+    // A box's harness without the sealed model token answered this on standard output, with an
+    // empty standard error (agentbox 2026-11-16: every class-C request escalated with no reason).
+    let logged_out = r#"{"type":"result","subtype":"success","is_error":true,"result":"Not logged in · Please run /login"}"#;
+    assert_eq!(
+        failure_reason(logged_out, ""),
+        "Not logged in · Please run /login"
+    );
+    let error = parse_output(logged_out).expect_err("an error result is no answer");
+    assert!(
+        error.to_string().contains("Not logged in"),
+        "{error:#} names the result"
+    );
+    assert_eq!(
+        failure_reason(logged_out, "\n  rate limited\n"),
+        "rate limited"
+    );
+    assert_eq!(failure_reason("not json", ""), "");
 }
 
 #[test]

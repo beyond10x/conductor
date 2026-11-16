@@ -132,7 +132,13 @@ impl Decider for ClaudePrint {
     }
 
     fn decide(&self, prompt: &str) -> Result<Answer> {
-        let mut child = crate::instance::command("claude")
+        let mut command = crate::instance::command("claude");
+        // In a box the harness has no login of its own: it runs on the model token the runtime
+        // read from its sealed slot, as every session it starts does (`token::lease_into`).
+        if let Some(value) = crate::token::boxed_subscription_token(&config::active().instance) {
+            command.env(crate::token::OAUTH_VARIABLE, value);
+        }
+        let mut child = command
             .args(self.arguments())
             .current_dir(Self::dir()?)
             .stdin(Stdio::piped())
@@ -184,7 +190,7 @@ impl Decider for ClaudePrint {
         if !status.success() {
             bail!(
                 "`claude -p` exited {status}: {}",
-                errors.lines().next().unwrap_or_default()
+                failure_reason(&output, &errors)
             );
         }
         parse_output(&output)
@@ -262,6 +268,21 @@ pub fn parse_answer(text: &str) -> Result<Answer> {
     }
 }
 
+/// One line saying why `claude -p` failed: the first line of its standard error, else, since
+/// `--output-format json` writes an error into the result on standard output ("Not logged in ·
+/// Please run /login"), the first line of that result.
+#[must_use]
+pub fn failure_reason(stdout: &str, stderr: &str) -> String {
+    if let Some(line) = stderr.lines().map(str::trim).find(|line| !line.is_empty()) {
+        return line.to_owned();
+    }
+    serde_json::from_str::<Value>(stdout.trim())
+        .ok()
+        .and_then(|output| output["result"].as_str().map(str::to_owned))
+        .and_then(|result| result.lines().next().map(|line| line.trim().to_owned()))
+        .unwrap_or_default()
+}
+
 /// The answer in the standard output of `claude -p --output-format json`: one JSON object whose
 /// `result` holds the answer's text ([`parse_answer`]).
 ///
@@ -274,7 +295,10 @@ pub fn parse_output(stdout: &str) -> Result<Answer> {
         .context("the output of `claude -p` is no JSON object")?;
     let subtype = output["subtype"].as_str().unwrap_or_default();
     if output["is_error"].as_bool() == Some(true) || subtype != "success" {
-        bail!("`claude -p` failed: {subtype:?}");
+        bail!(
+            "`claude -p` failed: {subtype:?}: {}",
+            failure_reason(stdout, "")
+        );
     }
     let result = output["result"]
         .as_str()
