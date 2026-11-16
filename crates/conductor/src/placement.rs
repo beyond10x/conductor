@@ -2325,6 +2325,21 @@ impl<T: Substrate + ?Sized> Substrate for &mut T {
     }
 }
 
+/// How long a stopped runtime has to end on TERM before substrate sends KILL.
+const STOP_GRACE: Duration = Duration::from_secs(20);
+/// How long after the grace a stop still waits for the session to read as ended.
+const STOP_SETTLE: Duration = Duration::from_secs(10);
+
+/// Whether a pipe session in `state` has not ended yet.
+fn live(state: &substrate_sdk::PipeSessionState) -> bool {
+    matches!(
+        state,
+        substrate_sdk::PipeSessionState::Accepted
+            | substrate_sdk::PipeSessionState::Ready
+            | substrate_sdk::PipeSessionState::Attached
+    )
+}
+
 impl Sdk {
     /// The remote daemon `at`, reached with the bearer `bearer` gives.
     #[must_use]
@@ -2713,8 +2728,27 @@ impl Substrate for Sdk {
 
     fn stop(&mut self, session: &str) -> Result<()> {
         let id = session.to_owned();
-        self.block_on(async move |client| {
-            client.get_pipe_session(&id).await?.retire().await?;
+        // The wait for the session to end is part of the question, so a remote daemon gets it on
+        // top of its bound.
+        let bound = self
+            .remote
+            .is_some()
+            .then_some(self.timeout + STOP_GRACE + STOP_SETTLE);
+        self.block_within(bound, async move |client| {
+            // substrate retires only a session that has ended (`session.not-terminal`): a live
+            // one is asked to end, TERM then KILL after the grace, and read until it has.
+            let mut session = client.get_pipe_session(&id).await?;
+            if live(&session.observation().state) {
+                session
+                    .signal(substrate_sdk::Signal::Terminate, STOP_GRACE)
+                    .await?;
+                let deadline = std::time::Instant::now() + STOP_GRACE + STOP_SETTLE;
+                while live(&session.refresh().await?.state) && std::time::Instant::now() < deadline
+                {
+                    tokio::time::sleep(Duration::from_millis(250)).await;
+                }
+            }
+            session.retire().await?;
             Ok(())
         })
         .map_err(|why| anyhow!("{}: {}", why.name, why.detail))
