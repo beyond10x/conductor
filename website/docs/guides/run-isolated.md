@@ -82,6 +82,14 @@ conductor config validate
 conductor snapshot start-snapshot
 ```
 
+For an instance whose `placement` opens a box, accept Claude Code's bypass-permissions
+disclaimer for the box once: the box keeps its harness state in `<state>/claude`, and its
+sessions are refused `bypassPermissions` until its user settings accept it. Write
+`{"skipDangerousModePermissionPrompt": true}` into `<state>/claude/settings.json` (merge the key
+into the file when it is there), or set it in the managed settings
+`/etc/claude-code/managed-settings.json`. Doctor prints `box <instance> bypass` and is not ready
+without it ([the host](../concepts/the-host.md#placement)).
+
 Doctor ends `ready` only once each instance writes its forge route: `forge: {route: direct}`,
 with which a controller writes its pull requests with the forge login inside the box, or a
 `gates_policy` for the bot route

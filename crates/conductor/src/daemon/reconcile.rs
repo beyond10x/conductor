@@ -1377,11 +1377,12 @@ impl<U: Units> Daemon<U> {
             self.units.start(service)?;
             return Ok(service.unit.clone());
         }
-        let mut request = self.box_request(instance, service);
         let remote = instance
             .remote
             .as_ref()
             .map(crate::placement::RemoteAt::from);
+        self.close_strays(instance, remote.as_ref())?;
+        let mut request = self.box_request(instance, service);
         // A local box's model token goes through a free slot of the pool; a box without one
         // receives no slot. Conductor cannot make the request: refused before substrate is asked.
         let mut slot = None;
@@ -1441,6 +1442,62 @@ impl<U: Units> Daemon<U> {
         let unit = boxed_unit(&opened);
         self.boxes.insert(instance.name.0.clone(), opened);
         Ok(unit)
+    }
+
+    /// Closes every box of `instance` before a new one opens, so one instance never has two
+    /// runtimes (`story:daemon-restart-one-runtime`): the one the daemon still holds for it, which
+    /// it is not adopting since it starts a runtime ([`Daemon::stop_runtime`], recorded
+    /// `BoxClosed`), then each box the substrate daemon `remote` names (the local one when
+    /// `None`) still holds for the instance's name that the daemon holds for no instance
+    /// ([`crate::placement::Substrate::boxes_of`]): one a daemon before this one opened and whose
+    /// `boxes.json` entry is gone, or that substrate did not answer for at the start. Its runtime
+    /// would keep dialing in with its old token beside the new one.
+    ///
+    /// # Errors
+    ///
+    /// A box cannot be closed, or substrate cannot list them: nothing is opened, and the start
+    /// is a failed one, tried again.
+    fn close_strays(
+        &mut self,
+        instance: &Instance,
+        remote: Option<&crate::placement::RemoteAt>,
+    ) -> Result<()> {
+        let name = &instance.name.0;
+        if let Some(opened) = self.boxes.get(name).cloned() {
+            self.stop_runtime(name, &boxed_unit(&opened))?;
+        }
+        let held: BTreeSet<String> = self
+            .boxes
+            .values()
+            .map(|opened| opened.workspace.clone())
+            .collect();
+        let mut substrate = substrate_of(
+            self.substrate.as_mut(),
+            &self.remote,
+            &self.config.daemon.secrets,
+            remote,
+        );
+        let listed = substrate
+            .boxes_of(name)
+            .with_context(|| format!("list the boxes substrate holds for {name}"))?;
+        for stray in listed
+            .iter()
+            .filter(|stray| !held.contains(&stray.workspace))
+        {
+            substrate.end(stray).with_context(|| {
+                format!(
+                    "close the box {} substrate still runs for {name}, which this daemon did \
+                     not open or no longer holds",
+                    stray.workspace
+                )
+            })?;
+            eprintln!(
+                "conductor: daemon serve: closed the box {} substrate still ran for {name}, \
+                 before opening its own",
+                stray.workspace
+            );
+        }
+        Ok(())
     }
 
     /// The box `instance` asks for, its runtime started as `service` says, with no credential in

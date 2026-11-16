@@ -83,6 +83,29 @@ struct Log {
     slots: Vec<String>,
     /// The egress apertures the daemon declares, by name: none unless a case names one.
     apertures: Vec<String>,
+    /// Boxes the daemon holds that this fake did not open, `(workspace, instance)`: one a daemon
+    /// before opened.
+    strays: Vec<(String, String)>,
+    /// For each box asked for, how many boxes of its instance the daemon held at that moment.
+    held_at_open: Vec<usize>,
+}
+
+impl Log {
+    /// The workspaces of `instance` the daemon holds: strays and opened boxes not closed.
+    fn held(&self, instance: &str) -> Vec<String> {
+        let opened = self
+            .opened
+            .iter()
+            .enumerate()
+            .map(|(at, request)| (format!("ws_{}", at + 1), request.instance.0.clone()));
+        self.strays
+            .iter()
+            .cloned()
+            .chain(opened)
+            .filter(|(workspace, of)| of == instance && !self.closed.contains(workspace))
+            .map(|(workspace, _)| workspace)
+            .collect()
+    }
 }
 
 /// A substrate daemon that opens every box it is asked for, unless told to refuse.
@@ -136,6 +159,8 @@ impl Substrate for Fake {
                 .filter(fs::Metadata::is_dir)
                 .map(|meta| meta.permissions().mode() & 0o777),
         );
+        let held = log.held(&request.instance.0).len();
+        log.held_at_open.push(held);
         log.opened.push(request.clone());
         let n = log.opened.len();
         let session = format!("ses_{n}");
@@ -171,6 +196,18 @@ impl Substrate for Fake {
             .closed
             .push(workspace.to_owned());
         Ok(())
+    }
+
+    fn boxes_of(&mut self, instance: &str) -> Result<Vec<placement::Held>> {
+        let log = self.log.lock().expect("the log");
+        Ok(log
+            .held(instance)
+            .into_iter()
+            .map(|workspace| placement::Held {
+                workspace,
+                execs: Vec::new(),
+            })
+            .collect())
     }
 
     fn declares(&mut self, slot: &str) -> bool {
@@ -3533,6 +3570,18 @@ impl Case {
             fs::create_dir_all(self.dir.join(name).join(sub)).expect("an instance directory");
         }
     }
+
+    /// The bypass-permissions acceptance in the box's user settings of the instance `name`, as
+    /// the operator writes it (`story:box-bypass-acceptance-doctor`).
+    fn accept_bypass(&self, name: &str) {
+        let dir = placement::box_claude_dir(&self.dir.join(name).join("state"));
+        fs::create_dir_all(&dir).expect("the box's claude directory");
+        fs::write(
+            dir.join("settings.json"),
+            "{\"skipDangerousModePermissionPrompt\": true}\n",
+        )
+        .expect("write the box's user settings");
+    }
 }
 
 /// Every file and directory under `dir`, sorted.
@@ -3581,6 +3630,7 @@ fn doctor_dry_runs_a_box_against_the_substrate_daemon_and_starts_nothing() {
     let case = Case::new("dbox");
     let file = case.config(&[("alpha", "systemd"), ("beta", "box-b")]);
     case.directories("alpha");
+    case.accept_bypass("alpha");
     let before = tree(&case.dir);
 
     // The daemon serves the box's facts and three of its four roots: refused as it would be.
@@ -4217,6 +4267,7 @@ fn doctor_checks_a_declared_api_token_slot_and_writes_no_slot() {
     let case = Case::new("dsl");
     let file = case.config(&[("alpha", "systemd")]);
     case.directories("alpha");
+    case.accept_bypass("alpha");
     let slots = case.home().join(".b10x/conductor/daemon/slots");
     let sealed = slots.join("api_token_alpha");
     assert!(
@@ -5873,6 +5924,7 @@ fn adv2_box_token_doctor_refuses_no_box_for_a_slot_file_its_daemon_does_not_writ
     let case = Case::new("a2s");
     let file = case.config(&[("alpha", "systemd")]);
     case.directories("alpha");
+    case.accept_bypass("alpha");
     adv2_box_token_installed(&case, &file);
     let default = case.home().join(".b10x/conductor/daemon");
     fs::create_dir_all(&default).expect("the default daemon directory");
@@ -6338,6 +6390,12 @@ fn doctor_names_the_forge_aperture_the_git_identity_and_the_trust_of_a_box() {
             .instances
             .remove(0);
     placement::prepare_box(&instance, 0).expect("conductord's preparation");
+    // The bypass-permissions acceptance its controllers need, as the operator sets it.
+    fs::write(
+        placement::box_claude_dir(Path::new(&instance.state)).join("settings.json"),
+        "{\"skipDangerousModePermissionPrompt\": true}\n",
+    )
+    .expect("write the box's user settings");
     let output = case.doctor_on(&file, &socket);
     drop(fake);
     let shown = lines(&output);
@@ -6373,4 +6431,262 @@ fn doctor_names_the_forge_aperture_the_git_identity_and_the_trust_of_a_box() {
             describe(&output)
         );
     }
+}
+
+/// `story:box-bypass-acceptance-doctor`: a controller in the box runs with `bypassPermissions`,
+/// which Claude Code takes only once its disclaimer is accepted in user or managed settings. The
+/// box's user settings are `<state>/claude/settings.json`; doctor fails a box whose harness state
+/// accepts it nowhere, naming that file and the key, and passes it once the key is set there.
+#[test]
+fn doctor_fails_a_box_whose_harness_state_does_not_accept_bypass_permissions() {
+    let case = Case::new("dbypass");
+    let file = case.forge_config(false, &[]);
+    case.directories("alpha");
+    let socket = case.dir.join("a.sock");
+    let served = [
+        "state-alpha",
+        "records-alpha",
+        "cache-alpha",
+        "store",
+        "checkouts-alpha",
+        "trees-alpha",
+        "forge_gitlab_example_com",
+    ];
+    let settings = placement::box_claude_dir(&case.dir.join("alpha/state")).join("settings.json");
+    // Managed settings on this host accept it for every box: the failure cannot be seen here.
+    let managed = Path::new(conductor_cli::doctor::MANAGED_SETTINGS).is_file();
+
+    let fake = FakeLocal::opening(&socket, &systemd_families(), &SYSTEMD_PROPERTIES, &served);
+    let output = case.doctor_on(&file, &socket);
+    drop(fake);
+    let shown = lines(&output);
+    if !managed {
+        assert!(
+            shown
+                .iter()
+                .any(|line| line.starts_with("box alpha bypass: ")
+                    && line.contains(&settings.display().to_string())
+                    && line.contains("\"skipDangerousModePermissionPrompt\": true")),
+            "{}",
+            describe(&output)
+        );
+        let verdict = shown.last().cloned().unwrap_or_default();
+        assert!(
+            verdict.starts_with("not ready: ")
+                && verdict.contains("box alpha (bypassPermissions not accepted)"),
+            "{}",
+            describe(&output)
+        );
+    }
+    fs::remove_file(&socket).expect("remove the socket");
+
+    // A settings file that holds the key false accepts nothing either.
+    fs::create_dir_all(settings.parent().expect("its directory")).expect("the box's claude dir");
+    fs::write(
+        &settings,
+        "{\"skipDangerousModePermissionPrompt\": false}\n",
+    )
+    .expect("write the settings");
+    let fake = FakeLocal::opening(&socket, &systemd_families(), &SYSTEMD_PROPERTIES, &served);
+    let output = case.doctor_on(&file, &socket);
+    drop(fake);
+    if !managed {
+        let verdict = lines(&output).last().cloned().unwrap_or_default();
+        assert!(
+            verdict.contains("box alpha (bypassPermissions not accepted)"),
+            "{}",
+            describe(&output)
+        );
+    }
+    fs::remove_file(&socket).expect("remove the socket");
+
+    // The key set in the box's user settings: the row passes and names the file.
+    fs::write(
+        &settings,
+        "{\"model\": \"opus\", \"skipDangerousModePermissionPrompt\": true}\n",
+    )
+    .expect("write the settings");
+    let fake = FakeLocal::opening(&socket, &systemd_families(), &SYSTEMD_PROPERTIES, &served);
+    let output = case.doctor_on(&file, &socket);
+    drop(fake);
+    let shown = lines(&output);
+    if !managed {
+        assert!(
+            shown.contains(&format!(
+                "box alpha bypass: bypassPermissions accepted in {}",
+                settings.display()
+            )),
+            "{}",
+            describe(&output)
+        );
+    }
+    let verdict = shown.last().cloned().unwrap_or_default();
+    assert!(
+        !verdict.contains("bypassPermissions"),
+        "{}",
+        describe(&output)
+    );
+}
+
+/// `story:daemon-restart-one-runtime`: a box substrate still runs for an instance, whose
+/// `boxes.json` entry is gone, is closed before the daemon opens the instance's box, so
+/// substrate holds exactly one box for it afterwards; a box of another instance is left alone.
+#[test]
+fn a_daemon_start_closes_a_box_substrate_still_runs_for_the_instance_before_it_opens_one() {
+    let case = Case::new("daemon-stray");
+    case.config(&[("alpha", "linux")]);
+    let fake = Fake::default();
+    fake.log.lock().expect("the log").strays = vec![
+        ("ws_old".to_owned(), "alpha".to_owned()),
+        ("ws_beta".to_owned(), "beta".to_owned()),
+    ];
+    let mut daemon = case.daemon(fake.clone());
+    let done = daemon
+        .pass(
+            conductor_model::instance::ReconcileReason::ConfigChange,
+            std::time::Instant::now(),
+        )
+        .expect("a pass");
+    assert_eq!(done.len(), 1, "{done:?}");
+    assert_eq!(done[0].action, ReconcileAction::Start);
+    assert_eq!(done[0].result, ReconcileResult::Succeeded, "{done:?}");
+    let log = fake.log.lock().expect("the log");
+    assert_eq!(log.closed, ["ws_old".to_owned()], "only alpha's stray box");
+    assert_eq!(log.held_at_open, [0], "closed before the new box opened");
+    assert_eq!(log.held("alpha"), ["ws_1".to_owned()], "one box for alpha");
+    assert_eq!(log.held("beta"), ["ws_beta".to_owned()]);
+}
+
+/// `story:daemon-restart-one-runtime`: a daemon stopped and started again adopts the box its
+/// `boxes.json` names and opens none; with that entry gone, it closes the box its predecessor
+/// opened before it opens a new one, so one runtime of the instance dials in, never two.
+#[test]
+fn a_restarted_daemon_adopts_its_box_or_closes_it_and_never_runs_two() {
+    let case = Case::new("daemon-restart-one");
+    case.config(&[("alpha", "linux")]);
+    let fake = Fake::default();
+    let now = std::time::Instant::now();
+    let mut first = case.daemon(fake.clone());
+    first
+        .pass(
+            conductor_model::instance::ReconcileReason::ConfigChange,
+            now,
+        )
+        .expect("a pass");
+    drop(first);
+    assert_eq!(fake.log.lock().expect("the log").opened.len(), 1);
+
+    // Started again with its files intact: the box runs on and is adopted.
+    let mut second = case.daemon(fake.clone());
+    let done = second
+        .pass(
+            conductor_model::instance::ReconcileReason::ConfigChange,
+            now,
+        )
+        .expect("a pass");
+    assert!(done.is_empty(), "adopted, nothing done: {done:?}");
+    assert_eq!(fake.log.lock().expect("the log").opened.len(), 1);
+    drop(second);
+
+    // Started again with the box's entry gone: its box is closed, then one opened.
+    for file in [
+        conductor_cli::daemon::reconcile::BOXES_FILE,
+        conductor_cli::daemon::reconcile::RUNTIMES_FILE,
+    ] {
+        let _ = fs::remove_file(case.dir.join("daemon").join(file));
+    }
+    let mut third = case.daemon(fake.clone());
+    let done = third
+        .pass(
+            conductor_model::instance::ReconcileReason::ConfigChange,
+            now,
+        )
+        .expect("a pass");
+    assert_eq!(done.len(), 1, "{done:?}");
+    assert_eq!(done[0].result, ReconcileResult::Succeeded, "{done:?}");
+    let log = fake.log.lock().expect("the log");
+    assert_eq!(log.closed, ["ws_1".to_owned()]);
+    assert_eq!(log.held_at_open, [0, 0]);
+    assert_eq!(log.held("alpha"), ["ws_2".to_owned()], "one box for alpha");
+}
+
+/// The boxes of an instance in a substrate reconciliation snapshot: each ready workspace
+/// labelled with the instance's name, with its execs that have not ended.
+#[test]
+fn the_boxes_of_an_instance_are_its_ready_labelled_workspaces_and_their_live_execs() {
+    let items: Vec<Value> = serde_json::from_str(
+        r#"[
+          {"kind": "workspace", "id": "ws_a", "state": "ready",
+           "labels": {"conductor.instance": "alpha", "conductor.placement": "linux"}},
+          {"kind": "workspace", "id": "ws_gone", "state": "destroyed",
+           "labels": {"conductor.instance": "alpha"}},
+          {"kind": "workspace", "id": "ws_b", "state": "ready",
+           "labels": {"conductor.instance": "beta"}},
+          {"kind": "workspace", "id": "ws_bare", "state": "ready", "labels": {}},
+          {"kind": "exec", "id": "ex_1", "workspace": "ws_a", "state": "running"},
+          {"kind": "exec", "id": "ex_2", "workspace": "ws_a", "state": "exited"},
+          {"kind": "exec", "id": "ex_3", "workspace": "ws_a", "state": "accepted"},
+          {"kind": "exec", "id": "ex_4", "workspace": "ws_b", "state": "running"},
+          {"kind": "provenance-event", "id": "ev_1"}
+        ]"#,
+    )
+    .expect("the items");
+    assert_eq!(
+        placement::held_of(&items, "alpha"),
+        [placement::Held {
+            workspace: "ws_a".to_owned(),
+            execs: vec!["ex_1".to_owned(), "ex_3".to_owned()],
+        }]
+    );
+    assert!(placement::held_of(&items, "gamma").is_empty());
+}
+
+/// `story:box-config-change-reaches-runtime`: a box reads the config file bound at its start, and
+/// `conductor config put` replaces the file by a rename, so a change waits for the boxed
+/// runtime's next start. The put says so for each boxed instance it reaches, naming the restart;
+/// an instance with no box reads the file anew and gets no such line.
+#[test]
+fn config_put_names_the_restart_a_change_for_a_boxed_instance_waits_for() {
+    let case = Case::new("put-boxed");
+    let file = case.config(&[("alpha", "systemd"), ("beta", "none")]);
+    let put = |level: &str, instance: Option<&str>| {
+        let mut args = vec!["--config", file.to_str().expect("a path"), "config", "put"];
+        args.extend(["--level", level]);
+        if let Some(instance) = instance {
+            args.extend(["--instance", instance]);
+        }
+        args.extend([
+            "--path",
+            "thresholds.silent_session",
+            "--value",
+            "45m",
+            "--reason",
+            "long gates",
+        ]);
+        case.conductor(&args)
+    };
+    let waits = |output: &Output, name: &str| {
+        String::from_utf8_lossy(&output.stdout).lines().any(|line| {
+            line.starts_with(&format!("instance {name} runs in a box"))
+                && line.contains(&format!("POST /v1/instances/{name}/restart"))
+        })
+    };
+
+    let output = put("instance", Some("alpha"));
+    assert_eq!(output.status.code(), Some(0), "{}", describe(&output));
+    assert!(waits(&output, "alpha"), "{}", describe(&output));
+    assert!(!waits(&output, "beta"), "{}", describe(&output));
+
+    let output = put("instance", Some("beta"));
+    assert_eq!(output.status.code(), Some(0), "{}", describe(&output));
+    assert!(
+        !String::from_utf8_lossy(&output.stdout).contains("runs in a box"),
+        "{}",
+        describe(&output)
+    );
+
+    let output = put("global", None);
+    assert_eq!(output.status.code(), Some(0), "{}", describe(&output));
+    assert!(waits(&output, "alpha"), "{}", describe(&output));
+    assert!(!waits(&output, "beta"), "{}", describe(&output));
 }

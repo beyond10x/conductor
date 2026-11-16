@@ -1987,6 +1987,68 @@ pub struct Opened {
     pub session: String,
 }
 
+/// A box substrate holds for an instance, found by the instance label conductord opens every box
+/// with (`story:daemon-restart-one-runtime`): its workspace and the runs in it that have not
+/// ended.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Held {
+    /// The substrate workspace, the box.
+    pub workspace: String,
+    /// The execs in it that have not ended: the runtime's session, any other run.
+    pub execs: Vec<String>,
+}
+
+/// The label conductord opens a box with, its value the instance's name.
+pub const INSTANCE_LABEL: &str = "conductor.instance";
+
+/// The boxes of `instance` among `items`, the values of a substrate reconciliation snapshot's
+/// items: each workspace that is `ready` and labelled [`INSTANCE_LABEL`] `instance`, with the
+/// execs in it whose state is not terminal (`exited`, `cancelled`, `expired`). A workspace being
+/// destroyed, destroyed or expired is no box, and destroying it again would be refused.
+#[must_use]
+pub fn held_of(items: &[serde_json::Value], instance: &str) -> Vec<Held> {
+    let word = |value: &serde_json::Value, key: &str| {
+        value
+            .get(key)
+            .and_then(serde_json::Value::as_str)
+            .map(str::to_owned)
+    };
+    let mut held: Vec<Held> = items
+        .iter()
+        .filter(|item| word(item, "kind").as_deref() == Some("workspace"))
+        .filter(|item| word(item, "state").as_deref() == Some("ready"))
+        .filter(|item| {
+            item.get("labels")
+                .and_then(|labels| labels.get(INSTANCE_LABEL))
+                .and_then(serde_json::Value::as_str)
+                == Some(instance)
+        })
+        .filter_map(|item| word(item, "id"))
+        .map(|workspace| Held {
+            workspace,
+            execs: Vec::new(),
+        })
+        .collect();
+    for item in items
+        .iter()
+        .filter(|item| word(item, "kind").as_deref() == Some("exec"))
+        .filter(|item| {
+            !matches!(
+                word(item, "state").as_deref(),
+                Some("exited" | "cancelled" | "expired")
+            )
+        })
+    {
+        let (Some(id), Some(workspace)) = (word(item, "id"), word(item, "workspace")) else {
+            continue;
+        };
+        if let Some(found) = held.iter_mut().find(|held| held.workspace == workspace) {
+            found.execs.push(id);
+        }
+    }
+    held
+}
+
 /// Substrate's refusal, by its own name.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Refused {
@@ -2025,6 +2087,27 @@ pub trait Substrate {
     ///
     /// The daemon refused or cannot be asked.
     fn close(&mut self, workspace: &str) -> Result<()>;
+
+    /// The boxes the daemon holds for the instance `instance` ([`held_of`]), whoever opened them:
+    /// conductord closes each it does not hold itself before it opens one for the instance
+    /// (`story:daemon-restart-one-runtime`). A box opener that cannot list lists none.
+    ///
+    /// # Errors
+    ///
+    /// The daemon refused or cannot be asked.
+    fn boxes_of(&mut self, instance: &str) -> Result<Vec<Held>> {
+        let _ = instance;
+        Ok(Vec::new())
+    }
+
+    /// Ends every run of the box `held` lists and destroys its workspace.
+    ///
+    /// # Errors
+    ///
+    /// The daemon refused or cannot be asked.
+    fn end(&mut self, held: &Held) -> Result<()> {
+        self.close(&held.workspace)
+    }
 
     /// Whether the daemon declares the secret slot `slot` (its `secrets.slots` fact): conductord
     /// asks before it names the slot of the daemon's token in a box request
@@ -2307,6 +2390,12 @@ impl<T: Substrate + ?Sized> Substrate for &mut T {
     }
     fn close(&mut self, workspace: &str) -> Result<()> {
         (**self).close(workspace)
+    }
+    fn boxes_of(&mut self, instance: &str) -> Result<Vec<Held>> {
+        (**self).boxes_of(instance)
+    }
+    fn end(&mut self, held: &Held) -> Result<()> {
+        (**self).end(held)
     }
     fn declares(&mut self, slot: &str) -> bool {
         (**self).declares(slot)
@@ -2651,7 +2740,7 @@ impl Substrate for Sdk {
             }
             let workspace = client
                 .workspace()
-                .label("conductor.instance", request.instance.0.clone())
+                .label(INSTANCE_LABEL, request.instance.0.clone())
                 .label("conductor.placement", request.placement.0.clone())
                 .lease(RUN_BOUND)
                 .create()
@@ -2758,6 +2847,76 @@ impl Substrate for Sdk {
         let id = workspace.to_owned();
         self.block_on(async move |client| {
             client.get_workspace(&id).await?.destroy().await?;
+            Ok(())
+        })
+        .map_err(|why| anyhow!("{}: {}", why.name, why.detail))
+    }
+
+    fn boxes_of(&mut self, instance: &str) -> Result<Vec<Held>> {
+        let instance = instance.to_owned();
+        self.block_on(async move |client| {
+            // A reconciliation snapshot is the one list of every workspace and exec of this
+            // client's scope, labels and states included.
+            let snapshot = client.create_reconciliation_snapshot().await?;
+            let mut items = Vec::new();
+            let mut cursor: Option<String> = None;
+            loop {
+                let page = client
+                    .reconciliation_snapshot_page(
+                        &snapshot.id,
+                        cursor.as_deref(),
+                        substrate_sdk::MAX_SNAPSHOT_PAGE_ITEMS,
+                    )
+                    .await?;
+                // The item's own kind and id, where its value does not carry them.
+                items.extend(page.items.into_iter().map(|item| {
+                    let mut value = item.value;
+                    if let Some(map) = value.as_object_mut() {
+                        if let Ok(kind) = serde_json::to_value(item.kind) {
+                            map.entry("kind").or_insert(kind);
+                        }
+                        map.entry("id")
+                            .or_insert(serde_json::Value::String(item.id));
+                    }
+                    value
+                }));
+                match page.next_cursor {
+                    Some(next) if !page.complete => cursor = Some(next),
+                    _ => break,
+                }
+            }
+            Ok(held_of(&items, &instance))
+        })
+        .map_err(|why| anyhow!("{}: {}", why.name, why.detail))
+    }
+
+    fn end(&mut self, held: &Held) -> Result<()> {
+        let held = held.clone();
+        let bound = self
+            .remote
+            .is_some()
+            .then_some(self.timeout + STOP_GRACE + STOP_SETTLE);
+        self.block_within(bound, async move |client| {
+            // substrate destroys a workspace once the execs it owns are terminal: each is asked to
+            // end, TERM then KILL after the grace, and read until it has, as a stop does.
+            for id in &held.execs {
+                let mut exec = client.get_exec(id).await?;
+                if !exec.observation().state.terminal() {
+                    exec.signal(substrate_sdk::Signal::Terminate, STOP_GRACE)
+                        .await?;
+                    let deadline = std::time::Instant::now() + STOP_GRACE + STOP_SETTLE;
+                    while !exec.refresh().await?.state.terminal()
+                        && std::time::Instant::now() < deadline
+                    {
+                        tokio::time::sleep(Duration::from_millis(250)).await;
+                    }
+                }
+            }
+            client
+                .get_workspace(&held.workspace)
+                .await?
+                .destroy()
+                .await?;
             Ok(())
         })
         .map_err(|why| anyhow!("{}: {}", why.name, why.detail))
