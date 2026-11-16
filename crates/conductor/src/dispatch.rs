@@ -837,6 +837,48 @@ pub fn report_unblocked(state: Option<&Path>, args: ReportUnblockedArgs) -> Resu
     }
 }
 
+/// `ReportUnblocked` of the dispatch `id` by `actor`, its records line carrying `reason` and the
+/// tick `tick_id`: the run daemon's own report of a dispatch whose block is over
+/// (`story:disk-recovery-unblocks-dispatch`). Answers whether it moved; a dispatch the store does
+/// not hold, or that is no longer blocked, moves nothing and is not refused.
+///
+/// # Errors
+///
+/// The store does not open or keep the move, or the line cannot be appended.
+pub fn unblock(
+    state: Option<&Path>,
+    id: &str,
+    actor: conductor_model::operator::Actor,
+    reason: &str,
+    tick_id: &str,
+) -> Result<bool> {
+    const COMMAND: &str = "dispatch report-unblocked";
+    let input = ReportUnblocked {
+        actor,
+        dispatch_id: DispatchId(id.to_owned()),
+    };
+    let (outcome, store) = run(state, COMMAND, |generated| {
+        generated.report_unblocked(input)
+    })?;
+    match outcome {
+        ReportUnblockedOutcome::Unblocked { dispatch_unblocked } => {
+            logged(
+                COMMAND,
+                &store,
+                &dispatch_unblocked.dispatch_id,
+                DispatchLogEvent::Unblocked,
+                |line| {
+                    line.reason = Some(reason.to_owned());
+                    line.tick_id = Some(tick_id.to_owned());
+                },
+            )?;
+            Ok(true)
+        }
+        ReportUnblockedOutcome::NoSuchDispatch { .. }
+        | ReportUnblockedOutcome::WrongState { .. } => Ok(false),
+    }
+}
+
 /// `conductor dispatch report-done`: the command `conductor.dispatch.ReportDone`.
 ///
 /// # Errors
