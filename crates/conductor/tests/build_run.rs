@@ -49,8 +49,9 @@ struct Case {
 }
 
 /// After a panic, kills the process group of every run the ledger holds `Running`, then each
-/// process still working under the case's directory, by its pid; after a case that passed,
-/// asserts that none is left (`story:convoy-test-leaks-no-process`).
+/// process still working under the case's directory, by its pid, and keeps the directory to read;
+/// after a case that passed, asserts that none is left (`story:convoy-test-leaks-no-process`) and
+/// removes the directory, which may hold a git repository (`tests/isolated_home.rs`).
 impl Drop for Case {
     fn drop(&mut self) {
         if thread::panicking() {
@@ -64,6 +65,7 @@ impl Drop for Case {
             leftover::kill_under(&self.dir);
         } else {
             leftover::assert_none_under(&self.dir);
+            let _ = fs::remove_dir_all(&self.dir);
         }
     }
 }
@@ -90,9 +92,7 @@ impl Case {
     fn new(name: &str) -> Self {
         active::isolate();
         forget_inherited_build_variables();
-        let dir = PathBuf::from(env!("CARGO_TARGET_TMPDIR"))
-            .join("build_run")
-            .join(name);
+        let dir = Self::dir_of(name);
         let _ = fs::remove_dir_all(&dir);
         fs::create_dir_all(dir.join("work")).expect("create the case's work directory");
         // A Cargo project: the run's peak is measured on its `target/`.
@@ -104,6 +104,13 @@ impl Case {
         let case = Self { dir };
         case.free(100 * GIB);
         case
+    }
+
+    /// The directory of the case `name`.
+    fn dir_of(name: &str) -> PathBuf {
+        PathBuf::from(env!("CARGO_TARGET_TMPDIR"))
+            .join("build_run")
+            .join(name)
     }
 
     fn state(&self) -> PathBuf {
@@ -1304,9 +1311,7 @@ fn a_refused_build_run_names_no_personal_path_on_standard_error() {
 /// directory.
 #[test]
 fn a_case_that_fails_while_its_command_waits_leaves_no_process_behind() {
-    let dir = PathBuf::from(env!("CARGO_TARGET_TMPDIR"))
-        .join("build_run")
-        .join("fails-waiting");
+    let dir = Case::dir_of("fails-waiting");
     let failed = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
         let case = Case::new("fails-waiting");
         let script = "while [ ! -e stop ]; do sleep 0.05; done";
