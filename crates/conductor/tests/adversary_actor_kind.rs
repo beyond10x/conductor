@@ -144,3 +144,66 @@ fn an_agent_session_cannot_confirm_a_goal_by_claiming_to_be_human() {
         describe(&claimed)
     );
 }
+
+/// `story:actor-flag-short-form`: `--actor` takes the form the records print, `human:<name>`,
+/// and records the same actor as the JSON object; a form that names no kind is refused, naming
+/// both accepted forms.
+#[test]
+fn actor_takes_the_short_form_the_records_print() {
+    let case = Case::new("actor-short-form");
+    let propose = |id: &str, actor: &str| {
+        case.run(
+            None,
+            None,
+            &[
+                "goal",
+                "propose-goal",
+                "--goal-id",
+                id,
+                "--title",
+                "Ship",
+                "--exit-evidence",
+                "listed as met",
+                "--actor",
+                actor,
+            ],
+        )
+    };
+    let short = propose("G1", "human:example-operator");
+    assert!(short.status.success(), "{}", describe(&short));
+    let object = propose("G2", r#"{"kind":"Human","operator":"example-operator"}"#);
+    assert!(object.status.success(), "{}", describe(&object));
+    let shown = case.run(None, None, &["goal", "goals", "--format", "json"]);
+    assert!(shown.status.success(), "{}", describe(&shown));
+    let rows: Value = serde_json::from_slice(&shown.stdout).expect("JSON rows");
+    let rows = rows.as_array().expect("a list");
+    assert_eq!(rows.len(), 2, "{rows:?}");
+    for row in rows {
+        assert_eq!(row["actor"], "human:example-operator", "{rows:?}");
+    }
+    for (id, written) in [
+        ("G3", "daemon"),
+        ("G4", "agent:example-instance/controller/example-session"),
+    ] {
+        let output = propose(id, written);
+        assert!(output.status.success(), "{written}: {}", describe(&output));
+    }
+    for (id, written) in [
+        ("G5", "example-operator"),
+        ("G6", "human:"),
+        ("G7", "robot:x"),
+    ] {
+        let refused = propose(id, written);
+        assert_eq!(
+            refused.status.code(),
+            Some(2),
+            "{written}: {}",
+            describe(&refused)
+        );
+        let stderr = String::from_utf8_lossy(&refused.stderr);
+        assert!(
+            stderr.contains("human:<name>") && stderr.contains(r#"{"kind": "Human""#),
+            "{written}: the refusal names both accepted forms: {stderr}"
+        );
+    }
+}

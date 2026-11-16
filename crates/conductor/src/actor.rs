@@ -164,7 +164,7 @@ pub fn choose(flag: Option<&str>, run_daemon: bool) -> Result<()> {
         .filter(|name| !name.is_empty());
     let actor = match flag {
         Some(text) => {
-            let actor = parse(text).map_err(|error| anyhow!("--actor: {error}"))?;
+            let actor = read(text).map_err(|error| anyhow!("--actor: {error}"))?;
             if let Some(name) = &session
                 && actor.kind != ActorKind::Agent
             {
@@ -197,6 +197,53 @@ pub fn chosen() -> Actor {
         .unwrap_or_else(std::sync::PoisonError::into_inner)
         .clone()
         .unwrap_or_else(human)
+}
+
+/// Whether `part` of a short actor form names something.
+fn named(part: &str) -> bool {
+    !part.trim().is_empty()
+}
+
+/// The forms `--actor` takes, as a refusal names them.
+const FORMS: &str = "write the actor as the records print it, `human:<name>`, \
+                     `agent:<instance>/<role>/<name>`, `daemon` or `control-plane`, or as one \
+                     JSON object, `{\"kind\": \"Human\", \"operator\": \"<name>\"}`";
+
+/// Reads the actor an operator writes on the command line (`story:actor-flag-short-form`): the
+/// form the records print ([`written`]), `human:<name>`, `agent:<instance>/<role>/<name>` (of the
+/// agent kind every session runs as, [`KIND`]), `daemon` or `control-plane`, or one JSON object
+/// as [`parse`] reads it, which a text starting with `{` is.
+///
+/// # Errors
+///
+/// The text is neither, naming both forms.
+pub fn read(text: &str) -> Result<Actor> {
+    let text = text.trim();
+    if text.starts_with('{') {
+        return parse(text);
+    }
+    let actor = match text.split_once(':') {
+        None if text == "daemon" => Some(daemon()),
+        None if text == "control-plane" => Some(control_plane()),
+        Some(("human", name)) => named(name).then(|| operator(name)),
+        Some(("agent", path)) => match path.split('/').collect::<Vec<_>>()[..] {
+            [instance, role, name] if [instance, role, name].iter().all(|part| named(part)) => {
+                Some(Actor {
+                    kind: ActorKind::Agent,
+                    operator: None,
+                    agent: Some(AgentActor {
+                        instance: InstanceName(instance.to_owned()),
+                        role: RoleName(role.to_owned()),
+                        name: AgentName(name.to_owned()),
+                        kind: AgentKindName(KIND.to_owned()),
+                    }),
+                })
+            }
+            _ => None,
+        },
+        _ => None,
+    };
+    actor.ok_or_else(|| anyhow!("{text:?} is neither form: {FORMS}"))
 }
 
 /// Reads an actor from one JSON object: `kind` (`Human`, `Agent` or `Daemon`), and the field of
