@@ -54,5 +54,5 @@ Read at v1.13.0:
 - Raising the bound of 4, or a proxy aperture that serves several registry hosts, is
   substrate's (beyond10x/substrate). Without one of them a GitLab-and-crates.io box cannot be
   served. This story should get an upstream blocker on substrate before it moves.
-- The `gitlab.stack.babelforce.com` alias of F34 is host git configuration (`insteadOf`), not
+- The second GitLab host name of F34 is host git configuration (`insteadOf`), not
   conductor's.
