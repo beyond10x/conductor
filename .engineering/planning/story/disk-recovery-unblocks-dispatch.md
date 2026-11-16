@@ -29,7 +29,7 @@ Agentbox friction logs F44 and F45 (2026-11-16):
   (101G free), and the controller stayed blocked until 03:5x, with no recheck.
 - F45: stopping that controller did not bring it back. The cycle respawns only for open,
   unblocked dispatches, so the operator also had to run `dispatch report-unblocked` for
-  DSP-20261115-01 at 04:2x.
+  the backend dispatch at 04:2x.
 
 `story:disk-item-per-fall` (implemented) withdraws the operator's disk item once free disk is
 back above `disk_clear`. Nothing does the same for the dispatches the fall blocked.
