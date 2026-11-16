@@ -7587,6 +7587,10 @@ pub fn put(config: Option<&Path>, args: &PutConfigArgs) -> Result<ExitCode> {
                 revision.path,
                 crate::store::level_name(revision.level).to_ascii_lowercase()
             );
+            let now = load(config, &environment).map_or(loaded.config, |loaded| loaded.config);
+            for line in waits_for_restart(&now, &input) {
+                println!("{line}");
+            }
             Ok(ExitCode::SUCCESS)
         }
         Err(refusal) => {
@@ -7594,6 +7598,44 @@ pub fn put(config: Option<&Path>, args: &PutConfigArgs) -> Result<ExitCode> {
             Ok(ExitCode::FAILURE)
         }
     }
+}
+
+/// What a change `input` written into the file `config` now holds leaves waiting, one line per
+/// instance of its scope (every instance for a global change) whose runtime runs in a substrate
+/// box (`story:box-config-change-reaches-runtime`): the box reads the config file bound at its
+/// start, and the put replaces the file by a rename, so neither the runtime nor a build in the
+/// box reads the change until the runtime starts again. A change of the instance's `placement`
+/// is left out: the daemon restarts that runtime on its own.
+#[must_use]
+pub fn waits_for_restart(
+    config: &Config,
+    input: &conductor_model::config::PutConfig,
+) -> Vec<String> {
+    if input.path.split('.').next() == Some("placement") {
+        return Vec::new();
+    }
+    config
+        .instances
+        .iter()
+        .filter(|instance| {
+            input
+                .instance
+                .as_ref()
+                .is_none_or(|name| name.0 == instance.name.0)
+        })
+        .filter(|instance| crate::placement::boxed(instance))
+        .map(|instance| {
+            let name = &instance.name.0;
+            format!(
+                "instance {name} runs in a box, which reads the config file as it was when the \
+                 box started: the change reaches its runtime and the builds in its box once \
+                 the runtime starts again, at its next start or now with POST \
+                 /v1/instances/{name}/restart to the daemon, which stops the sessions in the \
+                 box; their transcripts in {} stay, so each can be resumed",
+                crate::placement::box_claude_dir(Path::new(&instance.state)).display()
+            )
+        })
+        .collect()
 }
 
 /// The workspace file `conductor config workspace` writes, under the instance's records directory.

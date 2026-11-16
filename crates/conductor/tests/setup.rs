@@ -263,6 +263,16 @@ impl Case {
         ] {
             fs::create_dir_all(self.home().join(dir)).expect("create a writable root");
         }
+        // The bypass-permissions acceptance the box's controllers need, which setup leaves to a
+        // person (`story:box-bypass-acceptance-doctor`).
+        let claude =
+            placement::box_claude_dir(&self.home().join(format!(".b10x/conductor/{name}/state")));
+        fs::create_dir_all(&claude).expect("the box's claude directory");
+        fs::write(
+            claude.join("settings.json"),
+            "{\"skipDangerousModePermissionPrompt\": true}\n",
+        )
+        .expect("accept bypassPermissions in the box");
         let required = placement::requires(placement::Adapter::Systemd);
         let mut facts = serde_json::json!({
             "events.pull": true,

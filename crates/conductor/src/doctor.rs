@@ -1531,7 +1531,8 @@ fn kind_lines(flag: Option<&Path>) -> Vec<(String, Option<String>)> {
 /// [`crate::placement::slot_undeclared`]) a second line, `box <instance> token: `, says the
 /// token does not reach the box and prints the `--secret-slot` flag that declares the slot;
 /// it is reported, not a failure, as a usage watcher not running is: the box starts and runs
-/// without it. It opens no box, starts nothing and writes nothing; only
+/// without it. A box the local daemon would open gets the rows of [`forge_work_lines`] and
+/// [`bypass_line`]. It opens no box, starts nothing and writes nothing; only
 /// [`doctor_with`] calls it, never [`check_in`], which the dashboard's health thread repeats.
 /// A config that does not load, no config file, and a file that writes no `daemon.store`
 /// ([`config::writes_store`]: conductord starts on no such file, so nothing opens its boxes)
@@ -1649,9 +1650,11 @@ fn box_lines(
             if let (None, Some(unsealed)) = (&refused, &answer.unsealed) {
                 rows.push((format!("box {name} token: {}", one_line(unsealed)), None));
             }
-            // What a controller in the box needs for its forge work (`story:box-forge-work`).
+            // What a controller in the box needs for its forge work (`story:box-forge-work`),
+            // and the acceptance its `bypassPermissions` needs (`story:box-bypass-acceptance-doctor`).
             if refused.is_none() && !remote {
                 rows.extend(forge_work_lines(name, index, instance, &request, &answer));
+                rows.push(bypass_line(name, instance));
             }
             rows
         })
@@ -1734,6 +1737,61 @@ fn forge_work_lines(
         ));
     }
     rows
+}
+
+/// Claude Code's managed settings file on Linux, which every user's sessions read, a box's too.
+pub const MANAGED_SETTINGS: &str = "/etc/claude-code/managed-settings.json";
+
+/// The drop-in directory beside [`MANAGED_SETTINGS`], each `*.json` file in it merged over it.
+const MANAGED_SETTINGS_DIR: &str = "/etc/claude-code/managed-settings.d";
+
+/// The settings key that accepts the bypass-permissions disclaimer.
+pub const BYPASS_ACCEPTED: &str = "skipDangerousModePermissionPrompt";
+
+/// The `box <name> bypass: ` row (`story:box-bypass-acceptance-doctor`). A controller in the box
+/// runs with `--permission-mode bypassPermissions`, which Claude Code takes only once its
+/// disclaimer is accepted in user or managed settings; the box's user settings are
+/// `settings.json` in its harness state ([`crate::placement::box_claude_dir`]), which starts
+/// empty, so nothing the operator accepted on the host reaches it. The row names the source
+/// that holds [`BYPASS_ACCEPTED`] `true`, or fails, `box <name> (bypassPermissions not
+/// accepted)`, naming the box's file and the key: every controller start in the box is refused
+/// until one does. Doctor writes nothing: accepting the disclaimer is the operator's act.
+fn bypass_line(name: &str, instance: &Instance) -> (String, Option<String>) {
+    let user = crate::placement::box_claude_dir(Path::new(&instance.state)).join("settings.json");
+    let mut sources = vec![user.clone(), PathBuf::from(MANAGED_SETTINGS)];
+    if let Ok(entries) = std::fs::read_dir(MANAGED_SETTINGS_DIR) {
+        let mut found: Vec<PathBuf> = entries
+            .filter_map(|entry| entry.ok().map(|entry| entry.path()))
+            .filter(|path| path.extension().is_some_and(|ext| ext == "json"))
+            .collect();
+        found.sort();
+        sources.extend(found);
+    }
+    let accepts = |file: &Path| {
+        std::fs::read_to_string(file)
+            .ok()
+            .and_then(|text| serde_json::from_str::<serde_json::Value>(&text).ok())
+            .and_then(|settings| settings.get(BYPASS_ACCEPTED)?.as_bool())
+            == Some(true)
+    };
+    match sources.iter().find(|file| accepts(file)) {
+        Some(file) => (
+            format!(
+                "box {name} bypass: bypassPermissions accepted in {}",
+                file.display()
+            ),
+            None,
+        ),
+        None => (
+            format!(
+                "box {name} bypass: no settings the box reads accept bypassPermissions, so \
+                 every controller start in it is refused: set \"{BYPASS_ACCEPTED}\": true in \
+                 {}, the box's user settings",
+                user.display()
+            ),
+            Some(format!("box {name} (bypassPermissions not accepted)")),
+        ),
+    }
 }
 
 /// The `box <name> git: ` row of [`forge_work_lines`] for the forge hosts `forges`: `None` where
