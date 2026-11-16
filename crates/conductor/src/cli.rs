@@ -604,6 +604,9 @@ impl Cli {
                 InstanceCommand::Serve => {
                     crate::instance::instance_serve(self.config.as_deref(), state, providers)
                 }
+                InstanceCommand::Cycle => {
+                    crate::daemon::cycle::instance_cycle(self.config.as_deref())
+                }
                 InstanceCommand::Relay => crate::instance::instance_relay(self.config.as_deref()),
                 InstanceCommand::Upgrade(args) => match &remote {
                     Some(daemon) => crate::remote::instance_upgrade(daemon, &args),
@@ -1058,6 +1061,8 @@ pub const LEAVES: &[(&[&str], Access)] = &[
     (&["daemon", "start-role"], Access::Writes),
     (&["instance", "serve"], Access::Writes),
     (&["instance", "relay"], Access::Writes),
+    // Asks the daemon for a cycle of the instance now (story:cycle-now).
+    (&["instance", "cycle"], Access::Writes),
     // Asks the daemon to upgrade an instance's runtime (story:instance-upgrade).
     (&["instance", "upgrade"], Access::Writes),
     (&["join"], Access::Writes),
@@ -1189,6 +1194,9 @@ pub struct DaemonServeArgs {
 #[allow(missing_docs)]
 #[derive(Debug, Subcommand)]
 pub enum InstanceCommand {
+    /// Ask the daemon for a cycle of the instance now (POST /v1/instances/{name}/cycle, proxied to the runtime's POST /v1/cycle) - the instance's loop runs it at its next tick, within seconds and under its own lock, rather than when cadence.cycle has passed, and records it as every cycle; the instance is the one CONDUCTOR_INSTANCE or the config file selects
+    #[command(name = "cycle")]
+    Cycle,
     /// Bridge one instance API exchange from standard input to the instance's api.sock (CONDUCTOR_API_SOCKET, else <state>/api.sock) and its answer to standard output; conductord runs it as a substrate pipe session in a box on a remote substrate daemon
     #[command(name = "relay")]
     Relay,

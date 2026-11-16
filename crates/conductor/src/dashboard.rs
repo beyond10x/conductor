@@ -1410,6 +1410,19 @@ fn answer(
             ),
         };
     }
+    // story:cycle-now: an operator asks the instance's loop for a cycle now.
+    if path == CYCLE_PATH {
+        if *method != "POST" {
+            return response(
+                405,
+                "Method Not Allowed",
+                PLAIN,
+                b"only POST\n",
+                "Allow: POST\r\n",
+            );
+        }
+        return post_write(&header, server, body, ask_cycle);
+    }
     // The Plan page (story:dashboard-plan-board): its board and its one write, which takes the
     // Configuration page's path; and one story as its drawer reads it.
     if path == plan::PLAN_PATH {
@@ -1723,6 +1736,24 @@ fn post_write<'a>(
         }
         Err(why) => refused(why),
     }
+}
+
+/// The route of an operator's ask for a cycle now (`story:cycle-now`): `POST`, admitted as every
+/// write of the instance API is, its body a JSON object it does not read.
+pub const CYCLE_PATH: &str = "/v1/cycle";
+
+/// `POST /v1/cycle`: marks the loop's next cycle due ([`crate::run::ask_cycle`]); the loop runs
+/// it at its next tick, under its own lock, within seconds.
+fn ask_cycle(
+    _sources: &Sources,
+    state: Option<&Path>,
+    _body: &[u8],
+) -> Result<serde_json::Value, answers::Refused> {
+    crate::run::ask_cycle(state).map_err(|error| answers::Refused {
+        status: 500,
+        reason: "Internal Server Error",
+        why: format!("the ask for a cycle was not written: {error:#}\n"),
+    })
 }
 
 /// A store that is there and does not open, answered `500` with its reason on one line.

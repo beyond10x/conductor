@@ -69,7 +69,7 @@ use conductor_model::session::obligations::{RecordRunTickBehavior, RunTicksQuery
 use conductor_model::session::{
     RecordRunTick, RecordRunTickOutcome, RunTickSnapshot, TickId, TickKind,
 };
-use serde_json::Value;
+use serde_json::{Value, json};
 use time::OffsetDateTime;
 use time::format_description::well_known::Rfc3339;
 
@@ -94,6 +94,12 @@ const CYCLE_LAST: &str = "cycle.last";
 const DAILY_LAST: &str = "daily.last";
 /// The start of the cycle tick now running (RFC 3339), in [`RUN_DIR`]; removed once it ended.
 const CYCLE_RUNNING: &str = "cycle.running";
+/// When an operator asked for a cycle now (RFC 3339), in [`RUN_DIR`] (`story:cycle-now`): the
+/// next cycle is due whatever `cycle.last` says, and the cycle that starts removes it.
+const CYCLE_ASKED: &str = "cycle.asked";
+
+/// How often the loop's rest between ticks looks for [`CYCLE_ASKED`].
+const ASKED_POLL: Duration = Duration::from_secs(1);
 
 /// The cycle's cadence when the instance's `cadence.cycle` does not read: the built-in two hours.
 const CYCLE_EVERY: u64 = 2 * 3600;
@@ -407,7 +413,7 @@ fn run_locked(
             eprintln!("conductor run: watch tick: {error:#}");
         }
         let now = OffsetDateTime::now_utc();
-        if due(&dir.join(CYCLE_LAST), now, cycle_every) {
+        if cycle_due(dir, now, cycle_every) {
             cycle_step(dir, now, || {
                 if let Err(error) = cycle_tick(config_flag, state, seams) {
                     eprintln!("conductor run: cycle tick: {error:#}");
@@ -422,8 +428,48 @@ fn run_locked(
             }
             write_file(&dir.join(DAILY_LAST), &format!("{}\n", today(now)))?;
         }
-        thread::sleep(every);
+        rest(dir, every);
     }
+}
+
+/// Sleeps `every` between two ticks of the loop in `dir`, and less once an operator asked for a
+/// cycle ([`CYCLE_ASKED`]): the asked cycle runs within [`ASKED_POLL`].
+fn rest(dir: &Path, every: Duration) {
+    let started = std::time::Instant::now();
+    loop {
+        let left = every.saturating_sub(started.elapsed());
+        if left.is_zero() || dir.join(CYCLE_ASKED).exists() {
+            return;
+        }
+        thread::sleep(left.min(ASKED_POLL));
+    }
+}
+
+/// Whether the loop in `dir` runs a cycle at `now`: its cadence `every` has passed since the last
+/// one, or an operator asked for one ([`CYCLE_ASKED`]).
+fn cycle_due(dir: &Path, now: OffsetDateTime, every: Duration) -> bool {
+    dir.join(CYCLE_ASKED).exists() || due(&dir.join(CYCLE_LAST), now, every)
+}
+
+/// Asks the loop of the instance whose state directory is `state` for a cycle now
+/// (`story:cycle-now`, `POST /v1/cycle`): the loop runs one at its next tick, under its own lock,
+/// and records it as it records every cycle. Answers the ask and the start of a cycle running
+/// now, if one is: an ask made while one runs is taken by the next.
+///
+/// # Errors
+///
+/// The state directory cannot be resolved or the ask cannot be written.
+pub fn ask_cycle(state: Option<&Path>) -> Result<Value> {
+    ask_cycle_in(&run_dir(state)?, OffsetDateTime::now_utc())
+}
+
+/// [`ask_cycle`] in the loop's directory `dir` at `now`.
+fn ask_cycle_in(dir: &Path, now: OffsetDateTime) -> Result<Value> {
+    stamp(&dir.join(CYCLE_ASKED), now)?;
+    Ok(json!({
+        "asked_at": now.format(&Rfc3339).unwrap_or_default(),
+        "running_since": cycle_in_progress(dir),
+    }))
 }
 
 /// What a watch tick does about the `gc` a `disk low` line started ([`handlers`]).
@@ -1514,11 +1560,13 @@ fn due(file: &Path, now: OffsetDateTime, every: Duration) -> bool {
         })
 }
 
-/// One cycle: [`CYCLE_RUNNING`] holds its start while `tick` runs, and [`CYCLE_LAST`] is
-/// written once it ended, failed or not, so a loop stopped during a cycle runs it again at its
+/// One cycle: [`CYCLE_RUNNING`] holds its start while `tick` runs, an ask for a cycle
+/// ([`CYCLE_ASKED`]) is taken, and [`CYCLE_LAST`] is written once it ended, failed or not, so a loop stopped during a cycle runs it again at its
 /// next start (`story:cycle-stamped-after-it-runs`).
 fn cycle_step(dir: &Path, now: OffsetDateTime, tick: impl FnOnce()) -> Result<()> {
     stamp(&dir.join(CYCLE_RUNNING), now)?;
+    // The cycle takes an operator's ask; one asked while it runs is the next one's.
+    let _ = fs::remove_file(dir.join(CYCLE_ASKED));
     tick();
     stamp(&dir.join(CYCLE_LAST), now)?;
     let _ = fs::remove_file(dir.join(CYCLE_RUNNING));
@@ -1644,6 +1692,31 @@ mod tests {
             at("2026-11-07T15:34:00Z"),
             every
         ));
+    }
+
+    /// `story:cycle-now`: with `cadence.cycle: 2h` and a cycle that ran a minute ago, an asked
+    /// cycle is due at the loop's next tick, wakes the loop's rest at once, and is due once: the
+    /// cycle it starts takes the ask.
+    #[test]
+    fn an_asked_cycle_is_due_at_the_next_tick_and_once() {
+        let dir = Dir::new("cycle-asked");
+        let every = Duration::from_secs(7200);
+        let ran = at("2026-11-15T11:05:00Z");
+        cycle_step(&dir.0, ran, || {}).expect("a cycle a minute ago");
+        let now = at("2026-11-15T11:06:00Z");
+        assert!(!cycle_due(&dir.0, now, every));
+        ask_cycle_in(&dir.0, now).expect("ask for a cycle");
+        assert!(cycle_due(&dir.0, now, every));
+        let started = std::time::Instant::now();
+        rest(&dir.0, Duration::from_secs(600));
+        assert!(
+            started.elapsed() < Duration::from_secs(5),
+            "an ask wakes the loop's rest"
+        );
+        let mut cycles = 0;
+        cycle_step(&dir.0, now, || cycles += 1).expect("the asked cycle");
+        assert_eq!(cycles, 1);
+        assert!(!cycle_due(&dir.0, at("2026-11-15T11:06:30Z"), every));
     }
 
     #[test]

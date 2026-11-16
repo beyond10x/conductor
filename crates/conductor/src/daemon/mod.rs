@@ -37,6 +37,7 @@
 
 pub mod api;
 pub mod browser;
+pub mod cycle;
 pub mod dial;
 pub mod federate;
 pub mod host_roles;

@@ -50,7 +50,9 @@ watch's cursor files.
 
 Ticks: every `cadence.watch` a watch pass (the existing `Watch::pass`) followed by the handlers
 below and the mailbox; every `cadence.cycle` the cycle (`snapshot start-snapshot`, `publish-board`,
-`records check`, dispatch v1); at `cadence.daily` `metric compute` for the previous UTC day, the
+`records check`, dispatch v1), and at the next tick once an operator asked for one through
+`conductor instance cycle` (`POST /v1/instances/{name}/cycle`, the runtime's `POST /v1/cycle`,
+`story:cycle-now`), the loop's rest between ticks cut short by the ask; at `cadence.daily` `metric compute` for the previous UTC day, the
 brief file `REPORT.md` in the records (deviations only), and then a commit of the records directory
 through the route `forge.route` names (the bot route `b10x-gates bot` under `gates`, plain git
 under `direct`), pushed when the records repository has an `origin`; a refusal is one
