@@ -2345,7 +2345,8 @@ pub struct DeliverMessageArgs {
     /// timestamp, RFC 3339
     #[arg(long, value_parser = timestamp)]
     pub delivered_at: Option<String>,
-    /// Actor, one JSON object: who issues the command, `{"kind": "Human", "operator": "<name>"}`,
+    /// Actor, as the records print it (`human:<name>`, `agent:<instance>/<role>/<name>`, `daemon`)
+    /// or one JSON object: who issues the command, `{"kind": "Human", "operator": "<name>"}`,
     /// `{"kind": "Agent", "agent": {"instance", "role", "name", "kind"}}` or `{"kind": "Daemon"}`;
     /// default: the calling session as an agent where `CONDUCTOR_SESSION` names one, else the
     /// operator
@@ -2598,11 +2599,12 @@ fn timestamp(value: &str) -> Result<String, String> {
     Ok(value.to_owned())
 }
 
-/// Accepts an actor (`conductor.operator.Actor`) as one JSON object the generated decoder reads,
-/// such as `{"kind": "Human", "operator": "example-operator"}`, and keeps it as written for
-/// [`crate::actor::chosen`].
+/// Accepts an actor (`conductor.operator.Actor`) as the records print it, such as
+/// `human:example-operator`, or as one JSON object the generated decoder reads, such as
+/// `{"kind": "Human", "operator": "example-operator"}` ([`crate::actor::read`]), and keeps it as
+/// written for [`crate::actor::chosen`].
 fn actor(value: &str) -> Result<String, String> {
-    crate::actor::parse(value)
+    crate::actor::read(value)
         .map(|_| value.to_owned())
         .map_err(|error| format!("not an actor: {error}"))
 }
@@ -2676,7 +2678,8 @@ pub struct RecordReclaimArgs {
     /// timestamp, RFC 3339
     #[arg(long, value_parser = timestamp)]
     pub ran_at: Option<String>,
-    /// Actor, one JSON object: who issues the command, `{"kind": "Human", "operator": "<name>"}`,
+    /// Actor, as the records print it (`human:<name>`, `agent:<instance>/<role>/<name>`, `daemon`)
+    /// or one JSON object: who issues the command, `{"kind": "Human", "operator": "<name>"}`,
     /// `{"kind": "Agent", "agent": {"instance", "role", "name", "kind"}}` or `{"kind": "Daemon"}`;
     /// default: the calling session as an agent where `CONDUCTOR_SESSION` names one, else the
     /// operator
@@ -2699,7 +2702,8 @@ pub struct RecordPeakArgs {
     /// integer
     #[arg(long, allow_negative_numbers = true)]
     pub pauses: Option<i64>,
-    /// Actor, one JSON object: who issues the command, `{"kind": "Human", "operator": "<name>"}`,
+    /// Actor, as the records print it (`human:<name>`, `agent:<instance>/<role>/<name>`, `daemon`)
+    /// or one JSON object: who issues the command, `{"kind": "Human", "operator": "<name>"}`,
     /// `{"kind": "Agent", "agent": {"instance", "role", "name", "kind"}}` or `{"kind": "Daemon"}`;
     /// default: the calling session as an agent where `CONDUCTOR_SESSION` names one, else the
     /// operator
@@ -2731,7 +2735,8 @@ pub struct ReleaseGrantArgs {
     /// boolean
     #[arg(long)]
     pub lane_overrun: Option<bool>,
-    /// Actor, one JSON object: who issues the command, `{"kind": "Human", "operator": "<name>"}`,
+    /// Actor, as the records print it (`human:<name>`, `agent:<instance>/<role>/<name>`, `daemon`)
+    /// or one JSON object: who issues the command, `{"kind": "Human", "operator": "<name>"}`,
     /// `{"kind": "Agent", "agent": {"instance", "role", "name", "kind"}}` or `{"kind": "Daemon"}`;
     /// default: the calling session as an agent where `CONDUCTOR_SESSION` names one, else the
     /// operator
@@ -2769,7 +2774,8 @@ pub struct RequestDiskArgs {
     /// BuildLane, optional
     #[arg(long, value_parser = ["Regular", "Short"])]
     pub lane: Option<String>,
-    /// Actor, one JSON object: who issues the command, `{"kind": "Human", "operator": "<name>"}`,
+    /// Actor, as the records print it (`human:<name>`, `agent:<instance>/<role>/<name>`, `daemon`)
+    /// or one JSON object: who issues the command, `{"kind": "Human", "operator": "<name>"}`,
     /// `{"kind": "Agent", "agent": {"instance", "role", "name", "kind"}}` or `{"kind": "Daemon"}`;
     /// default: the calling session as an agent where `CONDUCTOR_SESSION` names one, else the
     /// operator
@@ -2795,7 +2801,8 @@ pub struct ReserveDiskArgs {
     /// BuildLane, optional
     #[arg(long, value_parser = ["Regular", "Short"])]
     pub lane: Option<String>,
-    /// Actor, one JSON object: who issues the command, `{"kind": "Human", "operator": "<name>"}`,
+    /// Actor, as the records print it (`human:<name>`, `agent:<instance>/<role>/<name>`, `daemon`)
+    /// or one JSON object: who issues the command, `{"kind": "Human", "operator": "<name>"}`,
     /// `{"kind": "Agent", "agent": {"instance", "role", "name", "kind"}}` or `{"kind": "Daemon"}`;
     /// default: the calling session as an agent where `CONDUCTOR_SESSION` names one, else the
     /// operator
@@ -2818,7 +2825,8 @@ pub struct StartRunArgs {
     /// timestamp, RFC 3339
     #[arg(long, value_parser = timestamp)]
     pub started_at: Option<String>,
-    /// Actor, one JSON object: who issues the command, `{"kind": "Human", "operator": "<name>"}`,
+    /// Actor, as the records print it (`human:<name>`, `agent:<instance>/<role>/<name>`, `daemon`)
+    /// or one JSON object: who issues the command, `{"kind": "Human", "operator": "<name>"}`,
     /// `{"kind": "Agent", "agent": {"instance", "role", "name", "kind"}}` or `{"kind": "Daemon"}`;
     /// default: the calling session as an agent where `CONDUCTOR_SESSION` names one, else the
     /// operator
@@ -2850,7 +2858,8 @@ pub struct TakeHostGrantArgs {
     /// timestamp, RFC 3339
     #[arg(long, value_parser = timestamp)]
     pub requested_at: Option<String>,
-    /// Actor, one JSON object: who issues the command, `{"kind": "Human", "operator": "<name>"}`,
+    /// Actor, as the records print it (`human:<name>`, `agent:<instance>/<role>/<name>`, `daemon`)
+    /// or one JSON object: who issues the command, `{"kind": "Human", "operator": "<name>"}`,
     /// `{"kind": "Agent", "agent": {"instance", "role", "name", "kind"}}` or `{"kind": "Daemon"}`;
     /// default: the calling session as an agent where `CONDUCTOR_SESSION` names one, else the
     /// operator
@@ -2885,7 +2894,8 @@ pub struct DefineMetricArgs {
     /// string, optional
     #[arg(long)]
     pub baseline_period: Option<String>,
-    /// Actor, one JSON object: who issues the command, `{"kind": "Human", "operator": "<name>"}`,
+    /// Actor, as the records print it (`human:<name>`, `agent:<instance>/<role>/<name>`, `daemon`)
+    /// or one JSON object: who issues the command, `{"kind": "Human", "operator": "<name>"}`,
     /// `{"kind": "Agent", "agent": {"instance", "role", "name", "kind"}}` or `{"kind": "Daemon"}`;
     /// default: the calling session as an agent where `CONDUCTOR_SESSION` names one, else the
     /// operator
@@ -2926,7 +2936,8 @@ pub struct RecordMetricReadingArgs {
     /// timestamp, RFC 3339
     #[arg(long, value_parser = timestamp)]
     pub recorded_at: Option<String>,
-    /// Actor, one JSON object: who issues the command, `{"kind": "Human", "operator": "<name>"}`,
+    /// Actor, as the records print it (`human:<name>`, `agent:<instance>/<role>/<name>`, `daemon`)
+    /// or one JSON object: who issues the command, `{"kind": "Human", "operator": "<name>"}`,
     /// `{"kind": "Agent", "agent": {"instance", "role", "name", "kind"}}` or `{"kind": "Daemon"}`;
     /// default: the calling session as an agent where `CONDUCTOR_SESSION` names one, else the
     /// operator
@@ -2946,7 +2957,8 @@ pub struct SupersedeMetricReadingArgs {
     /// MetricReadingId
     #[arg(long)]
     pub by: Option<String>,
-    /// Actor, one JSON object: who issues the command, `{"kind": "Human", "operator": "<name>"}`,
+    /// Actor, as the records print it (`human:<name>`, `agent:<instance>/<role>/<name>`, `daemon`)
+    /// or one JSON object: who issues the command, `{"kind": "Human", "operator": "<name>"}`,
     /// `{"kind": "Agent", "agent": {"instance", "role", "name", "kind"}}` or `{"kind": "Daemon"}`;
     /// default: the calling session as an agent where `CONDUCTOR_SESSION` names one, else the
     /// operator
@@ -2969,7 +2981,8 @@ pub struct JudgeMetricReadingArgs {
     /// boolean
     #[arg(long)]
     pub met: Option<bool>,
-    /// Actor, one JSON object: who issues the command, `{"kind": "Human", "operator": "<name>"}`,
+    /// Actor, as the records print it (`human:<name>`, `agent:<instance>/<role>/<name>`, `daemon`)
+    /// or one JSON object: who issues the command, `{"kind": "Human", "operator": "<name>"}`,
     /// `{"kind": "Agent", "agent": {"instance", "role", "name", "kind"}}` or `{"kind": "Daemon"}`;
     /// default: the calling session as an agent where `CONDUCTOR_SESSION` names one, else the
     /// operator
@@ -2998,7 +3011,8 @@ pub struct SetMetricTargetArgs {
     /// timestamp, RFC 3339
     #[arg(long, value_parser = timestamp)]
     pub target_set_at: Option<String>,
-    /// Actor, one JSON object: who issues the command, `{"kind": "Human", "operator": "<name>"}`,
+    /// Actor, as the records print it (`human:<name>`, `agent:<instance>/<role>/<name>`, `daemon`)
+    /// or one JSON object: who issues the command, `{"kind": "Human", "operator": "<name>"}`,
     /// `{"kind": "Agent", "agent": {"instance", "role", "name", "kind"}}` or `{"kind": "Daemon"}`;
     /// default: the calling session as an agent where `CONDUCTOR_SESSION` names one, else the
     /// operator
@@ -3018,7 +3032,8 @@ pub struct FileFindingArgs {
     /// string
     #[arg(long)]
     pub story: Option<String>,
-    /// Actor, one JSON object: who issues the command, `{"kind": "Human", "operator": "<name>"}`,
+    /// Actor, as the records print it (`human:<name>`, `agent:<instance>/<role>/<name>`, `daemon`)
+    /// or one JSON object: who issues the command, `{"kind": "Human", "operator": "<name>"}`,
     /// `{"kind": "Agent", "agent": {"instance", "role", "name", "kind"}}` or `{"kind": "Daemon"}`;
     /// default: the calling session as an agent where `CONDUCTOR_SESSION` names one, else the
     /// operator
@@ -3047,7 +3062,8 @@ pub struct RaiseFindingArgs {
     /// timestamp, RFC 3339
     #[arg(long, value_parser = timestamp)]
     pub raised_at: Option<String>,
-    /// Actor, one JSON object: who issues the command, `{"kind": "Human", "operator": "<name>"}`,
+    /// Actor, as the records print it (`human:<name>`, `agent:<instance>/<role>/<name>`, `daemon`)
+    /// or one JSON object: who issues the command, `{"kind": "Human", "operator": "<name>"}`,
     /// `{"kind": "Agent", "agent": {"instance", "role", "name", "kind"}}` or `{"kind": "Daemon"}`;
     /// default: the calling session as an agent where `CONDUCTOR_SESSION` names one, else the
     /// operator
@@ -3070,7 +3086,8 @@ pub struct VerifyFindingArgs {
     /// string
     #[arg(long)]
     pub verdict: Option<String>,
-    /// Actor, one JSON object: who issues the command, `{"kind": "Human", "operator": "<name>"}`,
+    /// Actor, as the records print it (`human:<name>`, `agent:<instance>/<role>/<name>`, `daemon`)
+    /// or one JSON object: who issues the command, `{"kind": "Human", "operator": "<name>"}`,
     /// `{"kind": "Agent", "agent": {"instance", "role", "name", "kind"}}` or `{"kind": "Daemon"}`;
     /// default: the calling session as an agent where `CONDUCTOR_SESSION` names one, else the
     /// operator
@@ -3093,7 +3110,8 @@ pub struct WithdrawDiskRequestArgs {
     /// ReleaseReason, optional
     #[arg(long, value_parser = ["Exited", "Killed", "ProcessGroupGone", "SessionStopped"])]
     pub reason: Option<String>,
-    /// Actor, one JSON object: who issues the command, `{"kind": "Human", "operator": "<name>"}`,
+    /// Actor, as the records print it (`human:<name>`, `agent:<instance>/<role>/<name>`, `daemon`)
+    /// or one JSON object: who issues the command, `{"kind": "Human", "operator": "<name>"}`,
     /// `{"kind": "Agent", "agent": {"instance", "role", "name", "kind"}}` or `{"kind": "Daemon"}`;
     /// default: the calling session as an agent where `CONDUCTOR_SESSION` names one, else the
     /// operator
@@ -3116,7 +3134,8 @@ pub struct StartSnapshotArgs {
     /// integer, optional
     #[arg(long, allow_negative_numbers = true)]
     pub budget: Option<i64>,
-    /// Actor, one JSON object: who issues the command, `{"kind": "Human", "operator": "<name>"}`,
+    /// Actor, as the records print it (`human:<name>`, `agent:<instance>/<role>/<name>`, `daemon`)
+    /// or one JSON object: who issues the command, `{"kind": "Human", "operator": "<name>"}`,
     /// `{"kind": "Agent", "agent": {"instance", "role", "name", "kind"}}` or `{"kind": "Daemon"}`;
     /// default: the calling session as an agent where `CONDUCTOR_SESSION` names one, else the
     /// operator
@@ -3202,7 +3221,8 @@ pub struct RecordRepositoryArgs {
     /// string, optional
     #[arg(long)]
     pub wave_reason: Option<String>,
-    /// Actor, one JSON object: who issues the command, `{"kind": "Human", "operator": "<name>"}`,
+    /// Actor, as the records print it (`human:<name>`, `agent:<instance>/<role>/<name>`, `daemon`)
+    /// or one JSON object: who issues the command, `{"kind": "Human", "operator": "<name>"}`,
     /// `{"kind": "Agent", "agent": {"instance", "role", "name", "kind"}}` or `{"kind": "Daemon"}`;
     /// default: the calling session as an agent where `CONDUCTOR_SESSION` names one, else the
     /// operator
@@ -3249,7 +3269,8 @@ pub struct RecordPullRequestArgs {
     /// string, optional
     #[arg(long)]
     pub url: Option<String>,
-    /// Actor, one JSON object: who issues the command, `{"kind": "Human", "operator": "<name>"}`,
+    /// Actor, as the records print it (`human:<name>`, `agent:<instance>/<role>/<name>`, `daemon`)
+    /// or one JSON object: who issues the command, `{"kind": "Human", "operator": "<name>"}`,
     /// `{"kind": "Agent", "agent": {"instance", "role", "name", "kind"}}` or `{"kind": "Daemon"}`;
     /// default: the calling session as an agent where `CONDUCTOR_SESSION` names one, else the
     /// operator
@@ -3278,7 +3299,8 @@ pub struct RecordReleaseArgs {
     /// string
     #[arg(long)]
     pub url: Option<String>,
-    /// Actor, one JSON object: who issues the command, `{"kind": "Human", "operator": "<name>"}`,
+    /// Actor, as the records print it (`human:<name>`, `agent:<instance>/<role>/<name>`, `daemon`)
+    /// or one JSON object: who issues the command, `{"kind": "Human", "operator": "<name>"}`,
     /// `{"kind": "Agent", "agent": {"instance", "role", "name", "kind"}}` or `{"kind": "Daemon"}`;
     /// default: the calling session as an agent where `CONDUCTOR_SESSION` names one, else the
     /// operator
@@ -3310,7 +3332,8 @@ pub struct RecordMergedPullRequestArgs {
     /// string
     #[arg(long)]
     pub url: Option<String>,
-    /// Actor, one JSON object: who issues the command, `{"kind": "Human", "operator": "<name>"}`,
+    /// Actor, as the records print it (`human:<name>`, `agent:<instance>/<role>/<name>`, `daemon`)
+    /// or one JSON object: who issues the command, `{"kind": "Human", "operator": "<name>"}`,
     /// `{"kind": "Agent", "agent": {"instance", "role", "name", "kind"}}` or `{"kind": "Daemon"}`;
     /// default: the calling session as an agent where `CONDUCTOR_SESSION` names one, else the
     /// operator
@@ -3339,7 +3362,8 @@ pub struct RecordWorkflowRunArgs {
     /// timestamp, RFC 3339
     #[arg(long, value_parser = timestamp)]
     pub run_at: Option<String>,
-    /// Actor, one JSON object: who issues the command, `{"kind": "Human", "operator": "<name>"}`,
+    /// Actor, as the records print it (`human:<name>`, `agent:<instance>/<role>/<name>`, `daemon`)
+    /// or one JSON object: who issues the command, `{"kind": "Human", "operator": "<name>"}`,
     /// `{"kind": "Agent", "agent": {"instance", "role", "name", "kind"}}` or `{"kind": "Daemon"}`;
     /// default: the calling session as an agent where `CONDUCTOR_SESSION` names one, else the
     /// operator
@@ -3377,7 +3401,8 @@ pub struct RecordSecretSyncArgs {
     /// string, optional
     #[arg(long)]
     pub error_line: Option<String>,
-    /// Actor, one JSON object: who issues the command, `{"kind": "Human", "operator": "<name>"}`,
+    /// Actor, as the records print it (`human:<name>`, `agent:<instance>/<role>/<name>`, `daemon`)
+    /// or one JSON object: who issues the command, `{"kind": "Human", "operator": "<name>"}`,
     /// `{"kind": "Agent", "agent": {"instance", "role", "name", "kind"}}` or `{"kind": "Daemon"}`;
     /// default: the calling session as an agent where `CONDUCTOR_SESSION` names one, else the
     /// operator
@@ -3436,7 +3461,8 @@ pub struct RecordSessionArgs {
     /// string, optional
     #[arg(long)]
     pub envelope_unboxed: Option<String>,
-    /// Actor, one JSON object: who issues the command, `{"kind": "Human", "operator": "<name>"}`,
+    /// Actor, as the records print it (`human:<name>`, `agent:<instance>/<role>/<name>`, `daemon`)
+    /// or one JSON object: who issues the command, `{"kind": "Human", "operator": "<name>"}`,
     /// `{"kind": "Agent", "agent": {"instance", "role", "name", "kind"}}` or `{"kind": "Daemon"}`;
     /// default: the calling session as an agent where `CONDUCTOR_SESSION` names one, else the
     /// operator
@@ -3465,7 +3491,8 @@ pub struct RecordBlockerArgs {
     /// string
     #[arg(long)]
     pub title: Option<String>,
-    /// Actor, one JSON object: who issues the command, `{"kind": "Human", "operator": "<name>"}`,
+    /// Actor, as the records print it (`human:<name>`, `agent:<instance>/<role>/<name>`, `daemon`)
+    /// or one JSON object: who issues the command, `{"kind": "Human", "operator": "<name>"}`,
     /// `{"kind": "Agent", "agent": {"instance", "role", "name", "kind"}}` or `{"kind": "Daemon"}`;
     /// default: the calling session as an agent where `CONDUCTOR_SESSION` names one, else the
     /// operator
@@ -3500,7 +3527,8 @@ pub struct RecordCollectorRunArgs {
     /// integer
     #[arg(long, allow_negative_numbers = true)]
     pub written_bytes: Option<i64>,
-    /// Actor, one JSON object: who issues the command, `{"kind": "Human", "operator": "<name>"}`,
+    /// Actor, as the records print it (`human:<name>`, `agent:<instance>/<role>/<name>`, `daemon`)
+    /// or one JSON object: who issues the command, `{"kind": "Human", "operator": "<name>"}`,
     /// `{"kind": "Agent", "agent": {"instance", "role", "name", "kind"}}` or `{"kind": "Daemon"}`;
     /// default: the calling session as an agent where `CONDUCTOR_SESSION` names one, else the
     /// operator
@@ -3538,7 +3566,8 @@ pub struct RecordUsageArgs {
     /// timestamp, RFC 3339, optional
     #[arg(long, value_parser = timestamp)]
     pub resets_at: Option<String>,
-    /// Actor, one JSON object: who issues the command, `{"kind": "Human", "operator": "<name>"}`,
+    /// Actor, as the records print it (`human:<name>`, `agent:<instance>/<role>/<name>`, `daemon`)
+    /// or one JSON object: who issues the command, `{"kind": "Human", "operator": "<name>"}`,
     /// `{"kind": "Agent", "agent": {"instance", "role", "name", "kind"}}` or `{"kind": "Daemon"}`;
     /// default: the calling session as an agent where `CONDUCTOR_SESSION` names one, else the
     /// operator
@@ -3564,7 +3593,8 @@ pub struct RecordMemberFailureArgs {
     /// string
     #[arg(long)]
     pub error_line: Option<String>,
-    /// Actor, one JSON object: who issues the command, `{"kind": "Human", "operator": "<name>"}`,
+    /// Actor, as the records print it (`human:<name>`, `agent:<instance>/<role>/<name>`, `daemon`)
+    /// or one JSON object: who issues the command, `{"kind": "Human", "operator": "<name>"}`,
     /// `{"kind": "Agent", "agent": {"instance", "role", "name", "kind"}}` or `{"kind": "Daemon"}`;
     /// default: the calling session as an agent where `CONDUCTOR_SESSION` names one, else the
     /// operator
@@ -3611,7 +3641,8 @@ pub struct RecordSpecificationArgs {
     /// string, optional
     #[arg(long)]
     pub conformance_status: Option<String>,
-    /// Actor, one JSON object: who issues the command, `{"kind": "Human", "operator": "<name>"}`,
+    /// Actor, as the records print it (`human:<name>`, `agent:<instance>/<role>/<name>`, `daemon`)
+    /// or one JSON object: who issues the command, `{"kind": "Human", "operator": "<name>"}`,
     /// `{"kind": "Agent", "agent": {"instance", "role", "name", "kind"}}` or `{"kind": "Daemon"}`;
     /// default: the calling session as an agent where `CONDUCTOR_SESSION` names one, else the
     /// operator
@@ -3637,7 +3668,8 @@ pub struct PublishBoardArgs {
     /// string
     #[arg(long)]
     pub path: Option<String>,
-    /// Actor, one JSON object: who issues the command, `{"kind": "Human", "operator": "<name>"}`,
+    /// Actor, as the records print it (`human:<name>`, `agent:<instance>/<role>/<name>`, `daemon`)
+    /// or one JSON object: who issues the command, `{"kind": "Human", "operator": "<name>"}`,
     /// `{"kind": "Agent", "agent": {"instance", "role", "name", "kind"}}` or `{"kind": "Daemon"}`;
     /// default: the calling session as an agent where `CONDUCTOR_SESSION` names one, else the
     /// operator
@@ -3654,7 +3686,8 @@ pub struct CompleteSnapshotArgs {
     /// SnapshotId
     #[arg(long, value_parser = uuid)]
     pub snapshot_id: Option<String>,
-    /// Actor, one JSON object: who issues the command, `{"kind": "Human", "operator": "<name>"}`,
+    /// Actor, as the records print it (`human:<name>`, `agent:<instance>/<role>/<name>`, `daemon`)
+    /// or one JSON object: who issues the command, `{"kind": "Human", "operator": "<name>"}`,
     /// `{"kind": "Agent", "agent": {"instance", "role", "name", "kind"}}` or `{"kind": "Daemon"}`;
     /// default: the calling session as an agent where `CONDUCTOR_SESSION` names one, else the
     /// operator
@@ -3674,7 +3707,8 @@ pub struct FailSnapshotArgs {
     /// string
     #[arg(long)]
     pub reason: Option<String>,
-    /// Actor, one JSON object: who issues the command, `{"kind": "Human", "operator": "<name>"}`,
+    /// Actor, as the records print it (`human:<name>`, `agent:<instance>/<role>/<name>`, `daemon`)
+    /// or one JSON object: who issues the command, `{"kind": "Human", "operator": "<name>"}`,
     /// `{"kind": "Agent", "agent": {"instance", "role", "name", "kind"}}` or `{"kind": "Daemon"}`;
     /// default: the calling session as an agent where `CONDUCTOR_SESSION` names one, else the
     /// operator
@@ -3697,7 +3731,8 @@ pub struct ProposeGoalArgs {
     /// string
     #[arg(long)]
     pub exit_evidence: Option<String>,
-    /// Actor, one JSON object: who issues the command, `{"kind": "Human", "operator": "<name>"}`,
+    /// Actor, as the records print it (`human:<name>`, `agent:<instance>/<role>/<name>`, `daemon`)
+    /// or one JSON object: who issues the command, `{"kind": "Human", "operator": "<name>"}`,
     /// `{"kind": "Agent", "agent": {"instance", "role", "name", "kind"}}` or `{"kind": "Daemon"}`;
     /// default: the calling session as an agent where `CONDUCTOR_SESSION` names one, else the
     /// operator
@@ -3714,7 +3749,8 @@ pub struct ConfirmGoalArgs {
     /// GoalId
     #[arg(long)]
     pub goal_id: Option<String>,
-    /// Actor, one JSON object: who issues the command, `{"kind": "Human", "operator": "<name>"}`,
+    /// Actor, as the records print it (`human:<name>`, `agent:<instance>/<role>/<name>`, `daemon`)
+    /// or one JSON object: who issues the command, `{"kind": "Human", "operator": "<name>"}`,
     /// `{"kind": "Agent", "agent": {"instance", "role", "name", "kind"}}` or `{"kind": "Daemon"}`;
     /// default: the calling session as an agent where `CONDUCTOR_SESSION` names one, else the
     /// operator
@@ -3734,7 +3770,8 @@ pub struct MarkGoalMetArgs {
     /// string
     #[arg(long)]
     pub evidence: Option<String>,
-    /// Actor, one JSON object: who issues the command, `{"kind": "Human", "operator": "<name>"}`,
+    /// Actor, as the records print it (`human:<name>`, `agent:<instance>/<role>/<name>`, `daemon`)
+    /// or one JSON object: who issues the command, `{"kind": "Human", "operator": "<name>"}`,
     /// `{"kind": "Agent", "agent": {"instance", "role", "name", "kind"}}` or `{"kind": "Daemon"}`;
     /// default: the calling session as an agent where `CONDUCTOR_SESSION` names one, else the
     /// operator
@@ -3754,7 +3791,8 @@ pub struct DropGoalArgs {
     /// string
     #[arg(long)]
     pub reason: Option<String>,
-    /// Actor, one JSON object: who issues the command, `{"kind": "Human", "operator": "<name>"}`,
+    /// Actor, as the records print it (`human:<name>`, `agent:<instance>/<role>/<name>`, `daemon`)
+    /// or one JSON object: who issues the command, `{"kind": "Human", "operator": "<name>"}`,
     /// `{"kind": "Agent", "agent": {"instance", "role", "name", "kind"}}` or `{"kind": "Daemon"}`;
     /// default: the calling session as an agent where `CONDUCTOR_SESSION` names one, else the
     /// operator
@@ -3774,7 +3812,8 @@ pub struct AddServingArgs {
     /// RepositoryName
     #[arg(long)]
     pub repository: Option<String>,
-    /// Actor, one JSON object: who issues the command, `{"kind": "Human", "operator": "<name>"}`,
+    /// Actor, as the records print it (`human:<name>`, `agent:<instance>/<role>/<name>`, `daemon`)
+    /// or one JSON object: who issues the command, `{"kind": "Human", "operator": "<name>"}`,
     /// `{"kind": "Agent", "agent": {"instance", "role", "name", "kind"}}` or `{"kind": "Daemon"}`;
     /// default: the calling session as an agent where `CONDUCTOR_SESSION` names one, else the
     /// operator
@@ -3794,7 +3833,8 @@ pub struct RemoveServingArgs {
     /// string
     #[arg(long)]
     pub reason: Option<String>,
-    /// Actor, one JSON object: who issues the command, `{"kind": "Human", "operator": "<name>"}`,
+    /// Actor, as the records print it (`human:<name>`, `agent:<instance>/<role>/<name>`, `daemon`)
+    /// or one JSON object: who issues the command, `{"kind": "Human", "operator": "<name>"}`,
     /// `{"kind": "Agent", "agent": {"instance", "role", "name", "kind"}}` or `{"kind": "Daemon"}`;
     /// default: the calling session as an agent where `CONDUCTOR_SESSION` names one, else the
     /// operator
@@ -3823,7 +3863,8 @@ pub struct MarkRepositoryArgs {
     /// string
     #[arg(long)]
     pub reason: Option<String>,
-    /// Actor, one JSON object: who issues the command, `{"kind": "Human", "operator": "<name>"}`,
+    /// Actor, as the records print it (`human:<name>`, `agent:<instance>/<role>/<name>`, `daemon`)
+    /// or one JSON object: who issues the command, `{"kind": "Human", "operator": "<name>"}`,
     /// `{"kind": "Agent", "agent": {"instance", "role", "name", "kind"}}` or `{"kind": "Daemon"}`;
     /// default: the calling session as an agent where `CONDUCTOR_SESSION` names one, else the
     /// operator
@@ -3849,7 +3890,8 @@ pub struct ActivateRepositoryArgs {
     /// string
     #[arg(long)]
     pub reason: Option<String>,
-    /// Actor, one JSON object: who issues the command, `{"kind": "Human", "operator": "<name>"}`,
+    /// Actor, as the records print it (`human:<name>`, `agent:<instance>/<role>/<name>`, `daemon`)
+    /// or one JSON object: who issues the command, `{"kind": "Human", "operator": "<name>"}`,
     /// `{"kind": "Agent", "agent": {"instance", "role", "name", "kind"}}` or `{"kind": "Daemon"}`;
     /// default: the calling session as an agent where `CONDUCTOR_SESSION` names one, else the
     /// operator
@@ -3875,7 +3917,8 @@ pub struct DeactivateRepositoryArgs {
     /// string
     #[arg(long)]
     pub reason: Option<String>,
-    /// Actor, one JSON object: who issues the command, `{"kind": "Human", "operator": "<name>"}`,
+    /// Actor, as the records print it (`human:<name>`, `agent:<instance>/<role>/<name>`, `daemon`)
+    /// or one JSON object: who issues the command, `{"kind": "Human", "operator": "<name>"}`,
     /// `{"kind": "Agent", "agent": {"instance", "role", "name", "kind"}}` or `{"kind": "Daemon"}`;
     /// default: the calling session as an agent where `CONDUCTOR_SESSION` names one, else the
     /// operator
@@ -3921,7 +3964,8 @@ pub struct RaiseDecisionRequestArgs {
         "none",
     ])]
     pub classification_rule: Option<String>,
-    /// Actor, one JSON object: who issues the command, `{"kind": "Human", "operator": "<name>"}`,
+    /// Actor, as the records print it (`human:<name>`, `agent:<instance>/<role>/<name>`, `daemon`)
+    /// or one JSON object: who issues the command, `{"kind": "Human", "operator": "<name>"}`,
     /// `{"kind": "Agent", "agent": {"instance", "role", "name", "kind"}}` or `{"kind": "Daemon"}`;
     /// default: the calling session as an agent where `CONDUCTOR_SESSION` names one, else the
     /// operator
@@ -3969,7 +4013,8 @@ pub struct RecordConductorDecisionArgs {
     /// characters
     #[arg(long)]
     pub prompt_sha256: Option<String>,
-    /// Actor, one JSON object: who issues the command, `{"kind": "Human", "operator": "<name>"}`,
+    /// Actor, as the records print it (`human:<name>`, `agent:<instance>/<role>/<name>`, `daemon`)
+    /// or one JSON object: who issues the command, `{"kind": "Human", "operator": "<name>"}`,
     /// `{"kind": "Agent", "agent": {"instance", "role", "name", "kind"}}` or `{"kind": "Daemon"}`;
     /// default: the calling session as an agent where `CONDUCTOR_SESSION` names one, else the
     /// operator
@@ -4016,7 +4061,8 @@ pub struct RecordOperatorDecisionArgs {
     /// RepositoryName
     #[arg(long)]
     pub repository: Option<String>,
-    /// Actor, one JSON object: who issues the command, `{"kind": "Human", "operator": "<name>"}`,
+    /// Actor, as the records print it (`human:<name>`, `agent:<instance>/<role>/<name>`, `daemon`)
+    /// or one JSON object: who issues the command, `{"kind": "Human", "operator": "<name>"}`,
     /// `{"kind": "Agent", "agent": {"instance", "role", "name", "kind"}}` or `{"kind": "Daemon"}`;
     /// default: the calling session as an agent where `CONDUCTOR_SESSION` names one, else the
     /// operator
@@ -4069,7 +4115,8 @@ pub struct RecordOperatorDecisionForRequestArgs {
     /// RepositoryName
     #[arg(long)]
     pub repository: Option<String>,
-    /// Actor, one JSON object: who issues the command, `{"kind": "Human", "operator": "<name>"}`,
+    /// Actor, as the records print it (`human:<name>`, `agent:<instance>/<role>/<name>`, `daemon`)
+    /// or one JSON object: who issues the command, `{"kind": "Human", "operator": "<name>"}`,
     /// `{"kind": "Agent", "agent": {"instance", "role", "name", "kind"}}` or `{"kind": "Daemon"}`;
     /// default: the calling session as an agent where `CONDUCTOR_SESSION` names one, else the
     /// operator
@@ -4089,7 +4136,8 @@ pub struct AnswerRequestArgs {
     /// DecisionId, starting with `DEC-`
     #[arg(long, value_parser = prefixed("DEC-"))]
     pub decision_id: Option<String>,
-    /// Actor, one JSON object: who issues the command, `{"kind": "Human", "operator": "<name>"}`,
+    /// Actor, as the records print it (`human:<name>`, `agent:<instance>/<role>/<name>`, `daemon`)
+    /// or one JSON object: who issues the command, `{"kind": "Human", "operator": "<name>"}`,
     /// `{"kind": "Agent", "agent": {"instance", "role", "name", "kind"}}` or `{"kind": "Daemon"}`;
     /// default: the calling session as an agent where `CONDUCTOR_SESSION` names one, else the
     /// operator
@@ -4109,7 +4157,8 @@ pub struct AnswerEscalatedRequestArgs {
     /// DecisionId, starting with `DEC-`
     #[arg(long, value_parser = prefixed("DEC-"))]
     pub decision_id: Option<String>,
-    /// Actor, one JSON object: who issues the command, `{"kind": "Human", "operator": "<name>"}`,
+    /// Actor, as the records print it (`human:<name>`, `agent:<instance>/<role>/<name>`, `daemon`)
+    /// or one JSON object: who issues the command, `{"kind": "Human", "operator": "<name>"}`,
     /// `{"kind": "Agent", "agent": {"instance", "role", "name", "kind"}}` or `{"kind": "Daemon"}`;
     /// default: the calling session as an agent where `CONDUCTOR_SESSION` names one, else the
     /// operator
@@ -4157,7 +4206,8 @@ pub struct EscalateRequestArgs {
     /// timestamp, RFC 3339: when the default stands. Required for class O
     #[arg(long, value_parser = timestamp)]
     pub deadline: Option<String>,
-    /// Actor, one JSON object: who issues the command, `{"kind": "Human", "operator": "<name>"}`,
+    /// Actor, as the records print it (`human:<name>`, `agent:<instance>/<role>/<name>`, `daemon`)
+    /// or one JSON object: who issues the command, `{"kind": "Human", "operator": "<name>"}`,
     /// `{"kind": "Agent", "agent": {"instance", "role", "name", "kind"}}` or `{"kind": "Daemon"}`;
     /// default: the calling session as an agent where `CONDUCTOR_SESSION` names one, else the
     /// operator
@@ -4197,7 +4247,8 @@ pub struct AmendEscalatedRequestArgs {
     /// The dry run of a class-H item, as text (not a file, unlike `escalate-request`)
     #[arg(long, value_name = "TEXT")]
     pub dry_run: Option<String>,
-    /// Actor, one JSON object: who issues the command, `{"kind": "Human", "operator": "<name>"}`,
+    /// Actor, as the records print it (`human:<name>`, `agent:<instance>/<role>/<name>`, `daemon`)
+    /// or one JSON object: who issues the command, `{"kind": "Human", "operator": "<name>"}`,
     /// `{"kind": "Agent", "agent": {"instance", "role", "name", "kind"}}` or `{"kind": "Daemon"}`;
     /// default: the calling session as an agent where `CONDUCTOR_SESSION` names one, else the
     /// operator
@@ -4217,7 +4268,8 @@ pub struct WithdrawRequestArgs {
     /// string
     #[arg(long)]
     pub reason: Option<String>,
-    /// Actor, one JSON object: who issues the command, `{"kind": "Human", "operator": "<name>"}`,
+    /// Actor, as the records print it (`human:<name>`, `agent:<instance>/<role>/<name>`, `daemon`)
+    /// or one JSON object: who issues the command, `{"kind": "Human", "operator": "<name>"}`,
     /// `{"kind": "Agent", "agent": {"instance", "role", "name", "kind"}}` or `{"kind": "Daemon"}`;
     /// default: the calling session as an agent where `CONDUCTOR_SESSION` names one, else the
     /// operator
@@ -4237,7 +4289,8 @@ pub struct ReverseConductorDecisionArgs {
     /// string
     #[arg(long)]
     pub reason: Option<String>,
-    /// Actor, one JSON object: who issues the command, `{"kind": "Human", "operator": "<name>"}`,
+    /// Actor, as the records print it (`human:<name>`, `agent:<instance>/<role>/<name>`, `daemon`)
+    /// or one JSON object: who issues the command, `{"kind": "Human", "operator": "<name>"}`,
     /// `{"kind": "Agent", "agent": {"instance", "role", "name", "kind"}}` or `{"kind": "Daemon"}`;
     /// default: the calling session as an agent where `CONDUCTOR_SESSION` names one, else the
     /// operator
@@ -4257,7 +4310,8 @@ pub struct ReverseOperatorDecisionArgs {
     /// string
     #[arg(long)]
     pub reason: Option<String>,
-    /// Actor, one JSON object: who issues the command, `{"kind": "Human", "operator": "<name>"}`,
+    /// Actor, as the records print it (`human:<name>`, `agent:<instance>/<role>/<name>`, `daemon`)
+    /// or one JSON object: who issues the command, `{"kind": "Human", "operator": "<name>"}`,
     /// `{"kind": "Agent", "agent": {"instance", "role", "name", "kind"}}` or `{"kind": "Daemon"}`;
     /// default: the calling session as an agent where `CONDUCTOR_SESSION` names one, else the
     /// operator
@@ -4280,7 +4334,8 @@ pub struct StartControllerArgs {
     /// SessionName
     #[arg(long)]
     pub session_name: Option<String>,
-    /// Actor, one JSON object: who issues the command, `{"kind": "Human", "operator": "<name>"}`,
+    /// Actor, as the records print it (`human:<name>`, `agent:<instance>/<role>/<name>`, `daemon`)
+    /// or one JSON object: who issues the command, `{"kind": "Human", "operator": "<name>"}`,
     /// `{"kind": "Agent", "agent": {"instance", "role", "name", "kind"}}` or `{"kind": "Daemon"}`;
     /// default: the calling session as an agent where `CONDUCTOR_SESSION` names one, else the
     /// operator
@@ -4297,7 +4352,8 @@ pub struct PauseControllerArgs {
     /// ControllerId
     #[arg(long, value_parser = uuid)]
     pub controller_id: Option<String>,
-    /// Actor, one JSON object: who issues the command, `{"kind": "Human", "operator": "<name>"}`,
+    /// Actor, as the records print it (`human:<name>`, `agent:<instance>/<role>/<name>`, `daemon`)
+    /// or one JSON object: who issues the command, `{"kind": "Human", "operator": "<name>"}`,
     /// `{"kind": "Agent", "agent": {"instance", "role", "name", "kind"}}` or `{"kind": "Daemon"}`;
     /// default: the calling session as an agent where `CONDUCTOR_SESSION` names one, else the
     /// operator
@@ -4314,7 +4370,8 @@ pub struct ResumeControllerArgs {
     /// ControllerId
     #[arg(long, value_parser = uuid)]
     pub controller_id: Option<String>,
-    /// Actor, one JSON object: who issues the command, `{"kind": "Human", "operator": "<name>"}`,
+    /// Actor, as the records print it (`human:<name>`, `agent:<instance>/<role>/<name>`, `daemon`)
+    /// or one JSON object: who issues the command, `{"kind": "Human", "operator": "<name>"}`,
     /// `{"kind": "Agent", "agent": {"instance", "role", "name", "kind"}}` or `{"kind": "Daemon"}`;
     /// default: the calling session as an agent where `CONDUCTOR_SESSION` names one, else the
     /// operator
@@ -4334,7 +4391,8 @@ pub struct StopControllerArgs {
     /// string
     #[arg(long)]
     pub reason: Option<String>,
-    /// Actor, one JSON object: who issues the command, `{"kind": "Human", "operator": "<name>"}`,
+    /// Actor, as the records print it (`human:<name>`, `agent:<instance>/<role>/<name>`, `daemon`)
+    /// or one JSON object: who issues the command, `{"kind": "Human", "operator": "<name>"}`,
     /// `{"kind": "Agent", "agent": {"instance", "role", "name", "kind"}}` or `{"kind": "Daemon"}`;
     /// default: the calling session as an agent where `CONDUCTOR_SESSION` names one, else the
     /// operator
@@ -4351,7 +4409,8 @@ pub struct ReviseCharterArgs {
     /// ControllerId
     #[arg(long, value_parser = uuid)]
     pub controller_id: Option<String>,
-    /// Actor, one JSON object: who issues the command, `{"kind": "Human", "operator": "<name>"}`,
+    /// Actor, as the records print it (`human:<name>`, `agent:<instance>/<role>/<name>`, `daemon`)
+    /// or one JSON object: who issues the command, `{"kind": "Human", "operator": "<name>"}`,
     /// `{"kind": "Agent", "agent": {"instance", "role", "name", "kind"}}` or `{"kind": "Daemon"}`;
     /// default: the calling session as an agent where `CONDUCTOR_SESSION` names one, else the
     /// operator
@@ -4395,7 +4454,8 @@ pub struct SendDispatchArgs {
     /// string, optional
     #[arg(long)]
     pub issue: Option<String>,
-    /// Actor, one JSON object: who issues the command, `{"kind": "Human", "operator": "<name>"}`,
+    /// Actor, as the records print it (`human:<name>`, `agent:<instance>/<role>/<name>`, `daemon`)
+    /// or one JSON object: who issues the command, `{"kind": "Human", "operator": "<name>"}`,
     /// `{"kind": "Agent", "agent": {"instance", "role", "name", "kind"}}` or `{"kind": "Daemon"}`;
     /// default: the calling session as an agent where `CONDUCTOR_SESSION` names one, else the
     /// operator
@@ -4412,7 +4472,8 @@ pub struct ReportStartedArgs {
     /// DispatchId, starting with `DSP-`
     #[arg(long, value_parser = prefixed("DSP-"))]
     pub dispatch_id: Option<String>,
-    /// Actor, one JSON object: who issues the command, `{"kind": "Human", "operator": "<name>"}`,
+    /// Actor, as the records print it (`human:<name>`, `agent:<instance>/<role>/<name>`, `daemon`)
+    /// or one JSON object: who issues the command, `{"kind": "Human", "operator": "<name>"}`,
     /// `{"kind": "Agent", "agent": {"instance", "role", "name", "kind"}}` or `{"kind": "Daemon"}`;
     /// default: the calling session as an agent where `CONDUCTOR_SESSION` names one, else the
     /// operator
@@ -4432,7 +4493,8 @@ pub struct ReportBlockedArgs {
     /// string
     #[arg(long)]
     pub reason: Option<String>,
-    /// Actor, one JSON object: who issues the command, `{"kind": "Human", "operator": "<name>"}`,
+    /// Actor, as the records print it (`human:<name>`, `agent:<instance>/<role>/<name>`, `daemon`)
+    /// or one JSON object: who issues the command, `{"kind": "Human", "operator": "<name>"}`,
     /// `{"kind": "Agent", "agent": {"instance", "role", "name", "kind"}}` or `{"kind": "Daemon"}`;
     /// default: the calling session as an agent where `CONDUCTOR_SESSION` names one, else the
     /// operator
@@ -4449,7 +4511,8 @@ pub struct ReportUnblockedArgs {
     /// DispatchId, starting with `DSP-`
     #[arg(long, value_parser = prefixed("DSP-"))]
     pub dispatch_id: Option<String>,
-    /// Actor, one JSON object: who issues the command, `{"kind": "Human", "operator": "<name>"}`,
+    /// Actor, as the records print it (`human:<name>`, `agent:<instance>/<role>/<name>`, `daemon`)
+    /// or one JSON object: who issues the command, `{"kind": "Human", "operator": "<name>"}`,
     /// `{"kind": "Agent", "agent": {"instance", "role", "name", "kind"}}` or `{"kind": "Daemon"}`;
     /// default: the calling session as an agent where `CONDUCTOR_SESSION` names one, else the
     /// operator
@@ -4469,7 +4532,8 @@ pub struct ReportDoneArgs {
     /// string
     #[arg(long)]
     pub evidence: Option<String>,
-    /// Actor, one JSON object: who issues the command, `{"kind": "Human", "operator": "<name>"}`,
+    /// Actor, as the records print it (`human:<name>`, `agent:<instance>/<role>/<name>`, `daemon`)
+    /// or one JSON object: who issues the command, `{"kind": "Human", "operator": "<name>"}`,
     /// `{"kind": "Agent", "agent": {"instance", "role", "name", "kind"}}` or `{"kind": "Daemon"}`;
     /// default: the calling session as an agent where `CONDUCTOR_SESSION` names one, else the
     /// operator
@@ -4489,7 +4553,8 @@ pub struct ReportFailedArgs {
     /// string
     #[arg(long)]
     pub reason: Option<String>,
-    /// Actor, one JSON object: who issues the command, `{"kind": "Human", "operator": "<name>"}`,
+    /// Actor, as the records print it (`human:<name>`, `agent:<instance>/<role>/<name>`, `daemon`)
+    /// or one JSON object: who issues the command, `{"kind": "Human", "operator": "<name>"}`,
     /// `{"kind": "Agent", "agent": {"instance", "role", "name", "kind"}}` or `{"kind": "Daemon"}`;
     /// default: the calling session as an agent where `CONDUCTOR_SESSION` names one, else the
     /// operator
@@ -4509,7 +4574,8 @@ pub struct CancelDispatchArgs {
     /// string
     #[arg(long)]
     pub reason: Option<String>,
-    /// Actor, one JSON object: who issues the command, `{"kind": "Human", "operator": "<name>"}`,
+    /// Actor, as the records print it (`human:<name>`, `agent:<instance>/<role>/<name>`, `daemon`)
+    /// or one JSON object: who issues the command, `{"kind": "Human", "operator": "<name>"}`,
     /// `{"kind": "Agent", "agent": {"instance", "role", "name", "kind"}}` or `{"kind": "Daemon"}`;
     /// default: the calling session as an agent where `CONDUCTOR_SESSION` names one, else the
     /// operator
@@ -4529,7 +4595,8 @@ pub struct RecordDispatchLinkArgs {
     /// string
     #[arg(long)]
     pub link: Option<String>,
-    /// Actor, one JSON object: who issues the command, `{"kind": "Human", "operator": "<name>"}`,
+    /// Actor, as the records print it (`human:<name>`, `agent:<instance>/<role>/<name>`, `daemon`)
+    /// or one JSON object: who issues the command, `{"kind": "Human", "operator": "<name>"}`,
     /// `{"kind": "Agent", "agent": {"instance", "role", "name", "kind"}}` or `{"kind": "Daemon"}`;
     /// default: the calling session as an agent where `CONDUCTOR_SESSION` names one, else the
     /// operator
@@ -4567,7 +4634,8 @@ pub struct ReceiveMessageArgs {
     /// boolean
     #[arg(long)]
     pub parsed: Option<bool>,
-    /// Actor, one JSON object: who issues the command, `{"kind": "Human", "operator": "<name>"}`,
+    /// Actor, as the records print it (`human:<name>`, `agent:<instance>/<role>/<name>`, `daemon`)
+    /// or one JSON object: who issues the command, `{"kind": "Human", "operator": "<name>"}`,
     /// `{"kind": "Agent", "agent": {"instance", "role", "name", "kind"}}` or `{"kind": "Daemon"}`;
     /// default: the calling session as an agent where `CONDUCTOR_SESSION` names one, else the
     /// operator
@@ -4587,7 +4655,8 @@ pub struct HandleMessageArgs {
     /// DispatchId, starting with `DSP-`, optional
     #[arg(long, value_parser = prefixed("DSP-"))]
     pub dispatch_id: Option<String>,
-    /// Actor, one JSON object: who issues the command, `{"kind": "Human", "operator": "<name>"}`,
+    /// Actor, as the records print it (`human:<name>`, `agent:<instance>/<role>/<name>`, `daemon`)
+    /// or one JSON object: who issues the command, `{"kind": "Human", "operator": "<name>"}`,
     /// `{"kind": "Agent", "agent": {"instance", "role", "name", "kind"}}` or `{"kind": "Daemon"}`;
     /// default: the calling session as an agent where `CONDUCTOR_SESSION` names one, else the
     /// operator
@@ -4607,7 +4676,8 @@ pub struct RejectMessageArgs {
     /// string
     #[arg(long)]
     pub reason: Option<String>,
-    /// Actor, one JSON object: who issues the command, `{"kind": "Human", "operator": "<name>"}`,
+    /// Actor, as the records print it (`human:<name>`, `agent:<instance>/<role>/<name>`, `daemon`)
+    /// or one JSON object: who issues the command, `{"kind": "Human", "operator": "<name>"}`,
     /// `{"kind": "Agent", "agent": {"instance", "role", "name", "kind"}}` or `{"kind": "Daemon"}`;
     /// default: the calling session as an agent where `CONDUCTOR_SESSION` names one, else the
     /// operator
@@ -4627,7 +4697,8 @@ pub struct RouteNeedArgs {
     /// DispatchId, starting with `DSP-`
     #[arg(long, value_parser = prefixed("DSP-"))]
     pub dispatch_id: Option<String>,
-    /// Actor, one JSON object: who issues the command, `{"kind": "Human", "operator": "<name>"}`,
+    /// Actor, as the records print it (`human:<name>`, `agent:<instance>/<role>/<name>`, `daemon`)
+    /// or one JSON object: who issues the command, `{"kind": "Human", "operator": "<name>"}`,
     /// `{"kind": "Agent", "agent": {"instance", "role", "name", "kind"}}` or `{"kind": "Daemon"}`;
     /// default: the calling session as an agent where `CONDUCTOR_SESSION` names one, else the
     /// operator
@@ -4653,7 +4724,8 @@ pub struct RequestResourceArgs {
     /// timestamp, RFC 3339
     #[arg(long, value_parser = timestamp)]
     pub requested_at: Option<String>,
-    /// Actor, one JSON object: who issues the command, `{"kind": "Human", "operator": "<name>"}`,
+    /// Actor, as the records print it (`human:<name>`, `agent:<instance>/<role>/<name>`, `daemon`)
+    /// or one JSON object: who issues the command, `{"kind": "Human", "operator": "<name>"}`,
     /// `{"kind": "Agent", "agent": {"instance", "role", "name", "kind"}}` or `{"kind": "Daemon"}`;
     /// default: the calling session as an agent where `CONDUCTOR_SESSION` names one, else the
     /// operator
@@ -4673,7 +4745,8 @@ pub struct GrantResourceArgs {
     /// integer
     #[arg(long, allow_negative_numbers = true)]
     pub disk_free_bytes: Option<i64>,
-    /// Actor, one JSON object: who issues the command, `{"kind": "Human", "operator": "<name>"}`,
+    /// Actor, as the records print it (`human:<name>`, `agent:<instance>/<role>/<name>`, `daemon`)
+    /// or one JSON object: who issues the command, `{"kind": "Human", "operator": "<name>"}`,
     /// `{"kind": "Agent", "agent": {"instance", "role", "name", "kind"}}` or `{"kind": "Daemon"}`;
     /// default: the calling session as an agent where `CONDUCTOR_SESSION` names one, else the
     /// operator
@@ -4693,7 +4766,8 @@ pub struct RefuseResourceArgs {
     /// string
     #[arg(long)]
     pub reason: Option<String>,
-    /// Actor, one JSON object: who issues the command, `{"kind": "Human", "operator": "<name>"}`,
+    /// Actor, as the records print it (`human:<name>`, `agent:<instance>/<role>/<name>`, `daemon`)
+    /// or one JSON object: who issues the command, `{"kind": "Human", "operator": "<name>"}`,
     /// `{"kind": "Agent", "agent": {"instance", "role", "name", "kind"}}` or `{"kind": "Daemon"}`;
     /// default: the calling session as an agent where `CONDUCTOR_SESSION` names one, else the
     /// operator
@@ -4710,7 +4784,8 @@ pub struct ReleaseResourceArgs {
     /// ResourceRequestId
     #[arg(long, value_parser = uuid)]
     pub resource_request_id: Option<String>,
-    /// Actor, one JSON object: who issues the command, `{"kind": "Human", "operator": "<name>"}`,
+    /// Actor, as the records print it (`human:<name>`, `agent:<instance>/<role>/<name>`, `daemon`)
+    /// or one JSON object: who issues the command, `{"kind": "Human", "operator": "<name>"}`,
     /// `{"kind": "Agent", "agent": {"instance", "role", "name", "kind"}}` or `{"kind": "Daemon"}`;
     /// default: the calling session as an agent where `CONDUCTOR_SESSION` names one, else the
     /// operator
@@ -4745,7 +4820,8 @@ pub struct RecordGuardDecisionArgs {
     /// timestamp, RFC 3339
     #[arg(long, value_parser = timestamp)]
     pub decided_at: Option<String>,
-    /// Actor, one JSON object: who issues the command, `{"kind": "Human", "operator": "<name>"}`,
+    /// Actor, as the records print it (`human:<name>`, `agent:<instance>/<role>/<name>`, `daemon`)
+    /// or one JSON object: who issues the command, `{"kind": "Human", "operator": "<name>"}`,
     /// `{"kind": "Agent", "agent": {"instance", "role", "name", "kind"}}` or `{"kind": "Daemon"}`;
     /// default: the calling session as an agent where `CONDUCTOR_SESSION` names one, else the
     /// operator
@@ -4779,7 +4855,8 @@ pub struct RecordRunTickArgs {
     /// (`relayed`, `handover-sent`, …)
     #[arg(long, value_parser = json_list)]
     pub actions: Option<String>,
-    /// Actor, one JSON object: who issues the command, `{"kind": "Human", "operator": "<name>"}`,
+    /// Actor, as the records print it (`human:<name>`, `agent:<instance>/<role>/<name>`, `daemon`)
+    /// or one JSON object: who issues the command, `{"kind": "Human", "operator": "<name>"}`,
     /// `{"kind": "Agent", "agent": {"instance", "role", "name", "kind"}}` or `{"kind": "Daemon"}`;
     /// default: the calling session as an agent where `CONDUCTOR_SESSION` names one, else the
     /// operator
@@ -4817,7 +4894,8 @@ pub struct ClaimLeaseArgs {
     /// timestamp, RFC 3339
     #[arg(long, value_parser = timestamp)]
     pub taken_at: Option<String>,
-    /// Actor, one JSON object: who issues the command, `{"kind": "Human", "operator": "<name>"}`,
+    /// Actor, as the records print it (`human:<name>`, `agent:<instance>/<role>/<name>`, `daemon`)
+    /// or one JSON object: who issues the command, `{"kind": "Human", "operator": "<name>"}`,
     /// `{"kind": "Agent", "agent": {"instance", "role", "name", "kind"}}` or `{"kind": "Daemon"}`;
     /// default: the calling session as an agent where `CONDUCTOR_SESSION` names one, else the
     /// operator

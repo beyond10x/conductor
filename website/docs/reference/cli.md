@@ -241,7 +241,7 @@ Usage: conductor snapshot complete-snapshot [OPTIONS]
 | Argument | Required | Default | Meaning |
 |---|---|---|---|
 | `--snapshot-id <SNAPSHOT_ID>` | no | none | SnapshotId |
-| `--actor <ACTOR>` | no | none | Actor, one JSON object: who issues the command, `{"kind": "Human", "operator": "<name>"}`, `{"kind": "Agent", "agent": {"instance", "role", "name", "kind"}}` or `{"kind": "Daemon"}`; default: the calling session as an agent where `CONDUCTOR_SESSION` names one, else the operator |
+| `--actor <ACTOR>` | no | none | Actor, as the records print it (`human:<name>`, `agent:<instance>/<role>/<name>`, `daemon`) or one JSON object: who issues the command, `{"kind": "Human", "operator": "<name>"}`, `{"kind": "Agent", "agent": {"instance", "role", "name", "kind"}}` or `{"kind": "Daemon"}`; default: the calling session as an agent where `CONDUCTOR_SESSION` names one, else the operator |
 | `--input-json <INPUT_JSON>` | no | none | Read the input fields from standard input, as one JSON object One of `-`. |
 
 ## `conductor snapshot fail-snapshot`
@@ -256,7 +256,7 @@ Usage: conductor snapshot fail-snapshot [OPTIONS]
 |---|---|---|---|
 | `--snapshot-id <SNAPSHOT_ID>` | no | none | SnapshotId |
 | `--reason <REASON>` | no | none | string |
-| `--actor <ACTOR>` | no | none | Actor, one JSON object: who issues the command, `{"kind": "Human", "operator": "<name>"}`, `{"kind": "Agent", "agent": {"instance", "role", "name", "kind"}}` or `{"kind": "Daemon"}`; default: the calling session as an agent where `CONDUCTOR_SESSION` names one, else the operator |
+| `--actor <ACTOR>` | no | none | Actor, as the records print it (`human:<name>`, `agent:<instance>/<role>/<name>`, `daemon`) or one JSON object: who issues the command, `{"kind": "Human", "operator": "<name>"}`, `{"kind": "Agent", "agent": {"instance", "role", "name", "kind"}}` or `{"kind": "Daemon"}`; default: the calling session as an agent where `CONDUCTOR_SESSION` names one, else the operator |
 | `--input-json <INPUT_JSON>` | no | none | Read the input fields from standard input, as one JSON object One of `-`. |
 
 ## `conductor snapshot publish-board`
@@ -273,7 +273,7 @@ Usage: conductor snapshot publish-board [OPTIONS]
 | `--previous-snapshot-id <PREVIOUS_SNAPSHOT_ID>` | no | none | SnapshotId, optional |
 | `--deviation-rows <DEVIATION_ROWS>` | no | none | integer |
 | `--path <PATH>` | no | none | string |
-| `--actor <ACTOR>` | no | none | Actor, one JSON object: who issues the command, `{"kind": "Human", "operator": "<name>"}`, `{"kind": "Agent", "agent": {"instance", "role", "name", "kind"}}` or `{"kind": "Daemon"}`; default: the calling session as an agent where `CONDUCTOR_SESSION` names one, else the operator |
+| `--actor <ACTOR>` | no | none | Actor, as the records print it (`human:<name>`, `agent:<instance>/<role>/<name>`, `daemon`) or one JSON object: who issues the command, `{"kind": "Human", "operator": "<name>"}`, `{"kind": "Agent", "agent": {"instance", "role", "name", "kind"}}` or `{"kind": "Daemon"}`; default: the calling session as an agent where `CONDUCTOR_SESSION` names one, else the operator |
 | `--input-json <INPUT_JSON>` | no | none | Read the input fields from standard input, as one JSON object One of `-`. |
 
 ## `conductor snapshot record-blocker`
@@ -291,7 +291,7 @@ Usage: conductor snapshot record-blocker [OPTIONS]
 | `--reference <REFERENCE>` | no | none | string |
 | `--blocker-kind <BLOCKER_KIND>` | no | none | string |
 | `--title <TITLE>` | no | none | string |
-| `--actor <ACTOR>` | no | none | Actor, one JSON object: who issues the command, `{"kind": "Human", "operator": "<name>"}`, `{"kind": "Agent", "agent": {"instance", "role", "name", "kind"}}` or `{"kind": "Daemon"}`; default: the calling session as an agent where `CONDUCTOR_SESSION` names one, else the operator |
+| `--actor <ACTOR>` | no | none | Actor, as the records print it (`human:<name>`, `agent:<instance>/<role>/<name>`, `daemon`) or one JSON object: who issues the command, `{"kind": "Human", "operator": "<name>"}`, `{"kind": "Agent", "agent": {"instance", "role", "name", "kind"}}` or `{"kind": "Daemon"}`; default: the calling session as an agent where `CONDUCTOR_SESSION` names one, else the operator |
 | `--input-json <INPUT_JSON>` | no | none | Read the input fields from standard input, as one JSON object One of `-`. |
 
 ## `conductor snapshot record-collector-run`
@@ -311,7 +311,7 @@ Usage: conductor snapshot record-collector-run [OPTIONS]
 | `--outcome <OUTCOME>` | no | none | CollectorRunOutcome One of `Completed`, `Failed`, `OverBudget`. |
 | `--read-bytes <READ_BYTES>` | no | none | integer |
 | `--written-bytes <WRITTEN_BYTES>` | no | none | integer |
-| `--actor <ACTOR>` | no | none | Actor, one JSON object: who issues the command, `{"kind": "Human", "operator": "<name>"}`, `{"kind": "Agent", "agent": {"instance", "role", "name", "kind"}}` or `{"kind": "Daemon"}`; default: the calling session as an agent where `CONDUCTOR_SESSION` names one, else the operator |
+| `--actor <ACTOR>` | no | none | Actor, as the records print it (`human:<name>`, `agent:<instance>/<role>/<name>`, `daemon`) or one JSON object: who issues the command, `{"kind": "Human", "operator": "<name>"}`, `{"kind": "Agent", "agent": {"instance", "role", "name", "kind"}}` or `{"kind": "Daemon"}`; default: the calling session as an agent where `CONDUCTOR_SESSION` names one, else the operator |
 | `--input-json <INPUT_JSON>` | no | none | Read the input fields from standard input, as one JSON object One of `-`. |
 
 ## `conductor snapshot record-member-failure`
@@ -328,7 +328,7 @@ Usage: conductor snapshot record-member-failure [OPTIONS]
 | `--member <MEMBER>` | no | none | RepositoryName |
 | `--collector <COLLECTOR>` | no | none | string |
 | `--error-line <ERROR_LINE>` | no | none | string |
-| `--actor <ACTOR>` | no | none | Actor, one JSON object: who issues the command, `{"kind": "Human", "operator": "<name>"}`, `{"kind": "Agent", "agent": {"instance", "role", "name", "kind"}}` or `{"kind": "Daemon"}`; default: the calling session as an agent where `CONDUCTOR_SESSION` names one, else the operator |
+| `--actor <ACTOR>` | no | none | Actor, as the records print it (`human:<name>`, `agent:<instance>/<role>/<name>`, `daemon`) or one JSON object: who issues the command, `{"kind": "Human", "operator": "<name>"}`, `{"kind": "Agent", "agent": {"instance", "role", "name", "kind"}}` or `{"kind": "Daemon"}`; default: the calling session as an agent where `CONDUCTOR_SESSION` names one, else the operator |
 | `--input-json <INPUT_JSON>` | no | none | Read the input fields from standard input, as one JSON object One of `-`. |
 
 ## `conductor snapshot record-merged-pull-request`
@@ -347,7 +347,7 @@ Usage: conductor snapshot record-merged-pull-request [OPTIONS]
 | `--title <TITLE>` | no | none | string |
 | `--merged-at <MERGED_AT>` | no | none | timestamp, RFC 3339 |
 | `--url <URL>` | no | none | string |
-| `--actor <ACTOR>` | no | none | Actor, one JSON object: who issues the command, `{"kind": "Human", "operator": "<name>"}`, `{"kind": "Agent", "agent": {"instance", "role", "name", "kind"}}` or `{"kind": "Daemon"}`; default: the calling session as an agent where `CONDUCTOR_SESSION` names one, else the operator |
+| `--actor <ACTOR>` | no | none | Actor, as the records print it (`human:<name>`, `agent:<instance>/<role>/<name>`, `daemon`) or one JSON object: who issues the command, `{"kind": "Human", "operator": "<name>"}`, `{"kind": "Agent", "agent": {"instance", "role", "name", "kind"}}` or `{"kind": "Daemon"}`; default: the calling session as an agent where `CONDUCTOR_SESSION` names one, else the operator |
 | `--input-json <INPUT_JSON>` | no | none | Read the input fields from standard input, as one JSON object One of `-`. |
 
 ## `conductor snapshot record-pull-request`
@@ -371,7 +371,7 @@ Usage: conductor snapshot record-pull-request [OPTIONS]
 | `--opened-at <OPENED_AT>` | no | none | timestamp, RFC 3339 |
 | `--updated-at <UPDATED_AT>` | no | none | timestamp, RFC 3339 |
 | `--url <URL>` | no | none | string, optional |
-| `--actor <ACTOR>` | no | none | Actor, one JSON object: who issues the command, `{"kind": "Human", "operator": "<name>"}`, `{"kind": "Agent", "agent": {"instance", "role", "name", "kind"}}` or `{"kind": "Daemon"}`; default: the calling session as an agent where `CONDUCTOR_SESSION` names one, else the operator |
+| `--actor <ACTOR>` | no | none | Actor, as the records print it (`human:<name>`, `agent:<instance>/<role>/<name>`, `daemon`) or one JSON object: who issues the command, `{"kind": "Human", "operator": "<name>"}`, `{"kind": "Agent", "agent": {"instance", "role", "name", "kind"}}` or `{"kind": "Daemon"}`; default: the calling session as an agent where `CONDUCTOR_SESSION` names one, else the operator |
 | `--input-json <INPUT_JSON>` | no | none | Read the input fields from standard input, as one JSON object One of `-`. |
 
 ## `conductor snapshot record-release`
@@ -389,7 +389,7 @@ Usage: conductor snapshot record-release [OPTIONS]
 | `--tag <TAG>` | no | none | string |
 | `--published-at <PUBLISHED_AT>` | no | none | timestamp, RFC 3339 |
 | `--url <URL>` | no | none | string |
-| `--actor <ACTOR>` | no | none | Actor, one JSON object: who issues the command, `{"kind": "Human", "operator": "<name>"}`, `{"kind": "Agent", "agent": {"instance", "role", "name", "kind"}}` or `{"kind": "Daemon"}`; default: the calling session as an agent where `CONDUCTOR_SESSION` names one, else the operator |
+| `--actor <ACTOR>` | no | none | Actor, as the records print it (`human:<name>`, `agent:<instance>/<role>/<name>`, `daemon`) or one JSON object: who issues the command, `{"kind": "Human", "operator": "<name>"}`, `{"kind": "Agent", "agent": {"instance", "role", "name", "kind"}}` or `{"kind": "Daemon"}`; default: the calling session as an agent where `CONDUCTOR_SESSION` names one, else the operator |
 | `--input-json <INPUT_JSON>` | no | none | Read the input fields from standard input, as one JSON object One of `-`. |
 
 ## `conductor snapshot record-repository`
@@ -426,7 +426,7 @@ Usage: conductor snapshot record-repository [OPTIONS]
 | `--wave-width <WAVE_WIDTH>` | no | none | integer, optional |
 | `--wave-ready <WAVE_READY>` | no | none | integer, optional |
 | `--wave-reason <WAVE_REASON>` | no | none | string, optional |
-| `--actor <ACTOR>` | no | none | Actor, one JSON object: who issues the command, `{"kind": "Human", "operator": "<name>"}`, `{"kind": "Agent", "agent": {"instance", "role", "name", "kind"}}` or `{"kind": "Daemon"}`; default: the calling session as an agent where `CONDUCTOR_SESSION` names one, else the operator |
+| `--actor <ACTOR>` | no | none | Actor, as the records print it (`human:<name>`, `agent:<instance>/<role>/<name>`, `daemon`) or one JSON object: who issues the command, `{"kind": "Human", "operator": "<name>"}`, `{"kind": "Agent", "agent": {"instance", "role", "name", "kind"}}` or `{"kind": "Daemon"}`; default: the calling session as an agent where `CONDUCTOR_SESSION` names one, else the operator |
 | `--input-json <INPUT_JSON>` | no | none | Read the input fields from standard input, as one JSON object One of `-`. |
 
 ## `conductor snapshot record-secret-sync`
@@ -447,7 +447,7 @@ Usage: conductor snapshot record-secret-sync [OPTIONS]
 | `--source-committed-at <SOURCE_COMMITTED_AT>` | no | none | timestamp, RFC 3339, optional |
 | `--secrets-updated-at <SECRETS_UPDATED_AT>` | no | none | timestamp, RFC 3339, optional |
 | `--error-line <ERROR_LINE>` | no | none | string, optional |
-| `--actor <ACTOR>` | no | none | Actor, one JSON object: who issues the command, `{"kind": "Human", "operator": "<name>"}`, `{"kind": "Agent", "agent": {"instance", "role", "name", "kind"}}` or `{"kind": "Daemon"}`; default: the calling session as an agent where `CONDUCTOR_SESSION` names one, else the operator |
+| `--actor <ACTOR>` | no | none | Actor, as the records print it (`human:<name>`, `agent:<instance>/<role>/<name>`, `daemon`) or one JSON object: who issues the command, `{"kind": "Human", "operator": "<name>"}`, `{"kind": "Agent", "agent": {"instance", "role", "name", "kind"}}` or `{"kind": "Daemon"}`; default: the calling session as an agent where `CONDUCTOR_SESSION` names one, else the operator |
 | `--input-json <INPUT_JSON>` | no | none | Read the input fields from standard input, as one JSON object One of `-`. |
 
 ## `conductor snapshot record-session`
@@ -475,7 +475,7 @@ Usage: conductor snapshot record-session [OPTIONS]
 | `--envelope-tasks-max <ENVELOPE_TASKS_MAX>` | no | none | integer, optional |
 | `--envelope-writable <ENVELOPE_WRITABLE>` | no | none | string, optional |
 | `--envelope-unboxed <ENVELOPE_UNBOXED>` | no | none | string, optional |
-| `--actor <ACTOR>` | no | none | Actor, one JSON object: who issues the command, `{"kind": "Human", "operator": "<name>"}`, `{"kind": "Agent", "agent": {"instance", "role", "name", "kind"}}` or `{"kind": "Daemon"}`; default: the calling session as an agent where `CONDUCTOR_SESSION` names one, else the operator |
+| `--actor <ACTOR>` | no | none | Actor, as the records print it (`human:<name>`, `agent:<instance>/<role>/<name>`, `daemon`) or one JSON object: who issues the command, `{"kind": "Human", "operator": "<name>"}`, `{"kind": "Agent", "agent": {"instance", "role", "name", "kind"}}` or `{"kind": "Daemon"}`; default: the calling session as an agent where `CONDUCTOR_SESSION` names one, else the operator |
 | `--input-json <INPUT_JSON>` | no | none | Read the input fields from standard input, as one JSON object One of `-`. |
 
 ## `conductor snapshot record-specification`
@@ -499,7 +499,7 @@ Usage: conductor snapshot record-specification [OPTIONS]
 | `--scenarios <SCENARIOS>` | no | none | integer, optional |
 | `--synthesis-refusals <SYNTHESIS_REFUSALS>` | no | none | integer, optional |
 | `--conformance-status <CONFORMANCE_STATUS>` | no | none | string, optional |
-| `--actor <ACTOR>` | no | none | Actor, one JSON object: who issues the command, `{"kind": "Human", "operator": "<name>"}`, `{"kind": "Agent", "agent": {"instance", "role", "name", "kind"}}` or `{"kind": "Daemon"}`; default: the calling session as an agent where `CONDUCTOR_SESSION` names one, else the operator |
+| `--actor <ACTOR>` | no | none | Actor, as the records print it (`human:<name>`, `agent:<instance>/<role>/<name>`, `daemon`) or one JSON object: who issues the command, `{"kind": "Human", "operator": "<name>"}`, `{"kind": "Agent", "agent": {"instance", "role", "name", "kind"}}` or `{"kind": "Daemon"}`; default: the calling session as an agent where `CONDUCTOR_SESSION` names one, else the operator |
 | `--input-json <INPUT_JSON>` | no | none | Read the input fields from standard input, as one JSON object One of `-`. |
 
 ## `conductor snapshot record-usage`
@@ -520,7 +520,7 @@ Usage: conductor snapshot record-usage [OPTIONS]
 | `--window <WINDOW>` | no | none | string |
 | `--used-percent <USED_PERCENT>` | no | none | integer |
 | `--resets-at <RESETS_AT>` | no | none | timestamp, RFC 3339, optional |
-| `--actor <ACTOR>` | no | none | Actor, one JSON object: who issues the command, `{"kind": "Human", "operator": "<name>"}`, `{"kind": "Agent", "agent": {"instance", "role", "name", "kind"}}` or `{"kind": "Daemon"}`; default: the calling session as an agent where `CONDUCTOR_SESSION` names one, else the operator |
+| `--actor <ACTOR>` | no | none | Actor, as the records print it (`human:<name>`, `agent:<instance>/<role>/<name>`, `daemon`) or one JSON object: who issues the command, `{"kind": "Human", "operator": "<name>"}`, `{"kind": "Agent", "agent": {"instance", "role", "name", "kind"}}` or `{"kind": "Daemon"}`; default: the calling session as an agent where `CONDUCTOR_SESSION` names one, else the operator |
 | `--input-json <INPUT_JSON>` | no | none | Read the input fields from standard input, as one JSON object One of `-`. |
 
 ## `conductor snapshot record-workflow-run`
@@ -538,7 +538,7 @@ Usage: conductor snapshot record-workflow-run [OPTIONS]
 | `--workflow <WORKFLOW>` | no | none | string |
 | `--conclusion <CONCLUSION>` | no | none | RunConclusion One of `Success`, `Failure`, `Cancelled`, `Skipped`, `Neutral`, `Pending`. |
 | `--run-at <RUN_AT>` | no | none | timestamp, RFC 3339 |
-| `--actor <ACTOR>` | no | none | Actor, one JSON object: who issues the command, `{"kind": "Human", "operator": "<name>"}`, `{"kind": "Agent", "agent": {"instance", "role", "name", "kind"}}` or `{"kind": "Daemon"}`; default: the calling session as an agent where `CONDUCTOR_SESSION` names one, else the operator |
+| `--actor <ACTOR>` | no | none | Actor, as the records print it (`human:<name>`, `agent:<instance>/<role>/<name>`, `daemon`) or one JSON object: who issues the command, `{"kind": "Human", "operator": "<name>"}`, `{"kind": "Agent", "agent": {"instance", "role", "name", "kind"}}` or `{"kind": "Daemon"}`; default: the calling session as an agent where `CONDUCTOR_SESSION` names one, else the operator |
 | `--input-json <INPUT_JSON>` | no | none | Read the input fields from standard input, as one JSON object One of `-`. |
 
 ## `conductor snapshot start-snapshot`
@@ -554,7 +554,7 @@ Usage: conductor snapshot start-snapshot [OPTIONS]
 | `--started-at <STARTED_AT>` | no | none | timestamp, RFC 3339 |
 | `--disk-free-bytes <DISK_FREE_BYTES>` | no | none | integer |
 | `--budget <BUDGET>` | no | none | integer, optional |
-| `--actor <ACTOR>` | no | none | Actor, one JSON object: who issues the command, `{"kind": "Human", "operator": "<name>"}`, `{"kind": "Agent", "agent": {"instance", "role", "name", "kind"}}` or `{"kind": "Daemon"}`; default: the calling session as an agent where `CONDUCTOR_SESSION` names one, else the operator |
+| `--actor <ACTOR>` | no | none | Actor, as the records print it (`human:<name>`, `agent:<instance>/<role>/<name>`, `daemon`) or one JSON object: who issues the command, `{"kind": "Human", "operator": "<name>"}`, `{"kind": "Agent", "agent": {"instance", "role", "name", "kind"}}` or `{"kind": "Daemon"}`; default: the calling session as an agent where `CONDUCTOR_SESSION` names one, else the operator |
 | `--input-json <INPUT_JSON>` | no | none | Read the input fields from standard input, as one JSON object One of `-`. |
 
 ## `conductor snapshot blockers`
@@ -745,7 +745,7 @@ Usage: conductor goal add-serving [OPTIONS]
 |---|---|---|---|
 | `--goal-id <GOAL_ID>` | no | none | GoalId |
 | `--repository <REPOSITORY>` | no | none | RepositoryName |
-| `--actor <ACTOR>` | no | none | Actor, one JSON object: who issues the command, `{"kind": "Human", "operator": "<name>"}`, `{"kind": "Agent", "agent": {"instance", "role", "name", "kind"}}` or `{"kind": "Daemon"}`; default: the calling session as an agent where `CONDUCTOR_SESSION` names one, else the operator |
+| `--actor <ACTOR>` | no | none | Actor, as the records print it (`human:<name>`, `agent:<instance>/<role>/<name>`, `daemon`) or one JSON object: who issues the command, `{"kind": "Human", "operator": "<name>"}`, `{"kind": "Agent", "agent": {"instance", "role", "name", "kind"}}` or `{"kind": "Daemon"}`; default: the calling session as an agent where `CONDUCTOR_SESSION` names one, else the operator |
 | `--input-json <INPUT_JSON>` | no | none | Read the input fields from standard input, as one JSON object One of `-`. |
 
 ## `conductor goal confirm-goal`
@@ -759,7 +759,7 @@ Usage: conductor goal confirm-goal [OPTIONS]
 | Argument | Required | Default | Meaning |
 |---|---|---|---|
 | `--goal-id <GOAL_ID>` | no | none | GoalId |
-| `--actor <ACTOR>` | no | none | Actor, one JSON object: who issues the command, `{"kind": "Human", "operator": "<name>"}`, `{"kind": "Agent", "agent": {"instance", "role", "name", "kind"}}` or `{"kind": "Daemon"}`; default: the calling session as an agent where `CONDUCTOR_SESSION` names one, else the operator |
+| `--actor <ACTOR>` | no | none | Actor, as the records print it (`human:<name>`, `agent:<instance>/<role>/<name>`, `daemon`) or one JSON object: who issues the command, `{"kind": "Human", "operator": "<name>"}`, `{"kind": "Agent", "agent": {"instance", "role", "name", "kind"}}` or `{"kind": "Daemon"}`; default: the calling session as an agent where `CONDUCTOR_SESSION` names one, else the operator |
 | `--input-json <INPUT_JSON>` | no | none | Read the input fields from standard input, as one JSON object One of `-`. |
 
 ## `conductor goal drop-goal`
@@ -774,7 +774,7 @@ Usage: conductor goal drop-goal [OPTIONS]
 |---|---|---|---|
 | `--goal-id <GOAL_ID>` | no | none | GoalId |
 | `--reason <REASON>` | no | none | string |
-| `--actor <ACTOR>` | no | none | Actor, one JSON object: who issues the command, `{"kind": "Human", "operator": "<name>"}`, `{"kind": "Agent", "agent": {"instance", "role", "name", "kind"}}` or `{"kind": "Daemon"}`; default: the calling session as an agent where `CONDUCTOR_SESSION` names one, else the operator |
+| `--actor <ACTOR>` | no | none | Actor, as the records print it (`human:<name>`, `agent:<instance>/<role>/<name>`, `daemon`) or one JSON object: who issues the command, `{"kind": "Human", "operator": "<name>"}`, `{"kind": "Agent", "agent": {"instance", "role", "name", "kind"}}` or `{"kind": "Daemon"}`; default: the calling session as an agent where `CONDUCTOR_SESSION` names one, else the operator |
 | `--input-json <INPUT_JSON>` | no | none | Read the input fields from standard input, as one JSON object One of `-`. |
 
 ## `conductor goal mark-goal-met`
@@ -789,7 +789,7 @@ Usage: conductor goal mark-goal-met [OPTIONS]
 |---|---|---|---|
 | `--goal-id <GOAL_ID>` | no | none | GoalId |
 | `--evidence <EVIDENCE>` | no | none | string |
-| `--actor <ACTOR>` | no | none | Actor, one JSON object: who issues the command, `{"kind": "Human", "operator": "<name>"}`, `{"kind": "Agent", "agent": {"instance", "role", "name", "kind"}}` or `{"kind": "Daemon"}`; default: the calling session as an agent where `CONDUCTOR_SESSION` names one, else the operator |
+| `--actor <ACTOR>` | no | none | Actor, as the records print it (`human:<name>`, `agent:<instance>/<role>/<name>`, `daemon`) or one JSON object: who issues the command, `{"kind": "Human", "operator": "<name>"}`, `{"kind": "Agent", "agent": {"instance", "role", "name", "kind"}}` or `{"kind": "Daemon"}`; default: the calling session as an agent where `CONDUCTOR_SESSION` names one, else the operator |
 | `--input-json <INPUT_JSON>` | no | none | Read the input fields from standard input, as one JSON object One of `-`. |
 
 ## `conductor goal propose-goal`
@@ -805,7 +805,7 @@ Usage: conductor goal propose-goal [OPTIONS]
 | `--goal-id <GOAL_ID>` | no | none | GoalId |
 | `--title <TITLE>` | no | none | string |
 | `--exit-evidence <EXIT_EVIDENCE>` | no | none | string |
-| `--actor <ACTOR>` | no | none | Actor, one JSON object: who issues the command, `{"kind": "Human", "operator": "<name>"}`, `{"kind": "Agent", "agent": {"instance", "role", "name", "kind"}}` or `{"kind": "Daemon"}`; default: the calling session as an agent where `CONDUCTOR_SESSION` names one, else the operator |
+| `--actor <ACTOR>` | no | none | Actor, as the records print it (`human:<name>`, `agent:<instance>/<role>/<name>`, `daemon`) or one JSON object: who issues the command, `{"kind": "Human", "operator": "<name>"}`, `{"kind": "Agent", "agent": {"instance", "role", "name", "kind"}}` or `{"kind": "Daemon"}`; default: the calling session as an agent where `CONDUCTOR_SESSION` names one, else the operator |
 | `--input-json <INPUT_JSON>` | no | none | Read the input fields from standard input, as one JSON object One of `-`. |
 
 ## `conductor goal remove-serving`
@@ -820,7 +820,7 @@ Usage: conductor goal remove-serving [OPTIONS]
 |---|---|---|---|
 | `--serving-id <SERVING_ID>` | no | none | ServingId |
 | `--reason <REASON>` | no | none | string |
-| `--actor <ACTOR>` | no | none | Actor, one JSON object: who issues the command, `{"kind": "Human", "operator": "<name>"}`, `{"kind": "Agent", "agent": {"instance", "role", "name", "kind"}}` or `{"kind": "Daemon"}`; default: the calling session as an agent where `CONDUCTOR_SESSION` names one, else the operator |
+| `--actor <ACTOR>` | no | none | Actor, as the records print it (`human:<name>`, `agent:<instance>/<role>/<name>`, `daemon`) or one JSON object: who issues the command, `{"kind": "Human", "operator": "<name>"}`, `{"kind": "Agent", "agent": {"instance", "role", "name", "kind"}}` or `{"kind": "Daemon"}`; default: the calling session as an agent where `CONDUCTOR_SESSION` names one, else the operator |
 | `--input-json <INPUT_JSON>` | no | none | Read the input fields from standard input, as one JSON object One of `-`. |
 
 ## `conductor goal servings`
@@ -869,7 +869,7 @@ Usage: conductor repository activate-repository [OPTIONS]
 | `--marked-by <MARKED_BY>` | no | none | MarkedBy One of `Conductor`, `Operator`, `Controller`. |
 | `--session <SESSION>` | no | none | string |
 | `--reason <REASON>` | no | none | string |
-| `--actor <ACTOR>` | no | none | Actor, one JSON object: who issues the command, `{"kind": "Human", "operator": "<name>"}`, `{"kind": "Agent", "agent": {"instance", "role", "name", "kind"}}` or `{"kind": "Daemon"}`; default: the calling session as an agent where `CONDUCTOR_SESSION` names one, else the operator |
+| `--actor <ACTOR>` | no | none | Actor, as the records print it (`human:<name>`, `agent:<instance>/<role>/<name>`, `daemon`) or one JSON object: who issues the command, `{"kind": "Human", "operator": "<name>"}`, `{"kind": "Agent", "agent": {"instance", "role", "name", "kind"}}` or `{"kind": "Daemon"}`; default: the calling session as an agent where `CONDUCTOR_SESSION` names one, else the operator |
 | `--input-json <INPUT_JSON>` | no | none | Read the input fields from standard input, as one JSON object One of `-`. |
 
 ## `conductor repository deactivate-repository`
@@ -886,7 +886,7 @@ Usage: conductor repository deactivate-repository [OPTIONS]
 | `--marked-by <MARKED_BY>` | no | none | MarkedBy One of `Conductor`, `Operator`, `Controller`. |
 | `--session <SESSION>` | no | none | string |
 | `--reason <REASON>` | no | none | string |
-| `--actor <ACTOR>` | no | none | Actor, one JSON object: who issues the command, `{"kind": "Human", "operator": "<name>"}`, `{"kind": "Agent", "agent": {"instance", "role", "name", "kind"}}` or `{"kind": "Daemon"}`; default: the calling session as an agent where `CONDUCTOR_SESSION` names one, else the operator |
+| `--actor <ACTOR>` | no | none | Actor, as the records print it (`human:<name>`, `agent:<instance>/<role>/<name>`, `daemon`) or one JSON object: who issues the command, `{"kind": "Human", "operator": "<name>"}`, `{"kind": "Agent", "agent": {"instance", "role", "name", "kind"}}` or `{"kind": "Daemon"}`; default: the calling session as an agent where `CONDUCTOR_SESSION` names one, else the operator |
 | `--input-json <INPUT_JSON>` | no | none | Read the input fields from standard input, as one JSON object One of `-`. |
 
 ## `conductor repository mark-repository`
@@ -904,7 +904,7 @@ Usage: conductor repository mark-repository [OPTIONS]
 | `--marked-by <MARKED_BY>` | no | none | MarkedBy One of `Conductor`, `Operator`, `Controller`. |
 | `--session <SESSION>` | no | none | string |
 | `--reason <REASON>` | no | none | string |
-| `--actor <ACTOR>` | no | none | Actor, one JSON object: who issues the command, `{"kind": "Human", "operator": "<name>"}`, `{"kind": "Agent", "agent": {"instance", "role", "name", "kind"}}` or `{"kind": "Daemon"}`; default: the calling session as an agent where `CONDUCTOR_SESSION` names one, else the operator |
+| `--actor <ACTOR>` | no | none | Actor, as the records print it (`human:<name>`, `agent:<instance>/<role>/<name>`, `daemon`) or one JSON object: who issues the command, `{"kind": "Human", "operator": "<name>"}`, `{"kind": "Agent", "agent": {"instance", "role", "name", "kind"}}` or `{"kind": "Daemon"}`; default: the calling session as an agent where `CONDUCTOR_SESSION` names one, else the operator |
 | `--input-json <INPUT_JSON>` | no | none | Read the input fields from standard input, as one JSON object One of `-`. |
 
 ## `conductor repository repository-marks`
@@ -983,7 +983,7 @@ Usage: conductor decision amend-escalated-request [OPTIONS]
 | `--default-letters <LETTERS>` | no | none | The letter that stands when the operator has not answered by the deadline, or several joined by `,` for `several-of` |
 | `--deadline <DEADLINE>` | no | none | timestamp, RFC 3339: when the default stands |
 | `--dry-run <TEXT>` | no | none | The dry run of a class-H item, as text (not a file, unlike `escalate-request`) |
-| `--actor <ACTOR>` | no | none | Actor, one JSON object: who issues the command, `{"kind": "Human", "operator": "<name>"}`, `{"kind": "Agent", "agent": {"instance", "role", "name", "kind"}}` or `{"kind": "Daemon"}`; default: the calling session as an agent where `CONDUCTOR_SESSION` names one, else the operator |
+| `--actor <ACTOR>` | no | none | Actor, as the records print it (`human:<name>`, `agent:<instance>/<role>/<name>`, `daemon`) or one JSON object: who issues the command, `{"kind": "Human", "operator": "<name>"}`, `{"kind": "Agent", "agent": {"instance", "role", "name", "kind"}}` or `{"kind": "Daemon"}`; default: the calling session as an agent where `CONDUCTOR_SESSION` names one, else the operator |
 | `--input-json <INPUT_JSON>` | no | none | Read the input fields from standard input, as one JSON object One of `-`. |
 
 ## `conductor decision answer-escalated-request`
@@ -998,7 +998,7 @@ Usage: conductor decision answer-escalated-request [OPTIONS]
 |---|---|---|---|
 | `--request-id <REQUEST_ID>` | no | none | RequestId |
 | `--decision-id <DECISION_ID>` | no | none | DecisionId, starting with `DEC-` |
-| `--actor <ACTOR>` | no | none | Actor, one JSON object: who issues the command, `{"kind": "Human", "operator": "<name>"}`, `{"kind": "Agent", "agent": {"instance", "role", "name", "kind"}}` or `{"kind": "Daemon"}`; default: the calling session as an agent where `CONDUCTOR_SESSION` names one, else the operator |
+| `--actor <ACTOR>` | no | none | Actor, as the records print it (`human:<name>`, `agent:<instance>/<role>/<name>`, `daemon`) or one JSON object: who issues the command, `{"kind": "Human", "operator": "<name>"}`, `{"kind": "Agent", "agent": {"instance", "role", "name", "kind"}}` or `{"kind": "Daemon"}`; default: the calling session as an agent where `CONDUCTOR_SESSION` names one, else the operator |
 | `--input-json <INPUT_JSON>` | no | none | Read the input fields from standard input, as one JSON object One of `-`. |
 
 ## `conductor decision answer-request`
@@ -1013,7 +1013,7 @@ Usage: conductor decision answer-request [OPTIONS]
 |---|---|---|---|
 | `--request-id <REQUEST_ID>` | no | none | RequestId |
 | `--decision-id <DECISION_ID>` | no | none | DecisionId, starting with `DEC-` |
-| `--actor <ACTOR>` | no | none | Actor, one JSON object: who issues the command, `{"kind": "Human", "operator": "<name>"}`, `{"kind": "Agent", "agent": {"instance", "role", "name", "kind"}}` or `{"kind": "Daemon"}`; default: the calling session as an agent where `CONDUCTOR_SESSION` names one, else the operator |
+| `--actor <ACTOR>` | no | none | Actor, as the records print it (`human:<name>`, `agent:<instance>/<role>/<name>`, `daemon`) or one JSON object: who issues the command, `{"kind": "Human", "operator": "<name>"}`, `{"kind": "Agent", "agent": {"instance", "role", "name", "kind"}}` or `{"kind": "Daemon"}`; default: the calling session as an agent where `CONDUCTOR_SESSION` names one, else the operator |
 | `--input-json <INPUT_JSON>` | no | none | Read the input fields from standard input, as one JSON object One of `-`. |
 
 ## `conductor decision escalate-request`
@@ -1036,7 +1036,7 @@ Usage: conductor decision escalate-request [OPTIONS]
 | `--recommended-letters <LETTERS>` | no | none | The letter conductor recommends, or several joined by `,` for `several-of`. Required for class O |
 | `--default-letters <LETTERS>` | no | none | The letter that stands when the operator has not answered by the deadline, or several joined by `,` for `several-of`. Required for class O |
 | `--deadline <DEADLINE>` | no | none | timestamp, RFC 3339: when the default stands. Required for class O |
-| `--actor <ACTOR>` | no | none | Actor, one JSON object: who issues the command, `{"kind": "Human", "operator": "<name>"}`, `{"kind": "Agent", "agent": {"instance", "role", "name", "kind"}}` or `{"kind": "Daemon"}`; default: the calling session as an agent where `CONDUCTOR_SESSION` names one, else the operator |
+| `--actor <ACTOR>` | no | none | Actor, as the records print it (`human:<name>`, `agent:<instance>/<role>/<name>`, `daemon`) or one JSON object: who issues the command, `{"kind": "Human", "operator": "<name>"}`, `{"kind": "Agent", "agent": {"instance", "role", "name", "kind"}}` or `{"kind": "Daemon"}`; default: the calling session as an agent where `CONDUCTOR_SESSION` names one, else the operator |
 | `--input-json <INPUT_JSON>` | no | none | Read the input fields from standard input, as one JSON object One of `-`. |
 
 ## `conductor decision raise-decision-request`
@@ -1057,7 +1057,7 @@ Usage: conductor decision raise-decision-request [OPTIONS]
 | `--raised-at <RAISED_AT>` | no | none | timestamp, RFC 3339 |
 | `--blocker <BLOCKER>` | no | none | string, optional |
 | `--classification-rule <CLASSIFICATION_RULE>` | no | none | ClassificationRule, optional: the rule that classified the request in code One of `data-loss`, `history-rewrite`, `repository-lifecycle`, `architecture`, `credential`, `hands`, `none`. |
-| `--actor <ACTOR>` | no | none | Actor, one JSON object: who issues the command, `{"kind": "Human", "operator": "<name>"}`, `{"kind": "Agent", "agent": {"instance", "role", "name", "kind"}}` or `{"kind": "Daemon"}`; default: the calling session as an agent where `CONDUCTOR_SESSION` names one, else the operator |
+| `--actor <ACTOR>` | no | none | Actor, as the records print it (`human:<name>`, `agent:<instance>/<role>/<name>`, `daemon`) or one JSON object: who issues the command, `{"kind": "Human", "operator": "<name>"}`, `{"kind": "Agent", "agent": {"instance", "role", "name", "kind"}}` or `{"kind": "Daemon"}`; default: the calling session as an agent where `CONDUCTOR_SESSION` names one, else the operator |
 | `--input-json <INPUT_JSON>` | no | none | Read the input fields from standard input, as one JSON object One of `-`. |
 
 ## `conductor decision record-conductor-decision`
@@ -1081,7 +1081,7 @@ Usage: conductor decision record-conductor-decision [OPTIONS]
 | `--repository <REPOSITORY>` | no | none | RepositoryName |
 | `--decider-name <DECIDER_NAME>` | no | none | string, optional: the `Decider` adapter that answered |
 | `--prompt-sha256 <PROMPT_SHA256>` | no | none | PromptHash, optional: the SHA-256 of the adapter's prompt, 64 lower-case hexadecimal characters |
-| `--actor <ACTOR>` | no | none | Actor, one JSON object: who issues the command, `{"kind": "Human", "operator": "<name>"}`, `{"kind": "Agent", "agent": {"instance", "role", "name", "kind"}}` or `{"kind": "Daemon"}`; default: the calling session as an agent where `CONDUCTOR_SESSION` names one, else the operator |
+| `--actor <ACTOR>` | no | none | Actor, as the records print it (`human:<name>`, `agent:<instance>/<role>/<name>`, `daemon`) or one JSON object: who issues the command, `{"kind": "Human", "operator": "<name>"}`, `{"kind": "Agent", "agent": {"instance", "role", "name", "kind"}}` or `{"kind": "Daemon"}`; default: the calling session as an agent where `CONDUCTOR_SESSION` names one, else the operator |
 | `--input-json <INPUT_JSON>` | no | none | Read the input fields from standard input, as one JSON object One of `-`. |
 
 ## `conductor decision record-operator-decision`
@@ -1105,7 +1105,7 @@ Usage: conductor decision record-operator-decision [OPTIONS]
 | `--recorded-by <RECORDED_BY>` | no | none | string |
 | `--operator-words <OPERATOR_WORDS>` | no | none | string |
 | `--repository <REPOSITORY>` | no | none | RepositoryName |
-| `--actor <ACTOR>` | no | none | Actor, one JSON object: who issues the command, `{"kind": "Human", "operator": "<name>"}`, `{"kind": "Agent", "agent": {"instance", "role", "name", "kind"}}` or `{"kind": "Daemon"}`; default: the calling session as an agent where `CONDUCTOR_SESSION` names one, else the operator |
+| `--actor <ACTOR>` | no | none | Actor, as the records print it (`human:<name>`, `agent:<instance>/<role>/<name>`, `daemon`) or one JSON object: who issues the command, `{"kind": "Human", "operator": "<name>"}`, `{"kind": "Agent", "agent": {"instance", "role", "name", "kind"}}` or `{"kind": "Daemon"}`; default: the calling session as an agent where `CONDUCTOR_SESSION` names one, else the operator |
 | `--input-json <INPUT_JSON>` | no | none | Read the input fields from standard input, as one JSON object One of `-`. |
 
 ## `conductor decision answer-escalated-as-operator`
@@ -1130,7 +1130,7 @@ Usage: conductor decision answer-escalated-as-operator [OPTIONS]
 | `--recorded-by <RECORDED_BY>` | no | none | string |
 | `--operator-words <OPERATOR_WORDS>` | no | none | string |
 | `--repository <REPOSITORY>` | no | none | RepositoryName |
-| `--actor <ACTOR>` | no | none | Actor, one JSON object: who issues the command, `{"kind": "Human", "operator": "<name>"}`, `{"kind": "Agent", "agent": {"instance", "role", "name", "kind"}}` or `{"kind": "Daemon"}`; default: the calling session as an agent where `CONDUCTOR_SESSION` names one, else the operator |
+| `--actor <ACTOR>` | no | none | Actor, as the records print it (`human:<name>`, `agent:<instance>/<role>/<name>`, `daemon`) or one JSON object: who issues the command, `{"kind": "Human", "operator": "<name>"}`, `{"kind": "Agent", "agent": {"instance", "role", "name", "kind"}}` or `{"kind": "Daemon"}`; default: the calling session as an agent where `CONDUCTOR_SESSION` names one, else the operator |
 | `--input-json <INPUT_JSON>` | no | none | Read the input fields from standard input, as one JSON object One of `-`. |
 
 ## `conductor decision reverse-conductor-decision`
@@ -1145,7 +1145,7 @@ Usage: conductor decision reverse-conductor-decision [OPTIONS]
 |---|---|---|---|
 | `--decision-id <DECISION_ID>` | no | none | DecisionId, starting with `DEC-` |
 | `--reason <REASON>` | no | none | string |
-| `--actor <ACTOR>` | no | none | Actor, one JSON object: who issues the command, `{"kind": "Human", "operator": "<name>"}`, `{"kind": "Agent", "agent": {"instance", "role", "name", "kind"}}` or `{"kind": "Daemon"}`; default: the calling session as an agent where `CONDUCTOR_SESSION` names one, else the operator |
+| `--actor <ACTOR>` | no | none | Actor, as the records print it (`human:<name>`, `agent:<instance>/<role>/<name>`, `daemon`) or one JSON object: who issues the command, `{"kind": "Human", "operator": "<name>"}`, `{"kind": "Agent", "agent": {"instance", "role", "name", "kind"}}` or `{"kind": "Daemon"}`; default: the calling session as an agent where `CONDUCTOR_SESSION` names one, else the operator |
 | `--input-json <INPUT_JSON>` | no | none | Read the input fields from standard input, as one JSON object One of `-`. |
 
 ## `conductor decision reverse-operator-decision`
@@ -1160,7 +1160,7 @@ Usage: conductor decision reverse-operator-decision [OPTIONS]
 |---|---|---|---|
 | `--decision-id <DECISION_ID>` | no | none | DecisionId, starting with `DEC-` |
 | `--reason <REASON>` | no | none | string |
-| `--actor <ACTOR>` | no | none | Actor, one JSON object: who issues the command, `{"kind": "Human", "operator": "<name>"}`, `{"kind": "Agent", "agent": {"instance", "role", "name", "kind"}}` or `{"kind": "Daemon"}`; default: the calling session as an agent where `CONDUCTOR_SESSION` names one, else the operator |
+| `--actor <ACTOR>` | no | none | Actor, as the records print it (`human:<name>`, `agent:<instance>/<role>/<name>`, `daemon`) or one JSON object: who issues the command, `{"kind": "Human", "operator": "<name>"}`, `{"kind": "Agent", "agent": {"instance", "role", "name", "kind"}}` or `{"kind": "Daemon"}`; default: the calling session as an agent where `CONDUCTOR_SESSION` names one, else the operator |
 | `--input-json <INPUT_JSON>` | no | none | Read the input fields from standard input, as one JSON object One of `-`. |
 
 ## `conductor decision withdraw-request`
@@ -1175,7 +1175,7 @@ Usage: conductor decision withdraw-request [OPTIONS]
 |---|---|---|---|
 | `--request-id <REQUEST_ID>` | no | none | RequestId |
 | `--reason <REASON>` | no | none | string |
-| `--actor <ACTOR>` | no | none | Actor, one JSON object: who issues the command, `{"kind": "Human", "operator": "<name>"}`, `{"kind": "Agent", "agent": {"instance", "role", "name", "kind"}}` or `{"kind": "Daemon"}`; default: the calling session as an agent where `CONDUCTOR_SESSION` names one, else the operator |
+| `--actor <ACTOR>` | no | none | Actor, as the records print it (`human:<name>`, `agent:<instance>/<role>/<name>`, `daemon`) or one JSON object: who issues the command, `{"kind": "Human", "operator": "<name>"}`, `{"kind": "Agent", "agent": {"instance", "role", "name", "kind"}}` or `{"kind": "Daemon"}`; default: the calling session as an agent where `CONDUCTOR_SESSION` names one, else the operator |
 | `--input-json <INPUT_JSON>` | no | none | Read the input fields from standard input, as one JSON object One of `-`. |
 
 ## `conductor decision decisions`
@@ -1259,7 +1259,7 @@ Usage: conductor controller pause-controller [OPTIONS]
 | Argument | Required | Default | Meaning |
 |---|---|---|---|
 | `--controller-id <CONTROLLER_ID>` | no | none | ControllerId |
-| `--actor <ACTOR>` | no | none | Actor, one JSON object: who issues the command, `{"kind": "Human", "operator": "<name>"}`, `{"kind": "Agent", "agent": {"instance", "role", "name", "kind"}}` or `{"kind": "Daemon"}`; default: the calling session as an agent where `CONDUCTOR_SESSION` names one, else the operator |
+| `--actor <ACTOR>` | no | none | Actor, as the records print it (`human:<name>`, `agent:<instance>/<role>/<name>`, `daemon`) or one JSON object: who issues the command, `{"kind": "Human", "operator": "<name>"}`, `{"kind": "Agent", "agent": {"instance", "role", "name", "kind"}}` or `{"kind": "Daemon"}`; default: the calling session as an agent where `CONDUCTOR_SESSION` names one, else the operator |
 | `--input-json <INPUT_JSON>` | no | none | Read the input fields from standard input, as one JSON object One of `-`. |
 
 ## `conductor controller resume-controller`
@@ -1273,7 +1273,7 @@ Usage: conductor controller resume-controller [OPTIONS]
 | Argument | Required | Default | Meaning |
 |---|---|---|---|
 | `--controller-id <CONTROLLER_ID>` | no | none | ControllerId |
-| `--actor <ACTOR>` | no | none | Actor, one JSON object: who issues the command, `{"kind": "Human", "operator": "<name>"}`, `{"kind": "Agent", "agent": {"instance", "role", "name", "kind"}}` or `{"kind": "Daemon"}`; default: the calling session as an agent where `CONDUCTOR_SESSION` names one, else the operator |
+| `--actor <ACTOR>` | no | none | Actor, as the records print it (`human:<name>`, `agent:<instance>/<role>/<name>`, `daemon`) or one JSON object: who issues the command, `{"kind": "Human", "operator": "<name>"}`, `{"kind": "Agent", "agent": {"instance", "role", "name", "kind"}}` or `{"kind": "Daemon"}`; default: the calling session as an agent where `CONDUCTOR_SESSION` names one, else the operator |
 | `--input-json <INPUT_JSON>` | no | none | Read the input fields from standard input, as one JSON object One of `-`. |
 
 ## `conductor controller revise-charter`
@@ -1287,7 +1287,7 @@ Usage: conductor controller revise-charter [OPTIONS]
 | Argument | Required | Default | Meaning |
 |---|---|---|---|
 | `--controller-id <CONTROLLER_ID>` | no | none | ControllerId |
-| `--actor <ACTOR>` | no | none | Actor, one JSON object: who issues the command, `{"kind": "Human", "operator": "<name>"}`, `{"kind": "Agent", "agent": {"instance", "role", "name", "kind"}}` or `{"kind": "Daemon"}`; default: the calling session as an agent where `CONDUCTOR_SESSION` names one, else the operator |
+| `--actor <ACTOR>` | no | none | Actor, as the records print it (`human:<name>`, `agent:<instance>/<role>/<name>`, `daemon`) or one JSON object: who issues the command, `{"kind": "Human", "operator": "<name>"}`, `{"kind": "Agent", "agent": {"instance", "role", "name", "kind"}}` or `{"kind": "Daemon"}`; default: the calling session as an agent where `CONDUCTOR_SESSION` names one, else the operator |
 | `--input-json <INPUT_JSON>` | no | none | Read the input fields from standard input, as one JSON object One of `-`. |
 
 ## `conductor controller start-controller`
@@ -1303,7 +1303,7 @@ Usage: conductor controller start-controller [OPTIONS]
 | `--repository <REPOSITORY>` | no | none | RepositoryName |
 | `--harness <HARNESS>` | no | none | Harness One of `Claude`, `Codex`. |
 | `--session-name <SESSION_NAME>` | no | none | SessionName |
-| `--actor <ACTOR>` | no | none | Actor, one JSON object: who issues the command, `{"kind": "Human", "operator": "<name>"}`, `{"kind": "Agent", "agent": {"instance", "role", "name", "kind"}}` or `{"kind": "Daemon"}`; default: the calling session as an agent where `CONDUCTOR_SESSION` names one, else the operator |
+| `--actor <ACTOR>` | no | none | Actor, as the records print it (`human:<name>`, `agent:<instance>/<role>/<name>`, `daemon`) or one JSON object: who issues the command, `{"kind": "Human", "operator": "<name>"}`, `{"kind": "Agent", "agent": {"instance", "role", "name", "kind"}}` or `{"kind": "Daemon"}`; default: the calling session as an agent where `CONDUCTOR_SESSION` names one, else the operator |
 | `--input-json <INPUT_JSON>` | no | none | Read the input fields from standard input, as one JSON object One of `-`. |
 
 ## `conductor controller stop-controller`
@@ -1318,7 +1318,7 @@ Usage: conductor controller stop-controller [OPTIONS]
 |---|---|---|---|
 | `--controller-id <CONTROLLER_ID>` | no | none | ControllerId |
 | `--reason <REASON>` | no | none | string |
-| `--actor <ACTOR>` | no | none | Actor, one JSON object: who issues the command, `{"kind": "Human", "operator": "<name>"}`, `{"kind": "Agent", "agent": {"instance", "role", "name", "kind"}}` or `{"kind": "Daemon"}`; default: the calling session as an agent where `CONDUCTOR_SESSION` names one, else the operator |
+| `--actor <ACTOR>` | no | none | Actor, as the records print it (`human:<name>`, `agent:<instance>/<role>/<name>`, `daemon`) or one JSON object: who issues the command, `{"kind": "Human", "operator": "<name>"}`, `{"kind": "Agent", "agent": {"instance", "role", "name", "kind"}}` or `{"kind": "Daemon"}`; default: the calling session as an agent where `CONDUCTOR_SESSION` names one, else the operator |
 | `--input-json <INPUT_JSON>` | no | none | Read the input fields from standard input, as one JSON object One of `-`. |
 
 ## `conductor controller all-controllers`
@@ -1366,7 +1366,7 @@ Usage: conductor dispatch cancel-dispatch [OPTIONS]
 |---|---|---|---|
 | `--dispatch-id <DISPATCH_ID>` | no | none | DispatchId, starting with `DSP-` |
 | `--reason <REASON>` | no | none | string |
-| `--actor <ACTOR>` | no | none | Actor, one JSON object: who issues the command, `{"kind": "Human", "operator": "<name>"}`, `{"kind": "Agent", "agent": {"instance", "role", "name", "kind"}}` or `{"kind": "Daemon"}`; default: the calling session as an agent where `CONDUCTOR_SESSION` names one, else the operator |
+| `--actor <ACTOR>` | no | none | Actor, as the records print it (`human:<name>`, `agent:<instance>/<role>/<name>`, `daemon`) or one JSON object: who issues the command, `{"kind": "Human", "operator": "<name>"}`, `{"kind": "Agent", "agent": {"instance", "role", "name", "kind"}}` or `{"kind": "Daemon"}`; default: the calling session as an agent where `CONDUCTOR_SESSION` names one, else the operator |
 | `--input-json <INPUT_JSON>` | no | none | Read the input fields from standard input, as one JSON object One of `-`. |
 
 ## `conductor dispatch record-link`
@@ -1381,7 +1381,7 @@ Usage: conductor dispatch record-link [OPTIONS]
 |---|---|---|---|
 | `--dispatch-id <DISPATCH_ID>` | no | none | DispatchId, starting with `DSP-` |
 | `--link <LINK>` | no | none | string |
-| `--actor <ACTOR>` | no | none | Actor, one JSON object: who issues the command, `{"kind": "Human", "operator": "<name>"}`, `{"kind": "Agent", "agent": {"instance", "role", "name", "kind"}}` or `{"kind": "Daemon"}`; default: the calling session as an agent where `CONDUCTOR_SESSION` names one, else the operator |
+| `--actor <ACTOR>` | no | none | Actor, as the records print it (`human:<name>`, `agent:<instance>/<role>/<name>`, `daemon`) or one JSON object: who issues the command, `{"kind": "Human", "operator": "<name>"}`, `{"kind": "Agent", "agent": {"instance", "role", "name", "kind"}}` or `{"kind": "Daemon"}`; default: the calling session as an agent where `CONDUCTOR_SESSION` names one, else the operator |
 | `--input-json <INPUT_JSON>` | no | none | Read the input fields from standard input, as one JSON object One of `-`. |
 
 ## `conductor dispatch report-blocked`
@@ -1396,7 +1396,7 @@ Usage: conductor dispatch report-blocked [OPTIONS]
 |---|---|---|---|
 | `--dispatch-id <DISPATCH_ID>` | no | none | DispatchId, starting with `DSP-` |
 | `--reason <REASON>` | no | none | string |
-| `--actor <ACTOR>` | no | none | Actor, one JSON object: who issues the command, `{"kind": "Human", "operator": "<name>"}`, `{"kind": "Agent", "agent": {"instance", "role", "name", "kind"}}` or `{"kind": "Daemon"}`; default: the calling session as an agent where `CONDUCTOR_SESSION` names one, else the operator |
+| `--actor <ACTOR>` | no | none | Actor, as the records print it (`human:<name>`, `agent:<instance>/<role>/<name>`, `daemon`) or one JSON object: who issues the command, `{"kind": "Human", "operator": "<name>"}`, `{"kind": "Agent", "agent": {"instance", "role", "name", "kind"}}` or `{"kind": "Daemon"}`; default: the calling session as an agent where `CONDUCTOR_SESSION` names one, else the operator |
 | `--input-json <INPUT_JSON>` | no | none | Read the input fields from standard input, as one JSON object One of `-`. |
 
 ## `conductor dispatch report-done`
@@ -1411,7 +1411,7 @@ Usage: conductor dispatch report-done [OPTIONS]
 |---|---|---|---|
 | `--dispatch-id <DISPATCH_ID>` | no | none | DispatchId, starting with `DSP-` |
 | `--evidence <EVIDENCE>` | no | none | string |
-| `--actor <ACTOR>` | no | none | Actor, one JSON object: who issues the command, `{"kind": "Human", "operator": "<name>"}`, `{"kind": "Agent", "agent": {"instance", "role", "name", "kind"}}` or `{"kind": "Daemon"}`; default: the calling session as an agent where `CONDUCTOR_SESSION` names one, else the operator |
+| `--actor <ACTOR>` | no | none | Actor, as the records print it (`human:<name>`, `agent:<instance>/<role>/<name>`, `daemon`) or one JSON object: who issues the command, `{"kind": "Human", "operator": "<name>"}`, `{"kind": "Agent", "agent": {"instance", "role", "name", "kind"}}` or `{"kind": "Daemon"}`; default: the calling session as an agent where `CONDUCTOR_SESSION` names one, else the operator |
 | `--input-json <INPUT_JSON>` | no | none | Read the input fields from standard input, as one JSON object One of `-`. |
 
 ## `conductor dispatch report-failed`
@@ -1426,7 +1426,7 @@ Usage: conductor dispatch report-failed [OPTIONS]
 |---|---|---|---|
 | `--dispatch-id <DISPATCH_ID>` | no | none | DispatchId, starting with `DSP-` |
 | `--reason <REASON>` | no | none | string |
-| `--actor <ACTOR>` | no | none | Actor, one JSON object: who issues the command, `{"kind": "Human", "operator": "<name>"}`, `{"kind": "Agent", "agent": {"instance", "role", "name", "kind"}}` or `{"kind": "Daemon"}`; default: the calling session as an agent where `CONDUCTOR_SESSION` names one, else the operator |
+| `--actor <ACTOR>` | no | none | Actor, as the records print it (`human:<name>`, `agent:<instance>/<role>/<name>`, `daemon`) or one JSON object: who issues the command, `{"kind": "Human", "operator": "<name>"}`, `{"kind": "Agent", "agent": {"instance", "role", "name", "kind"}}` or `{"kind": "Daemon"}`; default: the calling session as an agent where `CONDUCTOR_SESSION` names one, else the operator |
 | `--input-json <INPUT_JSON>` | no | none | Read the input fields from standard input, as one JSON object One of `-`. |
 
 ## `conductor dispatch report-started`
@@ -1440,7 +1440,7 @@ Usage: conductor dispatch report-started [OPTIONS]
 | Argument | Required | Default | Meaning |
 |---|---|---|---|
 | `--dispatch-id <DISPATCH_ID>` | no | none | DispatchId, starting with `DSP-` |
-| `--actor <ACTOR>` | no | none | Actor, one JSON object: who issues the command, `{"kind": "Human", "operator": "<name>"}`, `{"kind": "Agent", "agent": {"instance", "role", "name", "kind"}}` or `{"kind": "Daemon"}`; default: the calling session as an agent where `CONDUCTOR_SESSION` names one, else the operator |
+| `--actor <ACTOR>` | no | none | Actor, as the records print it (`human:<name>`, `agent:<instance>/<role>/<name>`, `daemon`) or one JSON object: who issues the command, `{"kind": "Human", "operator": "<name>"}`, `{"kind": "Agent", "agent": {"instance", "role", "name", "kind"}}` or `{"kind": "Daemon"}`; default: the calling session as an agent where `CONDUCTOR_SESSION` names one, else the operator |
 | `--input-json <INPUT_JSON>` | no | none | Read the input fields from standard input, as one JSON object One of `-`. |
 
 ## `conductor dispatch report-unblocked`
@@ -1454,7 +1454,7 @@ Usage: conductor dispatch report-unblocked [OPTIONS]
 | Argument | Required | Default | Meaning |
 |---|---|---|---|
 | `--dispatch-id <DISPATCH_ID>` | no | none | DispatchId, starting with `DSP-` |
-| `--actor <ACTOR>` | no | none | Actor, one JSON object: who issues the command, `{"kind": "Human", "operator": "<name>"}`, `{"kind": "Agent", "agent": {"instance", "role", "name", "kind"}}` or `{"kind": "Daemon"}`; default: the calling session as an agent where `CONDUCTOR_SESSION` names one, else the operator |
+| `--actor <ACTOR>` | no | none | Actor, as the records print it (`human:<name>`, `agent:<instance>/<role>/<name>`, `daemon`) or one JSON object: who issues the command, `{"kind": "Human", "operator": "<name>"}`, `{"kind": "Agent", "agent": {"instance", "role", "name", "kind"}}` or `{"kind": "Daemon"}`; default: the calling session as an agent where `CONDUCTOR_SESSION` names one, else the operator |
 | `--input-json <INPUT_JSON>` | no | none | Read the input fields from standard input, as one JSON object One of `-`. |
 
 ## `conductor dispatch send-dispatch`
@@ -1477,7 +1477,7 @@ Usage: conductor dispatch send-dispatch [OPTIONS]
 | `--reference <REFERENCE>` | no | none | string, optional |
 | `--start-ref <START_REF>` | no | none | string, optional |
 | `--issue <ISSUE>` | no | none | string, optional |
-| `--actor <ACTOR>` | no | none | Actor, one JSON object: who issues the command, `{"kind": "Human", "operator": "<name>"}`, `{"kind": "Agent", "agent": {"instance", "role", "name", "kind"}}` or `{"kind": "Daemon"}`; default: the calling session as an agent where `CONDUCTOR_SESSION` names one, else the operator |
+| `--actor <ACTOR>` | no | none | Actor, as the records print it (`human:<name>`, `agent:<instance>/<role>/<name>`, `daemon`) or one JSON object: who issues the command, `{"kind": "Human", "operator": "<name>"}`, `{"kind": "Agent", "agent": {"instance", "role", "name", "kind"}}` or `{"kind": "Daemon"}`; default: the calling session as an agent where `CONDUCTOR_SESSION` names one, else the operator |
 | `--input-json <INPUT_JSON>` | no | none | Read the input fields from standard input, as one JSON object One of `-`. |
 
 ## `conductor dispatch dispatches`
@@ -1512,7 +1512,7 @@ Usage: conductor message handle-message [OPTIONS]
 |---|---|---|---|
 | `--message-id <MESSAGE_ID>` | no | none | MessageId |
 | `--dispatch-id <DISPATCH_ID>` | no | none | DispatchId, starting with `DSP-`, optional |
-| `--actor <ACTOR>` | no | none | Actor, one JSON object: who issues the command, `{"kind": "Human", "operator": "<name>"}`, `{"kind": "Agent", "agent": {"instance", "role", "name", "kind"}}` or `{"kind": "Daemon"}`; default: the calling session as an agent where `CONDUCTOR_SESSION` names one, else the operator |
+| `--actor <ACTOR>` | no | none | Actor, as the records print it (`human:<name>`, `agent:<instance>/<role>/<name>`, `daemon`) or one JSON object: who issues the command, `{"kind": "Human", "operator": "<name>"}`, `{"kind": "Agent", "agent": {"instance", "role", "name", "kind"}}` or `{"kind": "Daemon"}`; default: the calling session as an agent where `CONDUCTOR_SESSION` names one, else the operator |
 | `--input-json <INPUT_JSON>` | no | none | Read the input fields from standard input, as one JSON object One of `-`. |
 
 ## `conductor message receive-message`
@@ -1533,7 +1533,7 @@ Usage: conductor message receive-message [OPTIONS]
 | `--received-at <RECEIVED_AT>` | no | none | timestamp, RFC 3339 |
 | `--body-path <BODY_PATH>` | no | none | string, optional |
 | `--parsed <PARSED>` | no | none | boolean One of `true`, `false`. |
-| `--actor <ACTOR>` | no | none | Actor, one JSON object: who issues the command, `{"kind": "Human", "operator": "<name>"}`, `{"kind": "Agent", "agent": {"instance", "role", "name", "kind"}}` or `{"kind": "Daemon"}`; default: the calling session as an agent where `CONDUCTOR_SESSION` names one, else the operator |
+| `--actor <ACTOR>` | no | none | Actor, as the records print it (`human:<name>`, `agent:<instance>/<role>/<name>`, `daemon`) or one JSON object: who issues the command, `{"kind": "Human", "operator": "<name>"}`, `{"kind": "Agent", "agent": {"instance", "role", "name", "kind"}}` or `{"kind": "Daemon"}`; default: the calling session as an agent where `CONDUCTOR_SESSION` names one, else the operator |
 | `--input-json <INPUT_JSON>` | no | none | Read the input fields from standard input, as one JSON object One of `-`. |
 
 ## `conductor message reject-message`
@@ -1548,7 +1548,7 @@ Usage: conductor message reject-message [OPTIONS]
 |---|---|---|---|
 | `--message-id <MESSAGE_ID>` | no | none | MessageId |
 | `--reason <REASON>` | no | none | string |
-| `--actor <ACTOR>` | no | none | Actor, one JSON object: who issues the command, `{"kind": "Human", "operator": "<name>"}`, `{"kind": "Agent", "agent": {"instance", "role", "name", "kind"}}` or `{"kind": "Daemon"}`; default: the calling session as an agent where `CONDUCTOR_SESSION` names one, else the operator |
+| `--actor <ACTOR>` | no | none | Actor, as the records print it (`human:<name>`, `agent:<instance>/<role>/<name>`, `daemon`) or one JSON object: who issues the command, `{"kind": "Human", "operator": "<name>"}`, `{"kind": "Agent", "agent": {"instance", "role", "name", "kind"}}` or `{"kind": "Daemon"}`; default: the calling session as an agent where `CONDUCTOR_SESSION` names one, else the operator |
 | `--input-json <INPUT_JSON>` | no | none | Read the input fields from standard input, as one JSON object One of `-`. |
 
 ## `conductor message route-need`
@@ -1563,7 +1563,7 @@ Usage: conductor message route-need [OPTIONS]
 |---|---|---|---|
 | `--message-id <MESSAGE_ID>` | no | none | MessageId |
 | `--dispatch-id <DISPATCH_ID>` | no | none | DispatchId, starting with `DSP-` |
-| `--actor <ACTOR>` | no | none | Actor, one JSON object: who issues the command, `{"kind": "Human", "operator": "<name>"}`, `{"kind": "Agent", "agent": {"instance", "role", "name", "kind"}}` or `{"kind": "Daemon"}`; default: the calling session as an agent where `CONDUCTOR_SESSION` names one, else the operator |
+| `--actor <ACTOR>` | no | none | Actor, as the records print it (`human:<name>`, `agent:<instance>/<role>/<name>`, `daemon`) or one JSON object: who issues the command, `{"kind": "Human", "operator": "<name>"}`, `{"kind": "Agent", "agent": {"instance", "role", "name", "kind"}}` or `{"kind": "Daemon"}`; default: the calling session as an agent where `CONDUCTOR_SESSION` names one, else the operator |
 | `--input-json <INPUT_JSON>` | no | none | Read the input fields from standard input, as one JSON object One of `-`. |
 
 ## `conductor message messages`
@@ -1612,7 +1612,7 @@ Usage: conductor resource grant-resource [OPTIONS]
 |---|---|---|---|
 | `--resource-request-id <RESOURCE_REQUEST_ID>` | no | none | ResourceRequestId |
 | `--disk-free-bytes <DISK_FREE_BYTES>` | no | none | integer |
-| `--actor <ACTOR>` | no | none | Actor, one JSON object: who issues the command, `{"kind": "Human", "operator": "<name>"}`, `{"kind": "Agent", "agent": {"instance", "role", "name", "kind"}}` or `{"kind": "Daemon"}`; default: the calling session as an agent where `CONDUCTOR_SESSION` names one, else the operator |
+| `--actor <ACTOR>` | no | none | Actor, as the records print it (`human:<name>`, `agent:<instance>/<role>/<name>`, `daemon`) or one JSON object: who issues the command, `{"kind": "Human", "operator": "<name>"}`, `{"kind": "Agent", "agent": {"instance", "role", "name", "kind"}}` or `{"kind": "Daemon"}`; default: the calling session as an agent where `CONDUCTOR_SESSION` names one, else the operator |
 | `--input-json <INPUT_JSON>` | no | none | Read the input fields from standard input, as one JSON object One of `-`. |
 
 ## `conductor resource refuse-resource`
@@ -1627,7 +1627,7 @@ Usage: conductor resource refuse-resource [OPTIONS]
 |---|---|---|---|
 | `--resource-request-id <RESOURCE_REQUEST_ID>` | no | none | ResourceRequestId |
 | `--reason <REASON>` | no | none | string |
-| `--actor <ACTOR>` | no | none | Actor, one JSON object: who issues the command, `{"kind": "Human", "operator": "<name>"}`, `{"kind": "Agent", "agent": {"instance", "role", "name", "kind"}}` or `{"kind": "Daemon"}`; default: the calling session as an agent where `CONDUCTOR_SESSION` names one, else the operator |
+| `--actor <ACTOR>` | no | none | Actor, as the records print it (`human:<name>`, `agent:<instance>/<role>/<name>`, `daemon`) or one JSON object: who issues the command, `{"kind": "Human", "operator": "<name>"}`, `{"kind": "Agent", "agent": {"instance", "role", "name", "kind"}}` or `{"kind": "Daemon"}`; default: the calling session as an agent where `CONDUCTOR_SESSION` names one, else the operator |
 | `--input-json <INPUT_JSON>` | no | none | Read the input fields from standard input, as one JSON object One of `-`. |
 
 ## `conductor resource release-resource`
@@ -1641,7 +1641,7 @@ Usage: conductor resource release-resource [OPTIONS]
 | Argument | Required | Default | Meaning |
 |---|---|---|---|
 | `--resource-request-id <RESOURCE_REQUEST_ID>` | no | none | ResourceRequestId |
-| `--actor <ACTOR>` | no | none | Actor, one JSON object: who issues the command, `{"kind": "Human", "operator": "<name>"}`, `{"kind": "Agent", "agent": {"instance", "role", "name", "kind"}}` or `{"kind": "Daemon"}`; default: the calling session as an agent where `CONDUCTOR_SESSION` names one, else the operator |
+| `--actor <ACTOR>` | no | none | Actor, as the records print it (`human:<name>`, `agent:<instance>/<role>/<name>`, `daemon`) or one JSON object: who issues the command, `{"kind": "Human", "operator": "<name>"}`, `{"kind": "Agent", "agent": {"instance", "role", "name", "kind"}}` or `{"kind": "Daemon"}`; default: the calling session as an agent where `CONDUCTOR_SESSION` names one, else the operator |
 | `--input-json <INPUT_JSON>` | no | none | Read the input fields from standard input, as one JSON object One of `-`. |
 
 ## `conductor resource request-resource`
@@ -1658,7 +1658,7 @@ Usage: conductor resource request-resource [OPTIONS]
 | `--resource <RESOURCE>` | no | none | ResourceKind One of `BuildSlot`, `Disk`, `Usage`. |
 | `--amount <AMOUNT>` | no | none | integer |
 | `--requested-at <REQUESTED_AT>` | no | none | timestamp, RFC 3339 |
-| `--actor <ACTOR>` | no | none | Actor, one JSON object: who issues the command, `{"kind": "Human", "operator": "<name>"}`, `{"kind": "Agent", "agent": {"instance", "role", "name", "kind"}}` or `{"kind": "Daemon"}`; default: the calling session as an agent where `CONDUCTOR_SESSION` names one, else the operator |
+| `--actor <ACTOR>` | no | none | Actor, as the records print it (`human:<name>`, `agent:<instance>/<role>/<name>`, `daemon`) or one JSON object: who issues the command, `{"kind": "Human", "operator": "<name>"}`, `{"kind": "Agent", "agent": {"instance", "role", "name", "kind"}}` or `{"kind": "Daemon"}`; default: the calling session as an agent where `CONDUCTOR_SESSION` names one, else the operator |
 | `--input-json <INPUT_JSON>` | no | none | Read the input fields from standard input, as one JSON object One of `-`. |
 
 ## `conductor resource resource-requests`
@@ -1711,7 +1711,7 @@ Usage: conductor guard record-guard-decision [OPTIONS]
 | `--verdict <VERDICT>` | no | none | Verdict One of `Allow`, `Deny`. |
 | `--reason <REASON>` | no | none | string |
 | `--decided-at <DECIDED_AT>` | no | none | timestamp, RFC 3339 |
-| `--actor <ACTOR>` | no | none | Actor, one JSON object: who issues the command, `{"kind": "Human", "operator": "<name>"}`, `{"kind": "Agent", "agent": {"instance", "role", "name", "kind"}}` or `{"kind": "Daemon"}`; default: the calling session as an agent where `CONDUCTOR_SESSION` names one, else the operator |
+| `--actor <ACTOR>` | no | none | Actor, as the records print it (`human:<name>`, `agent:<instance>/<role>/<name>`, `daemon`) or one JSON object: who issues the command, `{"kind": "Human", "operator": "<name>"}`, `{"kind": "Agent", "agent": {"instance", "role", "name", "kind"}}` or `{"kind": "Daemon"}`; default: the calling session as an agent where `CONDUCTOR_SESSION` names one, else the operator |
 | `--input-json <INPUT_JSON>` | no | none | Read the input fields from standard input, as one JSON object One of `-`. |
 | `--from-pre-tool-use` | no | `false` | Read a Claude Code PreToolUse payload from standard input and compute the verdict |
 | `--pid <PID>` | no | none | The calling session's process, which the PreToolUse payload does not name (the hook shell's parent, `--pid "$PPID"`); the conductor lease denies a write from another process |
@@ -1750,7 +1750,7 @@ Usage: conductor session claim [OPTIONS]
 | `--session-id <SESSION_ID>` | no | none | SessionId |
 | `--pid <PID>` | no | none | integer |
 | `--taken-at <TAKEN_AT>` | no | none | timestamp, RFC 3339 |
-| `--actor <ACTOR>` | no | none | Actor, one JSON object: who issues the command, `{"kind": "Human", "operator": "<name>"}`, `{"kind": "Agent", "agent": {"instance", "role", "name", "kind"}}` or `{"kind": "Daemon"}`; default: the calling session as an agent where `CONDUCTOR_SESSION` names one, else the operator |
+| `--actor <ACTOR>` | no | none | Actor, as the records print it (`human:<name>`, `agent:<instance>/<role>/<name>`, `daemon`) or one JSON object: who issues the command, `{"kind": "Human", "operator": "<name>"}`, `{"kind": "Agent", "agent": {"instance", "role", "name", "kind"}}` or `{"kind": "Daemon"}`; default: the calling session as an agent where `CONDUCTOR_SESSION` names one, else the operator |
 | `--input-json <INPUT_JSON>` | no | none | Read the input fields from standard input, as one JSON object One of `-`. |
 | `--from-session-start` | no | `false` | Read the session id from a Claude Code SessionStart payload on standard input |
 
@@ -1768,7 +1768,7 @@ Usage: conductor session deliver-message [OPTIONS]
 | `--first-line <FIRST_LINE>` | no | none | string |
 | `--body-path <BODY_PATH>` | no | none | string, optional |
 | `--delivered-at <DELIVERED_AT>` | no | none | timestamp, RFC 3339 |
-| `--actor <ACTOR>` | no | none | Actor, one JSON object: who issues the command, `{"kind": "Human", "operator": "<name>"}`, `{"kind": "Agent", "agent": {"instance", "role", "name", "kind"}}` or `{"kind": "Daemon"}`; default: the calling session as an agent where `CONDUCTOR_SESSION` names one, else the operator |
+| `--actor <ACTOR>` | no | none | Actor, as the records print it (`human:<name>`, `agent:<instance>/<role>/<name>`, `daemon`) or one JSON object: who issues the command, `{"kind": "Human", "operator": "<name>"}`, `{"kind": "Agent", "agent": {"instance", "role", "name", "kind"}}` or `{"kind": "Daemon"}`; default: the calling session as an agent where `CONDUCTOR_SESSION` names one, else the operator |
 | `--input-json <INPUT_JSON>` | no | none | Read the input fields from standard input, as one JSON object One of `-`. |
 
 ## `conductor session record-run-tick`
@@ -1785,7 +1785,7 @@ Usage: conductor session record-run-tick [OPTIONS]
 | `--started-at <STARTED_AT>` | no | none | timestamp, RFC 3339 |
 | `--lines-handled <LINES_HANDLED>` | no | none | integer |
 | `--actions <ACTIONS>` | no | none | list of DispatchLogEvent, a JSON array of the events as the dispatch log writes them (`relayed`, `handover-sent`, …) |
-| `--actor <ACTOR>` | no | none | Actor, one JSON object: who issues the command, `{"kind": "Human", "operator": "<name>"}`, `{"kind": "Agent", "agent": {"instance", "role", "name", "kind"}}` or `{"kind": "Daemon"}`; default: the calling session as an agent where `CONDUCTOR_SESSION` names one, else the operator |
+| `--actor <ACTOR>` | no | none | Actor, as the records print it (`human:<name>`, `agent:<instance>/<role>/<name>`, `daemon`) or one JSON object: who issues the command, `{"kind": "Human", "operator": "<name>"}`, `{"kind": "Agent", "agent": {"instance", "role", "name", "kind"}}` or `{"kind": "Daemon"}`; default: the calling session as an agent where `CONDUCTOR_SESSION` names one, else the operator |
 | `--input-json <INPUT_JSON>` | no | none | Read the input fields from standard input, as one JSON object One of `-`. |
 
 ## `conductor session deliveries`
@@ -1913,7 +1913,7 @@ Usage: conductor host record-reclaim [OPTIONS]
 | `--shortfall-bytes <SHORTFALL_BYTES>` | no | none | integer |
 | `--left <LEFT>` | no | none | list of LeftOver, a JSON array |
 | `--ran-at <RAN_AT>` | no | none | timestamp, RFC 3339 |
-| `--actor <ACTOR>` | no | none | Actor, one JSON object: who issues the command, `{"kind": "Human", "operator": "<name>"}`, `{"kind": "Agent", "agent": {"instance", "role", "name", "kind"}}` or `{"kind": "Daemon"}`; default: the calling session as an agent where `CONDUCTOR_SESSION` names one, else the operator |
+| `--actor <ACTOR>` | no | none | Actor, as the records print it (`human:<name>`, `agent:<instance>/<role>/<name>`, `daemon`) or one JSON object: who issues the command, `{"kind": "Human", "operator": "<name>"}`, `{"kind": "Agent", "agent": {"instance", "role", "name", "kind"}}` or `{"kind": "Daemon"}`; default: the calling session as an agent where `CONDUCTOR_SESSION` names one, else the operator |
 | `--input-json <INPUT_JSON>` | no | none | Read the input fields from standard input, as one JSON object One of `-`. |
 
 ## `conductor host record-peak`
@@ -1929,7 +1929,7 @@ Usage: conductor host record-peak [OPTIONS]
 | `--grant-id <GRANT_ID>` | no | none | GrantId |
 | `--peak-bytes <PEAK_BYTES>` | no | none | integer |
 | `--pauses <PAUSES>` | no | none | integer |
-| `--actor <ACTOR>` | no | none | Actor, one JSON object: who issues the command, `{"kind": "Human", "operator": "<name>"}`, `{"kind": "Agent", "agent": {"instance", "role", "name", "kind"}}` or `{"kind": "Daemon"}`; default: the calling session as an agent where `CONDUCTOR_SESSION` names one, else the operator |
+| `--actor <ACTOR>` | no | none | Actor, as the records print it (`human:<name>`, `agent:<instance>/<role>/<name>`, `daemon`) or one JSON object: who issues the command, `{"kind": "Human", "operator": "<name>"}`, `{"kind": "Agent", "agent": {"instance", "role", "name", "kind"}}` or `{"kind": "Daemon"}`; default: the calling session as an agent where `CONDUCTOR_SESSION` names one, else the operator |
 | `--input-json <INPUT_JSON>` | no | none | Read the input fields from standard input, as one JSON object One of `-`. |
 
 ## `conductor host release-grant`
@@ -1948,7 +1948,7 @@ Usage: conductor host release-grant [OPTIONS]
 | `--cache-hits <CACHE_HITS>` | no | none | integer |
 | `--cache-misses <CACHE_MISSES>` | no | none | integer |
 | `--lane-overrun <LANE_OVERRUN>` | no | none | boolean One of `true`, `false`. |
-| `--actor <ACTOR>` | no | none | Actor, one JSON object: who issues the command, `{"kind": "Human", "operator": "<name>"}`, `{"kind": "Agent", "agent": {"instance", "role", "name", "kind"}}` or `{"kind": "Daemon"}`; default: the calling session as an agent where `CONDUCTOR_SESSION` names one, else the operator |
+| `--actor <ACTOR>` | no | none | Actor, as the records print it (`human:<name>`, `agent:<instance>/<role>/<name>`, `daemon`) or one JSON object: who issues the command, `{"kind": "Human", "operator": "<name>"}`, `{"kind": "Agent", "agent": {"instance", "role", "name", "kind"}}` or `{"kind": "Daemon"}`; default: the calling session as an agent where `CONDUCTOR_SESSION` names one, else the operator |
 | `--input-json <INPUT_JSON>` | no | none | Read the input fields from standard input, as one JSON object One of `-`. |
 
 ## `conductor host request-disk`
@@ -1969,7 +1969,7 @@ Usage: conductor host request-disk [OPTIONS]
 | `--command <COMMAND>` | no | none | string |
 | `--requested-at <REQUESTED_AT>` | no | none | timestamp, RFC 3339 |
 | `--lane <LANE>` | no | none | BuildLane, optional One of `Regular`, `Short`. |
-| `--actor <ACTOR>` | no | none | Actor, one JSON object: who issues the command, `{"kind": "Human", "operator": "<name>"}`, `{"kind": "Agent", "agent": {"instance", "role", "name", "kind"}}` or `{"kind": "Daemon"}`; default: the calling session as an agent where `CONDUCTOR_SESSION` names one, else the operator |
+| `--actor <ACTOR>` | no | none | Actor, as the records print it (`human:<name>`, `agent:<instance>/<role>/<name>`, `daemon`) or one JSON object: who issues the command, `{"kind": "Human", "operator": "<name>"}`, `{"kind": "Agent", "agent": {"instance", "role", "name", "kind"}}` or `{"kind": "Daemon"}`; default: the calling session as an agent where `CONDUCTOR_SESSION` names one, else the operator |
 | `--input-json <INPUT_JSON>` | no | none | Read the input fields from standard input, as one JSON object One of `-`. |
 
 ## `conductor host reserve-disk`
@@ -1986,7 +1986,7 @@ Usage: conductor host reserve-disk [OPTIONS]
 | `--shortfall-bytes <SHORTFALL_BYTES>` | no | none | integer |
 | `--reclaimed-bytes <RECLAIMED_BYTES>` | no | none | integer |
 | `--lane <LANE>` | no | none | BuildLane, optional One of `Regular`, `Short`. |
-| `--actor <ACTOR>` | no | none | Actor, one JSON object: who issues the command, `{"kind": "Human", "operator": "<name>"}`, `{"kind": "Agent", "agent": {"instance", "role", "name", "kind"}}` or `{"kind": "Daemon"}`; default: the calling session as an agent where `CONDUCTOR_SESSION` names one, else the operator |
+| `--actor <ACTOR>` | no | none | Actor, as the records print it (`human:<name>`, `agent:<instance>/<role>/<name>`, `daemon`) or one JSON object: who issues the command, `{"kind": "Human", "operator": "<name>"}`, `{"kind": "Agent", "agent": {"instance", "role", "name", "kind"}}` or `{"kind": "Daemon"}`; default: the calling session as an agent where `CONDUCTOR_SESSION` names one, else the operator |
 | `--input-json <INPUT_JSON>` | no | none | Read the input fields from standard input, as one JSON object One of `-`. |
 
 ## `conductor host start-run`
@@ -2002,7 +2002,7 @@ Usage: conductor host start-run [OPTIONS]
 | `--grant-id <GRANT_ID>` | no | none | GrantId |
 | `--process-group <PROCESS_GROUP>` | no | none | integer |
 | `--started-at <STARTED_AT>` | no | none | timestamp, RFC 3339 |
-| `--actor <ACTOR>` | no | none | Actor, one JSON object: who issues the command, `{"kind": "Human", "operator": "<name>"}`, `{"kind": "Agent", "agent": {"instance", "role", "name", "kind"}}` or `{"kind": "Daemon"}`; default: the calling session as an agent where `CONDUCTOR_SESSION` names one, else the operator |
+| `--actor <ACTOR>` | no | none | Actor, as the records print it (`human:<name>`, `agent:<instance>/<role>/<name>`, `daemon`) or one JSON object: who issues the command, `{"kind": "Human", "operator": "<name>"}`, `{"kind": "Agent", "agent": {"instance", "role", "name", "kind"}}` or `{"kind": "Daemon"}`; default: the calling session as an agent where `CONDUCTOR_SESSION` names one, else the operator |
 | `--input-json <INPUT_JSON>` | no | none | Read the input fields from standard input, as one JSON object One of `-`. |
 
 ## `conductor host take-host-grant`
@@ -2021,7 +2021,7 @@ Usage: conductor host take-host-grant [OPTIONS]
 | `--bytes <BYTES>` | no | none | integer, optional |
 | `--session-name <SESSION_NAME>` | no | none | SessionName |
 | `--requested-at <REQUESTED_AT>` | no | none | timestamp, RFC 3339 |
-| `--actor <ACTOR>` | no | none | Actor, one JSON object: who issues the command, `{"kind": "Human", "operator": "<name>"}`, `{"kind": "Agent", "agent": {"instance", "role", "name", "kind"}}` or `{"kind": "Daemon"}`; default: the calling session as an agent where `CONDUCTOR_SESSION` names one, else the operator |
+| `--actor <ACTOR>` | no | none | Actor, as the records print it (`human:<name>`, `agent:<instance>/<role>/<name>`, `daemon`) or one JSON object: who issues the command, `{"kind": "Human", "operator": "<name>"}`, `{"kind": "Agent", "agent": {"instance", "role", "name", "kind"}}` or `{"kind": "Daemon"}`; default: the calling session as an agent where `CONDUCTOR_SESSION` names one, else the operator |
 | `--input-json <INPUT_JSON>` | no | none | Read the input fields from standard input, as one JSON object One of `-`. |
 
 ## `conductor host withdraw-disk-request`
@@ -2037,7 +2037,7 @@ Usage: conductor host withdraw-disk-request [OPTIONS]
 | `--grant-id <GRANT_ID>` | no | none | GrantId |
 | `--withdrawn-at <WITHDRAWN_AT>` | no | none | timestamp, RFC 3339 |
 | `--reason <REASON>` | no | none | ReleaseReason, optional One of `Exited`, `Killed`, `ProcessGroupGone`, `SessionStopped`. |
-| `--actor <ACTOR>` | no | none | Actor, one JSON object: who issues the command, `{"kind": "Human", "operator": "<name>"}`, `{"kind": "Agent", "agent": {"instance", "role", "name", "kind"}}` or `{"kind": "Daemon"}`; default: the calling session as an agent where `CONDUCTOR_SESSION` names one, else the operator |
+| `--actor <ACTOR>` | no | none | Actor, as the records print it (`human:<name>`, `agent:<instance>/<role>/<name>`, `daemon`) or one JSON object: who issues the command, `{"kind": "Human", "operator": "<name>"}`, `{"kind": "Agent", "agent": {"instance", "role", "name", "kind"}}` or `{"kind": "Daemon"}`; default: the calling session as an agent where `CONDUCTOR_SESSION` names one, else the operator |
 | `--input-json <INPUT_JSON>` | no | none | Read the input fields from standard input, as one JSON object One of `-`. |
 
 ## `conductor host grants`
@@ -2101,7 +2101,7 @@ Usage: conductor metric define-metric [OPTIONS]
 | `--definition <DEFINITION>` | no | none | string |
 | `--baseline <BASELINE>` | no | none | decimal, optional |
 | `--baseline-period <BASELINE_PERIOD>` | no | none | string, optional |
-| `--actor <ACTOR>` | no | none | Actor, one JSON object: who issues the command, `{"kind": "Human", "operator": "<name>"}`, `{"kind": "Agent", "agent": {"instance", "role", "name", "kind"}}` or `{"kind": "Daemon"}`; default: the calling session as an agent where `CONDUCTOR_SESSION` names one, else the operator |
+| `--actor <ACTOR>` | no | none | Actor, as the records print it (`human:<name>`, `agent:<instance>/<role>/<name>`, `daemon`) or one JSON object: who issues the command, `{"kind": "Human", "operator": "<name>"}`, `{"kind": "Agent", "agent": {"instance", "role", "name", "kind"}}` or `{"kind": "Daemon"}`; default: the calling session as an agent where `CONDUCTOR_SESSION` names one, else the operator |
 | `--input-json <INPUT_JSON>` | no | none | Read the input fields from standard input, as one JSON object One of `-`. |
 
 ## `conductor metric judge-metric-reading`
@@ -2117,7 +2117,7 @@ Usage: conductor metric judge-metric-reading [OPTIONS]
 | `--reading-id <READING_ID>` | no | none | MetricReadingId |
 | `--target <TARGET>` | no | none | decimal |
 | `--met <MET>` | no | none | boolean One of `true`, `false`. |
-| `--actor <ACTOR>` | no | none | Actor, one JSON object: who issues the command, `{"kind": "Human", "operator": "<name>"}`, `{"kind": "Agent", "agent": {"instance", "role", "name", "kind"}}` or `{"kind": "Daemon"}`; default: the calling session as an agent where `CONDUCTOR_SESSION` names one, else the operator |
+| `--actor <ACTOR>` | no | none | Actor, as the records print it (`human:<name>`, `agent:<instance>/<role>/<name>`, `daemon`) or one JSON object: who issues the command, `{"kind": "Human", "operator": "<name>"}`, `{"kind": "Agent", "agent": {"instance", "role", "name", "kind"}}` or `{"kind": "Daemon"}`; default: the calling session as an agent where `CONDUCTOR_SESSION` names one, else the operator |
 | `--input-json <INPUT_JSON>` | no | none | Read the input fields from standard input, as one JSON object One of `-`. |
 
 ## `conductor metric record-metric-reading`
@@ -2139,7 +2139,7 @@ Usage: conductor metric record-metric-reading [OPTIONS]
 | `--target <TARGET>` | no | none | decimal, optional |
 | `--met <MET>` | no | none | boolean, optional One of `true`, `false`. |
 | `--recorded-at <RECORDED_AT>` | no | none | timestamp, RFC 3339 |
-| `--actor <ACTOR>` | no | none | Actor, one JSON object: who issues the command, `{"kind": "Human", "operator": "<name>"}`, `{"kind": "Agent", "agent": {"instance", "role", "name", "kind"}}` or `{"kind": "Daemon"}`; default: the calling session as an agent where `CONDUCTOR_SESSION` names one, else the operator |
+| `--actor <ACTOR>` | no | none | Actor, as the records print it (`human:<name>`, `agent:<instance>/<role>/<name>`, `daemon`) or one JSON object: who issues the command, `{"kind": "Human", "operator": "<name>"}`, `{"kind": "Agent", "agent": {"instance", "role", "name", "kind"}}` or `{"kind": "Daemon"}`; default: the calling session as an agent where `CONDUCTOR_SESSION` names one, else the operator |
 | `--input-json <INPUT_JSON>` | no | none | Read the input fields from standard input, as one JSON object One of `-`. |
 
 ## `conductor metric set-metric-target`
@@ -2157,7 +2157,7 @@ Usage: conductor metric set-metric-target [OPTIONS]
 | `--direction <DIRECTION>` | no | none | TargetDirection One of `AtMost`, `AtLeast`. |
 | `--target-owner <TARGET_OWNER>` | no | none | string |
 | `--target-set-at <TARGET_SET_AT>` | no | none | timestamp, RFC 3339 |
-| `--actor <ACTOR>` | no | none | Actor, one JSON object: who issues the command, `{"kind": "Human", "operator": "<name>"}`, `{"kind": "Agent", "agent": {"instance", "role", "name", "kind"}}` or `{"kind": "Daemon"}`; default: the calling session as an agent where `CONDUCTOR_SESSION` names one, else the operator |
+| `--actor <ACTOR>` | no | none | Actor, as the records print it (`human:<name>`, `agent:<instance>/<role>/<name>`, `daemon`) or one JSON object: who issues the command, `{"kind": "Human", "operator": "<name>"}`, `{"kind": "Agent", "agent": {"instance", "role", "name", "kind"}}` or `{"kind": "Daemon"}`; default: the calling session as an agent where `CONDUCTOR_SESSION` names one, else the operator |
 | `--input-json <INPUT_JSON>` | no | none | Read the input fields from standard input, as one JSON object One of `-`. |
 
 ## `conductor metric supersede-metric-reading`
@@ -2172,7 +2172,7 @@ Usage: conductor metric supersede-metric-reading [OPTIONS]
 |---|---|---|---|
 | `--reading-id <READING_ID>` | no | none | MetricReadingId |
 | `--by <BY>` | no | none | MetricReadingId |
-| `--actor <ACTOR>` | no | none | Actor, one JSON object: who issues the command, `{"kind": "Human", "operator": "<name>"}`, `{"kind": "Agent", "agent": {"instance", "role", "name", "kind"}}` or `{"kind": "Daemon"}`; default: the calling session as an agent where `CONDUCTOR_SESSION` names one, else the operator |
+| `--actor <ACTOR>` | no | none | Actor, as the records print it (`human:<name>`, `agent:<instance>/<role>/<name>`, `daemon`) or one JSON object: who issues the command, `{"kind": "Human", "operator": "<name>"}`, `{"kind": "Agent", "agent": {"instance", "role", "name", "kind"}}` or `{"kind": "Daemon"}`; default: the calling session as an agent where `CONDUCTOR_SESSION` names one, else the operator |
 | `--input-json <INPUT_JSON>` | no | none | Read the input fields from standard input, as one JSON object One of `-`. |
 
 ## `conductor metric kpi-readings`
@@ -2255,7 +2255,7 @@ Usage: conductor finding file-finding [OPTIONS]
 |---|---|---|---|
 | `--finding-id <FINDING_ID>` | no | none | FindingId |
 | `--story <STORY>` | no | none | string |
-| `--actor <ACTOR>` | no | none | Actor, one JSON object: who issues the command, `{"kind": "Human", "operator": "<name>"}`, `{"kind": "Agent", "agent": {"instance", "role", "name", "kind"}}` or `{"kind": "Daemon"}`; default: the calling session as an agent where `CONDUCTOR_SESSION` names one, else the operator |
+| `--actor <ACTOR>` | no | none | Actor, as the records print it (`human:<name>`, `agent:<instance>/<role>/<name>`, `daemon`) or one JSON object: who issues the command, `{"kind": "Human", "operator": "<name>"}`, `{"kind": "Agent", "agent": {"instance", "role", "name", "kind"}}` or `{"kind": "Daemon"}`; default: the calling session as an agent where `CONDUCTOR_SESSION` names one, else the operator |
 | `--input-json <INPUT_JSON>` | no | none | Read the input fields from standard input, as one JSON object One of `-`. |
 
 ## `conductor finding raise-finding`
@@ -2273,7 +2273,7 @@ Usage: conductor finding raise-finding [OPTIONS]
 | `--evidence <EVIDENCE>` | no | none | list of string, a JSON array |
 | `--metric-id <METRIC_ID>` | no | none | MetricId |
 | `--raised-at <RAISED_AT>` | no | none | timestamp, RFC 3339 |
-| `--actor <ACTOR>` | no | none | Actor, one JSON object: who issues the command, `{"kind": "Human", "operator": "<name>"}`, `{"kind": "Agent", "agent": {"instance", "role", "name", "kind"}}` or `{"kind": "Daemon"}`; default: the calling session as an agent where `CONDUCTOR_SESSION` names one, else the operator |
+| `--actor <ACTOR>` | no | none | Actor, as the records print it (`human:<name>`, `agent:<instance>/<role>/<name>`, `daemon`) or one JSON object: who issues the command, `{"kind": "Human", "operator": "<name>"}`, `{"kind": "Agent", "agent": {"instance", "role", "name", "kind"}}` or `{"kind": "Daemon"}`; default: the calling session as an agent where `CONDUCTOR_SESSION` names one, else the operator |
 | `--input-json <INPUT_JSON>` | no | none | Read the input fields from standard input, as one JSON object One of `-`. |
 
 ## `conductor finding verify-finding`
@@ -2289,7 +2289,7 @@ Usage: conductor finding verify-finding [OPTIONS]
 | `--finding-id <FINDING_ID>` | no | none | FindingId |
 | `--moved <MOVED>` | no | none | boolean One of `true`, `false`. |
 | `--verdict <VERDICT>` | no | none | string |
-| `--actor <ACTOR>` | no | none | Actor, one JSON object: who issues the command, `{"kind": "Human", "operator": "<name>"}`, `{"kind": "Agent", "agent": {"instance", "role", "name", "kind"}}` or `{"kind": "Daemon"}`; default: the calling session as an agent where `CONDUCTOR_SESSION` names one, else the operator |
+| `--actor <ACTOR>` | no | none | Actor, as the records print it (`human:<name>`, `agent:<instance>/<role>/<name>`, `daemon`) or one JSON object: who issues the command, `{"kind": "Human", "operator": "<name>"}`, `{"kind": "Agent", "agent": {"instance", "role", "name", "kind"}}` or `{"kind": "Daemon"}`; default: the calling session as an agent where `CONDUCTOR_SESSION` names one, else the operator |
 | `--input-json <INPUT_JSON>` | no | none | Read the input fields from standard input, as one JSON object One of `-`. |
 
 ## `conductor finding findings`
