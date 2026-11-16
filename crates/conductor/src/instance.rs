@@ -789,3 +789,14 @@ pub fn instance_serve(
     let Err(error) = crate::run::in_runtime(&what, config_flag, state_flag, providers);
     Err(error.context(WHAT))
 }
+
+/// `conductor instance cycle` (`story:cycle-now`): asks the daemon of the config file for a cycle
+/// of this process's instance now, the one the global `--config` and `CONDUCTOR_INSTANCE` name
+/// ([`crate::daemon::cycle::ask`]).
+///
+/// # Errors
+///
+/// The config does not load, the daemon is not reached, or it or the runtime refuses the ask.
+pub fn instance_cycle(config_flag: Option<&Path>) -> Result<ExitCode> {
+    crate::daemon::cycle::ask(config_flag, &config::active().instance.name.0)
+}

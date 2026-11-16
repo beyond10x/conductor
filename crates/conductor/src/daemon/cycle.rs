@@ -12,19 +12,18 @@ use anyhow::{Context as _, Result, bail};
 use super::{DIR, api, upgrade};
 use crate::config::{self, Environment};
 
-/// Asks the daemon of the config file for a cycle of the active instance now: the instance
-/// `CONDUCTOR_INSTANCE` or the config file selects ([`config::active`]). Prints one line naming
-/// the instance, and the start of a cycle that runs now, which the ask then follows.
+/// Asks the daemon of the config file for a cycle of the instance `name` now; the caller names
+/// the instance it runs ([`crate::instance::instance_cycle`]). Prints one line naming the
+/// instance, and the start of a cycle that runs now, which the ask then follows.
 ///
 /// # Errors
 ///
 /// The config does not load, the daemon is not reached, or it or the runtime refuses the ask.
-pub fn instance_cycle(config_flag: Option<&Path>) -> Result<ExitCode> {
+pub fn ask(config_flag: Option<&Path>, name: &str) -> Result<ExitCode> {
     const WHAT: &str = "instance cycle";
     let environment = Environment::from_process().context(WHAT)?;
     let loaded = config::load(config_flag, &environment).context(WHAT)?;
     let port = u16::try_from(loaded.config.daemon.port).context("instance cycle: daemon.port")?;
-    let name = config::active().instance.name.0.clone();
     // The daemon takes a write from a local client with the token it keeps in its directory.
     let token = environment
         .home()
