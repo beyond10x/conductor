@@ -89,6 +89,7 @@ mod cache;
 pub mod configure;
 pub mod decisions;
 mod health;
+mod operator;
 pub mod overview;
 pub mod plan;
 pub mod repo;
@@ -1337,6 +1338,11 @@ fn answer(
     // The agents of the instance (`story:agent-kinds`, design § 5.1).
     if let Some(rest) = path.strip_prefix(agents::PREFIX) {
         return agents::answer(method, rest, &header, server, body);
+    }
+    // The operator's session commands on the host, for a session in the runtime's box
+    // (story:host-commands-reach-boxed-session).
+    if operator::serves(path) {
+        return operator::answer(method, path, &header, server, body);
     }
     // The work call of a consumer control plane (story:control-plane-work-handler).
     if path == work::PATH || path.starts_with(work::PREFIX) {

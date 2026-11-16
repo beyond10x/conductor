@@ -25,9 +25,11 @@ mod common;
 use std::ffi::OsString;
 use std::fs;
 use std::io::Write as _;
+use std::net::{SocketAddr, TcpListener};
 use std::os::unix::fs::{FileTypeExt as _, PermissionsExt as _};
 use std::path::{Path, PathBuf};
 use std::process::{Command, Output, Stdio};
+use std::sync::Arc;
 use std::time::{Duration, Instant, SystemTime};
 
 use conductor_cli::collect::Collector;
@@ -48,7 +50,10 @@ struct Case {
 
 impl Drop for Case {
     fn drop(&mut self) {
-        for entry in child::entries(&self.registry()) {
+        for entry in child::entries(&self.registry())
+            .into_iter()
+            .chain(child::entries(&self.box_registry()))
+        {
             if let Some(pid) = entry.pid.and_then(|pid| i32::try_from(pid).ok()) {
                 // SAFETY: a signal to the process group the case's session leads.
                 unsafe {
@@ -105,6 +110,12 @@ impl Case {
 
     fn registry(&self) -> PathBuf {
         self.home().join(".claude").join(child::REGISTRY)
+    }
+
+    /// The registry of the case's box: the harness's state directory a box names in the
+    /// instance's state directory (`CLAUDE_CONFIG_DIR`, `story:box-forge-work`).
+    fn box_registry(&self) -> PathBuf {
+        self.state().join("claude").join(child::REGISTRY)
     }
 
     fn inbox(&self) -> Vec<Value> {
@@ -197,7 +208,16 @@ impl Case {
     /// `conductor <args>` from the records directory with the case's home, config file and
     /// stand-in, `input` on its standard input, under the filter that refuses Unix sockets.
     fn run_with_input(&self, args: &[&str], input: &str) -> Output {
+        self.run_at(Side::Plain, args, input)
+    }
+
+    /// `conductor <args>` as [`Self::run_with_input`] runs it, on `side`: in the case's box
+    /// (the filter, and the box's `CLAUDE_CONFIG_DIR`), or on its host (neither).
+    fn run_at(&self, side: Side, args: &[&str], input: &str) -> Output {
         let mut command = common::conductor(self.home());
+        if side == Side::Box {
+            command.env("CLAUDE_CONFIG_DIR", self.state().join("claude"));
+        }
         command
             .args(args)
             .current_dir(self.records())
@@ -209,7 +229,9 @@ impl Case {
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
             .stderr(Stdio::piped());
-        refuse_unix_sockets(&mut command);
+        if side != Side::Host {
+            refuse_unix_sockets(&mut command);
+        }
         let mut child = command.spawn().expect("conductor runs");
         child
             .stdin
@@ -226,13 +248,75 @@ impl Case {
 
     /// The id of the case's one controller, from `controller controllers`.
     fn controller_id(&self) -> String {
-        let output = self.run(&["controller", "controllers", "--format", "json"]);
-        let rows: Value = serde_json::from_slice(&succeeded(&output, "controller controllers"))
-            .expect("the controllers as JSON");
-        rows[0]["controller_id"]
+        self.controller()["controller_id"]
             .as_str()
             .expect("a controller id")
             .to_owned()
+    }
+
+    /// The case's one controller, as `controller controllers` lists it.
+    fn controller(&self) -> Value {
+        let output = self.run(&["controller", "controllers", "--format", "json"]);
+        let rows: Value = serde_json::from_slice(&succeeded(&output, "controller controllers"))
+            .expect("the controllers as JSON");
+        rows[0].clone()
+    }
+
+    /// Makes the case's instance one in a box (`placement: systemd`) whose conductord listens on
+    /// `port`, and keeps the daemon's token where a local client reads it.
+    fn make_boxed(&self, port: u16) {
+        let text = fs::read_to_string(self.dir.join("conductor.yaml")).expect("the config file");
+        let text = text
+            .replace(
+                "version: conductor.config/1\n",
+                &format!("version: conductor.config/2\ndaemon: {{port: {port}}}\n"),
+            )
+            .replace(
+                "  - name: example-org\n",
+                "  - name: example-org\n    placement: systemd\n",
+            )
+            .replace("    confinement: {provider: none}\n", "");
+        write(&self.dir.join("conductor.yaml"), &text);
+        // The box's harness reads its trust from its own state directory.
+        let trust = fs::read_to_string(self.home().join(".claude.json")).expect("the trust file");
+        write(&self.state().join("claude/.claude.json"), &trust);
+        write(
+            &self
+                .home()
+                .join(conductor_cli::daemon::DIR)
+                .join(conductor_cli::daemon::api::TOKEN_FILE),
+            DAEMON_TOKEN,
+        );
+    }
+
+    /// The case's runtime, `conductor instance serve` in its box without the loop, dialing its
+    /// API out to `dial`.
+    fn serve_in_box(&self, dial: SocketAddr) -> Running {
+        let mut command = common::conductor(self.home());
+        command
+            .args(["instance", "serve"])
+            .current_dir(self.state())
+            .env("CONDUCTOR_CONFIG", self.dir.join("conductor.yaml"))
+            .env(
+                "PATH",
+                format!("{}:/usr/bin:/bin", self.dir.join("bin").display()),
+            )
+            .env("CLAUDE_CONFIG_DIR", self.state().join("claude"))
+            .env(conductor_cli::instance::LOOP_VARIABLE, "off")
+            .env(conductor_cli::config::INSTANCE_VARIABLE, "example-org")
+            .env(conductor_cli::instance::TOKEN_VARIABLE, INSTANCE_TOKEN)
+            .env(conductor_cli::instance::DIAL_VARIABLE, dial.to_string())
+            .stdin(Stdio::null())
+            .stdout(Stdio::null())
+            .stderr(Stdio::null());
+        refuse_unix_sockets(&mut command);
+        let running = Running(command.spawn().expect("instance serve starts"));
+        let until = Instant::now() + Duration::from_secs(30);
+        while conductor_cli::daemon::dial::POOL.idle("example-org") == 0 {
+            assert!(Instant::now() < until, "the runtime dialed nothing in");
+            std::thread::sleep(Duration::from_millis(50));
+        }
+        running
     }
 
     /// The registry's live entry of the controller `ex-alpha`.
@@ -269,6 +353,63 @@ impl Case {
         }
         found
     }
+}
+
+/// Where a case's command runs.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Side {
+    /// Under the filter, as every command of a case without a box runs.
+    Plain,
+    /// In the case's box: under the filter, with the box's `CLAUDE_CONFIG_DIR`.
+    Box,
+    /// On the box's host: neither.
+    Host,
+}
+
+/// The token the daemon minted for the instance's runtime.
+const INSTANCE_TOKEN: &str = "1111111111111111111111111111111111111111111111111111111111111111";
+
+/// conductord's own token, which a local client reads from its directory.
+const DAEMON_TOKEN: &str = "2222222222222222222222222222222222222222222222222222222222222222";
+
+/// A runtime started for a case, killed when dropped.
+struct Running(std::process::Child);
+
+impl Drop for Running {
+    fn drop(&mut self) {
+        let _ = self.0.kill();
+        let _ = self.0.wait();
+    }
+}
+
+/// Held by each case that serves conductord: the dial-in pool is one per process
+/// ([`conductor_cli::daemon::dial::POOL`]) and keyed by the instance's name, which every case
+/// shares, so two such cases at once would take each other's connections.
+static CONDUCTORD: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
+/// conductord's API in this process, its one instance `example-org` routed over the connections
+/// its runtime dials in, with the dial-in listener: the API's port and the listener's address.
+fn conductord() -> (u16, SocketAddr) {
+    use conductor_cli::daemon::api::{self, Api, Route};
+    let api = Arc::new(Api::new(DAEMON_TOKEN.to_owned(), "owner".to_owned(), None));
+    api.publish(
+        vec![json!({"name": "example-org", "state": "Running"})],
+        [(
+            "example-org".to_owned(),
+            Route::dialed("example-org", INSTANCE_TOKEN.to_owned()),
+        )]
+        .into_iter()
+        .collect(),
+        Vec::new(),
+    );
+    let listener = TcpListener::bind("127.0.0.1:0").expect("bind the API's listener");
+    let port = listener.local_addr().expect("its address").port();
+    let served = Arc::clone(&api);
+    std::thread::spawn(move || api::serve(&listener, &served));
+    let dialed = TcpListener::bind("127.0.0.1:0").expect("bind the dial-in listener");
+    let dial = dialed.local_addr().expect("its address");
+    std::thread::spawn(move || conductor_cli::daemon::dial::serve(&dialed, &api));
+    (port, dial)
 }
 
 /// Makes `command` run under a seccomp filter that refuses `socket(AF_UNIX, …)` with `EACCES` and
@@ -579,4 +720,123 @@ fn a_delivery_to_no_running_session_is_refused() {
         describe(&output)
     );
     assert!(case.inbox().is_empty());
+}
+
+/// `story:host-commands-reach-boxed-session`: a controller runs in the box of a boxed instance,
+/// started there as a child session, where the host can neither signal its process nor see its
+/// registry as its own. From the host, `session deliver` puts the text on the session's input and
+/// `stop-controller` ends the session's process before the record is stopped, both through
+/// conductord and the runtime the box dialed in.
+#[test]
+fn host_commands_reach_a_child_session_in_the_box_through_the_runtime() {
+    let _one = CONDUCTORD
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
+    active::isolate();
+    let case = Case::new("host-reaches-box");
+    let (port, dial) = conductord();
+    case.make_boxed(port);
+    let _runtime = case.serve_in_box(dial);
+
+    let output = case.run_at(Side::Box, &["spawn", "--repository", "alpha"], "");
+    let id = String::from_utf8(succeeded(&output, "spawn in the box")).expect("UTF-8");
+    let id = id.trim();
+    let entry = child::live_named(&case.box_registry(), "ex-alpha")
+        .expect("a live child session in the box's registry");
+    assert_eq!(entry.session_id, id);
+    let pid = entry.pid.expect("a pid");
+    assert!(case.live().is_none(), "the host's own registry holds none");
+    assert_eq!(case.wait_for_inbox(1).len(), 1);
+
+    // Deliver from the host: the runtime writes it to the session's input.
+    let text = "NEED answered: ship it\nwith a second line";
+    let output = case.run_at(
+        Side::Host,
+        &["session", "deliver", "--name", "ex-alpha", "--text", "-"],
+        text,
+    );
+    let printed =
+        String::from_utf8(succeeded(&output, "session deliver from the host")).expect("UTF-8");
+    assert!(!printed.trim().is_empty(), "the delivery's id: {printed:?}");
+    let inbox = case.wait_for_inbox(2);
+    assert_eq!(inbox.len(), 2, "{inbox:?}");
+    assert_eq!(inbox[1]["message"]["content"], text);
+
+    // Stop from the host: the runtime ends the process, then the record is stopped.
+    let controller = case.controller_id();
+    let output = case.run_at(
+        Side::Host,
+        &[
+            "controller",
+            "stop-controller",
+            "--controller-id",
+            &controller,
+            "--reason",
+            "the operator stops it",
+        ],
+        "",
+    );
+    let printed =
+        String::from_utf8(succeeded(&output, "stop-controller from the host")).expect("UTF-8");
+    assert_eq!(printed.trim(), format!("stopped ex-alpha ({id})"));
+    assert!(gone(pid), "the stopped session's process {pid} ended");
+    assert!(child::live_named(&case.box_registry(), "ex-alpha").is_none());
+    assert_eq!(case.controller()["state"], "Stopped");
+}
+
+/// With the box's runtime not reached, the host's `session deliver` and `stop-controller` for a
+/// session in the box refuse: nothing is delivered, the session runs on, and the controller stays
+/// `Running`.
+#[test]
+fn host_commands_refuse_and_change_nothing_without_the_runtime() {
+    let _one = CONDUCTORD
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
+    active::isolate();
+    let case = Case::new("host-without-runtime");
+    let (port, _dial) = conductord();
+    case.make_boxed(port);
+
+    let output = case.run_at(Side::Box, &["spawn", "--repository", "alpha"], "");
+    succeeded(&output, "spawn in the box");
+    let pid = child::live_named(&case.box_registry(), "ex-alpha")
+        .and_then(|entry| entry.pid)
+        .expect("a live child session in the box");
+    assert_eq!(case.wait_for_inbox(1).len(), 1);
+
+    let output = case.run_at(
+        Side::Host,
+        &["session", "deliver", "--name", "ex-alpha", "--text", "-"],
+        "NEED answered: ship it",
+    );
+    assert_eq!(output.status.code(), Some(1), "{}", describe(&output));
+    let said = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        said.contains("SessionNotReachable") && said.contains("runtime was not reached"),
+        "{}",
+        describe(&output)
+    );
+
+    let controller = case.controller_id();
+    let output = case.run_at(
+        Side::Host,
+        &[
+            "controller",
+            "stop-controller",
+            "--controller-id",
+            &controller,
+            "--reason",
+            "the operator stops it",
+        ],
+        "",
+    );
+    assert_eq!(output.status.code(), Some(1), "{}", describe(&output));
+    assert!(
+        String::from_utf8_lossy(&output.stderr).contains("not recorded stopped"),
+        "{}",
+        describe(&output)
+    );
+    assert_eq!(case.controller()["state"], "Running");
+    assert!(child::alive(pid, ""), "the session's process {pid} runs on");
+    assert_eq!(case.inbox().len(), 1, "nothing was delivered");
 }

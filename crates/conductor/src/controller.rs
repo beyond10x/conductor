@@ -250,11 +250,18 @@ pub fn resume_controller(
 /// ([`crate::spawn::end`]), and the command prints `stopped <session name> (<id>)`; a session
 /// that is gone already, or that no provider's measurement records, is left as it is.
 ///
+/// A session that runs in the box of its instance, seen from outside that box
+/// ([`crate::confine::child::runs_in_box`]), is the box's runtime's to stop: its pid is one of the
+/// box's pid namespace (`story:host-commands-reach-boxed-session`). The whole command is then
+/// sent to the runtime through conductord ([`crate::instance::through_daemon`], `POST
+/// /v1/instances/{name}/controllers/{id}/stop`), which stops the session and records the stop as
+/// the operator; a runtime that does not answer leaves the record as it was.
+///
 /// # Errors
 ///
 /// A flag is missing or `--input-json` is given, the store does not open or keep the record, the
-/// session is not stopped, or the controller is unknown (`ControllerNotFound`) or already stopped
-/// (`ControllerStateConflict`).
+/// session is not stopped, the runtime of a boxed session does not answer, or the controller is
+/// unknown (`ControllerNotFound`) or already stopped (`ControllerStateConflict`).
 pub fn stop_controller(
     state: Option<&Path>,
     args: StopControllerArgs,
@@ -264,6 +271,68 @@ pub fn stop_controller(
     flags_only(args.input_json, "controller stop-controller --input-json")?;
     let controller_id = controller_id(args.controller_id, WHAT)?;
     let reason = required(args.reason, WHAT, "--reason")?;
+    if let Some((_, session_name)) = in_state(
+        state,
+        &controller_id,
+        &[ControllerState::Running, ControllerState::Paused],
+    )? {
+        let instance = &crate::config::active().instance;
+        let dir = crate::state::dir(state)?;
+        if crate::confine::child::runs_in_box(instance, &dir, &session_name.0) {
+            let route = format!("{STOP_ROUTE}/{}/stop", controller_id.0.0);
+            return match crate::instance::through_daemon(
+                &instance.name.0,
+                &route,
+                &serde_json::json!({ "reason": reason }),
+            ) {
+                crate::instance::Through::Done(answer) => {
+                    say(answer["stopped"]
+                        .as_str()
+                        .map(|session| format!("stopped {session}")))?;
+                    Ok(ExitCode::SUCCESS)
+                }
+                crate::instance::Through::Refused(line) => bail!("{line}"),
+                crate::instance::Through::Unreached(why) => bail!(
+                    "{WHAT}: the session {} runs in the box of instance {}, and its runtime was \
+                     not reached: {why}; the controller is not recorded stopped",
+                    session_name.0,
+                    instance.name.0
+                ),
+            };
+        }
+    }
+    let stopped = stop_here(
+        state,
+        controller_id,
+        reason,
+        crate::actor::chosen(),
+        providers,
+    )?;
+    say(stopped.map(|session| format!("stopped {session}")))?;
+    Ok(ExitCode::SUCCESS)
+}
+
+/// The prefix of the instance API's controller routes: `POST /v1/controllers/{id}/stop`
+/// ([`stop_here`]).
+pub const STOP_ROUTE: &str = "controllers";
+
+/// [`stop_controller`] in this process, recorded as `actor`: the controller's session stopped
+/// through its instance's provider, then the record. Answers `<session name> (<id>)` of the
+/// session it stopped, none when it touched none. The instance API's
+/// `POST /v1/controllers/{id}/stop` calls it in the runtime, for the operator conductord admitted
+/// (`story:host-commands-reach-boxed-session`).
+///
+/// # Errors
+///
+/// Those of [`stop_controller`] past its flags.
+pub(crate) fn stop_here(
+    state: Option<&Path>,
+    controller_id: ControllerId,
+    reason: String,
+    actor: conductor_model::operator::Actor,
+    providers: &dyn Providers,
+) -> Result<Option<String>> {
+    const WHAT: &str = "controller stop-controller";
     let stopped = match in_state(
         state,
         &controller_id,
@@ -278,20 +347,17 @@ pub fn stop_controller(
     let mut generated = record(state)?;
     let outcome = generated
         .stop_controller(StopController {
-            actor: crate::actor::chosen(),
+            actor,
             controller_id,
             reason,
         })
         .map_err(|unmet| anyhow!("{WHAT}: {unmet}"))?;
     generated.ports.store.check().context("keep the stop")?;
     match outcome {
-        StopControllerOutcome::Stopped { .. } => {
-            say(stopped.map(|session| format!("stopped {session}")))?;
-            Ok(ExitCode::SUCCESS)
-        }
-        StopControllerOutcome::NoSuchController { error } => not_found(WHAT, &error),
+        StopControllerOutcome::Stopped { .. } => Ok(stopped),
+        StopControllerOutcome::NoSuchController { error } => not_found(WHAT, &error).map(|_| None),
         StopControllerOutcome::WrongState { error } => {
-            state_conflict(WHAT, &error, "the controller is already stopped")
+            state_conflict(WHAT, &error, "the controller is already stopped").map(|_| None)
         }
     }
 }

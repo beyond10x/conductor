@@ -192,6 +192,79 @@ fn sealed_slot(slots: &str, wanted: fn(&str) -> bool, what: &str) -> Result<Opti
     Ok(Some(value.to_owned()))
 }
 
+/// What the runtime of an instance in a box answered a write the host sent it through conductord
+/// ([`through_daemon`], `story:host-commands-reach-boxed-session`).
+#[derive(Debug, Clone, PartialEq)]
+pub enum Through {
+    /// The runtime did it, and answered this.
+    Done(serde_json::Value),
+    /// The runtime, or conductord on its behalf, refused it, on one line.
+    Refused(String),
+    /// Neither conductord nor the runtime behind it answered, and why: nothing was done.
+    Unreached(String),
+}
+
+/// How long a write sent to a runtime through conductord may take: conductord's own wait on the
+/// runtime and a margin. A stop waits up to its provider's bound for the process to end.
+const THROUGH_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(90);
+
+/// `POST /v1/instances/{instance}/{route}` with the JSON `body` on conductord's loopback listener
+/// of this host (`daemon.port` of the config file), as a local client writes there: with the
+/// daemon's token from its directory and the listener's origin ([`crate::login::credential`]).
+/// conductord admits the operator the Unix user names, with that operator's grant, and forwards
+/// the write to the instance's runtime over whatever route it holds to it, the connections a
+/// runtime in a box dialed in among them (`story:host-commands-reach-boxed-session`). The
+/// runtime's refusal is the `refused` line of a `409`.
+#[must_use]
+pub fn through_daemon(instance: &str, route: &str, body: &serde_json::Value) -> Through {
+    let url = format!("http://127.0.0.1:{}", config::active().daemon_port);
+    let origin = match crate::remote::Origin::parse(&url) {
+        Ok(origin) => origin,
+        Err(error) => return Through::Unreached(format!("{error:#}")),
+    };
+    let credential = match crate::login::credential(&origin) {
+        Ok(credential) => credential,
+        Err(error) => return Through::Unreached(format!("{error:#}")),
+    };
+    let headers: Vec<(&str, &str)> = credential
+        .iter()
+        .map(|(name, value)| (name.as_str(), value.as_str()))
+        .collect();
+    let text = body.to_string();
+    let target = format!("/v1/instances/{instance}/{route}");
+    let (status, bytes) = match crate::remote::send_within(
+        &origin,
+        "POST",
+        &target,
+        &headers,
+        Some(("application/json", text.as_bytes())),
+        THROUGH_TIMEOUT,
+    ) {
+        Ok(answer) => answer,
+        Err(error) => {
+            return Through::Unreached(format!("conductord at {url} does not answer: {error:#}"));
+        }
+    };
+    let answer: serde_json::Value = serde_json::from_slice(&bytes).unwrap_or_default();
+    if let Some(line) = answer["refused"].as_str() {
+        return Through::Refused(line.to_owned());
+    }
+    match status {
+        200 => Through::Done(answer),
+        403 => Through::Refused(format!(
+            "conductord refused the write: {}",
+            crate::remote::refusal(&answer)
+        )),
+        _ => Through::Unreached(format!(
+            "POST {target} on {url} answered {status}: {}",
+            answer["error"].as_str().map_or_else(
+                || String::from_utf8_lossy(&bytes).trim().to_owned(),
+                str::to_owned
+            )
+        )),
+    }
+}
+
 /// The socket's file name in the instance's state directory.
 pub const SOCKET: &str = "api.sock";
 
