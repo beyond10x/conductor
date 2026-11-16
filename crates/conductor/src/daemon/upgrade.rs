@@ -64,6 +64,10 @@ const ANSWER_WAIT: Duration = Duration::from_secs(900);
 /// How often `conductor instance upgrade` looks at `GET /v1/instances` while one upgrades.
 const POLL: Duration = Duration::from_secs(1);
 
+/// How long `conductor instance upgrade` waits for the rows to show an upgrade the daemon took
+/// before it reads a row on another version as its end ([`ended`]).
+const SHOWN: Duration = Duration::from_secs(15);
+
 /// What fetches a release and runs a binary's doctor: [`Github`], or a test's fake.
 pub trait Releases {
     /// Downloads the release `tag`'s archive for this host's target into `work`, verifies it,
@@ -606,7 +610,14 @@ impl<U: Units> Daemon<U> {
 
     /// Answers one request [`post`] handed over: the upgrade, then its reply.
     pub fn answer(&mut self, request: Request) {
-        let reply = match self.upgrade(
+        let reply = self.answered(&request);
+        let _ = request.reply.send(reply);
+    }
+
+    /// The upgrade `request` asks for, done, and the reply it is to get: the status line and the
+    /// JSON body.
+    pub fn answered(&mut self, request: &Request) -> (&'static str, Value) {
+        match self.upgrade(
             &request.name,
             &request.tag,
             &request.actor,
@@ -628,8 +639,7 @@ impl<U: Units> Daemon<U> {
                 };
                 (status, json!({"error": refusal.to_string()}))
             }
-        };
-        let _ = request.reply.send(reply);
+        }
     }
 }
 
@@ -788,7 +798,17 @@ pub fn instance_upgrade(
                     .unwrap_or("the daemon answered no reason")
             ),
         }
-        let row = wait_upgraded(port, &name, timeout).with_context(|| format!("{WHAT}: {name}"))?;
+        let bound = Duration::from_secs(timeout + 60);
+        let row = ended(
+            || {
+                let (_, rows) = request(None, port, "GET", super::api::INSTANCES, None)?;
+                Ok(rows.as_array().cloned().unwrap_or_default())
+            },
+            &name,
+            &version,
+            bound,
+        )
+        .with_context(|| format!("{WHAT}: {name}"))?;
         let now_on = row["binary_version"].as_str().unwrap_or("unknown");
         if now_on != version {
             bail!("{WHAT}: {name}: rolled back to {now_on}: {version} did not come up");
@@ -798,19 +818,32 @@ pub fn instance_upgrade(
     Ok(ExitCode::SUCCESS)
 }
 
-/// `name`'s row of `GET /v1/instances` once it no longer upgrades, within the timeout and a
-/// minute.
-fn wait_upgraded(port: u16, name: &str, timeout: u64) -> Result<Value> {
-    let bound = Duration::from_secs(timeout + 60);
+/// `name`'s row of the instances `rows` reads (`GET /v1/instances`) once its upgrade to `version`
+/// ended: no longer `Upgrading`, within `bound`. A row that shows neither the upgrade
+/// (`Upgrading`) nor `version` may be one the daemon published before it took the upgrade
+/// (conductord 1.13 and older answered first): it ends the wait only once [`SHOWN`] passed
+/// without the upgrade showing, so a rollback is reported from what the daemon recorded, not
+/// from a row read too early.
+///
+/// # Errors
+///
+/// `rows` fails, lists no `name`, or the row still reads `Upgrading` after `bound`.
+pub(crate) fn ended(
+    mut rows: impl FnMut() -> Result<Vec<Value>>,
+    name: &str,
+    version: &str,
+    bound: Duration,
+) -> Result<Value> {
     let started = std::time::Instant::now();
+    let mut shown = false;
     loop {
-        let (_, rows) = request(None, port, "GET", super::api::INSTANCES, None)?;
-        let row = rows
-            .as_array()
-            .and_then(|rows| rows.iter().find(|row| row["name"] == name))
-            .cloned()
-            .ok_or_else(|| anyhow!("GET {} lists no {name}", super::api::INSTANCES))?;
-        if row["state"] != "Upgrading" {
+        let row = rows()?
+            .into_iter()
+            .find(|row| row["name"] == name)
+            .ok_or_else(|| anyhow!("{} lists no {name}", super::api::INSTANCES))?;
+        let upgrading = row["state"] == "Upgrading";
+        shown |= upgrading || row["binary_version"] == version;
+        if !upgrading && (shown || started.elapsed() >= SHOWN) {
             return Ok(row);
         }
         if started.elapsed() > bound {

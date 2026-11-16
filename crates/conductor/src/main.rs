@@ -22,7 +22,7 @@ fn main() -> ExitCode {
     let mut cli = Cli::from_arg_matches(&matches).unwrap_or_else(|error| error.exit());
     cli.leaf = leaf_of(&matches);
     cli.actor = actor_of(&matches);
-    match cli.run() {
+    let code = match cli.run() {
         Ok(code) => code,
         Err(error) => {
             eprintln!("conductor: {error:#}");
@@ -32,5 +32,8 @@ fn main() -> ExitCode {
                 ExitCode::FAILURE
             }
         }
-    }
+    };
+    // A runtime's log stamps its lines on a thread: what it still holds is written first.
+    conductor_cli::instance::end_log();
+    code
 }

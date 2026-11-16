@@ -13,8 +13,7 @@
 
 use std::net::TcpStream;
 use std::process::ExitCode;
-use std::thread;
-use std::time::{Duration, Instant};
+use std::time::Duration;
 
 use anyhow::{Context as _, Result, anyhow, bail};
 use rustls::pki_types::ServerName;
@@ -38,9 +37,6 @@ pub const ROUTED: [&[&str]; 6] = [
 
 /// How long a request to a daemon or an Identity service may take.
 const TIMEOUT: Duration = Duration::from_secs(30);
-
-/// How often `instance upgrade` looks at the instance it upgrades.
-const POLL: Duration = Duration::from_secs(2);
 
 /// The daemon a routed command talks to: the `--daemon` flag, else [`VARIABLE`], else none (this
 /// box).
@@ -394,24 +390,8 @@ pub fn instance_upgrade(url: &str, args: &InstanceUpgradeArgs) -> Result<ExitCod
                 return Ok(ExitCode::FAILURE);
             }
         }
-        let started = Instant::now();
-        let row = loop {
-            let row = rows()
-                .with_context(|| format!("{WHAT}: {name}"))?
-                .into_iter()
-                .find(|row| row["name"] == name.as_str())
-                .ok_or_else(|| anyhow!("{WHAT}: {name}: the daemon lists no {name}"))?;
-            if row["state"] != "Upgrading" {
-                break row;
-            }
-            if started.elapsed() > bound {
-                bail!(
-                    "{WHAT}: {name}: still upgrading after {} s",
-                    bound.as_secs()
-                );
-            }
-            thread::sleep(POLL);
-        };
+        let row = crate::daemon::upgrade::ended(&rows, &name, version, bound)
+            .with_context(|| format!("{WHAT}: {name}"))?;
         let now_on = row["binary_version"].as_str().unwrap_or("unknown");
         if now_on != version {
             bail!("{WHAT}: {name}: rolled back to {now_on}: {version} did not come up");

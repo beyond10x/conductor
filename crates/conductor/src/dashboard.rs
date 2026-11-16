@@ -975,7 +975,11 @@ pub fn serve_tcp(listener: TcpListener, sources: Sources, state: Option<PathBuf>
 /// with the line [`crate::instance::DIAL_HELLO`]` <instance> <token>`, and answers one request on
 /// each, through the token gate as on TCP ([`serve_tcp`]); then it dials the next. A connection
 /// that does not open, or that the daemon closes unanswered (it does not know the token yet, or
-/// at all), is dialed again after a wait that doubles up to [`DIAL_RETRY_MAX`].
+/// at all), is dialed again after a wait that doubles up to [`DIAL_RETRY_MAX`]; the runtime says
+/// so once until what it says changes, for all its connections together, and the daemon's
+/// journal says why it closed one. A connection the daemon closes as surplus to a full pool
+/// ([`crate::instance::DIAL_FULL`]) is no refusal: it is dialed again after [`DIAL_RETRY_MAX`],
+/// and nothing is said (`story:dial-refusal-diagnosable`).
 ///
 /// It does not return.
 pub fn serve_dial(
@@ -989,10 +993,12 @@ pub fn serve_dial(
     let hello = format!("{} {instance} {token}\n", crate::instance::DIAL_HELLO);
     let server = Arc::new(Server::new(sources, state, cache::Tuning::default(), token));
     start(&server);
+    let said = Arc::new(Mutex::new(None));
     let dialers: Vec<_> = (0..connections.max(1))
         .map(|_| {
             let (server, address, hello) = (Arc::clone(&server), address.to_owned(), hello.clone());
-            std::thread::spawn(move || dial_forever(&address, &hello, &server))
+            let said = Arc::clone(&said);
+            std::thread::spawn(move || dial_forever(&address, &hello, &server, &said))
         })
         .collect();
     for dialer in dialers {
@@ -1006,23 +1012,24 @@ const DIAL_RETRY_MIN: Duration = Duration::from_millis(250);
 /// The longest wait before a connection that failed is dialed again.
 pub const DIAL_RETRY_MAX: Duration = Duration::from_secs(10);
 
-/// Dials `address` again and again, one exchange per connection ([`dial_once`]).
-fn dial_forever(address: &str, hello: &str, server: &Arc<Server>) {
+/// Dials `address` again and again, one exchange per connection ([`dial_once`]); a failure is
+/// said when it differs from the last one `said` holds, which every connection shares.
+fn dial_forever(address: &str, hello: &str, server: &Arc<Server>, said: &Mutex<Option<String>>) {
     let mut wait = DIAL_RETRY_MIN;
-    let mut said: Option<String> = None;
     loop {
         match dial_once(address, hello, server) {
-            Ok(()) => {
-                wait = DIAL_RETRY_MIN;
-                said = None;
-            }
+            Ok(Dialed::Answered) => wait = DIAL_RETRY_MIN,
+            Ok(Dialed::Surplus) => std::thread::sleep(DIAL_RETRY_MAX),
             Err(error) => {
-                // Said once until it changes: a daemon that is away is not a line a second.
+                // Said once until it changes: a daemon that is away, or that refuses this
+                // runtime, is not a line per connection and attempt.
                 let line = format!("conductor instance serve: dial {address}: {error}");
-                if said.as_deref() != Some(line.as_str()) {
-                    eprintln!("{line}");
-                    said = Some(line);
+                let mut last = said.lock().unwrap_or_else(PoisonError::into_inner);
+                if last.as_deref() != Some(line.as_str()) {
+                    crate::run::say(true, &line);
+                    *last = Some(line);
                 }
+                drop(last);
                 std::thread::sleep(wait);
                 wait = (wait * 2).min(DIAL_RETRY_MAX);
             }
@@ -1030,22 +1037,47 @@ fn dial_forever(address: &str, hello: &str, server: &Arc<Server>) {
     }
 }
 
+/// How one dialed connection ended.
+enum Dialed {
+    /// It answered the request the daemon sent on it.
+    Answered,
+    /// The daemon closed it as surplus to the instance's full pool.
+    Surplus,
+}
+
+/// How often a connection that holds part of [`crate::instance::DIAL_FULL`] is looked at again
+/// for the rest, and at most how many times.
+const FULL_LOOK: Duration = Duration::from_millis(10);
+const FULL_LOOKS: usize = 100;
+
 /// One connection dialed to `address`: the greeting `hello`, then, once the daemon sends a
-/// request on it, however long that takes, the answer ([`connection`]).
-fn dial_once(address: &str, hello: &str, server: &Arc<Server>) -> io::Result<()> {
+/// request on it, however long that takes, the answer ([`connection`]); or the daemon's word
+/// that it is surplus, [`crate::instance::DIAL_FULL`].
+fn dial_once(address: &str, hello: &str, server: &Arc<Server>) -> io::Result<Dialed> {
     let mut stream = TcpStream::connect(address)?;
     stream.write_all(hello.as_bytes())?;
     stream.flush()?;
     stream.set_read_timeout(None)?;
-    let mut byte = [0_u8; 1];
-    if stream.peek(&mut byte)? == 0 {
-        return Err(io::Error::new(
-            ErrorKind::ConnectionAborted,
-            "the daemon closed the connection unanswered: it does not route this instance by \
-             dial-in, or not with this token",
-        ));
+    let full = format!("{}\n", crate::instance::DIAL_FULL);
+    let mut head = vec![0_u8; full.len()];
+    for _ in 0..FULL_LOOKS {
+        let read = stream.peek(&mut head)?;
+        if read == 0 {
+            // All the runtime can know: the daemon's journal says why (`dial-in closed`).
+            return Err(io::Error::new(
+                ErrorKind::ConnectionAborted,
+                "the daemon closed the connection before any request: its journal says why",
+            ));
+        }
+        if !full.as_bytes().starts_with(&head[..read]) {
+            break;
+        }
+        if read == full.len() {
+            return Ok(Dialed::Surplus);
+        }
+        std::thread::sleep(FULL_LOOK);
     }
-    connection(stream, server, true)
+    connection(stream, server, true).map(|()| Dialed::Answered)
 }
 
 /// Serves `server` on `listener`, as [`serve_unix`] says.

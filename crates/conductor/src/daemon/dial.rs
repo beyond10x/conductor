@@ -7,21 +7,26 @@
 //! Each connection opens with one line, [`crate::instance::DIAL_HELLO`], the instance's name and
 //! the token the daemon minted for its runtime, separated by single spaces. A line that does not
 //! read within [`HELLO_TIMEOUT`], names an instance the daemon does not route by dial-in, or
-//! carries another token closes the connection unanswered ([`super::api::Api::admits_dial`]): a
+//! carries another token closes the connection unanswered ([`super::api::Api::admit_dial`]): a
 //! process on the host that dials in as an instance would otherwise receive the writes proxied to
 //! it, the token among them. An admitted connection waits idle in the instance's pool ([`POOL`])
 //! until a proxied request takes it ([`Pool::take`]) for one exchange: the request, the end of
 //! the daemon's writes, the answer, the close. The runtime dials a new one for each it answered.
+//!
+//! The daemon says in its journal why it closed a dialed connection ([`Closed`]), a repeat once
+//! until the cause changes ([`Said`]); it tells the connection nothing but that the pool is full
+//! ([`crate::instance::DIAL_FULL`]), which only an admitted one learns
+//! (`story:dial-refusal-diagnosable`).
 
 use std::collections::BTreeMap;
-use std::io::{self, Read as _};
+use std::io::{self, Read as _, Write as _};
 use std::net::{TcpListener, TcpStream};
 use std::sync::{Arc, Condvar, LazyLock, Mutex, PoisonError};
 use std::time::{Duration, Instant};
 
 use anyhow::{Result, bail};
 
-use super::api::Api;
+use super::api::{Admission, Api};
 
 /// The egress aperture a runtime in a local box dials conductord through: the operator declares
 /// it on the substrate daemon as `--egress-aperture conductord=127.0.0.1:<daemon.dial_port>/tcp`.
@@ -48,18 +53,20 @@ pub struct Pool {
 pub static POOL: LazyLock<Pool> = LazyLock::new(Pool::default);
 
 impl Pool {
-    /// Keeps `stream`, dialed in by the runtime of `instance`, until a request takes it; closes
-    /// it when the instance holds [`MAX_IDLE`] already.
-    pub fn keep(&self, instance: &str, stream: TcpStream) {
+    /// Keeps `stream`, dialed in by the runtime of `instance`, until a request takes it; hands it
+    /// back when the instance holds [`MAX_IDLE`] already.
+    #[must_use = "a connection handed back is surplus, to be told so and closed"]
+    pub fn keep(&self, instance: &str, stream: TcpStream) -> Option<TcpStream> {
         let mut idle = self.idle.lock().unwrap_or_else(PoisonError::into_inner);
         let held = idle.entry(instance.to_owned()).or_default();
         held.retain(alive);
         if held.len() >= MAX_IDLE {
-            return;
+            return Some(stream);
         }
         held.push(stream);
         drop(idle);
         self.arrived.notify_all();
+        None
     }
 
     /// An idle connection of `instance` that is still open, waiting at most `within` for one to
@@ -118,23 +125,116 @@ fn alive(stream: &TcpStream) -> bool {
     open && stream.set_nonblocking(false).is_ok()
 }
 
+/// Why the dial-in listener closed a dialed connection, as conductord's journal says it.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Closed {
+    /// Its first line was no greeting, or did not arrive within [`HELLO_TIMEOUT`]: what [`hello`]
+    /// said.
+    Greeting(String),
+    /// It names an instance the daemon does not route by dial-in.
+    NotRouted(String),
+    /// It names an instance routed by dial-in with another token than the one the daemon minted
+    /// for its runtime's start.
+    WrongToken(String),
+    /// It was admitted, and the instance holds [`MAX_IDLE`] idle connections already.
+    Full(String),
+}
+
+impl Closed {
+    /// What a repeat is told apart by ([`Said`]): the instance a token was checked for, else
+    /// none, since any process may send any name.
+    fn key(&self) -> &str {
+        match self {
+            Self::Greeting(_) | Self::NotRouted(_) => "",
+            Self::WrongToken(instance) | Self::Full(instance) => instance,
+        }
+    }
+}
+
+impl std::fmt::Display for Closed {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Greeting(why) => write!(formatter, "no dial-in greeting: {why}"),
+            Self::NotRouted(instance) => write!(
+                formatter,
+                "{instance:?}: the daemon does not route it by dial-in: no such instance, or its \
+                 runtime is not started in a local box or not seen running"
+            ),
+            Self::WrongToken(instance) => write!(
+                formatter,
+                "{instance}: not the token the daemon minted for its runtime's start: a runtime \
+                 of an earlier start may still be dialing"
+            ),
+            Self::Full(instance) => write!(
+                formatter,
+                "{instance}: the pool is full, {MAX_IDLE} idle connections: a surplus one, told \
+                 so"
+            ),
+        }
+    }
+}
+
+/// The last cause said per [`Closed::key`]: each said once until it changes.
+#[derive(Debug, Default)]
+pub struct Said(Mutex<BTreeMap<String, String>>);
+
+impl Said {
+    /// The journal line of `closed`, unless it is the line said last for its key.
+    pub fn first(&self, closed: &Closed) -> Option<String> {
+        let line = format!("conductord: dial-in closed: {closed}");
+        let mut said = self.0.lock().unwrap_or_else(PoisonError::into_inner);
+        if said.get(closed.key()) == Some(&line) {
+            return None;
+        }
+        said.insert(closed.key().to_owned(), line.clone());
+        Some(line)
+    }
+}
+
+/// What the dial-in listener says, a line at a time.
+pub type Say = Arc<dyn Fn(&str) + Send + Sync>;
+
 /// Takes every connection `listener` accepts, each on a thread of its own: admitted by its first
-/// line ([`hello`], [`Api::admits_dial`]), it waits in [`POOL`]; any other is closed.
+/// line ([`hello`], [`Api::admit_dial`]), it waits in [`POOL`]; any other is closed, and why goes
+/// to standard error, the daemon's journal ([`serve_saying`]).
 pub fn serve(listener: &TcpListener, api: &Arc<Api>) {
+    serve_saying(listener, api, Arc::new(|line: &str| eprintln!("{line}")));
+}
+
+/// [`serve`], saying each closed connection's cause through `say`, once until it changes.
+pub fn serve_saying(listener: &TcpListener, api: &Arc<Api>, say: Say) {
+    let said = Arc::new(Said::default());
     for stream in listener.incoming().flatten() {
-        let api = Arc::clone(api);
+        let (api, said, say) = (Arc::clone(api), Arc::clone(&said), Arc::clone(&say));
         std::thread::spawn(move || {
-            let mut stream = stream;
-            let Ok((instance, token)) = hello(&mut stream) else {
-                return;
-            };
-            if !api.admits_dial(&instance, &token) {
-                return;
-            }
-            if stream.set_read_timeout(None).is_ok() {
-                POOL.keep(&instance, stream);
+            if let Err(closed) = admit(stream, &api)
+                && let Some(line) = said.first(&closed)
+            {
+                say(&line);
             }
         });
+    }
+}
+
+/// Admits `stream` to [`POOL`] by its first line, or answers why it is closed; a surplus one is
+/// told [`crate::instance::DIAL_FULL`] first.
+fn admit(mut stream: TcpStream, api: &Api) -> Result<(), Closed> {
+    let (instance, token) =
+        hello(&mut stream).map_err(|error| Closed::Greeting(format!("{error:#}")))?;
+    match api.admit_dial(&instance, &token) {
+        Admission::Admitted => {}
+        Admission::NotRouted => return Err(Closed::NotRouted(instance)),
+        Admission::WrongToken => return Err(Closed::WrongToken(instance)),
+    }
+    stream
+        .set_read_timeout(None)
+        .map_err(|error| Closed::Greeting(format!("{error}")))?;
+    match POOL.keep(&instance, stream) {
+        None => Ok(()),
+        Some(mut surplus) => {
+            let _ = writeln!(surplus, "{}", crate::instance::DIAL_FULL);
+            Err(Closed::Full(instance))
+        }
     }
 }
 
@@ -150,7 +250,21 @@ pub fn hello(stream: &mut TcpStream) -> Result<(String, String)> {
     let mut byte = [0_u8; 1];
     // Byte by byte: what follows the line is the runtime's to answer, never read here.
     loop {
-        if stream.read(&mut byte)? == 0 {
+        let read = match stream.read(&mut byte) {
+            Err(error)
+                if matches!(
+                    error.kind(),
+                    io::ErrorKind::WouldBlock | io::ErrorKind::TimedOut
+                ) =>
+            {
+                bail!(
+                    "its first line did not arrive within {} s",
+                    HELLO_TIMEOUT.as_secs()
+                )
+            }
+            read => read?,
+        };
+        if read == 0 {
             bail!("the connection closed before its first line");
         }
         if byte[0] == b'\n' {
@@ -185,7 +299,6 @@ pub fn parse_hello(line: &str) -> Result<(String, String)> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::io::Write as _;
 
     #[test]
     fn a_greeting_names_the_instance_and_the_token() {
@@ -221,8 +334,8 @@ mod tests {
         let (accepted_open, _) = listener.accept().unwrap();
         // The closed one's end has to arrive before the pool looks.
         std::thread::sleep(Duration::from_millis(50));
-        pool.keep("pool-case", accepted_open);
-        pool.keep("pool-case", accepted_closed);
+        assert!(pool.keep("pool-case", accepted_open).is_none());
+        assert!(pool.keep("pool-case", accepted_closed).is_none());
         let mut taken = pool.take("pool-case", Duration::from_secs(1)).unwrap();
         taken.write_all(b"x").unwrap();
         let mut byte = [0_u8; 1];
@@ -241,10 +354,34 @@ mod tests {
         let address = listener.local_addr().unwrap();
         let pool = Pool::default();
         let mut dialed = Vec::new();
+        let mut surplus = 0;
         for _ in 0..=MAX_IDLE {
             dialed.push(TcpStream::connect(address).unwrap());
-            pool.keep("bound-case", listener.accept().unwrap().0);
+            surplus += usize::from(
+                pool.keep("bound-case", listener.accept().unwrap().0)
+                    .is_some(),
+            );
         }
         assert_eq!(pool.idle("bound-case"), MAX_IDLE);
+        assert_eq!(surplus, 1, "the one past the bound is handed back");
+    }
+
+    #[test]
+    fn a_cause_is_said_once_until_it_changes() {
+        let said = Said::default();
+        let wrong = Closed::WrongToken("alpha".to_owned());
+        let full = Closed::Full("alpha".to_owned());
+        let line = said.first(&wrong).expect("said the first time");
+        assert!(line.contains("alpha") && line.contains("token"), "{line}");
+        assert_eq!(said.first(&wrong), None);
+        assert!(said.first(&full).expect("a new cause").contains("full"));
+        assert!(said.first(&wrong).is_some(), "changed back: said again");
+        // Another instance's cause is its own.
+        assert!(said.first(&Closed::WrongToken("beta".to_owned())).is_some());
+        assert!(said.first(&wrong).is_none());
+        // A name no token was checked for shares one key: any process may send any name.
+        assert!(said.first(&Closed::NotRouted("x1".to_owned())).is_some());
+        assert!(said.first(&Closed::NotRouted("x2".to_owned())).is_some());
+        assert!(said.first(&Closed::NotRouted("x2".to_owned())).is_none());
     }
 }

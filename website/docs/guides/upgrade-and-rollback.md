@@ -69,6 +69,8 @@ of action `Upgrade` in its store:
 | `restart` | stops the runtime and starts it on the new binary. The binary it ran is kept as its previous one |
 
 The instance is then `Upgrading` in `GET /v1/instances` until its runtime answers on `api.sock`.
+The daemon shows it `Upgrading` before it answers the request, so the command reads the upgrade's
+end from the daemon, not the instance as it ran before.
 
 A runtime in a substrate box is asked about through substrate, not the service manager: it runs,
 and answers, while substrate says its session runs. Its `restart` closes the box and opens a new
