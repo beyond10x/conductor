@@ -27,7 +27,7 @@
 //! instances a recipient is read against are those of the config file: the host registry that
 //! added every other file's is gone in v1 (design architecture-next § 11), one daemon reading one
 //! file.
-//! | Bash | a `cd`, `pushd` or `git -C` (`--git-dir`, `--work-tree`, `GIT_DIR=`, `GIT_WORK_TREE=`) reaches another repository's checkout or managed worktrees, or `<records>`; a git subcommand that writes ([`git_reads`]) has a target (the directory `-C` leaves it in, else the cwd; `--git-dir`, `--work-tree`, `GIT_DIR`, `GIT_WORK_TREE`) outside `<root>/<repo>/`, `<trees>/<repo>/` and the session's scratch; a `gh` or `glab` call that is not a read ([`forge_write`]), except, under `forge.route: direct`, `gh pr create|edit|comment|merge|ready` and `glab mr create|update|note|merge` naming the repository the checkout's `origin` names with `-R` ([`Session::direct_denial`]), and `glab ci retry|run` of that repository (named with `-R` in any spelling, or none where `glab` reads it: the session's cwd, no command before it on the line but an assignment that moves nothing ([`moves_glab`]) or another `glab` call (no `cd`, `pushd` or `popd`), no `git` and no write form after it, nothing beside it in a pipe or the background but a read-only filter, and the repository git discovers there is no bare one and has a config with no include, `insteadOf`, `worktreeConfig`, key on a header line or `glab-resolved` other than `base`, whose every remote names it, [`Session::glab_place`], [`Session::implicit_denial`]) and `glab api -X POST` to its pipeline and job retry endpoints and `glab api -X PUT` to a merge request's merge endpoint with `merge_when_pipeline_succeeds=true`, no header, and nothing on the line that may change its words or its host ([`own_api_write`], [`sets_merge_on_green`], [`merge_line_denial`]); a direct write on a line that names a variable that points the forge elsewhere ([`FORGE_TARGET_VARIABLES`]) is denied; a run of the bot route `b10x-gates gh` that is not `release create|upload|edit|view`, `run rerun` or `workflow run` with `--repository` naming the repository the checkout's `origin` names ([`bot_route`]); the command writes a `.claude/` settings file or a `<settings>` ([`Places::writes_settings`]); the command writes a `<profile>` ([`Places::writes_profile`]); the command names `<config>` and holds a write form ([`Places::names_config`], [`holds_write_form`]); it runs a `conductor` leaf the command tree does not declare a controller may run ([`cli::LEAVES`], [`conductor_run`]), or one whose leaf a shell expansion, `xargs` or a program word a substitution names decides at run time; or the command writes `<records>` or a path under it ([`Places::writes_records`]) | a `gh` or `glab` call that is not a read, except a direct write as for a controller, its own repository the one the `origin` of `<records>` names; a run of the bot route as for a controller, its own repository the one the `origin` of `<records>` names; the command writes a `.claude/` settings file or a `<settings>`; the command writes a `<profile>` |
+//! | Bash | a `cd`, `pushd` or `git -C` (`--git-dir`, `--work-tree`, `GIT_DIR=`, `GIT_WORK_TREE=`) reaches another repository's checkout or managed worktrees, or `<records>`; a git subcommand that writes ([`git_reads`]) has a target (the directory `-C` leaves it in, else the cwd; `--git-dir`, `--work-tree`, `GIT_DIR`, `GIT_WORK_TREE`) outside `<root>/<repo>/`, `<trees>/<repo>/` and the session's scratch; a `gh` or `glab` call that is not a read ([`forge_write`]), except, under `forge.route: direct`, `gh pr create|edit|comment|merge|ready|close` and `glab mr create|update|note|merge|close` naming the repository the checkout's `origin` names with `-R` ([`Session::direct_denial`]), and `glab ci retry|run` of that repository (named with `-R` in any spelling, or none where `glab` reads it: the session's cwd, no command before it on the line but an assignment that moves nothing ([`moves_glab`]) or another `glab` call (no `cd`, `pushd` or `popd`), no `git` and no write form after it, nothing beside it in a pipe or the background but a read-only filter, and the repository git discovers there is no bare one and has a config with no include, `insteadOf`, `worktreeConfig`, key on a header line or `glab-resolved` other than `base`, whose every remote names it, [`Session::glab_place`], [`Session::implicit_denial`]) and `glab api -X POST` to its pipeline and job retry endpoints and `glab api -X PUT` to a merge request's merge endpoint with `merge_when_pipeline_succeeds=true`, no header, and nothing on the line that may change its words or its host ([`own_api_write`], [`sets_merge_on_green`], [`merge_line_denial`]); a direct write on a line that names a variable that points the forge elsewhere ([`FORGE_TARGET_VARIABLES`]) is denied; a run of the bot route `b10x-gates gh` that is not `release create|upload|edit|view`, `run rerun` or `workflow run` with `--repository` naming the repository the checkout's `origin` names ([`bot_route`]); the command writes a `.claude/` settings file or a `<settings>` ([`Places::writes_settings`]); the command writes a `<profile>` ([`Places::writes_profile`]); the command names `<config>` and holds a write form ([`Places::names_config`], [`holds_write_form`]); it runs a `conductor` leaf the command tree does not declare a controller may run ([`cli::LEAVES`], [`conductor_run`]), or one whose leaf a shell expansion, `xargs` or a program word a substitution names decides at run time; or the command writes `<records>` or a path under it ([`Places::writes_records`]) | a `gh` or `glab` call that is not a read, except a direct write as for a controller, its own repository the one the `origin` of `<records>` names; a run of the bot route as for a controller, its own repository the one the `origin` of `<records>` names; the command writes a `.claude/` settings file or a `<settings>`; the command writes a `<profile>` |
 //!
 //! A Bash command that kills by pattern, name or group is denied for every role, before the rows
 //! above ([`kill_denial`], `story:guard-no-pattern-kill`): `pkill`, `killall`, and a `kill` that
@@ -785,13 +785,16 @@ const ROUTE_CARRIES: [(&str, &[&str]); 3] = [
 
 /// The forge writes `forge.route: direct` admits (`story:forge-route`), each group with its verbs,
 /// for the session's own repository only, named with `-R`/`--repo`: a pull request's open,
-/// update, comment and merge (auto-merge included) through `gh`, a merge request's through
-/// `glab`.
-const DIRECT_CARRIES_GH: [(&str, &[&str]); 1] =
-    [("pr", &["create", "edit", "comment", "merge", "ready"])];
+/// update, comment, merge (auto-merge included) and close through `gh`, a merge request's through
+/// `glab` (`story:guard-admits-own-mr-close`: a controller retires a request it superseded).
+const DIRECT_CARRIES_GH: [(&str, &[&str]); 1] = [(
+    "pr",
+    &["create", "edit", "comment", "merge", "ready", "close"],
+)];
 
 /// The `glab` counterpart of [`DIRECT_CARRIES_GH`].
-const DIRECT_CARRIES_GLAB: [(&str, &[&str]); 1] = [("mr", &["create", "update", "note", "merge"])];
+const DIRECT_CARRIES_GLAB: [(&str, &[&str]); 1] =
+    [("mr", &["create", "update", "note", "merge", "close"])];
 
 /// The pipeline writes `forge.route: direct` admits through `glab` for the session's own
 /// repository (`story:guard-admits-own-pipelines`): a retry or a start of its CI, named with
@@ -1933,14 +1936,13 @@ impl Session<'_> {
     /// Why the forge write `write` of the simple command `words` is denied under `forge.route:
     /// direct` (`story:forge-route`), if it is. Admitted: a call of the forge's program by its
     /// name, not through a variable, whose group and verb [`Forge::direct_carries`] names (`gh pr
-    /// create|edit|comment|merge|ready`, `glab mr create|update|note|merge`), with no flag between
-    /// the group and the verb, naming with `-R`/`--repo` the session's own repository and no
-    /// other, with no operand that is a URL (which may name another repository's request), and
-    /// on a line, `command`, that names none of [`FORGE_TARGET_VARIABLES`] (a line may set one by
-    /// an assignment, `export`, `printf -v`, `read` or `declare`). A pipeline write or a setting
+    /// create|edit|comment|merge|ready|close`, `glab mr create|update|note|merge|close`), with no
+    /// flag between the group and the verb, naming with `-R`/`--repo` the session's own repository
+    /// and no other, with no operand that is a URL (which may name another repository's request),
+    /// and on a line, `command`, that names none of [`FORGE_TARGET_VARIABLES`] (a line may set one
+    /// by an assignment, `export`, `printf -v`, `read` or `declare`). A pipeline write or a setting
     /// of merge-on-green ([`DIRECT_PIPELINES_GLAB`], [`own_api_write`]) that names no repository
-    /// is admitted
-    /// where `glab` reads the session's own ([`Session::glab_place`],
+    /// is admitted where `glab` reads the session's own ([`Session::glab_place`],
     /// [`Session::implicit_denial`]). `-R` is read in every spelling ([`repo_flag`]). Everything
     /// else stays denied. `words` is `commands[index]`, the line's simple command that runs it.
     fn direct_denial(

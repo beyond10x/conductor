@@ -6349,6 +6349,7 @@ fn under_the_direct_route_a_controller_writes_its_own_pull_requests_with_gh() {
         "gh pr comment 3 --repo example-org/widget --body done",
         "gh pr merge 3 --auto --squash -R example-org/widget",
         "gh pr ready 3 -R Example-Org/Widget",
+        "gh pr close 3 -R example-org/widget --comment superseded",
         "git push -u origin feat/x && gh pr create -R example-org/widget --fill",
         "git push origin HEAD:feat/x",
     ] {
@@ -6388,10 +6389,8 @@ fn under_the_direct_route_every_other_gh_write_is_still_denied() {
             "GH_HOST=example.invalid gh pr merge 3 -R example-org/widget",
             "assigns GH_HOST",
         ),
-        (
-            "gh pr close 3 -R example-org/widget",
-            "under forge.route direct",
-        ),
+        ("gh pr close 3 -R example-org/other", "names the repository"),
+        ("gh pr close 3", "names no repository"),
         (
             "gh pr --flag merge 3 -R example-org/widget",
             "under forge.route direct",
@@ -6437,6 +6436,7 @@ fn under_the_direct_route_a_controller_writes_its_own_merge_requests_with_glab()
         "glab mr note 3 -m done -R gitlab.example.com/example-group/widget",
         "glab mr merge 3 --auto-merge --yes -R example-group/widget",
         "glab mr merge 3 --repo https://gitlab.example.com/example-group/widget",
+        "glab mr close 12 -R example-group/widget",
     ] {
         assert_verdict(
             &bash_by(&home, &places, &widget, command),
@@ -6450,6 +6450,11 @@ fn under_the_direct_route_a_controller_writes_its_own_merge_requests_with_glab()
             "glab mr merge 3 -R example-group/other",
             "names the repository",
         ),
+        (
+            "glab mr close 12 -R example-group/other",
+            "names the repository",
+        ),
+        ("glab mr close 12", "names no repository"),
         (
             "glab mr approve 3 -R example-group/widget",
             "under forge.route direct",

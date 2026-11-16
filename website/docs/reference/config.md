@@ -462,7 +462,7 @@ Keys: `probe`, `watcher`, `rotate`. Specified as `conductor.config.Usage`.
 
 ### ForgeRoute
 
-The route the instance's forge writes take. The file writes it in lower case. `gates`: through the bot route `b10x-gates`; the guard leaves `gh` and `glab` reading only, and `conductor run` commits and pushes the records with `b10x-gates bot`. `direct`: with the forge's own CLI and git; the guard lets a session open, update, comment on and merge (auto-merge included) the pull or merge requests of its own repository with `gh pr` or `glab mr`, the repository named with `-R`/`--repo`, and `conductor run` commits and pushes the records with plain git. Under either, every other forge write (another repository's, a credential's, an API write) is denied as before.
+The route the instance's forge writes take. The file writes it in lower case. `gates`: through the bot route `b10x-gates`; the guard leaves `gh` and `glab` reading only, and `conductor run` commits and pushes the records with `b10x-gates bot`. `direct`: with the forge's own CLI and git; the guard lets a session open, update, comment on, merge (auto-merge included) and close the pull or merge requests of its own repository with `gh pr` or `glab mr`, the repository named with `-R`/`--repo`, and `conductor run` commits and pushes the records with plain git. Under either, every other forge write (another repository's, a credential's, an API write) is denied as before.
 
 One of `gates` | `direct`. Specified as `conductor.config.ForgeRoute`.
 
