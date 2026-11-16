@@ -12,7 +12,7 @@
 //!
 //! | first line | what the tick does |
 //! |---|---|
-//! | `[REPORT <repo> <dispatch-id>] started\|blocked\|unblocked\|done\|failed <rest>` | moves the dispatch as `dispatch report-<verb>` does, `<rest>` its reason or evidence (`story:report-to-state`); `-` for the dispatch is the repository's one open dispatch, and with none open the report moves nothing and is not refused; `blocked handover <path>` is a report like any. A `blocked`, `done` or `failed` on a dispatch still `Sent` is reported `started` first, so the log holds both lines; a `started` on a `Blocked` dispatch is recorded `unblocked`, as a controller restarted after a hand-over reports |
+//! | `[REPORT <repo> <dispatch-id>] started\|blocked\|unblocked\|done\|failed <rest>` | moves the dispatch as `dispatch report-<verb>` does, `<rest>` its reason or evidence (`story:report-to-state`); `-` for the dispatch is the repository's one open dispatch, and with none open the report moves nothing and is not refused; `blocked handover <path>` is a report like any. A `blocked`, `done` or `failed` on a dispatch still `Sent` is reported `started` first, so the log holds both lines; a `started` on a `Blocked` dispatch is recorded `unblocked`, as a controller restarted after a hand-over reports; a `started` on a `Started` dispatch or a `blocked` on a `Blocked` one, as a controller resumed after a runtime restart repeats, moves nothing and is not refused |
 //! | `[REPORT <repo> <dispatch-id\|->] review <url> [<words>]` | the controller's pull request ([`review`]): a `Sent` dispatch is reported `started`, another moves nothing, as `progress`; the URL, the first word after the verb, is then recorded on the dispatch as `dispatch record-link` records it. A first word that is no link a dispatch takes, or none, is a `progress` report with nothing linked, and a dispatch that holds the most links takes the report without it: neither is refused, and the journal names it in one line. No other verb records a link |
 //! | `[HANDOVER <repo>] <rest>` | recorded as a report: the repository's open dispatch is reported blocked, `handover: <rest>` |
 //! | `[NEED <repo> <request-id>] <other-repo> <what>` | the whole message delivered to the running controller of `<other-repo>` (`relayed`), else kept for its next start; the repository is the field's leading run of name characters (`docs:` names `docs`). A field that names no repository the instance knows is not relayed and nothing is kept for it: the file stays in the mailbox, where the supervisor reads it, and the sender is told so in one message, `[REPORT <repo> -] not relayed: <reason>`; one that names the mailbox's own recipient, `conductor`, is the supervisor's and is answered by no one (`story:need-repository-from-tag`) |
@@ -274,6 +274,12 @@ fn report(
         review(tick, &dispatch, held, said.as_deref())?;
         return Ok((true, reported));
     }
+    // A controller resumed after a runtime restart repeats the report it made before
+    // (story:started-report-after-restart): the dispatch is where the report would move it, so
+    // the report is progress, not a refusal.
+    if repeated(verb, held) {
+        return Ok((true, reported));
+    }
     if matches!(verb, "blocked" | "done" | "failed") && held == Some(DispatchState::Sent) {
         let _ = crate::dispatch::report_started(
             state,
@@ -362,6 +368,15 @@ fn report(
     };
     tick.wrote(event);
     Ok((true, reported))
+}
+
+/// Whether the report `verb` on a dispatch held in `held` repeats the move that put it there: a
+/// `started` on a `Started` dispatch or a `blocked` on a `Blocked` one.
+pub(crate) fn repeated(verb: &str, held: Option<DispatchState>) -> bool {
+    matches!(
+        (verb, held),
+        ("started", Some(DispatchState::Started)) | ("blocked", Some(DispatchState::Blocked))
+    )
 }
 
 /// `review <url> [<words>]` on the dispatch `id`, which the store holds in `held` (`None`: no

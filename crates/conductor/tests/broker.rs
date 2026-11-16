@@ -280,6 +280,20 @@ fn broker_serve_records_a_team_message_and_a_leads_report_moves_its_dispatch() {
             args: json!({"to": "controller", "text": "the parser is green"}),
         },
     );
+    // story:started-report-after-restart: a lead resumed after a restart reports `started`
+    // again; the second moves nothing and is not refused.
+    let started: Vec<_> = ["on the parser", "again after a restart"]
+        .into_iter()
+        .map(|line| {
+            call(
+                &lead,
+                &Request {
+                    verb: "report".to_owned(),
+                    args: json!({"status": "started", "line": line}),
+                },
+            )
+        })
+        .collect();
     let reported = call(
         &lead,
         &Request {
@@ -296,6 +310,16 @@ fn broker_serve_records_a_team_message_and_a_leads_report_moves_its_dispatch() {
     assert!(child.wait().expect("wait for the broker").success());
 
     assert_eq!(sent.exit, 0, "{}", sent.text);
+    for answer in &started {
+        assert_eq!(answer.exit, 0, "{}", answer.text);
+    }
+    assert!(
+        started[1]
+            .text
+            .contains("started moves no dispatch: it is Started"),
+        "{}",
+        started[1].text
+    );
     assert_eq!(reported.exit, 0, "{}", reported.text);
     assert!(reported.text.contains(&dispatch), "{}", reported.text);
     let rows = |group: &str, view: &str| -> Vec<serde_json::Value> {
@@ -323,15 +347,25 @@ fn broker_serve_records_a_team_message_and_a_leads_report_moves_its_dispatch() {
         sent.text
             .contains(team["message_id"].as_str().expect("an id"))
     );
-    let report = messages
+    let reports: Vec<&serde_json::Value> = messages
         .iter()
-        .find(|row| row["kind"] == "Report")
-        .unwrap_or_else(|| panic!("the report is recorded: {messages:?}"));
-    assert_eq!(report["state"], "Received", "{report}");
-    assert_eq!(report["sender"], "example-org-alpha");
-    assert_eq!(report["recipient"], "example-org-conductor");
-    assert_eq!(
-        report["first_line"],
-        format!("[REPORT alpha {dispatch}] done tests green on main")
-    );
+        .filter(|row| row["kind"] == "Report")
+        .collect();
+    for report in &reports {
+        assert_eq!(report["state"], "Received", "{report}");
+        assert_eq!(report["sender"], "example-org-alpha");
+        assert_eq!(report["recipient"], "example-org-conductor");
+    }
+    let mut lines: Vec<&str> = reports
+        .iter()
+        .filter_map(|report| report["first_line"].as_str())
+        .collect();
+    lines.sort_unstable();
+    let mut expected = [
+        format!("[REPORT alpha {dispatch}] started on the parser"),
+        format!("[REPORT alpha {dispatch}] started again after a restart"),
+        format!("[REPORT alpha {dispatch}] done tests green on main"),
+    ];
+    expected.sort_unstable();
+    assert_eq!(lines, expected, "the reports are recorded: {messages:?}");
 }

@@ -2876,6 +2876,37 @@ fn a_started_report_on_a_blocked_dispatch_unblocks_it_and_on_a_done_one_is_refus
     }
 }
 
+/// `story:started-report-after-restart`: a controller resumed after a runtime restart reports
+/// `started` on the dispatch it already started, and `blocked` on the one it already blocked.
+/// Neither moves the dispatch, writes a log line, refuses, answers its sender or leaves a line in
+/// the journal: each is progress.
+#[test]
+fn a_repeated_started_or_blocked_report_after_a_restart_is_progress() {
+    let case = Case::new("mail-started-again");
+    case.spawn("alpha", FIRST);
+    let id = case.dispatch("alpha");
+    case.mail("0001", &format!("[REPORT alpha {id}] started\n"));
+    case.tick(&[]);
+    assert_eq!(case.dispatch_state(&id), "Started");
+
+    case.mail("0002", &format!("[REPORT alpha {id}] started again\n"));
+    let (tick, said) = case.tick_said(&[]);
+    assert_eq!(case.dispatch_state(&id), "Started", "{tick}");
+    assert!(actions(&tick).is_empty(), "{tick}");
+    assert_eq!(tick["lines_handled"], 1, "{tick}");
+    assert!(said.is_empty(), "no journal line: {said:?}");
+    assert_eq!(events_of(&case, &id), ["sent", "started"]);
+
+    case.mail("0003", &format!("[REPORT alpha {id}] blocked on beta\n"));
+    case.mail("0004", &format!("[REPORT alpha {id}] blocked on beta\n"));
+    let (tick, said) = case.tick_said(&[]);
+    assert_eq!(case.dispatch_state(&id), "Blocked", "{tick}");
+    assert_eq!(actions(&tick), ["blocked"], "{tick}");
+    assert!(said.is_empty(), "no journal line: {said:?}");
+    assert_eq!(events_of(&case, &id), ["sent", "started", "blocked"]);
+    assert!(case.deliveries().is_empty(), "{:?}", case.deliveries());
+}
+
 /// `story:report-on-sent-dispatch`, acceptance 2: a report the loop still refuses reaches its
 /// sender with the reason and the expected form.
 #[test]

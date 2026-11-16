@@ -208,8 +208,12 @@ impl StoreMessages {
     }
 
     /// The open dispatch of `repository` a lead's report names: the one sent, started or blocked,
-    /// or among several, the one started or blocked; none, with why, when there is no single one.
-    fn open_dispatch(&self, repository: &str) -> Result<Result<String, String>, String> {
+    /// or among several, the one started or blocked, with the state it is held in; none, with why,
+    /// when there is no single one.
+    fn open_dispatch(
+        &self,
+        repository: &str,
+    ) -> Result<Result<(String, DispatchState), String>, String> {
         let store = crate::store::open(&self.state).map_err(|error| format!("{error:#}"))?;
         let open: Vec<(String, DispatchState)> = DispatchStorage::list(&store)
             .into_iter()
@@ -223,14 +227,13 @@ impl StoreMessages {
             .map(|held| (held.data.dispatch_id.0, held.state))
             .collect();
         drop(store);
-        let working: Vec<&String> = open
+        let working: Vec<&(String, DispatchState)> = open
             .iter()
             .filter(|(_, state)| *state != DispatchState::Sent)
-            .map(|(id, _)| id)
             .collect();
         Ok(if open.is_empty() {
             Err(format!("no open dispatch of {repository}"))
-        } else if let [(one, _)] = open.as_slice() {
+        } else if let [one] = open.as_slice() {
             Ok(one.clone())
         } else if let [one] = working.as_slice() {
             Ok((*one).clone())
@@ -328,8 +331,12 @@ impl Messages for StoreMessages {
         let mut note = None;
         if report.lead {
             match self.open_dispatch(&repo)? {
-                Ok(open) => {
-                    if self
+                Ok((open, held)) => {
+                    // A lead resumed after a runtime restart repeats its report
+                    // (story:started-report-after-restart): nothing to move, nothing refused.
+                    if crate::run::mailbox::repeated(status, Some(held)) {
+                        note = Some(format!("{status} moves no dispatch: it is {held:?}"));
+                    } else if self
                         .move_dispatch(&open, report.status, &report.line)
                         .map_err(|error| format!("dispatch {open} did not move: {error:#}"))?
                     {
