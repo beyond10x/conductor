@@ -3646,7 +3646,8 @@ impl Case {
     /// project is `example-checks` (id 101), checked out and trusted as `checks` under the
     /// checkouts root: a git repository with one commit whose `origin` names the project. The
     /// fake `glab` answers the project list with that project and every other read of it with
-    /// the collector tests' fixtures; `aep` answers an empty workspace and an empty listing.
+    /// the collector tests' fixtures, but a merge request read by the project's path, which it
+    /// answers with `fake/mr-<iid>.json`; `aep` answers an empty workspace and an empty listing.
     fn gitlab_checks(&self) {
         let config = fs::read_to_string(self.config()).expect("the config file");
         let github = "sources: [{github: example-org}]";
@@ -3708,6 +3709,8 @@ impl Case {
                  id=${{id%%/*}}\n\
                  case \"$last\" in\n\
                  \x20 groups/*/projects\\?*) exec cat '{fake}/projects.json' ;;\n\
+                 \x20 projects/example-org%2Fexample-checks/merge_requests/*)\n\
+                 \x20   exec cat \"{fake}/mr-${{last##*/}}.json\" ;;\n\
                  \x20 projects/*/repository/commits/*/diff*)\n\
                  \x20   sha=${{last#*/repository/commits/}}\n\
                  \x20   file=${{sha%%/*}}.diff.json ;;\n\
@@ -3789,4 +3792,157 @@ fn a_dispatch_to_a_checkout_named_differently_from_its_gitlab_project_starts_its
         case.controllers(),
         [("checks".to_owned(), "Running".to_owned())]
     );
+}
+
+// ---------------------------------------------------------------------------------------------
+// story:merge-wakes-idle-controller
+// ---------------------------------------------------------------------------------------------
+
+/// The deliveries that tell a controller of a merge.
+fn merged_deliveries(case: &Case) -> Vec<(String, String)> {
+    case.deliveries()
+        .into_iter()
+        .filter(|(_, text)| text.contains("PR merged: "))
+        .collect()
+}
+
+/// The acceptance, on a fake GitLab: a merge request the live, idle controller of `checks`
+/// linked to its dispatch merges. The first watch tick that reads it merged tells the controller
+/// once, naming the merge request and its merge commit; a later tick tells it nothing more and
+/// does not read the request again.
+#[test]
+fn a_merged_request_of_an_idle_controller_is_relayed_to_it_once() {
+    let case = Case::new("merge-wakes");
+    case.gitlab_checks();
+    write(
+        &case.charter("checks"),
+        "# Charter: checks\n\nKeep main green.\n",
+    );
+    case.ok(&[
+        "snapshot",
+        "start-snapshot",
+        "--started-at",
+        "2026-10-07T12:00:00Z",
+        "--disk-free-bytes",
+        "100000000000",
+    ]);
+    let dispatch = case.dispatch("checks");
+    case.spawn("checks", FIRST);
+    case.idle("checks", FIRST);
+    let url = "https://gitlab.example.com/example-org/example-checks/-/merge_requests/5";
+    case.ok(&[
+        "dispatch",
+        "record-link",
+        "--dispatch-id",
+        &dispatch,
+        "--link",
+        url,
+    ]);
+    let request = |state: &str, merge: Value| {
+        json!({
+            "iid": 5, "state": state, "sha": "c0ffee5", "merge_commit_sha": merge,
+            "squash_commit_sha": null, "web_url": url,
+        })
+        .to_string()
+    };
+    write(
+        &case.fake().join("mr-5.json"),
+        &request("opened", Value::Null),
+    );
+
+    let (open, _) = case.watch();
+    assert_eq!(merged_deliveries(&case), Vec::new(), "{open}");
+
+    write(
+        &case.fake().join("mr-5.json"),
+        &request("merged", json!("9f8e7d6c5b4a")),
+    );
+    let (merged, _) = case.watch();
+    let told = (
+        "ex-checks".to_owned(),
+        format!("[REPORT checks -] watch: PR merged: checks#5 (merge 9f8e7d6c5b4a) {url}"),
+    );
+    assert_eq!(
+        merged_deliveries(&case),
+        std::slice::from_ref(&told),
+        "{merged}"
+    );
+    assert!(
+        case.lines_of(&merged)
+            .iter()
+            .any(|line| line["event"] == "relayed"
+                && line["line"]
+                    .as_str()
+                    .is_some_and(|line| line.starts_with("PR merged: checks#5"))),
+        "{merged}"
+    );
+
+    let (later, _) = case.watch();
+    assert_eq!(merged_deliveries(&case), [told], "told once: {later}");
+    let reads = fs::read_to_string(case.fake().join("glab.calls"))
+        .unwrap_or_default()
+        .lines()
+        .filter(|call| call.contains("example-org%2Fexample-checks/merge_requests/5"))
+        .count();
+    assert_eq!(reads, 2, "not read once it was told");
+}
+
+/// On GitHub: a pull request linked to an open dispatch of `alpha` is read through `gh api` and
+/// relayed once to the live controller when it merged; a link of no forge the instance reads
+/// (another host) is never read.
+#[test]
+fn a_merged_github_pull_request_is_relayed_once_and_another_host_is_not_read() {
+    let case = Case::new("merge-wakes-github");
+    let fake = case.fake();
+    executable(
+        &case.bin().join("gh"),
+        &format!(
+            "#!/bin/sh\n\
+             printf '%s\\n' \"$*\" >> '{fake}/gh.calls'\n\
+             if [ \"$1 $2\" = 'api repos/example-org/alpha/pulls/7' ]; then \
+             exec cat '{fake}/pull-7.json'; fi\n\
+             echo '[]'\n",
+            fake = fake.display()
+        ),
+    );
+    let dispatch = case.dispatch("alpha");
+    case.spawn("alpha", FIRST);
+    case.idle("alpha", FIRST);
+    let url = "https://github.com/example-org/alpha/pull/7";
+    for link in [url, pull(8).as_str()] {
+        case.ok(&[
+            "dispatch",
+            "record-link",
+            "--dispatch-id",
+            &dispatch,
+            "--link",
+            link,
+        ]);
+    }
+    write(
+        &fake.join("pull-7.json"),
+        &json!({"number": 7, "merged": true, "merge_commit_sha": "abc1234def"}).to_string(),
+    );
+    let (merged, _) = case.watch();
+    let told = (
+        "ex-alpha".to_owned(),
+        format!("[REPORT alpha -] watch: PR merged: alpha#7 (merge abc1234def) {url}"),
+    );
+    assert_eq!(
+        merged_deliveries(&case),
+        std::slice::from_ref(&told),
+        "{merged}"
+    );
+    let (later, _) = case.watch();
+    assert_eq!(merged_deliveries(&case), [told], "told once: {later}");
+    let calls = fs::read_to_string(fake.join("gh.calls")).unwrap_or_default();
+    assert_eq!(
+        calls
+            .lines()
+            .filter(|call| call.contains("pulls/7"))
+            .count(),
+        1,
+        "{calls}"
+    );
+    assert!(!calls.contains("forge.example.org"), "{calls}");
 }

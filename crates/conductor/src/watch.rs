@@ -25,6 +25,7 @@
 //! | context | the newest line with a usage in the transcript of each such session that has a `pid` | `context: <repo> <n>k tokens (session <id>)` |
 //! | silent controllers | the modification times of the transcript of each such session that is a controller, and of its sub-agents' transcripts | `session silent: <name> <id> <minutes>m` |
 //! | stalled sessions | the dispatch log's `sent` and report lines of each such session that is a live controller, and the newest commit of its checkout and managed trees (`git log -1`) | `session stalled: <name> <id> <minutes>m` |
+//! | merged requests | each link to a pull or merge request recorded on an open (`Sent`, `Started` or `Blocked`) dispatch of a repository with a running controller, in the store under the state directory, read on its forge: `gh api repos/<owner>/<repo>/pulls/<n>` for a `github.com` link when the instance has a `github` source, `glab api --hostname <host> projects/<path>/merge_requests/<iid>` for a link on the host of a `gitlab` source ([`Watch::with_gitlab`]) | `PR merged: <repo>#<n> (merge <sha>) <url>` (`story:merge-wakes-idle-controller`) |
 //! | queued builds | the open grants of the host ledger in the host directory ([`Watch::with_host`]) | `build queued: <grant> <repository\|session> <minutes>m` |
 //! | `main` CI, on the first pass and then every [`Options::ci_every`] | the newest completed `main` run per workflow of each repository the newest complete snapshot holds Active ([`crate::repository::activity`]); for a project of a `gitlab` source, the newest pipeline of its default branch that decided something, the workflow `pipeline` (`story:watch-gitlab-ci`) | `CI red on main: <repo> / <workflow> (run <id>)`, `CI green again on main: <repo> / <workflow>` |
 //! | review, with each `main` CI read | the pull requests that wait for review in the newest complete snapshot, counted per repository as the board counts them ([`crate::status::waiting_in`]), against `controllers.max_open_reviews` ([`Settings::max_open_reviews`], `0` no limit) | `review full: <repo> <k>/<n>` once when a repository reaches its limit, `review open: <repo>` once when it falls under it (`story:review-limit`) |
@@ -85,6 +86,12 @@
 //!   (`story:watch-stalled-sessions`): its progress is the newest of that `sent` line, its newest
 //!   report and its newest commit. Once per stall (`stalled.reported`, `<sessionId> <progress>`
 //!   per line), and again only after it progressed and stalled anew.
+//! - **merged** once per link, in the first pass that reads its request merged: `<repo>` is the
+//!   dispatch's repository and `<sha>` the merge commit (on GitLab the squash commit, else the
+//!   head, when it records none). A link printed is not read again, and is forgotten once no open
+//!   dispatch holds it (`merged.reported`). A link of neither form, or of a repository with no
+//!   running controller, is not read; a request that does not answer is a source of its own,
+//!   `merged <url>`.
 //! - **queued** when a grant of the instance has waited `Requested` in the host ledger for longer
 //!   than the instance's `build_queued`, by the repository it names, else its session; once per
 //!   grant (`build-queued.reported`, `<grant>\t<repository|session>` per line).
@@ -120,7 +127,7 @@
 //! with [`Options::follow`] it prints and goes on, for the harness `Monitor` tool. Its state is
 //! kept under `<state>/watch/`: `sessions.json` (the kept list and the instant it was taken),
 //! `exited.seen`, `conductors.reported` (the ids last reported, on one line), `silent.reported`,
-//! `stalled.reported`, `build-queued.reported`, `banner.resumed`, `banner.reported`,
+//! `stalled.reported`, `merged.reported`, `build-queued.reported`, `banner.resumed`, `banner.reported`,
 //! `review.full` (the repositories last reported full, one per line), `gates-hooks.snapshot`
 //! (the id of the snapshot the Gates hooks probe read last), `escalated.seen` (each escalated
 //! request printed, when, whether its 30-minute unanswered line was, and whether its line at the
@@ -150,10 +157,13 @@ use serde_json::Value;
 use time::format_description::well_known::Rfc3339;
 use time::{OffsetDateTime, UtcOffset};
 
-use conductor_model::behaviour::{DecisionRequestStorage, DecisionStorage, SnapshotStorage};
+use conductor_model::behaviour::{
+    ControllerStorage, DecisionRequestStorage, DecisionStorage, DispatchStorage, SnapshotStorage,
+};
 use conductor_model::config::{Instance, Source};
 use conductor_model::decision::RequestId;
 use conductor_model::direction::Activity;
+use conductor_model::dispatch::{ControllerState, DispatchState};
 use conductor_model::host::HostGrantState;
 use conductor_model::observation::{RunConclusion, SnapshotState};
 
@@ -228,6 +238,14 @@ const REVIEW_FULL: &str = "review.full";
 /// The heads of open pull requests whose concluded checks were printed, one per line:
 /// `<repo>#<number> <head sha>` (`story:watch-pr-checks`).
 const PR_CHECKS_PRINTED: &str = "pr-checks.printed";
+
+/// The links of pull and merge requests printed merged, one per line
+/// (`story:merge-wakes-idle-controller`).
+const MERGED_REPORTED: &str = "merged.reported";
+
+/// How one pull request of a `github.com` link is read: `{owner}`, `{repository}` and `{number}`
+/// are filled in.
+const PULL_READ: [&str; 3] = ["gh", "api", "repos/{owner}/{repository}/pulls/{number}"];
 
 /// The check-run conclusions, as `gh` prints them, a pull request is green on: every other
 /// conclusion of a completed check makes it red (`story:watch-pr-checks`).
@@ -1165,6 +1183,7 @@ impl Watch {
             self.gates_hooks(&mut lines)?;
             self.workspace_stale(&mut lines)?;
         }
+        self.merged(&mut lines, notes)?;
         self.build_queued(now, &mut lines)?;
         self.disk(&mut lines, notes)?;
         self.usage(&mut lines)?;
@@ -2103,6 +2122,82 @@ impl Watch {
         Ok(())
     }
 
+    /// Each link to a pull or merge request on an open dispatch of a repository with a running
+    /// controller whose request merged since the last pass, once: `PR merged: <repo>#<n> (merge
+    /// <sha>) <url>` (`story:merge-wakes-idle-controller`). Read every pass, so an idle
+    /// controller hears of its merge within one watch tick; without a store, or with
+    /// `forge_access: anonymous`, nothing is read.
+    fn merged(&mut self, lines: &mut Vec<String>, notes: &mut dyn Write) -> Result<()> {
+        if self.anonymous {
+            return Ok(());
+        }
+        let Some(state) = &self.sources.store else {
+            return Ok(());
+        };
+        let Ok(store) = crate::store::open_reader(state) else {
+            return Ok(());
+        };
+        let running: BTreeSet<String> = ControllerStorage::list(&store)
+            .into_iter()
+            .filter(|held| held.state == ControllerState::Running)
+            .map(|held| held.data.repository.0)
+            .collect();
+        let mut open: BTreeMap<String, String> = BTreeMap::new();
+        for held in DispatchStorage::list(&store) {
+            if matches!(
+                held.state,
+                DispatchState::Sent | DispatchState::Started | DispatchState::Blocked
+            ) {
+                for link in held.data.links {
+                    open.entry(link)
+                        .or_insert_with(|| held.data.repository.0.clone());
+                }
+            }
+        }
+        drop(store);
+        let file = self.state(MERGED_REPORTED);
+        let before = read_optional(&file)?.unwrap_or_default();
+        let mut reported: BTreeSet<String> = before
+            .lines()
+            .filter(|link| open.contains_key(*link))
+            .map(str::to_owned)
+            .collect();
+        let github = self.gitlab.is_empty() || !self.sources.organization.is_empty();
+        let asked: Vec<(&String, &String, Request)> = open
+            .iter()
+            .filter(|(link, repository)| running.contains(*repository) && !reported.contains(*link))
+            .filter_map(|(link, repository)| {
+                Request::of(link, &self.gitlab, github).map(|request| (link, repository, request))
+            })
+            .collect();
+        let forges = &self.gitlab;
+        let bound = self.sources.bound;
+        let read = each(&asked, WIDTH, |(link, _, request)| {
+            Ok(request.merged(forges, bound, link))
+        })?;
+        for ((link, repository, request), answer) in asked.iter().zip(read) {
+            let source = format!("merged {link}");
+            match answer {
+                Ok(merged) => {
+                    self.answered(&source);
+                    if let Some(sha) = merged {
+                        lines.push(format!(
+                            "PR merged: {repository}#{} (merge {sha}) {link}",
+                            request.number()
+                        ));
+                        reported.insert((*link).clone());
+                    }
+                }
+                Err(error) => self.failed(&source, &error, notes),
+            }
+        }
+        let text: String = reported.iter().map(|link| format!("{link}\n")).collect();
+        if text != before {
+            replace(&file, &text)?;
+        }
+        Ok(())
+    }
+
     /// The projects of [`Watch::gitlab`]'s forges that are not archived, by name, each with the
     /// place of its forge. A forge whose project list does not answer is named on `notes`, as the
     /// source `ci the gitlab group <group> on <host>`, until it answers again; its repositories
@@ -2791,6 +2886,153 @@ fn open_merge_requests(
         });
     }
     Ok(pulls)
+}
+
+/// A pull or merge request a dispatch's link names, as the merged-requests probe reads it
+/// (`story:merge-wakes-idle-controller`).
+#[derive(Debug, PartialEq, Eq)]
+enum Request {
+    /// `https://github.com/<owner>/<repository>/pull/<number>`.
+    GitHub {
+        owner: String,
+        repository: String,
+        number: u64,
+    },
+    /// `https://<host>/<project>/-/merge_requests/<iid>`, on the host of the `gitlab` source at
+    /// `forge`.
+    GitLab {
+        forge: usize,
+        project: String,
+        iid: u64,
+    },
+}
+
+/// One pull request, as `gh api repos/<owner>/<repository>/pulls/<number>` answers it, in the
+/// part the probe reads.
+#[derive(Deserialize)]
+struct PullState {
+    #[serde(default)]
+    merged: bool,
+    #[serde(default)]
+    merge_commit_sha: Option<String>,
+}
+
+/// One merge request, as `projects/<project>/merge_requests/<iid>` answers it, in the part the
+/// probe reads.
+#[derive(Deserialize)]
+struct MergeRequestState {
+    state: String,
+    #[serde(default)]
+    merge_commit_sha: Option<String>,
+    #[serde(default)]
+    squash_commit_sha: Option<String>,
+    #[serde(default)]
+    sha: Option<String>,
+}
+
+impl Request {
+    /// The request `link` names: a `github.com` pull request when `github` (the instance has a
+    /// `github` source), or a merge request on the host of one of `forges`; none for any other
+    /// link.
+    fn of(link: &str, forges: &[Forge], github: bool) -> Option<Self> {
+        let rest = link
+            .strip_prefix("https://")
+            .or_else(|| link.strip_prefix("http://"))?;
+        let rest = rest.split(['?', '#']).next().unwrap_or_default();
+        let (host, path) = rest.split_once('/')?;
+        let path = path.trim_end_matches('/');
+        if let Some(forge) = forges.iter().position(|forge| forge.host == host) {
+            let (project, tail) = path.split_once("/-/merge_requests/")?;
+            let iid = tail.split('/').next()?.parse().ok()?;
+            return (!project.is_empty() && iid > 0).then(|| Self::GitLab {
+                forge,
+                project: project.to_owned(),
+                iid,
+            });
+        }
+        if !github || host != "github.com" {
+            return None;
+        }
+        let mut steps = path.split('/');
+        let (owner, repository, pull, number) =
+            (steps.next()?, steps.next()?, steps.next()?, steps.next()?);
+        let number = number.parse().ok()?;
+        (pull == "pull" && !owner.is_empty() && !repository.is_empty() && number > 0).then(|| {
+            Self::GitHub {
+                owner: owner.to_owned(),
+                repository: repository.to_owned(),
+                number,
+            }
+        })
+    }
+
+    /// Its number: the pull request's, or the merge request's iid.
+    fn number(&self) -> u64 {
+        match self {
+            Self::GitHub { number, .. } => *number,
+            Self::GitLab { iid, .. } => *iid,
+        }
+    }
+
+    /// Its merge commit once it merged, none while it has not; `link` names it in an error.
+    fn merged(&self, forges: &[Forge], bound: Duration, link: &str) -> Result<Option<String>> {
+        let what = format!("the request {link} not read");
+        match self {
+            Self::GitHub {
+                owner,
+                repository,
+                number,
+            } => {
+                let number = number.to_string();
+                let fill = [
+                    ("owner", owner.as_str()),
+                    ("repository", repository.as_str()),
+                    ("number", number.as_str()),
+                ];
+                let command = filled(&PULL_READ.map(str::to_owned), &fill);
+                let shown = command.join(" ");
+                let (program, arguments) = command
+                    .split_first()
+                    .with_context(|| format!("{what}: no command"))?;
+                let output = collect::run(crate::instance::command(program).args(arguments), bound)
+                    .with_context(|| format!("{what}: `{shown}`"))?;
+                if !output.status.success() {
+                    let stderr: String = one_line(&String::from_utf8_lossy(&output.stderr))
+                        .chars()
+                        .take(EXCERPT)
+                        .collect();
+                    bail!("{what}: `{shown}` failed: {stderr}");
+                }
+                let pull: PullState = serde_json::from_slice(&output.stdout)
+                    .with_context(|| format!("{what}: `{shown}` printed no pull request"))?;
+                Ok(pull
+                    .merged
+                    .then(|| one_line(&pull.merge_commit_sha.unwrap_or_default())))
+            }
+            Self::GitLab {
+                forge,
+                project,
+                iid,
+            } => {
+                let request: MergeRequestState = forges[*forge].get(
+                    &what,
+                    &format!(
+                        "projects/{}/merge_requests/{iid}",
+                        project.replace('/', "%2F")
+                    ),
+                )?;
+                Ok((request.state == "merged").then(|| {
+                    one_line(
+                        &request
+                            .merge_commit_sha
+                            .or(request.squash_commit_sha)
+                            .or(request.sha)
+                            .unwrap_or_default(),
+                    )
+                }))
+            }
+        }
+    }
 }
 
 /// One pipeline, as GitLab's `pipelines` answers it.

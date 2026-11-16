@@ -88,6 +88,7 @@ until one finds a change, or with `--follow` prints each change and goes on.
 | transcripts | `usage limit`, `context` at `thresholds.context_handover`, `session silent` after `thresholds.silent_session` |
 | dispatch log and commits | `session stalled` after `thresholds.stalled_session` |
 | host ledger | `build queued` after `thresholds.build_queued` |
+| requests linked to open dispatches | `PR merged`, relayed to the repository's running controller |
 | CI of Active repositories | `CI red on main`, `CI green again on main`, `PR checks done` |
 | newest complete snapshot | `review full`, `review open`, `gates hooks stale`, `workspace stale` |
 | free disk on `/` | `disk low`, `disk admit`, `disk gate stop` ([disk](./disk.md)) |
