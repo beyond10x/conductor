@@ -2813,12 +2813,12 @@ Usage: conductor token [OPTIONS] <COMMAND>
 Print the model_token of an instance whose placement opens no box (--model-token), for the claude-code kind's harness, whose settings name this command as their apiKeyHelper; a token of the host's pool is never printed, it reaches the harness once, in its environment at its start
 
 ```text
-Usage: conductor token reveal [OPTIONS] --model-token <INSTANCE>
+Usage: conductor token reveal [OPTIONS]
 ```
 
 | Argument | Required | Default | Meaning |
 |---|---|---|---|
-| `--model-token <INSTANCE>` | yes | none | The instance whose model_token to print, for an agent at a placement with no box |
+| `--model-token <INSTANCE>` | no | none | The instance whose model_token to print, for an agent at a placement with no box |
 
 ## `conductor trust`
 
