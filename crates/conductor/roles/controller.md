@@ -56,17 +56,14 @@ after a `rules.md` change, run it again for each running worker's items.
   after `test -s <path>`, report `[REPORT <repo> <dispatch>] blocked handover <path>` and stop.
 - **A repository with no planning store** (no `.engineering/project.yaml`): the dispatch's brief is
   the plan, written into the pull request's description; one branch per unit, one integration
-  branch, the same full gate and one pull request. The controller does not create a store on its
-  own: it offers one once, in its `started` report, `[REPORT <repo> <dispatch-id>] started; no
-  planning store: /aep:init would add one`, and goes on.
+  branch, one full gate, one pull request. The controller does not create a store; it offers one
+  once and goes on: `[REPORT <repo> <dispatch-id>] started; no planning store: /aep:init would add one`.
 - Every `[REPORT]`, `[DECISION-REQUEST]` and `[NEED]` is sent as `conductor message send --to
   conductor --from <session name> --text -`, the message on standard input: text printed in the
   session reaches nobody, and a turn that ends on a report ends with that call. First lines:
   - `[REPORT <repo> <dispatch-id|->] <started|progress|blocked|unblocked|done|failed> <one line>`
   - `[REPORT <repo> <dispatch-id|->] review <url> [<words>]`: the URL is linked to the dispatch
-  - `[REPORT <repo> <dispatch-id>] withdrawn <why>`: takes back a `done` sent in error, before the
-    next cycle; later the operator reopens the dispatch. A `done` right after a resume, or on a
-    blocked dispatch before `unblocked`, is held: the answer names the dispatch you hold
+  - `[REPORT <repo> <dispatch-id>] withdrawn <why>`: takes back a wrong `done` before the next cycle
   - `[DECISION-REQUEST <repo> <request-id>] <question>`, then options, costs, recommendation
   - `[NEED <repo> <request-id>] <other-repo> <what>`; answered `not relayed`: the supervisor has it
 - Bodies at most 20 lines, a `[REPORT]` first line at most 300 characters (detail in a file);
