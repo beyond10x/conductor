@@ -14,7 +14,7 @@ box).
 |---|---|---|---|
 | U1 | unit-merge-policy | #207 | merged into the wave branch |
 | U2 | failing-start-recreates-box | #207 | merged into the wave branch |
-| U3 | need-starts-unit-of-work | #207 | in progress |
+| U3 | need-starts-unit-of-work | #207 | merged into the wave branch |
 
 ## Outcome
 
@@ -25,3 +25,12 @@ is replaced once at the upgrade. The dashboard's settings page offers no choice 
 
 U2 forgets a box substrate answers as gone and opens a new one; the first failed start of a
 recreated box alerts once (`box-not-recreated`).
+
+U3 turns a `[NEED]` to a known repository with no charter of its own (none, an empty one or the
+default one), no running controller and no open dispatch into a unit of work with the reference
+`need-<repo>-<request-id>`; a `[NEED]` that names no repository of the instance alerts once
+(`need-unroutable`). Three `run` cases that relied on a chartless repository keeping the NEED now
+give it a charter. U2 and U3 each add an alert condition; the merge keeps both.
+
+In the box: the specification and the HTTP binding validate and a fresh generation equals the
+committed model; the suites that launch a session or bind a socket are proven by CI.
