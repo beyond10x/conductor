@@ -350,6 +350,7 @@ fn dispatch_v1(tick: &mut Tick<'_, '_>) -> Result<String> {
         if failed >= crate::dispatch::FAILED_STARTS_MOST {
             continue;
         }
+        tick.make_room(repo)?;
         match super::start_work(tick.config, tick.state, tick.seams.providers, repo, id) {
             None => {
                 tick.wrote(DispatchLogEvent::Sent);
@@ -390,11 +391,16 @@ fn dispatch_v1(tick: &mut Tick<'_, '_>) -> Result<String> {
             Err(why) => waits.push(format!("{repo} waits: {why}")),
         }
     }
-    let mut said = if spawned.is_empty() {
+    let mut said = tick
+        .yielded
+        .drain(..)
+        .map(|stopped| format!("{stopped}; "))
+        .collect::<String>();
+    said.push_str(&if spawned.is_empty() {
         "spawned none".to_owned()
     } else {
         format!("spawned {}", spawned.join(", "))
-    };
+    });
     for wait in waits {
         said.push_str("; ");
         said.push_str(&wait);

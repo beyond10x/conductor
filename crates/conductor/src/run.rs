@@ -602,6 +602,9 @@ pub struct Tick<'s, 'a> {
     pub lines_handled: i64,
     /// The events of the dispatch log lines written while it ran.
     pub actions: Vec<DispatchLogEvent>,
+    /// What [`Tick::make_room`] stopped to give a start its place, as the `cycle` line says it
+    /// (`story:idle-controller-yields-place`).
+    pub yielded: Vec<String>,
 }
 
 impl<'s, 'a> Tick<'s, 'a> {
@@ -626,6 +629,7 @@ impl<'s, 'a> Tick<'s, 'a> {
             started_at: crate::records::now()?,
             lines_handled: 0,
             actions: Vec::new(),
+            yielded: Vec::new(),
         })
     }
 
@@ -792,20 +796,24 @@ impl<'s, 'a> Tick<'s, 'a> {
         let _one = STARTS
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner);
+        // A repository on the default charter works units of work only: its open dispatch, else
+        // no controller (no goal's dispatch is sent for it).
+        let default = crate::spawn::is_default_charter(&self.charter(repo));
+        let open = if default {
+            let Ok(crate::dispatch::Open::One(id)) = crate::dispatch::open_of(self.state, repo)
+            else {
+                return Ok(Err(DEFAULT_CHARTER.to_owned()));
+            };
+            Some(id)
+        } else {
+            None
+        };
+        self.make_room(repo)?;
         if let Some(limit) = at_limit(self.state)? {
             return Ok(Err(format!("max_working {limit} reached")));
         }
-        // A repository on the default charter works units of work only: its open dispatch, else
-        // no controller (no goal's dispatch is sent for it).
-        let dispatch = if crate::spawn::is_default_charter(&self.charter(repo)) {
-            let Ok(crate::dispatch::Open::One(id)) = crate::dispatch::open_of(self.state, repo)
-            else {
-                return Ok(Err(
-                    "the charter is conductor's default: a controller starts only for a dispatch"
-                        .to_owned(),
-                ));
-            };
-            Some(id)
+        let dispatch = if default {
+            open
         } else {
             match self.dispatch_for(repo) {
                 Ok(dispatch) => dispatch,
@@ -830,6 +838,68 @@ impl<'s, 'a> Tick<'s, 'a> {
             }
             Err(error) => Ok(Err(one_line(&format!("{error:#}")))),
         }
+    }
+
+    /// Gives a start of `repo`'s controller a place (`story:idle-controller-yields-place`): while
+    /// `controllers.max_working` controllers run, the `Running` controller of another repository
+    /// that has no open dispatch and whose session the session list shows live and `idle`, the one
+    /// started first, is stopped with the reason `no open dispatch; place given to <repo>`, and
+    /// what was stopped is kept in [`Tick::yielded`] for the `cycle` line. A controller with an
+    /// open dispatch, a session busy or not listed live, or a session list that does not read
+    /// keeps its place. Stops one at most, as one start needs one place.
+    ///
+    /// # Errors
+    ///
+    /// The store does not open.
+    pub fn make_room(&mut self, repo: &str) -> Result<()> {
+        if at_limit(self.state)?.is_none() {
+            return Ok(());
+        }
+        let running: Vec<(String, String, String)> = self
+            .controllers()?
+            .into_iter()
+            .filter(|held| held.state == ControllerState::Running && held.data.repository.0 != repo)
+            .map(|held| {
+                (
+                    held.data.controller_id.0.0,
+                    held.data.repository.0,
+                    held.data.session_name.0,
+                )
+            })
+            .collect();
+        if running.is_empty() {
+            return Ok(());
+        }
+        let Ok(listed) = crate::confine::sessions() else {
+            return Ok(());
+        };
+        for (controller, held, session) in running {
+            if !idle_in(&listed, &session) || self.open_dispatch(&held)? {
+                continue;
+            }
+            let reason = format!("no open dispatch; place given to {repo}");
+            match crate::controller::stop_controller(
+                self.state,
+                StopControllerArgs {
+                    actor: None,
+                    controller_id: Some(controller.clone()),
+                    reason: Some(format!("conductor run: {reason}")),
+                    input_json: None,
+                },
+                self.seams.providers,
+            ) {
+                Ok(_) => {
+                    handlers::forget(self, &session);
+                    self.yielded
+                        .push(format!("stopped {held} ({session}): {reason}"));
+                    return Ok(());
+                }
+                Err(error) => {
+                    self.note(&format!("stop the idle controller {controller}"), &error);
+                }
+            }
+        }
+        Ok(())
     }
 
     /// The dispatch a controller of `repo` this tick starts works on, which its charter names
@@ -974,6 +1044,23 @@ impl<'s, 'a> Tick<'s, 'a> {
 /// and around the cycle's stop of the controllers whose sessions are gone ([`dispatch`]), so no
 /// start counts a record while it is being stopped.
 static STARTS: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
+/// Why a repository on conductor's default charter gets no controller without an open dispatch.
+const DEFAULT_CHARTER: &str =
+    "the charter is conductor's default: a controller starts only for a dispatch";
+
+/// Whether the session list `listed` names the session `session` live (a `pid`) and `idle`: every
+/// live entry of that name, by its `status`, else its `state`, as the harness reports it.
+fn idle_in(listed: &[Value], session: &str) -> bool {
+    let mut live = listed
+        .iter()
+        .filter(|entry| entry["name"].as_str() == Some(session) && !entry["pid"].is_null())
+        .peekable();
+    live.peek().is_some()
+        && live.all(|entry| {
+            entry["status"].as_str().or_else(|| entry["state"].as_str()) == Some("idle")
+        })
+}
 
 /// `controllers.max_working`, when that many controllers of the store under `state` run.
 ///

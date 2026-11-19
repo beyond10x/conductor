@@ -3832,6 +3832,9 @@ fn a_cycle_leaves_running_controllers_whose_sessions_live_or_wait() {
         .spawn()
         .expect("a live process");
     child_entry(&case, "alpha", id, process.id());
+    // An open dispatch: an idle controller without one gives its place to gamma
+    // (story:idle-controller-yields-place).
+    case.dispatch("alpha");
     case.ok(&["spawn", "--repository", "beta"]);
     case.live("beta", "s0000002-0000", false);
     mark_active(&case, "gamma");
@@ -3865,6 +3868,74 @@ fn a_cycle_leaves_running_controllers_whose_sessions_live_or_wait() {
         said.contains("controllers not reconciled: the session list was not read"),
         "{said}"
     );
+}
+
+/// `story:idle-controller-yields-place`, a cycle at `controllers.max_working`: alpha's controller,
+/// started by hand for no dispatch, runs (its session idle with `idle`, else busy) while beta,
+/// Active with a charter, waits for a place; with `dispatch` alpha has an open dispatch. Answers
+/// the tick.
+fn at_max_working(case: &Case, idle: bool, dispatch: bool) -> Value {
+    case.configure("{provider: none}", "{max_working: 1}");
+    write(
+        &case.charter("beta"),
+        "# Charter: beta\n\nKeep main green.\n",
+    );
+    case.spawn("alpha", FIRST);
+    if idle {
+        case.idle("alpha", FIRST);
+    }
+    if dispatch {
+        case.dispatch("alpha");
+    }
+    mark_active(case, "beta");
+    case.child(json!({
+        "do": "cycle",
+        "program": case.bin().join("conductor-steps"),
+    }))
+}
+
+/// A start at `controllers.max_working` stops the `Running` controller whose repository has no open
+/// dispatch and whose session is idle, records why, and the `cycle` line names it beside the start
+/// it made room for.
+#[test]
+fn a_start_at_max_working_stops_an_idle_controller_with_no_open_dispatch_first() {
+    let case = Case::new("idle-yields");
+    let tick = at_max_working(&case, true, false);
+    assert_eq!(states_of(&case, "alpha"), ["Stopped"], "{tick}");
+    assert_eq!(states_of(&case, "beta"), ["Running"], "{tick}");
+    assert_eq!(case.launched(), ["ex-alpha", "ex-beta"]);
+    let said = cycle_said(&case, &tick);
+    for part in [
+        "stopped alpha (ex-alpha): no open dispatch; place given to beta",
+        "spawned beta",
+    ] {
+        assert!(said.contains(part), "{part:?} in {said}");
+    }
+    assert!(!said.contains("max_working"), "{said}");
+}
+
+/// An idle controller with an open dispatch keeps its place: the waiting repository waits.
+#[test]
+fn a_controller_with_an_open_dispatch_keeps_its_place_at_max_working() {
+    let case = Case::new("idle-keeps-dispatch");
+    let tick = at_max_working(&case, true, true);
+    assert_eq!(states_of(&case, "alpha"), ["Running"], "{tick}");
+    assert_eq!(states_of(&case, "beta"), Vec::<String>::new(), "{tick}");
+    let said = cycle_said(&case, &tick);
+    assert!(said.contains("beta waits: max_working 1 reached"), "{said}");
+    assert!(!said.contains("stopped"), "{said}");
+}
+
+/// A busy session keeps its place though its repository has no open dispatch.
+#[test]
+fn a_working_session_with_no_open_dispatch_keeps_its_place() {
+    let case = Case::new("busy-keeps");
+    let tick = at_max_working(&case, false, false);
+    assert_eq!(states_of(&case, "alpha"), ["Running"], "{tick}");
+    assert_eq!(states_of(&case, "beta"), Vec::<String>::new(), "{tick}");
+    let said = cycle_said(&case, &tick);
+    assert!(said.contains("beta waits: max_working 1 reached"), "{said}");
+    assert!(!said.contains("stopped"), "{said}");
 }
 
 /// The daily tick computes the previous day's metrics and writes `REPORT.md` with deviations
