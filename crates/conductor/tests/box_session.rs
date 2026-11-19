@@ -674,9 +674,16 @@ fn a_controller_runs_through_spawn_deliver_stop_and_resume_without_a_unix_socket
         "conductor: alpha: go on",
     );
     succeeded(&output, "session deliver after the resume");
-    let inbox = case.wait_for_inbox(3);
-    assert_eq!(inbox.len(), 3, "{inbox:?}");
-    assert_eq!(inbox[2]["message"]["content"], "conductor: alpha: go on");
+    // The resume tells the session first that alpha has no open dispatch (#202).
+    let inbox = case.wait_for_inbox(4);
+    assert_eq!(inbox.len(), 4, "{inbox:?}");
+    assert!(
+        inbox[2]["message"]["content"].as_str().is_some_and(
+            |text| text.starts_with("[REPORT alpha -] resumed: alpha has no open dispatch")
+        ),
+        "{inbox:?}"
+    );
+    assert_eq!(inbox[3]["message"]["content"], "conductor: alpha: go on");
 
     // Stop.
     let output = case.run(&[
