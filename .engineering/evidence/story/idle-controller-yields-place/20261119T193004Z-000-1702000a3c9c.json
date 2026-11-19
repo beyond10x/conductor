@@ -1,0 +1,13 @@
+{
+  "at": "2026-11-19T19:30:04Z",
+  "actor": "human:unknown",
+  "artifact": "story:idle-controller-yields-place",
+  "kind": "story",
+  "revision": 7,
+  "change": {
+    "change": "evidence",
+    "kind": "test_result",
+    "source": "cargo test -p conductor-cli --test run (local box, launches refused: needs CI); the three tests need a launch and run on CI",
+    "reference": "crates/conductor/tests/run.rs"
+  }
+}

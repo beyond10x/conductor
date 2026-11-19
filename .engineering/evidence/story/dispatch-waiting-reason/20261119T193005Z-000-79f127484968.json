@@ -1,0 +1,13 @@
+{
+  "at": "2026-11-19T19:30:05Z",
+  "actor": "human:unknown",
+  "artifact": "story:dispatch-waiting-reason",
+  "kind": "story",
+  "revision": 10,
+  "change": {
+    "change": "evidence",
+    "kind": "test_result",
+    "source": "cargo test -p conductor-cli --test run (local box, launches refused: needs CI); three of four waiting tests pass, the max_working one needs a launch; conformance 722/722; dispatch, adv_cli, dispatch_reference, records_log, run_records, rollup green",
+    "reference": "crates/conductor/tests/run.rs"
+  }
+}
