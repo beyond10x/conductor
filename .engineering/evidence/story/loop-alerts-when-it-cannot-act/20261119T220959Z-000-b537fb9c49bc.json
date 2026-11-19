@@ -1,0 +1,13 @@
+{
+  "at": "2026-11-19T22:09:59Z",
+  "actor": "human:unknown",
+  "artifact": "story:loop-alerts-when-it-cannot-act",
+  "kind": "story",
+  "revision": 7,
+  "change": {
+    "change": "evidence",
+    "kind": "test_result",
+    "source": "cargo test -p conductor-cli --test run -- a_unit_left_to_the_operator_alerts_once (fails on main: 0 alert lines; passes at 0825ec32), --lib alert:: (2 passed), --test records_log/run_records/dispatch/no_organization/isolated_home green; clippy -D warnings clean",
+    "reference": "crates/conductor/tests/run.rs"
+  }
+}
