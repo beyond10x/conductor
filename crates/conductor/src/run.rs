@@ -348,11 +348,25 @@ fn run_locked(
                 }
             })?;
         }
-        if let Some(day) = daily_due(dir, now, &instance.cadence.daily.0) {
+        let daily = &instance.cadence.daily.0;
+        if let Some(day) = daily_due(dir, now, daily) {
+            if let Some(line) = daily_missed(dir, &day, daily) {
+                say(true, &line);
+            }
             // Written once the tick ended, failed or not, so a loop stopped during it runs it
             // again at its next start (`story:daily-tick-runs`).
-            if let Err(error) = dispatch::daily_tick(config_flag, state, &day, seams) {
-                eprintln!("conductor run: daily tick: {error:#}");
+            match dispatch::daily_tick(config_flag, state, &day, seams) {
+                Ok(summary) => say(
+                    false,
+                    &format!(
+                        "conductor run: daily tick {day}: ran, tick {}",
+                        summary.tick_id
+                    ),
+                ),
+                Err(error) => say(
+                    true,
+                    &format!("conductor run: daily tick {day}: not run: {error:#}"),
+                ),
             }
             write_file(&dir.join(DAILY_LAST), &format!("{}\n", today(now)))?;
         }
@@ -1543,9 +1557,7 @@ fn today(now: OffsetDateTime) -> String {
 /// `daily`.
 fn daily_due(dir: &Path, now: OffsetDateTime, daily: &str) -> Option<String> {
     let now = now.to_offset(time::UtcOffset::UTC);
-    let (hour, minute) = daily.split_once(':')?;
-    let at =
-        now.replace_time(time::Time::from_hms(hour.parse().ok()?, minute.parse().ok()?, 0).ok()?);
+    let at = now.replace_time(daily_at(daily)?);
     if now < at {
         return None;
     }
@@ -1554,6 +1566,30 @@ fn daily_due(dir: &Path, now: OffsetDateTime, daily: &str) -> Option<String> {
         return None;
     }
     Some(today(now - time::Duration::days(1)))
+}
+
+/// The time of day `daily` (`HH:MM`, UTC) names; none when it names none.
+fn daily_at(daily: &str) -> Option<time::Time> {
+    let (hour, minute) = daily.split_once(':')?;
+    time::Time::from_hms(hour.parse().ok()?, minute.parse().ok()?, 0).ok()
+}
+
+/// The line the loop logs before the daily tick for `day` when the last one ended
+/// ([`DAILY_LAST`]) before `day`: the days between had none, because the loop did not reach
+/// `cadence.daily` on them (`story:daily-tick-logged`). None when no tick ended yet, or the last
+/// ended on `day`, the day before the one this tick runs on.
+#[must_use]
+pub fn daily_missed(dir: &Path, day: &str, daily: &str) -> Option<String> {
+    let last = fs::read_to_string(dir.join(DAILY_LAST)).ok()?;
+    let last = last.trim();
+    // Both `YYYY-MM-DD`: their order is their text's.
+    (!last.is_empty() && last < day).then(|| {
+        format!(
+            "conductor run: daily tick {day}: the last daily tick ended on {last}; none ran on \
+             the days between: the loop did not reach cadence.daily {daily} UTC on them (it was \
+             stopped, yielded its lock to another conductor run, or a tick held it past the day)"
+        )
+    })
 }
 
 /// Nanoseconds since the epoch of `at`.
