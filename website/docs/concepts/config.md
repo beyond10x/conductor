@@ -157,7 +157,7 @@ A key nothing reads yet is accepted, defaulted and shown: `repositories[].activi
 | `sources`, `checkouts.*` | collectors, watch, guard, dashboard, `resource usage`, `config workspace`, `conductor trust` |
 | `records`, `state`, `cache` | every store command, guard, watch, dashboard, collectors |
 | `roles[]` | `session start`, `spawn`, `controller resume-controller`, `session attach --role`, watch; `read_only_tools` by the guard; `grant` by `conductor broker serve` |
-| `controllers.*`, `authority.class_c`, `cadence.cycle`, `cadence.daily` | profiles, `conductor run` |
+| `controllers.*`, `authority.class_c`, `cadence.cycle`, `cadence.daily` | profiles, `conductor run`; `controllers.unit_merge` also by `conductor spawn` and the work call, for the default charter |
 | `cadence.watch`, `cadence.ci` | watch |
 | `thresholds.*` | watch, profiles, `conductor build run`, `conductor gc`, `host reclaim` ([disk](./disk.md)) |
 | `retention.snapshots` | store |

@@ -1,0 +1,12 @@
+{
+  "at": "2026-11-19T23:10:54Z",
+  "actor": "human:unknown",
+  "artifact": "story:unit-merge-policy",
+  "kind": "story",
+  "revision": 7,
+  "change": {
+    "change": "evidence",
+    "kind": "test_result",
+    "source": "cargo test -p conductor-cli --test config (79 passed, unit_merge test failed first), --test daemon_pods (45 passed), --test kubernetes_guide (19 passed), --test no_organization (4 passed); work_start's three new tests need CI (AF_UNIX refused in the box), their charter writes checked over TCP locally; clippy -D warnings clean"
+  }
+}

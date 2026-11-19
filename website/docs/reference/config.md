@@ -194,6 +194,7 @@ A key path written `a[].b` is the key `b` of each element of the list `a`. A def
 | `controllers.max_working` | integer | `5` | `max_working >= 1` |
 | `controllers.max_subagents` | integer | `4` | `max_subagents >= 1` |
 | `controllers.max_open_reviews` | integer | `3` | `max_open_reviews >= 0` |
+| `controllers.unit_merge` | `controller` \| `human` | `human` |  |
 | `repositories` | list of [RepositoryRule](#repositoryrule) | `[]` |  |
 | `repositories[].match` | string | required |  |
 | `repositories[].activity` | `active` \| `inactive` | none |  |
@@ -396,11 +397,17 @@ The conductor a session of the instance messages: its own, `session_name` being 
 
 Keys: `served_by`, `session_name`. Specified as `conductor.config.ConductorSession`.
 
+### UnitMerge
+
+Who merges a unit of work's request. The file writes it in lower case: `controller`, the controller merges it once the full gate passed and its checks are green, or `human`, the controller reports it for review and never merges it.
+
+One of `controller` | `human`. Specified as `conductor.config.UnitMerge`.
+
 ### Controllers
 
-How many controllers of the instance work at once, at most, how many sub-agents one controller runs at once, at most, and how many pull requests of one repository may wait for review before conductor sends that repository no new dispatch, `0` meaning no limit. Absent, they are 5, 4 and 3.
+How many controllers of the instance work at once, at most, how many sub-agents one controller runs at once, at most, and how many pull requests of one repository may wait for review before conductor sends that repository no new dispatch, `0` meaning no limit. Absent, they are 5, 4 and 3. Then who merges a unit of work's request: the default charter a unit start writes, where the repository has none, ends `merge: <unit_merge>` and says so in its Boundaries, and a charter equal byte for byte to either of conductor's two default forms is rewritten to the form `unit_merge` names at the next unit start; any other charter is never rewritten. Absent, it is `human`.
 
-Keys: `max_working`, `max_subagents`, `max_open_reviews`. Specified as `conductor.config.Controllers`.
+Keys: `max_working`, `max_subagents`, `max_open_reviews`, `unit_merge`. Specified as `conductor.config.Controllers`.
 
 ### RepositoryRule
 

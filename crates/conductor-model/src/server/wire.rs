@@ -1,5 +1,5 @@
 // generated from conductor v1
-// contract digest 4db77cc1609eabc954004c5ea01cc712eee0414ec1c1828d6a9168ca9523cbd9
+// contract digest 1e51e8597d088c769b802ce8f4771c1aad9184faa80e8cdb7b667bcf452d7949
 // do not edit: regenerate with `ess synthesize --layout crate`
 //! Every generated declaration, as JSON, in the renderings the published wire contracts fix.
 //!
@@ -1170,6 +1170,8 @@ pub fn encode_conductor_config_controllers(value: &crate::config::Controllers, o
     json::push_integer(out, value.max_subagents);
     json::member(out, "max_open_reviews");
     json::push_integer(out, value.max_open_reviews);
+    json::member(out, "unit_merge");
+    encode_conductor_config_unit_merge(&value.unit_merge, out);
     out.push('}');
 }
 
@@ -1179,7 +1181,7 @@ pub fn encode_conductor_config_controllers(value: &crate::config::Controllers, o
 ///
 /// [`json::DecodeError`] naming the path and what the declaration says belongs there.
 pub fn decode_conductor_config_controllers(value: &json::Value, at: &str) -> Result<crate::config::Controllers, json::DecodeError> {
-    json::closed_at(value, at, &["max_working", "max_subagents", "max_open_reviews"])?;
+    json::closed_at(value, at, &["max_working", "max_subagents", "max_open_reviews", "unit_merge"])?;
     Ok(crate::config::Controllers {
         max_working: {
             let at0 = json::nested(at, "max_working");
@@ -1195,6 +1197,11 @@ pub fn decode_conductor_config_controllers(value: &json::Value, at: &str) -> Res
             let at2 = json::nested(at, "max_open_reviews");
             let member2 = json::member_at(value, at, "max_open_reviews")?;
             json::integer_at(member2, &at2, "an integer")?
+        },
+        unit_merge: {
+            let at3 = json::nested(at, "unit_merge");
+            let member3 = json::member_at(value, at, "unit_merge")?;
+            decode_conductor_config_unit_merge(member3, &at3)?
         },
     })
 }
@@ -4211,6 +4218,27 @@ pub fn decode_conductor_config_trust_workspaces(value: &json::Value, at: &str) -
                 Some(json::text_at(member0, &at0, "a string")?.to_owned())
             }
         },
+    })
+}
+
+/// Writes `conductor.config.UnitMerge` as JSON.
+pub fn encode_conductor_config_unit_merge(value: &crate::config::UnitMerge, out: &mut String) {
+    match value {
+        crate::config::UnitMerge::Controller => json::push_text(out, "Controller"),
+        crate::config::UnitMerge::Human => json::push_text(out, "Human"),
+    }
+}
+
+/// Reads `conductor.config.UnitMerge` from JSON.
+///
+/// # Errors
+///
+/// [`json::DecodeError`] naming the path and what the declaration says belongs there.
+pub fn decode_conductor_config_unit_merge(value: &json::Value, at: &str) -> Result<crate::config::UnitMerge, json::DecodeError> {
+    Ok(match json::text_at(value, at, "one of `Controller`, `Human`")? {
+        "Controller" => crate::config::UnitMerge::Controller,
+        "Human" => crate::config::UnitMerge::Human,
+        other => return Err(json::DecodeError { at: at.to_owned(), expected: "one of `Controller`, `Human`".to_owned(), found: format!("`{other}`") }),
     })
 }
 

@@ -18,6 +18,7 @@ instances:
       max_working: 5
       max_subagents: 4
       max_open_reviews: 3
+      unit_merge: human
     roles:
       - {role: director, harness: claude, model: opus}
       - role: lead

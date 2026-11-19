@@ -1313,7 +1313,8 @@ fn the_daemons_seeding_skips_pod_run_instances() {
 /// `pod-alpha-no-token.json`, `pod-alpha-local.json` and `pod-alpha-git-config.json`. Since
 /// wave 59 the rendered file names the director's session `<session_prefix>-director` (issue
 /// #220) and the maintainer's without the prefix (issue #214), so every one of these pods is
-/// replaced once at that upgrade.
+/// replaced once at that upgrade; and since wave 61 it carries `controllers.unit_merge`
+/// (story:unit-merge-policy), so every one is replaced once more at that one.
 #[test]
 fn the_pod_of_an_instance_under_the_daemons_token_is_the_one_of_v1_4_0_and_gits_variables() {
     let case = Case::new("before-the-key");

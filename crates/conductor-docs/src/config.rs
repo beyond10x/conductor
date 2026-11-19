@@ -243,6 +243,7 @@ instances:
       max_working: 2
       max_subagents: 2
       max_open_reviews: 2
+      unit_merge: controller
     repositories:
       - {match: alpha, activity: inactive, no_releases: published on merge}
     cadence:

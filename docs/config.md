@@ -10,6 +10,16 @@ The config file is described in two places on the site:
 
 A full example is [`../conductor.example.yaml`](../conductor.example.yaml).
 
+## Who merges a unit of work
+
+`controllers.unit_merge` (`controller` or `human`; absent, `human`) chooses the default charter a
+unit of work's start writes where the repository has none: `human` leaves the merge to a person
+(`merge: human`), `controller` has the controller merge the request once its full gate passed and
+its checks are green, one at a time and never by auto-merge (`merge: controller`). A charter equal
+byte for byte to either form is rewritten to the form the key names at the next unit start; any
+other charter is the operator's and is never rewritten
+([the loop](https://beyond10x.github.io/conductor/docs/concepts/the-loop)).
+
 ## Keys of a `conductor.config/1` file
 
 A `/1` file loads for one release so a running instance keeps working; conductord does not read

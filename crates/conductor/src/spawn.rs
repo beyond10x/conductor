@@ -80,8 +80,11 @@
 //!
 //! A start for a dispatch with a `reference`, a unit of work a work source sent
 //! (`story:control-plane-work-handler`), the work call's and the loop's, does two things more.
-//! Where the charter is missing or empty it first writes [`DEFAULT_CHARTER`], which the binary
-//! carries, as the charter file (a charter with text is never overwritten). And its `## Dispatch`
+//! Where the charter is missing or empty it first writes the default charter of the instance's
+//! `controllers.unit_merge` ([`default_charter_text`]): [`DEFAULT_CHARTER`] for `human`,
+//! [`CONTROLLER_MERGE_CHARTER`] for `controller`, both carried by the binary. A charter equal byte
+//! for byte to either form is rewritten to the one `unit_merge` names; any other charter with text
+//! is never overwritten (`story:unit-merge-policy`). And its `## Dispatch`
 //! section names, after the dispatch, its reference, its start ref and its issue where it has
 //! them, and last the brief, verbatim, in a fenced block whose fence is longer than any run of
 //! backticks in the brief ([`with_dispatch`]). A refusal is the error [`Refused`], whose
@@ -94,7 +97,7 @@ use std::process::ExitCode;
 
 use anyhow::{Context as _, Result, anyhow, bail};
 use conductor_model::config::{
-    CommandWord, Harness as RoleHarness, Instance, Limits, Network, Role, SessionName,
+    CommandWord, Harness as RoleHarness, Instance, Limits, Network, Role, SessionName, UnitMerge,
 };
 use conductor_model::dispatch::obligations::{StartControllerBehavior, StopControllerBehavior};
 use conductor_model::dispatch::{
@@ -188,7 +191,7 @@ pub fn spawn_for(
         None => None,
     };
     if work.is_some() {
-        default_charter(&charter_file)?;
+        default_charter(&charter_file, instance.controllers.unit_merge)?;
     }
     let charter = match charter(&charter_file) {
         Ok(charter) => match dispatch {
@@ -871,12 +874,34 @@ pub const fn work_refusal(refusal: SpawnRefusal) -> WorkStartRefusal {
 /// merges (`merge: human`) and ends with `done`, `failed` or `blocked`. It writes no size.
 pub const DEFAULT_CHARTER: &str = include_str!("spawn/charter.md");
 
-/// Whether the charter `file` is [`DEFAULT_CHARTER`], byte for byte: a repository on it gets a
-/// controller only for a dispatch ([`crate::run::Tick::spawn`]). Any edit makes it the operator's
-/// charter, which the loop treats as any other.
+/// The default charter's second form, for an instance whose `controllers.unit_merge` is
+/// `controller` (`story:unit-merge-policy`): as [`DEFAULT_CHARTER`], but once the full gate passed
+/// and the request's checks are green the controller merges it itself, one request at a time and
+/// never by auto-merge, then reports `done`. Its last line is `merge: controller`.
+pub const CONTROLLER_MERGE_CHARTER: &str = include_str!("spawn/charter-controller.md");
+
+/// The default charter a unit start writes for `merge`: [`DEFAULT_CHARTER`] for `human`,
+/// [`CONTROLLER_MERGE_CHARTER`] for `controller`.
+#[must_use]
+pub fn default_charter_text(merge: UnitMerge) -> &'static str {
+    match merge {
+        UnitMerge::Human => DEFAULT_CHARTER,
+        UnitMerge::Controller => CONTROLLER_MERGE_CHARTER,
+    }
+}
+
+/// Whether `text` is one of conductor's default charters, byte for byte.
+fn is_default_text(text: &[u8]) -> bool {
+    text == DEFAULT_CHARTER.as_bytes() || text == CONTROLLER_MERGE_CHARTER.as_bytes()
+}
+
+/// Whether the charter `file` is one of conductor's default charters, [`DEFAULT_CHARTER`] or
+/// [`CONTROLLER_MERGE_CHARTER`], byte for byte: a repository on it gets a controller only for a
+/// dispatch ([`crate::run::Tick::spawn`]). Any edit makes it the operator's charter, which the
+/// loop treats as any other.
 #[must_use]
 pub fn is_default_charter(file: &Path) -> bool {
-    fs::read_to_string(file).is_ok_and(|text| text == DEFAULT_CHARTER)
+    fs::read(file).is_ok_and(|text| is_default_text(&text))
 }
 
 /// What a dispatch with a `reference`, a unit of work, gives its controller's first prompt.
@@ -908,13 +933,15 @@ fn unit_of(state: Option<&Path>, id: &str) -> Result<Option<Unit>> {
     }))
 }
 
-/// Writes [`DEFAULT_CHARTER`] to `file` when it is missing or empty; a charter with text is never
-/// overwritten. A file of the records, written whole, which the records' commit takes as it takes
+/// Writes the default charter `merge` names ([`default_charter_text`]) to `file` when it is
+/// missing or empty, or when it is the other default form byte for byte; any other charter with
+/// text is never overwritten (`story:unit-merge-policy`). A file of the records, written whole, which the records' commit takes as it takes
 /// every charter. It is written only inside the records: the `charters` directory must be a real
 /// directory (created when missing, never a symbolic link), and the file beside the charter is
 /// created anew (a regular file left there is removed first; a symbolic link or anything else
 /// there is refused), then renamed over the charter. A refusal names why, and no path.
-fn default_charter(file: &Path) -> Result<()> {
+fn default_charter(file: &Path, merge: UnitMerge) -> Result<()> {
+    let wanted = default_charter_text(merge);
     const NOTHING: &str = "no charter was written";
     let dir = file
         .parent()
@@ -938,15 +965,18 @@ fn default_charter(file: &Path) -> Result<()> {
         ),
     }
     match fs::read(file) {
+        Ok(text) if text == wanted.as_bytes() => Ok(()),
+        Ok(text) if is_default_text(&text) => write_charter(file, wanted),
         Ok(text) if !text.iter().all(u8::is_ascii_whitespace) => Ok(()),
-        Ok(_) => write_charter(file),
-        Err(error) if error.kind() == io::ErrorKind::NotFound => write_charter(file),
+        Ok(_) => write_charter(file, wanted),
+        Err(error) if error.kind() == io::ErrorKind::NotFound => write_charter(file, wanted),
         Err(error) => Err(error).with_context(|| format!("read the charter {}", file.display())),
     }
 }
 
-/// [`DEFAULT_CHARTER`] written to `<file>.next`, created exclusively, then renamed over `file`.
-fn write_charter(file: &Path) -> Result<()> {
+/// `text`, a default charter, written to `<file>.next`, created exclusively, then renamed over
+/// `file`.
+fn write_charter(file: &Path, text: &str) -> Result<()> {
     const NOTHING: &str = "no charter was written";
     let beside = file.with_extension("md.next");
     match fs::symlink_metadata(&beside) {
@@ -967,10 +997,7 @@ fn write_charter(file: &Path) -> Result<()> {
         .write(true)
         .create_new(true)
         .open(&beside)
-        .and_then(|mut out| {
-            out.write_all(DEFAULT_CHARTER.as_bytes())
-                .and_then(|()| out.sync_all())
-        })
+        .and_then(|mut out| out.write_all(text.as_bytes()).and_then(|()| out.sync_all()))
         .and_then(|()| fs::rename(&beside, file));
     written.map_err(|error| {
         anyhow!(

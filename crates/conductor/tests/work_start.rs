@@ -90,6 +90,11 @@ impl Drop for Case {
 impl Case {
     /// A case whose instance runs at most `max_working` controllers.
     fn new(name: &str, max_working: i64) -> Self {
+        Self::with(name, &format!("max_working: {max_working}"))
+    }
+
+    /// A case whose instance's `controllers` section holds `controllers`, a flow mapping's body.
+    fn with(name: &str, controllers: &str) -> Self {
         let dir = PathBuf::from(env!("CARGO_TARGET_TMPDIR"))
             .join("ws")
             .join(name);
@@ -98,7 +103,7 @@ impl Case {
         let case = Self {
             dir: dir.canonicalize().expect("the case's directory"),
         };
-        case.fixture(max_working);
+        case.fixture(controllers);
         case
     }
 
@@ -142,7 +147,7 @@ impl Case {
         format!("{}:/usr/bin:/bin", self.bin().display())
     }
 
-    fn fixture(&self, max_working: i64) {
+    fn fixture(&self, controllers: &str) {
         let mut projects = serde_json::Map::new();
         for repo in ["alpha", "beta"] {
             let checkout = self.root().join(repo);
@@ -198,7 +203,7 @@ impl Case {
                  \x20     - {{role: controller, harness: claude, model: sonnet, profile: {profile}, \
                  settings: {settings}}}\n\
                  \x20   confinement: {{provider: none}}\n\
-                 \x20   controllers: {{max_working: {max_working}}}\n",
+                 \x20   controllers: {{{controllers}}}\n",
                 root = self.root().display(),
                 trees = self.home().join("trees").display(),
                 records = self.records().display(),
@@ -921,6 +926,146 @@ fn a_default_charter_gets_a_controller_only_for_a_dispatch_and_an_edited_one_as_
         "the operator's charter starts one: {summary}"
     );
     assert_eq!(case.prompt(2), own, "no dispatch is named");
+}
+
+/// `story:unit-merge-policy`: the default charter of an instance whose `controllers.unit_merge`
+/// is `controller`. It holds the parts every default charter holds, says the controller merges
+/// the request itself once its gate passed and its checks are green, never by auto-merge, and ends
+/// `merge: controller`.
+fn assert_controller_charter(text: &str) {
+    for part in [
+        "## Goal",
+        "## Scope",
+        "## Boundaries",
+        "review <url>",
+        "merge it yourself",
+        "checks are green",
+        "one request at a time",
+        "auto-merge",
+        "done",
+        "failed",
+        "blocked",
+    ] {
+        assert!(
+            text.contains(part),
+            "the controller-merge charter holds {part:?}: {text}"
+        );
+    }
+    assert_eq!(
+        text.lines().last(),
+        Some("merge: controller"),
+        "its last line: {text}"
+    );
+    assert!(
+        !text.contains("merge: human") && !text.contains("never merge it"),
+        "it does not leave the merge to a person: {text}"
+    );
+    assert!(
+        !text.contains("GiB") && !text.chars().any(|c| c.is_ascii_digit()),
+        "the default charter writes no size: {text}"
+    );
+}
+
+/// `story:unit-merge-policy`: on an instance with `controllers.unit_merge: controller`, a unit
+/// start in a repository with no charter writes the controller-merge form, and the controller's
+/// first prompt opens with it.
+#[test]
+fn a_unit_start_with_unit_merge_controller_writes_the_controller_merge_charter() {
+    let case = Case::with("umerge", "max_working: 4, unit_merge: controller");
+    let _runtime = case.serve();
+    assert!(!case.charter("alpha").exists());
+
+    let created = post(&case, &work("alpha", "WI-M", BRIEF));
+    assert_eq!(created.status, 201, "{created:?}");
+    assert!(created.json().get("start").is_none(), "{created:?}");
+
+    let charter = fs::read_to_string(case.charter("alpha")).expect("the default charter");
+    assert_controller_charter(&charter);
+    assert_eq!(charter, conductor_cli::spawn::CONTROLLER_MERGE_CHARTER);
+    assert_eq!(case.launches(), 1);
+    assert!(
+        case.prompt(1).starts_with(charter.trim_end()),
+        "the prompt opens with the charter: {}",
+        case.prompt(1)
+    );
+}
+
+/// `story:unit-merge-policy`: a charter equal byte for byte to the human-merge default is
+/// rewritten to the controller-merge form at the next unit start, and the controller-merge form
+/// back to the human one when `unit_merge` is `human` (absent); either is still conductor's
+/// default, so the repository gets a controller only for a dispatch.
+#[test]
+fn a_default_charter_is_rewritten_to_the_form_unit_merge_names() {
+    let case = Case::with("urewrite", "max_working: 4, unit_merge: controller");
+    write(
+        &case.charter("alpha"),
+        conductor_cli::spawn::DEFAULT_CHARTER,
+    );
+    assert!(conductor_cli::spawn::is_default_charter(
+        &case.charter("alpha")
+    ));
+    let _runtime = case.serve();
+
+    let created = post(&case, &work("alpha", "WI-U", BRIEF));
+    assert_eq!(created.status, 201, "{created:?}");
+    let charter = fs::read_to_string(case.charter("alpha")).expect("the charter");
+    assert_eq!(
+        charter,
+        conductor_cli::spawn::CONTROLLER_MERGE_CHARTER,
+        "the human-merge default is rewritten to the controller-merge form"
+    );
+    assert_controller_charter(&charter);
+    assert!(
+        conductor_cli::spawn::is_default_charter(&case.charter("alpha")),
+        "the controller-merge form is conductor's default too"
+    );
+    assert_eq!(case.launches(), 1);
+    assert!(
+        case.prompt(1).starts_with(charter.trim_end()),
+        "{}",
+        case.prompt(1)
+    );
+
+    let human = Case::new("uback", 4);
+    write(
+        &human.charter("alpha"),
+        conductor_cli::spawn::CONTROLLER_MERGE_CHARTER,
+    );
+    let _runtime = human.serve();
+    let created = post(&human, &work("alpha", "WI-H", BRIEF));
+    assert_eq!(created.status, 201, "{created:?}");
+    let charter = fs::read_to_string(human.charter("alpha")).expect("the charter");
+    assert_eq!(charter, conductor_cli::spawn::DEFAULT_CHARTER);
+    assert_default_charter(&charter);
+}
+
+/// `story:unit-merge-policy`: an edited charter, even one that differs from the human-merge
+/// default by one byte, is the operator's and is left byte for byte, whatever `unit_merge` says.
+#[test]
+fn an_edited_default_charter_is_left_byte_for_byte_under_unit_merge_controller() {
+    let case = Case::with("uedited", "max_working: 4, unit_merge: controller");
+    let edited = conductor_cli::spawn::DEFAULT_CHARTER
+        .replace("and nothing else.", "and nothing else; keep the changelog.");
+    assert_ne!(edited, conductor_cli::spawn::DEFAULT_CHARTER);
+    write(&case.charter("alpha"), &edited);
+    let _runtime = case.serve();
+
+    let created = post(&case, &work("alpha", "WI-E", BRIEF));
+    assert_eq!(created.status, 201, "{created:?}");
+    assert_eq!(
+        fs::read_to_string(case.charter("alpha")).expect("the charter"),
+        edited,
+        "the operator's charter is kept as it was"
+    );
+    assert!(!conductor_cli::spawn::is_default_charter(
+        &case.charter("alpha")
+    ));
+    assert_eq!(case.launches(), 1);
+    assert!(
+        case.prompt(1).starts_with(edited.trim_end()),
+        "{}",
+        case.prompt(1)
+    );
 }
 
 /// A unit whose controller cannot be launched is tried no more after three failed starts:

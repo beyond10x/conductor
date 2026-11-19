@@ -32,6 +32,15 @@ for the waiting repository, and the `cycle` line names it. Each open dispatch th
 controller carries why (no complete snapshot, Inactive, no charter, `max_working` reached, a
 refused start), shown by `dispatch dispatches` and written once per change as a `waiting` line.
 
+A unit of work's controller starts on conductor's default charter where the repository has none.
+`controllers.unit_merge` chooses its form: `human`, the default, ends `merge: human`, and the
+controller reports the request as `review <url>` and never merges it; `controller` ends `merge:
+controller`, and the controller merges the request itself once its full gate passed and its checks
+are green, one request at a time and never by auto-merge, then reports `done`. A charter equal byte
+for byte to either form is rewritten to the form `unit_merge` names at the next unit start, so a
+changed setting reaches a repository still on the default. Any other charter is the operator's and
+is never rewritten. Either form gets a controller only for a dispatch.
+
 Each tick is recorded (`session run-ticks`). A handler that fails prints `conductor run: <what>:
 <why>` and the tick goes on. A tick that cannot be recorded fails the run. `--once` runs one watch
 tick and one cycle tick and exits.
