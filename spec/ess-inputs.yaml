@@ -41,6 +41,7 @@ scenarios:
   - scenarios/record-dispatch-link-twice.yaml
   - scenarios/record-dispatch-waiting.yaml
   - scenarios/record-dispatch-waiting-cleared.yaml
+  - scenarios/reopen-dispatch.yaml
   - scenarios/receive-message-unknown-kind.yaml
   - scenarios/claim-lease.yaml
   - scenarios/escalate-o-with-options.yaml

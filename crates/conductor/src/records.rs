@@ -60,7 +60,7 @@ pub const DECISIONS: &str = "decisions";
 
 /// The keys a line of the dispatch log may hold: the fields of `conductor.dispatch.DispatchLogLine`
 /// (`spec/domains/dispatch.yaml`), in its order.
-pub const DISPATCH_KEYS: [&str; 32] = [
+pub const DISPATCH_KEYS: [&str; 33] = [
     "at",
     "event",
     "repo",
@@ -93,6 +93,7 @@ pub const DISPATCH_KEYS: [&str; 32] = [
     "link",
     "token",
     "resets_at",
+    "condition",
 ];
 
 /// The keys every line of the dispatch log holds.
@@ -161,11 +162,12 @@ pub const fn dispatch_event(event: DispatchLogEvent) -> &'static str {
         DispatchLogEvent::Waiting => "waiting",
         DispatchLogEvent::DoneHeld => "done-held",
         DispatchLogEvent::Reopened => "reopened",
+        DispatchLogEvent::Alert => "alert",
     }
 }
 
 /// Every event of the dispatch log, in the specification's order.
-pub const DISPATCH_EVENTS: [DispatchLogEvent; 30] = [
+pub const DISPATCH_EVENTS: [DispatchLogEvent; 31] = [
     DispatchLogEvent::Sent,
     DispatchLogEvent::Started,
     DispatchLogEvent::Blocked,
@@ -196,6 +198,7 @@ pub const DISPATCH_EVENTS: [DispatchLogEvent; 30] = [
     DispatchLogEvent::Waiting,
     DispatchLogEvent::DoneHeld,
     DispatchLogEvent::Reopened,
+    DispatchLogEvent::Alert,
 ];
 
 /// The dispatch log event `name` spells ([`dispatch_event`]), if any.
@@ -282,6 +285,7 @@ pub fn dispatch_line(event: DispatchLogEvent, repo: &str) -> Result<DispatchLogL
         link: None,
         token: None,
         resets_at: None,
+        condition: None,
     })
 }
 
@@ -366,6 +370,7 @@ pub fn dispatch_object(line: &DispatchLogLine) -> Map<String, Value> {
         "resets_at",
         line.resets_at.as_ref().map(|at| at.0.clone()),
     );
+    put(&mut object, "condition", line.condition.clone());
     object
 }
 

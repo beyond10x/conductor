@@ -1,5 +1,5 @@
 // generated from conductor v1
-// contract digest 8b0bee8be14247f0bf21e16bf0667486cea95ad8d77ee074bf46a40cfb4412bb
+// contract digest 4db77cc1609eabc954004c5ea01cc712eee0414ec1c1828d6a9168ca9523cbd9
 // do not edit: regenerate with `ess synthesize --layout crate`
 
 //! Dispatch — `conductor.dispatch`.
@@ -138,6 +138,8 @@ pub enum DispatchLogEvent {
     DoneHeld,
     /// `Reopened`.
     Reopened,
+    /// `Alert`.
+    Alert,
 }
 
 /// DispatchLogLine — `conductor.dispatch.DispatchLogLine`.
@@ -207,6 +209,8 @@ pub struct DispatchLogLine {
     pub token: Option<String>,
     /// `resets_at` — `Optional<Timestamp>`.
     pub resets_at: Option<crate::primitives::Timestamp>,
+    /// `condition` — `Optional<String>`.
+    pub condition: Option<String>,
 }
 
 /// The states of `conductor.dispatch.GuardDecision`, as runtime values.

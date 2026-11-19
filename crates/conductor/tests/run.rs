@@ -12,7 +12,8 @@
 //!
 //! The stand-ins, written here and never committed: `claude` (`agents --json` prints the entries
 //! under `fake/agents/`, `stop <id>` takes one away, a launch prints the id `s000000<n>-0000` and
-//! keeps its last argument, the charter, in `fake/charter.<n>`; every call is logged one line to
+//! keeps its last argument, the charter, in `fake/charter.<n>`, or, while `fake/fail` is there,
+//! exits 1, a harness that cannot start; every call is logged one line to
 //! `fake/claude.calls`, its first four words, and to `fake/claude.args`, whole),
 //! `systemd-run` and `systemctl` (logged; `systemctl` answers a unit loaded and active while
 //! `fake/unit.loaded` exists), `gh` (`[]`), `aep` (`plan artifact list` prints
@@ -589,6 +590,7 @@ impl Case {
                  esac\n\
                  n=$(( $(cat \"$D/launches\" 2>/dev/null || echo 0) + 1 ))\n\
                  echo \"$n\" > \"$D/launches\"\n\
+                 if [ -e \"$D/fail\" ]; then echo 'cannot start' >&2; exit 1; fi\n\
                  if [ \"$2\" = --resume ]; then echo \"$3\"; exit 0; fi\n\
                  for arg; do last=\"$arg\"; done\n\
                  printf '%s' \"$last\" > \"$D/charter.$n\"\n\
@@ -4032,6 +4034,90 @@ fn cycle(case: &Case) -> Value {
         "do": "cycle",
         "program": case.bin().join("conductor-steps"),
     }))
+}
+
+/// The `alert` lines of the dispatch log.
+fn alerts(case: &Case) -> Vec<Value> {
+    case.log()
+        .into_iter()
+        .filter(|line| line["event"] == "alert")
+        .collect()
+}
+
+/// The desktop notifications sent as alerts.
+fn alerts_notified(case: &Case) -> Vec<String> {
+    fs::read_to_string(case.fake().join("notify.calls"))
+        .unwrap_or_default()
+        .lines()
+        .filter(|line| line.contains(": alert "))
+        .map(str::to_owned)
+        .collect()
+}
+
+/// `story:loop-alerts-when-it-cannot-act`: a unit of work whose start fails at the launch is
+/// tried three times and then left to the operator; over three cycles more it stays left. The
+/// loop writes exactly one `alert` line (`unit-left-to-operator`, naming the dispatch and the
+/// repository) and calls the notifier once. Once the unit is cancelled the condition clears and
+/// the seen file forgets it.
+#[test]
+fn a_unit_left_to_the_operator_alerts_once() {
+    let case = Case::new("alert-unit-left");
+    write(&case.fake().join("fail"), "");
+    let id = case
+        .ok(&[
+            "dispatch",
+            "send-dispatch",
+            "--repository",
+            "beta",
+            "--reference",
+            "WI-ALERT",
+            "--brief",
+            "Add the export button",
+            "--sent-at",
+            "2026-10-17T08:00:00Z",
+            "--priority",
+            "1",
+        ])
+        .trim()
+        .to_owned();
+    let summaries: Vec<Value> = (0..6).map(|_| cycle(&case)).collect();
+    let failed = case
+        .log()
+        .into_iter()
+        .filter(|line| line["event"] == "start-refused" && line["id"] == id.as_str())
+        .count();
+    assert_eq!(failed, 3, "{summaries:?}");
+    let written = alerts(&case);
+    assert_eq!(written.len(), 1, "{written:?} {summaries:?}");
+    let alert = &written[0];
+    assert_eq!(alert["condition"], "unit-left-to-operator", "{alert}");
+    assert_eq!(alert["repo"], "beta", "{alert}");
+    assert_eq!(alert["id"], id.as_str(), "{alert}");
+    assert!(alert["tick_id"].is_string(), "{alert}");
+    assert!(
+        alert["reason"]
+            .as_str()
+            .is_some_and(|reason| reason.contains("3 starts")),
+        "{alert}"
+    );
+    let notified = alerts_notified(&case);
+    assert_eq!(notified.len(), 1, "{notified:?}");
+    assert!(notified[0].contains(&id), "{notified:?}");
+    let seen = fs::read_to_string(case.state().join("run/alerts.seen")).expect("the seen file");
+    assert!(seen.contains(&id), "{seen}");
+
+    case.ok(&[
+        "dispatch",
+        "cancel-dispatch",
+        "--dispatch-id",
+        &id,
+        "--reason",
+        "left to the operator",
+    ]);
+    cycle(&case);
+    let seen = fs::read_to_string(case.state().join("run/alerts.seen")).unwrap_or_default();
+    assert!(!seen.contains(&id), "{seen}");
+    assert_eq!(alerts(&case).len(), 1);
 }
 
 /// `story:dispatch-v1-once-per-goal`: alpha, Active with a charter, serves the goal G1 and has a
