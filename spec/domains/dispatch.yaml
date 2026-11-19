@@ -253,7 +253,10 @@ types:
   # commit or push refused, once, never retried in a loop (story:records-committed-by-daemon). A
   # tick of the daemon (`conductor.session.RunTick`) lists the lines it wrote by these names, and
   # the lines the commands it ran wrote (`sent` by a spawn, a report's `started` … `failed`) by
-  # theirs.
+  # theirs. `alert`, a condition the loop or the daemon cannot act on, written once per condition
+  # and subject while the condition holds and sent to the operator's notifier
+  # (story:loop-alerts-when-it-cannot-act); the first condition, `unit-left-to-operator`, a unit
+  # of work whose start failed at the launch three times, which the cycle tries no more.
   - name: conductor.dispatch.DispatchLogEvent
     kind: enum
     variants:
@@ -285,6 +288,7 @@ types:
       - RecordsCommitRefused
       - StartRefused
       - Waiting
+      - Alert
 
   # One line of `<records>/dispatches/YYYY-MM.jsonl`: a JSON object holding `at` (when it was
   # written, RFC 3339 UTC), `event`, `repo` (the repository; the key is `repo`, never
@@ -336,7 +340,10 @@ types:
   #   commit's message) and `evidence` (`pushed origin main`, or `no origin`);
   # - `records-commit-refused`: `reason` (`records check`, `repository`, `commit` or `push`), `line`
   #   (what `records check` printed, or the last line the bot route or git printed) and `commit`
-  #   when the commit was made and its push refused.
+  #   when the commit was made and its push refused;
+  # - `alert`: `condition` (`unit-left-to-operator`), `reason` (what the loop cannot do, one
+  #   line), and `id`, the dispatch, when the subject is one; `repo` is the repository, or the
+  #   instance's name for a condition of the instance.
   # `conductor run --once --commit-records` writes its line with no `tick_id`: it runs no tick.
   - name: conductor.dispatch.DispatchLogLine
     kind: struct
@@ -373,6 +380,7 @@ types:
       - {name: link, type: Optional<String>}
       - {name: token, type: Optional<String>}
       - {name: resets_at, type: Optional<Timestamp>}
+      - {name: condition, type: Optional<String>}
 
   # A unit of work a work source hands one instance (story:control-plane-work-handler): the
   # repository as the instance's rows name it, the brief, the caller's `reference` for the unit,

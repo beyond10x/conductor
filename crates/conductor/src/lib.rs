@@ -12,6 +12,7 @@ use std::fmt;
 
 pub mod actor;
 pub mod agent;
+pub mod alert;
 pub mod attach;
 pub mod broker;
 pub mod build;

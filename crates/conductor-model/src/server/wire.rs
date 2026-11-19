@@ -1,5 +1,5 @@
 // generated from conductor v1
-// contract digest 446c14272eda471e83f2d056112185680e3dcc9fe99dea205f60f54332491604
+// contract digest 292bba49cbb30cf41042e08a954f343f64b7191bf8fd5a8b2ecb5512faabc125
 // do not edit: regenerate with `ess synthesize --layout crate`
 //! Every generated declaration, as JSON, in the renderings the published wire contracts fix.
 //!
@@ -6432,6 +6432,7 @@ pub fn encode_conductor_dispatch_dispatch_log_event(value: &crate::dispatch::Dis
         crate::dispatch::DispatchLogEvent::RecordsCommitRefused => json::push_text(out, "RecordsCommitRefused"),
         crate::dispatch::DispatchLogEvent::StartRefused => json::push_text(out, "StartRefused"),
         crate::dispatch::DispatchLogEvent::Waiting => json::push_text(out, "Waiting"),
+        crate::dispatch::DispatchLogEvent::Alert => json::push_text(out, "Alert"),
     }
 }
 
@@ -6441,7 +6442,7 @@ pub fn encode_conductor_dispatch_dispatch_log_event(value: &crate::dispatch::Dis
 ///
 /// [`json::DecodeError`] naming the path and what the declaration says belongs there.
 pub fn decode_conductor_dispatch_dispatch_log_event(value: &json::Value, at: &str) -> Result<crate::dispatch::DispatchLogEvent, json::DecodeError> {
-    Ok(match json::text_at(value, at, "one of `Sent`, `Started`, `Blocked`, `Unblocked`, `Done`, `Failed`, `Cancelled`, `Linked`, `MessageReceived`, `ResourceGranted`, `ResourceRefused`, `CharterRevised`, `Delivered`, `HandoverSent`, `Handover`, `ControllerRestarted`, `UsageLimit`, `Resumed`, `Relayed`, `RedCi`, `Stalled`, `Cleanup`, `DecisionSent`, `Cycle`, `RecordsCommitted`, `RecordsCommitRefused`, `StartRefused`, `Waiting`")? {
+    Ok(match json::text_at(value, at, "one of `Sent`, `Started`, `Blocked`, `Unblocked`, `Done`, `Failed`, `Cancelled`, `Linked`, `MessageReceived`, `ResourceGranted`, `ResourceRefused`, `CharterRevised`, `Delivered`, `HandoverSent`, `Handover`, `ControllerRestarted`, `UsageLimit`, `Resumed`, `Relayed`, `RedCi`, `Stalled`, `Cleanup`, `DecisionSent`, `Cycle`, `RecordsCommitted`, `RecordsCommitRefused`, `StartRefused`, `Waiting`, `Alert`")? {
         "Sent" => crate::dispatch::DispatchLogEvent::Sent,
         "Started" => crate::dispatch::DispatchLogEvent::Started,
         "Blocked" => crate::dispatch::DispatchLogEvent::Blocked,
@@ -6470,7 +6471,8 @@ pub fn decode_conductor_dispatch_dispatch_log_event(value: &json::Value, at: &st
         "RecordsCommitRefused" => crate::dispatch::DispatchLogEvent::RecordsCommitRefused,
         "StartRefused" => crate::dispatch::DispatchLogEvent::StartRefused,
         "Waiting" => crate::dispatch::DispatchLogEvent::Waiting,
-        other => return Err(json::DecodeError { at: at.to_owned(), expected: "one of `Sent`, `Started`, `Blocked`, `Unblocked`, `Done`, `Failed`, `Cancelled`, `Linked`, `MessageReceived`, `ResourceGranted`, `ResourceRefused`, `CharterRevised`, `Delivered`, `HandoverSent`, `Handover`, `ControllerRestarted`, `UsageLimit`, `Resumed`, `Relayed`, `RedCi`, `Stalled`, `Cleanup`, `DecisionSent`, `Cycle`, `RecordsCommitted`, `RecordsCommitRefused`, `StartRefused`, `Waiting`".to_owned(), found: format!("`{other}`") }),
+        "Alert" => crate::dispatch::DispatchLogEvent::Alert,
+        other => return Err(json::DecodeError { at: at.to_owned(), expected: "one of `Sent`, `Started`, `Blocked`, `Unblocked`, `Done`, `Failed`, `Cancelled`, `Linked`, `MessageReceived`, `ResourceGranted`, `ResourceRefused`, `CharterRevised`, `Delivered`, `HandoverSent`, `Handover`, `ControllerRestarted`, `UsageLimit`, `Resumed`, `Relayed`, `RedCi`, `Stalled`, `Cleanup`, `DecisionSent`, `Cycle`, `RecordsCommitted`, `RecordsCommitRefused`, `StartRefused`, `Waiting`, `Alert`".to_owned(), found: format!("`{other}`") }),
     })
 }
 
@@ -6599,6 +6601,10 @@ pub fn encode_conductor_dispatch_dispatch_log_line(value: &crate::dispatch::Disp
         json::member(out, "resets_at");
         json::push_text(out, &(*held0).0);
     }
+    if let Some(held0) = &value.condition {
+        json::member(out, "condition");
+        json::push_text(out, &*held0);
+    }
     out.push('}');
 }
 
@@ -6608,7 +6614,7 @@ pub fn encode_conductor_dispatch_dispatch_log_line(value: &crate::dispatch::Disp
 ///
 /// [`json::DecodeError`] naming the path and what the declaration says belongs there.
 pub fn decode_conductor_dispatch_dispatch_log_line(value: &json::Value, at: &str) -> Result<crate::dispatch::DispatchLogLine, json::DecodeError> {
-    json::closed_at(value, at, &["at", "event", "repo", "id", "to", "goal", "brief", "priority", "waits_on", "reason", "evidence", "controller_id", "session_id", "charter_revision", "from", "kind", "first_line", "resource", "amount", "body_path", "session", "grant", "path", "line", "tick_id", "commit", "reference", "start_ref", "issue", "link", "token", "resets_at"])?;
+    json::closed_at(value, at, &["at", "event", "repo", "id", "to", "goal", "brief", "priority", "waits_on", "reason", "evidence", "controller_id", "session_id", "charter_revision", "from", "kind", "first_line", "resource", "amount", "body_path", "session", "grant", "path", "line", "tick_id", "commit", "reference", "start_ref", "issue", "link", "token", "resets_at", "condition"])?;
     Ok(crate::dispatch::DispatchLogLine {
         at: {
             let at0 = json::nested(at, "at");
@@ -6826,6 +6832,13 @@ pub fn decode_conductor_dispatch_dispatch_log_line(value: &json::Value, at: &str
             Some(member31) => {
                 let at31 = json::nested(at, "resets_at");
                 Some(crate::primitives::Timestamp(json::timestamp_at(member31, &at31, "an RFC 3339 instant")?.to_owned()))
+            }
+        },
+        condition: match value.member("condition") {
+            None | Some(json::Value::Null) => None,
+            Some(member32) => {
+                let at32 = json::nested(at, "condition");
+                Some(json::text_at(member32, &at32, "a string")?.to_owned())
             }
         },
     })

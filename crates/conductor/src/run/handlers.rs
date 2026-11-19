@@ -84,9 +84,6 @@ pub(crate) const PENDING: &str = "pending.json";
 /// The sessions the loop resumed after a usage limit ([`crate::limit::RESUMED`]).
 const RESUMED: &str = crate::limit::RESUMED;
 
-/// How long the desktop notifier may run.
-const NOTIFY_BOUND: Duration = Duration::from_secs(10);
-
 /// What a tick finishes first of what earlier ticks began: the `gc` a `disk low` line started,
 /// once it ended; the sessions a usage limit marked, once their reset passed; the hand-overs asked
 /// for; the deliveries kept.
@@ -1283,15 +1280,10 @@ fn on_disk(reason: &str) -> bool {
         && !reason[4..].starts_with(char::is_alphanumeric)
 }
 
-/// A desktop notification of `line`, titled `<instance>: decision`; one that does not run is
-/// named on standard error.
+/// A desktop notification of `line`, titled `<instance>: decision` ([`crate::alert::notify`]);
+/// one that does not run is named on standard error.
 fn notify(tick: &Tick<'_, '_>, line: &str) {
-    let title = format!("{}: decision", tick.instance().name.0);
-    let ran = crate::collect::run(
-        crate::instance::command("notify-send").args(["-u", "critical", &title, line]),
-        NOTIFY_BOUND,
-    );
-    if let Err(error) = ran {
+    if let Err(error) = crate::alert::notify(&tick.instance().name.0, "decision", line) {
         tick.note("notify-send", &error);
     }
 }

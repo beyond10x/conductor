@@ -22,8 +22,9 @@
 //! `controllers.max_working`, the default charter where there is none); a refused start writes a
 //! `start-refused` line with the tick's id. A unit whose start failed at the launch three times
 //! (`StartFailed` or `LaunchFailed`, [`crate::dispatch::failed_starts`]) is tried no more: the
-//! `cycle` line that wrote the third says it is left to the operator. Then for each repository Active
-//! in `repository activity` that has a charter `<records>/charters/<repo>.md` and no running or
+//! `cycle` line that wrote the third says it is left to the operator, and an `alert` line
+//! (`unit-left-to-operator`, [`crate::alert`]) tells the operator once while it stays left. Then
+//! for each repository Active in `repository activity` that has a charter `<records>/charters/<repo>.md` and no running or
 //! paused controller, the one that has waited longest first (`story:dispatch-v1-once-per-goal`: by
 //! the earlier of its open dispatches' oldest `sent_at` and the first cycle that left it waiting
 //! for a place, kept in `<state>/run/waiting.json`; one that never waited after those, ties by
@@ -496,6 +497,7 @@ fn dispatch_v1(tick: &mut Tick<'_, '_>) -> Result<String> {
                     crate::dispatch::FAILED_STARTS_MOST
                 )
             });
+            left_to_operator(tick, repo, id);
             continue;
         }
         tick.make_room(repo)?;
@@ -520,9 +522,19 @@ fn dispatch_v1(tick: &mut Tick<'_, '_>) -> Result<String> {
                          loop tries it no more",
                         crate::dispatch::FAILED_STARTS_MOST
                     ));
+                    left_to_operator(tick, repo, id);
                 }
             }
         }
+    }
+    // A unit no longer sent, cancelled or started, is no longer left
+    // (story:loop-alerts-when-it-cannot-act).
+    if let Err(error) =
+        crate::alert::clear(&tick.dir, crate::alert::UNIT_LEFT_TO_OPERATOR, |held| {
+            units.iter().any(|(_, id, _)| id == held)
+        })
+    {
+        tick.note(crate::alert::SEEN, &error);
     }
     // Then each Active repository with no controller, the one that has waited longest for a place
     // first (story:dispatch-v1-once-per-goal).
@@ -614,6 +626,25 @@ fn dispatch_v1(tick: &mut Tick<'_, '_>) -> Result<String> {
         said.push_str(&wait);
     }
     Ok(said)
+}
+
+/// Raises `unit-left-to-operator` for the unit `id` of `repo`, once while it stays left
+/// (`story:loop-alerts-when-it-cannot-act`); an alert that cannot be raised is a journal line.
+fn left_to_operator(tick: &mut Tick<'_, '_>, repo: &str, id: &str) {
+    let reason = format!(
+        "{} starts of it failed at the launch; the loop tries it no more",
+        crate::dispatch::FAILED_STARTS_MOST
+    );
+    let dir = tick.dir.clone();
+    let instance = &tick.instance().name.0;
+    let raised = crate::alert::line(crate::alert::UNIT_LEFT_TO_OPERATOR, repo, Some(id), &reason)
+        .and_then(|mut line| {
+            line.tick_id = Some(tick.id.clone());
+            crate::alert::raise(&dir, instance, &line, |line| tick.write(line))
+        });
+    if let Err(error) = raised {
+        tick.note("alert", &error);
+    }
 }
 
 /// Records on each open dispatch why it waits (`story:dispatch-waiting-reason`): the reason `why`

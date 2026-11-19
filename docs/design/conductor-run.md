@@ -131,6 +131,18 @@ started with ends in a `## Dispatch` section naming the id. A repository that se
 gets none, and its controller reports with `-`. The charter stays hand-written until
 `story:charter-generated`.
 
+Alerts: a condition the loop or the daemon cannot act on reaches the operator through one route,
+`crate::alert` (`story:loop-alerts-when-it-cannot-act`): one `alert` line in the dispatch log
+(`condition`, `repo` or the instance's name, `reason`, and `id` when the subject is a dispatch) and
+a critical desktop notification titled `<instance>: alert`, through the same `notify-send` the
+`escalated` and `unanswered` lines use; no config key chooses it. Each condition and subject alerts
+once: the pair is kept in `alerts.seen` (`<state>/run/` for the loop, the daemon's own directory for
+the daemon) and forgotten when the condition clears, so a second occurrence alerts again. A
+notifier that is missing or fails is a journal line; the alert is recorded all the same, and
+`conductor doctor`'s notifier row names the gap. The first condition, `unit-left-to-operator`: a
+unit of work whose start failed at the launch three times, which dispatch v1 tries no more; it
+clears when the dispatch is no longer `Sent`. A condition the loop acts on itself alerts nothing.
+
 Decide: a request is classified in code: data loss, a history rewrite, a new, renamed or retired
 repository, an ADR or a change to one, a credential, a login, a paid account → class O (or H for the
 hands cases); everything else class C. Class C is answered by the `Decider` adapter with one bounded
