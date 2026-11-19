@@ -162,7 +162,10 @@ types:
     fields:
       - {name: format, type: Optional<String>}
 
-  # The input of `conductor host reclaim` (story:disk-reclaim).
+  # The input of `conductor host reclaim` (story:disk-reclaim). Its floor, in bytes free on the
+  # filesystem it reads, is the instance's `thresholds.disk_admit` plus a 5G margin, printed on its
+  # last line; the watch's reclaim, `conductor build run` and the supervisor's disk check read the
+  # same floor, and `thresholds.disk_low` is no floor (story:disk-low-fits-disk).
   - name: conductor.host.ReclaimDisk
     kind: struct
     fields:
